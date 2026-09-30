@@ -29,13 +29,35 @@ afterEach(() => {
   clearMocks();
 });
 
+/** Timers the hook uses, faked; React's own scheduling is left alone. */
+const HOOK_TIMERS = ["setTimeout", "clearTimeout"] as const;
+
+/** Lets promises settle and 0 ms timers fire, under fake timers. */
+const settle = () => act(() => vi.advanceTimersByTimeAsync(0));
+
+/** Moves the fake clock on by `ms`, running whatever comes due. */
+const elapse = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
 describe("Activity sync", () => {
-  it("asks for the snapshot again until the app can answer", async () => {
-    const asked = flakyApp(3, { seq: 1, jobs: [job({ seq: 1, id: 1, progress: 0.6 })] });
-    render(<Activity />);
-    // Three retries wait 850 ms in all, well inside the suite's wait.
-    expect(await screen.findByText("Scanning music folders (60%)")).toBeInTheDocument();
-    expect(asked()).toBe(4);
+  it("asks for the snapshot again until the app can answer, each time after its wait", async () => {
+    vi.useFakeTimers({ toFake: [...HOOK_TIMERS] });
+    try {
+      const asked = flakyApp(3, { seq: 1, jobs: [job({ seq: 1, id: 1, progress: 0.6 })] });
+      render(<Activity />);
+      // Listening, then the first ask, which fails.
+      await settle();
+      expect(asked()).toBe(1);
+      // Each retry comes once its wait is up, and not a moment before.
+      for (const [n, wait] of SNAPSHOT_RETRY_MS.slice(0, 3).entries()) {
+        await elapse(wait - 1);
+        expect(asked()).toBe(n + 1);
+        await elapse(1);
+        expect(asked()).toBe(n + 2);
+      }
+      expect(screen.getByText("Scanning music folders (60%)")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("waits longer after each failure, then keeps to the longest wait", async () => {
@@ -71,12 +93,18 @@ describe("Activity sync", () => {
   });
 
   it("stops asking once the status is gone", async () => {
-    const asked = flakyApp(Infinity, { seq: 0, jobs: [] });
-    const { unmount } = render(<Activity />);
-    await act(async () => {});
-    unmount();
-    const before = asked();
-    await act(() => new Promise((resolve) => setTimeout(resolve, SNAPSHOT_RETRY_MS[1] * 2)));
-    expect(asked()).toBe(before);
+    vi.useFakeTimers({ toFake: [...HOOK_TIMERS] });
+    try {
+      const asked = flakyApp(Infinity, { seq: 0, jobs: [] });
+      const { unmount } = render(<Activity />);
+      await settle();
+      unmount();
+      const before = asked();
+      // Longer than every retry wait put together: nothing is left to fire.
+      await elapse(2 * SNAPSHOT_RETRY_MS.reduce((a, b) => a + b, 0));
+      expect(asked()).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

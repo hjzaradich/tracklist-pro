@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { JobUpdate } from "../bindings";
-import { MAX_PENDING, MAX_SEEN, useActivityStore } from "./activityStore";
+import { jobListCopies, MAX_PENDING, MAX_SEEN, useActivityStore } from "./activityStore";
 
 function update(
   seq: number,
@@ -77,32 +77,39 @@ describe("activity store", () => {
     expect(store().jobs).toBe(before);
   });
 
-  it("copies the job list once per batch, not per update, so tens of thousands of updates stay cheap", () => {
+  it("copies the job list once per batch, never per update, so tens of thousands of updates stay cheap", () => {
     store().applySnapshot({ seq: 0, jobs: [] });
-    // Every new job list the store hands out is a copy, and every copy is a
-    // render for whoever is subscribed. Counted, not timed: the shared CI
-    // laptop makes wall-clock limits meaningless.
+    // Two counts, neither a clock (the shared CI laptop makes wall-clock
+    // limits meaningless): the copies the store makes of the job list, any
+    // made inside a batch included, and the lists that reach subscribers,
+    // each of which is a render.
+    const copiesBefore = jobListCopies();
     let lists = 0;
     let last = store().jobs;
     const unsubscribe = useActivityStore.subscribe((state) => {
       if (state.jobs !== last) lists += 1;
       last = state.jobs;
     });
-    // 20,000 jobs queued then started, in batches of 100 as the app sends
-    // them, then all finished in one batch.
-    let seq = 0;
-    const all: JobUpdate[] = [];
-    for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "queued"));
-    for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "running", 0.5));
-    let batches = 0;
-    for (let i = 0; i < all.length; i += 100, batches++) store().applyUpdates(all.slice(i, i + 100));
-    expect(Object.keys(store().jobs)).toHaveLength(20_000);
-    expect(lists).toBe(batches);
-    const done = Array.from({ length: 20_000 }, (_, i) => update(++seq, i + 1, "done", 1));
-    store().applyUpdates(done);
-    expect(jobs()).toEqual([]);
-    expect(lists).toBe(batches + 1);
-    unsubscribe();
+    try {
+      // 20,000 jobs queued then started, in batches of 100 as the app sends
+      // them, then all finished in one batch.
+      let seq = 0;
+      const all: JobUpdate[] = [];
+      for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "queued"));
+      for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "running", 0.5));
+      let batches = 0;
+      for (let i = 0; i < all.length; i += 100, batches++) store().applyUpdates(all.slice(i, i + 100));
+      expect(Object.keys(store().jobs)).toHaveLength(20_000);
+      expect(jobListCopies() - copiesBefore).toBe(batches);
+      expect(lists).toBe(batches);
+      const done = Array.from({ length: 20_000 }, (_, i) => update(++seq, i + 1, "done", 1));
+      store().applyUpdates(done);
+      expect(jobs()).toEqual([]);
+      expect(jobListCopies() - copiesBefore).toBe(batches + 1);
+      expect(lists).toBe(batches + 1);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("holds at most MAX_PENDING jobs' updates before the snapshot, newest per job", () => {
