@@ -923,4 +923,111 @@ mod carried {
         assert!(matches!(library.outcome(id), Some(Outcome::Failed(_))));
         assert_eq!(library.blob(id), None, "still no fingerprint");
     }
+
+    #[test]
+    fn a_hash_stage_that_skipped_the_file_means_a_normal_fingerprint() {
+        let (library, path, id, _) = settled();
+        let before = library.blob(id).unwrap();
+        fs::write(&path, mp3(22)).unwrap();
+        library.walk();
+        // The hash stage couldn't reach it at its new stat: its row is
+        // current but skipped, and audio_hash is still the old audio's.
+        library
+            .writer
+            .call(move |c| {
+                let (size, mtime): (Option<i64>, Option<i64>) =
+                    c.query_row("SELECT size, mtime FROM file WHERE id = ?1", [id], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })?;
+                crate::scan_state::record(
+                    c,
+                    crate::scan_state::Stage::Hash,
+                    i64::from(crate::hash::DEFINITION),
+                    &[crate::scan_state::Recorded {
+                        file: id,
+                        size,
+                        mtime,
+                        outcome: crate::scan_state::Outcome::unreachable(),
+                    }],
+                )
+            })
+            .unwrap();
+        assert!(fingerprint_counting(&library) > 0, "decoded");
+        assert_ne!(library.blob(id).unwrap(), before);
+    }
+
+    #[test]
+    fn a_hash_stage_of_another_definition_means_a_normal_fingerprint() {
+        let (library, path, id, original) = settled();
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        hash_all(&library);
+        library
+            .writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file_stage SET version = version + 1
+                     WHERE file_id = ?1 AND stage = 'hash'",
+                    [id],
+                )
+            })
+            .unwrap();
+        assert!(fingerprint_counting(&library) > 0, "decoded");
+    }
+
+    #[test]
+    fn a_skipped_fingerprint_row_is_never_carried_forward() {
+        let (library, path, id, original) = settled();
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        hash_all(&library);
+        // Skipped last time (e.g. unreachable after a version bump): the
+        // blob it kept isn't vouched for.
+        library
+            .writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file_stage SET status = 'skipped', reason = 'unreachable'
+                     WHERE file_id = ?1 AND stage = 'fingerprint'",
+                    [id],
+                )
+            })
+            .unwrap();
+        assert!(fingerprint_counting(&library) > 0, "decoded");
+    }
+
+    #[test]
+    fn a_row_moved_since_it_was_read_is_not_carried_forward() {
+        let (library, path, id, original) = settled();
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        hash_all(&library);
+        let carried = library
+            .writer
+            .call(move |c| {
+                let due = crate::fingerprint::ledger::due(c, id)?.unwrap();
+                // A walk's touch-only carry moves the row and the hash row
+                // between the read and the carry.
+                c.execute("UPDATE file SET mtime = mtime + 1 WHERE id = ?1", [id])?;
+                c.execute(
+                    "UPDATE file_stage SET mtime = mtime + 1 WHERE file_id = ?1 AND stage = 'hash'",
+                    [id],
+                )?;
+                crate::fingerprint::ledger::carry_forward(c, &due)
+            })
+            .unwrap();
+        assert!(!carried);
+    }
+
+    #[test]
+    fn a_failed_fingerprint_records_no_audio_hash() {
+        let library = Library::new();
+        let _ = library.put("Bad.opus", &test_audio::ogg_opus());
+        let id = library.walk()["Bad.opus"];
+        hash_all(&library);
+        fingerprint_counting(&library);
+        assert!(matches!(library.outcome(id), Some(Outcome::Failed(_))));
+        let (_, from) = recorded(&library, id);
+        assert_eq!(from, None);
+    }
 }

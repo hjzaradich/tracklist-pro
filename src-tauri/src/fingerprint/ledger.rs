@@ -19,6 +19,14 @@
 //! either side, another audio_hash, another fingerprint version) it's
 //! fingerprinted as usual. It never waits for the hash stage.
 //!
+//! Known limit: a tagger that saves by writing a new file and renaming it
+//! over the old one gives the file a new file id. The walk then drops the
+//! file's `file_stage` rows (ROADMAP 1.1, `scan::unchanged`), so there's no
+//! done fingerprint row to carry and the file is decoded again. That's safe,
+//! it just saves nothing; one that saves in place is carried. Another
+//! narrow case: the walk's partial hash can carry the hash row of a touched
+//! file (ROADMAP 1.1 accepts its blind spot), and this trusts that row.
+//!
 //! Each result is written with its `file_stage` row in one transaction,
 //! and only while the `file` row still has the size and modified time the
 //! job read: if a walk changed it meanwhile, nothing is written and the
