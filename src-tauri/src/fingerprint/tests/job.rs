@@ -453,7 +453,7 @@ fn a_file_changed_since_the_walk_is_left_for_the_next_walk() {
 }
 
 #[test]
-fn progress_goes_from_zero_to_one_and_never_back() {
+fn progress_only_rises_and_ends_at_one() {
     let library = Library::new();
     for n in 0..5 {
         library.put(&format!("{n}.flac"), &song(60 + n, 6.0));
@@ -466,7 +466,11 @@ fn progress_goes_from_zero_to_one_and_never_back() {
     let updates = heard.until_done(job);
     queue.shutdown();
     let progress: Vec<f64> = updates.iter().filter_map(|u| u.progress).collect();
-    assert!(progress.len() >= 3, "{progress:?}");
+    // Updates within 50 ms of each other coalesce (jobs::dispatch), so how
+    // many arrive depends on the machine's speed: a fast one may send two.
+    // What holds everywhere: something short of done was reported, nothing
+    // went back, and it ended at exactly one.
+    assert!(progress.iter().any(|p| *p < 1.0), "{progress:?}");
     assert!(progress.windows(2).all(|w| w[1] >= w[0]), "{progress:?}");
     assert_eq!(progress.last(), Some(&1.0));
 }
