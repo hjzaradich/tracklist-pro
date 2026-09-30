@@ -129,7 +129,8 @@ describe("the rekordbox XML source", () => {
     expect(await screen.findByText("Reading the export")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Read again" })).toBeDisabled();
     backend.source = { ...backend.source, lastRead: lastRead({ tracks: 1 }, "2026-09-30T08:00:00.000Z") };
-    expect(await screen.findByText(/\(1 track\)$/, {}, { timeout: 3000 })).toBeInTheDocument();
+    // Recorded on the next poll, a second later (READING_INTERVAL_MS).
+    expect(await screen.findByText(/\(1 track\)$/)).toBeInTheDocument();
     expect(screen.queryByText("Reading the export")).not.toBeInTheDocument();
   });
 

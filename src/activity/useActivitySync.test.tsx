@@ -33,10 +33,8 @@ describe("Activity sync", () => {
   it("asks for the snapshot again until the app can answer", async () => {
     const asked = flakyApp(3, { seq: 1, jobs: [job({ seq: 1, id: 1, progress: 0.6 })] });
     render(<Activity />);
-    const wait = SNAPSHOT_RETRY_MS.slice(0, 3).reduce((a, b) => a + b, 0);
-    expect(
-      await screen.findByText("Scanning music folders (60%)", undefined, { timeout: wait + 2000 }),
-    ).toBeInTheDocument();
+    // Three retries wait 850 ms in all, well inside the suite's wait.
+    expect(await screen.findByText("Scanning music folders (60%)")).toBeInTheDocument();
     expect(asked()).toBe(4);
   });
 
@@ -59,13 +57,10 @@ describe("Activity sync", () => {
       const failures = SNAPSHOT_RETRY_MS.length + 2;
       const asked = flakyApp(failures, { seq: 1, jobs: [job({ seq: 1, id: 1, progress: 0.6 })] });
       render(<Activity />);
-      // A timeout and interval of its own, so none of the test's timers
-      // share a wait with the retries.
+      // An interval of its own, so none of the test's timers shares a wait
+      // with the retries (the suite's timeout isn't one either).
       expect(
-        await screen.findByText("Scanning music folders (60%)", undefined, {
-          timeout: 3_001,
-          interval: 17,
-        }),
+        await screen.findByText("Scanning music folders (60%)", undefined, { interval: 17 }),
       ).toBeInTheDocument();
       expect(asked()).toBe(failures + 1);
       const last = SNAPSHOT_RETRY_MS[SNAPSHOT_RETRY_MS.length - 1];
