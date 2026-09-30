@@ -6,8 +6,10 @@
 //! tracks on screen) jump the line: every running fingerprint job takes
 //! them next, newest request first.
 //!
-//! Per file: resolve its `\\?\` path, skip it if the volume is offline,
-//! check it may be read (OneDrive), open it read-only, check it's the
+//! Per file: if only its tags changed, carry its fingerprint forward
+//! without opening it ([`ledger::carry_forward`]). Otherwise resolve its
+//! `\\?\` path, skip it if the volume is offline, check it may be read
+//! (OneDrive), open it read-only, check it's the
 //! size and age its row says, decode and fingerprint it, and store the
 //! result through the writer. A file whose content can't be fingerprinted
 //! gets a NULL fingerprint and a reason, and isn't tried again until it
@@ -437,6 +439,15 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
         let Some(due) = job.writer().call(move |c| ledger::due(c, id))? else {
             return Ok(());
         };
+        // Only the tags changed (size and mtime moved, the audio didn't):
+        // the fingerprint stands. Needs no access to the file (1aC-10).
+        let carried = {
+            let due = due.clone();
+            job.writer().call(move |c| ledger::carry_forward(c, &due))?
+        };
+        if carried {
+            return Ok(());
+        }
         let Some(path) = run.path(&due) else {
             // Offline, or a row this build can't place: it stays due.
             return Ok(());

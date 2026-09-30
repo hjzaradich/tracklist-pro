@@ -53,6 +53,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0007_file_stage"),
     migration!("0008_scan_follow_ups"),
     migration!("0009_partial_hash"),
+    migration!("0010_fingerprint_audio_hash"),
 ];
 
 /// The table that records which migrations a database has had.

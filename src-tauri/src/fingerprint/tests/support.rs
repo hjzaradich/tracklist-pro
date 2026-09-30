@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use crate::db::Writer;
 use crate::fingerprint::{ledger, Fingerprint, Fingerprinter, FirstUp};
+use crate::hash::Hasher;
 use crate::jobs::{self, JobId, JobKind, JobQueue, JobRecord, JobUpdate};
 use crate::paths::Volumes;
 use crate::scan::folders::add;
@@ -158,6 +159,7 @@ impl Library {
         updates: impl Fn(&[JobUpdate]) + Send + 'static,
     ) -> JobQueue {
         let volume = self.volume.clone();
+        let hash_volume = self.volume.clone();
         JobQueue::builder(self.writer.clone())
             .workers(workers)
             .on_updates(updates)
@@ -165,6 +167,7 @@ impl Library {
                 JobKind::Scan,
                 Walker::new(move || volume.clone(), |_: Vec<ScannedFile>| {}),
             )
+            .handler(JobKind::Hash, Hasher::new(move || hash_volume.clone()))
             .handler(JobKind::Fingerprint, fingerprinter)
             .start()
             .unwrap()

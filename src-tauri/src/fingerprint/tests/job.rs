@@ -721,3 +721,206 @@ fn fingerprinting_writes_nothing_outside_the_app_data_folder() {
         "changed outside the data folder: {changed:?}"
     );
 }
+
+// ---- 1aC-10: a tag-only rewrite doesn't decode again ------------------------
+
+mod carried {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+    use crate::hash::hash_job;
+    use crate::tags::test_audio::{id3_text, id3v2};
+
+    fn mp3(seed: u64) -> Vec<u8> {
+        audio::mp3(&audio::pcm(seed, 10.0, 22_050, 1), 128)
+    }
+
+    /// The same audio with an ID3v2 tag in front, as a tagger writes it: a
+    /// new size, and the audio_hash unchanged.
+    fn retagged(bytes: &[u8], title: &str) -> Vec<u8> {
+        [id3v2(&[id3_text(b"TIT2", title)], 256), bytes.to_vec()].concat()
+    }
+
+    fn hash_all(library: &Library) {
+        let queue = library.queue(library.fingerprinter());
+        let id = queue.enqueue(hash_job(None)).unwrap();
+        assert_eq!(wait(&library.writer, id).status, JobStatus::Done);
+        queue.shutdown();
+    }
+
+    /// Runs a fingerprint job over everything due; returns how many packets
+    /// it decoded, which is 0 if no file was opened to decode.
+    fn fingerprint_counting(library: &Library) -> u64 {
+        let packets = Arc::new(AtomicU64::new(0));
+        let count = packets.clone();
+        let queue = library.queue(library.fingerprinter().on_packet(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+        }));
+        let id = queue.enqueue(fingerprint_job(None)).unwrap();
+        assert_eq!(wait(&library.writer, id).status, JobStatus::Done);
+        queue.shutdown();
+        packets.load(Ordering::SeqCst)
+    }
+
+    /// A library with `Song.mp3` walked, hashed and fingerprinted.
+    fn settled() -> (Library, PathBuf, i64, Vec<u8>) {
+        let library = Library::new();
+        let original = mp3(21);
+        let path = library.put("Song.mp3", &original);
+        let id = library.walk()["Song.mp3"];
+        hash_all(&library);
+        assert!(fingerprint_counting(&library) > 0, "decoded the first time");
+        (library, path, id, original)
+    }
+
+    fn recorded(library: &Library, id: i64) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+        library
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT audio_hash, fingerprint_audio_hash FROM file WHERE id = ?1",
+                    [id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+            })
+            .unwrap()
+    }
+
+    fn due(library: &Library) -> usize {
+        library
+            .writer
+            .call(|c| crate::fingerprint::ledger::due_ids(c, None))
+            .unwrap()
+            .len()
+    }
+
+    #[test]
+    fn a_fingerprint_records_the_audio_hash_it_came_from() {
+        let (library, _, id, _) = settled();
+        let (audio_hash, from) = recorded(&library, id);
+        assert!(audio_hash.is_some());
+        assert_eq!(from, audio_hash);
+    }
+
+    #[test]
+    fn a_tag_only_rewrite_skips_the_decode() {
+        let (library, path, id, original) = settled();
+        let before = library.blob(id).unwrap();
+        let old_size = fs::metadata(&path).unwrap().len();
+
+        // New size and mtime, same audio.
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        hash_all(&library);
+        assert_eq!(due(&library), 1, "the new stat makes it due");
+        assert_ne!(fs::metadata(&path).unwrap().len(), old_size);
+
+        assert_eq!(fingerprint_counting(&library), 0, "nothing was decoded");
+        assert_eq!(library.blob(id).unwrap(), before, "the fingerprint stands");
+        assert_eq!(library.outcome(id), Some(Outcome::Done));
+        assert_eq!(due(&library), 0, "and it's done at the new size and mtime");
+        let (audio_hash, from) = recorded(&library, id);
+        assert_eq!(from, audio_hash, "still tied to the audio it came from");
+    }
+
+    #[test]
+    fn changed_audio_is_fingerprinted_again() {
+        let (library, path, id, _) = settled();
+        let before = library.blob(id).unwrap();
+        fs::write(&path, mp3(22)).unwrap();
+        library.walk();
+        hash_all(&library);
+        assert!(fingerprint_counting(&library) > 0, "decoded");
+        assert_ne!(library.blob(id).unwrap(), before);
+    }
+
+    #[test]
+    fn a_stale_hash_stage_means_a_normal_fingerprint() {
+        let (library, path, id, original) = settled();
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        // The hash stage hasn't run for the new size and mtime.
+        assert!(
+            fingerprint_counting(&library) > 0,
+            "decoded, not waited for"
+        );
+        assert_eq!(library.outcome(id), Some(Outcome::Done));
+        let (_, from) = recorded(&library, id);
+        assert_eq!(
+            from, None,
+            "made while the hash was stale, so no audio_hash is vouched for"
+        );
+    }
+
+    #[test]
+    fn a_fingerprint_version_bump_means_a_normal_fingerprint() {
+        let (library, path, id, original) = settled();
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        hash_all(&library);
+        // The fingerprint row is from another version.
+        library
+            .writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file_stage SET version = version + 1
+                     WHERE file_id = ?1 AND stage = 'fingerprint'",
+                    [id],
+                )
+            })
+            .unwrap();
+        assert!(fingerprint_counting(&library) > 0, "decoded");
+    }
+
+    #[test]
+    fn a_null_recorded_hash_means_a_normal_fingerprint() {
+        let (library, path, id, original) = settled();
+        library
+            .writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file SET fingerprint_audio_hash = NULL WHERE id = ?1",
+                    [id],
+                )
+            })
+            .unwrap();
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        hash_all(&library);
+        assert!(fingerprint_counting(&library) > 0, "decoded");
+        let (audio_hash, from) = recorded(&library, id);
+        assert_eq!(from, audio_hash, "and it's recorded again");
+    }
+
+    #[test]
+    fn a_file_with_no_audio_hash_means_a_normal_fingerprint() {
+        let (library, path, id, original) = settled();
+        fs::write(&path, retagged(&original, "Night Drive")).unwrap();
+        library.walk();
+        hash_all(&library);
+        // The hash stage is current, but has no audio_hash to offer.
+        library
+            .writer
+            .call(move |c| c.execute("UPDATE file SET audio_hash = NULL WHERE id = ?1", [id]))
+            .unwrap();
+        assert!(fingerprint_counting(&library) > 0, "decoded");
+    }
+
+    #[test]
+    fn a_fingerprint_that_failed_is_never_carried_forward() {
+        let library = Library::new();
+        let path = library.put("Bad.opus", &test_audio::ogg_opus());
+        let id = library.walk()["Bad.opus"];
+        hash_all(&library);
+        fingerprint_counting(&library);
+        assert!(matches!(library.outcome(id), Some(Outcome::Failed(_))));
+        let mut bytes = fs::read(&path).unwrap();
+        bytes.extend_from_slice(&[0; 64]);
+        fs::write(&path, bytes).unwrap();
+        library.walk();
+        hash_all(&library);
+        fingerprint_counting(&library);
+        assert!(matches!(library.outcome(id), Some(Outcome::Failed(_))));
+        assert_eq!(library.blob(id), None, "still no fingerprint");
+    }
+}

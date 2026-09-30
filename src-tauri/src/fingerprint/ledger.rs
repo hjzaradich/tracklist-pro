@@ -8,6 +8,17 @@
 //! keeps a NULL fingerprint and a failed row with its reason, and isn't
 //! tried again until it changes.
 //!
+//! **A tag-only rewrite doesn't decode again** (1aC-10). rekordbox and
+//! taggers change a file's size and mtime without touching its audio. Each
+//! fingerprint records the `audio_hash` it was computed from
+//! (`file.fingerprint_audio_hash`), but only when the hash stage was
+//! current for the file at that moment, so the hash could be vouched for.
+//! When a file is due and [`carry_forward`] can prove nothing about the audio
+//! changed, the fingerprint row moves to the file's new size and mtime and
+//! the file isn't opened. Otherwise (no hash, a stale hash stage, a NULL on
+//! either side, another audio_hash, another fingerprint version) it's
+//! fingerprinted as usual. It never waits for the hash stage.
+//!
 //! Each result is written with its `file_stage` row in one transaction,
 //! and only while the `file` row still has the size and modified time the
 //! job read: if a walk changed it meanwhile, nothing is written and the
@@ -17,6 +28,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::decode::Unfingerprintable;
 use super::stored::VERSION;
+use crate::hash::DEFINITION as HASH_DEFINITION;
 use crate::scan::MusicFolderId;
 use crate::scan_state::{self, DueFile, Recorded, Scope, Stage};
 
@@ -154,6 +166,56 @@ pub fn outcome(conn: &Connection, id: i64) -> rusqlite::Result<Option<Outcome>> 
     }))
 }
 
+/// The condition that the hash stage is current for file `f`: it has an
+/// `audio_hash`, and a done `hash` row at the current version, size and
+/// mtime (?HASH is the hash stage's version).
+const HASH_CURRENT: &str = "f.audio_hash IS NOT NULL
+    AND EXISTS (SELECT 1 FROM file_stage h
+                WHERE h.file_id = f.id AND h.stage = 'hash' AND h.status = 'done'
+                  AND h.version = ?5 AND h.size IS f.size AND h.mtime IS f.mtime)";
+
+/// Moves file `due.id`'s done fingerprint row to the size and mtime `due`
+/// read, without decoding, if that's provable: the file row is unchanged
+/// since `due`; the hash stage is current for it; the fingerprint's recorded
+/// audio_hash equals the file's audio_hash (neither NULL); and the
+/// fingerprint stage's row is a done row of the current [`VERSION`]. Returns
+/// whether it did. Never waits for, or runs, the hash stage.
+pub(crate) fn carry_forward(conn: &mut Connection, due: &Due) -> rusqlite::Result<bool> {
+    let tx = conn.transaction()?;
+    let provable: bool = tx
+        .prepare_cached(&format!(
+            "SELECT EXISTS (
+                 SELECT 1 FROM file f
+                 JOIN file_stage p ON p.file_id = f.id AND p.stage = 'fingerprint'
+                 WHERE f.id = ?1 AND f.present = 1 AND f.size IS ?2 AND f.mtime IS ?3
+                   AND f.fingerprint IS NOT NULL
+                   AND f.fingerprint_audio_hash IS NOT NULL
+                   AND f.fingerprint_audio_hash = f.audio_hash
+                   AND p.status = 'done' AND p.version = ?4
+                   AND {HASH_CURRENT})"
+        ))?
+        .query_row(
+            params![
+                due.id,
+                due.size,
+                due.mtime,
+                version(),
+                i64::from(HASH_DEFINITION)
+            ],
+            |r| r.get(0),
+        )?;
+    if provable {
+        scan_state::record(
+            &tx,
+            Stage::Fingerprint,
+            version(),
+            &[due.recorded(scan_state::Outcome::Done)],
+        )?;
+    }
+    tx.commit()?;
+    Ok(provable)
+}
+
 /// Whether file `due.id` is present with the size and mtime `due` read.
 fn row_unchanged(conn: &Connection, due: &Due) -> rusqlite::Result<bool> {
     conn.prepare_cached(
@@ -172,12 +234,21 @@ fn write(
     outcome: scan_state::Outcome,
 ) -> rusqlite::Result<bool> {
     let tx = conn.transaction()?;
+    // The audio_hash it came from, if the hash stage vouches for it now.
     let changed = tx
-        .prepare_cached(
-            "UPDATE file SET fingerprint = ?2
-             WHERE id = ?1 AND present = 1 AND size IS ?3 AND mtime IS ?4",
-        )?
-        .execute(params![due.id, blob, due.size, due.mtime])?;
+        .prepare_cached(&format!(
+            "UPDATE file AS f SET fingerprint = ?2,
+                 fingerprint_audio_hash =
+                     CASE WHEN ?2 IS NOT NULL AND {HASH_CURRENT} THEN f.audio_hash END
+             WHERE f.id = ?1 AND f.present = 1 AND f.size IS ?3 AND f.mtime IS ?4"
+        ))?
+        .execute(params![
+            due.id,
+            blob,
+            due.size,
+            due.mtime,
+            i64::from(HASH_DEFINITION)
+        ])?;
     if changed == 1 {
         scan_state::record(&tx, Stage::Fingerprint, version(), &[due.recorded(outcome)])?;
     }
