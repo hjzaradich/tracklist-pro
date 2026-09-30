@@ -28,6 +28,12 @@
 //!   which never reaches 0 while files are skipped.
 //! - A job that stops early (cancelled, failed, the app closing) queues
 //!   nothing and drops its rerun; the next walk picks up where it left off.
+//! - **Relink after the read:** a finished read has new durations and
+//!   tags, so rekordbox tracks may match files now. It asks for a relink
+//!   through [`crate::relink::request`], which never queues a second one
+//!   while one waits, and queues one more after one that's running (the
+//!   relink job isn't [`Chained`], so [`queue_once`]'s rerun doesn't apply
+//!   to it).
 //!
 //! The chain wraps each stage's handler ([`after_walk`], [`after_read`],
 //! [`after_hash`], [`after_fingerprint`]) where the handlers are
@@ -172,6 +178,9 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
             }
         }
         Next::Hash => {
+            // Durations and tags are in: rekordbox tracks may match files
+            // now (1aC-3).
+            crate::relink::request(writer, enqueue)?;
             let hash_version = i64::from(crate::hash::DEFINITION);
             if to_try(writer, Stage::Hash, hash_version, &scope, rescan)? {
                 queue_once(writer, target(crate::hash::hash_job(ids)), enqueue)?;
