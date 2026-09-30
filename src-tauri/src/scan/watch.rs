@@ -574,6 +574,8 @@ impl<V: Volumes> Supervisor<V> {
                 continue;
             };
             if self.watch(id, root.path) {
+                // What the index says may change with the catch-up.
+                self.gone.clear();
                 self.rescan(id, Because::Changes);
             }
         }
@@ -630,20 +632,10 @@ impl<V: Volumes> Supervisor<V> {
             return true;
         }
         let rel = rel.join("/");
-        // Every path under `rel/` sorts between `rel/` and `rel0` ('0' is
-        // the character after '/'), so the index answers this range.
-        let (from, to) = (format!("{rel}/"), format!("{rel}0"));
         self.index_lookups += 1;
         let known = self
             .reads
-            .read(move |c| {
-                c.prepare_cached(
-                    "SELECT EXISTS (SELECT 1 FROM file
-                     WHERE music_folder_id = ?1 AND present = 1
-                       AND (rel_path = ?2 OR (rel_path >= ?3 AND rel_path < ?4)))",
-                )?
-                .query_row((id.0, rel, from, to), |r| r.get::<_, bool>(0))
-            })
+            .read(move |c| indexed_at(c, id, &rel))
             .unwrap_or(true);
         self.gone.insert(path.to_path_buf(), known);
         known
@@ -665,6 +657,25 @@ impl<V: Volumes> Supervisor<V> {
             );
         }
     }
+}
+
+/// Whether the index has a present file at `rel` (the on-disk spelling,
+/// `/`-separated, from the music folder) in music folder `folder`, or
+/// under it (then it was a folder). Every path under `rel/` sorts between
+/// `rel/` and `rel0` (`0` is the character after `/`), so the index on
+/// (folder, path) answers both arms; nothing is a wildcard.
+pub(crate) fn indexed_at(
+    conn: &Connection,
+    folder: MusicFolderId,
+    rel: &str,
+) -> rusqlite::Result<bool> {
+    let (from, to) = (format!("{rel}/"), format!("{rel}0"));
+    conn.prepare_cached(
+        "SELECT EXISTS (SELECT 1 FROM file
+         WHERE music_folder_id = ?1 AND present = 1
+           AND (rel_path = ?2 OR (rel_path >= ?3 AND rel_path < ?4)))",
+    )?
+    .query_row((folder.0, rel, from, to), |r| r.get::<_, bool>(0))
 }
 
 /// Whether a change is worth a rescan (see [`matters`]).

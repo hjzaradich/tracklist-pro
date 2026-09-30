@@ -24,7 +24,7 @@ use crate::jobs::{JobQueue, Priority};
 use crate::scan::chain::RESCAN_KEY;
 use crate::scan::folders::MusicFolderId;
 use crate::scan::walk::Walker;
-use crate::scan::watch::{set_watch, Enqueue, Status, Watchers};
+use crate::scan::watch::{indexed_at, set_watch, Enqueue, Status, Watchers};
 use crate::tags::test_audio as audio;
 
 /// Short burst times: a test's burst is over in milliseconds, and the
@@ -743,4 +743,72 @@ fn a_refresh_during_an_eject_does_not_reopen_the_root_until_the_grace_is_out() {
     assert_eq!(status.handles_open, 1);
     w.settle();
     w.watchers.shutdown();
+}
+
+#[test]
+fn a_removed_folder_that_still_has_indexed_files_rescans_and_they_are_marked_missing() {
+    let w = Watched::new(true);
+    assert_eq!(w.settle(), [w.folder]);
+    put(&w.music, "Album/a.mp3", &audio::mp3());
+    put(&w.music, "Album/b.mp3", &audio::mp3());
+    wait_until("the album is indexed", || rows(&w.writer).len() == 2);
+    wait_idle(&w.queue);
+    assert_eq!(w.scans_of(w.folder), 2);
+
+    fs::remove_dir_all(w.music.join("Album")).unwrap();
+    wait_until("the album's files are marked missing", || {
+        rows(&w.writer).iter().all(|r| !r.present)
+    });
+    wait_idle(&w.queue);
+    assert_eq!(w.scans_of(w.folder), 3);
+    w.watchers.shutdown();
+}
+
+#[test]
+fn a_gone_path_is_looked_up_by_its_exact_spelling_or_the_range_of_paths_under_it() {
+    let (_db, writer, reads) = db();
+    let (_dir, volume, music) = drive();
+    let folder = add_music(&writer, &volume, &music);
+    for rel in [
+        "dir/x.mp3",
+        "dir0/y.mp3",
+        "dir-b/z.mp3",
+        "d%r/w.mp3",
+        "d_r/v.mp3",
+        "dirt.mp3",
+        "Deep/er/still.mp3",
+    ] {
+        put(&music, rel, &audio::mp3());
+    }
+    let q = Arc::new(chained_queue(&writer, &volume, &LookedAt::default()));
+    q.enqueue(crate::scan::scan_job(Some(vec![folder])))
+        .unwrap();
+    wait_idle(&q);
+    assert_eq!(rows(&writer).len(), 7);
+    let indexed = |rel: &str| reads.read(|c| indexed_at(c, folder, rel)).unwrap();
+
+    // A folder: the range of paths under it, and nothing beside it.
+    assert!(indexed("dir"));
+    assert!(indexed("dir0"));
+    assert!(indexed("dir-b"));
+    assert!(indexed("Deep"));
+    assert!(indexed("Deep/er"));
+    assert!(!indexed("di"), "a prefix that isn't a folder");
+    assert!(!indexed("dirt"), "a file's stem isn't a folder");
+    assert!(!indexed("dir/x"), "a file's stem isn't a folder either");
+    // A file: its exact spelling.
+    assert!(indexed("dir/x.mp3"));
+    assert!(indexed("dirt.mp3"));
+    assert!(!indexed("dir/y.mp3"));
+    // Nothing is a wildcard.
+    assert!(indexed("d%r"));
+    assert!(indexed("d_r"));
+    assert!(!indexed("d%"));
+    assert!(!indexed("d_"));
+    assert!(!indexed("dxr"));
+    assert!(!indexed("%"));
+    assert!(!indexed("_"));
+    // The on-disk spelling, which is what an event names.
+    assert!(!indexed("DIR"));
+    q.shutdown();
 }
