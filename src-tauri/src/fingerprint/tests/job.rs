@@ -3,17 +3,20 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use super::audio;
 use super::support::{wait, Library};
 use crate::fingerprint::stored::CURRENT_PREFIX;
 use crate::fingerprint::{
-    compare, fingerprint_job, raise, start, Outcome, Unfingerprintable, VERSION,
+    compare, fingerprint_job, raise, shared_first, start, FirstUp, Outcome, Unfingerprintable,
+    VERSION,
 };
-use crate::jobs::{JobId, JobStatus, JobUpdate, Priority};
+use crate::jobs::{JobId, JobKind, JobQueue, JobStatus, JobUpdate, Priority};
+use crate::read::{read_job, Reader};
 use crate::tags::test_audio;
 
 /// Runs one fingerprint job over every due file with `library`'s default
@@ -1030,4 +1033,98 @@ mod carried {
         let (_, from) = recorded(&library, id);
         assert_eq!(from, None);
     }
+}
+
+/// Waits (bounded) until `condition` holds.
+fn until(condition: impl Fn() -> bool, what: &str) {
+    let start = Instant::now();
+    while !condition() {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "{what}: never happened"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn a_fingerprint_job_started_during_a_read_grows_into_the_threads_the_read_gives_back() {
+    let library = Library::new();
+    for n in 0..24 {
+        library.put(&format!("{n}.flac"), &song(90 + n, 4.0));
+    }
+    library.walk();
+    // A read on the same budget that holds its three borrowed threads
+    // until the test lets go: every reader parks on its first file.
+    let released = Arc::new(AtomicBool::new(false));
+    let hold = released.clone();
+    let volume = library.volume.clone();
+    let reader = Reader::new(move || volume.clone())
+        .threads(4)
+        .sharing(library.first.clone())
+        .on_file(move |_| {
+            while !hold.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        });
+    let done_before = Arc::new(AtomicUsize::new(0));
+    let threads_after = Arc::new(Mutex::new(std::collections::HashSet::new()));
+    let (count, seen, gate) = (done_before.clone(), threads_after.clone(), released.clone());
+    let fingerprinter = library.fingerprinter().threads(4).on_file(move |_| {
+        if gate.load(Ordering::SeqCst) {
+            seen.lock().unwrap().insert(std::thread::current().id());
+        } else {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+    let queue = JobQueue::builder(library.writer.clone())
+        .workers(2)
+        .handler(JobKind::Read, reader)
+        .handler(JobKind::Fingerprint, fingerprinter)
+        .start()
+        .unwrap();
+    let read = queue.enqueue(read_job(None)).unwrap();
+    until(
+        || library.first.busy() == 3,
+        "the read borrowed three threads",
+    );
+    let fingerprint = queue.enqueue(fingerprint_job(None)).unwrap();
+    // It starts on the one thread the budget has left...
+    until(
+        || done_before.load(Ordering::SeqCst) >= 2,
+        "the fingerprint job started on the thread left",
+    );
+    assert_eq!(library.first.busy(), 4);
+    // ...and once the read ends, takes the three it gave back.
+    released.store(true, Ordering::SeqCst);
+    assert_eq!(wait(&library.writer, read).status, JobStatus::Done);
+    assert_eq!(wait(&library.writer, fingerprint).status, JobStatus::Done);
+    queue.shutdown();
+    assert_eq!(
+        threads_after.lock().unwrap().len(),
+        4,
+        "one thread from the start and three that joined"
+    );
+    assert_eq!(library.first.busy(), 0);
+    assert!(library
+        .ids()
+        .values()
+        .all(|id| library.fingerprint(*id).is_some()));
+}
+
+#[test]
+fn the_app_keeps_one_thread_budget_line_for_the_read_and_fingerprint_jobs() {
+    use tauri::Manager;
+    let (_data, app) = crate::ipc::testing::app();
+    let a = shared_first(app.handle());
+    let b = shared_first(app.handle());
+    let held = a.try_threads(2, 4).unwrap();
+    assert_eq!(b.busy(), 2, "a second call sees the same line");
+    assert_eq!(
+        app.state::<FirstUp>().busy(),
+        2,
+        "and so does the state the commands use"
+    );
+    drop(held);
+    assert_eq!(b.busy(), 0);
 }

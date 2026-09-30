@@ -25,14 +25,18 @@
 //!   writes to a music file; the only writes go to the database.
 //! - **Several files at once** (1aC-12): a cold first read is mostly
 //!   waiting, on the disk and on the antivirus scan of each file's first
-//!   open, and those waits overlap. The job reads on a thread of its own
-//!   and borrows up to three more from the thread budget the fingerprint
-//!   jobs share ([`crate::fingerprint::FirstUp`], below-normal priority),
-//!   if they're free when it starts; it never waits for them, so a long
-//!   fingerprint run only makes it read as it did before. Every rule above
-//!   holds per file, whichever thread reads it, and every file's result is
-//!   written the same, so a read on four threads writes what a read on one
-//!   writes; only the order within a batch differs.
+//!   open, and those waits overlap. The job's thread pages the due files
+//!   and writes the results; one reader thread at normal priority does
+//!   what the one-thread read did, and up to three more are borrowed from
+//!   the thread budget the fingerprint jobs share
+//!   ([`crate::fingerprint::FirstUp`], at below-normal priority), if
+//!   they're free when the job starts and there are files enough for
+//!   them. It never waits for them, so a long fingerprint run only makes
+//!   it read as it did before; a fingerprint job that started meanwhile
+//!   grows into them once they're given back. Every rule above holds per
+//!   file, whichever thread reads it, and every file's result is written
+//!   the same, so a read on four threads writes what a read on one writes;
+//!   only the order within a batch differs.
 //! - Rows are written in batches, each in one transaction with the batch's
 //!   `file_stage` rows. Cancelling stops handing out files at once; batches
 //!   already written stay, whole, and the unwritten one is read again next
@@ -124,6 +128,9 @@ pub struct Reader<V> {
     /// Called before each file is read, with how many the job has looked at
     /// so far. Tests use it to act mid-job.
     on_file: Option<FileHook>,
+    /// Called on the job's thread after each page of due files is fetched,
+    /// with the page's number. Tests use it to break the job thread.
+    on_page: Option<PageHook>,
     batch_max: usize,
     window: Duration,
     /// The thread budget shared with the fingerprint jobs.
@@ -134,6 +141,8 @@ pub struct Reader<V> {
 
 /// See [`Reader::on_file`].
 type FileHook = Box<dyn Fn(u64) + Send + Sync>;
+/// See [`Reader::on_page`].
+type PageHook = Box<dyn Fn(u64) + Send + Sync>;
 
 impl<V: Volumes + Sync + 'static> Reader<V> {
     /// A reader on a budget of its own ([`default_threads`] threads). The
@@ -142,6 +151,7 @@ impl<V: Volumes + Sync + 'static> Reader<V> {
         Reader {
             volumes: Box::new(volumes),
             on_file: None,
+            on_page: None,
             batch_max: BATCH_MAX,
             window: BATCH_WINDOW,
             first: FirstUp::default(),
@@ -178,6 +188,13 @@ impl<V: Volumes + Sync + 'static> Reader<V> {
         self.on_file = Some(Box::new(hook));
         self
     }
+
+    /// Calls `hook` on the job's thread after each page is fetched.
+    #[cfg(test)]
+    pub(crate) fn on_page(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
+        self.on_page = Some(Box::new(hook));
+        self
+    }
 }
 
 impl<V: Volumes + Sync + 'static> JobHandler for Reader<V> {
@@ -194,10 +211,13 @@ impl<V: Volumes + Sync + 'static> JobHandler for Reader<V> {
             .call(move |c| scan_state::count_due(c, Stage::Read, READ_VERSION, &count_scope))?;
         job.progress(0.0)?;
 
-        // Helpers from the shared budget, if any are free now; never waits.
-        let helpers = self
-            .first
-            .try_threads(self.threads.saturating_sub(1), self.threads);
+        // Helpers from the shared budget, if any are free now and there are
+        // files enough for them; never waits.
+        let want = self
+            .threads
+            .saturating_sub(1)
+            .min(usize::try_from(total.saturating_sub(1)).unwrap_or(usize::MAX));
+        let helpers = self.first.try_threads(want, self.threads);
         let readers = 1 + helpers.as_ref().map_or(0, |t| t.n);
         let run = Run {
             job,
@@ -213,12 +233,16 @@ impl<V: Volumes + Sync + 'static> JobHandler for Reader<V> {
         };
         let (results, done) = mpsc::channel();
         let outcome = thread::scope(|s| {
+            // However the run ends, a panic on this thread included, the
+            // readers are told to stop, so the scope can join them and the
+            // borrowed threads go back to the budget.
+            let _stop = StopOnDrop(&run);
             for n in 0..readers {
                 let results = results.clone();
                 let run = &run;
                 s.spawn(move || {
-                    // The job's own thread keeps its priority, as before;
-                    // borrowed ones yield like fingerprinting does.
+                    // Reader 0 keeps normal priority, as the one reader had
+                    // before; borrowed ones yield like fingerprinting does.
                     if n > 0 {
                         lower_priority();
                     }
@@ -226,11 +250,7 @@ impl<V: Volumes + Sync + 'static> JobHandler for Reader<V> {
                 });
             }
             drop(results);
-            let outcome = self.feed_and_write(&run, &done, &scope, total);
-            // Whatever the outcome, the readers stop: nothing more is
-            // handed out, and a file they were on is finished, not written.
-            run.stop();
-            outcome
+            self.feed_and_write(&run, &done, &scope, total)
         });
         drop(helpers);
         outcome
@@ -266,6 +286,7 @@ impl<V: Volumes + Sync + 'static> Reader<V> {
         let mut batch = Batch::new(self.batch_max, self.window);
         let mut looked_at = 0u64;
         let mut after = 0i64;
+        let mut pages = 0u64;
         // Files handed out whose result hasn't come back.
         let mut outstanding = 0usize;
         let mut exhausted = false;
@@ -279,6 +300,10 @@ impl<V: Volumes + Sync + 'static> Reader<V> {
                 let page = job.writer().call(move |c| {
                     scan_state::due(c, Stage::Read, READ_VERSION, &page_scope, after, limit)
                 })?;
+                if let Some(hook) = &self.on_page {
+                    hook(pages);
+                }
+                pages += 1;
                 match page.last() {
                     None => {
                         exhausted = true;
@@ -325,6 +350,16 @@ impl<V: Volumes + Sync + 'static> Reader<V> {
         }
         batch.flush(job)?;
         job.progress(1.0)
+    }
+}
+
+/// Stops a run when dropped: nothing more is handed out, and a file a
+/// reader was on is finished, not written.
+struct StopOnDrop<'r, 'a, V>(&'r Run<'a, V>);
+
+impl<V> Drop for StopOnDrop<'_, '_, V> {
+    fn drop(&mut self) {
+        self.0.stop();
     }
 }
 

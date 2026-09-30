@@ -16,14 +16,18 @@ use crate::db::{Writer, DB_FILE_NAME};
 use crate::fingerprint::FirstUp;
 use crate::jobs::{self, JobId, JobKind, JobQueue, JobStatus, JobUpdate};
 use crate::paths::Volumes;
-use crate::read::{read_job, Reader};
+use crate::read::{read_job, Reader, READ_VERSION};
 use crate::scan::folders::{self, MusicFolderId};
 use crate::scan::online_only::READ_ONLINE_ONLY_FILES;
 use crate::scan::{scan_job, MusicFolderRole, Walker};
+use crate::scan_state::{self, Scope, Stage};
 use crate::tags::test_audio::{self as audio, id3_text, id3v2, Format};
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 use windows_sys::Win32::Storage::FileSystem::{
     GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_OFFLINE, INVALID_FILE_ATTRIBUTES,
+};
+use windows_sys::Win32::System::Threading::{
+    GetCurrentThread, GetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL,
 };
 
 /// One volume "mounted" at a temp folder, which can be unplugged.
@@ -625,26 +629,45 @@ fn cancelling_mid_batch_keeps_whole_batches_and_the_rest_is_read_next_time() {
 #[test]
 fn a_parallel_read_writes_exactly_what_a_serial_read_writes() {
     // The same files in two sandboxes: one read on one thread, one on
-    // four. Every row must come out the same, gone and locked and
-    // online-only files included.
+    // four. Every row must come out the same, gone, locked and online-only
+    // files included.
     let serial = Sandbox::new();
     let parallel = Sandbox::new();
     let mut readers = Vec::new();
     for (s, reader) in [(&serial, serial.reader()), (&parallel, parallel.parallel())] {
         let dir = s.mixed_bag("Music");
-        let cloud = put(&dir, "cloud.mp3", &tagged_mp3("In the cloud"));
-        set_online_only(&cloud, true);
+        // Six the walk sees online-only, so borrowed threads meet some too;
+        // one the walk sees online-only that's local again by read time
+        // (still skipped: the walk's mark decides); and one that went
+        // online-only after the walk (the check before the open decides).
+        let clouds: Vec<_> = (0..6)
+            .map(|n| put(&dir, &format!("cloud {n}.mp3"), &tagged_mp3("In the cloud")))
+            .collect();
+        let back = put(&dir, "back.mp3", &tagged_mp3("Back on disk"));
+        let freed = put(&dir, "freed.mp3", &tagged_mp3("Freed up"));
+        for path in clouds.iter().chain([&back]) {
+            set_online_only(path, true);
+        }
         s.walk();
+        set_online_only(&back, false);
+        set_online_only(&freed, true);
         fs::remove_file(dir.join("gone.mp3")).unwrap();
-        let locked = lock_against_reading(&dir.join("tagged 07.mp3"));
-        readers.push((s, reader, locked, cloud));
+        let locks = [
+            lock_against_reading(&dir.join("tagged 07.mp3")),
+            lock_against_reading(&freed),
+        ];
+        let mut placeholders = clouds;
+        placeholders.push(freed);
+        readers.push((s, reader, locks, placeholders));
     }
     let mut results = Vec::new();
-    for (s, reader, locked, cloud) in readers {
+    for (s, reader, locks, placeholders) in readers {
         let (looked, status) = s.read_with(reader, None);
         assert_eq!(status, JobStatus::Done);
-        drop(locked);
-        set_online_only(&cloud, false);
+        drop(locks);
+        for path in placeholders {
+            set_online_only(&path, false);
+        }
         results.push((looked, s.rows()));
     }
     let (serial_looked, serial_rows) = &results[0];
@@ -656,18 +679,17 @@ fn a_parallel_read_writes_exactly_what_a_serial_read_writes() {
         assert_eq!(parallel_rows.get(path), Some(row), "{path}");
     }
     // The bag had every case in it.
-    assert_eq!(
-        serial_rows["gone.mp3"].reason.as_deref(),
-        Some("unreachable")
-    );
-    assert_eq!(
-        serial_rows["tagged 07.mp3"].reason.as_deref(),
-        Some("unreachable")
-    );
-    assert_eq!(
-        serial_rows["cloud.mp3"].reason.as_deref(),
-        Some("online_only")
-    );
+    let reason = |path: &str| serial_rows[path].reason.clone();
+    assert_eq!(reason("gone.mp3").as_deref(), Some("unreachable"));
+    assert_eq!(reason("tagged 07.mp3").as_deref(), Some("unreachable"));
+    for n in 0..6 {
+        assert_eq!(
+            reason(&format!("cloud {n}.mp3")).as_deref(),
+            Some("online_only")
+        );
+    }
+    assert_eq!(reason("back.mp3").as_deref(), Some("online_only"));
+    assert_eq!(reason("freed.mp3").as_deref(), Some("online_only"));
     assert_eq!(serial_rows["empty.mp3"].verdict.as_deref(), Some("broken"));
     assert_eq!(serial_rows["cut.wav"].verdict.as_deref(), Some("truncated"));
     assert!(serial_rows["broken tag.mp3"]
@@ -689,12 +711,23 @@ fn a_parallel_read_borrows_free_threads_from_the_shared_budget_and_gives_them_ba
     let files = s.rows().len() as u64;
     let first = FirstUp::default();
 
-    /// Runs `reader` on the queue, noting each thread that reads and the
-    /// most threads the line had busy while it ran. Returns (files looked
-    /// at, distinct reading threads, most busy).
-    fn read_noting(s: &Sandbox, reader: Reader<TempVolume>, first: &FirstUp) -> (u64, usize, u64) {
+    /// Runs `reader` on the queue, noting each thread that reads, with its
+    /// Windows priority, and the most threads the line had busy while it
+    /// ran. Each reader waits (bounded) until `expected` distinct threads
+    /// have shown up, so the count doesn't hang on the scheduler. Returns
+    /// (files looked at, priority by thread, most busy).
+    fn read_noting(
+        s: &Sandbox,
+        reader: Reader<TempVolume>,
+        first: &FirstUp,
+        expected: usize,
+    ) -> (
+        u64,
+        std::collections::HashMap<std::thread::ThreadId, i32>,
+        u64,
+    ) {
         let looked = Arc::new(AtomicU64::new(0));
-        let threads = Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let threads = Arc::new(Mutex::new(std::collections::HashMap::new()));
         let most_busy = Arc::new(AtomicU64::new(0));
         let (count, seen, peak, line) = (
             looked.clone(),
@@ -704,15 +737,22 @@ fn a_parallel_read_borrows_free_threads_from_the_shared_budget_and_gives_them_ba
         );
         let q = s.queue(reader.on_file(move |_| {
             count.fetch_add(1, Ordering::SeqCst);
-            seen.lock().unwrap().insert(std::thread::current().id());
+            // SAFETY: the pseudo-handle for this thread is always valid.
+            let priority = unsafe { GetThreadPriority(GetCurrentThread()) };
+            seen.lock()
+                .unwrap()
+                .insert(std::thread::current().id(), priority);
             peak.fetch_max(line.busy() as u64, Ordering::SeqCst);
-            // Long enough that every reader gets a turn.
-            std::thread::sleep(Duration::from_millis(2));
+            let start = Instant::now();
+            while seen.lock().unwrap().len() < expected && start.elapsed() < Duration::from_secs(5)
+            {
+                std::thread::sleep(Duration::from_millis(1));
+            }
         }));
         let id = q.enqueue(read_job(None)).unwrap();
         assert_eq!(wait(&s.writer, id), JobStatus::Done);
         q.shutdown();
-        let threads = threads.lock().unwrap().len();
+        let threads = threads.lock().unwrap().clone();
         (
             looked.load(Ordering::SeqCst),
             threads,
@@ -721,13 +761,25 @@ fn a_parallel_read_borrows_free_threads_from_the_shared_budget_and_gives_them_ba
     }
 
     // Two of the four are busy fingerprinting: the read gets its own
-    // thread plus the two that are free, and no more.
+    // thread plus the two that are free, and no more. Its own keeps normal
+    // priority; the borrowed ones run below normal, as fingerprinting does.
     let busy = first.try_threads(2, 4).unwrap();
     assert_eq!(busy.n, 2);
-    let (looked, threads, most_busy) = read_noting(&s, s.parallel().sharing(first.clone()), &first);
+    let (looked, threads, most_busy) =
+        read_noting(&s, s.parallel().sharing(first.clone()), &first, 3);
     assert_eq!(looked, files);
     assert_eq!(most_busy, 4, "the two free threads were borrowed");
-    assert_eq!(threads, 3, "its own thread and the two borrowed");
+    let mut priorities: Vec<i32> = threads.values().copied().collect();
+    priorities.sort();
+    assert_eq!(
+        priorities,
+        [
+            THREAD_PRIORITY_BELOW_NORMAL,
+            THREAD_PRIORITY_BELOW_NORMAL,
+            THREAD_PRIORITY_NORMAL
+        ],
+        "its own thread and the two borrowed: {threads:?}"
+    );
     assert_eq!(first.busy(), 2, "the borrowed threads went back");
     drop(busy);
     assert_eq!(first.busy(), 0);
@@ -738,13 +790,115 @@ fn a_parallel_read_borrows_free_threads_from_the_shared_budget_and_gives_them_ba
     s.writer
         .call(|c| c.execute("DELETE FROM file_stage WHERE stage = 'read'", []))
         .unwrap();
-    let (looked, threads, most_busy) = read_noting(&s, s.parallel().sharing(first.clone()), &first);
+    let (looked, threads, most_busy) =
+        read_noting(&s, s.parallel().sharing(first.clone()), &first, 1);
     assert_eq!(looked, files);
-    assert_eq!(threads, 1);
+    assert_eq!(
+        threads.values().copied().collect::<Vec<_>>(),
+        [THREAD_PRIORITY_NORMAL]
+    );
     assert_eq!(most_busy, 4);
     assert_eq!(first.busy(), 4);
     drop(busy);
     assert_eq!(first.busy(), 0);
+}
+
+#[test]
+fn a_read_of_two_files_borrows_at_most_one_thread() {
+    // No more helpers than there are files for: a two-file rescan mustn't
+    // take three threads from a fingerprint run.
+    let s = Sandbox::new();
+    let (_, dir) = s.folder("Music");
+    put(&dir, "a.mp3", &audio::mp3());
+    put(&dir, "b.mp3", &audio::mp3());
+    s.walk();
+    let first = FirstUp::default();
+    let most_busy = Arc::new(AtomicU64::new(0));
+    let (peak, line) = (most_busy.clone(), first.clone());
+    let q = s.queue(s.parallel().sharing(first.clone()).on_file(move |_| {
+        peak.fetch_max(line.busy() as u64, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(5));
+    }));
+    let id = q.enqueue(read_job(None)).unwrap();
+    assert_eq!(wait(&s.writer, id), JobStatus::Done);
+    q.shutdown();
+    assert_eq!(most_busy.load(Ordering::SeqCst), 1);
+    assert_eq!(first.busy(), 0);
+}
+
+#[test]
+fn a_panic_on_the_job_thread_fails_the_job_and_gives_the_borrowed_threads_back() {
+    // The readers are told to stop however the job thread ends, so the
+    // job fails instead of hanging with the budget's threads held.
+    let s = Sandbox::new();
+    s.mixed_bag("Music");
+    s.walk();
+    let first = FirstUp::default();
+    let reader = s
+        .parallel()
+        .sharing(first.clone())
+        .on_page(|_| panic!("injected: the job thread died"));
+    let q = s.queue(reader);
+    let id = q.enqueue(read_job(None)).unwrap();
+    assert_eq!(wait(&s.writer, id), JobStatus::Failed);
+    let job = s
+        .writer
+        .call(move |c| jobs::store::get(c, id))
+        .unwrap()
+        .unwrap();
+    assert!(
+        job.error.as_deref().unwrap_or("").contains("panicked"),
+        "{:?}",
+        job.error
+    );
+    q.shutdown();
+    assert_eq!(first.busy(), 0, "the borrowed threads went back");
+    assert!(
+        s.rows().values().all(|r| r.stage.is_none()),
+        "nothing was written"
+    );
+}
+
+#[test]
+fn a_file_whose_row_changes_while_it_is_paged_is_still_due_afterwards() {
+    // The stage records the size and mtime the page carried, not the
+    // row's at write time: a walk that updates the row mid-read leaves the
+    // file due, so its new content is read next time.
+    let s = Sandbox::new();
+    let (_, dir) = s.folder("Music");
+    for n in 0..10 {
+        put(&dir, &format!("{n:02}.mp3"), &audio::mp3());
+    }
+    s.walk();
+    let writer = s.writer.clone();
+    let bumped = Arc::new(AtomicBool::new(false));
+    let once = bumped.clone();
+    let reader = s.parallel().on_file(move |_| {
+        if !once.swap(true, Ordering::SeqCst) {
+            // The page is fetched before any file is handed out, so this
+            // lands after it: the row now says the file changed.
+            writer
+                .call(|c| {
+                    c.execute(
+                        "UPDATE file SET size = size + 1 WHERE rel_path = '05.mp3'",
+                        [],
+                    )
+                })
+                .unwrap();
+        }
+    });
+    let q = s.queue(reader);
+    let id = q.enqueue(read_job(None)).unwrap();
+    assert_eq!(wait(&s.writer, id), JobStatus::Done);
+    q.shutdown();
+    let due = s
+        .writer
+        .call(|c| scan_state::due(c, Stage::Read, READ_VERSION, &Scope::All, 0, 100))
+        .unwrap();
+    let paths: Vec<&str> = due.iter().map(|d| d.rel_path.as_str()).collect();
+    assert_eq!(paths, ["05.mp3"]);
+    assert_eq!(s.read(), 1);
+    assert_eq!(s.read(), 0);
 }
 
 #[test]
