@@ -10,7 +10,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use super::support::{db, TempVolume};
 use super::walk::{add_music, at, drive, put};
@@ -201,13 +201,6 @@ fn kinds(writer: &Writer) -> Vec<String> {
     jobs(writer).into_iter().map(|j| j.0).collect()
 }
 
-/// A file's mtime moved on, as rekordbox does when it rewrites tags.
-fn touch_later(path: &Path) {
-    let file = fs::File::options().write(true).open(path).unwrap();
-    file.set_modified(SystemTime::now() + Duration::from_secs(60))
-        .unwrap();
-}
-
 #[test]
 fn a_finished_walk_leads_to_read_then_hash_and_fingerprint_for_exactly_the_new_or_changed_files() {
     let (_dir, volume, music) = drive();
@@ -258,10 +251,15 @@ fn a_finished_walk_leads_to_read_then_hash_and_fingerprint_for_exactly_the_new_o
         0
     );
 
-    // One new file, one rewritten: the next walk of that folder leads to
-    // exactly those two in every stage.
+    // One new file, one rewritten with other bytes: the next walk of that
+    // folder leads to exactly those two in every stage. (A touched mtime
+    // alone no longer counts: the walk's unchanged check, 1aC-1.)
     put(&music, "House/c.mp3", &audio::mp3());
-    touch_later(&at(&music, "House/b.wav"));
+    put(
+        &music,
+        "House/b.wav",
+        &[audio::wav(), vec![0u8; 64]].concat(),
+    );
     queue.enqueue(scan_job(Some(vec![folder]))).unwrap();
     wait_idle(&queue);
     let target = Some(format!(r#"{{"music_folder_ids":[{}]}}"#, folder.0));
