@@ -31,6 +31,8 @@ pub enum JobKind {
     Hash,
     /// Acoustic fingerprint (1.4).
     Fingerprint,
+    /// Put files into tracks (provisional, 1bC-1 replaces the rule).
+    Group,
     /// Estimate BPM, key and energy (3.7).
     Analyze,
     /// Run the audio model (3.8).
@@ -47,11 +49,12 @@ pub enum JobKind {
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 10] = [
+    pub const ALL: [JobKind; 11] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
         JobKind::Fingerprint,
+        JobKind::Group,
         JobKind::Analyze,
         JobKind::Embed,
         JobKind::Convert,
@@ -67,6 +70,7 @@ impl JobKind {
             JobKind::Read => "read",
             JobKind::Hash => "hash",
             JobKind::Fingerprint => "fingerprint",
+            JobKind::Group => "group",
             JobKind::Analyze => "analyze",
             JobKind::Embed => "embed",
             JobKind::Convert => "convert",
@@ -230,6 +234,7 @@ mod tests {
                 "read",
                 "hash",
                 "fingerprint",
+                "group",
                 "analyze",
                 "embed",
                 "convert",

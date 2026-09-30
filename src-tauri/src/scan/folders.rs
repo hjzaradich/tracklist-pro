@@ -455,6 +455,9 @@ pub fn remove(
     if !exists {
         return Ok(Err(MusicFolderError::NotFound));
     }
+    // The files' tracks let go of them first (their rows would refuse the
+    // delete); rolled back with everything else if the delete is refused.
+    crate::grouping::release_folder_files(&tx, id.0)?;
     let deleted = tx
         .execute("DELETE FROM file WHERE music_folder_id = ?1", [id.0])
         .and_then(|_| tx.execute("DELETE FROM music_folder WHERE id = ?1", [id.0]));

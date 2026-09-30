@@ -89,6 +89,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::fingerprint::fingerprint_files,
             crate::fingerprint::fingerprint_first,
             crate::relink::job::relink_rekordbox_tracks,
+            crate::grouping::group_files,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,
@@ -168,6 +169,7 @@ mod tests {
                     "read",
                     "hash",
                     "fingerprint",
+                    "group",
                     "analyze",
                     "embed",
                     "convert",

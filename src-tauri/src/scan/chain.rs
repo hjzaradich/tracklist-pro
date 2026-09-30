@@ -2,7 +2,10 @@
 //!
 //! A walk (stage 1) that finishes queues a read (stage 2) of the folders
 //! it walked; a read that finishes queues their hashes, and the hashes
-//! the fingerprints (stage 3). One stage at a time: hashes first, so a
+//! the fingerprints (stage 3). Once the hashes are done (or there were none
+//! to do), the files are grouped into tracks ([`crate::grouping`], 1aC-2):
+//! an exact audio hash is what puts duplicates together. One stage at a
+//! time: hashes first, so a
 //! fingerprint job can skip a file whose audio hash it has already
 //! fingerprinted (1aC-10), and two jobs never read the same disk at once.
 //! Every chained job runs at background priority, so anything the user
@@ -81,6 +84,15 @@ pub fn after_hash<H: JobHandler>(hasher: H) -> Chained<H> {
     Chained {
         inner: hasher,
         next: Next::Fingerprint,
+    }
+}
+
+/// The grouping job's handler, run once more if a stage asked for it
+/// meanwhile.
+pub fn after_group<H: JobHandler>(grouper: H) -> Chained<H> {
+    Chained {
+        inner: grouper,
+        next: Next::Nothing,
     }
 }
 
@@ -175,6 +187,10 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
                 rescan,
             )? {
                 queue_once(writer, target(crate::read::read_job(ids)), enqueue)?;
+            } else if writer.call(|c| crate::grouping::any_ungrouped(c))? {
+                // Nothing to read, but files the walk found have no track
+                // yet (online-only ones aren't read or hashed): group them.
+                queue_once(writer, crate::grouping::group_job(), enqueue)?;
             }
         }
         Next::Hash => {
@@ -190,6 +206,9 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
             }
         }
         Next::Fingerprint => {
+            // The hashes are in (or none were due): put the files into
+            // tracks, before the long fingerprint run.
+            queue_once(writer, crate::grouping::group_job(), enqueue)?;
             // A fingerprint job takes every due file, whatever its folder;
             // whether one is worth queuing is judged on the folders this
             // chain walked (an offline drive's files stay due for ever).
