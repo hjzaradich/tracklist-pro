@@ -524,7 +524,11 @@ fn progress_only_rises_and_ends_at_one() {
         .filter(|u| u.id == id)
         .filter_map(|u| u.progress)
         .collect();
-    assert!(progress.len() >= 5, "{progress:?}");
+    // Updates within 50 ms of each other coalesce (jobs::dispatch), so how
+    // many arrive depends on the machine's speed. What holds everywhere:
+    // something short of done was reported, nothing went back, and it ended
+    // at exactly one.
+    assert!(progress.iter().any(|p| *p < 1.0), "{progress:?}");
     assert!(
         progress.windows(2).all(|w| w[1] >= w[0]),
         "went back: {progress:?}"
