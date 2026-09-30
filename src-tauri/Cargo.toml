@@ -34,6 +34,8 @@ quick-xml = "0.42"
 tauri-plugin-dialog = "2"
 # Whole-file and audio-only hashes (1aB-5, 1aB-6).
 blake3 = "1"
+# The per-root music folder watcher (1aC-6). CC0-1.0.
+notify = "8"
 # Acoustic fingerprints (ROADMAP 1.4). MIT.
 rusty-chromaprint = "0.3.0"
 # Decodes audio for fingerprints (ROADMAP 1.4, §5.6). MPL-2.0. Opus isn't among its codecs.

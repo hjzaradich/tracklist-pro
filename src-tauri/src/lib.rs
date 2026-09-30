@@ -51,8 +51,9 @@ fn resolve_data_dir<R: Runtime, M: Manager<R>>(
 /// Creates the app data folder through the write guard, opens the
 /// database's one writer connection there, and hands both to Tauri's state,
 /// where commands reach them as `State<WriteGuard>` and `State<db::Writer>`,
-/// starts the job queue (`State<jobs::JobQueue>`), then opens the window,
-/// kept on the app's own pages (`net::navigation`).
+/// starts the job queue (`State<jobs::JobQueue>`) and the music folder
+/// watchers (`State<scan::Watchers>`), then opens the window, kept on the
+/// app's own pages (`net::navigation`).
 fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
     let specta = ipc::specta_builder::<R>();
     builder
@@ -66,6 +67,7 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             app.manage(db::ReadPool::open(writer.guarded_path())?);
             scan::volumes::start(app.handle(), &writer);
             app.manage(jobs::start(app.handle(), writer.clone())?);
+            app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);
             app.manage(guard);
             app.manage(rekordbox::source::ExportFolder::new(

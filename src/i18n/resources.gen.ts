@@ -9,6 +9,7 @@ export interface EnglishResources {
   "errors": typeof import("../locales/en/errors.json");
   "library": typeof import("../locales/en/library.json");
   "musicFolderStatus": typeof import("../locales/en/musicFolderStatus.json");
+  "musicFolderWatch": typeof import("../locales/en/musicFolderWatch.json");
   "musicFolders": typeof import("../locales/en/musicFolders.json");
   "overview": typeof import("../locales/en/overview.json");
   "rekordbox": typeof import("../locales/en/rekordbox.json");

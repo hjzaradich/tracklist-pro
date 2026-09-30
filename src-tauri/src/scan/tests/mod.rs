@@ -21,3 +21,5 @@ mod vanished;
 mod volumes;
 #[cfg(windows)]
 mod walk;
+#[cfg(windows)]
+mod watch;

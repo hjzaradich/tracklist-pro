@@ -15,11 +15,13 @@ pub mod online_only;
 mod unchanged;
 pub mod volumes;
 pub mod walk;
+pub mod watch;
 
 pub use folders::{MusicFolder, MusicFolderError, MusicFolderId, MusicFolderRole};
 pub use online_only::ReadGate;
 pub use volumes::VolumesChanged;
 pub use walk::{scan_job, ScannedFile, ScannedFiles, Walker};
+pub use watch::Watchers;
 
 use std::path::Path;
 

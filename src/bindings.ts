@@ -41,6 +41,12 @@ export const commands = {
 	 */
 	scanMusicFolders: (ids: MusicFolderId[] | null) => typedError<JobId, IpcError>(__TAURI_INVOKE("scan_music_folders", { ids })),
 	/**
+	 *  Turns a music folder's watcher on or off. On: the folder is rescanned
+	 *  now and whenever files change under it. Off: it's scanned only when
+	 *  asked.
+	 */
+	setMusicFolderWatch: (id: MusicFolderId, watch: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_music_folder_watch", { id, watch })),
+	/**
 	 *  The rekordbox XML source: the chosen export, the watch, the last read or
 	 *  failure and, with the watch on, a newer export to offer.
 	 */
