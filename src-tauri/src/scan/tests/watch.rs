@@ -640,11 +640,13 @@ fn an_eject_stops_the_watcher_and_closes_its_handle_and_a_refused_eject_starts_i
 #[test]
 fn temp_files_renamed_away_or_removed_next_to_the_music_do_not_rescan() {
     let w = Watched::new(true);
-    put(&w.music, "track.mp3", &audio::mp3());
     assert_eq!(w.settle(), [w.folder]);
+    // A track added under the watcher: its burst is the second scan, and
+    // the baseline from here on.
+    put(&w.music, "track.mp3", &audio::mp3());
     wait_until("the track is indexed", || rows(&w.writer).len() == 1);
     wait_idle(&w.queue);
-    assert_eq!(w.scans_of(w.folder), 1);
+    assert_eq!(w.scans_of(w.folder), 2);
 
     // Three autosaves of a project file next to the music (write a temp
     // file, rename it over the target), a temp file made and removed, and
@@ -663,7 +665,7 @@ fn temp_files_renamed_away_or_removed_next_to_the_music_do_not_rescan() {
     .unwrap();
     std::thread::sleep(QUIET + Duration::from_millis(500));
     wait_idle(&w.queue);
-    assert_eq!(w.scans_of(w.folder), 1, "nothing the index knew changed");
+    assert_eq!(w.scans_of(w.folder), 2, "nothing the index knew changed");
 
     // A file the index knows, renamed away: that's a change.
     fs::rename(w.music.join("track.mp3"), w.music.join("track.mp3.bak")).unwrap();
@@ -673,7 +675,42 @@ fn temp_files_renamed_away_or_removed_next_to_the_music_do_not_rescan() {
             .any(|r| r.rel_path == "track.mp3" && !r.present)
     });
     wait_idle(&w.queue);
+    assert_eq!(w.scans_of(w.folder), 3);
+    w.watchers.shutdown();
+}
+
+#[test]
+fn a_burst_of_gone_paths_asks_the_index_once_per_path_and_not_at_all_once_a_rescan_is_due() {
+    let w = Watched::new(true);
+    assert_eq!(w.settle(), [w.folder]);
+    let lookups = || w.watchers.status().index_lookups;
+    assert_eq!(lookups(), 0);
+
+    // The same temp file written and removed twenty times, and five other
+    // temp files removed once each: six distinct gone paths, six lookups.
+    for _ in 0..20 {
+        put(&w.music, "same.tmp", b"x");
+        fs::remove_file(w.music.join("same.tmp")).unwrap();
+    }
+    for n in 0..5 {
+        put(&w.music, &format!("other {n}.tmp"), b"x");
+        fs::remove_file(w.music.join(format!("other {n}.tmp"))).unwrap();
+    }
+    std::thread::sleep(QUIET + Duration::from_millis(500));
+    wait_idle(&w.queue);
+    assert_eq!(w.scans_of(w.folder), 1, "none of them was indexed");
+    assert_eq!(lookups(), 6);
+
+    // With a rescan already due for the root, gone paths aren't looked up.
+    put(&w.music, "new.mp3", &audio::mp3());
+    for n in 0..5 {
+        put(&w.music, &format!("late {n}.tmp"), b"x");
+        fs::remove_file(w.music.join(format!("late {n}.tmp"))).unwrap();
+    }
+    wait_until("the new track is indexed", || rows(&w.writer).len() == 1);
+    wait_idle(&w.queue);
     assert_eq!(w.scans_of(w.folder), 2);
+    assert_eq!(lookups(), 6);
     w.watchers.shutdown();
 }
 

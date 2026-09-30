@@ -88,7 +88,7 @@ use super::folders::{self, MusicFolderError, MusicFolderId};
 use super::online_only::attributes;
 use super::walk::scan_job;
 use super::{is_indexed, is_skipped};
-use crate::db::{DbError, Writer};
+use crate::db::{DbError, ReadPool, Writer};
 use crate::ipc::IpcError;
 use crate::jobs::{JobId, JobQueue, NewJob, Priority};
 use crate::paths::Volumes;
@@ -156,6 +156,8 @@ pub struct Status {
     pub suspended: Vec<MusicFolderId>,
     /// How many query-only root handles are open.
     pub handles_open: usize,
+    /// How many times the index was asked about a gone path so far.
+    pub index_lookups: u64,
     /// Each root's removal registration, by music folder.
     pub registrations: Vec<(MusicFolderId, isize)>,
 }
@@ -192,8 +194,12 @@ impl Watchers {
         )
         .map_err(|e| io::Error::other(format!("can't start the folder watcher: {e}")))?;
         let eject = eject::EjectWatch::start(tx.clone());
+        // Gone paths are looked up on a read connection, off the writer.
+        let reads = ReadPool::open(writer.guarded_path())
+            .map_err(|e| io::Error::other(format!("can't open the index for the watcher: {e}")))?;
         let mut supervisor = Supervisor {
             writer,
+            reads,
             volumes: Box::new(volumes),
             enqueue,
             watcher,
@@ -202,6 +208,8 @@ impl Watchers {
             online: None,
             debounce: Debounce::new(quiet, at_most, AT_MOST_CAP.min(at_most * 10)),
             windows_own: HashMap::new(),
+            gone: HashMap::new(),
+            index_lookups: 0,
             eject_grace: EJECT_GRACE,
         };
         let thread = thread::Builder::new()
@@ -297,6 +305,7 @@ enum Because {
 /// The watch thread's state.
 struct Supervisor<V> {
     writer: Writer,
+    reads: ReadPool,
     volumes: Box<dyn Fn() -> V + Send>,
     enqueue: Enqueue,
     watcher: RecommendedWatcher,
@@ -308,6 +317,11 @@ struct Supervisor<V> {
     debounce: Debounce,
     /// Folders looked at for the hidden-and-system mark, and the answer.
     windows_own: HashMap<PathBuf, bool>,
+    /// Gone paths the index was asked about, and the answer, so a burst
+    /// of events on one path (a temp file written and removed over and
+    /// over) asks once. Cleared with each refresh and each rescan.
+    gone: HashMap<PathBuf, bool>,
+    index_lookups: u64,
     eject_grace: Duration,
 }
 
@@ -351,6 +365,8 @@ impl<V: Volumes> Supervisor<V> {
                 Err(RecvTimeoutError::Timeout) => {}
             }
             for id in self.debounce.take_due(Instant::now()) {
+                // What the index says may change with the walk.
+                self.gone.clear();
                 self.rescan(id, Because::Changes);
             }
         }
@@ -388,6 +404,7 @@ impl<V: Volumes> Supervisor<V> {
                 .values()
                 .filter(|r| r.registration.as_ref().is_some_and(|reg| reg.is_open()))
                 .count(),
+            index_lookups: self.index_lookups,
             registrations,
         }
     }
@@ -406,6 +423,7 @@ impl<V: Volumes> Supervisor<V> {
                 return Refreshed::Ok;
             }
         };
+        self.gone.clear();
         let volumes = (self.volumes)();
         let online: BTreeMap<MusicFolderId, PathBuf> = folders
             .iter()
@@ -575,6 +593,8 @@ impl<V: Volumes> Supervisor<V> {
             let counts = match matters(&event.kind, path, &root, &mut self.windows_own) {
                 Matters::Yes => true,
                 Matters::No => false,
+                // A rescan is coming anyway: no need to ask.
+                Matters::IfIndexed if self.debounce.pending(id) => true,
                 Matters::IfIndexed => self.indexed(id, path, &root),
             };
             if counts {
@@ -584,12 +604,20 @@ impl<V: Volumes> Supervisor<V> {
         if self.windows_own.len() > 4096 {
             self.windows_own.clear();
         }
+        if self.gone.len() > 4096 {
+            self.gone.clear();
+        }
     }
 
     /// Whether the index has a present file at `path` under music folder
-    /// `id`'s `root`, or under it (then it was a folder). If the database
-    /// can't say, it counts.
-    fn indexed(&self, id: MusicFolderId, path: &Path, root: &Path) -> bool {
+    /// `id`'s `root`, or under it (then it was a folder). Asked once per
+    /// path between rescans, on a read connection, through the index on
+    /// (folder, path): an exact match, or the range of paths under it. If
+    /// the database can't say, it counts.
+    fn indexed(&mut self, id: MusicFolderId, path: &Path, root: &Path) -> bool {
+        if let Some(known) = self.gone.get(path) {
+            return *known;
+        }
         let Ok(rel) = path.strip_prefix(root) else {
             return true;
         };
@@ -602,22 +630,23 @@ impl<V: Volumes> Supervisor<V> {
             return true;
         }
         let rel = rel.join("/");
-        // `%` and `_` are LIKE's wildcards.
-        let under = rel
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_")
-            + "/%";
-        self.writer
-            .call(move |c| {
+        // Every path under `rel/` sorts between `rel/` and `rel0` ('0' is
+        // the character after '/'), so the index answers this range.
+        let (from, to) = (format!("{rel}/"), format!("{rel}0"));
+        self.index_lookups += 1;
+        let known = self
+            .reads
+            .read(move |c| {
                 c.prepare_cached(
                     "SELECT EXISTS (SELECT 1 FROM file
                      WHERE music_folder_id = ?1 AND present = 1
-                       AND (rel_path = ?2 OR rel_path LIKE ?3 ESCAPE '\\'))",
+                       AND (rel_path = ?2 OR (rel_path >= ?3 AND rel_path < ?4)))",
                 )?
-                .query_row((id.0, rel, under), |r| r.get::<_, bool>(0))
+                .query_row((id.0, rel, from, to), |r| r.get::<_, bool>(0))
             })
-            .unwrap_or(true)
+            .unwrap_or(true);
+        self.gone.insert(path.to_path_buf(), known);
+        known
     }
 
     /// Queues a background scan of music folder `id`, unless one is
@@ -782,6 +811,11 @@ impl Debounce {
                 last: now,
                 at_most,
             });
+    }
+
+    /// Whether `folder` has a burst waiting to come due.
+    pub(crate) fn pending(&self, folder: MusicFolderId) -> bool {
+        self.bursts.contains_key(&folder)
     }
 
     /// Drops `folder`'s burst and backoff, if any.
