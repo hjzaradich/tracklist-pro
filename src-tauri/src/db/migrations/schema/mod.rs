@@ -6,6 +6,7 @@
 
 mod file_stage;
 mod files;
+mod fingerprint_audio_hash;
 mod library;
 mod partial_hash;
 mod tracks;
@@ -141,6 +142,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0008_scan_follow_ups.sql", &[]),
     // Adds `file.partial_hash`, no tables.
     ("0009_partial_hash.sql", &[]),
+    // Adds `file.fingerprint_audio_hash`, no tables.
+    ("0010_fingerprint_audio_hash.sql", &[]),
 ];
 
 #[test]
