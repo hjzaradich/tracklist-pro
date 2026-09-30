@@ -63,6 +63,17 @@ fn members(conn: &Connection) -> rusqlite::Result<Vec<Member>> {
     rows.collect()
 }
 
+/// Whether a present file has no track yet.
+pub fn any_ungrouped(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM file f
+                        WHERE f.present = 1
+                          AND NOT EXISTS (SELECT 1 FROM recording_file rf WHERE rf.file_id = f.id))",
+        [],
+        |r| r.get(0),
+    )
+}
+
 /// The pairs of tracks that are linked versions, smaller id first.
 fn version_pairs(conn: &Connection) -> rusqlite::Result<HashSet<(i64, i64)>> {
     let mut stmt = conn.prepare("SELECT recording_a, recording_b FROM version_link")?;

@@ -10,6 +10,7 @@ use std::time::{Duration, Instant, SystemTime};
 use super::support::*;
 use crate::grouping::{group_job, start, Grouper, Summary};
 use crate::jobs::{self, JobId, JobKind, JobQueue, JobRecord, JobStatus};
+use crate::scan::chain::after_group;
 
 /// Long enough that a passing test never hits it.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -73,21 +74,21 @@ fn asking_again_while_a_grouping_job_is_waiting_returns_that_job() {
         .start()
         .unwrap();
     let scan = queue.enqueue(jobs::NewJob::new(JobKind::Scan)).unwrap();
-    let first = start(&queue).unwrap();
-    let second = start(&queue).unwrap();
+    let first = start(&queue, &db.writer).unwrap();
+    let second = start(&queue, &db.writer).unwrap();
     assert_eq!(first, second);
     release.send(()).unwrap();
     assert_eq!(wait(&db, first).status, JobStatus::Done);
     wait(&db, scan);
     // Once it has run, asking makes a new one.
-    let third = start(&queue).unwrap();
+    let third = start(&queue, &db.writer).unwrap();
     assert_ne!(third, first);
     assert_eq!(wait(&db, third).status, JobStatus::Done);
     queue.shutdown();
 }
 
 #[test]
-fn asking_while_a_grouping_job_runs_queues_another_that_runs_after_it() {
+fn asking_while_a_grouping_job_runs_makes_it_run_once_more_after_it_ends() {
     let db = db();
     let (release, hold) = mpsc::channel::<()>();
     let hold = Mutex::new(hold);
@@ -95,15 +96,18 @@ fn asking_while_a_grouping_job_runs_queues_another_that_runs_after_it() {
     let counted = runs.clone();
     let queue = JobQueue::builder(db.writer.clone())
         .workers(1)
-        .handler(JobKind::Group, move |_: &jobs::JobContext| {
-            *counted.lock().unwrap() += 1;
-            // The first run waits to be let go; the second finds it open.
-            let _ = hold.lock().unwrap().recv_timeout(Duration::from_secs(20));
-            Ok(())
-        })
+        .handler(
+            JobKind::Group,
+            after_group(move |_: &jobs::JobContext| {
+                *counted.lock().unwrap() += 1;
+                // The first run waits to be let go; the second finds it open.
+                let _ = hold.lock().unwrap().recv_timeout(Duration::from_secs(20));
+                Ok(())
+            }),
+        )
         .start()
         .unwrap();
-    let first = start(&queue).unwrap();
+    let first = start(&queue, &db.writer).unwrap();
     let begun = Instant::now();
     while *runs.lock().unwrap() == 0 {
         assert!(begun.elapsed() < PATIENCE, "the first job never started");
@@ -111,12 +115,17 @@ fn asking_while_a_grouping_job_runs_queues_another_that_runs_after_it() {
     }
     // Files may have changed since the running job loaded them: another
     // pass is needed, not the running one.
-    let second = start(&queue).unwrap();
-    assert_ne!(first, second);
+    let second = start(&queue, &db.writer).unwrap();
+    assert_eq!(first, second, "asked, not parked beside it");
     release.send(()).unwrap();
     assert_eq!(wait(&db, first).status, JobStatus::Done);
     drop(release);
-    assert_eq!(wait(&db, second).status, JobStatus::Done);
+    // Its wrapper queued the rerun before it finished.
+    let begun = Instant::now();
+    while *runs.lock().unwrap() < 2 || !queue.activity().unwrap().jobs.is_empty() {
+        assert!(begun.elapsed() < PATIENCE, "the rerun never ran");
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(*runs.lock().unwrap(), 2);
     queue.shutdown();
 }

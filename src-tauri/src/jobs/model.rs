@@ -49,7 +49,7 @@ pub enum JobKind {
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 10] = [
+    pub const ALL: [JobKind; 11] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,

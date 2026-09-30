@@ -97,6 +97,14 @@ export const commands = {
 	 *  job's id; if a relink is already waiting to run, returns that one.
 	 */
 	relinkRekordboxTracks: () => typedError<JobId, IpcError>(__TAURI_INVOKE("relink_rekordbox_tracks")),
+	/**
+	 *  Groups every file into tracks, in the background. Returns the job's id;
+	 *  if a grouping job is already queued, returns that one instead of
+	 *  starting another. If one is running (it may have loaded the files
+	 *  already), it's asked to run once more when it ends, like the chained
+	 *  stages are ([`crate::scan::chain::queue_once`]).
+	 */
+	groupFiles: () => typedError<JobId, IpcError>(__TAURI_INVOKE("group_files")),
 };
 
 /** Events */
