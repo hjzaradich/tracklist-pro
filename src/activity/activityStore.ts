@@ -42,10 +42,32 @@ type ActivityState = {
 
 const FINISHED = new Set<JobUpdate["status"]>(["done", "failed", "cancelled"]);
 
+/** How many times the job list has been copied since the module loaded. */
+let jobListCopyCount = 0;
+
+/**
+ * The one way the job list is copied. Counted, so a test can prove the
+ * store copies it once per batch and never per update (see
+ * {@link jobListCopies}). The count is bookkeeping, not state.
+ */
+function copyJobList(jobs: Record<number, JobUpdate>): Record<number, JobUpdate> {
+  jobListCopyCount += 1;
+  return { ...jobs };
+}
+
+/**
+ * How many times the job list has been copied since the module loaded.
+ * Tests compare before and after; the app never reads it.
+ */
+export function jobListCopies(): number {
+  return jobListCopyCount;
+}
+
 /**
  * Applies each update that's newer than what's known about its job.
  * Returns the new job list, or null if nothing changed. The list is copied
- * once per batch, however many updates it holds.
+ * once per batch, however many updates it holds, and only through
+ * {@link copyJobList}.
  */
 function apply(
   state: Pick<ActivityState, "jobs" | "floor" | "seen">,
@@ -57,7 +79,7 @@ function apply(
     const last = state.seen.get(update.id);
     if (last !== undefined && update.seq <= last) continue;
     state.seen.set(update.id, update.seq);
-    jobs ??= { ...state.jobs };
+    jobs ??= copyJobList(state.jobs);
     if (FINISHED.has(update.status)) {
       delete jobs[update.id];
     } else {

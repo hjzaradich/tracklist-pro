@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { JobUpdate } from "../bindings";
-import { MAX_PENDING, MAX_SEEN, useActivityStore } from "./activityStore";
+import { jobListCopies, MAX_PENDING, MAX_SEEN, useActivityStore } from "./activityStore";
 
 function update(
   seq: number,
@@ -77,22 +77,39 @@ describe("activity store", () => {
     expect(store().jobs).toBe(before);
   });
 
-  it("stays fast with tens of thousands of updates", () => {
+  it("copies the job list once per batch, never per update, so tens of thousands of updates stay cheap", () => {
     store().applySnapshot({ seq: 0, jobs: [] });
-    const start = performance.now();
-    // 20,000 jobs queued then started, in batches of 100 as the app sends
-    // them, then all finished in one batch. Copying the job list for every
-    // update instead of once per batch takes several times the limit.
-    let seq = 0;
-    const all: JobUpdate[] = [];
-    for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "queued"));
-    for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "running", 0.5));
-    for (let i = 0; i < all.length; i += 100) store().applyUpdates(all.slice(i, i + 100));
-    expect(Object.keys(store().jobs)).toHaveLength(20_000);
-    const done = Array.from({ length: 20_000 }, (_, i) => update(++seq, i + 1, "done", 1));
-    store().applyUpdates(done);
-    expect(jobs()).toEqual([]);
-    expect(performance.now() - start).toBeLessThan(1_000);
+    // Two counts, neither a clock (the shared CI laptop makes wall-clock
+    // limits meaningless): the copies the store makes of the job list, any
+    // made inside a batch included, and the lists that reach subscribers,
+    // each of which is a render.
+    const copiesBefore = jobListCopies();
+    let lists = 0;
+    let last = store().jobs;
+    const unsubscribe = useActivityStore.subscribe((state) => {
+      if (state.jobs !== last) lists += 1;
+      last = state.jobs;
+    });
+    try {
+      // 20,000 jobs queued then started, in batches of 100 as the app sends
+      // them, then all finished in one batch.
+      let seq = 0;
+      const all: JobUpdate[] = [];
+      for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "queued"));
+      for (let id = 1; id <= 20_000; id++) all.push(update(++seq, id, "running", 0.5));
+      let batches = 0;
+      for (let i = 0; i < all.length; i += 100, batches++) store().applyUpdates(all.slice(i, i + 100));
+      expect(Object.keys(store().jobs)).toHaveLength(20_000);
+      expect(jobListCopies() - copiesBefore).toBe(batches);
+      expect(lists).toBe(batches);
+      const done = Array.from({ length: 20_000 }, (_, i) => update(++seq, i + 1, "done", 1));
+      store().applyUpdates(done);
+      expect(jobs()).toEqual([]);
+      expect(jobListCopies() - copiesBefore).toBe(batches + 1);
+      expect(lists).toBe(batches + 1);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("holds at most MAX_PENDING jobs' updates before the snapshot, newest per job", () => {
@@ -134,9 +151,13 @@ describe("activity store", () => {
     const all: JobUpdate[] = [];
     for (let id = 1; id <= active; id++) all.push(update(++seq, id, "queued"));
     store().applyUpdates(all);
-    for (let id = active + 1; id <= active + MAX_SEEN; id++) {
-      store().applyUpdates([update(++seq, id, "done", 1)]);
-    }
+    // Then as many finished jobs go by, in batches of 100 as the app sends
+    // them: enough that the store trims its bookkeeping several times over.
+    const finished: JobUpdate[] = [];
+    for (let id = active + 1; id <= active + MAX_SEEN; id++) finished.push(update(++seq, id, "done", 1));
+    for (let i = 0; i < finished.length; i += 100) store().applyUpdates(finished.slice(i, i + 100));
+    // Some finished jobs were forgotten; every active one was kept.
+    expect(store().seen.size).toBeLessThan(active + MAX_SEEN);
     expect(Object.keys(store().jobs)).toHaveLength(active);
     for (let id = 1; id <= active; id++) expect(store().seen.has(id)).toBe(true);
     // Each still takes its updates.

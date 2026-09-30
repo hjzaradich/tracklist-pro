@@ -61,15 +61,17 @@ describe("scanned files store", () => {
     expect(state()).toBe(before);
   });
 
-  it("takes a 100k-file first scan in batches without slowing down", () => {
-    const start = performance.now();
+  it("takes a 100k-file first scan in batches, each costing only its own files", () => {
+    // The Map is changed in place: the same one after every batch, so a
+    // batch never copies the files before it. Checked by identity, not by
+    // the clock, which says nothing on the shared CI laptop.
+    const files = state().files;
     for (let batch = 0; batch < 100; batch++) {
       state().add(Array.from({ length: 1000 }, (_, i) => file(batch * 1000 + i + 1)));
+      expect(state().files).toBe(files);
     }
     expect(state().count).toBe(100_000);
     expect(state().version).toBe(100);
-    // Copying every file on every batch (5 million copies) takes far longer.
-    expect(performance.now() - start).toBeLessThan(1_000);
   });
 });
 

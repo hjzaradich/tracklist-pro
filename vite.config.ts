@@ -25,5 +25,9 @@ export default defineConfig({
     include: ["src/**/*.test.{ts,tsx}"],
     css: true,
     restoreMocks: true,
+    // CI shares one laptop with the lanes' builds (1aC-11), where a cold
+    // render can take seconds. Long enough for that, short enough to still
+    // catch a hang. Tests never assert elapsed time (see src/test/setup.ts).
+    testTimeout: 20_000,
   },
 });
