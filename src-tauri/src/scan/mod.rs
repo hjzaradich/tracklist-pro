@@ -7,6 +7,7 @@
 //! Everything here only reads the music folders. The only writes go to the
 //! database, through the [`crate::db::Writer`].
 
+pub mod chain;
 #[cfg(windows)]
 mod file_id;
 pub mod folders;

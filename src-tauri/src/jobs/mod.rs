@@ -43,13 +43,25 @@ pub use queue::{
 pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue, DbError> {
     JobQueue::builder(writer)
         .on_updates(emitter(app))
-        .handler(JobKind::Scan, crate::scan::walker(app))
+        // The scan stages are chained (scan::chain): a finished walk
+        // queues the read of its folders, a finished read their hashes,
+        // and finished hashes the fingerprints.
+        .handler(
+            JobKind::Scan,
+            crate::scan::chain::after_walk(crate::scan::walker(app)),
+        )
         .handler(
             JobKind::ReadRekordbox,
             crate::rekordbox::source::XmlReader::default(),
         )
-        .handler(JobKind::Hash, crate::hash::hasher())
-        .handler(JobKind::Read, crate::read::reader())
+        .handler(
+            JobKind::Hash,
+            crate::scan::chain::after_hash(crate::hash::hasher()),
+        )
+        .handler(
+            JobKind::Read,
+            crate::scan::chain::after_read(crate::read::reader()),
+        )
         .handler(JobKind::Fingerprint, crate::fingerprint::fingerprinter(app))
         .start()
 }
