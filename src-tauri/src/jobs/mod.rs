@@ -61,7 +61,9 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         )
         .handler(
             JobKind::Read,
-            crate::scan::chain::after_read(crate::read::reader()),
+            crate::scan::chain::after_read(crate::read::reader(crate::fingerprint::shared_first(
+                app,
+            ))),
         )
         .handler(
             JobKind::Fingerprint,

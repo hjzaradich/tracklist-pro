@@ -70,8 +70,10 @@ pub fn default_threads() -> usize {
 
 /// "Visible tracks first": files to fingerprint before any other, and the
 /// thread budget every fingerprint job shares. Shared by every fingerprint
-/// job and the `fingerprint_first` command. Cheap to clone; clones share
-/// the line.
+/// job and the `fingerprint_first` command, and by the read job, which
+/// borrows from the same budget (1aC-12), so across both kinds there are
+/// never more threads than the budget. Cheap to clone; clones share the
+/// line.
 #[derive(Clone, Default)]
 pub struct FirstUp {
     line: Arc<Mutex<Line>>,
@@ -87,7 +89,8 @@ struct Line {
     takers: usize,
     /// Files a thread is working on right now, so no two do the same one.
     claimed: HashSet<i64>,
-    /// Threads running for all fingerprint jobs together.
+    /// Threads taken from the budget by every job on this line: the
+    /// fingerprint jobs' and the read job's borrowed ones.
     busy: usize,
 }
 
@@ -138,6 +141,35 @@ impl FirstUp {
         }
     }
 
+    /// Takes up to `want` of the `budget` threads that are free right now,
+    /// without waiting: `None` if none is. For a job that has a thread of
+    /// its own and only borrows more when they're free (the read job,
+    /// 1aC-12), so it never waits behind a long fingerprint run.
+    pub(crate) fn try_threads(&self, want: usize, budget: usize) -> Option<Threads<'_>> {
+        let n = self.take_free(want, budget);
+        (n > 0).then_some(Threads { first: self, n })
+    }
+
+    /// Takes up to `want` of the `budget` threads that are free right now,
+    /// without waiting, as a bare count to give back with
+    /// [`FirstUp::give_back`]. A fingerprint job grows into freed threads
+    /// mid-run this way (`Fingerprinter::grow`).
+    fn take_free(&self, want: usize, budget: usize) -> usize {
+        let mut line = self.line();
+        let n = budget.saturating_sub(line.busy).min(want);
+        line.busy += n;
+        n
+    }
+
+    /// Returns `n` threads to the budget.
+    fn give_back(&self, n: usize) {
+        if n == 0 {
+            return;
+        }
+        self.line().busy -= n;
+        self.freed.notify_all();
+    }
+
     /// The raised files nobody will take, because every taker is gone. Takes
     /// them off the line, for a new job.
     fn unattended(&self) -> Vec<i64> {
@@ -148,7 +180,7 @@ impl FirstUp {
         line.wanted.drain(..).collect()
     }
 
-    /// Threads running for all fingerprint jobs together.
+    /// Threads taken from the budget by every job on this line.
     #[cfg(test)]
     pub(crate) fn busy(&self) -> usize {
         self.line().busy
@@ -210,15 +242,15 @@ impl Taker<'_> {
 }
 
 /// Threads taken from the shared budget, given back when dropped.
-struct Threads<'a> {
+pub(crate) struct Threads<'a> {
     first: &'a FirstUp,
-    n: usize,
+    /// How many were taken.
+    pub(crate) n: usize,
 }
 
 impl Drop for Threads<'_> {
     fn drop(&mut self) {
-        self.first.line().busy -= self.n;
-        self.first.freed.notify_all();
+        self.first.give_back(self.n);
     }
 }
 
@@ -297,10 +329,29 @@ struct Run<'a, V> {
     /// the raised ones it took).
     finished: AtomicUsize,
     total: AtomicUsize,
-    /// How far each thread is through its current file, as f64 bits.
+    /// How far each thread is through its current file, as f64 bits. One
+    /// slot per thread the budget allows, so a thread that joins mid-run
+    /// has its own.
     partial: Vec<AtomicU64>,
     /// Set when a thread stops with an error, so the others stop too.
     stopped: AtomicBool,
+    /// Threads working for this job, the ones that joined mid-run included.
+    workers: AtomicUsize,
+    /// How each thread ended, collected as they finish.
+    results: Mutex<Vec<Result<(), JobError>>>,
+}
+
+/// Threads a job took from the budget after it started
+/// (`Fingerprinter::grow`), given back when the run ends, however it ends.
+struct Grown<'a> {
+    first: &'a FirstUp,
+    n: AtomicUsize,
+}
+
+impl Drop for Grown<'_> {
+    fn drop(&mut self) {
+        self.first.give_back(self.n.load(Ordering::SeqCst));
+    }
 }
 
 impl<V: Volumes + Sync + 'static> JobHandler for Fingerprinter<V> {
@@ -355,31 +406,26 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
             taken: Mutex::default(),
             own: Mutex::new(own.into()),
             finished: AtomicUsize::new(0),
-            partial: (0..threads).map(|_| AtomicU64::new(0)).collect(),
+            partial: (0..self.threads.max(threads))
+                .map(|_| AtomicU64::new(0))
+                .collect(),
             stopped: AtomicBool::new(false),
+            workers: AtomicUsize::new(threads),
+            results: Mutex::default(),
+        };
+        let grown = Grown {
+            first: &self.first,
+            n: AtomicUsize::new(0),
         };
         job.progress(0.0)?;
-        let results: Vec<Result<(), JobError>> = thread::scope(|s| {
-            let workers: Vec<_> = (0..threads)
-                .map(|n| {
-                    let run = &run;
-                    s.spawn(move || {
-                        let result = self.work(run, n);
-                        if result.is_err() {
-                            run.stopped.store(true, Ordering::SeqCst);
-                        }
-                        result
-                    })
-                })
-                .collect();
-            workers
-                .into_iter()
-                .map(|w| {
-                    w.join()
-                        .unwrap_or_else(|_| Err(JobError::failed("a fingerprint thread panicked")))
-                })
-                .collect()
+        thread::scope(|s| {
+            for n in 0..threads {
+                self.spawn_worker(s, &run, &grown, n);
+            }
         });
+        drop(grown);
+        let results =
+            std::mem::take(&mut *run.results.lock().unwrap_or_else(PoisonError::into_inner));
         // A failure says more than a cancel another thread saw because of it.
         let mut cancelled = false;
         for result in results {
@@ -395,8 +441,62 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
         job.progress(1.0)
     }
 
+    /// Starts thread `n` of this job in `s`, and collects how it ends.
+    fn spawn_worker<'scope, 'env>(
+        &'env self,
+        s: &'scope thread::Scope<'scope, 'env>,
+        run: &'env Run<'env, V>,
+        grown: &'env Grown<'env>,
+        n: usize,
+    ) {
+        s.spawn(move || {
+            let result = panic::catch_unwind(AssertUnwindSafe(|| self.work(s, run, grown, n)))
+                .unwrap_or_else(|_| Err(JobError::failed("a fingerprint thread panicked")));
+            if result.is_err() {
+                run.stopped.store(true, Ordering::SeqCst);
+            }
+            run.results
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(result);
+        });
+    }
+
+    /// Takes whatever the budget has free now, up to this job's share, and
+    /// puts a worker on each. A job that started while a read job held
+    /// borrowed threads grows into them once the read ends, instead of
+    /// running for hours on what was left (1aC-12). Called between files.
+    fn grow<'scope, 'env>(
+        &'env self,
+        s: &'scope thread::Scope<'scope, 'env>,
+        run: &'env Run<'env, V>,
+        grown: &'env Grown<'env>,
+    ) {
+        if run.stopped.load(Ordering::SeqCst) {
+            return;
+        }
+        let want = self
+            .threads
+            .saturating_sub(run.workers.load(Ordering::SeqCst));
+        if want == 0 {
+            return;
+        }
+        let n = self.first.take_free(want, self.threads);
+        grown.n.fetch_add(n, Ordering::SeqCst);
+        for _ in 0..n {
+            let m = run.workers.fetch_add(1, Ordering::SeqCst);
+            self.spawn_worker(s, run, grown, m);
+        }
+    }
+
     /// One thread: takes files until there are none left.
-    fn work(&self, run: &Run<'_, V>, n: usize) -> Result<(), JobError> {
+    fn work<'scope, 'env>(
+        &'env self,
+        s: &'scope thread::Scope<'scope, 'env>,
+        run: &'env Run<'env, V>,
+        grown: &'env Grown<'env>,
+        n: usize,
+    ) -> Result<(), JobError> {
         lower_priority();
         let mut taker = self.first.taker();
         while let Some((id, raised)) = taker.next(&run.own) {
@@ -428,6 +528,7 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
             taker.release(id);
             run.finished.fetch_add(1, Ordering::SeqCst);
             run.report()?;
+            self.grow(s, run, grown);
         }
         Ok(())
     }
@@ -570,10 +671,11 @@ fn unchanged(file: &File, due: &Due) -> bool {
     (Some(size), Some(mtime)) == (due.size, due.mtime)
 }
 
-/// Runs this thread below normal priority, so fingerprinting yields to the
-/// app and everything else (ROADMAP 1.4). The thread ends with its job.
+/// Runs this thread below normal priority, so fingerprinting (and the read
+/// job's borrowed threads) yields to the app and everything else (ROADMAP
+/// 1.4). The thread ends with its job.
 #[cfg(windows)]
-fn lower_priority() {
+pub(crate) fn lower_priority() {
     use windows_sys::Win32::System::Threading::{
         GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
     };
@@ -586,4 +688,4 @@ fn lower_priority() {
 }
 
 #[cfg(not(windows))]
-fn lower_priority() {}
+pub(crate) fn lower_priority() {}

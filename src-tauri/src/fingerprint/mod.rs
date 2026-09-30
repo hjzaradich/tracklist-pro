@@ -24,6 +24,7 @@ pub mod ledger;
 pub mod stored;
 
 pub use decode::Unfingerprintable;
+pub(crate) use job::lower_priority;
 pub use job::{default_threads, fingerprint_job, Fingerprinter, FirstUp};
 pub use ledger::Outcome;
 pub use stored::{compare, BlobError, CompareError, Comparison, Fingerprint, VERSION};
@@ -33,12 +34,22 @@ use tauri::{AppHandle, Manager, Runtime, State};
 use crate::ipc::IpcError;
 use crate::jobs::{JobHandler, JobId, JobKind, JobQueue, JobStatus, NewJob, Priority};
 
-/// The fingerprint job's handler for the app. Puts the shared
-/// [`FirstUp`] line in Tauri's state for [`fingerprint_first`].
+/// The fingerprint job's handler for the app, on the shared [`FirstUp`]
+/// line ([`shared_first`]).
 pub fn fingerprinter<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
+    Fingerprinter::new(crate::scan::system_volumes, shared_first(app))
+}
+
+/// The [`FirstUp`] line the app's jobs share, kept in Tauri's state for
+/// [`fingerprint_first`]: made on the first call, the same one after. Its
+/// thread budget is shared too: the read job borrows from it (1aC-12).
+pub fn shared_first<R: Runtime>(app: &AppHandle<R>) -> FirstUp {
+    if let Some(first) = app.try_state::<FirstUp>() {
+        return first.inner().clone();
+    }
     let first = FirstUp::default();
     app.manage(first.clone());
-    Fingerprinter::new(crate::scan::system_volumes, first)
+    first
 }
 
 /// Fingerprints every file that's due, in the background. Returns the

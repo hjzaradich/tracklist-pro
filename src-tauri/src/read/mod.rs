@@ -23,8 +23,22 @@
 //!   isn't opened either.
 //! - Files are opened read-only through `\\?\` paths (§5.6). Nothing here
 //!   writes to a music file; the only writes go to the database.
+//! - **Several files at once** (1aC-12): a cold first read is mostly
+//!   waiting, on the disk and on the antivirus scan of each file's first
+//!   open, and those waits overlap. The job's thread pages the due files
+//!   and writes the results; one reader thread at normal priority does
+//!   what the one-thread read did, and up to three more are borrowed from
+//!   the thread budget the fingerprint jobs share
+//!   ([`crate::fingerprint::FirstUp`], at below-normal priority), if
+//!   they're free when the job starts and there are files enough for
+//!   them. It never waits for them, so a long fingerprint run only makes
+//!   it read as it did before; a fingerprint job that started meanwhile
+//!   grows into them once they're given back. Every rule above holds per
+//!   file, whichever thread reads it, and every file's result is written
+//!   the same, so a read on four threads writes what a read on one writes;
+//!   only the order within a batch differs.
 //! - Rows are written in batches, each in one transaction with the batch's
-//!   `file_stage` rows. Cancelling stops before the next file; batches
+//!   `file_stage` rows. Cancelling stops handing out files at once; batches
 //!   already written stay, whole, and the unwritten one is read again next
 //!   time.
 
@@ -34,12 +48,18 @@ mod file;
 pub use codec::Codec;
 pub use file::{FileRead, NotRead, Verdict};
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 use tauri::State;
 
+use crate::fingerprint::{default_threads, lower_priority, FirstUp};
 use crate::ipc::IpcError;
 use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, JobQueue, NewJob, Priority};
 use crate::paths::{RelPath, Volumes};
@@ -56,6 +76,10 @@ pub const BATCH_MAX: usize = 500;
 /// …or once its first file has waited this long, so results show up
 /// quickly even on a slow drive.
 pub const BATCH_WINDOW: Duration = Duration::from_millis(500);
+
+/// How often a reading thread with nothing to read checks whether the job
+/// has stopped.
+const IDLE_POLL: Duration = Duration::from_millis(100);
 
 /// A read of the files in `ids`, or in every music folder if `None`.
 pub fn read_job(ids: Option<Vec<MusicFolderId>>) -> NewJob {
@@ -91,9 +115,10 @@ pub fn read_files(
 }
 
 /// The read job's handler for the app: asks Windows which volumes are
-/// mounted at the start of each job.
-pub fn reader() -> impl JobHandler {
-    Reader::new(crate::scan::system_volumes)
+/// mounted at the start of each job, and borrows threads from `first`,
+/// the budget the fingerprint jobs share.
+pub fn reader(first: FirstUp) -> impl JobHandler {
+    Reader::new(crate::scan::system_volumes).sharing(first)
 }
 
 /// The read job's handler.
@@ -103,21 +128,49 @@ pub struct Reader<V> {
     /// Called before each file is read, with how many the job has looked at
     /// so far. Tests use it to act mid-job.
     on_file: Option<FileHook>,
+    /// Called on the job's thread after each page of due files is fetched,
+    /// with the page's number. Tests use it to break the job thread.
+    on_page: Option<PageHook>,
     batch_max: usize,
     window: Duration,
+    /// The thread budget shared with the fingerprint jobs.
+    first: FirstUp,
+    /// At most this many threads read at once, the job's own included.
+    threads: usize,
 }
 
 /// See [`Reader::on_file`].
 type FileHook = Box<dyn Fn(u64) + Send + Sync>;
+/// See [`Reader::on_page`].
+type PageHook = Box<dyn Fn(u64) + Send + Sync>;
 
-impl<V: Volumes + 'static> Reader<V> {
+impl<V: Volumes + Sync + 'static> Reader<V> {
+    /// A reader on a budget of its own ([`default_threads`] threads). The
+    /// app's shares the fingerprint jobs' instead ([`Reader::sharing`]).
     pub fn new(volumes: impl Fn() -> V + Send + Sync + 'static) -> Reader<V> {
         Reader {
             volumes: Box::new(volumes),
             on_file: None,
+            on_page: None,
             batch_max: BATCH_MAX,
             window: BATCH_WINDOW,
+            first: FirstUp::default(),
+            threads: default_threads(),
         }
+    }
+
+    /// Borrows helper threads from `first`'s budget, which the fingerprint
+    /// jobs share, instead of a budget of its own.
+    pub fn sharing(mut self, first: FirstUp) -> Self {
+        self.first = first;
+        self
+    }
+
+    /// How many threads may read at once, the job's own included: the
+    /// budget. At least 1, which reads one file at a time.
+    pub fn threads(mut self, threads: usize) -> Self {
+        self.threads = threads.max(1);
+        self
     }
 
     /// Replaces [`BATCH_MAX`] and [`BATCH_WINDOW`], so a test decides when
@@ -135,9 +188,16 @@ impl<V: Volumes + 'static> Reader<V> {
         self.on_file = Some(Box::new(hook));
         self
     }
+
+    /// Calls `hook` on the job's thread after each page is fetched.
+    #[cfg(test)]
+    pub(crate) fn on_page(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
+        self.on_page = Some(Box::new(hook));
+        self
+    }
 }
 
-impl<V: Volumes + 'static> JobHandler for Reader<V> {
+impl<V: Volumes + Sync + 'static> JobHandler for Reader<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let scope = scope(job.target())
             .ok_or_else(|| JobError::failed("a read's target names no music folders"))?;
@@ -151,36 +211,216 @@ impl<V: Volumes + 'static> JobHandler for Reader<V> {
             .call(move |c| scan_state::count_due(c, Stage::Read, READ_VERSION, &count_scope))?;
         job.progress(0.0)?;
 
+        // Helpers from the shared budget, if any are free now and there are
+        // files enough for them; never waits.
+        let want = self
+            .threads
+            .saturating_sub(1)
+            .min(usize::try_from(total.saturating_sub(1)).unwrap_or(usize::MAX));
+        let helpers = self.first.try_threads(want, self.threads);
+        let readers = 1 + helpers.as_ref().map_or(0, |t| t.n);
+        let run = Run {
+            job,
+            folders,
+            volumes,
+            gate,
+            readers,
+            pending: Mutex::new(VecDeque::new()),
+            wake: Condvar::new(),
+            more: AtomicBool::new(true),
+            stopped: AtomicBool::new(false),
+            taken: AtomicU64::new(0),
+        };
+        let (results, done) = mpsc::channel();
+        let outcome = thread::scope(|s| {
+            // However the run ends, a panic on this thread included, the
+            // readers are told to stop, so the scope can join them and the
+            // borrowed threads go back to the budget.
+            let _stop = StopOnDrop(&run);
+            for n in 0..readers {
+                let results = results.clone();
+                let run = &run;
+                s.spawn(move || {
+                    // Reader 0 keeps normal priority, as the one reader had
+                    // before; borrowed ones yield like fingerprinting does.
+                    if n > 0 {
+                        lower_priority();
+                    }
+                    self.read_files(run, &results);
+                });
+            }
+            drop(results);
+            self.feed_and_write(&run, &done, &scope, total)
+        });
+        drop(helpers);
+        outcome
+    }
+}
+
+impl<V: Volumes + Sync + 'static> Reader<V> {
+    /// One reading thread: takes files until there are none left, and
+    /// sends each result to the writer.
+    fn read_files(&self, run: &Run<'_, V>, results: &Sender<Option<Done>>) {
+        while let Some(due) = run.next() {
+            if let Some(hook) = &self.on_file {
+                hook(run.taken.fetch_add(1, Ordering::SeqCst));
+            }
+            let result = read_due(&run.folders, &run.volumes, run.gate, &due);
+            // The writer is gone only once the job is over.
+            if results.send(result).is_err() {
+                return;
+            }
+        }
+    }
+
+    /// The job's own thread, while the readers read: keeps them fed a page
+    /// at a time, and writes what comes back in batches.
+    fn feed_and_write(
+        &self,
+        run: &Run<'_, V>,
+        done: &Receiver<Option<Done>>,
+        scope: &Scope,
+        total: u64,
+    ) -> Result<(), JobError> {
+        let job = run.job;
         let mut batch = Batch::new(self.batch_max, self.window);
         let mut looked_at = 0u64;
         let mut after = 0i64;
+        let mut pages = 0u64;
+        // Files handed out whose result hasn't come back.
+        let mut outstanding = 0usize;
+        let mut exhausted = false;
         loop {
-            let page_scope = scope.clone();
-            let limit = self.batch_max;
-            let page = job.writer().call(move |c| {
-                scan_state::due(c, Stage::Read, READ_VERSION, &page_scope, after, limit)
-            })?;
-            let Some(last) = page.last() else { break };
-            after = last.id;
-            for due in page {
-                if let Some(hook) = &self.on_file {
-                    hook(looked_at);
+            job.check_cancelled()?;
+            // Another page once the readers have nearly caught up, so they
+            // never wait on the database.
+            if !exhausted && run.pending().len() <= run.readers_worth() {
+                let page_scope = scope.clone();
+                let limit = self.batch_max;
+                let page = job.writer().call(move |c| {
+                    scan_state::due(c, Stage::Read, READ_VERSION, &page_scope, after, limit)
+                })?;
+                if let Some(hook) = &self.on_page {
+                    hook(pages);
                 }
-                looked_at += 1;
-                job.check_cancelled()?;
-                if let Some(result) = read_due(&folders, &volumes, gate, &due) {
-                    batch.push(result);
+                pages += 1;
+                match page.last() {
+                    None => {
+                        exhausted = true;
+                        run.more.store(false, Ordering::SeqCst);
+                    }
+                    Some(last) => {
+                        after = last.id;
+                        outstanding += page.len();
+                        run.pending().extend(page);
+                    }
                 }
-                if batch.due() {
-                    batch.flush(job)?;
+                run.wake.notify_all();
+            }
+            if exhausted && outstanding == 0 {
+                break;
+            }
+            // Wait for a result, but never past the batch window.
+            let timeout = if batch.rows.is_empty() {
+                self.window
+            } else {
+                self.window
+                    .saturating_sub(batch.since.elapsed())
+                    .max(Duration::from_millis(1))
+            };
+            match done.recv_timeout(timeout) {
+                Ok(result) => {
+                    outstanding -= 1;
+                    looked_at += 1;
+                    if let Some(done) = result {
+                        batch.push(done);
+                    }
+                    if total > 0 {
+                        job.progress(looked_at as f64 / total as f64)?;
+                    }
                 }
-                if total > 0 {
-                    job.progress(looked_at as f64 / total as f64)?;
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(JobError::failed("the reading threads stopped early"));
                 }
+            }
+            if batch.due() {
+                batch.flush(job)?;
             }
         }
         batch.flush(job)?;
         job.progress(1.0)
+    }
+}
+
+/// Stops a run when dropped: nothing more is handed out, and a file a
+/// reader was on is finished, not written.
+struct StopOnDrop<'r, 'a, V>(&'r Run<'a, V>);
+
+impl<V> Drop for StopOnDrop<'_, '_, V> {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
+}
+
+/// One job's run, shared by its reading threads.
+struct Run<'a, V> {
+    job: &'a JobContext,
+    folders: Vec<StoredFolder>,
+    volumes: V,
+    gate: ReadGate,
+    /// Threads reading, the job's own included.
+    readers: usize,
+    /// Files handed out to read, in id order, next one at the front.
+    pending: Mutex<VecDeque<DueFile>>,
+    /// Signalled when files are added, or the job stops.
+    wake: Condvar,
+    /// False once the last page has been added.
+    more: AtomicBool,
+    /// Set when the job ends early: readers take nothing more.
+    stopped: AtomicBool,
+    /// Files taken by a reader so far.
+    taken: AtomicU64,
+}
+
+impl<V> Run<'_, V> {
+    fn pending(&self) -> MutexGuard<'_, VecDeque<DueFile>> {
+        self.pending.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// How low the pending list may run before the next page is fetched:
+    /// a few files per reader, so they keep reading while it's fetched.
+    fn readers_worth(&self) -> usize {
+        4 * self.readers
+    }
+
+    /// The next file to read. `None` once there are no more, or the job
+    /// stopped.
+    fn next(&self) -> Option<DueFile> {
+        let mut pending = self.pending();
+        loop {
+            if self.stopped.load(Ordering::SeqCst) {
+                return None;
+            }
+            if let Some(due) = pending.pop_front() {
+                return Some(due);
+            }
+            if !self.more.load(Ordering::SeqCst) {
+                return None;
+            }
+            pending = self
+                .wake
+                .wait_timeout(pending, IDLE_POLL)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    /// Ends the run: readers take nothing more.
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.more.store(false, Ordering::SeqCst);
+        self.wake.notify_all();
     }
 }
 

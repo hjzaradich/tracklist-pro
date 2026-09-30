@@ -13,16 +13,21 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::db::{Writer, DB_FILE_NAME};
-use crate::jobs::{self, JobId, JobKind, JobQueue, JobStatus};
+use crate::fingerprint::FirstUp;
+use crate::jobs::{self, JobId, JobKind, JobQueue, JobStatus, JobUpdate};
 use crate::paths::Volumes;
-use crate::read::{read_job, Reader};
+use crate::read::{read_job, Reader, READ_VERSION};
 use crate::scan::folders::{self, MusicFolderId};
 use crate::scan::online_only::READ_ONLINE_ONLY_FILES;
 use crate::scan::{scan_job, MusicFolderRole, Walker};
+use crate::scan_state::{self, Scope, Stage};
 use crate::tags::test_audio::{self as audio, id3_text, id3v2, Format};
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 use windows_sys::Win32::Storage::FileSystem::{
     GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_OFFLINE, INVALID_FILE_ATTRIBUTES,
+};
+use windows_sys::Win32::System::Threading::{
+    GetCurrentThread, GetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_NORMAL,
 };
 
 /// One volume "mounted" at a temp folder, which can be unplugged.
@@ -124,9 +129,48 @@ impl Sandbox {
             .unwrap()
     }
 
+    /// A reader on one thread, so a test of batches, windows and cancels
+    /// can say exactly which files were written. [`Sandbox::parallel`]
+    /// is the app's shape.
     fn reader(&self) -> Reader<TempVolume> {
+        self.parallel().threads(1)
+    }
+
+    /// A reader on the app's budget: four threads at most.
+    fn parallel(&self) -> Reader<TempVolume> {
         let volume = self.volume.clone();
-        Reader::new(move || volume.clone())
+        Reader::new(move || volume.clone()).threads(4)
+    }
+
+    /// Writes the same mixed bag of files under `name`: every format,
+    /// tagged MP3s, a broken tag, an empty file, a cut WAV, and one file
+    /// that's gone by the time it's read. Returns the folder.
+    fn mixed_bag(&self, name: &str) -> PathBuf {
+        let (_, dir) = self.folder(name);
+        for format in Format::ALL {
+            format.write_to(&dir, "tone");
+        }
+        for n in 0..40 {
+            put(
+                &dir,
+                &format!("tagged {n:02}.mp3"),
+                &tagged_mp3(&format!("Track {n}")),
+            );
+        }
+        let tag = id3v2(
+            &[
+                id3_text(b"TIT2", "Survivor"),
+                audio::id3_frame(b"TPE1", &[9, 0xFF, 0xFE, 0x00]),
+            ],
+            0,
+        );
+        put(&dir, "broken tag.mp3", &[tag, audio::mp3()].concat());
+        put(&dir, "empty.mp3", &[]);
+        let wav = audio::wav();
+        put(&dir, "cut.wav", &wav[..wav.len() - 1000]);
+        put(&dir, "Fake.wav", &tagged_mp3("Actually MP3"));
+        put(&dir, "gone.mp3", &audio::mp3());
+        dir
     }
 
     /// Walks every music folder.
@@ -215,6 +259,19 @@ struct Row {
     /// file_stage status for 'read', if any.
     stage: Option<String>,
     reason: Option<String>,
+}
+
+/// How many files the read stage has recorded so far.
+fn recorded(writer: &Writer) -> i64 {
+    writer
+        .call(|c| {
+            c.query_row(
+                "SELECT COUNT(*) FROM file_stage WHERE stage = 'read'",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap()
 }
 
 fn wait(writer: &Writer, id: JobId) -> JobStatus {
@@ -511,14 +568,27 @@ fn cancelling_mid_batch_keeps_whole_batches_and_the_rest_is_read_next_time() {
     }
     s.walk();
 
-    // Batches of 3; cancel before the 8th file, in the middle of batch 3.
+    // Batches of 3; cancel before the 8th file is read, once the second
+    // batch (files 3 to 5) is committed: file 6 is then in an unwritten
+    // batch. The reader hands results to the writer, which commits them
+    // in its own time, so the hook waits for that commit before it
+    // cancels; otherwise where the cancel lands would depend on speed.
     let queue_slot: Arc<Mutex<Option<RunningJob>>> = Arc::default();
     let slot = queue_slot.clone();
+    let writer = s.writer.clone();
     let reader = s
         .reader()
         .batches(3, Duration::from_secs(3600))
         .on_file(move |n| {
             if n == 7 {
+                let start = Instant::now();
+                while recorded(&writer) < 6 {
+                    assert!(
+                        start.elapsed() < Duration::from_secs(30),
+                        "batch 2 never committed"
+                    );
+                    std::thread::sleep(Duration::from_millis(1));
+                }
                 // The job may start before the test has stored its id.
                 let (q, id) = loop {
                     if let Some(found) = slot.lock().unwrap().clone() {
@@ -554,6 +624,382 @@ fn cancelling_mid_batch_keeps_whole_batches_and_the_rest_is_read_next_time() {
         .rows()
         .values()
         .all(|r| r.stage.as_deref() == Some("done")));
+}
+
+#[test]
+fn a_parallel_read_writes_exactly_what_a_serial_read_writes() {
+    // The same files in two sandboxes: one read on one thread, one on
+    // four. Every row must come out the same, gone, locked and online-only
+    // files included.
+    let serial = Sandbox::new();
+    let parallel = Sandbox::new();
+    let mut readers = Vec::new();
+    for (s, reader) in [(&serial, serial.reader()), (&parallel, parallel.parallel())] {
+        let dir = s.mixed_bag("Music");
+        // Six the walk sees online-only, so borrowed threads meet some too;
+        // one the walk sees online-only that's local again by read time
+        // (still skipped: the walk's mark decides); and one that went
+        // online-only after the walk (the check before the open decides).
+        let clouds: Vec<_> = (0..6)
+            .map(|n| put(&dir, &format!("cloud {n}.mp3"), &tagged_mp3("In the cloud")))
+            .collect();
+        let back = put(&dir, "back.mp3", &tagged_mp3("Back on disk"));
+        let freed = put(&dir, "freed.mp3", &tagged_mp3("Freed up"));
+        for path in clouds.iter().chain([&back]) {
+            set_online_only(path, true);
+        }
+        s.walk();
+        set_online_only(&back, false);
+        set_online_only(&freed, true);
+        fs::remove_file(dir.join("gone.mp3")).unwrap();
+        let locks = [
+            lock_against_reading(&dir.join("tagged 07.mp3")),
+            lock_against_reading(&freed),
+        ];
+        let mut placeholders = clouds;
+        placeholders.push(freed);
+        readers.push((s, reader, locks, placeholders));
+    }
+    let mut results = Vec::new();
+    for (s, reader, locks, placeholders) in readers {
+        let (looked, status) = s.read_with(reader, None);
+        assert_eq!(status, JobStatus::Done);
+        drop(locks);
+        for path in placeholders {
+            set_online_only(&path, false);
+        }
+        results.push((looked, s.rows()));
+    }
+    let (serial_looked, serial_rows) = &results[0];
+    let (parallel_looked, parallel_rows) = &results[1];
+    assert_eq!(parallel_looked, serial_looked);
+    assert_eq!(*serial_looked as usize, serial_rows.len());
+    assert_eq!(parallel_rows.len(), serial_rows.len());
+    for (path, row) in serial_rows {
+        assert_eq!(parallel_rows.get(path), Some(row), "{path}");
+    }
+    // The bag had every case in it.
+    let reason = |path: &str| serial_rows[path].reason.clone();
+    assert_eq!(reason("gone.mp3").as_deref(), Some("unreachable"));
+    assert_eq!(reason("tagged 07.mp3").as_deref(), Some("unreachable"));
+    for n in 0..6 {
+        assert_eq!(
+            reason(&format!("cloud {n}.mp3")).as_deref(),
+            Some("online_only")
+        );
+    }
+    assert_eq!(reason("back.mp3").as_deref(), Some("online_only"));
+    assert_eq!(reason("freed.mp3").as_deref(), Some("online_only"));
+    assert_eq!(serial_rows["empty.mp3"].verdict.as_deref(), Some("broken"));
+    assert_eq!(serial_rows["cut.wav"].verdict.as_deref(), Some("truncated"));
+    assert!(serial_rows["broken tag.mp3"]
+        .raw_tags
+        .as_deref()
+        .unwrap()
+        .contains("Survivor"));
+    assert_eq!(
+        serial_rows["Fake.wav"].sniffed_format.as_deref(),
+        Some("mp3")
+    );
+}
+
+#[test]
+fn a_parallel_read_borrows_free_threads_from_the_shared_budget_and_gives_them_back() {
+    let s = Sandbox::new();
+    s.mixed_bag("Music");
+    s.walk();
+    let files = s.rows().len() as u64;
+    let first = FirstUp::default();
+
+    /// Runs `reader` on the queue, noting each thread that reads, with its
+    /// Windows priority, and the most threads the line had busy while it
+    /// ran. Each reader waits (bounded) until `expected` distinct threads
+    /// have shown up, so the count doesn't hang on the scheduler. Returns
+    /// (files looked at, priority by thread, most busy).
+    fn read_noting(
+        s: &Sandbox,
+        reader: Reader<TempVolume>,
+        first: &FirstUp,
+        expected: usize,
+    ) -> (
+        u64,
+        std::collections::HashMap<std::thread::ThreadId, i32>,
+        u64,
+    ) {
+        let looked = Arc::new(AtomicU64::new(0));
+        let threads = Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let most_busy = Arc::new(AtomicU64::new(0));
+        let (count, seen, peak, line) = (
+            looked.clone(),
+            threads.clone(),
+            most_busy.clone(),
+            first.clone(),
+        );
+        let q = s.queue(reader.on_file(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            // SAFETY: the pseudo-handle for this thread is always valid.
+            let priority = unsafe { GetThreadPriority(GetCurrentThread()) };
+            seen.lock()
+                .unwrap()
+                .insert(std::thread::current().id(), priority);
+            peak.fetch_max(line.busy() as u64, Ordering::SeqCst);
+            let start = Instant::now();
+            while seen.lock().unwrap().len() < expected && start.elapsed() < Duration::from_secs(5)
+            {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }));
+        let id = q.enqueue(read_job(None)).unwrap();
+        assert_eq!(wait(&s.writer, id), JobStatus::Done);
+        q.shutdown();
+        let threads = threads.lock().unwrap().clone();
+        (
+            looked.load(Ordering::SeqCst),
+            threads,
+            most_busy.load(Ordering::SeqCst),
+        )
+    }
+
+    // Two of the four are busy fingerprinting: the read gets its own
+    // thread plus the two that are free, and no more. Its own keeps normal
+    // priority; the borrowed ones run below normal, as fingerprinting does.
+    let busy = first.try_threads(2, 4).unwrap();
+    assert_eq!(busy.n, 2);
+    let (looked, threads, most_busy) =
+        read_noting(&s, s.parallel().sharing(first.clone()), &first, 3);
+    assert_eq!(looked, files);
+    assert_eq!(most_busy, 4, "the two free threads were borrowed");
+    let mut priorities: Vec<i32> = threads.values().copied().collect();
+    priorities.sort();
+    assert_eq!(
+        priorities,
+        [
+            THREAD_PRIORITY_BELOW_NORMAL,
+            THREAD_PRIORITY_BELOW_NORMAL,
+            THREAD_PRIORITY_NORMAL
+        ],
+        "its own thread and the two borrowed: {threads:?}"
+    );
+    assert_eq!(first.busy(), 2, "the borrowed threads went back");
+    drop(busy);
+    assert_eq!(first.busy(), 0);
+
+    // Every thread busy: the read doesn't wait, it reads on its own thread.
+    let busy = first.try_threads(4, 4).unwrap();
+    assert_eq!(busy.n, 4);
+    s.writer
+        .call(|c| c.execute("DELETE FROM file_stage WHERE stage = 'read'", []))
+        .unwrap();
+    let (looked, threads, most_busy) =
+        read_noting(&s, s.parallel().sharing(first.clone()), &first, 1);
+    assert_eq!(looked, files);
+    assert_eq!(
+        threads.values().copied().collect::<Vec<_>>(),
+        [THREAD_PRIORITY_NORMAL]
+    );
+    assert_eq!(most_busy, 4);
+    assert_eq!(first.busy(), 4);
+    drop(busy);
+    assert_eq!(first.busy(), 0);
+}
+
+#[test]
+fn a_read_of_two_files_borrows_at_most_one_thread() {
+    // No more helpers than there are files for: a two-file rescan mustn't
+    // take three threads from a fingerprint run.
+    let s = Sandbox::new();
+    let (_, dir) = s.folder("Music");
+    put(&dir, "a.mp3", &audio::mp3());
+    put(&dir, "b.mp3", &audio::mp3());
+    s.walk();
+    let first = FirstUp::default();
+    let most_busy = Arc::new(AtomicU64::new(0));
+    let (peak, line) = (most_busy.clone(), first.clone());
+    let q = s.queue(s.parallel().sharing(first.clone()).on_file(move |_| {
+        peak.fetch_max(line.busy() as u64, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(5));
+    }));
+    let id = q.enqueue(read_job(None)).unwrap();
+    assert_eq!(wait(&s.writer, id), JobStatus::Done);
+    q.shutdown();
+    assert_eq!(most_busy.load(Ordering::SeqCst), 1);
+    assert_eq!(first.busy(), 0);
+}
+
+#[test]
+fn a_panic_on_the_job_thread_fails_the_job_and_gives_the_borrowed_threads_back() {
+    // The readers are told to stop however the job thread ends, so the
+    // job fails instead of hanging with the budget's threads held.
+    let s = Sandbox::new();
+    s.mixed_bag("Music");
+    s.walk();
+    let first = FirstUp::default();
+    let reader = s
+        .parallel()
+        .sharing(first.clone())
+        .on_page(|_| panic!("injected: the job thread died"));
+    let q = s.queue(reader);
+    let id = q.enqueue(read_job(None)).unwrap();
+    assert_eq!(wait(&s.writer, id), JobStatus::Failed);
+    let job = s
+        .writer
+        .call(move |c| jobs::store::get(c, id))
+        .unwrap()
+        .unwrap();
+    assert!(
+        job.error.as_deref().unwrap_or("").contains("panicked"),
+        "{:?}",
+        job.error
+    );
+    q.shutdown();
+    assert_eq!(first.busy(), 0, "the borrowed threads went back");
+    assert!(
+        s.rows().values().all(|r| r.stage.is_none()),
+        "nothing was written"
+    );
+}
+
+#[test]
+fn a_file_whose_row_changes_while_it_is_paged_is_still_due_afterwards() {
+    // The stage records the size and mtime the page carried, not the
+    // row's at write time: a walk that updates the row mid-read leaves the
+    // file due, so its new content is read next time.
+    let s = Sandbox::new();
+    let (_, dir) = s.folder("Music");
+    for n in 0..10 {
+        put(&dir, &format!("{n:02}.mp3"), &audio::mp3());
+    }
+    s.walk();
+    let writer = s.writer.clone();
+    let bumped = Arc::new(AtomicBool::new(false));
+    let once = bumped.clone();
+    let reader = s.parallel().on_file(move |_| {
+        if !once.swap(true, Ordering::SeqCst) {
+            // The page is fetched before any file is handed out, so this
+            // lands after it: the row now says the file changed.
+            writer
+                .call(|c| {
+                    c.execute(
+                        "UPDATE file SET size = size + 1 WHERE rel_path = '05.mp3'",
+                        [],
+                    )
+                })
+                .unwrap();
+        }
+    });
+    let q = s.queue(reader);
+    let id = q.enqueue(read_job(None)).unwrap();
+    assert_eq!(wait(&s.writer, id), JobStatus::Done);
+    q.shutdown();
+    let due = s
+        .writer
+        .call(|c| scan_state::due(c, Stage::Read, READ_VERSION, &Scope::All, 0, 100))
+        .unwrap();
+    let paths: Vec<&str> = due.iter().map(|d| d.rel_path.as_str()).collect();
+    assert_eq!(paths, ["05.mp3"]);
+    assert_eq!(s.read(), 1);
+    assert_eq!(s.read(), 0);
+}
+
+#[test]
+fn cancelling_a_parallel_read_keeps_whole_batches_only_and_the_rest_is_read_next_time() {
+    let s = Sandbox::new();
+    let (_, dir) = s.folder("Music");
+    for n in 0..30 {
+        put(&dir, &format!("{n:02}.mp3"), &audio::mp3());
+    }
+    s.walk();
+
+    // Batches of 4 on four threads; cancel once 10 files have been taken.
+    let queue_slot: Arc<Mutex<Option<RunningJob>>> = Arc::default();
+    let slot = queue_slot.clone();
+    let reader = s
+        .parallel()
+        .batches(4, Duration::from_secs(3600))
+        .on_file(move |n| {
+            std::thread::sleep(Duration::from_millis(5));
+            if n == 10 {
+                let (q, id) = loop {
+                    if let Some(found) = slot.lock().unwrap().clone() {
+                        break found;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                };
+                q.cancel(id).unwrap();
+            }
+        });
+    let q = Arc::new(s.queue(reader));
+    let id = q.enqueue(read_job(None)).unwrap();
+    *queue_slot.lock().unwrap() = Some((q.clone(), id));
+    assert_eq!(wait(&s.writer, id), JobStatus::Cancelled);
+    q.shutdown();
+
+    let rows = s.rows();
+    let written = rows.values().filter(|r| r.stage.is_some()).count();
+    assert_eq!(written % 4, 0, "{written} written: only whole batches");
+    assert!(written < 30, "the cancel landed before the end");
+    // A file's columns and its stage row were written together.
+    for (path, row) in &rows {
+        assert_eq!(row.stage.is_some(), row.codec.is_some(), "{path}");
+    }
+    // The rest is read next time, and nothing twice.
+    let (looked, status) = s.read_with(s.parallel(), None);
+    assert_eq!(status, JobStatus::Done);
+    assert_eq!(looked as usize, 30 - written);
+    assert!(s
+        .rows()
+        .values()
+        .all(|r| r.stage.as_deref() == Some("done")));
+}
+
+#[test]
+fn a_parallel_reads_progress_only_rises_and_ends_at_one() {
+    let s = Sandbox::new();
+    let (_, dir) = s.folder("Music");
+    for n in 0..300 {
+        put(&dir, &format!("{n:03}.mp3"), &audio::mp3());
+    }
+    s.walk();
+    let updates = Arc::<Mutex<Vec<JobUpdate>>>::default();
+    let heard = updates.clone();
+    let volume = s.volume.clone();
+    let q = JobQueue::builder(s.writer.clone())
+        .workers(1)
+        .on_updates(move |u: &[JobUpdate]| heard.lock().unwrap().extend_from_slice(u))
+        .handler(
+            JobKind::Read,
+            s.parallel()
+                .on_file(|_| std::thread::sleep(Duration::from_millis(2))),
+        )
+        .handler(JobKind::Scan, Walker::new(move || volume.clone(), |_| {}))
+        .start()
+        .unwrap();
+    let id = q.enqueue(read_job(None)).unwrap();
+    assert_eq!(wait(&s.writer, id), JobStatus::Done);
+    let start = Instant::now();
+    while !updates
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|u| u.id == id && u.status == JobStatus::Done)
+    {
+        assert!(start.elapsed() < Duration::from_secs(30), "no done update");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    q.shutdown();
+    let progress: Vec<f64> = updates
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|u| u.id == id)
+        .filter_map(|u| u.progress)
+        .collect();
+    // Updates within 50 ms coalesce, so how many arrive depends on the
+    // machine; that some progress short of done was reported, nothing
+    // went back, and it ended at one holds everywhere.
+    assert!(progress.iter().any(|p| *p < 1.0), "{progress:?}");
+    assert!(progress.windows(2).all(|w| w[1] >= w[0]), "{progress:?}");
+    assert_eq!(progress.last(), Some(&1.0));
 }
 
 #[test]
