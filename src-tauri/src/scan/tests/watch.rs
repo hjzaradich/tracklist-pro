@@ -1,8 +1,9 @@
 #![cfg(test)]
 //! 1aC-6: the per-root watcher. On and off per music folder; a file added
 //! under a watched root gets indexed and read; a burst of changes is one
-//! rescan; an unplugged root stops its watcher and gets it back, with a
-//! catch-up scan, when the drive returns; nothing is written outside the
+//! rescan; every online folder is rechecked at start and when its drive
+//! returns, once per trigger, and an unplugged root stops its watcher and
+//! gets it back when the drive returns; nothing is written outside the
 //! app data folder.
 
 use std::collections::BTreeMap;
@@ -134,14 +135,32 @@ fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
 fn turning_a_folders_watch_on_starts_its_watcher_and_off_stops_it() {
     let w = Watched::new(false);
     assert_eq!(w.settle(), none());
-    assert_eq!(w.scans_of(w.folder), 0, "an unwatched folder isn't scanned");
+    assert_eq!(
+        w.scans_of(w.folder),
+        1,
+        "rechecked at start, watched or not"
+    );
 
     w.set_watch(true);
     assert_eq!(w.settle(), [w.folder]);
-    assert_eq!(w.scans_of(w.folder), 1, "a watcher starting catches up");
+    assert_eq!(w.scans_of(w.folder), 2, "a watcher starting catches up");
 
     w.set_watch(false);
     assert_eq!(w.settle(), none());
+    assert_eq!(w.scans_of(w.folder), 2);
+    w.watchers.shutdown();
+}
+
+#[test]
+fn a_watched_folder_is_scanned_once_at_start_not_once_per_reason() {
+    // At start a watched folder is both "just online" and "just watched":
+    // one scan, not two.
+    let w = Watched::new(true);
+    assert_eq!(w.settle(), [w.folder]);
+    assert_eq!(w.scans_of(w.folder), 1);
+    // A refresh with nothing new scans nothing.
+    w.watchers.refresh();
+    w.settle();
     assert_eq!(w.scans_of(w.folder), 1);
     w.watchers.shutdown();
 }
@@ -212,6 +231,7 @@ fn an_unplugged_root_stops_its_watcher_and_gets_it_back_with_a_catch_up_when_the
     w.volume.set_online(true);
     w.watchers.refresh();
     assert_eq!(w.settle(), [w.folder]);
+    // Back online and watched again: one scan, not one per reason.
     assert_eq!(w.scans_of(w.folder), 2, "back: one catch-up scan");
     // And it's really watching again.
     put(&w.music, "back.mp3", &audio::mp3());
@@ -223,30 +243,39 @@ fn an_unplugged_root_stops_its_watcher_and_gets_it_back_with_a_catch_up_when_the
 }
 
 #[test]
-fn a_root_whose_watch_is_off_is_never_scanned_on_its_own() {
+fn an_unwatched_folder_is_rechecked_at_start_and_when_its_drive_returns_but_not_on_changes() {
     let w = Watched::new(true);
-    // A second music folder on the same drive, not watched.
+    // A second music folder on the same drive, not watched. New to the
+    // watch thread, it counts as just online at the next refresh.
     let other_path = w.volume.mount.join("Other");
     fs::create_dir(&other_path).unwrap();
     let other = add_music(&w.writer, &w.volume, &other_path);
     w.watchers.refresh();
     assert_eq!(w.settle(), [w.folder]);
+    assert_eq!(w.scans_of(other), 1, "rechecked when first seen online");
 
     w.volume.set_online(false);
     w.watchers.refresh();
     w.settle();
+    assert_eq!(w.scans_of(other), 1, "offline: not scanned");
     w.volume.set_online(true);
     w.watchers.refresh();
     assert_eq!(w.settle(), [w.folder]);
+    assert_eq!(w.scans_of(other), 2, "rechecked when its drive is back");
+    assert_eq!(w.scans_of(w.folder), 2);
+
     put(&other_path, "quiet.mp3", &audio::mp3());
     // Give a watcher that shouldn't exist time to react, then look.
     std::thread::sleep(QUIET + Duration::from_millis(500));
     wait_idle(&w.queue);
-    assert_eq!(w.scans_of(other), 0);
-    assert_eq!(w.scans_of(w.folder), 2);
+    assert_eq!(
+        w.scans_of(other),
+        2,
+        "a change in an unwatched folder does nothing"
+    );
     assert!(
         rows(&w.writer).is_empty(),
-        "nothing indexed the unwatched folder"
+        "nothing indexed the unwatched folder's new file"
     );
     w.watchers.shutdown();
 }

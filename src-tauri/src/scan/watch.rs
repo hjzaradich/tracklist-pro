@@ -15,10 +15,15 @@
 //!   the changed subfolders needs a scoped version of that bookkeeping
 //!   inside the walk, which this stage's walk lane owns, so it's left for
 //!   a later task. One walk per burst keeps the cost bounded.
-//! - **A root is rescanned whenever its watcher starts:** at app start,
-//!   when its watch is turned on, and when its drive comes back. Nobody
-//!   was watching it until then, so it catches up on what changed
-//!   meanwhile. A root whose watch is off is never scanned on its own.
+//! - **Every online music folder is rechecked** (the same background
+//!   scan job, and the chain) at app start and whenever its drive comes
+//!   back, watched or not: nothing could see what changed while the app
+//!   was closed or the drive away, and a walk that skips unchanged files
+//!   without opening them (1aC-1) is cheap. Turning a folder's watch on
+//!   rescans it too. Each trigger scans a folder once (owner's decision,
+//!   2026-09-29).
+//! - **Watch adds live updates only while the app runs,** and is off by
+//!   default (`music_folder.watch = 0`).
 //! - **An offline root has no watcher.** [`Watchers::refresh`] (called
 //!   after drives come or go, and after a music folder changes) stops the
 //!   watcher of a root that no longer resolves, and starts one for a root
@@ -33,7 +38,7 @@
 //! One thread (`music-watch`) owns the `notify` watcher, the set of roots
 //! watched and the bursts; the app talks to it through [`Watchers`].
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -124,6 +129,7 @@ impl Watchers {
             enqueue,
             watcher,
             watched: HashMap::new(),
+            online: None,
             debounce: Debounce::new(quiet, at_most),
         };
         let thread = thread::Builder::new()
@@ -197,6 +203,9 @@ struct Supervisor<V> {
     watcher: RecommendedWatcher,
     /// Each watched music folder and the root it's watched at.
     watched: HashMap<MusicFolderId, PathBuf>,
+    /// The music folders that were online at the last refresh; `None`
+    /// before the first, when every online folder counts as just back.
+    online: Option<BTreeSet<MusicFolderId>>,
     debounce: Debounce,
 }
 
@@ -240,7 +249,9 @@ impl<V: Volumes> Supervisor<V> {
 
     /// Brings the watched roots in step with the music folders and the
     /// drives: watched and online → watched at its root now; anything
-    /// else → not watched. A root whose watcher just started is rescanned.
+    /// else → not watched. A folder that just came online (the first
+    /// refresh, or its drive back) and a root whose watcher just started
+    /// are rescanned, once each.
     fn refresh(&mut self) -> Refreshed {
         let folders = match self.writer.call(|c| folders::stored(c)) {
             Ok(folders) => folders,
@@ -251,11 +262,22 @@ impl<V: Volumes> Supervisor<V> {
             }
         };
         let volumes = (self.volumes)();
+        let online: BTreeMap<MusicFolderId, PathBuf> = folders
+            .iter()
+            .filter_map(|f| Some((f.id, f.stored_path().resolve(&volumes).ok()?)))
+            .collect();
         let wanted: BTreeMap<MusicFolderId, PathBuf> = folders
             .iter()
             .filter(|f| f.watch)
-            .filter_map(|f| Some((f.id, f.stored_path().resolve(&volumes).ok()?)))
+            .filter_map(|f| Some((f.id, online.get(&f.id)?.clone())))
             .collect();
+        // Folders just back online: every online one the first time.
+        let mut to_scan: BTreeSet<MusicFolderId> = online
+            .keys()
+            .filter(|id| self.online.as_ref().is_none_or(|was| !was.contains(id)))
+            .copied()
+            .collect();
+        self.online = Some(online.keys().copied().collect());
         let stale: Vec<MusicFolderId> = self
             .watched
             .iter()
@@ -278,12 +300,15 @@ impl<V: Volumes> Supervisor<V> {
                 Ok(()) => {
                     self.watched.insert(id, root);
                     // Nobody was watching until now: catch up.
-                    self.rescan(id);
+                    to_scan.insert(id);
                 }
                 Err(e) => {
                     eprintln!("music watch: can't watch {}: {e}", root.display());
                 }
             }
+        }
+        for id in to_scan {
+            self.rescan(id);
         }
         Refreshed::Ok
     }
@@ -458,8 +483,9 @@ pub(crate) fn set_watch(
 }
 
 /// Turns a music folder's watcher on or off. On: the folder is rescanned
-/// now and whenever files change under it. Off: it's scanned only when
-/// asked.
+/// now and whenever files change under it while the app runs. Off (the
+/// default): it's still rechecked at app start and when its drive comes
+/// back, and otherwise scanned when asked.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_music_folder_watch(
