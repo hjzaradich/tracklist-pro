@@ -1,0 +1,95 @@
+[package]
+name = "tracklist-pro"
+version = "0.1.0"
+description = "Builds a DJ's Library and keeps it in step with rekordbox"
+license = "GPL-3.0-or-later"
+edition = "2021"
+publish = false
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name, which
+# otherwise collide on Windows (rust-lang/cargo#8519).
+name = "tracklist_pro_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+# specta and tauri-specta are pre-release: pin exactly, as their docs require.
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta-typescript = "=0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "hooks"] }
+sha2 = "0.10.9"
+lofty = "0.25.4"
+unicode-normalization = "0.1"
+# HTTP client for the net module only (ROADMAP 0.1, network gate).
+ureq = { version = "3.4.2", default-features = false, features = ["native-tls-no-default"] }
+serde_json = "1"
+quick-xml = "0.42"
+# The rekordbox XML file picker (1aB-11); the webview may only open it.
+tauri-plugin-dialog = "2"
+# Whole-file and audio-only hashes (1aB-5, 1aB-6).
+blake3 = "1"
+# Acoustic fingerprints (ROADMAP 1.4). MIT.
+rusty-chromaprint = "0.3.0"
+# Decodes audio for fingerprints (ROADMAP 1.4, §5.6). MPL-2.0. Opus isn't among its codecs.
+symphonia = { version = "0.6.1", default-features = false, features = ["opt-simd", "all-meta", "mp3", "aac", "alac", "flac", "pcm", "adpcm", "vorbis", "isomp4", "ogg", "wav", "aiff", "caf"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+serde_json = "1"
+tempfile = "3"
+proptest = { version = "1.11.0", default-features = false, features = ["std"] }
+
+# Tests drop the backup privilege an admin token may hold (scan tests).
+# LAME 3.100 (LGPL) makes real MP3s of generated audio in fingerprint
+# tests; Windows only, since elsewhere it needs autotools.
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading"] }
+mp3lame-encoder = "=0.2.5"
+
+# Fingerprinting (1aB-7) decodes and analyzes minutes of audio per test;
+# unoptimized, these crates run 10-20x slower. Dev and test builds only.
+[profile.dev.package.rusty-chromaprint]
+opt-level = 3
+[profile.dev.package.rustfft]
+opt-level = 3
+[profile.dev.package.realfft]
+opt-level = 3
+[profile.dev.package.rubato]
+opt-level = 3
+[profile.dev.package.symphonia-core]
+opt-level = 3
+[profile.dev.package.symphonia-common]
+opt-level = 3
+[profile.dev.package.symphonia-metadata]
+opt-level = 3
+[profile.dev.package.symphonia-bundle-flac]
+opt-level = 3
+[profile.dev.package.symphonia-bundle-mp3]
+opt-level = 3
+[profile.dev.package.symphonia-codec-aac]
+opt-level = 3
+[profile.dev.package.symphonia-codec-adpcm]
+opt-level = 3
+[profile.dev.package.symphonia-codec-alac]
+opt-level = 3
+[profile.dev.package.symphonia-codec-pcm]
+opt-level = 3
+[profile.dev.package.symphonia-codec-vorbis]
+opt-level = 3
+[profile.dev.package.symphonia-format-caf]
+opt-level = 3
+[profile.dev.package.symphonia-format-isomp4]
+opt-level = 3
+[profile.dev.package.symphonia-format-ogg]
+opt-level = 3
+[profile.dev.package.symphonia-format-riff]
+opt-level = 3

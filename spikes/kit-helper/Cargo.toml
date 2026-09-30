@@ -1,0 +1,13 @@
+[package]
+name = "kit-helper"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Spike tool for EXPERIMENTS.md E1: builds the rekordbox session kit's audio files."
+
+[dependencies]
+anyhow = "1"
+lofty = "0.25.1"
+serde_json = "1"
+symphonia = { version = "0.6.1", features = ["mpa", "aac", "alac", "isomp4", "aiff", "caf"] }
+mp3lame-encoder = { version = "0.2.5", features = ["std"] }

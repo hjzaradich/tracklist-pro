@@ -1,0 +1,4 @@
+-- 0001: the starting point. Intentionally empty: the Phase 1 schema tables
+-- arrive in Stage 0D, each in its own numbered migration (ROADMAP §2,
+-- "When tables arrive"). The runner still records this migration, so every
+-- database starts at version 1.

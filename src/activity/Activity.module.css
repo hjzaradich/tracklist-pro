@@ -1,0 +1,103 @@
+.root {
+  position: relative;
+}
+
+.trigger {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.trigger:hover,
+.trigger[aria-expanded="true"] {
+  background: var(--color-surface-hover);
+}
+
+.trigger:focus-visible,
+.cancel:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.activity {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.activity[data-state="running"],
+.activity[data-state="waiting"] {
+  color: var(--color-text);
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 10;
+  min-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+}
+
+.row[data-status="queued"] .rowText {
+  color: var(--color-text-muted);
+}
+
+.rowText {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cancel {
+  flex: none;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cancel:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.cancel:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}

@@ -1,0 +1,26 @@
+{
+  "stages": {
+    "label": "Stages",
+    "overview": "Overview",
+    "review": "Review",
+    "allMusic": "All music",
+    "library": "Library",
+    "crates": "Crates"
+  },
+  "sidebar": {
+    "noCrates": "No crates"
+  },
+  "search": {
+    "label": "Search",
+    "placeholder": "Search or type a command",
+    "shortcut": "Ctrl K"
+  },
+  "details": {
+    "label": "Details",
+    "empty": "Select a track"
+  },
+  "player": {
+    "label": "Player",
+    "empty": "Nothing playing"
+  }
+}

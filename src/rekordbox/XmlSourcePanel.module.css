@@ -1,0 +1,97 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(520px, 100%);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.panel p {
+  margin: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.path {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.warning {
+  color: var(--color-warning);
+}
+
+.problem {
+  color: var(--color-danger);
+}
+
+.offer {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.button,
+.primary {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.button:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.button:focus-visible,
+.primary:focus-visible,
+.watch input:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.watch {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--color-text-muted);
+}

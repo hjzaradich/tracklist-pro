@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.2.19" Company="AlphaTheta"/>
+  <COLLECTION Entries="6">
+    <TRACK TrackID="75978535" Name="NOISE" Artist="" Composer="" Album=""
+           Grouping="" Genre="" Kind="WAV File" Size="1382226" TotalTime="5"
+           DiscNumber="0" TrackNumber="0" Year="0" AverageBpm="0.00" DateAdded="2026-09-26"
+           BitRate="2116" SampleRate="44100" Comments="" PlayCount="0" Rating="0"
+           Location="file://localhost/C:/Users/someone/Music/rekordbox/Sampler/OSC_SAMPLER(3)/PRESET%20ONESHOT/NOISE.wav"
+           Remixer="" Tonality="7A" Label="" Mix=""/>
+    <TRACK TrackID="153908294" Name="Demo Track 1" Artist="Demo Artist"
+           Composer="" Album="" Grouping="" Genre="" Kind="MP3 File" Size="6899624"
+           TotalTime="172" DiscNumber="0" TrackNumber="0" Year="0" AverageBpm="128.00"
+           DateAdded="2026-09-26" BitRate="320" SampleRate="44100" Comments=""
+           PlayCount="0" Rating="0" Location="file://localhost/C:/Users/someone/Music/PioneerDJ/Demo%20Tracks/Demo%20Track%201.mp3"
+           Remixer="" Tonality="4A" Label="Demo Artist" Mix="">
+      <TEMPO Inizio="0.023" Bpm="128.00" Metro="4/4" Battito="1"/>
+    </TRACK>
+    <TRACK TrackID="21899570" Name="Synthetic One" Artist="TLP Check" Composer="" Album=""
+           Grouping="Red" Genre="TLP Genre" Kind="MP3 File" Size="6181152" TotalTime="255"
+           DiscNumber="0" TrackNumber="1" Year="1999" AverageBpm="174.00" DateAdded="2026-09-25"
+           BitRate="256" SampleRate="44100" Comments="Kit &amp; Kin&apos;s" PlayCount="2" Rating="204"
+           Location="file://localhost/C:/Kit/tracks/04%20Kit%20%26%20Kin%20-%20Low%20Tide%20#1%20(100%25%20Flip).wav"
+           Remixer="" Tonality="4A" Label="" Mix="" Colour="0xFF0000">
+      <TEMPO Inizio="0.057" Bpm="174.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="44.195" Num="0" Red="255" Green="55" Blue="111"/>
+      <POSITION_MARK Name="" Type="0" Start="45.574" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="42749078" Name="Synthetic Two" Artist="TLP Check" Composer="" Album=""
+           Grouping="" Genre="" Kind="M4A File" Size="100" TotalTime="200"
+           DiscNumber="0" TrackNumber="0" Year="0" AverageBpm="172.00" DateAdded="2026-09-25"
+           BitRate="0" SampleRate="44100" Comments="" PlayCount="0" Rating="0"
+           Location="file://localhost/C:/Kit/Sub%20Folder/Deeper%20Level/06%20North%20Wind,%20Late%20Train%20%f0%9f%9a%80%20Caf%c3%a9%20%e6%97%a5%e6%9c%ac%20A%20+%20B%20%5bx%5d.m4a"
+           Remixer="" Tonality="6A" Label="" Mix=""/>
+    <TRACK TrackID="99" Name="Deleted" Location="file://localhost/C:/Kit/gone.mp3" rb_local_deleted="1"/>
+    <TRACK TrackID="98" Name="Streamed" Location="soundcloud:tracks:12345"/>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="3">
+      <NODE Name="CUE Analysis Playlist" Type="1" KeyType="0" Entries="0"/>
+      <NODE Name="TLP Check" Type="0" Count="2">
+        <NODE Name="by-id" Type="1" KeyType="0" Entries="3">
+          <TRACK Key="42749078"/>
+          <TRACK Key="21899570"/>
+          <TRACK Key="555"/>
+        </NODE>
+        <NODE Name="nested" Type="0" Count="1">
+          <NODE Name="by-location" Type="1" KeyType="1" Entries="1">
+            <TRACK Key="file://localhost/C:/Kit/tracks/04%20Kit%20%26%20Kin%20-%20Low%20Tide%20%231%20%28100%25%20Flip%29.wav"/>
+          </NODE>
+        </NODE>
+      </NODE>
+      <NODE Name="TLP Check" Type="0" Count="0"/>
+    </NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>

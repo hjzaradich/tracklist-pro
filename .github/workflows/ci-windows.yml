@@ -1,0 +1,467 @@
+# Full CI for Windows, the only supported platform (ROADMAP §0.3). On
+# Windows: Rust tests, a compile of the app (which also builds the
+# frontend), a check that the generated TS bindings are current, clippy, and
+# the Windows-only dev tools (the fixture generator in tools/fixture-gen and
+# the rekordbox check kit in spikes/rb-kit). On the cheaper Linux runner: the
+# frontend build, lint and tests, Rust formatting, the append-only migration
+# check (PRs), and the license and advisory checks.
+#
+# Minutes (0E-13): Windows minutes cost 2x Linux ones on a private repo, so
+# only work that needs Windows runs there. The "Changed paths" job decides
+# which jobs a run needs (.github/scripts/ci-changes.mjs): docs-only changes
+# build nothing, the fixture generator and the check kit run only when their
+# folders change, and a push to main skips everything when a passing PR run
+# already tested the same tree. "CI result" sums up every job, so each run,
+# docs-only ones included, ends in one pass or fail (CLAUDE.md, "Green
+# before merge").
+#
+# Runners (1aA-16): every job runs on GitHub's runners (as above) unless the
+# repository variable CI_RUNNER is "self" (Settings > Secrets and variables
+# > Actions > Variables; GitHub compares it ignoring case); then every job,
+# the Linux ones included, runs on the owner's self-hosted Windows runner
+# (labels self-hosted, tlp-windows). Unset or any other value: GitHub's
+# runners. A pull request from a fork, or one Dependabot opened (it bumps
+# pinned actions to versions nobody has reviewed yet), always gets GitHub's
+# runners, never the owner's PC. Each job's runs-on repeats the same switch
+# (runner-tools.test.mjs keeps them equal), and so does its timeout-minutes:
+# the owner's PC is often busy with parallel lanes, and its first build is
+# cold, so each job gets more time there (the Windows build 120 minutes).
+# On the self-hosted runner, steps use the owner's installed tools and never
+# change them: no toolchain installs, no rust-cache (the work folder keeps
+# the build output), no npm cache; the first step of each job checks the
+# tools and prints their versions (.github/scripts/runner-tools.mjs).
+name: CI (Windows)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  # Weekly, everything runs: catches a new stable Rust (lints), new security
+  # advisories, and refreshes main's caches, even in a quiet week.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+# A newer push to the same PR cancels the run it supersedes (which also
+# keeps the self-hosted runner, one job at a time, from queueing stale
+# runs). Pushes to main
+# (and manual runs) get one group per commit and are never cancelled, so a
+# burst of merges still gets every commit tested: GitHub keeps only one
+# pending run per group, so a shared group would drop the middle ones.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Nothing may make rustup install a toolchain on the owner's PC. (GitHub's
+  # runners install stable explicitly, so this changes nothing there.)
+  RUSTUP_AUTO_INSTALL: "0"
+
+# The same shell on every runner: Git's bash on Windows (GitHub's and the
+# owner's), bash on Linux. The owner's PC has no PowerShell 7, and bash
+# stops a multi-line step at its first failing command.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  changes:
+    name: Changed paths
+    runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 20 || 10 }}
+    permissions:
+      contents: read
+      # To look up the tested-tree artifacts of earlier runs.
+      actions: read
+    outputs:
+      app: ${{ steps.decide.outputs.app }}
+      fixture_gen: ${{ steps.decide.outputs.fixture_gen }}
+      rb_kit: ${{ steps.decide.outputs.rb_kit }}
+      marker: ${{ steps.decide.outputs.marker }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, so a push's diff reaches the commit before it.
+          fetch-depth: 0
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Check the runner's tools (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: node .github/scripts/runner-tools.mjs node git gh
+
+      # The CI scripts' own tests, this job's decision logic included, so a
+      # broken script stops the run instead of skipping checks.
+      - name: Test the CI scripts
+        run: node --test .github/scripts/*.test.mjs
+
+      # Push to main only: did a passing PR run into main already test this
+      # exact tree? CI result leaves a marker artifact on such runs, named
+      # for the tree and the jobs it ran; ci-changes.mjs checks those jobs
+      # cover what this push needs. Only runs of this repo's own branches
+      # count. (Artifacts expire after 7 days, so the list stays short.)
+      - name: Look for passing PR runs of this tree
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq ".artifacts[] | select(.expired | not)
+                  | select(.workflow_run.head_repository_id == .workflow_run.repository_id)
+                  | select(.name | startswith(\"ci-passed-tree-$tree-\")) | .name" \
+            > "$RUNNER_TEMP/markers.txt"
+          echo "Markers for tree $tree:"
+          cat "$RUNNER_TEMP/markers.txt"
+
+      - name: Decide which jobs run
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          MARKERS_FILE: ${{ runner.temp }}/markers.txt
+        run: node .github/scripts/ci-changes.mjs
+
+  windows:
+    name: Build and test (Windows)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'windows-latest' }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 120 || 45 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          # The self-hosted runner keeps npm's own cache between runs.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
+
+      # On the owner's PC, also that file symlinks work: without them the
+      # write guard's symlink tests skip, and this job would prove less than
+      # it does on GitHub's runner.
+      - name: Check the runner's tools (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: node .github/scripts/runner-tools.mjs rust clippy node npm git symlinks --builds=tracklist-pro
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        if: runner.environment == 'github-hosted'
+        with:
+          toolchain: stable
+          components: clippy
+
+      # Only main saves the cache; PR runs restore main's. A PR's own cache is
+      # usable only by that PR, and saving one took up to 3 minutes and
+      # pushed main's cache out of the 10 GB limit. Not on the self-hosted
+      # runner: its build output persists (CARGO_TARGET_DIR, set by the
+      # tools check), and rust-cache would prune the owner's ~/.cargo.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The Tauri CLI, and the frontend that the compile step builds and
+      # embeds. The frontend's own lint and tests run on Linux (checks job).
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Test the backend
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      # Proves the app itself builds, with the frontend built (npm run build,
+      # via beforeBuildCommand) and embedded as in a release, without the
+      # slower optimized build or the installer.
+      - name: Compile the app
+        run: npm run tauri -- build --debug --no-bundle --ci -- --locked
+
+      # The two checks below run even if an earlier step failed, so one run
+      # reports test failures, stale bindings and lints together.
+
+      # src/bindings.ts is generated by tauri-specta and never hand-edited
+      # (CLAUDE.md). Regenerate it and fail if that changed anything in the
+      # tree, i.e. a Rust IPC change was committed without its bindings.
+      - name: Check the generated bindings are current
+        if: ${{ !cancelled() }}
+        working-directory: src-tauri
+        run: |
+          cargo run --locked --example export_bindings
+          if [ -n "$(git status --porcelain)" ]; then
+            echo '::error::Generated files are out of date. Run `cargo run --example export_bindings` in src-tauri and commit the result.'
+            git status --short
+            git diff
+            exit 1
+          fi
+
+      - name: Clippy
+        if: ${{ !cancelled() }}
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  fixture-gen:
+    name: Fixture generator (Windows)
+    # The dev-only fixture generator (tools/fixture-gen, never shipped). On
+    # Windows because what it proves is Windows-specific: it writes names a
+    # plain Windows path mishandles (trailing dots, NFD/NFC twins, case).
+    needs: changes
+    if: needs.changes.outputs.fixture_gen == 'true'
+    runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'windows-latest' }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 60 || 30 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Check the runner's tools (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: node .github/scripts/runner-tools.mjs rust clippy git --builds=fixture-gen
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        if: runner.environment == 'github-hosted'
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment == 'github-hosted'
+        with:
+          workspaces: tools/fixture-gen
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Its tests generate a small tree and check it. bash (the default
+      # shell), so a failing test stops the step.
+      - name: Test the fixture generator
+        working-directory: tools/fixture-gen
+        run: |
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+
+  rb-kit:
+    name: rekordbox check kit (Windows)
+    # spikes/rb-kit (the rekordbox behavior check): standard-library Python,
+    # which windows-latest ships (and the owner's PC has). On Windows because the kit builds and reads
+    # rekordbox's Windows Locations from real paths. Synthetic fixtures only;
+    # the tests that read the private spikes/results/ exports skip here
+    # (CLAUDE.md, "Tests are the review").
+    needs: changes
+    if: needs.changes.outputs.rb_kit == 'true'
+    runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'windows-latest' }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 20 || 10 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Check the runner's tools (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: node .github/scripts/runner-tools.mjs python
+
+      - name: Test the rekordbox check kit
+        run: python -m unittest discover -v -s spikes/rb-kit -p "test_*.py"
+
+  checks:
+    name: Frontend, formatting and migrations
+    # All read source only, so they run on the cheaper Linux runner (or the
+    # self-hosted Windows one). rustfmt formats every file whatever its cfg,
+    # so it checks the Windows code too.
+    needs: changes
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.fixture_gen == 'true'
+    runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 30 || 15 }}
+    env:
+      APP: ${{ needs.changes.outputs.app }}
+      FIXTURE_GEN: ${{ needs.changes.outputs.fixture_gen }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and branches, for the migration check's merge base.
+          fetch-depth: 0
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Check the runner's tools (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: node .github/scripts/runner-tools.mjs rust rustfmt node npm git
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        if: runner.environment == 'github-hosted'
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - name: cargo fmt --check
+        if: env.APP == 'true'
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: cargo fmt --check (fixture generator)
+        if: ${{ !cancelled() && env.FIXTURE_GEN == 'true' }}
+        working-directory: tools/fixture-gen
+        run: cargo fmt --check
+
+      # Compares a PR with its base branch, so it only means something on
+      # PRs. The Rust append-only test checks each migration against
+      # checksums.txt; this catches a PR that edits both
+      # (.github/scripts/migrations-append-only.mjs).
+      - name: Check the PR only adds migrations
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && env.APP == 'true' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node .github/scripts/migrations-append-only.mjs "origin/$BASE_REF"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        with:
+          node-version: 24
+          # The self-hosted runner keeps npm's own cache between runs.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
+
+      - name: Install npm packages
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        run: npm ci
+
+      # Includes the i18n types check and tsc. The Windows compile builds the
+      # frontend again, so a Windows-only build problem still shows there.
+      - name: Build the frontend
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        run: npm run build
+
+      - name: Lint the frontend
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        run: npm run lint
+
+      # One worker on the self-hosted runner: the owner's PC is often busy
+      # with parallel lanes, and vitest's workers time out under that load.
+      - name: Test the frontend
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        run: npm run test ${{ runner.environment == 'self-hosted' && '-- --maxWorkers=1' || '' }}
+
+  licenses:
+    name: Licenses and advisories
+    # The checks read lockfiles only, so they run on the cheaper Linux runner
+    # (or the self-hosted Windows one). deny.toml's [graph] targets list every
+    # platform, so the runner's own OS doesn't change what's checked.
+    needs: changes
+    if: needs.changes.outputs.app == 'true' || needs.changes.outputs.fixture_gen == 'true'
+    runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 30 || 15 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Check the runner's tools (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: node .github/scripts/runner-tools.mjs rust cargo-deny node
+
+      # Rust crates: licenses, security advisories, banned crates, sources (deny.toml).
+      # cargo-deny-action is a Docker action, which runs on Linux only; the
+      # self-hosted runner runs the owner's installed cargo-deny with the
+      # arguments the action passes (its log level included) instead. The
+      # tools check fails if that cargo-deny is older than the action's.
+      - name: cargo-deny
+        if: runner.environment == 'github-hosted'
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: src-tauri/Cargo.toml
+          arguments: --all-features --locked
+          command: check
+          command-arguments: advisories bans licenses sources
+
+      - name: cargo-deny (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: cargo deny --log-level warn --manifest-path src-tauri/Cargo.toml --all-features --locked check advisories bans licenses sources
+
+      # The dev-only fixture generator is its own package, so it's checked
+      # separately, against the same deny.toml.
+      - name: cargo-deny (fixture generator)
+        if: ${{ !cancelled() && runner.environment == 'github-hosted' }}
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: tools/fixture-gen/Cargo.toml
+          arguments: --all-features --locked
+          command: check
+          command-arguments: advisories bans licenses sources
+
+      - name: cargo-deny (fixture generator, self-hosted)
+        if: ${{ !cancelled() && runner.environment == 'self-hosted' }}
+        run: cargo deny --log-level warn --manifest-path tools/fixture-gen/Cargo.toml --all-features --locked check advisories bans licenses sources
+
+      # The npm checks run even if cargo-deny failed, so one run reports
+      # every license problem.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # npm packages: the same license allow list as deny.toml.
+      - name: npm licenses
+        if: ${{ !cancelled() }}
+        run: node .github/scripts/npm-licenses.mjs package-lock.json deny.toml
+
+  result:
+    name: CI result
+    # One pass or fail for the whole run: fails if any job failed or was
+    # cancelled; a job the changes didn't need counts as passed (skipped).
+    needs: [changes, windows, fixture-gen, rb-kit, checks, licenses]
+    if: ${{ !cancelled() }}
+    runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 15 || 5 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - name: Check the runner's tools (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: node .github/scripts/runner-tools.mjs node
+
+      # Also fails if a job the changes needed didn't pass (e.g. skipped), so
+      # the tested-tree marker below never claims a job that didn't pass
+      # (resultProblems in ci-changes.mjs). The runner's own Node is enough.
+      - name: Check every job passed, or was skipped because it wasn't needed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: node .github/scripts/ci-changes.mjs result
+
+      # A passing PR run into main marks the tree it tested and the jobs it
+      # ran, so the push to main that lands the same tree can skip testing it
+      # again (Changed paths job). PRs into other branches never mark: their
+      # base may hold untested code.
+      - name: Record the tested tree
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        env:
+          MARKER: ${{ needs.changes.outputs.marker }}
+        run: |
+          mkdir marker
+          printf '%s\nrun %s\nsha %s\n' "$MARKER" "$GITHUB_RUN_ID" "$GITHUB_SHA" > marker/tested-tree.txt
+
+      - name: Upload the tested-tree marker
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.changes.outputs.marker }}
+          path: marker/tested-tree.txt
+          retention-days: 7
+          if-no-files-found: error

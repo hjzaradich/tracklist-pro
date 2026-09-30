@@ -1,0 +1,22 @@
+# Dependabot keeps the GitHub Actions in .github/workflows current: it bumps
+# each pinned SHA and its version comment. Actions only; Cargo and npm
+# dependencies are updated by hand, so each change gets a license check and
+# a review. Weekly, in one grouped PR, so it doesn't flood the review queue
+# or spend Actions minutes on a CI run per action.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Skip releases younger than a week: a hijacked action is usually caught
+    # and pulled within days.
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "ci"

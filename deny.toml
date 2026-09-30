@@ -1,0 +1,114 @@
+# cargo-deny policy for src-tauri (ROADMAP §1.1): every
+# dependency must be GPL-3.0-compatible. CI runs `cargo deny check` on every
+# pull request; .github/scripts/npm-licenses.mjs applies the same allow list
+# to npm packages. spikes/ crates are out of scope.
+
+[graph]
+# Check the dependencies of every platform CI builds, not just the host's.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
+[advisories]
+# Known vulnerabilities and unsound code always fail the check; to accept
+# one, add its RUSTSEC ID to `ignore` with a reason.
+# Unmaintained crates fail only when we depend on them directly. Tauri's
+# Linux stack pulls in ones we can't replace (e.g. proc-macro-error,
+# RUSTSEC-2024-0370); a direct dependency we choose is on us.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[licenses]
+# GPL-3.0-compatible licenses, per the FSF's list
+# (https://www.gnu.org/licenses/license-list.html). An `A OR B` crate needs
+# one of them; `A AND B` needs both. Adding a license here is a legal
+# decision: check it against the FSF list first.
+# BlueOak-1.0.0 is a permissive, OSI-approved license (npm's lru-cache,
+# minimatch, glob) that the FSF hasn't reviewed; the owner approved it.
+allow = [
+    # Permissive
+    "0BSD",
+    "Apache-2.0",                     # GPL-3.0 only, not GPL-2.0
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BlueOak-1.0.0",                  # owner-approved; see note above
+    "BSL-1.0",
+    "CC-BY-4.0",                      # data and docs, e.g. npm's caniuse-lite
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Python-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+    # Weak copyleft
+    "MPL-2.0",                        # unless marked "Incompatible With Secondary Licenses"
+    "LGPL-2.1-only",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+    # Copyleft
+    "GPL-2.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+]
+# The list is the policy, not an inventory: allowed licenses no crate uses yet are fine.
+unused-allowed-license = "allow"
+confidence-threshold = 0.9
+
+# Crates that declare a deprecated SPDX id. "LGPL-3.0" is the old spelling of
+# "LGPL-3.0-only" (already allowed above), not a new license. Pinned to the
+# reviewed versions, so an update has to be looked at again. Used only by the
+# dev-only tools/fixture-gen and, as a Windows-only dev-dependency, by
+# src-tauri's fingerprint tests; never by the app.
+[[licenses.clarify]]
+crate = "mp3lame-encoder@0.2.5"
+expression = "LGPL-3.0-only"
+license-files = []
+
+[[licenses.clarify]]
+crate = "mp3lame-sys@0.1.11"
+expression = "LGPL-3.0-only"
+license-files = []
+
+[bans]
+# Tauri's tree has many duplicate crate versions we can't fix; don't report them.
+multiple-versions = "allow"
+# `version = "*"` dependencies make builds unreproducible.
+wildcards = "deny"
+allow-wildcard-paths = true
+# The network gate (ROADMAP 0.1): ureq is the app's one HTTP client, used
+# only by src-tauri/src/net (src-tauri/tests/net_gate.rs checks the source),
+# so no other crate may depend on it. No other HTTP client or raw-socket
+# crate may be in a desktop build at all. Tauri uses reqwest (and through
+# it hyper and socket2) only on Android and iOS, which is why they're in
+# Cargo.lock; these bans prove they stay off the platforms we build.
+deny = [
+    { crate = "ureq", wrappers = ["tracklist-pro"], reason = "only the net module may make HTTP calls" },
+    { crate = "reqwest", reason = "the net module's ureq is the only HTTP client" },
+    { crate = "hyper", reason = "the net module's ureq is the only HTTP client" },
+    { crate = "hyper-util", reason = "the net module's ureq is the only HTTP client" },
+    { crate = "socket2", reason = "only the net module may open sockets" },
+]
+
+# Tauri's async runtime, without its socket APIs (same reason as above).
+[[bans.features]]
+crate = "tokio"
+deny = ["net"]
+
+[[bans.features]]
+crate = "mio"
+deny = ["net"]
+
+[sources]
+# Only crates.io; no git or other registries.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

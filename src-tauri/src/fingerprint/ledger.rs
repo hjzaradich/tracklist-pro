@@ -1,0 +1,186 @@
+//! Which files are due a fingerprint, and what happened to each, kept in
+//! the shared `file_stage` table through [`crate::scan_state`].
+//!
+//! A present file is due when the fingerprint stage has no row for it, when
+//! its size or modified time differ from the row's, when the row is from
+//! another [`VERSION`], or when it was skipped last time (online-only, or
+//! couldn't be reached). A file whose content couldn't be fingerprinted
+//! keeps a NULL fingerprint and a failed row with its reason, and isn't
+//! tried again until it changes.
+//!
+//! Each result is written with its `file_stage` row in one transaction,
+//! and only while the `file` row still has the size and modified time the
+//! job read: if a walk changed it meanwhile, nothing is written and the
+//! file stays due.
+
+use rusqlite::{params, Connection, OptionalExtension};
+
+use super::decode::Unfingerprintable;
+use super::stored::VERSION;
+use crate::scan::MusicFolderId;
+use crate::scan_state::{self, DueFile, Recorded, Scope, Stage};
+
+/// How many due files are listed per query.
+const PAGE: usize = 1000;
+
+/// The stage version stored in `file_stage`.
+fn version() -> i64 {
+    i64::from(VERSION)
+}
+
+/// A file due a fingerprint, as its row says now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Due {
+    pub id: i64,
+    pub folder: MusicFolderId,
+    pub rel_path: String,
+    pub size: Option<i64>,
+    /// Nanoseconds since the Unix epoch.
+    pub mtime: Option<i64>,
+    /// The walk found it online only (a OneDrive placeholder).
+    pub online_only: bool,
+}
+
+impl From<DueFile> for Due {
+    fn from(f: DueFile) -> Due {
+        Due {
+            id: f.id,
+            folder: MusicFolderId(f.music_folder_id),
+            rel_path: f.rel_path,
+            size: f.size,
+            mtime: f.mtime,
+            online_only: f.online_only,
+        }
+    }
+}
+
+impl Due {
+    fn recorded(&self, outcome: scan_state::Outcome) -> Recorded {
+        Recorded {
+            file: self.id,
+            size: self.size,
+            mtime: self.mtime,
+            outcome,
+        }
+    }
+}
+
+/// How the last try at a file ended, as `file_stage` holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    Done,
+    /// Its content can't be fingerprinted.
+    Failed(Unfingerprintable),
+    /// Not tried, with the reason: e.g. [`scan_state::ONLINE_ONLY`] or
+    /// [`scan_state::UNREACHABLE`]. Due again on the next run.
+    Skipped(String),
+}
+
+/// The ids of every present file that's due, or of those among `only`,
+/// lowest first. One pass, page by page: skipped files stay due, so it
+/// never starts over.
+pub(crate) fn due_ids(conn: &Connection, only: Option<&[i64]>) -> rusqlite::Result<Vec<i64>> {
+    let scope = match only {
+        Some(ids) => Scope::Files(ids.to_vec()),
+        None => Scope::All,
+    };
+    let mut ids = Vec::new();
+    let mut after = 0;
+    loop {
+        let page = scan_state::due(conn, Stage::Fingerprint, version(), &scope, after, PAGE)?;
+        let Some(last) = page.last() else {
+            return Ok(ids);
+        };
+        after = last.id;
+        ids.extend(page.iter().map(|f| f.id));
+    }
+}
+
+/// File `id` as it stands now, if it's present and due.
+pub(crate) fn due(conn: &Connection, id: i64) -> rusqlite::Result<Option<Due>> {
+    let scope = Scope::Files(vec![id]);
+    let page = scan_state::due(conn, Stage::Fingerprint, version(), &scope, 0, 1)?;
+    Ok(page.into_iter().next().map(Due::from))
+}
+
+/// Stores `blob` as the file's fingerprint and records it done, unless its
+/// row changed since `due` was read. Returns whether it was stored.
+pub(crate) fn done(conn: &mut Connection, due: &Due, blob: &[u8]) -> rusqlite::Result<bool> {
+    write(conn, due, Some(blob), scan_state::Outcome::Done)
+}
+
+/// Records that the file's content can't be fingerprinted: its fingerprint
+/// is NULL (an older version's is cleared) and `why` is kept.
+pub(crate) fn failed(
+    conn: &mut Connection,
+    due: &Due,
+    why: Unfingerprintable,
+) -> rusqlite::Result<()> {
+    write(conn, due, None, scan_state::Outcome::Failed(why.reason())).map(|_| ())
+}
+
+/// Records that the file wasn't tried, e.g. [`scan_state::Outcome::unreachable`].
+/// Its fingerprint is left as it is.
+pub(crate) fn skipped(
+    conn: &mut Connection,
+    due: &Due,
+    outcome: scan_state::Outcome,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    if row_unchanged(&tx, due)? {
+        scan_state::record(&tx, Stage::Fingerprint, version(), &[due.recorded(outcome)])?;
+    }
+    tx.commit()
+}
+
+/// How the last try at file `id` ended, if it's been tried.
+pub fn outcome(conn: &Connection, id: i64) -> rusqlite::Result<Option<Outcome>> {
+    let row: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT status, reason FROM file_stage WHERE file_id = ?1 AND stage = ?2",
+            params![id, Stage::Fingerprint.as_str()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    Ok(row.map(|(status, reason)| {
+        let reason = reason.unwrap_or_default();
+        match status.as_str() {
+            "done" => Outcome::Done,
+            "failed" => {
+                Unfingerprintable::parse(&reason).map_or(Outcome::Skipped(reason), Outcome::Failed)
+            }
+            _ => Outcome::Skipped(reason),
+        }
+    }))
+}
+
+/// Whether file `due.id` is present with the size and mtime `due` read.
+fn row_unchanged(conn: &Connection, due: &Due) -> rusqlite::Result<bool> {
+    conn.prepare_cached(
+        "SELECT EXISTS (SELECT 1 FROM file
+                        WHERE id = ?1 AND present = 1 AND size IS ?2 AND mtime IS ?3)",
+    )?
+    .query_row(params![due.id, due.size, due.mtime], |r| r.get(0))
+}
+
+/// Sets the fingerprint and records `outcome`, in one transaction, only if
+/// the row is unchanged.
+fn write(
+    conn: &mut Connection,
+    due: &Due,
+    blob: Option<&[u8]>,
+    outcome: scan_state::Outcome,
+) -> rusqlite::Result<bool> {
+    let tx = conn.transaction()?;
+    let changed = tx
+        .prepare_cached(
+            "UPDATE file SET fingerprint = ?2
+             WHERE id = ?1 AND present = 1 AND size IS ?3 AND mtime IS ?4",
+        )?
+        .execute(params![due.id, blob, due.size, due.mtime])?;
+    if changed == 1 {
+        scan_state::record(&tx, Stage::Fingerprint, version(), &[due.recorded(outcome)])?;
+    }
+    tx.commit()?;
+    Ok(changed == 1)
+}

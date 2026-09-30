@@ -1,0 +1,16 @@
+.suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.reasons {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* The audio model's opinion reads as a softer aside than the facts. */
+.audioModel {
+  font-style: italic;
+}

@@ -1,0 +1,9 @@
+{
+  "busy": "The Library is busy. Try again in a moment.",
+  "diskFull": "Disk full. Free up some space and try again.",
+  "cannotWrite": "Can't save to the app's data folder (it may be read-only). Restart the app.",
+  "damaged": "The Library's database is damaged. Restart the app.",
+  "database": "Couldn't read or save the Library. Try again.",
+  "stopped": "The Library has stopped. Restart the app.",
+  "internal": "Something went wrong. Try again or restart the app."
+}

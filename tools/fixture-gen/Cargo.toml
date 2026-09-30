@@ -1,0 +1,30 @@
+[package]
+name = "fixture-gen"
+version = "0.1.0"
+description = "Dev-only: writes a synthetic music folder with ground truth, for tests and performance runs. Never ships in the app."
+license = "GPL-3.0-or-later"
+edition = "2021"
+publish = false
+
+# A standalone package, not part of src-tauri: the app never depends on it,
+# so nothing here reaches a release build. CI runs its tests and checks its
+# licenses separately (.github/workflows/ci-windows.yml).
+
+[dependencies]
+# LAME 3.100, built from source. LGPL, which GPL-3.0 allows.
+mp3lame-encoder = "0.2.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# An independent decoder, so the tests don't trust the generator's own encoders.
+symphonia = { version = "0.6.1", default-features = false, features = ["mp3", "flac", "pcm", "wav", "aiff", "isomp4", "alac", "all-meta"] }
+tempfile = "3"
+
+# The tests generate whole trees; unoptimized synthesis and LAME make that
+# many times slower.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3

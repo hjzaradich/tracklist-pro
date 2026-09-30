@@ -1,0 +1,38 @@
+# Build output
+target/
+node_modules/
+dist/
+src-tauri/gen/schemas/
+__pycache__/
+.venv/
+*.pyc
+
+# Never commit music or rekordbox data (copyright + privacy)
+*.mp3
+*.wav
+*.aif
+*.aiff
+*.flac
+*.m4a
+*.aac
+*.alac
+*.ogg
+*.opus
+master.db
+*.db
+*.db-wal
+*.db-shm
+export.pdb
+*.edb
+
+# Spike data holds the author's paths, library and play history. Only the clean write-ups are kept.
+spikes/results/*
+!spikes/results/e3-summary.md
+!spikes/results/ml-models-research.md
+spikes/e3/pairs.csv
+spikes/rb-kit/manifest.json
+spikes/rb-kit/*.xml
+
+# Old roadmap drafts, review notes and private docs (contain personal paths and library details)
+archive/
+private/

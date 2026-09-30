@@ -1,0 +1,9 @@
+{
+  "notAFolder": "Folder not found ({{path}})",
+  "badPath": "Can't use this location ({{path}})",
+  "alreadyAdded": "Already a music folder ({{path}})",
+  "insideMusicFolder": "Already inside a music folder ({{musicFolder}})",
+  "containsMusicFolder": "Contains a music folder ({{musicFolder}})",
+  "notFound": "Music folder not found",
+  "inUse": "Can't remove: tracks use files in this folder"
+}

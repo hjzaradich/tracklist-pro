@@ -1,0 +1,14 @@
+{
+  "empty": "No music folders",
+  "offline": "Drive not connected",
+  "offlineNamed": "Drive not connected ({{label}})",
+  "notScanned": "Not scanned yet",
+  "unreadableFolders_one": "{{count}} folder couldn't be read",
+  "unreadableFolders_other": "{{count}} folders couldn't be read",
+  "unreadableFiles_one": "{{count}} file couldn't be read",
+  "unreadableFiles_other": "{{count}} files couldn't be read",
+  "onlineOnly_one": "{{count}} file online only (not downloaded)",
+  "onlineOnly_other": "{{count}} files online only (not downloaded)",
+  "readOnlineOnly": "Read online-only files",
+  "readOnlineOnlyHelp": "OneDrive downloads every file the app reads. When off, online-only files are listed but not read."
+}

@@ -1,0 +1,30 @@
+{
+  "title": "rekordbox collection",
+  "howTo": "In rekordbox, choose File > Export Collection in xml format, then pick the file here.",
+  "noneChosen": "No rekordbox export chosen",
+  "choose": "Choose export",
+  "chooseAnother": "Choose another export",
+  "readAgain": "Read again",
+  "reading": "Reading the export",
+  "fileFilter": "rekordbox export",
+  "lastRead_one": "Read {{when}} ({{count, number}} track)",
+  "lastRead_other": "Read {{when}} ({{count, number}} tracks)",
+  "neverRead": "Not read yet",
+  "incomplete": "Incomplete export (missing tracks were kept)",
+  "notStored_one": "{{count, number}} track couldn't be read",
+  "notStored_other": "{{count, number}} tracks couldn't be read",
+  "watch": "Watch for new exports (Documents)",
+  "newer": "Newer export found ({{name}})",
+  "readNewer": "Read",
+  "failed": {
+    "notFound": "Export not found ({{path}})",
+    "cantRead": "Can't open the export ({{path}})",
+    "damaged": "The export is cut off or damaged. Export it again from rekordbox.",
+    "notAnExport": "Not a rekordbox collection export ({{path}})"
+  },
+  "error": {
+    "notFound": "Export not found ({{path}})",
+    "notAnExport": "Not a rekordbox collection export ({{path}})",
+    "noneChosen": "No rekordbox export chosen"
+  }
+}

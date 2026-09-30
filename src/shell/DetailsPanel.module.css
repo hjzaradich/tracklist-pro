@@ -1,0 +1,16 @@
+.details {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-text-disabled);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}

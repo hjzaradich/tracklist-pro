@@ -1,0 +1,92 @@
+# macOS and Linux are built but not supported (ROADMAP §1.1): this keeps the
+# code portable. It runs the build plus the platform-neutral tests (tests
+# that need Windows are `#[cfg(windows)]`), and clippy on Linux. macOS
+# minutes are billed at 10x on a private repo, and one run cost more than a
+# whole Windows run, so this runs weekly on main and by hand (Actions tab >
+# CI (macOS, Linux) > Run workflow, e.g. before a PR that touches
+# `cfg(not(windows))` code merges), not on PRs or every push (0E-13).
+name: CI (macOS, Linux)
+
+on:
+  schedule:
+    - cron: "47 6 * * 1"
+  workflow_dispatch:
+
+# One group per commit, never cancelled, so a manual run never cancels the
+# weekly one (GitHub keeps only one pending run per group). This workflow
+# has no PR trigger; the PR condition keeps it in step with CI (Windows) if
+# one is added.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No job pushes, so don't leave the token in .git/config.
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+
+      # The system libraries Tauri needs on Linux (webview, tray, icons).
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Build the frontend
+        run: npm run build
+
+      - name: Lint the frontend
+        run: npm run lint
+
+      - name: Test the frontend
+        run: npm run test
+
+      - name: Test the backend (platform-neutral)
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Compile the app
+        run: npm run tauri -- build --debug --no-bundle --ci -- --locked
+
+      # Lints the non-Windows code paths (`#[cfg(not(windows))]`), which the
+      # Windows clippy step can't see. Linux only: no code is macOS-specific
+      # yet, and macOS minutes cost far more.
+      - name: Clippy (non-Windows code)
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
