@@ -77,8 +77,8 @@ Six lanes, all at once (started 2026-09-29, while 1aA-16 finished). Each scan-st
 
 ### Stage 1aC: Tracks and first relink steps
 - **Lane 1:** ✅ 1aC-1 Unchanged check (size, mtime, file-id) + partial hash on mtime-only changes (the 1aA-4 walker overwrites size/mtime/file_id in place, so compare inside the walker before its upsert)
-- **Lane 2:** 1aC-2 Provisional grouping: one file → one track, except exact `audio_hash` matches (replaced in 1b)
-- **Lane 3, relink:** 1aC-3 Step 1: path still valid → 1aC-4 Step 2: filename + duration (±0.5 s) → 1aC-5 Step 3: unique duration within the candidate set
+- **Lane 2:** ✅ 1aC-2 Provisional grouping: one file → one track, except exact `audio_hash` matches (replaced in 1b)
+- **Lane 3, relink:** ✅ 1aC-3 Step 1: path still valid → ✅ 1aC-4 Step 2: filename + duration (±0.5 s) → ✅ 1aC-5 Step 3: unique duration within the candidate set
 - **Lane 4:** ✅ 1aC-8 Chain the scan stages: after a walk, queue stage 2 (tags, properties), then stage 3 (hashes, fingerprint) for new or changed files; also decide whether a drive coming back queues a scan of its folders (1aB-9 only refreshes the volume rows); don't loop on `scan_state::count_due`, which never reaches 0 while online-only files are skipped → ✅ 1aC-6 Per-root watcher toggle (`notify`) → incremental re-scan
 - **Lane 5:** 1aC-7 Performance check: stages 1–2 on the 100k fixture meet the 1.1 target
 - **Lane 6:** ✅ 1aC-9 Make timing-sensitive tests robust on a busy PC (lanes and the self-hosted runner share one laptop): `net::tests::musicbrainz_requests_reach_the_server_at_least_a_second_apart` and `a_request_held_up_after_its_turn…` fail now and then under load; `src/i18n/noRawJsxStrings.test.ts` ("flags plain text children") times out on ESLint's cold start. Keep what each test proves; remove the dependence on wall-clock speed
