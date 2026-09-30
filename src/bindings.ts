@@ -250,6 +250,8 @@ export type JobKind =
 "hash" | 
 /**  Acoustic fingerprint (1.4). */
 "fingerprint" | 
+/**  Put files into tracks (provisional, 1bC-1 replaces the rule). */
+"group" | 
 /**  Estimate BPM, key and energy (3.7). */
 "analyze" | 
 /**  Run the audio model (3.8). */

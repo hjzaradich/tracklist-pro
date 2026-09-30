@@ -4,6 +4,7 @@ use tauri::{Builder, Manager, RunEvent, Runtime};
 
 pub mod db;
 pub mod fingerprint;
+pub mod grouping;
 pub mod hash;
 pub mod ipc;
 pub mod jobs;

@@ -6,6 +6,7 @@
     "read": "Reading tags",
     "hash": "Checking files",
     "fingerprint": "Fingerprinting files",
+    "group": "Grouping duplicate files",
     "analyze": "Estimating BPM and key",
     "embed": "Running the audio model",
     "convert": "Converting files",
