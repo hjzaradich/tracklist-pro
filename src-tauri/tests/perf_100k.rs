@@ -35,7 +35,9 @@
 //! (file ids, the database, batching); the stage-2 time above the second is
 //! parsing.
 //!
-//! **`a_thousand_files_go_through_the_chain`** is the smoke test that runs
+//! **`stage_2_parts_per_format`** (also ignored) times the sniff and the
+//! tag read on their own over a sample of each format, to place stage 2's
+//! time. **`a_thousand_files_go_through_the_chain`** is the smoke test that runs
 //! in CI: the same harness on 1,000 tiny WAVs, checking the results rather
 //! than the times, so the benchmark can't rot.
 //!
@@ -616,6 +618,66 @@ fn a_thousand_files_go_through_the_chain() {
     );
     assert!(report.peak_working_set >= report.baseline_working_set);
     assert!(report.db_bytes > 0);
+}
+
+/// Where stage 2's time goes, by format, on a warm cache: the two public
+/// parts of one file read (the sniff, and lofty's tags and properties)
+/// timed on their own over a sample of each format under `TLP_PERF_ROOT`.
+/// The rest of a read (codec headers, the second open, the database) is
+/// what `hundred_thousand_files` reports above these. Seconds, not
+/// minutes; it needs only the tree.
+#[test]
+#[ignore = "needs TLP_PERF_ROOT; see the module docs"]
+fn stage_2_parts_per_format() {
+    const SAMPLE: usize = 300;
+    let root = PathBuf::from(std::env::var_os(ROOT_VAR).expect("TLP_PERF_ROOT names the tree"));
+    let mut by_ext: std::collections::BTreeMap<String, Vec<PathBuf>> = Default::default();
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if is_indexed(&entry.file_name().to_string_lossy()) {
+                let ext = path
+                    .extension()
+                    .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                    .unwrap_or_default();
+                let files = by_ext.entry(ext).or_default();
+                if files.len() < SAMPLE {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    println!();
+    println!("stage 2 parts on a warm cache, up to {SAMPLE} files per format:");
+    for (ext, files) in &by_ext {
+        // Warm the cache for these files first, so both parts see the same.
+        for path in files {
+            let _ = fs::read(path);
+        }
+        let sniff = timed(|| {
+            for path in files {
+                let _ = tracklist_pro_lib::sniff::sniff_path(path);
+            }
+        });
+        let tags = timed(|| {
+            for path in files {
+                let _ = tracklist_pro_lib::tags::read(path);
+            }
+        });
+        println!(
+            "  .{ext:<5} {:>4} files   sniff {}   tags + properties {}",
+            files.len(),
+            per_file(sniff, files.len()),
+            per_file(tags, files.len())
+        );
+    }
+    println!();
 }
 
 /// The benchmark. See the module docs.
