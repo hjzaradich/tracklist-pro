@@ -2,6 +2,8 @@
 //! Tests for music folders and the walk.
 
 #[cfg(windows)]
+mod chain;
+#[cfg(windows)]
 mod file_id;
 mod folders;
 #[cfg(windows)]
@@ -19,3 +21,5 @@ mod vanished;
 mod volumes;
 #[cfg(windows)]
 mod walk;
+#[cfg(windows)]
+mod watch;

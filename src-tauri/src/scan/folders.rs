@@ -516,7 +516,11 @@ pub async fn add_music_folder(
 #[specta::specta]
 pub async fn remove_music_folder(
     writer: State<'_, Writer>,
+    watchers: State<'_, super::Watchers>,
     id: MusicFolderId,
 ) -> Result<(), IpcError> {
-    Ok(writer.call(move |conn| remove(conn, id))??)
+    writer.call(move |conn| remove(conn, id))??;
+    // Its watcher, if it had one, stops (1aC-6).
+    watchers.refresh();
+    Ok(())
 }

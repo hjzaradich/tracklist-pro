@@ -14,6 +14,15 @@
 //! telling the frontend) runs once per burst of messages (one per
 //! partition, arrival then letter assignment), when the burst has been
 //! quiet for [`SETTLE`], or at the latest [`SETTLE_AT_MOST`] after it began.
+//!
+//! **Ejecting** (1aC-6): a folder watcher holds a handle on its root, and
+//! an open handle makes Windows refuse "Eject" with "device in use". So a
+//! watcher registers each root's handle with its window
+//! ([`DeviceWatch::register_directory`], `DBT_DEVTYP_HANDLE`), and the
+//! window hears the standard handle messages: `DBT_DEVICEQUERYREMOVE`
+//! (close the handles now, then say yes), `DBT_DEVICEQUERYREMOVEFAILED`
+//! (something else refused: open them again). The removal itself arrives
+//! as the volume message above.
 
 use std::cell::RefCell;
 use std::io;
@@ -23,14 +32,24 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use std::os::windows::ffi::OsStrExt;
+use std::path::Path;
+
 use windows_sys::Win32::Foundation::{
-    GetLastError, ERROR_CLASS_ALREADY_EXISTS, HWND, LPARAM, LRESULT, WPARAM,
+    CloseHandle, GetLastError, ERROR_CLASS_ALREADY_EXISTS, HANDLE, HWND, INVALID_HANDLE_VALUE,
+    LPARAM, LRESULT, WPARAM,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    OPEN_EXISTING,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, RegisterClassW,
-    DBT_DEVICEARRIVAL, DBT_DEVICEREMOVECOMPLETE, DBT_DEVTYP_VOLUME, DEV_BROADCAST_HDR, MSG,
-    WM_DEVICECHANGE, WNDCLASSW,
+    RegisterDeviceNotificationW, UnregisterDeviceNotification, BROADCAST_QUERY_DENY,
+    DBT_DEVICEARRIVAL, DBT_DEVICEQUERYREMOVE, DBT_DEVICEQUERYREMOVEFAILED,
+    DBT_DEVICEREMOVECOMPLETE, DBT_DEVTYP_HANDLE, DBT_DEVTYP_VOLUME, DEVICE_NOTIFY_WINDOW_HANDLE,
+    DEV_BROADCAST_HANDLE, DEV_BROADCAST_HDR, HDEVNOTIFY, MSG, WM_DEVICECHANGE, WNDCLASSW,
 };
 
 /// How long the messages must stop before `on_settled` runs.
@@ -61,8 +80,168 @@ struct Heard {
     settle: mpsc::Sender<()>,
 }
 
+/// What a window does with the messages for the handles registered on it
+/// (see the module docs). Both run on the window's thread, and Windows
+/// waits for the answer, so be quick and never wait on the window.
+pub trait HandleEvents: Send + 'static {
+    /// Windows asks whether the device behind `registration`
+    /// ([`HandleRegistration::id`]) may be removed. Close the handles on
+    /// it first, then return true; false refuses the removal.
+    fn query_remove(&self, registration: isize) -> bool;
+    /// The removal was refused (by someone else): the device stays, so
+    /// open the handles again.
+    fn remove_failed(&self, registration: isize);
+}
+
 thread_local! {
     static HEARD: RefCell<Option<Heard>> = const { RefCell::new(None) };
+    static HANDLES: RefCell<Option<Box<dyn HandleEvents>>> = const { RefCell::new(None) };
+}
+
+/// Starts a window that hears only the handle messages for the handles
+/// registered on it ([`DeviceWatch::register_directory`]).
+pub fn watch_handles(events: impl HandleEvents) -> io::Result<DeviceWatch> {
+    let (made, window) = mpsc::channel();
+    thread::Builder::new()
+        .name("device-handles".into())
+        .spawn(move || {
+            HANDLES.with(|h| *h.borrow_mut() = Some(Box::new(events)));
+            let window = hidden_window().map(|w| w as isize);
+            let ok = window.is_ok();
+            let _ = made.send(window);
+            if ok {
+                pump();
+            }
+        })?;
+    let window = window
+        .recv()
+        .map_err(|_| io::Error::other("the device watch thread stopped"))??;
+    Ok(DeviceWatch { window })
+}
+
+impl DeviceWatch {
+    /// Registers the folder at `path` (a `\\?\` path) with this window:
+    /// the returned registration holds a handle on it (access 0: a
+    /// query-only handle that reads nothing, but does count as "in use"
+    /// for an eject), and the window hears when Windows wants it closed.
+    pub fn register_directory(&self, path: &Path) -> io::Result<HandleRegistration> {
+        let mut registration = HandleRegistration {
+            window: self.window,
+            handle: 0,
+            notify: 0,
+        };
+        registration.open(path)?;
+        let filter = DEV_BROADCAST_HANDLE {
+            dbch_size: std::mem::size_of::<DEV_BROADCAST_HANDLE>() as u32,
+            dbch_devicetype: DBT_DEVTYP_HANDLE,
+            dbch_handle: registration.handle as HANDLE,
+            ..Default::default()
+        };
+        let notify = unsafe {
+            RegisterDeviceNotificationW(
+                self.window as HWND,
+                &filter as *const DEV_BROADCAST_HANDLE as *const _,
+                DEVICE_NOTIFY_WINDOW_HANDLE,
+            )
+        };
+        if notify.is_null() {
+            let e = io::Error::last_os_error();
+            registration.close();
+            return Err(e);
+        }
+        registration.notify = notify as isize;
+        Ok(registration)
+    }
+}
+
+/// A folder handle registered with a window for removal messages. Dropping
+/// it closes the handle and ends the registration.
+#[derive(Debug)]
+pub struct HandleRegistration {
+    window: isize,
+    /// The open handle, or 0 while closed for an eject.
+    handle: isize,
+    notify: isize,
+}
+
+impl HandleRegistration {
+    /// What the window's messages name this registration by.
+    pub fn id(&self) -> isize {
+        self.notify
+    }
+
+    /// Whether the handle is open right now.
+    pub fn is_open(&self) -> bool {
+        self.handle != 0
+    }
+
+    /// Closes the handle, so the device can go. The registration stays,
+    /// so the window still hears whether the removal failed.
+    pub fn close(&mut self) {
+        if self.handle != 0 {
+            unsafe { CloseHandle(self.handle as HANDLE) };
+            self.handle = 0;
+        }
+    }
+
+    /// Opens the handle again (after a refused removal).
+    pub fn reopen(&mut self, path: &Path) -> io::Result<()> {
+        if self.handle == 0 {
+            self.open(path)?;
+        }
+        Ok(())
+    }
+
+    fn open(&mut self, path: &Path) -> io::Result<()> {
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(iter::once(0))
+            .collect();
+        // Access 0: the handle can neither read nor write, only be asked
+        // about. Every sharing mode, so nothing else is held up.
+        let handle = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        self.handle = handle as isize;
+        Ok(())
+    }
+}
+
+impl Drop for HandleRegistration {
+    fn drop(&mut self) {
+        let _ = self.window;
+        if self.notify != 0 {
+            unsafe { UnregisterDeviceNotification(self.notify as HDEVNOTIFY) };
+        }
+        self.close();
+    }
+}
+
+/// The handle messages: which one, for which registration.
+fn handle_message(event: WPARAM, header: Option<&DEV_BROADCAST_HDR>) -> Option<(u32, isize)> {
+    let event = event as u32;
+    if event != DBT_DEVICEQUERYREMOVE && event != DBT_DEVICEQUERYREMOVEFAILED {
+        return None;
+    }
+    let header = header?;
+    if header.dbch_devicetype != DBT_DEVTYP_HANDLE {
+        return None;
+    }
+    // The header is the first part of a `DEV_BROADCAST_HANDLE`.
+    let handle = unsafe { &*(header as *const DEV_BROADCAST_HDR as *const DEV_BROADCAST_HANDLE) };
+    Some((event, handle.dbch_hdevnotify as isize))
 }
 
 /// Starts watching. For every volume arrival or removal, `on_each` runs at
@@ -166,7 +345,20 @@ unsafe extern "system" fn window_proc(
                 }
             });
         }
-        // TRUE: nothing here refuses a device change.
+        if let Some((event, registration)) = handle_message(wparam, header) {
+            let allowed = HANDLES.with(|h| match h.borrow().as_ref() {
+                Some(events) if event == DBT_DEVICEQUERYREMOVE => events.query_remove(registration),
+                Some(events) => {
+                    events.remove_failed(registration);
+                    true
+                }
+                None => true,
+            });
+            if !allowed {
+                return BROADCAST_QUERY_DENY as LRESULT;
+            }
+        }
+        // TRUE: nothing else here refuses a device change.
         return 1;
     }
     DefWindowProcW(window, message, wparam, lparam)

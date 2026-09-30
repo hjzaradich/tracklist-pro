@@ -78,6 +78,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::scan::folders::add_music_folder,
             crate::scan::folders::remove_music_folder,
             crate::scan::scan_music_folders,
+            crate::scan::watch::set_music_folder_watch,
             crate::rekordbox::source::rekordbox_xml_source,
             crate::rekordbox::source::read_rekordbox_xml,
             crate::rekordbox::source::set_rekordbox_xml_watch,

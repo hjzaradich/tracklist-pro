@@ -7,6 +7,7 @@
 //! Everything here only reads the music folders. The only writes go to the
 //! database, through the [`crate::db::Writer`].
 
+pub mod chain;
 #[cfg(windows)]
 mod file_id;
 pub mod folders;
@@ -14,11 +15,13 @@ pub mod online_only;
 mod unchanged;
 pub mod volumes;
 pub mod walk;
+pub mod watch;
 
 pub use folders::{MusicFolder, MusicFolderError, MusicFolderId, MusicFolderRole};
 pub use online_only::ReadGate;
 pub use volumes::VolumesChanged;
 pub use walk::{scan_job, ScannedFile, ScannedFiles, Walker};
+pub use watch::Watchers;
 
 use std::path::Path;
 

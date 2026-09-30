@@ -51,8 +51,9 @@ fn resolve_data_dir<R: Runtime, M: Manager<R>>(
 /// Creates the app data folder through the write guard, opens the
 /// database's one writer connection there, and hands both to Tauri's state,
 /// where commands reach them as `State<WriteGuard>` and `State<db::Writer>`,
-/// starts the job queue (`State<jobs::JobQueue>`), then opens the window,
-/// kept on the app's own pages (`net::navigation`).
+/// starts the job queue (`State<jobs::JobQueue>`) and the music folder
+/// watchers (`State<scan::Watchers>`), then opens the window, kept on the
+/// app's own pages (`net::navigation`).
 fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
     let specta = ipc::specta_builder::<R>();
     builder
@@ -66,6 +67,7 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             app.manage(db::ReadPool::open(writer.guarded_path())?);
             scan::volumes::start(app.handle(), &writer);
             app.manage(jobs::start(app.handle(), writer.clone())?);
+            app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);
             app.manage(guard);
             app.manage(rekordbox::source::ExportFolder::new(
@@ -84,10 +86,14 @@ pub fn run() {
 }
 
 /// Handles the app's lifecycle events. On exit (the process ends right
-/// after, without dropping Tauri's state) it stops the job queue, so
-/// running jobs go back in the queue for the next launch.
+/// after, without dropping Tauri's state) it stops the music folder
+/// watchers, so no burst queues a scan behind the queue's back, then the
+/// job queue, so running jobs go back in the queue for the next launch.
 fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
     if let RunEvent::Exit = event {
+        if let Some(watchers) = app.try_state::<scan::Watchers>() {
+            watchers.shutdown();
+        }
         if let Some(jobs) = app.try_state::<jobs::JobQueue>() {
             jobs.shutdown();
         }
