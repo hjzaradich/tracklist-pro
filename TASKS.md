@@ -79,25 +79,25 @@ Six lanes, all at once (started 2026-09-29, while 1aA-16 finished). Each scan-st
 - **Lane 1:** ✅ 1aC-1 Unchanged check (size, mtime, file-id) + partial hash on mtime-only changes (the 1aA-4 walker overwrites size/mtime/file_id in place, so compare inside the walker before its upsert)
 - **Lane 2:** 1aC-2 Provisional grouping: one file → one track, except exact `audio_hash` matches (replaced in 1b)
 - **Lane 3, relink:** 1aC-3 Step 1: path still valid → 1aC-4 Step 2: filename + duration (±0.5 s) → 1aC-5 Step 3: unique duration within the candidate set
-- **Lane 4:** 1aC-8 Chain the scan stages: after a walk, queue stage 2 (tags, properties), then stage 3 (hashes, fingerprint) for new or changed files; also decide whether a drive coming back queues a scan of its folders (1aB-9 only refreshes the volume rows); don't loop on `scan_state::count_due`, which never reaches 0 while online-only files are skipped → 1aC-6 Per-root watcher toggle (`notify`) → incremental re-scan
+- **Lane 4:** ✅ 1aC-8 Chain the scan stages: after a walk, queue stage 2 (tags, properties), then stage 3 (hashes, fingerprint) for new or changed files; also decide whether a drive coming back queues a scan of its folders (1aB-9 only refreshes the volume rows); don't loop on `scan_state::count_due`, which never reaches 0 while online-only files are skipped → ✅ 1aC-6 Per-root watcher toggle (`notify`) → incremental re-scan
 - **Lane 5:** 1aC-7 Performance check: stages 1–2 on the 100k fixture meet the 1.1 target
 - **Lane 6:** ✅ 1aC-9 Make timing-sensitive tests robust on a busy PC (lanes and the self-hosted runner share one laptop): `net::tests::musicbrainz_requests_reach_the_server_at_least_a_second_apart` and `a_request_held_up_after_its_turn…` fail now and then under load; `src/i18n/noRawJsxStrings.test.ts` ("flags plain text children") times out on ESLint's cold start. Keep what each test proves; remove the dependence on wall-clock speed
-- **Lane 5, second PR:** 1aC-11 Frontend tests robust under load: no elapsed-time assertions (count work instead), one global vitest timeout of 20 s, fake timers where real ones are waited on. CI on the shared laptop failed 7 unrelated tests in XmlSourcePanel, activityStore, AppShell and one more file (run 36663347701)
-- **Follow-up (after lanes 1 and 4 merge):** 1aC-10 The fingerprint stage skips re-decoding a file whose `audio_hash` is unchanged since it was fingerprinted. rekordbox writes tags, which changes size, mtime and the partial hash but not the audio (§5.1), so 1aC-1 alone would still re-fingerprint those files
+- **Lane 5, second PR:** ✅ 1aC-11 Frontend tests robust under load: no elapsed-time assertions (count work instead), one global vitest timeout of 20 s, fake timers where real ones are waited on. CI on the shared laptop failed 7 unrelated tests in XmlSourcePanel, activityStore, AppShell and one more file (run 36663347701)
+- **Follow-up (after lanes 1 and 4 merge):** ✅ 1aC-10 The fingerprint stage skips re-decoding a file whose `audio_hash` is unchanged since it was fingerprinted. rekordbox writes tags, which changes size, mtime and the partial hash but not the audio (§5.1), so 1aC-1 alone would still re-fingerprint those files
 
-### Stage 1aP: Go public
+### Stage 1aP: Go public ✅ (published 2026-09-30)
 Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public repos get GitHub's runners free. Decided by the owner the same day:
 - A **fresh public repo** with one clean starting commit. This repo is renamed `tracklist-pro-archive` and stays private, with the full history, PRs, reviews and CI logs; GitHub keeps old PR pages and their code even after a history rewrite.
 - The legal notes and private research notes stay private. The public repo gets a short NOTICE instead.
 
 - **Lane 1, cleanup** (docs only; runs alongside 1aC):
-  - 1aP-1 Scrub every tracked file for publication:
+  - ✅ 1aP-1 Scrub every tracked file for publication:
     - library details (folder names, track counts) and personal paths;
     - private notes and research that aren't meant for publication;
     - links to untracked private files.
 
     Move the legal notes to the private side and add `NOTICE.md` (license, non-affiliation, privacy).
-  - 1aP-2 README:
+  - ✅ 1aP-2 README:
     - what it is and its status;
     - GPL-3.0;
     - a non-affiliation disclaimer;
@@ -105,11 +105,11 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
     - "Issues and ideas welcome; I'm not accepting code contributions right now".
 
     The owner approves the wording.
-  - 1aP-3 A publication manifest: every file that goes public and every file that stays private, with the reason.
-- **Research (foreman):** 1aP-4 Read the current rekordbox EULA and summarize its terms for the owner (done 2026-09-30).
-- **Owner 👤:** 1aP-5 A trademark search on the name (done 2026-09-30; the name stays) → 1aP-6 Approve the README and NOTICE, then give the final go/no-go.
+  - ✅ 1aP-3 A publication manifest: every file that goes public and every file that stays private, with the reason.
+- **Research (foreman):** ✅ 1aP-4 Read the current rekordbox EULA and summarize its terms for the owner (done 2026-09-30).
+- **Owner 👤:** ✅ 1aP-5 A trademark search on the name (done 2026-09-30; the name stays) → ✅ 1aP-6 Approve the README and NOTICE, then give the final go/no-go.
 - **Publish (foreman, once 1aC is merged and no PR is open):**
-  - 1aP-7 Set up the repos:
+  - ✅ 1aP-7 Set up the repos:
     - rename this repo to `tracklist-pro-archive` (private);
     - create the public `tracklist-pro` from one clean commit of the scrubbed main (owner's name as author, noreply email);
     - private docs move to the git-ignored `private/` folder, like `spikes/results`.
@@ -120,7 +120,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
     - secret scanning with push protection, and Dependabot alerts;
     - Actions set to require approval for outside contributors' workflows.
   - Repoint the local checkout, the lane worktrees and the fallback gate at the new remote.
-  - 1aP-8 Update CLAUDE.md and playbook references, and confirm that the first CI run on the public repo is green.
+  - ✅ 1aP-8 Update CLAUDE.md and playbook references, and confirm that the first CI run on the public repo is green.
 
 ### Stage 1aD: Finish relink, build Library tracks
 - **Lane 1, relink:** 1aD-1 Step 4: fingerprint (also queue relink after the fingerprint job; 1aC-8 queues it only after the read job. Relink carries later-step matches over between runs (1aC-3): record the evidence at match time, e.g. the file's audio_hash, and drop a carried match when its file's audio changes; this applies to 1aD-2 and user matches too) → 1aD-2 Step 5: filename-only, stored as probable and unconfirmed → 1aD-3 Step 6: gig stick recovery (if 1aB-12 was done)
