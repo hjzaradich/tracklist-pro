@@ -257,6 +257,19 @@ struct Row {
     reason: Option<String>,
 }
 
+/// How many files the read stage has recorded so far.
+fn recorded(writer: &Writer) -> i64 {
+    writer
+        .call(|c| {
+            c.query_row(
+                "SELECT COUNT(*) FROM file_stage WHERE stage = 'read'",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap()
+}
+
 fn wait(writer: &Writer, id: JobId) -> JobStatus {
     let start = Instant::now();
     loop {
@@ -551,14 +564,27 @@ fn cancelling_mid_batch_keeps_whole_batches_and_the_rest_is_read_next_time() {
     }
     s.walk();
 
-    // Batches of 3; cancel before the 8th file, in the middle of batch 3.
+    // Batches of 3; cancel before the 8th file is read, once the second
+    // batch (files 3 to 5) is committed: file 6 is then in an unwritten
+    // batch. The reader hands results to the writer, which commits them
+    // in its own time, so the hook waits for that commit before it
+    // cancels; otherwise where the cancel lands would depend on speed.
     let queue_slot: Arc<Mutex<Option<RunningJob>>> = Arc::default();
     let slot = queue_slot.clone();
+    let writer = s.writer.clone();
     let reader = s
         .reader()
         .batches(3, Duration::from_secs(3600))
         .on_file(move |n| {
             if n == 7 {
+                let start = Instant::now();
+                while recorded(&writer) < 6 {
+                    assert!(
+                        start.elapsed() < Duration::from_secs(30),
+                        "batch 2 never committed"
+                    );
+                    std::thread::sleep(Duration::from_millis(1));
+                }
                 // The job may start before the test has stored its id.
                 let (q, id) = loop {
                     if let Some(found) = slot.lock().unwrap().clone() {
