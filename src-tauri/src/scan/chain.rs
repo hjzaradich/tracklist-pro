@@ -119,8 +119,11 @@ impl<H: JobHandler> JobHandler for Chained<H> {
         state().ending.remove(&key);
         if let Err(e) = self.inner.run(job) {
             // Stopped early: whoever asked for a rerun waits for the next
-            // walk, like everything else this job left undone.
-            state().asked.remove(&key);
+            // walk, like everything else this job left undone. From here
+            // on a request queues a job of its own (see `rerun_if_asked`).
+            let mut state = state();
+            state.asked.remove(&key);
+            state.ending.insert(key);
             return Err(e);
         }
         // The stage's own work is done and written. If what follows can't
@@ -207,6 +210,9 @@ fn rerun_if_asked(job: &JobContext, mut me: NewJob) -> Result<(), JobError> {
         }
         // Under the lock, so a request arriving now sees this one queued.
         job.enqueue(me)?;
+        // The queued rerun isn't ending: a request seeing it claimed
+        // before its own run starts asks it, rather than queuing a twin.
+        state.ending.remove(&key);
     }
     Ok(())
 }
@@ -340,6 +346,8 @@ pub(crate) fn queue_once<E: From<DbError>>(
         }
         _ => {
             state.asked.remove(&key);
+            // The new job isn't ending (see `rerun_if_asked`).
+            state.ending.remove(&key);
             enqueue(job)
         }
     }
@@ -398,4 +406,136 @@ pub(crate) fn active(conn: &Connection, job: &NewJob) -> rusqlite::Result<Vec<(J
         Ok((JobId(r.get(0)?), r.get(1)?))
     })?;
     rows.collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::jobs::{JobKind, JobQueue};
+    use crate::read::read_job;
+
+    fn temp_writer() -> (tempfile::TempDir, Writer) {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = Writer::open(&crate::write_guard::test_path(
+            dir.path(),
+            crate::db::DB_FILE_NAME,
+        ))
+        .unwrap();
+        (dir, writer)
+    }
+
+    /// A job row that says `running`, as the queue leaves one while its
+    /// handler runs (and for a moment after it returns).
+    fn running(writer: &Writer, kind: JobKind) {
+        writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT INTO job (kind, priority, status, started_at)
+                     VALUES (?1, -10, 'running', 'now')",
+                    [kind.as_str()],
+                )
+            })
+            .unwrap();
+    }
+
+    fn key_of(writer: &Writer, job: &NewJob) -> Key {
+        key(writer, job)
+    }
+
+    fn clean(writer: &Writer, job: &NewJob) {
+        let key = key_of(writer, job);
+        let mut state = state();
+        state.asked.remove(&key);
+        state.ending.remove(&key);
+    }
+
+    #[test]
+    fn a_request_while_a_job_runs_asks_it_to_run_once_more() {
+        let (_dir, writer) = temp_writer();
+        let job = read_job(None);
+        clean(&writer, &job);
+        running(&writer, JobKind::Read);
+        let mut queued = 0;
+        let id = queue_once(&writer, job.clone(), |_| -> Result<JobId, DbError> {
+            queued += 1;
+            Ok(JobId(99))
+        })
+        .unwrap();
+        assert_eq!(queued, 0, "asked, not queued");
+        assert_eq!(id, JobId(1), "the running job's id");
+        assert_eq!(state().asked.get(&key_of(&writer, &job)), Some(&true));
+        clean(&writer, &job);
+    }
+
+    #[test]
+    fn a_request_after_a_runs_last_look_queues_its_own_job_and_the_new_job_is_not_ending() {
+        // The wrapper has had its last look for an ask (or the run failed),
+        // but the queue hasn't recorded the end yet: the row still says
+        // running.
+        let (_dir, writer) = temp_writer();
+        let job = read_job(None);
+        clean(&writer, &job);
+        running(&writer, JobKind::Read);
+        let key = key_of(&writer, &job);
+        state().ending.insert(key.clone());
+        let mut queued = 0;
+        let id = queue_once(&writer, job.clone(), |_| -> Result<JobId, DbError> {
+            queued += 1;
+            Ok(JobId(99))
+        })
+        .unwrap();
+        assert_eq!((queued, id), (1, JobId(99)), "a job of its own");
+        let state = state();
+        assert!(!state.asked.contains_key(&key));
+        // The job just queued can be asked once it runs: it isn't ending.
+        assert!(!state.ending.contains(&key));
+        drop(state);
+        clean(&writer, &job);
+    }
+
+    #[test]
+    fn a_run_that_stops_early_drops_its_asks_and_counts_as_ending() {
+        let (_dir, writer) = temp_writer();
+        let queue = JobQueue::builder(writer.clone())
+            .workers(1)
+            .handler(
+                JobKind::Read,
+                after_read(|_: &JobContext| Err(JobError::failed("the drive went away"))),
+            )
+            .start()
+            .unwrap();
+        let job = read_job(None);
+        let key = key_of(&writer, &job);
+        clean(&writer, &job);
+        // As if a request had come in while it ran.
+        state().asked.insert(key.clone(), true);
+        let id = queue.enqueue(job.clone()).unwrap();
+        let start = std::time::Instant::now();
+        loop {
+            let stored = writer
+                .call(move |c| crate::jobs::store::get(c, id))
+                .unwrap()
+                .unwrap();
+            if stored.status.is_finished() {
+                assert_eq!(stored.status, crate::jobs::JobStatus::Failed);
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        queue.shutdown();
+        let state = state();
+        assert!(!state.asked.contains_key(&key), "the ask was dropped");
+        assert!(
+            state.ending.contains(&key),
+            "a late request queues its own job"
+        );
+        drop(state);
+        clean(&writer, &job);
+        let _: PathBuf = key.0;
+    }
+
+    use std::time::Duration;
 }

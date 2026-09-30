@@ -636,3 +636,74 @@ fn an_eject_stops_the_watcher_and_closes_its_handle_and_a_refused_eject_starts_i
     assert_eq!(status, Status::default());
     w.watchers.shutdown();
 }
+
+#[test]
+fn temp_files_renamed_away_or_removed_next_to_the_music_do_not_rescan() {
+    let w = Watched::new(true);
+    put(&w.music, "track.mp3", &audio::mp3());
+    assert_eq!(w.settle(), [w.folder]);
+    wait_until("the track is indexed", || rows(&w.writer).len() == 1);
+    wait_idle(&w.queue);
+    assert_eq!(w.scans_of(w.folder), 1);
+
+    // Three autosaves of a project file next to the music (write a temp
+    // file, rename it over the target), a temp file made and removed, and
+    // a download that ends up with a non-audio name.
+    for _ in 0..3 {
+        put(&w.music, "set.tmp", b"project");
+        fs::rename(w.music.join("set.tmp"), w.music.join("set.als")).unwrap();
+    }
+    put(&w.music, "scratch.tmp", b"x");
+    fs::remove_file(w.music.join("scratch.tmp")).unwrap();
+    put(&w.music, "notes.pdf.crdownload", b"pdf");
+    fs::rename(
+        w.music.join("notes.pdf.crdownload"),
+        w.music.join("notes.pdf"),
+    )
+    .unwrap();
+    std::thread::sleep(QUIET + Duration::from_millis(500));
+    wait_idle(&w.queue);
+    assert_eq!(w.scans_of(w.folder), 1, "nothing the index knew changed");
+
+    // A file the index knows, renamed away: that's a change.
+    fs::rename(w.music.join("track.mp3"), w.music.join("track.mp3.bak")).unwrap();
+    wait_until("the renamed-away track is marked missing", || {
+        rows(&w.writer)
+            .iter()
+            .any(|r| r.rel_path == "track.mp3" && !r.present)
+    });
+    wait_idle(&w.queue);
+    assert_eq!(w.scans_of(w.folder), 2);
+    w.watchers.shutdown();
+}
+
+#[test]
+fn a_refresh_during_an_eject_does_not_reopen_the_root_until_the_grace_is_out() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::DBT_DEVICEQUERYREMOVE;
+    let w = Watched::new(true);
+    assert_eq!(w.settle(), [w.folder]);
+    let registration = w.watchers.status().registrations[0].1;
+    send_handle_message(&w.watchers, DBT_DEVICEQUERYREMOVE, registration);
+    assert_eq!(w.watchers.status().handles_open, 0);
+
+    // Anything that refreshes meanwhile (another drive, a toggle, a
+    // folder removed) leaves the root alone: reopening it would make
+    // Windows refuse the eject as "in use".
+    w.watchers.refresh();
+    let status = w.watchers.status();
+    assert_eq!(status.watched, none());
+    assert_eq!(status.suspended, [w.folder]);
+    assert_eq!(status.handles_open, 0);
+    assert_eq!(w.scans_of(w.folder), 1);
+
+    // No refusal ever comes and the drive is still here: once the grace
+    // is out, a refresh watches it again.
+    w.watchers.set_eject_grace(Duration::ZERO);
+    w.watchers.refresh();
+    let status = w.watchers.status();
+    assert_eq!(status.watched, [w.folder]);
+    assert_eq!(status.suspended, none());
+    assert_eq!(status.handles_open, 1);
+    w.settle();
+    w.watchers.shutdown();
+}

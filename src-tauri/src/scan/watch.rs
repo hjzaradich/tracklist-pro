@@ -26,10 +26,14 @@
 //!   files by the walk's own rule ([`super::is_indexed`]), and folders
 //!   coming, going or being renamed. Files the walk skips (`._*`,
 //!   `.DS_Store`, notes, artwork, a download still in progress) start no
-//!   burst; a download finished by a rename to an audio name does. Nothing
-//!   under a folder Windows marks hidden and system counts. A folder's own
-//!   modification (its times changed) doesn't either: a child's own event
-//!   says the same, and NTFS reports one after a walk lists the folder.
+//!   burst; a download finished by a rename to an audio name does. A path
+//!   that's gone (removed, or renamed away) counts only if the index has
+//!   it, or something under it: an autosave's temp file renamed over a
+//!   project file, or a download that ends up with a non-audio name, was
+//!   never indexed and costs no walk. Nothing under a folder Windows marks
+//!   hidden and system counts. A folder's own modification (its times
+//!   changed) doesn't either: a child's own event says the same, and NTFS
+//!   reports one after a walk lists the folder.
 //! - **Every online music folder is rechecked** (the same background
 //!   scan job, and the chain) at app start and whenever its drive comes
 //!   back, watched or not: nothing could see what changed while the app
@@ -52,6 +56,9 @@
 //!   root's watcher stops and its handles close before the answer; if the
 //!   removal is then refused elsewhere, the watcher starts again with a
 //!   catch-up rescan; if it goes through, the drive is offline as usual.
+//!   While the answer is pending, nothing reopens the root: a refresh
+//!   leaves it alone until the removal fails or the drive goes, or until
+//!   it has waited [`EJECT_GRACE`] with the drive still here.
 //! - **Nothing here reads a file.** The watcher only holds listing and
 //!   query-only handles on each root; events name paths, whose attributes
 //!   are looked at, and the walk they lead to looks at listings and
@@ -98,6 +105,9 @@ pub const AT_MOST_CAP: Duration = Duration::from_secs(600);
 /// thread before the answer is yes anyway.
 #[cfg(windows)]
 const EJECT_ANSWER: Duration = Duration::from_secs(5);
+/// How long a root stopped for an eject waits, with its drive still
+/// here and no word of a refusal, before a refresh watches it again.
+pub const EJECT_GRACE: Duration = Duration::from_secs(30);
 
 /// How the watcher queues a job: the app's job queue, or a test's.
 pub type Enqueue = Arc<dyn Fn(NewJob) -> Result<JobId, DbError> + Send + Sync>;
@@ -130,6 +140,9 @@ enum Msg {
     /// Asks for the eject window (tests send it messages).
     #[cfg(all(test, windows))]
     Window(mpsc::Sender<Option<crate::volume::devices::DeviceWatch>>),
+    /// Replaces [`EJECT_GRACE`] (tests).
+    #[cfg(test)]
+    EjectGrace(Duration),
     Stop,
 }
 
@@ -189,6 +202,7 @@ impl Watchers {
             online: None,
             debounce: Debounce::new(quiet, at_most, AT_MOST_CAP.min(at_most * 10)),
             windows_own: HashMap::new(),
+            eject_grace: EJECT_GRACE,
         };
         let thread = thread::Builder::new()
             .name("music-watch".into())
@@ -265,9 +279,9 @@ struct Root {
     /// about. `None` where that couldn't be set up; then an eject fails
     /// while the root is watched.
     registration: Option<eject::Registration>,
-    /// Stopped for an eject Windows asked about, until the removal fails
-    /// or the drive goes.
-    suspended: bool,
+    /// Stopped for an eject Windows asked about, since then, until the
+    /// removal fails or the drive goes.
+    suspended: Option<Instant>,
 }
 
 /// Why a folder is scanned, which decides what the chain retries.
@@ -294,6 +308,7 @@ struct Supervisor<V> {
     debounce: Debounce,
     /// Folders looked at for the hidden-and-system mark, and the answer.
     windows_own: HashMap<PathBuf, bool>,
+    eject_grace: Duration,
 }
 
 impl<V: Volumes> Supervisor<V> {
@@ -331,6 +346,8 @@ impl<V: Volumes> Supervisor<V> {
                 Ok(Msg::Window(reply)) => {
                     let _ = reply.send(self.eject.as_ref().map(|e| *e.window()));
                 }
+                #[cfg(test)]
+                Ok(Msg::EjectGrace(grace)) => self.eject_grace = grace,
                 Err(RecvTimeoutError::Timeout) => {}
             }
             for id in self.debounce.take_due(Instant::now()) {
@@ -346,14 +363,14 @@ impl<V: Volumes> Supervisor<V> {
         let mut watched: Vec<_> = self
             .roots
             .iter()
-            .filter(|(_, r)| !r.suspended)
+            .filter(|(_, r)| r.suspended.is_none())
             .map(|(id, _)| *id)
             .collect();
         watched.sort();
         let mut suspended: Vec<_> = self
             .roots
             .iter()
-            .filter(|(_, r)| r.suspended)
+            .filter(|(_, r)| r.suspended.is_some())
             .map(|(id, _)| *id)
             .collect();
         suspended.sort();
@@ -420,12 +437,15 @@ impl<V: Volumes> Supervisor<V> {
         for id in stale {
             self.forget(id);
         }
-        // A root stopped for an eject that didn't happen after all (no
-        // refusal heard, but the drive is still here): watch it again.
+        // A root stopped for an eject stays stopped: watching it again
+        // would make Windows refuse the eject as "in use". Only one that
+        // has waited out the grace with its drive still here (no refusal
+        // ever heard) is watched again.
+        let grace = self.eject_grace;
         let stuck: Vec<MusicFolderId> = self
             .roots
             .iter()
-            .filter(|(_, root)| root.suspended)
+            .filter(|(_, root)| root.suspended.is_some_and(|since| since.elapsed() >= grace))
             .map(|(id, _)| *id)
             .collect();
         for id in stuck {
@@ -469,7 +489,7 @@ impl<V: Volumes> Supervisor<V> {
             Root {
                 path,
                 registration,
-                suspended: false,
+                suspended: None,
             },
         );
         true
@@ -479,7 +499,7 @@ impl<V: Volumes> Supervisor<V> {
     /// closed and its burst dropped.
     fn forget(&mut self, id: MusicFolderId) {
         if let Some(root) = self.roots.remove(&id) {
-            if !root.suspended {
+            if root.suspended.is_none() {
                 let _ = self.watcher.unwatch(&root.path);
             }
             // The registration drops here: handle closed, registration ended.
@@ -505,14 +525,14 @@ impl<V: Volumes> Supervisor<V> {
             let Some(root) = self.roots.get_mut(&id) else {
                 continue;
             };
-            if root.suspended {
+            if root.suspended.is_some() {
                 continue;
             }
             let _ = self.watcher.unwatch(&root.path);
             if let Some(reg) = &mut root.registration {
                 reg.close();
             }
-            root.suspended = true;
+            root.suspended = Some(Instant::now());
             self.debounce.forget(id);
         }
     }
@@ -524,7 +544,7 @@ impl<V: Volumes> Supervisor<V> {
             .roots
             .iter()
             .filter(|(_, r)| {
-                r.suspended
+                r.suspended.is_some()
                     && r.registration
                         .as_ref()
                         .is_some_and(|reg| reg.id() == registration)
@@ -547,18 +567,57 @@ impl<V: Volumes> Supervisor<V> {
             let root = self
                 .roots
                 .iter()
-                .find(|(_, root)| !root.suspended && path.starts_with(&root.path))
+                .find(|(_, root)| root.suspended.is_none() && path.starts_with(&root.path))
                 .map(|(id, root)| (*id, root.path.clone()));
             let Some((id, root)) = root else {
                 continue;
             };
-            if matters(&event.kind, path, &root, &mut self.windows_own) {
+            let counts = match matters(&event.kind, path, &root, &mut self.windows_own) {
+                Matters::Yes => true,
+                Matters::No => false,
+                Matters::IfIndexed => self.indexed(id, path, &root),
+            };
+            if counts {
                 self.debounce.note(id, now);
             }
         }
         if self.windows_own.len() > 4096 {
             self.windows_own.clear();
         }
+    }
+
+    /// Whether the index has a present file at `path` under music folder
+    /// `id`'s `root`, or under it (then it was a folder). If the database
+    /// can't say, it counts.
+    fn indexed(&self, id: MusicFolderId, path: &Path, root: &Path) -> bool {
+        let Ok(rel) = path.strip_prefix(root) else {
+            return true;
+        };
+        let rel: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        if rel.is_empty() {
+            // The root itself.
+            return true;
+        }
+        let rel = rel.join("/");
+        // `%` and `_` are LIKE's wildcards.
+        let under = rel
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+            + "/%";
+        self.writer
+            .call(move |c| {
+                c.prepare_cached(
+                    "SELECT EXISTS (SELECT 1 FROM file
+                     WHERE music_folder_id = ?1 AND present = 1
+                       AND (rel_path = ?2 OR rel_path LIKE ?3 ESCAPE '\\'))",
+                )?
+                .query_row((id.0, rel, under), |r| r.get::<_, bool>(0))
+            })
+            .unwrap_or(true)
     }
 
     /// Queues a background scan of music folder `id`, unless one is
@@ -579,6 +638,16 @@ impl<V: Volumes> Supervisor<V> {
     }
 }
 
+/// Whether a change is worth a rescan (see [`matters`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Matters {
+    Yes,
+    No,
+    /// The path is gone, so a file can't be told from a folder: it
+    /// matters if the index has it, or something under it.
+    IfIndexed,
+}
+
 /// Whether a change at `path` (under the watched `root`) is one the walk
 /// could index, so it's worth a rescan (see the module docs). Looks at
 /// attributes only; nothing is opened. `windows_own` remembers which
@@ -588,10 +657,10 @@ pub(crate) fn matters(
     path: &Path,
     root: &Path,
     windows_own: &mut HashMap<PathBuf, bool>,
-) -> bool {
+) -> Matters {
     // Reads change nothing.
     if matches!(kind, EventKind::Access(_)) {
-        return false;
+        return Matters::No;
     }
     let name = path
         .file_name()
@@ -605,17 +674,27 @@ pub(crate) fn matters(
                 kind,
                 EventKind::Modify(ModifyKind::Any | ModifyKind::Data(_) | ModifyKind::Metadata(_))
             ) {
-                return false;
+                return Matters::No;
             }
-            !under_windows_own(path, root, windows_own)
+            yes_or_no(!under_windows_own(path, root, windows_own))
         }
-        Ok(_) => {
+        Ok(_) => yes_or_no(
             is_indexed(&name)
-                && !under_windows_own(path.parent().unwrap_or(root), root, windows_own)
-        }
-        // Gone: a removed (or renamed-away) audio file or folder. Only a
-        // name the walk never indexes can be dropped without looking.
-        Err(_) => !is_skipped(&name),
+                && !under_windows_own(path.parent().unwrap_or(root), root, windows_own),
+        ),
+        // Gone: a removed (or renamed-away) file or folder. A name the walk
+        // never indexes can be dropped without looking; the rest depends
+        // on whether the index knew it.
+        Err(_) if is_skipped(&name) => Matters::No,
+        Err(_) => Matters::IfIndexed,
+    }
+}
+
+fn yes_or_no(yes: bool) -> Matters {
+    if yes {
+        Matters::Yes
+    } else {
+        Matters::No
     }
 }
 
@@ -853,6 +932,12 @@ mod eject {
 }
 
 impl Watchers {
+    /// Replaces [`EJECT_GRACE`] for the tests that wait it out.
+    #[cfg(test)]
+    pub(crate) fn set_eject_grace(&self, grace: Duration) {
+        let _ = self.inner.tx.send(Msg::EjectGrace(grace));
+    }
+
     /// The hidden window that hears the eject messages, for tests that
     /// send it some.
     #[cfg(all(test, windows))]
@@ -975,6 +1060,7 @@ mod tests {
         let mut waits = Vec::new();
         for _ in 0..6 {
             let began = t;
+            let mut steps = 0;
             loop {
                 d.note(id(1), t);
                 t += S;
@@ -982,6 +1068,8 @@ mod tests {
                 if !due.is_empty() {
                     break;
                 }
+                steps += 1;
+                assert!(steps < 10_000, "the longest wait never came");
             }
             waits.push(t - began);
         }
@@ -1035,34 +1123,39 @@ mod tests {
         let renamed_to = EventKind::Modify(ModifyKind::Name(RenameMode::To));
         let remove = EventKind::Remove(RemoveKind::Any);
         let mut check = |kind: &EventKind, path: &Path| matters(kind, path, &root, &mut cache);
+        use Matters::*;
 
         // Audio files, by the walk's own rule, in any letter case.
-        assert!(check(&create, &file("track.mp3")));
-        assert!(check(&modify, &file("Track 2.FLAC")));
+        assert_eq!(check(&create, &file("track.mp3")), Yes);
+        assert_eq!(check(&modify, &file("Track 2.FLAC")), Yes);
         // What the walk skips or never indexes.
-        assert!(!check(&create, &file("notes.txt")));
-        assert!(!check(&create, &file("cover.jpg")));
-        assert!(!check(&create, &file("._track.mp3")));
-        assert!(!check(&create, &file(".DS_Store")));
-        assert!(!check(&modify, &file("track.mp3.crdownload")));
-        assert!(!check(&modify, &file("track.part")));
+        assert_eq!(check(&create, &file("notes.txt")), No);
+        assert_eq!(check(&create, &file("cover.jpg")), No);
+        assert_eq!(check(&create, &file("._track.mp3")), No);
+        assert_eq!(check(&create, &file(".DS_Store")), No);
+        assert_eq!(check(&modify, &file("track.mp3.crdownload")), No);
+        assert_eq!(check(&modify, &file("track.part")), No);
         // A download finished by a rename to an audio name.
-        assert!(check(&renamed_to, &file("finished.mp3")));
+        assert_eq!(check(&renamed_to, &file("finished.mp3")), Yes);
         // Folders: coming, going and renames matter; their own touch not.
-        assert!(check(&create, &folder));
-        assert!(check(&renamed_to, &folder));
-        assert!(!check(&modify, &folder));
-        // Gone: an audio file or a folder (which can't be told apart any
-        // more) matters; a name the walk never indexes doesn't.
-        assert!(check(&remove, &root.join("gone.mp3")));
-        assert!(check(&remove, &root.join("Gone Album")));
-        assert!(!check(&remove, &root.join("._gone.mp3")));
-        assert!(!check(&remove, &root.join(".DS_Store")));
+        assert_eq!(check(&create, &folder), Yes);
+        assert_eq!(check(&renamed_to, &folder), Yes);
+        assert_eq!(check(&modify, &folder), No);
+        // Gone: a file can't be told from a folder any more, so it's up to
+        // the index; a name the walk never indexes needs no look.
+        assert_eq!(check(&remove, &root.join("gone.mp3")), IfIndexed);
+        assert_eq!(check(&remove, &root.join("Gone Album")), IfIndexed);
+        assert_eq!(check(&remove, &root.join("autosave.tmp")), IfIndexed);
+        assert_eq!(check(&remove, &root.join("._gone.mp3")), No);
+        assert_eq!(check(&remove, &root.join(".DS_Store")), No);
         // Reads never matter.
-        assert!(!check(
-            &EventKind::Access(notify::event::AccessKind::Any),
-            &root.join("track.mp3")
-        ));
+        assert_eq!(
+            check(
+                &EventKind::Access(notify::event::AccessKind::Any),
+                &root.join("track.mp3")
+            ),
+            No
+        );
     }
 
     #[cfg(windows)]
@@ -1103,10 +1196,13 @@ mod tests {
 
         let mut cache = HashMap::new();
         let create = EventKind::Create(CreateKind::Any);
-        assert!(!matters(&create, &deleted, &root, &mut cache));
-        assert!(!matters(&create, &own.join("S-1-5-21"), &root, &mut cache));
+        assert_eq!(matters(&create, &deleted, &root, &mut cache), Matters::No);
+        assert_eq!(
+            matters(&create, &own.join("S-1-5-21"), &root, &mut cache),
+            Matters::No
+        );
         // Only hidden: the user's, and walked.
-        assert!(matters(&create, &users, &root, &mut cache));
+        assert_eq!(matters(&create, &users, &root, &mut cache), Matters::Yes);
         // The answer is remembered per folder.
         assert_eq!(cache.get(&own), Some(&true));
         assert_eq!(cache.get(&hidden_only), Some(&false));
