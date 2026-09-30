@@ -376,7 +376,8 @@ fn withdraw(lib: &Lib, location: &str) {
 #[test]
 fn an_accepted_match_replaces_a_carried_probable_guess() {
     let (lib, music, mounted) = e_music();
-    let guess = lib.file(music, "Elsewhere/Omicron.mp3", Some(200_000));
+    // Same name, but a duration that doesn't fit: only a name guess.
+    let guess = lib.file(music, "Elsewhere/Omicron.mp3", Some(300_000));
     let track = lib.track(&loc("E:/Music/Omicron.mp3"), Some("200"));
     lib.matched_before(track, guess, "filename_only", 0.5);
     make_probable(&lib, track);
@@ -536,4 +537,56 @@ fn title_tags_are_read_only_for_the_files_step_3_matches() {
         lib.matched(track),
         Some((renamed, "unique_duration".to_owned(), 0.8))
     );
+}
+
+#[test]
+fn a_carried_probable_guess_upgrades_when_its_own_file_is_matched_by_name_and_duration() {
+    let (lib, music, mounted) = e_music();
+    let file = lib.file(music, "Elsewhere/Omega.mp3", Some(200_000));
+    let track = lib.track(&loc("E:/Gone/Omega.mp3"), Some("200"));
+    // Step 5 guessed this very file; step 2 now proves it by duration.
+    lib.matched_before(track, file, "filename_only", 0.5);
+    make_probable(&lib, track);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((file, "filename_duration".to_owned(), 0.9))
+    );
+    assert!(!lib.probable(track));
+}
+
+#[test]
+fn a_carried_probable_guess_upgrades_when_its_own_file_is_matched_with_an_agreeing_title() {
+    let (lib, music, mounted) = e_music();
+    let file = lib.file(music, "Album/Renamed.mp3", Some(200_300));
+    lib.title(file, "Alpha Two");
+    let track = lib.track_with(
+        &loc("E:/Music/Album/Alpha Two.mp3"),
+        Some("200"),
+        &[("Name", "Alpha Two")],
+    );
+    lib.matched_before(track, file, "filename_only", 0.5);
+    make_probable(&lib, track);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((file, "unique_duration".to_owned(), 0.8))
+    );
+    assert!(!lib.probable(track));
+}
+
+#[test]
+fn a_copy_another_track_holds_blocks_a_name_match_to_the_other_copy() {
+    let (lib, music, mounted) = e_music();
+    let a = lib.file(music, "Copy A/Beta Two.mp3", Some(200_300));
+    let b = lib.file(music, "Copy B/Beta Two.mp3", Some(200_300));
+    lib.audio_hash(a, 6);
+    lib.audio_hash(b, 6);
+    // b (the higher id, so not the one picked) belongs to another track.
+    let owner = lib.track(&loc("E:/Music/Copy B/Beta Two.mp3"), Some("200"));
+    let track = lib.track(&loc("E:/Gone/Beta Two.mp3"), Some("200"));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(owner), path(b));
+    assert_eq!(lib.matched(track), None);
+    let _ = a;
 }

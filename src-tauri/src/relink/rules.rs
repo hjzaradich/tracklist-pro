@@ -3,7 +3,8 @@
 //! [`plan`] takes every present file and every `rekordbox_track` row and
 //! decides each row's match from scratch. Only a confirmed relink, and a
 //! match from a step this run doesn't make (fingerprint, filename only, gig
-//! stick, user; 1aD), carry over, and only while their file is present.
+//! stick; 1aD, 1bE), carry over, and only while their file is present. A
+//! `user` match carries over only as a confirmed relink.
 //! The steps run in order over all rows (every row's step 1 before any
 //! row's step 2), so a later step can never take a file an earlier,
 //! stronger step gives to another row. See the module docs in [`super`]
@@ -65,8 +66,9 @@ impl Method {
     }
 
     /// Whether this run's steps make matches this way, and so remake them
-    /// from scratch. Matches made any other way (1aD's steps, the user)
-    /// carry over while their file is present.
+    /// from scratch. Matches made by 1aD's and 1bE's steps carry over
+    /// while their file is present; a `user` match only with its `relink`
+    /// row.
     fn is_recomputed(self) -> bool {
         matches!(
             self,
@@ -584,13 +586,27 @@ pub fn plan<E>(
         }
     }
 
-    // A carried probable match's file stays taken for the other rows.
-    let taken = |now: &[Option<Now>]| -> HashSet<i64> {
-        now.iter()
-            .flatten()
-            .map(|n| n.target.file)
-            .chain(fallback.iter().flatten().map(|t| t.file))
-            .collect()
+    // Which rows hold each file. A carried probable match's file stays
+    // taken for the other rows, but not for its own row, which may still
+    // upgrade to an accepted match on that same file.
+    let taken = |now: &[Option<Now>]| -> HashMap<i64, HashSet<usize>> {
+        let mut holders: HashMap<i64, HashSet<usize>> = HashMap::new();
+        for (i, n) in now.iter().enumerate() {
+            if let Some(n) = n {
+                holders.entry(n.target.file).or_default().insert(i);
+            }
+        }
+        for (i, t) in fallback.iter().enumerate() {
+            if let Some(t) = t {
+                holders.entry(t.file).or_default().insert(i);
+            }
+        }
+        holders
+    };
+    let held_by_other = |holders: &HashMap<i64, HashSet<usize>>, file: i64, i: usize| {
+        holders
+            .get(&file)
+            .is_some_and(|h| h.iter().any(|&o| o != i))
     };
     let open = |now: &[Option<Now>]| -> Vec<(usize, u32)> {
         tracks
@@ -632,7 +648,7 @@ pub fn plan<E>(
         let Some(file) = index.pick(fits) else {
             continue;
         };
-        let copy_taken = fits.iter().any(|f| claimed.contains(f));
+        let copy_taken = fits.iter().any(|&f| held_by_other(&claimed, f, *i));
         if fits.iter().all(|&f| alone(&wanted, f, *i)) && !copy_taken {
             set(
                 &mut now,
@@ -748,7 +764,7 @@ pub fn plan<E>(
             continue;
         };
         let alone = fits.iter().all(|&f| wants(f).iter().all(|&o| o == *i));
-        let copy_taken = fits.iter().any(|f| claimed.contains(f));
+        let copy_taken = fits.iter().any(|&f| held_by_other(&claimed, f, *i));
         if alone && !copy_taken {
             decided.push((*i, file));
         }
