@@ -1,18 +1,21 @@
-//! 1aC-7: stages 1 and 2 of the scan against the ROADMAP 1.1 target,
-//! "first results in under 5 s on 100k files, and a full index without
+//! 1aC-7: the scan on 100k files against the ROADMAP 1.1 target, "first
+//! results in under 5 s on 100k files, and a full index without
 //! fingerprints in minutes".
 //!
 //! Windows only, like the walk's own tests: the walk and the read job ask
 //! Windows about volumes and file ids.
 //!
 //! Two tests share one harness ([`run`]), which drives the real job queue
-//! with the real [`Walker`] and [`Reader`] over a music folder on this PC's
-//! own volumes, and measures:
+//! with the real handlers, chained as the app chains them
+//! (`scan::chain`: walk → read → hashes → grouping; fingerprints are a
+//! no-op here), over a music folder on this PC's own volumes, and
+//! measures:
 //!
 //! - the time to the first `ScannedFiles` batch (what the UI shows first),
-//! - the whole stage-1 walk,
-//! - the stage-2 read of every file,
-//! - a rescan with nothing changed, and a re-read after it,
+//! - the whole stage-1 walk, and the chained stage-2 read: the target,
+//! - the chained hashes and grouping, reported beside it,
+//! - a rescan with nothing changed (the unchanged check, 1aC-1) and what
+//!   the chain queues after it,
 //! - the process's peak working set, and the database's size.
 //!
 //! **`hundred_thousand_files`** is ignored by default. It uses the tree in
@@ -32,11 +35,11 @@
 //! (file ids, the database, batching); the stage-2 time above the second is
 //! parsing.
 //!
-//! **`a_thousand_files_go_through_both_stages`** is the smoke test that
-//! runs in CI: the same harness on 1,000 tiny WAVs, checking the results
-//! rather than the times, so the benchmark can't rot.
+//! **`a_thousand_files_go_through_the_chain`** is the smoke test that runs
+//! in CI: the same harness on 1,000 tiny WAVs, checking the results rather
+//! than the times, so the benchmark can't rot.
 //!
-//! Nothing here writes outside the temp folder and the tree it's pointed
+//! Nothing here writes outside the temp folder, and the tree it's pointed
 //! at is only read.
 #![cfg(windows)]
 
@@ -48,10 +51,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tracklist_pro_lib::db::{Writer, DB_FILE_NAME};
-use tracklist_pro_lib::jobs::{self, JobId, JobKind, JobQueue, JobStatus};
+use tracklist_pro_lib::jobs::{self, JobContext, JobId, JobKind, JobQueue, JobStatus};
 use tracklist_pro_lib::paths::SystemVolumes;
-use tracklist_pro_lib::read::{read_job, Reader, READ_VERSION};
-use tracklist_pro_lib::scan::{folders, is_indexed, scan_job, MusicFolderRole, Walker};
+use tracklist_pro_lib::read::{Reader, READ_VERSION};
+use tracklist_pro_lib::scan::{chain, folders, is_indexed, scan_job, MusicFolderRole, Walker};
 use tracklist_pro_lib::scan_state::{self, Scope, Stage};
 use tracklist_pro_lib::write_guard::WriteGuard;
 use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
@@ -76,22 +79,34 @@ struct Report {
     sink_batches: u64,
     first_batch: Option<Duration>,
     walk: Duration,
+    /// The chained read, from the walk's end to its end.
     read: Duration,
-    /// Files still due for the read stage after it ran, by reason.
+    /// Files still due for the read stage after it ran.
     still_due: u64,
     read_done: i64,
+    /// The chained hashes, from the read's end to their end.
+    hash: Duration,
+    hash_done: i64,
+    /// The chained grouping, from the hashes' end to its end.
+    group: Duration,
+    recordings: i64,
+    /// The peak working set once stages 1 and 2 were done.
+    peak_after_read: usize,
     rescan: Duration,
     /// New rows the sink heard during the rescan (should be none).
     rescan_new: u64,
-    reread: Duration,
+    /// The kinds of job the chain queued after the rescan, in order.
+    after_rescan: Vec<String>,
+    /// From the rescan's end until nothing was queued or running.
+    settle: Duration,
     peak_working_set: usize,
     baseline_working_set: usize,
     db_bytes: u64,
 }
 
-/// Drives a walk, a read, a rescan and a re-read over `music`, one job at a
-/// time, and measures each. `files_on_disk` is how many audio files the
-/// caller knows are there.
+/// Drives a walk and everything the chain queues after it, then a rescan,
+/// one job at a time, and measures each. `files_on_disk` is how many
+/// audio files the caller knows are there.
 fn run(music: &Path, files_on_disk: usize) -> Report {
     let app_data = tempfile::Builder::new()
         .prefix("tlp-perf-app-data-")
@@ -111,29 +126,39 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
         .workers(1)
         .handler(
             JobKind::Scan,
-            Walker::new(SystemVolumes::scan, move |files| heard.batch(files.len())),
+            chain::after_walk(Walker::new(SystemVolumes::scan, move |files| {
+                heard.batch(files.len())
+            })),
         )
-        .handler(JobKind::Read, Reader::new(SystemVolumes::scan))
+        .handler(
+            JobKind::Read,
+            chain::after_read(Reader::new(SystemVolumes::scan)),
+        )
+        .handler(
+            JobKind::Hash,
+            chain::after_hash(tracklist_pro_lib::hash::hasher()),
+        )
+        .handler(JobKind::Relink, tracklist_pro_lib::relink::relinker())
+        .handler(
+            JobKind::Group,
+            chain::after_group(tracklist_pro_lib::grouping::Grouper::default()),
+        )
+        // Fingerprints are stage 3 and outside the target: accepted, not done.
+        .handler(JobKind::Fingerprint, |_: &JobContext| Ok(()))
         .start()
         .unwrap();
 
     let baseline_working_set = working_set().1;
 
-    // Stage 1.
+    // Stage 1, then what the chain queues: read, hashes, grouping.
     sink.start();
-    let walk = timed(|| {
-        let id = queue.enqueue(scan_job(Some(vec![folder.id]))).unwrap();
-        assert_eq!(wait(&writer, id), JobStatus::Done, "the walk failed");
-    });
+    let scan = queue.enqueue(scan_job(Some(vec![folder.id]))).unwrap();
+    let walk = timed(|| assert_done(&writer, scan, "the walk"));
     let first_batch = sink.first_batch();
     let (sink_files, sink_batches) = sink.counts();
     let rows = count(&writer, "SELECT COUNT(*) FROM file WHERE present = 1");
 
-    // Stage 2.
-    let read = timed(|| {
-        let id = queue.enqueue(read_job(Some(vec![folder.id]))).unwrap();
-        assert_eq!(wait(&writer, id), JobStatus::Done, "the read failed");
-    });
+    let read = timed(|| wait_next(&writer, JobKind::Read, scan, "the chained read"));
     let still_due = writer
         .call(|c| scan_state::count_due(c, Stage::Read, READ_VERSION, &Scope::All))
         .unwrap();
@@ -141,18 +166,24 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
         &writer,
         "SELECT COUNT(*) FROM file_stage WHERE stage = 'read' AND status = 'done'",
     );
+    let peak_after_read = working_set().0;
 
-    // Nothing changed: walk and read again.
+    let hash = timed(|| wait_next(&writer, JobKind::Hash, scan, "the chained hashes"));
+    let hash_done = count(
+        &writer,
+        "SELECT COUNT(*) FROM file_stage WHERE stage = 'hash' AND status = 'done'",
+    );
+    let group = timed(|| wait_next(&writer, JobKind::Group, scan, "the chained grouping"));
+    let recordings = count(&writer, "SELECT COUNT(*) FROM recording");
+    wait_idle(&writer);
+
+    // Nothing changed: walk again, and see what the chain makes of it.
     sink.start();
-    let rescan = timed(|| {
-        let id = queue.enqueue(scan_job(Some(vec![folder.id]))).unwrap();
-        assert_eq!(wait(&writer, id), JobStatus::Done, "the rescan failed");
-    });
+    let rescan_job = queue.enqueue(scan_job(Some(vec![folder.id]))).unwrap();
+    let rescan = timed(|| assert_done(&writer, rescan_job, "the rescan"));
     let (rescan_new, _) = sink.counts();
-    let reread = timed(|| {
-        let id = queue.enqueue(read_job(Some(vec![folder.id]))).unwrap();
-        assert_eq!(wait(&writer, id), JobStatus::Done, "the re-read failed");
-    });
+    let settle = timed(|| wait_idle(&writer));
+    let after_rescan = kinds_after(&writer, rescan_job);
 
     let (peak_working_set, _) = working_set();
     queue.shutdown();
@@ -173,9 +204,15 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
         read,
         still_due,
         read_done,
+        hash,
+        hash_done,
+        group,
+        recordings,
+        peak_after_read,
         rescan,
         rescan_new,
-        reread,
+        after_rescan,
+        settle,
         peak_working_set,
         baseline_working_set,
         db_bytes,
@@ -234,6 +271,10 @@ fn count(writer: &Writer, sql: &'static str) -> i64 {
         .unwrap()
 }
 
+/// No job should take longer than this, even on a slow disk.
+const JOB_LIMIT: Duration = Duration::from_secs(3 * 60 * 60);
+const POLL: Duration = Duration::from_millis(5);
+
 /// Waits for the job to finish. Polls, as the read job's tests do.
 fn wait(writer: &Writer, id: JobId) -> JobStatus {
     let start = Instant::now();
@@ -248,12 +289,59 @@ fn wait(writer: &Writer, id: JobId) -> JobStatus {
             }
             return job.status;
         }
-        assert!(
-            start.elapsed() < Duration::from_secs(3 * 60 * 60),
-            "the job never finished"
-        );
-        std::thread::sleep(Duration::from_millis(5));
+        assert!(start.elapsed() < JOB_LIMIT, "job {id} never finished");
+        std::thread::sleep(POLL);
     }
+}
+
+fn assert_done(writer: &Writer, id: JobId, what: &str) {
+    assert_eq!(wait(writer, id), JobStatus::Done, "{what} didn't finish");
+}
+
+/// Waits for the first job of `kind` queued after `after` to finish. The
+/// chain queues the next stage before the stage before it is recorded as
+/// done, so the job is there by the time the caller looks.
+fn wait_next(writer: &Writer, kind: JobKind, after: JobId, what: &str) {
+    let id: Option<i64> = writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT id FROM job WHERE kind = ?1 AND id > ?2 ORDER BY id LIMIT 1",
+                (kind.as_str(), after.0),
+                |r| r.get(0),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                e => Err(e),
+            })
+        })
+        .unwrap();
+    let id = id.unwrap_or_else(|| panic!("{what} was never queued"));
+    assert_done(writer, JobId(id), what);
+}
+
+/// Waits until nothing is queued or running.
+fn wait_idle(writer: &Writer) {
+    let start = Instant::now();
+    while count(
+        writer,
+        "SELECT COUNT(*) FROM job WHERE status IN ('queued', 'running')",
+    ) > 0
+    {
+        assert!(start.elapsed() < JOB_LIMIT, "the queue never went idle");
+        std::thread::sleep(POLL);
+    }
+}
+
+/// The kinds of the jobs queued after `after`, in order.
+fn kinds_after(writer: &Writer, after: JobId) -> Vec<String> {
+    writer
+        .call(move |c| {
+            let mut stmt = c.prepare("SELECT kind FROM job WHERE id > ?1 ORDER BY id")?;
+            let rows = stmt.query_map([after.0], |r| r.get(0))?;
+            rows.collect()
+        })
+        .unwrap()
 }
 
 /// This process's (peak, current) working set in bytes.
@@ -314,6 +402,7 @@ fn print(report: &Report, music: &Path, source: &str) {
         std::thread::available_parallelism().map_or(0, |p| p.get()),
         !cfg!(debug_assertions)
     );
+    println!("the target (ROADMAP 1.1):");
     match report.first_batch {
         Some(d) => println!(
             "  first ScannedFiles batch   {}   target < {} s   {}",
@@ -332,7 +421,7 @@ fn print(report: &Report, music: &Path, source: &str) {
         per_file(report.walk, n)
     );
     println!(
-        "  stage 2 read, all files    {}   {} done, {} still due {}",
+        "  stage 2 read, chained      {}   {} done, {} still due {}",
         secs(report.read),
         report.read_done,
         report.still_due,
@@ -346,16 +435,40 @@ fn print(report: &Report, music: &Path, source: &str) {
         verdict(full, FULL_INDEX_TARGET)
     );
     println!(
+        "  peak working set           {} (baseline {} before the walk)",
+        mib(report.peak_after_read as u64),
+        mib(report.baseline_working_set as u64)
+    );
+    println!("the rest of the chain, and a rescan:");
+    println!(
+        "  stage 3 hashes, chained    {}   {} done {}",
+        secs(report.hash),
+        report.hash_done,
+        per_file(report.hash, n)
+    );
+    println!(
+        "  grouping, chained          {}   {} recordings",
+        secs(report.group),
+        report.recordings
+    );
+    println!(
         "  rescan, nothing changed    {}   {} new rows {}",
         secs(report.rescan),
         report.rescan_new,
         per_file(report.rescan, n)
     );
-    println!("  re-read, nothing due       {}", secs(report.reread));
     println!(
-        "  peak working set           {} (baseline {} before the walk)",
-        mib(report.peak_working_set as u64),
-        mib(report.baseline_working_set as u64)
+        "  after the rescan           {}   queued: {}",
+        secs(report.settle),
+        if report.after_rescan.is_empty() {
+            "nothing".to_owned()
+        } else {
+            report.after_rescan.join(", ")
+        }
+    );
+    println!(
+        "  peak working set, all      {}",
+        mib(report.peak_working_set as u64)
     );
     println!("  database                   {}", mib(report.db_bytes));
 }
@@ -386,8 +499,8 @@ fn walk_floor(root: &Path) -> (Duration, usize) {
     (start.elapsed(), files)
 }
 
-/// One open and one 8 KiB read per file under `root`: what touching every
-/// file costs before any parsing. Returns (time, files opened).
+/// One open and one 8 KiB read per audio file under `root`: what touching
+/// every file costs before any parsing. Returns (time, files opened).
 fn open_floor(root: &Path) -> (Duration, usize) {
     let mut paths = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -419,8 +532,8 @@ fn open_floor(root: &Path) -> (Duration, usize) {
 }
 
 /// Writes `count` tiny, valid mono 16-bit WAVs under `root`, 25 to a
-/// folder, three folders deep. Each differs in length, so no two are
-/// byte-identical. Returns how many it wrote.
+/// folder, three folders deep. Each differs in length and content, so no
+/// two share an audio hash. Returns how many it wrote.
 fn write_wav_tree(root: &Path, count: usize) -> usize {
     const PER_FOLDER: usize = 25;
     let mut dir = PathBuf::new();
@@ -466,7 +579,7 @@ fn wav(samples: usize, seed: u32) -> Vec<u8> {
 
 /// The smoke test: the harness on a small tree, checking what it finds.
 #[test]
-fn a_thousand_files_go_through_both_stages() {
+fn a_thousand_files_go_through_the_chain() {
     const FILES: usize = 1_000;
     let tree = tempfile::Builder::new()
         .prefix("tlp-perf-smoke-")
@@ -487,9 +600,19 @@ fn a_thousand_files_go_through_both_stages() {
     assert!(report.first_batch.is_some(), "a batch arrived");
     assert_eq!(report.read_done, FILES as i64, "every file was read");
     assert_eq!(report.still_due, 0, "nothing is due after the read");
+    assert_eq!(report.hash_done, FILES as i64, "every file was hashed");
+    assert_eq!(
+        report.recordings, FILES as i64,
+        "every distinct file became its own recording"
+    );
     assert_eq!(
         report.rescan_new, 0,
         "a rescan of an unchanged tree adds no rows"
+    );
+    assert!(
+        !report.after_rescan.iter().any(|k| k == "read"),
+        "a rescan of an unchanged tree queues no read: {:?}",
+        report.after_rescan
     );
     assert!(report.peak_working_set >= report.baseline_working_set);
     assert!(report.db_bytes > 0);
