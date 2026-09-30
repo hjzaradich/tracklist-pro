@@ -144,6 +144,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0009_partial_hash.sql", &[]),
     // Adds `file.fingerprint_audio_hash`, no tables.
     ("0010_fingerprint_audio_hash.sql", &[]),
+    // Adds `rekordbox_track.relink_probable`, no tables.
+    ("0011_relink_probable.sql", &[]),
 ];
 
 #[test]

@@ -10,7 +10,8 @@
     "embed": "Running the audio model",
     "convert": "Converting files",
     "export": "Exporting",
-    "read_rekordbox": "Reading the rekordbox collection"
+    "read_rekordbox": "Reading the rekordbox collection",
+    "relink": "Matching rekordbox tracks to files"
   },
   "percent": "{{task}} ({{percent}}%)",
   "andMore_one": "{{summary}} ({{count}} other task)",

@@ -21,6 +21,7 @@ use crate::jobs::{
     JobContext, JobError, JobHandler, JobKind, JobQueue, JobQueueBuilder, NewJob, Priority,
 };
 use crate::read::{read_job, Reader};
+use crate::relink::Relinker;
 use crate::scan::chain::{after_fingerprint, after_hash, after_read, after_walk, queue_once};
 use crate::scan::folders::MusicFolderId;
 use crate::scan::walk::{scan_job, Walker};
@@ -83,7 +84,8 @@ pub(super) fn chained_queue_with(
     workers: usize,
     more: impl FnOnce(JobQueueBuilder) -> JobQueueBuilder,
 ) -> JobQueue {
-    let (v1, v2, v3, v4) = (
+    let (v1, v2, v3, v4, v5) = (
+        volume.clone(),
         volume.clone(),
         volume.clone(),
         volume.clone(),
@@ -155,7 +157,8 @@ pub(super) fn chained_queue_with(
                         fingerprinted.fetch_add(1, Ordering::SeqCst);
                     }),
             ),
-        );
+        )
+        .handler(JobKind::Relink, Relinker::new(move || v5.clone()));
     more(builder).start().unwrap()
 }
 
@@ -186,12 +189,32 @@ pub(super) fn wait_idle(queue: &JobQueue) {
     }
 }
 
-/// Every job so far: kind, target, priority and status, oldest first.
+/// Every scan-stage job so far: kind, target, priority and status, oldest
+/// first. Relink jobs (queued after each read) are left out; see
+/// [`relinks`].
 pub(super) fn jobs(writer: &Writer) -> Vec<(String, Option<String>, i64, String)> {
     writer
         .call(|c| {
-            let mut s = c.prepare("SELECT kind, target, priority, status FROM job ORDER BY id")?;
+            let mut s = c.prepare(
+                "SELECT kind, target, priority, status FROM job
+                 WHERE kind <> 'relink' ORDER BY id",
+            )?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+            rows.collect()
+        })
+        .unwrap()
+}
+
+/// Every relink job so far: its status and the job id that came just
+/// before it (the stage that asked), oldest first.
+fn relinks(writer: &Writer) -> Vec<(String, String)> {
+    writer
+        .call(|c| {
+            let mut s = c.prepare(
+                "SELECT r.status, (SELECT kind FROM job p WHERE p.id < r.id ORDER BY p.id DESC)
+                 FROM job r WHERE r.kind = 'relink' ORDER BY r.id",
+            )?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect()
         })
         .unwrap()
@@ -584,5 +607,96 @@ fn a_user_job_is_not_held_up_by_fingerprint_work_asked_for_while_a_fingerprint_j
     wait_idle(&queue);
     assert_eq!(fingerprints(&writer), ["done", "done"]);
     assert_eq!(looked.fingerprinted.load(Ordering::SeqCst), 2);
+    queue.shutdown();
+}
+
+/// A rekordbox track at `path` (an absolute path) as rekordbox writes its
+/// Location, with no TotalTime (a path match needs none).
+fn rekordbox_track_at(writer: &Writer, path: &Path) -> i64 {
+    let display = crate::scan::display_path(path).replace('\\', "/");
+    let escaped: String = display
+        .chars()
+        .map(|c| match c {
+            ' ' => "%20".to_owned(),
+            '%' => "%25".to_owned(),
+            c => c.to_string(),
+        })
+        .collect();
+    let location = format!("file://localhost/{escaped}");
+    let key = crate::rekordbox::location::decode(&location)
+        .unwrap()
+        .match_key();
+    let attributes = serde_json::json!({ "TrackID": "1", "Location": location }).to_string();
+    writer
+        .call(move |c| {
+            c.execute(
+                "INSERT INTO rekordbox_track (attributes, location_key, read_at)
+                 VALUES (?1, ?2, '2026-09-30T12:00:00.000Z')",
+                (attributes, key),
+            )?;
+            Ok(c.last_insert_rowid())
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_finished_read_queues_a_relink_that_matches_rekordbox_tracks_to_the_scanned_files() {
+    let (_dir, volume, music) = drive();
+    put(&music, "Crate/a.mp3", &audio::mp3());
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let track = rekordbox_track_at(&writer, &at(&music, "Crate/a.mp3"));
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    // One relink, asked for by the read, and it found the file.
+    assert_eq!(relinks(&writer), [("done".into(), "read".into())]);
+    let (file, method): (Option<i64>, Option<String>) = writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT file_id, relink_method FROM rekordbox_track WHERE id = ?1",
+                [track],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+        })
+        .unwrap();
+    assert!(file.is_some());
+    assert_eq!(method.as_deref(), Some("path"));
+
+    // A walk that finds nothing new reads nothing, so asks for no relink.
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(relinks(&writer).len(), 1);
+    queue.shutdown();
+}
+
+#[test]
+fn a_walk_that_stops_early_asks_for_no_relink() {
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", &audio::mp3());
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let v = volume.clone();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .handler(
+            JobKind::Scan,
+            after_walk(Walker::new(move || v.clone(), |_| {})),
+        )
+        .handler(
+            JobKind::Read,
+            after_read(|_: &JobContext| Err(JobError::failed("the drive went away"))),
+        )
+        .start()
+        .unwrap();
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(kinds(&writer), ["scan", "read"]);
+    assert!(
+        relinks(&writer).is_empty(),
+        "a failed read asks for nothing"
+    );
     queue.shutdown();
 }

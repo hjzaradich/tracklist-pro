@@ -67,6 +67,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             JobKind::Fingerprint,
             crate::scan::chain::after_fingerprint(crate::fingerprint::fingerprinter(app)),
         )
+        .handler(JobKind::Relink, crate::relink::relinker())
         .start()
 }
 

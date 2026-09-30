@@ -41,11 +41,13 @@ pub enum JobKind {
     Export,
     /// Read rekordbox's XML export into the snapshot (1.2).
     ReadRekordbox,
+    /// Match rekordbox tracks to files (1.2 relink).
+    Relink,
 }
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 9] = [
+    pub const ALL: [JobKind; 10] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
@@ -55,6 +57,7 @@ impl JobKind {
         JobKind::Convert,
         JobKind::Export,
         JobKind::ReadRekordbox,
+        JobKind::Relink,
     ];
 
     /// The name stored in the database.
@@ -69,6 +72,7 @@ impl JobKind {
             JobKind::Convert => "convert",
             JobKind::Export => "export",
             JobKind::ReadRekordbox => "read_rekordbox",
+            JobKind::Relink => "relink",
         }
     }
 
@@ -217,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn the_kinds_are_the_roadmap_ones_plus_reading_files_and_rekordbox() {
+    fn the_kinds_are_the_roadmap_ones_plus_reading_files_and_rekordbox_and_relink() {
         let names: Vec<_> = JobKind::ALL.iter().map(|k| k.as_str()).collect();
         assert_eq!(
             names,
@@ -230,7 +234,8 @@ mod tests {
                 "embed",
                 "convert",
                 "export",
-                "read_rekordbox"
+                "read_rekordbox",
+                "relink"
             ]
         );
     }
