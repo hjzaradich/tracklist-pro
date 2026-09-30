@@ -107,6 +107,7 @@ describe("Activity status", () => {
       "convert",
       "export",
       "read_rekordbox",
+      "relink",
     ] as const;
     mockApp();
     render(<Activity />);
@@ -127,6 +128,7 @@ describe("Activity status", () => {
       "Converting files",
       "Exporting",
       "Reading the rekordbox collection",
+      "Matching rekordbox tracks to files",
     ]);
   });
 

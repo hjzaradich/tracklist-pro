@@ -92,6 +92,11 @@ export const commands = {
 	 *  for just these starts at once, and its id is returned.
 	 */
 	fingerprintFirst: (fileIds: number[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("fingerprint_first", { fileIds })),
+	/**
+	 *  Matches rekordbox tracks to files again, in the background. Returns the
+	 *  job's id; if a relink is already waiting to run, returns that one.
+	 */
+	relinkRekordboxTracks: () => typedError<JobId, IpcError>(__TAURI_INVOKE("relink_rekordbox_tracks")),
 };
 
 /** Events */
@@ -254,7 +259,9 @@ export type JobKind =
 /**  Write an export, e.g. the rekordbox XML (1.9). */
 "export" | 
 /**  Read rekordbox's XML export into the snapshot (1.2). */
-"read_rekordbox";
+"read_rekordbox" | 
+/**  Match rekordbox tracks to files (1.2 relink). */
+"relink";
 
 /**
  *  Where a job is in its life. Stored in `job.status` as

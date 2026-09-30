@@ -581,6 +581,11 @@ impl XmlReader {
             .map_err(Stop::Db)?;
         // Stored: a cancel now changes nothing.
         let _ = job.progress(1.0);
+        // Match the fresh snapshot's tracks to files. The read stands if
+        // this fails; the next read or scan asks again.
+        if let Err(e) = crate::relink::request(job.writer(), |j| job.enqueue(j)) {
+            eprintln!("rekordbox read: couldn't queue a relink: {e}");
+        }
         Ok(())
     }
 }

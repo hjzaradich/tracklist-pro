@@ -88,6 +88,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::read::read_files,
             crate::fingerprint::fingerprint_files,
             crate::fingerprint::fingerprint_first,
+            crate::relink::job::relink_rekordbox_tracks,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,
@@ -172,6 +173,7 @@ mod tests {
                     "convert",
                     "export",
                     "read_rekordbox",
+                    "relink",
                 ][..],
             ),
             (

@@ -12,6 +12,7 @@ pub mod ops;
 pub mod paths;
 pub mod read;
 pub mod rekordbox;
+pub mod relink;
 pub mod scan;
 pub mod scan_state;
 pub mod settings;
