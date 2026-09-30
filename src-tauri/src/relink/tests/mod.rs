@@ -7,6 +7,7 @@ mod general;
 mod job;
 mod path;
 mod same_name;
+mod titles;
 mod unique_duration;
 mod window;
 
@@ -123,6 +124,53 @@ impl Lib {
             .unwrap();
     }
 
+    /// Stage 2 read the file's tags: `raw_tags` as stored.
+    pub fn tags(&self, file: i64, raw_tags: &str) {
+        let raw_tags = raw_tags.to_owned();
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file SET raw_tags = ?2 WHERE id = ?1",
+                    params![file, raw_tags],
+                )
+            })
+            .unwrap();
+    }
+
+    /// Gives the file an ID3v2 title tag.
+    pub fn title(&self, file: i64, title: &str) {
+        let tags = serde_json::json!({
+            "id3v2": [{"key": "TIT2", "value": {"type": "text", "text": title}}]
+        });
+        self.tags(file, &tags.to_string());
+    }
+
+    /// The walk found the file online-only (a OneDrive placeholder), so
+    /// stage 2 never read it.
+    pub fn online_only(&self, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file SET online_only = 1, duration_ms = NULL WHERE id = ?1",
+                    [file],
+                )
+            })
+            .unwrap();
+    }
+
+    /// Whether a row's match is only probable.
+    pub fn probable(&self, track: i64) -> bool {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT relink_probable FROM rekordbox_track WHERE id = ?1",
+                    [track],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
     /// The walk found the file gone.
     pub fn gone(&self, file: i64) {
         self.writer
@@ -131,7 +179,7 @@ impl Lib {
     }
 
     /// A rekordbox track at `location` (as rekordbox writes it) lasting
-    /// `total_time` whole seconds.
+    /// `total_time` whole seconds, named `Track <n>`.
     pub fn track(&self, location: &str, total_time: Option<&str>) -> i64 {
         self.track_with(location, total_time, &[])
     }
@@ -147,7 +195,9 @@ impl Lib {
         self.next_track_id.set(id + 1);
         let mut attrs = serde_json::Map::new();
         attrs.insert("TrackID".into(), id.to_string().into());
-        attrs.insert("Name".into(), format!("Track {id}").into());
+        if !more.iter().any(|(k, _)| *k == "Name") {
+            attrs.insert("Name".into(), format!("Track {id}").into());
+        }
         if let Some(t) = total_time {
             attrs.insert("TotalTime".into(), t.into());
         }

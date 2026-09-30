@@ -71,9 +71,23 @@
 //!      must be at most [`MAX_CANDIDATES`] files; and uniqueness must be
 //!      provable, so if any file in the set has an unknown duration (not
 //!      read yet, online-only, or unreadable), there's no match until a
-//!      later run. The remaining risk is a deleted file plus one unclaimed
-//!      look-alike in its folder; its lower confidence (0.6) lets Review
-//!      treat it with care.
+//!      later run. A set of more than 50 files skips step 3 for that track
+//!      (it isn't cut down to 50).
+//!
+//!    **A second signal decides whether it's trusted.** The match is
+//!    accepted (confidence 0.8) only when one of the file's title tags
+//!    agrees with rekordbox's `Name` ([`rules::title_key`]: NFKC,
+//!    lowercase, featuring credits dropped, punctuation and spacing folded,
+//!    bracket contents kept, so `(Clean)` never agrees with `(Dirty)`).
+//!    Otherwise, and when the file has no title tag, it's stored as
+//!    **probable** (`relink_probable = 1`, confidence 0.4), like a
+//!    filename-only match: its file is taken, but no rekordbox data is
+//!    attached until the user confirms it in Review. The remaining risk,
+//!    a deleted file plus one look-alike cut in its folder, lands there.
+//!
+//! A file of unknown duration blocks step 2 too: a same-named file that's
+//! online-only (never read unless the user opts in) or not read yet makes
+//! the name ambiguous, and the track falls through to step 3.
 //!
 //! **Never on size** (§5.3): rekordbox rewrites tags, so sizes change and
 //! the XML's `Size` can be stale. Nothing here reads it.
@@ -169,7 +183,10 @@ pub struct Summary {
     /// Matched in this run, by step.
     pub path: u32,
     pub filename_duration: u32,
+    /// Accepted: a title tag agrees.
     pub unique_duration: u32,
+    /// Stored as probable, waiting for the user to confirm.
+    pub probable: u32,
     /// Confirmed relinks re-applied where the row didn't already have them.
     pub confirmed: u32,
     /// Rows already matched before this run and left alone.
@@ -195,16 +212,24 @@ pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summ
     {
         let mut update = tx.prepare(
             "UPDATE rekordbox_track
-             SET file_id = ?2, relink_method = ?3, relink_confidence = ?4
+             SET file_id = ?2, relink_method = ?3, relink_confidence = ?4,
+                 relink_probable = ?5
              WHERE id = ?1",
         )?;
         for d in &plan.decisions {
-            update.execute(params![d.track, d.file, d.method.as_str(), d.confidence])?;
-            let n = match (d.confirmed, d.method) {
-                (true, _) => &mut summary.confirmed,
-                (false, Method::Path) => &mut summary.path,
-                (false, Method::FilenameDuration) => &mut summary.filename_duration,
-                (false, _) => &mut summary.unique_duration,
+            update.execute(params![
+                d.track,
+                d.file,
+                d.method.as_str(),
+                d.confidence,
+                d.probable,
+            ])?;
+            let n = match (d.confirmed, d.probable, d.method) {
+                (true, _, _) => &mut summary.confirmed,
+                (false, true, _) => &mut summary.probable,
+                (false, false, Method::Path) => &mut summary.path,
+                (false, false, Method::FilenameDuration) => &mut summary.filename_duration,
+                (false, false, _) => &mut summary.unique_duration,
             };
             *n += 1;
         }
@@ -255,7 +280,8 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
     let mut files = Vec::new();
     {
         let mut stmt = conn.prepare(
-            "SELECT id, music_folder_id, rel_path, duration_ms FROM file WHERE present = 1",
+            "SELECT id, music_folder_id, rel_path, duration_ms, raw_tags
+             FROM file WHERE present = 1",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
@@ -263,10 +289,11 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 r.get::<_, i64>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, Option<i64>>(3)?,
+                r.get::<_, Option<String>>(4)?,
             ))
         })?;
         for row in rows {
-            let (id, folder, rel, duration_ms) = row?;
+            let (id, folder, rel, duration_ms, raw_tags) = row?;
             let (base, online) = folders.get(&folder).cloned().unwrap_or((None, false));
             let (parent, name) = match rel.rsplit_once('/') {
                 Some((parent, name)) => (parent.to_owned(), name.to_owned()),
@@ -280,6 +307,7 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 path: base.map(|b| format!("{b}/{rel}")),
                 online,
                 duration_ms,
+                titles: raw_tags.as_deref().map(titles).unwrap_or_default(),
             });
         }
     }
@@ -288,7 +316,8 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
     {
         let mut stmt = conn.prepare(
             "SELECT id, location, location_key, json_extract(attributes, '$.TotalTime'),
-                    file_id, relink_method
+                    json_extract(attributes, '$.Name'),
+                    file_id, relink_method, relink_confidence, relink_probable
              FROM rekordbox_track ORDER BY id",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -297,27 +326,36 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, Option<String>>(3)?,
-                r.get::<_, Option<i64>>(4)?,
-                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<i64>>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<f64>>(7)?,
+                r.get::<_, bool>(8)?,
             ))
         })?;
         for row in rows {
-            let (id, location, key, total, file, method) = row?;
+            let (id, location, key, total, name, file, method, confidence, probable) = row?;
             let total_s = total
                 .as_deref()
                 .and_then(crate::rekordbox::attrs::digits::<u32>)
                 .filter(|&t| t > 0);
             // The table allows only the methods `Method` knows; should a
             // newer build add one, the row keeps its file (it's taken).
-            let current = file.map(|f| {
-                let method = method.as_deref().and_then(Method::parse);
-                (f, method.unwrap_or(Method::User))
+            let current = file.map(|file| rules::Current {
+                file,
+                method: method
+                    .as_deref()
+                    .and_then(Method::parse)
+                    .unwrap_or(Method::User),
+                confidence,
+                probable,
             });
             tracks.push(rules::Track {
                 id,
                 key,
                 location: crate::rekordbox::location::decode(&location).ok(),
                 total_s,
+                name: name.as_deref().map(rules::title_key).unwrap_or_default(),
                 current,
             });
         }
@@ -346,6 +384,42 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
         tracks,
         confirmed,
     })
+}
+
+/// The title tags in a file's `raw_tags` (one array of `{key, value}` per
+/// tag block type), each as a [`rules::title_key`]. Every block's own
+/// title field counts: ID3v2 `TIT2`, ID3v1 `title`, APE and Vorbis
+/// `TITLE` (any case), MP4 `©nam`, RIFF `INAM`, AIFF `NAME`.
+fn titles(raw_tags: &str) -> Vec<String> {
+    let Ok(serde_json::Value::Object(blocks)) = serde_json::from_str(raw_tags) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (block, items) in &blocks {
+        let is_title = |key: &str| match block.as_str() {
+            "id3v2" => key == "TIT2",
+            "id3v1" => key == "title",
+            "ape" | "vorbis_comments" => key.eq_ignore_ascii_case("title"),
+            "mp4_ilst" => key == "\u{a9}nam",
+            "riff_info" => key == "INAM",
+            "aiff_text" => key == "NAME",
+            _ => false,
+        };
+        for item in items.as_array().into_iter().flatten() {
+            let key = item.get("key").and_then(|k| k.as_str()).unwrap_or("");
+            let text = item
+                .get("value")
+                .and_then(|v| v.get("text"))
+                .and_then(|t| t.as_str());
+            if let (true, Some(text)) = (is_title(key), text) {
+                let title = rules::title_key(text);
+                if !title.is_empty() {
+                    out.push(title);
+                }
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

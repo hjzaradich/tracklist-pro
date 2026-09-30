@@ -159,3 +159,21 @@ fn a_name_match_never_looks_at_the_size() {
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), by_name(file));
 }
+
+#[test]
+fn an_online_only_same_named_file_makes_the_name_ambiguous_and_the_track_falls_through() {
+    let (lib, music, mounted) = e_music();
+    // A same-named OneDrive placeholder elsewhere: never read, so its
+    // duration is unknown and it could be the one.
+    lib.file(music, "New/Omicron.mp3", Some(200_300));
+    let cloud = lib.file(music, "Cloud/Omicron.mp3", None);
+    lib.online_only(cloud);
+    // Meanwhile the track's own folder holds one file that fits.
+    let renamed = lib.file(music, "Album/Omicron (renamed).mp3", Some(200_500));
+    let track = lib.track(&loc("E:/Music/Album/Omicron.mp3"), Some("200"));
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((renamed, "unique_duration".to_owned(), 0.4))
+    );
+}

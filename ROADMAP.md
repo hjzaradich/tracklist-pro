@@ -150,7 +150,7 @@ In the UI, **All music** shows the tracks layer and **Library** shows Library tr
 | `recording_file` | recording_id, file_id, role (best / undecided / extra), match_confidence | A track's duplicates. "Extra" is purely a DB state. |
 | `version_link` | recording_a, recording_b, kind (cut / rework), label (extended, radio, clean/dirty, remix, VIP, flip, bootleg, cover, live, arrangement, mashup-contains…), source (parser / fingerprint / user), confirmed | Nothing is inherited across a link. |
 | `library_track` | recording_id, kind (copy / linked), managed rel_path (copy), linked file_id (linked), format, source_file_id (nullable), source_status (ok / missing), **last_sent_location**, last_exported_at | Deleted only by an explicit in-app action. The rekordbox TrackID isn't stored, because it's reassigned on import (§5.2). |
-| `rekordbox_track` | TrackID, location, location_key, matched file_id and recording_id, relink method and confidence, bpm, key, beatgrid, cues, play_count, last_played, rating, color, comments, My Tags, playlists, read_at | A read-only snapshot, refreshed on every read. The TrackID is valid within this read only. |
+| `rekordbox_track` | TrackID, location, location_key, matched file_id and recording_id, relink method, confidence and **relink_probable**, bpm, key, beatgrid, cues, play_count, last_played, rating, color, comments, My Tags, playlists, read_at | A read-only snapshot, refreshed on every read. The TrackID is valid within this read only. `relink_probable` marks a match that isn't trusted yet (filename only, or a unique duration no title tag agrees with): its file is taken, but no rekordbox data is attached until the user confirms it, and a confirmation (a `relink` row) re-applies it as trusted (1aC-5, 2026-09-30). |
 | `relink` | location_key (rekordbox Location decoded by hand, NFC), file_id, method, confidence, confirmed_at | A confirmed relink, kept apart from the `rekordbox_track` snapshot so it survives every fresh read and is re-applied by Location (0D-1 review, 2026-09-28). |
 | `sync_base` | library_track_id, field, value_at_last_sync | Tells "app changed", "rekordbox changed" and "both changed" apart. |
 | `conflict` | library_track_id, field, app_value, rekordbox_value, base_value, status | The review queue (1.10). |
@@ -280,7 +280,7 @@ Each feature is tagged with its sub-phase.
 - **Relink** (paths go stale when DJs change computers or accounts). Try in order:
   1. The path is still valid.
   2. Filename + duration (±0.5 s, read from the file). The XML's `TotalTime` is truncated to whole seconds, so a `TotalTime` of T matches a file lasting from T − 0.5 s up to (not including) T + 1.5 s (1aC-3, 2026-09-30).
-  3. A unique duration within the candidate set.
+  3. A unique duration within the candidate set: the files directly in the folder the Location's folder still names, plus the folders its neighbours (tracks from the same rekordbox folder, matched by path or filename + duration, or confirmed) were matched into; at most 50 files, and none of unknown duration. Accepted only when a title tag agrees with rekordbox's Name (featuring credits, case, punctuation and spacing folded; bracket contents kept); otherwise **probable**, like step 5 (1aC-5, 2026-09-30).
   4. The acoustic fingerprint (1.4).
   5. Filename only. Marked **probable** and queued in Review as "Confirm relink" before any rekordbox data is attached.
   6. A connected gig stick as a recovery source.

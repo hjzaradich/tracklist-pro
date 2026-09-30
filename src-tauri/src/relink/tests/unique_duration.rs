@@ -3,8 +3,10 @@
 use super::*;
 use crate::relink::MAX_CANDIDATES;
 
+/// Matched by step 3. These files have no title tags, so the match is
+/// probable (see the `titles` tests below for accepted ones).
 fn by_duration(file: i64) -> Option<Match> {
-    Some((file, "unique_duration".to_owned(), 0.6))
+    Some((file, "unique_duration".to_owned(), 0.4))
 }
 
 #[test]
@@ -20,7 +22,7 @@ fn a_file_renamed_where_it_was_matches_by_unique_duration() {
     assert_eq!(lib.matched(track), by_duration(renamed));
     assert_eq!(lib.matched(other), path(a));
     assert_eq!(lib.matched(another), path(b));
-    assert_eq!(summary.unique_duration, 1);
+    assert_eq!((summary.unique_duration, summary.probable), (0, 1));
 }
 
 #[test]

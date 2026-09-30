@@ -50,9 +50,10 @@ fn relinking_again_with_nothing_changed_changes_nothing() {
             first.path,
             first.filename_duration,
             first.unique_duration,
+            first.probable,
             first.confirmed
         ),
-        (1, 1, 1, 1)
+        (1, 1, 0, 1, 1)
     );
     assert_eq!((first.streaming, first.missing, first.kept), (1, 2, 0));
 

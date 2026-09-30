@@ -79,7 +79,10 @@ pub mod confidence {
     /// The Location names where the file was when its drive was last seen.
     pub const PATH_OFFLINE: f64 = 0.9;
     pub const FILENAME_DURATION: f64 = 0.9;
-    pub const UNIQUE_DURATION: f64 = 0.6;
+    /// A unique duration a title tag agrees with.
+    pub const UNIQUE_DURATION: f64 = 0.8;
+    /// A unique duration no title tag agrees with: probable only.
+    pub const UNIQUE_DURATION_PROBABLE: f64 = 0.4;
 }
 
 /// Step 3 looks at no more files than this. In a bigger set, a single file
@@ -108,6 +111,8 @@ pub struct File {
     /// `None` until stage 2 has read it (or when it couldn't, or when the
     /// file is online-only and wasn't read).
     pub duration_ms: Option<i64>,
+    /// Its title tags, each as a [`title_key`]; empty when it has none.
+    pub titles: Vec<String>,
 }
 
 /// One `rekordbox_track` row.
@@ -122,8 +127,19 @@ pub struct Track {
     /// `TotalTime`, whole seconds (truncated, §5.3); `None` when missing,
     /// not a number, or 0.
     pub total_s: Option<u32>,
+    /// rekordbox's `Name` as a [`title_key`]; empty when it has none.
+    pub name: String,
     /// Its match before this run.
-    pub current: Option<(i64, Method)>,
+    pub current: Option<Current>,
+}
+
+/// A row's match as stored before this run.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Current {
+    pub file: i64,
+    pub method: Method,
+    pub confidence: Option<f64>,
+    pub probable: bool,
 }
 
 /// A confirmed relink (the `relink` table).
@@ -152,6 +168,9 @@ pub struct Decision {
     pub confidence: f64,
     /// Re-applied from the `relink` table.
     pub confirmed: bool,
+    /// Matched, but not trusted until the user confirms it
+    /// (`relink_probable`).
+    pub probable: bool,
 }
 
 /// What [`plan`] decided: the matches to store, and the rows left alone.
@@ -181,6 +200,62 @@ pub fn duration_fits(total_s: u32, duration_ms: i64) -> bool {
 /// folds it. The same key [`FilePath::match_key`] gives a Windows path.
 pub fn path_key(path: &str) -> String {
     path.nfc().map(upcase).collect()
+}
+
+/// A title for comparing a file's title tag with rekordbox's `Name`: NFKC
+/// and lowercase; featuring credits dropped (`(feat. X)`, `[ft X]`, or a
+/// trailing ` feat. X`); every run of characters that aren't letters or
+/// digits made one space. Bracket contents stay, so `Title (Clean)` and
+/// `Title (Dirty)`, or an original and its remix, never agree.
+pub fn title_key(title: &str) -> String {
+    let lower: String = title.nfkc().flat_map(char::to_lowercase).collect();
+    let credited = drop_featuring(&lower);
+    let words: Vec<&str> = credited
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    words.join(" ")
+}
+
+/// `s` (lowercase) without its featuring credits.
+fn drop_featuring(s: &str) -> String {
+    const OPEN: &str = "([{";
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(c) = rest.chars().next() {
+        if OPEN.contains(c) {
+            let inner = &rest[c.len_utf8()..];
+            if starts_with_featuring(inner.trim_start()) {
+                let close = match c {
+                    '(' => ')',
+                    '[' => ']',
+                    _ => '}',
+                };
+                rest = inner.find(close).map_or("", |at| &inner[at + 1..]);
+                out.push(' ');
+                continue;
+            }
+        }
+        let word_start = out.chars().last().is_none_or(|p| !p.is_alphanumeric());
+        if word_start && starts_with_featuring(rest) {
+            // To the next bracket, or the end.
+            let end = rest.find(|b| OPEN.contains(b)).unwrap_or(rest.len());
+            rest = &rest[end..];
+            out.push(' ');
+            continue;
+        }
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
+/// Whether `s` starts with the word `feat`, `ft` or `featuring`.
+fn starts_with_featuring(s: &str) -> bool {
+    ["featuring", "feat", "ft"].iter().any(|word| {
+        s.strip_prefix(word)
+            .is_some_and(|after| after.chars().next().is_none_or(|c| !c.is_alphanumeric()))
+    })
 }
 
 /// A path as Windows compares it: letter case folded, spelling otherwise
@@ -378,7 +453,7 @@ pub fn plan(input: &Input) -> Plan {
     let mut matched: Vec<Option<(i64, Method, bool)>> = input
         .tracks
         .iter()
-        .map(|t| t.current.map(|(file, method)| (file, method, false)))
+        .map(|t| t.current.map(|c| (c.file, c.method, false)))
         .collect();
     let is_file = |t: &Track| matches!(t.location, Some(Location::File(_)));
     let mut decide = |matched: &mut Vec<Option<(i64, Method, bool)>>,
@@ -386,7 +461,8 @@ pub fn plan(input: &Input) -> Plan {
                       file: i64,
                       method: Method,
                       confidence: f64,
-                      confirmed: bool| {
+                      confirmed: bool,
+                      probable: bool| {
         matched[i] = Some((file, method, confirmed));
         out.decisions.push(Decision {
             track: input.tracks[i].id,
@@ -394,6 +470,7 @@ pub fn plan(input: &Input) -> Plan {
             method,
             confidence,
             confirmed,
+            probable,
         });
     };
 
@@ -409,7 +486,13 @@ pub fn plan(input: &Input) -> Plan {
         if !index.by_id.contains_key(&c.file) {
             continue;
         }
-        if track.current != Some((c.file, c.method)) {
+        let as_confirmed = Current {
+            file: c.file,
+            method: c.method,
+            confidence: Some(confidence::CONFIRMED),
+            probable: false,
+        };
+        if track.current != Some(as_confirmed) {
             decide(
                 &mut matched,
                 i,
@@ -417,6 +500,7 @@ pub fn plan(input: &Input) -> Plan {
                 c.method,
                 confidence::CONFIRMED,
                 true,
+                false,
             );
         } else {
             matched[i] = Some((c.file, c.method, true));
@@ -437,7 +521,15 @@ pub fn plan(input: &Input) -> Plan {
             } else {
                 confidence::PATH_OFFLINE
             };
-            decide(&mut matched, i, file, Method::Path, confidence, false);
+            decide(
+                &mut matched,
+                i,
+                file,
+                Method::Path,
+                confidence,
+                false,
+                false,
+            );
         }
     }
 
@@ -471,6 +563,7 @@ pub fn plan(input: &Input) -> Plan {
             file,
             Method::FilenameDuration,
             confidence::FILENAME_DURATION,
+            false,
             false,
         );
     }
@@ -518,17 +611,29 @@ pub fn plan(input: &Input) -> Plan {
             Some(fits(&index, i, total_s, &candidates))
         })
         .collect();
+    // Accepted only when one of the file's title tags agrees with
+    // rekordbox's Name; otherwise probable, like a filename-only match.
     for (i, file) in one_to_one(&found, &taken) {
+        let name = &input.tracks[i].name;
+        let titles = &input.files[index.by_id[&file]].titles;
+        let agrees = !name.is_empty() && titles.contains(name);
+        let confidence = if agrees {
+            confidence::UNIQUE_DURATION
+        } else {
+            confidence::UNIQUE_DURATION_PROBABLE
+        };
         decide(
             &mut matched,
             i,
             file,
             Method::UniqueDuration,
-            confidence::UNIQUE_DURATION,
+            confidence,
             false,
+            !agrees,
         );
     }
 
+    let decided: HashSet<i64> = out.decisions.iter().map(|d| d.track).collect();
     for (i, track) in input.tracks.iter().enumerate() {
         if !is_file(track) {
             if matches!(track.location, Some(Location::Streaming(_))) {
@@ -538,7 +643,7 @@ pub fn plan(input: &Input) -> Plan {
             }
         } else if matched[i].is_none() {
             out.missing += 1;
-        } else if track.current.is_some() && track.current == matched[i].map(|(f, m, _)| (f, m)) {
+        } else if track.current.is_some() && !decided.contains(&track.id) {
             out.kept += 1;
         }
     }
