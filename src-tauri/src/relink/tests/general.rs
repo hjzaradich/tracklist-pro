@@ -45,45 +45,39 @@ fn relinking_again_with_nothing_changed_changes_nothing() {
     let (lib, mounted) = mixed();
     let first = lib.relink(&mounted);
     let after_first = lib.all_matches();
-    assert_eq!(
-        (
-            first.path,
-            first.filename_duration,
-            first.unique_duration,
-            first.probable,
-            first.confirmed
-        ),
-        (1, 1, 0, 1, 1)
-    );
-    assert_eq!((first.streaming, first.missing, first.kept), (1, 2, 0));
+    let want = Summary {
+        confirmed: 1,
+        path: 1,
+        filename_duration: 1,
+        unique_duration: 0,
+        probable: 1,
+        other: 0,
+        streaming: 1,
+        missing: 2,
+        changed: 4,
+    };
+    assert_eq!(first, want);
 
     let second = lib.relink(&mounted);
     assert_eq!(lib.all_matches(), after_first);
-    assert_eq!(
-        second,
-        Summary {
-            kept: 4,
-            streaming: 1,
-            missing: 2,
-            ..Summary::default()
-        }
-    );
+    assert_eq!(second, Summary { changed: 0, ..want });
 }
 
 #[test]
-fn rows_matched_before_a_run_keep_their_match() {
+fn a_match_from_a_later_step_carries_over_while_its_file_is_present() {
     let (lib, music, mounted) = e_music();
     let earlier = lib.file(music, "Earlier.mp3", Some(200_000));
     let at_path = lib.file(music, "Delta.mp3", Some(200_000));
     let track = lib.track(&loc("E:/Music/Delta.mp3"), Some("200"));
-    // An earlier run (or a later step, 1aD) matched it elsewhere.
+    // A later step (1aD) matched it elsewhere; this run doesn't remake
+    // fingerprint matches, so it stands.
     lib.matched_before(track, earlier, "fingerprint", 0.95);
     let summary = lib.relink(&mounted);
     assert_eq!(
         lib.matched(track),
         Some((earlier, "fingerprint".to_owned(), 0.95))
     );
-    assert_eq!(summary.kept, 1);
+    assert_eq!((summary.other, summary.changed), (1, 0));
     let _ = at_path;
 }
 

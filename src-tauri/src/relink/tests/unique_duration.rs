@@ -132,8 +132,8 @@ fn neighbours_matched_by_duration_alone_dont_widen_the_candidate_set() {
     let guessed = lib.file(music, "Somewhere/Guess.mp3", Some(300_000));
     lib.file(music, "Somewhere/Renamed.mp3", Some(200_300));
     let neighbour = lib.track(&loc("D:/Old/Guess Source.mp3"), Some("300"));
-    // An earlier run matched the neighbour by duration alone.
-    lib.matched_before(neighbour, guessed, "unique_duration", 0.6);
+    // A later step matched the neighbour by name alone (1aD, unconfirmed).
+    lib.matched_before(neighbour, guessed, "filename_only", 0.5);
     let track = lib.track(&loc("D:/Old/Original.mp3"), Some("200"));
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), None);

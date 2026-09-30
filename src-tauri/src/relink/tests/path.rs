@@ -174,17 +174,19 @@ fn the_drive_plugged_in_at_the_letter_wins_over_one_last_seen_there() {
 }
 
 #[test]
-fn an_unplugged_drive_last_at_the_letter_matches_when_the_drive_there_now_lacks_the_file() {
+fn an_unplugged_drive_last_at_the_letter_of_a_plugged_in_drive_never_matches_by_path() {
     let lib = Lib::new();
     let old = lib.volume(&serial(1), Some(r"E:\"));
     let now = lib.volume(&serial(2), Some(r"E:\"));
     let old_music = lib.folder(old, "Music");
     let now_music = lib.folder(now, "Music");
-    let away = lib.file(old_music, "Mu.mp3", None);
+    lib.file(old_music, "Mu.mp3", None);
     lib.file(now_music, "Other.mp3", None);
     let track = lib.track(&loc("E:/Music/Mu.mp3"), None);
+    // Two known volumes at E:, one of them now: which one the Location
+    // meant can't be told.
     lib.relink(&Mounted::new([(serial(2), r"E:\")]));
-    assert_eq!(lib.matched(track), Some((away, "path".to_owned(), 0.9)));
+    assert_eq!(lib.matched(track), None);
 }
 
 #[test]

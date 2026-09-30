@@ -1,10 +1,13 @@
 //! The relink rules, on data already loaded: no database, no disk.
 //!
 //! [`plan`] takes every present file and every `rekordbox_track` row and
-//! decides which rows get a file. The steps run in order over all rows
-//! (every row's step 1 before any row's step 2), so a later step can never
-//! take a file an earlier, stronger step gives to another row. See the
-//! module docs in [`super`] for each rule and its false-match risk.
+//! decides each row's match from scratch. Only a confirmed relink, and a
+//! match from a step this run doesn't make (fingerprint, filename only, gig
+//! stick, user; 1aD), carry over, and only while their file is present.
+//! The steps run in order over all rows (every row's step 1 before any
+//! row's step 2), so a later step can never take a file an earlier,
+//! stronger step gives to another row. See the module docs in [`super`]
+//! for each rule and its false-match risk.
 
 use std::collections::{HashMap, HashSet};
 
@@ -61,6 +64,16 @@ impl Method {
         Method::ALL.into_iter().find(|m| m.as_str() == name)
     }
 
+    /// Whether this run's steps make matches this way, and so remake them
+    /// from scratch. Matches made any other way (1aD's steps, the user)
+    /// carry over while their file is present.
+    fn is_recomputed(self) -> bool {
+        matches!(
+            self,
+            Method::Path | Method::FilenameDuration | Method::UniqueDuration
+        )
+    }
+
     /// Whether a match made this way says where a track's neighbours went
     /// (step 3's candidate set). A duration-only or name-only guess
     /// doesn't, unless the user confirmed it.
@@ -70,7 +83,7 @@ impl Method {
 }
 
 /// How sure each step is, stored as `relink_confidence`. Nothing reads
-/// these as thresholds yet; they rank the steps for Review (1aD).
+/// these as thresholds; `relink_probable` says whether a match is trusted.
 pub mod confidence {
     /// Confirmed by the user.
     pub const CONFIRMED: f64 = 1.0;
@@ -85,14 +98,15 @@ pub mod confidence {
     pub const UNIQUE_DURATION_PROBABLE: f64 = 0.4;
 }
 
-/// Step 3 looks at no more files than this. In a bigger set, a single file
-/// within the duration window is more likely chance than evidence; step 4
-/// (the fingerprint, 1aD) is the tool for big folders.
+/// Step 3 looks at no more files than this. A bigger candidate set skips
+/// step 3 for its tracks (it isn't cut down): in a big set, a single file
+/// within the duration window is more likely chance than evidence, and
+/// step 4 (the fingerprint, 1aD) is the tool for big folders.
 pub const MAX_CANDIDATES: usize = 50;
 
 /// A file that is present (`file.present = 1`), whether or not its drive
 /// is plugged in.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct File {
     pub id: i64,
     /// Its music folder's row id.
@@ -105,7 +119,8 @@ pub struct File {
     /// Its full path, `/`-separated (`E:/Music/a.mp3`,
     /// `//server/share/a.mp3`): under its volume's mount point now when
     /// `online`, or where the volume was last mounted when not. `None`
-    /// when neither is known.
+    /// when neither is known, or when another known volume was last
+    /// mounted there too.
     pub path: Option<String>,
     pub online: bool,
     /// `None` until stage 2 has read it (or when it couldn't, or when the
@@ -113,10 +128,16 @@ pub struct File {
     pub duration_ms: Option<i64>,
     /// Its title tags, each as a [`title_key`]; empty when it has none.
     pub titles: Vec<String>,
+    /// Its `audio_hash`, once stage 3 has one.
+    pub audio_hash: Option<Vec<u8>>,
+    /// Its track (`recording_file`), once grouped.
+    pub recording: Option<i64>,
+    /// Whether it's its track's best file.
+    pub best: bool,
 }
 
 /// One `rekordbox_track` row.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Track {
     pub id: i64,
     /// `location_key` as stored: the Location decoded by hand, NFC, and for
@@ -129,16 +150,20 @@ pub struct Track {
     pub total_s: Option<u32>,
     /// rekordbox's `Name` as a [`title_key`]; empty when it has none.
     pub name: String,
-    /// Its match before this run.
-    pub current: Option<Current>,
+    /// Its match as stored before this run.
+    pub current: Option<Target>,
+    /// Its `recording_id` as stored before this run.
+    pub recording: Option<i64>,
 }
 
-/// A row's match as stored before this run.
+/// A row's match: what `file_id`, `relink_method`, `relink_confidence` and
+/// `relink_probable` hold.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Current {
+pub struct Target {
     pub file: i64,
     pub method: Method,
     pub confidence: Option<f64>,
+    /// Matched, but not trusted until the user confirms it.
     pub probable: bool,
 }
 
@@ -158,32 +183,35 @@ pub struct Input {
     pub confirmed: HashMap<String, Confirmed>,
 }
 
-/// A match to store.
+/// A row to write: its new match (`None` clears it) and the track its file
+/// belongs to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Decision {
     /// The `rekordbox_track` row.
     pub track: i64,
-    pub file: i64,
-    pub method: Method,
-    pub confidence: f64,
-    /// Re-applied from the `relink` table.
-    pub confirmed: bool,
-    /// Matched, but not trusted until the user confirms it
-    /// (`relink_probable`).
-    pub probable: bool,
+    pub target: Option<Target>,
+    pub recording: Option<i64>,
 }
 
-/// What [`plan`] decided: the matches to store, and the rows left alone.
+/// What [`plan`] decided.
 #[derive(Debug, Clone, Default)]
 pub struct Plan {
-    /// New or changed matches, in step order.
+    /// Rows whose stored match or track changes, in row order.
     pub decisions: Vec<Decision>,
-    /// Rows already matched before this run and left as they were.
-    pub kept: usize,
-    /// Streaming entries: never matched.
+    /// Every row after this run, by how it's matched.
+    pub confirmed: usize,
+    pub path: usize,
+    pub filename_duration: usize,
+    /// Unique duration, accepted.
+    pub unique_duration: usize,
+    /// Probable, waiting for the user.
+    pub probable: usize,
+    /// Carried over from a step this run doesn't make.
+    pub other: usize,
     pub streaming: usize,
-    /// Rows with no file after this run.
     pub missing: usize,
+    /// Files step 3 looked at, for tests of how much work it does.
+    pub examined: usize,
 }
 
 /// Whether a file lasting `duration_ms` can be the track rekordbox says
@@ -194,6 +222,15 @@ pub struct Plan {
 pub fn duration_fits(total_s: u32, duration_ms: i64) -> bool {
     let t = i64::from(total_s) * 1000;
     duration_ms >= t - 500 && duration_ms < t + 1500
+}
+
+/// The (at most two) `TotalTime`s a file lasting `duration_ms` fits.
+fn totals_fitting(duration_ms: i64) -> impl Iterator<Item = u32> {
+    let high = (duration_ms + 500).div_euclid(1000);
+    [high - 1, high]
+        .into_iter()
+        .filter_map(|t| u32::try_from(t).ok())
+        .filter(move |&t| t > 0 && duration_fits(t, duration_ms))
 }
 
 /// A path's key for matching: NFC, and letter case folded the way NTFS
@@ -346,8 +383,12 @@ impl<'a> Index<'a> {
         index
     }
 
+    fn file(&self, id: i64) -> Option<&File> {
+        self.by_id.get(&id).map(|&i| &self.files[i])
+    }
+
     fn place_of(&self, file: i64) -> Option<Place> {
-        let f = &self.files[*self.by_id.get(&file)?];
+        let f = self.file(file)?;
         Some((f.folder, f.parent.clone()))
     }
 
@@ -393,123 +434,107 @@ impl<'a> Index<'a> {
             .get(&key)
             .or_else(|| self.offline_folders.get(&key))
     }
-}
 
-/// What a step found for one track: the files that fit, and whether a file
-/// whose duration isn't known yet could have fit too.
-struct Fits {
-    track: usize,
-    files: Vec<i64>,
-    blocked: bool,
-}
-
-/// Among `candidates`, the files whose duration fits `total_s`.
-fn fits(index: &Index<'_>, track: usize, total_s: u32, candidates: &[usize]) -> Fits {
-    let mut files = Vec::new();
-    let mut blocked = false;
-    for &i in candidates {
-        let file = &index.files[i];
-        match file.duration_ms {
-            Some(d) if duration_fits(total_s, d) => files.push(file.id),
-            Some(_) => {}
-            None => blocked = true,
-        }
-    }
-    Fits {
-        track,
-        files,
-        blocked,
-    }
-}
-
-/// The one-to-one matches among `found`: a track gets a file only if that
-/// file is the only one that fits it, no other track in this step fits
-/// that file, no file of unknown duration could also fit it, and no other
-/// row already has the file.
-fn one_to_one(found: &[Fits], claimed: &HashSet<i64>) -> Vec<(usize, i64)> {
-    let mut wanted: HashMap<i64, usize> = HashMap::new();
-    for f in found {
-        for &file in &f.files {
-            *wanted.entry(file).or_default() += 1;
-        }
-    }
-    found
-        .iter()
-        .filter_map(|f| match f.files.as_slice() {
-            [file] if !f.blocked && wanted[file] == 1 && !claimed.contains(file) => {
-                Some((f.track, *file))
+    /// Among `candidates`, the files whose duration fits `total_s`, and
+    /// whether a candidate of unknown duration could have fit too.
+    fn fits(&self, total_s: u32, candidates: &[usize]) -> (Vec<i64>, bool) {
+        let mut files = Vec::new();
+        let mut blocked = false;
+        for &i in candidates {
+            let file = &self.files[i];
+            match file.duration_ms {
+                Some(d) if duration_fits(total_s, d) => files.push(file.id),
+                Some(_) => {}
+                None => blocked = true,
             }
-            _ => None,
-        })
-        .collect()
+        }
+        (files, blocked)
+    }
+
+    /// The one file to match among `fits`: the only one, or, when every
+    /// one of them holds the same audio (one `audio_hash`: exact copies),
+    /// their track's best file, else the lowest id. `None` if they differ.
+    fn pick(&self, fits: &[i64]) -> Option<i64> {
+        match fits {
+            [] => None,
+            [only] => Some(*only),
+            _ => {
+                let hash = self.file(fits[0])?.audio_hash.as_ref()?;
+                let copies: Vec<&File> = fits.iter().filter_map(|&f| self.file(f)).collect();
+                if copies.len() != fits.len()
+                    || copies.iter().any(|f| f.audio_hash.as_ref() != Some(hash))
+                {
+                    return None;
+                }
+                copies
+                    .iter()
+                    .find(|f| f.best)
+                    .or_else(|| copies.iter().min_by_key(|f| f.id))
+                    .map(|f| f.id)
+            }
+        }
+    }
 }
 
-/// Decides every row's match. Rows matched before this run keep their
-/// match, except that a confirmed relink replaces it.
+/// A row's match as this run decides it.
+#[derive(Debug, Clone, Copy)]
+struct Now {
+    target: Target,
+    confirmed: bool,
+}
+
+/// Decides every row's match from scratch; see the module docs.
 pub fn plan(input: &Input) -> Plan {
     let index = Index::new(&input.files);
+    let tracks = &input.tracks;
     let mut out = Plan::default();
-    // Each row's match as this run goes: file, method, whether confirmed.
-    let mut matched: Vec<Option<(i64, Method, bool)>> = input
-        .tracks
-        .iter()
-        .map(|t| t.current.map(|c| (c.file, c.method, false)))
-        .collect();
     let is_file = |t: &Track| matches!(t.location, Some(Location::File(_)));
-    let mut decide = |matched: &mut Vec<Option<(i64, Method, bool)>>,
-                      i: usize,
-                      file: i64,
-                      method: Method,
-                      confidence: f64,
-                      confirmed: bool,
-                      probable: bool| {
-        matched[i] = Some((file, method, confirmed));
-        out.decisions.push(Decision {
-            track: input.tracks[i].id,
-            file,
-            method,
-            confidence,
-            confirmed,
-            probable,
+    let mut now: Vec<Option<Now>> = vec![None; tracks.len()];
+    let set = |now: &mut Vec<Option<Now>>, i: usize, file, method, confidence, probable| {
+        now[i] = Some(Now {
+            target: Target {
+                file,
+                method,
+                confidence: Some(confidence),
+                probable,
+            },
+            confirmed: false,
         });
     };
 
-    // Step 0: a confirmed relink is re-applied first, over any automatic
-    // match, as long as its file is still present.
-    for (i, track) in input.tracks.iter().enumerate() {
+    // Step 0: a confirmed relink is re-applied, while its file is present.
+    // A match from a step this run doesn't make carries over, likewise.
+    for (i, track) in tracks.iter().enumerate() {
         if !is_file(track) {
             continue;
         }
-        let Some(c) = input.confirmed.get(&track.key) else {
-            continue;
-        };
-        if !index.by_id.contains_key(&c.file) {
-            continue;
+        if let Some(c) = input.confirmed.get(&track.key) {
+            if index.by_id.contains_key(&c.file) {
+                now[i] = Some(Now {
+                    target: Target {
+                        file: c.file,
+                        method: c.method,
+                        confidence: Some(confidence::CONFIRMED),
+                        probable: false,
+                    },
+                    confirmed: true,
+                });
+                continue;
+            }
         }
-        let as_confirmed = Current {
-            file: c.file,
-            method: c.method,
-            confidence: Some(confidence::CONFIRMED),
-            probable: false,
-        };
-        if track.current != Some(as_confirmed) {
-            decide(
-                &mut matched,
-                i,
-                c.file,
-                c.method,
-                confidence::CONFIRMED,
-                true,
-                false,
-            );
-        } else {
-            matched[i] = Some((c.file, c.method, true));
+        if let Some(current) = track.current {
+            if !current.method.is_recomputed() && index.by_id.contains_key(&current.file) {
+                now[i] = Some(Now {
+                    target: current,
+                    confirmed: false,
+                });
+            }
         }
     }
 
     // Step 1: the Location still names a present file.
-    for (i, track) in input.tracks.iter().enumerate() {
-        if matched[i].is_some() {
+    for (i, track) in tracks.iter().enumerate() {
+        if now[i].is_some() {
             continue;
         }
         let Some(path) = windows_path(track.location.as_ref()) else {
@@ -521,130 +546,213 @@ pub fn plan(input: &Input) -> Plan {
             } else {
                 confidence::PATH_OFFLINE
             };
-            decide(
-                &mut matched,
-                i,
+            set(&mut now, i, file, Method::Path, confidence, false);
+        }
+    }
+
+    let taken = |now: &[Option<Now>]| -> HashSet<i64> {
+        now.iter().flatten().map(|n| n.target.file).collect()
+    };
+    let open = |now: &[Option<Now>]| -> Vec<(usize, u32)> {
+        tracks
+            .iter()
+            .enumerate()
+            .filter(|(i, t)| now[*i].is_none() && is_file(t))
+            .filter_map(|(i, t)| Some((i, t.total_s?)))
+            .collect()
+    };
+
+    // Step 2: the same file name anywhere, and the duration fits. Every
+    // track that fits a file counts against giving it to another.
+    let claimed = taken(&now);
+    let mut by_name: Vec<(usize, Vec<i64>, bool)> = Vec::new();
+    for (i, total_s) in open(&now) {
+        let Some(path) = tracks[i].location.as_ref().and_then(Location::as_file) else {
+            continue;
+        };
+        if let Some(same_name) = index.names.get(&path_key(path.file_name())) {
+            let (fits, blocked) = index.fits(total_s, same_name);
+            if !fits.is_empty() || blocked {
+                by_name.push((i, fits, blocked));
+            }
+        }
+    }
+    let mut wanted: HashMap<i64, HashSet<usize>> = HashMap::new();
+    for (i, fits, _) in &by_name {
+        for &file in fits {
+            wanted.entry(file).or_default().insert(*i);
+        }
+    }
+    let alone = |wanted: &HashMap<i64, HashSet<usize>>, file: i64, i: usize| {
+        wanted.get(&file).is_none_or(|w| w.iter().all(|&o| o == i))
+    };
+    for (i, fits, blocked) in &by_name {
+        if *blocked {
+            continue;
+        }
+        let Some(file) = index.pick(fits) else {
+            continue;
+        };
+        if fits.iter().all(|&f| alone(&wanted, f, *i)) && !claimed.contains(&file) {
+            set(
+                &mut now,
+                *i,
                 file,
-                Method::Path,
-                confidence,
-                false,
+                Method::FilenameDuration,
+                confidence::FILENAME_DURATION,
                 false,
             );
         }
     }
 
-    let claimed = |matched: &[Option<(i64, Method, bool)>]| -> HashSet<i64> {
-        matched.iter().flatten().map(|&(file, _, _)| file).collect()
-    };
-    let open = |matched: &[Option<(i64, Method, bool)>]| -> Vec<(usize, u32)> {
-        input
-            .tracks
-            .iter()
-            .enumerate()
-            .filter(|(i, t)| matched[*i].is_none() && is_file(t))
-            .filter_map(|(i, t)| Some((i, t.total_s?)))
-            .collect()
-    };
-
-    // Step 2: the same file name anywhere, and the duration agrees.
-    let taken = claimed(&matched);
-    let found: Vec<Fits> = open(&matched)
-        .into_iter()
-        .filter_map(|(i, total_s)| {
-            let path = input.tracks[i].location.as_ref()?.as_file()?;
-            let same_name = index.names.get(&path_key(path.file_name()))?;
-            Some(fits(&index, i, total_s, same_name))
-        })
-        .collect();
-    for (i, file) in one_to_one(&found, &taken) {
-        decide(
-            &mut matched,
-            i,
-            file,
-            Method::FilenameDuration,
-            confidence::FILENAME_DURATION,
-            false,
-            false,
-        );
-    }
-
-    // Step 3: the only file of that duration in the candidate set: the
-    // folder the Location's own folder still names, plus every folder that
-    // its neighbours (rows from the same rekordbox folder) were matched
-    // into by a step that says where files went.
+    // Step 3: the only file of that duration in the candidate set. Tracks
+    // from one rekordbox folder share their set: the files directly in the
+    // folder that folder still names, plus the folders its neighbours were
+    // matched into by a step that says where files went.
+    let claimed = taken(&now);
     let mut went: HashMap<&str, HashSet<Place>> = HashMap::new();
-    for (i, track) in input.tracks.iter().enumerate() {
-        let Some((file, method, confirmed)) = matched[i] else {
-            continue;
-        };
-        if !(confirmed || method.is_evidence()) || !is_file(track) {
+    for (i, track) in tracks.iter().enumerate() {
+        let Some(n) = now[i] else { continue };
+        if !(n.confirmed || (n.target.method.is_evidence() && !n.target.probable))
+            || !is_file(track)
+        {
             continue;
         }
-        if let Some(place) = index.place_of(file) {
+        if let Some(place) = index.place_of(n.target.file) {
             went.entry(folder_of(&track.key)).or_default().insert(place);
         }
     }
-    let taken = claimed(&matched);
-    let found: Vec<Fits> = open(&matched)
-        .into_iter()
-        .filter_map(|(i, total_s)| {
-            let track = &input.tracks[i];
-            let mut places: HashSet<&Place> = HashSet::new();
-            if let Some(path) = windows_path(track.location.as_ref()) {
-                places.extend(
-                    index
-                        .places_at(folder_of(path.as_str()))
-                        .into_iter()
-                        .flatten(),
-                );
+    // The open tracks, by rekordbox folder and by TotalTime.
+    let mut folders: HashMap<&str, HashMap<u32, Vec<usize>>> = HashMap::new();
+    for (i, total_s) in open(&now) {
+        folders
+            .entry(folder_of(&tracks[i].key))
+            .or_default()
+            .entry(total_s)
+            .or_default()
+            .push(i);
+    }
+    // Which rekordbox folders each place is a candidate for, and what each
+    // track found in its set when the set is small enough to look at.
+    let mut covers: HashMap<&Place, Vec<&str>> = HashMap::new();
+    let mut found: Vec<(usize, Vec<i64>, bool)> = Vec::new();
+    let mut folder_names: Vec<&&str> = folders.keys().collect();
+    folder_names.sort();
+    for &folder in folder_names {
+        let by_total = &folders[folder];
+        let mut places: HashSet<&Place> = HashSet::new();
+        let own = by_total
+            .values()
+            .flatten()
+            .find_map(|&i| windows_path(tracks[i].location.as_ref()));
+        if let Some(path) = own {
+            places.extend(
+                index
+                    .places_at(folder_of(path.as_str()))
+                    .into_iter()
+                    .flatten(),
+            );
+        }
+        places.extend(went.get(folder).into_iter().flatten());
+        for &place in &places {
+            covers.entry(place).or_default().push(folder);
+        }
+        let size: usize = places
+            .iter()
+            .map(|p| index.places.get(*p).map_or(0, Vec::len))
+            .sum();
+        if size == 0 || size > MAX_CANDIDATES {
+            continue;
+        }
+        let candidates: Vec<usize> = places
+            .iter()
+            .filter_map(|p| index.places.get(*p))
+            .flatten()
+            .copied()
+            .collect();
+        out.examined += candidates.len();
+        for (&total_s, members) in by_total {
+            let (fits, blocked) = index.fits(total_s, &candidates);
+            for &i in members {
+                found.push((i, fits.clone(), blocked));
             }
-            places.extend(went.get(folder_of(&track.key)).into_iter().flatten());
-            let candidates: Vec<usize> = places
-                .into_iter()
-                .filter_map(|p| index.places.get(p))
-                .flatten()
-                .copied()
-                .collect();
-            if candidates.is_empty() || candidates.len() > MAX_CANDIDATES {
-                return None;
+        }
+    }
+    // Every open track that could be a file's: by duration within a set
+    // holding it (however big the set), or by name.
+    let wants = |file: i64| -> HashSet<usize> {
+        let mut who = HashSet::new();
+        let Some(f) = index.file(file) else {
+            return who;
+        };
+        if let (Some(d), Some(place)) = (f.duration_ms, index.place_of(file)) {
+            for folder in covers.get(&place).into_iter().flatten() {
+                for total in totals_fitting(d) {
+                    who.extend(folders[folder].get(&total).into_iter().flatten());
+                }
             }
-            Some(fits(&index, i, total_s, &candidates))
-        })
-        .collect();
+        }
+        for (i, fits, _) in &by_name {
+            if now[*i].is_none() && fits.contains(&file) {
+                who.insert(*i);
+            }
+        }
+        who
+    };
+    let mut decided = Vec::new();
+    for (i, fits, blocked) in &found {
+        if *blocked {
+            continue;
+        }
+        let Some(file) = index.pick(fits) else {
+            continue;
+        };
+        let alone = fits.iter().all(|&f| wants(f).iter().all(|&o| o == *i));
+        if alone && !claimed.contains(&file) {
+            decided.push((*i, file));
+        }
+    }
     // Accepted only when one of the file's title tags agrees with
     // rekordbox's Name; otherwise probable, like a filename-only match.
-    for (i, file) in one_to_one(&found, &taken) {
-        let name = &input.tracks[i].name;
-        let titles = &input.files[index.by_id[&file]].titles;
-        let agrees = !name.is_empty() && titles.contains(name);
+    for (i, file) in decided {
+        let name = &tracks[i].name;
+        let agrees = !name.is_empty() && index.file(file).is_some_and(|f| f.titles.contains(name));
         let confidence = if agrees {
             confidence::UNIQUE_DURATION
         } else {
             confidence::UNIQUE_DURATION_PROBABLE
         };
-        decide(
-            &mut matched,
+        set(
+            &mut now,
             i,
             file,
             Method::UniqueDuration,
             confidence,
-            false,
             !agrees,
         );
     }
 
-    let decided: HashSet<i64> = out.decisions.iter().map(|d| d.track).collect();
-    for (i, track) in input.tracks.iter().enumerate() {
-        if !is_file(track) {
-            if matches!(track.location, Some(Location::Streaming(_))) {
-                out.streaming += 1;
-            } else {
-                out.missing += 1;
-            }
-        } else if matched[i].is_none() {
-            out.missing += 1;
-        } else if track.current.is_some() && !decided.contains(&track.id) {
-            out.kept += 1;
+    for (i, track) in tracks.iter().enumerate() {
+        let target = now[i].map(|n| n.target);
+        let recording = target.and_then(|t| index.file(t.file)?.recording);
+        if target != track.current || recording != track.recording {
+            out.decisions.push(Decision {
+                track: track.id,
+                target,
+                recording,
+            });
+        }
+        match now[i] {
+            _ if matches!(track.location, Some(Location::Streaming(_))) => out.streaming += 1,
+            None => out.missing += 1,
+            Some(n) if n.confirmed => out.confirmed += 1,
+            Some(n) if n.target.probable => out.probable += 1,
+            Some(n) => match n.target.method {
+                Method::Path => out.path += 1,
+                Method::FilenameDuration => out.filename_duration += 1,
+                Method::UniqueDuration => out.unique_duration += 1,
+                _ => out.other += 1,
+            },
         }
     }
     out

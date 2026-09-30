@@ -157,15 +157,41 @@ fn a_title_that_is_only_punctuation_never_agrees() {
 }
 
 #[test]
-fn a_probable_match_keeps_its_file_from_other_tracks() {
+fn a_probable_duration_guess_gives_way_to_a_name_and_duration_match() {
     let (lib, file, track, mounted) = renamed("Night Drive");
     lib.relink(&mounted);
     assert!(lib.probable(track));
-    // Same name and duration as the probable file, from elsewhere.
+    // Same name and duration as the guessed file, from elsewhere: two
+    // signals beat one, and the guess is made again from scratch.
     let other = lib.track(&loc("E:/Old/Renamed.mp3"), Some("200"));
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(other),
+        Some((file, "filename_duration".to_owned(), 0.9))
+    );
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_probable_match_from_a_later_step_keeps_its_file_from_other_tracks() {
+    let (lib, music, mounted) = e_music();
+    let file = lib.file(music, "New/Xi.mp3", Some(200_300));
+    let track = lib.track(&loc("E:/Gone/Anything.mp3"), Some("200"));
+    // Step 5 (1aD) matched it by name alone: probable, unconfirmed.
+    lib.matched_before(track, file, "filename_only", 0.5);
+    lib.writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE rekordbox_track SET relink_probable = 1 WHERE id = ?1",
+                [track],
+            )
+        })
+        .unwrap();
+    let other = lib.track(&loc("E:/Old/Xi.mp3"), Some("200"));
     lib.relink(&mounted);
     assert_eq!(lib.matched(other), None);
     assert_eq!(lib.matched(track).map(|m| m.0), Some(file));
+    assert!(lib.probable(track));
 }
 
 #[test]
@@ -176,7 +202,7 @@ fn a_probable_match_is_kept_as_it_is_on_the_next_run() {
     let again = lib.relink(&mounted);
     assert_eq!(lib.all_matches(), before);
     assert!(lib.probable(track));
-    assert_eq!((again.kept, again.probable), (1, 0));
+    assert_eq!((again.changed, again.probable), (0, 1));
 }
 
 #[test]

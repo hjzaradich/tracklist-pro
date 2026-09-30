@@ -48,7 +48,7 @@ fn a_confirmed_relink_replaces_an_earlier_automatic_match() {
     let picked = lib.file(music, "Picked.mp3", Some(200_000));
     let location = loc("E:/Gone/Original.mp3");
     let track = lib.track(&location, Some("200"));
-    lib.matched_before(track, guessed, "unique_duration", 0.6);
+    lib.matched_before(track, guessed, "fingerprint", 0.95);
     lib.confirm(&location, picked, "user");
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), Some((picked, "user".to_owned(), 1.0)));

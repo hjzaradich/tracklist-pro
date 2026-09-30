@@ -6,6 +6,7 @@ mod confirmed;
 mod general;
 mod job;
 mod path;
+mod recheck;
 mod same_name;
 mod titles;
 mod unique_duration;
@@ -164,6 +165,52 @@ impl Lib {
             .call(move |c| {
                 c.query_row(
                     "SELECT relink_probable FROM rekordbox_track WHERE id = ?1",
+                    [track],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
+    /// Stage 3 hashed the file's audio: `hash` stands for its audio_hash.
+    pub fn audio_hash(&self, file: i64, hash: u8) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file SET audio_hash = ?2 WHERE id = ?1",
+                    params![file, vec![hash; 16]],
+                )
+            })
+            .unwrap();
+    }
+
+    /// A new track (`recording`) holding `files`, the first one as its
+    /// best file. Returns the track's id.
+    pub fn group(&self, files: &[i64]) -> i64 {
+        let files = files.to_vec();
+        self.writer
+            .call(move |c| {
+                c.execute("INSERT INTO recording DEFAULT VALUES", [])?;
+                let recording = c.last_insert_rowid();
+                for (n, file) in files.iter().enumerate() {
+                    let role = if n == 0 { "best" } else { "undecided" };
+                    c.execute(
+                        "INSERT INTO recording_file (recording_id, file_id, role)
+                         VALUES (?1, ?2, ?3)",
+                        params![recording, file, role],
+                    )?;
+                }
+                Ok(recording)
+            })
+            .unwrap()
+    }
+
+    /// A row's `recording_id`.
+    pub fn recording(&self, track: i64) -> Option<i64> {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT recording_id FROM rekordbox_track WHERE id = ?1",
                     [track],
                     |r| r.get(0),
                 )
