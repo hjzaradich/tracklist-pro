@@ -45,7 +45,8 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         .on_updates(emitter(app))
         // The scan stages are chained (scan::chain): a finished walk
         // queues the read of its folders, a finished read their hashes,
-        // and finished hashes the fingerprints.
+        // and finished hashes the fingerprints; a stage asked for again
+        // while it ran runs once more.
         .handler(
             JobKind::Scan,
             crate::scan::chain::after_walk(crate::scan::walker(app)),
@@ -62,7 +63,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             JobKind::Read,
             crate::scan::chain::after_read(crate::read::reader()),
         )
-        .handler(JobKind::Fingerprint, crate::fingerprint::fingerprinter(app))
+        .handler(
+            JobKind::Fingerprint,
+            crate::scan::chain::after_fingerprint(crate::fingerprint::fingerprinter(app)),
+        )
         .start()
 }
 
