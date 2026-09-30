@@ -85,7 +85,10 @@ impl Method {
 /// How sure each step is, stored as `relink_confidence`. Nothing reads
 /// these as thresholds; `relink_probable` says whether a match is trusted.
 pub mod confidence {
-    /// Confirmed by the user.
+    /// Confirmed by the user. Reserved for confirmations among the methods
+    /// that carry over (fingerprint, filename only, gig stick): a stored
+    /// 1.0 without its `relink` row is a withdrawn confirmation, decided
+    /// again. The steps that make those matches store less than 1.0.
     pub const CONFIRMED: f64 = 1.0;
     /// The Location names the file on a drive that's plugged in.
     pub const PATH: f64 = 1.0;
@@ -126,8 +129,6 @@ pub struct File {
     /// `None` until stage 2 has read it (or when it couldn't, or when the
     /// file is online-only and wasn't read).
     pub duration_ms: Option<i64>,
-    /// Its title tags, each as a [`title_key`]; empty when it has none.
-    pub titles: Vec<String>,
     /// Its `audio_hash`, once stage 3 has one.
     pub audio_hash: Option<Vec<u8>>,
     /// Its track (`recording_file`), once grouped.
@@ -483,8 +484,14 @@ struct Now {
     confirmed: bool,
 }
 
-/// Decides every row's match from scratch; see the module docs.
-pub fn plan(input: &Input) -> Plan {
+/// Decides every row's match from scratch; see the module docs. `titles`
+/// gives a file's title tags, each as a [`title_key`]; it's asked only for
+/// the files step 3 matches, so tags are read for a handful of files, not
+/// every one.
+pub fn plan<E>(
+    input: &Input,
+    mut titles: impl FnMut(i64) -> Result<Vec<String>, E>,
+) -> Result<Plan, E> {
     let index = Index::new(&input.files);
     let tracks = &input.tracks;
     let mut out = Plan::default();
@@ -502,8 +509,8 @@ pub fn plan(input: &Input) -> Plan {
         });
     };
 
-    // Step 0: a confirmed relink is re-applied, while its file is present.
-    // A match from a step this run doesn't make carries over, likewise.
+    // Step 0: every confirmed relink is re-applied first, while its file is
+    // present.
     for (i, track) in tracks.iter().enumerate() {
         if !is_file(track) {
             continue;
@@ -519,16 +526,43 @@ pub fn plan(input: &Input) -> Plan {
                     },
                     confirmed: true,
                 });
-                continue;
             }
         }
-        if let Some(current) = track.current {
-            if !current.method.is_recomputed() && index.by_id.contains_key(&current.file) {
-                now[i] = Some(Now {
-                    target: current,
-                    confirmed: false,
-                });
-            }
+    }
+    // Then a match from a step this run doesn't make (1aD, 1bE) carries
+    // over, while its file is present and no confirmation gives that file
+    // to another row. A match the user confirmed (`user`, or confidence
+    // 1.0) whose `relink` row is gone was withdrawn: it's decided again. A
+    // carried *probable* match is only a fallback: the row still goes
+    // through steps 1–3, and an accepted match there replaces it.
+    //
+    // Not checked here: whether the file's audio changed since the match
+    // was made. That needs evidence recorded when the match is made, which
+    // belongs to the steps that make carried matches (1aD-1, 1aD-2, 1bE-6).
+    let confirmed_files: HashSet<i64> = now.iter().flatten().map(|n| n.target.file).collect();
+    let mut fallback: Vec<Option<Target>> = vec![None; tracks.len()];
+    for (i, track) in tracks.iter().enumerate() {
+        if now[i].is_some() || !is_file(track) {
+            continue;
+        }
+        let Some(current) = track.current else {
+            continue;
+        };
+        let carried = !current.method.is_recomputed()
+            && current.method != Method::User
+            && current.confidence != Some(confidence::CONFIRMED)
+            && index.by_id.contains_key(&current.file)
+            && !confirmed_files.contains(&current.file);
+        if !carried {
+            continue;
+        }
+        if current.probable {
+            fallback[i] = Some(current);
+        } else {
+            now[i] = Some(Now {
+                target: current,
+                confirmed: false,
+            });
         }
     }
 
@@ -550,8 +584,13 @@ pub fn plan(input: &Input) -> Plan {
         }
     }
 
+    // A carried probable match's file stays taken for the other rows.
     let taken = |now: &[Option<Now>]| -> HashSet<i64> {
-        now.iter().flatten().map(|n| n.target.file).collect()
+        now.iter()
+            .flatten()
+            .map(|n| n.target.file)
+            .chain(fallback.iter().flatten().map(|t| t.file))
+            .collect()
     };
     let open = |now: &[Option<Now>]| -> Vec<(usize, u32)> {
         tracks
@@ -593,7 +632,8 @@ pub fn plan(input: &Input) -> Plan {
         let Some(file) = index.pick(fits) else {
             continue;
         };
-        if fits.iter().all(|&f| alone(&wanted, f, *i)) && !claimed.contains(&file) {
+        let copy_taken = fits.iter().any(|f| claimed.contains(f));
+        if fits.iter().all(|&f| alone(&wanted, f, *i)) && !copy_taken {
             set(
                 &mut now,
                 *i,
@@ -708,7 +748,8 @@ pub fn plan(input: &Input) -> Plan {
             continue;
         };
         let alone = fits.iter().all(|&f| wants(f).iter().all(|&o| o == *i));
-        if alone && !claimed.contains(&file) {
+        let copy_taken = fits.iter().any(|f| claimed.contains(f));
+        if alone && !copy_taken {
             decided.push((*i, file));
         }
     }
@@ -716,7 +757,7 @@ pub fn plan(input: &Input) -> Plan {
     // rekordbox's Name; otherwise probable, like a filename-only match.
     for (i, file) in decided {
         let name = &tracks[i].name;
-        let agrees = !name.is_empty() && index.file(file).is_some_and(|f| f.titles.contains(name));
+        let agrees = !name.is_empty() && titles(file)?.contains(name);
         let confidence = if agrees {
             confidence::UNIQUE_DURATION
         } else {
@@ -730,6 +771,19 @@ pub fn plan(input: &Input) -> Plan {
             confidence,
             !agrees,
         );
+    }
+
+    // A carried probable match stands unless steps 1–3 found an accepted
+    // one.
+    for (i, carried) in fallback.iter().enumerate() {
+        if let Some(carried) = carried {
+            if now[i].is_none_or(|n| n.target.probable) {
+                now[i] = Some(Now {
+                    target: *carried,
+                    confirmed: false,
+                });
+            }
+        }
     }
 
     for (i, track) in tracks.iter().enumerate() {
@@ -755,5 +809,5 @@ pub fn plan(input: &Input) -> Plan {
             },
         }
     }
-    out
+    Ok(out)
 }

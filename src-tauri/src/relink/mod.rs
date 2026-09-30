@@ -14,11 +14,17 @@
 //!
 //! **Every run decides every row again.** Only a confirmed relink, and a
 //! match from a step this run doesn't make (fingerprint, filename only,
-//! gig stick, user; 1aD), carry over, and only while their file is
-//! present. So a better step replaces an old guess (the Location's own
-//! file turning up beats a duration match), a match to a file that's gone
-//! is dropped, and a guess never keeps a file the user has confirmed for
-//! another track. Running again with nothing changed changes nothing.
+//! gig stick; 1aD, 1bE), carry over, and only while their file is present
+//! and no confirmation gives that file to another row. A carried match
+//! that's only probable is a fallback: an accepted match from steps 1–3
+//! (the path first) replaces it. A confirmation the user withdrew (its
+//! `relink` row deleted) is decided again: a `user` match, or any match at
+//! confidence 1.0, never carries over without its `relink` row, so the
+//! steps that make carried matches store less than 1.0. So a better step
+//! replaces an old guess (the Location's own file turning up beats a
+//! duration match), a match to a file that's gone is dropped, and a guess
+//! never keeps a file the user has confirmed for another track. Running
+//! again with nothing changed changes nothing.
 //!
 //! In order, each step over every row before the next step starts:
 //!
@@ -93,6 +99,7 @@
 //!
 //!    **A second signal decides whether it's trusted.** The match is
 //!    accepted (confidence 0.8) only when one of the file's title tags
+//!    (read only for the files step 3 matches)
 //!    agrees with rekordbox's `Name` ([`rules::title_key`]: NFKC,
 //!    lowercase, featuring credits dropped, punctuation and spacing folded,
 //!    bracket contents kept, so `(Clean)` never agrees with `(Dirty)`).
@@ -104,7 +111,8 @@
 //!
 //! **Exact copies aren't ambiguous.** When every file that fits in step 2
 //! or 3 has the same `audio_hash`, they hold the same audio: the track's
-//! best file is matched (else the lowest file id), not nothing.
+//! best file is matched (else the lowest file id), not nothing; if another
+//! row holds any of the copies, none is taken.
 //!
 //! A file of unknown duration blocks steps 2 and 3: a same-named file
 //! that's online-only (never read unless the user opts in) or not read yet
@@ -225,7 +233,13 @@ pub struct Summary {
 pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summary> {
     let tx = conn.transaction()?;
     let input = load(&tx, mounted)?;
-    let plan = rules::plan(&input);
+    let plan = {
+        let mut raw_tags = tx.prepare("SELECT raw_tags FROM file WHERE id = ?1")?;
+        rules::plan(&input, |file| {
+            let tags: Option<String> = raw_tags.query_row([file], |r| r.get(0))?;
+            Ok::<_, rusqlite::Error>(tags.as_deref().map(titles).unwrap_or_default())
+        })?
+    };
     {
         let mut update = tx.prepare(
             "UPDATE rekordbox_track
@@ -332,10 +346,11 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
     let mut files = Vec::new();
     {
         let mut stmt = conn.prepare(
-            "SELECT f.id, f.music_folder_id, f.rel_path, f.duration_ms, f.raw_tags,
+            "SELECT f.id, f.music_folder_id, f.rel_path, f.duration_ms,
                     f.audio_hash, rf.recording_id, rf.role = 'best'
              FROM file f LEFT JOIN recording_file rf ON rf.file_id = f.id
-             WHERE f.present = 1",
+             WHERE f.present = 1
+             ORDER BY f.id",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
@@ -343,14 +358,13 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 r.get::<_, i64>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, Option<i64>>(3)?,
-                r.get::<_, Option<String>>(4)?,
-                r.get::<_, Option<Vec<u8>>>(5)?,
-                r.get::<_, Option<i64>>(6)?,
-                r.get::<_, Option<bool>>(7)?,
+                r.get::<_, Option<Vec<u8>>>(4)?,
+                r.get::<_, Option<i64>>(5)?,
+                r.get::<_, Option<bool>>(6)?,
             ))
         })?;
         for row in rows {
-            let (id, folder, rel, duration_ms, raw_tags, audio_hash, recording, best) = row?;
+            let (id, folder, rel, duration_ms, audio_hash, recording, best) = row?;
             let (base, online) = folders.get(&folder).cloned().unwrap_or((None, false));
             let (parent, name) = match rel.rsplit_once('/') {
                 Some((parent, name)) => (parent.to_owned(), name.to_owned()),
@@ -364,7 +378,6 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 path: base.map(|b| format!("{b}/{rel}")),
                 online,
                 duration_ms,
-                titles: raw_tags.as_deref().map(titles).unwrap_or_default(),
                 audio_hash: audio_hash.filter(|h| !h.is_empty()),
                 recording,
                 best: best.unwrap_or(false),

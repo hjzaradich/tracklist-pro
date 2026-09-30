@@ -195,7 +195,7 @@ fn a_huge_candidate_set_is_skipped_before_any_of_its_files_is_looked_at() {
             .tracks
             .push(track(folders + g + 1, format!("D:/Old/Gone {g}.mp3"), 150));
     }
-    let plan = rules::plan(&input);
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new())).unwrap();
     assert_eq!(plan.filename_duration, 2_000);
     assert_eq!(plan.missing, 2_000);
     assert_eq!(plan.examined, 0);
@@ -220,7 +220,9 @@ fn a_small_candidate_set_is_looked_at_once_for_all_its_tracks() {
         .call(move |c| {
             let tx = c.transaction()?;
             let input = super::super::load(&tx, &mounted2)?;
-            Ok(rules::plan(&input).examined)
+            Ok(rules::plan(&input, |_| Ok::<_, ()>(Vec::new()))
+                .unwrap()
+                .examined)
         })
         .unwrap();
     assert_eq!(examined, 5);
@@ -346,5 +348,192 @@ fn a_numeric_total_time_is_read_like_the_text_one() {
     assert_eq!(
         lib.matched(track),
         Some((file, "filename_duration".to_owned(), 0.9))
+    );
+}
+
+// --- Carried matches (from steps this run doesn't make) ---
+
+/// Marks a row's stored match probable, as step 5 (1aD-2) will.
+fn make_probable(lib: &Lib, track: i64) {
+    lib.writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE rekordbox_track SET relink_probable = 1 WHERE id = ?1",
+                [track],
+            )
+        })
+        .unwrap();
+}
+
+/// The user withdrew a confirmation: its `relink` row is deleted.
+fn withdraw(lib: &Lib, location: &str) {
+    let key = location::decode(location).unwrap().match_key();
+    lib.writer
+        .call(move |c| c.execute("DELETE FROM relink WHERE location_key = ?1", [key]))
+        .unwrap();
+}
+
+#[test]
+fn an_accepted_match_replaces_a_carried_probable_guess() {
+    let (lib, music, mounted) = e_music();
+    let guess = lib.file(music, "Elsewhere/Omicron.mp3", Some(200_000));
+    let track = lib.track(&loc("E:/Music/Omicron.mp3"), Some("200"));
+    lib.matched_before(track, guess, "filename_only", 0.5);
+    make_probable(&lib, track);
+    lib.relink(&mounted);
+    // Nothing better yet: the guess stands.
+    assert_eq!(
+        lib.matched(track),
+        Some((guess, "filename_only".to_owned(), 0.5))
+    );
+    assert!(lib.probable(track));
+    // The track's own file turns up at its Location.
+    let own = lib.file(music, "Omicron.mp3", Some(200_000));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), path(own));
+    assert!(!lib.probable(track));
+}
+
+#[test]
+fn a_probable_step_3_match_doesnt_replace_a_carried_probable_guess() {
+    let (lib, music, mounted) = e_music();
+    let guess = lib.file(music, "Elsewhere/Pi Guess.mp3", Some(300_000));
+    lib.file(music, "Album/Renamed.mp3", Some(200_300));
+    let track = lib.track(&loc("E:/Music/Album/Pi.mp3"), Some("200"));
+    lib.matched_before(track, guess, "filename_only", 0.5);
+    make_probable(&lib, track);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((guess, "filename_only".to_owned(), 0.5))
+    );
+}
+
+#[test]
+fn a_carried_trusted_match_stays_even_when_the_path_turns_up() {
+    let (lib, music, mounted) = e_music();
+    let earlier = lib.file(music, "Elsewhere/Rho.mp3", Some(200_000));
+    lib.file(music, "Rho.mp3", Some(200_000));
+    let track = lib.track(&loc("E:/Music/Rho.mp3"), Some("200"));
+    lib.matched_before(track, earlier, "fingerprint", 0.95);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((earlier, "fingerprint".to_owned(), 0.95))
+    );
+}
+
+#[test]
+fn a_carried_match_gives_way_when_the_user_confirms_its_file_for_another_track() {
+    for probable in [false, true] {
+        let (lib, music, mounted) = e_music();
+        let file = lib.file(music, "Sigma.mp3", Some(200_000));
+        let carried = lib.track(&loc("E:/Gone/Sigma Old.mp3"), Some("200"));
+        lib.matched_before(carried, file, "fingerprint", 0.5);
+        if probable {
+            make_probable(&lib, carried);
+        }
+        let owner = lib.track(&loc("E:/Gone/Sigma Real.mp3"), Some("200"));
+        lib.confirm(&loc("E:/Gone/Sigma Real.mp3"), file, "user");
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(owner), Some((file, "user".to_owned(), 1.0)));
+        assert_eq!(lib.matched(carried), None, "probable: {probable}");
+    }
+}
+
+#[test]
+fn a_carried_match_to_a_file_that_is_gone_is_dropped() {
+    let (lib, music, mounted) = e_music();
+    let file = lib.file(music, "Elsewhere/Tau.mp3", Some(200_000));
+    let track = lib.track(&loc("E:/Gone/Tau.mp3"), Some("200"));
+    lib.matched_before(track, file, "fingerprint", 0.95);
+    lib.gone(file);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_withdrawn_confirmation_is_decided_again() {
+    for method in ["filename_only", "user"] {
+        let (lib, music, mounted) = e_music();
+        let picked = lib.file(music, "Elsewhere/Upsilon Pick.mp3", Some(90_000));
+        let location = loc("E:/Gone/Upsilon.mp3");
+        let track = lib.track(&location, Some("200"));
+        lib.confirm(&location, picked, method);
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(track), Some((picked, method.to_owned(), 1.0)));
+        withdraw(&lib, &location);
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(track), None, "{method}");
+    }
+}
+
+// --- Volumes and copies ---
+
+#[test]
+fn a_plugged_in_volume_counts_at_its_mount_now_even_if_its_stored_one_is_stale() {
+    let lib = Lib::new();
+    let away = lib.volume(&serial(1), Some(r"E:\"));
+    // Plugged in at E: now, but the library last noted it at F:.
+    let here = lib.volume(&serial(2), Some(r"F:\"));
+    let away_music = lib.folder(away, "Music");
+    lib.folder(here, "Music");
+    lib.file(away_music, "Phi.mp3", None);
+    let track = lib.track(&loc("E:/Music/Phi.mp3"), None);
+    lib.relink(&Mounted::new([(serial(2), r"E:\")]));
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_copy_another_track_holds_blocks_the_other_copy_too() {
+    let (lib, music, mounted) = e_music();
+    let a = lib.file(music, "Album/Chi (1).mp3", Some(200_300));
+    let b = lib.file(music, "Album/Chi (2).mp3", Some(200_300));
+    lib.audio_hash(a, 5);
+    lib.audio_hash(b, 5);
+    // b (the higher id, so not the one picked) belongs to another track.
+    let owner = lib.track(&loc("E:/Music/Album/Chi (2).mp3"), Some("200"));
+    let track = lib.track(&loc("E:/Music/Album/Chi Gone.mp3"), Some("200"));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(owner), path(b));
+    assert_eq!(lib.matched(track), None);
+    let _ = a;
+}
+
+#[test]
+fn title_tags_are_read_only_for_the_files_step_3_matches() {
+    let (lib, music, mounted) = e_music();
+    for n in 0..20 {
+        let f = lib.file(music, &format!("Other/F{n}.mp3"), Some(100_000));
+        // Unparseable tags on every other file: never read.
+        lib.tags(f, r#"{"id3v2": "not an array"}"#);
+    }
+    let renamed = lib.file(music, "Album/Renamed.mp3", Some(200_300));
+    lib.title(renamed, "Psi");
+    let track = lib.track_with(
+        &loc("E:/Music/Album/Psi.mp3"),
+        Some("200"),
+        &[("Name", "Psi")],
+    );
+    let mounted2 = mounted.clone();
+    let asked = lib
+        .writer
+        .call(move |c| {
+            let tx = c.transaction()?;
+            let input = super::super::load(&tx, &mounted2)?;
+            let mut asked = Vec::new();
+            rules::plan(&input, |file| {
+                asked.push(file);
+                Ok::<_, ()>(Vec::new())
+            })
+            .unwrap();
+            Ok(asked)
+        })
+        .unwrap();
+    assert_eq!(asked, [renamed]);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((renamed, "unique_duration".to_owned(), 0.8))
     );
 }
