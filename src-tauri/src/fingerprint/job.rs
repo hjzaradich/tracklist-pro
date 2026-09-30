@@ -138,6 +138,20 @@ impl FirstUp {
         }
     }
 
+    /// Takes up to `want` of the `budget` threads that are free right now,
+    /// without waiting: `None` if none is. For a job that has a thread of
+    /// its own and only borrows more when they're free (the read job,
+    /// 1aC-12), so it never waits behind a long fingerprint run.
+    pub(crate) fn try_threads(&self, want: usize, budget: usize) -> Option<Threads<'_>> {
+        let mut line = self.line();
+        let n = budget.saturating_sub(line.busy).min(want);
+        if n == 0 {
+            return None;
+        }
+        line.busy += n;
+        Some(Threads { first: self, n })
+    }
+
     /// The raised files nobody will take, because every taker is gone. Takes
     /// them off the line, for a new job.
     fn unattended(&self) -> Vec<i64> {
@@ -210,9 +224,10 @@ impl Taker<'_> {
 }
 
 /// Threads taken from the shared budget, given back when dropped.
-struct Threads<'a> {
+pub(crate) struct Threads<'a> {
     first: &'a FirstUp,
-    n: usize,
+    /// How many were taken.
+    pub(crate) n: usize,
 }
 
 impl Drop for Threads<'_> {
@@ -570,10 +585,11 @@ fn unchanged(file: &File, due: &Due) -> bool {
     (Some(size), Some(mtime)) == (due.size, due.mtime)
 }
 
-/// Runs this thread below normal priority, so fingerprinting yields to the
-/// app and everything else (ROADMAP 1.4). The thread ends with its job.
+/// Runs this thread below normal priority, so fingerprinting (and the read
+/// job's borrowed threads) yields to the app and everything else (ROADMAP
+/// 1.4). The thread ends with its job.
 #[cfg(windows)]
-fn lower_priority() {
+pub(crate) fn lower_priority() {
     use windows_sys::Win32::System::Threading::{
         GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_BELOW_NORMAL,
     };
@@ -586,4 +602,4 @@ fn lower_priority() {
 }
 
 #[cfg(not(windows))]
-fn lower_priority() {}
+pub(crate) fn lower_priority() {}
