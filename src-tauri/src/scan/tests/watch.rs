@@ -10,19 +10,21 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use serde_json::json;
 use tauri::Manager;
 
-use super::chain::{chained_queue, jobs, wait_idle, LookedAt};
+use super::chain::{chained_queue, chained_queue_with, jobs, wait_idle, wait_until, LookedAt};
 use super::support::{db, TempVolume};
 use super::walk::{add_music, drive, put, rows};
 use crate::db::Writer;
 use crate::ipc::testing::{app, invoke};
 use crate::jobs::{JobQueue, Priority};
+use crate::scan::chain::RESCAN_KEY;
 use crate::scan::folders::MusicFolderId;
-use crate::scan::watch::{set_watch, Enqueue, Watchers};
+use crate::scan::walk::Walker;
+use crate::scan::watch::{set_watch, Enqueue, Status, Watchers};
 use crate::tags::test_audio as audio;
 
 /// Short burst times: a test's burst is over in milliseconds, and the
@@ -96,14 +98,33 @@ impl Watched {
         watched
     }
 
-    /// How many scans of `folder` have been queued so far.
+    /// How many scans of `folder` have been queued so far, marked as a
+    /// watcher's rescan or not.
     fn scans_of(&self, folder: MusicFolderId) -> usize {
-        let target = format!(r#"{{"music_folder_ids":[{}]}}"#, folder.0);
-        jobs(&self.writer)
-            .into_iter()
-            .filter(|j| j.0 == "scan" && j.1.as_deref() == Some(&target))
-            .count()
+        scans_of(&self.writer, folder).len()
     }
+
+    /// Whether each scan of `folder` so far was marked as a watcher's
+    /// rescan (for changes) or not (start, drive back, watch turned on).
+    fn rescan_marks_of(&self, folder: MusicFolderId) -> Vec<bool> {
+        scans_of(&self.writer, folder)
+    }
+}
+
+/// Each scan job of `folder` so far: whether it carries the rescan mark.
+fn scans_of(writer: &Writer, folder: MusicFolderId) -> Vec<bool> {
+    jobs(writer)
+        .into_iter()
+        .filter(|j| j.0 == "scan")
+        .filter_map(|j| serde_json::from_str::<serde_json::Value>(&j.1?).ok())
+        .filter(|t| t["music_folder_ids"] == json!([folder.0]))
+        .map(|t| t[RESCAN_KEY] == json!(true))
+        .collect()
+}
+
+/// Every job's kind and status, oldest first.
+fn kinds_and_statuses(writer: &Writer) -> Vec<(String, String)> {
+    jobs(writer).into_iter().map(|j| (j.0, j.3)).collect()
 }
 
 fn start(writer: &Writer, volume: &TempVolume, queue: &Arc<JobQueue>) -> Watchers {
@@ -118,17 +139,6 @@ fn start(writer: &Writer, volume: &TempVolume, queue: &Arc<JobQueue>) -> Watcher
         enqueue,
     )
     .unwrap()
-}
-
-fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
-    let start = Instant::now();
-    while !done() {
-        assert!(
-            start.elapsed() < Duration::from_secs(60),
-            "timed out waiting until {what}"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
 }
 
 #[test]
@@ -385,4 +395,244 @@ fn the_frontend_turns_a_folders_watch_on_and_off() {
     // The queue may still be walking the folder; let it finish before the
     // temp folders go.
     wait_idle(&app.state::<JobQueue>());
+}
+
+#[test]
+fn a_burst_during_a_running_walk_folds_into_one_more_walk_after_it() {
+    // A watched folder with a file, so its catch-up walk has an entry to
+    // stop at.
+    let (dir, volume, music) = drive();
+    put(&music, "first.mp3", &audio::mp3());
+    let (db_dir, writer, _reads) = db();
+    let folder = add_music(&writer, &volume, &music);
+    writer.call(move |c| set_watch(c, folder, true)).unwrap();
+    let looked = LookedAt::default();
+    // The walk, held at its first entry until released; once.
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let held = std::sync::Mutex::new(Some(held));
+    let v = volume.clone();
+    let queue = Arc::new(chained_queue_with(&writer, &volume, &looked, 2, |b| {
+        b.handler(
+            crate::jobs::JobKind::Scan,
+            crate::scan::chain::after_walk(Walker::new(move || v.clone(), |_| {}).on_entry(
+                move |_| {
+                    let held = held.lock().unwrap().take();
+                    if let Some(held) = held {
+                        let _ = held.recv_timeout(Duration::from_secs(30));
+                    }
+                },
+            )),
+        )
+    }));
+    let watchers = start(&writer, &volume, &queue);
+    let _ = watchers.watched();
+    wait_until("the catch-up walk is running", || {
+        kinds_and_statuses(&writer) == [("scan".into(), "running".into())]
+    });
+
+    // A change lands while the walk runs: its burst comes due, but no
+    // second walk of the same root starts.
+    put(&music, "second.mp3", &audio::mp3());
+    std::thread::sleep(QUIET + Duration::from_millis(500));
+    assert_eq!(
+        kinds_and_statuses(&writer),
+        [("scan".into(), "running".into())],
+        "a second walk was queued beside the running one"
+    );
+
+    // When it ends, it runs once more, and the change is picked up. The
+    // catch-up walk had no rescan mark, so neither does its rerun: it
+    // retries everything the catch-up would have.
+    release.send(()).unwrap();
+    wait_until("both files are indexed", || rows(&writer).len() == 2);
+    wait_idle(&queue);
+    assert_eq!(scans_of(&writer, folder), [false, false]);
+    watchers.shutdown();
+    queue.shutdown();
+    drop((db_dir, dir));
+}
+
+#[test]
+fn changes_the_walk_would_never_index_do_not_rescan_but_a_finished_download_does() {
+    let w = Watched::new(true);
+    assert_eq!(w.settle(), [w.folder]);
+    assert_eq!(w.scans_of(w.folder), 1);
+
+    put(&w.music, "notes.txt", b"notes");
+    put(&w.music, "._a.mp3", b"\x00\x05\x16\x07");
+    put(&w.music, ".DS_Store", b"\x00");
+    put(&w.music, "a.mp3.crdownload", &audio::mp3());
+    put(&w.music, "cover.jpg", b"jpg");
+    std::thread::sleep(QUIET + Duration::from_millis(500));
+    wait_idle(&w.queue);
+    assert_eq!(
+        w.scans_of(w.folder),
+        1,
+        "nothing the walk could index changed"
+    );
+
+    // The download finishes: renamed to an audio name.
+    fs::rename(w.music.join("a.mp3.crdownload"), w.music.join("a.mp3")).unwrap();
+    wait_until("the finished download is indexed", || {
+        rows(&w.writer).iter().any(|r| r.rel_path == "a.mp3")
+    });
+    wait_idle(&w.queue);
+    assert_eq!(w.rescan_marks_of(w.folder), [false, true]);
+    w.watchers.shutdown();
+}
+
+#[test]
+fn a_locked_file_does_not_make_every_rescan_run_the_stages_again() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", &audio::mp3());
+    put(&music, "locked.mp3", &audio::mp3());
+    // Held open with no sharing: every stage finds it unreachable.
+    let _lock = fs::File::options()
+        .read(true)
+        .share_mode(0)
+        .open(music.join("locked.mp3"))
+        .unwrap();
+    let (_db, writer, _reads) = db();
+    let folder = add_music(&writer, &volume, &music);
+    writer.call(move |c| set_watch(c, folder, true)).unwrap();
+    let looked = LookedAt::default();
+    let queue = Arc::new(chained_queue(&writer, &volume, &looked));
+    let watchers = start(&writer, &volume, &queue);
+    let _ = watchers.watched();
+    wait_idle(&queue);
+    // The catch-up: every stage ran, and skipped the locked file.
+    let kinds = |writer: &Writer| -> Vec<String> {
+        kinds_and_statuses(writer)
+            .into_iter()
+            .map(|k| k.0)
+            .collect()
+    };
+    assert_eq!(kinds(&writer), ["scan", "read", "hash", "fingerprint"]);
+    let skipped: Vec<(String, String)> = writer
+        .call(|c| {
+            let mut s = c.prepare(
+                "SELECT s.stage, s.reason FROM file_stage s JOIN file f ON f.id = s.file_id
+                 WHERE f.rel_path = 'locked.mp3' ORDER BY s.stage",
+            )?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    assert_eq!(
+        skipped,
+        [
+            ("fingerprint".into(), "unreachable".into()),
+            ("hash".into(), "unreachable".into()),
+            ("read".into(), "unreachable".into()),
+        ]
+    );
+
+    // A change with nothing new for the stages (a file removed): the
+    // watcher's rescan runs, and no stage runs for the locked file alone.
+    fs::remove_file(music.join("a.mp3")).unwrap();
+    wait_until("the removed file is marked missing", || {
+        rows(&writer)
+            .iter()
+            .any(|r| r.rel_path == "a.mp3" && !r.present)
+    });
+    wait_idle(&queue);
+    assert_eq!(
+        kinds(&writer),
+        ["scan", "read", "hash", "fingerprint", "scan"]
+    );
+
+    // A scan that isn't the watcher's own (asked for here; at app start
+    // and on a drive's return the same) retries it.
+    queue
+        .enqueue(crate::scan::scan_job(Some(vec![folder])))
+        .unwrap();
+    wait_idle(&queue);
+    assert_eq!(
+        kinds(&writer),
+        [
+            "scan",
+            "read",
+            "hash",
+            "fingerprint",
+            "scan",
+            "scan",
+            "read",
+            "hash",
+            "fingerprint"
+        ]
+    );
+    watchers.shutdown();
+    queue.shutdown();
+}
+
+/// Sends the eject window one of Windows' handle messages for
+/// `registration`, as Windows does before and after an eject.
+fn send_handle_message(watchers: &Watchers, event: u32, registration: isize) {
+    use windows_sys::Win32::Foundation::{LPARAM, WPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SendMessageW, DBT_DEVTYP_HANDLE, DEV_BROADCAST_HANDLE, WM_DEVICECHANGE,
+    };
+    let window = watchers.eject_window().expect("the eject window exists");
+    let body = DEV_BROADCAST_HANDLE {
+        dbch_size: std::mem::size_of::<DEV_BROADCAST_HANDLE>() as u32,
+        dbch_devicetype: DBT_DEVTYP_HANDLE,
+        dbch_hdevnotify: registration as *mut _,
+        ..Default::default()
+    };
+    unsafe {
+        SendMessageW(
+            window.window(),
+            WM_DEVICECHANGE,
+            event as WPARAM,
+            &body as *const DEV_BROADCAST_HANDLE as LPARAM,
+        )
+    };
+}
+
+#[test]
+fn an_eject_stops_the_watcher_and_closes_its_handle_and_a_refused_eject_starts_it_again() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        DBT_DEVICEQUERYREMOVE, DBT_DEVICEQUERYREMOVEFAILED,
+    };
+    let w = Watched::new(true);
+    assert_eq!(w.settle(), [w.folder]);
+    let status = w.watchers.status();
+    assert_eq!(status.handles_open, 1, "a query-only handle on the root");
+    assert_eq!(status.registrations.len(), 1);
+    let registration = status.registrations[0].1;
+
+    // Windows asks whether the drive may go: by the time it has its
+    // answer, the watcher is stopped and the handle closed.
+    send_handle_message(&w.watchers, DBT_DEVICEQUERYREMOVE, registration);
+    let status = w.watchers.status();
+    assert_eq!(status.watched, none());
+    assert_eq!(status.suspended, [w.folder]);
+    assert_eq!(status.handles_open, 0);
+    assert_eq!(w.scans_of(w.folder), 1);
+
+    // Something else refused the eject: the watcher starts again, catches
+    // up, and hears changes again.
+    send_handle_message(&w.watchers, DBT_DEVICEQUERYREMOVEFAILED, registration);
+    let status = w.watchers.status();
+    assert_eq!(status.watched, [w.folder]);
+    assert_eq!(status.suspended, none());
+    assert_eq!(status.handles_open, 1);
+    assert_eq!(w.rescan_marks_of(w.folder), [false, true]);
+    put(&w.music, "after.mp3", &audio::mp3());
+    wait_until("a file added after the refused eject is indexed", || {
+        rows(&w.writer).len() == 1
+    });
+    wait_idle(&w.queue);
+
+    // An eject that goes through: the drive goes offline, and the root
+    // is let go of entirely.
+    let registration = w.watchers.status().registrations[0].1;
+    send_handle_message(&w.watchers, DBT_DEVICEQUERYREMOVE, registration);
+    assert_eq!(w.watchers.status().handles_open, 0);
+    w.volume.set_online(false);
+    w.watchers.refresh();
+    let status = w.watchers.status();
+    assert_eq!(status, Status::default());
+    w.watchers.shutdown();
 }

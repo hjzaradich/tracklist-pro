@@ -42,6 +42,7 @@ function FolderRow({
 }) {
   const { t } = useTranslation("musicFolderStatus");
   const notesId = useId();
+  const pathId = useId();
   const notes = folderNotes(folder);
   return (
     <li
@@ -49,10 +50,13 @@ function FolderRow({
       data-online={folder.online}
       aria-describedby={notes.length > 0 ? notesId : undefined}
     >
-      <span className={styles.path}>{folder.path}</span>
+      <span id={pathId} className={styles.path}>
+        {folder.path}
+      </span>
       {onWatchChange && (
         <MusicFolderWatchSwitch
           folder={folder}
+          describedBy={pathId}
           onChange={(watch) => onWatchChange(folder.id, watch)}
         />
       )}

@@ -11,10 +11,13 @@ export function MusicFolderWatchSwitch({
   folder,
   onChange,
   disabled = false,
+  describedBy,
 }: {
   folder: MusicFolder;
   onChange: (watch: boolean) => void;
   disabled?: boolean;
+  /** The id of the element naming the folder, so each row's checkbox is told apart. */
+  describedBy?: string;
 }) {
   const { t } = useTranslation("musicFolderWatch");
   return (
@@ -23,6 +26,7 @@ export function MusicFolderWatchSwitch({
         type="checkbox"
         checked={folder.watch}
         disabled={disabled}
+        aria-describedby={describedBy}
         onChange={(event) => onChange(event.target.checked)}
       />
       {t("watch")}

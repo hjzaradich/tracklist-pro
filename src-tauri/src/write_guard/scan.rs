@@ -282,6 +282,18 @@ const WIN32_ALLOWED: &[&str] = &[
     "WM_DEVICECHANGE",
     "WNDCLASSW",
     "WPARAM",
+    // The same window's handle messages, so a watched root doesn't block
+    // an eject (1aC-6). Notifications and a query-only handle; no file
+    // is read or written.
+    "BROADCAST_QUERY_DENY",
+    "DBT_DEVICEQUERYREMOVE",
+    "DBT_DEVICEQUERYREMOVEFAILED",
+    "DBT_DEVTYP_HANDLE",
+    "DEVICE_NOTIFY_WINDOW_HANDLE",
+    "DEV_BROADCAST_HANDLE",
+    "HDEVNOTIFY",
+    "RegisterDeviceNotificationW",
+    "UnregisterDeviceNotification",
     // System::Threading: fingerprint threads at below-normal priority
     // (1aB-7). Scheduling only; no file access.
     "GetCurrentThread",
@@ -347,6 +359,14 @@ const EXEMPTIONS: &[Exemption] = &[
         why: "`QueryHandle::open` opens each file the walk finds with access \
               0 (query only, no read or write), OPEN_EXISTING, to read its \
               file id.",
+    },
+    Exemption {
+        file: "volume/devices.rs",
+        pattern: "CreateFileW",
+        count: 2, // the import and the one call
+        why: "`HandleRegistration::open` opens a watched root folder with \
+              access 0 (query only), OPEN_EXISTING, so Windows can ask the \
+              watcher to let go of the drive before an eject (1aC-6).",
     },
 ];
 

@@ -12,34 +12,47 @@
 //! - **Only what's new or changed:** each stage works from `file_stage`
 //!   ([`crate::scan_state`]), so a chained job reads, hashes or
 //!   fingerprints just the files the walk found new or changed, and a
-//!   stage with nothing left to try isn't queued at all.
-//! - **No duplicates:** a job isn't queued while an identical one (same
-//!   kind and target) is still waiting in the queue. One that's already
-//!   running may have listed its files before the latest walk, so a second
-//!   one is queued behind it; further walks see that one waiting and add
-//!   nothing.
-//! - **No loop:** nothing here queues a walk, and a stage that has only
-//!   online-only files left (which stay due, since they're skipped, not
-//!   done) isn't queued again: [`any_to_try`] looks for a file the stage
-//!   may actually read, never at [`crate::scan_state::count_due`].
+//!   stage with nothing to try isn't queued at all ([`any_to_try`]).
+//! - **One job per kind and target at a time** ([`queue_once`]): a job
+//!   isn't queued while an identical one (same kind and target) is
+//!   queued or running. A running one may have listed its files before
+//!   the latest walk, so it's asked to **run once more** when it ends
+//!   (the [`Chained`] wrapper does that), and every further request while
+//!   it runs folds into that one rerun. So a long first fingerprint run
+//!   never gets a second job parked beside it, holding a worker (a parked
+//!   job waits for the fingerprint thread budget).
+//! - **No loop:** nothing here queues a walk, and a stage whose only due
+//!   files are ones it can't try (online-only without the opt-in; or, on
+//!   a watcher's rescan, files it already found unreachable, unchanged
+//!   since) isn't queued again. Never [`crate::scan_state::count_due`],
+//!   which never reaches 0 while files are skipped.
 //! - A job that stops early (cancelled, failed, the app closing) queues
-//!   nothing; the next walk picks up where it left off.
+//!   nothing and drops its rerun; the next walk picks up where it left off.
 //!
 //! The chain wraps each stage's handler ([`after_walk`], [`after_read`],
-//! [`after_hash`]) where the handlers are registered (`jobs::start`), so
-//! the stages themselves know nothing about it and run alone in their own
-//! tests.
+//! [`after_hash`], [`after_fingerprint`]) where the handlers are
+//! registered (`jobs::start`), so the stages themselves know nothing
+//! about it and run alone in their own tests. The manual commands
+//! (`read_files`, `hash_music_folders`) go through the same handlers, so
+//! they chain onward too.
 
-use rusqlite::{Connection, OptionalExtension};
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+
+use rusqlite::Connection;
 
 use super::folders::MusicFolderId;
 use super::ReadGate;
 use crate::db::{DbError, Writer};
-use crate::jobs::{JobContext, JobError, JobHandler, JobId, NewJob, Priority};
-use crate::scan_state::{self, Scope, Stage};
+use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, NewJob, Priority};
+use crate::scan_state::{Scope, Stage};
 
-/// Due files are looked at this many at a time by [`any_to_try`].
-const PAGE: usize = 1000;
+/// The key in a stage job's target that marks a watcher's rescan (as
+/// opposed to a scan at app start, on a drive's return, or asked for):
+/// then a file a stage already found unreachable, unchanged since, isn't
+/// worth another try (it's retried on the other kinds of scan). The walk
+/// and the stages ignore the key.
+pub const RESCAN_KEY: &str = "rescan";
 
 /// `walker`, followed by a read of the folders it walked.
 pub fn after_walk<H: JobHandler>(walker: H) -> Chained<H> {
@@ -65,7 +78,16 @@ pub fn after_hash<H: JobHandler>(hasher: H) -> Chained<H> {
     }
 }
 
-/// A stage's handler with the next stage queued after it finishes.
+/// `fingerprinter`, run once more if a walk asked for it meanwhile.
+pub fn after_fingerprint<H: JobHandler>(fingerprinter: H) -> Chained<H> {
+    Chained {
+        inner: fingerprinter,
+        next: Next::Nothing,
+    }
+}
+
+/// A stage's handler with the next stage queued after it finishes, and
+/// the stage itself queued once more if that was asked for while it ran.
 pub struct Chained<H> {
     inner: H,
     next: Next,
@@ -80,17 +102,34 @@ enum Next {
     Hash,
     /// …then the fingerprints.
     Fingerprint,
+    /// The last stage.
+    Nothing,
 }
 
 impl<H: JobHandler> JobHandler for Chained<H> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
-        self.inner.run(job)?;
-        // The stage's own work is done and written. If the next stage
-        // can't be queued, the job still says why.
-        queue_next(job, self.next).map_err(|e| match e {
+        let me = NewJob {
+            kind: job.kind(),
+            target: job.target().cloned(),
+            priority: Priority::BACKGROUND,
+        };
+        let key = key(job.writer(), &me);
+        // This run lists its files now: a rerun asked for from here on is
+        // for what comes after.
+        state().ending.remove(&key);
+        if let Err(e) = self.inner.run(job) {
+            // Stopped early: whoever asked for a rerun waits for the next
+            // walk, like everything else this job left undone.
+            state().asked.remove(&key);
+            return Err(e);
+        }
+        // The stage's own work is done and written. If what follows can't
+        // be queued, the job still says why.
+        let followed = queue_next(job, self.next).and_then(|()| rerun_if_asked(job, me));
+        followed.map_err(|e| match e {
             JobError::Cancelled => JobError::Cancelled,
             JobError::Failed(e) => JobError::failed(format!(
-                "the {} job finished, but the next stage couldn't be queued: {e}",
+                "the {} job finished, but what follows it couldn't be queued: {e}",
                 job.kind()
             )),
         })
@@ -100,39 +139,92 @@ impl<H: JobHandler> JobHandler for Chained<H> {
 /// Queues what follows `job`, a finished stage.
 fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
     let ids = folders_in(job.target());
+    let rescan = is_rescan(job.target());
     let scope = match &ids {
         Some(ids) => Scope::Folders(ids.iter().map(|id| id.0).collect()),
         None => Scope::All,
     };
     let writer = job.writer();
     let enqueue = |j: NewJob| job.enqueue(j);
+    // The job's own target (folders and the rescan mark) goes on to the
+    // next stage.
+    let target = |mut new: NewJob| {
+        if rescan {
+            if let Some(serde_json::Value::Object(t)) = &mut new.target {
+                t.insert(RESCAN_KEY.into(), serde_json::Value::Bool(true));
+            }
+        }
+        new.priority(Priority::BACKGROUND)
+    };
     match next {
         Next::Read => {
-            if to_try(writer, Stage::Read, crate::read::READ_VERSION, &scope)? {
-                let read = crate::read::read_job(ids).priority(Priority::BACKGROUND);
-                unless_queued(writer, read, enqueue)?;
+            if to_try(
+                writer,
+                Stage::Read,
+                crate::read::READ_VERSION,
+                &scope,
+                rescan,
+            )? {
+                queue_once(writer, target(crate::read::read_job(ids)), enqueue)?;
             }
         }
         Next::Hash => {
             let hash_version = i64::from(crate::hash::DEFINITION);
-            if to_try(writer, Stage::Hash, hash_version, &scope)? {
-                let hash = crate::hash::hash_job(ids).priority(Priority::BACKGROUND);
-                unless_queued(writer, hash, enqueue)?;
+            if to_try(writer, Stage::Hash, hash_version, &scope, rescan)? {
+                queue_once(writer, target(crate::hash::hash_job(ids)), enqueue)?;
             } else {
                 // Nothing to hash: straight on to the fingerprints.
                 queue_next(job, Next::Fingerprint)?;
             }
         }
         Next::Fingerprint => {
-            // A fingerprint job takes every due file, whatever its folder.
+            // A fingerprint job takes every due file, whatever its folder;
+            // whether one is worth queuing is judged on the folders this
+            // chain walked (an offline drive's files stay due for ever).
             let fp_version = i64::from(crate::fingerprint::VERSION);
-            if to_try(writer, Stage::Fingerprint, fp_version, &Scope::All)? {
+            if to_try(writer, Stage::Fingerprint, fp_version, &scope, rescan)? {
                 let fp = crate::fingerprint::fingerprint_job(None).priority(Priority::BACKGROUND);
-                unless_queued(writer, fp, enqueue)?;
+                queue_once(writer, fp, enqueue)?;
             }
         }
+        Next::Nothing => {}
     }
     Ok(())
+}
+
+/// Queues `me` once more if [`queue_once`] was asked for it while it ran.
+/// From here on the job counts as ending: a request that arrives before
+/// the queue records its end queues a job of its own instead of asking.
+fn rerun_if_asked(job: &JobContext, mut me: NewJob) -> Result<(), JobError> {
+    let mut state = state();
+    let key = key(job.writer(), &me);
+    state.ending.insert(key.clone());
+    if let Some(unmarked_wanted) = state.asked.remove(&key) {
+        // A watcher's rescan mark holds only if this run had it and every
+        // ask did too; otherwise the rerun retries everything.
+        if unmarked_wanted {
+            unmark(&mut me);
+        }
+        // Under the lock, so a request arriving now sees this one queued.
+        job.enqueue(me)?;
+    }
+    Ok(())
+}
+
+/// `job`'s target without the watcher's rescan mark.
+fn unmark(job: &mut NewJob) {
+    if let Some(serde_json::Value::Object(t)) = &mut job.target {
+        t.remove(RESCAN_KEY);
+    }
+}
+
+/// `job` with the watcher's rescan mark.
+fn marked(job: &NewJob) -> NewJob {
+    let mut marked = job.clone();
+    if let Some(serde_json::Value::Object(t)) = &mut marked.target {
+        t.insert(RESCAN_KEY.into(), serde_json::Value::Bool(true));
+    }
+    marked
 }
 
 /// The music folders a stage job's target names (`music_folder_ids`), or
@@ -145,64 +237,165 @@ pub(crate) fn folders_in(target: Option<&serde_json::Value>) -> Option<Vec<Music
         .collect::<Option<Vec<_>>>()
 }
 
-/// Whether `stage` has a file in `scope` it may actually try: due, and not
-/// an online-only file the user hasn't opted in to reading. Those stay due
-/// forever (a skip, never a result), so counting them would queue a stage
-/// that has nothing to do.
-fn to_try(writer: &Writer, stage: Stage, version: i64, scope: &Scope) -> Result<bool, DbError> {
+/// Whether a stage job's target carries the watcher's rescan mark.
+pub(crate) fn is_rescan(target: Option<&serde_json::Value>) -> bool {
+    target
+        .and_then(|t| t.get(RESCAN_KEY))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+/// Whether `stage` has a file in `scope` worth trying, through the
+/// writer.
+fn to_try(
+    writer: &Writer,
+    stage: Stage,
+    version: i64,
+    scope: &Scope,
+    rescan: bool,
+) -> Result<bool, DbError> {
     let scope = scope.clone();
     writer.call(move |c| {
         let gate = ReadGate::for_job(c)?;
-        any_to_try(c, stage, version, &scope, gate)
+        any_to_try(c, stage, version, &scope, gate, rescan)
     })
 }
 
-/// [`to_try`] on a connection: pages through the due files (never
-/// starting over) until one the gate allows turns up.
+/// Whether `stage` at `version` has a present file in `scope` worth
+/// trying: one it has never done, or that changed size or mtime since,
+/// or was done by another version, or that it skipped last time for a
+/// reason that may have gone away; and that the gate allows (not
+/// online-only without the opt-in, which would be skipped again).
+///
+/// A file skipped as unreachable (locked, no permission) and unchanged
+/// since counts on a scan at app start, on a drive's return or asked for,
+/// where it's retried; not on a watcher's `rescan`, or every burst of
+/// changes would run every stage again for one locked file.
 pub(crate) fn any_to_try(
     conn: &Connection,
     stage: Stage,
     version: i64,
     scope: &Scope,
     gate: ReadGate,
+    rescan: bool,
 ) -> rusqlite::Result<bool> {
-    let mut after = 0;
-    loop {
-        let page = scan_state::due(conn, stage, version, scope, after, PAGE)?;
-        let Some(last) = page.last() else {
-            return Ok(false);
-        };
-        if page.iter().any(|f| gate.allows(f.online_only)) {
-            return Ok(true);
-        }
-        after = last.id;
-    }
+    let json = |ids: &[i64]| serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+    let (folders, files) = match scope {
+        Scope::All => (None, None),
+        Scope::Folders(ids) => (Some(json(ids)), None),
+        Scope::Files(ids) => (None, Some(json(ids))),
+    };
+    conn.prepare_cached(
+        "SELECT EXISTS (
+             SELECT 1 FROM file f
+             LEFT JOIN file_stage s ON s.file_id = f.id AND s.stage = ?1
+             WHERE f.present = 1
+               AND (?3 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?3)))
+               AND (?4 IS NULL OR f.id IN (SELECT value FROM json_each(?4)))
+               AND (f.online_only = 0 OR ?5)
+               AND (s.file_id IS NULL
+                    OR s.version <> ?2
+                    OR s.size IS NOT f.size
+                    OR s.mtime IS NOT f.mtime
+                    OR (s.status = 'skipped' AND NOT (?6 AND s.reason = ?7))))",
+    )?
+    .query_row(
+        (
+            stage.as_str(),
+            version,
+            folders,
+            files,
+            gate.allows(true),
+            rescan,
+            crate::scan_state::UNREACHABLE,
+        ),
+        |r| r.get(0),
+    )
 }
 
 /// Queues `job` with `enqueue`, unless a job of the same kind and target
-/// is already waiting in the queue; then returns that one's id and queues
-/// nothing.
-pub(crate) fn unless_queued<E: From<DbError>>(
+/// is queued or running. Queued: nothing to do, and its id is returned.
+/// Running: it may already have listed its files, so it's asked to run
+/// once more when it ends (its [`Chained`] wrapper does that), and its id
+/// is returned; if it's already ending (its wrapper has had its last
+/// look), a job of its own is queued. One lock orders the check and the
+/// insert, so two stages ending at once can't both queue the same job.
+pub(crate) fn queue_once<E: From<DbError>>(
     writer: &Writer,
     job: NewJob,
     enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
 ) -> Result<JobId, E> {
+    let mut state = state();
     let same = job.clone();
-    if let Some(waiting) = writer.call(move |c| queued(c, &same))? {
-        return Ok(waiting);
+    let active = writer.call(move |c| active(c, &same))?;
+    if let Some(queued) = active.iter().find(|(_, running)| !running) {
+        return Ok(queued.0);
     }
-    enqueue(job)
+    let key = key(writer, &job);
+    match active.first() {
+        Some((running, _)) if !state.ending.contains(&key) => {
+            let unmarked = !is_rescan(job.target.as_ref());
+            *state.asked.entry(key).or_insert(false) |= unmarked;
+            Ok(*running)
+        }
+        _ => {
+            state.asked.remove(&key);
+            enqueue(job)
+        }
+    }
 }
 
-/// A queued (not yet running) job with `job`'s kind and target, if any.
-pub(crate) fn queued(conn: &Connection, job: &NewJob) -> rusqlite::Result<Option<JobId>> {
-    let target = job.target.as_ref().map(|t| t.to_string());
-    conn.prepare_cached(
-        "SELECT id FROM job
-         WHERE status = 'queued' AND kind = ?1 AND target IS ?2
-         ORDER BY id LIMIT 1",
-    )?
-    .query_row((job.kind.as_str(), target), |r| r.get(0))
-    .optional()
-    .map(|id| id.map(JobId))
+/// A job's identity for [`queue_once`]: its database, kind and target
+/// as stored, the watcher's rescan mark set aside (a rescan for changes
+/// and a catch-up of the same folders are the same walk).
+type Key = (std::path::PathBuf, JobKind, Option<String>);
+
+/// What the chain remembers about running jobs, under one lock that also
+/// orders every [`queue_once`] (the check and the insert as one step).
+#[derive(Default)]
+struct ChainState {
+    /// Jobs asked to run once more when their current run ends, and
+    /// whether an ask was without the rescan mark. In memory only: a run
+    /// cut short by the app closing goes back in the queue whole, and
+    /// lists its files afresh.
+    asked: HashMap<Key, bool>,
+    /// Jobs whose wrapper has had its last look for an ask, but that the
+    /// queue may not have recorded as finished yet.
+    ending: HashSet<Key>,
+}
+
+static STATE: LazyLock<Mutex<ChainState>> = LazyLock::new(Mutex::default);
+
+fn state() -> MutexGuard<'static, ChainState> {
+    STATE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn key(writer: &Writer, job: &NewJob) -> Key {
+    let mut unmarked = job.clone();
+    unmark(&mut unmarked);
+    (
+        writer.path().to_path_buf(),
+        job.kind,
+        unmarked.target.as_ref().map(|t| t.to_string()),
+    )
+}
+
+/// Every queued or running job with `job`'s kind and target (with or
+/// without the rescan mark): id and whether it's running, running ones
+/// first.
+pub(crate) fn active(conn: &Connection, job: &NewJob) -> rusqlite::Result<Vec<(JobId, bool)>> {
+    let mut unmarked = job.clone();
+    unmark(&mut unmarked);
+    let plain = unmarked.target.as_ref().map(|t| t.to_string());
+    let with_mark = marked(&unmarked).target.map(|t| t.to_string());
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, status = 'running' FROM job
+         WHERE status IN ('queued', 'running') AND kind = ?1
+           AND (target IS ?2 OR target IS ?3)
+         ORDER BY status = 'running' DESC, id",
+    )?;
+    let rows = stmt.query_map((job.kind.as_str(), plain, with_mark), |r| {
+        Ok((JobId(r.get(0)?), r.get(1)?))
+    })?;
+    rows.collect()
 }

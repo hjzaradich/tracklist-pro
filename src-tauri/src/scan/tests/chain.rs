@@ -17,20 +17,39 @@ use super::walk::{add_music, at, drive, put};
 use crate::db::Writer;
 use crate::fingerprint::{Fingerprinter, FirstUp};
 use crate::hash::{Hasher, Summary};
-use crate::jobs::{JobContext, JobError, JobHandler, JobKind, JobQueue, NewJob, Priority};
+use crate::jobs::{
+    JobContext, JobError, JobHandler, JobKind, JobQueue, JobQueueBuilder, NewJob, Priority,
+};
 use crate::read::{read_job, Reader};
-use crate::scan::chain::{after_hash, after_read, after_walk, unless_queued};
+use crate::scan::chain::{after_fingerprint, after_hash, after_read, after_walk, queue_once};
 use crate::scan::folders::MusicFolderId;
 use crate::scan::walk::{scan_job, Walker};
 use crate::scan_state::{self, Scope, Stage};
 use crate::tags::test_audio as audio;
 
-/// How many files each stage looked at, over every job so far.
+/// How many files each stage looked at, over every job so far, and when
+/// each stage's handler was last at work.
 #[derive(Clone, Default)]
 pub(super) struct LookedAt {
     pub read: Arc<AtomicU64>,
     pub hashed: Arc<AtomicU64>,
     pub fingerprinted: Arc<AtomicU64>,
+    pub marks: Arc<Mutex<Marks>>,
+    /// Holds the first fingerprint job at its first file until released.
+    pub hold_fingerprint: Arc<Mutex<Option<mpsc::Receiver<()>>>>,
+}
+
+/// When each stage's handler was seen at work (from its hooks).
+#[derive(Debug, Default)]
+pub(super) struct Marks {
+    /// The last file the read job started on.
+    pub last_read: Option<Instant>,
+    /// The first buffer the hash job read.
+    pub first_hash: Option<Instant>,
+    /// The hash job's summary: its end.
+    pub hash_end: Option<Instant>,
+    /// The first file the fingerprint job took.
+    pub first_fingerprint: Option<Instant>,
 }
 
 impl LookedAt {
@@ -41,10 +60,29 @@ impl LookedAt {
             self.fingerprinted.load(Ordering::SeqCst),
         )
     }
+
+    /// Holds the next fingerprint job at its first file; send on the
+    /// returned sender to let it go.
+    pub(super) fn hold_next_fingerprint(&self) -> mpsc::Sender<()> {
+        let (release, held) = mpsc::channel();
+        *self.hold_fingerprint.lock().unwrap() = Some(held);
+        release
+    }
 }
 
 /// A queue with every stage's handler, chained as the app chains them.
 pub(super) fn chained_queue(writer: &Writer, volume: &TempVolume, looked: &LookedAt) -> JobQueue {
+    chained_queue_with(writer, volume, looked, 2, |b| b)
+}
+
+/// [`chained_queue`] with `workers` workers and `more` handlers.
+pub(super) fn chained_queue_with(
+    writer: &Writer,
+    volume: &TempVolume,
+    looked: &LookedAt,
+    workers: usize,
+    more: impl FnOnce(JobQueueBuilder) -> JobQueueBuilder,
+) -> JobQueue {
     let (v1, v2, v3, v4) = (
         volume.clone(),
         volume.clone(),
@@ -56,8 +94,15 @@ pub(super) fn chained_queue(writer: &Writer, volume: &TempVolume, looked: &Looke
         looked.hashed.clone(),
         looked.fingerprinted.clone(),
     );
-    JobQueue::builder(writer.clone())
-        .workers(2)
+    let (m1, m2, m3, m4) = (
+        looked.marks.clone(),
+        looked.marks.clone(),
+        looked.marks.clone(),
+        looked.marks.clone(),
+    );
+    let hold = looked.hold_fingerprint.clone();
+    let builder = JobQueue::builder(writer.clone())
+        .workers(workers)
         .handler(
             JobKind::Scan,
             after_walk(Walker::new(move || v1.clone(), |_| {})),
@@ -66,33 +111,63 @@ pub(super) fn chained_queue(writer: &Writer, volume: &TempVolume, looked: &Looke
             JobKind::Read,
             after_read(Reader::new(move || v2.clone()).on_file(move |_| {
                 read.fetch_add(1, Ordering::SeqCst);
+                m1.lock().unwrap().last_read = Some(Instant::now());
             })),
         )
         .handler(
             JobKind::Hash,
             after_hash(
-                Hasher::new(move || v3.clone()).on_summary(move |s: Summary| {
-                    // Every file the job looked at, whatever became of it.
-                    let looked_at = s.hashed
-                        + s.no_audio_hash
-                        + s.changed_since_walk
-                        + s.unreachable
-                        + s.online_only
-                        + s.offline;
-                    hashed.fetch_add(looked_at, Ordering::SeqCst);
-                }),
+                Hasher::new(move || v3.clone())
+                    .on_read(move |_, _| {
+                        m2.lock()
+                            .unwrap()
+                            .first_hash
+                            .get_or_insert_with(Instant::now);
+                    })
+                    .on_summary(move |s: Summary| {
+                        // Every file the job looked at, whatever became of it.
+                        let looked_at = s.hashed
+                            + s.no_audio_hash
+                            + s.changed_since_walk
+                            + s.unreachable
+                            + s.online_only
+                            + s.offline;
+                        hashed.fetch_add(looked_at, Ordering::SeqCst);
+                        m3.lock().unwrap().hash_end = Some(Instant::now());
+                    }),
             ),
         )
         .handler(
             JobKind::Fingerprint,
-            Fingerprinter::new(move || v4.clone(), FirstUp::default())
-                .threads(1)
-                .on_file(move |_| {
-                    fingerprinted.fetch_add(1, Ordering::SeqCst);
-                }),
-        )
-        .start()
-        .unwrap()
+            after_fingerprint(
+                Fingerprinter::new(move || v4.clone(), FirstUp::default())
+                    .threads(1)
+                    .on_file(move |_| {
+                        m4.lock()
+                            .unwrap()
+                            .first_fingerprint
+                            .get_or_insert_with(Instant::now);
+                        // Held only if a test asked, and only once.
+                        let held = hold.lock().unwrap().take();
+                        if let Some(held) = held {
+                            let _ = held.recv_timeout(Duration::from_secs(30));
+                        }
+                        fingerprinted.fetch_add(1, Ordering::SeqCst);
+                    }),
+            ),
+        );
+    more(builder).start().unwrap()
+}
+
+pub(super) fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let start = Instant::now();
+    while !done() {
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "timed out waiting until {what}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// Waits until no job is queued or running. A chained job queues its
@@ -117,17 +192,6 @@ pub(super) fn jobs(writer: &Writer) -> Vec<(String, Option<String>, i64, String)
         .call(|c| {
             let mut s = c.prepare("SELECT kind, target, priority, status FROM job ORDER BY id")?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
-            rows.collect()
-        })
-        .unwrap()
-}
-
-/// When each job started and finished, oldest first.
-fn spans(writer: &Writer) -> Vec<(String, String)> {
-    writer
-        .call(|c| {
-            let mut s = c.prepare("SELECT started_at, finished_at FROM job ORDER BY id")?;
-            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect()
         })
         .unwrap()
@@ -167,17 +231,20 @@ fn a_finished_walk_leads_to_read_then_hash_and_fingerprint_for_exactly_the_new_o
         ]
     );
     assert_eq!(looked.counts(), (2, 2, 2));
-    // One stage at a time, even with two workers: the read ended before
-    // the hashes began, and the hashes before the fingerprints.
-    let spans = spans(&writer);
+    // One stage at a time, even with two workers: the hashes began after
+    // the read's last file, and the fingerprints after the hashes ended
+    // (from the handlers' own hooks; the job table's timestamps are
+    // written a moment after the fact and would race).
+    let marks = looked.marks.lock().unwrap();
     assert!(
-        spans[1].1 <= spans[2].0,
-        "hash began before the read ended: {spans:?}"
+        marks.last_read.unwrap() <= marks.first_hash.unwrap(),
+        "hashing began before the read's last file: {marks:?}"
     );
     assert!(
-        spans[2].1 <= spans[3].0,
-        "fingerprint began before the hash ended: {spans:?}"
+        marks.hash_end.unwrap() <= marks.first_fingerprint.unwrap(),
+        "fingerprinting began before the hashes ended: {marks:?}"
     );
+    drop(marks);
     // Every stage has a row for every file: nothing is left due.
     let due = |stage, version| {
         writer
@@ -271,21 +338,22 @@ fn a_walk_that_stops_early_queues_nothing() {
 
 #[test]
 fn an_identical_job_still_waiting_is_not_queued_twice() {
+    // No workers here: see the next test for a running one.
     let (_db, writer, _reads) = db();
     // No workers: whatever is queued stays queued.
     let queue = JobQueue::builder(writer.clone()).start().unwrap();
     queue.shutdown();
     let enqueue = |job: NewJob| queue.enqueue(job);
 
-    let first = unless_queued(&writer, read_job(None), enqueue).unwrap();
-    let again = unless_queued(&writer, read_job(None), enqueue).unwrap();
+    let first = queue_once(&writer, read_job(None), enqueue).unwrap();
+    let again = queue_once(&writer, read_job(None), enqueue).unwrap();
     assert_eq!(again, first);
-    let other = unless_queued(&writer, read_job(Some(vec![MusicFolderId(3)])), enqueue).unwrap();
+    let other = queue_once(&writer, read_job(Some(vec![MusicFolderId(3)])), enqueue).unwrap();
     assert_ne!(other, first);
-    let same_target = unless_queued(&writer, read_job(Some(vec![MusicFolderId(3)])), enqueue);
+    let same_target = queue_once(&writer, read_job(Some(vec![MusicFolderId(3)])), enqueue);
     assert_eq!(same_target.unwrap(), other);
     // A different kind with the same target is its own job.
-    let hash = unless_queued(
+    let hash = queue_once(
         &writer,
         crate::hash::hash_job(Some(vec![MusicFolderId(3)])),
         enqueue,
@@ -297,7 +365,7 @@ fn an_identical_job_still_waiting_is_not_queued_twice() {
     // Once it's no longer waiting (cancelled here; done or running in the
     // app), the same job can be queued again.
     queue.cancel(first).unwrap();
-    let after = unless_queued(&writer, read_job(None), enqueue).unwrap();
+    let after = queue_once(&writer, read_job(None), enqueue).unwrap();
     assert_ne!(after, first);
     assert_eq!(
         jobs(&writer)
@@ -451,4 +519,72 @@ fn chained_stage_jobs_run_after_anything_the_user_is_waiting_on() {
     assert_eq!(kinds(&writer), ["scan", "export", "read"]);
     let ran = ran.lock().unwrap().clone();
     assert_eq!(ran, [JobKind::Scan, JobKind::Export, JobKind::Read]);
+}
+
+#[test]
+fn a_user_job_is_not_held_up_by_fingerprint_work_asked_for_while_a_fingerprint_job_runs() {
+    // The chain never queues a second fingerprint job beside a running
+    // one (it would take a worker and sit waiting for the fingerprint
+    // threads): it asks the running one to run once more when it ends.
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", &audio::mp3());
+    let other = volume.mount.join("Other");
+    fs::create_dir(&other).unwrap();
+    put(&other, "b.mp3", &audio::mp3());
+    let (_db, writer, _reads) = db();
+    let folder_a = add_music(&writer, &volume, &music);
+    let folder_b = add_music(&writer, &volume, &other);
+    let looked = LookedAt::default();
+    let release = looked.hold_next_fingerprint();
+    let export_ran = Arc::new(AtomicU64::new(0));
+    let ran = export_ran.clone();
+    let queue = chained_queue_with(&writer, &volume, &looked, 2, |b| {
+        b.handler(JobKind::Export, move |_: &JobContext| {
+            ran.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    });
+
+    // Folder A's chain reaches its fingerprint job, which is held.
+    queue.enqueue(scan_job(Some(vec![folder_a]))).unwrap();
+    wait_until("the fingerprint job is at its first file", || {
+        looked.marks.lock().unwrap().first_fingerprint.is_some()
+    });
+    // Folder B's chain runs on the other worker and, at its end, wants
+    // fingerprints too.
+    queue.enqueue(scan_job(Some(vec![folder_b]))).unwrap();
+    let target_b = Some(format!(r#"{{"music_folder_ids":[{}]}}"#, folder_b.0));
+    wait_until("folder B is hashed", || {
+        jobs(&writer)
+            .iter()
+            .any(|j| j.0 == "hash" && j.1 == target_b && j.3 == "done")
+    });
+    let fingerprints = |writer: &Writer| -> Vec<String> {
+        jobs(writer)
+            .into_iter()
+            .filter(|j| j.0 == "fingerprint")
+            .map(|j| j.3)
+            .collect()
+    };
+    assert_eq!(
+        fingerprints(&writer),
+        ["running"],
+        "no second job beside it"
+    );
+
+    // A user's job isn't held up: a worker is free.
+    queue
+        .enqueue(NewJob::new(JobKind::Export).priority(Priority::USER))
+        .unwrap();
+    wait_until("the user's job ran", || {
+        export_ran.load(Ordering::SeqCst) == 1
+    });
+    assert_eq!(fingerprints(&writer), ["running"]);
+
+    // Once the first job ends, it runs once more, for folder B's file.
+    release.send(()).unwrap();
+    wait_idle(&queue);
+    assert_eq!(fingerprints(&writer), ["done", "done"]);
+    assert_eq!(looked.fingerprinted.load(Ordering::SeqCst), 2);
+    queue.shutdown();
 }

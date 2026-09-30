@@ -86,10 +86,14 @@ pub fn run() {
 }
 
 /// Handles the app's lifecycle events. On exit (the process ends right
-/// after, without dropping Tauri's state) it stops the job queue, so
-/// running jobs go back in the queue for the next launch.
+/// after, without dropping Tauri's state) it stops the music folder
+/// watchers, so no burst queues a scan behind the queue's back, then the
+/// job queue, so running jobs go back in the queue for the next launch.
 fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
     if let RunEvent::Exit = event {
+        if let Some(watchers) = app.try_state::<scan::Watchers>() {
+            watchers.shutdown();
+        }
         if let Some(jobs) = app.try_state::<jobs::JobQueue>() {
             jobs.shutdown();
         }
