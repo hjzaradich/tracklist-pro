@@ -43,8 +43,27 @@
 //!   is re-hashed; a grouping run in between can split a track and merge it
 //!   back, and a moved file starts over as undecided.
 //! - A track whose files are all marked extra has no best.
+//! - The merge target depends on what's attached now. Three tracks holding
+//!   the same audio, where the first is linked to both others as a version
+//!   and the others aren't linked to each other, merge into the first; if a
+//!   reference later lands on one of the others, a later pass targets that
+//!   one instead and moves the third's file into it.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+#[cfg(test)]
+thread_local! {
+    /// How many times [`plan`] looked at a file, for the test that checks
+    /// it stays linear.
+    pub(crate) static VISITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts one look at a file (tests only).
+#[inline]
+fn visit() {
+    #[cfg(test)]
+    VISITS.with(|v| v.set(v.get() + 1));
+}
 
 /// A file that has, or should get, a track.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +124,7 @@ struct Weight {
 fn winning_key<'a>(members: &[&'a Member]) -> Option<&'a [u8]> {
     let mut weights: BTreeMap<&[u8], Weight> = BTreeMap::new();
     for m in members {
+        visit();
         if let Some(key) = m.key.as_deref() {
             let w = weights.entry(key).or_insert(Weight {
                 pinned: false,
@@ -132,6 +152,7 @@ fn winning_key<'a>(members: &[&'a Member]) -> Option<&'a [u8]> {
 pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>, referenced: &HashSet<i64>) -> Plan {
     let mut by_recording: BTreeMap<i64, Vec<&Member>> = BTreeMap::new();
     for m in members {
+        visit();
         if let Some(r) = m.recording {
             by_recording.entry(r).or_default().push(m);
         }
@@ -146,6 +167,7 @@ pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>, referenced: &Has
         let keeps = winning_key(held);
         let lone = held.iter().map(|m| m.file).min();
         for m in held {
+            visit();
             let fits = match keeps {
                 Some(key) => m.key.as_deref() == Some(key),
                 None => Some(m.file) == lone,
@@ -159,15 +181,17 @@ pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>, referenced: &Has
         }
     }
     let pinned_in = |recording: i64| {
-        by_recording[&recording]
-            .iter()
-            .any(|m| m.pinned && stays.contains(&m.file))
+        by_recording[&recording].iter().any(|m| {
+            visit();
+            m.pinned && stays.contains(&m.file)
+        })
     };
 
     // The files with a hash, by hash: the ones that don't stay, and the
     // ones that do, each in member order.
     let mut by_key: BTreeMap<&[u8], Vec<&Member>> = BTreeMap::new();
     for m in members {
+        visit();
         if let Some(key) = m.key.as_deref() {
             by_key.entry(key).or_default().push(m);
         }
@@ -211,6 +235,7 @@ pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>, referenced: &Has
             }
         };
         for m in &by_key[key] {
+            visit();
             // Files already in the target stay; other tracks holding this
             // audio merge into it, unless a file is pinned.
             if stays.contains(&m.file) && (m.recording == target || m.pinned) {
@@ -222,6 +247,7 @@ pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>, referenced: &Has
 
     // Everything else has no audio_hash: a track of its own each.
     for m in members {
+        visit();
         if m.key.is_none() && !stays.contains(&m.file) {
             new_recordings += 1;
             moves.push(Move {

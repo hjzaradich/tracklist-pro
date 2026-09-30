@@ -128,29 +128,85 @@ fn a_track_in_a_version_link_that_a_move_empties_is_kept() {
 }
 
 #[test]
-fn an_emptied_track_a_rekordbox_row_still_names_is_kept() {
+fn a_track_a_rekordbox_row_still_names_is_kept_when_its_folder_is_removed() {
+    // Removing a folder sweeps tracks without going through the sync: the
+    // row is left naming the track, and the delete must not trip its FK.
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    db.group();
+    let track = db.track(a).unwrap();
+    db.sql(&format!(
+        "INSERT INTO rekordbox_track (attributes, location_key, read_at, recording_id)
+         VALUES ('{{\"TrackID\":\"9\",\"Location\":\"file://localhost/E:/x.mp3\"}}', 'E:/x.mp3',
+                 '2026-09-29T00:00:00.000Z', {track})"
+    ));
+    let removed = db
+        .writer
+        .call(|c| crate::scan::folders::remove(c, crate::scan::folders::MusicFolderId(1)))
+        .unwrap();
+    assert_eq!(removed, Ok(()));
+    assert_eq!(db.tracks(), 1, "the track the rekordbox row names is kept");
+}
+
+#[test]
+fn a_rekordbox_row_with_no_matched_file_has_no_track() {
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    db.group();
+    let track = db.track(a).unwrap();
+    db.sql(&format!(
+        "INSERT INTO rekordbox_track (attributes, location_key, read_at, recording_id)
+         VALUES ('{{\"TrackID\":\"9\",\"Location\":\"file://localhost/E:/x.mp3\"}}', 'E:/x.mp3',
+                 '2026-09-29T00:00:00.000Z', {track})"
+    ));
+    db.group();
+    assert_eq!(
+        db.count("SELECT count(*) FROM rekordbox_track WHERE recording_id IS NOT NULL"),
+        0
+    );
+}
+
+#[test]
+fn a_track_only_a_matched_rekordbox_row_points_at_takes_a_merge() {
     let db = db();
     let a = db.file(1, "a.mp3", Some(A));
     let b = db.file(1, "b.mp3", Some(B));
     db.group();
-    let (low, high) = (db.track(a).unwrap(), db.track(b).unwrap());
+    let high = db.track(b).unwrap();
+    assert!(db.track(a).unwrap() < high);
+    // Only the higher track is referenced: by a matched rekordbox row.
+    db.sql(&format!("{MATCHED_ROW}{b}, {high})"));
+    db.set_hash(b, Some(A));
+    db.group();
+    assert_eq!((db.track(a), db.track(b)), (Some(high), Some(high)));
+    assert_eq!(db.tracks(), 1);
+}
+
+#[test]
+fn a_merge_prefers_the_track_with_the_linked_file_over_one_that_is_only_referenced() {
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    let p = db.file(1, "p.mp3", Some(B));
+    let q = db.file(1, "q.mp3", Some(B));
+    db.group();
+    let (low, high) = (db.track(a).unwrap(), db.track(p).unwrap());
+    assert!(low < high);
+    assert_eq!(db.track(q), Some(high));
+    // Both tracks are referenced; only the higher holds a linked file.
     db.sql(&format!(
         "INSERT INTO analysis (recording_id, source, bpm) VALUES ({low}, 'local', 120)"
     ));
-    // A rekordbox track whose file is missing, held on the higher track.
     db.sql(&format!(
-        "INSERT INTO rekordbox_track (attributes, location_key, read_at, recording_id)
-         VALUES ('{{\"TrackID\":\"9\",\"Location\":\"file://localhost/E:/x.mp3\"}}', 'E:/x.mp3',
-                 '2026-09-29T00:00:00.000Z', {high})"
+        "INSERT INTO library_track (recording_id, linked_file_id) VALUES ({high}, {p})"
     ));
-    db.set_hash(b, Some(A));
+    db.set_hash(p, Some(A));
+    db.set_hash(q, Some(A));
     db.group();
-    assert_eq!(db.track(b), Some(low));
-    assert_eq!(db.tracks(), 2, "the track the rekordbox row names is kept");
-    assert_eq!(
-        db.count("SELECT recording_id FROM rekordbox_track WHERE track_id = 9"),
-        high
-    );
+    // Everything lands in the track of the linked file, none split off.
+    for file in [a, p, q] {
+        assert_eq!(db.track(file), Some(high));
+    }
+    assert_eq!(db.tracks(), 2, "the lower track stays for its analysis");
 }
 
 #[test]

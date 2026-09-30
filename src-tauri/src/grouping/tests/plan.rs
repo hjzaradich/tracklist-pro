@@ -72,7 +72,8 @@ fn a_plan_for_settled_files_is_empty() {
 fn planning_scales_linearly_with_the_number_of_files() {
     // 55,000 files: 50,000 distinct audio, 5,000 of them twice. It runs on
     // the database's one writer, so a pass over every file for each
-    // distinct hash (minutes at 100k files) can't come back.
+    // distinct hash (2.75 billion looks here, minutes at 100k files) can't
+    // come back.
     let key = |n: u32| {
         let mut key = vec![0u8; 34];
         key[..4].copy_from_slice(&n.to_be_bytes());
@@ -87,14 +88,17 @@ fn planning_scales_linearly_with_the_number_of_files() {
             pinned: false,
         });
     }
-    let begun = std::time::Instant::now();
+    crate::grouping::plan::VISITS.with(|v| v.set(0));
     let p = plan(&members, &no_versions(), &HashSet::new());
     assert_eq!(p.moves.len(), 55_000);
     assert_eq!(p.new_recordings, 50_000);
+    // Counted, not timed, so a busy machine can't fail it: a few looks per
+    // file, however many distinct hashes there are.
+    let visits = crate::grouping::plan::VISITS.with(|v| v.get());
     assert!(
-        begun.elapsed() < std::time::Duration::from_secs(10),
-        "took {:?}",
-        begun.elapsed()
+        visits <= 8 * members.len() as u64,
+        "{visits} looks at {} files",
+        members.len()
     );
 }
 

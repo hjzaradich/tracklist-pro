@@ -150,14 +150,14 @@ pub fn regroup(conn: &mut Connection) -> rusqlite::Result<Summary> {
 /// Points each matched rekordbox track at its file's track. Grouping owns
 /// `rekordbox_track.recording_id`: a match (relink) sets `file_id`, a fresh
 /// read of the snapshot clears `recording_id`, and this puts it right
-/// again after placements, moves and both of those.
+/// again after placements, moves and both of those. A row with no matched
+/// file has no track either.
 fn sync_rekordbox(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE rekordbox_track
          SET recording_id = (SELECT rf.recording_id FROM recording_file rf
                              WHERE rf.file_id = rekordbox_track.file_id)
-         WHERE file_id IS NOT NULL
-           AND recording_id IS NOT (SELECT rf.recording_id FROM recording_file rf
+         WHERE recording_id IS NOT (SELECT rf.recording_id FROM recording_file rf
                                     WHERE rf.file_id = rekordbox_track.file_id)",
         [],
     )?;
