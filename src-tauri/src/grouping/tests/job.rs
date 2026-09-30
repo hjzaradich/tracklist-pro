@@ -86,6 +86,41 @@ fn asking_again_while_a_grouping_job_is_waiting_returns_that_job() {
     queue.shutdown();
 }
 
+#[test]
+fn asking_while_a_grouping_job_runs_queues_another_that_runs_after_it() {
+    let db = db();
+    let (release, hold) = mpsc::channel::<()>();
+    let hold = Mutex::new(hold);
+    let runs = Arc::new(Mutex::new(0u32));
+    let counted = runs.clone();
+    let queue = JobQueue::builder(db.writer.clone())
+        .workers(1)
+        .handler(JobKind::Group, move |_: &jobs::JobContext| {
+            *counted.lock().unwrap() += 1;
+            // The first run waits to be let go; the second finds it open.
+            let _ = hold.lock().unwrap().recv_timeout(Duration::from_secs(20));
+            Ok(())
+        })
+        .start()
+        .unwrap();
+    let first = start(&queue).unwrap();
+    let begun = Instant::now();
+    while *runs.lock().unwrap() == 0 {
+        assert!(begun.elapsed() < PATIENCE, "the first job never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Files may have changed since the running job loaded them: another
+    // pass is needed, not the running one.
+    let second = start(&queue).unwrap();
+    assert_ne!(first, second);
+    release.send(()).unwrap();
+    assert_eq!(wait(&db, first).status, JobStatus::Done);
+    drop(release);
+    assert_eq!(wait(&db, second).status, JobStatus::Done);
+    assert_eq!(*runs.lock().unwrap(), 2);
+    queue.shutdown();
+}
+
 // ---- nothing outside the app data folder ----------------------------------
 
 /// Every file and folder under `dir`, with its bytes and modified time.

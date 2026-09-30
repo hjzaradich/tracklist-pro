@@ -16,12 +16,15 @@
 //!
 //! Every track is either one file with no `audio_hash`, or files that all
 //! share one. A track that breaks this (a file's audio changed since it was
-//! grouped) keeps the files sharing the most common `audio_hash`, and the
-//! rest leave for the track their own audio belongs to. Ties go to the
-//! hash held by the lowest file id, so a re-run never flips a decision.
-//! Where several tracks hold the same audio, they all merge into one:
-//! the one with a pinned file, else the lowest id, so the id everything
-//! else refers to survives.
+//! grouped) keeps the audio of its pinned file, if it has one, else the
+//! `audio_hash` most of its files share; the rest leave for the track their
+//! own audio belongs to. Ties go to the hash held by the lowest file id, so
+//! a re-run never flips a decision.
+//!
+//! Where several tracks hold the same audio, they all merge into one: the
+//! one with a pinned file, else one something else refers to (a Library
+//! track, analysis, a matched rekordbox track), else the lowest id, so
+//! nothing that's already attached is stranded on an emptied track.
 //!
 //! # What never moves
 //!
@@ -31,6 +34,15 @@
 //! - A file never moves between two tracks that are linked versions:
 //!   versions never merge (the schema refuses it too). It's left where it
 //!   is and counted.
+//!
+//! # Known limits (1b replaces this)
+//!
+//! - Hashes are compared as stored. `audio_hash` starts with the
+//!   definition's version byte, so when the definition is bumped, files
+//!   hashed under the old and new definitions never match until every file
+//!   is re-hashed; a grouping run in between can split a track and merge it
+//!   back, and a moved file starts over as undecided.
+//! - A track whose files are all marked extra has no best.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
@@ -83,7 +95,6 @@ fn linked(pairs: &HashSet<(i64, i64)>, a: i64, b: i64) -> bool {
 }
 
 /// What one `audio_hash` weighs within a track holding files with several.
-#[derive(Default)]
 struct Weight {
     pinned: bool,
     count: usize,
@@ -113,8 +124,12 @@ fn winning_key<'a>(members: &[&'a Member]) -> Option<&'a [u8]> {
 
 /// Works out where every file should go. `members` holds every file with a
 /// track and every present file without one; `versions` the pairs of
-/// tracks that are linked versions.
-pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>) -> Plan {
+/// tracks that are linked versions; `referenced` the tracks something
+/// other than their files points at.
+///
+/// Linear in the number of files (times the log of the number of distinct
+/// hashes): it runs on the database's one writer.
+pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>, referenced: &HashSet<i64>) -> Plan {
     let mut by_recording: BTreeMap<i64, Vec<&Member>> = BTreeMap::new();
     for m in members {
         if let Some(r) = m.recording {
@@ -149,6 +164,15 @@ pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>) -> Plan {
             .any(|m| m.pinned && stays.contains(&m.file))
     };
 
+    // The files with a hash, by hash: the ones that don't stay, and the
+    // ones that do, each in member order.
+    let mut by_key: BTreeMap<&[u8], Vec<&Member>> = BTreeMap::new();
+    for m in members {
+        if let Some(key) = m.key.as_deref() {
+            by_key.entry(key).or_default().push(m);
+        }
+    }
+
     let mut moves = Vec::new();
     let mut new_recordings = 0;
     let mut left_alone = 0;
@@ -163,20 +187,22 @@ pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>) -> Plan {
     };
 
     // Files with a hash, one hash at a time.
-    let mut hashes: BTreeSet<&[u8]> = homes.keys().copied().collect();
-    for m in members {
-        if let (Some(key), false) = (m.key.as_deref(), stays.contains(&m.file)) {
-            hashes.insert(key);
-        }
-    }
+    let hashes: BTreeSet<&[u8]> = by_key
+        .iter()
+        .filter(|(key, files)| {
+            homes.contains_key(*key) || files.iter().any(|m| !stays.contains(&m.file))
+        })
+        .map(|(key, _)| *key)
+        .collect();
     for key in hashes {
         // The track this audio ends up in: an existing one that keeps it,
-        // preferring one with a pinned file, then the lowest id.
+        // preferring one with a pinned file, then one something else
+        // refers to, then the lowest id.
         let candidates = homes.get(key).map(Vec::as_slice).unwrap_or(&[]);
         let target = candidates
             .iter()
             .copied()
-            .min_by_key(|&r| (!pinned_in(r), r));
+            .min_by_key(|&r| (!pinned_in(r), !referenced.contains(&r), r));
         let dest = match target {
             Some(r) => Dest::Recording(r),
             None => {
@@ -184,10 +210,7 @@ pub fn plan(members: &[Member], versions: &HashSet<(i64, i64)>) -> Plan {
                 Dest::New(new_recordings - 1)
             }
         };
-        for m in members {
-            if m.key.as_deref() != Some(key) {
-                continue;
-            }
+        for m in &by_key[key] {
             // Files already in the target stay; other tracks holding this
             // audio merge into it, unless a file is pinned.
             if stays.contains(&m.file) && (m.recording == target || m.pinned) {

@@ -25,7 +25,7 @@ fn a_track_keeps_the_audio_most_of_its_files_share() {
         member(2, Some(1), Some(7)),
         member(3, Some(1), Some(9)),
     ];
-    let p = plan(&members, &no_versions());
+    let p = plan(&members, &no_versions(), &HashSet::new());
     assert_eq!(p.moves.len(), 1);
     assert_eq!((p.moves[0].file, p.moves[0].from), (3, Some(1)));
     assert!(matches!(p.moves[0].to, Dest::New(_)));
@@ -34,7 +34,7 @@ fn a_track_keeps_the_audio_most_of_its_files_share() {
 #[test]
 fn a_tie_goes_to_the_hash_of_the_lowest_file_id_so_a_rerun_never_flips_it() {
     let members = [member(5, Some(1), Some(9)), member(4, Some(1), Some(7))];
-    let p = plan(&members, &no_versions());
+    let p = plan(&members, &no_versions(), &HashSet::new());
     assert_eq!(p.moves.len(), 1);
     assert_eq!(p.moves[0].file, 5, "file 4's audio stays");
 }
@@ -47,7 +47,7 @@ fn unplaced_files_with_the_same_hash_share_one_new_track_and_others_get_their_ow
         member(3, None, None),
         member(4, None, None),
     ];
-    let p = plan(&members, &no_versions());
+    let p = plan(&members, &no_versions(), &HashSet::new());
     assert_eq!(p.new_recordings, 3);
     let to = |file: i64| p.moves.iter().find(|m| m.file == file).unwrap().to;
     assert_eq!(to(1), to(2));
@@ -62,5 +62,49 @@ fn a_plan_for_settled_files_is_empty() {
         member(2, Some(1), Some(7)),
         member(3, Some(2), None),
     ];
-    assert_eq!(plan(&members, &no_versions()), Default::default());
+    assert_eq!(
+        plan(&members, &no_versions(), &HashSet::new()),
+        Default::default()
+    );
+}
+
+#[test]
+fn planning_scales_linearly_with_the_number_of_files() {
+    // 55,000 files: 50,000 distinct audio, 5,000 of them twice. It runs on
+    // the database's one writer, so a pass over every file for each
+    // distinct hash (minutes at 100k files) can't come back.
+    let key = |n: u32| {
+        let mut key = vec![0u8; 34];
+        key[..4].copy_from_slice(&n.to_be_bytes());
+        key
+    };
+    let mut members = Vec::new();
+    for n in 0..55_000u32 {
+        members.push(Member {
+            file: i64::from(n),
+            recording: None,
+            key: Some(key(n % 50_000)),
+            pinned: false,
+        });
+    }
+    let begun = std::time::Instant::now();
+    let p = plan(&members, &no_versions(), &HashSet::new());
+    assert_eq!(p.moves.len(), 55_000);
+    assert_eq!(p.new_recordings, 50_000);
+    assert!(
+        begun.elapsed() < std::time::Duration::from_secs(10),
+        "took {:?}",
+        begun.elapsed()
+    );
+}
+
+#[test]
+fn a_merge_prefers_the_track_something_refers_to_then_the_lowest_id() {
+    let members = [member(1, Some(1), Some(7)), member(2, Some(2), Some(7))];
+    let referenced: HashSet<i64> = [2].into();
+    let p = plan(&members, &no_versions(), &referenced);
+    assert_eq!(p.moves.len(), 1);
+    assert_eq!((p.moves[0].file, p.moves[0].to), (1, Dest::Recording(2)));
+    let p = plan(&members, &no_versions(), &HashSet::new());
+    assert_eq!((p.moves[0].file, p.moves[0].to), (2, Dest::Recording(1)));
 }

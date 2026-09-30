@@ -4,8 +4,8 @@
 //!
 //! Tracks are `recording` rows, and a file's track is its `recording_file`
 //! row (migration 0003). The only tables written are those two, plus
-//! `rekordbox_track.recording_id` for a file that moved, so a matched
-//! rekordbox track keeps pointing at its file's track.
+//! `rekordbox_track.recording_id`, which grouping owns: a matched
+//! rekordbox track always points at its file's track.
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,7 +30,8 @@ pub struct Summary {
 
 /// A track is unreferenced when nothing but its files (`recording_file`)
 /// points at it. Everything that names a track by id is listed here, so
-/// deleting one never trips a foreign key.
+/// deleting one never trips a foreign key (a test compares this list with
+/// the schema's foreign keys).
 const UNREFERENCED: &str =
     "NOT EXISTS (SELECT 1 FROM recording_file WHERE recording_id = recording.id)
      AND NOT EXISTS (SELECT 1 FROM library_track WHERE recording_id = recording.id)
@@ -72,88 +73,103 @@ fn version_pairs(conn: &Connection) -> rusqlite::Result<HashSet<(i64, i64)>> {
     rows.collect()
 }
 
+/// The tracks something other than their files points at: a Library track,
+/// analysis, or a matched rekordbox track.
+fn referenced(conn: &Connection) -> rusqlite::Result<HashSet<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT recording_id FROM library_track
+         UNION SELECT recording_id FROM analysis
+         UNION SELECT recording_id FROM rekordbox_track WHERE recording_id IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([], |r| r.get(0))?;
+    rows.collect()
+}
+
 /// Groups every file: each present file ends up in exactly one track, and
 /// files with the same non-NULL `audio_hash` share it (see [`super::plan`]).
-/// Safe to run again at any time; a run with nothing to change writes
-/// nothing. All or nothing.
+/// Then, whether or not any file moved: every matched rekordbox track
+/// points at its file's track, tracks left with nothing are deleted, and
+/// every track with files has a best. Safe to run again at any time; a run
+/// with nothing to change writes nothing. All or nothing.
 pub fn regroup(conn: &mut Connection) -> rusqlite::Result<Summary> {
     let tx = conn.transaction()?;
     let members = members(&tx)?;
     let versions = version_pairs(&tx)?;
-    let plan = plan(&members, &versions);
+    let referenced = referenced(&tx)?;
+    let plan = plan(&members, &versions, &referenced);
     let mut summary = Summary {
         left_alone: plan.left_alone as u64,
         ..Summary::default()
     };
-    if plan.moves.is_empty() && plan.new_recordings == 0 {
-        ensure_best(&tx)?;
-        tx.commit()?;
-        return Ok(summary);
-    }
 
     let mut made: HashMap<usize, i64> = HashMap::new();
-    let mut emptied: HashSet<i64> = HashSet::new();
-    for Move { file, from, to } in &plan.moves {
-        let to = match *to {
-            Dest::Recording(id) => id,
-            Dest::New(n) => match made.get(&n) {
-                Some(&id) => id,
+    {
+        let mut make = tx.prepare_cached("INSERT INTO recording DEFAULT VALUES")?;
+        let mut place = tx
+            .prepare_cached("INSERT INTO recording_file (recording_id, file_id) VALUES (?1, ?2)")?;
+        // A move starts over: the file's role in its old track means
+        // nothing in the new one.
+        let mut relocate = tx.prepare_cached(
+            "UPDATE recording_file SET recording_id = ?1, role = 'undecided',
+                    match_confidence = NULL
+             WHERE file_id = ?2",
+        )?;
+        for Move { file, from, to } in &plan.moves {
+            let to = match *to {
+                Dest::Recording(id) => id,
+                Dest::New(n) => match made.get(&n) {
+                    Some(&id) => id,
+                    None => {
+                        make.execute([])?;
+                        let id = tx.last_insert_rowid();
+                        made.insert(n, id);
+                        summary.recordings_made += 1;
+                        id
+                    }
+                },
+            };
+            match from {
                 None => {
-                    tx.execute("INSERT INTO recording DEFAULT VALUES", [])?;
-                    let id = tx.last_insert_rowid();
-                    made.insert(n, id);
-                    summary.recordings_made += 1;
-                    id
+                    place.execute(params![to, file])?;
+                    summary.placed += 1;
                 }
-            },
-        };
-        match from {
-            None => {
-                tx.execute(
-                    "INSERT INTO recording_file (recording_id, file_id) VALUES (?1, ?2)",
-                    params![to, file],
-                )?;
-                summary.placed += 1;
-            }
-            Some(from) => {
-                // A move starts over: the file's role in its old track
-                // means nothing in the new one.
-                tx.execute(
-                    "UPDATE recording_file SET recording_id = ?1, role = 'undecided',
-                            match_confidence = NULL
-                     WHERE file_id = ?2",
-                    params![to, file],
-                )?;
-                tx.execute(
-                    "UPDATE rekordbox_track SET recording_id = ?1
-                     WHERE file_id = ?2 AND recording_id IS NOT ?1",
-                    params![to, file],
-                )?;
-                emptied.insert(*from);
-                summary.moved += 1;
+                Some(_) => {
+                    relocate.execute(params![to, file])?;
+                    summary.moved += 1;
+                }
             }
         }
     }
-    summary.recordings_removed = remove_unreferenced(&tx, emptied)?;
+    sync_rekordbox(&tx)?;
+    summary.recordings_removed = sweep(&tx)?;
     ensure_best(&tx)?;
     tx.commit()?;
     Ok(summary)
 }
 
-/// Deletes each of `candidates` that has no files and nothing else
-/// pointing at it. Returns how many were deleted.
-fn remove_unreferenced(
-    conn: &Connection,
-    candidates: impl IntoIterator<Item = i64>,
-) -> rusqlite::Result<u64> {
-    let mut delete = conn.prepare(&format!(
-        "DELETE FROM recording WHERE id = ?1 AND {UNREFERENCED}"
-    ))?;
-    let mut removed = 0;
-    for id in candidates {
-        removed += delete.execute([id])? as u64;
-    }
-    Ok(removed)
+/// Points each matched rekordbox track at its file's track. Grouping owns
+/// `rekordbox_track.recording_id`: a match (relink) sets `file_id`, a fresh
+/// read of the snapshot clears `recording_id`, and this puts it right
+/// again after placements, moves and both of those.
+fn sync_rekordbox(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE rekordbox_track
+         SET recording_id = (SELECT rf.recording_id FROM recording_file rf
+                             WHERE rf.file_id = rekordbox_track.file_id)
+         WHERE file_id IS NOT NULL
+           AND recording_id IS NOT (SELECT rf.recording_id FROM recording_file rf
+                                    WHERE rf.file_id = rekordbox_track.file_id)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Deletes every track that has no files and nothing else pointing at it,
+/// wherever it came from (a move emptied it, or the last thing pointing at
+/// it went). Returns how many were deleted.
+fn sweep(conn: &Connection) -> rusqlite::Result<u64> {
+    let deleted = conn.execute(&format!("DELETE FROM recording WHERE {UNREFERENCED}"), [])?;
+    Ok(deleted as u64)
 }
 
 /// Gives every track with files but no best file one: the lowest-id file
@@ -178,28 +194,20 @@ fn ensure_best(conn: &Connection) -> rusqlite::Result<()> {
 
 /// Lets go of the files of a music folder that's being removed, so their
 /// `recording_file` rows don't hold the `file` rows back: deletes each
-/// file's row in its track, whatever its role, then deletes any track it
-/// leaves with no files and nothing else pointing at it. A track that still
-/// has files in another folder stays with them.
+/// file's row in its track, whatever its role, then deletes any track left
+/// with no files and nothing else pointing at it, and gives each track that
+/// lost its best file a new one. A track that still has files in another
+/// folder stays with them.
 ///
-/// Runs inside the caller's transaction. A track left without a best file
-/// gets one on the next [`regroup`]. Rows pointing straight at a file (a
-/// Library track's `linked_file_id`) aren't touched: they still refuse the
-/// removal.
+/// Runs inside the caller's transaction, so it rolls back with it. Rows
+/// pointing straight at a file (a Library track's `linked_file_id`) aren't
+/// touched: they still refuse the removal.
 pub fn release_folder_files(conn: &Connection, folder: i64) -> rusqlite::Result<()> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT rf.recording_id
-         FROM recording_file rf JOIN file f ON f.id = rf.file_id
-         WHERE f.music_folder_id = ?1",
-    )?;
-    let touched: Vec<i64> = stmt
-        .query_map([folder], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
     conn.execute(
         "DELETE FROM recording_file
          WHERE file_id IN (SELECT id FROM file WHERE music_folder_id = ?1)",
         [folder],
     )?;
-    remove_unreferenced(conn, touched)?;
-    Ok(())
+    sweep(conn)?;
+    ensure_best(conn)
 }

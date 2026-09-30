@@ -243,10 +243,13 @@ fn a_track_emptied_by_a_move_is_kept_if_something_else_points_at_it() {
     let a = db.file(1, "a.mp3", Some(A));
     let b = db.file(2, "b.mp3", Some(B));
     db.group();
-    let emptied = db.track(b).unwrap();
-    db.sql(&format!(
-        "INSERT INTO analysis (recording_id, source, bpm) VALUES ({emptied}, 'local', 120)"
-    ));
+    // Both tracks are referenced, so the lowest id wins the merge and the
+    // other is left with no files but its analysis.
+    for track in [db.track(a).unwrap(), db.track(b).unwrap()] {
+        db.sql(&format!(
+            "INSERT INTO analysis (recording_id, source, bpm) VALUES ({track}, 'local', 120)"
+        ));
+    }
     db.set_hash(b, Some(A));
     let summary = db.group();
     assert_eq!(db.track(a), db.track(b));

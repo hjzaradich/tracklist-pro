@@ -112,7 +112,7 @@ fn everything_rolls_back_together_if_the_delete_is_refused() {
 }
 
 #[test]
-fn a_track_that_lost_its_best_file_gets_a_new_best_on_the_next_pass() {
+fn a_track_that_lost_its_best_file_gets_a_new_best() {
     let db = db();
     let best = db.file(1, "a.mp3", Some(A));
     let other = db.file(2, "a copy.mp3", Some(A));
@@ -120,7 +120,7 @@ fn a_track_that_lost_its_best_file_gets_a_new_best_on_the_next_pass() {
     assert_eq!(db.role(best), "best");
     assert_eq!(db.role(other), "undecided");
     remove_folder(&db, 1).unwrap();
-    assert_eq!(db.role(other), "undecided", "released, not yet re-picked");
+    assert_eq!(db.role(other), "best", "released, and re-picked at once");
     db.group();
     assert_eq!(db.role(other), "best");
     assert_eq!(db.tracks(), 1);
