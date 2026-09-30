@@ -124,7 +124,7 @@ describe("Activity status", () => {
       "Reading tags",
       "Checking files",
       "Fingerprinting files",
-      "Grouping duplicate files",
+      "Finding duplicates",
       "Estimating BPM and key",
       "Running the audio model",
       "Converting files",
