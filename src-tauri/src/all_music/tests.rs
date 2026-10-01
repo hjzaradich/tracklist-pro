@@ -324,3 +324,18 @@ fn the_frontend_gets_the_list_over_ipc() {
     let none = invoke(&app, "all_music_tracks", json!({ "search": "zzz" })).unwrap();
     assert_eq!(none, json!({ "total": 0, "tracks": [] }));
 }
+
+#[test]
+fn a_track_with_no_files_is_not_in_all_music() {
+    let lib = Lib::new();
+    lib.insert(
+        "INSERT INTO recording (title, artist) VALUES ('Kept', 'Someone')",
+        [],
+    );
+    lib.track(Some("Tune"), None, "tune.mp3");
+
+    assert_eq!(lib.titles(""), vec!["Tune"]);
+    assert_eq!(lib.list("").total, 1);
+    assert_eq!(lib.titles("kept"), Vec::<String>::new());
+    assert_eq!(lib.list("someone").total, 0);
+}

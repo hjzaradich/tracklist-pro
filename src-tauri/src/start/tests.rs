@@ -667,3 +667,23 @@ fn the_frontend_can_ask_for_the_offer_add_it_and_undo_it() {
     let tracks = invoke(&app, "library_tracks", json!({})).unwrap();
     assert_eq!(tracks, json!([]));
 }
+
+// A track can be left with no files (e.g. one removed from the Library
+// after it was sent to rekordbox, kept for the send flow).
+
+#[test]
+fn a_track_with_no_files_is_never_offered() {
+    let lib = Lib::new();
+    let fileless = lib.insert("INSERT INTO recording (title) VALUES ('kept')", []);
+    // rekordbox still lists it, with no file here, and stale match columns
+    // naming the track don't count either.
+    let entry = lib.entry(Match::None, &[]);
+    lib.insert(
+        "UPDATE rekordbox_track SET recording_id = ?1 WHERE id = ?2",
+        (fileless, entry),
+    );
+
+    assert_eq!(lib.offer().to_add, 0);
+    assert_eq!(lib.add().added, 0);
+    assert_eq!(lib.library_tracks(), 0);
+}
