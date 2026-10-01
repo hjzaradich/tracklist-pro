@@ -15,6 +15,7 @@ function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
     title: `Synthetic Tune ${id}`,
     artist: `Made Up Artist ${id}`,
     file: { path: String.raw`E:\Music\tune ` + id + ".mp3", name: `tune ${id}.mp3`, present: true },
+    fragile: null,
     addedAt: "2026-09-30T10:00:00.000Z",
     ...fields,
   };
@@ -97,6 +98,38 @@ describe("the Library screen", () => {
     expect(missing).toHaveAttribute("data-file-present", "false");
     expect(here).not.toHaveTextContent("File missing");
     expect(here).toHaveAttribute("data-file-present", "true");
+  });
+
+  it.each([
+    ["downloads", "In Downloads: will be lost if Downloads is cleared"],
+    ["temp", "In a temp folder: Windows may delete it"],
+    ["external", "On an external drive: will be lost when the drive is unplugged"],
+    ["network", "On a network drive: will be lost when the drive is offline"],
+  ] as const)("says why a file in a %s location is fragile", async (reason, text) => {
+    library([track(1, { fragile: reason })]);
+    renderScreen();
+    const [row] = await rows();
+    expect(row).toHaveAccessibleDescription(text);
+  });
+
+  it("shows no note for a track whose file isn't in a fragile location", async () => {
+    library([track(1)]);
+    renderScreen();
+    const [row] = await rows();
+    expect(row).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("shows both notes when the file is missing and was somewhere fragile", async () => {
+    library([
+      track(1, {
+        fragile: "external",
+        file: { path: String.raw`E:\Music\gone.mp3`, name: "gone.mp3", present: false },
+      }),
+    ]);
+    renderScreen();
+    const [row] = await rows();
+    expect(row).toHaveTextContent("File missing");
+    expect(row).toHaveTextContent("On an external drive: will be lost when the drive is unplugged");
   });
 
   it("shows an error message, not an empty Library, when the list can't be loaded", async () => {

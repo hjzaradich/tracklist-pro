@@ -7,7 +7,7 @@ import styles from "./LibraryTrackList.module.css";
 /**
  * The Library list (1aD-6): each Library track's title, artist and linked
  * file, in the order the backend sorted them. A track with no title shows
- * its file's name instead. Notes about a track (its file is missing) sit
+ * its file's name instead. Notes about a track (its file is missing, or sits somewhere fragile) sit
  * under the file's path.
  */
 export function LibraryTrackList({ tracks }: { tracks: LibraryTrack[] }) {

@@ -9,6 +9,7 @@ use super::*;
 use crate::db::Writer;
 use crate::ops::{undo_last_via, UndoOutcome};
 use crate::volume::{identity, IdentitySignals, Volume, VolumeKind};
+use std::collections::HashMap;
 
 /// The made-up volume every test file is on.
 fn volume_id() -> VolumeId {
@@ -140,8 +141,20 @@ impl Lib {
     }
 
     fn list_with(&self, volumes: &Mount) -> Vec<LibraryTrack> {
-        let tracks = self.writer.call(|c| stored(c)).unwrap();
-        list(&tracks, volumes)
+        let (tracks, located) = self
+            .writer
+            .call(|c| {
+                let tracks = stored(c)?;
+                let files: Vec<i64> = tracks
+                    .iter()
+                    .filter_map(|t| t.file.as_ref().map(|f| f.file_id))
+                    .collect();
+                Ok((tracks, crate::fragile::locate(c, &files)?))
+            })
+            .unwrap();
+        let fragile =
+            crate::fragile::judge(&located, volumes, &crate::fragile::FragileDirs::default());
+        list(&tracks, volumes, &fragile)
     }
 
     fn list(&self) -> Vec<LibraryTrack> {
@@ -646,8 +659,19 @@ fn library_tracks_are_still_there_after_the_database_is_reopened() {
     let Lib { dir, writer, .. } = lib;
     drop(writer);
     let writer = open(dir.path());
-    let tracks = writer.call(|c| stored(c)).unwrap();
-    assert_eq!(list(&tracks, &Mount::at(r"E:\")), before);
+    let (tracks, located) = writer
+        .call(|c| {
+            let tracks = stored(c)?;
+            let files: Vec<i64> = tracks
+                .iter()
+                .filter_map(|t| t.file.as_ref().map(|f| f.file_id))
+                .collect();
+            Ok((tracks, crate::fragile::locate(c, &files)?))
+        })
+        .unwrap();
+    let mount = Mount::at(r"E:\");
+    let fragile = crate::fragile::judge(&located, &mount, &crate::fragile::FragileDirs::default());
+    assert_eq!(list(&tracks, &mount, &fragile), before);
     assert_eq!(before.len(), 1);
 }
 
@@ -758,4 +782,35 @@ mod ipc {
             assert!(ts.contains(expected), "missing `{expected}` in:\n{ts}");
         }
     }
+}
+
+#[test]
+fn the_list_carries_each_rows_fragile_reason_from_one_query() {
+    let lib = Lib::new();
+    let track = lib.track(Some("A"), None);
+    let file = lib.file(track, "a.mp3", "best", true);
+    lib.promote(track).unwrap();
+    let located = lib
+        .writer
+        .call(move |c| crate::fragile::locate(c, &[file]))
+        .unwrap();
+    let mount = Mount::at(r"E:\");
+    let fragile = crate::fragile::judge(&located, &mount, &crate::fragile::FragileDirs::default());
+    let tracks = lib.writer.call(|c| stored(c)).unwrap();
+    let listed = list(&tracks, &mount, &fragile);
+    assert_eq!(listed[0].fragile, Some(FragileReason::External));
+    // Without a reason for the file, the row carries none.
+    assert_eq!(list(&tracks, &mount, &HashMap::new())[0].fragile, None);
+}
+
+#[test]
+fn a_track_just_added_carries_its_fragile_reason() {
+    let lib = Lib::new();
+    let track = lib.track(Some("A"), None);
+    lib.file(track, "a.mp3", "best", true);
+    // The test volume is an external drive.
+    assert_eq!(
+        lib.promote(track).unwrap().library_track.fragile,
+        Some(FragileReason::External)
+    );
 }

@@ -6,6 +6,12 @@
     "file": "File"
   },
   "fileMissing": "File missing",
+  "fragile": {
+    "downloads": "In Downloads: will be lost if Downloads is cleared",
+    "temp": "In a temp folder: Windows may delete it",
+    "external": "On an external drive: will be lost when the drive is unplugged",
+    "network": "On a network drive: will be lost when the drive is offline"
+  },
   "error": {
     "trackNotFound": "Track not found",
     "noFile": "Can't add: this track has no file",
