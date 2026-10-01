@@ -10,6 +10,14 @@
 //! Whatever is encoded is decoded again with the reader before it's
 //! returned, and refused unless it reads back as the same path, so a
 //! `Location` the app can't read itself is never sent.
+//!
+//! **A track rekordbox already has** is re-encoded only when its
+//! `Location` is a drive path in rekordbox's usual shape
+//! (`file://localhost/C:/…`), where the two spellings differ in escaping
+//! alone: that's the case the behavior check sent and rekordbox updated in
+//! place. Any other shape (a network or macOS path, a server or nothing
+//! where `localhost` goes, backslashes, an uppercase prefix) is sent back
+//! exactly as rekordbox wrote it, since re-spelling those is unverified.
 
 use crate::rekordbox::location::{decode, FilePath, Location, PathStyle};
 
@@ -52,8 +60,10 @@ fn encode(path: &FilePath) -> String {
 
 const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
-/// rekordbox's own `Location` for a track it knows, re-encoded in the
-/// writer's form. It names the same path, character for character.
+/// The `Location` to send for a track rekordbox knows, from rekordbox's
+/// own. A drive path in rekordbox's usual shape is re-encoded in the
+/// writer's form, which names the same path, character for character;
+/// any other shape is returned exactly as rekordbox wrote it.
 pub fn from_rekordbox(raw: &str) -> Result<String, LocationProblem> {
     let path = match decode(raw) {
         Ok(Location::File(path)) => path,
@@ -61,10 +71,44 @@ pub fn from_rekordbox(raw: &str) -> Result<String, LocationProblem> {
         Err(_) => return Err(LocationProblem::Undecodable),
     };
     let encoded = encode(&path);
-    match decode(&encoded) {
-        Ok(Location::File(back)) if back == path => Ok(encoded),
-        _ => Err(LocationProblem::DoesNotReadBack),
+    // Only escaping may differ: with every `%xx` resolved, the two are
+    // the same text.
+    let same_shape = path.style() == PathStyle::WindowsDrive
+        && matches!((unescaped(raw), unescaped(&encoded)), (Some(a), Some(b)) if a == b);
+    if !same_shape {
+        return Ok(raw.to_owned());
     }
+    if reads_back_as(&encoded, &path) {
+        Ok(encoded)
+    } else {
+        Err(LocationProblem::DoesNotReadBack)
+    }
+}
+
+/// Whether the reader decodes `encoded` to exactly `path`. For anything
+/// [`encode`] makes it does (the property tests show it), so this guards
+/// against a later change to either side rather than a known case.
+fn reads_back_as(encoded: &str, path: &FilePath) -> bool {
+    matches!(decode(encoded), Ok(Location::File(back)) if back == *path)
+}
+
+/// `value` with each `%xx` replaced by its byte; `None` if a `%` isn't
+/// followed by two hex digits.
+fn unescaped(value: &str) -> Option<Vec<u8>> {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    Some(out)
 }
 
 /// The `Location` for a file's full Windows path (`C:\Music\a.mp3`,
@@ -234,20 +278,79 @@ mod tests {
     }
 
     #[test]
-    fn network_and_mac_locations_from_rekordbox_keep_their_shape() {
+    fn a_known_location_in_any_other_shape_is_sent_back_exactly_as_rekordbox_wrote_it() {
         for raw in [
-            "file://localhost//server/share/Music/a%20b.mp3",
-            "file://localhost/Users/someone/Music/a%20b.mp3",
+            // Network and macOS paths, in rekordbox's own escaping.
+            "file://localhost//server/share/Music/a%20b%20#1%20(x),%20caf%c3%a9.mp3",
+            "file://localhost/Users/someone/Music/a%20b%20#1%20caf%c3%a9.mp3",
+            // A server, a drive or nothing where `localhost` goes.
+            "file://server/share/a%20b%20#1.mp3",
+            "file://C:/Kit/a%20b%20#1.mp3",
+            "file:///C:/Kit/a%20b%20#1.mp3",
+            // An uppercase prefix or host.
+            "FILE://localhost/C:/Kit/a%20b%20#1.mp3",
+            "file://LOCALHOST/C:/Kit/a%20b%20#1.mp3",
+            // Backslashes, raw or escaped.
+            "file://localhost/C:\\Kit\\a%20b%20#1.mp3",
+            "file://localhost/C:/Kit%5ca%20b%20#1.mp3",
+            "file://localhost/\\\\server\\share\\a%20b.mp3",
         ] {
-            let ours = from_rekordbox(raw).unwrap();
-            assert_eq!(ours, raw);
-            assert_eq!(read(&ours), read(raw));
+            assert_eq!(from_rekordbox(raw).as_deref(), Ok(raw), "{raw}");
         }
-        // A server in the host position is written rekordbox's way.
-        assert_eq!(
-            from_rekordbox("file://server/share/a.mp3").unwrap(),
-            "file://localhost//server/share/a.mp3"
-        );
+    }
+
+    #[test]
+    fn a_usual_drive_location_is_reencoded_whatever_its_escaping() {
+        for (raw, ours) in [
+            (
+                "file://localhost/C:/Kit/a.mp3",
+                "file://localhost/C:/Kit/a.mp3",
+            ),
+            (
+                "file://localhost/c:/Kit/a b.mp3",
+                "file://localhost/c:/Kit/a%20b.mp3",
+            ),
+            (
+                "file://localhost/C:/Kit/caf\u{e9}.mp3",
+                "file://localhost/C:/Kit/caf%C3%A9.mp3",
+            ),
+            (
+                "file://localhost/C:/Kit/caf%c3%a9.mp3",
+                "file://localhost/C:/Kit/caf%C3%A9.mp3",
+            ),
+            (
+                "file://localhost/C:/Kit/%41%2fb#!.mp3",
+                "file://localhost/C:/Kit/A/b%23%21.mp3",
+            ),
+        ] {
+            assert_eq!(from_rekordbox(raw).as_deref(), Ok(ours), "{raw}");
+            assert_eq!(read(ours), read(raw));
+        }
+    }
+
+    #[test]
+    fn an_encoded_location_must_read_back_as_the_very_same_path() {
+        let path = read("file://localhost/C:/Kit/a%20b.mp3");
+        assert!(reads_back_as("file://localhost/C:/Kit/a%20b.mp3", &path));
+        // Another path, another letter case, another kind, not a file,
+        // not decodable.
+        for other in [
+            "file://localhost/C:/Kit/a%20c.mp3",
+            "file://localhost/c:/kit/A%20B.mp3",
+            "file://localhost//C:/Kit/a%20b.mp3",
+            "soundcloud:tracks:1",
+            "file://localhost/C:/Kit/a%2.mp3",
+        ] {
+            assert!(!reads_back_as(other, &path), "{other}");
+        }
+    }
+
+    #[test]
+    fn escapes_resolve_to_bytes_and_a_broken_one_to_nothing() {
+        assert_eq!(unescaped("a%20b%C3%a9#").unwrap(), b"a b\xc3\xa9#");
+        assert_eq!(unescaped("100%"), None);
+        assert_eq!(unescaped("%2"), None);
+        assert_eq!(unescaped("%zz"), None);
     }
 
     #[test]
@@ -314,6 +417,9 @@ mod tests {
         ) {
             if let Ok(ours) = from_rekordbox(&raw) {
                 prop_assert_eq!(decode(&ours), decode(&raw));
+                // Either rekordbox's own string, or one that differs from
+                // it in escaping only.
+                prop_assert!(ours == raw || unescaped(&ours) == unescaped(&raw));
             }
         }
     }

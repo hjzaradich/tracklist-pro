@@ -24,7 +24,9 @@
 //!   already has that no entry names is not sent: it would only raise a
 //!   Yes/No dialog.
 //! - **Rule 5.** `Location` is written fully percent-encoded
-//!   ([`location`]), for known tracks too: it names the same path.
+//!   ([`location`]). A known track's usual drive-path `Location` is
+//!   re-encoded too (it names the same path); one in any other shape is
+//!   sent back exactly as rekordbox wrote it.
 //! - **Rule 6.** PLAYLISTS holds exactly two folders below ROOT, `Crates`
 //!   and `Playlists`, always both.
 //!
@@ -288,7 +290,8 @@ pub enum BuildError {
     /// This name holds a character XML can't carry.
     UncarriableName { path: Vec<String> },
     /// Two siblings share this name, or names that differ only in letter
-    /// case: rekordbox would replace one with the other on import (§5.2).
+    /// case, Unicode form or trailing whitespace: rekordbox would replace
+    /// one with the other on import (§5.2).
     RepeatedName { path: Vec<String> },
     /// Folders nest deeper than any real tree.
     TooDeep { path: Vec<String> },
@@ -393,11 +396,12 @@ fn prepare(in_rekordbox: bool, given: &[(String, String)]) -> Result<Prepared, R
     })
 }
 
-/// What two sibling names are compared by: NFC, letter case ignored.
-/// Whether rekordbox itself treats names that differ only in case as one
-/// playlist is unverified (§5.2), so they're refused as the same.
+/// What two sibling names are compared by: NFC, letter case and trailing
+/// whitespace ignored. Whether rekordbox itself treats names that differ
+/// only in those as one playlist is unverified (§5.2), so they're refused
+/// as the same.
 fn sibling_key(name: &str) -> String {
-    name.nfc().flat_map(char::to_lowercase).collect()
+    name.trim_end().nfc().flat_map(char::to_lowercase).collect()
 }
 
 /// Checks a tree's names and collects every track its entries name.
@@ -618,14 +622,31 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
         })
         .collect();
     let text = xml::render(&elements, &top);
-    read_back(&text, &sent, &top).map_err(BuildError::ReadBack)?;
-    Ok(Outgoing {
-        xml: text.into_bytes(),
-        sent,
-        left_out,
-        emptied,
-        not_needed,
-    })
+    drop(elements);
+    checked(
+        text,
+        &top,
+        Outgoing {
+            xml: Vec::new(),
+            sent,
+            left_out,
+            emptied,
+            not_needed,
+        },
+    )
+}
+
+/// The one place an [`Outgoing`] gets its bytes: only once `text` has
+/// read back as exactly the tracks and tree meant. A mismatch is an
+/// error, so nothing that could be written exists.
+fn checked(
+    text: String,
+    top: &[xml::NodeElement],
+    mut send: Outgoing,
+) -> Result<Outgoing, BuildError> {
+    read_back(&text, &send.sent, top).map_err(BuildError::ReadBack)?;
+    send.xml = text.into_bytes();
+    Ok(send)
 }
 
 /// Reads the file's text with the app's reader and checks it holds

@@ -248,6 +248,13 @@ impl WriteGuard {
     /// it gets a name this method picks and is created new, never opened
     /// if something already has that name; it's the only file this ever
     /// deletes.
+    ///
+    /// The new file is `<name>.part` in `path`'s own folder. If something
+    /// already has that name (a file a crashed write left, or anything
+    /// else) it's left alone, never overwritten and never deleted, and
+    /// `<name>.1.part`, `<name>.2.part`, … are tried, a fixed number of
+    /// them; when all are taken the write fails. Clearing leftovers is the
+    /// caller's job.
     pub fn write_then_rename(&self, path: &Path, bytes: &[u8]) -> Result<(), GuardError> {
         use std::io::Write;
         self.write_then_rename_with(path, |file| file.write_all(bytes), || Ok(()))
@@ -271,6 +278,8 @@ impl WriteGuard {
             Err(e) => return Err(e),
         }
         let (temp, mut file) = checked.create_beside()?;
+        // The flush to disk can't be seen by a test (a file reads back the
+        // same without it); it's what makes the rename safe across a crash.
         let done = fill(&mut file)
             .and_then(|()| file.sync_all())
             .and_then(|()| {
@@ -391,10 +400,10 @@ impl GuardedPath {
     /// (`<name>.part`, then `<name>.1.part`, …), and opens it for writing.
     /// A name something already has is never opened, link or not: the next
     /// one is tried. The folder is this path's own, so the new file is
-    /// inside the same root.
+    /// inside the same root. An error names the file that couldn't be made.
     fn create_beside(&self) -> Result<(PathBuf, File), GuardError> {
         let name = self.path.file_name().unwrap_or_default();
-        let mut last = io::Error::from(io::ErrorKind::AlreadyExists);
+        let mut last = (self.path.clone(), io::ErrorKind::AlreadyExists.into());
         for attempt in 0..BESIDE_ATTEMPTS {
             let mut temp_name = name.to_owned();
             if attempt > 0 {
@@ -404,11 +413,12 @@ impl GuardedPath {
             let temp = self.path.with_file_name(temp_name);
             match File::options().write(true).create_new(true).open(&temp) {
                 Ok(file) => return Ok((temp, file)),
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = e,
-                Err(e) => return Err(self.io(e)),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = (temp, e),
+                Err(source) => return Err(GuardError::Io { path: temp, source }),
             }
         }
-        Err(self.io(last))
+        let (path, source) = last;
+        Err(GuardError::Io { path, source })
     }
 
     fn io(&self, source: io::Error) -> GuardError {

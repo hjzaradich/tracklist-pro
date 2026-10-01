@@ -1042,6 +1042,36 @@ fn a_known_tracks_location_is_respelled_but_names_the_same_path() {
     );
 }
 
+#[test]
+fn a_known_tracks_location_in_an_unusual_shape_is_sent_exactly_as_rekordbox_wrote_it() {
+    let shapes = [
+        "file://localhost//nas/Share%20One/a%20#1,%20caf%c3%a9.flac",
+        "file://localhost/Users/someone/Music/a%20#1.mp3",
+        "file://nas/share/b%20#2.mp3",
+        "file:///C:/Kit/c%20#3.mp3",
+        "FILE://LOCALHOST/C:/Kit/d%20#4.mp3",
+        "file://localhost/C:\\Kit\\e%20#5.mp3",
+    ];
+    let input = SendInput {
+        tracks: shapes
+            .iter()
+            .enumerate()
+            .map(|(i, raw)| {
+                let n = i as i64 + 1;
+                known(n, &[("TrackID", &n.to_string()), ("Location", raw)])
+            })
+            .collect(),
+        crates: vec![playlist("C", &[1, 2, 3, 4, 5, 6])],
+        ..SendInput::default()
+    };
+    let (out, read) = send(&input);
+    assert_eq!(out.left_out, []);
+    for (i, raw) in shapes.iter().enumerate() {
+        assert_eq!(out.sent[i].location(), *raw);
+        assert_eq!(read.tracks[i].location_raw(), *raw);
+    }
+}
+
 // ---- rule 6: the two top-level folders ----------------------------------------
 
 #[test]
@@ -1150,6 +1180,21 @@ fn a_tree_rekordbox_would_misread_refuses_the_whole_send() {
             path: path(&["Crates", "cafe\u{301}"])
         })
     );
+    // So do names differing only in trailing whitespace.
+    assert_eq!(
+        with(vec![playlist("x", &[1]), playlist("x \t", &[1])]),
+        Err(BuildError::RepeatedName {
+            path: path(&["Crates", "x \t"])
+        })
+    );
+    // Leading whitespace and inner differences are different names.
+    assert!(with(vec![
+        playlist("x", &[1]),
+        playlist(" x", &[1]),
+        playlist("x y", &[1]),
+        playlist("x  y", &[1])
+    ])
+    .is_ok());
     // The same name in different folders is fine.
     assert!(with(vec![
         playlist("Twin", &[1]),
@@ -1292,4 +1337,68 @@ fn a_file_that_does_not_read_back_as_meant_is_refused() {
     assert!(read_back(&own_text, &out.sent, &top[..1]).is_err());
     // Not well-formed at all.
     assert!(read_back(&own_text[..own_text.len() - 20], &out.sent, &top).is_err());
+}
+
+#[test]
+fn a_file_whose_track_carries_a_grid_or_a_cue_is_refused() {
+    let out = small_send();
+    let top = [CRATES_FOLDER, PLAYLISTS_FOLDER].map(|name| xml::NodeElement::Folder {
+        name: name.to_owned(),
+        children: Vec::new(),
+    });
+    let elements: Vec<xml::TrackElement<'_>> = out
+        .sent
+        .iter()
+        .map(|t| xml::TrackElement {
+            attributes: &t.attributes,
+        })
+        .collect();
+    let text = xml::render(&elements, &top);
+    assert_eq!(read_back(&text, &out.sent, &top), Ok(()));
+    // The same attributes, with a child the writer never writes.
+    for child in [
+        r#"<TEMPO Inizio="0.1" Bpm="128.00" Metro="4/4" Battito="1"/>"#,
+        r#"<POSITION_MARK Name="" Type="0" Start="1.0" Num="-1"/>"#,
+    ] {
+        let with_child = text.replacen(
+            "/>\n    <TRACK",
+            &format!(">{child}</TRACK>\n    <TRACK"),
+            1,
+        );
+        assert_ne!(with_child, text);
+        assert!(RekordboxXml::parse(with_child.as_bytes()).is_ok());
+        assert!(read_back(&with_child, &out.sent, &top).is_err(), "{child}");
+    }
+}
+
+#[test]
+fn text_that_does_not_read_back_never_becomes_a_send() {
+    let good = small_send();
+    let top = [
+        xml::NodeElement::Folder {
+            name: CRATES_FOLDER.to_owned(),
+            children: vec![xml::NodeElement::Playlist {
+                name: "C".into(),
+                keys: good.sent.iter().map(|t| t.track_id).collect(),
+            }],
+        },
+        xml::NodeElement::Folder {
+            name: PLAYLISTS_FOLDER.to_owned(),
+            children: Vec::new(),
+        },
+    ];
+    let text = std::str::from_utf8(good.xml()).unwrap().to_owned();
+    let empty = || Outgoing {
+        xml: Vec::new(),
+        ..good.clone()
+    };
+    // The real text passes, and only then are there bytes to write.
+    assert_eq!(checked(text.clone(), &top, empty()), Ok(good.clone()));
+    // One changed character in a value: no send, so nothing to write.
+    let tampered = text.replacen("Synthetic 1", "Synthetic 2", 1);
+    assert_ne!(tampered, text);
+    assert!(matches!(
+        checked(tampered, &top, empty()),
+        Err(BuildError::ReadBack(_))
+    ));
 }

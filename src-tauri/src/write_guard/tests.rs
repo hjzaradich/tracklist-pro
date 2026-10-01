@@ -497,6 +497,66 @@ fn data_listing(sb: &Sandbox) -> Vec<String> {
     names
 }
 
+/// The names directly in the sandbox: the root's own folder and its
+/// sibling, and nothing a write left next to the root.
+fn base_listing(sb: &Sandbox) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(&sb.base)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn the_new_file_of_a_nested_destination_is_in_that_destinations_own_folder() {
+    let sb = Sandbox::new();
+    let folder = sb.data().join("sends").join("today");
+    sb.guard.create_dir_all(&folder).unwrap();
+    let dest = folder.join("send.xml");
+    sb.guard
+        .write_then_rename_with(
+            &dest,
+            |_| {
+                assert_eq!(
+                    data_listing(&sb),
+                    ["sends", "sends/today", "sends/today/send.xml.part"]
+                );
+                Ok(())
+            },
+            || Ok(()),
+        )
+        .unwrap();
+    assert_eq!(
+        data_listing(&sb),
+        ["sends", "sends/today", "sends/today/send.xml"]
+    );
+}
+
+#[test]
+fn when_every_temp_name_is_taken_the_write_fails_and_names_the_temp_file() {
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    fs::write(sb.data().join("send.xml.part"), b"0").unwrap();
+    for n in 1..BESIDE_ATTEMPTS {
+        fs::write(sb.data().join(format!("send.xml.{n}.part")), b"n").unwrap();
+    }
+    let before = data_listing(&sb);
+    match sb.guard.write_then_rename(&dest, b"new") {
+        Err(GuardError::Io { path, source }) => {
+            assert_eq!(source.kind(), io::ErrorKind::AlreadyExists);
+            assert!(path.to_string_lossy().ends_with(".part"), "{path:?}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(data_listing(&sb), before);
+    // One free name is enough.
+    fs::remove_file(sb.data().join("send.xml.3.part")).unwrap();
+    sb.guard.write_then_rename(&dest, b"new").unwrap();
+    assert_eq!(fs::read(&dest).unwrap(), b"new");
+    assert!(!sb.data().join("send.xml.3.part").exists());
+}
+
 #[test]
 fn write_then_rename_leaves_only_the_destination() {
     let sb = Sandbox::new();
@@ -511,6 +571,7 @@ fn write_then_rename_replaces_an_existing_destination_with_the_complete_file() {
     let sb = Sandbox::new();
     let dest = sb.data().join("send.xml");
     sb.guard.write(&dest, b"old and longer").unwrap();
+    let outside_before = sb.outside_listing();
     // While the new file is being filled, the destination still holds
     // its old content.
     sb.guard
@@ -520,10 +581,19 @@ fn write_then_rename_replaces_an_existing_destination_with_the_complete_file() {
                 use std::io::Write;
                 file.write_all(b"ne")?;
                 assert_eq!(fs::read(&dest).unwrap(), b"old and longer");
+                // The new file is beside the destination, inside the root,
+                // and nowhere else.
+                assert_eq!(data_listing(&sb), ["send.xml", "send.xml.part"]);
+                assert_eq!(sb.outside_listing(), outside_before);
+                assert_eq!(base_listing(&sb), ["data", "outside"]);
                 file.write_all(b"w")
             },
             || {
                 assert_eq!(fs::read(&dest).unwrap(), b"old and longer");
+                assert_eq!(fs::read(sb.data().join("send.xml.part")).unwrap(), b"new");
+                assert_eq!(data_listing(&sb), ["send.xml", "send.xml.part"]);
+                assert_eq!(sb.outside_listing(), outside_before);
+                assert_eq!(base_listing(&sb), ["data", "outside"]);
                 Ok(())
             },
         )
@@ -574,7 +644,20 @@ fn a_folder_in_the_way_of_the_destination_is_refused_and_nothing_is_created() {
     let dest = sb.data().join("send.xml");
     fs::create_dir(&dest).unwrap();
     fs::write(dest.join("inside.txt"), b"kept").unwrap();
-    assert!(sb.guard.write_then_rename(&dest, b"new").is_err());
+    let filled = std::cell::Cell::new(false);
+    let refused = sb.guard.write_then_rename_with(
+        &dest,
+        |_| {
+            filled.set(true);
+            Ok(())
+        },
+        || Ok(()),
+    );
+    assert!(refused.is_err());
+    assert!(
+        !filled.get(),
+        "nothing is created when a folder is in the way"
+    );
     assert_eq!(data_listing(&sb), ["send.xml", "send.xml/inside.txt"]);
     assert_eq!(fs::read(dest.join("inside.txt")).unwrap(), b"kept");
 }
