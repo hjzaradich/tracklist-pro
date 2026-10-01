@@ -404,9 +404,20 @@ pub struct Summary {
 }
 
 /// Decides every `rekordbox_track` row's match again and stores what
-/// changed, in one transaction. See the module docs for the rules.
+/// changed, in one transaction. See the module docs for the rules. With
+/// no rekordbox tracks at all it returns at once, before any file is
+/// loaded.
 pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summary> {
     let tx = conn.transaction()?;
+    // Nothing to match: a library that doesn't use rekordbox is asked for a
+    // relink after every grouping run, and mustn't load every file for it.
+    let any_tracks: bool =
+        tx.query_row("SELECT EXISTS (SELECT 1 FROM rekordbox_track)", [], |r| {
+            r.get(0)
+        })?;
+    if !any_tracks {
+        return Ok(Summary::default());
+    }
     let input = load(&tx, mounted)?;
     let plan = {
         let mut raw_tags = tx.prepare("SELECT raw_tags FROM file WHERE id = ?1")?;

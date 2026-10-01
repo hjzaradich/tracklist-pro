@@ -57,11 +57,13 @@ impl JobHandler for Grouper {
         // One transaction: the pass is quick, and all or nothing.
         let summary = job.writer().call(regroup)?;
         eprintln!("group job {} done: {summary:?}", job.id());
-        ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
-        ask_for_relink(job.id(), job.writer(), |j| job.enqueue(j));
+        // The hook first, so a test hears the summary before any job this
+        // run asks for can start.
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }
+        ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
+        ask_for_relink(job.id(), job.writer(), |j| job.enqueue(j));
         job.progress(1.0)
     }
 }

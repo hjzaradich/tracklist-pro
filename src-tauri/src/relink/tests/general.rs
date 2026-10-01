@@ -123,3 +123,32 @@ fn a_location_that_doesnt_decode_stays_missing() {
     assert_eq!(lib.matched(track), None);
     assert_eq!(summary.missing, 1);
 }
+
+#[test]
+fn with_no_rekordbox_tracks_a_relink_returns_before_loading_any_file() {
+    let (lib, music, mounted) = e_music();
+    lib.file(music, "Alpha.mp3", Some(200_000));
+    // Loading the files would fail: their folders can't be read.
+    let break_loading = |lib: &Lib| {
+        lib.writer
+            .call(|c| c.execute_batch("ALTER TABLE music_folder RENAME COLUMN rel_path TO moved"))
+            .unwrap();
+    };
+    let mend = |lib: &Lib| {
+        lib.writer
+            .call(|c| c.execute_batch("ALTER TABLE music_folder RENAME COLUMN moved TO rel_path"))
+            .unwrap();
+    };
+    let run = |lib: &Lib| {
+        let mounted = mounted.clone();
+        lib.writer.call(move |c| relink(c, &mounted))
+    };
+    break_loading(&lib);
+    assert_eq!(run(&lib).unwrap(), Summary::default());
+    // With a rekordbox track, the same run does load them (and so fails
+    // here): the early return is what kept the first one from it.
+    mend(&lib);
+    lib.track(&loc("E:/Music/Alpha.mp3"), Some("200"));
+    break_loading(&lib);
+    assert!(run(&lib).is_err());
+}

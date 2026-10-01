@@ -38,6 +38,10 @@ pub(super) struct LookedAt {
     pub hashed: Arc<AtomicU64>,
     pub fingerprinted: Arc<AtomicU64>,
     pub marks: Arc<Mutex<Marks>>,
+    /// Each grouping and relink run, in the order they ended: a grouping
+    /// run when its summary is out (before it asks for anything), a relink
+    /// run when it's done.
+    pub runs: Arc<Mutex<Vec<&'static str>>>,
     /// Holds the first fingerprint job at its first file until released.
     pub hold_fingerprint: Arc<Mutex<Option<mpsc::Receiver<()>>>>,
 }
@@ -108,12 +112,14 @@ pub(super) fn chained_queue_with(
         looked.marks.clone(),
     );
     let hold = looked.hold_fingerprint.clone();
+    let (group_runs, relink_runs) = (looked.runs.clone(), looked.runs.clone());
     let builder = JobQueue::builder(writer.clone())
         .workers(workers)
         .handler(
             JobKind::Group,
             after_group(crate::grouping::Grouper::default().on_summary(move |_| {
                 m5.lock().unwrap().group_end = Some(Instant::now());
+                group_runs.lock().unwrap().push("group");
             })),
         )
         .handler(
@@ -169,7 +175,12 @@ pub(super) fn chained_queue_with(
                     }),
             ),
         )
-        .handler(JobKind::Relink, Relinker::new(move || v5.clone()));
+        .handler(
+            JobKind::Relink,
+            Relinker::new(move || v5.clone()).on_summary(move |_| {
+                relink_runs.lock().unwrap().push("relink");
+            }),
+        );
     more(builder).start().unwrap()
 }
 
@@ -776,11 +787,20 @@ fn a_finished_read_queues_a_relink_that_matches_rekordbox_tracks_to_the_scanned_
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
     // The first relink was asked for by the read, and it found the file.
-    // (More follow: the grouping job and the fingerprint job each ask for
-    // one, and whether those fold into one depends on when they run.)
+    // More follow: the grouping job and the fingerprint job each ask for
+    // one, and whether those fold into one depends on when they run, so
+    // they aren't counted. What always holds: every one finished, and a
+    // relink ran after the last grouping run (a grouping run asks for one
+    // once its summary is out, and that one starts after it was asked).
     let relinked = relinks(&writer);
     assert_eq!(relinked[0], ("done".into(), "read".into()));
     assert!(relinked.iter().all(|r| r.0 == "done"));
+    let runs = looked.runs.lock().unwrap().clone();
+    let last_group = runs.iter().rposition(|r| *r == "group").unwrap();
+    assert!(
+        runs[last_group..].contains(&"relink"),
+        "no relink after the last grouping run: {runs:?}"
+    );
     let (file, method): (Option<i64>, Option<String>) = writer
         .call(move |c| {
             c.query_row(
