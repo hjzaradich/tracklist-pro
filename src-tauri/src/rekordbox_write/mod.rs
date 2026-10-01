@@ -3,9 +3,10 @@
 //! [`build`] turns the values to send and the crate and playlist trees
 //! into the file's bytes, plus a record of exactly what went in and what
 //! was left out; [`write_file`] puts the bytes on disk through the write
-//! guard. [`gather`] collects a send's input: each track's values come
-//! from [`crate::send_values`], which decides them; nothing here does.
-//! The send flow (1aF) calls these.
+//! guard, and [`record_send`] records the send (rule 8). [`gather`]
+//! collects a send's input: each track's values come from
+//! [`crate::send_values`], which decides them; nothing here does. The
+//! send flow (1aF) calls these.
 //!
 //! The file is imported into the user's real collection, where a "Yes"
 //! overwrites the whole track (§5.2), so the rules are strict:
@@ -44,6 +45,7 @@
 //! reader and compared with what was meant; a difference refuses the send.
 
 pub mod location;
+mod record;
 mod xml;
 
 use std::collections::{HashMap, HashSet};
@@ -61,6 +63,7 @@ use crate::write_guard::{GuardError, WriteGuard};
 
 pub use crate::send_values::ANALYSIS_ATTRIBUTES;
 pub use location::LocationProblem;
+pub use record::record_send;
 
 /// The top-level folder the crate tree is written under.
 pub const CRATES_FOLDER: &str = "Crates";
@@ -731,5 +734,7 @@ pub fn write_file(guard: &WriteGuard, dest: &Path, send: &Outgoing) -> Result<()
 
 #[cfg(test)]
 mod gather_tests;
+#[cfg(test)]
+mod record_tests;
 #[cfg(test)]
 mod tests;

@@ -545,16 +545,21 @@ fn when_every_temp_name_is_taken_the_write_fails_and_names_the_temp_file() {
     match sb.guard.write_then_rename(&dest, b"new") {
         Err(GuardError::Io { path, source }) => {
             assert_eq!(source.kind(), io::ErrorKind::AlreadyExists);
-            assert!(path.to_string_lossy().ends_with(".part"), "{path:?}");
+            // The last name tried: sixteen in all.
+            assert_eq!(BESIDE_ATTEMPTS, 16);
+            assert_eq!(path, sb.data().join("send.xml.15.part"));
         }
         other => panic!("{other:?}"),
     }
     assert_eq!(data_listing(&sb), before);
-    // One free name is enough.
-    fs::remove_file(sb.data().join("send.xml.3.part")).unwrap();
+    // A seventeenth name is never tried.
+    assert!(!sb.data().join("send.xml.16.part").exists());
+    // The last name being free is enough.
+    fs::remove_file(sb.data().join("send.xml.15.part")).unwrap();
     sb.guard.write_then_rename(&dest, b"new").unwrap();
     assert_eq!(fs::read(&dest).unwrap(), b"new");
-    assert!(!sb.data().join("send.xml.3.part").exists());
+    assert!(!sb.data().join("send.xml.15.part").exists());
+    assert!(sb.data().join("send.xml.14.part").exists());
 }
 
 #[test]
