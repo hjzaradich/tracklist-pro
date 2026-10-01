@@ -497,17 +497,32 @@ fn count(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// Reads what the rules look at.
-fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> {
-    // Each music folder's path: under its volume's mount point now, or
-    // where the volume was last mounted if it isn't plugged in.
-    //
-    // `last_mount_path` matches a rekordbox Location to a file the scan
-    // already indexed; it's never used to find files on disk. It counts
-    // only when no other known volume was last mounted (or is mounted now)
-    // at the same place: two volumes last at one letter (a backup clone)
-    // can't say which one the Location meant.
-    let mut volumes: Vec<(i64, Option<String>, bool)> = Vec::new();
+/// A known volume's mount point as the rules use it.
+pub(crate) struct VolumeMount {
+    pub id: i64,
+    pub identity: String,
+    /// Where the volume is mounted now, or, if it isn't plugged in, where it
+    /// was last mounted, as a `/`-separated path ([`mount_text`]). `None` if
+    /// there's none, or if the volume isn't plugged in and another known
+    /// volume was last mounted (or is mounted now) at the same place.
+    pub mount: Option<String>,
+    /// Whether the volume is plugged in.
+    pub online: bool,
+}
+
+/// Where each known volume is, for matching a rekordbox Location to a file
+/// the scan already indexed.
+///
+/// `last_mount_path` is never used to find files on disk. It counts only
+/// when no other known volume was last mounted (or is mounted now) at the
+/// same place: two volumes last at one letter (a backup clone) can't say
+/// which one a Location meant. Everything that places a file by where its
+/// volume was last mounted uses this rule.
+pub(crate) fn volume_mounts(
+    conn: &Connection,
+    mounted: &Mounted,
+) -> rusqlite::Result<Vec<VolumeMount>> {
+    let mut volumes: Vec<(i64, String, Option<String>, bool)> = Vec::new();
     let mut at: HashMap<String, HashSet<i64>> = HashMap::new();
     {
         let mut stmt = conn.prepare("SELECT id, identity, last_mount_path FROM volume")?;
@@ -526,18 +541,33 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 at.entry(rules::path_key(place)).or_default().insert(id);
             }
             match now {
-                Some(now) => volumes.push((id, Some(now), true)),
-                None => volumes.push((id, last, false)),
+                Some(now) => volumes.push((id, identity, Some(now), true)),
+                None => volumes.push((id, identity, last, false)),
             }
         }
     }
-    let mounts: HashMap<i64, (Option<String>, bool)> = volumes
+    Ok(volumes
         .into_iter()
-        .map(|(id, mount, online)| {
+        .map(|(id, identity, mount, online)| {
             let alone = |m: &String| at.get(&rules::path_key(m)).is_some_and(|v| v.len() == 1);
-            let mount = mount.filter(|m| online || alone(m));
-            (id, (mount, online))
+            VolumeMount {
+                id,
+                identity,
+                mount: mount.filter(|m| online || alone(m)),
+                online,
+            }
         })
+        .collect())
+}
+
+/// Reads what the rules look at.
+fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> {
+    // Each music folder's path: under its volume's mount point now, or
+    // where the volume was last mounted if it isn't plugged in
+    // ([`volume_mounts`]).
+    let mounts: HashMap<i64, (Option<String>, bool)> = volume_mounts(conn, mounted)?
+        .into_iter()
+        .map(|v| (v.id, (v.mount, v.online)))
         .collect();
     let mut folders: HashMap<i64, (Option<String>, bool)> = HashMap::new();
     {

@@ -180,6 +180,46 @@ impl Lib {
         track_id
     }
 
+    /// A rekordbox entry at `E:\Music\<name>` (the Location a Library track
+    /// linked to that file would have), keyed by its Location the way a read
+    /// keys it, not matched to any file unless `file` says so. `read_at` is
+    /// the read it belongs to.
+    fn rekordbox_at(
+        &self,
+        name: &str,
+        file: Option<i64>,
+        probable: bool,
+        read_at: &str,
+        attributes: &[(&str, &str)],
+    ) -> i64 {
+        let track_id = self.next_track_id.get();
+        self.next_track_id.set(track_id + 1);
+        let location = format!("file://localhost/E:/Music/{name}");
+        let mut parts = vec![format!("\"TrackID\":\"{track_id}\"")];
+        for (k, v) in attributes.iter().chain(&[("Location", location.as_str())]) {
+            parts.push(format!(
+                "{}:{}",
+                serde_json::to_string(k).unwrap(),
+                serde_json::to_string(v).unwrap()
+            ));
+        }
+        self.insert(
+            "INSERT INTO rekordbox_track
+                 (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                format!("{{{}}}", parts.join(",")),
+                crate::rekordbox::location::decode(&location)
+                    .unwrap()
+                    .match_key(),
+                read_at.to_owned(),
+                file,
+                file.map(|_| if probable { "filename_only" } else { "path" }),
+                probable,
+            ),
+        )
+    }
+
     /// A Library track for `track`, linked to `file` (or to nothing).
     fn library(&self, track: i64, file: Option<i64>) -> LibraryTrackId {
         LibraryTrackId(self.insert(
@@ -689,6 +729,143 @@ fn a_present_file_is_never_marked_missing() {
     assert!(!lib.ready(plain).file_missing);
 }
 
+// ---- a missing file, found through its own Location --------------------------------------
+//
+// Relink never matches a rekordbox row to a missing file, so the row has no
+// file; it's found by the file's own path.
+
+const READ: &str = "2026-09-30T10:00:00.000Z";
+
+/// A Library track linked to a missing `E:\Music\gone.mp3`.
+fn gone(lib: &Lib) -> (LibraryTrackId, i64) {
+    lib.linked(
+        "gone.mp3",
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
+    )
+}
+
+#[test]
+fn a_missing_file_is_sent_as_the_rekordbox_entry_at_its_own_location_though_no_file_is_matched() {
+    let lib = Lib::new();
+    let (library, _) = gone(&lib);
+    lib.rekordbox_at(
+        "gone.mp3",
+        None,
+        false,
+        READ,
+        &[("Name", "Theirs"), ("Rating", "51")],
+    );
+    let values = lib.ready(library);
+    assert!(values.in_rekordbox && values.file_missing);
+    assert_eq!(value(&values, "Name"), Some("Theirs"));
+    assert_eq!(value(&values, "Rating"), Some("51"));
+    assert_eq!(
+        value(&values, "Location"),
+        Some("file://localhost/E:/Music/gone.mp3")
+    );
+}
+
+#[test]
+fn the_location_is_matched_the_way_relink_matches_a_path_so_letter_case_does_not_matter() {
+    let lib = Lib::new();
+    let (library, _) = lib.linked(
+        "Gone Song.mp3",
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
+    );
+    lib.rekordbox_at("gone%20song.MP3", None, false, READ, &[("Name", "Theirs")]);
+    assert!(lib.ready(library).file_missing);
+}
+
+#[test]
+fn two_rekordbox_entries_at_the_location_are_ambiguous_so_the_track_is_left_out() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    lib.rekordbox_at("gone.mp3", None, false, READ, &[("Name", "One")]);
+    lib.rekordbox_at("gone.mp3", None, false, READ, &[("Name", "Two")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn an_entry_matched_to_a_different_file_is_not_used() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    // rekordbox's row at that Location is already the entry of another
+    // Library file (say a copy relink found by name and duration).
+    let (_, other) = lib.linked("other.mp3", Spec::default());
+    lib.rekordbox_at("gone.mp3", Some(other), false, READ, &[("Name", "Theirs")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn a_probable_entry_matched_to_another_file_is_not_used() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    let (_, other) = lib.linked("other.mp3", Spec::default());
+    lib.rekordbox_at("gone.mp3", Some(other), true, READ, &[("Name", "Theirs")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn an_entry_kept_from_an_earlier_read_is_not_used() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    // An incomplete read keeps older rows whose TrackIDs belong to the
+    // earlier read; only the newest read's rows count.
+    lib.rekordbox_at(
+        "gone.mp3",
+        None,
+        false,
+        "2026-09-29T10:00:00.000Z",
+        &[("Name", "Old")],
+    );
+    lib.rekordbox_at(
+        "elsewhere.mp3",
+        None,
+        false,
+        READ,
+        &[("Name", "Newer read")],
+    );
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn a_missing_file_rekordbox_has_no_entry_at_is_still_left_out() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    lib.rekordbox_at("another.mp3", None, false, READ, &[("Name", "Theirs")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn a_present_file_never_looks_for_an_entry_at_its_location() {
+    let lib = Lib::new();
+    let (library, _) = lib.linked("here.mp3", Spec::default());
+    // Not matched by relink (so unknown): it's a new track, not the entry.
+    lib.rekordbox_at("here.mp3", None, false, READ, &[("Name", "Theirs")]);
+    assert!(!lib.ready(library).in_rekordbox);
+}
+
 // ---- the batch --------------------------------------------------------------------------
 
 #[test]
@@ -902,4 +1079,184 @@ fn a_track_rekordbox_knows_does_not_need_its_linked_files_path_to_read_back() {
 fn an_empty_batch_gives_nothing() {
     let lib = Lib::new();
     assert!(lib.values(&[]).is_empty());
+}
+
+#[test]
+fn a_probable_entry_matched_to_this_same_missing_file_is_not_used_either() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    lib.rekordbox_at("gone.mp3", Some(file), true, READ, &[("Name", "Theirs")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+/// Two known volumes, both last mounted at `E:\`: the test volume (1) and
+/// another (2, with its own `Music` folder). Each is mounted or not.
+struct TwoVolumes {
+    first: Option<PathBuf>,
+    second: Option<PathBuf>,
+}
+
+fn second_volume_id() -> VolumeId {
+    identity(IdentitySignals {
+        kind: VolumeKind::External,
+        unc_share: None,
+        serial: Some(0x5566_7788),
+        filesystem: "NTFS",
+        guid: None,
+    })
+    .unwrap()
+}
+
+impl Volumes for TwoVolumes {
+    fn volume_for(&self, path: &Path) -> std::io::Result<Volume> {
+        Err(std::io::Error::other(format!("{}", path.display())))
+    }
+
+    fn mount_path(&self, id: &VolumeId) -> Option<PathBuf> {
+        if *id == volume_id() {
+            self.first.clone()
+        } else if *id == second_volume_id() {
+            self.second.clone()
+        } else {
+            None
+        }
+    }
+}
+
+impl Lib {
+    /// A second volume, last mounted at `E:\` like the first, with a
+    /// `Music` folder (music folder 2).
+    fn second_volume(&self) {
+        let identity = second_volume_id().as_str().to_owned();
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT INTO volume (identity, kind, last_mount_path)
+                     VALUES (?1, 'external', 'E:\')",
+                    [identity],
+                )?;
+                c.execute(
+                    "INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                     VALUES (2, 'Music', 'Music')",
+                    [],
+                )
+            })
+            .unwrap();
+    }
+
+    /// A Library track linked to a missing `name` in `Music` of music folder
+    /// `folder`.
+    fn missing_in(&self, folder: i64, name: &'static str) -> (LibraryTrackId, i64) {
+        let track = self.track();
+        let file = self.insert(
+            "INSERT INTO file (music_folder_id, rel_path, rel_path_key, present, size)
+             VALUES (?1, ?2, ?2, 0, 1)",
+            (folder, name.to_owned()),
+        );
+        self.insert(
+            "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
+            (track, file),
+        );
+        (self.library(track, Some(file)), file)
+    }
+
+    fn one_with(&self, volumes: TwoVolumes, id: LibraryTrackId) -> Outcome {
+        self.writer
+            .call(move |c| send_values_one(c, &volumes, id))
+            .unwrap()
+            .outcome
+    }
+}
+
+#[test]
+fn a_missing_file_on_an_unplugged_volume_never_gets_the_entry_of_another_volume_at_the_same_drive_letter(
+) {
+    let lib = Lib::new();
+    lib.second_volume();
+    // Volume 1 is unplugged and was last at `E:\`; volume 2 is plugged in
+    // at `E:\` and rekordbox's row at `E:/Music/gone.mp3` is its file.
+    let (library, file) = lib.missing_in(1, "gone.mp3");
+    lib.rekordbox_at(
+        "gone.mp3",
+        None,
+        false,
+        READ,
+        &[("Name", "Volume 2's song")],
+    );
+    let volumes = TwoVolumes {
+        first: None,
+        second: Some(PathBuf::from(r"E:\")),
+    };
+    assert_eq!(
+        lib.one_with(volumes, library),
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn of_two_missing_files_that_share_a_drive_letter_only_the_one_on_the_plugged_volume_gets_the_entry(
+) {
+    let lib = Lib::new();
+    lib.second_volume();
+    let (on_first, first_file) = lib.missing_in(1, "gone.mp3");
+    let (on_second, _) = lib.missing_in(2, "gone.mp3");
+    lib.rekordbox_at("gone.mp3", None, false, READ, &[("Name", "Theirs")]);
+    let volumes = || TwoVolumes {
+        first: None,
+        second: Some(PathBuf::from(r"E:\")),
+    };
+    assert_eq!(
+        lib.one_with(volumes(), on_first),
+        Outcome::CannotSend(CannotSend::FileMissing {
+            file_id: first_file
+        })
+    );
+    assert!(matches!(
+        lib.one_with(volumes(), on_second),
+        Outcome::Ready(v) if v.file_missing
+    ));
+}
+
+#[test]
+fn a_volume_last_mounted_alone_at_its_letter_is_still_found_while_unplugged() {
+    let lib = Lib::new();
+    let (library, _) = gone(&lib);
+    lib.rekordbox_at("gone.mp3", None, false, READ, &[("Name", "Theirs")]);
+    let unplugged = Lib::values_with(&lib, Mount(None), library);
+    assert!(matches!(unplugged, Outcome::Ready(v) if v.file_missing));
+}
+
+#[test]
+fn one_row_wanted_by_two_files_goes_to_neither_whatever_the_order() {
+    let lib = Lib::new();
+    // Two files whose names are one name in two Unicode forms: one key.
+    let (composed, composed_file) = lib.missing_in(1, "Caf\u{e9}.mp3");
+    let (decomposed, decomposed_file) = lib.missing_in(1, "Cafe\u{301}.mp3");
+    lib.rekordbox_at("Caf%C3%A9.mp3", None, false, READ, &[("Name", "Theirs")]);
+    for ids in [[composed, decomposed], [decomposed, composed]] {
+        let answers = lib.values(&ids);
+        for (answer, id) in answers.iter().zip(ids) {
+            let file_id = if id == composed {
+                composed_file
+            } else {
+                decomposed_file
+            };
+            assert_eq!(
+                answer.outcome,
+                Outcome::CannotSend(CannotSend::FileMissing { file_id })
+            );
+        }
+    }
+}
+
+impl Lib {
+    fn values_with(&self, volumes: Mount, id: LibraryTrackId) -> Outcome {
+        self.writer
+            .call(move |c| send_values_one(c, &volumes, id))
+            .unwrap()
+            .outcome
+    }
 }
