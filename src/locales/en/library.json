@@ -14,14 +14,13 @@
     "conflicts_one": "Its open conflict will be dropped",
     "conflicts_other": "Its {{count}} open conflicts will be dropped",
     "title": "Remove “{{title}}” from your Library?",
-    "detail": "The file stays where it is. You can undo this.",
+    "detail": "This action can be undone",
     "confirm": "Remove",
     "cancel": "Cancel",
     "done": "Removed from your Library",
     "undo": "Undo",
     "undone": "Put back in your Library",
-    "nothingToUndo": "Nothing to undo",
-    "undoRefused": "Can't undo: something changed since"
+    "undoRefused": "Can't undo: the Library has changed since"
   },
   "fragile": {
     "downloads": "In Downloads: will be lost if Downloads is cleared",

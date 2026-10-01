@@ -55,22 +55,22 @@ export function LibraryScreen() {
             {errorMessage(remove.error)}
           </p>
         )}
-        {removal === "removed" && (
+        {(removal === "removed" || removal === "nothingToUndo") && (
           <p role="status" className={styles.status}>
             {t("remove.done")}
             <button
               type="button"
               className={styles.button}
-              disabled={undo.isPending}
+              disabled={undo.isPending || removal === "nothingToUndo"}
               onClick={undoRemoval}
             >
               {t("remove.undo")}
             </button>
           </p>
         )}
-        {(removal === "undone" || removal === "nothingToUndo") && (
+        {removal === "undone" && (
           <p role="status" className={styles.status}>
-            {t(removal === "undone" ? "remove.undone" : "remove.nothingToUndo")}
+            {t("remove.undone")}
           </p>
         )}
         {(removal === "undoRefused" || undo.isError) && (

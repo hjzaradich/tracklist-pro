@@ -227,7 +227,7 @@ describe("removing a track from the Library", () => {
 
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("Remove “Synthetic Tune 1” from your Library?");
-    expect(dialog).toHaveTextContent("The file stays where it is. You can undo this.");
+    expect(dialog).toHaveTextContent("This action can be undone");
     expect(calls).not.toContain("remove_library_track");
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -337,7 +337,7 @@ describe("removing a track from the Library", () => {
     );
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Can't undo: something changed since",
+      "Can't undo: the Library has changed since",
     );
     expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
   });
@@ -384,11 +384,11 @@ describe("removing a track from the Library", () => {
     const [row] = await rows();
     await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
     expect(await screen.findByRole("alertdialog")).toHaveAccessibleDescription(
-      "The file stays where it is. You can undo this. Its 2 open conflicts will be dropped",
+      "This action can be undone Its 2 open conflicts will be dropped",
     );
   });
 
-  it("says there's nothing to undo, not that undo can't be done", async () => {
+  it("greys out Undo, with no message, when there turns out to be nothing to undo", async () => {
     let tracks = [track(1)];
     mockIPC((cmd) => {
       if (cmd === "library_tracks") return tracks;
@@ -405,8 +405,11 @@ describe("removing a track from the Library", () => {
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-    expect(await screen.findByText("Nothing to undo")).toBeInTheDocument();
-    expect(screen.queryByText("Can't undo: something changed since")).toBeNull();
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    expect(undo).toBeEnabled();
+    await userEvent.click(undo);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled());
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Can't undo: the Library has changed since")).toBeNull();
   });
 });
