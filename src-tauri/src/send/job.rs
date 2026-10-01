@@ -17,19 +17,25 @@ use crate::rekordbox::source::XmlReader;
 use crate::rekordbox_write::{record_send, SentTrack};
 use crate::relink::{self, Mounted};
 
-/// The prepare job: reads the export at `path` again and builds the
-/// preflight. The user is waiting on it.
-pub fn prepare_job(path: &str) -> NewJob {
-    NewJob::new(JobKind::Export)
-        .target(serde_json::json!({ "send": "prepare", "path": path }))
-        .priority(Priority::USER)
-}
+impl SendFlow {
+    /// The prepare job: reads the export at `path` again and builds the
+    /// preflight. The user is waiting on it. It only runs in this run of
+    /// the app.
+    pub fn prepare_job(&self, path: &str) -> NewJob {
+        NewJob::new(JobKind::Export)
+            .target(serde_json::json!({ "send": "prepare", "run": &*self.run, "path": path }))
+            .priority(Priority::USER)
+    }
 
-/// The write job: the user's go for the preflight `token` names.
-pub fn write_job(token: &str, confirmed: bool) -> NewJob {
-    NewJob::new(JobKind::Export)
-        .target(serde_json::json!({ "send": "write", "token": token, "confirmed": confirmed }))
-        .priority(Priority::USER)
+    /// The write job: the user's go for the preflight `token` names. It
+    /// only runs in this run of the app.
+    pub fn write_job(&self, token: &str, confirmed: bool) -> NewJob {
+        NewJob::new(JobKind::Export)
+            .target(serde_json::json!({
+                "send": "write", "run": &*self.run, "token": token, "confirmed": confirmed,
+            }))
+            .priority(Priority::USER)
+    }
 }
 
 /// Ends every send job an earlier run of the app left queued or running
@@ -62,6 +68,9 @@ pub struct Sender<V> {
     /// matched, so tests can act there.
     #[cfg(test)]
     after_read: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Called between matching the tracks and building the preflight.
+    #[cfg(test)]
+    after_relink: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl<V: Volumes + 'static> Sender<V> {
@@ -73,7 +82,17 @@ impl<V: Volumes + 'static> Sender<V> {
             record: Arc::new(record_send),
             #[cfg(test)]
             after_read: None,
+            #[cfg(test)]
+            after_relink: None,
         }
+    }
+
+    /// Calls `hook` between matching the tracks and building the
+    /// preflight.
+    #[cfg(test)]
+    pub(crate) fn after_relink(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.after_relink = Some(Arc::new(hook));
+        self
     }
 
     /// Calls `hook` once prepare's read is stored, before the matching.
@@ -141,6 +160,15 @@ impl From<crate::db::DbError> for Stop {
 
 impl<V: Volumes + 'static> JobHandler for Sender<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
+        // A job another run of the app queued: that run's click, not this
+        // one's. It does nothing here, whenever it turns up.
+        let run = job
+            .target()
+            .and_then(|t| t.get("run"))
+            .and_then(|r| r.as_str());
+        if run != Some(&*self.flow.run) {
+            return Err(JobError::Cancelled);
+        }
         let _one_at_a_time = self.flow.running.lock().unwrap_or_else(|e| e.into_inner());
         let step = job
             .target()
@@ -201,8 +229,14 @@ impl<V: Volumes + 'static> Sender<V> {
         // writer job: no read can land between them, and a track
         // rekordbox has never goes out as new.
         let volumes = self.volumes.clone();
+        #[cfg(test)]
+        let after_relink = self.after_relink.clone();
         let reviewed = job.writer().call(move |c| {
             relink::relink(c, &mounted)?;
+            #[cfg(test)]
+            if let Some(hook) = &after_relink {
+                hook();
+            }
             review(c, &volumes())
         })?;
         let reviewed = reviewed.ok_or_else(|| Stop::internal("the read left no record"))?;

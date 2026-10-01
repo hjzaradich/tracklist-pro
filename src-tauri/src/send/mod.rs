@@ -14,9 +14,12 @@
 //!    ([`file`]) and the send recorded (rule 8). Anything else is refused
 //!    and changes nothing. A preflight is good for one send.
 //!
-//! A send job never outlives the run of the app that queued it
-//! ([`drop_unfinished_jobs`]): a write only ever follows a click in this
-//! run, and the preflight it needs is in memory.
+//! A send job never outlives the run of the app that queued it: a write
+//! only ever follows a click in this run, and the preflight it needs is
+//! in memory. Each job carries the run it was queued in
+//! ([`SendFlow::prepare_job`]) and the handler does nothing for a job of
+//! another run, whenever it meets one; [`drop_unfinished_jobs`] also ends
+//! such jobs at startup, so they don't linger in the queue.
 //!
 //! The file is one fixed file in the app data folder ([`file::send_path`]),
 //! replaced on every send: the app changes no bytes anywhere else (§6).
@@ -43,7 +46,7 @@ use crate::library::LibraryTrackId;
 use crate::rekordbox::source::stored_source;
 use crate::write_guard::WriteGuard;
 
-pub use job::{drop_unfinished_jobs, prepare_job, sender, write_job, Sender};
+pub use job::{drop_unfinished_jobs, sender, Sender};
 pub use preflight::{review, Reviewed};
 pub use tree::crate_tree;
 
@@ -290,6 +293,8 @@ struct Steps {
 #[derive(Clone)]
 pub struct SendFlow {
     guard: WriteGuard,
+    /// Names this run of the app. Every send job carries it.
+    run: Arc<str>,
     steps: Arc<Mutex<Steps>>,
     /// Held by a step while it runs, so two never overlap.
     running: Arc<Mutex<()>>,
@@ -297,8 +302,19 @@ pub struct SendFlow {
 
 impl SendFlow {
     pub fn new(guard: WriteGuard) -> SendFlow {
+        // Unlike any earlier run's, and any other flow's in this process.
+        static FLOWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let started = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let run = format!(
+            "{}-{started}-{}",
+            std::process::id(),
+            FLOWS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
         SendFlow {
             guard,
+            run: run.into(),
             steps: Arc::default(),
             running: Arc::default(),
         }
@@ -394,7 +410,7 @@ pub async fn prepare_send(
             .ok_or_else(|| IpcError::new(ErrorKind::NoRekordboxXml))?,
     };
     flow.start_over();
-    Ok(jobs.enqueue(prepare_job(&path))?)
+    Ok(jobs.enqueue(flow.prepare_job(&path))?)
 }
 
 /// The user's go: writes the send the preflight `token` names and records
@@ -410,7 +426,7 @@ pub async fn write_send(
     confirmed: bool,
 ) -> Result<JobId, IpcError> {
     flow.start_write();
-    Ok(jobs.enqueue(write_job(&token, confirmed))?)
+    Ok(jobs.enqueue(flow.write_job(&token, confirmed))?)
 }
 
 #[cfg(test)]

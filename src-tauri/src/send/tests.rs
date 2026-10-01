@@ -236,7 +236,10 @@ impl World {
 
     /// The prepare step: reads the export and builds the preflight.
     fn prepare(&self) -> Option<Preflight> {
-        self.run_with(self.sender(), prepare_job(&self.export.to_string_lossy()));
+        self.run_with(
+            self.sender(),
+            self.flow.prepare_job(&self.export.to_string_lossy()),
+        );
         self.flow.preflight()
     }
 
@@ -252,7 +255,7 @@ impl World {
         token: &str,
         confirmed: bool,
     ) -> Option<SendFailure> {
-        let status = self.run_with(sender, write_job(token, confirmed));
+        let status = self.run_with(sender, self.flow.write_job(token, confirmed));
         let failure = self.flow.failure();
         assert_eq!(status == JobStatus::Done, failure.is_none(), "{status:?}");
         failure
@@ -731,6 +734,15 @@ fn a_go_whose_file_would_differ_from_the_reviewed_one_is_refused_and_writes_noth
 /// What a rekordbox read does, landing from another job: every rekordbox
 /// row replaced, unmatched, and the read recorded as `read_at` of `path`.
 fn another_read(writer: &Writer, text: String, path: Option<String>, read_at: &'static str) {
+    try_another_read(writer, text, path, read_at).unwrap();
+}
+
+fn try_another_read(
+    writer: &Writer,
+    text: String,
+    path: Option<String>,
+    read_at: &'static str,
+) -> Result<(), crate::db::DbError> {
     use crate::rekordbox::store::{replace_snapshot, SnapshotRows};
     let rows = SnapshotRows::from_xml(&RekordboxXml::parse(text.as_bytes()).unwrap());
     writer
@@ -751,7 +763,7 @@ fn another_read(writer: &Writer, text: String, path: Option<String>, read_at: &'
                 Ok(())
             })
         })
-        .unwrap();
+        .map(drop)
 }
 
 #[test]
@@ -763,7 +775,7 @@ fn a_read_landing_during_prepare_never_makes_known_tracks_count_as_new() {
     let sender = w.sender().after_read(move || {
         another_read(&writer, text.clone(), None, "2031-01-01T00:00:00.000Z");
     });
-    let status = w.run_with(sender, prepare_job(&w.export.to_string_lossy()));
+    let status = w.run_with(sender, w.flow.prepare_job(&w.export.to_string_lossy()));
     assert_eq!(status, JobStatus::Done);
 
     let preflight = w.flow.preflight().unwrap();
@@ -772,6 +784,66 @@ fn a_read_landing_during_prepare_never_makes_known_tracks_count_as_new() {
     assert_eq!(preflight.export.read_at, "2031-01-01T00:00:00.000Z");
     assert_eq!(w.go(false), None);
     assert_eq!(w.sent_titles(), ["Known in rekordbox", "New"]);
+}
+
+#[test]
+fn no_read_can_land_between_matching_the_tracks_and_building_the_preflight() {
+    // A read tried at that very point: it can't get the database, because
+    // the matching and the preflight are one writer job. Were they two, it
+    // would land, leave every row unmatched, and the known track would
+    // count as new.
+    let (w, ..) = world_with_a_send_waiting();
+    let (writer, text) = (w.writer.clone(), fs::read_to_string(&w.export).unwrap());
+    let tried = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = tried.clone();
+    let sender = w.sender().after_relink(move || {
+        let landed = try_another_read(&writer, text.clone(), None, "2031-01-01T00:00:00.000Z");
+        seen.lock().unwrap().push(landed.is_ok());
+    });
+    let status = w.run_with(sender, w.flow.prepare_job(&w.export.to_string_lossy()));
+    assert_eq!(status, JobStatus::Done);
+
+    // The read was tried once, and refused.
+    assert_eq!(*tried.lock().unwrap(), [false]);
+    let preflight = w.flow.preflight().unwrap();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (1, 1));
+    assert_ne!(preflight.export.read_at, "2031-01-01T00:00:00.000Z");
+}
+
+#[test]
+fn a_send_job_queued_by_another_run_of_the_app_does_nothing_whenever_it_runs() {
+    // Whatever order startup does things in, a worker that meets a job
+    // an earlier run left must not act on it.
+    let (w, ..) = world_with_a_send_waiting();
+    let earlier = SendFlow::new(w.guard.clone());
+    let before = w.recorded();
+
+    // Its prepare: the export isn't read, no preflight appears.
+    let status = w.run_with(w.sender(), earlier.prepare_job(&w.export.to_string_lossy()));
+    assert_eq!(status, JobStatus::Cancelled);
+    assert_eq!(w.flow.preflight(), None);
+    let read: i64 = w
+        .writer
+        .call(|c| c.query_row("SELECT count(*) FROM rekordbox_track", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(read, 0);
+
+    // Its write, even with this run's own preflight token and the confirm:
+    // nothing is written, and the preflight is still there for a real go.
+    let token = w.prepare().unwrap().token;
+    let revision = w.flow.state(None).revision;
+    let status = w.run_with(w.sender(), earlier.write_job(&token, true));
+    assert_eq!(status, JobStatus::Cancelled);
+    assert_eq!(w.data_files(), Vec::<String>::new());
+    assert_eq!(w.recorded(), before);
+    assert_eq!(w.flow.state(None).revision, revision);
+    assert_eq!(w.flow.failure(), None);
+    assert_eq!(w.go(false), None);
+
+    // A job that names no run at all is treated the same.
+    let nameless = NewJob::new(JobKind::Export)
+        .target(json!({ "send": "write", "token": token, "confirmed": true }));
+    assert_eq!(w.run_with(w.sender(), nameless), JobStatus::Cancelled);
 }
 
 #[test]
@@ -786,7 +858,7 @@ fn a_read_of_another_export_landing_during_prepare_leaves_no_preflight() {
             "2031-01-01T00:00:00.000Z",
         );
     });
-    let status = w.run_with(sender, prepare_job(&w.export.to_string_lossy()));
+    let status = w.run_with(sender, w.flow.prepare_job(&w.export.to_string_lossy()));
     assert_eq!(status, JobStatus::Failed);
     assert_eq!(w.flow.preflight(), None);
     assert_eq!(w.flow.failure(), Some(SendFailure::ExportChanged));
@@ -1129,8 +1201,8 @@ fn unfinished_send_jobs_are_dropped_and_no_other_job_is() {
             (kind, target.map(|t| t.to_string()), status),
         )
     };
-    let prepare = prepare_job("C:\\x.xml").target;
-    let write = write_job("token", true).target;
+    let prepare = w.flow.prepare_job("C:\\x.xml").target;
+    let write = w.flow.write_job("token", true).target;
     let dropped = [
         job("export", "queued", prepare.clone()),
         job("export", "queued", write.clone()),
@@ -1209,13 +1281,12 @@ mod ipc {
                 .unwrap();
             // No worker takes them: the queue is stopped first.
             queue.shutdown();
+            let earlier = crate::send::SendFlow::new(guard.clone());
             (
                 queue
-                    .enqueue(crate::send::prepare_job(&export.to_string_lossy()))
+                    .enqueue(earlier.prepare_job(&export.to_string_lossy()))
                     .unwrap(),
-                queue
-                    .enqueue(crate::send::write_job("token", true))
-                    .unwrap(),
+                queue.enqueue(earlier.write_job("token", true)).unwrap(),
             )
         };
 
