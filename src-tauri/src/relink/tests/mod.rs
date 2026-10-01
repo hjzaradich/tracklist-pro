@@ -175,7 +175,8 @@ impl Lib {
             .unwrap()
     }
 
-    /// Stage 3 hashed the file's audio: `hash` stands for its audio_hash.
+    /// Stage 3 hashed the file's audio as it is now: `hash` stands for its
+    /// audio_hash, and the hash stage is current for the file.
     pub fn audio_hash(&self, file: i64, hash: u8) {
         self.writer
             .call(move |c| {
@@ -185,13 +186,13 @@ impl Lib {
                 )
             })
             .unwrap();
+        self.stage_done(file, "hash", i64::from(crate::hash::DEFINITION));
     }
 
-    /// Stage 3 hashed the file as it is now: `hash` stands for its
-    /// audio_hash, and the hash stage is current for the file.
+    /// [`Lib::audio_hash`], under the name the step-4 tests read better
+    /// with.
     pub fn hashed(&self, file: i64, hash: u8) {
         self.audio_hash(file, hash);
-        self.stage_done(file, "hash", i64::from(crate::hash::DEFINITION));
     }
 
     /// Records `stage` done for the file at its size and mtime now.
@@ -227,6 +228,29 @@ impl Lib {
             })
             .unwrap();
         self.stage_done(file, "fingerprint", i64::from(crate::fingerprint::VERSION));
+    }
+
+    /// The fingerprint stage looked at the file as it is now and couldn't
+    /// fingerprint it.
+    pub fn unfingerprintable(&self, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT OR REPLACE INTO file_stage
+                         (file_id, stage, version, size, mtime, status, reason)
+                     SELECT id, 'fingerprint', ?2, size, mtime, 'failed', 'unsupported_codec'
+                     FROM file WHERE id = ?1",
+                    params![file, i64::from(crate::fingerprint::VERSION)],
+                )
+            })
+            .unwrap();
+    }
+
+    /// A walk found the file again.
+    pub fn back(&self, file: i64) {
+        self.writer
+            .call(move |c| c.execute("UPDATE file SET present = 1 WHERE id = ?1", [file]))
+            .unwrap();
     }
 
     /// The audio a row's match was made to (`relink_audio_hash`), as the

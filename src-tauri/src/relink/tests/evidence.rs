@@ -1,5 +1,6 @@
 //! The audio a match was made to: a carried match is dropped, and a
-//! confirmation downgraded, when the file holds other audio now (1aD-1).
+//! confirmation downgraded, when the file holds other audio now; and
+//! steps 4 and 5 are remade by every run (1aD-1).
 
 use super::*;
 
@@ -23,10 +24,18 @@ fn a_match_records_the_audio_its_file_holds() {
     assert_eq!(lib.relink(&mounted).changed, 1);
     assert_eq!(lib.evidence(track), Some(1));
     assert_eq!(lib.relink(&mounted).changed, 0);
+    // A hash that isn't current is never recorded: the file changed on
+    // disk, so what it holds isn't known.
+    lib.edited(file);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), path(file));
+    assert_eq!(lib.evidence(track), None);
 }
 
+// --- Step 4 is remade by every run ---
+
 /// A step-4 match: the row's own file gone, and `new` with its audio (1).
-fn audio_match() -> (Lib, i64, Mounted, i64, i64) {
+fn audio_match() -> (Lib, i64, Mounted, i64, i64, i64) {
     let (lib, music, mounted) = e_music();
     let old = lib.file(music, "Old.mp3", Some(200_000));
     lib.hashed(old, 1);
@@ -37,12 +46,12 @@ fn audio_match() -> (Lib, i64, Mounted, i64, i64) {
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), same_audio(new));
     assert_eq!(lib.evidence(track), Some(1));
-    (lib, music, mounted, new, track)
+    (lib, music, mounted, old, new, track)
 }
 
 #[test]
-fn a_carried_audio_match_is_dropped_when_its_files_audio_changes() {
-    let (lib, _music, mounted, new, track) = audio_match();
+fn an_audio_match_is_withdrawn_when_its_file_holds_other_audio() {
+    let (lib, _music, mounted, _old, new, track) = audio_match();
     // The file was replaced by other audio under the same name.
     lib.edited(new);
     lib.hashed(new, 9);
@@ -52,60 +61,109 @@ fn a_carried_audio_match_is_dropped_when_its_files_audio_changes() {
 }
 
 #[test]
-fn a_tag_only_edit_leaves_a_carried_match_alone() {
-    let (lib, _music, mounted, new, track) = audio_match();
-    // Changed on disk, not hashed again yet: unknown, not changed.
+fn an_audio_match_waits_while_its_files_hash_is_stale_and_returns_with_the_same_audio() {
+    let (lib, _music, mounted, _old, new, track) = audio_match();
+    // Changed on disk, not hashed again yet: what it holds isn't known, so
+    // it isn't trusted as the gone file's audio.
     lib.edited(new);
-    assert_eq!(lib.relink(&mounted).changed, 0);
-    assert_eq!(lib.matched(track), same_audio(new));
-    // Hashed again: the same audio.
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    // Hashed again: a tag-only edit, the same audio.
     lib.hashed(new, 1);
-    assert_eq!(lib.relink(&mounted).changed, 0);
+    lib.relink(&mounted);
     assert_eq!(lib.matched(track), same_audio(new));
 }
 
-/// A step-5 match to `guess`, hashed as audio 1.
-fn name_match() -> (Lib, i64, Mounted, i64, i64) {
-    let (lib, music, mounted) = e_music();
-    let guess = lib.file(music, "Elsewhere/Beta.mp3", Some(300_000));
-    lib.hashed(guess, 1);
-    let track = lib.track(&loc("D:/Gone/Beta.mp3"), Some("200"));
+#[test]
+fn the_locations_own_file_coming_back_beats_an_audio_match() {
+    let (lib, _music, mounted, old, _new, track) = audio_match();
+    lib.back(old);
     lib.relink(&mounted);
-    assert_eq!(lib.matched(track), name_only(guess));
-    assert_eq!(lib.evidence(track), Some(1));
-    (lib, music, mounted, guess, track)
+    assert_eq!(lib.matched(track), path(old));
 }
 
 #[test]
-fn a_carried_name_guess_is_kept_while_its_file_holds_the_same_audio() {
-    let (lib, music, mounted, guess, track) = name_match();
-    // A second file with the name turns up: a fresh guess would be
-    // ambiguous, but the carried one stands.
-    lib.file(music, "Other/Beta.mp3", Some(310_000));
+fn an_audio_match_isnt_evidence_of_where_its_neighbours_went_in_any_run() {
+    let (lib, music, mounted, _old, new, track) = audio_match();
+    // In the folder the match went to: the only file of the neighbour's
+    // duration. An audio match is made after step 3, so it never says
+    // where neighbours went, not in the run that made it nor the next.
+    lib.file(music, "Moved/Renamed.mp3", Some(100_200));
+    let neighbour = lib.track(&loc("E:/Music/Phi.mp3"), Some("100"));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(neighbour), None);
+    let after_first = lib.all_states();
     assert_eq!(lib.relink(&mounted).changed, 0);
-    assert_eq!(lib.matched(track), name_only(guess));
-    assert!(lib.probable(track));
+    assert_eq!(lib.all_states(), after_first);
+    assert_eq!(lib.matched(track), same_audio(new));
 }
 
 #[test]
-fn a_carried_name_guess_is_dropped_when_its_files_audio_changes() {
-    let (lib, music, mounted, guess, track) = name_match();
-    lib.file(music, "Other/Beta.mp3", Some(310_000));
-    lib.edited(guess);
-    lib.hashed(guess, 9);
+fn a_name_guess_doesnt_keep_a_file_from_the_row_whose_audio_it_holds() {
+    let (lib, music, mounted) = e_music();
+    // Row A guesses X by name while X isn't hashed yet.
+    let x = lib.file(music, "Elsewhere/Chi.mp3", None);
+    let guesser = lib.track(&loc("D:/Gone/Chi.mp3"), Some("200"));
+    let old = lib.file(music, "Psi.mp3", Some(100_000));
+    lib.hashed(old, 1);
+    let owner = lib.track(&loc("E:/Music/Psi.mp3"), Some("100"));
+    lib.gone(old);
     lib.relink(&mounted);
-    // Decided again: two files with the name now, so no match.
+    assert_eq!(lib.matched(guesser), name_only(x));
+    assert_eq!(lib.matched(owner), None);
+    // X is hashed: it holds the audio of row B's gone file. The strong
+    // match wins over the weak guess, whichever was there first.
+    lib.hashed(x, 1);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(owner), same_audio(x));
+    assert_eq!(lib.matched(guesser), None);
+    // And a fresh read gives the same.
+    let before = lib.all_states();
+    lib.fresh_read();
+    lib.relink(&mounted);
+    assert_eq!(lib.all_states(), before);
+}
+
+// --- Carried matches (a gig stick's: no run remakes them) ---
+
+/// A carried match to `file`, hashed as audio 1 when the match was made.
+fn carried() -> (Lib, Mounted, i64, i64) {
+    let (lib, music, mounted) = e_music();
+    let file = lib.file(music, "Elsewhere/Beta.mp3", Some(200_000));
+    lib.hashed(file, 1);
+    let track = lib.track(&loc("D:/Gone/Beta Old.mp3"), Some("200"));
+    lib.matched_before(track, file, "gig_stick", 0.9);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), gig_stick(file));
+    assert_eq!(lib.evidence(track), Some(1));
+    (lib, mounted, file, track)
+}
+
+fn gig_stick(file: i64) -> Option<Match> {
+    Some((file, "gig_stick".to_owned(), 0.9))
+}
+
+#[test]
+fn a_carried_match_is_dropped_when_its_files_audio_changes() {
+    let (lib, mounted, file, track) = carried();
+    lib.edited(file);
+    lib.hashed(file, 9);
+    lib.relink(&mounted);
     assert_eq!(lib.matched(track), None);
 }
 
 #[test]
-fn a_carried_name_guess_whose_audio_changed_is_guessed_again_with_the_new_audio() {
-    let (lib, _music, mounted, guess, track) = name_match();
-    lib.edited(guess);
-    lib.hashed(guess, 9);
-    lib.relink(&mounted);
-    assert_eq!(lib.matched(track), name_only(guess));
-    assert_eq!(lib.evidence(track), Some(9));
+fn a_tag_only_edit_leaves_a_carried_match_alone() {
+    let (lib, mounted, file, track) = carried();
+    // Changed on disk, not hashed again yet: unknown, not changed.
+    lib.edited(file);
+    assert_eq!(lib.relink(&mounted).changed, 0);
+    assert_eq!(lib.matched(track), gig_stick(file));
+    assert_eq!(lib.evidence(track), Some(1));
+    // Hashed again: the same audio.
+    lib.hashed(file, 1);
+    assert_eq!(lib.relink(&mounted).changed, 0);
+    assert_eq!(lib.matched(track), gig_stick(file));
 }
 
 #[test]
@@ -113,14 +171,14 @@ fn a_carried_match_made_before_its_file_was_hashed_gets_its_audio_recorded_later
     let (lib, music, mounted) = e_music();
     let file = lib.file(music, "Elsewhere/Gamma.mp3", Some(200_000));
     let track = lib.track(&loc("D:/Gone/Gamma Old.mp3"), Some("200"));
-    lib.matched_before(track, file, "fingerprint", 0.95);
+    lib.matched_before(track, file, "gig_stick", 0.9);
     lib.relink(&mounted);
-    assert_eq!(lib.matched(track), same_audio(file));
+    assert_eq!(lib.matched(track), gig_stick(file));
     assert_eq!(lib.evidence(track), None);
     // No evidence isn't a change: the first current hash is recorded.
     lib.hashed(file, 3);
     lib.relink(&mounted);
-    assert_eq!(lib.matched(track), same_audio(file));
+    assert_eq!(lib.matched(track), gig_stick(file));
     assert_eq!(lib.evidence(track), Some(3));
     // From then on a change is seen.
     lib.edited(file);
@@ -237,12 +295,30 @@ fn a_downgraded_confirmation_that_is_withdrawn_is_decided_again() {
 fn a_downgraded_confirmation_still_keeps_its_file_from_a_guess() {
     let (lib, mounted, _location, file, track) = confirmed(Method::User);
     // Another row would take the file by name.
-    let other = lib.track(&loc("D:/Also Gone/Picked.mp3"), Some("200"));
+    let other = lib.track(&loc("D:/Also Gone/Picked.mp3"), None);
     lib.edited(file);
     lib.hashed(file, 9);
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), Some((file, "user".to_owned(), 0.5)));
     assert_eq!(lib.matched(other), None);
+}
+
+#[test]
+fn confirming_a_file_whose_hash_isnt_current_records_no_audio_until_it_is() {
+    let (lib, music, mounted) = e_music();
+    let file = lib.file(music, "Elsewhere/Picked.mp3", Some(90_000));
+    lib.hashed(file, 1);
+    // Changed on disk since: the stored hash isn't what the user heard.
+    lib.edited(file);
+    let location = loc("D:/Gone/Kappa.mp3");
+    let track = lib.track(&location, Some("200"));
+    lib.confirm_now(&location, file, Method::User);
+    assert_eq!(lib.confirmed_audio(&location), None);
+    lib.hashed(file, 2);
+    lib.relink(&mounted);
+    assert_eq!(lib.confirmed_audio(&location), Some(2));
+    assert_eq!(lib.matched(track), Some((file, "user".to_owned(), 1.0)));
+    assert!(!lib.probable(track));
 }
 
 // --- Reruns and fresh reads ---
@@ -280,7 +356,7 @@ fn later_steps() -> (Lib, Mounted) {
     }
     lib.gone(moved);
     // Step 5.
-    lib.file(music, "Elsewhere/Eta.mp3", Some(50_000));
+    lib.file(music, "Elsewhere/Eta.mp3", None);
     lib.track(&loc("D:/Gone/Eta.mp3"), Some("200"));
     // Confirmed, and missing.
     let picked = lib.file(music, "Elsewhere/Picked.mp3", Some(90_000));
@@ -322,26 +398,8 @@ fn a_fresh_read_gives_the_same_matches_when_nothing_on_disk_changed() {
     lib.relink(&mounted);
     let before = lib.all_states();
     assert!(before.iter().filter(|(_, m, _)| m.is_some()).count() >= 5);
-    // The read replaces the snapshot: every carried match is gone.
+    // The read replaces the snapshot: every stored match is gone.
     lib.fresh_read();
     lib.relink(&mounted);
     assert_eq!(lib.all_states(), before);
-}
-
-#[test]
-fn confirming_a_file_whose_hash_isnt_current_records_no_audio_until_it_is() {
-    let (lib, music, mounted) = e_music();
-    let file = lib.file(music, "Elsewhere/Picked.mp3", Some(90_000));
-    lib.hashed(file, 1);
-    // Changed on disk since: the stored hash isn't what the user heard.
-    lib.edited(file);
-    let location = loc("D:/Gone/Kappa.mp3");
-    let track = lib.track(&location, Some("200"));
-    lib.confirm_now(&location, file, Method::User);
-    assert_eq!(lib.confirmed_audio(&location), None);
-    lib.hashed(file, 2);
-    lib.relink(&mounted);
-    assert_eq!(lib.confirmed_audio(&location), Some(2));
-    assert_eq!(lib.matched(track), Some((file, "user".to_owned(), 1.0)));
-    assert!(!lib.probable(track));
 }

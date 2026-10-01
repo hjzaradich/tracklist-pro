@@ -12,26 +12,25 @@
 //! missing (with its rekordbox data intact) for the gig stick step (1aD-3)
 //! or for the user.
 //!
-//! **Every run decides every row again.** Only a confirmed relink, and a
-//! match by fingerprint, filename only or gig stick (steps 4–6), carry
-//! over, and only while their file is present, still holds the audio the
-//! match was made to (see "The audio a match was made to" below), and no
-//! confirmation gives that file to another row. A carried match that's
-//! only probable is a fallback: an accepted match from steps 1–4 (the path
-//! first) replaces it. A confirmation the user withdrew (its `relink` row
-//! deleted) is decided again: a `user` match, or any match at confidence
-//! 1.0, never carries over without its `relink` row, so the steps that
-//! make carried matches store less than 1.0. So a better step replaces an
-//! old guess (the Location's own file turning up beats a duration match
-//! or a name guess), a match to a file that's gone or holds other audio
-//! now is dropped, and a guess never keeps a file the user has confirmed
-//! for another track. Running again with nothing changed changes nothing.
-//!
-//! A complete rekordbox read replaces every `rekordbox_track` row, so a
-//! carried match lives only until the next read; after it, steps 4 and 5
-//! are made again from the same evidence (the gone file's row is kept, and
-//! so are the names), and with nothing changed on disk they give the same
-//! matches.
+//! **Every run decides every row again**, steps 1 to 5 from scratch. Only
+//! a confirmed relink, and a match from a step no run makes (gig stick,
+//! 1aD-3), carry over, and only while their file is present, still holds
+//! the audio the match was made to (see "The audio a match was made to"
+//! below), and no confirmation gives that file to another row. A carried
+//! match that's only probable is a fallback: an accepted match from steps
+//! 1–4 (the path first) replaces it. A confirmation the user withdrew (its
+//! `relink` row deleted) is decided again: a `user` match, or any match at
+//! confidence 1.0, never carries over without its `relink` row, so a step
+//! that makes carried matches stores less than 1.0. So a better step
+//! replaces an old guess (the Location's own file turning up beats a
+//! duration match, an audio match or a name guess), a match to a file
+//! that's gone or holds other audio now is dropped, and a guess never
+//! keeps a file the user has confirmed for another track. Running again
+//! with nothing changed changes nothing, and so does a fresh rekordbox
+//! read (which replaces every `rekordbox_track` row): a run's result
+//! depends on what's on disk and in the snapshot, never on what earlier
+//! runs stored. (Steps 4 and 5 were carried over in an earlier draft; that
+//! made results depend on run history, so they're remade like steps 1–3.)
 //!
 //! In order, each step over every row before the next step starts:
 //!
@@ -85,9 +84,10 @@
 //!    - every folder that the track's neighbours were matched into, where
 //!      neighbours are rows whose Location is in the same rekordbox folder
 //!      and "matched" means confirmed, or trusted and by a step that says
-//!      where a file went (path, filename + duration; later fingerprint,
-//!      gig stick, user). Duration-only and name-only guesses aren't
-//!      evidence, so guesses never chain.
+//!      where a file went (path, filename + duration, or a carried gig
+//!      stick match). Duration-only and name-only guesses aren't evidence,
+//!      so guesses never chain; a step-4 match is made after step 3, so
+//!      it's never evidence either (in the run that makes it or any other).
 //!
 //!    Why this set: a renamed file is usually still in its folder, and a
 //!    moved one usually moved with its album or crate. Anywhere else,
@@ -125,16 +125,29 @@
 //!    gone (`present = 0`; the row is kept, with its `audio_hash`, track
 //!    and fingerprint) that this row once named. That's the file of its
 //!    confirmed relink, else the gone file at its Location (found like
-//!    step 1). The candidates are present files no other row holds:
-//!    - those with the gone file's `audio_hash` (a hash that's current for
-//!      the file), else those in the gone file's track: **the same audio**,
-//!      accepted at confidence 0.95. Any of them is right, so the track's
-//!      best file is matched (else the lowest file id);
+//!    step 1). Its `audio_hash` and track count only if the hash stage
+//!    was current for it when it went. The candidates:
+//!    - present files no other row holds with the gone file's
+//!      `audio_hash`, else those in the gone file's track: **the same
+//!      audio**, accepted at confidence 0.95. A candidate counts only
+//!      while its own hash is current: a file that changed since it was
+//!      hashed may hold anything, whatever track it's still in. Any of
+//!      them is right, so the track's best file is matched (else the
+//!      lowest file id). (Same track means same `audio_hash` while
+//!      grouping is provisional; when 1bC-1 groups by fingerprint, this
+//!      inherits whatever its version check lets through. A track is as
+//!      grouping last left it: between a file's new hash and the grouping
+//!      run that follows it in the scan chain, a mate that now holds other
+//!      audio is still in the track, and a relink run in that gap would
+//!      trust it until the next run. The chain runs relink after the
+//!      grouping job, and every run decides again.)
 //!    - else, the fingerprint duplicates of the gone file (ROADMAP 1.4:
-//!      at least 90% matched both ways, difference at most 4) among files
-//!      lasting within [`rules::FINGERPRINT_WINDOW_MS`] (1 s) of it: a
-//!      re-encode or another format. Exactly one, or several in one track
-//!      or with one `audio_hash`; if they differ, no match.
+//!      at least 90% matched both ways, difference at most 4) among every
+//!      present file lasting within [`rules::FINGERPRINT_WINDOW_MS`] (1 s)
+//!      of it: a re-encode or another format. Exactly one, or several in
+//!      one track or with one `audio_hash`; if they differ, no match, and
+//!      if another row holds any of them, none is taken (a held duplicate
+//!      counts against uniqueness, as in steps 2, 3 and 5).
 //!
 //!    One-to-one: if another unmatched row's gone file leads to any of the
 //!    same candidates, neither row is matched (two rekordbox entries, one
@@ -150,11 +163,19 @@
 //!      the drive was last mounted. Only a walk that listed a file's folder
 //!      and didn't find it marks it gone, so step 4 never fires for a drive
 //!      that's merely unplugged.
-//!    - *Cost:* fingerprints are read and compared only for a gone file
-//!      with no present file of the same audio, against unheld files of
-//!      about its length, and no more than [`rules::MAX_COMPARISONS`] pairs
-//!      a run (relink runs on the one writer). Rows past that get no
-//!      fingerprint match in that run.
+//!    - *Never on a partial comparison:* a row is compared with every
+//!      file of about its length, or it gets no fingerprint match this
+//!      run. A file there that the fingerprint stage hasn't looked at yet
+//!      could be the duplicate, so the row waits (the relink after the
+//!      fingerprint job decides it). And no run compares more than
+//!      [`rules::MAX_COMPARISONS`] pairs, because relink runs on the one
+//!      writer: rows are taken fewest candidates first (then by row id),
+//!      and the rows the budget doesn't reach are left undecided, counted
+//!      in [`Summary::fingerprint_undecided`] and logged. An undecided
+//!      row's candidates still count as sought, so no other row is given
+//!      one of them meanwhile. A file the stage failed or skipped (can't
+//!      be fingerprinted, online-only) has no fingerprint and isn't a
+//!      candidate.
 //! 5. **File name only** (`filename_only`): the only present file with the
 //!    Location's file name (NFC, letter case ignored), or exact copies of
 //!    one. Always stored as **probable** (`relink_probable = 1`, confidence
@@ -162,26 +183,38 @@
 //!    user confirms it in Review.
 //!    - *False-match risk:* high, which is why it's never trusted: generic
 //!      names (`Track 01.mp3`), or another cut under the same name.
-//!      Guarded by being one-to-one: uniqueness is counted over every
-//!      present file with that name, including one another row holds (a
-//!      held look-alike blocks the match instead of being skipped over),
-//!      the file must be unheld, and no other unmatched row may have the
-//!      same file name.
+//!      Guarded by: a file whose known duration contradicts a usable
+//!      `TotalTime` (outside step 2's window) isn't a candidate, since the
+//!      same name at another length is more likely another cut (an unknown
+//!      duration on either side contradicts nothing); uniqueness is counted
+//!      over every other present file with that name, including one another
+//!      row holds (a held look-alike blocks the match instead of being
+//!      skipped over); the file must be unheld; and two unmatched rows with
+//!      the same file name both stay unmatched.
 //!
 //! **The audio a match was made to.** Every match records the matched
 //! file's `audio_hash` (`rekordbox_track.relink_audio_hash`), and a
 //! confirmed relink the hash at confirmation (`relink.audio_hash`,
-//! [`confirm`]). A carried match whose file now has another `audio_hash`
-//! is dropped and the row decided again; a confirmation is downgraded as
-//! in step 0. Only a hash that's current for the file counts (the hash
+//! [`confirm`]). It's what a confirmation, and a carried (gig stick)
+//! match, are checked against: a carried match whose file now has another
+//! `audio_hash` is dropped and the row decided again; a confirmation is
+//! downgraded as in step 0. Steps 1–5 are remade by every run, so for
+//! them it only says what the file held. Only a hash that's current for
+//! the file counts, and only a current hash is ever recorded (the hash
 //! stage done at the file's size and mtime now): a tag-only edit keeps the
 //! `audio_hash`, so it changes nothing, and a stale or missing hash means
 //! unknown, never changed. Where no hash was recorded (the file wasn't
 //! hashed yet, or the row is older than this), the next run that finds the
 //! file's hash current records it.
 //!
-//! **Exact copies aren't ambiguous.** When every file that fits in step 2
-//! or 3 has the same `audio_hash`, they hold the same audio: the track's
+//! One consequence for step 4: while a matched file's hash is stale (it
+//! changed on disk and hasn't been hashed again), it isn't known to hold
+//! the gone file's audio, so the same-audio match is withdrawn until the
+//! hash stage has run, and comes back if the audio is the same.
+//!
+//! **Exact copies aren't ambiguous.** When every file that fits in step 2,
+//! 3 or 5 has the same `audio_hash` (current for each file), they hold the
+//! same audio: the track's
 //! best file is matched (else the lowest file id), not nothing; if another
 //! row holds any of the copies, none is taken.
 //!
@@ -336,6 +369,9 @@ pub struct Summary {
     pub filename_duration: u32,
     pub unique_duration: u32,
     pub fingerprint: u32,
+    /// Rows step 4 left undecided because the run's fingerprint comparison
+    /// budget ([`MAX_COMPARISONS`]) ran out before them.
+    pub fingerprint_undecided: u32,
     /// Rows matched but only probable, waiting for the user to confirm:
     /// every filename-only match, a unique duration or a fingerprint
     /// duplicate no title tag agrees with, and a confirmation whose file's
@@ -420,6 +456,7 @@ pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summ
         filename_duration: count(plan.filename_duration),
         unique_duration: count(plan.unique_duration),
         fingerprint: count(plan.fingerprint),
+        fingerprint_undecided: count(plan.over_budget),
         probable: count(plan.probable),
         other: count(plan.other),
         streaming: count(plan.streaming),
@@ -504,11 +541,16 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
         let mut stmt = conn.prepare(&format!(
             "SELECT f.id, f.music_folder_id, f.rel_path, f.duration_ms,
                     f.audio_hash, rf.recording_id, rf.role = 'best', f.present,
-                    {HASH_CURRENT}
+                    {HASH_CURRENT},
+                    NOT EXISTS (SELECT 1 FROM file_stage s
+                                WHERE s.file_id = f.id AND s.stage = 'fingerprint'
+                                  AND s.version = ?2 AND s.size IS f.size
+                                  AND s.mtime IS f.mtime)
              FROM file f LEFT JOIN recording_file rf ON rf.file_id = f.id
              ORDER BY f.id"
         ))?;
-        let rows = stmt.query_map([hash_version()], |r| {
+        let fingerprint_version = i64::from(crate::fingerprint::VERSION);
+        let rows = stmt.query_map([hash_version(), fingerprint_version], |r| {
             Ok((
                 (
                     r.get::<_, i64>(0)?,
@@ -522,24 +564,28 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                     r.get::<_, Option<bool>>(6)?,
                     r.get::<_, bool>(7)?,
                     r.get::<_, bool>(8)?,
+                    r.get::<_, bool>(9)?,
                 ),
             ))
         })?;
         for row in rows {
-            let ((id, folder, rel, duration_ms, audio_hash), (recording, best, present, current)) =
-                row?;
+            let (
+                (id, folder, rel, duration_ms, audio_hash),
+                (recording, best, present, current, fingerprint_pending),
+            ) = row?;
             let (base, online) = folders.get(&folder).cloned().unwrap_or((None, false));
             let path = base.map(|b| format!("{b}/{rel}"));
             let audio_hash = audio_hash.filter(|h| !h.is_empty());
             if !present {
                 // Gone: kept for what it says about the audio that was
-                // there (step 4).
+                // there (step 4). A hash that wasn't current when the file
+                // went is of older content, and so is the track it gave.
                 absent.push(rules::Absent {
                     id,
                     path,
                     duration_ms,
-                    audio_hash,
-                    recording,
+                    audio_hash: audio_hash.filter(|_| current),
+                    recording: recording.filter(|_| current),
                 });
                 continue;
             }
@@ -557,6 +603,7 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 duration_ms,
                 audio_hash,
                 hash_current: current,
+                fingerprint_pending,
                 recording,
                 best: best.unwrap_or(false),
             });

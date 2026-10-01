@@ -2,10 +2,9 @@
 //!
 //! [`plan`] takes every present file and every `rekordbox_track` row and
 //! decides each row's match from scratch. Only a confirmed relink, and a
-//! match by fingerprint, filename only or gig stick (steps 4–6), carry
-//! over, and only while their file is present and still holds the audio
-//! they were made to. A `user` match carries over only as a confirmed
-//! relink.
+//! match from a step no run makes (gig stick, 1aD-3), carry over, and only
+//! while their file is present and still holds the audio they were made
+//! to. A `user` match carries over only as a confirmed relink.
 //! The steps run in order over all rows (every row's step 1 before any
 //! row's step 2), so a later step can never take a file an earlier,
 //! stronger step gives to another row. See the module docs in [`super`]
@@ -67,22 +66,24 @@ impl Method {
         Method::ALL.into_iter().find(|m| m.as_str() == name)
     }
 
-    /// Whether a match made this way is remade from scratch by every run.
-    /// The others (fingerprint, filename only, gig stick) carry over while
-    /// their file is present and holds the audio they were made to; a
-    /// `user` match only with its `relink` row.
+    /// Whether a match made this way is remade from scratch by every run:
+    /// steps 1–5. A gig-stick match (no run makes one) carries over while
+    /// its file is present and holds the audio it was made to; a `user`
+    /// match only with its `relink` row.
     fn is_recomputed(self) -> bool {
-        matches!(
-            self,
-            Method::Path | Method::FilenameDuration | Method::UniqueDuration
-        )
+        !matches!(self, Method::GigStick | Method::User)
     }
 
     /// Whether a match made this way says where a track's neighbours went
-    /// (step 3's candidate set). A duration-only or name-only guess
-    /// doesn't, unless the user confirmed it.
+    /// (step 3's candidate set): path, filename + duration, and a carried
+    /// gig-stick match. A duration-only or name-only guess doesn't, and a
+    /// fingerprint match is made after step 3, so it's never there to ask;
+    /// any of them counts once the user confirmed it.
     fn is_evidence(self) -> bool {
-        !matches!(self, Method::UniqueDuration | Method::FilenameOnly)
+        matches!(
+            self,
+            Method::Path | Method::FilenameDuration | Method::GigStick | Method::User
+        )
     }
 }
 
@@ -132,8 +133,11 @@ pub const MAX_CANDIDATES: usize = 50;
 pub const FINGERPRINT_WINDOW_MS: i64 = 1000;
 
 /// Step 4 compares no more fingerprint pairs than this in one run: relink
-/// runs on the database's one writer. Rows left when it runs out get no
-/// fingerprint match this run (same audio, by hash or track, costs none).
+/// runs on the database's one writer. A row is compared with all of its
+/// candidates or none: a row the budget doesn't reach gets no fingerprint
+/// match this run, and is counted ([`Plan::over_budget`]). Rows with the
+/// fewest candidates go first, so cheap rows are never starved. (The same
+/// audio, by hash or track, costs none.)
 pub const MAX_COMPARISONS: usize = 20_000;
 
 /// A file that is present (`file.present = 1`), whether or not its drive
@@ -165,6 +169,10 @@ pub struct File {
     /// hash that isn't current says nothing about the audio now: unknown,
     /// not changed.
     pub hash_current: bool,
+    /// Whether the fingerprint stage hasn't looked at the file as it is
+    /// now: it may yet get a fingerprint. (Done, failed or skipped at the
+    /// file's size and mtime now isn't pending.)
+    pub fingerprint_pending: bool,
     /// Its track (`recording_file`), once grouped.
     pub recording: Option<i64>,
     /// Whether it's its track's best file.
@@ -193,9 +201,11 @@ pub struct Absent {
     /// Where it was, as [`File::path`].
     pub path: Option<String>,
     pub duration_ms: Option<i64>,
-    /// Its `audio_hash` as last stored.
+    /// Its `audio_hash`, if the hash stage was current for the file when
+    /// it went (else the hash is of older content, and says nothing).
     pub audio_hash: Option<Vec<u8>>,
-    /// Its track, if it still has one.
+    /// Its track, if it still has one and its hash was current (a track
+    /// is given by the hash).
     pub recording: Option<i64>,
 }
 
@@ -292,6 +302,9 @@ pub struct Plan {
     pub examined: usize,
     /// Fingerprint pairs step 4 compared.
     pub compared: usize,
+    /// Rows step 4 left undecided because the comparison budget
+    /// ([`MAX_COMPARISONS`]) ran out before them.
+    pub over_budget: usize,
 }
 
 /// Whether a file lasting `duration_ms` can be the track rekordbox says
@@ -532,18 +545,17 @@ impl<'a> Index<'a> {
     }
 
     /// The one file to match among `fits`: the only one, or, when every
-    /// one of them holds the same audio (one `audio_hash`: exact copies),
-    /// their track's best file, else the lowest id. `None` if they differ.
+    /// one of them holds the same audio (one `audio_hash`, current for each
+    /// file: exact copies), their track's best file, else the lowest id.
+    /// `None` if they differ, or if a hash isn't current.
     fn pick(&self, fits: &[i64]) -> Option<i64> {
         match fits {
             [] => None,
             [only] => Some(*only),
             _ => {
-                let hash = self.file(fits[0])?.audio_hash.as_ref()?;
+                let hash = self.file(fits[0])?.audio()?;
                 let copies: Vec<&File> = fits.iter().filter_map(|&f| self.file(f)).collect();
-                if copies.len() != fits.len()
-                    || copies.iter().any(|f| f.audio_hash.as_ref() != Some(hash))
-                {
+                if copies.len() != fits.len() || copies.iter().any(|f| f.audio() != Some(hash)) {
                     return None;
                 }
                 copies
@@ -675,13 +687,13 @@ pub fn plan<E>(
             }
         }
     }
-    // Then a match by fingerprint, filename only or gig stick carries over,
-    // while its file is present, isn't known to hold other audio than the
-    // match was made to, and no confirmation gives that file to another
-    // row. A match the user confirmed (`user`, or confidence 1.0) whose
-    // `relink` row is gone was withdrawn: it's decided again. A carried
-    // *probable* match is only a fallback: the row still goes through
-    // steps 1–4, and an accepted match there replaces it.
+    // Then a match from a step no run makes (gig stick) carries over, while
+    // its file is present, isn't known to hold other audio than the match
+    // was made to, and no confirmation gives that file to another row. A
+    // match the user confirmed (`user`, or confidence 1.0) whose `relink`
+    // row is gone was withdrawn: it's decided again. A carried *probable*
+    // match is only a fallback: the row still goes through steps 1–4, and
+    // an accepted match there replaces it.
     let confirmed_files: HashSet<i64> = now.iter().flatten().map(|n| n.target.file).collect();
     let mut fallback: Vec<Option<Target>> = vec![None; tracks.len()];
     for (i, track) in tracks.iter().enumerate() {
@@ -936,7 +948,7 @@ pub fn plan<E>(
     // confirmed relink, else the one at its Location. A present file with
     // that audio (the same `audio_hash`), else one in that file's track,
     // else a fingerprint duplicate of about the same length, is a
-    // candidate; files other rows hold aren't.
+    // candidate.
     let claimed = taken(&now);
     let gone = Gone::new(&input.absent);
     let mut leads: Vec<Lead> = Vec::new();
@@ -954,7 +966,10 @@ pub fn plan<E>(
                 Some((i, file))
             })
             .collect();
-        // Built only when a row has evidence: most runs have none.
+        // Built only when a row has evidence: most runs have none. Only a
+        // file whose hash is current is known to hold the audio it was
+        // hashed as, and grouped by: a file that changed since may hold
+        // anything, so it's no candidate by hash or by track.
         let mut by_audio: HashMap<&[u8], Vec<usize>> = HashMap::new();
         let mut by_recording: HashMap<i64, Vec<usize>> = HashMap::new();
         let mut by_duration: Vec<(i64, usize)> = Vec::new();
@@ -962,9 +977,9 @@ pub fn plan<E>(
             for (n, file) in index.files.iter().enumerate() {
                 if let Some(audio) = file.audio() {
                     by_audio.entry(audio).or_default().push(n);
-                }
-                if let Some(recording) = file.recording {
-                    by_recording.entry(recording).or_default().push(n);
+                    if let Some(recording) = file.recording {
+                        by_recording.entry(recording).or_default().push(n);
+                    }
                 }
                 if let Some(duration) = file.duration_ms {
                     by_duration.push((duration, n));
@@ -981,13 +996,16 @@ pub fn plan<E>(
                 .or_else(|| files.iter().min_by_key(|f| f.id))
                 .map(|f| f.id)
         };
+        // The rows with no file of the same audio, and the present files
+        // that last about as long as each one's gone file.
+        let mut to_compare: Vec<(usize, &Absent, Vec<usize>)> = Vec::new();
         for (i, was) in evidence {
-            let free = |n: &usize| !held_by_other(&claimed, index.files[*n].id, i);
+            // The same audio: files other rows hold aren't candidates.
             let ids = |found: Option<&Vec<usize>>| -> Vec<i64> {
                 let found = found.into_iter().flatten();
                 found
-                    .filter(|&n| free(n))
                     .map(|&n| index.files[n].id)
+                    .filter(|&f| !held_by_other(&claimed, f, i))
                     .collect()
             };
             let audio = was.audio_hash.as_deref().filter(|h| !h.is_empty());
@@ -1008,19 +1026,42 @@ pub fn plan<E>(
             let Some(lasted) = was.duration_ms else {
                 continue;
             };
+            // Every file of about that length, held or not: a duplicate
+            // another row holds still counts against uniqueness.
             let from = by_duration.partition_point(|&(d, _)| d < lasted - FINGERPRINT_WINDOW_MS);
             let near: Vec<usize> = by_duration[from..]
                 .iter()
                 .take_while(|&&(d, _)| d <= lasted + FINGERPRINT_WINDOW_MS)
                 .map(|&(_, n)| n)
-                .filter(free)
                 .collect();
-            if near.is_empty() || out.compared + near.len() > MAX_COMPARISONS {
-                continue;
+            if !near.is_empty() {
+                to_compare.push((i, was, near));
             }
+        }
+        // Fewest candidates first, then row id: the order never depends on
+        // anything but the data, and the budget never starves a cheap row.
+        to_compare.sort_by_key(|(i, _, near)| (near.len(), tracks[*i].id));
+        for (i, was, near) in to_compare {
             let Some(print) = fingerprints(was.id)? else {
                 continue;
             };
+            // A match is never made on a partial comparison. A file of
+            // about that length still waiting for its fingerprint could be
+            // the duplicate too, and so could one the budget didn't reach:
+            // the row is left undecided, and its candidates still count as
+            // sought, so no other row is given one of them meanwhile.
+            let pending = near.iter().any(|&n| index.files[n].fingerprint_pending);
+            let over_budget = out.compared + near.len() > MAX_COMPARISONS;
+            if pending || over_budget {
+                out.over_budget += usize::from(!pending);
+                leads.push(Lead {
+                    row: i,
+                    files: near.iter().map(|&n| index.files[n].id).collect(),
+                    pick: None,
+                    same_audio: false,
+                });
+                continue;
+            }
             let mut duplicates = Vec::new();
             for n in near {
                 out.compared += 1;
@@ -1036,13 +1077,18 @@ pub fn plan<E>(
             }
             duplicates.sort_unstable();
             // Several duplicates are one choice only when they're in one
-            // track, or exact copies.
-            let track = index.file(duplicates[0]).and_then(|f| f.recording);
+            // track (by hashes that are current), or exact copies; and if
+            // another row holds any of them, none is taken.
+            let files: Vec<&File> = duplicates.iter().filter_map(|&f| index.file(f)).collect();
+            let track = files[0].recording;
             let one_track = track.is_some()
-                && duplicates
+                && files
                     .iter()
-                    .all(|&f| index.file(f).and_then(|f| f.recording) == track);
-            let pick = if one_track {
+                    .all(|f| f.recording == track && f.audio().is_some());
+            let held = duplicates.iter().any(|&f| held_by_other(&claimed, f, i));
+            let pick = if held {
+                None
+            } else if one_track {
                 best_of(&duplicates)
             } else {
                 index.pick(&duplicates)
@@ -1095,10 +1141,14 @@ pub fn plan<E>(
     // Step 5: the file name alone, always probable. The only present file
     // with the Location's file name (or exact copies of one), counted over
     // every present file, whoever holds it: a look-alike another row has
-    // makes the name ambiguous rather than being skipped over. A row with a
-    // carried probable match keeps that instead.
+    // makes the name ambiguous rather than being skipped over. A file whose
+    // known duration contradicts the row's `TotalTime` isn't a candidate:
+    // the same name at another length is more likely another cut (an
+    // unknown duration on either side contradicts nothing). Two unmatched
+    // rows with one file name can't tell whose a file is, so neither
+    // guesses. A row with a carried probable match keeps that instead.
     let claimed = taken(&now);
-    let mut named: Vec<(usize, &Vec<usize>)> = Vec::new();
+    let mut rows_by_name: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, track) in tracks.iter().enumerate() {
         if now[i].is_some() || fallback[i].is_some() {
             continue;
@@ -1106,26 +1156,32 @@ pub fn plan<E>(
         let Some(path) = track.location.as_ref().and_then(Location::as_file) else {
             continue;
         };
-        if let Some(same_name) = index.names.get(&path_key(path.file_name())) {
-            named.push((i, same_name));
-        }
+        rows_by_name
+            .entry(path_key(path.file_name()))
+            .or_default()
+            .push(i);
     }
-    let mut wanted: HashMap<i64, HashSet<usize>> = HashMap::new();
-    for (i, same_name) in &named {
-        for &n in *same_name {
-            wanted.entry(index.files[n].id).or_default().insert(*i);
-        }
-    }
-    for (i, same_name) in &named {
-        let files: Vec<i64> = same_name.iter().map(|&n| index.files[n].id).collect();
+    for (name, rows) in &rows_by_name {
+        let (&[i], Some(same_name)) = (rows.as_slice(), index.names.get(name)) else {
+            continue;
+        };
+        let total_s = tracks[i].total_s;
+        let files: Vec<i64> = same_name
+            .iter()
+            .map(|&n| &index.files[n])
+            .filter(|f| match (total_s, f.duration_ms) {
+                (Some(total_s), Some(lasts)) => duration_fits(total_s, lasts),
+                _ => true,
+            })
+            .map(|f| f.id)
+            .collect();
         let Some(file) = index.pick(&files) else {
             continue;
         };
-        let copy_taken = files.iter().any(|&f| held_by_other(&claimed, f, *i));
-        if files.iter().all(|&f| alone(&wanted, f, *i)) && !copy_taken {
+        if !files.iter().any(|&f| held_by_other(&claimed, f, i)) {
             set(
                 &mut now,
-                *i,
+                i,
                 file,
                 Method::FilenameOnly,
                 confidence::FILENAME_ONLY,

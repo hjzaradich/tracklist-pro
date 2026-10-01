@@ -775,9 +775,13 @@ fn a_finished_read_queues_a_relink_that_matches_rekordbox_tracks_to_the_scanned_
 
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
-    // A relink asked for by the read, and it found the file (the second
-    // one is the fingerprint job's).
-    assert_eq!(relinks(&writer)[0], ("done".into(), "read".into()));
+    // A relink asked for by the read, and it found the file; the second
+    // one is the fingerprint job's (it follows the attach job the first
+    // relink asked for).
+    let after: Vec<String> = relinks(&writer).into_iter().map(|r| r.1).collect();
+    assert_eq!(after[0], "read");
+    assert_eq!(relinks(&writer).len(), 2);
+    assert!(relinks(&writer).iter().all(|r| r.0 == "done"));
     let (file, method): (Option<i64>, Option<String>) = writer
         .call(move |c| {
             c.query_row(

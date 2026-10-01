@@ -97,6 +97,42 @@ fn a_file_whose_hash_isnt_current_isnt_taken_for_the_gone_files_audio() {
 }
 
 #[test]
+fn a_track_mate_that_changed_since_it_was_hashed_isnt_trusted() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = elsewhere(&lib, music, "Mate");
+    lib.hashed(mate, 1);
+    lib.group(&[old, mate]);
+    // The mate changed on disk and hasn't been hashed again, so grouping
+    // hasn't moved it yet: it may hold anything.
+    lib.edited(mate);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    // It turns out to hold other audio, and grouping moves it to a track
+    // of its own: still no match, and nothing recorded as the audio a
+    // match was made to.
+    lib.hashed(mate, 9);
+    lib.writer.call(crate::grouping::regroup).unwrap();
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    assert_eq!(lib.evidence(track), None);
+}
+
+#[test]
+fn a_gone_file_that_changed_before_it_went_isnt_evidence_by_its_old_hash() {
+    let (lib, music, mounted) = e_music();
+    let old = lib.file(music, "Old.mp3", Some(200_000));
+    lib.hashed(old, 1);
+    // Changed on disk, then deleted before it was hashed again.
+    lib.edited(old);
+    let track = lib.track(&loc("E:/Music/Old.mp3"), Some("200"));
+    lib.gone(old);
+    let copy = elsewhere(&lib, music, "Copy");
+    lib.hashed(copy, 1);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
 fn a_copy_another_row_holds_isnt_a_candidate() {
     let (lib, music, mounted, _old, track) = moved();
     let copy = lib.file(music, "Copy.mp3", Some(200_000));
@@ -214,6 +250,87 @@ fn two_different_fingerprint_duplicates_are_ambiguous() {
 }
 
 #[test]
+fn a_fingerprint_duplicate_another_row_holds_still_counts_against_uniqueness() {
+    let (lib, music, mounted, _old, track) = moved();
+    let a = lib.file(music, "Converted/A.flac", Some(200_400));
+    let b = lib.file(music, "Converted/B.m4a", Some(199_800));
+    for (file, hash) in [(a, 2), (b, 3)] {
+        lib.hashed(file, hash);
+        lib.fingerprinted(file, &reencoded(&song(1, 200)));
+        lib.title(file, "Kappa");
+    }
+    // Another row has one of the two duplicates by path. The other one
+    // isn't the only duplicate for that: still ambiguous.
+    let holder = lib.track(&loc("E:/Music/Converted/A.flac"), Some("200"));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(holder), path(a));
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn the_only_fingerprint_duplicate_isnt_taken_when_another_row_holds_it() {
+    let (lib, music, mounted, _old, track) = moved();
+    let new = lib.file(music, "Converted/New.flac", Some(200_400));
+    lib.fingerprinted(new, &reencoded(&song(1, 200)));
+    lib.title(new, "Kappa");
+    let holder = lib.track(&loc("E:/Music/Converted/New.flac"), Some("200"));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(holder), path(new));
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn the_duration_window_is_one_second_either_way() {
+    for (lasts, matched) in [
+        (201_000, true),
+        (199_000, true),
+        (201_001, false),
+        (198_999, false),
+    ] {
+        let (lib, music, mounted, _old, track) = moved();
+        let new = lib.file(music, "Converted/New.flac", Some(lasts));
+        lib.fingerprinted(new, &reencoded(&song(1, 200)));
+        lib.title(new, "Kappa");
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(track).is_some(), matched, "{lasts} ms");
+    }
+}
+
+#[test]
+fn a_file_of_about_that_length_still_waiting_for_its_fingerprint_holds_the_match_back() {
+    let (lib, music, mounted, _old, track) = moved();
+    let new = lib.file(music, "Converted/New.flac", Some(200_400));
+    lib.fingerprinted(new, &reencoded(&song(1, 200)));
+    lib.title(new, "Kappa");
+    // Not fingerprinted yet: it could be a duplicate too.
+    let waiting = lib.file(music, "Converted/Waiting.flac", Some(200_100));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None, "never on a partial comparison");
+    // It's other audio: the duplicate is the only one.
+    lib.fingerprinted(waiting, &song(2, 200));
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((new, "fingerprint".to_owned(), 0.85))
+    );
+}
+
+#[test]
+fn a_file_that_cant_be_fingerprinted_doesnt_hold_the_match_back() {
+    let (lib, music, mounted, _old, track) = moved();
+    let new = lib.file(music, "Converted/New.flac", Some(200_400));
+    lib.fingerprinted(new, &reencoded(&song(1, 200)));
+    lib.title(new, "Kappa");
+    let broken = lib.file(music, "Converted/Broken.opus", Some(200_100));
+    lib.unfingerprintable(broken);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((new, "fingerprint".to_owned(), 0.85))
+    );
+}
+
+#[test]
 fn the_gone_file_of_a_confirmed_relink_is_evidence_too() {
     let (lib, music, mounted) = e_music();
     let picked = lib.file(music, "Elsewhere/Picked.mp3", Some(100_000));
@@ -249,7 +366,7 @@ fn a_file_on_a_drive_that_isnt_plugged_in_is_matched_by_path_not_by_audio() {
 }
 
 #[test]
-fn an_accepted_audio_match_replaces_a_carried_name_guess() {
+fn an_audio_match_replaces_a_name_guess() {
     let (lib, music, mounted, _old, track) = moved();
     let guess = lib.file(music, "Other Folder/Old.mp3", None);
     lib.relink(&mounted);
@@ -287,7 +404,7 @@ fn fingerprints_are_read_only_when_no_present_file_has_the_gone_files_audio() {
             .unwrap()
     };
     // No file of the same audio: the gone file's fingerprint is asked for
-    // (and, had there been one, the file of about its length).
+    // (and, had it had one, that of the file of about its length).
     assert_eq!(asked(&lib), [old]);
     let same = elsewhere(&lib, music, "Same");
     lib.hashed(same, 1);
@@ -341,6 +458,101 @@ fn a_run_compares_no_more_fingerprints_than_its_budget() {
     )
     .unwrap();
     assert_eq!(plan.compared, per_row);
-    assert_eq!(asked as usize, per_row + 1, "one gone file and its files");
+    assert_eq!(plan.over_budget, 1);
+    assert_eq!(
+        asked as usize,
+        per_row + 2,
+        "both gone files, and the first one's files"
+    );
     assert_eq!(plan.missing, 2);
+}
+
+/// `count` present files lasting `duration` ms, ids from `first_id` up,
+/// and a rekordbox row `row` whose gone file (id `1_000_000 + row`) lasted
+/// that long.
+fn gone_row_and_files(input: &mut Input, row: i64, duration: i64, first_id: i64, count: usize) {
+    input.absent.push(rules::Absent {
+        id: 1_000_000 + row,
+        path: Some(format!("E:/Music/Gone {row}.mp3")),
+        duration_ms: Some(duration),
+        ..rules::Absent::default()
+    });
+    for id in first_id..first_id + count as i64 {
+        input.files.push(rules::File {
+            id,
+            folder: 1,
+            parent: "Elsewhere".into(),
+            name: format!("F{id}.flac"),
+            path: Some(format!("E:/Music/Elsewhere/F{id}.flac")),
+            online: true,
+            duration_ms: Some(duration),
+            ..rules::File::default()
+        });
+    }
+    let location = loc(&format!("E:/Music/Gone {row}.mp3"));
+    let location = crate::rekordbox::location::decode(&location).unwrap();
+    input.tracks.push(rules::Track {
+        id: row,
+        key: location.match_key(),
+        location: Some(location),
+        ..rules::Track::default()
+    });
+}
+
+/// A fingerprint lookup where gone file `1_000_000 + n` and present file
+/// `n` are song `n`, and every other file is a song of its own.
+fn prints(file: i64) -> Result<Option<crate::fingerprint::Fingerprint>, ()> {
+    Ok(Some(song((file % 1_000_000) as u64, 5)))
+}
+
+#[test]
+fn the_budget_goes_to_the_rows_with_the_fewest_candidates_first() {
+    // Row 1 has the most files of its length, row 2 fewer; together
+    // they're over the budget. In row order, row 1 would use the budget up
+    // and row 2 would never be compared, in any run.
+    let mut input = Input::default();
+    let (many, few) = (MAX_COMPARISONS * 3 / 4, MAX_COMPARISONS * 3 / 10);
+    gone_row_and_files(&mut input, 1, 100_000, 10, many);
+    // File 2 is row 2's gone file's song.
+    gone_row_and_files(&mut input, 2, 300_000, 2, 1);
+    gone_row_and_files(&mut input, 3, 300_000, 500_000, few - 1);
+    // (Row 3 only brings files of row 2's length; give it no gone file.)
+    input.absent.pop();
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), prints).unwrap();
+    assert_eq!(plan.compared, few);
+    assert_eq!(plan.over_budget, 1, "row 1 is left undecided");
+    // Row 2 found its duplicate (probable: no title to agree).
+    assert_eq!(plan.probable, 1);
+    let matched: Vec<_> = plan.decisions.iter().map(|d| (d.track, d.target)).collect();
+    assert_eq!(matched.len(), 1);
+    assert_eq!(matched[0].0, 2);
+    assert_eq!(matched[0].1.map(|t| t.file), Some(2));
+}
+
+#[test]
+fn a_row_the_budget_didnt_reach_still_contests_its_candidates() {
+    // Two gone files of one song, and one duplicate of it left. Compared
+    // in full, neither row gets it. The budget reaches only the first row:
+    // it still mustn't get the file.
+    let per_row = MAX_COMPARISONS / 2 + 1;
+    let mut input = Input::default();
+    gone_row_and_files(&mut input, 1, 100_000, 1, per_row);
+    // Row 2's gone file is the same song (file 1's), the same length.
+    input.absent.push(rules::Absent {
+        id: 2_000_001,
+        path: Some("E:/Music/Gone 2.mp3".into()),
+        duration_ms: Some(100_000),
+        ..rules::Absent::default()
+    });
+    let location = crate::rekordbox::location::decode(&loc("E:/Music/Gone 2.mp3")).unwrap();
+    input.tracks.push(rules::Track {
+        id: 2,
+        key: location.match_key(),
+        location: Some(location),
+        ..rules::Track::default()
+    });
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), prints).unwrap();
+    assert_eq!((plan.compared, plan.over_budget), (per_row, 1));
+    assert_eq!(plan.missing, 2);
+    assert!(plan.decisions.is_empty());
 }

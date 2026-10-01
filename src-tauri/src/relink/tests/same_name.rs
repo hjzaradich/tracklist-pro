@@ -25,13 +25,11 @@ fn the_same_name_with_a_duration_outside_the_window_doesnt_match() {
     let short = lib.track(&loc("E:/Gone/Too Short.mp3"), Some("200"));
     let long = lib.track(&loc("E:/Gone/Too Long.mp3"), Some("200"));
     let summary = lib.relink(&mounted);
-    // Not accepted by name and duration; the name alone is only a probable
-    // guess (step 5).
-    for track in [short, long] {
-        assert_eq!(lib.method(track).as_deref(), Some("filename_only"));
-        assert!(lib.probable(track));
-    }
-    assert_eq!((summary.filename_duration, summary.probable), (0, 2));
+    // Not even as a name guess (step 5): a known duration that doesn't fit
+    // speaks against the file.
+    assert_eq!(lib.matched(short), None);
+    assert_eq!(lib.matched(long), None);
+    assert_eq!(summary.missing, 2);
 }
 
 #[test]
@@ -126,13 +124,15 @@ fn a_track_without_a_usable_total_time_is_never_matched_by_duration() {
     let none = lib.track(&loc("E:/Gone/Kappa.mp3"), None);
     let junk = lib.track(&loc("E:/Gone/Kappa.mp3"), Some("200.0"));
     lib.relink(&mounted);
-    for track in [zero, tiny, none, junk] {
-        // At most a probable guess by name alone (step 5).
-        let method = lib.method(track);
-        assert!(
-            matches!(method.as_deref(), None | Some("filename_only")),
-            "track {track}: {method:?}"
-        );
+    // Never by duration. The two with a file name of their own get a
+    // probable guess by name alone (step 5); the two that share a name get
+    // nothing.
+    for track in [zero, tiny] {
+        assert_eq!(lib.method(track).as_deref(), Some("filename_only"));
+        assert!(lib.probable(track), "track {track}");
+    }
+    for track in [none, junk] {
+        assert_eq!(lib.matched(track), None, "track {track}");
     }
 }
 

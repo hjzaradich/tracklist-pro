@@ -101,6 +101,12 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
         let summary = job.writer().call(move |c| relink(c, &mounted))?;
         let _ = job.progress(1.0);
         eprintln!("relink: {summary:?}");
+        if summary.fingerprint_undecided > 0 {
+            eprintln!(
+                "relink: the fingerprint comparison budget left {} rows undecided",
+                summary.fingerprint_undecided
+            );
+        }
         ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
         if let Some(hook) = &self.on_summary {
             hook(summary);
