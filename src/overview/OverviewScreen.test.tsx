@@ -59,6 +59,16 @@ function fakeBackend(state: {
         backend.toAdd = 0;
         return summary;
       }
+      if (cmd === "send_state") {
+        return {
+          revision: 0,
+          filePath: String.raw`C:\data\send.xml`,
+          exportPath: null,
+          preflight: null,
+          failure: null,
+          sent: null,
+        };
+      }
       if (cmd === "music_folders") return [];
       if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
       if (cmd === "rekordbox_xml_source") {
@@ -184,5 +194,47 @@ describe("the Overview once the Library has tracks", () => {
     await waitFor(() => expect(screen.queryByRole("heading", { name: "rekordbox tracks" })).toBeNull());
     expect(screen.queryByText(/in your Library$/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
+  });
+});
+
+describe("Send to rekordbox on the Overview", () => {
+  it("opens the guided send once the Library has tracks, and returns when it's closed", async () => {
+    fakeBackend({ library: 2, toAdd: 0 });
+    renderApp("/overview");
+    await userEvent.click(await screen.findByRole("button", { name: "Send to rekordbox" }));
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Send to rekordbox" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Write the file" })).toBeInTheDocument();
+    // The checklist takes the Overview's place.
+    expect(screen.queryByRole("heading", { name: "rekordbox collection" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(await screen.findByRole("button", { name: "Send to rekordbox" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "rekordbox collection" })).toBeInTheDocument();
+  });
+
+  it("isn't offered while the Library is empty", async () => {
+    fakeBackend({ library: 0, toAdd: 0 });
+    renderApp("/overview");
+    expect(await screen.findByRole("heading", { name: "Start your Library" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send to rekordbox" })).toBeNull();
+  });
+
+  it("isn't offered, and neither is adding rekordbox tracks, until the Library is known", async () => {
+    const backend = fakeBackend({ library: 0, toAdd: 5, libraryHeld: true });
+    renderApp("/overview");
+    expect(
+      await screen.findByRole("heading", { name: "rekordbox collection" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send to rekordbox" })).toBeNull();
+    // The offer's title depends on whether the Library is empty, so it
+    // waits too: no regular title flashes before the first-run one.
+    expect(screen.queryByRole("heading", { name: "rekordbox tracks" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Start from rekordbox" })).toBeNull();
+
+    backend.release();
+    expect(await screen.findByRole("heading", { name: "Start from rekordbox" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "rekordbox tracks" })).toBeNull();
   });
 });

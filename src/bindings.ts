@@ -145,6 +145,25 @@ export const commands = {
 	 *  Library.
 	 */
 	allMusicTracks: (search: string | null) => typedError<AllMusicList, IpcError>(__TAURI_INVOKE("all_music_tracks", { search })),
+	/**
+	 *  Where the send is: the file's path, the preflight waiting for the go,
+	 *  and how the last step ended.
+	 */
+	sendState: () => typedError<SendState, IpcError>(__TAURI_INVOKE("send_state")),
+	/**
+	 *  Starts a send: reads rekordbox's export again and builds the preflight,
+	 *  as a job. With a `path`, that file is read and becomes the chosen
+	 *  export; without one, the chosen export is read. Any earlier preflight
+	 *  is dropped at once. Returns the job's id.
+	 */
+	prepareSend: (path: string | null) => typedError<JobId, IpcError>(__TAURI_INVOKE("prepare_send", { path })),
+	/**
+	 *  The user's go: writes the send the preflight `token` names and records
+	 *  it, as a job. `confirmed` is the explicit confirm
+	 *  ([`Preflight::needs_confirm`] says when it's needed). Returns the job's id; the job refuses
+	 *  anything that isn't exactly the reviewed send.
+	 */
+	writeSend: (token: string, confirmed: boolean) => typedError<JobId, IpcError>(__TAURI_INVOKE("write_send", { token, confirmed })),
 };
 
 /** Events */
@@ -307,6 +326,23 @@ export type ExportFile = {
 	modifiedMs: number,
 };
 
+/**  The export a preflight was made from. */
+export type ExportRead = {
+	path: string,
+	/**
+	 *  When rekordbox saved it: the file's modified time, in milliseconds
+	 *  since the Unix epoch.
+	 */
+	modifiedMs: number,
+	/**  When the app read it (UTC, ISO 8601). */
+	readAt: string,
+	/**
+	 *  Tracks in the export that couldn't be read. Above 0, the send
+	 *  needs an explicit confirm ([`Preflight::needs_confirm`]).
+	 */
+	notStored: number,
+};
+
 /**  Why a read failed, in terms the user can act on. */
 export type FailureReason = 
 /**  The file isn't there any more. */
@@ -445,6 +481,43 @@ export type LastRead = {
 	summary: SnapshotSummary,
 };
 
+/**  A Library track a send leaves out. */
+export type LeftOut = {
+	track: TrackLabel,
+	reason: LeftOutReason,
+	/**  The rekordbox field at fault, where the reason names one. */
+	attribute: string | null,
+};
+
+/**
+ *  Why a Library track is left out of a send. A code; the wording is in
+ *  the locale file.
+ */
+export type LeftOutReason = 
+/**  It has no linked file. */
+"noFile" | 
+/**  Its linked file isn't on disk. */
+"fileMissing" | 
+/**
+ *  Its file's path can't be worked out (its drive or folder doesn't
+ *  read back).
+ */
+"noPath" | 
+/**  Its path can't be written as a rekordbox `Location`. */
+"pathNotSendable" | 
+/**
+ *  One of its values holds a character XML can't carry
+ *  ([`LeftOut::attribute`] names the field).
+ */
+"unsendableCharacter" | 
+/**  An earlier track of this send is the same file. */
+"sameFileAsAnother" | 
+/**
+ *  rekordbox's own entry for it can't be sent back as it is (its
+ *  `TrackID` or an attribute is unusable or repeated).
+ */
+"rekordboxEntry";
+
 /**  A Library track, with what the Library list shows. */
 export type LibraryTrack = {
 	id: LibraryTrackId,
@@ -505,6 +578,21 @@ export type LinkedFile = {
 	 *  stays `present`, and its track isn't missing.
 	 */
 	driveConnected: boolean,
+};
+
+/**
+ *  A crate or playlist that will arrive in rekordbox with entries left out
+ *  (their tracks aren't sent). Importing it replaces rekordbox's playlist
+ *  of that name, so those entries are lost there (§5.2).
+ */
+export type LosesEntries = {
+	kind: TreeKind,
+	/**  The folder names down to it, below `Crates` or `Playlists`. */
+	path: string[],
+	/**  How many of its entries are left out. */
+	lost: number,
+	/**  How many entries it has in the app. */
+	entries: number,
 };
 
 /**  The missing tracks that were last in one folder. */
@@ -614,12 +702,62 @@ export type OperationInfo = {
 };
 
 /**
+ *  A Library track whose linked file rekordbox doesn't have, while it
+ *  already has another file of the same track: sending adds a second
+ *  rekordbox entry.
+ */
+export type OtherFile = {
+	track: TrackLabel,
+	/**  The Library track's file, which the send adds. */
+	libraryFile: string | null,
+	/**  The file rekordbox already has. */
+	rekordboxFile: string | null,
+};
+
+/**
  *  A rekordbox playlist to pick, with how many of its entries are tracks
  *  with a file or a last known path (streaming entries aren't counted).
  */
 export type PlaylistChoice = {
 	path: string[],
 	tracks: number,
+};
+
+/**  What a send would do, worked out without writing anything. */
+export type Preflight = {
+	/**  Names this preflight; the write must be given it back. */
+	token: string,
+	export: ExportRead,
+	/**  Tracks rekordbox doesn't have yet. No dialog for these. */
+	newTracks: number,
+	/**  Tracks rekordbox already has: one Yes/No dialog each on import. */
+	knownTracks: number,
+	leftOut: LeftOut[],
+	otherFile: OtherFile[],
+	/**
+	 *  Not empty: the send needs an explicit confirm
+	 *  ([`Preflight::needs_confirm`] says when it's needed).
+	 */
+	losesEntries: LosesEntries[],
+	/**  Set when the send can't go at all. */
+	refusal: Refusal | null,
+	/**
+	 *  No track would be sent and there's no crate or playlist: the send
+	 *  can't be started.
+	 */
+	nothingToSend: boolean,
+	/**
+	 *  Whether the user's go can start the write: the send isn't refused
+	 *  and there's something to send.
+	 */
+	canSend: boolean,
+	/**
+	 *  Whether the go needs the explicit confirm: a crate or playlist
+	 *  loses entries, or the read couldn't store some of rekordbox's
+	 *  tracks (a Library track on such a track's file would be sent as
+	 *  new, and a Yes in rekordbox would overwrite that entry).
+	 */
+	needsConfirm: boolean,
 };
 
 /**  What adding a track to the Library did. */
@@ -664,6 +802,37 @@ export type ReasonSource =
  */
 "audioModel";
 
+/**  A refused send, explained. */
+export type Refusal = {
+	reason: RefusalReason,
+	/**
+	 *  Where in the tree the problem is, from `Crates` or `Playlists`
+	 *  down; empty when the reason isn't about the tree.
+	 */
+	path: string[],
+};
+
+/**  Why the whole send is refused. */
+export type RefusalReason = 
+/**
+ *  The export just read doesn't hold every track it says it does, so
+ *  some of rekordbox's values would come from an older read.
+ */
+"incompleteExport" | 
+/**
+ *  Two crates, playlists or folders in one folder share a name (or
+ *  names rekordbox may treat as one): one would replace the other.
+ */
+"sameName" | 
+/**  A crate, playlist or folder has no name. */
+"noName" | 
+/**  A name holds a character XML can't carry. */
+"unsendableName" | 
+/**  Folders nest too deep. */
+"tooDeep" | 
+/**  The file couldn't be made (a bug; nothing is written). */
+"internal";
+
 /**  A file the walk added to the index, as the frontend hears it. */
 export type ScannedFile = {
 	/**  The `file` row id. */
@@ -684,6 +853,63 @@ export type ScannedFile = {
 
 /**  Files the walk just added to the index, one batch at a time. */
 export type ScannedFiles = ScannedFile[];
+
+/**  Why a step of the send stopped. Nothing was sent. */
+export type SendFailure = 
+/**  The export couldn't be read; the rekordbox source says why. */
+"readFailed" | 
+/**  The step was cancelled. */
+"cancelled" | 
+/**  There's no preflight to send, or not the one named. */
+"noPreflight" | 
+/**  The export changed, or was read again, after the preflight. */
+"exportChanged" | 
+/**
+ *  The Library changed after the preflight: the send would differ
+ *  from what was reviewed.
+ */
+"libraryChanged" | 
+/**  The preflight says the send is refused, or has nothing to send. */
+"notSendable" | 
+/**  The send needs the explicit confirm and it wasn't given. */
+"notConfirmed" | 
+/**
+ *  The file couldn't be written. The file from the last send is as it
+ *  was.
+ */
+"cantWrite" | 
+/**
+ *  The file was written but the send couldn't be recorded. The file
+ *  from the last send was put back, if there was one.
+ */
+"cantRecord" | 
+/**  The database failed, or a bug. */
+"internal";
+
+/**  Everything the checklist shows. */
+export type SendState = {
+	/**  Goes up each time a step ends, however it ends. */
+	revision: number,
+	/**  The one file a send writes, replaced every time. */
+	filePath: string,
+	/**  The export that will be read, if one is chosen. */
+	exportPath: string | null,
+	/**  The preflight waiting for the go. */
+	preflight: Preflight | null,
+	/**  Why the last step stopped, until the next step starts. */
+	failure: SendFailure | null,
+	/**  The last send of this run of the app, until the next step starts. */
+	sent: Sent | null,
+};
+
+/**  A send that went through. */
+export type Sent = {
+	/**  When it was recorded (UTC, ISO 8601). */
+	at: string,
+	newTracks: number,
+	/**  How many Yes/No dialogs to expect in rekordbox. */
+	knownTracks: number,
+};
 
 /**  What a read did to the snapshot. */
 export type SnapshotSummary = {
@@ -709,6 +935,19 @@ export type Suggestion<T> = {
 	what: T,
 	reasons: Reason[],
 };
+
+/**  A Library track, as the preflight's lists name it. */
+export type TrackLabel = {
+	libraryTrack: LibraryTrackId,
+	/**  `None` when the track has none; the list then shows the file's name. */
+	title: string | null,
+	artist: string | null,
+	/**  The linked file's name, e.g. `a.mp3`. */
+	fileName: string | null,
+};
+
+/**  Whether a node is under `Crates` or `Playlists`. */
+export type TreeKind = "crate" | "playlist";
 
 /**  Something changed since the operation that undo would overwrite. */
 export type UndoConflict = {

@@ -99,6 +99,9 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::start::undo_add_rekordbox_tracks,
             crate::start::rekordbox_playlists,
             crate::all_music::all_music_tracks,
+            crate::send::send_state,
+            crate::send::prepare_send,
+            crate::send::write_send,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

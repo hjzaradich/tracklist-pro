@@ -22,6 +22,7 @@ pub mod rekordbox_write;
 pub mod relink;
 pub mod scan;
 pub mod scan_state;
+pub mod send;
 pub mod send_values;
 pub mod settings;
 pub mod sniff;
@@ -61,6 +62,7 @@ fn resolve_data_dir<R: Runtime, M: Manager<R>>(
 /// Creates the app data folder through the write guard, opens the
 /// database's one writer connection there, and hands both to Tauri's state,
 /// where commands reach them as `State<WriteGuard>` and `State<db::Writer>`,
+/// keeps where the send flow is (`State<send::SendFlow>`),
 /// starts the job queue (`State<jobs::JobQueue>`) and the music folder
 /// watchers (`State<scan::Watchers>`), then opens the window, kept on the
 /// app's own pages (`net::navigation`).
@@ -76,6 +78,8 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
             app.manage(db::ReadPool::open(writer.guarded_path())?);
             scan::volumes::start(app.handle(), &writer);
+            // Before the job queue: the send job's handler shares it.
+            app.manage(send::SendFlow::new(guard.clone()));
             app.manage(jobs::start(app.handle(), writer.clone())?);
             app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);

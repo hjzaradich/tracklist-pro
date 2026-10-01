@@ -64,6 +64,10 @@ impl Sandbox {
             self.guard.write_then_rename(path, b"x"),
         );
         refused("remove_file", self.guard.remove_file(path));
+        refused(
+            "remove_leftover_parts",
+            self.guard.remove_leftover_parts(path).map(drop),
+        );
         refused("remove_dir_all", self.guard.remove_dir_all(path));
         let inside = self.data().join("inside.txt");
         self.guard.write(&inside, b"in").unwrap();
@@ -686,6 +690,160 @@ fn write_then_rename_never_opens_or_deletes_a_file_that_already_has_its_temp_nam
     assert_eq!(fs::read(&taken).unwrap(), b"someone's");
     assert_eq!(fs::read(&dest).unwrap(), b"new");
     assert_eq!(data_listing(&sb), ["send.xml", "send.xml.part"]);
+}
+
+// ---- clearing what a cut-short write left ------------------------------------
+
+/// Makes a write to `dest` fail after its new file exists, and returns
+/// that file's name: the one name the write tried this time.
+fn name_a_failed_write_tried(sb: &Sandbox, dest: &Path) -> Option<String> {
+    let before = data_listing(sb);
+    let mut tried = None;
+    let failed = sb.guard.write_then_rename_with(
+        dest,
+        |_| {
+            tried = data_listing(sb).into_iter().find(|n| !before.contains(n));
+            Err(io::Error::other("stopped"))
+        },
+        || Ok(()),
+    );
+    assert!(failed.is_err());
+    tried
+}
+
+#[test]
+fn clearing_leftovers_deletes_exactly_the_names_a_write_tries() {
+    // The names are learned from what a write does, not from the guard's
+    // own list: each failed write shows the name it tried, which is then
+    // taken, so the next write shows the next one.
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    let mut tried = Vec::new();
+    while let Some(name) = name_a_failed_write_tried(&sb, &dest) {
+        fs::write(sb.data().join(&name), b"left by a crash").unwrap();
+        tried.push(name);
+    }
+    assert_eq!(tried.len(), 16);
+    tried.sort();
+    assert_eq!(data_listing(&sb), tried);
+
+    assert_eq!(sb.guard.remove_leftover_parts(&dest).unwrap(), 16);
+    assert_eq!(data_listing(&sb), Vec::<String>::new());
+    // And a write goes through again, under its first name.
+    assert_eq!(
+        name_a_failed_write_tried(&sb, &dest).as_deref(),
+        Some("send.xml.part")
+    );
+}
+
+#[test]
+fn clearing_leftovers_leaves_the_destination_and_every_other_name_alone() {
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    fs::write(&dest, b"the last send").unwrap();
+    fs::create_dir(sb.data().join("sub")).unwrap();
+    let kept = [
+        "other.xml.part",
+        "send.part",
+        "send.xml.0.part",
+        "send.xml.01.part",
+        "send.xml.16.part",
+        "send.xml.1.part.bak",
+        "send.xml.part.bak",
+        "send.xml.x.part",
+        "sub/send.xml.part",
+        "xsend.xml.part",
+    ];
+    for name in kept {
+        fs::write(sb.data().join(name), name).unwrap();
+    }
+    for name in ["send.xml.part", "send.xml.1.part", "send.xml.15.part"] {
+        fs::write(sb.data().join(name), b"left by a crash").unwrap();
+    }
+
+    assert_eq!(sb.guard.remove_leftover_parts(&dest).unwrap(), 3);
+    let mut expected: Vec<String> = kept.iter().map(|n| (*n).to_owned()).collect();
+    expected.extend(["send.xml".to_owned(), "sub".to_owned()]);
+    expected.sort();
+    assert_eq!(data_listing(&sb), expected);
+    assert_eq!(fs::read(&dest).unwrap(), b"the last send");
+    for name in kept {
+        assert_eq!(fs::read(sb.data().join(name)).unwrap(), name.as_bytes());
+    }
+    // Nothing left to clear: nothing changes.
+    assert_eq!(sb.guard.remove_leftover_parts(&dest).unwrap(), 0);
+    assert_eq!(data_listing(&sb), expected);
+}
+
+#[test]
+fn clearing_leftovers_only_looks_in_the_destinations_own_folder() {
+    let sb = Sandbox::new();
+    fs::create_dir(sb.data().join("sub")).unwrap();
+    fs::write(sb.data().join("send.xml.part"), b"above").unwrap();
+    fs::write(sb.data().join("sub").join("send.xml.part"), b"beside").unwrap();
+    // The destination itself needn't exist.
+    let dest = sb.data().join("sub").join("send.xml");
+    assert_eq!(sb.guard.remove_leftover_parts(&dest).unwrap(), 1);
+    assert_eq!(data_listing(&sb), ["send.xml.part", "sub"]);
+}
+
+#[test]
+fn clearing_leftovers_never_deletes_a_folder_or_a_link_with_a_leftovers_name() {
+    let sb = Sandbox::new();
+    let before = sb.outside_listing();
+    let dest = sb.data().join("send.xml");
+    // A folder with a file in it, a link to a folder outside the root, and
+    // (where the OS allows) a link to a file outside it.
+    let folder = sb.data().join("send.xml.part");
+    fs::create_dir(&folder).unwrap();
+    fs::write(folder.join("inside.txt"), b"in").unwrap();
+    let folder_link = sb.data().join("send.xml.1.part");
+    link_dir(&folder_link, &sb.outside());
+    let file_link = sb.data().join("send.xml.2.part");
+    let linked = link_file(&file_link, &sb.outside().join("keep.txt"));
+    fs::write(sb.data().join("send.xml.3.part"), b"left by a crash").unwrap();
+
+    assert_eq!(sb.guard.remove_leftover_parts(&dest).unwrap(), 1);
+    assert!(!sb.data().join("send.xml.3.part").exists());
+    assert_eq!(fs::read(folder.join("inside.txt")).unwrap(), b"in");
+    assert!(fs::symlink_metadata(&folder_link).is_ok());
+    if linked {
+        assert!(fs::symlink_metadata(&file_link).is_ok());
+    }
+    assert_eq!(sb.outside_listing(), before);
+    assert_eq!(fs::read(sb.outside().join("keep.txt")).unwrap(), b"keep");
+}
+
+#[test]
+fn clearing_leftovers_is_refused_outside_the_root_and_deletes_nothing_there() {
+    let sb = Sandbox::new();
+    let dest = sb.outside().join("send.xml");
+    fs::write(sb.outside().join("send.xml.part"), b"not ours").unwrap();
+    let before = sb.outside_listing();
+    for path in [
+        dest.clone(),
+        sb.data().join("..").join("outside").join("send.xml"),
+    ] {
+        assert!(
+            matches!(
+                sb.guard.remove_leftover_parts(&path),
+                Err(GuardError::Outside(_))
+            ),
+            "{path:?}"
+        );
+    }
+    // Through a link inside the root that points outside, too.
+    let link = sb.data().join("link");
+    link_dir(&link, &sb.outside());
+    assert!(sb
+        .guard
+        .remove_leftover_parts(&link.join("send.xml"))
+        .is_err());
+    assert_eq!(sb.outside_listing(), before);
+    assert_eq!(
+        fs::read(sb.outside().join("send.xml.part")).unwrap(),
+        b"not ours"
+    );
 }
 
 #[test]

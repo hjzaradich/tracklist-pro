@@ -294,6 +294,46 @@ impl WriteGuard {
         })
     }
 
+    /// Deletes the files an earlier [`Self::write_then_rename`] to `path`
+    /// could have left when it was cut short (a crash, a power cut):
+    /// exactly the names it can give its new file ([`beside_names`]), in
+    /// `path`'s own folder. Only a plain file is deleted; a folder or a
+    /// link with such a name is left alone, and so is `path` itself.
+    /// Returns how many were deleted.
+    ///
+    /// `path` passes the same check as a write, so nothing outside a root
+    /// is looked at or deleted.
+    pub fn remove_leftover_parts(&self, path: &Path) -> Result<usize, GuardError> {
+        let checked = self.check(path)?;
+        let mut removed = 0;
+        for name in beside_names(&checked.path) {
+            let leftover = checked.path.with_file_name(name);
+            // Not following links: only a plain file is one of ours.
+            match fs::symlink_metadata(&leftover) {
+                Ok(meta) if meta.file_type().is_file() => {}
+                Ok(_) => continue,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(source) => {
+                    return Err(GuardError::Io {
+                        path: leftover,
+                        source,
+                    })
+                }
+            }
+            match fs::remove_file(&leftover) {
+                Ok(()) => removed += 1,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(GuardError::Io {
+                        path: leftover,
+                        source,
+                    })
+                }
+            }
+        }
+        Ok(removed)
+    }
+
     /// Renames or moves a file, folder or link. Both ends must be inside a
     /// root, and a root itself can't be moved. A link is moved as a link.
     pub fn rename(&self, from: &Path, to: &Path) -> Result<(), GuardError> {
@@ -402,14 +442,8 @@ impl GuardedPath {
     /// one is tried. The folder is this path's own, so the new file is
     /// inside the same root. An error names the file that couldn't be made.
     fn create_beside(&self) -> Result<(PathBuf, File), GuardError> {
-        let name = self.path.file_name().unwrap_or_default();
         let mut last = (self.path.clone(), io::ErrorKind::AlreadyExists.into());
-        for attempt in 0..BESIDE_ATTEMPTS {
-            let mut temp_name = name.to_owned();
-            if attempt > 0 {
-                temp_name.push(format!(".{attempt}"));
-            }
-            temp_name.push(".part");
+        for temp_name in beside_names(&self.path) {
             let temp = self.path.with_file_name(temp_name);
             match File::options().write(true).create_new(true).open(&temp) {
                 Ok(file) => return Ok((temp, file)),
@@ -431,6 +465,22 @@ impl GuardedPath {
 
 /// How many names [`GuardedPath::create_beside`] tries before giving up.
 const BESIDE_ATTEMPTS: u32 = 16;
+
+/// Every name [`GuardedPath::create_beside`] can give the new file it makes
+/// beside `path`, in the order it tries them: `<name>.part`, then
+/// `<name>.1.part`, `<name>.2.part`, … The one list both the write and
+/// [`WriteGuard::remove_leftover_parts`] go by, so they can't disagree.
+fn beside_names(path: &Path) -> impl Iterator<Item = std::ffi::OsString> {
+    let name = path.file_name().unwrap_or_default().to_owned();
+    (0..BESIDE_ATTEMPTS).map(move |attempt| {
+        let mut temp_name = name.clone();
+        if attempt > 0 {
+            temp_name.push(format!(".{attempt}"));
+        }
+        temp_name.push(".part");
+        temp_name
+    })
+}
 
 /// Keeps a connection's scratch data in memory and refuses `ATTACH` of a
 /// file (which `VACUUM INTO` also uses). Plain `VACUUM` attaches an unnamed
