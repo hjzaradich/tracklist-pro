@@ -163,32 +163,20 @@ pub struct StalePlaylist {
     pub kind: StaleKind,
     /// For a folder, how many playlists are in it (at any depth).
     pub playlists_inside: u32,
+    /// A folder with nothing in it at all (not even a subfolder). A folder
+    /// holding only subfolders has no playlists but isn't empty.
+    pub empty: bool,
 }
 
-/// The app's own tree, from the `crate` table. Smart crates are sent as
-/// playlists, so they count like any other. The app has no playlists of its
+/// The app's own tree: what a send would write, from the `crate` table
+/// ([`crate::send::crate_tree`]): folders and hand-made crates. A smart crate
+/// isn't sent yet (3.3), so it isn't here. The app has no playlists of its
 /// own yet (Phase 3).
 pub fn app_tree(conn: &Connection) -> rusqlite::Result<AppTree> {
-    let rows: Vec<(i64, Option<i64>, String, String)> = conn
-        .prepare("SELECT id, parent_id, kind, name FROM crate ORDER BY parent_id, position, id")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    fn below(rows: &[(i64, Option<i64>, String, String)], parent: Option<i64>) -> Vec<TreeNode> {
-        rows.iter()
-            .filter(|(_, p, _, _)| *p == parent)
-            .map(|(id, _, kind, name)| {
-                if kind == "folder" {
-                    TreeNode::folder(name, below(rows, Some(*id)))
-                } else {
-                    TreeNode::playlist(name)
-                }
-            })
-            .collect()
-    }
-    Ok(AppTree {
-        crates: below(&rows, None),
-        playlists: Vec::new(),
-    })
+    Ok(RekordboxTree::from_nodes(
+        &crate::send::crate_tree(conn)?,
+        &[],
+    ))
 }
 
 /// The playlists and folders a send has written, as normalized name paths
@@ -371,6 +359,7 @@ impl Walk<'_> {
                             } else {
                                 0
                             },
+                            empty: children.as_ref().is_some_and(|c| c.is_empty()),
                         });
                     } else if let Some(children) = children {
                         // Not listed whole: the user's folder, or one with

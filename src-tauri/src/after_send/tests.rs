@@ -667,3 +667,41 @@ fn a_removed_track_whose_sent_location_cannot_be_read_shows_its_name_and_leaves_
     lib.read("2026-10-01T12:00:00.000Z", &[], true);
     assert_eq!(lib.lists().manual_removals, []);
 }
+
+#[test]
+fn a_folder_holding_only_subfolders_has_no_playlists_but_is_not_empty() {
+    let read = RekordboxTree {
+        crates: vec![
+            folder("Only folders", vec![folder("Inner", vec![])]),
+            folder("Nothing", vec![]),
+            playlist("A playlist"),
+        ],
+        playlists: vec![],
+    };
+    let stale = stale_playlists(&read, &AppTree::default(), &Recorded::everything_in(&read));
+    assert_eq!(
+        stale
+            .iter()
+            .map(|s| (s.path[1].as_str(), s.playlists_inside, s.empty))
+            .collect::<Vec<_>>(),
+        [
+            ("Only folders", 0, false),
+            ("Nothing", 0, true),
+            ("A playlist", 0, false)
+        ]
+    );
+}
+
+#[test]
+fn a_smart_crate_is_not_in_the_apps_tree_since_a_send_does_not_write_it() {
+    let lib = Lib::new();
+    lib.sent(&[(&["Crates", "Clever"], false)]);
+    lib.run(
+        "INSERT INTO crate (kind, name, rules) VALUES ('smart', 'Clever', '{}')",
+        (),
+    );
+    lib.read_tree(crates(vec![playlist("Clever")]));
+    // It was sent while hand-made; it isn't sent now, so rekordbox's copy is
+    // one the app no longer has.
+    assert_eq!(paths(&lib.lists().stale_playlists), ["Crates / Clever"]);
+}

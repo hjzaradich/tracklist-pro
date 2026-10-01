@@ -299,6 +299,17 @@ impl World {
             .unwrap()
     }
 
+    /// Every folder and playlist path recorded so far, in the order recorded.
+    fn recorded_paths(&self) -> Vec<String> {
+        self.writer
+            .call(|c| {
+                c.prepare("SELECT path || '|' || kind FROM sent_playlist ORDER BY id")?
+                    .query_map([], |r| r.get(0))?
+                    .collect()
+            })
+            .unwrap()
+    }
+
     /// The names and titles in the send file's COLLECTION, in file order.
     fn sent_titles(&self) -> Vec<String> {
         let read = RekordboxXml::parse(fs::read(self.send_file()).unwrap().as_slice()).unwrap();
@@ -504,6 +515,7 @@ fn two_crates_rekordbox_may_take_for_one_refuse_the_send_and_the_preflight_says_
     assert_eq!(w.go(true), Some(SendFailure::NotSendable));
     assert_eq!(w.data_files(), Vec::<String>::new());
     assert_eq!(w.recorded().0, Vec::<String>::new());
+    assert_eq!(w.recorded_paths(), Vec::<String>::new());
 }
 
 #[test]
@@ -1042,7 +1054,9 @@ fn world_with_a_second_send_waiting() -> (World, Vec<u8>, (Vec<String>, Vec<Stri
     w.prepare().unwrap();
     assert_eq!(w.go(false), None);
     let file = fs::read(w.send_file()).unwrap();
-    w.library_track("second.mp3", "Second", true);
+    let (second, _) = w.library_track("second.mp3", "Second", true);
+    // A crate the second send writes for the first time.
+    w.crate_of("Late", &[second]);
     let recorded = w.recorded();
     w.save_export(&[Rb(40, "known.mp3", "Known in rekordbox")]);
     w.prepare().unwrap();
@@ -1052,6 +1066,8 @@ fn world_with_a_second_send_waiting() -> (World, Vec<u8>, (Vec<String>, Vec<Stri
 #[test]
 fn a_failed_write_leaves_the_last_sends_file_and_every_base_untouched() {
     let (w, file, recorded) = world_with_a_second_send_waiting();
+    let paths = w.recorded_paths();
+    assert_eq!(paths, [r#"["Crates","Warm up"]|playlist"#]);
     // Every name the write could give its new file is taken by a folder,
     // which clearing leftovers never deletes.
     let mut blockers = vec![format!("{SEND_FILE_NAME}.part")];
@@ -1063,6 +1079,7 @@ fn a_failed_write_leaves_the_last_sends_file_and_every_base_untouched() {
     assert_eq!(w.go(false), Some(SendFailure::CantWrite));
     assert_eq!(fs::read(w.send_file()).unwrap(), file);
     assert_eq!(w.recorded(), recorded);
+    assert_eq!(w.recorded_paths(), paths);
     assert_eq!(w.flow.sent(), None);
     // With the way clear, the same preflight goes through.
     for name in &blockers {
@@ -1083,6 +1100,7 @@ fn failing_record(
 #[test]
 fn a_failed_record_puts_the_last_sends_file_back_and_leaves_every_base_untouched() {
     let (w, file, recorded) = world_with_a_second_send_waiting();
+    let paths = w.recorded_paths();
     let token = w.flow.preflight().unwrap().token;
 
     let failure = w.go_with(w.sender().recording_with(failing_record), &token, false);
@@ -1090,9 +1108,15 @@ fn a_failed_record_puts_the_last_sends_file_back_and_leaves_every_base_untouched
     assert_eq!(fs::read(w.send_file()).unwrap(), file);
     assert_eq!(w.data_files(), [SEND_FILE_NAME]);
     assert_eq!(w.recorded(), recorded);
+    assert_eq!(w.recorded_paths(), paths);
     assert_eq!(w.flow.sent(), None);
     // The same preflight can be tried again, and goes through.
     assert_eq!(w.go(false), None);
+    assert_eq!(
+        w.recorded_paths().len(),
+        paths.len() + 1,
+        "the new crate's path"
+    );
     assert_eq!(w.sent_titles(), ["Known in rekordbox", "New", "Second"]);
     assert_ne!(w.recorded(), recorded);
 }
@@ -1102,6 +1126,7 @@ fn record_sends_own_rollback_also_puts_the_last_sends_file_back() {
     // The real record, failing partway: a sent track that's no longer in
     // the Library makes it roll back.
     let (w, file, recorded) = world_with_a_second_send_waiting();
+    let paths = w.recorded_paths();
     let token = w.flow.preflight().unwrap().token;
     let partway = |c: &mut rusqlite::Connection,
                    sent: &[SentTrack],
@@ -1115,6 +1140,8 @@ fn record_sends_own_rollback_also_puts_the_last_sends_file_back() {
     assert_eq!(failure, Some(SendFailure::CantRecord));
     assert_eq!(fs::read(w.send_file()).unwrap(), file);
     assert_eq!(w.recorded(), recorded);
+    // The paths were written before the track that failed: they roll back too.
+    assert_eq!(w.recorded_paths(), paths);
 }
 
 #[test]

@@ -22,9 +22,11 @@ function StaleItem({ stale }: { stale: StalePlaylist }) {
       <span className={styles.name}>{path}</span>
       {stale.kind === "folder" && (
         <span className={styles.detail}>
-          {stale.playlistsInside === 0
+          {stale.empty
             ? t("stale.emptyFolder")
-            : t("stale.folderInside", { count: stale.playlistsInside })}
+            : stale.playlistsInside === 0
+              ? t("stale.folderNoPlaylists")
+              : t("stale.folderInside", { count: stale.playlistsInside })}
         </span>
       )}
     </li>

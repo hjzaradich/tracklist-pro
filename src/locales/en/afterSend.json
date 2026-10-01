@@ -6,6 +6,7 @@
     "empty": "No playlists to delete",
     "unchecked": "Not checked yet (rekordbox hasn't been read)",
     "emptyFolder": "(empty folder)",
+    "folderNoPlaylists": "(folder with no playlists)",
     "folderInside_one": "(folder with {{count}} playlist)",
     "folderInside_other": "(folder with {{count}} playlists)"
   },

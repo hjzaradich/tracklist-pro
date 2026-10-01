@@ -1,7 +1,9 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it } from "vitest";
+import { XML_SOURCE_QUERY_KEY } from "../rekordbox/useXmlSource";
+import { SEND_STATE_QUERY_KEY } from "../send/useSend";
 import { createQueryClient } from "../app/queryClient";
 import type { AfterSendLists as Lists, ManualRemoval, StalePlaylist } from "../bindings";
 import "../i18n";
@@ -12,7 +14,7 @@ function lists(fields: Partial<Lists> = {}): Lists {
 }
 
 function stale(path: string[], fields: Partial<StalePlaylist> = {}): StalePlaylist {
-  return { path, kind: "playlist", playlistsInside: 0, ...fields };
+  return { path, kind: "playlist", playlistsInside: 0, empty: false, ...fields };
 }
 
 function removal(fields: Partial<ManualRemoval> = {}): ManualRemoval {
@@ -72,7 +74,8 @@ describe("the after-send lists", () => {
           stalePlaylists: [
             stale(["Crates", "One"], { kind: "folder", playlistsInside: 1 }),
             stale(["Crates", "Many"], { kind: "folder", playlistsInside: 3 }),
-            stale(["Crates", "Hollow"], { kind: "folder", playlistsInside: 0 }),
+            stale(["Crates", "Hollow"], { kind: "folder", playlistsInside: 0, empty: true }),
+            stale(["Crates", "Subfolders"], { kind: "folder", playlistsInside: 0 }),
           ],
         })}
       />,
@@ -80,6 +83,8 @@ describe("the after-send lists", () => {
     expect(screen.getByText("(folder with 1 playlist)")).toBeInTheDocument();
     expect(screen.getByText("(folder with 3 playlists)")).toBeInTheDocument();
     expect(screen.getByText("(empty folder)")).toBeInTheDocument();
+    // A folder holding only subfolders isn't empty.
+    expect(screen.getByText("(folder with no playlists)")).toBeInTheDocument();
   });
 
   it("lists each removed track with where it was sent", () => {
@@ -131,5 +136,60 @@ describe("the after-send panel", () => {
     );
     expect(await screen.findByText("Playlists > Old")).toBeInTheDocument();
     expect(screen.getByText("Artist - Song")).toBeInTheDocument();
+  });
+});
+
+describe("the after-send panel stays current", () => {
+  function setup() {
+    let answer: Lists = lists({ playlistsChecked: false });
+    mockIPC((cmd) => {
+      if (cmd === "after_send_lists") {
+        return answer;
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    const queryClient = createQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AfterSendPanel />
+      </QueryClientProvider>,
+    );
+    return {
+      queryClient,
+      answer: (next: Lists) => {
+        answer = next;
+      },
+    };
+  }
+
+  it("asks again when the send's state changes, such as after a read or a write", async () => {
+    const panel = setup();
+    expect(await screen.findByText("Not checked yet (rekordbox hasn't been read)")).toBeInTheDocument();
+    // A read finishes: the send's revision moves, and rekordbox is now read.
+    panel.answer(lists({ stalePlaylists: [stale(["Crates", "Old name"])] }));
+    act(() => {
+      panel.queryClient.setQueryData(SEND_STATE_QUERY_KEY, { revision: 1 });
+    });
+    expect(await screen.findByText("Crates > Old name")).toBeInTheDocument();
+    expect(screen.queryByText("Not checked yet (rekordbox hasn't been read)")).toBeNull();
+
+    // The file is written: the revision moves again.
+    panel.answer(lists());
+    act(() => {
+      panel.queryClient.setQueryData(SEND_STATE_QUERY_KEY, { revision: 2 });
+    });
+    expect(await screen.findByText("No playlists to delete")).toBeInTheDocument();
+  });
+
+  it("asks again when the rekordbox export is read again", async () => {
+    const panel = setup();
+    await screen.findByText("Not checked yet (rekordbox hasn't been read)");
+    panel.answer(lists());
+    act(() => {
+      panel.queryClient.setQueryData(XML_SOURCE_QUERY_KEY, {
+        lastRead: { readAt: "2026-10-01T10:00:00.000Z" },
+      });
+    });
+    expect(await screen.findByText("No playlists to delete")).toBeInTheDocument();
   });
 });

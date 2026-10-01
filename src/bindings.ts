@@ -980,6 +980,11 @@ export type StalePlaylist = {
 	kind: StaleKind,
 	/**  For a folder, how many playlists are in it (at any depth). */
 	playlistsInside: number,
+	/**
+	 *  A folder with nothing in it at all (not even a subfolder). A folder
+	 *  holding only subfolders has no playlists but isn't empty.
+	 */
+	empty: boolean,
 };
 
 /**

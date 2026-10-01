@@ -73,7 +73,9 @@ function fakeBackend(state: {
       if (cmd === "after_send_lists") {
         return {
           playlistsChecked: true,
-          stalePlaylists: [{ path: ["Crates", "Old name"], kind: "playlist", playlistsInside: 0 }],
+          stalePlaylists: [
+            { path: ["Crates", "Old name"], kind: "playlist", playlistsInside: 0, empty: false },
+          ],
           manualRemovals: [],
         };
       }
