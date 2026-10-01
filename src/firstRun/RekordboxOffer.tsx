@@ -171,7 +171,7 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
           aria-busy={add.isPending}
           onClick={() => add.mutate(chosen, { onSuccess: setSummary })}
         >
-          {t("add", { count: count ?? 0 })}
+          {t("add")}
         </button>
         <button
           type="button"

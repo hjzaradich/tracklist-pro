@@ -2,7 +2,7 @@
   "title": "Start your Library",
   "folders": {
     "title": "Music folders",
-    "help": "Where your music is. The app reads these folders and never changes the files in them.",
+    "help": "Pick the folders where you keep music. These folders are read but not altered.",
     "add": "Add folder"
   },
   "fromRekordbox": {

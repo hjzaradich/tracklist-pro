@@ -111,7 +111,7 @@ describe("the Overview while the Library is empty (first run)", () => {
     expect(screen.getByText("2 rekordbox tracks aren't in your Library")).toBeInTheDocument();
     expect(backend.adds).toBe(0);
 
-    await userEvent.click(screen.getByRole("button", { name: "Add them" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
     // The summary stays up although the Library is no longer empty.
     expect(await screen.findByText("2 tracks added to your Library")).toBeInTheDocument();
     expect(backend.adds).toBe(1);
@@ -183,6 +183,6 @@ describe("the Overview once the Library has tracks", () => {
     expect(await screen.findByRole("heading", { name: "rekordbox collection" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("heading", { name: "rekordbox tracks" })).toBeNull());
     expect(screen.queryByText(/in your Library$/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add them" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
   });
 });

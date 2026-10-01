@@ -96,7 +96,7 @@ describe("the offer to add rekordbox tracks", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "3 rekordbox tracks aren't in your Library",
     );
-    expect(screen.getByRole("button", { name: "Add them" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add" })).toBeEnabled();
     expect(backend.count("add_rekordbox_tracks")).toBe(0);
   });
 
@@ -106,7 +106,7 @@ describe("the offer to add rekordbox tracks", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "1 rekordbox track isn't in your Library",
     );
-    expect(screen.getByRole("button", { name: "Add it" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add" })).toBeInTheDocument();
   });
 
   it("shows nothing when there's nothing to add, whatever is waiting", async () => {
@@ -124,7 +124,7 @@ describe("the offer to add rekordbox tracks", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Couldn't read or save the Library. Try again.",
     );
-    expect(screen.queryByRole("button", { name: "Add them" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
   });
 
   it("marks the add button busy while the add runs", async () => {
@@ -134,7 +134,7 @@ describe("the offer to add rekordbox tracks", () => {
       held: ["add_rekordbox_tracks"],
     });
     renderOffer();
-    const add = await screen.findByRole("button", { name: "Add them" });
+    const add = await screen.findByRole("button", { name: "Add" });
     expect(add).not.toHaveAttribute("aria-busy", "true");
     await userEvent.click(add);
     await waitFor(() => expect(add).toHaveAttribute("aria-busy", "true"));
@@ -153,7 +153,7 @@ describe("the offer to add rekordbox tracks", () => {
       held: ["undo_add_rekordbox_tracks"],
     });
     renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: "Add them" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add" }));
     const undo = await screen.findByRole("button", { name: "Undo" });
     await userEvent.click(undo);
     await waitFor(() => expect(undo).toHaveAttribute("aria-busy", "true"));
@@ -174,7 +174,7 @@ describe("the offer to add rekordbox tracks", () => {
   it("adds the whole collection when asked, then shows the summary's four numbers", async () => {
     const backend = fakeBackend({ whole: offer(3), summary: SUMMARY });
     renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: "Add them" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add" }));
 
     const summary = await screen.findByRole("list");
     expect(within(summary).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
@@ -193,7 +193,7 @@ describe("the offer to add rekordbox tracks", () => {
       summary: { ...SUMMARY, added: 1, alreadyInLibrary: 0, waitingInMissing: 0 },
     });
     renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: "Add it" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add" }));
     const summary = await screen.findByRole("list");
     expect(within(summary).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "1 track added to your Library",
@@ -208,7 +208,7 @@ describe("the offer to add rekordbox tracks", () => {
       undo: { status: "undone", operation: { id: 9, kind: "add_rekordbox_tracks" } },
     });
     renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: "Add them" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add" }));
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
 
     expect(await screen.findByText("Add undone")).toBeInTheDocument();
@@ -220,7 +220,7 @@ describe("the offer to add rekordbox tracks", () => {
   it("says so when the add can't be undone any more", async () => {
     fakeBackend({ whole: offer(3), summary: SUMMARY, undo: { status: "nothingToUndo" } });
     renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: "Add them" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add" }));
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Can't undo: the Library has changed since",
@@ -230,7 +230,7 @@ describe("the offer to add rekordbox tracks", () => {
   it("goes back to the offer when the summary is closed", async () => {
     const backend = fakeBackend({ whole: offer(3), summary: SUMMARY });
     renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: "Add them" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add" }));
     await screen.findByRole("list");
     backend.whole = offer(0);
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -313,7 +313,7 @@ describe("the offer narrowed to chosen playlists", () => {
     expect(tree.getByText("Only the tracks are added, not the playlists.")).toBeInTheDocument();
     // Nothing chosen yet: nothing to add.
     expect(screen.getByRole("status")).toHaveTextContent("No playlists chosen");
-    expect(screen.getByRole("button", { name: "Add them" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
   });
 
   it("doesn't say there are no playlists while the list is still loading", async () => {
@@ -363,7 +363,7 @@ describe("the offer narrowed to chosen playlists", () => {
     );
     expect(backend.count("add_rekordbox_tracks")).toBe(0);
 
-    await userEvent.click(screen.getByRole("button", { name: "Add them" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
     await screen.findByRole("list");
     expect(backend.last("add_rekordbox_tracks")).toEqual({
       playlists: [["Sets", "Warmup"], ["Peak"]],

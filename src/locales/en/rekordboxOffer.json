@@ -6,8 +6,7 @@
   "countInPlaylists_other": "{{count, number}} tracks in the chosen playlists aren't in your Library",
   "noneInPlaylists": "No tracks to add in the chosen playlists",
   "noPlaylistsChosen": "No playlists chosen",
-  "add_one": "Add it",
-  "add_other": "Add them",
+  "add": "Add",
   "choosePlaylists": "Choose playlists",
   "wholeCollection": "Whole collection",
   "playlists": {
