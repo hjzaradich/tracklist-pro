@@ -1,0 +1,47 @@
+{
+  "empty": {
+    "purpose": "Placeholder describing what Review will hold, until its feature arrives.",
+    "where": "Review screen, above the Missing list.",
+    "approved": "Every decision the app can't make on its own."
+  },
+  "missing.title": {
+    "purpose": "Title of the list of rekordbox tracks with no file.",
+    "where": "Review screen, Missing list heading.",
+    "approved": "Missing"
+  },
+  "missing.empty": {
+    "purpose": "Says no tracks are missing.",
+    "where": "Review screen, Missing list, when there are none.",
+    "approved": "No missing tracks"
+  },
+  "missing.tracksCount_one": {
+    "purpose": "Track count beside a folder group (one).",
+    "where": "Review screen, Missing list, group heading with one track.",
+    "approved": "({{count}} track)"
+  },
+  "missing.tracksCount_other": {
+    "purpose": "Track count beside a folder group (several).",
+    "where": "Review screen, Missing list, group heading with several tracks.",
+    "approved": "({{count}} tracks)"
+  },
+  "missing.trackName": {
+    "purpose": "How a missing track with an artist is named.",
+    "where": "Review screen, Missing list, each track row ({{artist}} and {{title}} come from the track).",
+    "approved": "{{artist}} - {{title}}"
+  },
+  "missing.unknownFolder": {
+    "purpose": "Names the group of missing tracks with no known folder.",
+    "where": "Review screen, Missing list, group heading when rekordbox gave no folder.",
+    "approved": "Unknown folder"
+  },
+  "missing.lastKnown": {
+    "purpose": "Tooltip explaining the path shown under a missing track.",
+    "where": "Review screen, Missing list, hover title of a track's last known path.",
+    "approved": "Last known location"
+  },
+  "missing.addFolder": {
+    "purpose": "Button that adds a group's folder as a music folder.",
+    "where": "Review screen, Missing list, on a group whose folder exists and isn't a music folder yet.",
+    "approved": "Add folder"
+  }
+}

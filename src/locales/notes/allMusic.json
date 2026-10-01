@@ -1,0 +1,52 @@
+{
+  "empty": {
+    "purpose": "Says All music holds no tracks.",
+    "where": "All music screen, when the scan found no tracks and nothing is searched.",
+    "approved": "No tracks in All music"
+  },
+  "noMatch": {
+    "purpose": "Says the search found nothing.",
+    "where": "All music screen, when a search has no matching tracks.",
+    "approved": "No tracks match"
+  },
+  "search": {
+    "purpose": "Label and placeholder of the search box.",
+    "where": "All music screen, search input at the top.",
+    "approved": "Search All music"
+  },
+  "showing": {
+    "purpose": "Says the list is cut off: how many tracks are shown of how many match.",
+    "where": "All music screen, above the table, when more tracks match than are listed.",
+    "approved": "Showing {{shown, number}} of {{total, number}} tracks"
+  },
+  "columns.title": {
+    "purpose": "Column heading for a track's title.",
+    "where": "All music table header.",
+    "approved": "Title"
+  },
+  "columns.artist": {
+    "purpose": "Column heading for a track's artist.",
+    "where": "All music table header.",
+    "approved": "Artist"
+  },
+  "columns.file": {
+    "purpose": "Column heading for a track's file path.",
+    "where": "All music table header.",
+    "approved": "File"
+  },
+  "columns.library": {
+    "purpose": "Column heading for the Library status and its Add button.",
+    "where": "All music table header, last column.",
+    "approved": "Library"
+  },
+  "add": {
+    "purpose": "Button that adds a track to the Library.",
+    "where": "All music table, Library column, on a track not yet in the Library.",
+    "approved": "Add to Library"
+  },
+  "inLibrary": {
+    "purpose": "Says a track is already in the Library.",
+    "where": "All music table, Library column, on a track already in it.",
+    "approved": "In Library"
+  }
+}

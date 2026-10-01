@@ -11,7 +11,12 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "copy:check": "node scripts/copy.mjs check",
+    "copy:status": "node scripts/copy.mjs status",
+    "copy:gate": "node scripts/copy.mjs gate",
+    "copy:approve": "node scripts/copy.mjs approve",
+    "test:scripts": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.0",

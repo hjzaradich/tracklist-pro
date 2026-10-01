@@ -1,0 +1,137 @@
+{
+  "title": {
+    "purpose": "Title of the offer to add rekordbox tracks to the Library.",
+    "where": "Overview screen, rekordbox tracks panel (when the Library already has tracks).",
+    "approved": "rekordbox tracks"
+  },
+  "count_one": {
+    "purpose": "Says one rekordbox track isn't in the Library.",
+    "where": "Overview screen, rekordbox tracks panel, status when the whole collection is offered.",
+    "approved": "{{count, number}} rekordbox track isn't in your Library"
+  },
+  "count_other": {
+    "purpose": "Says how many rekordbox tracks aren't in the Library.",
+    "where": "Overview screen, rekordbox tracks panel, status when the whole collection is offered.",
+    "approved": "{{count, number}} rekordbox tracks aren't in your Library"
+  },
+  "countInPlaylists_one": {
+    "purpose": "Says one track in the chosen playlists isn't in the Library.",
+    "where": "Overview screen, rekordbox tracks panel, status after choosing playlists.",
+    "approved": "{{count, number}} track in the chosen playlists isn't in your Library"
+  },
+  "countInPlaylists_other": {
+    "purpose": "Says how many tracks in the chosen playlists aren't in the Library.",
+    "where": "Overview screen, rekordbox tracks panel, status after choosing playlists.",
+    "approved": "{{count, number}} tracks in the chosen playlists aren't in your Library"
+  },
+  "noneInPlaylists": {
+    "purpose": "Says the chosen playlists have nothing to add.",
+    "where": "Overview screen, rekordbox tracks panel, status when the chosen playlists hold no new tracks.",
+    "approved": "No tracks to add in the chosen playlists"
+  },
+  "noPlaylistsChosen": {
+    "purpose": "Says no playlists are ticked yet.",
+    "where": "Overview screen, rekordbox tracks panel, status after clicking Choose playlists and before ticking any.",
+    "approved": "No playlists chosen"
+  },
+  "add": {
+    "purpose": "Button that adds the offered tracks to the Library.",
+    "where": "Overview screen, rekordbox tracks panel, primary button.",
+    "approved": "Add"
+  },
+  "choosePlaylists": {
+    "purpose": "Button that switches to picking playlists.",
+    "where": "Overview screen, rekordbox tracks panel, secondary button while the whole collection is offered.",
+    "approved": "Choose playlists"
+  },
+  "wholeCollection": {
+    "purpose": "Button that goes back to offering the whole collection.",
+    "where": "Overview screen, rekordbox tracks panel, secondary button while playlists are being chosen.",
+    "approved": "Whole collection"
+  },
+  "playlists.title": {
+    "purpose": "Title of the playlist picker.",
+    "where": "Overview screen, rekordbox tracks panel, playlist picker heading.",
+    "approved": "rekordbox playlists"
+  },
+  "playlists.empty": {
+    "purpose": "Says rekordbox has no playlists.",
+    "where": "Overview screen, rekordbox tracks panel, playlist picker when the export holds no playlists.",
+    "approved": "No rekordbox playlists"
+  },
+  "playlists.note": {
+    "purpose": "Says only tracks are added, not the playlists.",
+    "where": "Overview screen, rekordbox tracks panel, playlist picker, under its title.",
+    "approved": "Only the tracks are added, not the playlists."
+  },
+  "playlists.tracks_one": {
+    "purpose": "Track count beside a playlist (one).",
+    "where": "Playlist picker, beside each playlist that holds one track.",
+    "approved": "({{count, number}} track)"
+  },
+  "playlists.tracks_other": {
+    "purpose": "Track count beside a playlist (several).",
+    "where": "Playlist picker, beside each playlist that holds several tracks.",
+    "approved": "({{count, number}} tracks)"
+  },
+  "summary.added_one": {
+    "purpose": "Says one track was added to the Library.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding.",
+    "approved": "{{count, number}} track added to your Library"
+  },
+  "summary.added_other": {
+    "purpose": "Says how many tracks were added to the Library.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding.",
+    "approved": "{{count, number}} tracks added to your Library"
+  },
+  "summary.alreadyInLibrary_one": {
+    "purpose": "Says one of the offered tracks was already in the Library.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
+    "approved": "{{count, number}} already in your Library"
+  },
+  "summary.alreadyInLibrary_other": {
+    "purpose": "Says how many of the offered tracks were already in the Library.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
+    "approved": "{{count, number}} already in your Library"
+  },
+  "summary.waitingInMissing_one": {
+    "purpose": "Says one track waits in Missing because no file was found.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
+    "approved": "{{count, number}} waiting in Missing (no file found)"
+  },
+  "summary.waitingInMissing_other": {
+    "purpose": "Says how many tracks wait in Missing because no file was found.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
+    "approved": "{{count, number}} waiting in Missing (no file found)"
+  },
+  "summary.waitingForConfirmation_one": {
+    "purpose": "Says one track waits for its file match to be confirmed.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
+    "approved": "{{count, number}} waiting for a match to be confirmed"
+  },
+  "summary.waitingForConfirmation_other": {
+    "purpose": "Says how many tracks wait for their file match to be confirmed.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
+    "approved": "{{count, number}} waiting for a match to be confirmed"
+  },
+  "summary.undo": {
+    "purpose": "Button that undoes the add.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding.",
+    "approved": "Undo"
+  },
+  "summary.done": {
+    "purpose": "Button that closes the summary.",
+    "where": "Overview screen, rekordbox tracks panel, summary after adding.",
+    "approved": "Done"
+  },
+  "summary.undone": {
+    "purpose": "Says the add was undone.",
+    "where": "Overview screen, rekordbox tracks panel, after an undo.",
+    "approved": "Add undone"
+  },
+  "summary.cantUndo": {
+    "purpose": "Says the undo wasn't possible because the Library changed.",
+    "where": "Overview screen, rekordbox tracks panel, alert after an undo is refused.",
+    "approved": "Can't undo: the Library has changed since"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "title": {
+    "purpose": "Heading of the first-run flow.",
+    "where": "Overview screen, when the Library is empty, above the first-run panels.",
+    "approved": "Start your Library"
+  },
+  "folders.title": {
+    "purpose": "Title of the step that picks music folders.",
+    "where": "Overview screen, first-run panel one.",
+    "approved": "Music folders"
+  },
+  "folders.help": {
+    "purpose": "Explains what the music folders are for and that they're only read.",
+    "where": "Overview screen, first-run panel one, under its title.",
+    "approved": "Pick the folders where you keep music. These folders are read but not altered."
+  },
+  "folders.add": {
+    "purpose": "Button that opens the folder picker.",
+    "where": "Overview screen, first-run music folders panel.",
+    "approved": "Add folder"
+  },
+  "fromRekordbox.title": {
+    "purpose": "Title of the choice to start the Library from rekordbox.",
+    "where": "Overview screen, title of the rekordbox offer while the Library is empty.",
+    "approved": "Start from rekordbox"
+  },
+  "fromRekordbox.help": {
+    "purpose": "Explains that rekordbox tracks become Library tracks and nothing else changes.",
+    "where": "Overview screen, rekordbox offer while the Library is empty, under its title.",
+    "approved": "Your rekordbox tracks become Library tracks. Nothing changes in rekordbox or in your files."
+  },
+  "fresh.title": {
+    "purpose": "Title of the choice to start with an empty Library.",
+    "where": "Overview screen, first-run Start fresh panel.",
+    "approved": "Start fresh"
+  },
+  "fresh.help": {
+    "purpose": "Explains starting fresh: an empty Library filled from All music.",
+    "where": "Overview screen, first-run Start fresh panel, under its title.",
+    "approved": "An empty Library. Add the tracks you want from All music."
+  },
+  "fresh.action": {
+    "purpose": "Link that goes to All music.",
+    "where": "Overview screen, first-run Start fresh panel.",
+    "approved": "Go to All music"
+  }
+}

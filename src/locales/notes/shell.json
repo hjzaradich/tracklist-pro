@@ -1,0 +1,72 @@
+{
+  "stages.label": {
+    "purpose": "Accessible name of the sidebar navigation.",
+    "where": "Sidebar (screen-reader label of the nav; not shown).",
+    "approved": "Stages"
+  },
+  "stages.overview": {
+    "purpose": "Name of the Overview stage.",
+    "where": "Sidebar link and the Overview screen's heading.",
+    "approved": "Overview"
+  },
+  "stages.review": {
+    "purpose": "Name of the Review stage.",
+    "where": "Sidebar link and the Review screen's heading.",
+    "approved": "Review"
+  },
+  "stages.allMusic": {
+    "purpose": "Name of the All music stage.",
+    "where": "Sidebar link and the All music screen's heading.",
+    "approved": "All music"
+  },
+  "stages.library": {
+    "purpose": "Name of the Library stage.",
+    "where": "Sidebar link and the Library screen's heading.",
+    "approved": "Library"
+  },
+  "stages.crates": {
+    "purpose": "Name of the Crates stage.",
+    "where": "Sidebar link in the Crates section, and the Crates screen's heading.",
+    "approved": "Crates"
+  },
+  "sidebar.noCrates": {
+    "purpose": "Says there are no crates.",
+    "where": "Sidebar, Crates section, under the Crates link.",
+    "approved": "No crates"
+  },
+  "search.label": {
+    "purpose": "Name of the search box.",
+    "where": "Top bar, search slot (accessible name of the box and its group).",
+    "approved": "Search"
+  },
+  "search.placeholder": {
+    "purpose": "Hint inside the search box.",
+    "where": "Top bar, search slot (an inert placeholder for now).",
+    "approved": "Search or type a command"
+  },
+  "search.shortcut": {
+    "purpose": "Shows the search shortcut.",
+    "where": "Top bar, beside the search box.",
+    "approved": "Ctrl K"
+  },
+  "details.label": {
+    "purpose": "Accessible name of the Details panel.",
+    "where": "Details panel on the right (screen-reader label).",
+    "approved": "Details"
+  },
+  "details.empty": {
+    "purpose": "Says no track is selected.",
+    "where": "Details panel, until selecting a track exists.",
+    "approved": "Select a track"
+  },
+  "player.label": {
+    "purpose": "Accessible name of the player.",
+    "where": "Player bar along the bottom (screen-reader label).",
+    "approved": "Player"
+  },
+  "player.empty": {
+    "purpose": "Says nothing is playing.",
+    "where": "Player bar, until playback exists.",
+    "approved": "Nothing playing"
+  }
+}

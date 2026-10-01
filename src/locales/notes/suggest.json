@@ -1,0 +1,12 @@
+{
+  "separator": {
+    "purpose": "Joins the reasons of a suggestion into one line.",
+    "where": "Under any suggestion, between reason fragments (no suggestion is shown in the app yet).",
+    "approved": ", "
+  },
+  "audioModel": {
+    "purpose": "Labels a reason as the audio model's opinion.",
+    "where": "Under a suggestion, around a reason that comes from the audio model (none shown yet).",
+    "approved": "{{reason}} (audio model)"
+  }
+}

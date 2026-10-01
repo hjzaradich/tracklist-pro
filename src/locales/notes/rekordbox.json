@@ -1,0 +1,122 @@
+{
+  "title": {
+    "purpose": "Title of the panel that says where the rekordbox collection comes from.",
+    "where": "Overview screen, rekordbox collection panel title; also the accessible name of the offer's summary list.",
+    "approved": "rekordbox collection"
+  },
+  "howTo": {
+    "purpose": "Tells the user how to export the collection from rekordbox.",
+    "where": "Overview screen, rekordbox collection panel, shown while no export is chosen.",
+    "approved": "In rekordbox, choose File > Export Collection in xml format, then pick the file here."
+  },
+  "noneChosen": {
+    "purpose": "Says no rekordbox export is chosen yet.",
+    "where": "Overview screen, rekordbox collection panel, in place of the file path.",
+    "approved": "No rekordbox export chosen"
+  },
+  "choose": {
+    "purpose": "Button that opens the picker for a rekordbox export.",
+    "where": "Overview screen, rekordbox collection panel, while no export is chosen.",
+    "approved": "Choose export"
+  },
+  "chooseAnother": {
+    "purpose": "Button that picks a different export.",
+    "where": "Overview screen, rekordbox collection panel, once an export is chosen.",
+    "approved": "Choose another export"
+  },
+  "readAgain": {
+    "purpose": "Button that reads the chosen export again.",
+    "where": "Overview screen, rekordbox collection panel, once an export is chosen.",
+    "approved": "Read again"
+  },
+  "reading": {
+    "purpose": "Says an export is being read.",
+    "where": "Overview screen, rekordbox collection panel, status while a read job runs.",
+    "approved": "Reading export"
+  },
+  "fileFilter": {
+    "purpose": "Name of the file type in the picker's file-type list.",
+    "where": "The system file picker opened by Choose export (and Choose another export), file-type filter for .xml.",
+    "approved": "rekordbox export"
+  },
+  "lastRead_one": {
+    "purpose": "Says when the export was last read and that it held one track.",
+    "where": "Overview screen, rekordbox collection panel, status line after a read ({{when}} is a date and time).",
+    "approved": "Read {{when}} ({{count, number}} track)"
+  },
+  "lastRead_other": {
+    "purpose": "Says when the export was last read and how many tracks it held.",
+    "where": "Overview screen, rekordbox collection panel, status line after a read ({{when}} is a date and time).",
+    "approved": "Read {{when}} ({{count, number}} tracks)"
+  },
+  "neverRead": {
+    "purpose": "Says the chosen export hasn't been read yet.",
+    "where": "Overview screen, rekordbox collection panel, when no read has happened and none failed.",
+    "approved": "Not read yet"
+  },
+  "incomplete": {
+    "purpose": "Warns that the export is missing tracks and says they were kept.",
+    "where": "Overview screen, rekordbox collection panel, after reading an export that doesn't hold every track it lists.",
+    "approved": "Incomplete export (missing tracks were kept)"
+  },
+  "notStored_one": {
+    "purpose": "Warns that one track in the export couldn't be read.",
+    "where": "Overview screen, rekordbox collection panel, after a read in which one track couldn't be stored.",
+    "approved": "{{count, number}} track couldn't be read"
+  },
+  "notStored_other": {
+    "purpose": "Warns that several tracks in the export couldn't be read.",
+    "where": "Overview screen, rekordbox collection panel, after a read in which several tracks couldn't be stored.",
+    "approved": "{{count, number}} tracks couldn't be read"
+  },
+  "watch": {
+    "purpose": "Label of the switch that watches for new exports.",
+    "where": "Overview screen, rekordbox collection panel, checkbox at the bottom.",
+    "approved": "Watch for new exports (Documents)"
+  },
+  "newer": {
+    "purpose": "Offers a newer export that was found.",
+    "where": "Overview screen, rekordbox collection panel, when the watch finds a newer export ({{name}} is its file name).",
+    "approved": "Newer export found ({{name}})"
+  },
+  "readNewer": {
+    "purpose": "Button that reads the newer export.",
+    "where": "Overview screen, rekordbox collection panel, beside the newer-export offer.",
+    "approved": "Read"
+  },
+  "failed.notFound": {
+    "purpose": "Says the last read failed because the file is gone.",
+    "where": "Overview screen, rekordbox collection panel, after a failed read; also the send checklist's export step.",
+    "approved": "Export not found ({{path}})"
+  },
+  "failed.cantRead": {
+    "purpose": "Says the last read failed because the file couldn't be opened.",
+    "where": "Overview screen, rekordbox collection panel, after a failed read; also the send checklist's export step.",
+    "approved": "Can't open export ({{path}})"
+  },
+  "failed.damaged": {
+    "purpose": "Says the export is cut off or damaged and what to do.",
+    "where": "Overview screen, rekordbox collection panel, after a failed read; also the send checklist's export step.",
+    "approved": "The export is cut off or damaged. Export it again from rekordbox."
+  },
+  "failed.notAnExport": {
+    "purpose": "Says the file isn't a rekordbox collection export.",
+    "where": "Overview screen, rekordbox collection panel, after a failed read; also the send checklist's export step.",
+    "approved": "Not a rekordbox collection export ({{path}})"
+  },
+  "error.notFound": {
+    "purpose": "Error: the export file wasn't found when starting a read.",
+    "where": "Shown where starting a read fails because the chosen file is gone (Overview rekordbox panel, send checklist).",
+    "approved": "Export not found ({{path}})"
+  },
+  "error.notAnExport": {
+    "purpose": "Error: the file isn't a rekordbox collection export.",
+    "where": "Shown where starting a read fails because the file isn't an export.",
+    "approved": "Not a rekordbox collection export ({{path}})"
+  },
+  "error.noneChosen": {
+    "purpose": "Error: no rekordbox export is chosen.",
+    "where": "Shown where Read again or a send starts with no export chosen.",
+    "approved": "No rekordbox export chosen"
+  }
+}
