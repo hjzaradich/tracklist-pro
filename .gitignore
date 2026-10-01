@@ -35,4 +35,5 @@ spikes/rb-kit/*.xml
 
 # Old roadmap drafts, review notes and private docs (contain personal paths and library details)
 archive/
+spikes/results-private/
 private/
