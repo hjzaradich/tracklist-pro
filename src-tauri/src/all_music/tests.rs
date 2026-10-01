@@ -397,3 +397,41 @@ fn a_track_removed_from_the_library_can_be_added_back_which_clears_its_removal_r
     assert!(lib.list("").tracks[0].in_library);
     assert_eq!(removals(&lib), 0);
 }
+
+#[test]
+fn a_search_finds_a_track_that_sorts_beyond_the_limit() {
+    let lib = Lib::new();
+    lib.writer
+        .call(|c| {
+            for n in 0..(LIST_LIMIT + 5) {
+                c.execute(
+                    "INSERT INTO recording (title) VALUES (?1)",
+                    [format!("a{n:04}")],
+                )?;
+                let track = c.last_insert_rowid();
+                c.execute(
+                    "INSERT INTO file (music_folder_id, rel_path, rel_path_key)
+                     VALUES (1, ?1, ?1)",
+                    [format!("{n}.mp3")],
+                )?;
+                c.execute(
+                    "INSERT INTO recording_file (recording_id, file_id, role)
+                     VALUES (?1, ?2, 'best')",
+                    [track, c.last_insert_rowid()],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    // Sorts after every other track, so a blank search doesn't show it.
+    lib.track(Some("Zzz Needle"), None, "last.mp3");
+    assert!(!lib.titles("").contains(&"Zzz Needle".to_owned()));
+
+    let found = lib.list("needle");
+    assert_eq!(found.total, 1);
+    assert_eq!(found.tracks[0].title.as_deref(), Some("Zzz Needle"));
+    // A search wider than the limit is cut after matching, not before.
+    let wide = lib.list("mp3");
+    assert_eq!(wide.total as usize, LIST_LIMIT + 6);
+    assert_eq!(wide.tracks.len(), LIST_LIMIT);
+}

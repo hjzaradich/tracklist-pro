@@ -1,12 +1,19 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type { AllMusicTrack } from "../bindings";
 import "../i18n";
 import { AllMusicScreen } from "./AllMusicScreen";
+import type { Schedule } from "./useDebounced";
+
+/** Typing has "stopped" at once: the search is asked for on every change. */
+const AT_ONCE: Schedule = (run) => {
+  run();
+  return () => {};
+};
 
 function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
   return {
@@ -49,10 +56,10 @@ function fakeBackend(tracks: AllMusicTrack[], options: { total?: number; refuse?
   return backend;
 }
 
-function renderScreen() {
+function renderScreen(schedule: Schedule = AT_ONCE) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <AllMusicScreen />
+      <AllMusicScreen schedule={schedule} />
     </QueryClientProvider>,
   );
 }
@@ -138,6 +145,36 @@ describe("the All music screen", () => {
 
     await userEvent.type(screen.getByRole("searchbox"), " zzz");
     expect(await screen.findByText("No tracks match")).toBeInTheDocument();
+  });
+
+  it("asks for a search once typing has stopped, not on every keystroke", async () => {
+    const backend = fakeBackend([track(1), track(2)]);
+    // Stands in for the clock: holds what's scheduled until the test runs it.
+    const waiting: (() => void)[] = [];
+    let calledOff = 0;
+    const held: Schedule = (run) => {
+      waiting.push(run);
+      return () => {
+        calledOff += 1;
+        waiting.splice(waiting.indexOf(run), 1);
+      };
+    };
+    renderScreen(held);
+    await rows();
+    const before = waiting.length;
+
+    await userEvent.type(screen.getByRole("searchbox"), "Tune 2");
+    expect(screen.getByRole("searchbox")).toHaveValue("Tune 2");
+    // Six keystrokes: each called the one before off, and nothing was asked.
+    expect(calledOff).toBeGreaterThanOrEqual(5);
+    expect(waiting).toHaveLength(Math.max(before, 1));
+    expect(backend.searches).toEqual([""]);
+    expect(await rows()).toHaveLength(2);
+
+    // Typing has stopped.
+    act(() => waiting.at(-1)?.());
+    await waitFor(async () => expect(await rows()).toHaveLength(1));
+    expect(backend.searches).toEqual(["", "Tune 2"]);
   });
 
   it("says how many tracks match when the list holds only some of them", async () => {

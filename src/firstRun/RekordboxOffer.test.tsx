@@ -237,6 +237,28 @@ describe("the offer to add rekordbox tracks", () => {
     expect(screen.queryByRole("list")).toBeNull();
   });
 
+  it("listens for background tasks once, however many offers it reads", async () => {
+    fakeBackend({ whole: offer(3), playlists: [{ path: ["Peak"], tracks: 3 }] });
+    // Count the listeners the app registers, on the way to the mock.
+    const internals = (
+      window as unknown as {
+        __TAURI_INTERNALS__: { invoke: (cmd: string, ...rest: unknown[]) => Promise<unknown> };
+      }
+    ).__TAURI_INTERNALS__;
+    const invoke = internals.invoke;
+    const listened: unknown[] = [];
+    internals.invoke = (cmd, ...rest) => {
+      if (cmd === "plugin:event|listen") listened.push((rest[0] as { event: unknown }).event);
+      return invoke(cmd, ...rest);
+    };
+
+    renderOffer();
+    // Both offer queries are in use: the whole collection and the pick.
+    await userEvent.click(await screen.findByRole("button", { name: "Choose playlists" }));
+    await userEvent.click(await screen.findByRole("checkbox", { name: /Peak/ }));
+    expect(listened).toEqual(["job-updates"]);
+  });
+
   it("asks again when a background task ends, since a read or a relink can change it", async () => {
     const backend = fakeBackend({ whole: offer(0) });
     renderOffer();

@@ -25,11 +25,24 @@ function libraryTrack(id: number): LibraryTrack {
 }
 
 /** Stands in for the Rust side: a Library of `library` tracks and an offer of `toAdd`. */
-function fakeBackend(state: { library: number; toAdd: number }) {
-  const backend = { ...state, adds: 0 };
+function fakeBackend(state: {
+  library: number;
+  toAdd: number;
+  /** The Library can't be read. */
+  libraryBroken?: boolean;
+  /** The Library doesn't answer until `release()` is called. */
+  libraryHeld?: boolean;
+}) {
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const backend = { ...state, adds: 0, release };
   mockIPC(
-    (cmd) => {
+    async (cmd) => {
       if (cmd === "library_tracks") {
+        if (state.libraryHeld) await gate;
+        if (state.libraryBroken) throw { kind: "database", params: {} };
         return Array.from({ length: backend.library }, (_, n) => libraryTrack(n + 1));
       }
       if (cmd === "rekordbox_offer") return offer(backend.toAdd);
@@ -116,6 +129,34 @@ describe("the Overview while the Library is empty (first run)", () => {
     expect(await screen.findByText("No tracks in All music")).toBeInTheDocument();
     expect(backend.adds).toBe(0);
     expect(localStorage.length).toBe(0);
+  });
+});
+
+describe("the Overview before it knows the Library", () => {
+  it("shows neither the first-run flow nor the Library's own view while the Library loads", async () => {
+    const backend = fakeBackend({ library: 0, toAdd: 0, libraryHeld: true });
+    renderApp("/overview");
+    // The rest of the screen is up.
+    expect(
+      await screen.findByRole("heading", { name: "rekordbox collection" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Start your Library" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Music folders" })).toBeNull();
+    expect(screen.queryByText("Your Library at a glance, and what to do next.")).toBeNull();
+
+    backend.release();
+    expect(await screen.findByRole("heading", { name: "Start your Library" })).toBeInTheDocument();
+  });
+
+  it("says so when the Library can't be read, and doesn't show the first-run flow", async () => {
+    fakeBackend({ library: 0, toAdd: 0, libraryBroken: true });
+    renderApp("/overview");
+    expect(
+      await screen.findByText("Couldn't read or save the Library. Try again."),
+    ).toHaveAttribute("role", "alert");
+    expect(screen.queryByRole("heading", { name: "Start your Library" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Start fresh" })).toBeNull();
+    expect(screen.queryByText("Your Library at a glance, and what to do next.")).toBeNull();
   });
 });
 

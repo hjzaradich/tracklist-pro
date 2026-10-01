@@ -20,6 +20,16 @@ describe("stage routes", () => {
       if (cmd === "library_tracks") return [];
       if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
       if (cmd === "music_folders") return [];
+      if (cmd === "rekordbox_xml_source") {
+        return {
+          path: null,
+          watch: false,
+          lastRead: null,
+          lastFailure: null,
+          newerExport: null,
+          exportFolder: null,
+        };
+      }
       if (cmd === "rekordbox_offer") {
         return { toAdd: 0, alreadyInLibrary: 0, waitingInMissing: 0, waitingForConfirmation: 0 };
       }
