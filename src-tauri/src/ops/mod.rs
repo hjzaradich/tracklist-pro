@@ -22,7 +22,9 @@
 
 mod schema;
 
+use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
 use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
@@ -30,7 +32,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::db::{DbError, Writer};
-use schema::{decode, quote, ForeignKeyAction, Table};
+use schema::{decode, first_referencing, quote, ForeignKeyAction, ReferenceCheck, Table};
 
 /// Why recording or undoing an operation failed. Nothing was changed.
 #[derive(Debug)]
@@ -117,7 +119,65 @@ pub struct Recorded<T> {
 pub struct Recorder<'a> {
     tx: &'a Transaction<'a>,
     operation_id: i64,
-    changes: usize,
+    schema: SchemaCache,
+    /// The `change` rows of the step that's running, written together (in
+    /// order, so ids run in the order the changes were made) as the step
+    /// ends, inside its savepoint: if that fails, the step's write goes too.
+    pending: Vec<PendingChange>,
+    /// How many `change` rows the finished steps wrote.
+    written: usize,
+}
+
+/// One `change` row, before it's written.
+struct PendingChange {
+    entity: String,
+    entity_id: i64,
+    action: &'static str,
+    field: String,
+    before: Option<String>,
+    after: Option<String>,
+}
+
+/// What the schema says, looked up once per operation: it can't change
+/// inside one, and looking it up is most of the cost of a recorded row.
+#[derive(Default)]
+struct SchemaCache {
+    tables: HashMap<String, Rc<Table>>,
+    checks: HashMap<(String, ForeignKeyAction, Option<String>), Rc<Vec<ReferenceCheck>>>,
+}
+
+impl SchemaCache {
+    fn table(&mut self, conn: &Connection, entity: &str) -> Result<Rc<Table>, OpsError> {
+        if let Some(table) = self.tables.get(entity) {
+            return Ok(Rc::clone(table));
+        }
+        let table = Rc::new(Table::load(conn, entity)?);
+        self.tables.insert(entity.to_owned(), Rc::clone(&table));
+        Ok(table)
+    }
+
+    /// The first table with a row that references row `id` of `table`
+    /// through a foreign key that would silently change it, for `on` and
+    /// (if given) only keys on `columns` (see [`Table::reference_checks`]).
+    fn referenced_by(
+        &mut self,
+        conn: &Connection,
+        table: &Table,
+        id: i64,
+        on: ForeignKeyAction,
+        columns: Option<&[&str]>,
+    ) -> Result<Option<String>, OpsError> {
+        let key = (table.name.clone(), on, columns.map(|c| c.join("\u{0}")));
+        let checks = match self.checks.get(&key) {
+            Some(checks) => Rc::clone(checks),
+            None => {
+                let checks = Rc::new(table.reference_checks(conn, on, columns)?);
+                self.checks.insert(key, Rc::clone(&checks));
+                checks
+            }
+        };
+        first_referencing(conn, &checks, id)
+    }
 }
 
 impl Recorder<'_> {
@@ -130,7 +190,7 @@ impl Recorder<'_> {
         params: impl rusqlite::Params,
         mut map: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
     ) -> Result<Vec<T>, OpsError> {
-        let mut stmt = self.tx.prepare(sql)?;
+        let mut stmt = self.tx.prepare_cached(sql)?;
         if !stmt.readonly() {
             return Err(OpsError::NotReadOnly(sql.to_owned()));
         }
@@ -149,24 +209,28 @@ impl Recorder<'_> {
     ) -> Result<bool, OpsError> {
         check_finite(field, &value)?;
         self.step(|rec| {
-            let table = Table::load(rec.tx, entity)?;
+            let tx = rec.tx;
+            let table = rec.schema.table(tx, entity)?;
             let column = table.column(field)?.clone();
-            let before = table.read_field(rec.tx, id, &column)?;
+            let before = table.read_field(tx, id, &column)?;
             // Checked before the update, while children still point at the
             // old value; refused below only if the value really changes.
-            let referenced_by =
-                table.referenced_by(rec.tx, id, ForeignKeyAction::Update, Some(&[field]))?;
-            rec.tx.execute(
-                &format!(
-                    "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
-                    table.sql_name(),
-                    quote(&column.name)
-                ),
-                params![value, id],
+            let referenced_by = rec.schema.referenced_by(
+                tx,
+                &table,
+                id,
+                ForeignKeyAction::Update,
+                Some(&[field]),
             )?;
+            tx.prepare_cached(&format!(
+                "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
+                table.sql_name(),
+                quote(&column.name)
+            ))?
+            .execute(params![value, id])?;
             // Read back rather than trust the input: the column's type decides
             // what's stored (e.g. 5 in a REAL column is 5.0).
-            let after = table.read_field(rec.tx, id, &column)?;
+            let after = table.read_field(tx, id, &column)?;
             if after == before {
                 return Ok(false);
             }
@@ -177,7 +241,7 @@ impl Recorder<'_> {
                     by,
                 });
             }
-            rec.log(&table.name, id, "set", field, before, after)?;
+            rec.log(&table.name, id, "set", field, before, after);
             Ok(true)
         })
     }
@@ -192,7 +256,8 @@ impl Recorder<'_> {
     }
 
     fn insert_row(&mut self, entity: &str, values: &[(&str, Value)]) -> Result<i64, OpsError> {
-        let table = Table::load(self.tx, entity)?;
+        let tx = self.tx;
+        let table = self.schema.table(tx, entity)?;
         for (field, _) in values {
             table.column(field)?;
         }
@@ -208,18 +273,16 @@ impl Recorder<'_> {
                 slots.join(", ")
             )
         };
-        self.tx.execute(
-            &sql,
-            rusqlite::params_from_iter(values.iter().map(|(_, v)| v)),
-        )?;
-        let id = self.tx.last_insert_rowid();
+        tx.prepare_cached(&sql)?
+            .execute(rusqlite::params_from_iter(values.iter().map(|(_, v)| v)))?;
+        let id = tx.last_insert_rowid();
         let row = table
-            .read_row(self.tx, id)?
+            .read_row(tx, id)?
             .ok_or_else(|| OpsError::RowNotFound {
                 entity: table.name.clone(),
                 id,
             })?;
-        self.log_row(&table, id, "insert", row)?;
+        self.log_row(&table, id, "insert", row);
         Ok(id)
     }
 
@@ -231,14 +294,18 @@ impl Recorder<'_> {
     /// them first, through this recorder.
     pub fn delete(&mut self, entity: &str, id: i64) -> Result<(), OpsError> {
         self.step(|rec| {
-            let table = Table::load(rec.tx, entity)?;
+            let tx = rec.tx;
+            let table = rec.schema.table(tx, entity)?;
             let row = table
-                .read_row(rec.tx, id)?
+                .read_row(tx, id)?
                 .ok_or_else(|| OpsError::RowNotFound {
                     entity: table.name.clone(),
                     id,
                 })?;
-            if let Some(by) = table.referenced_by(rec.tx, id, ForeignKeyAction::Delete, None)? {
+            if let Some(by) =
+                rec.schema
+                    .referenced_by(tx, &table, id, ForeignKeyAction::Delete, None)?
+            {
                 return Err(OpsError::Referenced {
                     entity: table.name.clone(),
                     id,
@@ -247,11 +314,13 @@ impl Recorder<'_> {
             }
             // Delete first, log second: a delete the database refuses (e.g.
             // a RESTRICT key) must not leave a logged delete behind.
-            rec.tx.execute(
-                &format!("DELETE FROM {} WHERE rowid = ?1", table.sql_name()),
-                [id],
-            )?;
-            rec.log_row(&table, id, "delete", row)
+            tx.prepare_cached(&format!(
+                "DELETE FROM {} WHERE rowid = ?1",
+                table.sql_name()
+            ))?
+            .execute([id])?;
+            rec.log_row(&table, id, "delete", row);
+            Ok(())
         })
     }
 
@@ -259,17 +328,17 @@ impl Recorder<'_> {
     /// neither its write nor its log rows are kept, even when the caller
     /// carries on past the error.
     fn step<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T, OpsError>) -> Result<T, OpsError> {
-        self.tx.execute_batch("SAVEPOINT ops_step")?;
-        let changes = self.changes;
-        match f(self) {
+        let tx = self.tx;
+        tx.prepare_cached("SAVEPOINT ops_step")?.execute([])?;
+        match f(self).and_then(|value| self.flush().map(|()| value)) {
             Ok(value) => {
-                self.tx.execute_batch("RELEASE ops_step")?;
+                tx.prepare_cached("RELEASE ops_step")?.execute([])?;
                 Ok(value)
             }
             Err(e) => {
-                self.changes = changes;
-                self.tx
-                    .execute_batch("ROLLBACK TO ops_step; RELEASE ops_step")?;
+                self.pending.clear();
+                tx.prepare_cached("ROLLBACK TO ops_step")?.execute([])?;
+                tx.prepare_cached("RELEASE ops_step")?.execute([])?;
                 Err(e)
             }
         }
@@ -278,13 +347,7 @@ impl Recorder<'_> {
     /// Records a whole row inserted or deleted: one change per field. A
     /// table with no fields besides its id gets one row-marker change on
     /// `rowid`.
-    fn log_row(
-        &mut self,
-        table: &Table,
-        id: i64,
-        action: &str,
-        row: Vec<Option<String>>,
-    ) -> Result<(), OpsError> {
+    fn log_row(&mut self, table: &Table, id: i64, action: &'static str, row: Vec<Option<String>>) {
         if table.columns.is_empty() {
             let value = Some(id.to_string());
             let (before, after) = if action == "insert" {
@@ -300,26 +363,56 @@ impl Recorder<'_> {
             } else {
                 (value, None)
             };
-            self.log(&table.name, id, action, &column.name, before, after)?;
+            self.log(&table.name, id, action, &column.name, before, after);
         }
-        Ok(())
     }
 
     fn log(
         &mut self,
         entity: &str,
         id: i64,
-        action: &str,
+        action: &'static str,
         field: &str,
         before: Option<String>,
         after: Option<String>,
-    ) -> Result<(), OpsError> {
-        self.tx.execute(
+    ) {
+        self.pending.push(PendingChange {
+            entity: entity.to_owned(),
+            entity_id: id,
+            action,
+            field: field.to_owned(),
+            before,
+            after,
+        });
+    }
+
+    /// Writes the step's `change` rows, in the order they were made, with
+    /// one insert. A step changes one row of one table, and a table has at
+    /// most 2,000 columns, so that's at most 14,000 values: under the
+    /// 32,766 a statement may bind (SQLite is bundled, so that limit is
+    /// ours).
+    fn flush(&mut self) -> Result<(), OpsError> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        let sql = format!(
             "INSERT INTO change (operation_id, entity, entity_id, action, field, before, after)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![self.operation_id, entity, id, action, field, before, after],
-        )?;
-        self.changes += 1;
+             VALUES {}",
+            vec!["(?, ?, ?, ?, ?, ?, ?)"; self.pending.len()].join(", ")
+        );
+        let mut values: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(self.pending.len() * 7);
+        for change in &self.pending {
+            values.push(&self.operation_id);
+            values.push(&change.entity);
+            values.push(&change.entity_id);
+            values.push(&change.action);
+            values.push(&change.field);
+            values.push(&change.before);
+            values.push(&change.after);
+        }
+        self.tx.prepare_cached(&sql)?.execute(&*values)?;
+        self.written += self.pending.len();
+        self.pending.clear();
         Ok(())
     }
 }
@@ -350,11 +443,13 @@ pub fn record<T>(
     let mut recorder = Recorder {
         tx: &tx,
         operation_id: tx.last_insert_rowid(),
-        changes: 0,
+        schema: SchemaCache::default(),
+        pending: Vec::new(),
+        written: 0,
     };
     // An error drops `tx`, which rolls everything back.
     let value = write(&mut recorder)?;
-    let operation_id = (recorder.changes > 0).then_some(recorder.operation_id);
+    let operation_id = (recorder.written > 0).then_some(recorder.operation_id);
     if operation_id.is_some() {
         tx.commit()?;
     } else {
@@ -485,6 +580,7 @@ pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
     // a row, then set one of its fields) unwind in reverse. Each step first
     // checks the database still holds what the operation left.
     let mut conflicts = Vec::new();
+    let mut schema = SchemaCache::default();
     let mut i = 0;
     while i < changes.len() {
         let change = &changes[i];
@@ -500,10 +596,10 @@ pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
             .count()
             .max(1);
         let group = &changes[i..i + run];
-        let table = Table::load(&tx, &change.entity)?;
+        let table = schema.table(&tx, &change.entity)?;
         match change.action.as_str() {
-            "set" => undo_set(&tx, &table, change, &mut conflicts)?,
-            "insert" => undo_insert(&tx, &table, group, &mut conflicts)?,
+            "set" => undo_set(&tx, &mut schema, &table, change, &mut conflicts)?,
+            "insert" => undo_insert(&tx, &mut schema, &table, group, &mut conflicts)?,
             "delete" => undo_delete(&tx, &table, group, &mut conflicts)?,
             other => return Err(OpsError::BadAction(other.to_owned())),
         }
@@ -541,6 +637,7 @@ fn conflict(change: &ChangeRow, field: Option<&str>, problem: ConflictProblem) -
 
 fn undo_set(
     tx: &Transaction<'_>,
+    schema: &mut SchemaCache,
     table: &Table,
     change: &ChangeRow,
     conflicts: &mut Vec<UndoConflict>,
@@ -563,8 +660,14 @@ fn undo_set(
         return Ok(());
     }
     let field = [change.field.as_str()];
-    if table
-        .referenced_by(tx, change.entity_id, ForeignKeyAction::Update, Some(&field))?
+    if schema
+        .referenced_by(
+            tx,
+            table,
+            change.entity_id,
+            ForeignKeyAction::Update,
+            Some(&field),
+        )?
         .is_some()
     {
         conflicts.push(conflict(
@@ -574,19 +677,21 @@ fn undo_set(
         ));
         return Ok(());
     }
-    tx.execute(
-        &format!(
-            "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
-            table.sql_name(),
-            quote(&column.name)
-        ),
-        params![decode(column, change.before.as_deref())?, change.entity_id],
-    )?;
+    tx.prepare_cached(&format!(
+        "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
+        table.sql_name(),
+        quote(&column.name)
+    ))?
+    .execute(params![
+        decode(column, change.before.as_deref())?,
+        change.entity_id
+    ])?;
     Ok(())
 }
 
 fn undo_insert(
     tx: &Transaction<'_>,
+    schema: &mut SchemaCache,
     table: &Table,
     group: &[ChangeRow],
     conflicts: &mut Vec<UndoConflict>,
@@ -623,17 +728,18 @@ fn undo_insert(
     if changed_since {
         return Ok(());
     }
-    if table
-        .referenced_by(tx, first.entity_id, ForeignKeyAction::Delete, None)?
+    if schema
+        .referenced_by(tx, table, first.entity_id, ForeignKeyAction::Delete, None)?
         .is_some()
     {
         conflicts.push(conflict(first, None, ConflictProblem::Referenced));
         return Ok(());
     }
-    tx.execute(
-        &format!("DELETE FROM {} WHERE rowid = ?1", table.sql_name()),
-        [first.entity_id],
-    )?;
+    tx.prepare_cached(&format!(
+        "DELETE FROM {} WHERE rowid = ?1",
+        table.sql_name()
+    ))?
+    .execute([first.entity_id])?;
     Ok(())
 }
 
@@ -656,15 +762,13 @@ fn undo_delete(
         values.push(decode(column, change.before.as_deref())?);
     }
     let slots: Vec<String> = (1..=values.len()).map(|i| format!("?{i}")).collect();
-    tx.execute(
-        &format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            table.sql_name(),
-            names.join(", "),
-            slots.join(", ")
-        ),
-        rusqlite::params_from_iter(values),
-    )?;
+    tx.prepare_cached(&format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        table.sql_name(),
+        names.join(", "),
+        slots.join(", ")
+    ))?
+    .execute(rusqlite::params_from_iter(values))?;
     Ok(())
 }
 

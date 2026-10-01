@@ -459,3 +459,23 @@ fn the_recorder_reads_but_refuses_statements_that_could_write() {
     );
     assert_eq!(lib.library_tracks(), 1);
 }
+
+#[test]
+fn undoing_an_add_is_refused_when_the_linked_file_was_changed_since() {
+    // Only `source_status` is exempt from the undo guard (it's derived).
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    lib.file(track, "a.mp3", "best", true);
+    let other = lib.file(track, "b.mp3", "undecided", true);
+    lib.promote(track).unwrap();
+    lib.writer
+        .call(move |c| c.execute("UPDATE library_track SET linked_file_id = ?1", [other]))
+        .unwrap();
+    let outcome = undo_last_via(&lib.writer).unwrap();
+    let UndoOutcome::Refused { conflicts, .. } = outcome else {
+        panic!("{outcome:?}");
+    };
+    let fields: Vec<_> = conflicts.iter().map(|c| c.field.as_deref()).collect();
+    assert_eq!(fields, [Some("linked_file_id")]);
+    assert_eq!(lib.library_tracks(), 1);
+}
