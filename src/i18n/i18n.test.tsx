@@ -1,8 +1,6 @@
-import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { createQueryClient } from "../app/queryClient";
-import { OverviewScreen } from "../overview/OverviewScreen";
+import { CratesScreen } from "../crates/CratesScreen";
 import i18n, { englishResources, namespaceFromPath, namespaces } from "./index";
 
 type Messages = { [key: string]: string | Messages };
@@ -19,7 +17,7 @@ describe("i18n", () => {
   });
 
   it("loads each file in src/locales/en as its own namespace", () => {
-    expect(namespaces).toEqual(expect.arrayContaining(["common", "overview", "theme"]));
+    expect(namespaces).toEqual(expect.arrayContaining(["common", "crates", "overview", "theme"]));
     for (const ns of namespaces) {
       expect(i18n.hasResourceBundle("en", ns)).toBe(true);
     }
@@ -36,14 +34,11 @@ describe("i18n", () => {
   });
 
   it("a component renders an English string from its namespace", () => {
-    render(
-      <QueryClientProvider client={createQueryClient()}>
-        <OverviewScreen />
-      </QueryClientProvider>,
-    );
-    expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    // A screen that asks the backend for nothing, so its text is there at once.
+    render(<CratesScreen />);
+    expect(screen.getByRole("heading", { name: "Crates" })).toBeInTheDocument();
     expect(
-      screen.getByText("Your Library at a glance, and what to do next."),
+      screen.getByText("Groups of Library tracks, collected for a purpose."),
     ).toBeInTheDocument();
   });
 
