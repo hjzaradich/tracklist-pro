@@ -4,6 +4,7 @@ How tracklist-pro's user-facing text reads. Every phrase or sentence the app sho
 
 ## General
 - **Short and plain.** "No crates", "Select a track", not full sentences.
+- **A string is either a full sentence or a phrase.** Write full sentences in full. Make phrases (buttons, statuses, labels) as economical as possible, with no filler words: "Read export", not "Read the export".
 - **Empty and idle states name exactly what's absent**, so they can't be read as a fault: "No background tasks", not "Nothing running".
 - **Extra detail goes in parentheses**, not after a comma or a middle dot: "Scanning music folders (42%)", "Checking files (10%) (2 other tasks)".
 - **Singular and plural are both written out** (i18next plurals): "1 other task", "2 other tasks".
