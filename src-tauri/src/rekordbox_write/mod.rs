@@ -3,8 +3,9 @@
 //! [`build`] turns the values to send and the crate and playlist trees
 //! into the file's bytes, plus a record of exactly what went in and what
 //! was left out; [`write_file`] puts the bytes on disk through the write
-//! guard. Nothing here reads the database or decides what a track's values
-//! are: the send flow (1aF) gathers them and calls this.
+//! guard. [`gather`] collects a send's input: each track's values come
+//! from [`crate::send_values`], which decides them; nothing here does.
+//! The send flow (1aF) calls these.
 //!
 //! The file is imported into the user's real collection, where a "Yes"
 //! overwrites the whole track (§5.2), so the rules are strict:
@@ -48,20 +49,20 @@ use std::path::Path;
 
 use crate::library::LibraryTrackId;
 use crate::rekordbox::attrs::digits;
+use rusqlite::Connection;
+
+use crate::paths::Volumes;
 use crate::rekordbox::{self, RekordboxXml};
+use crate::send_values::{self, CannotSend, Outcome, SendValues, SiblingEntry};
 use crate::write_guard::{GuardError, WriteGuard};
 
+pub use crate::send_values::ANALYSIS_ATTRIBUTES;
 pub use location::LocationProblem;
 
 /// The top-level folder the crate tree is written under.
 pub const CRATES_FOLDER: &str = "Crates";
 /// The top-level folder the playlist tree is written under.
 pub const PLAYLISTS_FOLDER: &str = "Playlists";
-
-/// The `TRACK` attributes that are rekordbox's analysis and never written
-/// (rule 3). Its `TEMPO` and `POSITION_MARK` children are analysis too;
-/// the writer has no way to write a child at all.
-pub const ANALYSIS_ATTRIBUTES: [&str; 2] = ["AverageBpm", "Tonality"];
 
 /// How deep folders may nest below `Crates` or `Playlists`. The reader
 /// refuses a file nested far deeper; no real tree comes near either.
@@ -101,18 +102,60 @@ pub enum Values {
         /// a track rekordbox doesn't know, `Location` is the file's full
         /// Windows path and there's no `TrackID`.
         attributes: Vec<(String, String)>,
+        /// rekordbox holds another file of this track
+        /// ([`send_values::TrackValues::rekordbox_holds_other_file`]).
+        /// Carried through to [`SentTrack`] for the send flow to warn
+        /// about; it changes nothing in the file.
+        rekordbox_holds_other_file: Option<SiblingEntry>,
     },
     /// There are no values to send for this track.
-    CannotSend(NoValues),
+    CannotSend(CannotSend),
 }
 
-/// Why a Library track has no values to send.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NoValues {
-    NotInLibrary,
-    NoLinkedFile,
-    FileMissing { file_id: i64 },
-    NoLocation { file_id: i64 },
+impl From<SendValues> for TrackInput {
+    fn from(values: SendValues) -> TrackInput {
+        TrackInput {
+            library_track: values.library_track,
+            values: match values.outcome {
+                Outcome::CannotSend(why) => Values::CannotSend(why),
+                Outcome::Ready(track) => Values::Ready {
+                    in_rekordbox: track.in_rekordbox,
+                    attributes: track
+                        .values
+                        .into_iter()
+                        .map(|v| (v.attribute, v.value))
+                        .collect(),
+                    rekordbox_holds_other_file: track.rekordbox_holds_other_file,
+                },
+            },
+        }
+    }
+}
+
+/// Collects a send's input from the database: the values of every track
+/// in `tracks` ([`send_values::send_values`]) and the highest `TrackID` of
+/// the last rekordbox read. Call it inside one read transaction, so the
+/// values and that `TrackID` come from the same read.
+pub fn gather(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    tracks: &[LibraryTrackId],
+    crates: Vec<Node>,
+    playlists: Vec<Node>,
+) -> rusqlite::Result<SendInput> {
+    let highest: Option<i64> =
+        conn.query_row("SELECT max(track_id) FROM rekordbox_track", [], |r| {
+            r.get(0)
+        })?;
+    Ok(SendInput {
+        tracks: send_values::send_values(conn, volumes, tracks)?
+            .into_iter()
+            .map(TrackInput::from)
+            .collect(),
+        crates,
+        playlists,
+        highest_rekordbox_track_id: highest.and_then(|id| u64::try_from(id).ok()).unwrap_or(0),
+    })
 }
 
 /// A folder, crate or playlist to write.
@@ -133,7 +176,7 @@ pub enum Node {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reason {
     /// It had no values to send.
-    NoValues(NoValues),
+    NoValues(CannotSend),
     /// An entry names it, but [`SendInput::tracks`] doesn't hold it.
     NotGiven,
     /// Its values have no `Location`.
@@ -185,6 +228,9 @@ pub struct SentTrack {
     pub track_id: u64,
     /// Every attribute written, in order, values unescaped.
     pub attributes: Vec<(String, String)>,
+    /// As given ([`Values::Ready`]): rekordbox holds another file of this
+    /// track, so this send adds a second entry beside it.
+    pub rekordbox_holds_other_file: Option<SiblingEntry>,
 }
 
 impl SentTrack {
@@ -458,7 +504,7 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
     let mut track_ids = HashSet::new();
     for track in &input.tracks {
         let id = track.library_track;
-        let (in_rekordbox, attributes) = match &track.values {
+        let (in_rekordbox, attributes, other_file) = match &track.values {
             Values::CannotSend(why) => {
                 reasons.push((id, Reason::NoValues(why.clone())));
                 continue;
@@ -466,7 +512,8 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
             Values::Ready {
                 in_rekordbox,
                 attributes,
-            } => (*in_rekordbox, attributes),
+                rekordbox_holds_other_file,
+            } => (*in_rekordbox, attributes, rekordbox_holds_other_file),
         };
         if in_rekordbox && !named.contains(&id) {
             not_needed.push(id);
@@ -494,6 +541,7 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
                     in_rekordbox,
                     track_id: p.track_id.unwrap_or(0),
                     attributes: p.attributes,
+                    rekordbox_holds_other_file: other_file.clone(),
                 });
             }
         }
@@ -652,5 +700,7 @@ pub fn write_file(guard: &WriteGuard, dest: &Path, send: &Outgoing) -> Result<()
     guard.write_then_rename(dest, send.xml())
 }
 
+#[cfg(test)]
+mod gather_tests;
 #[cfg(test)]
 mod tests;

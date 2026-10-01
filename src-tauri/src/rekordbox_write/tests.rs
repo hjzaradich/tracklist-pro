@@ -27,6 +27,7 @@ fn known(n: i64, pairs: &[(&str, &str)]) -> TrackInput {
         values: Values::Ready {
             in_rekordbox: true,
             attributes: attrs(pairs),
+            rekordbox_holds_other_file: None,
         },
     }
 }
@@ -50,6 +51,7 @@ fn new(n: i64, pairs: &[(&str, &str)]) -> TrackInput {
         values: Values::Ready {
             in_rekordbox: false,
             attributes: attrs(pairs),
+            rekordbox_holds_other_file: None,
         },
     }
 }
@@ -65,7 +67,7 @@ fn new_plain(n: i64) -> TrackInput {
     )
 }
 
-fn cannot_send(n: i64, why: NoValues) -> TrackInput {
+fn cannot_send(n: i64, why: CannotSend) -> TrackInput {
     TrackInput {
         library_track: id(n),
         values: Values::CannotSend(why),
@@ -261,6 +263,7 @@ fn input_from(export: &RekordboxXml) -> SendInput {
                 values: Values::Ready {
                     in_rekordbox: true,
                     attributes: read_attrs(t),
+                    rekordbox_holds_other_file: None,
                 },
             })
             .collect(),
@@ -542,7 +545,7 @@ proptest! {
         pairs.push(("Tonality", key.as_str()));
         let track = TrackInput {
             library_track: id(1),
-            values: Values::Ready { in_rekordbox, attributes: attrs(&pairs) },
+            values: Values::Ready { in_rekordbox, attributes: attrs(&pairs), rekordbox_holds_other_file: None },
         };
         let input = SendInput {
             tracks: vec![track],
@@ -709,9 +712,9 @@ fn a_track_that_cannot_be_sent_is_left_out_and_reported_with_its_entries() {
     let input = SendInput {
         tracks: vec![
             known_plain(1),
-            cannot_send(2, NoValues::FileMissing { file_id: 40 }),
+            cannot_send(2, CannotSend::FileMissing { file_id: 40 }),
             known_plain(3),
-            cannot_send(4, NoValues::NoLinkedFile),
+            cannot_send(4, CannotSend::NoLinkedFile),
         ],
         crates: vec![
             playlist("Mixed", &[1, 2, 3, 2]),
@@ -729,7 +732,7 @@ fn a_track_that_cannot_be_sent_is_left_out_and_reported_with_its_entries() {
         [
             LeftOut {
                 library_track: id(2),
-                reason: Reason::NoValues(NoValues::FileMissing { file_id: 40 }),
+                reason: Reason::NoValues(CannotSend::FileMissing { file_id: 40 }),
                 entries: vec![
                     DroppedEntry {
                         path: path(&["Crates", "Mixed"]),
@@ -752,7 +755,7 @@ fn a_track_that_cannot_be_sent_is_left_out_and_reported_with_its_entries() {
             // In no crate or playlist, and still reported.
             LeftOut {
                 library_track: id(4),
-                reason: Reason::NoValues(NoValues::NoLinkedFile),
+                reason: Reason::NoValues(CannotSend::NoLinkedFile),
                 entries: vec![],
             },
         ]
@@ -834,6 +837,7 @@ fn a_value_with_a_character_xml_cannot_carry_keeps_its_track_out_whatever_its_so
         values: Values::Ready {
             in_rekordbox: true,
             attributes: read_attrs(&export.tracks[0]),
+            rekordbox_holds_other_file: None,
         },
     };
     assert_eq!(
@@ -1234,4 +1238,45 @@ fn a_destination_outside_the_apps_folders_is_refused_and_nothing_is_written() {
     );
     assert!(names_in(&music).is_empty());
     assert!(names_in(&data).is_empty());
+}
+
+// ---- the read-back check ---------------------------------------------------
+
+#[test]
+fn a_file_that_does_not_read_back_as_meant_is_refused() {
+    let out = small_send();
+    let top = [CRATES_FOLDER, PLAYLISTS_FOLDER].map(|name| xml::NodeElement::Folder {
+        name: name.to_owned(),
+        children: Vec::new(),
+    });
+    let own_text = xml::render(
+        &out.sent
+            .iter()
+            .map(|t| xml::TrackElement {
+                attributes: &t.attributes,
+            })
+            .collect::<Vec<_>>(),
+        &top,
+    );
+    assert_eq!(read_back(&own_text, &out.sent, &top), Ok(()));
+
+    // One value differs from what was meant.
+    let mut meant = out.sent.clone();
+    meant[0].attributes[1].1.push('!');
+    assert!(read_back(&own_text, &meant, &top).is_err());
+    // A track is missing from the file.
+    assert!(read_back(
+        &own_text,
+        &[out.sent.clone(), out.sent.clone()].concat(),
+        &top
+    )
+    .is_err());
+    // An attribute the file holds wasn't meant.
+    let mut meant = out.sent.clone();
+    meant[1].attributes.pop();
+    assert!(read_back(&own_text, &meant, &top).is_err());
+    // The playlists differ.
+    assert!(read_back(&own_text, &out.sent, &top[..1]).is_err());
+    // Not well-formed at all.
+    assert!(read_back(&own_text[..own_text.len() - 20], &out.sent, &top).is_err());
 }
