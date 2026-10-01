@@ -35,6 +35,11 @@
 //! (file ids, the database, batching); the stage-2 time above the second is
 //! parsing.
 //!
+//! Two more variables shape the big run: `TLP_PERF_THREADS` pins the read
+//! job's thread count (1 for a one-thread run to compare against), and
+//! `TLP_PERF_EVICT=<GiB>` pushes the file cache out of memory right before
+//! it ([`evict_file_cache`]), for a cold run without a reboot.
+//!
 //! **`stage_2_parts_per_format`** (also ignored) times the sniff and the
 //! tag read on their own over a sample of each format, to place stage 2's
 //! time. **`a_thousand_files_go_through_the_chain`** is the smoke test that runs
@@ -69,6 +74,15 @@ const FULL_INDEX_TARGET: Duration = Duration::from_secs(10 * 60);
 
 /// The environment variable naming an existing music tree for the big run.
 const ROOT_VAR: &str = "TLP_PERF_ROOT";
+/// Pins how many threads the read job may use (its own included), so a
+/// one-thread run can be compared with the app's default. Unset: the
+/// app's default.
+const THREADS_VAR: &str = "TLP_PERF_THREADS";
+/// How many GiB to allocate and touch right before the big run, to push
+/// the file cache out of memory ([`evict_file_cache`]). Unset: nothing.
+/// The process's peak working set then includes that memory, so the
+/// memory figures of such a run say nothing about the app.
+const EVICT_VAR: &str = "TLP_PERF_EVICT";
 
 /// What one run measured.
 #[derive(Debug)]
@@ -134,7 +148,10 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
         )
         .handler(
             JobKind::Read,
-            chain::after_read(Reader::new(SystemVolumes::scan)),
+            chain::after_read(match read_threads() {
+                Some(n) => Reader::new(SystemVolumes::scan).threads(n),
+                None => Reader::new(SystemVolumes::scan),
+            }),
         )
         .handler(
             JobKind::Hash,
@@ -400,8 +417,9 @@ fn print(report: &Report, music: &Path, source: &str) {
         music.display()
     );
     println!(
-        "machine: {} logical CPUs; one job worker; release build: {}",
+        "machine: {} logical CPUs; one job worker; read threads: {}; release build: {}",
         std::thread::available_parallelism().map_or(0, |p| p.get()),
+        read_threads().map_or("the app's default".to_owned(), |n| n.to_string()),
         !cfg!(debug_assertions)
     );
     println!("the target (ROADMAP 1.1):");
@@ -437,9 +455,14 @@ fn print(report: &Report, music: &Path, source: &str) {
         verdict(full, FULL_INDEX_TARGET)
     );
     println!(
-        "  peak working set           {} (baseline {} before the walk)",
+        "  peak working set           {} (baseline {} before the walk){}",
         mib(report.peak_after_read as u64),
-        mib(report.baseline_working_set as u64)
+        mib(report.baseline_working_set as u64),
+        if evict_gib().is_some() {
+            "; includes the memory TLP_PERF_EVICT touched, so see a run without it"
+        } else {
+            ""
+        }
     );
     println!("the rest of the chain, and a rescan:");
     println!(
@@ -473,6 +496,48 @@ fn print(report: &Report, music: &Path, source: &str) {
         mib(report.peak_working_set as u64)
     );
     println!("  database                   {}", mib(report.db_bytes));
+}
+
+/// The read thread count pinned by `TLP_PERF_THREADS`, if any.
+fn read_threads() -> Option<usize> {
+    std::env::var(THREADS_VAR)
+        .ok()
+        .map(|s| s.parse().expect("TLP_PERF_THREADS is a thread count"))
+}
+
+/// The GiB to touch before the run, from `TLP_PERF_EVICT`, if set.
+fn evict_gib() -> Option<usize> {
+    std::env::var(EVICT_VAR)
+        .ok()
+        .map(|s| s.parse().expect("TLP_PERF_EVICT is a number of GiB"))
+}
+
+/// Pushes the file cache out of memory the blunt way: allocates `gib`
+/// GiB in 256 MiB pieces, touches one byte per 4 KiB page so every page
+/// is really committed, holds it all at once, then frees it. Windows
+/// gives the memory up from the standby list (the file cache) first, so
+/// a run after this reads the files from disk, as a first index does.
+///
+/// Give it most of the machine's RAM (12 on a 16 GiB laptop) and run it
+/// with nothing else open; other programs get paged out meanwhile and
+/// come back slowly. For a genuinely first read, the files must also be
+/// ones nothing has opened before (a fresh fixture), or Defender has
+/// already judged them.
+fn evict_file_cache(gib: usize) {
+    const PIECE: usize = 256 << 20;
+    const PAGE: usize = 4096;
+    let mut held: Vec<Vec<u8>> = Vec::new();
+    for _ in 0..(gib << 30) / PIECE {
+        let mut piece = vec![0u8; PIECE];
+        for page in (0..PIECE).step_by(PAGE) {
+            piece[page] = 1;
+        }
+        held.push(piece);
+    }
+    // Read something back, so the touching can't be optimised away.
+    let sum: u64 = held.iter().map(|p| u64::from(p[0])).sum();
+    assert_eq!(sum, held.len() as u64);
+    drop(held);
 }
 
 /// A bare walk of `root`: what the file system alone costs to list every
@@ -717,6 +782,13 @@ fn hundred_thousand_files() {
         }
     };
 
+    if let Some(gib) = evict_gib() {
+        let took = timed(|| evict_file_cache(gib));
+        println!(
+            "touched {gib} GiB to push the file cache out, in {}",
+            secs(took)
+        );
+    }
     let report = run(&music, files);
     print(&report, &music, &source);
 
