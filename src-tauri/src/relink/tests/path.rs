@@ -106,7 +106,9 @@ fn a_location_on_another_drive_letter_doesnt_match_by_path() {
     // The export is from when the drive was E:; it's F: now.
     let track = lib.track(&loc("E:/Music/Zeta.mp3"), None);
     lib.relink(&Mounted::new([(e, r"F:\")]));
-    assert_eq!(lib.matched(track), None);
+    // Not by path; the name alone is only a probable guess (step 5).
+    assert_eq!(lib.method(track).as_deref(), Some("filename_only"));
+    assert!(lib.probable(track));
 }
 
 #[test]
@@ -131,7 +133,9 @@ fn a_macos_location_never_matches_by_path() {
     lib.file(music, "Theta.mp3", None);
     let track = lib.track("file://localhost/Users/dj/Music/Theta.mp3", None);
     lib.relink(&Mounted::new([(serial(1), r"E:\")]));
-    assert_eq!(lib.matched(track), None);
+    // Not by path; the name alone is only a probable guess (step 5).
+    assert_eq!(lib.method(track).as_deref(), Some("filename_only"));
+    assert!(lib.probable(track));
 }
 
 #[test]
@@ -186,7 +190,9 @@ fn an_unplugged_drive_last_at_the_letter_of_a_plugged_in_drive_never_matches_by_
     // Two known volumes at E:, one of them now: which one the Location
     // meant can't be told.
     lib.relink(&Mounted::new([(serial(2), r"E:\")]));
-    assert_eq!(lib.matched(track), None);
+    // Not by path; the name alone is only a probable guess (step 5).
+    assert_eq!(lib.method(track).as_deref(), Some("filename_only"));
+    assert!(lib.probable(track));
 }
 
 #[test]

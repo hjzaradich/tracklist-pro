@@ -177,8 +177,8 @@ fn a_probable_match_from_a_later_step_keeps_its_file_from_other_tracks() {
     let (lib, music, mounted) = e_music();
     let file = lib.file(music, "New/Xi.mp3", Some(200_300));
     let track = lib.track(&loc("E:/Gone/Anything.mp3"), Some("200"));
-    // Step 5 (1aD) matched it by name alone: probable, unconfirmed.
-    lib.matched_before(track, file, "filename_only", 0.5);
+    // A carried match (a gig stick's, 1aD-3) that's only probable.
+    lib.matched_before(track, file, "gig_stick", 0.5);
     lib.writer
         .call(move |c| {
             c.execute(

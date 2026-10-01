@@ -195,7 +195,7 @@ fn a_huge_candidate_set_is_skipped_before_any_of_its_files_is_looked_at() {
             .tracks
             .push(track(folders + g + 1, format!("D:/Old/Gone {g}.mp3"), 150));
     }
-    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new())).unwrap();
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None)).unwrap();
     assert_eq!(plan.filename_duration, 2_000);
     assert_eq!(plan.missing, 2_000);
     assert_eq!(plan.examined, 0);
@@ -220,9 +220,11 @@ fn a_small_candidate_set_is_looked_at_once_for_all_its_tracks() {
         .call(move |c| {
             let tx = c.transaction()?;
             let input = super::super::load(&tx, &mounted2)?;
-            Ok(rules::plan(&input, |_| Ok::<_, ()>(Vec::new()))
-                .unwrap()
-                .examined)
+            Ok(
+                rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None))
+                    .unwrap()
+                    .examined,
+            )
         })
         .unwrap();
     assert_eq!(examined, 5);
@@ -379,13 +381,13 @@ fn an_accepted_match_replaces_a_carried_probable_guess() {
     // Same name, but a duration that doesn't fit: only a name guess.
     let guess = lib.file(music, "Elsewhere/Omicron.mp3", Some(300_000));
     let track = lib.track(&loc("E:/Music/Omicron.mp3"), Some("200"));
-    lib.matched_before(track, guess, "filename_only", 0.5);
+    lib.matched_before(track, guess, "gig_stick", 0.5);
     make_probable(&lib, track);
     lib.relink(&mounted);
     // Nothing better yet: the guess stands.
     assert_eq!(
         lib.matched(track),
-        Some((guess, "filename_only".to_owned(), 0.5))
+        Some((guess, "gig_stick".to_owned(), 0.5))
     );
     assert!(lib.probable(track));
     // The track's own file turns up at its Location.
@@ -401,12 +403,12 @@ fn a_probable_step_3_match_doesnt_replace_a_carried_probable_guess() {
     let guess = lib.file(music, "Elsewhere/Pi Guess.mp3", Some(300_000));
     lib.file(music, "Album/Renamed.mp3", Some(200_300));
     let track = lib.track(&loc("E:/Music/Album/Pi.mp3"), Some("200"));
-    lib.matched_before(track, guess, "filename_only", 0.5);
+    lib.matched_before(track, guess, "gig_stick", 0.5);
     make_probable(&lib, track);
     lib.relink(&mounted);
     assert_eq!(
         lib.matched(track),
-        Some((guess, "filename_only".to_owned(), 0.5))
+        Some((guess, "gig_stick".to_owned(), 0.5))
     );
 }
 
@@ -416,11 +418,11 @@ fn a_carried_trusted_match_stays_even_when_the_path_turns_up() {
     let earlier = lib.file(music, "Elsewhere/Rho.mp3", Some(200_000));
     lib.file(music, "Rho.mp3", Some(200_000));
     let track = lib.track(&loc("E:/Music/Rho.mp3"), Some("200"));
-    lib.matched_before(track, earlier, "fingerprint", 0.95);
+    lib.matched_before(track, earlier, "gig_stick", 0.95);
     lib.relink(&mounted);
     assert_eq!(
         lib.matched(track),
-        Some((earlier, "fingerprint".to_owned(), 0.95))
+        Some((earlier, "gig_stick".to_owned(), 0.95))
     );
 }
 
@@ -430,7 +432,7 @@ fn a_carried_match_gives_way_when_the_user_confirms_its_file_for_another_track()
         let (lib, music, mounted) = e_music();
         let file = lib.file(music, "Sigma.mp3", Some(200_000));
         let carried = lib.track(&loc("E:/Gone/Sigma Old.mp3"), Some("200"));
-        lib.matched_before(carried, file, "fingerprint", 0.5);
+        lib.matched_before(carried, file, "gig_stick", 0.5);
         if probable {
             make_probable(&lib, carried);
         }
@@ -447,7 +449,7 @@ fn a_carried_match_to_a_file_that_is_gone_is_dropped() {
     let (lib, music, mounted) = e_music();
     let file = lib.file(music, "Elsewhere/Tau.mp3", Some(200_000));
     let track = lib.track(&loc("E:/Gone/Tau.mp3"), Some("200"));
-    lib.matched_before(track, file, "fingerprint", 0.95);
+    lib.matched_before(track, file, "gig_stick", 0.95);
     lib.gone(file);
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), None);
@@ -482,7 +484,9 @@ fn a_plugged_in_volume_counts_at_its_mount_now_even_if_its_stored_one_is_stale()
     lib.file(away_music, "Phi.mp3", None);
     let track = lib.track(&loc("E:/Music/Phi.mp3"), None);
     lib.relink(&Mounted::new([(serial(2), r"E:\")]));
-    assert_eq!(lib.matched(track), None);
+    // Not by path; the name alone is only a probable guess (step 5).
+    assert_eq!(lib.method(track).as_deref(), Some("filename_only"));
+    assert!(lib.probable(track));
 }
 
 #[test]
@@ -523,10 +527,14 @@ fn title_tags_are_read_only_for_the_files_step_3_matches() {
             let tx = c.transaction()?;
             let input = super::super::load(&tx, &mounted2)?;
             let mut asked = Vec::new();
-            rules::plan(&input, |file| {
-                asked.push(file);
-                Ok::<_, ()>(Vec::new())
-            })
+            rules::plan(
+                &input,
+                |file| {
+                    asked.push(file);
+                    Ok::<_, ()>(Vec::new())
+                },
+                |_| Ok(None),
+            )
             .unwrap();
             Ok(asked)
         })
@@ -545,7 +553,7 @@ fn a_carried_probable_guess_upgrades_when_its_own_file_is_matched_by_name_and_du
     let file = lib.file(music, "Elsewhere/Omega.mp3", Some(200_000));
     let track = lib.track(&loc("E:/Gone/Omega.mp3"), Some("200"));
     // Step 5 guessed this very file; step 2 now proves it by duration.
-    lib.matched_before(track, file, "filename_only", 0.5);
+    lib.matched_before(track, file, "gig_stick", 0.5);
     make_probable(&lib, track);
     lib.relink(&mounted);
     assert_eq!(
@@ -565,7 +573,7 @@ fn a_carried_probable_guess_upgrades_when_its_own_file_is_matched_with_an_agreei
         Some("200"),
         &[("Name", "Alpha Two")],
     );
-    lib.matched_before(track, file, "filename_only", 0.5);
+    lib.matched_before(track, file, "gig_stick", 0.5);
     make_probable(&lib, track);
     lib.relink(&mounted);
     assert_eq!(

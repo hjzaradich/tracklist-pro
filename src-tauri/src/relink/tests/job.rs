@@ -275,3 +275,63 @@ fn reading_a_rekordbox_export_queues_a_relink_that_matches_its_tracks() {
     assert_eq!(matches, [Some(file), None]);
     queue.shutdown();
 }
+
+/// Attach jobs in the table, by status.
+fn attach_jobs(writer: &Writer) -> Vec<String> {
+    writer
+        .call(|c| {
+            c.prepare("SELECT status FROM job WHERE kind = 'attach' ORDER BY id")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_finished_relink_job_queues_an_attach() {
+    let (lib, music, _) = e_music();
+    let file = lib.file(music, "Alpha.mp3", Some(200_000));
+    let track = lib.track(&loc("E:/Music/Alpha.mp3"), Some("200"));
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Relink, Relinker::new(plugged_e))
+        .handler(JobKind::Attach, crate::attach::Attacher::default())
+        .start()
+        .unwrap();
+    let id = request(&lib.writer, |j| queue.enqueue(j)).unwrap();
+    wait_done(&lib.writer, id);
+    assert_eq!(lib.matched(track), path(file));
+    // Queued by the time the relink job is done; then it runs.
+    assert_eq!(attach_jobs(&lib.writer).len(), 1);
+    wait_until("the attach job ran", || {
+        attach_jobs(&lib.writer) == ["done"]
+    });
+    queue.shutdown();
+}
+
+#[test]
+fn a_failure_to_ask_for_an_attach_after_relinking_does_not_fail_the_job() {
+    let (lib, music, _) = e_music();
+    let file = lib.file(music, "Alpha.mp3", Some(200_000));
+    let track = lib.track(&loc("E:/Music/Alpha.mp3"), Some("200"));
+    // Queuing an attach job fails.
+    lib.writer
+        .call(|c| {
+            c.execute_batch(
+                "CREATE TRIGGER no_attach_jobs BEFORE INSERT ON job WHEN new.kind = 'attach'
+                 BEGIN SELECT RAISE(ABORT, 'no attach jobs'); END",
+            )
+        })
+        .unwrap();
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Relink, Relinker::new(plugged_e))
+        .start()
+        .unwrap();
+    let id = request(&lib.writer, |j| queue.enqueue(j)).unwrap();
+    // Done, not failed, and the matches it made are kept.
+    wait_done(&lib.writer, id);
+    assert_eq!(lib.matched(track), path(file));
+    assert!(attach_jobs(&lib.writer).is_empty());
+    queue.shutdown();
+}

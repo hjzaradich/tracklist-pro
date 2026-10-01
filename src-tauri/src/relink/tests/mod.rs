@@ -3,8 +3,11 @@
 //! read, since relink reads only the database.
 
 mod confirmed;
+mod evidence;
 mod general;
+mod gone;
 mod job;
+mod name_only;
 mod path;
 mod recheck;
 mod same_name;
@@ -14,7 +17,7 @@ mod window;
 
 use rusqlite::params;
 
-use super::{relink, Mounted, Summary};
+use super::{relink, Method, Mounted, Summary};
 use crate::db::Writer;
 use crate::rekordbox::location;
 use crate::volume::{identity, IdentitySignals, VolumeKind};
@@ -172,7 +175,8 @@ impl Lib {
             .unwrap()
     }
 
-    /// Stage 3 hashed the file's audio: `hash` stands for its audio_hash.
+    /// Stage 3 hashed the file's audio as it is now: `hash` stands for its
+    /// audio_hash, and the hash stage is current for the file.
     pub fn audio_hash(&self, file: i64, hash: u8) {
         self.writer
             .call(move |c| {
@@ -182,6 +186,140 @@ impl Lib {
                 )
             })
             .unwrap();
+        self.stage_done(file, "hash", i64::from(crate::hash::DEFINITION));
+    }
+
+    /// [`Lib::audio_hash`], under the name the step-4 tests read better
+    /// with.
+    pub fn hashed(&self, file: i64, hash: u8) {
+        self.audio_hash(file, hash);
+    }
+
+    /// Records `stage` done for the file at its size and mtime now.
+    fn stage_done(&self, file: i64, stage: &'static str, version: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT OR REPLACE INTO file_stage (file_id, stage, version, size, mtime, status)
+                     SELECT id, ?2, ?3, size, mtime, 'done' FROM file WHERE id = ?1",
+                    params![file, stage, version],
+                )
+            })
+            .unwrap();
+    }
+
+    /// The file changed on disk (as the walk would see: another size) and
+    /// no stage has looked at it since.
+    pub fn edited(&self, file: i64) {
+        self.writer
+            .call(move |c| c.execute("UPDATE file SET size = size + 1 WHERE id = ?1", [file]))
+            .unwrap();
+    }
+
+    /// Stage 3 fingerprinted the file as it is now.
+    pub fn fingerprinted(&self, file: i64, print: &crate::fingerprint::Fingerprint) {
+        let blob = print.to_blob();
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file SET fingerprint = ?2 WHERE id = ?1",
+                    params![file, blob],
+                )
+            })
+            .unwrap();
+        self.stage_done(file, "fingerprint", i64::from(crate::fingerprint::VERSION));
+    }
+
+    /// The fingerprint stage looked at the file as it is now and couldn't
+    /// fingerprint it.
+    pub fn unfingerprintable(&self, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT OR REPLACE INTO file_stage
+                         (file_id, stage, version, size, mtime, status, reason)
+                     SELECT id, 'fingerprint', ?2, size, mtime, 'failed', 'unsupported_codec'
+                     FROM file WHERE id = ?1",
+                    params![file, i64::from(crate::fingerprint::VERSION)],
+                )
+            })
+            .unwrap();
+    }
+
+    /// A walk found the file again.
+    pub fn back(&self, file: i64) {
+        self.writer
+            .call(move |c| c.execute("UPDATE file SET present = 1 WHERE id = ?1", [file]))
+            .unwrap();
+    }
+
+    /// The audio a row's match was made to (`relink_audio_hash`), as the
+    /// byte [`Lib::audio_hash`] stands for.
+    pub fn evidence(&self, track: i64) -> Option<u8> {
+        let hash: Option<Vec<u8>> = self
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT relink_audio_hash FROM rekordbox_track WHERE id = ?1",
+                    [track],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        hash.map(|h| h[0])
+    }
+
+    /// The audio recorded with `location`'s confirmation, likewise; `None`
+    /// if there's none recorded or no confirmation.
+    pub fn confirmed_audio(&self, location: &str) -> Option<u8> {
+        use rusqlite::OptionalExtension;
+        let key = location::decode(location).unwrap().match_key();
+        let hash: Option<Option<Vec<u8>>> = self
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT audio_hash FROM relink WHERE location_key = ?1",
+                    [key],
+                    |r| r.get(0),
+                )
+                .optional()
+            })
+            .unwrap();
+        hash.flatten().map(|h| h[0])
+    }
+
+    /// The user confirmed `location`'s file is `file`, the way the app
+    /// stores it ([`super::confirm`]).
+    pub fn confirm_now(&self, location: &str, file: i64, method: super::Method) {
+        let key = location::decode(location).unwrap().match_key();
+        self.writer
+            .call(move |c| super::confirm(c, &key, file, method, Some(0.5)))
+            .unwrap();
+    }
+
+    /// A complete rekordbox read replaced the snapshot: every row is back,
+    /// unmatched. (The real read deletes and inserts the rows; keeping
+    /// their ids lets a test compare before and after.)
+    pub fn fresh_read(&self) {
+        self.writer
+            .call(|c| {
+                c.execute(
+                    "UPDATE rekordbox_track
+                     SET file_id = NULL, relink_method = NULL, relink_confidence = NULL,
+                         relink_probable = 0, recording_id = NULL, relink_audio_hash = NULL",
+                    [],
+                )
+            })
+            .unwrap();
+    }
+
+    /// Every row's match and whether it's probable, for comparing whole
+    /// states.
+    pub fn all_states(&self) -> Vec<(i64, Option<Match>, bool)> {
+        self.all_matches()
+            .into_iter()
+            .map(|(id, m)| (id, m, self.probable(id)))
+            .collect()
     }
 
     /// A new track (`recording`) holding `files`, the first one as its
@@ -353,4 +491,42 @@ pub(super) fn loc(path: &str) -> String {
 
 pub(super) fn path(file: i64) -> Option<Match> {
     Some((file, "path".to_owned(), 1.0))
+}
+
+/// A made-up song's fingerprint lasting about `seconds`: items no other
+/// `seed` shares.
+pub(super) fn song(seed: u64, seconds: u32) -> crate::fingerprint::Fingerprint {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    let items = (0..seconds * 8)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 16) as u32
+        })
+        .collect();
+    crate::fingerprint::Fingerprint::new(items)
+}
+
+/// The same song from another encoder: a bit differs here and there.
+pub(super) fn reencoded(
+    print: &crate::fingerprint::Fingerprint,
+) -> crate::fingerprint::Fingerprint {
+    let items = print
+        .items()
+        .iter()
+        .enumerate()
+        .map(|(n, item)| if n % 3 == 0 { item ^ 1 } else { *item })
+        .collect();
+    crate::fingerprint::Fingerprint::new(items)
+}
+
+/// What a trusted step-4 match to the same audio looks like.
+pub(super) fn same_audio(file: i64) -> Option<Match> {
+    Some((file, "fingerprint".to_owned(), 0.95))
+}
+
+/// What a step-5 match looks like.
+pub(super) fn name_only(file: i64) -> Option<Match> {
+    Some((file, "filename_only".to_owned(), 0.5))
 }
