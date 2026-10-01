@@ -105,6 +105,11 @@ export const commands = {
 	 *  stages are ([`crate::scan::chain::queue_once`]).
 	 */
 	groupFiles: () => typedError<JobId, IpcError>(__TAURI_INVOKE("group_files")),
+	/**
+	 *  The rekordbox tracks that have no file, by last known folder, with an
+	 *  offer to add each folder that exists now (1aD-5).
+	 */
+	missingTracks: () => typedError<MissingList, IpcError>(__TAURI_INVOKE("missing_tracks")),
 };
 
 /** Events */
@@ -350,6 +355,40 @@ export type LastRead = {
 	/**  When the snapshot was replaced (UTC, ISO 8601). */
 	readAt: string,
 	summary: SnapshotSummary,
+};
+
+/**  The missing tracks that were last in one folder. */
+export type MissingGroup = {
+	/**
+	 *  The last known folder, as Windows writes it. `None` for tracks whose
+	 *  Location couldn't be decoded.
+	 */
+	folder: string | null,
+	/**
+	 *  Whether the folder exists now and is outside every music folder, so
+	 *  adding it as a music folder (`add_music_folder`) makes sense.
+	 */
+	canAdd: boolean,
+	tracks: MissingTrack[],
+};
+
+export type MissingList = {
+	total: number,
+	/**  By folder, in folder order; tracks with no known folder last. */
+	groups: MissingGroup[],
+};
+
+/**  A rekordbox track with no file. */
+export type MissingTrack = {
+	/**  The row's id, for the app. Not rekordbox's TrackID. */
+	id: number,
+	title: string,
+	artist: string,
+	/**
+	 *  Where rekordbox last had the file, as Windows writes it. `None` if
+	 *  the Location couldn't be decoded.
+	 */
+	lastKnownPath: string | null,
 };
 
 /**  A music folder, as the frontend sees it. */
