@@ -68,8 +68,8 @@ mod tests {
 
     #[test]
     fn one_tag_after_a_comment_is_read() {
-        assert_eq!(tags("Great opener /* Peak */"), ["Peak"]);
-        assert_eq!(without_tags("Great opener /* Peak */"), "Great opener");
+        assert_eq!(tags("Great intro /* Peak */"), ["Peak"]);
+        assert_eq!(without_tags("Great intro /* Peak */"), "Great intro");
     }
 
     #[test]
