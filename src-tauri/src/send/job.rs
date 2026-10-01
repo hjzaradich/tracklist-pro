@@ -14,7 +14,7 @@ use super::{SendFailure, SendFlow, SendStep, Sent};
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
 use crate::paths::Volumes;
 use crate::rekordbox::source::XmlReader;
-use crate::rekordbox_write::{record_send, SentTrack};
+use crate::rekordbox_write::{record_send, SentPath, SentTrack};
 use crate::relink::{self, Mounted};
 
 impl SendFlow {
@@ -54,7 +54,8 @@ pub fn drop_unfinished_jobs(conn: &Connection) -> rusqlite::Result<usize> {
 }
 
 /// How a send is recorded once its file is in place.
-type Record = dyn Fn(&mut Connection, &[SentTrack]) -> rusqlite::Result<()> + Send + Sync;
+type Record =
+    dyn Fn(&mut Connection, &[SentTrack], &[SentPath]) -> rusqlite::Result<()> + Send + Sync;
 
 /// The send jobs' handler.
 pub struct Sender<V> {
@@ -106,7 +107,10 @@ impl<V: Volumes + 'static> Sender<V> {
     #[cfg(test)]
     pub(crate) fn recording_with(
         mut self,
-        record: impl Fn(&mut Connection, &[SentTrack]) -> rusqlite::Result<()> + Send + Sync + 'static,
+        record: impl Fn(&mut Connection, &[SentTrack], &[SentPath]) -> rusqlite::Result<()>
+            + Send
+            + Sync
+            + 'static,
     ) -> Self {
         self.record = Arc::new(record);
         self
@@ -333,7 +337,7 @@ impl<V: Volumes + 'static> Sender<V> {
                     c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
                         r.get(0)
                     })?;
-                record(c, &outgoing.sent)?;
+                record(c, &outgoing.sent, outgoing.paths())?;
                 Ok(at)
             })
         })

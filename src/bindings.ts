@@ -164,6 +164,11 @@ export const commands = {
 	 *  anything that isn't exactly the reviewed send.
 	 */
 	writeSend: (token: string, confirmed: boolean) => typedError<JobId, IpcError>(__TAURI_INVOKE("write_send", { token, confirmed })),
+	/**
+	 *  The stale playlists and the manual removals, from the database as it is
+	 *  now. Reads only.
+	 */
+	afterSendLists: () => typedError<AfterSendLists, IpcError>(__TAURI_INVOKE("after_send_lists")),
 };
 
 /** Events */
@@ -201,6 +206,18 @@ export type AddSummary = {
 	 *  was added.
 	 */
 	operationId: number | null,
+};
+
+/**  Both lists, for the screen. */
+export type AfterSendLists = {
+	/**
+	 *  Whether rekordbox's playlists are known: false until a read made
+	 *  since this list existed, so an empty `stale_playlists` isn't read as
+	 *  "nothing to delete" when nothing was checked.
+	 */
+	playlistsChecked: boolean,
+	stalePlaylists: StalePlaylist[],
+	manualRemovals: ManualRemoval[],
 };
 
 /**  The tracks matching a search, up to [`LIST_LIMIT`] of them. */
@@ -595,6 +612,22 @@ export type LosesEntries = {
 	entries: number,
 };
 
+/**  A removed track to remove in rekordbox by hand. */
+export type ManualRemoval = {
+	recordingId: number,
+	title: string | null,
+	artist: string | null,
+	/**
+	 *  Where it was sent, as Windows writes it, so the user can find it in
+	 *  rekordbox. `None` if the sent `Location` can't be read back: the row
+	 *  then shows only the track's name, and leaves the list once a read made
+	 *  after the removal has no row matched to the track.
+	 */
+	path: string | null,
+	/**  When the user removed it, UTC ISO-8601. */
+	removedAt: string,
+};
+
 /**  The missing tracks that were last in one folder. */
 export type MissingGroup = {
 	/**
@@ -935,6 +968,23 @@ export type SnapshotSummary = {
 	notStored: number,
 	/**  Whether the export held every track it said it did. */
 	complete: boolean,
+};
+
+/**  Whether a stale entry is a folder or a playlist. */
+export type StaleKind = "folder" | "playlist";
+
+/**  A playlist or folder in rekordbox that the app doesn't have. */
+export type StalePlaylist = {
+	/**  Folder names down to it, starting with `Crates` or `Playlists`. */
+	path: string[],
+	kind: StaleKind,
+	/**  For a folder, how many playlists are in it (at any depth). */
+	playlistsInside: number,
+	/**
+	 *  A folder with nothing in it at all (not even a subfolder). A folder
+	 *  holding only subfolders has no playlists but isn't empty.
+	 */
+	empty: boolean,
 };
 
 /**

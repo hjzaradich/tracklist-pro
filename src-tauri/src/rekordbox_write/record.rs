@@ -11,13 +11,17 @@
 //! the app never edits them, and they can never conflict (1.10), so a
 //! base for one has no use, even when Phase 2 sends them (rule 3, case B).
 //!
+//! The folders and playlists the send wrote are kept too, in the same
+//! transaction (`sent_playlist`, ROADMAP 1.9 rule 6): the path of each, so
+//! a later read can tell what the app itself put in rekordbox.
+//!
 //! A send isn't an operation in the undo log. Its rows can take the row
 //! ids a removed track's bases had, and undoing that removal is then
 //! refused (nothing is changed; the track can be added back by hand).
 
 use rusqlite::{params, Connection};
 
-use super::{SentTrack, ANALYSIS_ATTRIBUTES};
+use super::{SentPath, SentTrack, ANALYSIS_ATTRIBUTES};
 
 /// rekordbox's analysis elements, named as `conflict.field` names them.
 const ANALYSIS_ELEMENTS: [&str; 2] = ["TEMPO", "POSITION_MARK"];
@@ -40,7 +44,11 @@ fn is_analysis(field: &str) -> bool {
 /// fails once the file is in place, call it again: until it succeeds the
 /// bases are the previous send's, and what this send changed would look
 /// like rekordbox's edits.
-pub fn record_send(conn: &mut Connection, sent: &[SentTrack]) -> rusqlite::Result<()> {
+pub fn record_send(
+    conn: &mut Connection,
+    sent: &[SentTrack],
+    paths: &[SentPath],
+) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     let now: String = tx.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
         r.get(0)
@@ -63,6 +71,27 @@ pub fn record_send(conn: &mut Connection, sent: &[SentTrack]) -> rusqlite::Resul
              WHERE library_track_id = ?1
                AND field NOT IN (SELECT value FROM json_each(?2))",
         )?;
+        // Every folder and playlist this send wrote, kept across sends: a
+        // path already there is updated, never duplicated, and keeps its
+        // `seen` mark. Done first: a track that fails below rolls them back too.
+        let mut path = tx.prepare(
+            "INSERT INTO sent_playlist (path, path_key, kind, sent_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (path_key, kind)
+             DO UPDATE SET path = excluded.path, sent_at = excluded.sent_at",
+        )?;
+        for sent_path in paths {
+            path.execute(params![
+                serde_json::to_string(&sent_path.path).expect("strings always serialize"),
+                serde_json::to_string(&sent_path.key()).expect("strings always serialize"),
+                if sent_path.folder {
+                    "folder"
+                } else {
+                    "playlist"
+                },
+                now,
+            ])?;
+        }
         for track in sent {
             let id = track.library_track.0;
             let marked = mark.execute(params![id, track.location(), now])?;

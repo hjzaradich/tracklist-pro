@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { AfterSendPanel } from "../afterSend/AfterSendLists";
 import { errorMessage } from "../api/errors";
 import styles from "../firstRun/firstRun.module.css";
 import { MusicFoldersStep } from "../firstRun/MusicFoldersStep";
@@ -36,7 +37,7 @@ export function OverviewScreen() {
   if (sending) {
     return (
       <StageScreen stage="overview">
-        <SendChecklist onClose={() => setSending(false)} />
+        <SendChecklist onClose={() => setSending(false)} afterSend={<AfterSendPanel />} />
       </StageScreen>
     );
   }

@@ -137,7 +137,9 @@ fn assert_written_whole_and_recorded(lib: &Lib, row: i64, track: LibraryTrackId)
     assert_eq!(read.playlists.playlists()[0].1.entries.len(), 1);
 
     // Recorded like any known track.
-    lib.writer.call(move |c| record_send(c, &out.sent)).unwrap();
+    lib.writer
+        .call(move |c| record_send(c, &out.sent, out.paths()))
+        .unwrap();
     let last: Option<String> = lib.scalar(
         "SELECT last_sent_location FROM library_track WHERE id = ?1",
         track.0,

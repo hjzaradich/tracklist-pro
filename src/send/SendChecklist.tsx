@@ -18,7 +18,7 @@ export const MAX_ROWS = 50;
 /**
  * The guided send (1aF-1, ROADMAP 1.9): export from rekordbox, review what
  * will be sent, write the file, import it in rekordbox. Every step is the
- * user's; nothing is written before "Write the file".
+ * user's; nothing is written before "Write file".
  *
  * `afterSend` is shown in the last step: the lists of what to tidy up in
  * rekordbox by hand (1aF-2).
@@ -215,7 +215,6 @@ export function SendChecklist({
         </li>
         <li>
           <h3 className={styles.stepTitle}>{t("after.title")}</h3>
-          {/* 1aF-2 mounts its after-send lists here. */}
           <div data-slot="after-send">{afterSend}</div>
         </li>
       </ol>
