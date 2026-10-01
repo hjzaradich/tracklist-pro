@@ -7,6 +7,7 @@ export interface EnglishResources {
   "common": typeof import("../locales/en/common.json");
   "crates": typeof import("../locales/en/crates.json");
   "errors": typeof import("../locales/en/errors.json");
+  "fragile": typeof import("../locales/en/fragile.json");
   "library": typeof import("../locales/en/library.json");
   "musicFolderStatus": typeof import("../locales/en/musicFolderStatus.json");
   "musicFolderWatch": typeof import("../locales/en/musicFolderWatch.json");

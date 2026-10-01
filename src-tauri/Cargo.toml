@@ -36,13 +36,16 @@ tauri-plugin-dialog = "2"
 blake3 = "1"
 # The per-root music folder watcher (1aC-6). CC0-1.0.
 notify = "8"
+# Where the user's Downloads folder is (the Windows known folder; fragile
+# locations, 1aD-7). MIT OR Apache-2.0.
+dirs = "7"
 # Acoustic fingerprints (ROADMAP 1.4). MIT.
 rusty-chromaprint = "0.3.0"
 # Decodes audio for fingerprints (ROADMAP 1.4, §5.6). MPL-2.0. Opus isn't among its codecs.
 symphonia = { version = "0.6.1", default-features = false, features = ["opt-simd", "all-meta", "mp3", "aac", "alac", "flac", "pcm", "adpcm", "vorbis", "isomp4", "ogg", "wav", "aiff", "caf"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_System_Diagnostics_Debug", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

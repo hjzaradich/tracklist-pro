@@ -4,10 +4,12 @@ use tauri::{Builder, Manager, RunEvent, Runtime};
 
 pub mod db;
 pub mod fingerprint;
+pub mod fragile;
 pub mod grouping;
 pub mod hash;
 pub mod ipc;
 pub mod jobs;
+pub mod missing;
 pub mod net;
 pub mod ops;
 pub mod paths;

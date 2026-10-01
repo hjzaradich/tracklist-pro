@@ -1,3 +1,13 @@
 {
-  "empty": "Every decision the app can't make on its own."
+  "empty": "Every decision the app can't make on its own.",
+  "missing": {
+    "title": "Missing",
+    "empty": "No missing tracks",
+    "tracksCount_one": "({{count}} track)",
+    "tracksCount_other": "({{count}} tracks)",
+    "trackName": "{{artist}} - {{title}}",
+    "unknownFolder": "Unknown folder",
+    "lastKnown": "Last known location",
+    "addFolder": "Add folder"
+  }
 }

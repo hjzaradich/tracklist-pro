@@ -4528,6 +4528,7 @@ name = "tracklist-pro"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "dirs",
  "lofty",
  "mp3lame-encoder",
  "notify",
