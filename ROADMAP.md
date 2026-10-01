@@ -295,7 +295,7 @@ Each feature is tagged with its sub-phase.
 - **First run:** point the app at your music folders, then choose:
   - **Start from rekordbox (main):** your whole collection or chosen playlists become **linked** Library tracks (1.8). There are no new rekordbox entries, no re-encoding and no file writes, and the Library looks like what you already play. Their duplicates and problems queue in Review (1b).
   - **Start fresh:** an empty Library, for new DJs, DJs switching software, or a clean start. Tracks you add are linked to their files where they are.
-- **Fragile locations:** a Library track whose file lives in Downloads, a temp folder or an external drive gets a visible warning with its reason ("this file is in Downloads; if you clear Downloads, the track goes missing"). Making a safe copy arrives in Phase 2 (2.6).
+- **Fragile locations:** a Library track whose file lives in Downloads, a temp folder, an external drive or a network drive (owner, 2026-10-01) gets a visible warning with its reason ("this file is in Downloads; if you clear Downloads, the track goes missing"). Making a safe copy arrives in Phase 2 (2.6).
 - **Tracks whose file is missing** when you start from rekordbox don't become Library tracks yet. They wait in Review's **Missing** list (1aD-5) with their rekordbox data intact (BPM, key, cues, play counts, playlists), until a file is found and married to them by relink; then they join the Library as linked tracks. From Phase 2 they can also go on the wishlist. Decided 2026-09-28.
 - The Library folder and format are chosen when managed copies arrive (2.6). Importing playlists with their order comes in 3.5.
 - **Complexity:** S–M.

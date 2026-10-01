@@ -128,7 +128,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 2:** 1aD-4 Attach rekordbox data to tracks with provenance; write BPM and key into `analysis`; parse My Tags out of Comments (rekordbox's "Add My Tag to the comments" setting, in the format the E2 spike recorded) into `rekordbox_track.my_tags`, which 1aB-10 leaves empty
 - **Lane 3:** 1aD-5 Missing list with last known paths + an offer to add folders: shown in Review, holding rekordbox tracks whose file is missing with their rekordbox data intact until relink marries them to a file (§1.3)
 - **Lane 4:** 1aD-6 Linked Library tracks: create, list, store (1.8)
-- **Lane 5:** 1aD-7 Fragile-location detection (Downloads, temp, external drives), with the warning and its reason (1.3). Known limit from 0B-10: NVMe drives in Thunderbolt enclosures report as internal
+- **Lane 5:** 1aD-7 Fragile-location detection (Downloads, temp, external and network drives), with the warning and its reason (1.3). Known limit from 0B-10: NVMe drives in Thunderbolt enclosures report as internal
 - **Lane 6:** 1aD-8 Per-track send values: rekordbox data plus the best tags from the track's files
 
 ### Stage 1aE: Starting a Library, and the XML writer
