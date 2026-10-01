@@ -238,6 +238,62 @@ impl WriteGuard {
             .map_err(|e| checked.io(e))
     }
 
+    /// Writes `bytes` as the whole file at `path` without ever leaving a
+    /// half-written file there: the bytes go to a new file beside it, are
+    /// flushed to disk, and that file is then renamed over `path`. On any
+    /// failure the new file is deleted, and `path` is as it was (missing,
+    /// or still holding its old content).
+    ///
+    /// `path` passes the same checks as [`Self::write`]. The file beside
+    /// it gets a name this method picks and is created new, never opened
+    /// if something already has that name; it's the only file this ever
+    /// deletes.
+    ///
+    /// The new file is `<name>.part` in `path`'s own folder. If something
+    /// already has that name (a file a crashed write left, or anything
+    /// else) it's left alone, never overwritten and never deleted, and
+    /// `<name>.1.part`, `<name>.2.part`, … are tried, a fixed number of
+    /// them; when all are taken the write fails. Clearing leftovers is the
+    /// caller's job.
+    pub fn write_then_rename(&self, path: &Path, bytes: &[u8]) -> Result<(), GuardError> {
+        use std::io::Write;
+        self.write_then_rename_with(path, |file| file.write_all(bytes), || Ok(()))
+    }
+
+    /// [`Self::write_then_rename`] with its two steps open to tests:
+    /// `fill` writes the new file, and `before_rename` runs once it's
+    /// flushed. An error from either is a failed write.
+    fn write_then_rename_with(
+        &self,
+        path: &Path,
+        fill: impl FnOnce(&mut File) -> io::Result<()>,
+        before_rename: impl FnOnce() -> io::Result<()>,
+    ) -> Result<(), GuardError> {
+        let checked = self.check(path)?;
+        // A file already there must have one name, as for any write; it's
+        // opened without creating or changing it.
+        match checked.open_one_name(false) {
+            Ok(_) => {}
+            Err(GuardError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        let (temp, mut file) = checked.create_beside()?;
+        // The flush to disk can't be seen by a test (a file reads back the
+        // same without it); it's what makes the rename safe across a crash.
+        let done = fill(&mut file)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| {
+                drop(file);
+                before_rename()
+            })
+            .and_then(|()| fs::rename(&temp, &checked.path));
+        done.map_err(|e| {
+            // The file this call created, and nothing else.
+            let _ = fs::remove_file(&temp);
+            checked.io(e)
+        })
+    }
+
     /// Renames or moves a file, folder or link. Both ends must be inside a
     /// root, and a root itself can't be moved. A link is moved as a link.
     pub fn rename(&self, from: &Path, to: &Path) -> Result<(), GuardError> {
@@ -340,6 +396,31 @@ impl GuardedPath {
         }
     }
 
+    /// Creates a new, empty file in this path's folder, named after it
+    /// (`<name>.part`, then `<name>.1.part`, …), and opens it for writing.
+    /// A name something already has is never opened, link or not: the next
+    /// one is tried. The folder is this path's own, so the new file is
+    /// inside the same root. An error names the file that couldn't be made.
+    fn create_beside(&self) -> Result<(PathBuf, File), GuardError> {
+        let name = self.path.file_name().unwrap_or_default();
+        let mut last = (self.path.clone(), io::ErrorKind::AlreadyExists.into());
+        for attempt in 0..BESIDE_ATTEMPTS {
+            let mut temp_name = name.to_owned();
+            if attempt > 0 {
+                temp_name.push(format!(".{attempt}"));
+            }
+            temp_name.push(".part");
+            let temp = self.path.with_file_name(temp_name);
+            match File::options().write(true).create_new(true).open(&temp) {
+                Ok(file) => return Ok((temp, file)),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = (temp, e),
+                Err(source) => return Err(GuardError::Io { path: temp, source }),
+            }
+        }
+        let (path, source) = last;
+        Err(GuardError::Io { path, source })
+    }
+
     fn io(&self, source: io::Error) -> GuardError {
         GuardError::Io {
             path: self.path.clone(),
@@ -347,6 +428,9 @@ impl GuardedPath {
         }
     }
 }
+
+/// How many names [`GuardedPath::create_beside`] tries before giving up.
+const BESIDE_ATTEMPTS: u32 = 16;
 
 /// Keeps a connection's scratch data in memory and refuses `ATTACH` of a
 /// file (which `VACUUM INTO` also uses). Plain `VACUUM` attaches an unnamed
