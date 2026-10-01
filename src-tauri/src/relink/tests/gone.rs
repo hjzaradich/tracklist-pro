@@ -57,16 +57,98 @@ fn a_gone_file_with_no_file_of_its_audio_left_stays_missing() {
 }
 
 #[test]
-fn another_present_file_of_the_gone_files_track_is_matched() {
+fn another_present_file_of_the_gone_files_track_isnt_matched_yet() {
     let (lib, music, mounted, old, track) = moved();
     // Grouped with the gone file, though its audio_hash differs (as 1b's
-    // fingerprint grouping will do).
+    // fingerprint grouping will do). 1bC-1 brings this match back, with a
+    // check that grouping is up to date; until then a track mate with
+    // another hash can only be one that grouping hasn't moved out yet.
     let mate = elsewhere(&lib, music, "Mate");
     lib.hashed(mate, 2);
-    let recording = lib.group(&[old, mate]);
+    lib.group(&[old, mate]);
     lib.relink(&mounted);
-    assert_eq!(lib.matched(track), same_audio(mate));
-    assert_eq!(lib.recording(track), Some(recording));
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_track_mate_overwritten_with_other_audio_isnt_matched_before_grouping_catches_up() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = elsewhere(&lib, music, "Mate");
+    lib.hashed(mate, 1);
+    lib.group(&[old, mate]);
+    // The mate is overwritten and hashed again (current), and grouping
+    // hasn't run since: it's still in the gone file's track.
+    lib.edited(mate);
+    lib.hashed(mate, 9);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    // Nor after grouping moved it to a track of its own.
+    lib.writer.call(crate::grouping::regroup).unwrap();
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    assert_eq!(lib.recording(track), None);
+}
+
+#[test]
+fn a_gone_file_that_changed_before_it_went_doesnt_give_its_track() {
+    let (lib, music, mounted) = e_music();
+    let old = lib.file(music, "Old.mp3", Some(200_000));
+    lib.hashed(old, 1);
+    let mate = elsewhere(&lib, music, "Mate");
+    lib.hashed(mate, 2);
+    lib.group(&[old, mate]);
+    // Changed on disk, then deleted before it was hashed again.
+    lib.edited(old);
+    let track = lib.track(&loc("E:/Music/Old.mp3"), Some("200"));
+    lib.gone(old);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_gone_file_that_changed_before_it_went_isnt_evidence_by_its_old_fingerprint() {
+    let (lib, music, mounted) = e_music();
+    let old = lib.file(music, "Old.mp3", Some(200_000));
+    lib.fingerprinted(old, &song(1, 200));
+    // Replaced by other audio, then deleted before the fingerprint stage
+    // ran again: the stored fingerprint is of the older content.
+    lib.edited(old);
+    let track = lib.track_with(&loc("E:/Music/Old.mp3"), Some("200"), &[("Name", "Kappa")]);
+    lib.gone(old);
+    let new = lib.file(music, "Converted/New.flac", Some(200_400));
+    lib.fingerprinted(new, &reencoded(&song(1, 200)));
+    lib.title(new, "Kappa");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn rows_over_the_comparison_budget_are_counted_in_the_summary() {
+    let (lib, music, mounted, _old, track) = moved();
+    // More files of the gone file's length than one run compares; each was
+    // looked at by the fingerprint stage (so none is waiting).
+    let count = MAX_COMPARISONS as i64 + 1;
+    let version = i64::from(crate::fingerprint::VERSION);
+    lib.writer
+        .call(move |c| {
+            c.execute(
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?2)
+                 INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, duration_ms)
+                 SELECT ?1, 'Many/F' || i || '.flac', 'Many/F' || i || '.flac', 1000, 200000
+                 FROM n",
+                params![music, count],
+            )?;
+            c.execute(
+                "INSERT INTO file_stage (file_id, stage, version, size, mtime, status, reason)
+                 SELECT id, 'fingerprint', ?1, size, mtime, 'failed', 'unsupported_codec'
+                 FROM file WHERE rel_path LIKE 'Many/%'",
+                [version],
+            )
+        })
+        .unwrap();
+    let summary = lib.relink(&mounted);
+    assert_eq!(summary.fingerprint_undecided, 1);
+    assert_eq!(lib.matched(track), None);
 }
 
 #[test]
@@ -102,16 +184,9 @@ fn a_track_mate_that_changed_since_it_was_hashed_isnt_trusted() {
     let mate = elsewhere(&lib, music, "Mate");
     lib.hashed(mate, 1);
     lib.group(&[old, mate]);
-    // The mate changed on disk and hasn't been hashed again, so grouping
-    // hasn't moved it yet: it may hold anything.
+    // The mate changed on disk and hasn't been hashed again: it may hold
+    // anything.
     lib.edited(mate);
-    lib.relink(&mounted);
-    assert_eq!(lib.matched(track), None);
-    // It turns out to hold other audio, and grouping moves it to a track
-    // of its own: still no match, and nothing recorded as the audio a
-    // match was made to.
-    lib.hashed(mate, 9);
-    lib.writer.call(crate::grouping::regroup).unwrap();
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), None);
     assert_eq!(lib.evidence(track), None);

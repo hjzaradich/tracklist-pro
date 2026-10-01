@@ -103,7 +103,7 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
         eprintln!("relink: {summary:?}");
         if summary.fingerprint_undecided > 0 {
             eprintln!(
-                "relink: the fingerprint comparison budget left {} rows undecided",
+                "relink: {} rows were over the fingerprint comparison budget and left undecided",
                 summary.fingerprint_undecided
             );
         }

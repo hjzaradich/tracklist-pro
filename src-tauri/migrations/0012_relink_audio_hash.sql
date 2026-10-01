@@ -1,7 +1,7 @@
 -- 0012: the audio a relink match was made to (ROADMAP 1.2, §2).
 --
--- A match that carries over between relink runs (fingerprint, filename
--- only, gig stick) and a confirmed relink both name a file. If that file is
+-- A match that carries over between relink runs (a gig stick's) and a
+-- confirmed relink both name a file. If that file is
 -- later replaced by other audio under the same path, the match is no
 -- longer about the audio it was made to. So each keeps the matched file's
 -- audio_hash as it was at match time:

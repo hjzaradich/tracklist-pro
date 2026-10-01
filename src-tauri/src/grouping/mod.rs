@@ -58,6 +58,7 @@ impl JobHandler for Grouper {
         let summary = job.writer().call(regroup)?;
         eprintln!("group job {} done: {summary:?}", job.id());
         ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
+        ask_for_relink(job.id(), job.writer(), |j| job.enqueue(j));
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }
@@ -76,6 +77,21 @@ fn ask_for_attach(
 ) {
     if let Err(e) = crate::attach::request(writer, enqueue) {
         eprintln!("group job {id}: couldn't ask for an attach: {e:?}");
+    }
+}
+
+/// Asks for a relink: files may have changed track, and a rekordbox
+/// track's match is decided on what the files hold and where they are now
+/// (1aD-1). Never queued twice while one waits ([`crate::relink::request`]),
+/// and a relink never asks for grouping, so the two can't go round in a
+/// loop. Like the attach, a failure to ask is logged and the job goes on.
+fn ask_for_relink(
+    id: JobId,
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, JobError>,
+) {
+    if let Err(e) = crate::relink::request(writer, enqueue) {
+        eprintln!("group job {id}: couldn't ask for a relink: {e:?}");
     }
 }
 

@@ -775,13 +775,12 @@ fn a_finished_read_queues_a_relink_that_matches_rekordbox_tracks_to_the_scanned_
 
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
-    // A relink asked for by the read, and it found the file; the second
-    // one is the fingerprint job's (it follows the attach job the first
-    // relink asked for).
-    let after: Vec<String> = relinks(&writer).into_iter().map(|r| r.1).collect();
-    assert_eq!(after[0], "read");
-    assert_eq!(relinks(&writer).len(), 2);
-    assert!(relinks(&writer).iter().all(|r| r.0 == "done"));
+    // The first relink was asked for by the read, and it found the file.
+    // (More follow: the grouping job and the fingerprint job each ask for
+    // one, and whether those fold into one depends on when they run.)
+    let relinked = relinks(&writer);
+    assert_eq!(relinked[0], ("done".into(), "read".into()));
+    assert!(relinked.iter().all(|r| r.0 == "done"));
     let (file, method): (Option<i64>, Option<String>) = writer
         .call(move |c| {
             c.query_row(
@@ -797,30 +796,49 @@ fn a_finished_read_queues_a_relink_that_matches_rekordbox_tracks_to_the_scanned_
     // A walk that finds nothing new reads nothing, so asks for no relink.
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
-    assert_eq!(relinks(&writer).len(), 2);
+    assert_eq!(relinks(&writer).len(), relinked.len());
     queue.shutdown();
 }
 
 #[test]
 fn a_finished_fingerprint_job_queues_a_relink() {
-    let (_dir, volume, music) = drive();
-    put(&music, "Crate/a.mp3", &audio::mp3());
+    // Only the two handlers, so nothing else asks for a relink.
     let (_db, writer, _reads) = db();
-    add_music(&writer, &volume, &music);
-    let looked = LookedAt::default();
-    let queue = chained_queue(&writer, &volume, &looked);
-
-    queue.enqueue(scan_job(None)).unwrap();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .handler(
+            JobKind::Fingerprint,
+            after_fingerprint(|_: &JobContext| Ok(())),
+        )
+        .handler(JobKind::Relink, |_: &JobContext| Ok(()))
+        .start()
+        .unwrap();
+    queue
+        .enqueue(crate::fingerprint::fingerprint_job(None))
+        .unwrap();
     wait_idle(&queue);
-    // The read's relink ran before the hashes; the fingerprint job asked
-    // for another, which ran after it.
-    assert_eq!(
-        relinks(&writer),
-        [
-            ("done".into(), "read".into()),
-            ("done".into(), "fingerprint".into())
-        ]
-    );
+    assert_eq!(relinks(&writer), [("done".into(), "fingerprint".into())]);
+    queue.shutdown();
+}
+
+#[test]
+fn a_finished_grouping_job_queues_a_relink_and_a_relink_queues_no_grouping() {
+    let (_db, writer, _reads) = db();
+    let (_dir, volume, _music) = drive();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .handler(
+            JobKind::Group,
+            after_group(crate::grouping::Grouper::default()),
+        )
+        .handler(JobKind::Relink, Relinker::new(move || volume.clone()))
+        .start()
+        .unwrap();
+    queue.enqueue(crate::grouping::group_job()).unwrap();
+    wait_idle(&queue);
+    // One grouping job, one relink after it, and then nothing: no loop.
+    assert_eq!(kinds(&writer), ["group"]);
+    assert_eq!(relinks(&writer), [("done".into(), "group".into())]);
     queue.shutdown();
 }
 
