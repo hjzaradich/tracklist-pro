@@ -1,0 +1,56 @@
+/* The stage body centres its content; the list fills it instead. */
+.scroll {
+  align-self: stretch;
+  justify-self: stretch;
+  min-height: 0;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.table td {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+  color: var(--color-text);
+}
+
+.row:hover td {
+  background: var(--color-surface-hover);
+}
+
+.title,
+.path {
+  overflow-wrap: anywhere;
+}
+
+.file .path {
+  color: var(--color-text-muted);
+}
+
+.notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.note {
+  color: var(--color-warning);
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+}

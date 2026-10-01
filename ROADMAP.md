@@ -347,6 +347,7 @@ Each feature is tagged with its sub-phase.
 
 #### 1.8 Add to Library · 1a
 - **In the MVP every Library track is linked:** it points at an existing file. For tracks rekordbox knows, that's the file rekordbox already uses, so nothing changes in rekordbox and cues and history stay safe. For tracks rekordbox doesn't know, the next send adds them at their current Location.
+- **Which file** (1aD-6, 2026-09-30): the file of a trusted rekordbox match; otherwise the track's best file. A probable match is ignored, and confirming it later doesn't re-point the Library track (1bE-6 decides what does). The add is refused when the track has neither, or when that file isn't on disk (no fallback to another file); such tracks wait in the Missing list (1.3). A file on an unplugged drive counts as on disk (unplugged isn't missing, 1.1): its track can be added and shows no "File missing". Adding a track that's already in the Library changes nothing.
 - **Read-only:** the file stays where it is and is never written. Tag fixes reach rekordbox only via the XML (on first import, XML values win over file tags, §5.2).
 - **Carried over:** rekordbox's data (1.2) and the best tags gathered from all the track's files (1.7), sent through the XML.
 - **Fragile locations** are warned about (1.3).

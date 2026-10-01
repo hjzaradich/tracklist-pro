@@ -110,6 +110,13 @@ export const commands = {
 	 *  offer to add each folder that exists now (1aD-5).
 	 */
 	missingTracks: () => typedError<MissingList, IpcError>(__TAURI_INVOKE("missing_tracks")),
+	/**  Every Library track, sorted for the Library list (see [`list`]). */
+	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
+	/**
+	 *  Adds a track to the Library as a linked Library track. Its file is never
+	 *  written. Adding a track that's already there changes nothing.
+	 */
+	promoteTrack: (recordingId: number) => typedError<Promoted, IpcError>(__TAURI_INVOKE("promote_track", { recordingId })),
 };
 
 /** Events */
@@ -120,7 +127,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -208,7 +215,13 @@ export type ErrorKind =
 /**  The file isn't a rekordbox collection export. */
 "notRekordboxXml" | 
 /**  No rekordbox export has been chosen yet. */
-"noRekordboxXml";
+"noRekordboxXml" | 
+/**  There's no track with that id to add to the Library. */
+"libraryTrackNotFound" | 
+/**  The track has no file to link a Library track to. */
+"libraryNoFile" | 
+/**  The file the Library track would link to isn't on disk. */
+"libraryFileMissing";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -359,6 +372,48 @@ export type LastRead = {
 	summary: SnapshotSummary,
 };
 
+/**  A Library track, with what the Library list shows. */
+export type LibraryTrack = {
+	id: LibraryTrackId,
+	/**  The track (`recording`) it was made from. */
+	recordingId: number,
+	kind: LibraryTrackKind,
+	/**
+	 *  The track's title and artist. `None` when it has none yet; the list
+	 *  then shows the linked file's name as the title.
+	 */
+	title: string | null,
+	artist: string | null,
+	/**  The linked file. `None` only for a Library track with no file link. */
+	file: LinkedFile | null,
+	/**  When it was added, UTC ISO-8601. */
+	addedAt: string,
+};
+
+/**  A Library track's row id. */
+export type LibraryTrackId = number;
+
+/**  What a Library track's audio is. Stored in `library_track.kind`. */
+export type LibraryTrackKind = 
+/**  It points at an existing file, which is never written. */
+"linked" | 
+/**  A managed copy in the Library folder (Phase 2, ROADMAP 2.6). */
+"copy";
+
+/**  The file a linked Library track plays, as the frontend sees it. */
+export type LinkedFile = {
+	/**
+	 *  Where the file is, e.g. `E:\DJ Music\a.mp3`: under its volume's
+	 *  mount point now, or where that was last seen if the volume is
+	 *  offline.
+	 */
+	path: string,
+	/**  The file's name, e.g. `a.mp3`. */
+	name: string,
+	/**  Whether the last scan found it on disk (`file.present`). */
+	present: boolean,
+};
+
 /**  The missing tracks that were last in one folder. */
 export type MissingGroup = {
 	/**
@@ -451,6 +506,13 @@ export type OperationInfo = {
 	 *  from the locale files.
 	 */
 	kind: string,
+};
+
+/**  What adding a track to the Library did. */
+export type Promoted = {
+	libraryTrack: LibraryTrack,
+	/**  False when the track was already in the Library: nothing changed. */
+	added: boolean,
 };
 
 /**  The last read that failed. The snapshot is unchanged by it. */

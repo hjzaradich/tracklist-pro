@@ -104,6 +104,12 @@ error_kinds! {
     NotRekordboxXml => "rekordbox:error.notAnExport", params: ["path"];
     /// No rekordbox export has been chosen yet.
     NoRekordboxXml => "rekordbox:error.noneChosen", params: [];
+    /// There's no track with that id to add to the Library.
+    LibraryTrackNotFound => "library:error.trackNotFound", params: [];
+    /// The track has no file to link a Library track to.
+    LibraryNoFile => "library:error.noFile", params: [];
+    /// The file the Library track would link to isn't on disk.
+    LibraryFileMissing => "library:error.fileMissing", params: ["path"];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a
