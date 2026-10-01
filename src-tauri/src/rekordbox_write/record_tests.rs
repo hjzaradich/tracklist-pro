@@ -112,6 +112,7 @@ fn known(id: LibraryTrackId, attributes: &[(&str, &str)]) -> TrackInput {
             in_rekordbox: true,
             attributes: pairs(attributes),
             rekordbox_holds_other_file: None,
+            file_missing: false,
         },
     }
 }
@@ -123,6 +124,7 @@ fn new(id: LibraryTrackId, attributes: &[(&str, &str)]) -> TrackInput {
             in_rekordbox: false,
             attributes: pairs(attributes),
             rekordbox_holds_other_file: None,
+            file_missing: false,
         },
     }
 }
@@ -340,6 +342,7 @@ fn an_analysis_field_is_never_recorded_whatever_the_caller_hands_in() {
             ("Location", location),
         ]),
         rekordbox_holds_other_file: None,
+        file_missing: false,
     };
     lib.record(&[direct]).unwrap();
     assert_eq!(

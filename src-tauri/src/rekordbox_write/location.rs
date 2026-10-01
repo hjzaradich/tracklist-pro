@@ -87,6 +87,17 @@ pub fn from_rekordbox(raw: &str) -> Result<String, LocationProblem> {
     }
 }
 
+/// The `Location` of a track rekordbox has whose file is missing: rekordbox's
+/// own value, returned byte for byte. It must still decode to a file, so two
+/// tracks at one path can be told apart.
+pub fn verbatim(raw: &str) -> Result<String, LocationProblem> {
+    match decode(raw) {
+        Ok(Location::File(_)) => Ok(raw.to_owned()),
+        Ok(Location::Streaming(_)) => Err(LocationProblem::NotAFile),
+        Err(_) => Err(LocationProblem::Undecodable),
+    }
+}
+
 /// Characters rekordbox 7 leaves raw in a `Location`, besides ASCII
 /// letters and digits (seen in its exports, §5.3). It never writes one of
 /// these as `%xx`.
