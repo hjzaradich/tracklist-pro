@@ -67,8 +67,17 @@ impl Lib {
             .unwrap()
     }
 
-    fn execute(&self, sql: &'static str) -> Result<usize, DbError> {
-        self.writer.call(move |c| c.execute(sql, []))
+    /// The row id of a track's base value for `field`.
+    fn row(&self, track: LibraryTrackId, field: &'static str) -> i64 {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT id FROM sync_base WHERE library_track_id = ?1 AND field = ?2",
+                    rusqlite::params![track.0, field],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
     }
 }
 
@@ -209,6 +218,7 @@ fn a_second_send_replaces_the_base_values_and_never_duplicates_them() {
     ]))
     .unwrap();
     let other_before = lib.base(other);
+    let rating_row = lib.row(a, "Rating");
 
     // Rating changed, Name is no longer sent, Genre is new; `other` isn't
     // in this send.
@@ -231,6 +241,8 @@ fn a_second_send_replaces_the_base_values_and_never_duplicates_them() {
         ])
     );
     assert_eq!(lib.base(other), other_before);
+    // A field sent again is the same row with the new value.
+    assert_eq!(lib.row(a, "Rating"), rating_row);
 
     // The same send again changes nothing.
     let again = sent(vec![known(

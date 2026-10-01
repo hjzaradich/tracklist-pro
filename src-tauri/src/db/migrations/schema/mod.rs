@@ -4,6 +4,7 @@
 //!
 //! Every test uses a fresh database in a temp dir, never the real one.
 
+mod analysis_never_conflicts;
 mod file_stage;
 mod files;
 mod fingerprint_audio_hash;
@@ -153,6 +154,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // Keeps `library_track.source_status` in step with its file; adds the
     // record of tracks the user removed.
     ("0013_library_upkeep.sql", &["library_removal"]),
+    // Refuses conflicts on analysis fields, no tables.
+    ("0014_analysis_never_conflicts.sql", &[]),
 ];
 
 #[test]

@@ -57,6 +57,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0011_relink_probable"),
     migration!("0012_relink_audio_hash"),
     migration!("0013_library_upkeep"),
+    migration!("0014_analysis_never_conflicts"),
 ];
 
 /// The table that records which migrations a database has had.
