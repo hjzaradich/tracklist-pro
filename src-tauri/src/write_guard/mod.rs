@@ -186,6 +186,21 @@ impl WriteGuard {
             .ok_or(GuardError::Outside(real))
     }
 
+    /// [`Self::check`], refusing a root itself: for writes that make or
+    /// delete files beside `path`, in its own folder. A root's own folder
+    /// is outside it.
+    fn check_below_a_root(&self, path: &Path) -> Result<GuardedPath, GuardError> {
+        let checked = self.check(path)?;
+        if self
+            .roots
+            .iter()
+            .any(|(_, root)| within(root, &checked.path))
+        {
+            return Err(GuardError::IsRoot(checked.path));
+        }
+        Ok(checked)
+    }
+
     /// Checks the entry at `path` itself, for renaming or deleting it: its
     /// folder is resolved (links followed) but its own name isn't, so a
     /// link there is renamed or deleted, never what it points to. A root,
@@ -244,7 +259,8 @@ impl WriteGuard {
     /// failure the new file is deleted, and `path` is as it was (missing,
     /// or still holding its old content).
     ///
-    /// `path` passes the same checks as [`Self::write`]. The file beside
+    /// `path` passes the same checks as [`Self::write`], and can't be a
+    /// root itself (the file beside it would be outside). The file beside
     /// it gets a name this method picks and is created new, never opened
     /// if something already has that name; it's the only file this ever
     /// deletes.
@@ -269,7 +285,8 @@ impl WriteGuard {
         fill: impl FnOnce(&mut File) -> io::Result<()>,
         before_rename: impl FnOnce() -> io::Result<()>,
     ) -> Result<(), GuardError> {
-        let checked = self.check(path)?;
+        // The new file is made beside `path`, so `path` can't be a root.
+        let checked = self.check_below_a_root(path)?;
         // A file already there must have one name, as for any write; it's
         // opened without creating or changing it.
         match checked.open_one_name(false) {
@@ -292,6 +309,51 @@ impl WriteGuard {
             let _ = fs::remove_file(&temp);
             checked.io(e)
         })
+    }
+
+    /// Deletes the files an earlier [`Self::write_then_rename`] to `path`
+    /// could have left when it was cut short (a crash, a power cut):
+    /// exactly the names it can give its new file ([`beside_names`]), in
+    /// `path`'s own folder. Only a plain file is deleted; a folder or a
+    /// link with such a name is left alone, and so is `path` itself.
+    /// Returns how many were deleted.
+    ///
+    /// `path` passes the same check as a write and must be below a root,
+    /// never a root itself (whose own folder is outside it), and every
+    /// name is checked to be inside the root before it's looked at. So
+    /// nothing outside a root is looked at or deleted.
+    pub fn remove_leftover_parts(&self, path: &Path) -> Result<usize, GuardError> {
+        let checked = self.check_below_a_root(path)?;
+        let mut removed = 0;
+        for name in beside_names(&checked.path) {
+            let leftover = checked.path.with_file_name(name);
+            if !self.roots.iter().any(|(_, root)| within(&leftover, root)) {
+                return Err(GuardError::Outside(leftover));
+            }
+            // Not following links: only a plain file is one of ours.
+            match fs::symlink_metadata(&leftover) {
+                Ok(meta) if meta.file_type().is_file() => {}
+                Ok(_) => continue,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(source) => {
+                    return Err(GuardError::Io {
+                        path: leftover,
+                        source,
+                    })
+                }
+            }
+            match fs::remove_file(&leftover) {
+                Ok(()) => removed += 1,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(GuardError::Io {
+                        path: leftover,
+                        source,
+                    })
+                }
+            }
+        }
+        Ok(removed)
     }
 
     /// Renames or moves a file, folder or link. Both ends must be inside a
@@ -402,14 +464,8 @@ impl GuardedPath {
     /// one is tried. The folder is this path's own, so the new file is
     /// inside the same root. An error names the file that couldn't be made.
     fn create_beside(&self) -> Result<(PathBuf, File), GuardError> {
-        let name = self.path.file_name().unwrap_or_default();
         let mut last = (self.path.clone(), io::ErrorKind::AlreadyExists.into());
-        for attempt in 0..BESIDE_ATTEMPTS {
-            let mut temp_name = name.to_owned();
-            if attempt > 0 {
-                temp_name.push(format!(".{attempt}"));
-            }
-            temp_name.push(".part");
+        for temp_name in beside_names(&self.path) {
             let temp = self.path.with_file_name(temp_name);
             match File::options().write(true).create_new(true).open(&temp) {
                 Ok(file) => return Ok((temp, file)),
@@ -431,6 +487,22 @@ impl GuardedPath {
 
 /// How many names [`GuardedPath::create_beside`] tries before giving up.
 const BESIDE_ATTEMPTS: u32 = 16;
+
+/// Every name [`GuardedPath::create_beside`] can give the new file it makes
+/// beside `path`, in the order it tries them: `<name>.part`, then
+/// `<name>.1.part`, `<name>.2.part`, … The one list both the write and
+/// [`WriteGuard::remove_leftover_parts`] go by, so they can't disagree.
+fn beside_names(path: &Path) -> impl Iterator<Item = std::ffi::OsString> {
+    let name = path.file_name().unwrap_or_default().to_owned();
+    (0..BESIDE_ATTEMPTS).map(move |attempt| {
+        let mut temp_name = name.clone();
+        if attempt > 0 {
+            temp_name.push(format!(".{attempt}"));
+        }
+        temp_name.push(".part");
+        temp_name
+    })
+}
 
 /// Keeps a connection's scratch data in memory and refuses `ATTACH` of a
 /// file (which `VACUUM INTO` also uses). Plain `VACUUM` attaches an unnamed

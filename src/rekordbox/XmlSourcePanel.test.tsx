@@ -133,16 +133,16 @@ describe("the rekordbox XML source", () => {
       backend.onRead = () => {};
       renderPanel();
       await userEvent.click(await screen.findByRole("button", { name: "Read again" }));
-      expect(await screen.findByText("Reading the export")).toBeInTheDocument();
+      expect(await screen.findByText("Reading export")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Read again" })).toBeDisabled();
       backend.source = { ...backend.source, lastRead: lastRead({ tracks: 1 }, "2026-09-30T08:00:00.000Z") };
       // The source is asked again once per READING_INTERVAL_MS, not before.
       await act(() => vi.advanceTimersByTimeAsync(READING_INTERVAL_MS - 1));
-      expect(screen.getByText("Reading the export")).toBeInTheDocument();
+      expect(screen.getByText("Reading export")).toBeInTheDocument();
       expect(backend.reads).toEqual([null]);
       await act(() => vi.advanceTimersByTimeAsync(1));
       expect(await screen.findByText(/\(1 track\)$/)).toBeInTheDocument();
-      expect(screen.queryByText("Reading the export")).not.toBeInTheDocument();
+      expect(screen.queryByText("Reading export")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -157,7 +157,7 @@ describe("the rekordbox XML source", () => {
 
   it.each([
     ["notFound", `Export not found (${EXPORT})`],
-    ["cantRead", `Can't open the export (${EXPORT})`],
+    ["cantRead", `Can't open export (${EXPORT})`],
     ["damaged", "The export is cut off or damaged. Export it again from rekordbox."],
     ["notAnExport", `Not a rekordbox collection export (${EXPORT})`],
   ] as const)("says why the last read failed (%s)", async (reason, message) => {

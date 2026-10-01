@@ -5,7 +5,7 @@
   "choose": "Choose export",
   "chooseAnother": "Choose another export",
   "readAgain": "Read again",
-  "reading": "Reading the export",
+  "reading": "Reading export",
   "fileFilter": "rekordbox export",
   "lastRead_one": "Read {{when}} ({{count, number}} track)",
   "lastRead_other": "Read {{when}} ({{count, number}} tracks)",
@@ -18,7 +18,7 @@
   "readNewer": "Read",
   "failed": {
     "notFound": "Export not found ({{path}})",
-    "cantRead": "Can't open the export ({{path}})",
+    "cantRead": "Can't open export ({{path}})",
     "damaged": "The export is cut off or damaged. Export it again from rekordbox.",
     "notAnExport": "Not a rekordbox collection export ({{path}})"
   },
