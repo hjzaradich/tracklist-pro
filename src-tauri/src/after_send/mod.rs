@@ -27,6 +27,15 @@
 //!   and only a seen path is ever listed: a read from before a send says
 //!   nothing about what the send put there. Sending a path again updates
 //!   it.
+//!
+//!   **A limit:** a path is told apart only by its names. If the user made a
+//!   playlist in rekordbox with the same name and place as a crate the app
+//!   sent but the user never imported (so no read showed it before), then
+//!   deleted that crate in the app, the user's playlist can be listed after
+//!   the next read. rekordbox replaces a same-name sibling on import (§5.2),
+//!   so for a send that was imported the app did take that playlist over;
+//!   for one that wasn't, nothing in an export tells the two apart. Only a
+//!   seen path is ever listed, which narrows the window.
 //! - **Manual removals** ([`manual_removals`]): tracks removed from the
 //!   Library that were sent before ([`crate::library::remove_in_rekordbox`])
 //!   and that rekordbox still holds. A track leaves the list when a

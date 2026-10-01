@@ -70,6 +70,13 @@ function fakeBackend(state: {
           sent: null,
         };
       }
+      if (cmd === "after_send_lists") {
+        return {
+          playlistsChecked: true,
+          stalePlaylists: [{ path: ["Crates", "Old name"], kind: "playlist", playlistsInside: 0 }],
+          manualRemovals: [],
+        };
+      }
       if (cmd === "music_folders") return [];
       if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
       if (cmd === "rekordbox_xml_source") {
@@ -213,6 +220,14 @@ describe("Send to rekordbox on the Overview", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(await screen.findByRole("button", { name: "Send to rekordbox" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "rekordbox collection" })).toBeInTheDocument();
+  });
+
+  it("shows the after-send lists in the guided send's last step", async () => {
+    fakeBackend({ library: 2, toAdd: 0 });
+    renderApp("/overview");
+    await userEvent.click(await screen.findByRole("button", { name: "Send to rekordbox" }));
+    expect(await screen.findByText("Crates > Old name")).toBeInTheDocument();
+    expect(screen.getByText("No tracks to remove")).toBeInTheDocument();
   });
 
   it("isn't offered while the Library is empty", async () => {

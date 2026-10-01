@@ -1072,7 +1072,11 @@ fn a_failed_write_leaves_the_last_sends_file_and_every_base_untouched() {
     assert_ne!(fs::read(w.send_file()).unwrap(), file);
 }
 
-fn failing_record(_: &mut rusqlite::Connection, _: &[SentTrack]) -> rusqlite::Result<()> {
+fn failing_record(
+    _: &mut rusqlite::Connection,
+    _: &[SentTrack],
+    _: &[crate::rekordbox_write::SentPath],
+) -> rusqlite::Result<()> {
     Err(rusqlite::Error::InvalidQuery)
 }
 
@@ -1099,10 +1103,12 @@ fn record_sends_own_rollback_also_puts_the_last_sends_file_back() {
     // the Library makes it roll back.
     let (w, file, recorded) = world_with_a_second_send_waiting();
     let token = w.flow.preflight().unwrap().token;
-    let partway = |c: &mut rusqlite::Connection, sent: &[SentTrack]| {
+    let partway = |c: &mut rusqlite::Connection,
+                   sent: &[SentTrack],
+                   paths: &[crate::rekordbox_write::SentPath]| {
         let mut sent = sent.to_vec();
         sent.last_mut().unwrap().library_track = LibraryTrackId(9_999);
-        crate::rekordbox_write::record_send(c, &sent)
+        crate::rekordbox_write::record_send(c, &sent, paths)
     };
 
     let failure = w.go_with(w.sender().recording_with(partway), &token, false);
@@ -1209,6 +1215,28 @@ fn the_crate_tree_is_sent_as_folders_and_hand_made_crates_in_their_stored_order(
                 vec!["Crates".to_owned(), "Friday".to_owned()],
                 "Peak".to_owned(),
                 vec!["2".to_owned(), "1".to_owned()]
+            ),
+        ]
+    );
+
+    // The send recorded every folder and playlist it wrote (1aF-2), in the
+    // same transaction as the bases: what the stale-playlist list works from.
+    let recorded: Vec<(String, String)> = w
+        .writer
+        .call(|c| {
+            c.prepare("SELECT path, kind FROM sent_playlist ORDER BY id")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect()
+        })
+        .unwrap();
+    assert_eq!(
+        recorded,
+        [
+            (r#"["Crates","Opening"]"#.to_owned(), "playlist".to_owned()),
+            (r#"["Crates","Friday"]"#.to_owned(), "folder".to_owned()),
+            (
+                r#"["Crates","Friday","Peak"]"#.to_owned(),
+                "playlist".to_owned()
             ),
         ]
     );
