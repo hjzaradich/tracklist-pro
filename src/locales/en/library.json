@@ -3,7 +3,8 @@
   "columns": {
     "title": "Title",
     "artist": "Artist",
-    "file": "File"
+    "file": "File",
+    "actions": "Actions"
   },
   "fileMissing": "File missing",
   "driveNotConnected": "Drive not connected",
@@ -19,6 +20,7 @@
     "done": "Removed from your Library",
     "undo": "Undo",
     "undone": "Put back in your Library",
+    "nothingToUndo": "Nothing to undo",
     "undoRefused": "Can't undo: something changed since"
   },
   "fragile": {

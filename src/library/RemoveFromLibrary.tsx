@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { LibraryTrack } from "../bindings";
 import styles from "./LibraryTrackList.module.css";
@@ -14,12 +14,10 @@ export function shownTitle(track: LibraryTrack): string {
  */
 export function ConfirmRemove({
   track,
-  busy,
   onConfirm,
   onCancel,
 }: {
   track: LibraryTrack;
-  busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -27,35 +25,36 @@ export function ConfirmRemove({
   // The dialog takes focus, on the safe choice.
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => cancel.current?.focus(), []);
+  const titleId = useId();
+  const detailId = useId();
+  const conflictsId = useId();
+  const hasConflicts = track.openConflicts > 0;
   return (
     <div
       role="alertdialog"
-      aria-labelledby="remove-title"
-      aria-describedby="remove-detail"
+      aria-labelledby={titleId}
+      aria-describedby={hasConflicts ? `${detailId} ${conflictsId}` : detailId}
       className={styles.confirm}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onCancel();
+      }}
     >
-      <p id="remove-title" className={styles.confirmTitle}>
+      <p id={titleId} className={styles.confirmTitle}>
         {t("remove.title", { title: shownTitle(track) })}
       </p>
-      <p id="remove-detail" className={styles.confirmDetail}>
+      <p id={detailId} className={styles.confirmDetail}>
         {t("remove.detail")}
       </p>
-      {track.openConflicts > 0 && (
-        <p className={styles.confirmDetail}>
+      {hasConflicts && (
+        <p id={conflictsId} className={styles.confirmDetail}>
           {t("remove.conflicts", { count: track.openConflicts })}
         </p>
       )}
       <div className={styles.actions}>
-        <button type="button" className={styles.primary} disabled={busy} onClick={onConfirm}>
+        <button type="button" className={styles.primary} onClick={onConfirm}>
           {t("remove.confirm")}
         </button>
-        <button
-          ref={cancel}
-          type="button"
-          className={styles.button}
-          disabled={busy}
-          onClick={onCancel}
-        >
+        <button ref={cancel} type="button" className={styles.button} onClick={onCancel}>
           {t("remove.cancel")}
         </button>
       </div>

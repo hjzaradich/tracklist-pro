@@ -26,7 +26,9 @@ export function LibraryTrackList({
           <th scope="col">{t("columns.title")}</th>
           <th scope="col">{t("columns.artist")}</th>
           <th scope="col">{t("columns.file")}</th>
-          <td />
+          <th scope="col">
+            <span className={styles.hidden}>{t("columns.actions")}</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -54,7 +56,7 @@ function TrackRow({
       data-file-present={track.file?.present ?? false}
       aria-describedby={notes.length > 0 ? notesId : undefined}
     >
-      <td className={styles.title}>{track.title ?? track.file?.name}</td>
+      <td className={styles.title}>{shownTitle(track)}</td>
       <td>{track.artist}</td>
       <td className={styles.file}>
         <span className={styles.path}>{track.file?.path}</span>

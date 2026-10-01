@@ -10,7 +10,7 @@ import { useLibraryTracks } from "./useLibraryTracks";
 import { useRemoveLibraryTrack, useUndoLast } from "./useRemoveLibraryTrack";
 
 /** What the strip above the list says about the last removal. */
-type Removal = "confirming" | "removed" | "undone" | "undoRefused";
+type Removal = "removed" | "undone" | "nothingToUndo" | "undoRefused";
 
 /**
  * The Library: the tracks the user added to play with (1aD-6). Starting a
@@ -27,25 +27,28 @@ export function LibraryScreen() {
 
   const confirm = () => {
     if (pending === null) return;
+    undo.reset();
     remove.mutate(pending.id, { onSuccess: () => setRemoval("removed") });
     setPending(null);
     setRemoval(null);
   };
   const undoRemoval = () =>
     undo.mutate(undefined, {
-      onSuccess: (outcome) => setRemoval(outcome.status === "undone" ? "undone" : "undoRefused"),
+      onSuccess: (outcome) =>
+        setRemoval(
+          outcome.status === "undone"
+            ? "undone"
+            : outcome.status === "nothingToUndo"
+              ? "nothingToUndo"
+              : "undoRefused",
+        ),
     });
 
   return (
     <StageScreen stage="library">
       <div className={styles.content}>
         {pending !== null && (
-          <ConfirmRemove
-            track={pending}
-            busy={remove.isPending}
-            onConfirm={confirm}
-            onCancel={() => setPending(null)}
-          />
+          <ConfirmRemove track={pending} onConfirm={confirm} onCancel={() => setPending(null)} />
         )}
         {remove.isError && (
           <p role="alert" className={styles.error}>
@@ -65,9 +68,9 @@ export function LibraryScreen() {
             </button>
           </p>
         )}
-        {removal === "undone" && (
+        {(removal === "undone" || removal === "nothingToUndo") && (
           <p role="status" className={styles.status}>
-            {t("remove.undone")}
+            {t(removal === "undone" ? "remove.undone" : "remove.nothingToUndo")}
           </p>
         )}
         {(removal === "undoRefused" || undo.isError) && (
@@ -89,6 +92,7 @@ export function LibraryScreen() {
               tracks={tracks.data}
               onRemove={(track) => {
                 setRemoval(null);
+                undo.reset();
                 setPending(track);
               }}
             />

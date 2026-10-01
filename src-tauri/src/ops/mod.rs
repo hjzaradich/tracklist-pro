@@ -182,8 +182,10 @@ impl SchemaCache {
 
 impl Recorder<'_> {
     /// Reads rows inside the operation's transaction, to find what to
-    /// change. Only a statement that can't write is accepted, so nothing
-    /// gets past the log; writes go through the recorder.
+    /// change. Only a statement that reads rows is accepted (SQLite also
+    /// calls ROLLBACK, SAVEPOINT and ATTACH read-only, but they return no
+    /// columns), so nothing gets past the log; writes go through the
+    /// recorder.
     pub fn read_rows<T>(
         &self,
         sql: &str,
@@ -191,7 +193,7 @@ impl Recorder<'_> {
         mut map: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
     ) -> Result<Vec<T>, OpsError> {
         let mut stmt = self.tx.prepare_cached(sql)?;
-        if !stmt.readonly() {
+        if !stmt.readonly() || stmt.column_count() == 0 {
             return Err(OpsError::NotReadOnly(sql.to_owned()));
         }
         let rows = stmt.query_map(params, |r| map(r))?;

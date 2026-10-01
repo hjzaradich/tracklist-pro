@@ -81,6 +81,7 @@ describe("the Library screen", () => {
       "Title",
       "Artist",
       "File",
+      "Actions",
     ]);
     expect(
       within(first)
@@ -364,5 +365,48 @@ describe("removing a track from the Library", () => {
     await userEvent.click(undo);
     await waitFor(() => expect(undo).toBeDisabled());
     finish({ status: "nothingToUndo" });
+  });
+
+  it("cancels the dialog on Escape without removing anything", async () => {
+    const calls = removable([track(1)]);
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await screen.findByRole("alertdialog");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(calls).not.toContain("remove_library_track");
+  });
+
+  it("includes the conflicts line in the dialog's description", async () => {
+    removable([track(1, { openConflicts: 2 })]);
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    expect(await screen.findByRole("alertdialog")).toHaveAccessibleDescription(
+      "The file stays where it is. You can undo this. Its 2 open conflicts will be dropped",
+    );
+  });
+
+  it("says there's nothing to undo, not that undo can't be done", async () => {
+    let tracks = [track(1)];
+    mockIPC((cmd) => {
+      if (cmd === "library_tracks") return tracks;
+      if (cmd === "remove_library_track") {
+        tracks = [];
+        return null;
+      }
+      if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Nothing to undo")).toBeInTheDocument();
+    expect(screen.queryByText("Can't undo: something changed since")).toBeNull();
   });
 });
