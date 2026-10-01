@@ -5,6 +5,9 @@
 //! queues a second one while one is waiting: one run sees every change
 //! made before it starts. If one is already running, another is queued, so
 //! changes made while it runs are seen too.
+//!
+//! Every finished run asks for an attach ([`crate::attach::request`]): the
+//! rekordbox data on tracks follows the matches.
 
 use std::sync::Mutex;
 
@@ -98,9 +101,24 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
         let summary = job.writer().call(move |c| relink(c, &mounted))?;
         let _ = job.progress(1.0);
         eprintln!("relink: {summary:?}");
+        ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }
         Ok(())
+    }
+}
+
+/// Asks for an attach: matches were made, changed or dropped, so the
+/// rekordbox data attached to tracks is decided again (1aD-4). The relink
+/// has committed by now, so a failure to ask is logged and the job goes on
+/// (the next relink run asks again).
+fn ask_for_attach(
+    id: JobId,
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, JobError>,
+) {
+    if let Err(e) = crate::attach::request(writer, enqueue) {
+        eprintln!("relink job {id}: couldn't ask for an attach: {e:?}");
     }
 }
