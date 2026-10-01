@@ -369,7 +369,7 @@ Each feature is tagged with its sub-phase.
   The user then imports it through rekordbox's `rekordbox xml` sidebar.
 - **XML writer rules** (the behavior behind them is in §5.2):
   1. **Every attribute of every track sent, every time.** Fill each with rekordbox's current value from a fresh read, unless the app means to change it. Never omit, never default. The only exception is the analysis fields in rule 3.
-  2. **Read → merge (1.10) → send in one step.** Tell the user not to play in rekordbox between Send and the import.
+  2. **Read → merge (1.10) → send in one step.** Tell the user not to play or edit in rekordbox from the export until the import is finished: the values sent come from that export, so anything changed in rekordbox after it is overwritten by a Yes.
   3. **Analysis fields** (`TEMPO`, `POSITION_MARK`, `Tonality`, `AverageBpm`) depend on the case:
      - **(A) The track is already in rekordbox at this Location:** omit them.
      - **(B) A managed copy at a new Location** (Phase 2, 2.6): send them deliberately, carried over from rekordbox's entry for the old file.
@@ -399,7 +399,7 @@ Each feature is tagged with its sub-phase.
   - **One fixed file:** `tracklist-pro.xml`, directly in the app data folder, replaced on every send, so the app changes no bytes anywhere else (§6) and the user points rekordbox at it once. The checklist shows its path with "Copy path". There's no "show in folder": opening Explorer takes a process or shell call, which the write and network gates forbid.
   - **A failed send records nothing.** A failed write leaves the last send's file and every `sync_base` as they were. If recording the send fails once the file is in place, the last send's bytes are put back when that's possible; when there was no earlier file (or putting it back fails), the new file stays, unrecorded, and the send is reported as failed. A crash between the file going in place and the record leaves the same: an unrecorded file, which the next send replaces; nothing detects it at the next start. Before writing, the files a crashed send left behind are cleared (§5.6).
   - **What goes in:** every Library track (rule 4 decides which are written) and the crate tree: folders and hand-made crates, a crate's tracks in the order they were added. Smart crates wait for 3.3, and `Playlists` is written empty until Phase 3.
-- **UI:** **Send to rekordbox** is the Overview's main button (1.13), shown once the Library holds tracks. It opens a guided checklist covering rekordbox's side: export the collection, review the preflight, write the file, point `rekordbox xml` at it (once), refresh, Import to Collection, Import Playlist, answer the dialogs (it says how many to expect). It warns not to play or edit in rekordbox between writing the file and finishing the import. It is not a one-click sync.
+- **UI:** **Send to rekordbox** is the Overview's main button (1.13), shown once the Library holds tracks. It opens a guided checklist covering rekordbox's side: export the collection, review the preflight, write the file, point `rekordbox xml` at it (once), refresh, Import to Collection, Import Playlist, answer the dialogs (it says how many to expect). It warns not to play or edit in rekordbox from the export until the import is finished (the values sent come from the export). It is not a one-click sync.
 - **Complexity:** M.
 
 #### 1.10 Conflict detection & review · 1c

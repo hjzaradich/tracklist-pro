@@ -206,7 +206,7 @@ describe("Send to rekordbox on the Overview", () => {
     expect(
       await screen.findByRole("heading", { level: 2, name: "Send to rekordbox" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "Write the file" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Write file" })).toBeInTheDocument();
     // The checklist takes the Overview's place.
     expect(screen.queryByRole("heading", { name: "rekordbox collection" })).toBeNull();
 

@@ -146,14 +146,14 @@ describe("the send checklist", () => {
     await screen.findByText(EXPORT);
     const titles = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
     expect(titles).toEqual([
-      "Export your collection from rekordbox",
+      "Export collection from rekordbox",
       "Review what will be sent",
-      "Write the file",
+      "Write file",
       "Import in rekordbox",
-      "After the import",
+      "After import",
     ]);
     expect(
-      screen.getByText(/Don't play or edit in rekordbox between writing the file and finishing the import/),
+      screen.getByText(/Don't play or edit in rekordbox from the export until the import is finished/),
     ).toBeInTheDocument();
     const steps = step("Import in rekordbox");
     expect(steps.getByText(/Imported Library, choose Browse and paste the path/)).toBeInTheDocument();
@@ -166,14 +166,14 @@ describe("the send checklist", () => {
     renderChecklist();
     await screen.findByText(EXPORT);
     expect(screen.getByText("Not read yet")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
     expect(backend.writes).toEqual([]);
   });
 
   it("reads the export on request and shows when rekordbox saved it and what will be sent", async () => {
     const backend = fakeBackend();
     renderChecklist();
-    await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Read export" }));
 
     expect(await screen.findByText(/^Export saved /)).toBeInTheDocument();
     expect(backend.prepares).toEqual([null]);
@@ -186,7 +186,7 @@ describe("the send checklist", () => {
         "Expect 12 Yes/No dialogs (one for each track rekordbox already has). Answer Yes.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeEnabled();
   });
 
   it("reads a newly chosen export, which becomes the chosen one", async () => {
@@ -195,7 +195,7 @@ describe("the send checklist", () => {
     dialog.open.mockResolvedValue(picked);
     renderChecklist();
     expect(await screen.findByText("No rekordbox export chosen")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Read the export" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Read export" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Choose export" }));
     expect(await screen.findByText(picked)).toBeInTheDocument();
@@ -205,7 +205,7 @@ describe("the send checklist", () => {
   it("writes the file only on the go, for the preflight shown, then counts the dialogs sent", async () => {
     const backend = fakeBackend({ preflight: preflight({ knownTracks: 1 }) });
     renderChecklist();
-    const go = await screen.findByRole("button", { name: "Write the file" });
+    const go = await screen.findByRole("button", { name: "Write file" });
     await waitFor(() => expect(go).toBeEnabled());
     expect(backend.writes).toEqual([]);
 
@@ -216,13 +216,13 @@ describe("the send checklist", () => {
       screen.getByText("Expect 1 Yes/No dialog (for the track rekordbox already has). Answer Yes."),
     ).toBeInTheDocument();
     // One preflight, one send: the next needs a new read.
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
   });
 
   it("says when no dialogs are to be expected", async () => {
     fakeBackend({ preflight: preflight({ knownTracks: 0 }) });
     renderChecklist();
-    expect(await screen.findByText("No Yes/No dialogs this time")).toBeInTheDocument();
+    expect(await screen.findByText("No Yes/No dialogs expected.")).toBeInTheDocument();
     expect(screen.getByText("0 tracks rekordbox already has")).toBeInTheDocument();
   });
 
@@ -236,10 +236,10 @@ describe("the send checklist", () => {
     });
     renderChecklist();
     const review = step("Review what will be sent");
-    expect(await review.findByText("Friday / Peak (2 of 9 tracks left out)")).toBeInTheDocument();
+    expect(await review.findByText("Friday / Peak (2 of 9 left out)")).toBeInTheDocument();
     expect(review.getByText("1 track left out")).toBeInTheDocument();
     expect(review.getByText("file missing")).toBeInTheDocument();
-    const go = screen.getByRole("button", { name: "Write the file" });
+    const go = screen.getByRole("button", { name: "Write file" });
     expect(go).toBeDisabled();
 
     await userEvent.click(review.getByRole("checkbox", { name: "Send anyway" }));
@@ -260,9 +260,9 @@ describe("the send checklist", () => {
     expect(
       await screen.findByText(/^2 tracks in the export couldn't be read\./),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
     await userEvent.click(screen.getByRole("checkbox", { name: "Send anyway" }));
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeEnabled();
   });
 
   it("asks for no confirm when nothing needs one", async () => {
@@ -280,12 +280,12 @@ describe("the send checklist", () => {
     await userEvent.click(await screen.findByRole("checkbox", { name: "Send anyway" }));
     expect(screen.getByRole("checkbox", { name: "Send anyway" })).toBeChecked();
 
-    await userEvent.click(screen.getByRole("button", { name: "Read the export" }));
+    await userEvent.click(screen.getByRole("button", { name: "Read export" }));
     await waitFor(() => expect(backend.state.revision).toBe(1));
     await waitFor(() =>
       expect(screen.getByRole("checkbox", { name: "Send anyway" })).not.toBeChecked(),
     );
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
   });
 
   it("lists tracks sent with their file missing, and asks for no confirm", async () => {
@@ -294,13 +294,13 @@ describe("the send checklist", () => {
     const review = step("Review what will be sent");
     expect(
       await review.findByText(
-        "2 tracks are sent with their files missing (rekordbox keeps their entries)",
+        "2 tracks sent with files missing (rekordbox's entries are unchanged)",
       ),
     ).toBeInTheDocument();
     expect(review.getByText("Gone")).toBeInTheDocument();
     expect(review.getByText("Lost")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Send anyway" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeEnabled();
   });
 
   it("lists tracks rekordbox already has as another file, and lets them go", async () => {
@@ -319,13 +319,13 @@ describe("the send checklist", () => {
     const review = step("Review what will be sent");
     expect(
       await review.findByText(
-        "rekordbox already has another file of 1 track (sending adds a second entry)",
+        "1 track in rekordbox with another file (sending adds a second entry)",
       ),
     ).toBeInTheDocument();
     expect(review.getByText("Twice (Kit)")).toBeInTheDocument();
     expect(review.getByText("Library file (E:\\Music\\twice.flac)")).toBeInTheDocument();
     expect(review.getByText("rekordbox file (E:\\Old\\twice.mp3)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeEnabled();
   });
 
   it("names a left-out track by its file when it has no title, and says which field is at fault", async () => {
@@ -340,7 +340,7 @@ describe("the send checklist", () => {
     const review = step("Review what will be sent");
     expect(await review.findByText("untitled.mp3")).toBeInTheDocument();
     expect(
-      review.getByText("Comments has a character rekordbox XML can't hold"),
+      review.getByText("Comments has a character that can't be sent to rekordbox"),
     ).toBeInTheDocument();
   });
 
@@ -372,7 +372,7 @@ describe("the send checklist", () => {
         "Can't send: two crates in one folder share a name (Crates / warm up)",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
     // No confirm is offered for a send that can't go.
     expect(screen.queryByRole("checkbox", { name: "Send anyway" })).not.toBeInTheDocument();
   });
@@ -390,24 +390,24 @@ describe("the send checklist", () => {
         "Can't send: the export is incomplete. Export the collection again from rekordbox.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
   });
 
-  it("says Nothing to send and won't start a send", async () => {
+  it("says No tracks or crates to send and won't start a send", async () => {
     fakeBackend({ preflight: preflight({ canSend: false, nothingToSend: true, newTracks: 0, knownTracks: 0 }) });
     renderChecklist();
-    expect(await screen.findByText("Nothing to send")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(await screen.findByText("No tracks or crates to send")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
   });
 
   it("shows why a go was refused, under the write step", async () => {
     const backend = fakeBackend({ preflight: preflight() });
     backend.onWrite = failing("exportChanged", backend);
     renderChecklist();
-    const go = await screen.findByRole("button", { name: "Write the file" });
+    const go = await screen.findByRole("button", { name: "Write file" });
     await waitFor(() => expect(go).toBeEnabled());
     await userEvent.click(go);
-    const write = step("Write the file");
+    const write = step("Write file");
     expect(
       await write.findByText("The export changed after it was read. Read it again."),
     ).toBeInTheDocument();
@@ -424,19 +424,19 @@ describe("the send checklist", () => {
       backend.end({ preflight: null, step: "prepare", failure: "readFailed" });
     };
     renderChecklist();
-    await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
-    const read = step("Export your collection from rekordbox");
+    await userEvent.click(await screen.findByRole("button", { name: "Read export" }));
+    const read = step("Export collection from rekordbox");
     expect(
       await read.findByText("The export is cut off or damaged. Export it again from rekordbox."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
   });
 
   it("shows a refused start in words, never as raw error text", async () => {
     const backend = fakeBackend({ exportPath: EXPORT });
     backend.refuse = { kind: "noRekordboxXml", params: {} };
     renderChecklist();
-    await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Read export" }));
     expect(await screen.findByText("No rekordbox export chosen")).toBeInTheDocument();
   });
 
@@ -471,9 +471,9 @@ describe("the send checklist", () => {
   it("shows a failed read under the export step when the checklist is opened again", async () => {
     fakeBackend({ step: "prepare", failure: "cancelled" });
     renderChecklist();
-    const read = step("Export your collection from rekordbox");
+    const read = step("Export collection from rekordbox");
     expect(await read.findByText("Cancelled")).toBeInTheDocument();
-    expect(step("Write the file").queryByText("Cancelled")).not.toBeInTheDocument();
+    expect(step("Write file").queryByText("Cancelled")).not.toBeInTheDocument();
   });
 
   it("is busy while a step runs, and shows its result once the app records the step's end", async () => {
@@ -481,27 +481,27 @@ describe("the send checklist", () => {
     // The read is under way: nothing is recorded yet.
     backend.onPrepare = () => {};
     renderChecklist();
-    await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Read export" }));
 
-    expect(await screen.findByText("Reading the export")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Read the export" })).toBeDisabled();
+    expect(await screen.findByText("Reading export")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Read export" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Choose another export" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeDisabled();
     expect(screen.getByText("Not read yet")).toBeInTheDocument();
 
     // The job ends; the checklist finds out by asking again.
     backend.end({ preflight: preflight(), step: "prepare" });
     expect(await screen.findByText("3 new tracks")).toBeInTheDocument();
-    expect(screen.queryByText("Reading the export")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Write the file" })).toBeEnabled();
+    expect(screen.queryByText("Reading export")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Write file" })).toBeEnabled();
   });
 
   it("stops waiting when Activity says the step's job ended without a result", async () => {
     const backend = fakeBackend();
     backend.onPrepare = () => {};
     renderChecklist();
-    await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
-    expect(await screen.findByText("Reading the export")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Read export" }));
+    expect(await screen.findByText("Reading export")).toBeInTheDocument();
 
     // Cancelled while it was still queued: no step ever ends.
     act(() => {
@@ -512,15 +512,15 @@ describe("the send checklist", () => {
       ]);
     });
     await waitFor(() =>
-      expect(screen.queryByText("Reading the export")).not.toBeInTheDocument(),
+      expect(screen.queryByText("Reading export")).not.toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: "Read the export" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Read export" })).toBeEnabled();
   });
 
   it("mounts the after-send lists in its last step", async () => {
     fakeBackend();
     renderChecklist(<p>after-send lists</p>);
-    const last = step("After the import");
+    const last = step("After import");
     expect(await last.findByText("after-send lists")).toBeInTheDocument();
   });
 
