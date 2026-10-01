@@ -119,21 +119,21 @@ impl Table {
         format!("main.{}", quote(&self.name))
     }
 
-    /// The first table with a row that references row `id` of this one
-    /// through a foreign key whose `on` action (`on_delete` or `on_update`)
-    /// would silently change that row: CASCADE, SET NULL or SET DEFAULT.
-    /// The log can't record those knock-on changes, so a write that would
-    /// cause them is refused instead.
-    ///
-    /// With `columns`, only foreign keys that point at one of those columns
-    /// count (an update of just those columns).
-    pub fn referenced_by(
+    /// The queries that say whether row `id` of this table is referenced
+    /// by a row of a table that would silently change with it, through a
+    /// foreign key whose `on` action (`on_delete` or `on_update`) is
+    /// CASCADE, SET NULL or SET DEFAULT. The log can't record those
+    /// knock-on changes, so a write that would cause them is refused. With
+    /// `columns`, only foreign keys that point at one of those columns
+    /// count (an update of just those columns). One query per such key,
+    /// found from the schema alone. A bulk operation works this out once per table (the schema
+    /// can't change inside it) and runs [`first_referencing`] per row.
+    pub fn reference_checks(
         &self,
         conn: &Connection,
-        id: i64,
         on: ForeignKeyAction,
         columns: Option<&[&str]>,
-    ) -> Result<Option<String>, OpsError> {
+    ) -> Result<Vec<ReferenceCheck>, OpsError> {
         let action_column = match on {
             ForeignKeyAction::Delete => "on_delete",
             ForeignKeyAction::Update => "on_update",
@@ -170,6 +170,7 @@ impl Table {
         }
 
         let primary_key = self.primary_key(conn)?;
+        let mut checks = Vec::new();
         for (child, pairs) in keys {
             // `to` is NULL when the key points at the parent's primary key.
             let parent_columns: Vec<String> = if pairs.iter().all(|(_, to)| to.is_some()) {
@@ -194,12 +195,9 @@ impl Table {
                 self.sql_name(),
                 matches.join(" AND ")
             );
-            let referenced: bool = conn.query_row(&sql, [id], |r| r.get(0))?;
-            if referenced {
-                return Ok(Some(child));
-            }
+            checks.push(ReferenceCheck { child, sql });
         }
-        Ok(None)
+        Ok(checks)
     }
 
     /// The primary key's columns, in key order; `rowid` when there's none.
@@ -239,7 +237,8 @@ impl Table {
             self.sql_name()
         );
         Ok(conn
-            .query_row(&sql, [id], |r| {
+            .prepare_cached(&sql)?
+            .query_row([id], |r| {
                 (0..self.columns.len())
                     .map(|i| r.get::<_, Value>(i).map(|v| encode(&v)))
                     .collect()
@@ -259,7 +258,8 @@ impl Table {
             quote(&column.name),
             self.sql_name()
         );
-        conn.query_row(&sql, [id], |r| r.get::<_, Value>(0))
+        conn.prepare_cached(&sql)?
+            .query_row([id], |r| r.get::<_, Value>(0))
             .optional()?
             .map(|v| encode(&v))
             .ok_or_else(|| OpsError::RowNotFound {
@@ -269,12 +269,38 @@ impl Table {
     }
 }
 
+/// One query that says whether a row is referenced by a table that would
+/// silently change with it (see [`Table::reference_checks`]).
+#[derive(Debug, Clone)]
+pub(super) struct ReferenceCheck {
+    child: String,
+    sql: String,
+}
+
+/// The first of `checks` whose table has a row referencing row `id`, by
+/// table name.
+pub(super) fn first_referencing(
+    conn: &Connection,
+    checks: &[ReferenceCheck],
+    id: i64,
+) -> Result<Option<String>, OpsError> {
+    for check in checks {
+        let referenced: bool = conn
+            .prepare_cached(&check.sql)?
+            .query_row([id], |r| r.get(0))?;
+        if referenced {
+            return Ok(Some(check.child.clone()));
+        }
+    }
+    Ok(None)
+}
+
 /// One column of a foreign key: the child's column, and the parent's (none
 /// when the key points at the parent's primary key).
 type ColumnPair = (String, Option<String>);
 
 /// Which change to a parent row a foreign key's action is about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum ForeignKeyAction {
     Delete,
     Update,
