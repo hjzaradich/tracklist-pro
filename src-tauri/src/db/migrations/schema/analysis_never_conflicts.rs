@@ -38,6 +38,20 @@ fn the_database_refuses_a_conflict_on_an_analysis_field() {
 }
 
 #[test]
+fn replacing_a_conflict_with_one_on_an_analysis_field_is_refused_too() {
+    let (_dir, conn) = with_a_library_track();
+    accepts(&conn, &conflict("Rating"));
+    refuses(
+        &conn,
+        "INSERT OR REPLACE INTO conflict
+             (id, library_track_id, field, app_value, rekordbox_value, base_value)
+         VALUES (1, 1, 'Tonality', 'app', 'rekordbox', 'base')",
+        "analysis fields never become conflicts",
+    );
+    assert_eq!(one::<String>(&conn, "SELECT field FROM conflict"), "Rating");
+}
+
+#[test]
 fn a_conflict_cannot_be_moved_onto_an_analysis_field() {
     let (_dir, conn) = with_a_library_track();
     accepts(&conn, &conflict("Rating"));

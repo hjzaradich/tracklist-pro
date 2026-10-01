@@ -3,9 +3,10 @@
 //! [`build`] turns the values to send and the crate and playlist trees
 //! into the file's bytes, plus a record of exactly what went in and what
 //! was left out; [`write_file`] puts the bytes on disk through the write
-//! guard, and [`record_send`] records the send (rule 8). [`gather`] collects a send's input: each track's values come
-//! from [`crate::send_values`], which decides them; nothing here does.
-//! The send flow (1aF) calls these.
+//! guard, and [`record_send`] records the send (rule 8). [`gather`]
+//! collects a send's input: each track's values come from
+//! [`crate::send_values`], which decides them; nothing here does. The
+//! send flow (1aF) calls these.
 //!
 //! The file is imported into the user's real collection, where a "Yes"
 //! overwrites the whole track (§5.2), so the rules are strict:

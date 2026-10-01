@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::db::{DbError, Writer};
+use crate::ops::{self, UndoOutcome};
 
 struct Lib {
     _dir: tempfile::TempDir,
@@ -300,12 +301,162 @@ fn a_track_that_is_not_in_the_library_stops_the_record_by_itself() {
         c.pragma_update(None, "foreign_keys", false)?;
         let result = record_send(c, &both);
         c.pragma_update(None, "foreign_keys", true)?;
-        Ok(result.is_err())
+        Ok(matches!(
+            result,
+            Err(rusqlite::Error::StatementChangedRows(0))
+        ))
     });
-    assert!(failed.unwrap());
+    assert!(failed.unwrap(), "no Library track was there to mark");
     assert_eq!(lib.base(a), []);
     assert_eq!(lib.base(LibraryTrackId(999)), []);
     assert_eq!(lib.mark(a), (None, false));
+}
+
+#[test]
+fn an_analysis_field_is_never_recorded_whatever_the_caller_hands_in() {
+    let lib = Lib::new();
+    let a = lib.library_track();
+    let location = "file://localhost/C:/Kit/a.mp3";
+    // A base from an earlier send, to show the drop of unsent fields
+    // doesn't depend on the analysis names either.
+    lib.record(&sent(vec![known(
+        a,
+        &[("TrackID", "40"), ("Name", "First"), ("Location", location)],
+    )]))
+    .unwrap();
+
+    // Hand-built: `build` would never produce these.
+    let direct = SentTrack {
+        library_track: a,
+        in_rekordbox: true,
+        track_id: 40,
+        attributes: pairs(&[
+            ("TrackID", "40"),
+            ("AverageBpm", "128.00"),
+            ("Name", "Second"),
+            ("Tonality", "4A"),
+            ("TEMPO", "x"),
+            ("POSITION_MARK", "y"),
+            ("Location", location),
+        ]),
+        rekordbox_holds_other_file: None,
+    };
+    lib.record(&[direct]).unwrap();
+    assert_eq!(
+        lib.base(a),
+        pairs(&[("Location", location), ("Name", "Second")])
+    );
+}
+
+#[test]
+fn a_track_left_out_of_a_send_keeps_its_earlier_base() {
+    let lib = Lib::new();
+    let a = lib.library_track();
+    let b = lib.library_track();
+    lib.record(&sent(vec![
+        known(
+            a,
+            &[
+                ("TrackID", "40"),
+                ("Name", "A"),
+                ("Location", "file://localhost/C:/Kit/a.mp3"),
+            ],
+        ),
+        known(
+            b,
+            &[
+                ("TrackID", "41"),
+                ("Name", "B"),
+                ("Location", "file://localhost/C:/Kit/b.mp3"),
+            ],
+        ),
+    ]))
+    .unwrap();
+    let (base_before, mark_before) = (lib.base(b), lib.mark(b));
+
+    // The next send can't carry `b` (a value XML can't hold).
+    let out = build(&SendInput {
+        tracks: vec![
+            known(
+                a,
+                &[
+                    ("TrackID", "40"),
+                    ("Name", "A2"),
+                    ("Location", "file://localhost/C:/Kit/a.mp3"),
+                ],
+            ),
+            known(
+                b,
+                &[
+                    ("TrackID", "41"),
+                    ("Name", "bell\u{7}"),
+                    ("Location", "file://localhost/C:/Kit/b.mp3"),
+                ],
+            ),
+        ],
+        crates: vec![Node::Playlist {
+            name: "C".into(),
+            entries: vec![a, b],
+        }],
+        ..SendInput::default()
+    })
+    .unwrap();
+    assert_eq!(out.left_out.len(), 1);
+    lib.record(&out.sent).unwrap();
+    assert_eq!(lib.base(b), base_before);
+    assert_eq!(lib.mark(b), mark_before);
+    assert!(lib.base(a).contains(&("Name".to_owned(), "A2".to_owned())));
+}
+
+#[test]
+fn undoing_a_removal_is_refused_once_a_later_send_took_its_base_rows() {
+    // A send isn't in the operation log. Removing a track deletes its
+    // bases (undoably); a later send's new rows can take their freed row
+    // ids, and the undo is then refused, changing nothing.
+    let lib = Lib::new();
+    let removed = lib.library_track();
+    // Made before the removal, so only the base rows' ids are reused.
+    let other = lib.library_track();
+    lib.record(&sent(vec![new(
+        removed,
+        &[("Name", "T"), ("Location", r"C:\New\t.mp3")],
+    )]))
+    .unwrap();
+    crate::library::remove(&lib.writer, removed).unwrap();
+    assert_eq!(lib.base(removed), []);
+
+    lib.record(&sent(vec![new(
+        other,
+        &[("Name", "X"), ("Location", r"C:\New\x.mp3")],
+    )]))
+    .unwrap();
+    let other_before = (lib.base(other), lib.mark(other));
+
+    match ops::undo_last_via(&lib.writer).unwrap() {
+        UndoOutcome::Refused { conflicts, .. } => {
+            assert!(!conflicts.is_empty());
+            assert!(
+                conflicts.iter().all(|c| c.entity == "sync_base"),
+                "{conflicts:?}"
+            );
+        }
+        other => panic!("expected the undo to be refused, got {other:?}"),
+    }
+    // Nothing changed: the track stays removed, the later send's record
+    // is whole.
+    assert_eq!(lib.base(removed), []);
+    assert_eq!((lib.base(other), lib.mark(other)), other_before);
+    let still_there: i64 = lib
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT count(*) FROM library_track WHERE id = ?1",
+                [removed.0],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(still_there, 0);
 }
 
 #[test]

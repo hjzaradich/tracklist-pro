@@ -5,6 +5,9 @@
 -- conflict to hold. `field` is a rekordbox XML name (as in `sync_base`):
 -- the `AverageBpm` and `Tonality` attributes, and the `TEMPO` and
 -- `POSITION_MARK` elements.
+--
+-- A migration that rebuilds `conflict` (create new, copy, drop, rename)
+-- drops these triggers with the old table and must create them again.
 
 -- No code has made one; any that exists is dropped so the rule holds for
 -- every row.
