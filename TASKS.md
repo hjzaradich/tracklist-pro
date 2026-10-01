@@ -137,6 +137,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 3:** 1aE-6 In-app delete: confirmation, undo, dropped from the next send
 - **Lane 4, XML writer:** 1aE-7 Every attribute from a fresh read (rule 1; the reader keeps values byte-exact, so escape tab, CR and LF as character references on write) → 1aE-8 Analysis fields omitted for tracks already in rekordbox (rule 3, case A) → 1aE-9 COLLECTION = every track the sent playlists and crates reference, plus new tracks, with every attribute (rule 4; T1 failed, so there's no playlists-only send) → 1aE-10 Percent-encoded `Location` + `Crates` / `Playlists` folder nodes
 - **Lane 5:** 1aE-11 Record `sync_base` for every field sent (field names = the rekordbox XML attribute names; then enforce in the DB that analysis fields never become conflicts)
+- **Follow-up:** 1aE-12 Bulk undo recording speed: adding 10,000 Library tracks as one operation took 20 s and undoing it 24 s on a debug build (measured in review of 1aE-2..4); the cost is per row in `ops::Recorder`. Measure on a release build, then make bulk adds, removals and their undo fast enough to feel immediate at 10,000 tracks, with the UI showing a busy state meanwhile
 
 ### Stage 1aF: Send flow
 - **Lane 1:** 1aF-1 Guided send checklist UI + the "don't play in between" warning
