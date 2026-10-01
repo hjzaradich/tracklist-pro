@@ -9,6 +9,7 @@ pub mod grouping;
 pub mod hash;
 pub mod ipc;
 pub mod jobs;
+pub mod library;
 pub mod missing;
 pub mod net;
 pub mod ops;

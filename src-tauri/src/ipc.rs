@@ -91,6 +91,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::relink::job::relink_rekordbox_tracks,
             crate::grouping::group_files,
             crate::missing::missing_tracks,
+            crate::library::library_tracks,
+            crate::library::promote_track,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

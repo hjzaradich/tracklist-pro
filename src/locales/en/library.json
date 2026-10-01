@@ -1,3 +1,14 @@
 {
-  "empty": "The tracks you've added to play with."
+  "empty": "No Library tracks",
+  "columns": {
+    "title": "Title",
+    "artist": "Artist",
+    "file": "File"
+  },
+  "fileMissing": "File missing",
+  "error": {
+    "trackNotFound": "Track not found",
+    "noFile": "Can't add: this track has no file",
+    "fileMissing": "Can't add: file missing ({{path}})"
+  }
 }
