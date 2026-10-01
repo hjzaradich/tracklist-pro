@@ -122,6 +122,29 @@ export const commands = {
 	 *  file on disk is never touched, and undo brings it back.
 	 */
 	removeLibraryTrack: (id: LibraryTrackId) => typedError<null, IpcError>(__TAURI_INVOKE("remove_library_track", { id })),
+	/**
+	 *  How many rekordbox tracks could be added to the Library, and how many
+	 *  are left out and why. With `playlists`, only the tracks in those
+	 *  rekordbox playlists. Changes nothing.
+	 */
+	rekordboxOffer: (playlists: string[][] | null) => typedError<Offer, IpcError>(__TAURI_INVOKE("rekordbox_offer", { playlists })),
+	/**
+	 *  Adds the offered rekordbox tracks to the Library as linked Library
+	 *  tracks, as one undoable operation. No file is written. With `playlists`,
+	 *  only the tracks in those rekordbox playlists; the playlists themselves
+	 *  aren't imported and the pick isn't remembered.
+	 */
+	addRekordboxTracks: (playlists: string[][] | null) => typedError<AddSummary, IpcError>(__TAURI_INVOKE("add_rekordbox_tracks", { playlists })),
+	/**  Undoes an add of rekordbox tracks, if nothing else was done since. */
+	undoAddRekordboxTracks: (operationId: number) => typedError<UndoOutcome, IpcError>(__TAURI_INVOKE("undo_add_rekordbox_tracks", { operationId })),
+	/**  The rekordbox playlists that hold tracks, for narrowing the offer. */
+	rekordboxPlaylists: () => typedError<PlaylistChoice[], IpcError>(__TAURI_INVOKE("rekordbox_playlists")),
+	/**
+	 *  The tracks in All music whose title, artist or file path holds `search`
+	 *  (every track when it's blank), up to 200, with whether each is in the
+	 *  Library.
+	 */
+	allMusicTracks: (search: string | null) => typedError<AllMusicList, IpcError>(__TAURI_INVOKE("all_music_tracks", { search })),
 };
 
 /** Events */
@@ -145,6 +168,45 @@ export type ActivitySnapshot = {
 	seq: number,
 	/**  Running jobs first, then queued; each in the order workers take them. */
 	jobs: JobUpdate[],
+};
+
+/**  What an add did. */
+export type AddSummary = {
+	/**  Library tracks made. */
+	added: number,
+	alreadyInLibrary: number,
+	waitingInMissing: number,
+	waitingForConfirmation: number,
+	/**
+	 *  The operation that added them, for [`undo_add`]. `None` when nothing
+	 *  was added.
+	 */
+	operationId: number | null,
+};
+
+/**  The tracks matching a search, up to [`LIST_LIMIT`] of them. */
+export type AllMusicList = {
+	/**  How many tracks match, shown or not. */
+	total: number,
+	tracks: AllMusicTrack[],
+};
+
+/**  A track in All music. */
+export type AllMusicTrack = {
+	/**  The track's id, as "Add to Library" takes it. */
+	recordingId: number,
+	/**
+	 *  `None` when the track has none yet; the list then shows the file's
+	 *  name as the title.
+	 */
+	title: string | null,
+	artist: string | null,
+	/**
+	 *  The file adding it to the Library would link (ROADMAP 1.8), or
+	 *  otherwise its best file, or its first.
+	 */
+	file: LinkedFile | null,
+	inLibrary: boolean,
 };
 
 /**  The app's name, version and bundle ID, as the frontend sees them. */
@@ -525,6 +587,18 @@ export type MusicFolderRole =
 /**  Watched for new arrivals (Phase 2, ROADMAP 2.1). */
 "inbox";
 
+/**  What the offer holds now. */
+export type Offer = {
+	/**  Tracks the add would put in the Library. */
+	toAdd: number,
+	/**  Tracks with a trusted match that are in the Library already. */
+	alreadyInLibrary: number,
+	/**  rekordbox entries with no file: waiting in Review's Missing list. */
+	waitingInMissing: number,
+	/**  rekordbox entries whose match is still probable. */
+	waitingForConfirmation: number,
+};
+
 /**  An operation, as undo reports it. */
 export type OperationInfo = {
 	/**
@@ -537,6 +611,15 @@ export type OperationInfo = {
 	 *  from the locale files.
 	 */
 	kind: string,
+};
+
+/**
+ *  A rekordbox playlist to pick, with how many of its entries are tracks
+ *  with a file or a last known path (streaming entries aren't counted).
+ */
+export type PlaylistChoice = {
+	path: string[],
+	tracks: number,
 };
 
 /**  What adding a track to the Library did. */

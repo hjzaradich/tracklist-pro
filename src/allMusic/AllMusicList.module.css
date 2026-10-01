@@ -1,0 +1,100 @@
+/* The stage body centres its content; the screen fills it instead. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-self: stretch;
+  justify-self: stretch;
+  min-height: 0;
+}
+
+.search {
+  align-self: flex-start;
+  width: min(320px, 100%);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.search:focus-visible,
+.add:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.showing {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.scroll {
+  min-height: 0;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.table td {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+  color: var(--color-text);
+}
+
+.row:hover td {
+  background: var(--color-surface-hover);
+}
+
+.title,
+.path {
+  overflow-wrap: anywhere;
+}
+
+.table td.path,
+.inLibrary {
+  color: var(--color-text-muted);
+}
+
+.library {
+  white-space: nowrap;
+}
+
+.add {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.add:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.add:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+}

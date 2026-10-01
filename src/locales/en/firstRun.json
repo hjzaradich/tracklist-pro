@@ -1,0 +1,17 @@
+{
+  "title": "Start your Library",
+  "folders": {
+    "title": "Music folders",
+    "help": "Pick the folders where you keep music. These folders are read but not altered.",
+    "add": "Add folder"
+  },
+  "fromRekordbox": {
+    "title": "Start from rekordbox",
+    "help": "Your rekordbox tracks become Library tracks. Nothing changes in rekordbox or in your files."
+  },
+  "fresh": {
+    "title": "Start fresh",
+    "help": "An empty Library. Add the tracks you want from All music.",
+    "action": "Go to All music"
+  }
+}

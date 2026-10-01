@@ -1,0 +1,33 @@
+{
+  "title": "rekordbox tracks",
+  "count_one": "{{count, number}} rekordbox track isn't in your Library",
+  "count_other": "{{count, number}} rekordbox tracks aren't in your Library",
+  "countInPlaylists_one": "{{count, number}} track in the chosen playlists isn't in your Library",
+  "countInPlaylists_other": "{{count, number}} tracks in the chosen playlists aren't in your Library",
+  "noneInPlaylists": "No tracks to add in the chosen playlists",
+  "noPlaylistsChosen": "No playlists chosen",
+  "add": "Add",
+  "choosePlaylists": "Choose playlists",
+  "wholeCollection": "Whole collection",
+  "playlists": {
+    "title": "rekordbox playlists",
+    "empty": "No rekordbox playlists",
+    "note": "Only the tracks are added, not the playlists.",
+    "tracks_one": "({{count, number}} track)",
+    "tracks_other": "({{count, number}} tracks)"
+  },
+  "summary": {
+    "added_one": "{{count, number}} track added to your Library",
+    "added_other": "{{count, number}} tracks added to your Library",
+    "alreadyInLibrary_one": "{{count, number}} already in your Library",
+    "alreadyInLibrary_other": "{{count, number}} already in your Library",
+    "waitingInMissing_one": "{{count, number}} waiting in Missing (no file found)",
+    "waitingInMissing_other": "{{count, number}} waiting in Missing (no file found)",
+    "waitingForConfirmation_one": "{{count, number}} waiting for a match to be confirmed",
+    "waitingForConfirmation_other": "{{count, number}} waiting for a match to be confirmed",
+    "undo": "Undo",
+    "done": "Done",
+    "undone": "Add undone",
+    "cantUndo": "Can't undo: the Library has changed since"
+  }
+}
