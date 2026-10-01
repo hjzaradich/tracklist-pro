@@ -327,3 +327,21 @@ fn a_fresh_read_gives_the_same_matches_when_nothing_on_disk_changed() {
     lib.relink(&mounted);
     assert_eq!(lib.all_states(), before);
 }
+
+#[test]
+fn confirming_a_file_whose_hash_isnt_current_records_no_audio_until_it_is() {
+    let (lib, music, mounted) = e_music();
+    let file = lib.file(music, "Elsewhere/Picked.mp3", Some(90_000));
+    lib.hashed(file, 1);
+    // Changed on disk since: the stored hash isn't what the user heard.
+    lib.edited(file);
+    let location = loc("D:/Gone/Kappa.mp3");
+    let track = lib.track(&location, Some("200"));
+    lib.confirm_now(&location, file, Method::User);
+    assert_eq!(lib.confirmed_audio(&location), None);
+    lib.hashed(file, 2);
+    lib.relink(&mounted);
+    assert_eq!(lib.confirmed_audio(&location), Some(2));
+    assert_eq!(lib.matched(track), Some((file, "user".to_owned(), 1.0)));
+    assert!(!lib.probable(track));
+}
