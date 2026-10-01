@@ -267,6 +267,7 @@ Each feature is tagged with its sub-phase.
 - **Scanning rules:** see §5.5 (skip AppleDouble files, read tags leniently, sniff the format, flag broken files).
 - **OneDrive placeholders:** reading one triggers a download. Detect the placeholder attributes and skip unless the user opts in. Onboarding explains the risk (4.2).
 - **Target:** first results in under 5 s on 100k files, and a full index without fingerprints in minutes.
+- **Measured** (2026-09-30, 1aC-7 and 1aC-12; 100k generated files on the owner's laptop, release build, Windows Security on): first results in 0.3 s. Finding and reading every file: 6.7 min on a never-read tree, 32 s once the files are cached. Reading uses up to 4 threads shared with fingerprinting, and the cold time is disk plus antivirus on first open; serial reading took 15 min. Hashes take about 1 min, a rescan with nothing changed 12 s, peak memory about 100 MB.
 - **Complexity:** M. **Reuse:** `reconcile.rs`, the `walkdir` scanning, tag reading.
 
 #### 1.2 Read your rekordbox collection · 1a
