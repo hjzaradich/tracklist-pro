@@ -12,7 +12,8 @@
     "convert": "Converting files",
     "export": "Exporting",
     "read_rekordbox": "Reading the rekordbox collection",
-    "relink": "Matching rekordbox tracks to files"
+    "relink": "Matching rekordbox tracks to files",
+    "attach": "Adding rekordbox data to tracks"
   },
   "percent": "{{task}} ({{percent}}%)",
   "andMore_one": "{{summary}} ({{count}} other task)",

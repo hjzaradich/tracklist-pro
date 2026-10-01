@@ -57,6 +57,9 @@ impl JobHandler for Grouper {
         // One transaction: the pass is quick, and all or nothing.
         let summary = job.writer().call(regroup)?;
         eprintln!("group job {} done: {summary:?}", job.id());
+        // Tracks may have merged or moved: the rekordbox data attached to
+        // them is decided again (1aD-4).
+        crate::attach::request(job.writer(), |j| job.enqueue(j))?;
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }

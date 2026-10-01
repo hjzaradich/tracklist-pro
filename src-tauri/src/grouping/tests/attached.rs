@@ -206,7 +206,14 @@ fn a_merge_prefers_the_track_with_the_linked_file_over_one_that_is_only_referenc
     for file in [a, p, q] {
         assert_eq!(db.track(file), Some(high));
     }
-    assert_eq!(db.tracks(), 2, "the lower track stays for its analysis");
+    // The lower track is emptied, and its analysis goes with its files.
+    assert_eq!(db.tracks(), 1);
+    assert_eq!(
+        db.count(&format!(
+            "SELECT count(*) FROM analysis WHERE recording_id = {high} AND bpm = 120"
+        )),
+        1
+    );
 }
 
 #[test]
@@ -248,19 +255,22 @@ fn every_table_that_points_at_a_track_is_in_the_reference_list() {
 fn a_track_kept_for_a_reference_is_swept_once_the_reference_goes() {
     let db = db();
     let a = db.file(1, "a.mp3", Some(A));
-    let b = db.file(1, "b.mp3", Some(B));
+    let b = db.file(2, "b.mp3", Some(B));
     db.group();
     let (low, high) = (db.track(a).unwrap(), db.track(b).unwrap());
     db.sql(&format!(
-        "INSERT INTO analysis (recording_id, source, bpm) VALUES ({low}, 'local', 120)"
+        "INSERT INTO version_link (recording_a, recording_b, kind, source)
+         VALUES ({low}, {high}, 'cut', 'user')"
     ));
-    db.sql(&format!(
-        "INSERT INTO analysis (recording_id, source, bpm) VALUES ({high}, 'local', 121)"
-    ));
-    db.set_hash(b, Some(A));
+    // Removing the second folder leaves its track with no files, but it's
+    // still a linked version of the first.
+    db.writer
+        .call(|c| crate::grouping::release_folder_files(c, 2))
+        .unwrap();
+    db.set_present(b, false);
     db.group();
-    assert_eq!(db.tracks(), 2, "kept for its analysis");
-    db.sql(&format!("DELETE FROM analysis WHERE recording_id = {high}"));
+    assert_eq!(db.tracks(), 2, "kept for its link");
+    db.sql("DELETE FROM version_link");
     let summary = db.group();
     assert_eq!(db.tracks(), 1);
     assert_eq!(summary.recordings_removed, 1);

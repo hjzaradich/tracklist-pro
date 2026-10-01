@@ -295,6 +295,24 @@ fn a_track_without_cues_grid_or_playlists_stores_empty_lists_and_no_file_match()
     assert!(unmatched, "relinking is 1aC; nothing is matched here");
 }
 
+#[test]
+fn my_tags_at_the_end_of_comments_are_stored_while_the_comments_stay_as_read() {
+    let (_dir, writer) = db();
+    let tagged = r#"<TRACK TrackID="1" Name="A" Location="file://localhost/C:/Kit/a.mp3" Comments="Opener /* Peak */"/>"#;
+    let only_block = r#"<TRACK TrackID="2" Name="B" Location="file://localhost/C:/Kit/b.mp3" Comments="/* TLP */"/>"#;
+    let not_at_end = r#"<TRACK TrackID="3" Name="C" Location="file://localhost/C:/Kit/c.mp3" Comments="a /* x */ b"/>"#;
+    store(
+        &writer,
+        &export(&[tagged, only_block, not_at_end, &track(4, "d.mp3")].join("\n")),
+    );
+    assert_eq!(column(&writer, 1, "my_tags"), r#"["Peak"]"#);
+    assert_eq!(column(&writer, 1, "comments"), "Opener /* Peak */");
+    assert_eq!(column(&writer, 2, "my_tags"), r#"["TLP"]"#);
+    assert_eq!(column(&writer, 3, "my_tags"), "[]");
+    assert_eq!(column(&writer, 3, "comments"), "a /* x */ b");
+    assert_eq!(column(&writer, 4, "my_tags"), "[]");
+}
+
 /// XML-escapes an attribute value. Control characters (tab, newline and
 /// the rest) go in as `&#N;`, since raw ones aren't kept as written.
 fn escape(value: &str) -> String {

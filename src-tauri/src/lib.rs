@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use tauri::{Builder, Manager, RunEvent, Runtime};
 
+pub mod attach;
 pub mod db;
 pub mod fingerprint;
 pub mod fragile;

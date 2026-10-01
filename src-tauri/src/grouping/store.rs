@@ -5,9 +5,13 @@
 //! Tracks are `recording` rows, and a file's track is its `recording_file`
 //! row (migration 0003). The only tables written are those two, plus
 //! `rekordbox_track.recording_id`, which grouping owns: a matched
-//! rekordbox track always points at its file's track.
+//! rekordbox track always points at its file's track. A track that loses
+//! its files takes its `analysis` rows with it, on purpose: the ones
+//! rekordbox gave are dropped (attach, 1aD-4, works them out again for
+//! whichever track holds the data now), and every other source's rows
+//! move to the track its files went to ([`settle_analysis`]).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rusqlite::{params, Connection};
 
@@ -114,6 +118,8 @@ pub fn regroup(conn: &mut Connection) -> rusqlite::Result<Summary> {
     };
 
     let mut made: HashMap<usize, i64> = HashMap::new();
+    // Where the files of each track that lost some went, and how many.
+    let mut heirs: BTreeMap<i64, BTreeMap<i64, u32>> = BTreeMap::new();
     {
         let mut make = tx.prepare_cached("INSERT INTO recording DEFAULT VALUES")?;
         let mut place = tx
@@ -144,14 +150,16 @@ pub fn regroup(conn: &mut Connection) -> rusqlite::Result<Summary> {
                     place.execute(params![to, file])?;
                     summary.placed += 1;
                 }
-                Some(_) => {
+                Some(old) => {
                     relocate.execute(params![to, file])?;
+                    *heirs.entry(*old).or_default().entry(to).or_default() += 1;
                     summary.moved += 1;
                 }
             }
         }
     }
     sync_rekordbox(&tx)?;
+    settle_analysis(&tx, &heirs)?;
     summary.recordings_removed = sweep(&tx)?;
     ensure_best(&tx)?;
     tx.commit()?;
@@ -170,6 +178,54 @@ fn sync_rekordbox(conn: &Connection) -> rusqlite::Result<()> {
                              WHERE rf.file_id = rekordbox_track.file_id)
          WHERE recording_id IS NOT (SELECT rf.recording_id FROM recording_file rf
                                     WHERE rf.file_id = rekordbox_track.file_id)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Settles the `analysis` of tracks that lost files to a merge or a move,
+/// so deleting them can't be held back by it (`analysis.recording_id` is
+/// `ON DELETE RESTRICT`). A track left with no files hands every source
+/// but rekordbox over to the track most of its files went to (ties to the
+/// lower id), unless that track has a row of the same source already, in
+/// which case the heir's own is kept. Whatever is left on it, rekordbox's
+/// rows included, goes: attach recomputes those. A track that still has
+/// files keeps its rows.
+fn settle_analysis(
+    conn: &Connection,
+    heirs: &BTreeMap<i64, BTreeMap<i64, u32>>,
+) -> rusqlite::Result<()> {
+    let mut has_files = conn
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM recording_file WHERE recording_id = ?1)")?;
+    let mut hand_over = conn.prepare_cached(
+        "UPDATE OR IGNORE analysis SET recording_id = ?2
+         WHERE recording_id = ?1 AND source <> 'rekordbox'",
+    )?;
+    let mut drop_rest = conn.prepare_cached("DELETE FROM analysis WHERE recording_id = ?1")?;
+    for (&old, went_to) in heirs {
+        if has_files.query_row([old], |r| r.get::<_, bool>(0))? {
+            continue;
+        }
+        let heir = went_to
+            .iter()
+            .max_by_key(|&(&id, &count)| (count, std::cmp::Reverse(id)))
+            .map(|(&id, _)| id);
+        if let Some(heir) = heir {
+            hand_over.execute([old, heir])?;
+        }
+        drop_rest.execute([old])?;
+    }
+    drop_fileless_rekordbox_analysis(conn)
+}
+
+/// Drops the rows rekordbox gave to tracks that hold no file (no entry can
+/// point at such a track, so attach has nothing to keep them for).
+fn drop_fileless_rekordbox_analysis(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM analysis
+         WHERE source = 'rekordbox'
+           AND NOT EXISTS (SELECT 1 FROM recording_file rf
+                           WHERE rf.recording_id = analysis.recording_id)",
         [],
     )?;
     Ok(())
@@ -219,6 +275,7 @@ pub fn release_folder_files(conn: &Connection, folder: i64) -> rusqlite::Result<
          WHERE file_id IN (SELECT id FROM file WHERE music_folder_id = ?1)",
         [folder],
     )?;
+    drop_fileless_rekordbox_analysis(conn)?;
     sweep(conn)?;
     ensure_best(conn)
 }

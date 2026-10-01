@@ -44,6 +44,9 @@ pub struct SnapshotRow {
     pub tempo: String,
     /// The `POSITION_MARK` entries, a JSON array of attribute objects.
     pub position_marks: String,
+    /// The My Tag names found at the end of `Comments`, a JSON array
+    /// ([`super::my_tags`]).
+    pub my_tags: String,
     /// The playlists holding the track, a JSON array of paths, each an array
     /// of names from below ROOT down to the playlist.
     pub playlists: String,
@@ -123,6 +126,7 @@ impl SnapshotRows {
                 location_key: location.match_key(),
                 tempo: array_json(track.tempos.iter().map(|t| &t.attrs)),
                 position_marks: array_json(track.cues.iter().map(|c| &c.attrs)),
+                my_tags: super::my_tags::tags_json(track.attrs.get("Comments").unwrap_or("")),
                 playlists: playlists.get(&i).map_or_else(
                     || "[]".to_owned(),
                     |paths| serde_json::to_string(paths).expect("strings always serialize"),
@@ -217,8 +221,8 @@ pub fn replace_snapshot(
     {
         let mut insert = tx.prepare(
             "INSERT INTO rekordbox_track
-                 (attributes, location_key, tempo, position_marks, playlists, read_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (attributes, location_key, tempo, position_marks, my_tags, playlists, read_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )?;
         for row in &rows.rows {
             insert.execute(params![
@@ -226,6 +230,7 @@ pub fn replace_snapshot(
                 row.location_key,
                 row.tempo,
                 row.position_marks,
+                row.my_tags,
                 row.playlists,
                 read_at,
             ])?;

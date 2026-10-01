@@ -27,6 +27,7 @@
 pub mod attrs;
 pub mod collection;
 pub mod location;
+pub mod my_tags;
 pub mod playlists;
 mod reader;
 pub mod skip;
