@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { LibraryTrack } from "../bindings";
 import { describeNote, trackNotes } from "./libraryTrackNotes";
+import { shownTitle } from "./RemoveFromLibrary";
 import styles from "./LibraryTrackList.module.css";
 
 /**
@@ -68,7 +69,12 @@ function TrackRow({
         )}
       </td>
       <td>
-        <button type="button" className={styles.button} onClick={() => onRemove(track)}>
+        <button
+          type="button"
+          className={styles.button}
+          aria-label={t("remove.buttonFor", { title: shownTitle(track) })}
+          onClick={() => onRemove(track)}
+        >
           {t("remove.button")}
         </button>
       </td>

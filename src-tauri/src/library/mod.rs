@@ -113,6 +113,9 @@ pub struct LibraryTrack {
     /// Whether the linked file is gone. Kept current by the scan
     /// (`library_track.source_status`), not worked out when listed.
     pub source_missing: bool,
+    /// How many conflicts with rekordbox are still open for it. Removing
+    /// the track drops them (undo brings them back).
+    pub open_conflicts: u32,
     /// When it was added, UTC ISO-8601.
     pub added_at: String,
 }
@@ -297,35 +300,36 @@ pub fn check(conn: &Connection, recording: i64) -> rusqlite::Result<Result<Plan,
 /// nothing changes in between.
 ///
 /// Adding a track the user removed earlier clears its removal record in
-/// the same operation, so undoing the add brings the record back.
+/// the same operation (so undoing the add brings the record back), and
+/// gives the Library track the location the removed one was last sent to.
+/// Its sync bases aren't restored: the next send records them again.
 pub fn insert_linked(
     rec: &mut Recorder<'_>,
     recording: i64,
     file_id: i64,
 ) -> Result<LibraryTrackId, OpsError> {
-    let removal: Option<i64> = rec
-        .reader()
-        .query_row(
-            "SELECT id FROM library_removal WHERE recording_id = ?1",
+    let removal: Option<(i64, Option<String>, Option<String>)> = rec
+        .read_rows(
+            "SELECT id, last_sent_location, last_exported_at FROM library_removal
+             WHERE recording_id = ?1",
             [recording],
-            |r| r.get(0),
-        )
-        .optional()?;
-    if let Some(removal) = removal {
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?
+        .pop();
+    let mut values = vec![
+        ("recording_id", Value::Integer(recording)),
+        (
+            "kind",
+            Value::Text(LibraryTrackKind::Linked.as_str().to_owned()),
+        ),
+        ("linked_file_id", Value::Integer(file_id)),
+    ];
+    if let Some((removal, location, exported_at)) = removal {
         rec.delete("library_removal", removal)?;
+        values.push(("last_sent_location", location.into()));
+        values.push(("last_exported_at", exported_at.into()));
     }
-    rec.insert(
-        "library_track",
-        &[
-            ("recording_id", Value::Integer(recording)),
-            (
-                "kind",
-                Value::Text(LibraryTrackKind::Linked.as_str().to_owned()),
-            ),
-            ("linked_file_id", Value::Integer(file_id)),
-        ],
-    )
-    .map(LibraryTrackId)
+    rec.insert("library_track", &values).map(LibraryTrackId)
 }
 
 /// The operation kind of a removal, as the operation log stores it.
@@ -377,11 +381,11 @@ pub fn remove_in_rekordbox(conn: &Connection) -> rusqlite::Result<Vec<RemovedTra
 
 /// Rows of `table` that belong to a Library track, by rowid.
 fn rows_of(rec: &Recorder<'_>, table: &str, id: LibraryTrackId) -> Result<Vec<i64>, OpsError> {
-    let mut stmt = rec.reader().prepare(&format!(
-        "SELECT rowid FROM {table} WHERE library_track_id = ?1 ORDER BY rowid"
-    ))?;
-    let rows = stmt.query_map([id.0], |r| r.get(0))?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    rec.read_rows(
+        &format!("SELECT rowid FROM {table} WHERE library_track_id = ?1 ORDER BY rowid"),
+        [id.0],
+        |r| r.get(0),
+    )
 }
 
 /// Removes one Library track, as one operation: its crate entries, sync
@@ -394,14 +398,13 @@ fn remove_on(conn: &mut Connection, id: LibraryTrackId) -> Result<bool, OpsError
         &serde_json::json!({ "libraryTrackId": id.0 }),
         |rec| {
             let row: Option<(i64, Option<String>, Option<String>)> = rec
-                .reader()
-                .query_row(
+                .read_rows(
                     "SELECT recording_id, last_sent_location, last_exported_at
                      FROM library_track WHERE id = ?1",
                     [id.0],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-                )
-                .optional()?;
+                )?
+                .pop();
             let Some((recording, location, exported_at)) = row else {
                 return Ok(false);
             };
@@ -559,7 +562,7 @@ pub struct StoredFile {
 impl StoredFile {
     /// The file for the frontend, placed under its volume's mount point
     /// now, or under the last one if the volume is offline.
-    pub(crate) fn shown(&self, volumes: &impl Volumes) -> LinkedFile {
+    pub fn shown(&self, volumes: &impl Volumes) -> LinkedFile {
         let stored = StoredPath::new(self.volume.clone(), self.rel.clone());
         let resolved = stored.resolve(volumes);
         let drive_connected = resolved.is_ok();
@@ -600,6 +603,7 @@ pub struct StoredTrack {
     pub file: Option<StoredFile>,
     /// `library_track.source_status` is `missing`.
     pub source_missing: bool,
+    pub open_conflicts: u32,
     pub added_at: String,
 }
 
@@ -622,6 +626,7 @@ impl StoredTrack {
                 .and_then(|f| fragile.get(&f.file_id))
                 .copied(),
             source_missing: self.source_missing,
+            open_conflicts: self.open_conflicts,
             added_at: self.added_at.clone(),
         }
     }
@@ -660,7 +665,7 @@ pub(crate) fn file_from(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Op
     }))
 }
 
-fn stored_file(conn: &Connection, file_id: i64) -> rusqlite::Result<Option<StoredFile>> {
+pub fn stored_file(conn: &Connection, file_id: i64) -> rusqlite::Result<Option<StoredFile>> {
     conn.query_row(
         &format!("SELECT {FILE_COLUMNS} FROM file f {FILE_JOINS} WHERE f.id = ?1"),
         [file_id],
@@ -682,6 +687,8 @@ fn stored_where(
 ) -> rusqlite::Result<Vec<StoredTrack>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT lt.id, lt.recording_id, lt.kind, r.title, r.artist, lt.added_at, lt.source_status,
+                (SELECT count(*) FROM conflict c
+                 WHERE c.library_track_id = lt.id AND c.status = 'open'),
                 {FILE_COLUMNS}
          FROM library_track lt
          JOIN recording r ON r.id = lt.recording_id
@@ -699,12 +706,13 @@ fn stored_where(
             r.get::<_, Option<String>>(4)?,
             r.get::<_, String>(5)?,
             r.get::<_, String>(6)?,
-            file_from(r, 7)?,
+            r.get::<_, u32>(7)?,
+            file_from(r, 8)?,
         ))
     })?;
     let mut tracks = Vec::new();
     for row in rows {
-        let (id, recording_id, kind, title, artist, added_at, status, file) = row?;
+        let (id, recording_id, kind, title, artist, added_at, status, open_conflicts, file) = row?;
         // A kind this build doesn't know is left out rather than guessed.
         let Some(kind) = LibraryTrackKind::parse(&kind) else {
             continue;
@@ -717,6 +725,7 @@ fn stored_where(
             artist: filled(artist),
             file,
             source_missing: status == "missing",
+            open_conflicts,
             added_at,
         });
     }
@@ -739,7 +748,7 @@ pub fn stored_one(conn: &Connection, id: LibraryTrackId) -> rusqlite::Result<Opt
 /// dropped, compatibility forms folded (NFKD), then lowercased, so an
 /// accented letter sorts with its base letter. Not locale-aware: other
 /// scripts follow Latin in code-point order.
-fn sort_key(text: &str) -> String {
+pub fn sort_key(text: &str) -> String {
     use unicode_normalization::char::is_combining_mark;
     use unicode_normalization::UnicodeNormalization;
     text.nfkd()

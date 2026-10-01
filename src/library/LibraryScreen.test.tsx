@@ -22,6 +22,7 @@ function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
       driveConnected: true,
     },
     sourceMissing: false,
+    openConflicts: 0,
     fragile: null,
     addedAt: "2026-09-30T10:00:00.000Z",
     ...fields,
@@ -221,7 +222,7 @@ describe("removing a track from the Library", () => {
     const calls = removable([track(1), track(2)]);
     renderScreen();
     const [first] = await rows();
-    await userEvent.click(within(first).getByRole("button", { name: "Remove" }));
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
 
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("Remove “Synthetic Tune 1” from your Library?");
@@ -238,7 +239,7 @@ describe("removing a track from the Library", () => {
     const calls = removable([track(1), track(2)]);
     renderScreen();
     const [first] = await rows();
-    await userEvent.click(within(first).getByRole("button", { name: "Remove" }));
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
     );
@@ -253,7 +254,7 @@ describe("removing a track from the Library", () => {
     removable([track(1), track(2)]);
     renderScreen();
     const [first] = await rows();
-    await userEvent.click(within(first).getByRole("button", { name: "Remove" }));
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
     );
@@ -268,11 +269,100 @@ describe("removing a track from the Library", () => {
     removable([track(1)]);
     renderScreen();
     const [only] = await rows();
-    await userEvent.click(within(only).getByRole("button", { name: "Remove" }));
+    await userEvent.click(within(only).getByRole("button", { name: "Remove Synthetic Tune 1" }));
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
     );
     expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("names the track on each row's Remove button", async () => {
+    removable([track(1), track(2)]);
+    renderScreen();
+    await rows();
+    expect(screen.getByRole("button", { name: "Remove Synthetic Tune 2" })).toBeInTheDocument();
+  });
+
+  it("gives the dialog focus, on Cancel", async () => {
+    removable([track(1)]);
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("says how many open conflicts removing the track drops", async () => {
+    removable([track(1, { openConflicts: 2 }), track(2, { openConflicts: 1 }), track(3)]);
+    renderScreen();
+    const [first, second, third] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Its 2 open conflicts will be dropped",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(within(second).getByRole("button", { name: "Remove Synthetic Tune 2" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Its open conflict will be dropped",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(within(third).getByRole("button", { name: "Remove Synthetic Tune 3" }));
+    expect(await screen.findByRole("alertdialog")).not.toHaveTextContent("conflict");
+  });
+
+  it("says so, and keeps the track out, when undo is refused", async () => {
+    let tracks = [track(1)];
+    mockIPC((cmd) => {
+      if (cmd === "library_tracks") return tracks;
+      if (cmd === "remove_library_track") {
+        tracks = [];
+        return null;
+      }
+      if (cmd === "undo_last_operation") {
+        return {
+          status: "refused",
+          operation: { id: 1, kind: "remove_from_library" },
+          conflicts: [],
+        };
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Can't undo: something changed since",
+    );
+    expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
+  });
+
+  it("disables Undo while the undo is running", async () => {
+    let finish: (v: unknown) => void = () => {};
+    const pending = new Promise((resolve) => (finish = resolve));
+    let tracks = [track(1)];
+    mockIPC((cmd) => {
+      if (cmd === "library_tracks") return tracks;
+      if (cmd === "remove_library_track") {
+        tracks = [];
+        return null;
+      }
+      if (cmd === "undo_last_operation") return pending;
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    await userEvent.click(undo);
+    await waitFor(() => expect(undo).toBeDisabled());
+    finish({ status: "nothingToUndo" });
   });
 });

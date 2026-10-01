@@ -6,4 +6,5 @@ mod behavior;
 mod folders;
 mod job;
 mod plan;
+mod removals;
 mod support;

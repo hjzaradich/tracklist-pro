@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { LibraryTrack } from "../bindings";
 import styles from "./LibraryTrackList.module.css";
@@ -23,6 +24,9 @@ export function ConfirmRemove({
   onCancel: () => void;
 }) {
   const { t } = useTranslation("library");
+  // The dialog takes focus, on the safe choice.
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancel.current?.focus(), []);
   return (
     <div
       role="alertdialog"
@@ -36,11 +40,22 @@ export function ConfirmRemove({
       <p id="remove-detail" className={styles.confirmDetail}>
         {t("remove.detail")}
       </p>
+      {track.openConflicts > 0 && (
+        <p className={styles.confirmDetail}>
+          {t("remove.conflicts", { count: track.openConflicts })}
+        </p>
+      )}
       <div className={styles.actions}>
         <button type="button" className={styles.primary} disabled={busy} onClick={onConfirm}>
           {t("remove.confirm")}
         </button>
-        <button type="button" className={styles.button} disabled={busy} onClick={onCancel}>
+        <button
+          ref={cancel}
+          type="button"
+          className={styles.button}
+          disabled={busy}
+          onClick={onCancel}
+        >
           {t("remove.cancel")}
         </button>
       </div>

@@ -55,7 +55,12 @@ export function LibraryScreen() {
         {removal === "removed" && (
           <p role="status" className={styles.status}>
             {t("remove.done")}
-            <button type="button" className={styles.button} onClick={undoRemoval}>
+            <button
+              type="button"
+              className={styles.button}
+              disabled={undo.isPending}
+              onClick={undoRemoval}
+            >
               {t("remove.undo")}
             </button>
           </p>

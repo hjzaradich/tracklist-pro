@@ -324,3 +324,138 @@ fn removing_a_library_track_leaves_the_file_on_disk_untouched() {
     // The file's own row is still there too.
     assert_eq!(lib.count("SELECT count(*) FROM file"), 1);
 }
+
+// Derived status and undo.
+
+#[test]
+fn undoing_an_add_still_works_after_a_scan_flipped_the_status() {
+    for returns in [false, true] {
+        let lib = Lib::new();
+        let track = lib.track(None, None);
+        let file = lib.file(track, "a.mp3", "best", true);
+        lib.promote(track).unwrap();
+        lib.set_present(file, false);
+        if returns {
+            lib.set_present(file, true);
+        }
+        assert!(matches!(
+            undo_last_via(&lib.writer).unwrap(),
+            UndoOutcome::Undone { .. }
+        ));
+        assert_eq!(lib.library_tracks(), 0);
+    }
+}
+
+#[test]
+fn undoing_a_removal_gives_the_track_the_status_its_file_has_now() {
+    let lib = Lib::new();
+    let track = lib.added("a.mp3");
+    let file = lib.linked_file(track).unwrap();
+    lib.remove(track).unwrap();
+    // The file goes while the track is out of the Library.
+    lib.set_present(file, false);
+    assert!(matches!(
+        undo_last_via(&lib.writer).unwrap(),
+        UndoOutcome::Undone { .. }
+    ));
+    assert_eq!(lib.status(track), "missing");
+    assert!(lib.list()[0].source_missing);
+}
+
+#[test]
+fn undoing_an_add_is_still_refused_when_a_real_field_changed_since() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    lib.file(track, "a.mp3", "best", true);
+    lib.promote(track).unwrap();
+    lib.writer
+        .call(|c| c.execute("UPDATE library_track SET last_exported_at = 'later'", []))
+        .unwrap();
+    assert!(matches!(
+        undo_last_via(&lib.writer).unwrap(),
+        UndoOutcome::Refused { .. }
+    ));
+    assert_eq!(lib.library_tracks(), 1);
+}
+
+// Adding a removed track back, and open conflicts.
+
+#[test]
+fn adding_a_removed_track_back_restores_where_it_was_sent_but_not_its_sync_bases() {
+    let lib = Lib::new();
+    let track = lib.added("a.mp3");
+    lib.dependents(track);
+    lib.writer
+        .call(|c| {
+            c.execute(
+                "UPDATE library_track SET last_sent_location = 'file://localhost/E:/Music/a.mp3',
+                     last_exported_at = '2026-09-30T10:00:00.000Z'",
+                [],
+            )
+        })
+        .unwrap();
+    lib.remove(track).unwrap();
+    lib.promote(track).unwrap();
+
+    let (location, exported): (String, String) = lib
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT last_sent_location, last_exported_at FROM library_track",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+        })
+        .unwrap();
+    assert_eq!(location, "file://localhost/E:/Music/a.mp3");
+    assert_eq!(exported, "2026-09-30T10:00:00.000Z");
+    assert_eq!(lib.count("SELECT count(*) FROM sync_base"), 0);
+    assert!(lib.removed().is_empty());
+}
+
+#[test]
+fn the_list_counts_each_tracks_open_conflicts() {
+    let lib = Lib::new();
+    let track = lib.added("a.mp3");
+    let other = lib.added("b.mp3");
+    assert_eq!(lib.list()[0].open_conflicts, 0);
+    lib.dependents(track);
+    let listed = lib.list();
+    let of = |recording: i64| {
+        listed
+            .iter()
+            .find(|t| t.recording_id == recording)
+            .unwrap()
+            .open_conflicts
+    };
+    assert_eq!((of(track), of(other)), (1, 0));
+}
+
+// The operation log's read access.
+
+#[test]
+fn the_recorder_reads_but_refuses_statements_that_could_write() {
+    let lib = Lib::new();
+    lib.added("a.mp3");
+    let result = lib
+        .writer
+        .call(|c| {
+            Ok(crate::ops::record(
+                c,
+                "probe",
+                &serde_json::json!({}),
+                |rec| {
+                    let rows =
+                        rec.read_rows("SELECT id FROM library_track", [], |r| r.get::<_, i64>(0))?;
+                    assert_eq!(rows.len(), 1);
+                    rec.read_rows("DELETE FROM library_track", [], |r| r.get::<_, i64>(0))
+                },
+            ))
+        })
+        .unwrap();
+    assert!(
+        matches!(result, Err(OpsError::NotReadOnly(_))),
+        "{result:?}"
+    );
+    assert_eq!(lib.library_tracks(), 1);
+}

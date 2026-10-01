@@ -9,6 +9,9 @@
   "driveNotConnected": "Drive not connected",
   "remove": {
     "button": "Remove",
+    "buttonFor": "Remove {{title}}",
+    "conflicts_one": "Its open conflict will be dropped",
+    "conflicts_other": "Its {{count}} open conflicts will be dropped",
     "title": "Remove “{{title}}” from your Library?",
     "detail": "The file stays where it is. You can undo this.",
     "confirm": "Remove",

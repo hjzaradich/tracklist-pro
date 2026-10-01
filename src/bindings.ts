@@ -407,6 +407,11 @@ export type LibraryTrack = {
 	 *  (`library_track.source_status`), not worked out when listed.
 	 */
 	sourceMissing: boolean,
+	/**
+	 *  How many conflicts with rekordbox are still open for it. Removing
+	 *  the track drops them (undo brings them back).
+	 */
+	openConflicts: number,
 	/**  When it was added, UTC ISO-8601. */
 	addedAt: string,
 };

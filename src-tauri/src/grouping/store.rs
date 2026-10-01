@@ -13,7 +13,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use super::plan::{plan, Dest, Member, Move};
 
@@ -36,6 +36,9 @@ pub struct Summary {
 /// points at it. Everything that names a track by id is listed here, so
 /// deleting one never trips a foreign key (a test compares this list with
 /// the schema's foreign keys).
+///
+/// A removal record (`library_removal`) also names a track, but sweeping
+/// handles it on purpose (see [`sweep`]), so it's not in this part.
 const UNREFERENCED: &str =
     "NOT EXISTS (SELECT 1 FROM recording_file WHERE recording_id = recording.id)
      AND NOT EXISTS (SELECT 1 FROM library_track WHERE recording_id = recording.id)
@@ -160,6 +163,7 @@ pub fn regroup(conn: &mut Connection) -> rusqlite::Result<Summary> {
     }
     sync_rekordbox(&tx)?;
     settle_analysis(&tx, &heirs)?;
+    settle_removals(&tx, &heirs)?;
     summary.recordings_removed = sweep(&tx)?;
     ensure_best(&tx)?;
     tx.commit()?;
@@ -180,6 +184,79 @@ fn sync_rekordbox(conn: &Connection) -> rusqlite::Result<()> {
                                     WHERE rf.file_id = rekordbox_track.file_id)",
         [],
     )?;
+    Ok(())
+}
+
+/// The track most of a lost track's files went to (ties to the lower id).
+fn heir_of(went_to: &BTreeMap<i64, u32>) -> Option<i64> {
+    went_to
+        .iter()
+        .max_by_key(|&(&id, &count)| (count, std::cmp::Reverse(id)))
+        .map(|(&id, _)| id)
+}
+
+/// Settles the removal record (`library_removal`, the user removed the
+/// track from the Library) of tracks that lost all their files to a merge.
+/// The record moves to the heir, unless the heir is in the Library (it
+/// isn't removed any more, so the record is dropped). If the heir has a
+/// record too, the earlier one is kept. A track that still has files keeps
+/// its record.
+fn settle_removals(
+    conn: &Connection,
+    heirs: &BTreeMap<i64, BTreeMap<i64, u32>>,
+) -> rusqlite::Result<()> {
+    for (&old, went_to) in heirs {
+        let has_files: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM recording_file WHERE recording_id = ?1)",
+            [old],
+            |r| r.get(0),
+        )?;
+        if has_files {
+            continue;
+        }
+        let Some(heir) = heir_of(went_to) else {
+            continue;
+        };
+        let in_library: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM library_track WHERE recording_id = ?1)",
+            [heir],
+            |r| r.get(0),
+        )?;
+        let removed_at = |recording: i64| -> rusqlite::Result<Option<String>> {
+            conn.query_row(
+                "SELECT removed_at FROM library_removal WHERE recording_id = ?1",
+                [recording],
+                |r| r.get(0),
+            )
+            .optional()
+        };
+        let Some(old_at) = removed_at(old)? else {
+            continue;
+        };
+        if in_library {
+            conn.execute("DELETE FROM library_removal WHERE recording_id = ?1", [old])?;
+            continue;
+        }
+        if let Some(heir_at) = removed_at(heir)? {
+            // Both were removed: the earlier record stays, on the heir.
+            let drop = if old_at < heir_at { heir } else { old };
+            conn.execute(
+                "DELETE FROM library_removal WHERE recording_id = ?1",
+                [drop],
+            )?;
+            if drop == heir {
+                conn.execute(
+                    "UPDATE library_removal SET recording_id = ?2 WHERE recording_id = ?1",
+                    [old, heir],
+                )?;
+            }
+        } else {
+            conn.execute(
+                "UPDATE library_removal SET recording_id = ?2 WHERE recording_id = ?1",
+                [old, heir],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -206,11 +283,7 @@ fn settle_analysis(
         if has_files.query_row([old], |r| r.get::<_, bool>(0))? {
             continue;
         }
-        let heir = went_to
-            .iter()
-            .max_by_key(|&(&id, &count)| (count, std::cmp::Reverse(id)))
-            .map(|(&id, _)| id);
-        if let Some(heir) = heir {
+        if let Some(heir) = heir_of(went_to) {
             hand_over.execute([old, heir])?;
         }
         drop_rest.execute([old])?;
@@ -234,8 +307,27 @@ fn drop_fileless_rekordbox_analysis(conn: &Connection) -> rusqlite::Result<()> {
 /// Deletes every track that has no files and nothing else pointing at it,
 /// wherever it came from (a move emptied it, or the last thing pointing at
 /// it went). Returns how many were deleted.
+///
+/// A track the user removed from the Library (`library_removal`) that
+/// has no files can't be offered again, so its record goes with it, unless
+/// it was sent to rekordbox before: then the record is what tells the user
+/// to remove it there by hand (ROADMAP 1.9 rule 7), so it and the track stay.
 fn sweep(conn: &Connection) -> rusqlite::Result<u64> {
-    let deleted = conn.execute(&format!("DELETE FROM recording WHERE {UNREFERENCED}"), [])?;
+    conn.execute(
+        &format!(
+            "DELETE FROM library_removal
+             WHERE last_sent_location IS NULL
+               AND recording_id IN (SELECT id FROM recording WHERE {UNREFERENCED})"
+        ),
+        [],
+    )?;
+    let deleted = conn.execute(
+        &format!(
+            "DELETE FROM recording WHERE {UNREFERENCED}
+             AND NOT EXISTS (SELECT 1 FROM library_removal WHERE recording_id = recording.id)"
+        ),
+        [],
+    )?;
     Ok(deleted as u64)
 }
 
