@@ -635,7 +635,7 @@ fn a_track_whose_linked_file_is_missing_cannot_be_sent_and_the_others_still_are(
 }
 
 #[test]
-fn a_missing_file_that_rekordbox_knows_still_cannot_be_sent() {
+fn a_missing_file_that_rekordbox_knows_is_sent_as_rekordboxs_own_entry() {
     let lib = Lib::new();
     let track = lib.track();
     let file = lib.file(
@@ -647,12 +647,46 @@ fn a_missing_file_that_rekordbox_knows_still_cannot_be_sent() {
             ..Spec::default()
         },
     );
-    lib.rekordbox(file, &[("Name", "N")], false);
+    lib.rekordbox(file, &[("Name", "N"), ("Rating", "51")], false);
+    let library = lib.library(track, Some(file));
+    let values = lib.ready(library);
+    assert!(values.in_rekordbox && values.file_missing);
+    assert_eq!(value(&values, "Name"), Some("N"));
+    assert_eq!(value(&values, "Rating"), Some("51"));
+    assert!(values.disagreements.is_empty());
+}
+
+#[test]
+fn a_missing_file_whose_rekordbox_match_is_only_probable_still_cannot_be_sent() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(
+        track,
+        "a.mp3",
+        "best",
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
+    );
+    lib.rekordbox(file, &[("Name", "N")], true);
     let library = lib.library(track, Some(file));
     assert_eq!(
         lib.one(library).outcome,
         Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
     );
+}
+
+#[test]
+fn a_present_file_is_never_marked_missing() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(track, "a.mp3", "best", Spec::default());
+    lib.rekordbox(file, &[("Name", "N")], false);
+    let library = lib.library(track, Some(file));
+    assert!(!lib.ready(library).file_missing);
+    let (plain, _) = lib.linked("b.mp3", Spec::default());
+    assert!(!lib.ready(plain).file_missing);
 }
 
 // ---- the batch --------------------------------------------------------------------------

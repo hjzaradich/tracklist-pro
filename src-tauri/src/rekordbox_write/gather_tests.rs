@@ -337,3 +337,105 @@ fn with_no_rekordbox_read_new_tracks_are_numbered_from_one() {
         }]
     );
 }
+
+#[test]
+fn a_known_track_with_a_missing_file_is_written_byte_exact_and_stays_in_its_crate() {
+    let lib = Lib::new();
+    let kept_track = lib.track();
+    let kept_file = lib.file(kept_track, "kept.mp3", true, Some("Present"));
+    lib.rekordbox(
+        1,
+        Some(kept_file),
+        &[("Location", "file://localhost/E:/Music/kept.mp3")],
+    );
+    let gone_track = lib.track();
+    let gone_file = lib.file(gone_track, "gone.mp3", false, Some("File tag"));
+    // rekordbox's spelling: raw `#` and parentheses, which the writer
+    // would escape for a track whose file is there.
+    let theirs = "file://localhost/E:/Music/Gone%20#1%20(live).mp3";
+    lib.rekordbox(
+        2,
+        Some(gone_file),
+        &[
+            ("Name", "rekordbox's title"),
+            ("AverageBpm", "126.00"),
+            ("Rating", "204"),
+            ("PlayCount", "7"),
+            ("Location", theirs),
+            ("Tonality", "5A"),
+            ("FutureField", "kept"),
+        ],
+    );
+    // A missing file rekordbox doesn't know stays out, with its reason.
+    let unknown_track = lib.track();
+    let unknown_file = lib.file(unknown_track, "unknown.mp3", false, None);
+    let kept = lib.library(kept_track, kept_file);
+    let gone = lib.library(gone_track, gone_file);
+    let unknown = lib.library(unknown_track, unknown_file);
+
+    let crates = vec![Node::Playlist {
+        name: "Warm up".into(),
+        entries: vec![kept, gone, unknown],
+    }];
+    let input = lib.gather(&[kept, gone, unknown], crates);
+    let out = build(&input).unwrap();
+
+    let sent = out
+        .sent
+        .iter()
+        .find(|t| t.library_track == gone)
+        .expect("the missing-file track is sent");
+    assert!(sent.in_rekordbox && sent.file_missing);
+    assert_eq!(
+        attributes(sent),
+        [
+            ("TrackID", "2"),
+            ("Name", "rekordbox's title"),
+            ("Rating", "204"),
+            ("PlayCount", "7"),
+            ("Location", theirs),
+            ("FutureField", "kept"),
+        ]
+    );
+    let text = std::str::from_utf8(out.xml()).unwrap();
+    assert!(text.contains(&format!("Location=\"{theirs}\"")));
+    // It's in the crate, in its place; only the unknown track is missing.
+    let read = RekordboxXml::parse(out.xml()).unwrap();
+    let keys: Vec<&str> = read.playlists.playlists()[0]
+        .1
+        .entries
+        .iter()
+        .map(|e| e.key.as_str())
+        .collect();
+    assert_eq!(keys, ["1", "2"]);
+    assert_eq!(
+        out.left_out,
+        [LeftOut {
+            library_track: unknown,
+            reason: Reason::NoValues(CannotSend::FileMissing {
+                file_id: unknown_file
+            }),
+            entries: vec![DroppedEntry {
+                path: vec!["Crates".into(), "Warm up".into()],
+                position: 2
+            }],
+        }]
+    );
+    // The same track with its file present gets the writer's spelling.
+    lib.writer
+        .call(move |c| c.execute("UPDATE file SET present = 1 WHERE id = ?1", [gone_file]))
+        .unwrap();
+    let out = build(&lib.gather(
+        &[gone],
+        vec![Node::Playlist {
+            name: "Warm up".into(),
+            entries: vec![gone],
+        }],
+    ))
+    .unwrap();
+    assert!(!out.sent[0].file_missing);
+    assert_eq!(
+        out.sent[0].location(),
+        "file://localhost/E:/Music/Gone%20%231%20%28live%29.mp3"
+    );
+}

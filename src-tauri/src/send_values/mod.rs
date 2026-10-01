@@ -45,8 +45,12 @@
 //!   and [`TrackValues::disagreements`] lists every file's value for
 //!   Review.
 //!
-//! A Library track whose linked file is missing, unknown or unplaceable
-//! comes back as [`Outcome::CannotSend`], for that track only.
+//! **A known track whose linked file is missing** is still sent: rekordbox's
+//! own entry goes back unchanged ([`TrackValues::file_missing`]), so a crate
+//! or playlist naming it keeps it (owner decision, 2026-10-01). A Library
+//! track whose linked file is missing and that rekordbox doesn't know, or
+//! whose file is unplaceable, comes back as [`Outcome::CannotSend`], for
+//! that track only.
 //!
 //! [`send_values`] is the batch form: a fixed number of queries however
 //! many tracks it's given. Asking for one track is a batch of one.
@@ -131,6 +135,14 @@ pub struct TrackValues {
     /// can warn. The linked file stays as it is (no re-pointing here).
     /// Always `None` for a track rekordbox knows.
     pub rekordbox_holds_other_file: Option<SiblingEntry>,
+    /// rekordbox knows the track but its linked file isn't on disk now
+    /// (owner decision, 2026-10-01). Every value is rekordbox's own entry,
+    /// and the writer sends it unchanged, `Location` exactly as rekordbox
+    /// wrote it, so the crates and playlists naming the track stay whole.
+    /// Always `false` for a track rekordbox doesn't know: that one is
+    /// [`CannotSend::FileMissing`], because there's nothing of rekordbox's
+    /// to send.
+    pub file_missing: bool,
 }
 
 impl TrackValues {
@@ -343,13 +355,15 @@ impl<V: Volumes> World<'_, V> {
         let Some(file) = self.files.get(&file_id) else {
             return Outcome::CannotSend(CannotSend::NoLinkedFile);
         };
+        // rekordbox's own Location is sent for a track it knows, so that
+        // doesn't need the path to read back, and a missing file doesn't
+        // stop it: its entry goes back unchanged, so the crates naming it
+        // stay whole.
+        if let Some(&(entry, track_id)) = self.entry_for.get(&file_id) {
+            return Outcome::Ready(self.known(entry, track_id, !file.present));
+        }
         if !file.present {
             return Outcome::CannotSend(CannotSend::FileMissing { file_id });
-        }
-        // rekordbox's own Location is sent for a track it knows, so that
-        // doesn't need the path to read back.
-        if let Some(&(entry, track_id)) = self.entry_for.get(&file_id) {
-            return Outcome::Ready(self.known(entry, track_id));
         }
         let Some(stored) = &file.stored else {
             return Outcome::CannotSend(CannotSend::NoLocation { file_id });
@@ -358,7 +372,7 @@ impl<V: Volumes> World<'_, V> {
     }
 
     /// Every attribute of rekordbox's entry, as read.
-    fn known(&self, entry: i64, track_id: i64) -> TrackValues {
+    fn known(&self, entry: i64, track_id: i64, file_missing: bool) -> TrackValues {
         let values = self
             .attributes
             .get(&entry)
@@ -375,6 +389,7 @@ impl<V: Volumes> World<'_, V> {
             values,
             disagreements: Vec::new(),
             rekordbox_holds_other_file: None,
+            file_missing,
         }
     }
 
@@ -479,6 +494,7 @@ impl<V: Volumes> World<'_, V> {
             values,
             disagreements,
             rekordbox_holds_other_file,
+            file_missing: false,
         }
     }
 }

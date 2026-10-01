@@ -34,7 +34,10 @@
 //! **A track that can't be sent** is left out of COLLECTION, and so is
 //! every entry naming it (rekordbox would drop such an entry silently,
 //! §5.2). Both are reported in [`Outgoing::left_out`] with a reason code.
-//! One track's problem never stops the others.
+//! One track's problem never stops the others. A track rekordbox has whose
+//! file is missing isn't one of them (owner decision, 2026-10-01): its
+//! entry is sent exactly as rekordbox wrote it, `Location` included, so a
+//! crate naming it stays whole ([`Values::Ready::file_missing`]).
 //!
 //! **TrackIDs** only tie this file's playlist entries to its tracks;
 //! rekordbox assigns its own on import (§5.2). A known track keeps
@@ -113,6 +116,10 @@ pub enum Values {
         /// Carried through to [`SentTrack`] for the send flow to warn
         /// about; it changes nothing in the file.
         rekordbox_holds_other_file: Option<SiblingEntry>,
+        /// rekordbox has the track but its file is missing: the values are
+        /// rekordbox's own entry, and every one, `Location` included, is
+        /// written exactly as given ([`send_values::TrackValues::file_missing`]).
+        file_missing: bool,
     },
     /// There are no values to send for this track.
     CannotSend(CannotSend),
@@ -132,6 +139,7 @@ impl From<SendValues> for TrackInput {
                         .map(|v| (v.attribute, v.value))
                         .collect(),
                     rekordbox_holds_other_file: track.rekordbox_holds_other_file,
+                    file_missing: track.file_missing,
                 },
             },
         }
@@ -237,6 +245,9 @@ pub struct SentTrack {
     /// As given ([`Values::Ready`]): rekordbox holds another file of this
     /// track, so this send adds a second entry beside it.
     pub rekordbox_holds_other_file: Option<SiblingEntry>,
+    /// As given ([`Values::Ready`]): rekordbox's own entry, sent although
+    /// its file is missing.
+    pub file_missing: bool,
 }
 
 impl SentTrack {
@@ -335,7 +346,11 @@ struct Prepared {
 }
 
 /// Checks one track's values and puts them in their written form.
-fn prepare(in_rekordbox: bool, given: &[(String, String)]) -> Result<Prepared, Reason> {
+fn prepare(
+    in_rekordbox: bool,
+    verbatim: bool,
+    given: &[(String, String)],
+) -> Result<Prepared, Reason> {
     let mut names = HashSet::with_capacity(given.len());
     let mut attributes = Vec::with_capacity(given.len() + 1);
     let mut track_id = None;
@@ -358,7 +373,9 @@ fn prepare(in_rekordbox: bool, given: &[(String, String)]) -> Result<Prepared, R
         }
         let value = match name.as_str() {
             "Location" => {
-                let written = if in_rekordbox {
+                let written = if in_rekordbox && verbatim {
+                    location::verbatim(value)
+                } else if in_rekordbox {
                     location::from_rekordbox(value)
                 } else {
                     location::from_windows_path(value)
@@ -519,7 +536,7 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
     let mut track_ids = HashSet::new();
     for track in &input.tracks {
         let id = track.library_track;
-        let (in_rekordbox, attributes, other_file) = match &track.values {
+        let (in_rekordbox, attributes, other_file, file_missing) = match &track.values {
             Values::CannotSend(why) => {
                 reasons.push((id, Reason::NoValues(why.clone())));
                 continue;
@@ -528,13 +545,19 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
                 in_rekordbox,
                 attributes,
                 rekordbox_holds_other_file,
-            } => (*in_rekordbox, attributes, rekordbox_holds_other_file),
+                file_missing,
+            } => (
+                *in_rekordbox,
+                attributes,
+                rekordbox_holds_other_file,
+                *file_missing,
+            ),
         };
         if in_rekordbox && !named.contains(&id) {
             not_needed.push(id);
             continue;
         }
-        let prepared = prepare(in_rekordbox, attributes).and_then(|p| {
+        let prepared = prepare(in_rekordbox, file_missing, attributes).and_then(|p| {
             if locations.contains(&p.location_key) {
                 return Err(Reason::DuplicateLocation);
             }
@@ -557,6 +580,7 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
                     track_id: p.track_id.unwrap_or(0),
                     attributes: p.attributes,
                     rekordbox_holds_other_file: other_file.clone(),
+                    file_missing: in_rekordbox && file_missing,
                 });
             }
         }
