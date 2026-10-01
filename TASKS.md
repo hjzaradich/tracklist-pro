@@ -140,7 +140,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Follow-up:** ✅ 1aE-12 Bulk undo recording speed: adding 10,000 Library tracks as one operation took 20 s and undoing it 24 s on a debug build (measured in review of 1aE-2..4); the cost is per row in `ops::Recorder`. Measure on a release build, then make bulk adds, removals and their undo fast enough to feel immediate at 10,000 tracks, with the UI showing a busy state meanwhile
 
 ### Stage 1aF: Send flow
-- **Lane 1:** 1aF-1 Guided send checklist UI + the "don't play in between" warning
+- **Lane 1:** ✅ 1aF-1 Guided send checklist UI + the "don't play in between" warning
 - **Lane 2:** 1aF-2 Stale-playlist and manual-removal lists after each send
 
 ### Stage 1aG: Phase 1a check 👤
