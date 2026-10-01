@@ -1,9 +1,23 @@
 /* The stage body centres its content; the list fills it instead. */
 .scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Strips about a removal, then the list, one above the other. */
+.content {
+  display: flex;
+  flex-direction: column;
   align-self: stretch;
   justify-self: stretch;
   min-height: 0;
-  overflow: auto;
+}
+
+.centered {
+  display: grid;
+  flex: 1;
+  place-items: center;
 }
 
 .table {
@@ -53,4 +67,73 @@
 .error {
   margin: 0;
   color: var(--color-danger);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.button,
+.primary {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button:focus-visible,
+.primary:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.confirm,
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.status {
+  flex-direction: row;
+  align-items: center;
+}
+
+.confirmTitle {
+  margin: 0;
+  font-weight: 600;
+}
+
+.confirmDetail {
+  margin: 0;
+  color: var(--color-text-muted);
 }

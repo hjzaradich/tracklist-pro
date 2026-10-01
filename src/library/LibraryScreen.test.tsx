@@ -1,6 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type { LibraryTrack } from "../bindings";
@@ -14,12 +15,27 @@ function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
     kind: "linked",
     title: `Synthetic Tune ${id}`,
     artist: `Made Up Artist ${id}`,
-    file: { path: String.raw`E:\Music\tune ` + id + ".mp3", name: `tune ${id}.mp3`, present: true },
+    file: {
+      path: String.raw`E:\Music\tune ` + id + ".mp3",
+      name: `tune ${id}.mp3`,
+      present: true,
+      driveConnected: true,
+    },
+    sourceMissing: false,
+    openConflicts: 0,
     fragile: null,
     addedAt: "2026-09-30T10:00:00.000Z",
     ...fields,
   };
 }
+
+/** A linked file the last scan didn't find, on a drive that's connected. */
+const goneFile = {
+  path: String.raw`E:\Music\gone.mp3`,
+  name: "gone.mp3",
+  present: false,
+  driveConnected: true,
+};
 
 /** Stands in for the Rust side: the Library holds `tracks`, or can't be read. */
 function library(tracks: LibraryTrack[] | "broken") {
@@ -61,14 +77,16 @@ describe("the Library screen", () => {
     library([track(2), track(1)]);
     renderScreen();
     const [first, second] = await rows();
-    expect(
-      screen.getAllByRole("columnheader").map((header) => header.textContent),
-    ).toEqual(["Title", "Artist", "File"]);
-    expect(within(first).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      "Synthetic Tune 2",
-      "Made Up Artist 2",
-      String.raw`E:\Music\tune 2.mp3`,
+    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Title",
+      "Artist",
+      "File",
     ]);
+    expect(
+      within(first)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["Synthetic Tune 2", "Made Up Artist 2", String.raw`E:\Music\tune 2.mp3`, "Remove"]);
     expect(second).toHaveTextContent("Synthetic Tune 1");
     expect(screen.queryByText("No Library tracks")).toBeNull();
     // Nothing to say about a track whose file is there.
@@ -79,17 +97,15 @@ describe("the Library screen", () => {
     library([track(1, { title: null, artist: null })]);
     renderScreen();
     const [row] = await rows();
-    expect(within(row).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      "tune 1.mp3",
-      "",
-      String.raw`E:\Music\tune 1.mp3`,
-    ]);
+    expect(
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["tune 1.mp3", "", String.raw`E:\Music\tune 1.mp3`, "Remove"]);
   });
 
   it("says so next to a track whose file is missing", async () => {
-    const gone = track(2, {
-      file: { path: String.raw`E:\Music\gone.mp3`, name: "gone.mp3", present: false },
-    });
+    const gone = track(2, { sourceMissing: true, file: goneFile });
     library([track(1), gone]);
     renderScreen();
     const [here, missing] = await rows();
@@ -123,13 +139,46 @@ describe("the Library screen", () => {
     library([
       track(1, {
         fragile: "external",
-        file: { path: String.raw`E:\Music\gone.mp3`, name: "gone.mp3", present: false },
+        sourceMissing: true,
+        file: goneFile,
       }),
     ]);
     renderScreen();
     const [row] = await rows();
     expect(row).toHaveTextContent("File missing");
     expect(row).toHaveTextContent("On an external drive: will be lost when the drive is unplugged");
+  });
+
+  it("says the drive isn't connected, not that the file is missing, for a file on an unplugged drive", async () => {
+    library([
+      track(1, {
+        file: {
+          path: String.raw`G:\Music\a.mp3`,
+          name: "a.mp3",
+          present: true,
+          driveConnected: false,
+        },
+      }),
+    ]);
+    renderScreen();
+    const [row] = await rows();
+    expect(row).toHaveAccessibleDescription("Drive not connected");
+    expect(row).not.toHaveTextContent("File missing");
+  });
+
+  it("shows several notes on one row", async () => {
+    library([
+      track(1, {
+        fragile: "external",
+        sourceMissing: true,
+        file: { ...goneFile, driveConnected: false },
+      }),
+    ]);
+    renderScreen();
+    const [row] = await rows();
+    expect(row).toHaveTextContent("File missing");
+    expect(row).toHaveTextContent("Drive not connected");
+    expect(row).toHaveTextContent("On an external drive");
   });
 
   it("shows an error message, not an empty Library, when the list can't be loaded", async () => {
@@ -139,5 +188,181 @@ describe("the Library screen", () => {
       "Couldn't read or save the Library. Try again.",
     );
     expect(screen.queryByText("No Library tracks")).toBeNull();
+  });
+});
+
+/**
+ * A Library that removes and restores tracks like the Rust side: `calls`
+ * records every command, and the file on disk is never part of it.
+ */
+function removable(initial: LibraryTrack[]) {
+  let tracks = initial;
+  let last: LibraryTrack | null = null;
+  const calls: string[] = [];
+  mockIPC((cmd, args) => {
+    calls.push(cmd);
+    if (cmd === "library_tracks") return tracks;
+    if (cmd === "remove_library_track") {
+      last = tracks.find((t) => t.id === (args as { id: number }).id) ?? null;
+      tracks = tracks.filter((t) => t !== last);
+      return null;
+    }
+    if (cmd === "undo_last_operation") {
+      if (last === null) return { status: "nothingToUndo" };
+      tracks = [...tracks, last].sort((a, b) => a.id - b.id);
+      return { status: "undone", operation: { id: 1, kind: "remove_from_library" } };
+    }
+    throw new Error(`unexpected command ${cmd}`);
+  });
+  return calls;
+}
+
+describe("removing a track from the Library", () => {
+  it("asks first, and removes nothing until the user confirms", async () => {
+    const calls = removable([track(1), track(2)]);
+    renderScreen();
+    const [first] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Remove “Synthetic Tune 1” from your Library?");
+    expect(dialog).toHaveTextContent("The file stays where it is. You can undo this.");
+    expect(calls).not.toContain("remove_library_track");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(calls).not.toContain("remove_library_track");
+    expect(await rows()).toHaveLength(2);
+  });
+
+  it("removes the chosen track once confirmed, and only that one", async () => {
+    const calls = removable([track(1), track(2)]);
+    renderScreen();
+    const [first] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Removed from your Library");
+    await waitFor(async () => expect(await rows()).toHaveLength(1));
+    expect((await rows())[0]).toHaveTextContent("Synthetic Tune 2");
+    expect(calls.filter((c) => c === "remove_library_track")).toHaveLength(1);
+  });
+
+  it("puts the track back when the user undoes the removal", async () => {
+    removable([track(1), track(2)]);
+    renderScreen();
+    const [first] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    expect(await screen.findByText("Put back in your Library")).toBeInTheDocument();
+    await waitFor(async () => expect(await rows()).toHaveLength(2));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("offers undo even when the last track was removed and the list is empty", async () => {
+    removable([track(1)]);
+    renderScreen();
+    const [only] = await rows();
+    await userEvent.click(within(only).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("names the track on each row's Remove button", async () => {
+    removable([track(1), track(2)]);
+    renderScreen();
+    await rows();
+    expect(screen.getByRole("button", { name: "Remove Synthetic Tune 2" })).toBeInTheDocument();
+  });
+
+  it("gives the dialog focus, on Cancel", async () => {
+    removable([track(1)]);
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("says how many open conflicts removing the track drops", async () => {
+    removable([track(1, { openConflicts: 2 }), track(2, { openConflicts: 1 }), track(3)]);
+    renderScreen();
+    const [first, second, third] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Its 2 open conflicts will be dropped",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(within(second).getByRole("button", { name: "Remove Synthetic Tune 2" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+      "Its open conflict will be dropped",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(within(third).getByRole("button", { name: "Remove Synthetic Tune 3" }));
+    expect(await screen.findByRole("alertdialog")).not.toHaveTextContent("conflict");
+  });
+
+  it("says so, and keeps the track out, when undo is refused", async () => {
+    let tracks = [track(1)];
+    mockIPC((cmd) => {
+      if (cmd === "library_tracks") return tracks;
+      if (cmd === "remove_library_track") {
+        tracks = [];
+        return null;
+      }
+      if (cmd === "undo_last_operation") {
+        return {
+          status: "refused",
+          operation: { id: 1, kind: "remove_from_library" },
+          conflicts: [],
+        };
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Can't undo: something changed since",
+    );
+    expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
+  });
+
+  it("disables Undo while the undo is running", async () => {
+    let finish: (v: unknown) => void = () => {};
+    const pending = new Promise((resolve) => (finish = resolve));
+    let tracks = [track(1)];
+    mockIPC((cmd) => {
+      if (cmd === "library_tracks") return tracks;
+      if (cmd === "remove_library_track") {
+        tracks = [];
+        return null;
+      }
+      if (cmd === "undo_last_operation") return pending;
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    await userEvent.click(undo);
+    await waitFor(() => expect(undo).toBeDisabled());
+    finish({ status: "nothingToUndo" });
   });
 });

@@ -59,6 +59,8 @@ pub enum OpsError {
     Referenced { entity: String, id: i64, by: String },
     /// A number must be finite: SQLite stores NaN as NULL.
     NotFinite(String),
+    /// [`Recorder::read_rows`] takes statements that only read.
+    NotReadOnly(String),
 }
 
 impl fmt::Display for OpsError {
@@ -83,6 +85,7 @@ impl fmt::Display for OpsError {
                 "{entity:?} row {id} is referenced by {by:?}, which would change with it"
             ),
             OpsError::NotFinite(field) => write!(f, "{field:?} is not a finite number"),
+            OpsError::NotReadOnly(sql) => write!(f, "{sql:?} is not a read-only statement"),
         }
     }
 }
@@ -118,6 +121,23 @@ pub struct Recorder<'a> {
 }
 
 impl Recorder<'_> {
+    /// Reads rows inside the operation's transaction, to find what to
+    /// change. Only a statement that can't write is accepted, so nothing
+    /// gets past the log; writes go through the recorder.
+    pub fn read_rows<T>(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+        mut map: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+    ) -> Result<Vec<T>, OpsError> {
+        let mut stmt = self.tx.prepare(sql)?;
+        if !stmt.readonly() {
+            return Err(OpsError::NotReadOnly(sql.to_owned()));
+        }
+        let rows = stmt.query_map(params, |r| map(r))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Sets one field of one row. Returns false, and records nothing, if it
     /// already held that value.
     pub fn set(
@@ -578,6 +598,11 @@ fn undo_insert(
     };
     let mut changed_since = false;
     for change in group.iter().filter(|c| c.field != "rowid") {
+        // A derived column follows other data (database triggers), so its
+        // moving on isn't someone else's edit.
+        if is_derived(&table.name, &change.field) {
+            continue;
+        }
         let index = table
             .columns
             .iter()
@@ -641,6 +666,16 @@ fn undo_delete(
         rusqlite::params_from_iter(values),
     )?;
     Ok(())
+}
+
+/// Columns the database keeps current itself with triggers, such as
+/// `library_track.source_status`, which follows the linked file. Undoing an
+/// insert doesn't treat a change to one as a later edit, and undoing a
+/// delete lets the triggers set it again.
+const DERIVED_FIELDS: &[(&str, &str)] = &[("library_track", "source_status")];
+
+fn is_derived(entity: &str, field: &str) -> bool {
+    DERIVED_FIELDS.contains(&(entity, field))
 }
 
 /// Refuses NaN and infinite numbers: SQLite would store NaN as NULL, so the

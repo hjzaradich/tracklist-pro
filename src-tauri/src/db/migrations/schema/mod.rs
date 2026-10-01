@@ -8,6 +8,7 @@ mod file_stage;
 mod files;
 mod fingerprint_audio_hash;
 mod library;
+mod library_upkeep;
 mod partial_hash;
 mod tracks;
 mod workspace;
@@ -149,6 +150,9 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // Adds `rekordbox_track.relink_audio_hash` and `relink.audio_hash`, no
     // tables.
     ("0012_relink_audio_hash.sql", &[]),
+    // Keeps `library_track.source_status` in step with its file; adds the
+    // record of tracks the user removed.
+    ("0013_library_upkeep.sql", &["library_removal"]),
 ];
 
 #[test]

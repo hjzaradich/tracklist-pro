@@ -6,6 +6,21 @@
     "file": "File"
   },
   "fileMissing": "File missing",
+  "driveNotConnected": "Drive not connected",
+  "remove": {
+    "button": "Remove",
+    "buttonFor": "Remove {{title}}",
+    "conflicts_one": "Its open conflict will be dropped",
+    "conflicts_other": "Its {{count}} open conflicts will be dropped",
+    "title": "Remove “{{title}}” from your Library?",
+    "detail": "The file stays where it is. You can undo this.",
+    "confirm": "Remove",
+    "cancel": "Cancel",
+    "done": "Removed from your Library",
+    "undo": "Undo",
+    "undone": "Put back in your Library",
+    "undoRefused": "Can't undo: something changed since"
+  },
   "fragile": {
     "downloads": "In Downloads: will be lost if Downloads is cleared",
     "temp": "In a temp folder: Windows may delete it",

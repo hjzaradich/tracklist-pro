@@ -296,7 +296,8 @@ impl From<OpsError> for IpcError {
             | OpsError::BadStoredValue { .. }
             | OpsError::BadAction(_)
             | OpsError::Referenced { .. }
-            | OpsError::NotFinite(_) => ErrorKind::Internal,
+            | OpsError::NotFinite(_)
+            | OpsError::NotReadOnly(_) => ErrorKind::Internal,
         };
         IpcError::logged(kind, &e)
     }
