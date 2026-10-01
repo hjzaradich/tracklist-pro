@@ -11,8 +11,8 @@
 //! Only reading: the raw `Comments` attribute is stored and sent back
 //! unchanged (1.9 rule 1); [`tags`] and [`without_tags`] are views of it.
 
-/// What separates several tags inside the block. Not confirmed yet (one
-/// tag is the only format seen so far), so it lives here alone.
+/// What separates several tags inside the block (space, slash, space),
+/// confirmed in rekordbox 7 on 2026-10-01.
 pub const SEPARATOR: &str = " / ";
 
 const OPEN: &str = "/*";
