@@ -284,6 +284,31 @@ fn a_send_that_cannot_be_recorded_whole_records_nothing() {
 }
 
 #[test]
+fn a_track_that_is_not_in_the_library_stops_the_record_by_itself() {
+    // Even with nothing else to refuse its rows (foreign keys off), a
+    // sent track with no Library track to mark fails the whole record.
+    let lib = Lib::new();
+    let a = lib.library_track();
+    let both = sent(vec![
+        new(a, &[("Name", "Real"), ("Location", r"C:\New\a.mp3")]),
+        new(
+            LibraryTrackId(999),
+            &[("Name", "Ghost"), ("Location", r"C:\New\g.mp3")],
+        ),
+    ]);
+    let failed = lib.writer.call(move |c| {
+        c.pragma_update(None, "foreign_keys", false)?;
+        let result = record_send(c, &both);
+        c.pragma_update(None, "foreign_keys", true)?;
+        Ok(result.is_err())
+    });
+    assert!(failed.unwrap());
+    assert_eq!(lib.base(a), []);
+    assert_eq!(lib.base(LibraryTrackId(999)), []);
+    assert_eq!(lib.mark(a), (None, false));
+}
+
+#[test]
 fn an_empty_send_records_nothing() {
     let lib = Lib::new();
     let a = lib.library_track();

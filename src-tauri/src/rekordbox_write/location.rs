@@ -12,11 +12,12 @@
 //! `Location` the app can't read itself is never sent.
 //!
 //! **A track rekordbox already has** is re-encoded only when its
-//! `Location` is a drive path in rekordbox's usual shape
-//! (`file://localhost/C:/…`), where the two spellings differ in escaping
-//! alone: that's the case the behavior check sent and rekordbox updated in
-//! place. Any other shape (a network or macOS path, a server or nothing
-//! where `localhost` goes, backslashes, an uppercase prefix) is sent back
+//! `Location` is a drive path in rekordbox's usual shape: it starts with
+//! the literal `file://localhost/C:/` (any drive letter), and escapes only
+//! characters rekordbox itself escapes. That's the case the behavior check
+//! sent and rekordbox updated in place. Anything else (a network or macOS
+//! path, a server or nothing where `localhost` goes, backslashes, an
+//! uppercase prefix, an escaped `/`, `:`, `.` or letter) is sent back
 //! exactly as rekordbox wrote it, since re-spelling those is unverified.
 
 use crate::rekordbox::location::{decode, FilePath, Location, PathStyle};
@@ -71,9 +72,10 @@ pub fn from_rekordbox(raw: &str) -> Result<String, LocationProblem> {
         Err(_) => return Err(LocationProblem::Undecodable),
     };
     let encoded = encode(&path);
-    // Only escaping may differ: with every `%xx` resolved, the two are
-    // the same text.
-    let same_shape = path.style() == PathStyle::WindowsDrive
+    // The usual shape, and only escaping may differ: with every `%xx`
+    // resolved, the two are the same text.
+    let same_shape = is_usual_drive_location(raw)
+        && path.style() == PathStyle::WindowsDrive
         && matches!((unescaped(raw), unescaped(&encoded)), (Some(a), Some(b)) if a == b);
     if !same_shape {
         return Ok(raw.to_owned());
@@ -83,6 +85,40 @@ pub fn from_rekordbox(raw: &str) -> Result<String, LocationProblem> {
     } else {
         Err(LocationProblem::DoesNotReadBack)
     }
+}
+
+/// Characters rekordbox 7 leaves raw in a `Location`, besides ASCII
+/// letters and digits (seen in its exports, §5.3). It never writes one of
+/// these as `%xx`.
+const REKORDBOX_RAW: &[u8] = b"-._~/:(),+#!";
+
+/// Whether `raw` is spelled the way rekordbox spells a drive path: the
+/// literal `file://localhost/`, a drive letter, `:/`, and no escape of a
+/// character rekordbox leaves raw (`%2F`, `%3A`, `%2E`, `%41`…).
+fn is_usual_drive_location(raw: &str) -> bool {
+    let Some(rest) = raw.strip_prefix("file://localhost/") else {
+        return false;
+    };
+    let b = rest.as_bytes();
+    if !(b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && b[2] == b'/') {
+        return false;
+    }
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let escaped = std::str::from_utf8(b.get(i + 1..i + 3).unwrap_or_default())
+                .ok()
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+            match escaped {
+                Some(byte) if !(byte.is_ascii_alphanumeric() || REKORDBOX_RAW.contains(&byte)) => {}
+                _ => return false,
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    true
 }
 
 /// Whether the reader decodes `encoded` to exactly `path`. For anything
@@ -290,6 +326,23 @@ mod tests {
             // An uppercase prefix or host.
             "FILE://localhost/C:/Kit/a%20b%20#1.mp3",
             "file://LOCALHOST/C:/Kit/a%20b%20#1.mp3",
+            // Escapes rekordbox never writes: a separator, the drive's
+            // colon or the drive letter, a dot segment, a plain letter, a
+            // character it leaves raw.
+            "file://localhost/C:/Kit%2fa%20b.mp3",
+            "file://localhost/C:/Kit%2Fa%20b.mp3",
+            "file://localhost/C%3a/Kit/a%20b.mp3",
+            "file://localhost/%43:/Kit/a%20b.mp3",
+            "file://localhost/C:%2fKit/a%20b.mp3",
+            "file://localhost/C:/Kit/%2e%2e/a%20b.mp3",
+            "file://localhost/C:/Kit/%2e/a%20b.mp3",
+            "file://localhost/C:/Kit/%41%20b.mp3",
+            "file://localhost/C:/Kit/a%20b%231.mp3",
+            "file://localhost/C:/Kit/a%20%28b%29.mp3",
+            "file://localhost/C:/Kit/a%2c%20b.mp3",
+            "file://localhost/C:/Kit/a%20b%2emp3",
+            // No path after the drive.
+            "file://localhost/C:",
             // Backslashes, raw or escaped.
             "file://localhost/C:\\Kit\\a%20b%20#1.mp3",
             "file://localhost/C:/Kit%5ca%20b%20#1.mp3",
@@ -319,12 +372,46 @@ mod tests {
                 "file://localhost/C:/Kit/caf%C3%A9.mp3",
             ),
             (
-                "file://localhost/C:/Kit/%41%2fb#!.mp3",
-                "file://localhost/C:/Kit/A/b%23%21.mp3",
+                "file://localhost/z:/Kit/a#!(b),+c.mp3",
+                "file://localhost/z:/Kit/a%23%21%28b%29%2C%2Bc.mp3",
+            ),
+            (
+                "file://localhost/C:/Kit/100%25%20%26%20%5bx%5D%27.mp3",
+                "file://localhost/C:/Kit/100%25%20%26%20%5Bx%5D%27.mp3",
             ),
         ] {
             assert_eq!(from_rekordbox(raw).as_deref(), Ok(ours), "{raw}");
             assert_eq!(read(ours), read(raw));
+        }
+    }
+
+    #[test]
+    fn the_usual_shape_is_the_literal_prefix_a_drive_and_only_rekordboxs_escapes() {
+        for usual in [
+            "file://localhost/C:/a.mp3",
+            "file://localhost/z:/Kit/a%20b%26%5b%c3%A9#(),+!.mp3",
+        ] {
+            assert!(is_usual_drive_location(usual), "{usual}");
+        }
+        for other in [
+            "FILE://localhost/C:/a.mp3",
+            "file://LOCALHOST/C:/a.mp3",
+            "File://Localhost/C:/a.mp3",
+            "file:///C:/a.mp3",
+            "file://localhost//server/share/a.mp3",
+            "file://localhost/Users/a.mp3",
+            "file://localhost/C:",
+            "file://localhost/C:a.mp3",
+            "file://localhost/C:/a%2fb.mp3",
+            "file://localhost/C:/a%3Ab.mp3",
+            "file://localhost/C:/a%2Eb.mp3",
+            "file://localhost/C:/a%62.mp3",
+            "file://localhost/C:/a%7e.mp3",
+            "file://localhost/C:/a%2.mp3",
+            "file://localhost/C:/a%",
+            "",
+        ] {
+            assert!(!is_usual_drive_location(other), "{other}");
         }
     }
 
