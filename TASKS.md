@@ -129,7 +129,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 3:** ✅ 1aD-5 Missing list with last known paths + an offer to add folders: shown in Review, holding rekordbox tracks whose file is missing with their rekordbox data intact until relink marries them to a file (§1.3)
 - **Lane 4:** ✅ 1aD-6 Linked Library tracks: create, list, store (1.8)
 - **Lane 5:** ✅ 1aD-7 Fragile-location detection (Downloads, temp, external and network drives), with the warning and its reason (1.3). Known limit from 0B-10: NVMe drives in Thunderbolt enclosures report as internal
-- **Lane 6:** 1aD-8 Per-track send values: rekordbox data plus the best tags from the track's files
+- **Lane 6:** ✅ 1aD-8 Per-track send values: rekordbox data plus the best tags from the track's files
 
 ### Stage 1aE: Starting a Library, and the XML writer
 - **Lane 1, first run:** 1aE-1 Pick music folders → 1aE-2 Start from rekordbox: whole collection → linked (tracks whose file is missing go to the Missing list, not the Library, §1.3) → 1aE-3 Start from rekordbox: chosen playlists → 1aE-4 Start fresh, adding linked tracks from All music
