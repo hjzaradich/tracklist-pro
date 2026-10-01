@@ -434,30 +434,39 @@ fn the_list_counts_each_tracks_open_conflicts() {
 // The operation log's read access.
 
 #[test]
-fn the_recorder_reads_but_refuses_statements_that_could_write() {
+fn the_recorder_reads_but_refuses_statements_that_could_write_or_end_the_transaction() {
     let lib = Lib::new();
     lib.added("a.mp3");
-    let result = lib
-        .writer
-        .call(|c| {
-            Ok(crate::ops::record(
-                c,
-                "probe",
-                &serde_json::json!({}),
-                |rec| {
-                    let rows =
-                        rec.read_rows("SELECT id FROM library_track", [], |r| r.get::<_, i64>(0))?;
-                    assert_eq!(rows.len(), 1);
-                    rec.read_rows("DELETE FROM library_track", [], |r| r.get::<_, i64>(0))
-                },
-            ))
-        })
-        .unwrap();
-    assert!(
-        matches!(result, Err(OpsError::NotReadOnly(_))),
-        "{result:?}"
-    );
-    assert_eq!(lib.library_tracks(), 1);
+    for sql in [
+        "DELETE FROM library_track",
+        "ROLLBACK",
+        "SAVEPOINT probe",
+        "ATTACH ':memory:' AS other",
+        "COMMIT",
+    ] {
+        let result = lib
+            .writer
+            .call(move |c| {
+                Ok(crate::ops::record(
+                    c,
+                    "probe",
+                    &serde_json::json!({}),
+                    |rec| {
+                        let rows = rec.read_rows("SELECT id FROM library_track", [], |r| {
+                            r.get::<_, i64>(0)
+                        })?;
+                        assert_eq!(rows.len(), 1);
+                        rec.read_rows(sql, [], |r| r.get::<_, i64>(0))
+                    },
+                ))
+            })
+            .unwrap();
+        // The database's own authorizer already refuses ATTACH.
+        let refused = matches!(result, Err(OpsError::NotReadOnly(_)))
+            || (sql.starts_with("ATTACH") && result.is_err());
+        assert!(refused, "{sql}: {result:?}");
+        assert_eq!(lib.library_tracks(), 1, "{sql}");
+    }
 }
 
 #[test]
