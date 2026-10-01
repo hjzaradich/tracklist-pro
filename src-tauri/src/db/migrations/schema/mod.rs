@@ -11,6 +11,7 @@ mod fingerprint_audio_hash;
 mod library;
 mod library_upkeep;
 mod partial_hash;
+mod sent_playlist;
 mod tracks;
 mod workspace;
 
@@ -156,6 +157,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0013_library_upkeep.sql", &["library_removal"]),
     // Refuses conflicts on analysis fields, no tables.
     ("0014_analysis_never_conflicts.sql", &[]),
+    // The playlists and folders a send has written.
+    ("0015_sent_playlist.sql", &["sent_playlist"]),
 ];
 
 #[test]

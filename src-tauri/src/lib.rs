@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use tauri::{Builder, Manager, RunEvent, Runtime};
 
+pub mod after_send;
 pub mod all_music;
 pub mod attach;
 pub mod db;

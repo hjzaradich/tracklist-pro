@@ -891,3 +891,91 @@ fn a_file_found_not_to_be_an_export_is_opened_once_until_it_changes() {
     assert_eq!(poll().unwrap().name, "notes.xml");
     assert_eq!(opened.load(Ordering::SeqCst), 2);
 }
+
+// ---- the playlist names kept with each read (1aF-2) -----------------------------
+
+/// `export(ids)` with these children under ROOT.
+fn export_with_tree(ids: &[u64], children: &str) -> String {
+    export(ids).replace(
+        r#"<NODE Type="0" Name="ROOT" Count="0"/>"#,
+        &format!(r#"<NODE Type="0" Name="ROOT" Count="1">{children}</NODE>"#),
+    )
+}
+
+fn kept_tree(writer: &Writer) -> Option<crate::after_send::RekordboxTree> {
+    writer.call(|c| crate::after_send::load_tree(c)).unwrap()
+}
+
+const CRATES_WITH_EMPTIES: &str = r#"
+  <NODE Type="0" Name="Crates" Count="2">
+    <NODE Type="1" Name="Empty one" KeyType="0" Entries="0"/>
+    <NODE Type="0" Name="Empty folder" Count="0"/>
+  </NODE>"#;
+
+#[test]
+fn a_read_keeps_the_names_under_crates_and_playlists_empty_ones_too_and_the_next_read_replaces_them(
+) {
+    use crate::after_send::{RekordboxTree, TreeNode};
+    let (dir, writer) = db();
+    let first = dir.path().join("first.xml");
+    write_at(&first, &export_with_tree(&[1], CRATES_WITH_EMPTIES), 5);
+    assert_eq!(read_as_job(&writer, &first).0, JobStatus::Done);
+    assert_eq!(
+        kept_tree(&writer),
+        Some(RekordboxTree {
+            crates: vec![
+                TreeNode::playlist("Empty one"),
+                TreeNode::folder("Empty folder", vec![])
+            ],
+            playlists: vec![],
+        })
+    );
+
+    // Replaced whole, never merged: a read without those folders keeps none.
+    let second = dir.path().join("second.xml");
+    write_at(&second, &export(&[1]), 6);
+    assert_eq!(read_as_job(&writer, &second).0, JobStatus::Done);
+    assert_eq!(kept_tree(&writer), Some(RekordboxTree::default()));
+}
+
+#[test]
+fn an_incomplete_read_keeps_the_names_it_holds_since_only_its_tracks_can_be_missing() {
+    let (dir, writer) = db();
+    let cut = dir.path().join("cut.xml");
+    // COLLECTION says 5 tracks and holds 1.
+    let text =
+        export_with_tree(&[1], CRATES_WITH_EMPTIES).replace(r#"Entries="1""#, r#"Entries="5""#);
+    write_at(&cut, &text, 5);
+    assert_eq!(read_as_job(&writer, &cut).0, JobStatus::Done);
+    assert!(!stored(&writer).last_read.unwrap().summary.complete);
+    assert_eq!(kept_tree(&writer).unwrap().crates.len(), 2);
+}
+
+#[test]
+fn a_read_that_fails_leaves_the_previous_tree_with_the_previous_tracks() {
+    use crate::after_send::PLAYLIST_TREE;
+    let (dir, writer) = db();
+    let earlier = dir.path().join("earlier.xml");
+    write_at(&earlier, &export_with_tree(&[1], CRATES_WITH_EMPTIES), 5);
+    assert_eq!(read_as_job(&writer, &earlier).0, JobStatus::Done);
+    let before = (snapshot_rows(&writer), stored(&writer), kept_tree(&writer));
+
+    // The tree is written last, after the snapshot and the record of the
+    // read, so failing it shows the whole read rolling back.
+    writer
+        .call(|c| {
+            c.execute_batch(&format!(
+                "CREATE TEMP TRIGGER fail_tree BEFORE UPDATE ON main.setting
+                 WHEN new.key = '{PLAYLIST_TREE}'
+                 BEGIN SELECT RAISE(ABORT, 'disk full'); END;"
+            ))
+        })
+        .unwrap();
+    let newer = dir.path().join("newer.xml");
+    write_at(&newer, &export(&[2, 3]), 6);
+    assert_eq!(read_as_job(&writer, &newer).0, JobStatus::Failed);
+    assert_eq!(
+        (snapshot_rows(&writer), stored(&writer), kept_tree(&writer)),
+        before
+    );
+}

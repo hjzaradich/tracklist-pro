@@ -285,12 +285,57 @@ pub struct Outgoing {
     /// Tracks rekordbox already has that no entry names: not sent, and
     /// nothing is wrong with them.
     pub not_needed: Vec<LibraryTrackId>,
+    paths: Vec<SentPath>,
+}
+
+/// A folder or playlist the file writes under `Crates` or `Playlists`: what
+/// [`record_send`] keeps, so a later send can tell what the app itself put
+/// in rekordbox (ROADMAP 1.9 rule 6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentPath {
+    /// The folder names down to it, as written, starting with `Crates` or
+    /// `Playlists`.
+    pub path: Vec<String>,
+    /// A folder (else a playlist).
+    pub folder: bool,
+}
+
+impl SentPath {
+    /// The names normalized the way sibling names are compared
+    /// ([`sibling_key`]).
+    pub fn key(&self) -> Vec<String> {
+        self.path.iter().map(|name| sibling_key(name)).collect()
+    }
+}
+
+/// Every folder and playlist below `nodes`, depth first, under `path`.
+fn collect_paths(nodes: &[xml::NodeElement], path: &mut Vec<String>, out: &mut Vec<SentPath>) {
+    for node in nodes {
+        let (xml::NodeElement::Folder { name, .. } | xml::NodeElement::Playlist { name, .. }) =
+            node;
+        path.push(name.clone());
+        out.push(SentPath {
+            path: path.clone(),
+            folder: matches!(node, xml::NodeElement::Folder { .. }),
+        });
+        if let xml::NodeElement::Folder { children, .. } = node {
+            collect_paths(children, path, out);
+        }
+        path.pop();
+    }
 }
 
 impl Outgoing {
     /// The file's bytes (UTF-8).
     pub fn xml(&self) -> &[u8] {
         &self.xml
+    }
+
+    /// Every folder and playlist the file writes below `Crates` and
+    /// `Playlists` (the two top folders themselves excluded), empty ones
+    /// included. Hand it to [`record_send`] with `sent`.
+    pub fn paths(&self) -> &[SentPath] {
+        &self.paths
     }
 }
 
@@ -420,7 +465,7 @@ fn prepare(
 /// whitespace ignored. Whether rekordbox itself treats names that differ
 /// only in those as one playlist is unverified (§5.2), so they're refused
 /// as the same.
-fn sibling_key(name: &str) -> String {
+pub(crate) fn sibling_key(name: &str) -> String {
     name.trim_end().nfc().flat_map(char::to_lowercase).collect()
 }
 
@@ -650,6 +695,12 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
         .collect();
     let text = xml::render(&elements, &top);
     drop(elements);
+    let mut paths = Vec::new();
+    for top in &top {
+        if let xml::NodeElement::Folder { name, children } = top {
+            collect_paths(children, &mut vec![name.clone()], &mut paths);
+        }
+    }
     checked(
         text,
         &top,
@@ -659,6 +710,7 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
             left_out,
             emptied,
             not_needed,
+            paths,
         },
     )
 }

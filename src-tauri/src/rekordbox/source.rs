@@ -557,6 +557,7 @@ impl XmlReader {
             }
         })?;
         let rows = SnapshotRows::from_xml(&xml);
+        let tree = crate::after_send::RekordboxTree::from_xml(&xml);
         drop(xml);
         job.check_cancelled().map_err(|_| Stop::Cancelled)?;
 
@@ -575,6 +576,7 @@ impl XmlReader {
                     };
                     write_setting(tx, LAST_READ, &last)?;
                     tx.execute("DELETE FROM setting WHERE key = ?1", [LAST_FAILURE])?;
+                    crate::after_send::save_tree(tx, &tree)?;
                     Ok(())
                 })
             })

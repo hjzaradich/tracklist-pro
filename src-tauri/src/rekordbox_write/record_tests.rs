@@ -36,8 +36,27 @@ impl Lib {
     }
 
     fn record(&self, sent: &[SentTrack]) -> Result<(), DbError> {
-        let sent = sent.to_vec();
-        self.writer.call(move |c| record_send(c, &sent))
+        self.record_with_paths(sent, &[])
+    }
+
+    fn record_with_paths(&self, sent: &[SentTrack], paths: &[SentPath]) -> Result<(), DbError> {
+        let (sent, paths) = (sent.to_vec(), paths.to_vec());
+        self.writer.call(move |c| record_send(c, &sent, &paths))
+    }
+
+    /// Every recorded path: its names, kind and whether it was seen, in the
+    /// order they were first recorded.
+    fn recorded_paths(&self) -> Vec<(Vec<String>, String, bool)> {
+        self.writer
+            .call(|c| {
+                c.prepare("SELECT path, kind, seen FROM sent_playlist ORDER BY id")?
+                    .query_map([], |r| {
+                        let path: String = r.get(0)?;
+                        Ok((serde_json::from_str(&path).unwrap(), r.get(1)?, r.get(2)?))
+                    })?
+                    .collect()
+            })
+            .unwrap()
     }
 
     /// Every `sync_base` row of a track: field and value, by field.
@@ -301,7 +320,7 @@ fn a_track_that_is_not_in_the_library_stops_the_record_by_itself() {
     ]);
     let failed = lib.writer.call(move |c| {
         c.pragma_update(None, "foreign_keys", false)?;
-        let result = record_send(c, &both);
+        let result = record_send(c, &both, &[]);
         c.pragma_update(None, "foreign_keys", true)?;
         Ok(matches!(
             result,
@@ -510,4 +529,125 @@ fn a_known_track_with_a_missing_file_is_recorded_like_any_known_track() {
         ]
     );
     assert_eq!(lib.mark(gone), (Some(theirs.to_owned()), true));
+}
+
+fn sent_path(path: &[&str], folder: bool) -> SentPath {
+    SentPath {
+        path: path.iter().map(|n| (*n).to_owned()).collect(),
+        folder,
+    }
+}
+
+#[test]
+fn every_folder_and_playlist_a_send_wrote_is_recorded_with_its_kind() {
+    let lib = Lib::new();
+    lib.record_with_paths(
+        &[],
+        &[
+            sent_path(&["Crates", "House"], true),
+            sent_path(&["Crates", "House", "Deep"], false),
+            sent_path(&["Playlists", "Set"], false),
+        ],
+    )
+    .unwrap();
+    let names = |p: &[&str]| p.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        lib.recorded_paths(),
+        [
+            (names(&["Crates", "House"]), "folder".to_owned(), false),
+            (
+                names(&["Crates", "House", "Deep"]),
+                "playlist".to_owned(),
+                false
+            ),
+            (names(&["Playlists", "Set"]), "playlist".to_owned(), false),
+        ]
+    );
+}
+
+#[test]
+fn the_record_is_cumulative_and_a_path_sent_again_is_updated_not_duplicated() {
+    let lib = Lib::new();
+    lib.record_with_paths(&[], &[sent_path(&["Crates", "Warm up"], false)])
+        .unwrap();
+    // The user's rekordbox showed it: seen.
+    lib.writer
+        .call(|c| c.execute("UPDATE sent_playlist SET seen = 1", []))
+        .unwrap();
+    // A later send writes it again, spelled in another case, and another.
+    lib.record_with_paths(
+        &[],
+        &[
+            sent_path(&["Crates", "WARM UP "], false),
+            sent_path(&["Crates", "Peak"], false),
+        ],
+    )
+    .unwrap();
+    let recorded = lib.recorded_paths();
+    assert_eq!(recorded.len(), 2);
+    assert_eq!(recorded[0].0, ["Crates", "WARM UP "]);
+    assert!(recorded[0].2, "keeps its seen mark");
+    assert_eq!(recorded[1].0, ["Crates", "Peak"]);
+    assert!(!recorded[1].2);
+    // A send that no longer writes a path doesn't forget it.
+    lib.record_with_paths(&[], &[]).unwrap();
+    assert_eq!(lib.recorded_paths().len(), 2);
+}
+
+#[test]
+fn a_failed_record_send_records_no_paths() {
+    let lib = Lib::new();
+    let a = lib.library_track();
+    let both = sent(vec![
+        new(a, &[("Name", "Real"), ("Location", r"C:\New\a.mp3")]),
+        new(
+            LibraryTrackId(999),
+            &[("Name", "Ghost"), ("Location", r"C:\New\g.mp3")],
+        ),
+    ]);
+    let result = lib.writer.call(move |c| {
+        c.pragma_update(None, "foreign_keys", false)?;
+        let result = record_send(c, &both, &[sent_path(&["Crates", "A"], false)]);
+        c.pragma_update(None, "foreign_keys", true)?;
+        Ok(result.is_err())
+    });
+    assert!(result.unwrap());
+    assert_eq!(lib.recorded_paths(), []);
+    assert_eq!(lib.base(a), []);
+}
+
+#[test]
+fn a_built_send_lists_every_folder_and_playlist_it_wrote_empty_ones_too() {
+    let out = build(&SendInput {
+        tracks: vec![],
+        crates: vec![
+            Node::Folder {
+                name: "House".into(),
+                children: vec![Node::Playlist {
+                    name: "Deep".into(),
+                    entries: vec![],
+                }],
+            },
+            Node::Folder {
+                name: "Hollow".into(),
+                children: vec![],
+            },
+        ],
+        playlists: vec![Node::Playlist {
+            name: "Set".into(),
+            entries: vec![],
+        }],
+        ..SendInput::default()
+    })
+    .unwrap();
+    assert_eq!(
+        out.paths(),
+        [
+            sent_path(&["Crates", "House"], true),
+            sent_path(&["Crates", "House", "Deep"], false),
+            sent_path(&["Crates", "Hollow"], true),
+            sent_path(&["Playlists", "Set"], false),
+        ]
+    );
+    assert_eq!(out.paths()[2].key(), ["crates", "hollow"]);
 }

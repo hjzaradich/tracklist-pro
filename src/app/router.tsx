@@ -5,6 +5,7 @@ import {
   redirect,
   type RouterHistory,
 } from "@tanstack/react-router";
+import { AfterSendScreen } from "../afterSend/AfterSendScreen";
 import { AllMusicScreen } from "../allMusic/AllMusicScreen";
 import { CratesScreen } from "../crates/CratesScreen";
 import { LibraryScreen } from "../library/LibraryScreen";
@@ -58,6 +59,13 @@ const cratesRoute = createRoute({
   component: CratesScreen,
 });
 
+// Not a stage and not in the sidebar: the after-send lists on their own (1aF-2).
+const afterSendRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/after-send",
+  component: AfterSendScreen,
+});
+
 // One route per line, with a trailing comma, so lanes adding routes each add
 // a line and don't conflict.
 const routeTree = rootRoute.addChildren([
@@ -67,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   allMusicRoute,
   libraryRoute,
   cratesRoute,
+  afterSendRoute,
 ]);
 
 /** Tests pass a memory history; the app uses the browser's. */
