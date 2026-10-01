@@ -164,7 +164,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 2:** 1bB-6 Quality verdicts and thresholds, with reasons (1.6)
 
 ### Stage 1bC: Grouping and best file
-- **Lane 1:** 1bC-1 Grouping job replacing provisional grouping; re-point `library_track` rows safely (the merge function must refuse moving a file between linked versions by delete-then-insert, which the schema's triggers can't see)
+- **Lane 1:** 1bC-1 Grouping job replacing provisional grouping (also bring back relink step 4's same-track fallback, switched off in 1aD-1, together with a check that grouping is current for the files involved); re-point `library_track` rows safely (the merge function must refuse moving a file between linked versions by delete-then-insert, which the schema's triggers can't see)
 - **Lane 2, best file:** 1bC-2 Ranking with reasons → 1bC-3 Per-field tag and art picking + recorded disagreements
 - **Lane 3:** 1bC-4 "Better file available" for linked tracks, with its reason (1.7)
 
