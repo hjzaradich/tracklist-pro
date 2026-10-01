@@ -189,6 +189,9 @@ pub struct Preflight {
     /// Tracks rekordbox already has: one Yes/No dialog each on import.
     pub known_tracks: u32,
     pub left_out: Vec<LeftOut>,
+    /// Tracks rekordbox has whose file is missing: sent all the same, as
+    /// rekordbox's own entry, so the crates naming them stay whole.
+    pub file_missing: Vec<TrackLabel>,
     pub other_file: Vec<OtherFile>,
     /// Not empty: the send needs an explicit confirm
     /// ([`Preflight::needs_confirm`] says when it's needed).

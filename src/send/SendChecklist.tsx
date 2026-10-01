@@ -289,6 +289,16 @@ function Review({
           </Rows>
         </>
       )}
+      {preflight.fileMissing.length > 0 && (
+        <>
+          <p className={styles.warning}>
+            {t("review.fileMissing", { count: preflight.fileMissing.length })}
+          </p>
+          <Rows rows={preflight.fileMissing}>
+            {(track) => <li key={track.libraryTrack}>{name(track)}</li>}
+          </Rows>
+        </>
+      )}
       {preflight.otherFile.length > 0 && (
         <>
           <p className={styles.warning}>

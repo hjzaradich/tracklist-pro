@@ -36,6 +36,8 @@
       "sameFileAsAnother": "same file as another track",
       "rekordboxEntry": "rekordbox's entry can't be sent back"
     },
+    "fileMissing_one": "{{count, number}} track is sent with its file missing (rekordbox keeps its entry)",
+    "fileMissing_other": "{{count, number}} tracks are sent with their files missing (rekordbox keeps their entries)",
     "otherFile_one": "rekordbox already has another file of {{count, number}} track (sending adds a second entry)",
     "otherFile_other": "rekordbox already has another file of {{count, number}} tracks (sending adds a second entry for each)",
     "libraryFile": "Library file ({{path}})",

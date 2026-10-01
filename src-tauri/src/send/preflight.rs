@@ -65,6 +65,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         new_tracks: 0,
         known_tracks: 0,
         left_out: Vec::new(),
+        file_missing: Vec::new(),
         other_file: Vec::new(),
         loses_entries: Vec::new(),
         refusal: None,
@@ -93,6 +94,12 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
                         attribute,
                     }
                 })
+                .collect();
+            preflight.file_missing = out
+                .sent
+                .iter()
+                .filter(|sent| sent.file_missing)
+                .map(|sent| label(sent.library_track))
                 .collect();
             for sent in &out.sent {
                 let Some(other) = &sent.rekordbox_holds_other_file else {

@@ -733,6 +733,11 @@ export type Preflight = {
 	/**  Tracks rekordbox already has: one Yes/No dialog each on import. */
 	knownTracks: number,
 	leftOut: LeftOut[],
+	/**
+	 *  Tracks rekordbox has whose file is missing: sent all the same, as
+	 *  rekordbox's own entry, so the crates naming them stay whole.
+	 */
+	fileMissing: TrackLabel[],
 	otherFile: OtherFile[],
 	/**
 	 *  Not empty: the send needs an explicit confirm

@@ -340,6 +340,7 @@ fn the_preflight_counts_new_tracks_and_the_dialogs_to_expect() {
     let preflight = w.prepare().unwrap();
     assert_eq!((preflight.new_tracks, preflight.known_tracks), (2, 1));
     assert!(preflight.left_out.is_empty());
+    assert!(preflight.file_missing.is_empty());
     assert!(preflight.other_file.is_empty());
     assert!(preflight.loses_entries.is_empty());
     assert_eq!(preflight.refusal, None);
@@ -399,6 +400,31 @@ fn the_preflight_lists_every_track_left_out_with_its_reason() {
     assert_eq!(w.go(false), None);
     assert_eq!(w.sent_titles(), ["Fine"]);
     let _ = fine;
+}
+
+#[test]
+fn a_track_rekordbox_has_whose_file_is_missing_is_sent_and_listed_not_left_out() {
+    let w = World::new();
+    let (gone, _) = w.library_track("gone.mp3", "Gone", false);
+    let (here, _) = w.library_track("here.mp3", "Here", true);
+    w.crate_of("Warm up", &[gone, here]);
+    w.save_export(&[Rb(40, "gone.mp3", "Gone in rekordbox")]);
+
+    let preflight = w.prepare().unwrap();
+    let listed: Vec<_> = preflight
+        .file_missing
+        .iter()
+        .map(|t| (t.library_track, t.title.as_deref()))
+        .collect();
+    assert_eq!(listed, [(gone, Some("Gone"))]);
+    // It's sent, so nothing is left out and the crate keeps its entry.
+    assert_eq!(preflight.left_out, Vec::new());
+    assert!(preflight.loses_entries.is_empty());
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (1, 1));
+    assert!(!preflight.needs_confirm);
+    assert_eq!(w.go(false), None);
+    assert_eq!(w.sent_titles(), ["Gone in rekordbox", "Here"]);
+    let _ = here;
 }
 
 #[test]

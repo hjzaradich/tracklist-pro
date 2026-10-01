@@ -26,6 +26,7 @@ function preflight(fields: Partial<Preflight> = {}): Preflight {
     newTracks: 3,
     knownTracks: 12,
     leftOut: [],
+    fileMissing: [],
     otherFile: [],
     losesEntries: [],
     refusal: null,
@@ -285,6 +286,21 @@ describe("the send checklist", () => {
       expect(screen.getByRole("checkbox", { name: "Send anyway" })).not.toBeChecked(),
     );
     expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+  });
+
+  it("lists tracks sent with their file missing, and asks for no confirm", async () => {
+    fakeBackend({ preflight: preflight({ fileMissing: [label(4, "Gone"), label(6, "Lost")] }) });
+    renderChecklist();
+    const review = step("Review what will be sent");
+    expect(
+      await review.findByText(
+        "2 tracks are sent with their files missing (rekordbox keeps their entries)",
+      ),
+    ).toBeInTheDocument();
+    expect(review.getByText("Gone")).toBeInTheDocument();
+    expect(review.getByText("Lost")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Send anyway" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Write the file" })).toBeEnabled();
   });
 
   it("lists tracks rekordbox already has as another file, and lets them go", async () => {
