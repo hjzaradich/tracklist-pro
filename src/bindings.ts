@@ -880,7 +880,9 @@ export type SendFailure =
 "cantWrite" | 
 /**
  *  The file was written but the send couldn't be recorded. The file
- *  from the last send was put back, if there was one.
+ *  from the last send is put back when there was one and it can be;
+ *  otherwise the new file stays, unrecorded, until the next send
+ *  replaces it.
  */
 "cantRecord" | 
 /**  The database failed, or a bug. */
@@ -896,11 +898,16 @@ export type SendState = {
 	exportPath: string | null,
 	/**  The preflight waiting for the go. */
 	preflight: Preflight | null,
+	/**  The step that ended last, in this run of the app. */
+	step: SendStep | null,
 	/**  Why the last step stopped, until the next step starts. */
 	failure: SendFailure | null,
-	/**  The last send of this run of the app, until the next step starts. */
+	/**  The last send of this run of the app, until the next read starts. */
 	sent: Sent | null,
 };
+
+/**  One of the send's two steps. */
+export type SendStep = "prepare" | "write";
 
 /**  A send that went through. */
 export type Sent = {

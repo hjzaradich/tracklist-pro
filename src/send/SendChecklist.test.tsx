@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useActivityStore } from "../activity/activityStore";
@@ -51,6 +51,7 @@ function fakeBackend(initial: Partial<SendState> = {}) {
       filePath: SEND_FILE,
       exportPath: EXPORT,
       preflight: null,
+      step: null,
       failure: null,
       sent: null,
       ...initial,
@@ -71,12 +72,19 @@ function fakeBackend(initial: Partial<SendState> = {}) {
       backend.state = { ...backend.state, ...change, revision: backend.state.revision + 1 };
     },
     onPrepare: (path: string) => {
-      backend.end({ exportPath: path, preflight: preflight(), failure: null, sent: null });
+      backend.end({
+        exportPath: path,
+        preflight: preflight(),
+        step: "prepare",
+        failure: null,
+        sent: null,
+      });
     },
     onWrite: () => {
       const known = backend.state.preflight?.knownTracks ?? 0;
       backend.end({
         preflight: null,
+        step: "write",
         failure: null,
         sent: { at: "2026-10-01T12:10:00.000Z", newTracks: 3, knownTracks: known },
       });
@@ -104,7 +112,7 @@ function fakeBackend(initial: Partial<SendState> = {}) {
 }
 
 function failing(failure: SendFailure, backend: ReturnType<typeof fakeBackend>) {
-  return () => backend.end({ failure });
+  return () => backend.end({ step: "write", failure });
 }
 
 function renderChecklist(afterSend?: React.ReactNode) {
@@ -397,7 +405,7 @@ describe("the send checklist", () => {
         ...backend.source,
         lastFailure: { path: EXPORT, reason: "damaged", at: "2026-10-01T12:00:00.000Z" },
       };
-      backend.end({ preflight: null, failure: "readFailed" });
+      backend.end({ preflight: null, step: "prepare", failure: "readFailed" });
     };
     renderChecklist();
     await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
@@ -442,6 +450,55 @@ describe("the send checklist", () => {
     expect(
       await screen.findByText("Couldn't copy. Select the path and copy it."),
     ).toBeInTheDocument();
+  });
+
+  it("shows a failed read under the export step when the checklist is opened again", async () => {
+    fakeBackend({ step: "prepare", failure: "cancelled" });
+    renderChecklist();
+    const read = step("Export your collection from rekordbox");
+    expect(await read.findByText("Cancelled")).toBeInTheDocument();
+    expect(step("Write the file").queryByText("Cancelled")).not.toBeInTheDocument();
+  });
+
+  it("is busy while a step runs, and shows its result once the app records the step's end", async () => {
+    const backend = fakeBackend();
+    // The read is under way: nothing is recorded yet.
+    backend.onPrepare = () => {};
+    renderChecklist();
+    await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
+
+    expect(await screen.findByText("Reading the export")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Read the export" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose another export" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write the file" })).toBeDisabled();
+    expect(screen.getByText("Not read yet")).toBeInTheDocument();
+
+    // The job ends; the checklist finds out by asking again.
+    backend.end({ preflight: preflight(), step: "prepare" });
+    expect(await screen.findByText("3 new tracks")).toBeInTheDocument();
+    expect(screen.queryByText("Reading the export")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Write the file" })).toBeEnabled();
+  });
+
+  it("stops waiting when Activity says the step's job ended without a result", async () => {
+    const backend = fakeBackend();
+    backend.onPrepare = () => {};
+    renderChecklist();
+    await userEvent.click(await screen.findByRole("button", { name: "Read the export" }));
+    expect(await screen.findByText("Reading the export")).toBeInTheDocument();
+
+    // Cancelled while it was still queued: no step ever ends.
+    act(() => {
+      const activity = useActivityStore.getState();
+      activity.applySnapshot({ seq: 0, jobs: [] });
+      activity.applyUpdates([
+        { seq: 1, id: 7, kind: "export", status: "cancelled", progress: null, priority: 10 },
+      ]);
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Reading the export")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Read the export" })).toBeEnabled();
   });
 
   it("mounts the after-send lists in its last step", async () => {

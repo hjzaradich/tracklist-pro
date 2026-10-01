@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use super::file::{send_path, write_and_record, WriteError};
 use super::preflight::{review, Reviewed};
-use super::{SendFailure, SendFlow, Sent};
+use super::{SendFailure, SendFlow, SendStep, Sent};
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
 use crate::paths::Volumes;
 use crate::rekordbox::source::XmlReader;
@@ -32,6 +32,21 @@ pub fn write_job(token: &str, confirmed: bool) -> NewJob {
         .priority(Priority::USER)
 }
 
+/// Ends every send job an earlier run of the app left queued or running
+/// (they're stored, and a job stopped by the app closing goes back in the
+/// queue). Called at startup, before the job queue: a send step only ever
+/// runs because of a click in this run. An interrupted one is dropped,
+/// and the user starts again. Returns how many were dropped.
+pub fn drop_unfinished_jobs(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE job SET status = 'cancelled', progress = NULL,
+                        finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE kind = ?1 AND status IN ('queued', 'running')
+           AND json_extract(target, '$.send') IS NOT NULL",
+        [JobKind::Export.as_str()],
+    )
+}
+
 /// How a send is recorded once its file is in place.
 type Record = dyn Fn(&mut Connection, &[SentTrack]) -> rusqlite::Result<()> + Send + Sync;
 
@@ -43,6 +58,10 @@ pub struct Sender<V> {
     volumes: Arc<dyn Fn() -> V + Send + Sync>,
     /// [`record_send`]; tests put a failing one here.
     record: Arc<Record>,
+    /// Called once prepare's read is stored, before its tracks are
+    /// matched, so tests can act there.
+    #[cfg(test)]
+    after_read: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl<V: Volumes + 'static> Sender<V> {
@@ -52,7 +71,16 @@ impl<V: Volumes + 'static> Sender<V> {
             reader: XmlReader::default(),
             volumes: Arc::new(volumes),
             record: Arc::new(record_send),
+            #[cfg(test)]
+            after_read: None,
         }
+    }
+
+    /// Calls `hook` once prepare's read is stored, before the matching.
+    #[cfg(test)]
+    pub(crate) fn after_read(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.after_read = Some(Arc::new(hook));
+        self
     }
 
     /// Records sends with `record` instead of [`record_send`].
@@ -118,15 +146,18 @@ impl<V: Volumes + 'static> JobHandler for Sender<V> {
             .target()
             .and_then(|t| t.get("send"))
             .and_then(|s| s.as_str());
-        let done = match step {
-            Some("prepare") => self.prepare(job),
-            Some("write") => self.write(job),
-            _ => Err(Stop::internal("the job names no send step")),
+        let (step, done) = match step {
+            Some("prepare") => (SendStep::Prepare, self.prepare(job)),
+            Some("write") => (SendStep::Write, self.write(job)),
+            _ => (
+                SendStep::Write,
+                Err(Stop::internal("the job names no send step")),
+            ),
         };
         let Err(stop) = done else {
             return Ok(());
         };
-        self.flow.end(|steps| {
+        self.flow.end(step, |steps| {
             steps.failure = Some(stop.failure);
             if stop.drop_preflight {
                 steps.review = None;
@@ -144,25 +175,48 @@ impl<V: Volumes + 'static> Sender<V> {
     /// builds the preflight. Nothing made before this step survives it.
     fn prepare(&self, job: &JobContext) -> Result<(), Stop> {
         self.flow.start_over();
+        let path = job
+            .target()
+            .and_then(|t| t.get("path"))
+            .and_then(|p| p.as_str())
+            .unwrap_or_default()
+            .to_owned();
         // The read job itself, run here: it reads the file the job's
         // target names, and records a failure for the rekordbox source.
         self.reader.run(job).map_err(|e| match e {
             JobError::Cancelled => Stop::cancelled(),
             JobError::Failed(detail) => Stop::new(SendFailure::ReadFailed, detail),
         })?;
-        // The read replaced every rekordbox row, unmatched. Match them to
-        // files now: a track rekordbox has must never go out as new.
+        #[cfg(test)]
+        if let Some(hook) = &self.after_read {
+            hook();
+        }
         let known = job.writer().call(|c| relink::identities(c))?;
         let mounted = Mounted::ask(&known, &(self.volumes)());
         if job.is_cancelled() {
             return Err(Stop::cancelled());
         }
-        job.writer().call(move |c| relink::relink(c, &mounted))?;
-        let reviewed = self
-            .review(job)?
-            .ok_or_else(|| Stop::internal("the read left no record"))?;
-        self.flow
-            .end(|steps| steps.review = Some(reviewed.preflight));
+        // The read replaced every rekordbox row, unmatched, and any other
+        // read does the same. So the matching and the preflight are one
+        // writer job: no read can land between them, and a track
+        // rekordbox has never goes out as new.
+        let volumes = self.volumes.clone();
+        let reviewed = job.writer().call(move |c| {
+            relink::relink(c, &mounted)?;
+            review(c, &volumes())
+        })?;
+        let reviewed = reviewed.ok_or_else(|| Stop::internal("the read left no record"))?;
+        // Another read, of another export, got in after this one: the
+        // preflight would be of a file the user didn't ask for.
+        if reviewed.preflight.export.path != path {
+            return Err(Stop::new(
+                SendFailure::ExportChanged,
+                "another export was read meanwhile",
+            ));
+        }
+        self.flow.end(SendStep::Prepare, |steps| {
+            steps.review = Some(reviewed.preflight);
+        });
         Ok(())
     }
 
@@ -239,10 +293,14 @@ impl<V: Volumes + 'static> Sender<V> {
             let record = self.record.clone();
             let outgoing = outgoing.clone();
             job.writer().call(move |c| {
+                // The time first: nothing may fail once the send is
+                // recorded.
+                let at: String =
+                    c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
+                        r.get(0)
+                    })?;
                 record(c, &outgoing.sent)?;
-                c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
-                    r.get::<_, String>(0)
-                })
+                Ok(at)
             })
         })
         .map_err(|e| match e {
@@ -250,7 +308,7 @@ impl<V: Volumes + 'static> Sender<V> {
             WriteError::Record { error, .. } => Stop::new(SendFailure::CantRecord, error),
         })?;
         // One preflight, one send: the next send starts with a new read.
-        self.flow.end(|steps| {
+        self.flow.end(SendStep::Write, |steps| {
             steps.review = None;
             steps.sent = Some(Sent {
                 at,

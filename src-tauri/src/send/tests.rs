@@ -691,6 +691,126 @@ fn a_go_after_the_library_changed_is_refused_and_writes_nothing() {
 }
 
 #[test]
+fn a_go_whose_file_would_differ_from_the_reviewed_one_is_refused_and_writes_nothing() {
+    // The read and the export are unchanged, and so is everything the
+    // preflight says: only a value in the file differs.
+    let (w, ..) = world_with_a_send_waiting();
+    let reviewed = w.prepare().unwrap();
+    let retitled =
+        json!({ "id3v2": [{"key": "TIT2", "value": {"type": "text", "text": "Renamed"}}] })
+            .to_string();
+    w.insert(
+        "UPDATE file SET raw_tags = ?1 WHERE rel_path = 'new.mp3'",
+        (retitled,),
+    );
+    // Nothing the preflight shows has changed.
+    let again = w
+        .writer
+        .call(|c| review(c, &Plugged))
+        .unwrap()
+        .unwrap()
+        .preflight;
+    assert_eq!(
+        Preflight {
+            token: String::new(),
+            ..again.clone()
+        },
+        Preflight {
+            token: String::new(),
+            ..reviewed.clone()
+        }
+    );
+    assert_ne!(again.token, reviewed.token);
+
+    assert_eq!(w.go(true), Some(SendFailure::LibraryChanged));
+    assert_eq!(w.data_files(), Vec::<String>::new());
+    assert_eq!(w.recorded().0, Vec::<String>::new());
+    assert_eq!(w.flow.preflight(), None);
+}
+
+/// What a rekordbox read does, landing from another job: every rekordbox
+/// row replaced, unmatched, and the read recorded as `read_at` of `path`.
+fn another_read(writer: &Writer, text: String, path: Option<String>, read_at: &'static str) {
+    use crate::rekordbox::store::{replace_snapshot, SnapshotRows};
+    let rows = SnapshotRows::from_xml(&RekordboxXml::parse(text.as_bytes()).unwrap());
+    writer
+        .call(move |c| {
+            replace_snapshot(c, &rows, |tx, _, _| {
+                tx.execute(
+                    "UPDATE setting SET value = json_set(value, '$.readAt', ?1)
+                     WHERE key = 'rekordbox_xml_last_read'",
+                    [read_at],
+                )?;
+                if let Some(path) = &path {
+                    tx.execute(
+                        "UPDATE setting SET value = json_set(value, '$.path', ?1)
+                         WHERE key = 'rekordbox_xml_last_read'",
+                        [path],
+                    )?;
+                }
+                Ok(())
+            })
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_read_landing_during_prepare_never_makes_known_tracks_count_as_new() {
+    // Another read replaces the snapshot right after prepare's own read:
+    // its rows are unmatched. The preflight still matches them first.
+    let (w, ..) = world_with_a_send_waiting();
+    let (writer, text) = (w.writer.clone(), fs::read_to_string(&w.export).unwrap());
+    let sender = w.sender().after_read(move || {
+        another_read(&writer, text.clone(), None, "2031-01-01T00:00:00.000Z");
+    });
+    let status = w.run_with(sender, prepare_job(&w.export.to_string_lossy()));
+    assert_eq!(status, JobStatus::Done);
+
+    let preflight = w.flow.preflight().unwrap();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (1, 1));
+    // The preflight is of the read whose rows it used, and sends as that.
+    assert_eq!(preflight.export.read_at, "2031-01-01T00:00:00.000Z");
+    assert_eq!(w.go(false), None);
+    assert_eq!(w.sent_titles(), ["Known in rekordbox", "New"]);
+}
+
+#[test]
+fn a_read_of_another_export_landing_during_prepare_leaves_no_preflight() {
+    let (w, ..) = world_with_a_send_waiting();
+    let (writer, text) = (w.writer.clone(), export_text(&[], 0));
+    let sender = w.sender().after_read(move || {
+        another_read(
+            &writer,
+            text.clone(),
+            Some(r"C:\Elsewhere\other.xml".to_owned()),
+            "2031-01-01T00:00:00.000Z",
+        );
+    });
+    let status = w.run_with(sender, prepare_job(&w.export.to_string_lossy()));
+    assert_eq!(status, JobStatus::Failed);
+    assert_eq!(w.flow.preflight(), None);
+    assert_eq!(w.flow.failure(), Some(SendFailure::ExportChanged));
+    assert_eq!(w.flow.state(None).step, Some(SendStep::Prepare));
+}
+
+#[test]
+fn matching_rekordbox_tracks_again_after_the_review_does_not_refuse_the_go() {
+    // Every read queues a background relink, which may run between the
+    // review and the go. With nothing changed it changes nothing.
+    let (w, ..) = world_with_a_send_waiting();
+    w.prepare().unwrap();
+    w.writer
+        .call(|c| {
+            let known = crate::relink::identities(c)?;
+            let mounted = crate::relink::Mounted::ask(&known, &Plugged);
+            crate::relink::relink(c, &mounted)
+        })
+        .unwrap();
+    assert_eq!(w.go(false), None);
+    assert_eq!(w.sent_titles(), ["Known in rekordbox", "New"]);
+}
+
+#[test]
 fn a_preflight_is_good_for_one_send() {
     let (w, ..) = world_with_a_send_waiting();
     let preflight = w.prepare().unwrap();
@@ -704,6 +824,9 @@ fn a_preflight_is_good_for_one_send() {
     );
     assert_eq!(fs::read(w.send_file()).unwrap(), sent);
     assert_eq!(w.recorded(), recorded);
+    // The send that went through is still shown as sent.
+    assert!(w.flow.sent().is_some());
+    assert_eq!(w.flow.state(None).step, Some(SendStep::Write));
 }
 
 #[test]
@@ -993,6 +1116,56 @@ fn the_crate_tree_is_sent_as_folders_and_hand_made_crates_in_their_stored_order(
     );
 }
 
+// --- send jobs never outlive a run of the app ----------------------------------------
+
+#[test]
+fn unfinished_send_jobs_are_dropped_and_no_other_job_is() {
+    let w = World::new();
+    let job = |kind: &'static str, status: &'static str, target: Option<serde_json::Value>| {
+        w.insert(
+            "INSERT INTO job (kind, target, status, started_at, finished_at)
+             VALUES (?1, ?2, ?3, CASE WHEN ?3 <> 'queued' THEN 'earlier' END,
+                     CASE WHEN ?3 = 'done' THEN 'earlier' END)",
+            (kind, target.map(|t| t.to_string()), status),
+        )
+    };
+    let prepare = prepare_job("C:\\x.xml").target;
+    let write = write_job("token", true).target;
+    let dropped = [
+        job("export", "queued", prepare.clone()),
+        job("export", "queued", write.clone()),
+        job("export", "running", prepare.clone()),
+        job("export", "running", write.clone()),
+    ];
+    let kept = [
+        (job("export", "done", write), "done"),
+        (job("export", "queued", None), "queued"),
+        (
+            job("export", "queued", Some(json!({ "other": 1 }))),
+            "queued",
+        ),
+        (job("scan", "queued", None), "queued"),
+        (job("read_rekordbox", "queued", prepare), "queued"),
+    ];
+
+    let count = w.writer.call(|c| drop_unfinished_jobs(c)).unwrap();
+    assert_eq!(count, dropped.len());
+    let status = |id: i64| {
+        w.writer
+            .call(move |c| jobs::store::get(c, jobs::JobId(id)))
+            .unwrap()
+            .unwrap()
+    };
+    for id in dropped {
+        let job = status(id);
+        assert_eq!(job.status, JobStatus::Cancelled, "{id}");
+        assert!(job.finished_at.is_some());
+    }
+    for (id, expected) in kept {
+        assert_eq!(status(id).status.as_str(), expected, "{id}");
+    }
+}
+
 // --- over IPC -------------------------------------------------------------------------
 
 mod ipc {
@@ -1012,6 +1185,60 @@ mod ipc {
         assert_eq!(state["preflight"], Value::Null);
         assert_eq!(state["exportPath"], Value::Null);
         assert_eq!(state["revision"], json!(0));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn send_jobs_left_by_an_earlier_run_never_run_at_the_next_start() {
+        // An earlier run's database: a prepare and a write, still queued.
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        let export = dir.path().join("rekordbox.xml");
+        std::fs::write(&export, super::export_text(&[], 0)).unwrap();
+        let (prepare, write) = {
+            let guard = WriteGuard::app_data(&data).unwrap();
+            let writer = crate::db::Writer::open(
+                &guard
+                    .check(&crate::db::db_path(guard.app_data_dir()))
+                    .unwrap(),
+            )
+            .unwrap();
+            let queue = crate::jobs::JobQueue::builder(writer.clone())
+                .workers(1)
+                .start()
+                .unwrap();
+            // No worker takes them: the queue is stopped first.
+            queue.shutdown();
+            (
+                queue
+                    .enqueue(crate::send::prepare_job(&export.to_string_lossy()))
+                    .unwrap(),
+                queue
+                    .enqueue(crate::send::write_job("token", true))
+                    .unwrap(),
+            )
+        };
+
+        let mut app = crate::setup(tauri::test::mock_builder(), crate::DataDir::At(data))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.run_iteration(|_, _| {});
+
+        // Dropped before the queue started, so neither can have run.
+        let writer = app.state::<crate::db::Writer>();
+        for id in [prepare, write] {
+            let job = writer
+                .call(move |c| crate::jobs::store::get(c, id))
+                .unwrap()
+                .unwrap();
+            assert_eq!(job.status, crate::jobs::JobStatus::Cancelled);
+            assert_eq!(job.attempts, 0);
+        }
+        // The export wasn't read, and the checklist shows no failure.
+        let state = invoke(&app, "send_state", json!({})).unwrap();
+        assert_eq!(state["revision"], json!(0));
+        assert_eq!(state["failure"], Value::Null);
+        assert_eq!(state["exportPath"], Value::Null);
     }
 
     #[test]

@@ -186,6 +186,21 @@ impl WriteGuard {
             .ok_or(GuardError::Outside(real))
     }
 
+    /// [`Self::check`], refusing a root itself: for writes that make or
+    /// delete files beside `path`, in its own folder. A root's own folder
+    /// is outside it.
+    fn check_below_a_root(&self, path: &Path) -> Result<GuardedPath, GuardError> {
+        let checked = self.check(path)?;
+        if self
+            .roots
+            .iter()
+            .any(|(_, root)| within(root, &checked.path))
+        {
+            return Err(GuardError::IsRoot(checked.path));
+        }
+        Ok(checked)
+    }
+
     /// Checks the entry at `path` itself, for renaming or deleting it: its
     /// folder is resolved (links followed) but its own name isn't, so a
     /// link there is renamed or deleted, never what it points to. A root,
@@ -244,7 +259,8 @@ impl WriteGuard {
     /// failure the new file is deleted, and `path` is as it was (missing,
     /// or still holding its old content).
     ///
-    /// `path` passes the same checks as [`Self::write`]. The file beside
+    /// `path` passes the same checks as [`Self::write`], and can't be a
+    /// root itself (the file beside it would be outside). The file beside
     /// it gets a name this method picks and is created new, never opened
     /// if something already has that name; it's the only file this ever
     /// deletes.
@@ -269,7 +285,8 @@ impl WriteGuard {
         fill: impl FnOnce(&mut File) -> io::Result<()>,
         before_rename: impl FnOnce() -> io::Result<()>,
     ) -> Result<(), GuardError> {
-        let checked = self.check(path)?;
+        // The new file is made beside `path`, so `path` can't be a root.
+        let checked = self.check_below_a_root(path)?;
         // A file already there must have one name, as for any write; it's
         // opened without creating or changing it.
         match checked.open_one_name(false) {
@@ -301,13 +318,18 @@ impl WriteGuard {
     /// link with such a name is left alone, and so is `path` itself.
     /// Returns how many were deleted.
     ///
-    /// `path` passes the same check as a write, so nothing outside a root
-    /// is looked at or deleted.
+    /// `path` passes the same check as a write and must be below a root,
+    /// never a root itself (whose own folder is outside it), and every
+    /// name is checked to be inside the root before it's looked at. So
+    /// nothing outside a root is looked at or deleted.
     pub fn remove_leftover_parts(&self, path: &Path) -> Result<usize, GuardError> {
-        let checked = self.check(path)?;
+        let checked = self.check_below_a_root(path)?;
         let mut removed = 0;
         for name in beside_names(&checked.path) {
             let leftover = checked.path.with_file_name(name);
+            if !self.roots.iter().any(|(_, root)| within(&leftover, root)) {
+                return Err(GuardError::Outside(leftover));
+            }
             // Not following links: only a plain file is one of ours.
             match fs::symlink_metadata(&leftover) {
                 Ok(meta) if meta.file_type().is_file() => {}

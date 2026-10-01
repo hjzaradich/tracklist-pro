@@ -14,6 +14,10 @@
 //!    ([`file`]) and the send recorded (rule 8). Anything else is refused
 //!    and changes nothing. A preflight is good for one send.
 //!
+//! A send job never outlives the run of the app that queued it
+//! ([`drop_unfinished_jobs`]): a write only ever follows a click in this
+//! run, and the preflight it needs is in memory.
+//!
 //! The file is one fixed file in the app data folder ([`file::send_path`]),
 //! replaced on every send: the app changes no bytes anywhere else (§6).
 //!
@@ -39,7 +43,7 @@ use crate::library::LibraryTrackId;
 use crate::rekordbox::source::stored_source;
 use crate::write_guard::WriteGuard;
 
-pub use job::{prepare_job, sender, write_job, Sender};
+pub use job::{drop_unfinished_jobs, prepare_job, sender, write_job, Sender};
 pub use preflight::{review, Reviewed};
 pub use tree::crate_tree;
 
@@ -224,10 +228,20 @@ pub enum SendFailure {
     /// was.
     CantWrite,
     /// The file was written but the send couldn't be recorded. The file
-    /// from the last send was put back, if there was one.
+    /// from the last send is put back when there was one and it can be;
+    /// otherwise the new file stays, unrecorded, until the next send
+    /// replaces it.
     CantRecord,
     /// The database failed, or a bug.
     Internal,
+}
+
+/// One of the send's two steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SendStep {
+    Prepare,
+    Write,
 }
 
 /// A send that went through.
@@ -253,15 +267,18 @@ pub struct SendState {
     pub export_path: Option<String>,
     /// The preflight waiting for the go.
     pub preflight: Option<Preflight>,
+    /// The step that ended last, in this run of the app.
+    pub step: Option<SendStep>,
     /// Why the last step stopped, until the next step starts.
     pub failure: Option<SendFailure>,
-    /// The last send of this run of the app, until the next step starts.
+    /// The last send of this run of the app, until the next read starts.
     pub sent: Option<Sent>,
 }
 
 #[derive(Default)]
 struct Steps {
     revision: u32,
+    step: Option<SendStep>,
     review: Option<Preflight>,
     failure: Option<SendFailure>,
     sent: Option<Sent>,
@@ -317,18 +334,17 @@ impl SendFlow {
         steps.sent = None;
     }
 
-    /// Forgets how the last step ended, keeping the preflight: the write
-    /// is starting.
+    /// Forgets why the last step stopped, keeping the preflight and the
+    /// last send: the write is starting.
     fn start_write(&self) {
-        let mut steps = self.steps();
-        steps.failure = None;
-        steps.sent = None;
+        self.steps().failure = None;
     }
 
     /// Records how a step ended.
-    fn end(&self, change: impl FnOnce(&mut Steps)) {
+    fn end(&self, step: SendStep, change: impl FnOnce(&mut Steps)) {
         let mut steps = self.steps();
         change(&mut steps);
+        steps.step = Some(step);
         steps.revision = steps.revision.wrapping_add(1);
     }
 
@@ -339,6 +355,7 @@ impl SendFlow {
             file_path: crate::scan::display_path(&file::send_path(&self.guard)),
             export_path,
             preflight: steps.review.clone(),
+            step: steps.step,
             failure: steps.failure,
             sent: steps.sent.clone(),
         }

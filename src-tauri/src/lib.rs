@@ -78,7 +78,9 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
             app.manage(db::ReadPool::open(writer.guarded_path())?);
             scan::volumes::start(app.handle(), &writer);
-            // Before the job queue: the send job's handler shares it.
+            // Before the job queue: no send job from an earlier run may
+            // run in this one, and the send job's handler shares the flow.
+            writer.call(|c| send::drop_unfinished_jobs(c))?;
             app.manage(send::SendFlow::new(guard.clone()));
             app.manage(jobs::start(app.handle(), writer.clone())?);
             app.manage(scan::watch::start(app.handle(), writer.clone()));

@@ -44,7 +44,8 @@ export function OverviewScreen() {
   // The panels keep their places whether or not the first-run ones show,
   // so the offer's summary stays up when the Library stops being empty.
   // Until the Library has loaded, neither heading shows, nor the offer
-  // (its title depends on whether the Library is empty).
+  // (its title depends on whether the Library is empty). If the Library
+  // can't be read, the offer stays away too: adding to it would fail.
   return (
     <StageScreen stage="overview">
       <div className={styles.column}>

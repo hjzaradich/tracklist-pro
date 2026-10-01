@@ -847,6 +847,72 @@ fn clearing_leftovers_is_refused_outside_the_root_and_deletes_nothing_there() {
 }
 
 #[test]
+fn clearing_leftovers_of_the_root_itself_is_refused_and_nothing_beside_the_root_is_deleted() {
+    // The root's own leftover names would be in the root's parent,
+    // outside it.
+    let sb = Sandbox::new();
+    fs::write(sb.base.join("data.part"), b"not ours").unwrap();
+    fs::write(sb.base.join("data.1.part"), b"not ours").unwrap();
+    fs::create_dir(sb.data().join("sub")).unwrap();
+    let before = base_listing(&sb);
+    for path in [
+        sb.data(),
+        sb.data().join("sub").join(".."),
+        sb.data().join("."),
+    ] {
+        assert!(
+            matches!(
+                sb.guard.remove_leftover_parts(&path),
+                Err(GuardError::IsRoot(_))
+            ),
+            "{path:?}"
+        );
+    }
+    assert_eq!(base_listing(&sb), before);
+    assert_eq!(fs::read(sb.base.join("data.part")).unwrap(), b"not ours");
+    assert_eq!(fs::read(sb.base.join("data.1.part")).unwrap(), b"not ours");
+}
+
+#[test]
+fn clearing_leftovers_of_a_file_directly_in_the_root_stays_in_the_root() {
+    let sb = Sandbox::new();
+    // The same names beside the root, and the root's own: not touched.
+    for name in ["send.xml.part", "data.part"] {
+        fs::write(sb.base.join(name), b"not ours").unwrap();
+    }
+    fs::write(sb.data().join("send.xml.part"), b"left by a crash").unwrap();
+    let before = base_listing(&sb);
+
+    let dest = sb.data().join("send.xml");
+    assert_eq!(sb.guard.remove_leftover_parts(&dest).unwrap(), 1);
+    assert_eq!(data_listing(&sb), Vec::<String>::new());
+    assert_eq!(base_listing(&sb), before);
+    assert_eq!(
+        fs::read(sb.base.join("send.xml.part")).unwrap(),
+        b"not ours"
+    );
+}
+
+#[test]
+fn write_then_rename_refuses_the_root_itself_and_creates_nothing_beside_it() {
+    // Its new file would be made in the root's parent, outside it.
+    let sb = Sandbox::new();
+    let before = base_listing(&sb);
+    for path in [sb.data(), sb.data().join("sub").join("..")] {
+        assert!(
+            matches!(
+                sb.guard.write_then_rename(&path, b"x"),
+                Err(GuardError::IsRoot(_))
+            ),
+            "{path:?}"
+        );
+    }
+    assert_eq!(base_listing(&sb), before);
+    assert!(sb.data().is_dir());
+    assert_eq!(data_listing(&sb), Vec::<String>::new());
+}
+
+#[test]
 fn write_then_rename_refuses_a_destination_outside_the_root_before_creating_anything() {
     let sb = Sandbox::new();
     let before = sb.outside_listing();

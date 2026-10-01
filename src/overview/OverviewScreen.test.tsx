@@ -65,6 +65,7 @@ function fakeBackend(state: {
           filePath: String.raw`C:\data\send.xml`,
           exportPath: null,
           preflight: null,
+          step: null,
           failure: null,
           sent: null,
         };

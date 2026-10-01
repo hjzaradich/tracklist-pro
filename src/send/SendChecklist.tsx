@@ -63,8 +63,8 @@ export function SendChecklist({
   const preflight = state?.preflight ?? null;
   const confirmed = preflight !== null && confirmedFor === preflight.token;
   const failure = !busy ? (state?.failure ?? null) : null;
-  // The step the failure belongs under: the one that ran, or the one it names.
-  const failedStep = waiting?.step ?? (failure === "readFailed" ? "prepare" : "write");
+  // The step the failure belongs under: the one that ended last.
+  const failedStep = state?.step ?? "write";
   const working = busy || prepare.isPending || write.isPending;
 
   const startPrepare = (path: string | null) => {
