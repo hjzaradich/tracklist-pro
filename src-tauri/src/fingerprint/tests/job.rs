@@ -463,16 +463,31 @@ fn progress_only_rises_and_ends_at_one() {
     }
     library.walk();
     let heard = Heard::default();
-    let queue = library.queue_with_updates(library.fingerprinter(), heard.sink());
+    // Updates within 50 ms of each other coalesce (jobs::dispatch), and five
+    // small files can finish inside one window, leaving only the final
+    // update. So the job is held at its third file until the listener has
+    // heard a progress update short of done: one is then in the list
+    // whatever the machine's speed.
+    let seen = heard.clone();
+    let taken = Arc::new(AtomicUsize::new(0));
+    let fingerprinter = library.fingerprinter().on_file(move |_| {
+        if taken.fetch_add(1, Ordering::SeqCst) == 2 {
+            until(
+                || {
+                    seen.all().iter().any(|u| {
+                        u.kind == JobKind::Fingerprint && u.progress.is_some_and(|p| p < 1.0)
+                    })
+                },
+                "a progress update short of done",
+            );
+        }
+    });
+    let queue = library.queue_with_updates(fingerprinter, heard.sink());
     let job = queue.enqueue(fingerprint_job(None)).unwrap();
     wait(&library.writer, job);
     let updates = heard.until_done(job);
     queue.shutdown();
     let progress: Vec<f64> = updates.iter().filter_map(|u| u.progress).collect();
-    // Updates within 50 ms of each other coalesce (jobs::dispatch), so how
-    // many arrive depends on the machine's speed: a fast one may send two.
-    // What holds everywhere: something short of done was reported, nothing
-    // went back, and it ended at exactly one.
     assert!(progress.iter().any(|p| *p < 1.0), "{progress:?}");
     assert!(progress.windows(2).all(|w| w[1] >= w[0]), "{progress:?}");
     assert_eq!(progress.last(), Some(&1.0));

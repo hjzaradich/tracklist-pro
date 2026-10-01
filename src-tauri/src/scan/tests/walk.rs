@@ -500,7 +500,37 @@ fn progress_only_rises_and_ends_at_one() {
     add_music(&writer, &volume, &music);
 
     let updates = Arc::<Mutex<Vec<JobUpdate>>>::default();
-    let q = queue(&writer, &volume, &Batches::default(), &updates);
+    // Updates within 50 ms of each other coalesce (jobs::dispatch), and a
+    // fast walk can finish inside one window, leaving only the final
+    // update. So the walk is held at its 500th entry until the listener has
+    // heard a progress update short of done: one is then in the list
+    // whatever the machine's speed.
+    let heard = updates.clone();
+    let walk_volume = volume.clone();
+    let walker = Walker::new(move || walk_volume.clone(), |_| {}).on_entry(move |entries| {
+        if entries == 500 {
+            let start = Instant::now();
+            while !heard
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|u| u.kind == JobKind::Scan && u.progress.is_some_and(|p| p < 1.0))
+            {
+                assert!(
+                    start.elapsed() < Duration::from_secs(30),
+                    "no progress update short of done"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    });
+    let sink = updates.clone();
+    let q = JobQueue::builder(writer.clone())
+        .workers(1)
+        .on_updates(move |u: &[JobUpdate]| sink.lock().unwrap().extend_from_slice(u))
+        .handler(JobKind::Scan, walker)
+        .start()
+        .unwrap();
     let id = q.enqueue(scan_job(None)).unwrap();
     assert_eq!(wait(&writer, id), JobStatus::Done);
     // The status is stored before its update reaches the listener; wait for
@@ -524,10 +554,6 @@ fn progress_only_rises_and_ends_at_one() {
         .filter(|u| u.id == id)
         .filter_map(|u| u.progress)
         .collect();
-    // Updates within 50 ms of each other coalesce (jobs::dispatch), so how
-    // many arrive depends on the machine's speed. What holds everywhere:
-    // something short of done was reported, nothing went back, and it ended
-    // at exactly one.
     assert!(progress.iter().any(|p| *p < 1.0), "{progress:?}");
     assert!(
         progress.windows(2).all(|w| w[1] >= w[0]),
