@@ -1201,3 +1201,150 @@ fn a_write_whose_log_row_fails_is_undone_even_if_the_error_is_ignored() {
     assert_eq!(crate_name(&conn, doomed).as_deref(), Some("Doomed"));
     assert_eq!(crate_name(&conn, id).as_deref(), Some("Renamed"));
 }
+
+// What a batch records, pinned row for row, so a faster recorder can't
+// change the log (1aE-12).
+
+/// Every `change` row of every operation, without ids and times, in order.
+fn recorded(conn: &Connection) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT o.kind || ' ' || o.details || ' | ' || c.entity || ' ' || c.entity_id || ' '
+                    || c.action || ' ' || c.field || ' ' || ifnull(c.before, 'NULL') || ' -> '
+                    || ifnull(c.after, 'NULL')
+             FROM change c JOIN operation o ON o.id = c.operation_id
+             ORDER BY c.id",
+        )
+        .unwrap();
+    stmt.query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// One operation that inserts (with and without every value), sets (one
+/// real change, one no-op), and deletes, over every column type.
+fn a_small_batch(conn: &mut Connection) {
+    record(conn, "batch", &json!({ "n": 3 }), |rec| {
+        let a = rec.insert(
+            "sample",
+            &[
+                ("i", Value::Integer(7)),
+                ("r", Value::Real(2.5)),
+                ("t", Value::Text("one".into())),
+                ("b", Value::Blob(vec![0, 15, 255])),
+            ],
+        )?;
+        let b = rec.insert("sample", &[("t", Value::Text("two".into()))])?;
+        let c = rec.insert("sample", &[])?;
+        rec.set("sample", a, "i", 8)?;
+        assert!(
+            !rec.set("sample", a, "t", "one")?,
+            "a no-op records nothing"
+        );
+        rec.set("sample", b, "r", Value::Null)?;
+        rec.set("sample", b, "r", 1.0)?;
+        rec.delete("sample", c)?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_small_batch_records_exactly_these_rows() {
+    let (_dir, mut conn) = db();
+    a_small_batch(&mut conn);
+    let expected = [
+        r#"batch {"n":3} | sample 1 insert i NULL -> 7"#,
+        r#"batch {"n":3} | sample 1 insert r NULL -> 2.5"#,
+        r#"batch {"n":3} | sample 1 insert t NULL -> one"#,
+        r#"batch {"n":3} | sample 1 insert b NULL -> 000fff"#,
+        r#"batch {"n":3} | sample 1 insert d NULL -> filled in"#,
+        r#"batch {"n":3} | sample 2 insert i NULL -> NULL"#,
+        r#"batch {"n":3} | sample 2 insert r NULL -> NULL"#,
+        r#"batch {"n":3} | sample 2 insert t NULL -> two"#,
+        r#"batch {"n":3} | sample 2 insert b NULL -> NULL"#,
+        r#"batch {"n":3} | sample 2 insert d NULL -> filled in"#,
+        r#"batch {"n":3} | sample 3 insert i NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 insert r NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 insert t NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 insert b NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 insert d NULL -> filled in"#,
+        r#"batch {"n":3} | sample 1 set i 7 -> 8"#,
+        r#"batch {"n":3} | sample 2 set r NULL -> 1"#,
+        r#"batch {"n":3} | sample 3 delete i NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 delete r NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 delete t NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 delete b NULL -> NULL"#,
+        r#"batch {"n":3} | sample 3 delete d filled in -> NULL"#,
+    ];
+    assert_eq!(recorded(&conn), expected);
+    let operations: Vec<(String, String)> = conn
+        .prepare("SELECT kind, details FROM operation")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(operations, [("batch".to_owned(), r#"{"n":3}"#.to_owned())]);
+}
+
+#[test]
+fn undoing_a_small_batch_restores_the_table_and_marks_the_operation() {
+    let (_dir, mut conn) = db();
+    a_small_batch(&mut conn);
+    let outcome = undo_last(&mut conn).unwrap();
+    assert_eq!(
+        outcome,
+        UndoOutcome::Undone {
+            operation: OperationInfo {
+                id: 1,
+                kind: "batch".to_owned()
+            }
+        }
+    );
+    assert_eq!(count(&conn, "sample"), 0);
+    // The log itself is kept, and the operation is marked undone.
+    assert_eq!(recorded(&conn).len(), 22);
+    let undone: Option<String> = conn
+        .query_row("SELECT undone_at FROM operation", [], |r| r.get(0))
+        .unwrap();
+    assert!(undone.is_some());
+    assert_eq!(undo_last(&mut conn).unwrap(), UndoOutcome::NothingToUndo);
+}
+
+#[test]
+fn undoing_a_small_batch_is_refused_with_these_conflicts_when_rows_changed_since() {
+    let (_dir, mut conn) = db();
+    a_small_batch(&mut conn);
+    conn.execute("UPDATE sample SET t = 'edited' WHERE id = 1", [])
+        .unwrap();
+    conn.execute("DELETE FROM sample WHERE id = 2", []).unwrap();
+    conn.execute("INSERT INTO sample (id, d) VALUES (3, 'back')", [])
+        .unwrap();
+    let outcome = undo_last(&mut conn).unwrap();
+    let UndoOutcome::Refused {
+        operation,
+        conflicts,
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(operation.kind, "batch");
+    let summary: Vec<String> = conflicts
+        .iter()
+        .map(|c| format!("{} {} {:?} {:?}", c.entity, c.entity_id, c.field, c.problem))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            "sample 3 None RowBack",
+            "sample 2 None RowGone",
+            "sample 3 Some(\"d\") ChangedSince",
+            "sample 2 None RowGone",
+            "sample 1 Some(\"t\") ChangedSince",
+        ]
+    );
+    // Nothing was changed by the refusal.
+    assert_eq!(count(&conn, "sample"), 2);
+}
