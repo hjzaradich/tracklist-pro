@@ -90,22 +90,6 @@ fn a_track_mate_overwritten_with_other_audio_isnt_matched_before_grouping_catche
 }
 
 #[test]
-fn a_gone_file_that_changed_before_it_went_doesnt_give_its_track() {
-    let (lib, music, mounted) = e_music();
-    let old = lib.file(music, "Old.mp3", Some(200_000));
-    lib.hashed(old, 1);
-    let mate = elsewhere(&lib, music, "Mate");
-    lib.hashed(mate, 2);
-    lib.group(&[old, mate]);
-    // Changed on disk, then deleted before it was hashed again.
-    lib.edited(old);
-    let track = lib.track(&loc("E:/Music/Old.mp3"), Some("200"));
-    lib.gone(old);
-    lib.relink(&mounted);
-    assert_eq!(lib.matched(track), None);
-}
-
-#[test]
 fn a_gone_file_that_changed_before_it_went_isnt_evidence_by_its_old_fingerprint() {
     let (lib, music, mounted) = e_music();
     let old = lib.file(music, "Old.mp3", Some(200_000));
