@@ -131,8 +131,8 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 5:** ✅ 1aD-7 Fragile-location detection (Downloads, temp, external and network drives), with the warning and its reason (1.3). Known limit from 0B-10: NVMe drives in Thunderbolt enclosures report as internal
 - **Lane 6:** ✅ 1aD-8 Per-track send values: rekordbox data plus the best tags from the track's files
 
-### Stage 1aE: Starting a Library, and the XML writer
-- **Lane 1, first run:** 1aE-1 Pick music folders → 1aE-2 Start from rekordbox: whole collection → linked (tracks whose file is missing go to the Missing list, not the Library, §1.3) → 1aE-3 Start from rekordbox: chosen playlists → 1aE-4 Start fresh, adding linked tracks from All music
+### Stage 1aE: Starting a Library, and the XML writer ✅
+- **Lane 1, first run:** ✅ 1aE-1 Pick music folders → ✅ 1aE-2 Start from rekordbox: whole collection → linked (tracks whose file is missing go to the Missing list, not the Library, §1.3) → ✅ 1aE-3 Start from rekordbox: chosen playlists → ✅ 1aE-4 Start fresh, adding linked tracks from All music
 - **Lane 2:** ✅ 1aE-5 "File missing" flag, updated on each scan
 - **Lane 3:** ✅ 1aE-6 In-app delete: confirmation, undo, dropped from the next send
 - **Lane 4, XML writer:** ✅ 1aE-7 Every attribute from a fresh read (rule 1; the reader keeps values byte-exact, so escape tab, CR and LF as character references on write) → ✅ 1aE-8 Analysis fields omitted for tracks already in rekordbox (rule 3, case A) → ✅ 1aE-9 COLLECTION = every track the sent playlists and crates reference, plus new tracks, with every attribute (rule 4; T1 failed, so there's no playlists-only send) → ✅ 1aE-10 Percent-encoded `Location` + `Crates` / `Playlists` folder nodes
