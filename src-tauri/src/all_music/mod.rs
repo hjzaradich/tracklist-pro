@@ -3,40 +3,33 @@
 //! Library started fresh gets its tracks ("Add to Library", the Library's
 //! `promote_track`). The full track browser is Phase 1c (ROADMAP 1.11).
 //!
+//! - A track with no files isn't in All music (e.g. one removed from the
+//!   Library after it was sent to rekordbox, kept for the send flow).
+//! - The search and the order use the Library list's sort key
+//!   ([`library::sort_key`]), so letter case and accents don't matter and
+//!   the same tracks come in the same order in both lists.
+//! - Each file's path is made readable by the Library's helper
+//!   ([`library::StoredFile::shown`]).
+//!
 //! Read-only: only the database is read, and no file is opened.
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
 
 use crate::db::ReadPool;
 use crate::ipc::IpcError;
-use crate::library;
-use crate::paths::{RelPath, StoredPath, Volumes};
-use crate::scan::{display_path, system_volumes};
-use crate::volume::VolumeId;
+use crate::library::{self, sort_key, LinkedFile, StoredFile};
+use crate::paths::Volumes;
+use crate::scan::system_volumes;
 
 #[cfg(test)]
 mod tests;
 
 /// The most tracks one list holds. The list isn't a browser: a search
 /// narrows it instead of paging.
-pub const LIST_LIMIT: u32 = 200;
-
-/// A file of a track, as the list shows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct TrackFile {
-    /// Where the file is, e.g. `E:\DJ Music\a.mp3`: under its volume's
-    /// mount point now, or where that was last seen if the volume is
-    /// offline.
-    pub path: String,
-    /// The file's name, e.g. `a.mp3`.
-    pub name: String,
-    /// Whether the last scan found it on disk.
-    pub present: bool,
-}
+pub const LIST_LIMIT: usize = 200;
 
 /// A track in All music.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -49,8 +42,8 @@ pub struct AllMusicTrack {
     pub title: Option<String>,
     pub artist: Option<String>,
     /// The file adding it to the Library would link (ROADMAP 1.8), or
-    /// otherwise its first file.
-    pub file: Option<TrackFile>,
+    /// otherwise its best file, or its first.
+    pub file: Option<LinkedFile>,
     pub in_library: bool,
 }
 
@@ -72,51 +65,40 @@ pub struct StoredTrack {
     in_library: bool,
 }
 
-struct StoredFile {
-    volume: Option<VolumeId>,
-    /// From the volume's mount point; `None` if the stored path doesn't
-    /// read back.
-    rel: Option<RelPath>,
-    /// Inside its music folder, as stored.
-    rel_path: String,
-    last_mount_path: Option<String>,
-    present: bool,
+/// A track with what the search and the order are decided on.
+struct Candidate {
+    recording_id: i64,
+    title: Option<String>,
+    artist: Option<String>,
+    in_library: bool,
+    /// Its best file, or else its first: the file whose name stands in for
+    /// a missing title.
+    file_id: i64,
+    /// Every file's path inside its music folder; the first is `file_id`'s.
+    paths: Vec<String>,
 }
 
-impl StoredFile {
-    fn shown(&self, volumes: &impl Volumes) -> TrackFile {
-        let name = self
-            .rel_path
-            .rsplit('/')
-            .next()
-            .unwrap_or_default()
-            .to_owned();
-        let path = match (&self.volume, &self.rel) {
-            (Some(volume), Some(rel)) => {
-                match StoredPath::new(volume.clone(), rel.clone()).resolve(volumes) {
-                    Ok(abs) => display_path(&abs),
-                    // Offline: under the last mount point, built by hand so
-                    // it reads the same on every platform.
-                    Err(_) => {
-                        let mount = self.last_mount_path.as_deref().unwrap_or_default();
-                        let mut path = mount.trim_end_matches('\\').to_owned();
-                        for part in rel.components() {
-                            if !path.is_empty() {
-                                path.push('\\');
-                            }
-                            path.push_str(part);
-                        }
-                        path
-                    }
-                }
-            }
-            _ => self.rel_path.replace('/', "\\"),
-        };
-        TrackFile {
-            path,
-            name,
-            present: self.present,
-        }
+impl Candidate {
+    /// The name of the file that stands in for a missing title.
+    fn file_name(&self) -> &str {
+        self.paths[0].rsplit('/').next().unwrap_or_default()
+    }
+
+    /// Whether the title, the artist or a file's path holds `needle` (a
+    /// [`sort_key`]).
+    fn matches(&self, needle: &str) -> bool {
+        let holds = |text: &str| sort_key(text).contains(needle);
+        self.title.as_deref().is_some_and(holds)
+            || self.artist.as_deref().is_some_and(holds)
+            || self.paths.iter().any(|p| holds(p))
+    }
+
+    /// The Library list's order: the title shown (the file's name when
+    /// there's none), then the artist, then the track's id.
+    fn order(&self) -> (String, String, i64) {
+        let shown = self.title.as_deref().unwrap_or(self.file_name());
+        let artist = self.artist.as_deref().unwrap_or_default();
+        (sort_key(shown), sort_key(artist), self.recording_id)
     }
 }
 
@@ -125,111 +107,59 @@ fn filled(text: Option<String>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty())
 }
 
-/// `search` as a LIKE pattern matching it anywhere, taken literally.
-fn like_pattern(search: &str) -> String {
-    let mut pattern = String::from("%");
-    for c in search.chars() {
-        if matches!(c, '%' | '_' | '\\') {
-            pattern.push('\\');
-        }
-        pattern.push(c);
-    }
-    pattern.push('%');
-    pattern
-}
-
-/// Tracks that have a file, and match the search (in the title, the artist
-/// or a file's path) when there is one.
-const MATCHING: &str = "FROM recording r
-     WHERE EXISTS (SELECT 1 FROM recording_file rf WHERE rf.recording_id = r.id)
-       AND (?1 = '%%'
-            OR r.title LIKE ?1 ESCAPE '\\'
-            OR r.artist LIKE ?1 ESCAPE '\\'
-            OR EXISTS (SELECT 1 FROM recording_file rf JOIN file f ON f.id = rf.file_id
-                       WHERE rf.recording_id = r.id AND f.rel_path LIKE ?1 ESCAPE '\\'))";
-
-fn stored_file(conn: &Connection, file_id: i64) -> rusqlite::Result<Option<StoredFile>> {
-    conn.query_row(
-        "SELECT v.identity, mf.rel_path, f.rel_path, v.last_mount_path, f.present
-         FROM file f
-         LEFT JOIN music_folder mf ON mf.id = f.music_folder_id
-         LEFT JOIN volume v ON v.id = mf.volume_id
-         WHERE f.id = ?1",
-        [file_id],
-        |r| {
-            let identity: Option<String> = r.get(0)?;
-            let folder: Option<String> = r.get(1)?;
-            let rel_path: String = r.get(2)?;
-            let volume = identity.and_then(|i| VolumeId::from_stored(i).ok());
-            let rel = match (
-                folder.map(|f| RelPath::parse(&f)),
-                RelPath::parse(&rel_path),
-            ) {
-                (Some(Ok(folder)), Ok(rel)) => Some(folder.join(&rel)),
-                _ => None,
-            };
-            Ok(StoredFile {
-                volume,
-                rel,
-                rel_path,
-                last_mount_path: r.get(3)?,
-                present: r.get(4)?,
-            })
-        },
-    )
-    .optional()
-}
-
-/// The file the list shows for a track: the one adding it would link,
-/// otherwise its first file.
-fn shown_file(conn: &Connection, recording: i64) -> rusqlite::Result<Option<i64>> {
-    if let Some(choice) = library::linked_file_for(conn, recording)? {
-        return Ok(Some(choice.file_id));
-    }
-    conn.query_row(
-        "SELECT min(file_id) FROM recording_file WHERE recording_id = ?1",
-        [recording],
-        |r| r.get(0),
-    )
-}
-
-/// The tracks matching `search` (all of them when it's blank): titled ones
-/// first by title, then artist, letter case ignored.
-pub fn stored(conn: &Connection, search: &str) -> rusqlite::Result<(u32, Vec<StoredTrack>)> {
-    let pattern = like_pattern(search.trim());
-    let total: u32 = conn.query_row(&format!("SELECT count(*) {MATCHING}"), [&pattern], |r| {
-        r.get(0)
-    })?;
-    let mut stmt = conn.prepare(&format!(
-        "SELECT r.id, r.title, r.artist,
+/// Every track that has a file.
+fn candidates(conn: &Connection) -> rusqlite::Result<Vec<Candidate>> {
+    let mut stmt = conn.prepare(
+        "SELECT r.id, r.title, r.artist, f.id, f.rel_path,
                 EXISTS (SELECT 1 FROM library_track lt WHERE lt.recording_id = r.id)
-         {MATCHING}
-         ORDER BY coalesce(trim(r.title), '') = '', r.title COLLATE NOCASE,
-                  r.artist COLLATE NOCASE, r.id
-         LIMIT {LIST_LIMIT}"
-    ))?;
-    let rows = stmt
-        .query_map([&pattern], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, Option<String>>(1)?,
-                r.get::<_, Option<String>>(2)?,
-                r.get::<_, bool>(3)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut tracks = Vec::with_capacity(rows.len());
-    for (recording_id, title, artist, in_library) in rows {
-        let file = match shown_file(conn, recording_id)? {
-            Some(file_id) => stored_file(conn, file_id)?,
-            None => None,
-        };
+         FROM recording r
+         JOIN recording_file rf ON rf.recording_id = r.id
+         JOIN file f ON f.id = rf.file_id
+         ORDER BY r.id, (rf.role = 'best') DESC, f.id",
+    )?;
+    let mut rows = stmt.query([])?;
+    let mut tracks: Vec<Candidate> = Vec::new();
+    while let Some(row) = rows.next()? {
+        let recording_id: i64 = row.get(0)?;
+        let path: String = row.get(4)?;
+        match tracks.last_mut() {
+            Some(track) if track.recording_id == recording_id => track.paths.push(path),
+            _ => tracks.push(Candidate {
+                recording_id,
+                title: filled(row.get(1)?),
+                artist: filled(row.get(2)?),
+                in_library: row.get(5)?,
+                file_id: row.get(3)?,
+                paths: vec![path],
+            }),
+        }
+    }
+    Ok(tracks)
+}
+
+/// The tracks matching `search` (all of them when it's blank), in the
+/// Library list's order, and how many match in all.
+pub fn stored(conn: &Connection, search: &str) -> rusqlite::Result<(u32, Vec<StoredTrack>)> {
+    let needle = sort_key(search.trim());
+    let mut matching = candidates(conn)?;
+    if !needle.is_empty() {
+        matching.retain(|track| track.matches(&needle));
+    }
+    let total = u32::try_from(matching.len()).unwrap_or(u32::MAX);
+    matching.sort_by_cached_key(Candidate::order);
+    matching.truncate(LIST_LIMIT);
+
+    let mut tracks = Vec::with_capacity(matching.len());
+    for track in matching {
+        // The file adding the track would link, when it has one.
+        let file_id = library::linked_file_for(conn, track.recording_id)?
+            .map_or(track.file_id, |choice| choice.file_id);
         tracks.push(StoredTrack {
-            recording_id,
-            title: filled(title),
-            artist: filled(artist),
-            file,
-            in_library,
+            recording_id: track.recording_id,
+            title: track.title,
+            artist: track.artist,
+            file: library::stored_file(conn, file_id)?,
+            in_library: track.in_library,
         });
     }
     Ok((total, tracks))

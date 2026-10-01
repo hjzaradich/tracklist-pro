@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::db::Writer;
+use crate::volume::VolumeId;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeKind};
 
 /// The made-up volume every test file is on.
@@ -152,10 +153,11 @@ fn each_track_is_listed_with_its_title_artist_and_file() {
             recording_id: track,
             title: Some("Tune".to_owned()),
             artist: Some("Someone".to_owned()),
-            file: Some(TrackFile {
+            file: Some(LinkedFile {
                 path: r"E:\Music\Sub\tune.mp3".to_owned(),
                 name: "tune.mp3".to_owned(),
                 present: true,
+                drive_connected: true,
             }),
             in_library: false,
         }]
@@ -163,16 +165,44 @@ fn each_track_is_listed_with_its_title_artist_and_file() {
 }
 
 #[test]
-fn a_track_with_no_title_is_listed_without_one_after_the_titled_tracks() {
+fn a_track_with_no_title_is_listed_without_one_and_sorted_by_its_files_name() {
     let lib = Lib::new();
-    lib.track(Some("  "), None, "untitled.mp3");
-    lib.track(Some("beta"), None, "b.mp3");
-    lib.track(Some("Alpha"), None, "a.mp3");
+    lib.track(Some("  "), None, "Sub/b2.mp3");
+    lib.track(Some("beta"), None, "x.mp3");
+    lib.track(Some("Alpha"), None, "y.mp3");
 
     let list = lib.list("");
     let titles: Vec<_> = list.tracks.iter().map(|t| t.title.as_deref()).collect();
-    assert_eq!(titles, vec![Some("Alpha"), Some("beta"), None]);
-    assert_eq!(list.tracks[2].file.as_ref().unwrap().name, "untitled.mp3");
+    assert_eq!(titles, vec![Some("Alpha"), None, Some("beta")]);
+    assert_eq!(list.tracks[1].file.as_ref().unwrap().name, "b2.mp3");
+}
+
+#[test]
+fn the_order_is_the_library_lists_title_then_artist_ignoring_case_and_accents() {
+    let lib = Lib::new();
+    lib.track(Some("Zeta"), None, "1.mp3");
+    lib.track(Some("\u{c9}clat"), Some("B"), "2.mp3");
+    lib.track(Some("eclat"), Some("a"), "3.mp3");
+    lib.track(Some("Echo"), None, "4.mp3");
+
+    assert_eq!(lib.titles(""), vec!["Echo", "eclat", "\u{c9}clat", "Zeta"]);
+    // The same key the Library list sorts by.
+    let mut by_key = lib.titles("");
+    by_key.sort_by_key(|title| library::sort_key(title));
+    assert_eq!(by_key, lib.titles(""));
+}
+
+#[test]
+fn a_search_ignores_case_and_accents_outside_ascii_too() {
+    let lib = Lib::new();
+    lib.track(Some("\u{c9}dith"), Some("Bj\u{f6}rk"), "a.mp3");
+    lib.track(Some("Other"), None, "\u{c0} la carte.mp3");
+    lib.track(Some("Plain"), None, "b.mp3");
+
+    for search in ["\u{e9}dith", "EDITH", "\u{c9}DITH", "bjork", "BJ\u{d6}RK"] {
+        assert_eq!(lib.titles(search), vec!["\u{c9}dith"], "{search}");
+    }
+    assert_eq!(lib.titles("a la carte"), vec!["Other"]);
 }
 
 #[test]
@@ -251,8 +281,11 @@ fn the_list_stops_at_the_limit_and_still_says_how_many_match() {
         .unwrap();
 
     let list = lib.list("");
-    assert_eq!(list.total, LIST_LIMIT + 5);
-    assert_eq!(list.tracks.len(), LIST_LIMIT as usize);
+    assert_eq!(list.total as usize, LIST_LIMIT + 5);
+    assert_eq!(list.tracks.len(), LIST_LIMIT);
+    // The first ones in order, not just any.
+    assert_eq!(list.tracks[0].title.as_deref(), Some("t0000"));
+    assert_eq!(list.tracks[LIST_LIMIT - 1].title.as_deref(), Some("t0199"));
 }
 
 // Start fresh: the Library is empty until the user adds a track here.
@@ -301,11 +334,16 @@ fn the_frontend_gets_the_list_over_ipc() {
     use tauri::Manager;
 
     let (_data, app) = app();
+    let identity = volume_id().as_str().to_owned();
     app.state::<Writer>()
-        .call(|c| {
+        .call(move |c| {
+            c.execute(
+                "INSERT INTO volume (identity, kind, last_mount_path)
+                 VALUES (?1, 'external', 'E:\\')",
+                [identity],
+            )?;
             c.execute_batch(
-                "INSERT INTO volume (identity, kind) VALUES ('serial=1A2B3C4D', 'external');
-                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                "INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
                  VALUES (1, 'Music', 'Music');
                  INSERT INTO file (music_folder_id, rel_path, rel_path_key)
                  VALUES (1, 'a.mp3', 'a.mp3');
@@ -338,4 +376,24 @@ fn a_track_with_no_files_is_not_in_all_music() {
     assert_eq!(lib.list("").total, 1);
     assert_eq!(lib.titles("kept"), Vec::<String>::new());
     assert_eq!(lib.list("someone").total, 0);
+}
+
+#[test]
+fn a_track_removed_from_the_library_can_be_added_back_which_clears_its_removal_record() {
+    let lib = Lib::new();
+    let track = lib.track(Some("Tune"), None, "tune.mp3");
+    let added = library::promote(&lib.writer, &mounted(), track).unwrap();
+    library::remove(&lib.writer, added.library_track.id).unwrap();
+    assert!(!lib.list("").tracks[0].in_library);
+    let removals = |lib: &Lib| -> i64 {
+        lib.writer
+            .call(|c| c.query_row("SELECT count(*) FROM library_removal", [], |r| r.get(0)))
+            .unwrap()
+    };
+    assert_eq!(removals(&lib), 1);
+
+    let again = library::promote(&lib.writer, &mounted(), track).unwrap();
+    assert!(again.added);
+    assert!(lib.list("").tracks[0].in_library);
+    assert_eq!(removals(&lib), 0);
 }

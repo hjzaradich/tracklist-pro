@@ -13,7 +13,7 @@ function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
     recordingId: id,
     title: `Synthetic Tune ${id}`,
     artist: `Made Up Artist ${id}`,
-    file: { path: String.raw`E:\Music\tune ` + id + ".mp3", name: `tune ${id}.mp3`, present: true },
+    file: { path: String.raw`E:\Music\tune ` + id + ".mp3", name: `tune ${id}.mp3`, present: true, driveConnected: true },
     inLibrary: false,
     ...fields,
   };

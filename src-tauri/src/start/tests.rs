@@ -687,3 +687,88 @@ fn a_track_with_no_files_is_never_offered() {
     assert_eq!(lib.add().added, 0);
     assert_eq!(lib.library_tracks(), 0);
 }
+
+// Tracks the user removed from the Library in the app.
+
+impl Lib {
+    /// Removes `track`'s Library track, as "Remove from Library" does.
+    fn remove_from_library(&self, track: i64) {
+        let id = self
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT id FROM library_track WHERE recording_id = ?1",
+                    [track],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        library::remove(&self.writer, library::LibraryTrackId(id)).unwrap();
+    }
+
+    fn removal_records(&self) -> i64 {
+        self.count("SELECT count(*) FROM library_removal")
+    }
+}
+
+#[test]
+fn a_track_the_user_removed_is_not_offered_again() {
+    let lib = Lib::new();
+    let (removed, removed_file) = lib.track("removed", true);
+    let (kept, kept_file) = lib.track("kept", true);
+    lib.entry(Match::Trusted(removed_file), &[&["Peak"]]);
+    lib.entry(Match::Trusted(kept_file), &[&["Peak"]]);
+    lib.add();
+    lib.remove_from_library(removed);
+    assert_eq!(lib.library(), vec![(kept, kept_file)]);
+
+    // Not offered, not counted as in the Library, whole collection or pick.
+    let left_out = Offer {
+        already_in_library: 1,
+        ..offered(0)
+    };
+    assert_eq!(lib.offer(), left_out);
+    assert_eq!(lib.offer_in(&[&["Peak"]]), left_out);
+    let again = lib.add();
+    assert_eq!((again.added, again.operation_id), (0, None));
+    assert_eq!(lib.add_in(&[&["Peak"]]).added, 0);
+    assert_eq!(lib.library(), vec![(kept, kept_file)]);
+    assert_eq!(lib.removal_records(), 1);
+}
+
+#[test]
+fn a_removed_track_added_back_by_hand_is_an_ordinary_library_track_again() {
+    let lib = Lib::new();
+    let (track, file) = lib.track("a", true);
+    lib.entry(Match::Trusted(file), &[]);
+    lib.add();
+    lib.remove_from_library(track);
+    assert_eq!(lib.offer(), offered(0));
+
+    // "Add to Library" in All music.
+    let added = library::promote(&lib.writer, &crate::scan::system_volumes(), track).unwrap();
+    assert!(added.added);
+    assert_eq!(lib.library(), vec![(track, file)]);
+    assert_eq!(lib.removal_records(), 0);
+    assert_eq!(
+        lib.offer(),
+        Offer {
+            already_in_library: 1,
+            ..offered(0)
+        }
+    );
+}
+
+#[test]
+fn undoing_a_removal_puts_the_track_back_and_the_offer_counts_it_as_in_the_library() {
+    let lib = Lib::new();
+    let (track, file) = lib.track("a", true);
+    lib.entry(Match::Trusted(file), &[]);
+    lib.add();
+    lib.remove_from_library(track);
+
+    crate::ops::undo_last_via(&lib.writer).unwrap();
+    assert_eq!(lib.library(), vec![(track, file)]);
+    assert_eq!(lib.offer().already_in_library, 1);
+    assert_eq!(lib.offer().to_add, 0);
+}

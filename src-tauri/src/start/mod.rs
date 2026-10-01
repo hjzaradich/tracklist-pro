@@ -119,12 +119,14 @@ fn count(n: usize) -> u32 {
 /// The tracks the user removed from the Library in the app. The offer
 /// leaves them out; they can still be added back by hand (ROADMAP 1.3).
 ///
-/// SEAM (1aE): in-app removal is built in another lane, which exposes the
-/// query for these tracks. This is the one place the offer consults it:
-/// return those tracks' `recording` ids here. Until it's wired, nothing has
-/// been removed in the app, so the set is empty.
-fn removed_by_user(_conn: &Connection) -> rusqlite::Result<HashSet<i64>> {
-    Ok(HashSet::new())
+/// This is the one place the offer consults the Library's removal records
+/// ([`library::removed_tracks`]). Adding a track back by hand clears its
+/// record, so from then on it's an ordinary Library track here.
+fn removed_by_user(conn: &Connection) -> rusqlite::Result<HashSet<i64>> {
+    Ok(library::removed_tracks(conn)?
+        .into_iter()
+        .map(|removed| removed.recording_id)
+        .collect())
 }
 
 /// Whether an entry with these playlists (the stored JSON array of paths)
