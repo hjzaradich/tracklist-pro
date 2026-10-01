@@ -430,7 +430,7 @@ pub struct StoredFile {
 impl StoredFile {
     /// The file for the frontend, placed under its volume's mount point
     /// now, or under the last one if the volume is offline.
-    fn shown(&self, volumes: &impl Volumes) -> LinkedFile {
+    pub(crate) fn shown(&self, volumes: &impl Volumes) -> LinkedFile {
         let stored = StoredPath::new(self.volume.clone(), self.rel.clone());
         let path = match stored.resolve(volumes) {
             Ok(abs) => display_path(&abs),
@@ -492,14 +492,14 @@ impl StoredTrack {
     }
 }
 
-const FILE_COLUMNS: &str =
+pub(crate) const FILE_COLUMNS: &str =
     "f.id, v.identity, mf.rel_path, f.rel_path, v.last_mount_path, f.present";
-const FILE_JOINS: &str = "LEFT JOIN music_folder mf ON mf.id = f.music_folder_id
+pub(crate) const FILE_JOINS: &str = "LEFT JOIN music_folder mf ON mf.id = f.music_folder_id
                           LEFT JOIN volume v ON v.id = mf.volume_id";
 
 /// Reads [`FILE_COLUMNS`], starting at column `at`. `None` if there's no
 /// file, or its volume identity or path doesn't read back.
-fn file_from(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Option<StoredFile>> {
+pub(crate) fn file_from(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Option<StoredFile>> {
     let Some(file_id) = r.get::<_, Option<i64>>(at)? else {
         return Ok(None);
     };

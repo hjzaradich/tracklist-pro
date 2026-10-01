@@ -20,6 +20,7 @@ pub mod rekordbox;
 pub mod relink;
 pub mod scan;
 pub mod scan_state;
+pub mod send_values;
 pub mod settings;
 pub mod sniff;
 pub mod suggest;
