@@ -238,23 +238,25 @@ fn a_track_emptied_by_a_move_is_removed() {
 }
 
 #[test]
-fn a_track_emptied_by_a_move_is_kept_if_something_else_points_at_it() {
+fn a_track_emptied_by_a_move_hands_its_analysis_to_the_track_its_files_went_to() {
     let db = db();
     let a = db.file(1, "a.mp3", Some(A));
     let b = db.file(2, "b.mp3", Some(B));
     db.group();
-    // Both tracks are referenced, so the lowest id wins the merge and the
-    // other is left with no files but its analysis.
-    for track in [db.track(a).unwrap(), db.track(b).unwrap()] {
+    // Both tracks are referenced, so the lowest id wins the merge. The
+    // other is left with no files; its analysis goes (the survivor already
+    // has one from that source, so its own stays) and the track with it.
+    for (track, bpm) in [(db.track(a).unwrap(), 120), (db.track(b).unwrap(), 121)] {
         db.sql(&format!(
-            "INSERT INTO analysis (recording_id, source, bpm) VALUES ({track}, 'local', 120)"
+            "INSERT INTO analysis (recording_id, source, bpm) VALUES ({track}, 'local', {bpm})"
         ));
     }
     db.set_hash(b, Some(A));
     let summary = db.group();
     assert_eq!(db.track(a), db.track(b));
-    assert_eq!(summary.recordings_removed, 0);
-    assert_eq!(db.tracks(), 2);
+    assert_eq!(summary.recordings_removed, 1);
+    assert_eq!(db.tracks(), 1);
+    assert_eq!(db.count("SELECT CAST(bpm AS INTEGER) FROM analysis"), 120);
 }
 
 #[test]

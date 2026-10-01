@@ -59,6 +59,38 @@ fn the_job_groups_the_files_and_reports_what_it_did() {
 }
 
 #[test]
+fn a_failure_to_ask_for_an_attach_after_grouping_does_not_fail_the_job() {
+    let db = db();
+    db.file(1, "a.mp3", Some(A));
+    // Rekordbox data in the library, so an attach is asked for.
+    db.sql(
+        r#"INSERT INTO rekordbox_track (attributes, location_key, read_at)
+           VALUES ('{"TrackID":"1","Location":"file://localhost/C:/Kit/1.mp3"}',
+                   'c:/kit/1.mp3', '2026-01-01T00:00:00.000Z')"#,
+    );
+    // Queuing an attach job fails.
+    db.sql(
+        "CREATE TRIGGER no_attach_jobs BEFORE INSERT ON job WHEN new.kind = 'attach'
+         BEGIN SELECT RAISE(ABORT, 'the queue is closing'); END",
+    );
+    let seen = Arc::new(Mutex::new(Vec::<Summary>::new()));
+    let sink = seen.clone();
+    let queue = JobQueue::builder(db.writer.clone())
+        .handler(
+            JobKind::Group,
+            Grouper::default().on_summary(move |s| sink.lock().unwrap().push(s)),
+        )
+        .start()
+        .unwrap();
+    let id = queue.enqueue(group_job()).unwrap();
+    let job = wait(&db, id);
+    queue.shutdown();
+    assert_eq!(job.status, JobStatus::Done, "{job:?}");
+    assert_eq!(db.tracks(), 1);
+    assert_eq!(seen.lock().unwrap().len(), 1, "the summary was still heard");
+}
+
+#[test]
 fn asking_again_while_a_grouping_job_is_waiting_returns_that_job() {
     let db = db();
     let (release, hold) = mpsc::channel::<()>();

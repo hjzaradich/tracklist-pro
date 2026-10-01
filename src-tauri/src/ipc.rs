@@ -177,6 +177,7 @@ mod tests {
                     "export",
                     "read_rekordbox",
                     "relink",
+                    "attach",
                 ][..],
             ),
             (

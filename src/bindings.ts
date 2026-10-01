@@ -276,7 +276,9 @@ export type JobKind =
 /**  Read rekordbox's XML export into the snapshot (1.2). */
 "read_rekordbox" | 
 /**  Match rekordbox tracks to files (1.2 relink). */
-"relink";
+"relink" | 
+/**  Attach rekordbox's BPM and key to tracks (1.2, 1aD-4). */
+"attach";
 
 /**
  *  Where a job is in its life. Stored in `job.status` as
