@@ -81,6 +81,7 @@ describe("the Library screen", () => {
       "Title",
       "Artist",
       "File",
+      "Actions",
     ]);
     expect(
       within(first)
@@ -226,7 +227,7 @@ describe("removing a track from the Library", () => {
 
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("Remove “Synthetic Tune 1” from your Library?");
-    expect(dialog).toHaveTextContent("The file stays where it is. You can undo this.");
+    expect(dialog).toHaveTextContent("This action can be undone");
     expect(calls).not.toContain("remove_library_track");
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -336,7 +337,7 @@ describe("removing a track from the Library", () => {
     );
     await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Can't undo: something changed since",
+      "Can't undo: the Library has changed since",
     );
     expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
   });
@@ -364,5 +365,51 @@ describe("removing a track from the Library", () => {
     await userEvent.click(undo);
     await waitFor(() => expect(undo).toBeDisabled());
     finish({ status: "nothingToUndo" });
+  });
+
+  it("cancels the dialog on Escape without removing anything", async () => {
+    const calls = removable([track(1)]);
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await screen.findByRole("alertdialog");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(calls).not.toContain("remove_library_track");
+  });
+
+  it("includes the conflicts line in the dialog's description", async () => {
+    removable([track(1, { openConflicts: 2 })]);
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    expect(await screen.findByRole("alertdialog")).toHaveAccessibleDescription(
+      "This action can be undone Its 2 open conflicts will be dropped",
+    );
+  });
+
+  it("greys out Undo, with no message, when there turns out to be nothing to undo", async () => {
+    let tracks = [track(1)];
+    mockIPC((cmd) => {
+      if (cmd === "library_tracks") return tracks;
+      if (cmd === "remove_library_track") {
+        tracks = [];
+        return null;
+      }
+      if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+    );
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    expect(undo).toBeEnabled();
+    await userEvent.click(undo);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled());
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Can't undo: the Library has changed since")).toBeNull();
   });
 });
