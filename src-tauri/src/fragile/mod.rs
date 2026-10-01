@@ -133,48 +133,35 @@ pub struct Located {
     rel: String,
 }
 
-/// Reads where `files` are (one prepared query for all of them). Files
+/// Reads where `files` are, in one query however many there are. Files
 /// that aren't in the database are left out. A read only: [`judge`] can
 /// follow with no database connection held.
 pub fn locate(conn: &Connection, files: &[i64]) -> rusqlite::Result<Vec<Located>> {
+    let ids = serde_json::to_string(files).unwrap_or_else(|_| "[]".to_owned());
     let mut stmt = conn.prepare(
-        "SELECT v.kind, v.identity, v.last_mount_path, mf.rel_path, f.rel_path
+        "SELECT f.id, v.kind, v.identity, v.last_mount_path, mf.rel_path, f.rel_path
          FROM file f
          JOIN music_folder mf ON mf.id = f.music_folder_id
          JOIN volume v ON v.id = mf.volume_id
-         WHERE f.id = ?1",
+         WHERE f.id IN (SELECT value FROM json_each(?1))
+         ORDER BY f.id",
     )?;
-    let mut found = Vec::new();
-    for &file in files {
-        let row = stmt.query_row([file], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, Option<String>>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-            ))
-        });
-        let (kind, identity, last_mount, folder, rel) = match row {
-            Ok(row) => row,
-            Err(rusqlite::Error::QueryReturnedNoRows) => continue,
-            Err(e) => return Err(e),
-        };
-        let kind = match kind.as_str() {
-            "external" => VolumeKind::External,
-            "network" => VolumeKind::Network,
-            _ => VolumeKind::Internal,
-        };
-        found.push(Located {
-            file,
-            kind,
-            identity,
-            last_mount,
-            folder,
-            rel,
-        });
-    }
-    Ok(found)
+    let rows = stmt.query_map([ids], |r| {
+        let kind: String = r.get(1)?;
+        Ok(Located {
+            file: r.get(0)?,
+            kind: match kind.as_str() {
+                "external" => VolumeKind::External,
+                "network" => VolumeKind::Network,
+                _ => VolumeKind::Internal,
+            },
+            identity: r.get(2)?,
+            last_mount: r.get(3)?,
+            folder: r.get(4)?,
+            rel: r.get(5)?,
+        })
+    })?;
+    rows.collect()
 }
 
 /// Why each located file is fragile; files that aren't are left out.

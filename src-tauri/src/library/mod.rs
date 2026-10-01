@@ -31,7 +31,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::db::{DbError, ReadPool, Writer};
-use crate::fragile::{self, FragileDirs, FragileReason};
+use crate::fragile::{self, FragileDirs, FragileReason, Located};
 use crate::ipc::{ErrorKind, ErrorParam, IpcError};
 use crate::ops::{self, OpsError, Recorder};
 use crate::paths::{RelPath, StoredPath, Volumes};
@@ -377,6 +377,16 @@ pub fn promote(
     volumes: &impl Volumes,
     recording: i64,
 ) -> Result<Promoted, LibraryError> {
+    promote_with(writer, volumes, &FragileDirs::system(), recording)
+}
+
+/// [`promote`], judging fragile locations against `dirs`.
+pub fn promote_with(
+    writer: &Writer,
+    volumes: &impl Volumes,
+    dirs: &FragileDirs,
+    recording: i64,
+) -> Result<Promoted, LibraryError> {
     let done = writer.call(move |conn| {
         Ok(promote_on(conn, recording).and_then(|done| {
             let located = match &done {
@@ -391,7 +401,7 @@ pub fn promote(
     })??;
     match done {
         (Ok((track, added)), located) => {
-            let fragile = fragile::judge(&located, volumes, &FragileDirs::system());
+            let fragile = fragile::judge(&located, volumes, dirs);
             Ok(Promoted {
                 library_track: track.to_library_track(volumes, &fragile),
                 added,
@@ -626,23 +636,43 @@ pub fn list(
     list
 }
 
+/// Every Library track and where their files are, in one database read.
+/// The disk-facing part ([`list_with_fragile`]) follows with no connection
+/// held.
+pub fn stored_with_locations(
+    conn: &Connection,
+) -> rusqlite::Result<(Vec<StoredTrack>, Vec<Located>)> {
+    let tracks = stored(conn)?;
+    let files: Vec<i64> = tracks
+        .iter()
+        .filter_map(|t| t.file.as_ref().map(|f| f.file_id))
+        .collect();
+    let located = fragile::locate(conn, &files)?;
+    Ok((tracks, located))
+}
+
+/// The Library list with each row's fragile reason (1aD-7): `located` is
+/// judged against `dirs`, then the tracks are listed as in [`list`].
+pub fn list_with_fragile(
+    tracks: &[StoredTrack],
+    located: &[Located],
+    volumes: &impl Volumes,
+    dirs: &FragileDirs,
+) -> Vec<LibraryTrack> {
+    list(tracks, volumes, &fragile::judge(located, volumes, dirs))
+}
+
 /// Every Library track, sorted for the Library list (see [`list`]).
 #[tauri::command]
 #[specta::specta]
 pub async fn library_tracks(reads: State<'_, ReadPool>) -> Result<Vec<LibraryTrack>, IpcError> {
-    // One read for the tracks and where their files are; the fragile
-    // folders are asked of the disk after, with no connection held.
-    let (tracks, located) = reads.read(|conn| {
-        let tracks = stored(conn)?;
-        let files: Vec<i64> = tracks
-            .iter()
-            .filter_map(|t| t.file.as_ref().map(|f| f.file_id))
-            .collect();
-        Ok((tracks, fragile::locate(conn, &files)?))
-    })?;
-    let volumes = system_volumes();
-    let fragile = fragile::judge(&located, &volumes, &FragileDirs::system());
-    Ok(list(&tracks, &volumes, &fragile))
+    let (tracks, located) = reads.read(stored_with_locations)?;
+    Ok(list_with_fragile(
+        &tracks,
+        &located,
+        &system_volumes(),
+        &FragileDirs::system(),
+    ))
 }
 
 /// Adds a track to the Library as a linked Library track. Its file is never
