@@ -142,6 +142,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 ### Stage 1aF: Send flow
 - **Lane 1:** ✅ 1aF-1 Guided send checklist UI + the "don't play in between" warning
 - **Lane 2:** 1aF-2 Stale-playlist and manual-removal lists after each send
+- **Follow-up:** 1aF-3 Copy pipeline (owner decision 2026-10-01): a notes file per locale namespace (purpose, where it appears, approved text) with a CI check; tests look text up by key instead of pinning English; a script lists strings still proposed. Copy is then approved before each phase checkpoint, not before each merge
 
 ### Stage 1aG: Phase 1a check 👤
 - **Lane 1:** 1aG-1 End to end: start from rekordbox with the reference library → send → read back → 1aG-2 End to end: start fresh → add → send → read back
