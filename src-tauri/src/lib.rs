@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use tauri::{Builder, Manager, RunEvent, Runtime};
 
+pub mod all_music;
 pub mod attach;
 pub mod db;
 pub mod fingerprint;
@@ -24,6 +25,7 @@ pub mod scan_state;
 pub mod send_values;
 pub mod settings;
 pub mod sniff;
+pub mod start;
 pub mod suggest;
 pub mod tags;
 pub mod volume;
