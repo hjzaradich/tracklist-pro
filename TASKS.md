@@ -145,7 +145,8 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Follow-up:** 1aF-3 Copy pipeline (owner decision 2026-10-01): a notes file per locale namespace (purpose, where it appears, approved text) with a CI check; tests look text up by key instead of pinning English; a script lists strings still proposed. Copy is then approved before each phase checkpoint, not before each merge
 
 ### Stage 1aG: Phase 1a check 👤
-- **Lane 1:** 1aG-1 End to end: start from rekordbox with the reference library → send → read back → 1aG-2 End to end: start fresh → add → send → read back
+- **Owner decisions (2026-10-01):** the cycles run on an installed build, not the developer build. Cycle 1 runs against a backup copy of the rekordbox library and doubles as the open rekordbox checks; cycle 2 runs on the real library around a practice gig. During the check, only problems that give wrong data or stop a cycle are fixed at once; everything else is logged in `DOGFOOD.md` and sorted at the checkpoint. `DOGFOOD.md` is public: no track or artist names in it.
+- **Lane 1:** 1aG-1 End to end (generated fixtures): start from rekordbox → send → read back → 1aG-2 End to end: start fresh → add → send → read back → 1aG-6 Installer: build the Windows installer and write down how (`docs/`)
 - **Lane 2, dogfooding:** 1aG-3 Two real read → send → import cycles around real or practice gigs (none booked as of 2026-09-30; the owner stages practice ones), with the friction logged in `DOGFOOD.md`. 1aG-4 (freeze musicmanager) dropped: it was never part of the owner's workflow
 - After both lanes: 1aG-5 **Checkpoint:** 1a success criteria (§6), including no bytes changed outside the app data folder
 
