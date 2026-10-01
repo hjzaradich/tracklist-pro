@@ -299,6 +299,11 @@ const WIN32_ALLOWED: &[&str] = &[
     "GetCurrentThread",
     "SetThreadPriority",
     "THREAD_PRIORITY_BELOW_NORMAL",
+    // System::Diagnostics::Debug: this thread's error mode, so probing an
+    // empty drive fails quietly instead of showing a dialog (missing/mod.rs).
+    // Process behavior only; it touches no file, and the old mode is put back.
+    "SetThreadErrorMode",
+    "SEM_FAILCRITICALERRORS",
 ];
 
 /// SQL that makes SQLite create a file. Matched in string contents and

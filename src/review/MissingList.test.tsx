@@ -59,4 +59,39 @@ describe("the Missing list", () => {
     await userEvent.click(buttons[0]);
     expect(onAddFolder).toHaveBeenCalledWith(String.raw`D:\Here`);
   });
+
+  it("counts several tracks in a folder in the plural", () => {
+    const many = group(String.raw`D:\Old`, {
+      tracks: [1, 2, 3].map((id) => ({
+        id,
+        title: `Song ${id}`,
+        artist: "",
+        lastKnownPath: null,
+      })),
+    });
+    render(<MissingList list={list([many])} />);
+    expect(screen.getByText("(3 tracks)")).toBeInTheDocument();
+  });
+
+  it("shows only the heading while the list loads", () => {
+    render(<MissingList list={undefined} />);
+    expect(screen.getByRole("heading", { name: "Missing" })).toBeInTheDocument();
+    expect(screen.queryByText("No missing tracks")).toBeNull();
+  });
+
+  it("says so when the list or an add failed, instead of looking empty", () => {
+    render(<MissingList list={undefined} problem="Something went wrong." />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong.");
+  });
+
+  it("holds the add buttons while an add runs", () => {
+    render(
+      <MissingList
+        list={list([group(String.raw`D:\Here`, { canAdd: true })])}
+        adding
+        onAddFolder={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Add folder" })).toBeDisabled();
+  });
 });

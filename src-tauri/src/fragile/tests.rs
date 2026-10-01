@@ -86,6 +86,50 @@ fn folders_are_matched_whole_ignoring_case_and_the_verbatim_prefix() {
 }
 
 #[test]
+fn a_configured_folder_written_with_a_trailing_separator_still_matches() {
+    let dirs = FragileDirs {
+        downloads: Some(PathBuf::from(r"C:\Users\someone\Downloads\")),
+        temp: vec![],
+    };
+    assert_eq!(
+        reason(
+            Path::new(r"C:\Users\someone\Downloads\a.mp3"),
+            VolumeKind::Internal,
+            &dirs
+        ),
+        Some(FragileReason::Downloads)
+    );
+}
+
+#[test]
+fn a_temp_folder_set_to_a_drive_root_doesnt_make_the_whole_drive_temp() {
+    let dirs = FragileDirs {
+        downloads: None,
+        temp: vec![PathBuf::from(r"C:\")],
+    };
+    assert_eq!(
+        reason(Path::new(r"C:\Music\a.mp3"), VolumeKind::Internal, &dirs),
+        None
+    );
+}
+
+#[test]
+fn a_verbatim_network_path_matches_its_plain_spelling() {
+    let dirs = FragileDirs {
+        downloads: Some(PathBuf::from(r"\\?\UNC\srv\share\Downloads")),
+        temp: vec![],
+    };
+    assert_eq!(
+        reason(
+            Path::new(r"\\srv\share\Downloads\a.mp3"),
+            VolumeKind::Internal,
+            &dirs
+        ),
+        Some(FragileReason::Downloads)
+    );
+}
+
+#[test]
 fn a_file_on_an_external_drive_is_fragile_for_that_reason() {
     assert_eq!(
         why(r"E:\Music\a.mp3", VolumeKind::External),

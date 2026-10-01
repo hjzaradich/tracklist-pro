@@ -168,10 +168,11 @@ impl Lib {
 
     fn list(&self, disk: &Disk) -> MissingList {
         let path = crate::write_guard::test_path(self._dir.path(), crate::db::DB_FILE_NAME);
-        crate::db::ReadPool::open(&path)
+        let gathered = crate::db::ReadPool::open(&path)
             .unwrap()
-            .read(|c| missing_list(c, &Pc::new(), disk))
-            .unwrap()
+            .read(gather)
+            .unwrap();
+        group(gathered, &Pc::new(), disk)
     }
 }
 
@@ -282,6 +283,25 @@ fn a_folder_inside_a_music_folder_is_not_offered() {
     lib.music_folder("Old Music");
     let disk = Disk::with(&['D'], &[r"D:\Old Music\Set"]);
     assert!(!lib.list(&disk).groups[0].can_add);
+}
+
+#[test]
+fn a_sibling_sharing_a_music_folders_name_prefix_is_still_offered() {
+    let lib = Lib::new();
+    lib.track("file://localhost/D:/Old%20Music2/a.mp3", "A", "A");
+    lib.music_folder("Old Music");
+    let disk = Disk::with(&['D'], &[r"D:\Old Music2"]);
+    assert!(lib.list(&disk).groups[0].can_add);
+}
+
+#[cfg(windows)]
+#[test]
+fn only_a_directory_that_is_really_there_counts_as_a_usable_folder() {
+    use crate::scan::online_only::{ATTRIBUTE_RECALL_ON_DATA_ACCESS, ATTRIBUTE_RECALL_ON_OPEN};
+    assert!(usable_folder(true, 0));
+    assert!(!usable_folder(false, 0));
+    assert!(!usable_folder(true, ATTRIBUTE_RECALL_ON_DATA_ACCESS));
+    assert!(!usable_folder(true, ATTRIBUTE_RECALL_ON_OPEN));
 }
 
 #[test]

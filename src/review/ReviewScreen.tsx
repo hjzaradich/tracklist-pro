@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { errorMessage } from "../api/errors";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { MissingList } from "./MissingList";
 import { useAddMissingFolder } from "./useAddMissingFolder";
@@ -8,12 +9,18 @@ import { useMissingTracks } from "./useMissingTracks";
 export function ReviewScreen() {
   const { t } = useTranslation("review");
   const missing = useMissingTracks();
-  const addFolder = useAddMissingFolder();
+  const add = useAddMissingFolder();
+  const failure = missing.error ?? add.error;
 
   return (
     <StageScreen stage="review">
       <EmptyState>{t("empty")}</EmptyState>
-      {missing.data && <MissingList list={missing.data} onAddFolder={addFolder} />}
+      <MissingList
+        list={missing.data}
+        problem={failure ? errorMessage(failure) : undefined}
+        adding={add.isPending}
+        onAddFolder={(folder) => add.mutate(folder)}
+      />
     </StageScreen>
   );
 }

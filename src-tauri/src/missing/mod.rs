@@ -127,31 +127,39 @@ fn shown(path: &FilePath) -> String {
         .unwrap_or_else(|| path.as_str().to_owned())
 }
 
-/// The missing tracks, grouped by last known folder.
-pub fn missing_list(
-    conn: &Connection,
-    volumes: &impl Volumes,
-    disk: &impl DiskProbe,
-) -> rusqlite::Result<MissingList> {
-    let mut groups: BTreeMap<String, (Folder, Vec<MissingTrack>)> = BTreeMap::new();
-    let mut unknown = Vec::new();
+/// What the database holds for the list, read in one short database read
+/// so the disk is asked afterwards, with no connection held.
+pub struct Gathered {
+    /// Row id, raw Location, title, artist.
+    rows: Vec<(i64, String, String, String)>,
+    music_folders: Vec<StoredFolder>,
+}
+
+/// Reads the rows that have no file, and the music folders.
+pub fn gather(conn: &Connection) -> rusqlite::Result<Gathered> {
     let mut stmt = conn.prepare(
         "SELECT id, location,
                 coalesce(json_extract(attributes, '$.Name'), ''),
                 coalesce(json_extract(attributes, '$.Artist'), '')
          FROM rekordbox_track WHERE file_id IS NULL ORDER BY id",
     )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-            r.get::<_, String>(3)?,
-        ))
-    })?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Gathered {
+        rows,
+        music_folders: stored(conn)?,
+    })
+}
+
+/// The missing tracks, grouped by last known folder, with the offer to add
+/// each folder that exists now. Asks the disk, so call it with no database
+/// connection held.
+pub fn group(gathered: Gathered, volumes: &impl Volumes, disk: &impl DiskProbe) -> MissingList {
+    let mut groups: BTreeMap<String, (Folder, Vec<MissingTrack>)> = BTreeMap::new();
+    let mut unknown = Vec::new();
     let mut total = 0;
-    for row in rows {
-        let (id, location, title, artist) = row?;
+    for (id, location, title, artist) in gathered.rows {
         let mut track = MissingTrack {
             id,
             title,
@@ -174,10 +182,9 @@ pub fn missing_list(
         total += 1;
     }
 
-    let music_folders = stored(conn)?;
     let mut list = Vec::new();
     for (_, (folder, tracks)) in groups {
-        let can_add = offer(&folder, &music_folders, volumes, disk);
+        let can_add = offer(&folder, &gathered.music_folders, volumes, disk);
         list.push(MissingGroup {
             folder: Some(folder.shown),
             can_add,
@@ -191,10 +198,10 @@ pub fn missing_list(
             tracks: sorted(unknown),
         });
     }
-    Ok(MissingList {
+    MissingList {
         total,
         groups: list,
-    })
+    }
 }
 
 fn sorted(mut tracks: Vec<MissingTrack>) -> Vec<MissingTrack> {
@@ -250,15 +257,31 @@ impl DiskProbe for SystemDisk {
     }
 
     fn folder_exists(&self, folder: &str) -> bool {
-        // The `\\?\` form, so names ending in a dot or space open as written.
-        let Ok(meta) = std::fs::metadata(format!(r"\\?\{folder}")) else {
-            return false;
+        use windows_sys::Win32::System::Diagnostics::Debug::{
+            SetThreadErrorMode, SEM_FAILCRITICALERRORS,
         };
-        meta.is_dir()
-            && !crate::scan::online_only::is_online_only(crate::scan::online_only::attributes(
-                &meta,
-            ))
+        // An empty card reader fails the call instead of showing Windows'
+        // "no disk in the drive" dialog. The mode is put back right after.
+        let mut before = 0;
+        // SAFETY: plain calls on this thread's error mode; `before` is a
+        // valid out-pointer, and null is allowed for the second call.
+        unsafe { SetThreadErrorMode(SEM_FAILCRITICALERRORS, &mut before) };
+        // The `\\?\` form, so names ending in a dot or space open as written.
+        let meta = std::fs::metadata(format!(r"\\?\{folder}"));
+        // SAFETY: as above.
+        unsafe { SetThreadErrorMode(before, std::ptr::null_mut()) };
+        match meta {
+            Ok(meta) => usable_folder(meta.is_dir(), crate::scan::online_only::attributes(&meta)),
+            Err(_) => false,
+        }
     }
+}
+
+/// Whether what the disk reported is a folder to offer: a directory that
+/// isn't an online-only placeholder.
+#[cfg(windows)]
+fn usable_folder(is_dir: bool, attributes: u32) -> bool {
+    is_dir && !crate::scan::online_only::is_online_only(attributes)
 }
 
 #[cfg(not(windows))]
@@ -278,9 +301,11 @@ impl DiskProbe for SystemDisk {
 #[specta::specta]
 pub async fn missing_tracks(reads: State<'_, ReadPool>) -> Result<MissingList, IpcError> {
     let reads = reads.inner().clone();
-    // The disk is asked off the async threads.
-    let list = tauri::async_runtime::spawn_blocking(move || {
-        reads.read(|conn| missing_list(conn, &crate::scan::system_volumes(), &SystemDisk))
+    // The disk is asked off the async threads, after the database
+    // connection is given back.
+    let list = tauri::async_runtime::spawn_blocking(move || -> Result<MissingList, IpcError> {
+        let gathered = reads.read(gather)?;
+        Ok(group(gathered, &crate::scan::system_volumes(), &SystemDisk))
     })
     .await
     .map_err(|_| IpcError::new(ErrorKind::Internal))??;

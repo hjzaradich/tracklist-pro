@@ -16,7 +16,7 @@
 //! doesn't try to guess otherwise.
 
 use std::collections::HashMap;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -47,9 +47,10 @@ pub struct FragileDirs {
 }
 
 impl FragileDirs {
-    /// This PC's Downloads folder and temp folders. Both spellings of each
-    /// are kept (Windows hands out 8.3 short names, like `USERNA~1`, for
-    /// `%TEMP%`).
+    /// This PC's Downloads folder and temp folders, each as the disk names
+    /// it (Windows hands out 8.3 short names, like `USERNA~1`, for
+    /// `%TEMP%`). Asks the disk, which can be slow for a folder redirected
+    /// to a share: call it once, off the UI thread.
     pub fn system() -> FragileDirs {
         let mut temp = Vec::new();
         for var in ["TEMP", "TMP"] {
@@ -60,7 +61,7 @@ impl FragileDirs {
         if let Some(root) = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("windir")) {
             temp.push(Path::new(&root).join("Temp"));
         }
-        let downloads = downloads_folder();
+        let downloads = dirs::download_dir();
         FragileDirs {
             downloads: downloads.map(longest),
             temp: temp.into_iter().map(longest).collect(),
@@ -71,38 +72,6 @@ impl FragileDirs {
 /// `dir` and, if the disk knows it by a longer name, that name.
 fn longest(dir: PathBuf) -> PathBuf {
     std::fs::canonicalize(&dir).unwrap_or(dir)
-}
-
-#[cfg(windows)]
-fn downloads_folder() -> Option<PathBuf> {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use windows_sys::Win32::System::Com::CoTaskMemFree;
-    use windows_sys::Win32::UI::Shell::{FOLDERID_Downloads, SHGetKnownFolderPath};
-
-    let mut path: *mut u16 = std::ptr::null_mut();
-    // SAFETY: the folder id is a valid constant, a null token means the
-    // current user, and `path` receives a NUL-terminated string that is
-    // freed with CoTaskMemFree below.
-    let found = unsafe {
-        let hr = SHGetKnownFolderPath(&FOLDERID_Downloads, 0, std::ptr::null_mut(), &mut path);
-        if hr < 0 || path.is_null() {
-            None
-        } else {
-            let len = (0..).take_while(|&i| *path.add(i) != 0).count();
-            Some(PathBuf::from(OsString::from_wide(
-                std::slice::from_raw_parts(path, len),
-            )))
-        }
-    };
-    // SAFETY: `path` is null or was allocated by SHGetKnownFolderPath.
-    unsafe { CoTaskMemFree(path.cast()) };
-    found
-}
-
-#[cfg(not(windows))]
-fn downloads_folder() -> Option<PathBuf> {
-    None
 }
 
 /// Why `path` (absolute) on a volume of `kind` is fragile, if it is. A
@@ -124,24 +93,24 @@ pub fn reason(path: &Path, kind: VolumeKind, dirs: &FragileDirs) -> Option<Fragi
 
 /// Whether `path` is `dir` or below it, compared the way Windows compares
 /// names: letter case ignored, a `\\?\` prefix and the separator style not
-/// mattering.
+/// mattering. A folder with fewer than two parts (a drive root, from a
+/// `TEMP` set to `C:\`) holds nothing special and matches nothing.
 fn inside(path: &Path, dir: &Path) -> bool {
     let (path, dir) = (parts(path), parts(dir));
-    !dir.is_empty() && path.len() >= dir.len() && path[..dir.len()] == dir[..]
+    dir.len() >= 2 && path.len() >= dir.len() && path[..dir.len()] == dir[..]
 }
 
+/// The name parts of a path, uppercased. Plain string work, so Windows
+/// paths read the same on every platform.
 fn parts(path: &Path) -> Vec<String> {
-    path.components()
-        .filter_map(|c| match c {
-            Component::Prefix(p) => Some(
-                p.as_os_str()
-                    .to_string_lossy()
-                    .trim_start_matches(r"\\?\")
-                    .to_uppercase(),
-            ),
-            Component::Normal(name) => Some(name.to_string_lossy().to_uppercase()),
-            Component::RootDir | Component::CurDir | Component::ParentDir => None,
-        })
+    let text = path.to_string_lossy();
+    let text = match text.strip_prefix(r"\\?\UNC\") {
+        Some(unc) => unc,
+        None => text.strip_prefix(r"\\?\").unwrap_or(&text),
+    };
+    text.split(['\\', '/'])
+        .filter(|part| !part.is_empty() && *part != ".")
+        .map(str::to_uppercase)
         .collect()
 }
 

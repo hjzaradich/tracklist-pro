@@ -3,8 +3,9 @@
   "missing": {
     "title": "Missing",
     "empty": "No missing tracks",
-    "tracks_one": "{{count}} track",
-    "tracks_other": "{{count}} tracks",
+    "tracksCount_one": "({{count}} track)",
+    "tracksCount_other": "({{count}} tracks)",
+    "trackName": "{{artist}} - {{title}}",
     "unknownFolder": "Unknown folder",
     "lastKnown": "Last known location",
     "addFolder": "Add folder"
