@@ -80,6 +80,8 @@ const ROOT_VAR: &str = "TLP_PERF_ROOT";
 const THREADS_VAR: &str = "TLP_PERF_THREADS";
 /// How many GiB to allocate and touch right before the big run, to push
 /// the file cache out of memory ([`evict_file_cache`]). Unset: nothing.
+/// The process's peak working set then includes that memory, so the
+/// memory figures of such a run say nothing about the app.
 const EVICT_VAR: &str = "TLP_PERF_EVICT";
 
 /// What one run measured.
@@ -453,9 +455,14 @@ fn print(report: &Report, music: &Path, source: &str) {
         verdict(full, FULL_INDEX_TARGET)
     );
     println!(
-        "  peak working set           {} (baseline {} before the walk)",
+        "  peak working set           {} (baseline {} before the walk){}",
         mib(report.peak_after_read as u64),
-        mib(report.baseline_working_set as u64)
+        mib(report.baseline_working_set as u64),
+        if evict_gib().is_some() {
+            "; includes the memory TLP_PERF_EVICT touched, so see a run without it"
+        } else {
+            ""
+        }
     );
     println!("the rest of the chain, and a rescan:");
     println!(
