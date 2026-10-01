@@ -50,11 +50,13 @@
 //! or playlist naming it keeps it (owner decision, 2026-10-01). Relink never
 //! matches a rekordbox row to a missing file, so the entry is found by the
 //! file's own path instead: the one row of the newest read at that path's
-//! `Location` key (relink's own key: NFC, NTFS letter case) that is trusted
-//! and matched to no other file. It only echoes rekordbox's entry back at
-//! its own `Location`; nothing is attached to any file. Two rows at the
-//! `Location`, a row matched to another file, a probable row, or a row kept
-//! from an earlier read leave the track out. A Library
+//! `Location` key (relink's own key: NFC, NTFS letter case) that is matched
+//! to no file. The path is built from the volume's mount point by relink's
+//! own rule: where it's mounted now, or where it was last mounted only if no
+//! other known volume was. It only echoes rekordbox's entry back at its own
+//! `Location`; nothing is attached to any file. Two rows at the `Location`,
+//! a row matched to a file, a row kept from an earlier read, or one row
+//! wanted by two files leave the track out. A Library
 //! track whose linked file is missing and that rekordbox doesn't know, or
 //! whose file is unplaceable, comes back as [`Outcome::CannotSend`], for
 //! that track only.
@@ -363,11 +365,18 @@ pub fn send_values(
 /// An entry is used only if it
 /// - is from the current read (an incomplete read keeps older rows, whose
 ///   `TrackID`s belong to an earlier read),
-/// - is the only row at that `Location` (two rows are ambiguous), and
-/// - is trusted (not probable) and matched to no file, or to this one: a
-///   row matched to a different file belongs to that file's track.
+/// - is the only row at that `Location` (two rows are ambiguous),
+/// - is matched to no file (a probable match always has a file): a row
+///   matched to a file belongs to that file's track, and
+/// - isn't wanted by a second file: a row whose key two files lead to goes
+///   to neither, whatever the order.
 ///
-/// The file's path is keyed as relink keys it (NFC, NTFS case folding).
+/// The file's path is its volume's mount point and its path on the volume,
+/// keyed as relink keys it (NFC, NTFS case folding). The mount point is
+/// relink's own rule ([`crate::relink::volume_mounts`]): where the volume is
+/// mounted now, or where it was last mounted only if no other known volume
+/// was, so two volumes that shared a drive letter never find each other's
+/// entries.
 fn entries_at_missing_files<V: Volumes>(
     conn: &Connection,
     volumes: &V,
@@ -375,18 +384,35 @@ fn entries_at_missing_files<V: Volumes>(
     files: &HashMap<i64, FileInfo>,
     entry_for: &HashMap<i64, (i64, i64)>,
 ) -> rusqlite::Result<HashMap<i64, (i64, i64)>> {
+    let missing: Vec<(i64, &StoredFile)> = rows
+        .values()
+        .filter_map(|r| r.linked_file)
+        .collect::<std::collections::BTreeSet<i64>>()
+        .into_iter()
+        .filter_map(|file_id| {
+            let file = files.get(&file_id)?;
+            if file.present || entry_for.contains_key(&file_id) {
+                return None;
+            }
+            Some((file_id, file.stored.as_ref()?))
+        })
+        .collect();
+    if missing.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mounted = crate::relink::Mounted::ask(&crate::relink::identities(conn)?, volumes);
+    let mounts: HashMap<String, String> = crate::relink::volume_mounts(conn, &mounted)?
+        .into_iter()
+        .filter_map(|v| Some((v.identity, v.mount?)))
+        .collect();
     let mut wanted: Vec<(i64, String)> = Vec::new();
-    for file_id in rows.values().filter_map(|r| r.linked_file) {
-        let Some(file) = files.get(&file_id) else {
+    for (file_id, stored) in missing {
+        let Some(mount) = mounts.get(stored.volume.as_str()) else {
             continue;
         };
-        if file.present || entry_for.contains_key(&file_id) {
-            continue;
-        }
-        if let Some(stored) = &file.stored {
-            let path = stored.shown(volumes).path.replace('\\', "/");
-            wanted.push((file_id, crate::relink::rules::path_key(&path)));
-        }
+        let rel: Vec<&str> = stored.rel.components().collect();
+        let path = format!("{mount}/{}", rel.join("/"));
+        wanted.push((file_id, crate::relink::rules::path_key(&path)));
     }
     if wanted.is_empty() {
         return Ok(HashMap::new());
@@ -396,7 +422,7 @@ fn entries_at_missing_files<V: Volumes>(
     // location_key -> every row of the current read at it.
     let mut at: HashMap<String, Vec<RowAt>> = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT location_key, id, track_id, file_id, relink_probable FROM rekordbox_track
+        "SELECT location_key, id, track_id, file_id FROM rekordbox_track
          WHERE read_at = (SELECT max(read_at) FROM rekordbox_track)
            AND location_key IN (SELECT value FROM json_each(?1))",
     )?;
@@ -407,18 +433,24 @@ fn entries_at_missing_files<V: Volumes>(
                 id: r.get(1)?,
                 track_id: r.get(2)?,
                 matched: r.get(3)?,
-                probable: r.get(4)?,
             },
         ))
     })? {
         let (key, entry) = row?;
         at.entry(key).or_default().push(entry);
     }
+    let mut files_per_key: HashMap<&str, usize> = HashMap::new();
+    for (_, key) in &wanted {
+        *files_per_key.entry(key).or_default() += 1;
+    }
     let mut found = HashMap::new();
-    for (file_id, key) in wanted {
-        if let Some([only]) = at.get(&key).map(Vec::as_slice) {
-            if !only.probable && only.matched.is_none_or(|m| m == file_id) {
-                found.insert(file_id, (only.id, only.track_id));
+    for (file_id, key) in &wanted {
+        if files_per_key[key.as_str()] > 1 {
+            continue;
+        }
+        if let Some([only]) = at.get(key).map(Vec::as_slice) {
+            if only.matched.is_none() {
+                found.insert(*file_id, (only.id, only.track_id));
             }
         }
     }
@@ -429,9 +461,8 @@ fn entries_at_missing_files<V: Volumes>(
 struct RowAt {
     id: i64,
     track_id: i64,
-    /// The file it is matched to, if any.
+    /// The file it is matched to, if any (a probable match always has one).
     matched: Option<i64>,
-    probable: bool,
 }
 
 /// Everything the batch loaded.
