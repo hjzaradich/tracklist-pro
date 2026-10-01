@@ -123,8 +123,8 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
   - Repoint the local checkout, the lane worktrees and the fallback gate at the new remote.
   - ✅ 1aP-8 Update CLAUDE.md and playbook references, and confirm that the first CI run on the public repo is green.
 
-### Stage 1aD: Finish relink, build Library tracks
-- **Lane 1, relink:** 1aD-1 Step 4: fingerprint (also queue relink after the fingerprint job; 1aC-8 queues it only after the read job. Relink carries later-step matches over between runs (1aC-3): record the evidence at match time, e.g. the file's audio_hash, and drop a carried match when its file's audio changes; this applies to 1aD-2 and user matches too) → 1aD-2 Step 5: filename-only, stored as probable and unconfirmed → 1aD-3 Step 6: gig stick recovery (if 1aB-12 was done)
+### Stage 1aD: Finish relink, build Library tracks ✅
+- **Lane 1, relink:** ✅ 1aD-1 Step 4: fingerprint (also queue relink after the fingerprint job; 1aC-8 queues it only after the read job. Relink carries later-step matches over between runs (1aC-3): record the evidence at match time, e.g. the file's audio_hash, and drop a carried match when its file's audio changes; this applies to 1aD-2 and user matches too) → ✅ 1aD-2 Step 5: filename-only, stored as probable and unconfirmed → 1aD-3 Step 6: gig stick recovery (skipped: 1aB-12 wasn't done)
 - **Lane 2:** ✅ 1aD-4 Attach rekordbox data to tracks with provenance; write BPM and key into `analysis`; parse My Tags out of Comments (rekordbox's "Add My Tag to the comments" setting, in the format the E2 spike recorded) into `rekordbox_track.my_tags`, which 1aB-10 leaves empty
 - **Lane 3:** ✅ 1aD-5 Missing list with last known paths + an offer to add folders: shown in Review, holding rekordbox tracks whose file is missing with their rekordbox data intact until relink marries them to a file (§1.3)
 - **Lane 4:** ✅ 1aD-6 Linked Library tracks: create, list, store (1.8)
