@@ -317,6 +317,38 @@ fn a_track_that_does_not_exist_is_refused() {
     assert_eq!(lib.library_tracks(), 0);
 }
 
+#[test]
+fn a_refused_add_names_the_file_even_when_its_full_path_cannot_be_made() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    lib.file(track, "Sub/gone.mp3", "best", false);
+    // The volume's identity no longer reads back, so there's no full path.
+    lib.writer
+        .call(|c| c.execute("UPDATE volume SET identity = 'dev=?'", []))
+        .unwrap();
+
+    match lib.promote(track) {
+        Err(LibraryError::FileMissing { path }) => assert_eq!(path, r"Sub\gone.mp3"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// An unplugged drive isn't a missing file (1aB-9).
+
+#[test]
+fn a_track_whose_file_is_on_an_unplugged_drive_can_be_added() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    let file = lib.file(track, "a.mp3", "best", true);
+
+    let added = promote(&lib.writer, &Mount(None), track).unwrap();
+    assert!(added.added);
+    assert_eq!(lib.linked_file(track), Some(file));
+    let linked = added.library_track.file.unwrap();
+    assert!(linked.present);
+    assert_eq!(linked.path, r"E:\Music\a.mp3");
+}
+
 // One Library track per track.
 
 #[test]
@@ -358,6 +390,26 @@ fn the_table_refuses_a_second_library_track_for_one_track() {
 }
 
 // Undo.
+
+#[test]
+fn undo_after_a_repeat_add_removes_the_last_track_really_added() {
+    let lib = Lib::new();
+    let first = lib.track(None, None);
+    lib.file(first, "a.mp3", "best", true);
+    let second = lib.track(None, None);
+    lib.file(second, "b.mp3", "best", true);
+    lib.promote(first).unwrap();
+    lib.promote(second).unwrap();
+    // Changes nothing, so there's nothing of it to undo.
+    assert!(!lib.promote(first).unwrap().added);
+
+    assert!(matches!(
+        undo_last_via(&lib.writer).unwrap(),
+        UndoOutcome::Undone { .. }
+    ));
+    let left: Vec<_> = lib.list().iter().map(|t| t.recording_id).collect();
+    assert_eq!(left, [first]);
+}
 
 #[test]
 fn undoing_an_add_takes_the_track_out_of_the_library_again() {
@@ -556,6 +608,30 @@ fn the_list_is_sorted_by_shown_title_ignoring_case_then_artist_then_order_added(
     assert_eq!(
         order,
         [alpha_first, alpha_second, bravo_a, bravo_b, charlie, zulu]
+    );
+}
+
+#[test]
+fn accented_titles_sort_with_their_base_letters_and_other_scripts_after_latin() {
+    let lib = Lib::new();
+    let add = |title: &str, artist: Option<&str>, name: &str| {
+        let track = lib.track(Some(title), artist);
+        lib.file(track, name, "best", true);
+        lib.promote(track).unwrap().library_track.id
+    };
+    let cyrillic = add("Жара", None, "1.mp3");
+    let zulu = add("Zulu", None, "2.mp3");
+    let elan = add("Élan", None, "3.mp3");
+    let foxtrot = add("foxtrot", None, "4.mp3");
+    let delta = add("Delta", None, "5.mp3");
+    // Differ only by accent and case: a tie, settled by artist.
+    let arger_b = add("ärger", Some("B"), "6.mp3");
+    let arger_a = add("Arger", Some("Å"), "7.mp3");
+
+    let order: Vec<_> = lib.list().iter().map(|t| t.id).collect();
+    assert_eq!(
+        order,
+        [arger_a, arger_b, delta, elan, foxtrot, zulu, cyrillic]
     );
 }
 

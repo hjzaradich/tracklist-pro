@@ -11,7 +11,9 @@
 //! 2. otherwise the track's best file. A probable match is ignored.
 //!
 //! The add is refused when the track has no such file, or the file isn't
-//! on disk: those tracks wait in the Missing list (ROADMAP 1.3). Adding a
+//! on disk: those tracks wait in the Missing list (ROADMAP 1.3). A file on
+//! an unplugged drive counts as on disk (`file.present` stays 1, 1aB-9), so
+//! its track can be added and isn't shown as missing. Adding a
 //! track that's already in the Library changes nothing and returns the
 //! Library track it has; an existing link is never re-pointed here.
 //!
@@ -279,7 +281,8 @@ pub fn check(conn: &Connection, recording: i64) -> rusqlite::Result<Result<Plan,
 
 /// Inserts the linked Library track for `recording`, as one change of the
 /// operation `rec` is recording. For callers that add many tracks as one
-/// operation (1aE); [`check`] each track first.
+/// operation (1aE); [`check`] each track first, in the same writer job, so
+/// nothing changes in between.
 pub fn insert_linked(
     rec: &mut Recorder<'_>,
     recording: i64,
@@ -299,6 +302,25 @@ pub fn insert_linked(
     .map(LibraryTrackId)
 }
 
+/// The file a refused add would have linked to.
+struct MissingFile {
+    /// Where it is, if its volume and path read back.
+    file: Option<StoredFile>,
+    /// Its path inside its music folder, as stored: never empty.
+    rel_path: String,
+}
+
+impl MissingFile {
+    /// The path to name in the refusal: the full path if it can be made,
+    /// otherwise the path inside the music folder. Never empty.
+    fn shown(&self, volumes: &impl Volumes) -> String {
+        match &self.file {
+            Some(file) => file.shown(volumes).path,
+            None => self.rel_path.replace('/', "\\"),
+        }
+    }
+}
+
 /// What [`promote_on`] did, before paths are made readable.
 type PromotedStored = (StoredTrack, bool);
 
@@ -307,11 +329,18 @@ type PromotedStored = (StoredTrack, bool);
 fn promote_on(
     conn: &mut Connection,
     recording: i64,
-) -> Result<Result<PromotedStored, (Refusal, Option<StoredFile>)>, OpsError> {
+) -> Result<Result<PromotedStored, (Refusal, Option<MissingFile>)>, OpsError> {
     let (id, added) = match check(conn, recording)? {
         Err(refusal) => {
             let file = match refusal {
-                Refusal::FileMissing { file_id } => stored_file(conn, file_id)?,
+                Refusal::FileMissing { file_id } => Some(MissingFile {
+                    file: stored_file(conn, file_id)?,
+                    rel_path: conn.query_row(
+                        "SELECT rel_path FROM file WHERE id = ?1",
+                        [file_id],
+                        |r| r.get(0),
+                    )?,
+                }),
                 _ => None,
             };
             return Ok(Err((refusal, file)));
@@ -350,7 +379,7 @@ pub fn promote(
         Err((Refusal::TrackNotFound, _)) => Err(LibraryError::TrackNotFound),
         Err((Refusal::NoFile, _)) => Err(LibraryError::NoFile),
         Err((Refusal::FileMissing { .. }, file)) => Err(LibraryError::FileMissing {
-            path: file.map(|f| f.shown(volumes).path).unwrap_or_default(),
+            path: file.map(|f| f.shown(volumes)).unwrap_or_default(),
         }),
     }
 }
@@ -375,7 +404,8 @@ impl StoredFile {
         let path = match stored.resolve(volumes) {
             Ok(abs) => display_path(&abs),
             // Offline: a Windows path under the last mount point, built by
-            // hand so it reads the same on every platform.
+            // hand so it reads the same on every platform. A volume that was
+            // never seen mounted has none, and the path comes out relative.
             Err(_) => {
                 let mount = self.last_mount_path.as_deref().unwrap_or_default();
                 let mut path = mount.trim_end_matches('\\').to_owned();
@@ -527,9 +557,23 @@ pub fn stored_one(conn: &Connection, id: LibraryTrackId) -> rusqlite::Result<Opt
         .next())
 }
 
+/// Text as it's compared for sorting: accents and other combining marks
+/// dropped, compatibility forms folded (NFKD), then lowercased, so an
+/// accented letter sorts with its base letter. Not locale-aware: other
+/// scripts follow Latin in code-point order.
+fn sort_key(text: &str) -> String {
+    use unicode_normalization::char::is_combining_mark;
+    use unicode_normalization::UnicodeNormalization;
+    text.nfkd()
+        .filter(|c| !is_combining_mark(*c))
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 /// The Library list: every Library track, sorted by the title it shows
-/// (its title, or its file's name when it has none), ignoring case, then
-/// by artist, then in the order they were added.
+/// (its title, or its file's name when it has none), then by artist, then
+/// in the order they were added. Text is compared by [`sort_key`], so case
+/// and accents don't matter. The one place the list's order is decided.
 pub fn list(tracks: &[StoredTrack], volumes: &impl Volumes) -> Vec<LibraryTrack> {
     let mut list: Vec<LibraryTrack> = tracks.iter().map(|t| t.to_library_track(volumes)).collect();
     let key = |t: &LibraryTrack| {
@@ -537,10 +581,9 @@ pub fn list(tracks: &[StoredTrack], volumes: &impl Volumes) -> Vec<LibraryTrack>
             .title
             .as_deref()
             .or(t.file.as_ref().map(|f| f.name.as_str()))
-            .unwrap_or_default()
-            .to_lowercase();
-        let artist = t.artist.as_deref().unwrap_or_default().to_lowercase();
-        (shown, artist, t.id)
+            .unwrap_or_default();
+        let artist = t.artist.as_deref().unwrap_or_default();
+        (sort_key(shown), sort_key(artist), t.id)
     };
     list.sort_by_cached_key(key);
     list
