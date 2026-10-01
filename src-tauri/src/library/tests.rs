@@ -182,6 +182,8 @@ impl Lib {
     }
 }
 
+mod upkeep;
+
 // Which file a Library track links to.
 
 #[test]
@@ -540,6 +542,7 @@ fn the_list_gives_each_tracks_title_artist_file_path_presence_and_kind() {
             path: r"E:\Music\Sub\tune.mp3".to_owned(),
             name: "tune.mp3".to_owned(),
             present: true,
+            drive_connected: true,
         })
     );
     assert!(row.added_at.ends_with('Z'), "{}", row.added_at);
@@ -574,6 +577,7 @@ fn a_file_on_an_unplugged_volume_is_listed_where_the_volume_was_last_mounted() {
     assert_eq!(file.path, r"E:\Music\a.mp3");
     // Offline files stay present (1aB-9).
     assert!(file.present);
+    assert!(!file.drive_connected);
 
     // Plugged in under another letter, it's listed there.
     let listed = lib.list_with(&Mount::at(r"G:\"));

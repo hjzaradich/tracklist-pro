@@ -117,6 +117,11 @@ export const commands = {
 	 *  written. Adding a track that's already there changes nothing.
 	 */
 	promoteTrack: (recordingId: number) => typedError<Promoted, IpcError>(__TAURI_INVOKE("promote_track", { recordingId })),
+	/**
+	 *  Removes a track from the Library. Only the Library track goes: the
+	 *  file on disk is never touched, and undo brings it back.
+	 */
+	removeLibraryTrack: (id: LibraryTrackId) => typedError<null, IpcError>(__TAURI_INVOKE("remove_library_track", { id })),
 };
 
 /** Events */
@@ -397,6 +402,11 @@ export type LibraryTrack = {
 	 *  an external or network drive), if it is (1aD-7).
 	 */
 	fragile: FragileReason | null,
+	/**
+	 *  Whether the linked file is gone. Kept current by the scan
+	 *  (`library_track.source_status`), not worked out when listed.
+	 */
+	sourceMissing: boolean,
 	/**  When it was added, UTC ISO-8601. */
 	addedAt: string,
 };
@@ -423,6 +433,11 @@ export type LinkedFile = {
 	name: string,
 	/**  Whether the last scan found it on disk (`file.present`). */
 	present: boolean,
+	/**
+	 *  Whether its drive is connected now. A file on an unplugged drive
+	 *  stays `present`, and its track isn't missing.
+	 */
+	driveConnected: boolean,
 };
 
 /**  The missing tracks that were last in one folder. */

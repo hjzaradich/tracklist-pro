@@ -268,11 +268,9 @@ fn the_log_refuses_its_own_tables_and_tables_it_cannot_address() {
         "schema_migration",
         "sqlite_schema",
         // WITHOUT ROWID: `entity_id` can't name one of their rows.
-        "crate_entry",
         "setting",
         "service_optin",
         "relink",
-        "sync_base",
         // Not a table.
         "crate_ancestor",
         "no_such_table",

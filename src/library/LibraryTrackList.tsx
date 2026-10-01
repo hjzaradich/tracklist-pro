@@ -10,7 +10,13 @@ import styles from "./LibraryTrackList.module.css";
  * its file's name instead. Notes about a track (its file is missing, or sits somewhere fragile) sit
  * under the file's path.
  */
-export function LibraryTrackList({ tracks }: { tracks: LibraryTrack[] }) {
+export function LibraryTrackList({
+  tracks,
+  onRemove,
+}: {
+  tracks: LibraryTrack[];
+  onRemove: (track: LibraryTrack) => void;
+}) {
   const { t } = useTranslation("library");
   return (
     <table className={styles.table}>
@@ -19,18 +25,25 @@ export function LibraryTrackList({ tracks }: { tracks: LibraryTrack[] }) {
           <th scope="col">{t("columns.title")}</th>
           <th scope="col">{t("columns.artist")}</th>
           <th scope="col">{t("columns.file")}</th>
+          <td />
         </tr>
       </thead>
       <tbody>
         {tracks.map((track) => (
-          <TrackRow key={track.id} track={track} />
+          <TrackRow key={track.id} track={track} onRemove={onRemove} />
         ))}
       </tbody>
     </table>
   );
 }
 
-function TrackRow({ track }: { track: LibraryTrack }) {
+function TrackRow({
+  track,
+  onRemove,
+}: {
+  track: LibraryTrack;
+  onRemove: (track: LibraryTrack) => void;
+}) {
   const { t } = useTranslation("library");
   const notesId = useId();
   const notes = trackNotes(track);
@@ -53,6 +66,11 @@ function TrackRow({ track }: { track: LibraryTrack }) {
             ))}
           </span>
         )}
+      </td>
+      <td>
+        <button type="button" className={styles.button} onClick={() => onRemove(track)}>
+          {t("remove.button")}
+        </button>
       </td>
     </tr>
   );

@@ -118,6 +118,13 @@ pub struct Recorder<'a> {
 }
 
 impl Recorder<'_> {
+    /// The operation's own connection, for reading rows (to find what to
+    /// change) inside the same transaction. Writes go through the recorder
+    /// so they're logged.
+    pub fn reader(&self) -> &Connection {
+        self.tx
+    }
+
     /// Sets one field of one row. Returns false, and records nothing, if it
     /// already held that value.
     pub fn set(

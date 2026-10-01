@@ -88,6 +88,9 @@ pub struct LinkedFile {
     pub name: String,
     /// Whether the last scan found it on disk (`file.present`).
     pub present: bool,
+    /// Whether its drive is connected now. A file on an unplugged drive
+    /// stays `present`, and its track isn't missing.
+    pub drive_connected: bool,
 }
 
 /// A Library track, with what the Library list shows.
@@ -107,6 +110,9 @@ pub struct LibraryTrack {
     /// Why the linked file's location is fragile (Downloads, a temp folder,
     /// an external or network drive), if it is (1aD-7).
     pub fragile: Option<FragileReason>,
+    /// Whether the linked file is gone. Kept current by the scan
+    /// (`library_track.source_status`), not worked out when listed.
+    pub source_missing: bool,
     /// When it was added, UTC ISO-8601.
     pub added_at: String,
 }
@@ -289,11 +295,25 @@ pub fn check(conn: &Connection, recording: i64) -> rusqlite::Result<Result<Plan,
 /// operation `rec` is recording. For callers that add many tracks as one
 /// operation (1aE); [`check`] each track first, in the same writer job, so
 /// nothing changes in between.
+///
+/// Adding a track the user removed earlier clears its removal record in
+/// the same operation, so undoing the add brings the record back.
 pub fn insert_linked(
     rec: &mut Recorder<'_>,
     recording: i64,
     file_id: i64,
 ) -> Result<LibraryTrackId, OpsError> {
+    let removal: Option<i64> = rec
+        .reader()
+        .query_row(
+            "SELECT id FROM library_removal WHERE recording_id = ?1",
+            [recording],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(removal) = removal {
+        rec.delete("library_removal", removal)?;
+    }
     rec.insert(
         "library_track",
         &[
@@ -306,6 +326,115 @@ pub fn insert_linked(
         ],
     )
     .map(LibraryTrackId)
+}
+
+/// The operation kind of a removal, as the operation log stores it.
+pub const REMOVE_OPERATION: &str = "remove_from_library";
+
+/// A track the user removed from the Library and hasn't added back (§2
+/// `library_removal`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedTrack {
+    /// The track (`recording`) that was removed.
+    pub recording_id: i64,
+    /// When it was removed, UTC ISO-8601.
+    pub removed_at: String,
+    /// Where it was last sent to rekordbox. `None` if it never was.
+    pub last_sent_location: Option<String>,
+    pub last_exported_at: Option<String>,
+}
+
+/// Every track the user removed from the Library and hasn't added back, in
+/// the order they were removed. The offer to add rekordbox's tracks leaves
+/// these out, so nothing the user removed comes back uninvited (ROADMAP
+/// 1.3).
+pub fn removed_tracks(conn: &Connection) -> rusqlite::Result<Vec<RemovedTrack>> {
+    let mut stmt = conn.prepare(
+        "SELECT recording_id, removed_at, last_sent_location, last_exported_at
+         FROM library_removal ORDER BY id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(RemovedTrack {
+            recording_id: r.get(0)?,
+            removed_at: r.get(1)?,
+            last_sent_location: r.get(2)?,
+            last_exported_at: r.get(3)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// The removed tracks rekordbox may still hold, because they were sent
+/// before: what the user has to remove in rekordbox by hand, since an XML
+/// import can't remove a track (ROADMAP 1.9 rule 7).
+pub fn remove_in_rekordbox(conn: &Connection) -> rusqlite::Result<Vec<RemovedTrack>> {
+    Ok(removed_tracks(conn)?
+        .into_iter()
+        .filter(|t| t.last_sent_location.is_some())
+        .collect())
+}
+
+/// Rows of `table` that belong to a Library track, by rowid.
+fn rows_of(rec: &Recorder<'_>, table: &str, id: LibraryTrackId) -> Result<Vec<i64>, OpsError> {
+    let mut stmt = rec.reader().prepare(&format!(
+        "SELECT rowid FROM {table} WHERE library_track_id = ?1 ORDER BY rowid"
+    ))?;
+    let rows = stmt.query_map([id.0], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Removes one Library track, as one operation: its crate entries, sync
+/// bases and conflicts go with it (they'd otherwise block the delete), and
+/// a removal record is made. Undo puts every row back exactly.
+fn remove_on(conn: &mut Connection, id: LibraryTrackId) -> Result<bool, OpsError> {
+    ops::record(
+        conn,
+        REMOVE_OPERATION,
+        &serde_json::json!({ "libraryTrackId": id.0 }),
+        |rec| {
+            let row: Option<(i64, Option<String>, Option<String>)> = rec
+                .reader()
+                .query_row(
+                    "SELECT recording_id, last_sent_location, last_exported_at
+                     FROM library_track WHERE id = ?1",
+                    [id.0],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?;
+            let Some((recording, location, exported_at)) = row else {
+                return Ok(false);
+            };
+            for table in ["crate_entry", "sync_base", "conflict"] {
+                for rowid in rows_of(rec, table, id)? {
+                    rec.delete(table, rowid)?;
+                }
+            }
+            rec.insert(
+                "library_removal",
+                &[
+                    ("recording_id", Value::Integer(recording)),
+                    ("last_sent_location", location.into()),
+                    ("last_exported_at", exported_at.into()),
+                ],
+            )?;
+            rec.delete("library_track", id.0)?;
+            Ok(true)
+        },
+    )
+    .map(|recorded| recorded.value)
+}
+
+/// Removes a Library track from the Library ("Remove from Library"). The
+/// track itself and its file are untouched: only the Library track goes.
+/// Recorded as one operation, so undo restores it, and it leaves a removal
+/// record (see [`removed_tracks`]). It's dropped from the next send, but
+/// can't be removed from rekordbox through XML.
+pub fn remove(writer: &Writer, id: LibraryTrackId) -> Result<(), LibraryError> {
+    match writer.call(move |conn| Ok(remove_on(conn, id)))?? {
+        true => Ok(()),
+        false => Err(LibraryError::TrackNotFound),
+    }
 }
 
 /// The file a refused add would have linked to.
@@ -432,7 +561,9 @@ impl StoredFile {
     /// now, or under the last one if the volume is offline.
     pub(crate) fn shown(&self, volumes: &impl Volumes) -> LinkedFile {
         let stored = StoredPath::new(self.volume.clone(), self.rel.clone());
-        let path = match stored.resolve(volumes) {
+        let resolved = stored.resolve(volumes);
+        let drive_connected = resolved.is_ok();
+        let path = match resolved {
             Ok(abs) => display_path(&abs),
             // Offline: a Windows path under the last mount point, built by
             // hand so it reads the same on every platform. A volume that was
@@ -453,6 +584,7 @@ impl StoredFile {
             path,
             name: self.rel.components().last().unwrap_or_default().to_owned(),
             present: self.present,
+            drive_connected,
         }
     }
 }
@@ -466,6 +598,8 @@ pub struct StoredTrack {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub file: Option<StoredFile>,
+    /// `library_track.source_status` is `missing`.
+    pub source_missing: bool,
     pub added_at: String,
 }
 
@@ -487,6 +621,7 @@ impl StoredTrack {
                 .as_ref()
                 .and_then(|f| fragile.get(&f.file_id))
                 .copied(),
+            source_missing: self.source_missing,
             added_at: self.added_at.clone(),
         }
     }
@@ -546,7 +681,8 @@ fn stored_where(
     params: impl rusqlite::Params,
 ) -> rusqlite::Result<Vec<StoredTrack>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT lt.id, lt.recording_id, lt.kind, r.title, r.artist, lt.added_at, {FILE_COLUMNS}
+        "SELECT lt.id, lt.recording_id, lt.kind, r.title, r.artist, lt.added_at, lt.source_status,
+                {FILE_COLUMNS}
          FROM library_track lt
          JOIN recording r ON r.id = lt.recording_id
          LEFT JOIN file f ON f.id = lt.linked_file_id
@@ -562,12 +698,13 @@ fn stored_where(
             r.get::<_, Option<String>>(3)?,
             r.get::<_, Option<String>>(4)?,
             r.get::<_, String>(5)?,
-            file_from(r, 6)?,
+            r.get::<_, String>(6)?,
+            file_from(r, 7)?,
         ))
     })?;
     let mut tracks = Vec::new();
     for row in rows {
-        let (id, recording_id, kind, title, artist, added_at, file) = row?;
+        let (id, recording_id, kind, title, artist, added_at, status, file) = row?;
         // A kind this build doesn't know is left out rather than guessed.
         let Some(kind) = LibraryTrackKind::parse(&kind) else {
             continue;
@@ -579,6 +716,7 @@ fn stored_where(
             title: filled(title),
             artist: filled(artist),
             file,
+            source_missing: status == "missing",
             added_at,
         });
     }
@@ -684,6 +822,17 @@ pub async fn promote_track(
     recording_id: i64,
 ) -> Result<Promoted, IpcError> {
     Ok(promote(&writer, &system_volumes(), recording_id)?)
+}
+
+/// Removes a track from the Library. Only the Library track goes: the
+/// file on disk is never touched, and undo brings it back.
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_library_track(
+    writer: State<'_, Writer>,
+    id: LibraryTrackId,
+) -> Result<(), IpcError> {
+    Ok(remove(&writer, id)?)
 }
 
 #[cfg(test)]
