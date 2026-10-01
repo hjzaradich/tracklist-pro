@@ -1348,3 +1348,147 @@ fn undoing_a_small_batch_is_refused_with_these_conflicts_when_rows_changed_since
     // Nothing was changed by the refusal.
     assert_eq!(count(&conn, "sample"), 2);
 }
+
+// The foreign-key checks are worked out once per operation and reused, so
+// every checked write after the first has to be checked just the same.
+
+/// A `parent` (id as given) and, if `with_child`, a cascading child of it.
+fn parent_with_id(conn: &Connection, id: i64, with_child: bool) {
+    conn.execute(
+        "INSERT INTO parent (id, code, name) VALUES (?1, ?2, 'p')",
+        params![id, format!("code{id}")],
+    )
+    .unwrap();
+    if with_child {
+        conn.execute("INSERT INTO child_cascade (parent_id) VALUES (?1)", [id])
+            .unwrap();
+    }
+}
+
+fn is_referenced_by(result: &Result<(), OpsError>, child: &str) -> bool {
+    matches!(result, Err(OpsError::Referenced { by, .. }) if by == child)
+}
+
+#[test]
+fn every_delete_in_one_operation_is_checked_not_just_the_first() {
+    let (_dir, mut conn) = db();
+    parent_with_id(&conn, 1, false);
+    parent_with_id(&conn, 2, true);
+    parent_with_id(&conn, 3, true);
+    let mut refused = Vec::new();
+    record(&mut conn, "tidy", &no_details(), |rec| {
+        // Odd and even row ids, after an unreferenced one went through.
+        for id in [1, 2, 3] {
+            refused.push(rec.delete("parent", id));
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert!(refused[0].is_ok());
+    assert!(
+        is_referenced_by(&refused[1], "child_cascade"),
+        "{refused:?}"
+    );
+    assert!(
+        is_referenced_by(&refused[2], "child_cascade"),
+        "{refused:?}"
+    );
+    assert_eq!(count(&conn, "parent"), 2);
+    assert_eq!(count(&conn, "child_cascade"), 2);
+}
+
+#[test]
+fn the_checks_of_one_table_are_not_used_for_another_in_the_same_operation() {
+    let (_dir, mut conn) = db();
+    conn.execute("INSERT INTO sample (t) VALUES ('plain')", [])
+        .unwrap();
+    parent_with_id(&conn, 1, true);
+    let mut results = Vec::new();
+    record(&mut conn, "tidy", &no_details(), |rec| {
+        results.push(rec.delete("sample", 1));
+        results.push(rec.delete("parent", 1));
+        Ok(())
+    })
+    .unwrap();
+    assert!(results[0].is_ok());
+    assert!(
+        is_referenced_by(&results[1], "child_cascade"),
+        "{results:?}"
+    );
+    assert_eq!(count(&conn, "child_cascade"), 1);
+}
+
+#[test]
+fn the_checks_of_one_column_are_not_used_for_another_in_the_same_operation() {
+    let (_dir, mut conn) = db();
+    conn.execute(
+        "INSERT INTO parent (id, code, name) VALUES (1, 'a', 'x')",
+        [],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO child_by_code (parent_code) VALUES ('a')", [])
+        .unwrap();
+    let mut results = Vec::new();
+    record(&mut conn, "tidy", &no_details(), |rec| {
+        // Nothing points at `name`; the child points at `code`.
+        results.push(rec.set("parent", 1, "name", "y").map(|_| ()));
+        results.push(rec.set("parent", 1, "code", "b").map(|_| ()));
+        Ok(())
+    })
+    .unwrap();
+    assert!(results[0].is_ok());
+    assert!(
+        is_referenced_by(&results[1], "child_by_code"),
+        "{results:?}"
+    );
+    let code: String = conn
+        .query_row("SELECT parent_code FROM child_by_code", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(code, "a");
+}
+
+#[test]
+fn undo_checks_every_inserted_row_for_references_not_just_the_first() {
+    let (_dir, mut conn) = db();
+    let ids = record(&mut conn, "make", &no_details(), |rec| {
+        let a = rec.insert("parent", &[("code", Value::Text("a".into()))])?;
+        let b = rec.insert("parent", &[("code", Value::Text("b".into()))])?;
+        Ok((a, b))
+    })
+    .unwrap()
+    .value;
+    // The first one gets a child that undo would silently delete.
+    conn.execute("INSERT INTO child_cascade (parent_id) VALUES (?1)", [ids.0])
+        .unwrap();
+    let UndoOutcome::Refused { conflicts, .. } = undo_last(&mut conn).unwrap() else {
+        panic!("undo wasn't refused");
+    };
+    assert_eq!(conflicts.len(), 1, "{conflicts:?}");
+    assert_eq!(conflicts[0].entity, "parent");
+    assert_eq!(conflicts[0].entity_id, ids.0);
+    assert_eq!(conflicts[0].problem, ConflictProblem::Referenced);
+    assert_eq!(count(&conn, "parent"), 2);
+}
+
+#[test]
+fn an_operation_whose_only_step_fails_at_the_log_leaves_no_operation_behind() {
+    // Counting a change when it's queued instead of when it's written would
+    // keep an operation with no changes, which undo would then land on.
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    conn.execute_batch(
+        "CREATE TEMP TRIGGER refuse_notes_log BEFORE INSERT ON main.change
+         WHEN new.field = 'notes' BEGIN SELECT RAISE(ABORT, 'log refused'); END;",
+    )
+    .unwrap();
+    let recorded = record(&mut conn, "tidy", &no_details(), |rec| {
+        assert!(rec.set("crate", id, "notes", "new notes").is_err());
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(recorded.operation_id, None);
+    assert_eq!(count(&conn, "operation"), 0);
+    assert_eq!(count(&conn, "change"), 0);
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
+    assert_eq!(undo_last(&mut conn).unwrap(), UndoOutcome::NothingToUndo);
+}

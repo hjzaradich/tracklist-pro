@@ -386,29 +386,31 @@ impl Recorder<'_> {
         });
     }
 
-    /// Writes the step's `change` rows, in the order they were made.
+    /// Writes the step's `change` rows, in the order they were made, with
+    /// one insert. A step changes one row of one table, and a table has at
+    /// most 2,000 columns, so that's at most 14,000 values: under the
+    /// 32,766 a statement may bind (SQLite is bundled, so that limit is
+    /// ours).
     fn flush(&mut self) -> Result<(), OpsError> {
-        // Seven values a row, and SQLite allows 32,766 in one statement.
-        const ROWS_PER_INSERT: usize = 400;
-        for chunk in self.pending.chunks(ROWS_PER_INSERT) {
-            let row = "(?, ?, ?, ?, ?, ?, ?)";
-            let sql = format!(
-                "INSERT INTO change (operation_id, entity, entity_id, action, field, before, after)
-                 VALUES {}",
-                vec![row; chunk.len()].join(", ")
-            );
-            let mut values: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() * 7);
-            for change in chunk {
-                values.push(&self.operation_id);
-                values.push(&change.entity);
-                values.push(&change.entity_id);
-                values.push(&change.action);
-                values.push(&change.field);
-                values.push(&change.before);
-                values.push(&change.after);
-            }
-            self.tx.prepare_cached(&sql)?.execute(&*values)?;
+        if self.pending.is_empty() {
+            return Ok(());
         }
+        let sql = format!(
+            "INSERT INTO change (operation_id, entity, entity_id, action, field, before, after)
+             VALUES {}",
+            vec!["(?, ?, ?, ?, ?, ?, ?)"; self.pending.len()].join(", ")
+        );
+        let mut values: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(self.pending.len() * 7);
+        for change in &self.pending {
+            values.push(&self.operation_id);
+            values.push(&change.entity);
+            values.push(&change.entity_id);
+            values.push(&change.action);
+            values.push(&change.field);
+            values.push(&change.before);
+            values.push(&change.after);
+        }
+        self.tx.prepare_cached(&sql)?.execute(&*values)?;
         self.written += self.pending.len();
         self.pending.clear();
         Ok(())

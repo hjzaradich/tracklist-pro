@@ -126,8 +126,9 @@ impl Table {
     /// knock-on changes, so a write that would cause them is refused. With
     /// `columns`, only foreign keys that point at one of those columns
     /// count (an update of just those columns). One query per such key,
-    /// found from the schema alone. A bulk operation works this out once per table (the schema
-    /// can't change inside it) and runs [`first_referencing`] per row.
+    /// found from the schema alone. A bulk operation works this out once
+    /// per table (the schema can't change inside it) and runs
+    /// [`first_referencing`] per row.
     pub fn reference_checks(
         &self,
         conn: &Connection,
