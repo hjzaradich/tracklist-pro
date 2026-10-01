@@ -4,20 +4,21 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { STAGES } from "../shell/stages";
 import { renderApp } from "./testApp";
 
-// Each stage's name and its screen's placeholder line, in English.
+// Each stage's name and what its screen says with an empty Library, in English.
 const SCREENS = [
-  { path: "/overview", name: "Overview", empty: "Your Library at a glance, and what to do next." },
+  { path: "/overview", name: "Overview", empty: "Start your Library" },
   { path: "/review", name: "Review", empty: "Every decision the app can't make on its own." },
-  { path: "/all-music", name: "All music", empty: "Every track the scan found in your music folders." },
+  { path: "/all-music", name: "All music", empty: "No tracks in All music" },
   { path: "/library", name: "Library", empty: "No Library tracks" },
   { path: "/crates", name: "Crates", empty: "Groups of Library tracks, collected for a purpose." },
 ];
 
 describe("stage routes", () => {
-  // The Library screen asks the backend for its tracks: there are none.
+  // The screens ask the backend for their tracks: there are none.
   beforeEach(() => {
     mockIPC((cmd) => {
       if (cmd === "library_tracks") return [];
+      if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
       throw new Error(`unexpected command ${cmd}`);
     });
   });

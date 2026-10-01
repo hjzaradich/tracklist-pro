@@ -1,3 +1,14 @@
 {
-  "empty": "Every track the scan found in your music folders."
+  "empty": "No tracks in All music",
+  "noMatch": "No tracks match",
+  "search": "Search All music",
+  "showing": "Showing {{shown, number}} of {{total, number}} tracks",
+  "columns": {
+    "title": "Title",
+    "artist": "Artist",
+    "file": "File",
+    "library": "Library"
+  },
+  "add": "Add to Library",
+  "inLibrary": "In Library"
 }

@@ -1,0 +1,137 @@
+/* The Overview's column of panels: first-run steps and the rekordbox offer. */
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+  align-self: stretch;
+  justify-self: stretch;
+  min-height: 0;
+  overflow: auto;
+}
+
+.heading {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(520px, 100%);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.panel p {
+  margin: 0;
+}
+
+.title,
+.subtitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.problem {
+  color: var(--color-danger);
+}
+
+.summary {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.button,
+.primary {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+  border-color: var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.button:focus-visible,
+.primary:focus-visible,
+.playlist input:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tree {
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.treeRow {
+  padding-left: calc(var(--depth) * var(--space-4));
+}
+
+.folder {
+  color: var(--color-text-muted);
+}
+
+.playlist {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
