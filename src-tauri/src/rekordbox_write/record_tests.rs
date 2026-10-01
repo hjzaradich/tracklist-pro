@@ -470,3 +470,44 @@ fn an_empty_send_records_nothing() {
     assert_eq!(lib.base(a), []);
     assert_eq!(lib.mark(a), (None, false));
 }
+
+#[test]
+fn a_known_track_with_a_missing_file_is_recorded_like_any_known_track() {
+    let lib = Lib::new();
+    let gone = lib.library_track();
+    let theirs = "file://localhost/C:/Kit/gone#1.mp3";
+    let out = build(&SendInput {
+        tracks: vec![TrackInput {
+            library_track: gone,
+            values: Values::Ready {
+                in_rekordbox: true,
+                attributes: pairs(&[
+                    ("TrackID", "40"),
+                    ("Name", "Theirs"),
+                    ("Rating", "51"),
+                    ("Location", theirs),
+                ]),
+                rekordbox_holds_other_file: None,
+                file_missing: true,
+            },
+        }],
+        crates: vec![Node::Playlist {
+            name: "C".into(),
+            entries: vec![gone],
+        }],
+        ..SendInput::default()
+    })
+    .unwrap();
+    assert!(out.sent[0].file_missing);
+    lib.record(&out.sent).unwrap();
+    // rekordbox's own values, `Location` as it wrote it; no TrackID.
+    assert_eq!(
+        lib.base(gone),
+        [
+            ("Location".to_owned(), theirs.to_owned()),
+            ("Name".to_owned(), "Theirs".to_owned()),
+            ("Rating".to_owned(), "51".to_owned()),
+        ]
+    );
+    assert_eq!(lib.mark(gone), (Some(theirs.to_owned()), true));
+}

@@ -1460,3 +1460,62 @@ fn a_known_track_with_a_missing_file_still_needs_a_decodable_file_location() {
         Reason::Location(LocationProblem::NotAFile)
     );
 }
+
+/// A track rekordbox has whose file is missing, with these attributes.
+fn known_missing(n: i64, pairs: &[(&str, &str)]) -> TrackInput {
+    TrackInput {
+        library_track: id(n),
+        values: Values::Ready {
+            in_rekordbox: true,
+            attributes: attrs(pairs),
+            rekordbox_holds_other_file: None,
+            file_missing: true,
+        },
+    }
+}
+
+#[test]
+fn a_known_track_with_a_missing_file_at_another_sent_tracks_location_is_left_out_as_a_duplicate() {
+    // known_plain(1) is at C:/Kit/1.mp3; this one names the same file in
+    // another spelling (escaped), so it can't be sent beside it.
+    let twin = known_missing(
+        2,
+        &[
+            ("TrackID", "2002"),
+            ("Location", "file://localhost/C:/Kit/%31.mp3"),
+        ],
+    );
+    let input = SendInput {
+        tracks: vec![known_plain(1), twin],
+        crates: vec![playlist("C", &[1, 2])],
+        ..SendInput::default()
+    };
+    let (out, read) = send(&input);
+    assert_eq!(sent_ids(&out), [1]);
+    assert_eq!(entries(&out, &read, &["Crates", "C"]), [1]);
+    assert_eq!(out.left_out.len(), 1);
+    assert_eq!(out.left_out[0].library_track, id(2));
+    assert_eq!(out.left_out[0].reason, Reason::DuplicateLocation);
+}
+
+#[test]
+fn a_known_track_with_a_missing_file_that_no_crate_or_playlist_names_is_not_sent() {
+    let input = SendInput {
+        tracks: vec![
+            known_plain(1),
+            known_missing(
+                2,
+                &[
+                    ("TrackID", "2002"),
+                    ("Location", "file://localhost/C:/Kit/2.mp3"),
+                ],
+            ),
+        ],
+        crates: vec![playlist("C", &[1])],
+        ..SendInput::default()
+    };
+    let (out, _) = send(&input);
+    assert_eq!(sent_ids(&out), [1]);
+    assert_eq!(out.not_needed, [id(2)]);
+    assert_eq!(out.left_out, []);
+}
