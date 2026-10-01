@@ -25,7 +25,10 @@
 //!   already holds the values is left alone, `analyzed_at` included.
 //! - Only the database is touched, and only `analysis` rows from
 //!   rekordbox. It runs as a background job ([`Attacher`]) asked for
-//!   through [`request`] after every relink and every grouping run.
+//!   through [`request`] after every grouping run, and after every relink
+//!   run once that call is added at the end of relink's job (until then a
+//!   fresh read that drops an entry leaves its row until the next grouping
+//!   run).
 
 mod data;
 mod job;

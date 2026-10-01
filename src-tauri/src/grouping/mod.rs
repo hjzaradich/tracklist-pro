@@ -57,13 +57,25 @@ impl JobHandler for Grouper {
         // One transaction: the pass is quick, and all or nothing.
         let summary = job.writer().call(regroup)?;
         eprintln!("group job {} done: {summary:?}", job.id());
-        // Tracks may have merged or moved: the rekordbox data attached to
-        // them is decided again (1aD-4).
-        crate::attach::request(job.writer(), |j| job.enqueue(j))?;
+        ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }
         job.progress(1.0)
+    }
+}
+
+/// Asks for an attach: tracks may have merged or moved, so the rekordbox
+/// data attached to them is decided again (1aD-4). The grouping has
+/// committed by now, so a failure to ask is logged and the job goes on
+/// (the next grouping run asks again).
+fn ask_for_attach(
+    id: JobId,
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, JobError>,
+) {
+    if let Err(e) = crate::attach::request(writer, enqueue) {
+        eprintln!("group job {id}: couldn't ask for an attach: {e:?}");
     }
 }
 

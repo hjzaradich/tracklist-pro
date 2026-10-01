@@ -5,6 +5,9 @@
 //! and no comment it's exactly `/* TLP */`. A `/* … */` anywhere but at
 //! the end is the DJ's own text, not My Tags.
 //!
+//! A DJ's own comment that happens to end in `/* note */` reads as My Tags
+//! too; the XML can't tell them apart.
+//!
 //! Only reading: the raw `Comments` attribute is stored and sent back
 //! unchanged (1.9 rule 1); [`tags`] and [`without_tags`] are views of it.
 
@@ -44,14 +47,14 @@ pub fn tags(comments: &str) -> Vec<String> {
     })
 }
 
-/// The comment as the DJ wrote it: `comments` without its My Tags block,
-/// and without the one space rekordbox puts in front of the block. The
-/// value is returned as it is when it holds no block.
+/// The comment for showing: `comments` without its My Tags block and the
+/// whitespace in front of it (rekordbox puts one space there). The value
+/// is returned as it is when it holds no block.
 pub fn without_tags(comments: &str) -> &str {
     match block(comments) {
         Some(b) => {
             let before = &comments[..b.start];
-            before.strip_suffix(' ').unwrap_or(before)
+            before.trim_end()
         }
         None => comments,
     }
@@ -121,6 +124,54 @@ mod tests {
     #[test]
     fn a_comment_with_a_stray_close_and_no_open_has_no_tags() {
         assert!(tags("odd */").is_empty());
+    }
+
+    #[test]
+    fn whitespace_in_front_of_the_block_is_not_part_of_the_comment() {
+        assert_eq!(without_tags("x  /* A */"), "x");
+        assert_eq!(
+            without_tags(
+                "x
+/* A */"
+            ),
+            "x"
+        );
+        assert_eq!(without_tags("  /* A */"), "");
+    }
+
+    #[test]
+    fn a_tag_with_a_slash_and_no_spaces_is_one_tag() {
+        assert_eq!(tags("/* A/B */"), ["A/B"]);
+    }
+
+    #[test]
+    fn an_unterminated_block_is_not_my_tags() {
+        assert!(tags("x /* A").is_empty());
+        assert_eq!(without_tags("x /* A"), "x /* A");
+    }
+
+    #[test]
+    fn with_a_nested_open_the_last_one_starts_the_block() {
+        assert_eq!(tags("x /* A /* B */"), ["B"]);
+        assert_eq!(without_tags("x /* A /* B */"), "x /* A");
+    }
+
+    #[test]
+    fn whitespace_after_the_block_is_ignored() {
+        assert_eq!(
+            tags(
+                "x /* A */  
+"
+            ),
+            ["A"]
+        );
+        assert_eq!(
+            without_tags(
+                "x /* A */  
+"
+            ),
+            "x"
+        );
     }
 
     #[test]

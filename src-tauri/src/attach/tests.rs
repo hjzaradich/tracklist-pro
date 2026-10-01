@@ -16,6 +16,9 @@ const PATIENCE: Duration = Duration::from_secs(30);
 const A: [u8; 34] = [0xA1; 34];
 const B: [u8; 34] = [0xB2; 34];
 
+/// As `plays`: the entry has no `PlayCount` attribute at all.
+const NO_PLAYS: i64 = -1;
+
 struct Db {
     _dir: tempfile::TempDir,
     writer: Writer,
@@ -71,15 +74,18 @@ impl Db {
         plays: i64,
         probable: bool,
     ) {
-        let attributes = serde_json::json!({
+        let mut attributes = serde_json::json!({
             "TrackID": track_id.to_string(),
             "Location": format!("file://localhost/C:/Kit/{track_id}.mp3"),
             "AverageBpm": bpm,
             "Tonality": tonality,
             "PlayCount": plays.to_string(),
             "Comments": "Opener /* Peak */",
-        })
-        .to_string();
+        });
+        if plays == NO_PLAYS {
+            attributes.as_object_mut().unwrap().remove("PlayCount");
+        }
+        let attributes = attributes.to_string();
         self.writer
             .call(move |c| {
                 c.execute(
@@ -408,6 +414,30 @@ fn with_equal_play_counts_the_lowest_track_id_wins() {
 }
 
 #[test]
+fn an_entry_with_no_play_count_counts_as_never_played() {
+    let db = db();
+    let (_, second, third) = three_files(&db);
+    // Equal at zero plays, so the lowest TrackID wins; a missing count
+    // must not sort below (or above) a zero.
+    db.entry(2, Some(third), "128.00", "Cm", 0);
+    db.entry(1, Some(second), "100.00", "Am", NO_PLAYS);
+    db.group();
+    db.attach();
+    assert_eq!(db.rekordbox_row(db.track(second)), row(100.0, "8A"));
+}
+
+#[test]
+fn when_the_picked_entry_has_no_bpm_or_key_the_track_gets_no_row_from_another_entry() {
+    let db = db();
+    let (_, second, third) = three_files(&db);
+    db.entry(1, Some(second), "0.00", "", 5);
+    db.entry(2, Some(third), "128.00", "Cm", 1);
+    db.group();
+    assert_eq!(db.attach(), Summary::default());
+    assert_eq!(db.rows(), 0);
+}
+
+#[test]
 fn a_probable_duplicate_never_takes_the_pick_even_when_it_is_most_played() {
     let db = db();
     let (best, other, _) = three_files(&db);
@@ -497,6 +527,35 @@ fn merging_two_tracks_that_both_have_rekordbox_analysis_succeeds_and_leaves_one_
     // Both entries are on the merged track now, neither on the best file's
     // say-so alone: the best file is the first one, so its entry wins.
     assert_eq!(db.rekordbox_row(merged), row(128.0, "8A"));
+}
+
+#[test]
+fn a_merge_does_not_hand_the_emptied_tracks_rekordbox_row_to_the_survivor() {
+    let db = db();
+    let first = db.file("a.mp3", A);
+    let second = db.file("b.mp3", B);
+    // Only the second track has rekordbox data. The first is referenced by
+    // a tag row, so it survives the merge (lowest id among referenced).
+    db.entry(1, Some(second), "100.00", "Cm", 0);
+    db.group();
+    let (one, two) = (db.track(first), db.track(second));
+    db.sql(&format!(
+        "INSERT INTO analysis (recording_id, source, bpm) VALUES ({one}, 'tag', 120)"
+    ));
+    db.attach();
+    assert_eq!(db.rekordbox_row(two), row(100.0, "5A"));
+
+    db.sql(&format!(
+        "UPDATE file SET audio_hash = x'{}' WHERE id = {second}",
+        "A1".repeat(34)
+    ));
+    db.group();
+    assert_eq!(db.track(second), one);
+    // Before attach runs again, the survivor shows nothing from rekordbox.
+    assert_eq!(db.rekordbox_row(one), None);
+    assert_eq!(db.rows(), 0);
+    db.attach();
+    assert_eq!(db.rekordbox_row(one), row(100.0, "5A"));
 }
 
 #[test]
