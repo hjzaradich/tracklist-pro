@@ -252,6 +252,12 @@ export type FailureReason =
 "notAnExport";
 
 /**
+ *  Why a file's location is fragile. The Library shows each with its
+ *  reason (the wording lives in the locale files).
+ */
+export type FragileReason = "downloads" | "temp" | "external" | "network";
+
+/**
  *  Why a command failed, as the frontend receives it: a kind and the
  *  parameters its message needs. Never error text.
  */
@@ -386,6 +392,11 @@ export type LibraryTrack = {
 	artist: string | null,
 	/**  The linked file. `None` only for a Library track with no file link. */
 	file: LinkedFile | null,
+	/**
+	 *  Why the linked file's location is fragile (Downloads, a temp folder,
+	 *  an external or network drive), if it is (1aD-7).
+	 */
+	fragile: FragileReason | null,
 	/**  When it was added, UTC ISO-8601. */
 	addedAt: string,
 };

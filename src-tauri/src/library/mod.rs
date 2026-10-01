@@ -22,6 +22,8 @@
 //!   undone.
 //! - One Library track per track: the table enforces it.
 
+use std::collections::HashMap;
+
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -29,6 +31,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::db::{DbError, ReadPool, Writer};
+use crate::fragile::{self, FragileDirs, FragileReason, Located};
 use crate::ipc::{ErrorKind, ErrorParam, IpcError};
 use crate::ops::{self, OpsError, Recorder};
 use crate::paths::{RelPath, StoredPath, Volumes};
@@ -101,6 +104,9 @@ pub struct LibraryTrack {
     pub artist: Option<String>,
     /// The linked file. `None` only for a Library track with no file link.
     pub file: Option<LinkedFile>,
+    /// Why the linked file's location is fragile (Downloads, a temp folder,
+    /// an external or network drive), if it is (1aD-7).
+    pub fragile: Option<FragileReason>,
     /// When it was added, UTC ISO-8601.
     pub added_at: String,
 }
@@ -371,14 +377,39 @@ pub fn promote(
     volumes: &impl Volumes,
     recording: i64,
 ) -> Result<Promoted, LibraryError> {
-    match writer.call(move |conn| Ok(promote_on(conn, recording)))?? {
-        Ok((track, added)) => Ok(Promoted {
-            library_track: track.to_library_track(volumes),
-            added,
-        }),
-        Err((Refusal::TrackNotFound, _)) => Err(LibraryError::TrackNotFound),
-        Err((Refusal::NoFile, _)) => Err(LibraryError::NoFile),
-        Err((Refusal::FileMissing { .. }, file)) => Err(LibraryError::FileMissing {
+    promote_with(writer, volumes, &FragileDirs::system(), recording)
+}
+
+/// [`promote`], judging fragile locations against `dirs`.
+pub fn promote_with(
+    writer: &Writer,
+    volumes: &impl Volumes,
+    dirs: &FragileDirs,
+    recording: i64,
+) -> Result<Promoted, LibraryError> {
+    let done = writer.call(move |conn| {
+        Ok(promote_on(conn, recording).and_then(|done| {
+            let located = match &done {
+                Ok((track, _)) => match &track.file {
+                    Some(file) => fragile::locate(conn, &[file.file_id])?,
+                    None => Vec::new(),
+                },
+                Err(_) => Vec::new(),
+            };
+            Ok((done, located))
+        }))
+    })??;
+    match done {
+        (Ok((track, added)), located) => {
+            let fragile = fragile::judge(&located, volumes, dirs);
+            Ok(Promoted {
+                library_track: track.to_library_track(volumes, &fragile),
+                added,
+            })
+        }
+        (Err((Refusal::TrackNotFound, _)), _) => Err(LibraryError::TrackNotFound),
+        (Err((Refusal::NoFile, _)), _) => Err(LibraryError::NoFile),
+        (Err((Refusal::FileMissing { .. }, file)), _) => Err(LibraryError::FileMissing {
             path: file.map(|f| f.shown(volumes)).unwrap_or_default(),
         }),
     }
@@ -439,7 +470,11 @@ pub struct StoredTrack {
 }
 
 impl StoredTrack {
-    pub fn to_library_track(&self, volumes: &impl Volumes) -> LibraryTrack {
+    pub fn to_library_track(
+        &self,
+        volumes: &impl Volumes,
+        fragile: &HashMap<i64, FragileReason>,
+    ) -> LibraryTrack {
         LibraryTrack {
             id: self.id,
             recording_id: self.recording_id,
@@ -447,6 +482,11 @@ impl StoredTrack {
             title: self.title.clone(),
             artist: self.artist.clone(),
             file: self.file.as_ref().map(|f| f.shown(volumes)),
+            fragile: self
+                .file
+                .as_ref()
+                .and_then(|f| fragile.get(&f.file_id))
+                .copied(),
             added_at: self.added_at.clone(),
         }
     }
@@ -574,8 +614,15 @@ fn sort_key(text: &str) -> String {
 /// (its title, or its file's name when it has none), then by artist, then
 /// in the order they were added. Text is compared by [`sort_key`], so case
 /// and accents don't matter. The one place the list's order is decided.
-pub fn list(tracks: &[StoredTrack], volumes: &impl Volumes) -> Vec<LibraryTrack> {
-    let mut list: Vec<LibraryTrack> = tracks.iter().map(|t| t.to_library_track(volumes)).collect();
+pub fn list(
+    tracks: &[StoredTrack],
+    volumes: &impl Volumes,
+    fragile: &HashMap<i64, FragileReason>,
+) -> Vec<LibraryTrack> {
+    let mut list: Vec<LibraryTrack> = tracks
+        .iter()
+        .map(|t| t.to_library_track(volumes, fragile))
+        .collect();
     let key = |t: &LibraryTrack| {
         let shown = t
             .title
@@ -589,12 +636,43 @@ pub fn list(tracks: &[StoredTrack], volumes: &impl Volumes) -> Vec<LibraryTrack>
     list
 }
 
+/// Every Library track and where their files are, in one database read.
+/// The disk-facing part ([`list_with_fragile`]) follows with no connection
+/// held.
+pub fn stored_with_locations(
+    conn: &Connection,
+) -> rusqlite::Result<(Vec<StoredTrack>, Vec<Located>)> {
+    let tracks = stored(conn)?;
+    let files: Vec<i64> = tracks
+        .iter()
+        .filter_map(|t| t.file.as_ref().map(|f| f.file_id))
+        .collect();
+    let located = fragile::locate(conn, &files)?;
+    Ok((tracks, located))
+}
+
+/// The Library list with each row's fragile reason (1aD-7): `located` is
+/// judged against `dirs`, then the tracks are listed as in [`list`].
+pub fn list_with_fragile(
+    tracks: &[StoredTrack],
+    located: &[Located],
+    volumes: &impl Volumes,
+    dirs: &FragileDirs,
+) -> Vec<LibraryTrack> {
+    list(tracks, volumes, &fragile::judge(located, volumes, dirs))
+}
+
 /// Every Library track, sorted for the Library list (see [`list`]).
 #[tauri::command]
 #[specta::specta]
 pub async fn library_tracks(reads: State<'_, ReadPool>) -> Result<Vec<LibraryTrack>, IpcError> {
-    let tracks = reads.read(stored)?;
-    Ok(list(&tracks, &system_volumes()))
+    let (tracks, located) = reads.read(stored_with_locations)?;
+    Ok(list_with_fragile(
+        &tracks,
+        &located,
+        &system_volumes(),
+        &FragileDirs::system(),
+    ))
 }
 
 /// Adds a track to the Library as a linked Library track. Its file is never

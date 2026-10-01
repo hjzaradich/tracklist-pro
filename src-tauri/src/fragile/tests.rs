@@ -130,6 +130,22 @@ fn a_verbatim_network_path_matches_its_plain_spelling() {
 }
 
 #[test]
+fn a_verbatim_network_prefix_in_any_letter_case_is_stripped() {
+    let dirs = FragileDirs {
+        downloads: Some(PathBuf::from(r"\\?\unc\srv\share\Downloads")),
+        temp: vec![],
+    };
+    assert_eq!(
+        reason(
+            Path::new(r"\\srv\share\Downloads\a.mp3"),
+            VolumeKind::Internal,
+            &dirs
+        ),
+        Some(FragileReason::Downloads)
+    );
+}
+
+#[test]
 fn a_file_on_an_external_drive_is_fragile_for_that_reason() {
     assert_eq!(
         why(r"E:\Music\a.mp3", VolumeKind::External),

@@ -265,11 +265,15 @@ impl DiskProbe for SystemDisk {
         let mut before = 0;
         // SAFETY: plain calls on this thread's error mode; `before` is a
         // valid out-pointer, and null is allowed for the second call.
-        unsafe { SetThreadErrorMode(SEM_FAILCRITICALERRORS, &mut before) };
+        let changed = unsafe { SetThreadErrorMode(SEM_FAILCRITICALERRORS, &mut before) } != 0;
         // The `\\?\` form, so names ending in a dot or space open as written.
         let meta = std::fs::metadata(format!(r"\\?\{folder}"));
-        // SAFETY: as above.
-        unsafe { SetThreadErrorMode(before, std::ptr::null_mut()) };
+        // Only put back what was really read: a failed first call left
+        // `before` at 0, which isn't known to be the old mode.
+        if changed {
+            // SAFETY: as above.
+            unsafe { SetThreadErrorMode(before, std::ptr::null_mut()) };
+        }
         match meta {
             Ok(meta) => usable_folder(meta.is_dir(), crate::scan::online_only::attributes(&meta)),
             Err(_) => false,

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::paths::Volumes;
@@ -30,7 +30,7 @@ mod tests;
 
 /// Why a file's location is fragile. The Library shows each with its
 /// reason (the wording lives in the locale files).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum FragileReason {
     Downloads,
@@ -100,11 +100,18 @@ fn inside(path: &Path, dir: &Path) -> bool {
     dir.len() >= 2 && path.len() >= dir.len() && path[..dir.len()] == dir[..]
 }
 
+/// `text` without `prefix`, which is matched ignoring ASCII letter case.
+fn strip_prefix_ignoring_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = text.get(..prefix.len())?;
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &text[prefix.len()..])
+}
+
 /// The name parts of a path, uppercased. Plain string work, so Windows
 /// paths read the same on every platform.
 fn parts(path: &Path) -> Vec<String> {
     let text = path.to_string_lossy();
-    let text = match text.strip_prefix(r"\\?\UNC\") {
+    let text = match strip_prefix_ignoring_case(&text, r"\\?\UNC\") {
         Some(unc) => unc,
         None => text.strip_prefix(r"\\?\").unwrap_or(&text),
     };
@@ -114,63 +121,89 @@ fn parts(path: &Path) -> Vec<String> {
         .collect()
 }
 
-/// Why each of `files` is fragile; files that aren't are left out.
+/// Where a file is, as the database stores it: what [`judge`] needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    file: i64,
+    kind: VolumeKind,
+    identity: String,
+    last_mount: Option<String>,
+    /// The music folder and the file's path in it, `/`-separated.
+    folder: String,
+    rel: String,
+}
+
+/// Reads where `files` are, in one query however many there are. Files
+/// that aren't in the database are left out. A read only: [`judge`] can
+/// follow with no database connection held.
+pub fn locate(conn: &Connection, files: &[i64]) -> rusqlite::Result<Vec<Located>> {
+    let ids = serde_json::to_string(files).unwrap_or_else(|_| "[]".to_owned());
+    let mut stmt = conn.prepare(
+        "SELECT f.id, v.kind, v.identity, v.last_mount_path, mf.rel_path, f.rel_path
+         FROM file f
+         JOIN music_folder mf ON mf.id = f.music_folder_id
+         JOIN volume v ON v.id = mf.volume_id
+         WHERE f.id IN (SELECT value FROM json_each(?1))
+         ORDER BY f.id",
+    )?;
+    let rows = stmt.query_map([ids], |r| {
+        let kind: String = r.get(1)?;
+        Ok(Located {
+            file: r.get(0)?,
+            kind: match kind.as_str() {
+                "external" => VolumeKind::External,
+                "network" => VolumeKind::Network,
+                _ => VolumeKind::Internal,
+            },
+            identity: r.get(2)?,
+            last_mount: r.get(3)?,
+            folder: r.get(4)?,
+            rel: r.get(5)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Why each located file is fragile; files that aren't are left out.
 ///
 /// The path is the volume's mount point now (or where it was last mounted,
 /// if it's offline) plus the music folder and file. A volume that was never
 /// seen mounted can only be judged by its kind.
+pub fn judge(
+    located: &[Located],
+    volumes: &impl Volumes,
+    dirs: &FragileDirs,
+) -> HashMap<i64, FragileReason> {
+    let mut found = HashMap::new();
+    for at in located {
+        let mount = VolumeId::from_stored(at.identity.clone())
+            .ok()
+            .and_then(|id| volumes.mount_path(&id))
+            .or_else(|| at.last_mount.clone().map(PathBuf::from));
+        let why = match mount {
+            Some(mut path) => {
+                for part in at.folder.split('/').chain(at.rel.split('/')) {
+                    if !part.is_empty() {
+                        path.push(part);
+                    }
+                }
+                reason(&path, at.kind, dirs)
+            }
+            None => reason(Path::new(""), at.kind, dirs),
+        };
+        if let Some(why) = why {
+            found.insert(at.file, why);
+        }
+    }
+    found
+}
+
+/// Why each of `files` is fragile: [`locate`] then [`judge`].
 pub fn fragile_reasons(
     conn: &Connection,
     volumes: &impl Volumes,
     dirs: &FragileDirs,
     files: &[i64],
 ) -> rusqlite::Result<HashMap<i64, FragileReason>> {
-    let mut stmt = conn.prepare(
-        "SELECT v.kind, v.identity, v.last_mount_path, mf.rel_path, f.rel_path
-         FROM file f
-         JOIN music_folder mf ON mf.id = f.music_folder_id
-         JOIN volume v ON v.id = mf.volume_id
-         WHERE f.id = ?1",
-    )?;
-    let mut found = HashMap::new();
-    for &file in files {
-        let row = stmt.query_row([file], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, Option<String>>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-            ))
-        });
-        let (kind, identity, last_mount, folder, rel) = match row {
-            Ok(row) => row,
-            Err(rusqlite::Error::QueryReturnedNoRows) => continue,
-            Err(e) => return Err(e),
-        };
-        let kind = match kind.as_str() {
-            "external" => VolumeKind::External,
-            "network" => VolumeKind::Network,
-            _ => VolumeKind::Internal,
-        };
-        let mount = VolumeId::from_stored(identity)
-            .ok()
-            .and_then(|id| volumes.mount_path(&id))
-            .or_else(|| last_mount.map(PathBuf::from));
-        let why = match mount {
-            Some(mut path) => {
-                for part in folder.split('/').chain(rel.split('/')) {
-                    if !part.is_empty() {
-                        path.push(part);
-                    }
-                }
-                reason(&path, kind, dirs)
-            }
-            None => reason(Path::new(""), kind, dirs),
-        };
-        if let Some(why) = why {
-            found.insert(file, why);
-        }
-    }
-    Ok(found)
+    Ok(judge(&locate(conn, files)?, volumes, dirs))
 }
