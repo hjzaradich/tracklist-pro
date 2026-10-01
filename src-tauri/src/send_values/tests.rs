@@ -180,6 +180,46 @@ impl Lib {
         track_id
     }
 
+    /// A rekordbox entry at `E:\Music\<name>` (the Location a Library track
+    /// linked to that file would have), keyed by its Location the way a read
+    /// keys it, not matched to any file unless `file` says so. `read_at` is
+    /// the read it belongs to.
+    fn rekordbox_at(
+        &self,
+        name: &str,
+        file: Option<i64>,
+        probable: bool,
+        read_at: &str,
+        attributes: &[(&str, &str)],
+    ) -> i64 {
+        let track_id = self.next_track_id.get();
+        self.next_track_id.set(track_id + 1);
+        let location = format!("file://localhost/E:/Music/{name}");
+        let mut parts = vec![format!("\"TrackID\":\"{track_id}\"")];
+        for (k, v) in attributes.iter().chain(&[("Location", location.as_str())]) {
+            parts.push(format!(
+                "{}:{}",
+                serde_json::to_string(k).unwrap(),
+                serde_json::to_string(v).unwrap()
+            ));
+        }
+        self.insert(
+            "INSERT INTO rekordbox_track
+                 (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                format!("{{{}}}", parts.join(",")),
+                crate::rekordbox::location::decode(&location)
+                    .unwrap()
+                    .match_key(),
+                read_at.to_owned(),
+                file,
+                file.map(|_| if probable { "filename_only" } else { "path" }),
+                probable,
+            ),
+        )
+    }
+
     /// A Library track for `track`, linked to `file` (or to nothing).
     fn library(&self, track: i64, file: Option<i64>) -> LibraryTrackId {
         LibraryTrackId(self.insert(
@@ -687,6 +727,144 @@ fn a_present_file_is_never_marked_missing() {
     assert!(!lib.ready(library).file_missing);
     let (plain, _) = lib.linked("b.mp3", Spec::default());
     assert!(!lib.ready(plain).file_missing);
+}
+
+// ---- a missing file, found through its own Location --------------------------------------
+//
+// Relink never matches a rekordbox row to a missing file, so the row has no
+// file; it's found by the file's own path.
+
+const READ: &str = "2026-09-30T10:00:00.000Z";
+
+/// A Library track linked to a missing `E:\Music\gone.mp3`.
+fn gone(lib: &Lib) -> (LibraryTrackId, i64) {
+    lib.linked(
+        "gone.mp3",
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
+    )
+}
+
+#[test]
+fn a_missing_file_is_sent_as_the_rekordbox_entry_at_its_own_location_though_no_file_is_matched() {
+    let lib = Lib::new();
+    let (library, _) = gone(&lib);
+    // Spelled differently: another drive-letter case and folder case.
+    lib.rekordbox_at(
+        "gone.mp3",
+        None,
+        false,
+        READ,
+        &[("Name", "Theirs"), ("Rating", "51")],
+    );
+    let values = lib.ready(library);
+    assert!(values.in_rekordbox && values.file_missing);
+    assert_eq!(value(&values, "Name"), Some("Theirs"));
+    assert_eq!(value(&values, "Rating"), Some("51"));
+    assert_eq!(
+        value(&values, "Location"),
+        Some("file://localhost/E:/Music/gone.mp3")
+    );
+}
+
+#[test]
+fn the_location_is_matched_the_way_relink_matches_a_path_so_letter_case_does_not_matter() {
+    let lib = Lib::new();
+    let (library, _) = lib.linked(
+        "Gone Song.mp3",
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
+    );
+    lib.rekordbox_at("gone%20song.MP3", None, false, READ, &[("Name", "Theirs")]);
+    assert!(lib.ready(library).file_missing);
+}
+
+#[test]
+fn two_rekordbox_entries_at_the_location_are_ambiguous_so_the_track_is_left_out() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    lib.rekordbox_at("gone.mp3", None, false, READ, &[("Name", "One")]);
+    lib.rekordbox_at("gone.mp3", None, false, READ, &[("Name", "Two")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn an_entry_matched_to_a_different_file_is_not_used() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    // rekordbox's row at that Location is already the entry of another
+    // Library file (say a copy relink found by name and duration).
+    let (_, other) = lib.linked("other.mp3", Spec::default());
+    lib.rekordbox_at("gone.mp3", Some(other), false, READ, &[("Name", "Theirs")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn a_probable_entry_is_not_used() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    let (_, other) = lib.linked("other.mp3", Spec::default());
+    lib.rekordbox_at("gone.mp3", Some(other), true, READ, &[("Name", "Theirs")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn an_entry_kept_from_an_earlier_read_is_not_used() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    // An incomplete read keeps older rows whose TrackIDs belong to the
+    // earlier read; only the newest read's rows count.
+    lib.rekordbox_at(
+        "gone.mp3",
+        None,
+        false,
+        "2026-09-29T10:00:00.000Z",
+        &[("Name", "Old")],
+    );
+    lib.rekordbox_at(
+        "elsewhere.mp3",
+        None,
+        false,
+        READ,
+        &[("Name", "Newer read")],
+    );
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn a_missing_file_rekordbox_has_no_entry_at_is_still_left_out() {
+    let lib = Lib::new();
+    let (library, file) = gone(&lib);
+    lib.rekordbox_at("another.mp3", None, false, READ, &[("Name", "Theirs")]);
+    assert_eq!(
+        lib.one(library).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: file })
+    );
+}
+
+#[test]
+fn a_present_file_never_looks_for_an_entry_at_its_location() {
+    let lib = Lib::new();
+    let (library, _) = lib.linked("here.mp3", Spec::default());
+    // Not matched by relink (so unknown): it's a new track, not the entry.
+    lib.rekordbox_at("here.mp3", None, false, READ, &[("Name", "Theirs")]);
+    assert!(!lib.ready(library).in_rekordbox);
 }
 
 // ---- the batch --------------------------------------------------------------------------

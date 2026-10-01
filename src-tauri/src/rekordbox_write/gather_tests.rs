@@ -121,7 +121,11 @@ impl Lib {
              VALUES (?1, ?2, '2026-09-30T10:00:00.000Z', ?3, ?4)",
             (
                 format!("{{{}}}", parts.join(",")),
-                format!("key-{track_id}"),
+                attributes
+                    .iter()
+                    .find(|(k, _)| *k == "Location")
+                    .and_then(|(_, v)| crate::rekordbox::location::decode(v).ok())
+                    .map_or_else(|| format!("key-{track_id}"), |l| l.match_key()),
                 file,
                 file.map(|_| "path"),
             ),
@@ -438,4 +442,49 @@ fn a_known_track_with_a_missing_file_is_written_byte_exact_and_stays_in_its_crat
         out.sent[0].location(),
         "file://localhost/E:/Music/Gone%20%231%20%28live%29.mp3"
     );
+}
+
+#[test]
+fn a_missing_file_is_found_by_its_own_location_and_its_entry_is_written_byte_exact() {
+    // The real flow: relink never matches a row to a missing file, so the
+    // row has no file and is found at the file's own Location.
+    let lib = Lib::new();
+    let gone_track = lib.track();
+    let gone_file = lib.file(gone_track, "Gone #1 (live).mp3", false, Some("File tag"));
+    let theirs = "file://localhost/E:/Music/Gone%20#1%20(live).mp3";
+    lib.rekordbox(
+        2,
+        None,
+        &[
+            ("Name", "rekordbox's title"),
+            ("AverageBpm", "126.00"),
+            ("Rating", "204"),
+            ("Location", theirs),
+            ("Tonality", "5A"),
+            ("FutureField", "kept"),
+        ],
+    );
+    let gone = lib.library(gone_track, gone_file);
+    let out = build(&lib.gather(
+        &[gone],
+        vec![Node::Playlist {
+            name: "Warm up".into(),
+            entries: vec![gone],
+        }],
+    ))
+    .unwrap();
+    assert_eq!(out.left_out, []);
+    assert!(out.sent[0].in_rekordbox && out.sent[0].file_missing);
+    assert_eq!(
+        attributes(&out.sent[0]),
+        [
+            ("TrackID", "2"),
+            ("Name", "rekordbox's title"),
+            ("Rating", "204"),
+            ("Location", theirs),
+            ("FutureField", "kept"),
+        ]
+    );
+    let read = RekordboxXml::parse(out.xml()).unwrap();
+    assert_eq!(read.playlists.playlists()[0].1.entries.len(), 1);
 }

@@ -47,7 +47,14 @@
 //!
 //! **A known track whose linked file is missing** is still sent: rekordbox's
 //! own entry goes back unchanged ([`TrackValues::file_missing`]), so a crate
-//! or playlist naming it keeps it (owner decision, 2026-10-01). A Library
+//! or playlist naming it keeps it (owner decision, 2026-10-01). Relink never
+//! matches a rekordbox row to a missing file, so the entry is found by the
+//! file's own path instead: the one row of the newest read at that path's
+//! `Location` key (relink's own key: NFC, NTFS letter case) that is trusted
+//! and matched to no other file. It only echoes rekordbox's entry back at
+//! its own `Location`; nothing is attached to any file. Two rows at the
+//! `Location`, a row matched to another file, a probable row, or a row kept
+//! from an earlier read leave the track out. A Library
 //! track whose linked file is missing and that rekordbox doesn't know, or
 //! whose file is unplaceable, comes back as [`Outcome::CannotSend`], for
 //! that track only.
@@ -291,13 +298,20 @@ pub fn send_values(
         entry_for.entry(file).or_insert(entry);
     }
 
+    // 4b. A linked file that's missing has no match (relink drops a match
+    //     to a gone file), so rekordbox's own entry at the file's own
+    //     Location stands in for it: see `entries_at_missing_files`.
+    let at_location = entries_at_missing_files(conn, volumes, &rows, &files, &entry_for)?;
+
     // 5. The attributes of the linked files' entries, in the order
     //    rekordbox wrote them.
     let entries = json(
-        &mut rows
-            .values()
-            .filter_map(|r| r.linked_file)
-            .filter_map(|f| entry_for.get(&f).map(|e| e.0)),
+        &mut rows.values().filter_map(|r| r.linked_file).filter_map(|f| {
+            entry_for
+                .get(&f)
+                .or_else(|| at_location.get(&f))
+                .map(|e| e.0)
+        }),
     );
     let mut attributes: HashMap<i64, Vec<(String, String)>> = HashMap::new();
     let mut stmt = conn.prepare(
@@ -324,6 +338,7 @@ pub fn send_values(
         files: &files,
         by_recording: &by_recording,
         entry_for: &entry_for,
+        at_location: &at_location,
         attributes: &attributes,
     };
     Ok(ids
@@ -338,12 +353,95 @@ pub fn send_values(
         .collect())
 }
 
+/// For each linked file that's missing and has no match, rekordbox's own
+/// entry at the file's own `Location`, as (row id, `TrackID`). Relink never
+/// matches a row to a missing file, so without this a track rekordbox
+/// knows would be left out of its crates once its file went missing.
+///
+/// It only echoes rekordbox's entry back at its own `Location`: nothing of
+/// rekordbox's is attached to a file, so this is no match in relink's sense.
+/// An entry is used only if it
+/// - is from the current read (an incomplete read keeps older rows, whose
+///   `TrackID`s belong to an earlier read),
+/// - is the only row at that `Location` (two rows are ambiguous), and
+/// - is trusted (not probable) and matched to no file, or to this one: a
+///   row matched to a different file belongs to that file's track.
+///
+/// The file's path is keyed as relink keys it (NFC, NTFS case folding).
+fn entries_at_missing_files<V: Volumes>(
+    conn: &Connection,
+    volumes: &V,
+    rows: &HashMap<i64, Row>,
+    files: &HashMap<i64, FileInfo>,
+    entry_for: &HashMap<i64, (i64, i64)>,
+) -> rusqlite::Result<HashMap<i64, (i64, i64)>> {
+    let mut wanted: Vec<(i64, String)> = Vec::new();
+    for file_id in rows.values().filter_map(|r| r.linked_file) {
+        let Some(file) = files.get(&file_id) else {
+            continue;
+        };
+        if file.present || entry_for.contains_key(&file_id) {
+            continue;
+        }
+        if let Some(stored) = &file.stored {
+            let path = stored.shown(volumes).path.replace('\\', "/");
+            wanted.push((file_id, crate::relink::rules::path_key(&path)));
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let keys = serde_json::to_string(&wanted.iter().map(|(_, k)| k).collect::<Vec<_>>())
+        .expect("strings always serialize");
+    // location_key -> every row of the current read at it.
+    let mut at: HashMap<String, Vec<RowAt>> = HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT location_key, id, track_id, file_id, relink_probable FROM rekordbox_track
+         WHERE read_at = (SELECT max(read_at) FROM rekordbox_track)
+           AND location_key IN (SELECT value FROM json_each(?1))",
+    )?;
+    for row in stmt.query_map([&keys], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            RowAt {
+                id: r.get(1)?,
+                track_id: r.get(2)?,
+                matched: r.get(3)?,
+                probable: r.get(4)?,
+            },
+        ))
+    })? {
+        let (key, entry) = row?;
+        at.entry(key).or_default().push(entry);
+    }
+    let mut found = HashMap::new();
+    for (file_id, key) in wanted {
+        if let Some([only]) = at.get(&key).map(Vec::as_slice) {
+            if !only.probable && only.matched.is_none_or(|m| m == file_id) {
+                found.insert(file_id, (only.id, only.track_id));
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// A `rekordbox_track` row at a `Location`.
+struct RowAt {
+    id: i64,
+    track_id: i64,
+    /// The file it is matched to, if any.
+    matched: Option<i64>,
+    probable: bool,
+}
+
 /// Everything the batch loaded.
 struct World<'a, V> {
     volumes: &'a V,
     files: &'a HashMap<i64, FileInfo>,
     by_recording: &'a HashMap<i64, Vec<i64>>,
     entry_for: &'a HashMap<i64, (i64, i64)>,
+    /// For a missing linked file: rekordbox's entry at its own Location.
+    at_location: &'a HashMap<i64, (i64, i64)>,
     attributes: &'a HashMap<i64, Vec<(String, String)>>,
 }
 
@@ -363,6 +461,9 @@ impl<V: Volumes> World<'_, V> {
             return Outcome::Ready(self.known(entry, track_id, !file.present));
         }
         if !file.present {
+            if let Some(&(entry, track_id)) = self.at_location.get(&file_id) {
+                return Outcome::Ready(self.known(entry, track_id, true));
+            }
             return Outcome::CannotSend(CannotSend::FileMissing { file_id });
         }
         let Some(stored) = &file.stored else {
