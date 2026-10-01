@@ -195,7 +195,7 @@ fn a_huge_candidate_set_is_skipped_before_any_of_its_files_is_looked_at() {
             .tracks
             .push(track(folders + g + 1, format!("D:/Old/Gone {g}.mp3"), 150));
     }
-    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new())).unwrap();
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None)).unwrap();
     assert_eq!(plan.filename_duration, 2_000);
     assert_eq!(plan.missing, 2_000);
     assert_eq!(plan.examined, 0);
@@ -220,9 +220,11 @@ fn a_small_candidate_set_is_looked_at_once_for_all_its_tracks() {
         .call(move |c| {
             let tx = c.transaction()?;
             let input = super::super::load(&tx, &mounted2)?;
-            Ok(rules::plan(&input, |_| Ok::<_, ()>(Vec::new()))
-                .unwrap()
-                .examined)
+            Ok(
+                rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None))
+                    .unwrap()
+                    .examined,
+            )
         })
         .unwrap();
     assert_eq!(examined, 5);
@@ -482,7 +484,9 @@ fn a_plugged_in_volume_counts_at_its_mount_now_even_if_its_stored_one_is_stale()
     lib.file(away_music, "Phi.mp3", None);
     let track = lib.track(&loc("E:/Music/Phi.mp3"), None);
     lib.relink(&Mounted::new([(serial(2), r"E:\")]));
-    assert_eq!(lib.matched(track), None);
+    // Not by path; the name alone is only a probable guess (step 5).
+    assert_eq!(lib.method(track).as_deref(), Some("filename_only"));
+    assert!(lib.probable(track));
 }
 
 #[test]
@@ -523,10 +527,14 @@ fn title_tags_are_read_only_for_the_files_step_3_matches() {
             let tx = c.transaction()?;
             let input = super::super::load(&tx, &mounted2)?;
             let mut asked = Vec::new();
-            rules::plan(&input, |file| {
-                asked.push(file);
-                Ok::<_, ()>(Vec::new())
-            })
+            rules::plan(
+                &input,
+                |file| {
+                    asked.push(file);
+                    Ok::<_, ()>(Vec::new())
+                },
+                |_| Ok(None),
+            )
             .unwrap();
             Ok(asked)
         })

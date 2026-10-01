@@ -775,8 +775,9 @@ fn a_finished_read_queues_a_relink_that_matches_rekordbox_tracks_to_the_scanned_
 
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
-    // One relink, asked for by the read, and it found the file.
-    assert_eq!(relinks(&writer), [("done".into(), "read".into())]);
+    // A relink asked for by the read, and it found the file (the second
+    // one is the fingerprint job's).
+    assert_eq!(relinks(&writer)[0], ("done".into(), "read".into()));
     let (file, method): (Option<i64>, Option<String>) = writer
         .call(move |c| {
             c.query_row(
@@ -792,7 +793,49 @@ fn a_finished_read_queues_a_relink_that_matches_rekordbox_tracks_to_the_scanned_
     // A walk that finds nothing new reads nothing, so asks for no relink.
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
-    assert_eq!(relinks(&writer).len(), 1);
+    assert_eq!(relinks(&writer).len(), 2);
+    queue.shutdown();
+}
+
+#[test]
+fn a_finished_fingerprint_job_queues_a_relink() {
+    let (_dir, volume, music) = drive();
+    put(&music, "Crate/a.mp3", &audio::mp3());
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    // The read's relink ran before the hashes; the fingerprint job asked
+    // for another, which ran after it.
+    assert_eq!(
+        relinks(&writer),
+        [
+            ("done".into(), "read".into()),
+            ("done".into(), "fingerprint".into())
+        ]
+    );
+    queue.shutdown();
+}
+
+#[test]
+fn a_fingerprint_job_that_stops_early_asks_for_no_relink() {
+    let (_db, writer, _reads) = db();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .handler(
+            JobKind::Fingerprint,
+            after_fingerprint(|_: &JobContext| Err(JobError::failed("the drive went away"))),
+        )
+        .start()
+        .unwrap();
+    queue
+        .enqueue(crate::fingerprint::fingerprint_job(None))
+        .unwrap();
+    wait_idle(&queue);
+    assert!(relinks(&writer).is_empty());
     queue.shutdown();
 }
 

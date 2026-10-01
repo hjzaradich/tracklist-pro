@@ -50,11 +50,13 @@ fn relinking_again_with_nothing_changed_changes_nothing() {
         path: 1,
         filename_duration: 1,
         unique_duration: 0,
-        probable: 1,
+        fingerprint: 0,
+        // A unique duration no title agrees with, and a name guess.
+        probable: 2,
         other: 0,
         streaming: 1,
-        missing: 2,
-        changed: 4,
+        missing: 1,
+        changed: 5,
     };
     assert_eq!(first, want);
 
@@ -69,15 +71,15 @@ fn a_match_from_a_later_step_carries_over_while_its_file_is_present() {
     let earlier = lib.file(music, "Earlier.mp3", Some(200_000));
     let at_path = lib.file(music, "Delta.mp3", Some(200_000));
     let track = lib.track(&loc("E:/Music/Delta.mp3"), Some("200"));
-    // A later step (1aD) matched it elsewhere; this run doesn't remake
-    // fingerprint matches, so it stands.
+    // An earlier run matched it elsewhere by its audio; a fingerprint match
+    // carries over, so it stands.
     lib.matched_before(track, earlier, "fingerprint", 0.95);
     let summary = lib.relink(&mounted);
     assert_eq!(
         lib.matched(track),
         Some((earlier, "fingerprint".to_owned(), 0.95))
     );
-    assert_eq!((summary.other, summary.changed), (1, 0));
+    assert_eq!((summary.fingerprint, summary.changed), (1, 0));
     let _ = at_path;
 }
 

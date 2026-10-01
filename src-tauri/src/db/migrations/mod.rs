@@ -55,6 +55,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0009_partial_hash"),
     migration!("0010_fingerprint_audio_hash"),
     migration!("0011_relink_probable"),
+    migration!("0012_relink_audio_hash"),
 ];
 
 /// The table that records which migrations a database has had.

@@ -37,6 +37,10 @@
 //!   while one waits, and queues one more after one that's running (the
 //!   relink job isn't [`Chained`], so [`queue_once`]'s rerun doesn't apply
 //!   to it).
+//! - **Relink after the fingerprints:** a finished fingerprint job asks for
+//!   a relink the same way (1aD-1). By then the hashes and fingerprints of
+//!   the files the walk found are in, which is what relink's step 4 matches
+//!   a moved or re-encoded file by.
 //!
 //! The chain wraps each stage's handler ([`after_walk`], [`after_read`],
 //! [`after_hash`], [`after_fingerprint`]) where the handlers are
@@ -96,11 +100,12 @@ pub fn after_group<H: JobHandler>(grouper: H) -> Chained<H> {
     }
 }
 
-/// `fingerprinter`, run once more if a walk asked for it meanwhile.
+/// `fingerprinter`, followed by a relink, and run once more if a walk
+/// asked for it meanwhile.
 pub fn after_fingerprint<H: JobHandler>(fingerprinter: H) -> Chained<H> {
     Chained {
         inner: fingerprinter,
-        next: Next::Nothing,
+        next: Next::Relink,
     }
 }
 
@@ -120,7 +125,9 @@ enum Next {
     Hash,
     /// …then the fingerprints.
     Fingerprint,
-    /// The last stage.
+    /// The fingerprints are in: relink.
+    Relink,
+    /// Nothing follows.
     Nothing,
 }
 
@@ -217,6 +224,11 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
                 let fp = crate::fingerprint::fingerprint_job(None).priority(Priority::BACKGROUND);
                 queue_once(writer, fp, enqueue)?;
             }
+        }
+        Next::Relink => {
+            // Audio hashes and fingerprints are in: a rekordbox track whose
+            // file moved or was re-encoded may match by them now (1aD-1).
+            crate::relink::request(writer, enqueue)?;
         }
         Next::Nothing => {}
     }
