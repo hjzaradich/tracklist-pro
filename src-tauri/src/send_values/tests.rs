@@ -773,12 +773,95 @@ fn a_track_rekordbox_knows_reports_no_sibling_even_when_it_holds_two_files() {
 }
 
 #[test]
-fn a_big_batch_is_answered_in_one_go() {
+fn a_big_batch_of_different_tracks_is_answered_in_one_go_each_with_its_own_values() {
+    const N: usize = 5000;
     let lib = Lib::new();
-    let (id, _) = lib.linked("a.mp3", id3(&[("TIT2", "T")]));
-    let answers = lib.values(&vec![id; 5000]);
-    assert_eq!(answers.len(), 5000);
-    assert!(answers.iter().all(|a| a == &answers[0]));
+    // N Library tracks, each with a file of its own, made in one transaction.
+    let ids: Vec<LibraryTrackId> = lib
+        .writer
+        .call(|c| {
+            let tx = c.transaction()?;
+            let mut ids = Vec::with_capacity(N);
+            for n in 0..N {
+                tx.execute("INSERT INTO recording DEFAULT VALUES", [])?;
+                let track = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO file (music_folder_id, rel_path, rel_path_key, raw_tags)
+                     VALUES (1, ?1, ?1, ?2)",
+                    (
+                        format!("f{n}.mp3"),
+                        json!({"id3v2": [
+                            {"key": "TIT2", "value": {"type": "text", "text": format!("Title {n}")}}
+                        ]})
+                        .to_string(),
+                    ),
+                )?;
+                let file = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
+                    (track, file),
+                )?;
+                tx.execute(
+                    "INSERT INTO library_track (recording_id, linked_file_id) VALUES (?1, ?2)",
+                    (track, file),
+                )?;
+                ids.push(LibraryTrackId(tx.last_insert_rowid()));
+            }
+            tx.commit()?;
+            Ok(ids)
+        })
+        .unwrap();
+    let distinct: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(distinct.len(), N);
+
+    let answers = lib.values(&ids);
+    assert_eq!(answers.len(), N);
+    for (n, (answer, id)) in answers.iter().zip(&ids).enumerate() {
+        assert_eq!(answer.library_track, *id);
+        let Outcome::Ready(values) = &answer.outcome else {
+            panic!("{answer:?}");
+        };
+        assert_eq!(value(values, "Name"), Some(format!("Title {n}").as_str()));
+        assert_eq!(
+            value(values, "Location"),
+            Some(format!(r"E:\Music\f{n}.mp3").as_str())
+        );
+    }
+}
+
+#[test]
+fn a_track_rekordbox_knows_does_not_need_its_linked_files_path_to_read_back() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(track, "a.mp3", "best", Spec::default());
+    lib.rekordbox(
+        file,
+        &[
+            ("Name", "rekordbox's own"),
+            ("Location", "file://localhost/E:/Music/a.mp3"),
+        ],
+        false,
+    );
+    let known = lib.library(track, Some(file));
+    let (unknown, _) = lib.linked("b.mp3", Spec::default());
+    // The volume's identity no longer reads back, so no file has a path.
+    lib.insert("UPDATE volume SET identity = ?1", ("dev=not-hex",));
+
+    // rekordbox's own Location is sent, so the known track is still ready;
+    // the unknown one has no Location to send.
+    let answers = lib.values(&[known, unknown]);
+    let Outcome::Ready(values) = &answers[0].outcome else {
+        panic!("{:?}", answers[0]);
+    };
+    assert!(values.in_rekordbox);
+    assert_eq!(
+        value(values, "Location"),
+        Some("file://localhost/E:/Music/a.mp3")
+    );
+    assert!(matches!(
+        answers[1].outcome,
+        Outcome::CannotSend(CannotSend::NoLocation { .. })
+    ));
 }
 
 #[test]

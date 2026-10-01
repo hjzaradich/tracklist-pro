@@ -157,7 +157,9 @@ fn attribute_for(block: &str, key: &str) -> Option<&'static str> {
 /// ID3v1 list: `(17)` and `17` give `Rock`; `(17)Hard` gives the text after
 /// the number, `Hard`; `((x)` is a literal `(x)`. A number that isn't in
 /// the list, and `(RX)` / `(CR)` with nothing after them, give nothing
-/// more than the text itself.
+/// more than the text itself. Only those codes are taken for ID3 codes:
+/// other bracketed text, as in `(Live)House`, is part of the genre and
+/// passes through unchanged.
 fn genre(text: &str) -> String {
     let trimmed = text.trim();
     if let Some(literal) = trimmed.strip_prefix("((") {
@@ -176,14 +178,15 @@ fn genre(text: &str) -> String {
     while let Some(after) = rest.strip_prefix('(') {
         let Some(close) = after.find(')') else { break };
         let code = &after[..close];
-        if code.is_empty() || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+        let numeric = !code.is_empty() && code.chars().all(|c| c.is_ascii_digit());
+        if !numeric && code != "RX" && code != "CR" {
             break;
         }
         if first.is_none() {
             first = name(code);
         }
         rest = &after[close + 1..];
-        if first.is_none() && code.chars().all(|c| c.is_ascii_digit()) {
+        if first.is_none() && numeric {
             // An unknown number: leave the text as it was.
             return text.to_owned();
         }
@@ -205,6 +208,18 @@ fn genre(text: &str) -> String {
 fn join_values(text: &str) -> Option<String> {
     let parts: Vec<&str> = text.split('\0').filter(|p| !p.trim().is_empty()).collect();
     (!parts.is_empty()).then(|| parts.join(JOIN))
+}
+
+/// `values` joined with [`JOIN`], an exact duplicate left out (a Vorbis
+/// `LABEL` and `ORGANIZATION` holding the same text are one value).
+fn join_distinct(values: &[String]) -> String {
+    let mut seen: Vec<&str> = Vec::new();
+    for value in values {
+        if !seen.contains(&value.as_str()) {
+            seen.push(value);
+        }
+    }
+    seen.join(JOIN)
 }
 
 /// What joins several values of one field.
@@ -294,7 +309,7 @@ pub fn read(raw_tags: &str) -> Vec<TagValue> {
             }
             let value =
                 if repeats_join && !matches!(attribute, "Year" | "TrackNumber" | "DiscNumber") {
-                    values.join(JOIN)
+                    join_distinct(&values)
                 } else {
                     values[0].clone()
                 };
@@ -477,6 +492,23 @@ mod tests {
     }
 
     #[test]
+    fn alias_fields_holding_the_same_text_are_one_value_not_x_comma_x() {
+        let v = read(&raw(json!({"vorbis_comments": [
+            text("LABEL", "Same Label"), text("ORGANIZATION", "Same Label"),
+            text("COMMENT", "note"), text("DESCRIPTION", "note"),
+            text("ARTIST", "A"), text("ARTIST", "B"), text("ARTIST", "A"),
+        ]})));
+        assert_eq!(get(&v, "Label"), Some("Same Label"));
+        assert_eq!(get(&v, "Comments"), Some("note"));
+        // Different texts are both kept, in order, and only exact repeats go.
+        assert_eq!(get(&v, "Artist"), Some("A, B"));
+        let other = read(&raw(json!({"vorbis_comments": [
+            text("LABEL", "One"), text("ORGANIZATION", "one"),
+        ]})));
+        assert_eq!(get(&other, "Label"), Some("One, one"));
+    }
+
+    #[test]
     fn other_control_characters_and_spaces_are_kept_as_they_are() {
         let comment = " line1\nline2\t\u{1} ";
         let v = read(&raw(json!({"id3v2": [text("COMM::eng", comment)]})));
@@ -498,6 +530,11 @@ mod tests {
             ("250", "250"),
             ("(RX)", "(RX)"),
             ("(RX)Remix", "Remix"),
+            ("(CR)Remix", "Remix"),
+            // Other bracketed text belongs to the genre.
+            ("(Live)House", "(Live)House"),
+            ("(17)(Live)House", "(Live)House"),
+            ("(rx)", "(rx)"),
         ] {
             let v = read(&raw(json!({"id3v2": [text("TCON", tcon)]})));
             assert_eq!(get(&v, "Genre"), Some(expected), "{tcon:?}");
