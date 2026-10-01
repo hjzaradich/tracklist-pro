@@ -14,7 +14,7 @@ describe("the after-send page", () => {
       throw new Error(`unexpected command ${cmd}`);
     });
     renderApp("/after-send");
-    expect(await screen.findByRole("heading", { level: 1, name: "After sending" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "After import" })).toBeInTheDocument();
     expect(await screen.findByText("No playlists to delete")).toBeInTheDocument();
     expect(screen.getByText("No tracks to remove")).toBeInTheDocument();
   });

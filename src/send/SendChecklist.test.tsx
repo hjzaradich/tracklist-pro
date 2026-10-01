@@ -322,7 +322,7 @@ describe("the send checklist", () => {
         "1 track in rekordbox with another file (sending adds a second entry)",
       ),
     ).toBeInTheDocument();
-    expect(review.getByText("Twice (Kit)")).toBeInTheDocument();
+    expect(review.getByText("Kit - Twice")).toBeInTheDocument();
     expect(review.getByText("Library file (E:\\Music\\twice.flac)")).toBeInTheDocument();
     expect(review.getByText("rekordbox file (E:\\Old\\twice.mp3)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Write file" })).toBeEnabled();

@@ -3,7 +3,7 @@
   "title": "Send to rekordbox",
   "close": "Close",
   "warning": "Don't play or edit in rekordbox from the export until the import is finished. Changes made in between will be lost.",
-  "trackWithArtist": "{{title}} ({{artist}})",
+  "trackWithArtist": "{{artist}} - {{title}}",
   "more_one": "{{count, number}} more",
   "more_other": "{{count, number}} more",
   "export": {

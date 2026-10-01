@@ -42,7 +42,7 @@ describe("the after-send lists", () => {
 
   it("says the playlists weren't checked, instead of looking empty, before rekordbox is read", () => {
     render(<AfterSendLists lists={lists({ playlistsChecked: false })} />);
-    expect(screen.getByText("Not checked yet (rekordbox hasn't been read)")).toBeInTheDocument();
+    expect(screen.getByText("Not checked yet (no rekordbox export read)")).toBeInTheDocument();
     expect(screen.queryByText("No playlists to delete")).toBeNull();
     // The other list doesn't depend on it.
     expect(screen.getByText("No tracks to remove")).toBeInTheDocument();
@@ -164,14 +164,14 @@ describe("the after-send panel stays current", () => {
 
   it("asks again when the send's state changes, such as after a read or a write", async () => {
     const panel = setup();
-    expect(await screen.findByText("Not checked yet (rekordbox hasn't been read)")).toBeInTheDocument();
+    expect(await screen.findByText("Not checked yet (no rekordbox export read)")).toBeInTheDocument();
     // A read finishes: the send's revision moves, and rekordbox is now read.
     panel.answer(lists({ stalePlaylists: [stale(["Crates", "Old name"])] }));
     act(() => {
       panel.queryClient.setQueryData(SEND_STATE_QUERY_KEY, { revision: 1 });
     });
     expect(await screen.findByText("Crates > Old name")).toBeInTheDocument();
-    expect(screen.queryByText("Not checked yet (rekordbox hasn't been read)")).toBeNull();
+    expect(screen.queryByText("Not checked yet (no rekordbox export read)")).toBeNull();
 
     // The file is written: the revision moves again.
     panel.answer(lists());
@@ -183,7 +183,7 @@ describe("the after-send panel stays current", () => {
 
   it("asks again when the rekordbox export is read again", async () => {
     const panel = setup();
-    await screen.findByText("Not checked yet (rekordbox hasn't been read)");
+    await screen.findByText("Not checked yet (no rekordbox export read)");
     panel.answer(lists());
     act(() => {
       panel.queryClient.setQueryData(XML_SOURCE_QUERY_KEY, {

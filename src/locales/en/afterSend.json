@@ -1,10 +1,10 @@
 {
-  "page": "After sending",
+  "page": "After import",
   "stale": {
     "title": "Playlists to delete in rekordbox",
-    "hint": "The app sent these before and no longer has them. The import can't delete them. Delete them in rekordbox.",
+    "hint": "Delete these playlists in rekordbox (an import can't). They come from crates that were renamed or deleted.",
     "empty": "No playlists to delete",
-    "unchecked": "Not checked yet (rekordbox hasn't been read)",
+    "unchecked": "Not checked yet (no rekordbox export read)",
     "emptyFolder": "(empty folder)",
     "folderNoPlaylists": "(folder with no playlists)",
     "folderInside_one": "(folder with {{count}} playlist)",
@@ -12,10 +12,10 @@
   },
   "removals": {
     "title": "Tracks to remove in rekordbox",
-    "hint": "You removed these from the Library. The import can't remove them from rekordbox. Remove them in rekordbox.",
+    "hint": "Remove these tracks in rekordbox (an import can't). They were removed from your Library.",
     "empty": "No tracks to remove",
     "trackName": "{{artist}} - {{title}}",
     "unnamed": "Unnamed track",
-    "sentTo": "Where it was sent"
+    "sentTo": "Location sent to rekordbox"
   }
 }
