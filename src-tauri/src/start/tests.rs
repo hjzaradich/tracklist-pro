@@ -437,6 +437,31 @@ fn several_rekordbox_entries_for_one_track_give_one_library_track() {
 }
 
 #[test]
+fn an_entry_for_another_file_of_a_track_already_in_the_library_is_not_offered() {
+    let lib = Lib::new();
+    let (track, best) = lib.track("a", true);
+    lib.entry(Match::Trusted(best), &[]);
+    lib.add();
+
+    // A later read holds a second entry, matched to a duplicate file.
+    let duplicate = lib.file(track, "a copy.mp3", "extra", true);
+    lib.entry(Match::Trusted(duplicate), &[]);
+
+    assert_eq!(
+        lib.offer(),
+        Offer {
+            already_in_library: 1,
+            ..offered(0)
+        }
+    );
+    let again = lib.add();
+    assert_eq!((again.added, again.operation_id), (0, None));
+    // The Library track still links to the file it was added with.
+    assert_eq!(lib.library(), vec![(track, best)]);
+    assert_eq!(lib.operations(), 1);
+}
+
+#[test]
 fn a_missing_track_enters_the_offer_once_relink_finds_its_file() {
     let lib = Lib::new();
     let (track, file) = lib.track("a", true);

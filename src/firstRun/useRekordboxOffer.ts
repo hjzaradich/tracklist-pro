@@ -23,11 +23,11 @@ function reloadAfterChange(queryClient: QueryClient) {
 }
 
 /**
- * What the offer holds: for the whole collection (`null`), or for the
- * tracks in the chosen playlists. Asked again whenever a background task
- * ends, since a rekordbox read, a relink or a scan can each change it.
+ * Asks for the offer and the playlists again whenever a background task
+ * ends, since a rekordbox read, a relink or a scan can each change them.
+ * Call it once, where the offer is shown.
  */
-export function useRekordboxOffer(playlists: PlaylistPath[] | null) {
+export function useReloadOfferWhenJobsEnd() {
   const queryClient = useQueryClient();
   useEffect(() => {
     let stopped = false;
@@ -52,7 +52,13 @@ export function useRekordboxOffer(playlists: PlaylistPath[] | null) {
       stop?.();
     };
   }, [queryClient]);
+}
 
+/**
+ * What the offer holds: for the whole collection (`null`), or for the
+ * tracks in the chosen playlists.
+ */
+export function useRekordboxOffer(playlists: PlaylistPath[] | null) {
   return useQuery({
     queryKey: [...REKORDBOX_OFFER_QUERY_KEY, playlists],
     queryFn: (): Promise<Offer> => unwrap(commands.rekordboxOffer(playlists)),

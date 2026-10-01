@@ -19,6 +19,10 @@ describe("stage routes", () => {
     mockIPC((cmd) => {
       if (cmd === "library_tracks") return [];
       if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
+      if (cmd === "music_folders") return [];
+      if (cmd === "rekordbox_offer") {
+        return { toAdd: 0, alreadyInLibrary: 0, waitingInMissing: 0, waitingForConfirmation: 0 };
+      }
       throw new Error(`unexpected command ${cmd}`);
     });
   });

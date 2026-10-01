@@ -7,6 +7,7 @@ import { PlaylistPicker } from "./PlaylistPicker";
 import {
   useAddRekordboxTracks,
   useRekordboxOffer,
+  useReloadOfferWhenJobsEnd,
   useRekordboxPlaylists,
   useUndoAddRekordboxTracks,
   type PlaylistPath,
@@ -22,7 +23,8 @@ type Undone = "undone" | "refused";
  * the first run (`firstRun`: titled "Start from rekordbox") and every later
  * rekordbox read.
  *
- * It shows only while there's something to add or a summary to read. The
+ * It shows only while there's something to add or a summary to read (or
+ * the offer couldn't be read, which is said). The
  * offer can be narrowed to chosen playlists; the pick is this component's
  * state and is gone when it closes. After an add, the summary says what
  * happened and offers one undo for the whole batch.
@@ -36,6 +38,7 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
   const [summary, setSummary] = useState<AddSummary | null>(null);
   const [undone, setUndone] = useState<Undone | null>(null);
 
+  useReloadOfferWhenJobsEnd();
   const whole = useRekordboxOffer(null);
   const narrowed = useRekordboxOffer(chosen);
   const playlists = useRekordboxPlaylists(chosen !== null);
@@ -87,6 +90,7 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
               type="button"
               className={styles.button}
               disabled={undo.isPending}
+              aria-busy={undo.isPending}
               onClick={() =>
                 undo.mutate(operationId, {
                   onSuccess: (outcome) =>
@@ -114,8 +118,20 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
     );
   }
 
+  // A failure is said, never shown as "nothing to add".
+  if (whole.isError) {
+    return (
+      <section className={styles.panel} aria-labelledby={titleId}>
+        {title}
+        <p role="alert" className={styles.problem}>
+          {errorMessage(whole.error)}
+        </p>
+      </section>
+    );
+  }
   // Shown only when the count is above zero.
   if (whole.data === undefined || whole.data.toAdd === 0) return null;
+  const pickFailure = chosen === null ? null : (playlists.error ?? narrowed.error);
 
   const count = chosen === null ? whole.data.toAdd : narrowed.data?.toAdd;
 
@@ -123,10 +139,15 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
     <section className={styles.panel} aria-labelledby={titleId}>
       {title}
       {firstRun && <p className={styles.muted}>{tFirstRun("fromRekordbox.help")}</p>}
-      {chosen !== null && (
-        <PlaylistPicker playlists={playlists.data ?? []} chosen={chosen} onChange={setChosen} />
+      {chosen !== null && playlists.data !== undefined && (
+        <PlaylistPicker playlists={playlists.data} chosen={chosen} onChange={setChosen} />
       )}
-      {count !== undefined && (
+      {pickFailure && (
+        <p role="alert" className={styles.problem}>
+          {errorMessage(pickFailure)}
+        </p>
+      )}
+      {count !== undefined && (chosen === null || playlists.data !== undefined) && (
         <p role="status">
           {chosen === null
             ? t("count", { count })
@@ -147,6 +168,7 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
           type="button"
           className={styles.primary}
           disabled={add.isPending || count === undefined || count === 0}
+          aria-busy={add.isPending}
           onClick={() => add.mutate(chosen, { onSuccess: setSummary })}
         >
           {t("add", { count: count ?? 0 })}

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { errorMessage } from "../api/errors";
 import styles from "../firstRun/firstRun.module.css";
 import { MusicFoldersStep } from "../firstRun/MusicFoldersStep";
 import { RekordboxOffer } from "../firstRun/RekordboxOffer";
@@ -26,10 +27,15 @@ export function OverviewScreen() {
 
   // The panels keep their places whether or not the first-run ones show,
   // so the offer's summary stays up when the Library stops being empty.
+  // Until the Library has loaded, neither heading shows.
   return (
     <StageScreen stage="overview">
       <div className={styles.column}>
-        {firstRun ? (
+        {library.isError ? (
+          <p role="alert" className={styles.problem}>
+            {errorMessage(library.error)}
+          </p>
+        ) : library.data === undefined ? null : firstRun ? (
           <h2 className={styles.heading}>{tFirstRun("title")}</h2>
         ) : (
           <EmptyState>{t("empty")}</EmptyState>

@@ -135,3 +135,9 @@
   font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
 }
+
+/* An add or undo under way. */
+.button[aria-busy="true"],
+.primary[aria-busy="true"] {
+  cursor: progress;
+}
