@@ -75,7 +75,7 @@ Six lanes, all at once (started 2026-09-29, while 1aA-16 finished). Each scan-st
 - **Lane 6, check kit:** ✅ 1aB-13 Check-kit polish: make CHECK.md step 3.4 (Import Playlist before export 03) stand out, set the time estimate to about an hour, and add 2B/6B keys to the kit so the rekordbox Classic spellings for F# and Bb major get verified (the owner runs it later; then record the result in ROADMAP §1.1/§5.2 and update the "unverified" note on REKORDBOX in src-tauri/src/tags/key.rs)
 - **Dropped for now (owner, 2026-09-29):** 1aB-12 `export.pdb` reader for track paths; revisit at 1aD-3 (gig stick recovery)
 
-### Stage 1aC: Tracks and first relink steps
+### Stage 1aC: Tracks and first relink steps ✅
 - **Lane 1:** ✅ 1aC-1 Unchanged check (size, mtime, file-id) + partial hash on mtime-only changes (the 1aA-4 walker overwrites size/mtime/file_id in place, so compare inside the walker before its upsert)
 - **Lane 2:** ✅ 1aC-2 Provisional grouping: one file → one track, except exact `audio_hash` matches (replaced in 1b)
 - **Lane 3, relink:** ✅ 1aC-3 Step 1: path still valid → ✅ 1aC-4 Step 2: filename + duration (±0.5 s) → ✅ 1aC-5 Step 3: unique duration within the candidate set
