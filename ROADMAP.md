@@ -380,6 +380,15 @@ Each feature is tagged with its sub-phase.
   6. **App-owned playlists live only under `Crates` and `Playlists`.** When a crate is renamed or deleted, the next send lists the stale rekordbox playlists to delete by hand.
   7. **Removing a Library track can't reach rekordbox via XML.** The app says so and lists what to remove.
   8. **Record `sync_base`** for every field sent.
+- **How the writer applies them** (`rekordbox_write`, 1aE-7 to 1aE-10, 2026-10-01):
+  - **Never analysis, for any track in Phase 1.** `AverageBpm` and `Tonality` are dropped from every track's values, and the writer can't write a `TEMPO` or `POSITION_MARK` at all. Case B arrives with 2.6.
+  - **A known track that no sent crate or playlist names isn't sent** (it would only raise a Yes/No dialog). New tracks are always sent.
+  - **`Location` is re-encoded for known tracks too:** everything but ASCII letters, digits and `- . _ ~ / :` as uppercase `%XX`, the form the behavior check sent. It names the same path as rekordbox's own spelling, and is read back with the reader before it's used.
+  - **TrackIDs are file-local.** A known track keeps rekordbox's; a new one is numbered above the highest TrackID in the whole last rekordbox read. Entries use `KeyType="0"`.
+  - **A track that can't be sent is left out and reported with a reason code**, along with every entry naming it; the other tracks still go. That covers a missing file or Location, a value holding a character XML 1.0 can't carry (the value is never stripped or rewritten), and two tracks at one Location. A crate or playlist that loses every entry is still written, empty, and listed.
+  - **`Crates` and `Playlists` are always both written**, even empty. Two siblings with the same name, or a nameless node, refuse the whole send.
+  - **Characters:** `& < > " '` are escaped, and tab, line feed and carriage return are written as character references, so a value reads back exactly.
+  - **The file is read back with the app's own reader before it's written**, and written through the write guard to a new file beside the destination, renamed into place once complete.
 - **UI:** **Send to rekordbox** is the Overview's main button (1.13). It opens a guided checklist covering rekordbox's side: switch the XML file, Import to Collection, answer the dialog. It is not a one-click sync.
 - **Complexity:** M.
 
@@ -683,7 +692,7 @@ These are observed behaviors, not documented ones, and any 7.x update can change
 - **Unknown tag frames** (Serato cues, custom frames) must survive every write. Port those tests first.
 - **Our tag writer (lofty) isn't deterministic:** sort frames before writing so identical input gives identical bytes.
 - **Migrations are never edited after they've been applied** (enforced in CI).
-- **Read-only is enforced in code:** only the write guard (`write_guard`, 0E-7) hands out write access, scoped to the app data folder (the Library folder joins in Phase 2). It resolves links and `..` before allowing a path, refuses writes through hard-linked files, opens SQLite only on guarded paths, and blocks `ATTACH`, `VACUUM INTO` and temp-file redirection at runtime. A source scan fails CI on any write API outside the guard, and a runtime test checks nothing else changes. The WebView2 profile Tauri keeps under `%LOCALAPPDATA%\com.tracklistpro.desktop\` is written by the runtime, not by app code.
+- **Read-only is enforced in code:** only the write guard (`write_guard`, 0E-7) hands out write access, scoped to the app data folder (the Library folder joins in Phase 2). It resolves links and `..` before allowing a path, refuses writes through hard-linked files, opens SQLite only on guarded paths, and blocks `ATTACH`, `VACUUM INTO` and temp-file redirection at runtime. A source scan fails CI on any write API outside the guard, and a runtime test checks nothing else changes. A file that must never be seen half-written (the rekordbox XML) goes through `write_then_rename`: a new file beside the destination, flushed, renamed over it, and deleted on any failure (1aE-7). The WebView2 profile Tauri keeps under `%LOCALAPPDATA%\com.tracklistpro.desktop\` is written by the runtime, not by app code.
 - **The SQLite DB never lives in a synced folder;** it's in `%APPDATA%`. The repo itself lives off OneDrive too (`C:\dev\tracklist-pro`, CLAUDE.md "Parallel work"), so `.git`, `target/` and `node_modules` never sync.
 - **Open files through `\\?\` paths on Windows.** A plain path drops trailing dots and spaces from names, so `Q.X.Z.\a.mp3` can silently open a sibling `Q.X.Z\a.mp3`, and names like `CON` can open devices on Windows 10. The path model resolves to `\\?\E:\…` or `\\?\UNC\…` (found in the 0C-9 review, 2026-09-28).
 - **WebView2 can't play AIFF or ALAC,** so decode them in Rust for preview.

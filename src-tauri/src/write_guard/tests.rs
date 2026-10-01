@@ -59,6 +59,10 @@ impl Sandbox {
             self.guard.open_for_writing(path).map(drop),
         );
         refused("write", self.guard.write(path, b"x"));
+        refused(
+            "write_then_rename",
+            self.guard.write_then_rename(path, b"x"),
+        );
         refused("remove_file", self.guard.remove_file(path));
         refused("remove_dir_all", self.guard.remove_dir_all(path));
         let inside = self.data().join("inside.txt");
@@ -481,6 +485,159 @@ mod windows {
         let unc = format!(r"\\localhost\{}${}", &text[4..5], &text[6..]);
         assert!(sb.guard.check(Path::new(&unc)).is_err(), "{unc}");
     }
+}
+
+// ---- write, then rename ----------------------------------------------------
+
+/// Every name in the data folder.
+fn data_listing(sb: &Sandbox) -> Vec<String> {
+    let mut names = Vec::new();
+    list(&sb.data(), "", &mut names);
+    names.sort();
+    names
+}
+
+#[test]
+fn write_then_rename_leaves_only_the_destination() {
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    sb.guard.write_then_rename(&dest, b"whole").unwrap();
+    assert_eq!(fs::read(&dest).unwrap(), b"whole");
+    assert_eq!(data_listing(&sb), ["send.xml"]);
+}
+
+#[test]
+fn write_then_rename_replaces_an_existing_destination_with_the_complete_file() {
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    sb.guard.write(&dest, b"old and longer").unwrap();
+    // While the new file is being filled, the destination still holds
+    // its old content.
+    sb.guard
+        .write_then_rename_with(
+            &dest,
+            |file| {
+                use std::io::Write;
+                file.write_all(b"ne")?;
+                assert_eq!(fs::read(&dest).unwrap(), b"old and longer");
+                file.write_all(b"w")
+            },
+            || {
+                assert_eq!(fs::read(&dest).unwrap(), b"old and longer");
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(fs::read(&dest).unwrap(), b"new");
+    assert_eq!(data_listing(&sb), ["send.xml"]);
+}
+
+#[test]
+fn a_write_that_fails_midway_leaves_no_destination_and_no_temp_file() {
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    let failed = sb.guard.write_then_rename_with(
+        &dest,
+        |file| {
+            use std::io::Write;
+            file.write_all(b"half")?;
+            Err(io::Error::other("disk full"))
+        },
+        || Ok(()),
+    );
+    assert!(matches!(failed, Err(GuardError::Io { .. })), "{failed:?}");
+    assert_eq!(data_listing(&sb), Vec::<String>::new());
+}
+
+#[test]
+fn a_failure_before_the_rename_keeps_the_old_destination_and_leaves_no_temp_file() {
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    sb.guard.write(&dest, b"old").unwrap();
+    let failed = sb.guard.write_then_rename_with(
+        &dest,
+        |file| {
+            use std::io::Write;
+            file.write_all(b"new")
+        },
+        || Err(io::Error::other("stopped")),
+    );
+    assert!(matches!(failed, Err(GuardError::Io { .. })), "{failed:?}");
+    assert_eq!(fs::read(&dest).unwrap(), b"old");
+    assert_eq!(data_listing(&sb), ["send.xml"]);
+}
+
+#[test]
+fn a_folder_in_the_way_of_the_destination_is_refused_and_nothing_is_created() {
+    // The destination names a folder, which is never replaced.
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    fs::create_dir(&dest).unwrap();
+    fs::write(dest.join("inside.txt"), b"kept").unwrap();
+    assert!(sb.guard.write_then_rename(&dest, b"new").is_err());
+    assert_eq!(data_listing(&sb), ["send.xml", "send.xml/inside.txt"]);
+    assert_eq!(fs::read(dest.join("inside.txt")).unwrap(), b"kept");
+}
+
+#[test]
+fn write_then_rename_never_opens_or_deletes_a_file_that_already_has_its_temp_name() {
+    let sb = Sandbox::new();
+    let dest = sb.data().join("send.xml");
+    let taken = sb.data().join("send.xml.part");
+    fs::write(&taken, b"someone's").unwrap();
+
+    sb.guard.write_then_rename(&dest, b"new").unwrap();
+    assert_eq!(fs::read(&dest).unwrap(), b"new");
+    assert_eq!(fs::read(&taken).unwrap(), b"someone's");
+
+    // A failed write deletes its own temp file, not that one.
+    let failed =
+        sb.guard
+            .write_then_rename_with(&dest, |_| Err(io::Error::other("disk full")), || Ok(()));
+    assert!(failed.is_err());
+    assert_eq!(fs::read(&taken).unwrap(), b"someone's");
+    assert_eq!(fs::read(&dest).unwrap(), b"new");
+    assert_eq!(data_listing(&sb), ["send.xml", "send.xml.part"]);
+}
+
+#[test]
+fn write_then_rename_refuses_a_destination_outside_the_root_before_creating_anything() {
+    let sb = Sandbox::new();
+    let before = sb.outside_listing();
+    let dest = sb.outside().join("send.xml");
+    let filled = std::cell::Cell::new(false);
+    let refused = sb.guard.write_then_rename_with(
+        &dest,
+        |_| {
+            filled.set(true);
+            Ok(())
+        },
+        || Ok(()),
+    );
+    assert!(
+        matches!(refused, Err(GuardError::Outside(_))),
+        "{refused:?}"
+    );
+    assert!(
+        !filled.get(),
+        "nothing is created for a refused destination"
+    );
+    assert_eq!(sb.outside_listing(), before);
+    assert_eq!(data_listing(&sb), Vec::<String>::new());
+}
+
+#[test]
+fn write_then_rename_refuses_a_hard_linked_destination_before_creating_anything() {
+    let sb = Sandbox::new();
+    let outside = sb.outside().join("keep.txt");
+    let linked = sb.data().join("linked.txt");
+    fs::hard_link(&outside, &linked).unwrap();
+    assert!(matches!(
+        sb.guard.write_then_rename(&linked, b"PWNED"),
+        Err(GuardError::HardLinked(_))
+    ));
+    assert_eq!(fs::read(&outside).unwrap(), b"keep");
+    assert_eq!(data_listing(&sb), ["linked.txt"]);
 }
 
 // ---- hard links ------------------------------------------------------------
