@@ -1137,6 +1137,19 @@ fn a_tree_rekordbox_would_misread_refuses_the_whole_send() {
             path: path(&["Crates", "bell\u{7}"])
         })
     );
+    // Names differing only in letter case count as the same.
+    assert_eq!(
+        with(vec![playlist("Warm Up", &[1]), playlist("warm up", &[1])]),
+        Err(BuildError::RepeatedName {
+            path: path(&["Crates", "warm up"])
+        })
+    );
+    assert_eq!(
+        with(vec![playlist("CAFÉ", &[1]), playlist("cafe\u{301}", &[1])]),
+        Err(BuildError::RepeatedName {
+            path: path(&["Crates", "cafe\u{301}"])
+        })
+    );
     // The same name in different folders is fine.
     assert!(with(vec![
         playlist("Twin", &[1]),

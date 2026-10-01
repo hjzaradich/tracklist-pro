@@ -386,7 +386,7 @@ Each feature is tagged with its sub-phase.
   - **`Location` is re-encoded for known tracks too:** everything but ASCII letters, digits and `- . _ ~ / :` as uppercase `%XX`, the form the behavior check sent. It names the same path as rekordbox's own spelling, and is read back with the reader before it's used.
   - **TrackIDs are file-local.** A known track keeps rekordbox's; a new one is numbered above the highest TrackID in the whole last rekordbox read. Entries use `KeyType="0"`.
   - **A track that can't be sent is left out and reported with a reason code**, along with every entry naming it; the other tracks still go. That covers a missing file or Location, a value holding a character XML 1.0 can't carry (the value is never stripped or rewritten), and two tracks at one Location. A crate or playlist that loses every entry is still written, empty, and listed.
-  - **`Crates` and `Playlists` are always both written**, even empty. Two siblings with the same name, or a nameless node, refuse the whole send.
+  - **`Crates` and `Playlists` are always both written**, even empty. Two siblings with the same name (letter case ignored, §5.2), or a nameless node, refuse the whole send.
   - **Characters:** `& < > " '` are escaped, and tab, line feed and carriage return are written as character references, so a value reads back exactly.
   - **The file is read back with the app's own reader before it's written**, and written through the write guard to a new file beside the destination, renamed into place once complete.
 - **UI:** **Send to rekordbox** is the Overview's main button (1.13). It opens a guided checklist covering rekordbox's side: switch the XML file, Import to Collection, answer the dialog. It is not a one-click sync.
@@ -657,6 +657,7 @@ These are observed behaviors, not documented ones, and any 7.x update can change
 - Same-name playlists are **replaced**, contents and order. Playlists missing from the XML are left behind. Tracks missing from the XML stay in the collection.
 - TrackIDs are stable between exports but **reassigned on import**, so match by Location.
 - Nested playlist folders and their order survive.
+- **Unverified:** whether two playlists in one folder whose names differ only in letter case count as the same name (and so replace each other). Until the behavior check covers it, the writer treats them as the same and refuses the send (1.9).
 - **A playlist entry only resolves against the same XML's COLLECTION** (T1): an entry for a track not in it is dropped silently, whether keyed by TrackID (`KeyType="0"`) or Location (`KeyType="1"`). rekordbox exports every playlist as `KeyType="0"`.
 - The re-import dialog is titled with the track name and offers Yes / No / Don't ask me again; replacing a same-name playlist asks OK / Cancel. Their exact wording is in the author's private 2026-09-28 check results.
 - Last verified: rekordbox 7.2.19, 2026-09-28 (all checks except T1 behave as listed).

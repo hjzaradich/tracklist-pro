@@ -50,6 +50,7 @@ use std::path::Path;
 use crate::library::LibraryTrackId;
 use crate::rekordbox::attrs::digits;
 use rusqlite::Connection;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::paths::Volumes;
 use crate::rekordbox::{self, RekordboxXml};
@@ -286,8 +287,8 @@ pub enum BuildError {
     EmptyName { path: Vec<String> },
     /// This name holds a character XML can't carry.
     UncarriableName { path: Vec<String> },
-    /// Two siblings share this name: rekordbox would replace one with the
-    /// other on import (§5.2).
+    /// Two siblings share this name, or names that differ only in letter
+    /// case: rekordbox would replace one with the other on import (§5.2).
     RepeatedName { path: Vec<String> },
     /// Folders nest deeper than any real tree.
     TooDeep { path: Vec<String> },
@@ -392,6 +393,13 @@ fn prepare(in_rekordbox: bool, given: &[(String, String)]) -> Result<Prepared, R
     })
 }
 
+/// What two sibling names are compared by: NFC, letter case ignored.
+/// Whether rekordbox itself treats names that differ only in case as one
+/// playlist is unverified (§5.2), so they're refused as the same.
+fn sibling_key(name: &str) -> String {
+    name.nfc().flat_map(char::to_lowercase).collect()
+}
+
 /// Checks a tree's names and collects every track its entries name.
 fn check_nodes(
     nodes: &[Node],
@@ -408,7 +416,7 @@ fn check_nodes(
         if xml::uncarriable(name).is_some() {
             return Err(BuildError::UncarriableName { path: path.clone() });
         }
-        if !siblings.insert(name.as_str()) {
+        if !siblings.insert(sibling_key(name)) {
             return Err(BuildError::RepeatedName { path: path.clone() });
         }
         match node {
