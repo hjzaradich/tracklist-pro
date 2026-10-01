@@ -125,7 +125,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 
 ### Stage 1aD: Finish relink, build Library tracks
 - **Lane 1, relink:** 1aD-1 Step 4: fingerprint (also queue relink after the fingerprint job; 1aC-8 queues it only after the read job. Relink carries later-step matches over between runs (1aC-3): record the evidence at match time, e.g. the file's audio_hash, and drop a carried match when its file's audio changes; this applies to 1aD-2 and user matches too) → 1aD-2 Step 5: filename-only, stored as probable and unconfirmed → 1aD-3 Step 6: gig stick recovery (if 1aB-12 was done)
-- **Lane 2:** 1aD-4 Attach rekordbox data to tracks with provenance; write BPM and key into `analysis`; parse My Tags out of Comments (rekordbox's "Add My Tag to the comments" setting, in the format the E2 spike recorded) into `rekordbox_track.my_tags`, which 1aB-10 leaves empty
+- **Lane 2:** ✅ 1aD-4 Attach rekordbox data to tracks with provenance; write BPM and key into `analysis`; parse My Tags out of Comments (rekordbox's "Add My Tag to the comments" setting, in the format the E2 spike recorded) into `rekordbox_track.my_tags`, which 1aB-10 leaves empty
 - **Lane 3:** ✅ 1aD-5 Missing list with last known paths + an offer to add folders: shown in Review, holding rekordbox tracks whose file is missing with their rekordbox data intact until relink marries them to a file (§1.3)
 - **Lane 4:** 1aD-6 Linked Library tracks: create, list, store (1.8)
 - **Lane 5:** ✅ 1aD-7 Fragile-location detection (Downloads, temp, external and network drives), with the warning and its reason (1.3). Known limit from 0B-10: NVMe drives in Thunderbolt enclosures report as internal. Detection is merged; showing the warning in the Library list follows 1aD-6
