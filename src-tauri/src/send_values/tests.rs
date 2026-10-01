@@ -315,7 +315,7 @@ fn the_most_played_entry_is_the_one_known_when_rekordbox_holds_the_file_twice() 
 fn a_tag_value_comes_from_the_linked_file_first() {
     let lib = Lib::new();
     let track = lib.track();
-    let best = lib.file(track, "best.flac", "best", id3(&[("TIT2", "Best title")]));
+    lib.file(track, "best.flac", "best", id3(&[("TIT2", "Best title")]));
     let linked = lib.file(
         track,
         "linked.mp3",
@@ -323,7 +323,6 @@ fn a_tag_value_comes_from_the_linked_file_first() {
         id3(&[("TIT2", "Linked title")]),
     );
     let library = lib.library(track, Some(linked));
-    let _ = best;
 
     let values = lib.ready(library);
     assert_eq!(value(&values, "Name"), Some("Linked title"));
@@ -342,7 +341,7 @@ fn a_field_the_linked_file_lacks_comes_from_the_other_files_in_best_file_order()
     let track = lib.track();
     let linked = lib.file(track, "linked.mp3", "undecided", id3(&[("TIT2", "T")]));
     // Lower id, but not the best: it comes after the best file.
-    let _extra = lib.file(
+    lib.file(
         track,
         "extra.mp3",
         "extra",
@@ -354,13 +353,12 @@ fn a_field_the_linked_file_lacks_comes_from_the_other_files_in_best_file_order()
         "best",
         id3(&[("TALB", "Album from best"), ("TCON", "Genre from best")]),
     );
-    let later = lib.file(
+    lib.file(
         track,
         "later.mp3",
         "undecided",
         id3(&[("TCON", "Genre from later")]),
     );
-    let _ = later;
     let library = lib.library(track, Some(linked));
 
     let values = lib.ready(library);
@@ -715,6 +713,72 @@ fn the_batch_gives_what_each_single_track_gives_in_the_order_asked() {
         assert_eq!(answer.library_track, *id);
         assert_eq!(answer, &lib.one(*id), "{id:?}");
     }
+}
+
+#[test]
+fn a_trusted_entry_for_another_file_of_the_track_does_not_make_the_linked_file_known() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let linked = lib.file(
+        track,
+        "linked.mp3",
+        "undecided",
+        id3(&[("TIT2", "From the tag")]),
+    );
+    let sibling = lib.file(track, "sibling.mp3", "best", Spec::default());
+    let held = lib.rekordbox(
+        sibling,
+        &[("Name", "rekordbox's own"), ("PlayCount", "7")],
+        false,
+    );
+    let library = lib.library(track, Some(linked));
+
+    let values = lib.ready(library);
+    // The linked file would be a second entry beside the sibling's.
+    assert!(!values.in_rekordbox);
+    assert_eq!(value(&values, "Name"), Some("From the tag"));
+    assert!(values.get("PlayCount").is_none());
+    assert_eq!(
+        values.rekordbox_holds_other_file,
+        Some(SiblingEntry {
+            file_id: sibling,
+            track_id: held
+        })
+    );
+}
+
+#[test]
+fn a_sibling_that_is_only_a_probable_match_is_not_reported() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let linked = lib.file(track, "linked.mp3", "undecided", Spec::default());
+    let sibling = lib.file(track, "sibling.mp3", "best", Spec::default());
+    lib.rekordbox(sibling, &[("Name", "N")], true);
+    let library = lib.library(track, Some(linked));
+    assert_eq!(lib.ready(library).rekordbox_holds_other_file, None);
+}
+
+#[test]
+fn a_track_rekordbox_knows_reports_no_sibling_even_when_it_holds_two_files() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let linked = lib.file(track, "linked.mp3", "best", Spec::default());
+    let sibling = lib.file(track, "sibling.mp3", "undecided", Spec::default());
+    lib.rekordbox(linked, &[("Name", "A")], false);
+    lib.rekordbox(sibling, &[("Name", "B")], false);
+    let library = lib.library(track, Some(linked));
+    let values = lib.ready(library);
+    assert!(values.in_rekordbox);
+    assert_eq!(values.rekordbox_holds_other_file, None);
+}
+
+#[test]
+fn a_big_batch_is_answered_in_one_go() {
+    let lib = Lib::new();
+    let (id, _) = lib.linked("a.mp3", id3(&[("TIT2", "T")]));
+    let answers = lib.values(&vec![id; 5000]);
+    assert_eq!(answers.len(), 5000);
+    assert!(answers.iter().all(|a| a == &answers[0]));
 }
 
 #[test]

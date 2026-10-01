@@ -25,12 +25,21 @@
 //! - `Year` is the leading four digits (`2020-05-01` is `2020`);
 //!   `TrackNumber` and `DiscNumber` the leading number (`3/12` is `3`).
 //!   Anything else for those three is no value.
+//! - Several values in one field (ID3v2.4's NUL separator, or a repeated
+//!   Vorbis / APE item) become one, joined with `, `. Nothing else in a
+//!   value is changed: control characters stay, and the writer reports a
+//!   value XML can't carry. Values aren't trimmed; only all-blank text is
+//!   no value.
+//! - An ID3v2 `Genre` in the old numeric forms (`(17)`, `17`, `(17)Hard`)
+//!   goes through the ID3v1 genre list; an unknown number is left as it is.
+//! - `Year` must be 1000-9999, like `tags::parse_year`.
 //! - Blank text is no value. A value that was cut when it was stored
 //!   (`full_len` set: lyrics, long notes) is no value either, since sending
 //!   half a comment would be worse than none.
 //! - ID3v1 has no usable genre (a number) and MP4's track and disc numbers
 //!   are binary, so those aren't mapped.
 
+use lofty::id3::v1::GENRES;
 use serde_json::Value;
 
 /// The TRACK attributes a tag can give, in the order rekordbox writes them.
@@ -144,8 +153,65 @@ fn attribute_for(block: &str, key: &str) -> Option<&'static str> {
     })
 }
 
+/// The ID3v2 genre `text` with its numeric forms resolved through the
+/// ID3v1 list: `(17)` and `17` give `Rock`; `(17)Hard` gives the text after
+/// the number, `Hard`; `((x)` is a literal `(x)`. A number that isn't in
+/// the list, and `(RX)` / `(CR)` with nothing after them, give nothing
+/// more than the text itself.
+fn genre(text: &str) -> String {
+    let trimmed = text.trim();
+    if let Some(literal) = trimmed.strip_prefix("((") {
+        return format!("({literal}");
+    }
+    let name = |number: &str| -> Option<String> {
+        let n: usize = number.parse().ok()?;
+        GENRES.get(n).map(|g| (*g).to_owned())
+    };
+    if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return name(trimmed).unwrap_or_else(|| text.to_owned());
+    }
+    // Leading `(NN)` groups, then an optional refinement.
+    let mut rest = trimmed;
+    let mut first: Option<String> = None;
+    while let Some(after) = rest.strip_prefix('(') {
+        let Some(close) = after.find(')') else { break };
+        let code = &after[..close];
+        if code.is_empty() || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+            break;
+        }
+        if first.is_none() {
+            first = name(code);
+        }
+        rest = &after[close + 1..];
+        if first.is_none() && code.chars().all(|c| c.is_ascii_digit()) {
+            // An unknown number: leave the text as it was.
+            return text.to_owned();
+        }
+    }
+    if rest.len() == trimmed.len() {
+        return text.to_owned();
+    }
+    if !rest.trim().is_empty() {
+        return rest.to_owned();
+    }
+    first.unwrap_or_else(|| text.to_owned())
+}
+
+/// A multi-value text (ID3v2.4 separates values with NUL) as one value:
+/// the non-blank parts joined with `", "`. Nothing else in it is touched:
+/// a value is never altered silently, and the writer reports a character
+/// XML can't carry. Values aren't trimmed either (only an all-blank value
+/// is none).
+fn join_values(text: &str) -> Option<String> {
+    let parts: Vec<&str> = text.split('\0').filter(|p| !p.trim().is_empty()).collect();
+    (!parts.is_empty()).then(|| parts.join(JOIN))
+}
+
+/// What joins several values of one field.
+const JOIN: &str = ", ";
+
 /// The value as the attribute takes it, or `None` for no value.
-fn clean(attribute: &str, text: &str) -> Option<String> {
+fn clean(block: &str, attribute: &str, text: &str) -> Option<String> {
     if text.trim().is_empty() {
         return None;
     }
@@ -158,7 +224,8 @@ fn clean(attribute: &str, text: &str) -> Option<String> {
         (!digits.is_empty() && digits.len() <= max).then_some(digits)
     };
     match attribute {
-        // `2020`, `2020-05-01`, but not `20200501` or `May`.
+        // `2020`, `2020-05-01`, but not `20200501`, `May` or `0999`; the
+        // same range as `tags::parse_year`.
         "Year" => {
             let text = text.trim_start();
             let year: String = text.chars().take(4).collect();
@@ -167,17 +234,29 @@ fn clean(attribute: &str, text: &str) -> Option<String> {
                 && year.chars().all(|c| c.is_ascii_digit())
                 && !rest.starts_with(|c: char| c.is_ascii_digit()))
             .then_some(year)
+            .filter(|y| (1000..=9999).contains(&y.parse::<u32>().unwrap_or(0)))
         }
         "TrackNumber" | "DiscNumber" => leading_digits(5)
             .and_then(|d| d.parse::<u32>().ok())
             .filter(|n| *n > 0)
             .map(|n| n.to_string()),
-        _ => Some(text.to_owned()),
+        "Genre" if block == "id3v2" => {
+            let parts: Vec<String> = text
+                .split('\0')
+                .filter(|p| !p.trim().is_empty())
+                .map(genre)
+                .collect();
+            (!parts.is_empty()).then(|| parts.join(JOIN))
+        }
+        _ => join_values(text),
     }
 }
 
 /// Every mapped field the file's `raw_tags` give, one value each, in the
-/// order of [`TAG_ATTRIBUTES`]. Tags that don't parse give nothing.
+/// order of [`TAG_ATTRIBUTES`]. Tags that don't parse give nothing. In
+/// Vorbis and APE blocks a repeated item (two `ARTIST`s) is one value, the
+/// items joined like a NUL-separated one; the first block with the field
+/// gives it.
 pub fn read(raw_tags: &str) -> Vec<TagValue> {
     let Ok(Value::Object(blocks)) = serde_json::from_str::<Value>(raw_tags) else {
         return Vec::new();
@@ -187,26 +266,43 @@ pub fn read(raw_tags: &str) -> Vec<TagValue> {
         let Some(Value::Array(items)) = blocks.get(block) else {
             continue;
         };
+        let repeats_join = matches!(block, "vorbis_comments" | "ape");
+        // This block's values, by attribute, in item order.
+        let mut here: Vec<(&'static str, Vec<String>, String)> = Vec::new();
         for item in items {
             let key = item.get("key").and_then(Value::as_str).unwrap_or("");
             let Some(attribute) = attribute_for(block, key) else {
                 continue;
             };
-            if found.iter().any(|f| f.attribute == attribute) {
-                continue;
-            }
             let value = item.get("value");
             let text = value.and_then(|v| v.get("text")).and_then(Value::as_str);
             let cut = value.and_then(|v| v.get("full_len")).is_some();
-            if let (Some(text), false) = (text, cut) {
-                if let Some(value) = clean(attribute, text) {
-                    found.push(TagValue {
-                        attribute,
-                        value,
-                        tag: format!("{block}:{key}"),
-                    });
-                }
+            let (Some(text), false) = (text, cut) else {
+                continue;
+            };
+            let Some(value) = clean(block, attribute, text) else {
+                continue;
+            };
+            match here.iter_mut().find(|(a, _, _)| *a == attribute) {
+                Some((_, values, _)) => values.push(value),
+                None => here.push((attribute, vec![value], format!("{block}:{key}"))),
             }
+        }
+        for (attribute, values, tag) in here {
+            if found.iter().any(|f| f.attribute == attribute) {
+                continue;
+            }
+            let value =
+                if repeats_join && !matches!(attribute, "Year" | "TrackNumber" | "DiscNumber") {
+                    values.join(JOIN)
+                } else {
+                    values[0].clone()
+                };
+            found.push(TagValue {
+                attribute,
+                value,
+                tag,
+            });
         }
     }
     found.sort_by_key(|f| TAG_ATTRIBUTES.iter().position(|a| *a == f.attribute));
@@ -327,10 +423,88 @@ mod tests {
 
     #[test]
     fn a_year_is_four_digits_not_a_longer_number() {
-        assert_eq!(clean("Year", "2020").as_deref(), Some("2020"));
-        assert_eq!(clean("Year", "2020-05-01").as_deref(), Some("2020"));
-        assert_eq!(clean("Year", "20200501"), None);
-        assert_eq!(clean("Year", "99"), None);
+        let year = |t| clean("id3v2", "Year", t);
+        assert_eq!(year("2020").as_deref(), Some("2020"));
+        assert_eq!(year("2020-05-01").as_deref(), Some("2020"));
+        assert_eq!(year("20200501"), None);
+        assert_eq!(year("99"), None);
+    }
+
+    #[test]
+    fn a_year_outside_1000_to_9999_gives_no_year() {
+        for text in ["0000", "0999", "0001"] {
+            assert_eq!(clean("id3v2", "Year", text), None, "{text}");
+        }
+        assert_eq!(clean("id3v2", "Year", "1000").as_deref(), Some("1000"));
+        assert_eq!(clean("id3v2", "Year", "9999").as_deref(), Some("9999"));
+    }
+
+    #[test]
+    fn values_separated_by_nul_are_joined_with_a_comma() {
+        let v = read(&raw(
+            json!({"id3v2": [text("TPE1", "A\0B"), text("TCOM", "C\0")]}),
+        ));
+        assert_eq!(get(&v, "Artist"), Some("A, B"));
+        // A trailing separator is just the end of the value.
+        assert_eq!(get(&v, "Composer"), Some("C"));
+    }
+
+    #[test]
+    fn a_lone_nul_is_no_value() {
+        assert!(read(&raw(json!({"id3v2": [text("TPE1", "\0")]}))).is_empty());
+    }
+
+    #[test]
+    fn a_repeated_vorbis_or_ape_item_is_one_joined_value() {
+        let v = read(&raw(json!({"vorbis_comments": [
+            text("ARTIST", "One"), text("TITLE", "T"), text("ARTIST", "Two"),
+            text("GENRE", "House\0Techno"),
+        ]})));
+        assert_eq!(get(&v, "Artist"), Some("One, Two"));
+        assert_eq!(get(&v, "Genre"), Some("House, Techno"));
+        // The tag named is the first item's.
+        let artist = v.iter().find(|t| t.attribute == "Artist").unwrap();
+        assert_eq!(artist.tag, "vorbis_comments:ARTIST");
+        let ape = read(&raw(
+            json!({"ape": [text("Artist", "A"), text("Artist", "B")]}),
+        ));
+        assert_eq!(get(&ape, "Artist"), Some("A, B"));
+        // Other blocks give their first item only.
+        let id3 = read(&raw(
+            json!({"id3v2": [text("TPE1", "First"), text("TPE1", "Second")]}),
+        ));
+        assert_eq!(get(&id3, "Artist"), Some("First"));
+    }
+
+    #[test]
+    fn other_control_characters_and_spaces_are_kept_as_they_are() {
+        let comment = " line1\nline2\t\u{1} ";
+        let v = read(&raw(json!({"id3v2": [text("COMM::eng", comment)]})));
+        assert_eq!(get(&v, "Comments"), Some(comment));
+    }
+
+    #[test]
+    fn old_numeric_genres_are_resolved_through_the_id3v1_list() {
+        for (tcon, expected) in [
+            ("(17)", "Rock"),
+            ("17", "Rock"),
+            ("(17)Hard Rock", "Hard Rock"),
+            ("(17)(0)", "Rock"),
+            ("((Rock)", "(Rock)"),
+            ("House", "House"),
+            ("(17)\0(0)", "Rock, Blues"),
+            // An unknown number, and codes with nothing after them, stay.
+            ("(250)", "(250)"),
+            ("250", "250"),
+            ("(RX)", "(RX)"),
+            ("(RX)Remix", "Remix"),
+        ] {
+            let v = read(&raw(json!({"id3v2": [text("TCON", tcon)]})));
+            assert_eq!(get(&v, "Genre"), Some(expected), "{tcon:?}");
+        }
+        // Only ID3v2 genres are read this way.
+        let v = read(&raw(json!({"vorbis_comments": [text("GENRE", "17")]})));
+        assert_eq!(get(&v, "Genre"), Some("17"));
     }
 
     #[test]

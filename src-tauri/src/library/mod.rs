@@ -430,7 +430,7 @@ pub struct StoredFile {
 impl StoredFile {
     /// The file for the frontend, placed under its volume's mount point
     /// now, or under the last one if the volume is offline.
-    pub fn shown(&self, volumes: &impl Volumes) -> LinkedFile {
+    pub(crate) fn shown(&self, volumes: &impl Volumes) -> LinkedFile {
         let stored = StoredPath::new(self.volume.clone(), self.rel.clone());
         let path = match stored.resolve(volumes) {
             Ok(abs) => display_path(&abs),

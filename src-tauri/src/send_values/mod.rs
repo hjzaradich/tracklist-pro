@@ -15,14 +15,26 @@
 //! what it knows.
 //!
 //! **A track rekordbox doesn't know:** values come from the track's files.
+//! That includes a track whose *linked file* rekordbox doesn't hold but
+//! another file of the same track it does (a duplicate): a send would add
+//! the linked file as a second entry (rule 3, case A is "already in
+//! rekordbox at this Location"), so it's treated as new and
+//! [`TrackValues::rekordbox_holds_other_file`] names the other file, for
+//! the send flow to warn about. Nothing is re-pointed here (1bE-6 decides
+//! that).
 //! - *Tags* ([`tag_fields`] has the mapping): per field the linked file's
 //!   tag if it has a value, else the first value among the track's other
 //!   files that are on disk, in best-file order (role `best` first, then
-//!   the lowest file id).
+//!   the lowest file id). Values are as the tag has them: several values
+//!   in one field are joined with `, `, a legacy numeric genre becomes its
+//!   name, a year must be 1000-9999, and nothing is trimmed or stripped
+//!   (a character XML can't carry is the writer's to report).
 //! - *File facts* (`Kind`, `Size`, `TotalTime`, `BitRate`, `SampleRate`)
 //!   come from the linked file itself, as the last scan and read recorded
 //!   them (§5.3: never from rekordbox). `TotalTime` is whole seconds,
-//!   truncated. `Kind` is only given for formats rekordbox plays.
+//!   truncated. `Kind` is only given for formats rekordbox plays; "M4A
+//!   File" for MP4 (AAC and ALAC alike) is unverified (the rb-kit check
+//!   should confirm it once).
 //! - `Location` is the linked file's full path, plain: the writer encodes
 //!   it (rule 5). On an unplugged drive it's the path under the drive
 //!   letter it was last seen at.
@@ -94,6 +106,14 @@ pub struct Disagreement {
     pub values: Vec<FileValue>,
 }
 
+/// Another file of the same track that rekordbox holds a trusted entry for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiblingEntry {
+    pub file_id: i64,
+    /// rekordbox's `TrackID` for it (valid within the last read).
+    pub track_id: i64,
+}
+
 /// What a send would write for one track.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackValues {
@@ -105,6 +125,12 @@ pub struct TrackValues {
     /// Always empty for a track rekordbox knows: nothing is picked from
     /// tags there.
     pub disagreements: Vec<Disagreement>,
+    /// Set when the track isn't known at the linked file but rekordbox
+    /// holds another file of it (a duplicate): a send would add the linked
+    /// file as a second rekordbox entry beside that one, and the send flow
+    /// can warn. The linked file stays as it is (no re-pointing here).
+    /// Always `None` for a track rekordbox knows.
+    pub rekordbox_holds_other_file: Option<SiblingEntry>,
 }
 
 impl TrackValues {
@@ -239,23 +265,28 @@ pub fn send_values(
         files.insert(id, info);
     }
 
-    // 4. The trusted rekordbox entry for each linked file (a track
-    //    rekordbox knows), the most played if it holds several, then the
-    //    lowest TrackID.
-    let linked = json(&mut rows.values().filter_map(|r| r.linked_file));
+    // 4. The trusted rekordbox entry for each file (the linked file's
+    //    makes a track rekordbox knows; another file's is a sibling), the
+    //    most played if it holds several, then the lowest TrackID.
     let mut entry_for: HashMap<i64, (i64, i64)> = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT file_id, id, track_id FROM rekordbox_track
          WHERE relink_probable = 0 AND file_id IN (SELECT value FROM json_each(?1))
          ORDER BY file_id, COALESCE(play_count, 0) DESC, track_id",
     )?;
-    for row in stmt.query_map([&linked], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))? {
+    for row in stmt.query_map([&file_ids], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))? {
         let (file, entry): (i64, (i64, i64)) = row?;
         entry_for.entry(file).or_insert(entry);
     }
 
-    // 5. Those entries' attributes, in the order rekordbox wrote them.
-    let entries = json(&mut entry_for.values().map(|e| e.0));
+    // 5. The attributes of the linked files' entries, in the order
+    //    rekordbox wrote them.
+    let entries = json(
+        &mut rows
+            .values()
+            .filter_map(|r| r.linked_file)
+            .filter_map(|f| entry_for.get(&f).map(|e| e.0)),
+    );
     let mut attributes: HashMap<i64, Vec<(String, String)>> = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT rt.id, j.key, j.atom FROM rekordbox_track rt, json_each(rt.attributes) j
@@ -315,12 +346,14 @@ impl<V: Volumes> World<'_, V> {
         if !file.present {
             return Outcome::CannotSend(CannotSend::FileMissing { file_id });
         }
-        let Some(stored) = &file.stored else {
-            return Outcome::CannotSend(CannotSend::NoLocation { file_id });
-        };
+        // rekordbox's own Location is sent for a track it knows, so that
+        // doesn't need the path to read back.
         if let Some(&(entry, track_id)) = self.entry_for.get(&file_id) {
             return Outcome::Ready(self.known(entry, track_id));
         }
+        let Some(stored) = &file.stored else {
+            return Outcome::CannotSend(CannotSend::NoLocation { file_id });
+        };
         Outcome::Ready(self.unknown(row, file_id, file, stored))
     }
 
@@ -341,6 +374,7 @@ impl<V: Volumes> World<'_, V> {
             in_rekordbox: true,
             values,
             disagreements: Vec::new(),
+            rekordbox_holds_other_file: None,
         }
     }
 
@@ -428,10 +462,23 @@ impl<V: Volumes> World<'_, V> {
         values.extend(facts);
         // rekordbox's own order of attributes.
         values.sort_by_key(|v| attribute_rank(&v.attribute));
+        let rekordbox_holds_other_file = self
+            .by_recording
+            .get(&row.recording)
+            .into_iter()
+            .flatten()
+            .filter(|&&f| f != file_id)
+            .find_map(|f| {
+                self.entry_for.get(f).map(|&(_, track_id)| SiblingEntry {
+                    file_id: *f,
+                    track_id,
+                })
+            });
         TrackValues {
             in_rekordbox: false,
             values,
             disagreements,
+            rekordbox_holds_other_file,
         }
     }
 }
