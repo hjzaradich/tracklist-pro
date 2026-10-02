@@ -139,10 +139,10 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 5:** ✅ 1aE-11 Record `sync_base` for every field sent (field names = the rekordbox XML attribute names; then enforce in the DB that analysis fields never become conflicts)
 - **Follow-up:** ✅ 1aE-12 Bulk undo recording speed: adding 10,000 Library tracks as one operation took 20 s and undoing it 24 s on a debug build (measured in review of 1aE-2..4); the cost is per row in `ops::Recorder`. Measure on a release build, then make bulk adds, removals and their undo fast enough to feel immediate at 10,000 tracks, with the UI showing a busy state meanwhile
 
-### Stage 1aF: Send flow
+### Stage 1aF: Send flow ✅
 - **Lane 1:** ✅ 1aF-1 Guided send checklist UI + the "don't play in between" warning
 - **Lane 2:** ✅ 1aF-2 Stale-playlist and manual-removal lists after each send
-- **Follow-up:** 1aF-3 Copy pipeline (owner decision 2026-10-01): a notes file per locale namespace (purpose, where it appears, approved text) with a CI check; tests look text up by key instead of pinning English; a script lists strings still proposed. Copy is then approved before each phase checkpoint, not before each merge
+- **Follow-up:** ✅ 1aF-3 Copy pipeline (owner decision 2026-10-01): a notes file per locale namespace (purpose, where it appears, approved text) with a CI check; tests look text up by key instead of pinning English; a script lists strings still proposed. Copy is then approved before each phase checkpoint, not before each merge
 
 ### Stage 1aG: Phase 1a check 👤
 - **Owner decisions (2026-10-01):** the cycles run on an installed build, not the developer build. Cycle 1 runs against a backup copy of the rekordbox library and doubles as the open rekordbox checks; cycle 2 runs on the real library around a practice gig. During the check, only problems that give wrong data or stop a cycle are fixed at once; everything else is logged in `DOGFOOD.md` and sorted at the checkpoint. `DOGFOOD.md` is public: no track or artist names in it.
