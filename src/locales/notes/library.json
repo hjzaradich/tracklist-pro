@@ -131,6 +131,7 @@
   },
   "error.matchNotConfirmed": {
     "purpose": "Error: the track can't be added because one of its files is only the probable match of a rekordbox track, and matches can't be confirmed yet.",
-    "where": "Shown where adding a track is refused for that reason. All music greys the button out instead, so this is the fallback if the add is asked for anyway."
+    "where": "Shown where adding a track is refused for that reason. All music greys the button out instead, so this is the fallback if the add is asked for anyway.",
+    "approved": "Can't add: this track's rekordbox match is uncertain"
   }
 }

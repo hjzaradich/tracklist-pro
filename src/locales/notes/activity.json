@@ -71,7 +71,8 @@
   },
   "task.quality": {
     "purpose": "Names the job that measures each file's audio quality.",
-    "where": "Top bar, Activity status and list rows, after the fingerprints, while each file is analyzed for its frequency range, length and decoding errors."
+    "where": "Top bar, Activity status and list rows, after the fingerprints, while each file is analyzed for its frequency range, length and decoding errors.",
+    "approved": "Checking audio quality"
   },
   "percent": {
     "purpose": "A task name with its progress.",
