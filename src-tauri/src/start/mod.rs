@@ -193,7 +193,8 @@ fn sort(conn: &Connection, playlists: Option<&[PlaylistPath]>) -> rusqlite::Resu
             Ok(Plan::Link(choice)) => sorted.to_add.push((recording, choice.file_id)),
             // The matched file has gone from disk since it was matched.
             Err(Refusal::FileMissing { .. }) => sorted.waiting_in_missing += 1,
-            Err(Refusal::NoFile | Refusal::TrackNotFound) => {}
+            // A trusted match is never held back for a probable one.
+            Err(Refusal::NoFile | Refusal::TrackNotFound | Refusal::MatchNotConfirmed) => {}
         }
     }
     Ok(sorted)

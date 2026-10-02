@@ -200,7 +200,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -264,6 +264,13 @@ export type AllMusicTrack = {
 	 */
 	file: LinkedFile | null,
 	inLibrary: boolean,
+	/**
+	 *  One of its files is the probable match of a rekordbox track, and
+	 *  the match can't be confirmed yet: it can't be added to the Library
+	 *  ([`library::match_not_confirmed`]). The row says so and its "Add
+	 *  to Library" is greyed out.
+	 */
+	matchNotConfirmed: boolean,
 };
 
 /**  The app's name, version and bundle ID, as the frontend sees them. */
@@ -373,6 +380,11 @@ export type ErrorKind =
 "libraryNoFile" | 
 /**  The file the Library track would link to isn't on disk. */
 "libraryFileMissing" | 
+/**
+ *  The track's match to a rekordbox track is only probable, and can't
+ *  be confirmed yet.
+ */
+"libraryMatchNotConfirmed" | 
 /**  There's no crate with that id. */
 "crateNotFound" | 
 /**  The crate's name is empty. */
@@ -678,7 +690,8 @@ export type ManualRemoval = {
 	artist: string | null,
 	/**
 	 *  Where it was sent, as Windows writes it, so the user can find it in
-	 *  rekordbox. `None` if the sent `Location` can't be read back: the row
+	 *  rekordbox; for a track that was never sent, where rekordbox's own
+	 *  entry for it is. `None` if the sent `Location` can't be read back: the row
 	 *  then shows only the track's name, and leaves the list once a read made
 	 *  after the removal has no row matched to the track.
 	 */
@@ -916,6 +929,12 @@ export type RefusalReason =
  *  some of rekordbox's values would come from an older read.
  */
 "incompleteExport" | 
+/**
+ *  The export just read was saved before the last send was recorded:
+ *  it can't hold what that send put in rekordbox, so tracks rekordbox
+ *  now has would go out as new. The user exports again.
+ */
+"exportOlderThanLastSend" | 
 /**
  *  Two crates, playlists or folders in one folder share a name (or
  *  names rekordbox may treat as one): one would replace the other.

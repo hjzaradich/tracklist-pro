@@ -110,6 +110,9 @@ error_kinds! {
     LibraryNoFile => "library:error.noFile", params: [];
     /// The file the Library track would link to isn't on disk.
     LibraryFileMissing => "library:error.fileMissing", params: ["path"];
+    /// The track's match to a rekordbox track is only probable, and can't
+    /// be confirmed yet.
+    LibraryMatchNotConfirmed => "library:error.matchNotConfirmed", params: [];
     /// There's no crate with that id.
     CrateNotFound => "crates:error.notFound", params: [];
     /// The crate's name is empty.

@@ -156,6 +156,9 @@ pub enum LibraryError {
     NoFile,
     /// The file the track would link to isn't on disk.
     FileMissing { path: String },
+    /// One of the track's files is the probable match of a rekordbox
+    /// track, and nothing can confirm that match yet.
+    MatchNotConfirmed,
     /// The database or the operation log failed.
     Ops(OpsError),
 }
@@ -187,6 +190,7 @@ impl From<LibraryError> for IpcError {
                 ErrorKind::LibraryFileMissing,
                 [("path", ErrorParam::from(path))],
             ),
+            LibraryError::MatchNotConfirmed => IpcError::new(ErrorKind::LibraryMatchNotConfirmed),
             LibraryError::Ops(e) => IpcError::from(e),
         }
     }
@@ -245,11 +249,33 @@ pub fn linked_file_for(
     .optional()
 }
 
+/// Whether `recording` would be linked to a file rekordbox isn't known to
+/// use, while one of its files is the *probable* match of a rekordbox
+/// entry (`relink_probable = 1`). Added like that, the track would go to
+/// rekordbox as a new one, beside the entry that is probably its own: a
+/// second entry, without the cues. So it can't be added until the match
+/// can be confirmed (1bE-6). A track that also has a trusted match is
+/// linked to that file and isn't held back.
+pub fn match_not_confirmed(conn: &Connection, recording: i64) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM rekordbox_track rt
+                        JOIN recording_file rf ON rf.file_id = rt.file_id
+                        WHERE rf.recording_id = ?1 AND rt.relink_probable = 1)
+            AND NOT EXISTS (SELECT 1 FROM rekordbox_track rt
+                            JOIN recording_file rf ON rf.file_id = rt.file_id
+                            WHERE rf.recording_id = ?1 AND rt.relink_probable = 0)",
+        [recording],
+        |r| r.get(0),
+    )
+}
+
 /// Why [`check`] refused a track, before any path is made readable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     TrackNotFound,
     NoFile,
+    /// See [`match_not_confirmed`].
+    MatchNotConfirmed,
     /// The chosen file isn't on disk.
     FileMissing {
         file_id: i64,
@@ -287,6 +313,7 @@ pub fn check(conn: &Connection, recording: i64) -> rusqlite::Result<Result<Plan,
     }
     Ok(match linked_file_for(conn, recording)? {
         None => Err(Refusal::NoFile),
+        Some(_) if match_not_confirmed(conn, recording)? => Err(Refusal::MatchNotConfirmed),
         Some(choice) if !choice.present => Err(Refusal::FileMissing {
             file_id: choice.file_id,
         }),
@@ -541,6 +568,7 @@ pub fn promote_with(
         }
         (Err((Refusal::TrackNotFound, _)), _) => Err(LibraryError::TrackNotFound),
         (Err((Refusal::NoFile, _)), _) => Err(LibraryError::NoFile),
+        (Err((Refusal::MatchNotConfirmed, _)), _) => Err(LibraryError::MatchNotConfirmed),
         (Err((Refusal::FileMissing { .. }, file)), _) => Err(LibraryError::FileMissing {
             path: file.map(|f| f.shown(volumes)).unwrap_or_default(),
         }),

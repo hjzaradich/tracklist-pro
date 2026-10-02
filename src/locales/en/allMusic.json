@@ -10,5 +10,6 @@
     "library": "Library"
   },
   "add": "Add to Library",
-  "inLibrary": "In Library"
+  "inLibrary": "In Library",
+  "matchNotConfirmed": "Waiting for a match to be confirmed"
 }

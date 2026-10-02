@@ -127,14 +127,8 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
             reason: RefusalReason::IncompleteExport,
             path: Vec::new(),
         });
-    }
-    // Nor an export saved before the last send: it shows rekordbox as it
-    // was before that send was imported.
-    else if last_send_ms(conn)?.is_some_and(|sent| read.modified_ms < sent) {
-        preflight.refusal = Some(Refusal {
-            reason: RefusalReason::ExportOlderThanLastSend,
-            path: Vec::new(),
-        });
+    } else if let Some(refusal) = export_older_than_last_send(conn, read.modified_ms)? {
+        preflight.refusal = Some(refusal);
     }
     let outgoing = outgoing.filter(|_| preflight.refusal.is_none());
     preflight.can_send = preflight.refusal.is_none() && !preflight.nothing_to_send;
@@ -144,6 +138,26 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
     Ok(Some(Reviewed {
         preflight,
         outgoing,
+    }))
+}
+
+/// What a send from an export saved at `export_modified_ms` gets when that
+/// is before the last send was recorded: such an export shows rekordbox as
+/// it was before that send was imported, so tracks rekordbox now has would
+/// go out as new. It's refused as a whole, and the user exports again
+/// (owner decision, 2026-10-02). `None` when the export is from the very
+/// millisecond of the last send or later, or no send was ever recorded.
+///
+/// The comparison and what follows from it are decided here and nowhere
+/// else.
+fn export_older_than_last_send(
+    conn: &Connection,
+    export_modified_ms: i64,
+) -> rusqlite::Result<Option<Refusal>> {
+    let older = last_send_ms(conn)?.is_some_and(|sent| export_modified_ms < sent);
+    Ok(older.then(|| Refusal {
+        reason: RefusalReason::ExportOlderThanLastSend,
+        path: Vec::new(),
     }))
 }
 

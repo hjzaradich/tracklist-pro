@@ -48,5 +48,9 @@
     "purpose": "Says a track is already in the Library.",
     "where": "All music table, Library column, on a track already in it.",
     "approved": "In Library"
+  },
+  "matchNotConfirmed": {
+    "purpose": "Reason a track can't be added to the Library: one of its files is the probable match of a rekordbox track, and that match can't be confirmed yet.",
+    "where": "All music list, Library column, beside a greyed-out Add to Library button."
   }
 }
