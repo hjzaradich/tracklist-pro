@@ -465,6 +465,35 @@ fn a_walk_that_finds_nothing_new_or_changed_queues_no_stage_job() {
 }
 
 #[test]
+fn quality_is_measured_when_the_hashes_are_in_even_if_no_fingerprints_are_due() {
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", &audio::mp3());
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    let count = |kind: &str| kinds(&writer).iter().filter(|k| *k == kind).count();
+    assert_eq!((count("fingerprint"), count("quality")), (1, 1));
+
+    // As after an update that adds a measurement: the file is hashed and
+    // fingerprinted already, and has no measurement yet.
+    writer
+        .call(|c| c.execute("DELETE FROM file_quality", []))
+        .unwrap();
+    queue.enqueue(crate::hash::hash_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count("fingerprint"), 1, "nothing was due a fingerprint");
+    assert_eq!(count("quality"), 2, "the measurement didn't wait for one");
+    let measured: i64 = writer
+        .call(|c| c.query_row("SELECT COUNT(*) FROM file_quality", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(measured, 1);
+    queue.shutdown();
+}
+
+#[test]
 fn a_walk_that_stops_early_queues_nothing() {
     let (_dir, volume, music) = drive();
     put(&music, "a.mp3", &audio::mp3());

@@ -202,6 +202,47 @@ fn a_damaged_frame_the_decoder_skips_silently_still_shows_as_missing_time() {
     assert!(m.cutoff.is_ok());
 }
 
+/// An MP3 whose frame headers are intact and whose side information (the
+/// part that says how to decode the frame) is garbage in every frame.
+#[cfg(windows)]
+fn mp3_with_every_frame_damaged() -> Vec<u8> {
+    let mut mp3 = audio::mp3(&pcm(&noise(40, 20.0, RATE, 0.1), RATE), 192);
+    // 192 kbps at 44.1 kHz: 626 bytes, 627 with the padding bit.
+    let mut at = 0;
+    let mut frame = 0;
+    while at + 4 < mp3.len() && mp3[at] == 0xFF {
+        let len = 626 + usize::from((mp3[at + 2] >> 1) & 1);
+        let end = (at + 36).min(mp3.len());
+        for b in &mut mp3[at + 4..end] {
+            *b = 0xFF;
+        }
+        at += len;
+        frame += 1;
+    }
+    assert!(frame > 100, "{frame} frames found");
+    mp3
+}
+
+#[cfg(windows)]
+#[test]
+fn a_file_where_every_packet_fails_is_damaged_the_same_word_a_fingerprint_uses() {
+    let bytes = mp3_with_every_frame_damaged();
+    let measured = measure(source(&bytes), &mut |_| true);
+    let fingerprinted = crate::fingerprint::decode::fingerprint(source(&bytes), &mut |_| true);
+    let Err(Stopped::Failed(why)) = measured else {
+        panic!("expected a failure: {measured:?}");
+    };
+    assert_eq!(why, Unfingerprintable::Damaged);
+    assert_eq!(Failure::of(why), Some(Failure::Damaged));
+    assert!(
+        matches!(
+            fingerprinted,
+            Err(Stopped::Failed(Unfingerprintable::Damaged))
+        ),
+        "{fingerprinted:?}"
+    );
+}
+
 #[test]
 fn every_decode_error_is_filed_under_its_kind() {
     assert_eq!(Errors::default().kinds_json(), None);

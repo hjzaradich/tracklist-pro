@@ -161,7 +161,13 @@ pub fn measure(
     let rate = f64::from(walked.rate.max(1));
     let ms = |frames: u64| (frames as f64 / rate * 1000.0).round() as i64;
     let Some(meter) = meter else {
-        return Err(Unfingerprintable::NoAudio.into());
+        // Nothing decoded: the same two words as for a fingerprint.
+        return Err(if walked.end == End::GaveUp {
+            Unfingerprintable::Damaged
+        } else {
+            Unfingerprintable::NoAudio
+        }
+        .into());
     };
     Ok(Measured {
         cutoff: meter.finish(),
