@@ -257,8 +257,8 @@ export type AllMusicTrack = {
 	/**  The track's id, as "Add to Library" takes it. */
 	recordingId: number,
 	/**
-	 *  `None` when the track has none yet; the list then shows the file's
-	 *  name as the title.
+	 *  The title shown: the track's own, else what a send would write for
+	 *  it, else the file's name. `None` only when the track has no file.
 	 */
 	title: string | null,
 	artist: string | null,
@@ -617,8 +617,9 @@ export type LibraryTrack = {
 	recordingId: number,
 	kind: LibraryTrackKind,
 	/**
-	 *  The track's title and artist. `None` when it has none yet; the list
-	 *  then shows the linked file's name as the title.
+	 *  The title and artist the list shows: what a send writes for the
+	 *  track, else (for the title) the file's name. `None` only when the
+	 *  track has neither.
 	 */
 	title: string | null,
 	artist: string | null,
@@ -690,6 +691,10 @@ export type LosesEntries = {
 /**  A removed track to remove in rekordbox by hand. */
 export type ManualRemoval = {
 	recordingId: number,
+	/**
+	 *  What rekordbox shows for it if it has a row at the sent `Location`,
+	 *  else the file's tags, else the file's name ([`shown_removed`]).
+	 */
 	title: string | null,
 	artist: string | null,
 	/**
