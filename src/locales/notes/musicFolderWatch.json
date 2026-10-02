@@ -1,0 +1,7 @@
+{
+  "watch": {
+    "purpose": "Label of the per-folder switch that rescans when files change.",
+    "where": "Music folder list, a checkbox on each folder row (first-run music folders panel).",
+    "approved": "Watch for changes"
+  }
+}

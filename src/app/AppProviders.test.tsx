@@ -15,6 +15,7 @@ import i18n from "../i18n";
 import { AppProviders } from "./AppProviders";
 import { createQueryClient } from "./queryClient";
 import { renderApp } from "./testApp";
+import { tx } from "../test/tx";
 
 /**
  * A routed component that needs every provider: it reads i18n from React
@@ -50,14 +51,14 @@ function renderProbe() {
 describe("app providers", () => {
   it("render the app's routes inside the layout shell", async () => {
     renderApp("/overview");
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Stages" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: tx("shell:stages.overview") })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: tx("shell:stages.label") })).toBeInTheDocument();
   });
 
   it("keep the theme switch reachable from the top bar", async () => {
     renderApp("/");
     const topBar = await screen.findByRole("banner");
-    expect(within(topBar).getByRole("radiogroup", { name: "Theme" })).toBeInTheDocument();
+    expect(within(topBar).getByRole("radiogroup", { name: tx("theme:label") })).toBeInTheDocument();
   });
 
   it("give routed components query results through TanStack Query", async () => {
@@ -70,7 +71,7 @@ describe("app providers", () => {
     const probe = await screen.findByTestId("probe");
     expect(probe).toHaveAttribute("data-i18n-from-context", "true");
     // The translated value, not the key "appName".
-    expect(probe).toHaveTextContent("tracklist-pro");
+    expect(probe).toHaveTextContent(tx("common:appName"));
   });
 });
 

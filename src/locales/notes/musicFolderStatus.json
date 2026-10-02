@@ -1,0 +1,62 @@
+{
+  "empty": {
+    "purpose": "Says there are no music folders.",
+    "where": "First-run music folders panel, in place of the folder list when it's empty.",
+    "approved": "No music folders"
+  },
+  "offline": {
+    "purpose": "Note that a folder's drive isn't connected (drive has no label).",
+    "where": "Music folder list, under a folder on a drive that isn't connected.",
+    "approved": "Drive not connected"
+  },
+  "offlineNamed": {
+    "purpose": "Note that a folder's drive isn't connected, naming the drive.",
+    "where": "Music folder list, under a folder on an unconnected drive that has a label ({{label}}).",
+    "approved": "Drive not connected ({{label}})"
+  },
+  "notScanned": {
+    "purpose": "Note that a folder hasn't been scanned.",
+    "where": "Music folder list, under a folder that has never finished a scan.",
+    "approved": "Not scanned yet"
+  },
+  "unreadableFolders_one": {
+    "purpose": "Note that one folder couldn't be read.",
+    "where": "Music folder list, under a folder where the scan couldn't read one sub-folder.",
+    "approved": "{{count}} folder couldn't be read"
+  },
+  "unreadableFolders_other": {
+    "purpose": "Note that several folders couldn't be read.",
+    "where": "Music folder list, under a folder where the scan couldn't read several sub-folders.",
+    "approved": "{{count}} folders couldn't be read"
+  },
+  "unreadableFiles_one": {
+    "purpose": "Note that one file couldn't be read.",
+    "where": "Music folder list, under a folder where the scan couldn't read one file.",
+    "approved": "{{count}} file couldn't be read"
+  },
+  "unreadableFiles_other": {
+    "purpose": "Note that several files couldn't be read.",
+    "where": "Music folder list, under a folder where the scan couldn't read several files.",
+    "approved": "{{count}} files couldn't be read"
+  },
+  "onlineOnly_one": {
+    "purpose": "Note that one file is online only (OneDrive), not downloaded.",
+    "where": "Music folder list, under a folder with one online-only file.",
+    "approved": "{{count}} file online only (not downloaded)"
+  },
+  "onlineOnly_other": {
+    "purpose": "Note that several files are online only (OneDrive), not downloaded.",
+    "where": "Music folder list, under a folder with several online-only files.",
+    "approved": "{{count}} files online only (not downloaded)"
+  },
+  "readOnlineOnly": {
+    "purpose": "Label of the switch that lets the app read online-only files.",
+    "where": "Settings switch (a component for the future settings screen; not on a screen yet).",
+    "approved": "Read online-only files"
+  },
+  "readOnlineOnlyHelp": {
+    "purpose": "Explains what the online-only switch does (OneDrive downloads files the app reads).",
+    "where": "Settings switch, help text under it (component not on a screen yet).",
+    "approved": "OneDrive downloads every file the app reads. When off, online-only files are listed but not read."
+  }
+}

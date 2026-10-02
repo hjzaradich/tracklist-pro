@@ -7,6 +7,7 @@ import { createQueryClient } from "../app/queryClient";
 import type { LibraryTrack } from "../bindings";
 import "../i18n";
 import { LibraryScreen } from "./LibraryScreen";
+import { tx } from "../test/tx";
 
 function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
   return {
@@ -69,7 +70,7 @@ describe("the Library screen", () => {
   it("names what's absent when there are no Library tracks", async () => {
     library([]);
     renderScreen();
-    expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
+    expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
   });
 
@@ -78,18 +79,18 @@ describe("the Library screen", () => {
     renderScreen();
     const [first, second] = await rows();
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
-      "Title",
-      "Artist",
-      "File",
-      "Actions",
+      tx("library:columns.title"),
+      tx("library:columns.artist"),
+      tx("library:columns.file"),
+      tx("library:columns.actions"),
     ]);
     expect(
       within(first)
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
-    ).toEqual(["Synthetic Tune 2", "Made Up Artist 2", String.raw`E:\Music\tune 2.mp3`, "Remove"]);
+    ).toEqual(["Synthetic Tune 2", "Made Up Artist 2", String.raw`E:\Music\tune 2.mp3`, tx("library:remove.button")]);
     expect(second).toHaveTextContent("Synthetic Tune 1");
-    expect(screen.queryByText("No Library tracks")).toBeNull();
+    expect(screen.queryByText(tx("library:empty"))).toBeNull();
     // Nothing to say about a track whose file is there.
     expect(first).not.toHaveAttribute("aria-describedby");
   });
@@ -102,7 +103,7 @@ describe("the Library screen", () => {
       within(row)
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
-    ).toEqual(["tune 1.mp3", "", String.raw`E:\Music\tune 1.mp3`, "Remove"]);
+    ).toEqual(["tune 1.mp3", "", String.raw`E:\Music\tune 1.mp3`, tx("library:remove.button")]);
   });
 
   it("says so next to a track whose file is missing", async () => {
@@ -110,24 +111,22 @@ describe("the Library screen", () => {
     library([track(1), gone]);
     renderScreen();
     const [here, missing] = await rows();
-    expect(missing).toHaveAccessibleDescription("File missing");
+    expect(missing).toHaveAccessibleDescription(tx("library:fileMissing"));
     expect(missing).toHaveTextContent(String.raw`E:\Music\gone.mp3`);
     expect(missing).toHaveAttribute("data-file-present", "false");
-    expect(here).not.toHaveTextContent("File missing");
+    expect(here).not.toHaveTextContent(tx("library:fileMissing"));
     expect(here).toHaveAttribute("data-file-present", "true");
   });
 
-  it.each([
-    ["downloads", "In Downloads: will be lost if Downloads is cleared"],
-    ["temp", "In a temp folder: Windows may delete it"],
-    ["external", "On an external drive: will be lost when the drive is unplugged"],
-    ["network", "On a network drive: will be lost when the drive is offline"],
-  ] as const)("says why a file in a %s location is fragile", async (reason, text) => {
-    library([track(1, { fragile: reason })]);
-    renderScreen();
-    const [row] = await rows();
-    expect(row).toHaveAccessibleDescription(text);
-  });
+  it.each(["downloads", "temp", "external", "network"] as const)(
+    "says why a file in a %s location is fragile",
+    async (reason) => {
+      library([track(1, { fragile: reason })]);
+      renderScreen();
+      const [row] = await rows();
+      expect(row).toHaveAccessibleDescription(tx(`library:fragile.${reason}`));
+    },
+  );
 
   it("shows no note for a track whose file isn't in a fragile location", async () => {
     library([track(1)]);
@@ -146,8 +145,8 @@ describe("the Library screen", () => {
     ]);
     renderScreen();
     const [row] = await rows();
-    expect(row).toHaveTextContent("File missing");
-    expect(row).toHaveTextContent("On an external drive: will be lost when the drive is unplugged");
+    expect(row).toHaveTextContent(tx("library:fileMissing"));
+    expect(row).toHaveTextContent(tx("library:fragile.external"));
   });
 
   it("says the drive isn't connected, not that the file is missing, for a file on an unplugged drive", async () => {
@@ -163,8 +162,8 @@ describe("the Library screen", () => {
     ]);
     renderScreen();
     const [row] = await rows();
-    expect(row).toHaveAccessibleDescription("Drive not connected");
-    expect(row).not.toHaveTextContent("File missing");
+    expect(row).toHaveAccessibleDescription(tx("library:driveNotConnected"));
+    expect(row).not.toHaveTextContent(tx("library:fileMissing"));
   });
 
   it("shows several notes on one row", async () => {
@@ -177,18 +176,18 @@ describe("the Library screen", () => {
     ]);
     renderScreen();
     const [row] = await rows();
-    expect(row).toHaveTextContent("File missing");
-    expect(row).toHaveTextContent("Drive not connected");
-    expect(row).toHaveTextContent("On an external drive");
+    expect(row).toHaveTextContent(tx("library:fileMissing"));
+    expect(row).toHaveTextContent(tx("library:driveNotConnected"));
+    expect(row).toHaveTextContent(tx("library:fragile.external"));
   });
 
   it("shows an error message, not an empty Library, when the list can't be loaded", async () => {
     library("broken");
     renderScreen();
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Couldn't read or save the Library. Try again.",
+      tx("errors:database"),
     );
-    expect(screen.queryByText("No Library tracks")).toBeNull();
+    expect(screen.queryByText(tx("library:empty"))).toBeNull();
   });
 });
 
@@ -223,14 +222,14 @@ describe("removing a track from the Library", () => {
     const calls = removable([track(1), track(2)]);
     renderScreen();
     const [first] = await rows();
-    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(first).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
 
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Remove “Synthetic Tune 1” from your Library?");
-    expect(dialog).toHaveTextContent("This action can be undone");
+    expect(dialog).toHaveTextContent(tx("library:remove.title", { title: "Synthetic Tune 1" }));
+    expect(dialog).toHaveTextContent(tx("library:remove.detail"));
     expect(calls).not.toContain("remove_library_track");
 
-    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: tx("library:remove.cancel") }));
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(calls).not.toContain("remove_library_track");
     expect(await rows()).toHaveLength(2);
@@ -240,12 +239,12 @@ describe("removing a track from the Library", () => {
     const calls = removable([track(1), track(2)]);
     renderScreen();
     const [first] = await rows();
-    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(first).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Removed from your Library");
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("library:remove.done"));
     await waitFor(async () => expect(await rows()).toHaveLength(1));
     expect((await rows())[0]).toHaveTextContent("Synthetic Tune 2");
     expect(calls.filter((c) => c === "remove_library_track")).toHaveLength(1);
@@ -255,61 +254,63 @@ describe("removing a track from the Library", () => {
     removable([track(1), track(2)]);
     renderScreen();
     const [first] = await rows();
-    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(first).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("library:remove.undo") }));
 
-    expect(await screen.findByText("Put back in your Library")).toBeInTheDocument();
+    expect(await screen.findByText(tx("library:remove.undone"))).toBeInTheDocument();
     await waitFor(async () => expect(await rows()).toHaveLength(2));
-    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: tx("library:remove.undo") })).toBeNull();
   });
 
   it("offers undo even when the last track was removed and the list is empty", async () => {
     removable([track(1)]);
     renderScreen();
     const [only] = await rows();
-    await userEvent.click(within(only).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(only).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("library:remove.undo") })).toBeInTheDocument();
   });
 
   it("names the track on each row's Remove button", async () => {
     removable([track(1), track(2)]);
     renderScreen();
     await rows();
-    expect(screen.getByRole("button", { name: "Remove Synthetic Tune 2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 2" }) })).toBeInTheDocument();
   });
 
   it("gives the dialog focus, on Cancel", async () => {
     removable([track(1)]);
     renderScreen();
     const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    expect(within(dialog).getByRole("button", { name: tx("library:remove.cancel") })).toHaveFocus();
   });
 
   it("says how many open conflicts removing the track drops", async () => {
     removable([track(1, { openConflicts: 2 }), track(2, { openConflicts: 1 }), track(3)]);
     renderScreen();
     const [first, second, third] = await rows();
-    await userEvent.click(within(first).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(first).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Its 2 open conflicts will be dropped",
+      tx("library:remove.conflicts", { count: 2 }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await userEvent.click(within(second).getByRole("button", { name: "Remove Synthetic Tune 2" }));
+    await userEvent.click(screen.getByRole("button", { name: tx("library:remove.cancel") }));
+    await userEvent.click(within(second).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 2" }) }));
     expect(await screen.findByRole("alertdialog")).toHaveTextContent(
-      "Its open conflict will be dropped",
+      tx("library:remove.conflicts", { count: 1 }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await userEvent.click(within(third).getByRole("button", { name: "Remove Synthetic Tune 3" }));
-    expect(await screen.findByRole("alertdialog")).not.toHaveTextContent("conflict");
+    await userEvent.click(screen.getByRole("button", { name: tx("library:remove.cancel") }));
+    await userEvent.click(within(third).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 3" }) }));
+    const noConflicts = await screen.findByRole("alertdialog");
+    expect(noConflicts).toHaveAccessibleDescription(tx("library:remove.detail"));
+    expect(noConflicts).not.toHaveTextContent(tx("library:remove.conflicts", { count: 0 }));
   });
 
   it("says so, and keeps the track out, when undo is refused", async () => {
@@ -331,15 +332,13 @@ describe("removing a track from the Library", () => {
     });
     renderScreen();
     const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Can't undo: the Library has changed since",
-    );
-    expect(await screen.findByText("No Library tracks")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: tx("library:remove.undo") }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("library:remove.undoRefused"));
+    expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
   });
 
   it("disables Undo while the undo is running", async () => {
@@ -357,11 +356,11 @@ describe("removing a track from the Library", () => {
     });
     renderScreen();
     const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    const undo = await screen.findByRole("button", { name: "Undo" });
+    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
     await userEvent.click(undo);
     await waitFor(() => expect(undo).toBeDisabled());
     finish({ status: "nothingToUndo" });
@@ -371,7 +370,7 @@ describe("removing a track from the Library", () => {
     const calls = removable([track(1)]);
     renderScreen();
     const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await screen.findByRole("alertdialog");
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).toBeNull();
@@ -382,9 +381,9 @@ describe("removing a track from the Library", () => {
     removable([track(1, { openConflicts: 2 })]);
     renderScreen();
     const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     expect(await screen.findByRole("alertdialog")).toHaveAccessibleDescription(
-      "This action can be undone Its 2 open conflicts will be dropped",
+      `${tx("library:remove.detail")} ${tx("library:remove.conflicts", { count: 2 })}`,
     );
   });
 
@@ -401,15 +400,15 @@ describe("removing a track from the Library", () => {
     });
     renderScreen();
     const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: "Remove Synthetic Tune 1" }));
+    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }),
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    const undo = await screen.findByRole("button", { name: "Undo" });
+    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
     expect(undo).toBeEnabled();
     await userEvent.click(undo);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: tx("library:remove.undo") })).toBeDisabled());
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByText("Can't undo: the Library has changed since")).toBeNull();
+    expect(screen.queryByText(tx("library:remove.undoRefused"))).toBeNull();
   });
 });

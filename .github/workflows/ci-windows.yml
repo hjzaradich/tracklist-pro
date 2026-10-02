@@ -348,6 +348,15 @@ jobs:
         if: ${{ !cancelled() && env.APP == 'true' }}
         run: npm run lint
 
+      # Every locale string has a notes row (purpose, where, approved text)
+      # and the notes' own tests pass (1aF-3). Unapproved strings don't fail
+      # this: `npm run copy:gate` is the foreman's check at phase checkpoints.
+      - name: Check the copy notes
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        run: |
+          npm run copy:check
+          npm run test:scripts
+
       # One worker on the self-hosted runner: the owner's PC is often busy
       # with parallel lanes, and vitest's workers time out under that load.
       - name: Test the frontend

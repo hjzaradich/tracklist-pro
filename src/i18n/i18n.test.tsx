@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CratesScreen } from "../crates/CratesScreen";
 import i18n, { englishResources, namespaceFromPath, namespaces } from "./index";
+import { tx } from "../test/tx";
 
 type Messages = { [key: string]: string | Messages };
 
@@ -33,17 +34,18 @@ describe("i18n", () => {
     }
   });
 
-  it("a component renders an English string from its namespace", () => {
+  it("a component renders a string from its namespace", () => {
     // A screen that asks the backend for nothing, so its text is there at once.
     render(<CratesScreen />);
-    expect(screen.getByRole("heading", { name: "Crates" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: tx("shell:stages.crates") })).toBeInTheDocument();
     expect(
-      screen.getByText("Groups of Library tracks, collected for a purpose."),
+      screen.getByText(tx("crates:empty")),
     ).toBeInTheDocument();
   });
 
   it("translates a key from a named namespace", () => {
-    expect(i18n.t("label", { ns: "theme" })).toBe("Theme");
-    expect(i18n.t("appName")).toBe("tracklist-pro");
+    expect(i18n.t("label", { ns: "theme" })).toBe(englishResources.theme.label);
+    // Without a namespace, the default one (common) is used.
+    expect(i18n.t("appName")).toBe(englishResources.common.appName);
   });
 });

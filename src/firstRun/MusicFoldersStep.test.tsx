@@ -7,6 +7,7 @@ import { createQueryClient } from "../app/queryClient";
 import type { MusicFolder } from "../bindings";
 import "../i18n";
 import { MusicFoldersStep } from "./MusicFoldersStep";
+import { tx } from "../test/tx";
 
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => dialog);
@@ -76,15 +77,15 @@ describe("picking music folders", () => {
   it("names what's absent when there are no music folders", async () => {
     fakeBackend();
     renderStep();
-    expect(await screen.findByText("No music folders")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Music folders" })).toBeInTheDocument();
+    expect(await screen.findByText(tx("musicFolderStatus:empty"))).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: tx("firstRun:folders.title") })).toBeInTheDocument();
   });
 
   it("adds the picked folder, scans it and lists it", async () => {
     const backend = fakeBackend();
     dialog.open.mockResolvedValue(String.raw`E:\Music`);
     renderStep();
-    await userEvent.click(await screen.findByRole("button", { name: "Add folder" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("firstRun:folders.add") }));
 
     expect(await screen.findByText(String.raw`E:\Music`)).toBeInTheDocument();
     expect(dialog.open).toHaveBeenCalledWith({ multiple: false, directory: true });
@@ -99,7 +100,7 @@ describe("picking music folders", () => {
     const backend = fakeBackend();
     dialog.open.mockResolvedValue(null);
     renderStep();
-    await userEvent.click(await screen.findByRole("button", { name: "Add folder" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("firstRun:folders.add") }));
     await waitFor(() => expect(dialog.open).toHaveBeenCalled());
     expect(backend.calls.every((call) => call.cmd === "music_folders")).toBe(true);
   });
@@ -111,9 +112,9 @@ describe("picking music folders", () => {
     });
     dialog.open.mockResolvedValue(String.raw`E:\Music`);
     renderStep();
-    await userEvent.click(await screen.findByRole("button", { name: "Add folder" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("firstRun:folders.add") }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      String.raw`Already a music folder (E:\Music)`,
+      tx("musicFolders:alreadyAdded", { path: String.raw`E:\Music` }),
     );
     expect(backend.calls.some((call) => call.cmd === "scan_music_folders")).toBe(false);
   });
@@ -121,7 +122,7 @@ describe("picking music folders", () => {
   it("turns a folder's watcher on with the existing switch", async () => {
     const backend = fakeBackend([folder(1, String.raw`E:\Music`)]);
     renderStep();
-    await userEvent.click(await screen.findByRole("checkbox", { name: "Watch for changes" }));
+    await userEvent.click(await screen.findByRole("checkbox", { name: tx("musicFolderWatch:watch") }));
     await waitFor(() => expect(screen.getByRole("checkbox")).toBeChecked());
     expect(backend.calls.at(-1)).toEqual({
       cmd: "set_music_folder_watch",

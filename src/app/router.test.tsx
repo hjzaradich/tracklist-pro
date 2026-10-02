@@ -3,14 +3,15 @@ import { screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { STAGES } from "../shell/stages";
 import { renderApp } from "./testApp";
+import { tx } from "../test/tx";
 
-// Each stage's name and what its screen says with an empty Library, in English.
+// Each stage's name and what its screen says with an empty Library.
 const SCREENS = [
-  { path: "/overview", name: "Overview", empty: "Start your Library" },
-  { path: "/review", name: "Review", empty: "Every decision the app can't make on its own." },
-  { path: "/all-music", name: "All music", empty: "No tracks in All music" },
-  { path: "/library", name: "Library", empty: "No Library tracks" },
-  { path: "/crates", name: "Crates", empty: "Groups of Library tracks, collected for a purpose." },
+  { path: "/overview", name: tx("shell:stages.overview"), empty: tx("firstRun:title") },
+  { path: "/review", name: tx("shell:stages.review"), empty: tx("review:empty") },
+  { path: "/all-music", name: tx("shell:stages.allMusic"), empty: tx("allMusic:empty") },
+  { path: "/library", name: tx("shell:stages.library"), empty: tx("library:empty") },
+  { path: "/crates", name: tx("shell:stages.crates"), empty: tx("crates:empty") },
 ];
 
 describe("stage routes", () => {
@@ -50,7 +51,7 @@ describe("stage routes", () => {
 
   it("opens on Overview at /", async () => {
     const { router } = renderApp("/");
-    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: tx("shell:stages.overview") })).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/overview"));
   });
 });

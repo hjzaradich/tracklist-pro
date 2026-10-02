@@ -1,0 +1,132 @@
+{
+  "empty": {
+    "purpose": "Says the Library holds no tracks.",
+    "where": "Library screen, when it's empty.",
+    "approved": "No Library tracks"
+  },
+  "columns.title": {
+    "purpose": "Column heading for a track's title.",
+    "where": "Library table header.",
+    "approved": "Title"
+  },
+  "columns.artist": {
+    "purpose": "Column heading for a track's artist.",
+    "where": "Library table header.",
+    "approved": "Artist"
+  },
+  "columns.file": {
+    "purpose": "Column heading for a track's file.",
+    "where": "Library table header.",
+    "approved": "File"
+  },
+  "columns.actions": {
+    "purpose": "Accessible name of the actions column (visually hidden).",
+    "where": "Library table header, last column (screen readers only).",
+    "approved": "Actions"
+  },
+  "fileMissing": {
+    "purpose": "Note that a track's file isn't on disk.",
+    "where": "Library table, under the file path, for a track whose file is missing.",
+    "approved": "File missing"
+  },
+  "driveNotConnected": {
+    "purpose": "Note that a track's file is on a drive that isn't plugged in.",
+    "where": "Library table, under the file path, for a track on a drive that isn't connected.",
+    "approved": "Drive not connected"
+  },
+  "remove.button": {
+    "purpose": "Button that starts removing a track.",
+    "where": "Library table, last column of each row.",
+    "approved": "Remove"
+  },
+  "remove.buttonFor": {
+    "purpose": "Accessible name of a row's Remove button, naming the track.",
+    "where": "Library table, aria-label of each Remove button (screen readers; {{title}} is the track).",
+    "approved": "Remove {{title}}"
+  },
+  "remove.conflicts_one": {
+    "purpose": "Warns that removing a track drops its one open conflict.",
+    "where": "Library screen, remove confirmation, for a track with one open conflict.",
+    "approved": "Its open conflict will be dropped"
+  },
+  "remove.conflicts_other": {
+    "purpose": "Warns that removing a track drops its open conflicts.",
+    "where": "Library screen, remove confirmation, for a track with several open conflicts.",
+    "approved": "Its {{count}} open conflicts will be dropped"
+  },
+  "remove.title": {
+    "purpose": "Asks to confirm removing a track.",
+    "where": "Library screen, remove confirmation dialog title ({{title}} is the track).",
+    "approved": "Remove “{{title}}” from your Library?"
+  },
+  "remove.detail": {
+    "purpose": "Says the removal can be undone.",
+    "where": "Library screen, remove confirmation dialog, under the question.",
+    "approved": "This action can be undone"
+  },
+  "remove.confirm": {
+    "purpose": "Button that confirms the removal.",
+    "where": "Library screen, remove confirmation dialog.",
+    "approved": "Remove"
+  },
+  "remove.cancel": {
+    "purpose": "Button that backs out of the removal.",
+    "where": "Library screen, remove confirmation dialog (focused by default).",
+    "approved": "Cancel"
+  },
+  "remove.done": {
+    "purpose": "Says the track was removed.",
+    "where": "Library screen, status strip above the list after a removal.",
+    "approved": "Removed from your Library"
+  },
+  "remove.undo": {
+    "purpose": "Button that undoes the removal.",
+    "where": "Library screen, status strip after a removal.",
+    "approved": "Undo"
+  },
+  "remove.undone": {
+    "purpose": "Says the removal was undone.",
+    "where": "Library screen, status strip after an undo.",
+    "approved": "Put back in your Library"
+  },
+  "remove.undoRefused": {
+    "purpose": "Says the undo wasn't possible because the Library changed.",
+    "where": "Library screen, alert after an undo is refused.",
+    "approved": "Can't undo: the Library has changed since"
+  },
+  "fragile.downloads": {
+    "purpose": "Warns that a file in Downloads may be lost.",
+    "where": "Library table, note under the file path for a file in a Downloads folder.",
+    "approved": "In Downloads: will be lost if Downloads is cleared"
+  },
+  "fragile.temp": {
+    "purpose": "Warns that a file in a temp folder may be deleted by Windows.",
+    "where": "Library table, note under the file path for a file in a temp folder.",
+    "approved": "In a temp folder: Windows may delete it"
+  },
+  "fragile.external": {
+    "purpose": "Warns that a file on an external drive is lost when the drive is unplugged.",
+    "where": "Library table, note under the file path for a file on an external drive.",
+    "approved": "On an external drive: will be lost when the drive is unplugged"
+  },
+  "fragile.network": {
+    "purpose": "Warns that a file on a network drive is lost when the drive is offline.",
+    "where": "Library table, note under the file path for a file on a network drive.",
+    "approved": "On a network drive: will be lost when the drive is offline"
+  },
+  "error.trackNotFound": {
+    "purpose": "Error: the track doesn't exist.",
+    "where": "Shown where a Library command fails because the track wasn't found (any screen that shows command errors).",
+    "approved": "Track not found"
+  },
+  "error.noFile": {
+    "purpose": "Error: the track can't be added because it has no file.",
+    "where": "Shown where adding a track fails because the track has no file.",
+    "approved": "Can't add: this track has no file"
+  },
+  "error.fileMissing": {
+    "purpose": "Error: the track can't be added because its file is missing.",
+    "where": "Shown where adding a track fails because its file isn't on disk ({{path}} is the file).",
+    "approved": "Can't add: file missing ({{path}})"
+  }
+}

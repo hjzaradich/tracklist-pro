@@ -2,30 +2,34 @@ import { describe, expect, it } from "vitest";
 import { ERROR_KEYS, type ErrorKind, type IpcError } from "../bindings";
 import { englishResources } from "../i18n";
 import { errorMessage } from "../api/errors";
+import { tx } from "../test/tx";
 
 // What the music folder commands send when they refuse (src-tauri/src/scan/
-// folders.rs), and the owner-approved words for each.
+// folders.rs), and the text each one is shown as.
 const refusals: [IpcError, string][] = [
-  [{ kind: "notAFolder", params: { path: String.raw`E:\Nope` } }, String.raw`Folder not found (E:\Nope)`],
-  [{ kind: "badPath", params: { path: "Music" } }, "Can't use this location (Music)"],
+  [
+    { kind: "notAFolder", params: { path: String.raw`E:\Nope` } },
+    tx("musicFolders:notAFolder", { path: String.raw`E:\Nope` }),
+  ],
+  [{ kind: "badPath", params: { path: "Music" } }, tx("musicFolders:badPath", { path: "Music" })],
   [
     { kind: "alreadyAdded", params: { path: String.raw`E:\Music` } },
-    String.raw`Already a music folder (E:\Music)`,
+    tx("musicFolders:alreadyAdded", { path: String.raw`E:\Music` }),
   ],
   [
     { kind: "insideMusicFolder", params: { musicFolder: String.raw`E:\Music` } },
-    String.raw`Already inside a music folder (E:\Music)`,
+    tx("musicFolders:insideMusicFolder", { musicFolder: String.raw`E:\Music` }),
   ],
   [
     { kind: "containsMusicFolder", params: { musicFolder: String.raw`E:\Music` } },
-    String.raw`Contains a music folder (E:\Music)`,
+    tx("musicFolders:containsMusicFolder", { musicFolder: String.raw`E:\Music` }),
   ],
-  [{ kind: "musicFolderNotFound", params: {} }, "Music folder not found"],
-  [{ kind: "musicFolderInUse", params: {} }, "Can't remove: tracks use files in this folder"],
+  [{ kind: "musicFolderNotFound", params: {} }, tx("musicFolders:notFound")],
+  [{ kind: "musicFolderInUse", params: {} }, tx("musicFolders:inUse")],
 ];
 
 describe("music folder errors", () => {
-  it("puts every refusal into the approved words, with the folder it names", () => {
+  it("puts every refusal into its text, with the folder it names", () => {
     for (const [error, words] of refusals) {
       expect(errorMessage(error)).toBe(words);
     }

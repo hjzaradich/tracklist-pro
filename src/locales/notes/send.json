@@ -1,0 +1,397 @@
+{
+  "open": {
+    "purpose": "Button that opens the guided send.",
+    "where": "Overview screen, when the Library has tracks.",
+    "approved": "Send to rekordbox"
+  },
+  "title": {
+    "purpose": "Title of the guided send.",
+    "where": "Send checklist (opens in the Overview's place), heading.",
+    "approved": "Send to rekordbox"
+  },
+  "close": {
+    "purpose": "Button that closes the guided send.",
+    "where": "Send checklist, top right.",
+    "approved": "Close"
+  },
+  "warning": {
+    "purpose": "Warns the user not to play or edit in rekordbox until the import is done.",
+    "where": "Send checklist, under the title, always shown.",
+    "approved": "Don't play or edit in rekordbox from the export until the import is finished. Changes made in between will be lost."
+  },
+  "trackWithArtist": {
+    "purpose": "How a track with an artist is named in the send lists.",
+    "where": "Send checklist, review step and its lists ({{title}} and {{artist}} come from the track).",
+    "approved": "{{artist}} - {{title}}"
+  },
+  "more_one": {
+    "purpose": "Says one more row isn't shown.",
+    "where": "Send checklist, end of a list cut off after 50 rows (one more).",
+    "approved": "{{count, number}} more"
+  },
+  "more_other": {
+    "purpose": "Says how many more rows aren't shown.",
+    "where": "Send checklist, end of a list cut off after 50 rows.",
+    "approved": "{{count, number}} more"
+  },
+  "export.title": {
+    "purpose": "Title of step one, getting the export from rekordbox.",
+    "where": "Send checklist, step 1.",
+    "approved": "Export collection from rekordbox"
+  },
+  "export.howTo": {
+    "purpose": "Tells the user how to export the collection and read it.",
+    "where": "Send checklist, step 1, under its title.",
+    "approved": "In rekordbox, choose File > Export Collection in xml format. Then read the export here."
+  },
+  "export.noneChosen": {
+    "purpose": "Says no rekordbox export is chosen yet.",
+    "where": "Send checklist, step 1, in place of the file path.",
+    "approved": "No rekordbox export chosen"
+  },
+  "export.choose": {
+    "purpose": "Button that picks an export file.",
+    "where": "Send checklist, step 1, while no export is chosen.",
+    "approved": "Choose export"
+  },
+  "export.chooseAnother": {
+    "purpose": "Button that picks a different export file.",
+    "where": "Send checklist, step 1, once an export is chosen.",
+    "approved": "Choose another export"
+  },
+  "export.read": {
+    "purpose": "Button that reads the chosen export.",
+    "where": "Send checklist, step 1, once an export is chosen.",
+    "approved": "Read export"
+  },
+  "export.reading": {
+    "purpose": "Says the export is being read.",
+    "where": "Send checklist, step 1, status while the read runs.",
+    "approved": "Reading export"
+  },
+  "export.saved": {
+    "purpose": "Says when the export file was saved.",
+    "where": "Send checklist, step 1, status after a read ({{when}} is a date and time).",
+    "approved": "Export saved {{when}}"
+  },
+  "export.fileFilter": {
+    "purpose": "Name of the file type in the picker's file-type list.",
+    "where": "The system file picker opened by Choose export, file-type filter for .xml.",
+    "approved": "rekordbox export"
+  },
+  "review.title": {
+    "purpose": "Title of step two, reviewing what will be sent.",
+    "where": "Send checklist, step 2.",
+    "approved": "Review what will be sent"
+  },
+  "review.notYet": {
+    "purpose": "Says the export hasn't been read yet, so there's nothing to review.",
+    "where": "Send checklist, step 2, before a read.",
+    "approved": "Not read yet"
+  },
+  "review.new_one": {
+    "purpose": "Says one new track will be sent.",
+    "where": "Send checklist, step 2, count of tracks rekordbox doesn't have.",
+    "approved": "{{count, number}} new track"
+  },
+  "review.new_other": {
+    "purpose": "Says how many new tracks will be sent.",
+    "where": "Send checklist, step 2, count of tracks rekordbox doesn't have.",
+    "approved": "{{count, number}} new tracks"
+  },
+  "review.known_one": {
+    "purpose": "Says one track to be sent is already in rekordbox.",
+    "where": "Send checklist, step 2, count of tracks rekordbox has.",
+    "approved": "{{count, number}} track rekordbox already has"
+  },
+  "review.known_other": {
+    "purpose": "Says how many tracks to be sent are already in rekordbox.",
+    "where": "Send checklist, step 2, count of tracks rekordbox has.",
+    "approved": "{{count, number}} tracks rekordbox already has"
+  },
+  "review.nothing": {
+    "purpose": "Says there's nothing to send.",
+    "where": "Send checklist, step 2, when there are no tracks or crates to send.",
+    "approved": "No tracks or crates to send"
+  },
+  "review.leftOut_one": {
+    "purpose": "Warns that one track is left out of the send.",
+    "where": "Send checklist, step 2, warning above the left-out list.",
+    "approved": "{{count, number}} track left out"
+  },
+  "review.leftOut_other": {
+    "purpose": "Warns how many tracks are left out of the send.",
+    "where": "Send checklist, step 2, warning above the left-out list.",
+    "approved": "{{count, number}} tracks left out"
+  },
+  "review.leftOutReason.noFile": {
+    "purpose": "Reason a track is left out: it has no file.",
+    "where": "Send checklist, step 2, beside a left-out track.",
+    "approved": "no file"
+  },
+  "review.leftOutReason.fileMissing": {
+    "purpose": "Reason a track is left out: its file is missing.",
+    "where": "Send checklist, step 2, beside a left-out track.",
+    "approved": "file missing"
+  },
+  "review.leftOutReason.noPath": {
+    "purpose": "Reason a track is left out: its file location can't be worked out.",
+    "where": "Send checklist, step 2, beside a left-out track.",
+    "approved": "file location unknown"
+  },
+  "review.leftOutReason.pathNotSendable": {
+    "purpose": "Reason a track is left out: its path can't be sent to rekordbox.",
+    "where": "Send checklist, step 2, beside a left-out track.",
+    "approved": "path can't be sent to rekordbox"
+  },
+  "review.leftOutReason.unsendableCharacter": {
+    "purpose": "Reason a track is left out: a field has a character that can't be sent.",
+    "where": "Send checklist, step 2, beside a left-out track ({{attribute}} names the field).",
+    "approved": "{{attribute}} has a character that can't be sent to rekordbox"
+  },
+  "review.leftOutReason.sameFileAsAnother": {
+    "purpose": "Reason a track is left out: another track already uses the same file.",
+    "where": "Send checklist, step 2, beside a left-out track.",
+    "approved": "same file as another track"
+  },
+  "review.leftOutReason.rekordboxEntry": {
+    "purpose": "Reason a track is left out: rekordbox's own entry can't be sent back.",
+    "where": "Send checklist, step 2, beside a left-out track.",
+    "approved": "rekordbox's entry can't be sent back"
+  },
+  "review.fileMissing_one": {
+    "purpose": "Warns that one track is sent although its file is missing.",
+    "where": "Send checklist, step 2, warning above that list.",
+    "approved": "{{count, number}} track sent with file missing (rekordbox's entry is unchanged)"
+  },
+  "review.fileMissing_other": {
+    "purpose": "Warns that several tracks are sent although their files are missing.",
+    "where": "Send checklist, step 2, warning above that list.",
+    "approved": "{{count, number}} tracks sent with files missing (rekordbox's entries are unchanged)"
+  },
+  "review.otherFile_one": {
+    "purpose": "Warns that one track is in rekordbox with another file, so sending adds a second entry.",
+    "where": "Send checklist, step 2, warning above that list.",
+    "approved": "{{count, number}} track in rekordbox with another file (sending adds a second entry)"
+  },
+  "review.otherFile_other": {
+    "purpose": "Warns that several tracks are in rekordbox with other files, so sending adds second entries.",
+    "where": "Send checklist, step 2, warning above that list.",
+    "approved": "{{count, number}} tracks in rekordbox with another file (sending adds a second entry for each)"
+  },
+  "review.libraryFile": {
+    "purpose": "Labels the Library's file path for a track whose file differs.",
+    "where": "Send checklist, step 2, under a track in the other-file list.",
+    "approved": "Library file ({{path}})"
+  },
+  "review.rekordboxFile": {
+    "purpose": "Labels rekordbox's file path for a track whose file differs.",
+    "where": "Send checklist, step 2, under a track in the other-file list.",
+    "approved": "rekordbox file ({{path}})"
+  },
+  "review.losesEntries": {
+    "purpose": "Warns that sending replaces rekordbox playlists that will lose tracks.",
+    "where": "Send checklist, step 2, warning above the list of crates sent with tracks left out.",
+    "approved": "Crates sent with tracks left out (rekordbox's playlist of the same name will lose them)"
+  },
+  "review.losesEntriesRow_one": {
+    "purpose": "One row of that list, one track left out.",
+    "where": "Send checklist, step 2, row for a crate ({{name}}) that leaves out one of its tracks.",
+    "approved": "{{name}} ({{count, number}} of {{entries, number}} left out)"
+  },
+  "review.losesEntriesRow_other": {
+    "purpose": "One row of that list, several tracks left out.",
+    "where": "Send checklist, step 2, row for a crate ({{name}}) that leaves out several of its tracks.",
+    "approved": "{{name}} ({{count, number}} of {{entries, number}} left out)"
+  },
+  "review.notStored_one": {
+    "purpose": "Warns that one track in the export couldn't be read, and what that means for the send and the Yes answer in rekordbox.",
+    "where": "Send checklist, step 2, warning when one export track couldn't be read.",
+    "approved": "{{count, number}} track in the export couldn't be read. If it's in your Library it's sent as new, and answering Yes in rekordbox will overwrite rekordbox's entry."
+  },
+  "review.notStored_other": {
+    "purpose": "Warns that several tracks in the export couldn't be read, and what that means for the send and the Yes answer in rekordbox.",
+    "where": "Send checklist, step 2, warning when several export tracks couldn't be read.",
+    "approved": "{{count, number}} tracks in the export couldn't be read. Any in your Library are sent as new, and answering Yes in rekordbox will overwrite rekordbox's entries."
+  },
+  "review.confirm": {
+    "purpose": "Label of the tick box that lets the user send despite the warnings.",
+    "where": "Send checklist, step 2, shown when the send needs a confirm.",
+    "approved": "Send anyway"
+  },
+  "review.refused.incompleteExport": {
+    "purpose": "Refusal: the export is incomplete.",
+    "where": "Send checklist, step 2, alert when the send is refused.",
+    "approved": "Can't send: the export is incomplete. Export the collection again from rekordbox."
+  },
+  "review.refused.sameName": {
+    "purpose": "Refusal: two crates in one folder share a name.",
+    "where": "Send checklist, step 2, alert when the send is refused ({{path}} is where).",
+    "approved": "Can't send: two crates in one folder share a name ({{path}})"
+  },
+  "review.refused.noName": {
+    "purpose": "Refusal: a crate has no name.",
+    "where": "Send checklist, step 2, alert when the send is refused ({{path}} is where).",
+    "approved": "Can't send: a crate has no name ({{path}})"
+  },
+  "review.refused.unsendableName": {
+    "purpose": "Refusal: a name has a character rekordbox can't take.",
+    "where": "Send checklist, step 2, alert when the send is refused ({{path}} is where).",
+    "approved": "Can't send: a name has a character rekordbox can't take ({{path}})"
+  },
+  "review.refused.tooDeep": {
+    "purpose": "Refusal: folders are nested too deep.",
+    "where": "Send checklist, step 2, alert when the send is refused ({{path}} is where).",
+    "approved": "Can't send: folders are nested too deep ({{path}})"
+  },
+  "review.refused.internal": {
+    "purpose": "Refusal: the file couldn't be made, for an unexpected reason.",
+    "where": "Send checklist, step 2, alert when the send is refused.",
+    "approved": "Can't send: the file couldn't be made. Try again or restart the app."
+  },
+  "write.title": {
+    "purpose": "Title of step three, writing the file.",
+    "where": "Send checklist, step 3.",
+    "approved": "Write file"
+  },
+  "write.path": {
+    "purpose": "Label of the box showing the file's path.",
+    "where": "Send checklist, step 3, label of the read-only path box.",
+    "approved": "File"
+  },
+  "write.copy": {
+    "purpose": "Button that copies the file's path.",
+    "where": "Send checklist, step 3, beside the path.",
+    "approved": "Copy path"
+  },
+  "write.copied": {
+    "purpose": "Says the path was copied.",
+    "where": "Send checklist, step 3, status after Copy path worked.",
+    "approved": "Path copied"
+  },
+  "write.copyFailed": {
+    "purpose": "Says copying failed and what to do instead.",
+    "where": "Send checklist, step 3, alert after Copy path failed.",
+    "approved": "Couldn't copy. Select the path and copy it."
+  },
+  "write.go": {
+    "purpose": "Button that writes the file.",
+    "where": "Send checklist, step 3, primary button.",
+    "approved": "Write file"
+  },
+  "write.writing": {
+    "purpose": "Says the file is being written.",
+    "where": "Send checklist, step 3, status while the write runs.",
+    "approved": "Writing file"
+  },
+  "write.written": {
+    "purpose": "Says when the file was written.",
+    "where": "Send checklist, step 3, status after a write ({{when}} is a date and time).",
+    "approved": "File written {{when}}"
+  },
+  "failure.readFailed": {
+    "purpose": "Failure: the export couldn't be read (fallback when rekordbox gives no reason).",
+    "where": "Send checklist, step 1, alert when reading fails and the rekordbox source has no reason.",
+    "approved": "Can't read export"
+  },
+  "failure.cancelled": {
+    "purpose": "Failure: the step was cancelled.",
+    "where": "Send checklist, alert under the step that was cancelled.",
+    "approved": "Cancelled"
+  },
+  "failure.noPreflight": {
+    "purpose": "Failure: nothing to write because the export wasn't read.",
+    "where": "Send checklist, step 3, alert when writing starts without a review.",
+    "approved": "Read export again before sending"
+  },
+  "failure.exportChanged": {
+    "purpose": "Failure: the export file changed after it was read.",
+    "where": "Send checklist, step 3, alert when writing is refused for that reason.",
+    "approved": "The export changed after it was read. Read it again."
+  },
+  "failure.libraryChanged": {
+    "purpose": "Failure: the Library changed after the review.",
+    "where": "Send checklist, step 3, alert when writing is refused for that reason.",
+    "approved": "Your Library changed after the review. Read the export again."
+  },
+  "failure.notSendable": {
+    "purpose": "Failure: nothing was written because the review found the send unsendable.",
+    "where": "Send checklist, step 3, alert when writing is refused for that reason.",
+    "approved": "Nothing was written. Read the export again."
+  },
+  "failure.notConfirmed": {
+    "purpose": "Failure: the user didn't tick Send anyway.",
+    "where": "Send checklist, step 3, alert when writing is refused for lack of the confirm.",
+    "approved": "Tick Send anyway first"
+  },
+  "failure.cantWrite": {
+    "purpose": "Failure: the file couldn't be written; the last file is unchanged.",
+    "where": "Send checklist, step 3, alert after a failed write.",
+    "approved": "Can't write the file (the last file is unchanged). Try again."
+  },
+  "failure.cantRecord": {
+    "purpose": "Failure: the send couldn't be saved; the user must not import the file.",
+    "where": "Send checklist, step 3, alert when the file was made but the send couldn't be recorded.",
+    "approved": "The send couldn't be saved. Don't import the file in rekordbox. Try again."
+  },
+  "failure.internal": {
+    "purpose": "Failure: something unexpected went wrong.",
+    "where": "Send checklist, alert under the step that failed.",
+    "approved": "Something went wrong. Try again or restart the app."
+  },
+  "import.title": {
+    "purpose": "Title of step four, importing in rekordbox.",
+    "where": "Send checklist, step 4.",
+    "approved": "Import in rekordbox"
+  },
+  "import.show": {
+    "purpose": "Tells the user how to show the rekordbox xml view (first time only).",
+    "where": "Send checklist, step 4, first bullet.",
+    "approved": "In Preferences > View > Layout, tick rekordbox xml (first time only)."
+  },
+  "import.point": {
+    "purpose": "Tells the user how to point rekordbox at the file (first time only).",
+    "where": "Send checklist, step 4, second bullet.",
+    "approved": "In Preferences > Advanced > Database > rekordbox xml > Imported Library, choose Browse and paste the path (first time only)."
+  },
+  "import.refresh": {
+    "purpose": "Tells the user to refresh the rekordbox xml view.",
+    "where": "Send checklist, step 4, third bullet.",
+    "approved": "In the sidebar, open rekordbox xml and click its refresh icon."
+  },
+  "import.tracks": {
+    "purpose": "Tells the user how to import the tracks.",
+    "where": "Send checklist, step 4, fourth bullet.",
+    "approved": "Open All Tracks, select every track, right-click and choose Import to Collection."
+  },
+  "import.dialogsUnknown": {
+    "purpose": "Explains the Yes/No dialogs without a count.",
+    "where": "Send checklist, step 4, fifth bullet, before the export is read.",
+    "approved": "rekordbox asks Yes or No for each track it already has. Answer Yes."
+  },
+  "import.dialogsNone": {
+    "purpose": "Says no Yes/No dialogs are expected.",
+    "where": "Send checklist, step 4, fifth bullet, when no track is already in rekordbox.",
+    "approved": "No Yes/No dialogs expected."
+  },
+  "import.dialogs_one": {
+    "purpose": "Says to expect one Yes/No dialog and to answer Yes.",
+    "where": "Send checklist, step 4, fifth bullet, when one track is already in rekordbox.",
+    "approved": "Expect {{count, number}} Yes/No dialog (for the track rekordbox already has). Answer Yes."
+  },
+  "import.dialogs_other": {
+    "purpose": "Says how many Yes/No dialogs to expect and to answer Yes.",
+    "where": "Send checklist, step 4, fifth bullet, when several tracks are already in rekordbox.",
+    "approved": "Expect {{count, number}} Yes/No dialogs (one for each track rekordbox already has). Answer Yes."
+  },
+  "import.playlists": {
+    "purpose": "Tells the user how to import the playlists.",
+    "where": "Send checklist, step 4, last bullet.",
+    "approved": "Under Playlists, right-click Crates and choose Import Playlist. If rekordbox asks to replace playlists with the same name, click OK."
+  },
+  "after.title": {
+    "purpose": "Title of step five, what to tidy up after the import.",
+    "where": "Send checklist, step 5 (holds the after-send lists).",
+    "approved": "After import"
+  }
+}

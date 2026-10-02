@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MusicFolder } from "../bindings";
 import i18n from "../i18n";
 import { describeNote, folderNotes } from "./musicFolderStatus";
+import { tx } from "../test/tx";
 
 function folder(fields: Partial<MusicFolder> = {}): MusicFolder {
   return {
@@ -30,25 +31,25 @@ describe("what a music folder says about itself", () => {
 
   it("says its drive isn't connected, naming the drive, and nothing else", () => {
     const offline = folder({ online: false, unreadableFolders: 3, onlineOnlyFiles: 2 });
-    expect(words(offline)).toEqual(["Drive not connected (GIG USB)"]);
-    expect(words(folder({ online: false, volumeLabel: "" }))).toEqual(["Drive not connected"]);
+    expect(words(offline)).toEqual([tx("musicFolderStatus:offlineNamed", { label: "GIG USB" })]);
+    expect(words(folder({ online: false, volumeLabel: "" }))).toEqual([tx("musicFolderStatus:offline")]);
   });
 
   it("says it hasn't been scanned until a scan has walked it", () => {
     const fresh = folder({ walkedAt: null, unreadableFolders: null, unreadableFiles: null });
-    expect(words(fresh)).toEqual(["Not scanned yet"]);
+    expect(words(fresh)).toEqual([tx("musicFolderStatus:notScanned")]);
   });
 
   it("counts what the scan couldn't read and the online-only files, in singular and plural", () => {
     expect(words(folder({ unreadableFolders: 1, unreadableFiles: 1, onlineOnlyFiles: 1 }))).toEqual([
-      "1 folder couldn't be read",
-      "1 file couldn't be read",
-      "1 file online only (not downloaded)",
+      tx("musicFolderStatus:unreadableFolders", { count: 1 }),
+      tx("musicFolderStatus:unreadableFiles", { count: 1 }),
+      tx("musicFolderStatus:onlineOnly", { count: 1 }),
     ]);
     expect(words(folder({ unreadableFolders: 3, unreadableFiles: 12, onlineOnlyFiles: 40 }))).toEqual([
-      "3 folders couldn't be read",
-      "12 files couldn't be read",
-      "40 files online only (not downloaded)",
+      tx("musicFolderStatus:unreadableFolders", { count: 3 }),
+      tx("musicFolderStatus:unreadableFiles", { count: 12 }),
+      tx("musicFolderStatus:onlineOnly", { count: 40 }),
     ]);
   });
 });

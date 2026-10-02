@@ -1,0 +1,77 @@
+{
+  "page": {
+    "purpose": "Heading of the after-send lists on their own page.",
+    "where": "The /after-send page (not in the sidebar; for building and checking the lists), page heading.",
+    "approved": "After import"
+  },
+  "stale.title": {
+    "purpose": "Heading of the list of rekordbox playlists to delete by hand.",
+    "where": "After-send lists, first section (also the send checklist's last step).",
+    "approved": "Playlists to delete in rekordbox"
+  },
+  "stale.hint": {
+    "purpose": "Explains why the user deletes these playlists and where they come from.",
+    "where": "After-send lists, under the stale-playlists heading.",
+    "approved": "Delete these playlists in rekordbox (an import can't). They come from crates that were renamed or deleted."
+  },
+  "stale.empty": {
+    "purpose": "Says there are no playlists to delete.",
+    "where": "After-send lists, stale-playlists section, when the check ran and found none.",
+    "approved": "No playlists to delete"
+  },
+  "stale.unchecked": {
+    "purpose": "Says the check hasn't run because no rekordbox export was read.",
+    "where": "After-send lists, stale-playlists section, when there's no export read to compare against.",
+    "approved": "Not checked yet (no rekordbox export read)"
+  },
+  "stale.emptyFolder": {
+    "purpose": "Says a stale folder holds nothing.",
+    "where": "After-send lists, detail beside a stale folder with no children.",
+    "approved": "(empty folder)"
+  },
+  "stale.folderNoPlaylists": {
+    "purpose": "Says a stale folder holds only sub-folders, no playlists.",
+    "where": "After-send lists, detail beside a stale folder with sub-folders but no playlists.",
+    "approved": "(folder with no playlists)"
+  },
+  "stale.folderInside_one": {
+    "purpose": "Says a stale folder holds one playlist.",
+    "where": "After-send lists, detail beside a stale folder with exactly one playlist inside.",
+    "approved": "(folder with {{count}} playlist)"
+  },
+  "stale.folderInside_other": {
+    "purpose": "Says a stale folder holds several playlists.",
+    "where": "After-send lists, detail beside a stale folder with several playlists inside.",
+    "approved": "(folder with {{count}} playlists)"
+  },
+  "removals.title": {
+    "purpose": "Heading of the list of tracks to remove in rekordbox by hand.",
+    "where": "After-send lists, second section.",
+    "approved": "Tracks to remove in rekordbox"
+  },
+  "removals.hint": {
+    "purpose": "Explains why the user removes these tracks and where they come from.",
+    "where": "After-send lists, under the removals heading.",
+    "approved": "Remove these tracks in rekordbox (an import can't). They were removed from your Library."
+  },
+  "removals.empty": {
+    "purpose": "Says there are no tracks to remove.",
+    "where": "After-send lists, removals section, when nothing was removed from the Library that rekordbox still holds.",
+    "approved": "No tracks to remove"
+  },
+  "removals.trackName": {
+    "purpose": "How a track with an artist is named in the list.",
+    "where": "After-send lists, removals rows ({{artist}} and {{title}} come from the track).",
+    "approved": "{{artist}} - {{title}}"
+  },
+  "removals.unnamed": {
+    "purpose": "Names a track that has neither title nor file name.",
+    "where": "After-send lists, removals rows, for a track with no title and no file path.",
+    "approved": "Unnamed track"
+  },
+  "removals.sentTo": {
+    "purpose": "Tooltip explaining the path shown under a removed track.",
+    "where": "After-send lists, hover title of the file path in a removals row.",
+    "approved": "Location sent to rekordbox"
+  }
+}

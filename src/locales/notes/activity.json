@@ -1,0 +1,112 @@
+{
+  "label": {
+    "purpose": "Accessible name of the top-bar Activity status.",
+    "where": "Top bar, Activity status (screen-reader label of the status text; not shown).",
+    "approved": "Activity"
+  },
+  "idle": {
+    "purpose": "Says no background work is running.",
+    "where": "Top bar, Activity status when nothing runs; also the empty line in the opened Activity list.",
+    "approved": "No background tasks"
+  },
+  "task.scan": {
+    "purpose": "Names the scan job in the Activity status.",
+    "where": "Top bar, Activity status and Activity list rows, while the music folders are being scanned.",
+    "approved": "Scanning music folders"
+  },
+  "task.read": {
+    "purpose": "Names the tag-reading job.",
+    "where": "Top bar, Activity status and list rows, while tags and audio properties are read.",
+    "approved": "Reading tags"
+  },
+  "task.hash": {
+    "purpose": "Names the file-hashing job.",
+    "where": "Top bar, Activity status and list rows, while files are hashed.",
+    "approved": "Checking files"
+  },
+  "task.fingerprint": {
+    "purpose": "Names the audio-fingerprinting job.",
+    "where": "Top bar, Activity status and list rows, while files are fingerprinted.",
+    "approved": "Fingerprinting files"
+  },
+  "task.group": {
+    "purpose": "Names the duplicate-grouping job.",
+    "where": "Top bar, Activity status and list rows, while duplicates are grouped.",
+    "approved": "Finding duplicates"
+  },
+  "task.analyze": {
+    "purpose": "Names the BPM and key analysis job.",
+    "where": "Top bar, Activity status and list rows, while BPM and key are estimated.",
+    "approved": "Estimating BPM and key"
+  },
+  "task.embed": {
+    "purpose": "Names the audio-model job.",
+    "where": "Top bar, Activity status and list rows, while the audio model runs.",
+    "approved": "Running the audio model"
+  },
+  "task.convert": {
+    "purpose": "Names the file-conversion job.",
+    "where": "Top bar, Activity status and list rows, while files are converted.",
+    "approved": "Converting files"
+  },
+  "task.export": {
+    "purpose": "Names the export job.",
+    "where": "Top bar, Activity status and list rows, while an export runs.",
+    "approved": "Exporting"
+  },
+  "task.read_rekordbox": {
+    "purpose": "Names the job that reads the rekordbox export.",
+    "where": "Top bar, Activity status and list rows, while a rekordbox XML export is read.",
+    "approved": "Reading the rekordbox collection"
+  },
+  "task.relink": {
+    "purpose": "Names the job that matches rekordbox tracks to files.",
+    "where": "Top bar, Activity status and list rows, after a rekordbox read, while tracks are matched to files.",
+    "approved": "Matching rekordbox tracks to files"
+  },
+  "task.attach": {
+    "purpose": "Names the job that adds rekordbox data to tracks.",
+    "where": "Top bar, Activity status and list rows, after matching, while rekordbox data is attached to tracks.",
+    "approved": "Adding rekordbox data to tracks"
+  },
+  "percent": {
+    "purpose": "A task name with its progress.",
+    "where": "Top bar, Activity status and list rows, for a running job that reports progress ({{task}} is a task name above).",
+    "approved": "{{task}} ({{percent}}%)"
+  },
+  "andMore_one": {
+    "purpose": "Adds how many other jobs there are (one).",
+    "where": "Top bar, Activity status, after the lead job, when exactly one other job is running or queued.",
+    "approved": "{{summary}} ({{count}} other task)"
+  },
+  "andMore_other": {
+    "purpose": "Adds how many other jobs there are (several).",
+    "where": "Top bar, Activity status, after the lead job, when several other jobs are running or queued.",
+    "approved": "{{summary}} ({{count}} other tasks)"
+  },
+  "waiting_one": {
+    "purpose": "Says one job is queued and none is running.",
+    "where": "Top bar, Activity status, when nothing runs but one job waits.",
+    "approved": "{{count}} task waiting"
+  },
+  "waiting_other": {
+    "purpose": "Says several jobs are queued and none is running.",
+    "where": "Top bar, Activity status, when nothing runs but several jobs wait.",
+    "approved": "{{count}} tasks waiting"
+  },
+  "queued": {
+    "purpose": "Marks a job that hasn't started.",
+    "where": "Activity list, a row for a queued job.",
+    "approved": "{{task}} (waiting)"
+  },
+  "stopping": {
+    "purpose": "Marks a job that was cancelled and is winding down.",
+    "where": "Activity list, a row after its Cancel was clicked and the job hasn't ended yet.",
+    "approved": "{{task}} (stopping)"
+  },
+  "cancel": {
+    "purpose": "Button that cancels a job.",
+    "where": "Activity list, on every job row.",
+    "approved": "Cancel"
+  }
+}

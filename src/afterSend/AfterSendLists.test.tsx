@@ -8,6 +8,7 @@ import { createQueryClient } from "../app/queryClient";
 import type { AfterSendLists as Lists, ManualRemoval, StalePlaylist } from "../bindings";
 import "../i18n";
 import { AfterSendLists, AfterSendPanel } from "./AfterSendLists";
+import { tx } from "../test/tx";
 
 function lists(fields: Partial<Lists> = {}): Lists {
   return { playlistsChecked: true, stalePlaylists: [], manualRemovals: [], ...fields };
@@ -36,24 +37,24 @@ afterEach(() => {
 describe("the after-send lists", () => {
   it("names what's absent in each list when there's nothing to do", () => {
     render(<AfterSendLists lists={lists()} />);
-    expect(screen.getByText("No playlists to delete")).toBeInTheDocument();
-    expect(screen.getByText("No tracks to remove")).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:stale.empty"))).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:removals.empty"))).toBeInTheDocument();
   });
 
   it("says the playlists weren't checked, instead of looking empty, before rekordbox is read", () => {
     render(<AfterSendLists lists={lists({ playlistsChecked: false })} />);
-    expect(screen.getByText("Not checked yet (no rekordbox export read)")).toBeInTheDocument();
-    expect(screen.queryByText("No playlists to delete")).toBeNull();
+    expect(screen.getByText(tx("afterSend:stale.unchecked"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("afterSend:stale.empty"))).toBeNull();
     // The other list doesn't depend on it.
-    expect(screen.getByText("No tracks to remove")).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:removals.empty"))).toBeInTheDocument();
   });
 
   it("shows only the headings while the lists load", () => {
     render(<AfterSendLists lists={undefined} />);
-    expect(screen.getByRole("heading", { name: "Playlists to delete in rekordbox" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Tracks to remove in rekordbox" })).toBeInTheDocument();
-    expect(screen.queryByText("No playlists to delete")).toBeNull();
-    expect(screen.queryByText("No tracks to remove")).toBeNull();
+    expect(screen.getByRole("heading", { name: tx("afterSend:stale.title") })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: tx("afterSend:removals.title") })).toBeInTheDocument();
+    expect(screen.queryByText(tx("afterSend:stale.empty"))).toBeNull();
+    expect(screen.queryByText(tx("afterSend:removals.empty"))).toBeNull();
   });
 
   it("lists each stale playlist by where it sits in rekordbox", () => {
@@ -62,9 +63,9 @@ describe("the after-send lists", () => {
         lists={lists({ stalePlaylists: [stale(["Crates", "House", "Old name"])] })}
       />,
     );
-    const section = screen.getByRole("region", { name: "Playlists to delete in rekordbox" });
+    const section = screen.getByRole("region", { name: tx("afterSend:stale.title") });
     expect(within(section).getByText("Crates > House > Old name")).toBeInTheDocument();
-    expect(within(section).queryByText("No playlists to delete")).toBeNull();
+    expect(within(section).queryByText(tx("afterSend:stale.empty"))).toBeNull();
   });
 
   it("says how many playlists a stale folder holds, and when it's empty", () => {
@@ -80,19 +81,19 @@ describe("the after-send lists", () => {
         })}
       />,
     );
-    expect(screen.getByText("(folder with 1 playlist)")).toBeInTheDocument();
-    expect(screen.getByText("(folder with 3 playlists)")).toBeInTheDocument();
-    expect(screen.getByText("(empty folder)")).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:stale.folderInside", { count: 1 }))).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:stale.folderInside", { count: 3 }))).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:stale.emptyFolder"))).toBeInTheDocument();
     // A folder holding only subfolders isn't empty.
-    expect(screen.getByText("(folder with no playlists)")).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:stale.folderNoPlaylists"))).toBeInTheDocument();
   });
 
   it("lists each removed track with where it was sent", () => {
     render(<AfterSendLists lists={lists({ manualRemovals: [removal()] })} />);
-    const section = screen.getByRole("region", { name: "Tracks to remove in rekordbox" });
-    expect(within(section).getByText("Artist - Song")).toBeInTheDocument();
+    const section = screen.getByRole("region", { name: tx("afterSend:removals.title") });
+    expect(within(section).getByText(tx("afterSend:removals.trackName", { artist: "Artist", title: "Song" }))).toBeInTheDocument();
     expect(within(section).getByText(String.raw`E:\Music\song.mp3`)).toBeInTheDocument();
-    expect(within(section).queryByText("No tracks to remove")).toBeNull();
+    expect(within(section).queryByText(tx("afterSend:removals.empty"))).toBeNull();
   });
 
   it("falls back to the file name, then to a plain label, for a track with no title", () => {
@@ -108,13 +109,13 @@ describe("the after-send lists", () => {
       />,
     );
     expect(screen.getByText("song.mp3")).toBeInTheDocument();
-    expect(screen.getByText("Unnamed track")).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:removals.unnamed"))).toBeInTheDocument();
     expect(screen.getByText("Solo")).toBeInTheDocument();
   });
 
   it("says so when the lists couldn't be loaded, instead of looking empty", () => {
-    render(<AfterSendLists lists={undefined} problem="Something went wrong." />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong.");
+    render(<AfterSendLists lists={undefined} problem={tx("errors:internal")} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(tx("errors:internal"));
   });
 });
 
@@ -135,7 +136,7 @@ describe("the after-send panel", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText("Playlists > Old")).toBeInTheDocument();
-    expect(screen.getByText("Artist - Song")).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:removals.trackName", { artist: "Artist", title: "Song" }))).toBeInTheDocument();
   });
 });
 
@@ -164,32 +165,32 @@ describe("the after-send panel stays current", () => {
 
   it("asks again when the send's state changes, such as after a read or a write", async () => {
     const panel = setup();
-    expect(await screen.findByText("Not checked yet (no rekordbox export read)")).toBeInTheDocument();
+    expect(await screen.findByText(tx("afterSend:stale.unchecked"))).toBeInTheDocument();
     // A read finishes: the send's revision moves, and rekordbox is now read.
     panel.answer(lists({ stalePlaylists: [stale(["Crates", "Old name"])] }));
     act(() => {
       panel.queryClient.setQueryData(SEND_STATE_QUERY_KEY, { revision: 1 });
     });
     expect(await screen.findByText("Crates > Old name")).toBeInTheDocument();
-    expect(screen.queryByText("Not checked yet (no rekordbox export read)")).toBeNull();
+    expect(screen.queryByText(tx("afterSend:stale.unchecked"))).toBeNull();
 
     // The file is written: the revision moves again.
     panel.answer(lists());
     act(() => {
       panel.queryClient.setQueryData(SEND_STATE_QUERY_KEY, { revision: 2 });
     });
-    expect(await screen.findByText("No playlists to delete")).toBeInTheDocument();
+    expect(await screen.findByText(tx("afterSend:stale.empty"))).toBeInTheDocument();
   });
 
   it("asks again when the rekordbox export is read again", async () => {
     const panel = setup();
-    await screen.findByText("Not checked yet (no rekordbox export read)");
+    await screen.findByText(tx("afterSend:stale.unchecked"));
     panel.answer(lists());
     act(() => {
       panel.queryClient.setQueryData(XML_SOURCE_QUERY_KEY, {
         lastRead: { readAt: "2026-10-01T10:00:00.000Z" },
       });
     });
-    expect(await screen.findByText("No playlists to delete")).toBeInTheDocument();
+    expect(await screen.findByText(tx("afterSend:stale.empty"))).toBeInTheDocument();
   });
 });

@@ -8,6 +8,7 @@ import type { AllMusicTrack } from "../bindings";
 import "../i18n";
 import { AllMusicScreen } from "./AllMusicScreen";
 import type { Schedule } from "./useDebounced";
+import { tx } from "../test/tx";
 
 /** Typing has "stopped" at once: the search is asked for on every change. */
 const AT_ONCE: Schedule = (run) => {
@@ -79,7 +80,7 @@ describe("the All music screen", () => {
   it("names what's absent when All music has no tracks", async () => {
     fakeBackend([]);
     renderScreen();
-    expect(await screen.findByText("No tracks in All music")).toBeInTheDocument();
+    expect(await screen.findByText(tx("allMusic:empty"))).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
   });
 
@@ -88,16 +89,16 @@ describe("the All music screen", () => {
     renderScreen();
     const [first, second] = await rows();
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
-      "Title",
-      "Artist",
-      "File",
-      "Library",
+      tx("allMusic:columns.title"),
+      tx("allMusic:columns.artist"),
+      tx("allMusic:columns.file"),
+      tx("allMusic:columns.library"),
     ]);
     expect(within(first).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
       "Synthetic Tune 1",
       "Made Up Artist 1",
       String.raw`E:\Music\tune 1.mp3`,
-      "Add to Library",
+      tx("allMusic:add"),
     ]);
     // No title: the file's name stands in.
     expect(within(second).getAllByRole("cell")[0]).toHaveTextContent("tune 2.mp3");
@@ -109,42 +110,40 @@ describe("the All music screen", () => {
     const [, second] = await rows();
     expect(backend.added).toEqual([]);
 
-    await userEvent.click(within(second).getByRole("button", { name: "Add to Library" }));
-    await waitFor(async () => expect((await rows())[1]).toHaveTextContent("In Library"));
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+    await waitFor(async () => expect((await rows())[1]).toHaveTextContent(tx("allMusic:inLibrary")));
     expect(backend.added).toEqual([2]);
     const [first, added] = await rows();
     expect(within(added).queryByRole("button")).toBeNull();
-    expect(within(first).getByRole("button", { name: "Add to Library" })).toBeEnabled();
+    expect(within(first).getByRole("button", { name: tx("allMusic:add") })).toBeEnabled();
   });
 
   it("shows a track that's in the Library without the action", async () => {
     fakeBackend([track(1, { inLibrary: true })]);
     renderScreen();
     const [row] = await rows();
-    expect(row).toHaveTextContent("In Library");
+    expect(row).toHaveTextContent(tx("allMusic:inLibrary"));
     expect(within(row).queryByRole("button")).toBeNull();
   });
 
   it("says why a track couldn't be added", async () => {
     fakeBackend([track(1)], { refuse: { kind: "libraryNoFile", params: {} } });
     renderScreen();
-    await userEvent.click(await screen.findByRole("button", { name: "Add to Library" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Can't add: this track has no file",
-    );
+    await userEvent.click(await screen.findByRole("button", { name: tx("allMusic:add") }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("library:error.noFile"));
   });
 
   it("narrows the list by the search, and names what's absent when nothing matches", async () => {
     const backend = fakeBackend([track(1), track(2)]);
     renderScreen();
     await rows();
-    await userEvent.type(screen.getByRole("searchbox", { name: "Search All music" }), "Tune 2");
+    await userEvent.type(screen.getByRole("searchbox", { name: tx("allMusic:search") }), "Tune 2");
     await waitFor(async () => expect(await rows()).toHaveLength(1));
     expect((await rows())[0]).toHaveTextContent("Synthetic Tune 2");
     expect(backend.searches.at(-1)).toBe("Tune 2");
 
     await userEvent.type(screen.getByRole("searchbox"), " zzz");
-    expect(await screen.findByText("No tracks match")).toBeInTheDocument();
+    expect(await screen.findByText(tx("allMusic:noMatch"))).toBeInTheDocument();
   });
 
   it("asks for a search once typing has stopped, not on every keystroke", async () => {
@@ -181,6 +180,6 @@ describe("the All music screen", () => {
     fakeBackend([track(1), track(2)], { total: 1234 });
     renderScreen();
     await rows();
-    expect(screen.getByText("Showing 2 of 1,234 tracks")).toBeInTheDocument();
+    expect(screen.getByText(tx("allMusic:showing", { shown: 2, total: 1234 }))).toBeInTheDocument();
   });
 });

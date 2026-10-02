@@ -1,0 +1,37 @@
+{
+  "notAFolder": {
+    "purpose": "Error: the chosen path isn't a folder.",
+    "where": "Shown where adding a music folder fails because the path isn't a folder ({{path}}).",
+    "approved": "Folder not found ({{path}})"
+  },
+  "badPath": {
+    "purpose": "Error: the chosen location can't be used.",
+    "where": "Shown where adding a music folder fails because the path is unusable ({{path}}).",
+    "approved": "Can't use this location ({{path}})"
+  },
+  "alreadyAdded": {
+    "purpose": "Error: the folder is already a music folder.",
+    "where": "Shown where adding a music folder fails because it's already added ({{path}}).",
+    "approved": "Already a music folder ({{path}})"
+  },
+  "insideMusicFolder": {
+    "purpose": "Error: the folder is inside an existing music folder.",
+    "where": "Shown where adding a music folder fails because a parent is already a music folder ({{musicFolder}}).",
+    "approved": "Already inside a music folder ({{musicFolder}})"
+  },
+  "containsMusicFolder": {
+    "purpose": "Error: the folder contains an existing music folder.",
+    "where": "Shown where adding a music folder fails because it holds an existing one ({{musicFolder}}).",
+    "approved": "Contains a music folder ({{musicFolder}})"
+  },
+  "notFound": {
+    "purpose": "Error: the music folder doesn't exist in the app.",
+    "where": "Not reached from a screen yet: no command in the app's current UI looks up a single music folder; would show if one fails because the folder wasn't found.",
+    "approved": "Music folder not found"
+  },
+  "inUse": {
+    "purpose": "Error: a music folder can't be removed while tracks use its files.",
+    "where": "Not reached from a screen yet: no screen removes music folders; would show when removal is refused because Library tracks link to files in the folder.",
+    "approved": "Can't remove: tracks use files in this folder"
+  }
+}

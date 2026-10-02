@@ -70,3 +70,24 @@ Examples:
 - **Use only the technical terms the user absolutely needs to know.**
 
 *Owner-approved rules, 2026-10-01.*
+
+## Adding or changing a string
+The text lives in `src/locales/en/<namespace>.json`. Next to it, `src/locales/notes/<namespace>.json` keeps one row per key (plural forms are separate keys, so separate rows):
+
+```json
+"remove.done": {
+  "purpose": "Says the track was removed.",
+  "where": "Library screen, status strip above the list after a removal."
+}
+```
+
+A string is **approved** only while its current text equals the row's `approved` text; any other string is **proposed**. Proposed strings merge with the lane. The copy editor and the owner approve them on their own schedule, and all of them must be approved before each phase checkpoint.
+
+To add a string:
+1. Add the key to the namespace file, with the proposed text.
+2. Add its row to the notes file, in the same order, with a real `purpose` (what the string is for) and `where` (the screen or component, and the situation it appears in). Leave `approved` out. `npm run copy:check` (part of CI) fails when a key has no row, a row has no key, `purpose` or `where` is empty, a plural key lacks its `_one`/`_other` pair, or the two plural forms use different `{{placeholders}}`.
+3. Write the tests with `tx("namespace:key", params)` from `src/test/tx.ts`, never with the English itself. `tx` returns the real text, fills the placeholders, picks the plural form from `count`, and throws on a missing key or an unfilled placeholder. Values that are data in the test (a title, a path, a count) stay literal and go in as `params`. `npm run test:markers` runs the whole suite with every text replaced by a marker; it must stay green, and it's how you prove a test doesn't depend on the wording. The ordinary test run also fails (`src/test/noCopyInTests.test.ts`) when a test spells out a whole UI text or a long run of one.
+
+To change an existing string, edit its text in the locale file and nothing else: it becomes proposed again by itself. If its purpose or where changes, update the row.
+
+**Never edit `approved` yourself.** Only the copy editor does, with `npm run copy:approve -- <namespace>:<key> ...` (or `--all-in <namespace>`), after the owner approves the text. `npm run copy:status` lists the proposed strings; `npm run copy:gate` does the same and fails if any exist (the foreman runs it at phase checkpoints).

@@ -5,11 +5,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
 import { DEFAULT_THEME, syncThemeToDocument, useThemeStore } from "../theme/themeStore";
 import { Sidebar } from "./Sidebar";
+import { tx } from "../test/tx";
 
-const WORKFLOW_ORDER = ["Overview", "Review", "All music", "Library", "Crates"];
+const WORKFLOW_ORDER = ["overview", "review", "allMusic", "library", "crates"].map((id) =>
+  tx(`shell:stages.${id}`),
+);
+
+/** A link whose name starts with this text (a count badge may follow it). */
+const startingWith = (text: string) =>
+  new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
 
 function stageLinks() {
-  const nav = screen.getByRole("navigation", { name: "Stages" });
+  const nav = screen.getByRole("navigation", { name: tx("shell:stages.label") });
   return within(nav).getAllByRole("link");
 }
 
@@ -23,46 +30,46 @@ describe("layout shell", () => {
   it("has every zone: top bar, sidebar, center, Details panel and player", async () => {
     renderApp("/overview");
     const topBar = await screen.findByRole("banner");
-    expect(within(topBar).getByRole("search", { name: "Search" })).toBeInTheDocument();
-    expect(within(topBar).getByRole("status", { name: "Activity" })).toHaveTextContent(
-      "No background tasks",
+    expect(within(topBar).getByRole("search", { name: tx("shell:search.label") })).toBeInTheDocument();
+    expect(within(topBar).getByRole("status", { name: tx("activity:label") })).toHaveTextContent(
+      tx("activity:idle"),
     );
-    expect(screen.getByRole("navigation", { name: "Stages" })).toHaveTextContent("No crates");
+    expect(screen.getByRole("navigation", { name: tx("shell:stages.label") })).toHaveTextContent(tx("shell:sidebar.noCrates"));
     expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "Details" })).toHaveTextContent(
-      "Select a track",
+    expect(screen.getByRole("complementary", { name: tx("shell:details.label") })).toHaveTextContent(
+      tx("shell:details.empty"),
     );
-    expect(screen.getByRole("region", { name: "Player" })).toHaveTextContent("Nothing playing");
+    expect(screen.getByRole("region", { name: tx("shell:player.label") })).toHaveTextContent(tx("shell:player.empty"));
   });
 
   it("shows the command palette shortcut in the search slot", async () => {
     renderApp("/overview");
-    const search = await screen.findByRole("search", { name: "Search" });
-    expect(within(search).getByRole("searchbox", { name: "Search" })).toHaveAttribute(
+    const search = await screen.findByRole("search", { name: tx("shell:search.label") });
+    expect(within(search).getByRole("searchbox", { name: tx("shell:search.label") })).toHaveAttribute(
       "placeholder",
-      "Search or type a command",
+      tx("shell:search.placeholder"),
     );
-    expect(search).toHaveTextContent("Ctrl K");
+    expect(search).toHaveTextContent(tx("shell:search.shortcut"));
   });
 });
 
 describe("sidebar", () => {
   it("lists the stages in workflow order", async () => {
     renderApp("/overview");
-    await screen.findByRole("navigation", { name: "Stages" });
+    await screen.findByRole("navigation", { name: tx("shell:stages.label") });
     expect(stageLinks().map((link) => link.textContent)).toEqual(WORKFLOW_ORDER);
   });
 
   it("marks only the current stage with aria-current", async () => {
     renderApp("/all-music");
-    await screen.findByRole("heading", { level: 1, name: "All music" });
-    expect(currentStages()).toEqual(["All music"]);
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.allMusic") });
+    expect(currentStages()).toEqual([tx("shell:stages.allMusic")]);
   });
 
   it("navigates to each stage when its link is clicked", async () => {
     const user = userEvent.setup();
     const { router } = renderApp("/overview");
-    await screen.findByRole("heading", { level: 1, name: "Overview" });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.overview") });
 
     for (const name of [...WORKFLOW_ORDER].reverse()) {
       await user.click(screen.getByRole("link", { name }));
@@ -75,14 +82,14 @@ describe("sidebar", () => {
   it("can be used from the keyboard: Tab to a stage, Enter to open it", async () => {
     const user = userEvent.setup();
     renderApp("/overview");
-    await screen.findByRole("heading", { level: 1, name: "Overview" });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.overview") });
 
-    const review = screen.getByRole("link", { name: "Review" });
+    const review = screen.getByRole("link", { name: tx("shell:stages.review") });
     review.focus();
     await user.tab();
-    expect(screen.getByRole("link", { name: "All music" })).toHaveFocus();
+    expect(screen.getByRole("link", { name: tx("shell:stages.allMusic") })).toHaveFocus();
     await user.keyboard("{Enter}");
-    expect(await screen.findByRole("heading", { level: 1, name: "All music" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: tx("shell:stages.allMusic") })).toBeInTheDocument();
   });
 
   it("shows a count badge only for stages given a count", async () => {
@@ -95,10 +102,10 @@ describe("sidebar", () => {
     });
     render(<RouterProvider router={router} />);
 
-    const review = await screen.findByRole("link", { name: /Review/ });
+    const review = await screen.findByRole("link", { name: startingWith(tx("shell:stages.review")) });
     expect(within(review).getByTestId("count-badge")).toHaveTextContent("1,234");
-    expect(within(screen.getByRole("link", { name: /Crates/ })).getByTestId("count-badge")).toHaveTextContent("0");
-    expect(within(screen.getByRole("link", { name: "Library" })).queryByTestId("count-badge")).toBeNull();
+    expect(within(screen.getByRole("link", { name: startingWith(tx("shell:stages.crates")) })).getByTestId("count-badge")).toHaveTextContent("0");
+    expect(within(screen.getByRole("link", { name: tx("shell:stages.library") })).queryByTestId("count-badge")).toBeNull();
   });
 });
 
@@ -118,22 +125,22 @@ describe("themes", () => {
   it.each(["dark", "light"] as const)("the shell renders in the %s theme", async (theme) => {
     useThemeStore.setState({ theme });
     renderApp("/library");
-    expect(await screen.findByRole("heading", { level: 1, name: "Library" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: tx("shell:stages.library") })).toBeInTheDocument();
     expect(document.documentElement.dataset.theme).toBe(theme);
-    expect(screen.getByRole("radio", { name: theme === "dark" ? "Dark" : "Light" })).toBeChecked();
-    expect(screen.getByRole("navigation", { name: "Stages" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "Details" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Player" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: theme === "dark" ? tx("theme:dark") : tx("theme:light") })).toBeChecked();
+    expect(screen.getByRole("navigation", { name: tx("shell:stages.label") })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: tx("shell:details.label") })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: tx("shell:player.label") })).toBeInTheDocument();
   });
 
   it("switches theme from the top bar without leaving the current stage", async () => {
     const user = userEvent.setup();
     renderApp("/review");
-    await screen.findByRole("heading", { level: 1, name: "Review" });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.review") });
 
-    await user.click(within(screen.getByRole("banner")).getByRole("radio", { name: "Light" }));
+    await user.click(within(screen.getByRole("banner")).getByRole("radio", { name: tx("theme:light") }));
     expect(document.documentElement.dataset.theme).toBe("light");
-    expect(screen.getByRole("heading", { level: 1, name: "Review" })).toBeInTheDocument();
-    expect(currentStages()).toEqual(["Review"]);
+    expect(screen.getByRole("heading", { level: 1, name: tx("shell:stages.review") })).toBeInTheDocument();
+    expect(currentStages()).toEqual([tx("shell:stages.review")]);
   });
 });

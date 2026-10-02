@@ -1,0 +1,37 @@
+{
+  "busy": {
+    "purpose": "Error: the database is busy.",
+    "where": "Shown wherever a command fails with the busy error (any screen that shows an error line).",
+    "approved": "The Library is busy. Try again in a moment."
+  },
+  "diskFull": {
+    "purpose": "Error: the disk is full.",
+    "where": "Shown wherever a command fails because the disk is full.",
+    "approved": "Disk full. Free up some space and try again."
+  },
+  "cannotWrite": {
+    "purpose": "Error: the app can't write to its data folder.",
+    "where": "Shown wherever a command fails because the app's data folder can't be written.",
+    "approved": "Can't save to the app's data folder (it may be read-only). Restart the app."
+  },
+  "damaged": {
+    "purpose": "Error: the Library database is damaged.",
+    "where": "Shown wherever a command fails because the database is damaged.",
+    "approved": "The Library's database is damaged. Restart the app."
+  },
+  "database": {
+    "purpose": "Error: the Library couldn't be read or saved (a general database failure).",
+    "where": "Shown wherever a command fails with a database error.",
+    "approved": "Couldn't read or save the Library. Try again."
+  },
+  "stopped": {
+    "purpose": "Error: the Library's background thread has stopped.",
+    "where": "Shown wherever a command fails because the Library has stopped.",
+    "approved": "The Library has stopped. Restart the app."
+  },
+  "internal": {
+    "purpose": "Fallback error for anything unexpected.",
+    "where": "Shown wherever a command fails with an internal error, or an error the app doesn't know.",
+    "approved": "Something went wrong. Try again or restart the app."
+  }
+}
