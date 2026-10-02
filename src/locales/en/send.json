@@ -50,6 +50,7 @@
     "confirm": "Send anyway",
     "refused": {
       "incompleteExport": "Can't send: the export is incomplete. Export the collection again from rekordbox.",
+      "exportOlderThanLastSend": "Can't send: the export was saved before the last send. Export the collection again from rekordbox.",
       "sameName": "Can't send: two crates in one folder share a name ({{path}})",
       "noName": "Can't send: a crate has no name ({{path}})",
       "unsendableName": "Can't send: a name has a character rekordbox can't take ({{path}})",

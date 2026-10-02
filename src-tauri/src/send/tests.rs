@@ -44,6 +44,12 @@ impl Volumes for Plugged {
     }
 }
 
+/// The first export's modified time, in seconds since the Unix epoch: the
+/// year 2100, so every export these tests save is newer than any send
+/// they record (a send is refused when its export is older than the last
+/// send). Each save is a minute after the one before.
+const EXPORTS_SAVED_FROM: u64 = 4_102_444_800;
+
 /// One `TRACK` of a made-up export: rekordbox's `TrackID`, the file's
 /// name under `E:\Music`, and its title.
 struct Rb(u32, &'static str, &'static str);
@@ -121,7 +127,7 @@ impl World {
             guard,
             writer,
             export,
-            saved: std::cell::Cell::new(1_700_000_000),
+            saved: std::cell::Cell::new(EXPORTS_SAVED_FROM),
         }
     }
 
@@ -195,12 +201,25 @@ impl World {
     fn save_export_text(&self, text: &str) {
         fs::write(&self.export, text).unwrap();
         self.saved.set(self.saved.get() + 60);
+        self.export_saved_at(Duration::from_secs(self.saved.get()));
+    }
+
+    /// Sets the export's modified time, as a duration since the Unix
+    /// epoch: when rekordbox saved it.
+    fn export_saved_at(&self, since_epoch: Duration) {
         fs::File::options()
             .write(true)
             .open(&self.export)
             .unwrap()
-            .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(self.saved.get()))
+            .set_modified(SystemTime::UNIX_EPOCH + since_epoch)
             .unwrap();
+    }
+
+    /// When the last send was recorded, in milliseconds since the epoch.
+    fn last_send_ms(&self) -> Option<i64> {
+        self.writer
+            .call(|c| super::preflight::last_send_ms(c))
+            .unwrap()
     }
 
     /// Runs one send job to its end with `sender` as the handler.
@@ -358,7 +377,10 @@ fn the_preflight_counts_new_tracks_and_the_dialogs_to_expect() {
     assert!(preflight.can_send && !preflight.needs_confirm);
     // The export's own time is shown: when rekordbox saved it.
     assert_eq!(preflight.export.path, w.export.to_string_lossy());
-    assert_eq!(preflight.export.modified_ms, 1_700_000_060_000);
+    assert_eq!(
+        preflight.export.modified_ms,
+        (EXPORTS_SAVED_FROM as i64 + 60) * 1000
+    );
 
     assert_eq!(w.go(false), None);
     // The track rekordbox has goes back with rekordbox's values.
@@ -587,6 +609,98 @@ fn an_incomplete_export_refuses_the_send_and_nothing_is_written_or_recorded() {
     assert_eq!(w.data_files(), Vec::<String>::new());
     assert_eq!(w.recorded(), before);
     assert_eq!(before.0, Vec::<String>::new());
+}
+
+// --- an export older than the last send ------------------------------------------
+
+/// The refusal an export saved before the last send gets.
+fn older_than_the_last_send() -> Option<Refusal> {
+    Some(Refusal {
+        reason: RefusalReason::ExportOlderThanLastSend,
+        path: Vec::new(),
+    })
+}
+
+#[test]
+fn a_second_send_from_the_same_export_is_refused_and_nothing_is_written_or_recorded() {
+    let (w, ..) = world_with_a_send_waiting();
+    // The export was saved an hour ago: before the send about to happen.
+    let hour_ago = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        - Duration::from_secs(3600);
+    w.export_saved_at(hour_ago);
+    // No send was ever recorded: an export of any age is fine.
+    assert_eq!(w.last_send_ms(), None);
+    let preflight = w.prepare().unwrap();
+    assert_eq!(preflight.refusal, None);
+    assert_eq!(w.go(false), None);
+    let file = fs::read(w.send_file()).unwrap();
+    let recorded = w.recorded();
+
+    // rekordbox hasn't exported since: the same export can't show what
+    // that send put there.
+    let preflight = w.prepare().unwrap();
+    assert_eq!(preflight.refusal, older_than_the_last_send());
+    assert!(!preflight.can_send);
+    assert_eq!(w.go(true), Some(SendFailure::NotSendable));
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
+    assert_eq!(w.recorded(), recorded);
+}
+
+#[test]
+fn an_export_saved_after_the_last_send_is_sent() {
+    let (w, ..) = world_with_a_send_waiting();
+    w.prepare().unwrap();
+    assert_eq!(w.go(false), None);
+
+    w.save_export(&[Rb(40, "known.mp3", "Known in rekordbox")]);
+    let preflight = w.prepare().unwrap();
+    assert_eq!(preflight.refusal, None);
+    assert_eq!(w.go(false), None);
+}
+
+#[test]
+fn an_export_saved_at_the_very_millisecond_of_the_last_send_is_sent_one_saved_a_millisecond_earlier_is_not(
+) {
+    let (w, ..) = world_with_a_send_waiting();
+    w.prepare().unwrap();
+    assert_eq!(w.go(false), None);
+    let sent = u64::try_from(w.last_send_ms().unwrap()).unwrap();
+
+    w.export_saved_at(Duration::from_millis(sent));
+    assert_eq!(w.prepare().unwrap().refusal, None);
+
+    w.export_saved_at(Duration::from_millis(sent - 1));
+    assert_eq!(w.prepare().unwrap().refusal, older_than_the_last_send());
+}
+
+#[test]
+fn the_last_send_is_still_known_after_its_tracks_are_removed_or_only_a_crate_was_sent() {
+    // Only an empty crate: no track carries the send's time, the crate does.
+    let w = World::new();
+    w.crate_of("Empty", &[]);
+    w.save_export(&[Rb(40, "known.mp3", "Known in rekordbox")]);
+    w.prepare().unwrap();
+    assert_eq!(w.go(false), None);
+    let crate_only = w.last_send_ms();
+    assert!(crate_only.is_some());
+
+    // A sent track that is then removed from the Library: its removal
+    // record keeps the time.
+    let (w, _known, new) = world_with_a_send_waiting();
+    w.prepare().unwrap();
+    assert_eq!(w.go(false), None);
+    let sent = w.last_send_ms();
+    assert!(sent.is_some());
+    w.writer
+        .call(|c| c.execute_batch("DELETE FROM sent_playlist"))
+        .unwrap();
+    crate::library::remove(&w.writer, new).unwrap();
+    w.writer
+        .call(|c| c.execute("UPDATE library_track SET last_exported_at = NULL", []))
+        .unwrap();
+    assert_eq!(w.last_send_ms(), sent);
 }
 
 // --- the confirm ---------------------------------------------------------------

@@ -208,6 +208,9 @@ fn sending_again_with_nothing_changed_writes_the_same_file_and_leaves_nothing_to
 
     let first = world.send();
     let first_bytes = world.sent_bytes();
+    // The first send is never imported: rekordbox exports the same
+    // collection again, and the second send is the same file.
+    world.rekordbox_saves(&rb.export());
     world.send();
     assert_eq!(world.sent_bytes(), first_bytes, "the second send's file");
 

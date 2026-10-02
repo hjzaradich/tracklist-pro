@@ -160,8 +160,8 @@ pub struct World {
     /// Everything under the music folder and beside the export, as the
     /// user and rekordbox last left it.
     outside: BTreeMap<PathBuf, Entry>,
-    /// How many times rekordbox has saved its export.
-    saves: u64,
+    /// When rekordbox last saved its export, in seconds since the epoch.
+    saved: u64,
     // Last, so the app has let go of its files before the folder goes.
     _dir: tempfile::TempDir,
 }
@@ -201,7 +201,7 @@ impl World {
             documents,
             app_data,
             outside: BTreeMap::new(),
-            saves: 0,
+            saved: 0,
             _dir: dir,
         };
         world.outside = world.outside_now();
@@ -313,13 +313,30 @@ impl World {
     }
 
     /// rekordbox saves its export (File → Export Collection), later than
-    /// any save before. Returns the export's path.
+    /// any save before and than any send so far. Returns the export's path.
     pub fn rekordbox_saves(&mut self, text: &str) -> String {
         self.assert_nothing_outside_the_app_data_folder_changed();
         let path = self.export();
         fs::write(&path, text).unwrap();
-        self.saves += 1;
-        let saved = SystemTime::UNIX_EPOCH + Duration::from_secs(1_750_000_000 + self.saves * 60);
+        // A minute after the save before, and a minute after the last
+        // send the app recorded: rekordbox exports after the import. The
+        // first export is from 2025, before anything the app does.
+        let last_send: Option<i64> = self
+            .writer()
+            .call(|c| {
+                c.query_row(
+                    "SELECT max(CAST(strftime('%s', at) AS INTEGER))
+                     FROM (SELECT last_exported_at AS at FROM library_track
+                           UNION ALL SELECT last_exported_at FROM library_removal
+                           UNION ALL SELECT sent_at FROM sent_playlist)",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        let after_the_send = last_send.map_or(0, |s| u64::try_from(s).unwrap());
+        self.saved = self.saved.max(after_the_send).max(1_750_000_000) + 60;
+        let saved = SystemTime::UNIX_EPOCH + Duration::from_secs(self.saved);
         fs::File::options()
             .write(true)
             .open(&path)

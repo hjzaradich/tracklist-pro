@@ -139,6 +139,10 @@ pub enum RefusalReason {
     /// The export just read doesn't hold every track it says it does, so
     /// some of rekordbox's values would come from an older read.
     IncompleteExport,
+    /// The export just read was saved before the last send was recorded:
+    /// it can't hold what that send put in rekordbox, so tracks rekordbox
+    /// now has would go out as new. The user exports again.
+    ExportOlderThanLastSend,
     /// Two crates, playlists or folders in one folder share a name (or
     /// names rekordbox may treat as one): one would replace the other.
     SameName,
