@@ -16,7 +16,7 @@
     "title": "Remove “{{title}}” from your Library?",
     "detail": "This action can be undone",
     "confirm": "Remove",
-    "cancel": "Cancel",
+    "cancel": "Go back",
     "done": "Removed from your Library",
     "undo": "Undo",
     "undone": "Put back in your Library",
