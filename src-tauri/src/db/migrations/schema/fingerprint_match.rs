@@ -104,6 +104,13 @@ fn a_changed_fingerprint_drops_that_files_results_and_no_others() {
 }
 
 #[test]
+fn a_changed_fingerprint_drops_the_results_where_the_file_is_the_first_of_the_pair() {
+    let (_dir, conn) = with_three_compared_files();
+    accepts(&conn, "UPDATE file SET fingerprint = x'0103' WHERE id = 1");
+    assert_eq!(pairs(&conn), [(2, 3)]);
+}
+
+#[test]
 fn a_new_size_or_modified_time_or_the_same_fingerprint_written_again_keeps_the_results() {
     // rekordbox rewrites tags and bumps modified times (ROADMAP 5.1): none
     // of that is new audio.

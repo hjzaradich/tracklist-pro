@@ -410,7 +410,9 @@ fn it_works_as_a_job_and_reports_progress() {
         .start()
         .unwrap();
     let id = queue.enqueue(NewJob::new(JobKind::Analyze)).unwrap();
+    let started = std::time::Instant::now();
     let job = loop {
+        assert!(started.elapsed().as_secs() < 300, "the job never finished");
         let job = db
             .writer
             .call(move |c| jobs::store::get(c, id))
@@ -489,4 +491,162 @@ fn on_the_ground_truth_library_every_duplicate_is_measured_as_one_and_no_other_p
         let name = |id: i64| *ids.iter().find(|(_, &v)| v == id).unwrap().0;
         assert!(corpus().related(name(m.file_a), name(m.file_b)), "{m:?}");
     }
+}
+
+#[test]
+fn a_fingerprint_that_goes_away_and_comes_back_the_same_gets_its_results_back_on_the_next_pass() {
+    // A failed decode clears the fingerprint and a later run writes the
+    // same bytes again; or the audio changes and changes back. The database
+    // dropped the file's results each time, so the same matcher must work
+    // them out again, though the fingerprint it remembers is the one it
+    // sees.
+    let db = small();
+    let matcher = Matcher::new();
+    pass(&matcher, &db);
+    let before = db.all();
+    let same = fingerprint(reencoded(&track(1, 900), 1, 7));
+    db.sql("UPDATE file SET fingerprint = NULL WHERE id = 2", ());
+    db.set_fingerprint(2, &same);
+    assert_eq!(db.pairs(), [(1, 3)]);
+    let summary = pass(&matcher, &db);
+    assert_eq!(summary.changed, 0, "the fingerprint is the one it knew");
+    assert_eq!((summary.compared, summary.stored), (2, 2));
+    assert_eq!(db.all(), before);
+
+    // Other audio and back again, with no pass in between.
+    db.set_fingerprint(3, &fingerprint(track(8, 400)));
+    db.set_fingerprint(3, &fingerprint(track(1, 900)[300..700].to_vec()));
+    assert_eq!(db.pairs(), [(1, 2)]);
+    pass(&matcher, &db);
+    assert_eq!(db.all(), before);
+    // And nothing more to do after that.
+    let settled = pass(&matcher, &db);
+    assert_eq!((settled.compared, settled.stored), (0, 0));
+}
+
+#[test]
+fn an_exact_copy_whose_fingerprint_comes_back_the_same_is_linked_to_the_first_file_again() {
+    let db = db();
+    let a = track(1, 900);
+    db.add_items("a.flac", a.clone());
+    db.add_items("a.wav", a.clone());
+    let matcher = Matcher::new();
+    pass(&matcher, &db);
+    assert_eq!(db.pairs(), [(1, 2)]);
+    db.sql("UPDATE file SET fingerprint = NULL WHERE id = 2", ());
+    db.set_fingerprint(2, &fingerprint(a));
+    assert_eq!(db.pairs(), []);
+    pass(&matcher, &db);
+    assert_eq!(db.pairs(), [(1, 2)]);
+    assert_eq!(db.of_pair(1, 2).unwrap(), Comparison::identical(900));
+}
+
+#[test]
+fn a_cut_added_after_its_original_is_stored_with_each_files_own_coverage() {
+    // The original is file 1; the cut arrives later as file 2 and is the
+    // one that's due. The row still has the original as A: all of the cut
+    // is covered, under half of the original.
+    let db = db();
+    let a = track(1, 900);
+    db.add_items("a.flac", a.clone());
+    let matcher = Matcher::new();
+    pass(&matcher, &db);
+    db.add_items("a (radio edit).flac", a[300..700].to_vec());
+    pass(&matcher, &db);
+    let stored = db.all();
+    assert_eq!(stored.len(), 1);
+    let c = &stored[0].comparison;
+    assert_eq!((stored[0].file_a, stored[0].file_b), (1, 2));
+    assert_eq!((c.items_a, c.items_b), (900, 400));
+    assert!(c.coverage_a < 0.5 && c.coverage_b >= 0.9, "{c:?}");
+    assert_eq!((c.segments[0].offset_a, c.segments[0].offset_b), (300, 0));
+}
+
+#[test]
+fn a_result_handed_over_with_the_higher_file_first_is_stored_turned_round() {
+    let db = small();
+    let (a, cut) = (
+        fingerprint(track(1, 900)),
+        fingerprint(track(1, 900)[300..700].to_vec()),
+    );
+    // The cut (file 3) as A, the original (file 1) as B.
+    let comparison = compare(&cut, &a).unwrap();
+    assert!(comparison.coverage_a >= 0.9 && comparison.coverage_b < 0.5);
+    let (blob_a, blob_cut, handed) = (a.to_blob(), cut.to_blob(), comparison.clone());
+    let stored = db
+        .writer
+        .call(move |c| {
+            let (cut, original) = (
+                Side {
+                    file: 3,
+                    blob: &blob_cut,
+                },
+                Side {
+                    file: 1,
+                    blob: &blob_a,
+                },
+            );
+            store::put(c, cut, original, &handed)
+        })
+        .unwrap();
+    assert!(stored);
+    let row = &db.all()[0];
+    assert_eq!((row.file_a, row.file_b), (1, 3));
+    // The row's A is file 1, the original: its numbers, not the cut's.
+    assert_eq!(row.comparison, comparison.swapped());
+    assert_eq!((row.comparison.items_a, row.comparison.items_b), (900, 400));
+    assert!(row.comparison.coverage_a < 0.5 && row.comparison.coverage_b >= 0.9);
+    assert_eq!(row.comparison.segments[0].offset_a, 300);
+    assert_eq!(db.of_pair(3, 1).unwrap(), comparison);
+}
+
+#[test]
+fn the_stored_result_is_the_same_whichever_of_the_two_files_arrived_last() {
+    // The matcher isn't symmetric on weak matches: these two give other
+    // numbers when their sides are swapped. Two items of the first are
+    // added to the second so the index proposes the pair.
+    let x = corpus().fingerprint("harbor (extended).flac").clone();
+    let shared = crate::matching::index::keys(x.items());
+    let mashup = corpus().fingerprint("harbor x moth (mashup).wav");
+    let y = fingerprint([mashup.items(), &shared[..2]].concat());
+    let (one_way, other_way) = (compare(&x, &y).unwrap(), compare(&y, &x).unwrap().swapped());
+    let numbers = |c: &Comparison| (c.coverage_a, c.coverage_b, c.score);
+    assert_ne!(
+        numbers(&one_way),
+        numbers(&other_way),
+        "the pair must be a lopsided one"
+    );
+
+    // Both files there before the first pass.
+    let together = db();
+    together.add("x", &x);
+    together.add("y", &y);
+    refresh(&together.writer).unwrap();
+    // The second file arrives after the first was matched, so it alone is
+    // due.
+    let later = db();
+    let matcher = Matcher::new();
+    later.add("x", &x);
+    pass(&matcher, &later);
+    later.add("y", &y);
+    pass(&matcher, &later);
+    // And the other way round: the lower id is the one that's due.
+    let earlier = db();
+    let matcher = Matcher::new();
+    earlier.add("x", &x);
+    earlier.add("y", &y);
+    earlier.sql("UPDATE file SET present = 0 WHERE id = 1", ());
+    pass(&matcher, &earlier);
+    earlier.sql("UPDATE file SET present = 1 WHERE id = 1", ());
+    pass(&matcher, &earlier);
+
+    let expected = together.all();
+    assert_eq!(expected.len(), 1);
+    assert_eq!(
+        numbers(&expected[0].comparison),
+        numbers(&one_way),
+        "the lower id is A"
+    );
+    assert_eq!(later.all(), expected);
+    assert_eq!(earlier.all(), expected);
 }

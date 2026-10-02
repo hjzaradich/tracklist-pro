@@ -104,7 +104,10 @@
 //! compared pair of files, compared-and-nothing-found included. A file's
 //! rows are deleted by the database when its `fingerprint` bytes change,
 //! and stay through a tag rewrite or a new modified time (ROADMAP 5.1).
-//! Files with the very same fingerprint are handled as one: see [`job`].
+//! Files with the very same fingerprint are handled as one, and a pair is
+//! always compared with the lower file id as A: see [`job`]. Rows are kept
+//! for files that have gone missing (`present = 0`); a reader that only
+//! wants present files filters on that.
 //!
 //! [`Matcher`] is the pass that keeps the table up to date, and a job
 //! handler. It isn't wired into the scan chain yet.

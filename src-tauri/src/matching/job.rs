@@ -4,10 +4,22 @@
 //! opened.
 //!
 //! [`Matcher`] keeps the index in memory between passes, so a pass after
-//! one new file works on that file alone: its fingerprint is read, its keys
-//! go into the index, and only its candidates are compared. A new `Matcher`
-//! (after a restart) reads every fingerprint once to rebuild the index, and
-//! skips every pair that already has a stored result.
+//! one new file compares that file alone: every pass reads each file's
+//! fingerprint bytes to see what changed, but only a new or changed one is
+//! decoded, only its keys go into the index, and only its candidates are
+//! compared. A new `Matcher` (after a restart) rebuilds the index from
+//! every fingerprint, and skips every pair that already has a stored
+//! result.
+//!
+//! The table is the truth about what has been compared, not the
+//! `Matcher`'s memory. The database deletes a file's results when its
+//! fingerprint changes, even if it changes back before the next pass, so
+//! each pass looks at which files have fewer results than it left them
+//! with and works those out again.
+//!
+//! A pair is always compared with the lower file id as A, so what's stored
+//! doesn't depend on which of the two files arrived last (the matcher
+//! isn't symmetric on weak matches).
 //!
 //! Files with exactly the same fingerprint are one index entry. The first
 //! of them (lowest file id) stands for all: it gets a full-coverage,
@@ -81,6 +93,19 @@ struct State {
     /// Classes whose candidates haven't all been compared and stored yet.
     /// Kept across passes, so a cancelled pass is picked up by the next.
     due: BTreeSet<EntryId>,
+    /// How many stored results each file was part of when the last
+    /// finished pass ended. A file with fewer now has lost some.
+    results_of_file: HashMap<i64, usize>,
+}
+
+/// How many of the `pairs` each file is part of.
+fn results_per_file(pairs: &HashSet<(i64, i64)>) -> HashMap<i64, usize> {
+    let mut counts: HashMap<i64, usize> = HashMap::new();
+    for &(a, b) in pairs {
+        *counts.entry(a).or_default() += 1;
+        *counts.entry(b).or_default() += 1;
+    }
+    counts
 }
 
 impl State {
@@ -133,6 +158,24 @@ impl State {
         self.due.insert(class.entry);
         self.digest_of_file.insert(file, digest);
         Some(true)
+    }
+
+    /// Makes due again every class with a file that has lost stored
+    /// results since the last finished pass: `now` is each file's count as
+    /// the table has it.
+    fn notice_lost_results(&mut self, now: &HashMap<i64, usize>) {
+        for (file, &before) in &self.results_of_file {
+            if now.get(file).copied().unwrap_or(0) >= before {
+                continue;
+            }
+            let class = self
+                .digest_of_file
+                .get(file)
+                .and_then(|digest| self.classes.get(digest));
+            if let Some(class) = class {
+                self.due.insert(class.entry);
+            }
+        }
     }
 
     fn class_of_entry(&self, entry: EntryId) -> Option<&Class> {
@@ -237,8 +280,12 @@ impl Matcher {
         summary.files = state.digest_of_file.len() as u64;
         summary.fingerprints = state.classes.len() as u64;
 
-        // 2. Each due class: its identical files, then its candidates.
+        // 2. Results the database dropped since the last pass are due
+        // again, whatever this matcher remembers.
         let mut compared = writer.call(|c| store::compared_pairs(c))?;
+        state.notice_lost_results(&results_per_file(&compared));
+
+        // 3. Each due class: its identical files, then its candidates.
         let due: Vec<EntryId> = state.due.iter().copied().collect();
         let total = due.len().max(1) as f64;
         let mut batch: Vec<Found> = Vec::new();
@@ -295,17 +342,23 @@ impl Matcher {
                 let Ok(other_fingerprint) = Fingerprint::from_blob(&other_blob) else {
                     continue;
                 };
+                // The lower file id is always A.
+                let mut a = (first, &fingerprint, blob.clone());
+                let mut b = (other, &other_fingerprint, other_blob);
+                if a.0 > b.0 {
+                    std::mem::swap(&mut a, &mut b);
+                }
                 // Too long or of another version: nothing to store.
-                let Ok(comparison) = compare(&fingerprint, &other_fingerprint) else {
+                let Ok(comparison) = compare(a.1, b.1) else {
                     continue;
                 };
                 summary.compared += 1;
                 compared.insert(pair(first, other));
                 batch.push(Found {
-                    a: first,
-                    blob_a: blob.clone(),
-                    b: other,
-                    blob_b: other_blob,
+                    a: a.0,
+                    blob_a: a.2,
+                    b: b.0,
+                    blob_b: b.2,
                     comparison,
                 });
                 if batch.len() >= BATCH {
@@ -320,6 +373,7 @@ impl Matcher {
             }
             state.due.remove(&entry);
         }
+        state.results_of_file = results_per_file(&compared);
         tick(1.0)?;
         Ok(summary)
     }
