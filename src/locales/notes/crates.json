@@ -2,154 +2,191 @@
   "empty": {
     "purpose": "Says there are no crates yet.",
     "where": "Crates screen, in place of the crate list.",
-    "approved": "Groups of Library tracks, collected for a purpose."
+    "approved": "No crates"
   },
   "list.label": {
     "purpose": "Names the list of crates for screen readers.",
-    "where": "Crates screen, the list of crates (not shown)."
+    "where": "Crates screen, the list of crates (not shown).",
+    "approved": "Crates"
   },
   "trackCount_zero": {
     "purpose": "Says a crate has no tracks.",
-    "where": "Crates screen, next to a crate's name in the list."
+    "where": "Crates screen, next to a crate's name in the list.",
+    "approved": "No tracks"
   },
   "trackCount_one": {
     "purpose": "Says a crate has one track.",
-    "where": "Crates screen, next to a crate's name in the list."
+    "where": "Crates screen, next to a crate's name in the list.",
+    "approved": "{{count}} track"
   },
   "trackCount_other": {
     "purpose": "Says how many tracks a crate has.",
-    "where": "Crates screen, next to a crate's name in the list."
+    "where": "Crates screen, next to a crate's name in the list.",
+    "approved": "{{count}} tracks"
   },
   "noTracks": {
     "purpose": "Says the chosen crate has no tracks.",
-    "where": "Crates screen, right side, in place of the track list."
+    "where": "Crates screen, right side, in place of the track list.",
+    "approved": "No tracks in this crate"
   },
   "select": {
     "purpose": "Asks the user to choose a crate to see its tracks.",
-    "where": "Crates screen, right side, while no crate is chosen."
+    "where": "Crates screen, right side, while no crate is chosen.",
+    "approved": "Select a crate"
   },
   "new.button": {
     "purpose": "Starts making a crate.",
-    "where": "Crates screen, above the crate list."
+    "where": "Crates screen, above the crate list.",
+    "approved": "Create crate"
   },
   "new.label": {
     "purpose": "Names the field for the new crate's name.",
-    "where": "Crates screen, the new-crate form."
+    "where": "Crates screen, the new-crate form.",
+    "approved": "Crate name"
   },
   "new.confirm": {
     "purpose": "Makes the crate with the typed name.",
-    "where": "Crates screen, the new-crate form."
+    "where": "Crates screen, the new-crate form.",
+    "approved": "Create"
   },
   "new.cancel": {
     "purpose": "Closes the new-crate form without making a crate.",
-    "where": "Crates screen, the new-crate form."
+    "where": "Crates screen, the new-crate form.",
+    "approved": "Go back"
   },
   "rename.button": {
     "purpose": "Starts renaming the chosen crate.",
-    "where": "Crates screen, header of the chosen crate."
+    "where": "Crates screen, header of the chosen crate.",
+    "approved": "Rename"
   },
   "rename.label": {
     "purpose": "Names the field for the crate's new name.",
-    "where": "Crates screen, the rename form."
+    "where": "Crates screen, the rename form.",
+    "approved": "New name"
   },
   "rename.confirm": {
     "purpose": "Renames the crate to the typed name.",
-    "where": "Crates screen, the rename form."
+    "where": "Crates screen, the rename form.",
+    "approved": "Rename"
   },
   "rename.cancel": {
     "purpose": "Closes the rename form without renaming.",
-    "where": "Crates screen, the rename form."
+    "where": "Crates screen, the rename form.",
+    "approved": "Go back"
   },
   "delete.button": {
     "purpose": "Starts deleting the chosen crate.",
-    "where": "Crates screen, header of the chosen crate."
+    "where": "Crates screen, header of the chosen crate.",
+    "approved": "Delete"
   },
   "delete.title": {
     "purpose": "Asks whether to delete the chosen crate.",
-    "where": "Crates screen, delete confirmation."
+    "where": "Crates screen, delete confirmation.",
+    "approved": "Delete “{{name}}”?"
   },
   "delete.detail": {
     "purpose": "Says the delete can be undone.",
-    "where": "Crates screen, delete confirmation."
+    "where": "Crates screen, delete confirmation.",
+    "approved": "This action can be undone"
   },
   "delete.confirm": {
     "purpose": "Deletes the crate.",
-    "where": "Crates screen, delete confirmation."
+    "where": "Crates screen, delete confirmation.",
+    "approved": "Delete"
   },
   "delete.cancel": {
     "purpose": "Closes the confirmation without deleting.",
-    "where": "Crates screen, delete confirmation."
+    "where": "Crates screen, delete confirmation.",
+    "approved": "Go back"
   },
   "removeTrack.button": {
     "purpose": "Takes a track out of the chosen crate.",
-    "where": "Crates screen, last cell of each track row."
+    "where": "Crates screen, last cell of each track row.",
+    "approved": "Remove"
   },
   "removeTrack.buttonFor": {
     "purpose": "Names the Remove button of one track for screen readers.",
-    "where": "Crates screen, last cell of each track row (not shown)."
+    "where": "Crates screen, last cell of each track row (not shown).",
+    "approved": "Remove {{title}} from crate"
   },
   "addTrack.label": {
     "purpose": "Offers the crates a Library track can be added to.",
-    "where": "Library screen, choice in the last cell of each track row."
+    "where": "Library screen, choice in the last cell of each track row.",
+    "approved": "Add to crate"
   },
   "addTrack.labelFor": {
     "purpose": "Names one track's Add to crate choice for screen readers.",
-    "where": "Library screen, each track row (not shown)."
+    "where": "Library screen, each track row (not shown).",
+    "approved": "Add {{title}} to crate"
   },
   "addTrack.none": {
     "purpose": "Says there is no crate to add to.",
-    "where": "Library screen, the greyed-out choice in each track row when there are no crates."
+    "where": "Library screen, the greyed-out choice in each track row when there are no crates.",
+    "approved": "No crates"
   },
   "addTrack.added": {
     "purpose": "Says the track was added to the crate.",
-    "where": "Library screen, status strip above the list after an add."
+    "where": "Library screen, status strip above the list after an add.",
+    "approved": "Added to {{crate}}"
   },
   "addTrack.alreadyIn": {
     "purpose": "Says the track was already in the crate, so nothing changed.",
-    "where": "Library screen, status strip above the list after an add."
+    "where": "Library screen, status strip above the list after an add.",
+    "approved": "Already in {{crate}}"
   },
   "done.created": {
     "purpose": "Says the crate was made.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip with Undo.",
+    "approved": "Crate created"
   },
   "done.renamed": {
     "purpose": "Says the crate was renamed.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip with Undo.",
+    "approved": "Crate renamed"
   },
   "done.deleted": {
     "purpose": "Says the crate was deleted.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip with Undo.",
+    "approved": "Crate deleted"
   },
   "done.removed": {
     "purpose": "Says the track was taken out of the crate.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip with Undo.",
+    "approved": "Removed from crate"
   },
   "undo": {
     "purpose": "Undoes the last change.",
-    "where": "Crates and Library screens, status strip after a crate change."
+    "where": "Crates and Library screens, status strip after a crate change.",
+    "approved": "Undo"
   },
   "undone": {
     "purpose": "Says the last change was undone.",
-    "where": "Crates and Library screens, status strip after an undo."
+    "where": "Crates and Library screens, status strip after an undo.",
+    "approved": "Undone"
   },
   "undoRefused": {
     "purpose": "Says the undo was refused because the Library changed since.",
-    "where": "Crates and Library screens, after an undo that was refused."
+    "where": "Crates and Library screens, after an undo that was refused.",
+    "approved": "Can't undo: the Library has changed since"
   },
   "error.notFound": {
     "purpose": "Says the crate doesn't exist.",
-    "where": "Any crate action on a crate that is gone."
+    "where": "Any crate action on a crate that is gone.",
+    "approved": "Crate not found"
   },
   "error.nameEmpty": {
     "purpose": "Says the crate's name was empty.",
-    "where": "Crates screen, new-crate and rename forms."
+    "where": "Crates screen, new-crate and rename forms.",
+    "approved": "Crate needs a name"
   },
   "error.nameTaken": {
     "purpose": "Says another crate already has the name.",
-    "where": "Crates screen, new-crate and rename forms."
+    "where": "Crates screen, new-crate and rename forms.",
+    "approved": "Crate name already used (“{{name}}”)"
   },
   "error.nameUnsendable": {
     "purpose": "Says the name has a character rekordbox can't take.",
-    "where": "Crates screen, new-crate and rename forms."
+    "where": "Crates screen, new-crate and rename forms.",
+    "approved": "Name has a character that can't be sent to rekordbox. Remove it and try again."
   }
 }
