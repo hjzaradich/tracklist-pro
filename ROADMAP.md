@@ -33,6 +33,7 @@ A free, open-source (GPL-3.0) library manager for DJs who use **rekordbox 7** on
 - **Everything in the app is reversible** through the operation log. The exception is what rekordbox does after you import a send, which the app can't undo. So the app merges conflicts first and guides the import (1.9).
 - **Estimates are labeled** until rekordbox's analysis replaces them.
 - **Offline by default, private always.** Every online service is opt-in and says what it sends. No telemetry.
+- **Optional features are the user's choice.** The wishlist, metadata lookup, the audio model and any later integration are switched on by the user, one by one, and the app works fully with each of them off. A light feature ships inside the app and is only switched on; a heavy one (the audio model) is downloaded when the user asks for it.
 - **Portable code, Windows release.** Paths are stored as volume identity plus a relative path. CI builds macOS and Linux, but only Windows is supported.
 
 ### 1.1 Project decisions
@@ -55,6 +56,7 @@ A free, open-source (GPL-3.0) library manager for DJs who use **rekordbox 7** on
 | Energy | 1–10 | Compatible with Mixed In Key's `Energy N`. How it reaches rekordbox is still open (§7). |
 | Network | Offline by default, opt-in per service | Model downloads and update checks count as services. Every request goes through the network gate (0.1). |
 | Telemetry | None, ever | The diagnostics bundle (4.3) is the only source of bug-report detail. |
+| Optional features | Each one is off until the user turns it on; the app works with any mix of them on or off | Wishlists (2.3–2.5), metadata lookup (2.2), the audio model (3.8), and reach goals such as a second DJ app. Light features ship in the installer and are only switched on. Heavy ones are a separate download on request: the audio model is never bundled (owner decision, 2026-10-02). No core screen, send or suggestion may need an optional feature. |
 | AI / ML | Local audio ML only; labeled and optional | No cloud LLM. ML signals can be switched off, and nothing depends on them (3.8). |
 | In-app audio | Simple preview in the webview | No native engine and no headphone routing. AIFF and ALAC are decoded in Rust. |
 | musicmanager | **A blueprint only; never part of the owner's workflow** (owner, 2026-09-30) | Nobody relies on it, so there's no freeze to time. Separate bundle IDs, data folders, updater endpoints and credential prefixes, so both can be installed side by side. No shared DB and no migration. Ported modules are copies (0.2); nothing is ported back. |
@@ -570,7 +572,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **Complexity:** L (key is the hard part).
 
 #### 3.8 Local audio ML
-- **What:** on-device models, downloaded once. The download is opt-in and goes through the network gate.
+- **What:** on-device models, downloaded once. The download is opt-in and goes through the network gate. The models are never part of the installer (§1.1, Optional features).
   - "Sounds like" similarity search, and a similarity signal for 3.4.
   - Genre and vibe **suggestions** (review only, never applied automatically).
   - A better energy estimate.
@@ -635,7 +637,7 @@ Polish on top of the Phase 1 first run (1.3):
 | Gig log (venue, tracks played) | Out of v1 scope. |
 | Native audio engine (headphone output, transition preview) | Simple preview was chosen. |
 | Cloud LLM features | Local ML only was chosen. |
-| Serato / Traktor / Engine export | rekordbox only for now. The export layer stays pluggable; this is the path to DJs on other software. |
+| Serato / Traktor / Engine export | rekordbox only for now. The export layer stays pluggable; this is the path to DJs on other software. If built, it is an optional feature the user turns on (§1.1). |
 | Store page lookups / prices | Ruled out (ToS). |
 | Live multi-machine sync | The bundle comes first. |
 | Writing gig USBs / OneLibrary | **Never.** There's no public spec, and a broken stick at a gig is the worst possible failure. |

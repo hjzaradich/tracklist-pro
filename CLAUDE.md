@@ -34,6 +34,7 @@ A GPL-3.0 desktop app (Tauri 2 + Rust + React/TS) that builds a DJ's Library and
 **Network and privacy**
 - Every outbound request goes through the `net` module and checks the user's opt-in for that service. No other module makes HTTP calls. Model downloads and update checks count as services.
 - **No telemetry, ever.** No API secrets in the binary; users bring their own keys.
+- **Optional features are off until the user turns them on** (ROADMAP §1.1): wishlist, metadata lookup, the audio model, later integrations. Nothing in the core may need one. A task that builds an optional feature ships tests with the feature off as well as on. Heavy assets (model files) are downloaded on request, never bundled.
 - Respect MusicBrainz's limit of 1 request per second.
 
 **Suggestions**
