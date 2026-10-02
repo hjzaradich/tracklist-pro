@@ -28,9 +28,9 @@ export const commands = {
 	/**  Every music folder, oldest first. */
 	musicFolders: () => typedError<MusicFolder[], IpcError>(__TAURI_INVOKE("music_folders")),
 	/**
-	 *  Adds a music folder and scans it: the scan is queued before this
-	 *  returns, whichever screen asked, and shows in Activity. `role` defaults
-	 *  to scan.
+	 *  Adds a music folder and scans it: exactly one scan of it is queued
+	 *  before this returns, whichever screen asked, and shows in Activity.
+	 *  `role` defaults to scan.
 	 */
 	addMusicFolder: (path: string, role: 
 /**  Scanned into All music (the default). */
@@ -42,6 +42,10 @@ export const commands = {
 	/**
 	 *  Scans the music folders `ids`, or all of them. Returns the job's id; its
 	 *  progress shows in Activity, and new files arrive as `ScannedFiles`.
+	 *  Asked again while that same scan is waiting, nothing more is queued and
+	 *  the waiting job's id comes back; while it's running, it runs once more
+	 *  when it ends, however many times it's asked (a double click is one
+	 *  scan).
 	 */
 	scanMusicFolders: (ids: MusicFolderId[] | null) => typedError<JobId, IpcError>(__TAURI_INVOKE("scan_music_folders", { ids })),
 	/**

@@ -20,7 +20,7 @@ use tauri::State;
 
 use crate::db::{DbError, ReadPool, Writer};
 use crate::ipc::{ErrorKind, ErrorParam, IpcError};
-use crate::jobs::{JobKind, JobQueue};
+use crate::jobs::JobQueue;
 use crate::paths::{PathError, RelPath, StoredPath, Volumes};
 use crate::volume::{Volume, VolumeId, VolumeKind};
 
@@ -499,9 +499,9 @@ pub async fn music_folders(reads: State<'_, ReadPool>) -> Result<Vec<MusicFolder
         .collect())
 }
 
-/// Adds a music folder and scans it: the scan is queued before this
-/// returns, whichever screen asked, and shows in Activity. `role` defaults
-/// to scan.
+/// Adds a music folder and scans it: exactly one scan of it is queued
+/// before this returns, whichever screen asked, and shows in Activity.
+/// `role` defaults to scan.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_music_folder(
@@ -511,33 +511,26 @@ pub async fn add_music_folder(
     path: String,
     role: Option<MusicFolderRole>,
 ) -> Result<MusicFolder, IpcError> {
+    // Any look at the folders the watchers have begun (their first, at
+    // startup) ends before the folder exists: found there, it would be
+    // scanned as new, a second time.
+    watchers.status();
     let folder = add(
         &writer,
         &system_volumes(),
         Path::new(&path),
         role.unwrap_or_default(),
     )?;
-    let before: i64 =
-        writer.call(|c| c.query_row("SELECT ifnull(max(id), 0) FROM job", [], |r| r.get(0)))?;
-    // The watchers look at the folders again, and scan one that's new to
-    // them and online. Asking what's watched waits until they have.
-    watchers.refresh();
-    watchers.status();
-    // If they queued no scan (they couldn't start, or the folder's drive
-    // isn't one they found), queue it here: an added folder is always
-    // scanned.
-    let scan = super::scan_job(Some(vec![folder.id]));
-    let target = scan.target.as_ref().map(|t| t.to_string());
-    let queued: bool = writer.call(move |c| {
-        c.query_row(
-            "SELECT EXISTS (SELECT 1 FROM job WHERE id > ?1 AND kind = ?2 AND target IS ?3)",
-            (before, JobKind::Scan.as_str(), target),
-            |r| r.get(0),
-        )
+    // The scan, at the priority of something the user asked for, through
+    // the chain's own guard: whatever else asks for this folder's scan
+    // meanwhile (a drive coming back, the watchers' first look) folds into
+    // this one job.
+    super::chain::queue_once(&writer, super::scan_job(Some(vec![folder.id])), |job| {
+        jobs.enqueue(job)
     })?;
-    if !queued {
-        jobs.enqueue(scan)?;
-    }
+    // The watchers look at the folders again (a watched root, a drive's
+    // registration), knowing this one's scan is taken care of.
+    watchers.added(folder.id);
     Ok(folder)
 }
 
