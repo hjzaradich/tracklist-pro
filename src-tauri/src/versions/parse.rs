@@ -1,7 +1,7 @@
 //! Puts the pieces together: clean the name, tokenize it, set junk aside,
 //! split artist from title, read the labels, and say what's doubtful.
 
-use super::junk::{self, bracket_junk, is_site_phrase, looks_like_site};
+use super::junk::{self, bracket_junk, is_site_phrase, looks_like_site, trailing_bitrate};
 use super::labels::{self, Found};
 use super::tokenize::{collapse_spaces, flatten, tokenize, BracketKind, Group, Token};
 use super::{
@@ -160,6 +160,39 @@ fn strip_site_words(segments: &mut [Vec<Token>], junk: &mut Vec<Junk>) {
     }
 }
 
+/// A bitrate with its unit, written without brackets at the end of the
+/// name: "Title 320kbps", "Artist - Title - 192 kbps". A name that is
+/// nothing but a bitrate keeps it as its title.
+fn strip_bare_bitrate(segments: &mut Vec<Vec<Token>>, junk: &mut Vec<Junk>, source: NameSource) {
+    let count = segments.len();
+    let Some(segment) = segments.last_mut() else {
+        return;
+    };
+    let single = segment.len() == 1;
+    let Some(Token::Text(text)) = segment.last_mut() else {
+        return;
+    };
+    let Some(start) = trailing_bitrate(text) else {
+        return;
+    };
+    let rest = text[..start].to_string();
+    let alone = single && !has_content(&rest);
+    // Taking it off must leave a title. In a file name, "Artist - 320kbps"
+    // would leave the artist as the title: that's unrecognized, not stripped.
+    if alone && (count == 1 || (source == NameSource::FileName && count == 2)) {
+        return;
+    }
+    junk.push(Junk {
+        kind: JunkKind::RipTag,
+        text: text[start..].trim().to_string(),
+    });
+    if alone {
+        segments.pop();
+    } else {
+        *text = rest;
+    }
+}
+
 /// The artists in front of the title: "A & B feat. C".
 fn artist_credits(text: &str, credits: &mut Vec<Credit>) {
     let without_brackets: String = text
@@ -228,6 +261,7 @@ pub(super) fn parse(input: &str, source: NameSource) -> ParsedName {
     let mut segments = split_segments(tokens);
     strip_site_segments(&mut segments, &mut junk);
     strip_site_words(&mut segments, &mut junk);
+    strip_bare_bitrate(&mut segments, &mut junk, source);
 
     // Labels after a " - ": "Title - Extended Mix". A file name keeps two
     // segments, its artist and its title, whatever they say.

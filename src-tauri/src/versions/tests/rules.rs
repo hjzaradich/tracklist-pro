@@ -611,3 +611,92 @@ fn a_rework_reason_names_whose_rework_each_side_has() {
     assert_eq!(only_b[0].kind, MarkerKind::Bootleg);
     assert_eq!(only_b[0].detail.as_deref(), Some("Flint"));
 }
+
+// ---- Parser nits (1bA-15) ---------------------------------------------
+
+#[test]
+fn a_cut_name_followed_by_edit_is_one_cut() {
+    let name = parse_title("Glasswing (Quick Hit Edit)");
+    let kinds: Vec<_> = name.markers.iter().map(|m| m.kind).collect();
+    assert_eq!(kinds, [MarkerKind::QuickHit]);
+    assert_eq!(name.base_title, "Glasswing");
+}
+
+#[test]
+fn a_cut_name_followed_by_edit_is_one_cut_in_a_dash_segment_and_a_bare_tail() {
+    for input in ["Glasswing - Quick Hit Edit", "Glasswing Quick Hit Edit"] {
+        let name = parse_title(input);
+        let kinds: Vec<_> = name
+            .markers
+            .iter()
+            .chain(&name.title_markers)
+            .map(|m| m.kind)
+            .collect();
+        assert_eq!(kinds, [MarkerKind::QuickHit], "{input}");
+    }
+}
+
+#[test]
+fn an_edit_on_its_own_or_after_a_rework_still_counts_as_its_own_label() {
+    let plain = parse_title("Glasswing (Edit)");
+    assert_eq!(plain.markers[0].kind, MarkerKind::Edit);
+    let both = parse_title("Glasswing (Instrumental Edit)");
+    let kinds: Vec<_> = both.markers.iter().map(|m| m.kind).collect();
+    assert_eq!(kinds, [MarkerKind::Instrumental, MarkerKind::Edit]);
+}
+
+#[test]
+fn an_artist_ending_in_a_lone_x_stays_one_artist() {
+    let name = parse_file_name("Odalys X - Glasswing.mp3");
+    let credits: Vec<_> = name.credits.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(credits, ["Odalys X"]);
+    assert_eq!(name.base_title, "Glasswing");
+}
+
+#[test]
+fn an_x_between_two_artists_still_splits_them() {
+    let name = parse_file_name("Odalys X Nemora Vale - Glasswing.mp3");
+    let credits: Vec<_> = name.credits.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(credits, ["Odalys", "Nemora Vale"]);
+}
+
+#[test]
+fn a_bare_bitrate_at_the_end_is_junk_like_the_bracketed_one() {
+    for (input, junk) in [
+        ("Glasswing 320kbps", "320kbps"),
+        ("Glasswing 192 kbps", "192 kbps"),
+        ("Glasswing 128k", "128k"),
+        ("Glasswing 256KBPS", "256KBPS"),
+        ("Glasswing (Extended Mix) 320kbps", "320kbps"),
+        ("Odalys Vane - Glasswing - 320kbps", "320kbps"),
+    ] {
+        let name = parse_title(input);
+        assert_eq!(name.junk.len(), 1, "{input}");
+        assert_eq!(name.junk[0].kind, JunkKind::RipTag, "{input}");
+        assert_eq!(name.junk[0].text, junk, "{input}");
+        assert!(!name.base_title.to_lowercase().contains("kbps"), "{input}");
+    }
+    let file = parse_file_name("Odalys Vane - Glasswing 320kbps.mp3");
+    assert_eq!(file.base_title, "Glasswing");
+    assert_eq!(file.junk.len(), 2);
+}
+
+#[test]
+fn a_bare_number_or_a_name_that_is_only_a_bitrate_is_not_junk() {
+    assert!(parse_title("Glasswing 320").junk.is_empty());
+    assert_eq!(parse_title("Glasswing 320").base_title, "Glasswing 320");
+    let alone = parse_title("320kbps");
+    assert!(alone.junk.is_empty());
+    assert_eq!(alone.base_title, "320kbps");
+}
+
+#[test]
+fn a_file_name_that_is_an_artist_and_a_bitrate_leaves_the_bitrate_as_the_title_not_the_artist() {
+    let name = parse_file_name("Odalys Vane - 320kbps.mp3");
+    assert!(name.junk.iter().all(|j| j.kind != JunkKind::RipTag));
+    assert_eq!(name.credits[0].name, "Odalys Vane");
+    assert_eq!(
+        name.base_title, "320kbps",
+        "the artist is not made the title"
+    );
+}

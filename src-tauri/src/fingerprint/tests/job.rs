@@ -1,15 +1,15 @@
 //! The fingerprint job on a real (temp) music folder, after the real walk.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant, SystemTime};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::time::{Duration, SystemTime};
 
 use super::audio;
-use super::support::{wait, Library};
+use super::support::{wait, Library, PATIENCE};
 use crate::fingerprint::stored::CURRENT_PREFIX;
 use crate::fingerprint::{
     compare, fingerprint_job, raise, shared_first, start, FirstUp, Outcome, Unfingerprintable,
@@ -32,41 +32,116 @@ fn fingerprint_all(library: &Library) -> JobStatus {
 /// Every job update the queue sent. Poison-tolerant, so one failed
 /// assertion doesn't take the listener down with it.
 #[derive(Clone, Default)]
-struct Heard(Arc<Mutex<Vec<JobUpdate>>>);
+struct Heard(Arc<(Mutex<Vec<JobUpdate>>, Condvar)>);
 
 impl Heard {
     fn sink(&self) -> impl Fn(&[JobUpdate]) + Send + 'static {
-        let list = self.0.clone();
+        let heard = self.0.clone();
         move |u| {
-            list.lock()
+            heard
+                .0
+                .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .extend_from_slice(u)
+                .extend_from_slice(u);
+            heard.1.notify_all();
         }
     }
 
     fn all(&self) -> Vec<JobUpdate> {
         self.0
+             .0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// Blocks until the updates heard so far satisfy `condition`; each new
+    /// batch wakes it. The limit only stops a hang.
+    fn until(&self, condition: impl Fn(&[JobUpdate]) -> bool, what: &str) {
+        let (list, heard) = &*self.0;
+        let (list, timeout) = heard
+            .wait_timeout_while(
+                list.lock().unwrap_or_else(PoisonError::into_inner),
+                PATIENCE,
+                |list| !condition(list),
+            )
+            .unwrap_or_else(PoisonError::into_inner);
+        assert!(!timeout.timed_out(), "{what}: never heard: {list:?}");
     }
 
     /// Waits for `job`'s update saying it's done. The database says so
     /// first; the update follows in the next batch, and shutting the queue
     /// down doesn't wait for it.
     fn until_done(&self, job: JobId) -> Vec<JobUpdate> {
-        let started = std::time::Instant::now();
-        loop {
-            let mine: Vec<_> = self.all().into_iter().filter(|u| u.id == job).collect();
-            if mine.iter().any(|u| u.status == JobStatus::Done) {
-                return mine;
-            }
-            assert!(
-                started.elapsed() < Duration::from_secs(10),
-                "no done update for job {job}: {mine:?}"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        self.until(
+            |list| {
+                list.iter()
+                    .any(|u| u.id == job && u.status == JobStatus::Done)
+            },
+            &format!("a done update for job {job}"),
+        );
+        self.all().into_iter().filter(|u| u.id == job).collect()
+    }
+}
+
+/// A one-way latch: threads wait at it until a test opens it. The limit
+/// only stops a hang.
+#[derive(Clone, Default)]
+struct Latch(Arc<(Mutex<bool>, Condvar)>);
+
+impl Latch {
+    fn open(&self) {
+        *self.0 .0.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        self.0 .1.notify_all();
+    }
+
+    fn wait(&self) {
+        let (open, opened) = &*self.0;
+        let (_guard, timeout) = opened
+            .wait_timeout_while(
+                open.lock().unwrap_or_else(PoisonError::into_inner),
+                PATIENCE,
+                |open| !*open,
+            )
+            .unwrap_or_else(PoisonError::into_inner);
+        assert!(!timeout.timed_out(), "a latch was never opened");
+    }
+}
+
+/// Opens its latches when dropped, so a test that fails part-way doesn't
+/// leave threads parked at them.
+struct OpenOnDrop(Vec<Latch>);
+
+impl Drop for OpenOnDrop {
+    fn drop(&mut self) {
+        self.0.iter().for_each(Latch::open);
+    }
+}
+
+/// A count that threads add to and a test waits on. The limit only stops a
+/// hang.
+#[derive(Clone, Default)]
+struct Tally(Arc<(Mutex<usize>, Condvar)>);
+
+impl Tally {
+    /// Adds one; returns the count before it.
+    fn bump(&self) -> usize {
+        let mut count = self.0 .0.lock().unwrap_or_else(PoisonError::into_inner);
+        *count += 1;
+        self.0 .1.notify_all();
+        *count - 1
+    }
+
+    fn wait_for(&self, n: usize, what: &str) {
+        let (count, bumped) = &*self.0;
+        let (_guard, timeout) = bumped
+            .wait_timeout_while(
+                count.lock().unwrap_or_else(PoisonError::into_inner),
+                PATIENCE,
+                |count| *count < n,
+            )
+            .unwrap_or_else(PoisonError::into_inner);
+        assert!(!timeout.timed_out(), "{what}: never happened");
     }
 }
 
@@ -472,9 +547,9 @@ fn progress_only_rises_and_ends_at_one() {
     let taken = Arc::new(AtomicUsize::new(0));
     let fingerprinter = library.fingerprinter().on_file(move |_| {
         if taken.fetch_add(1, Ordering::SeqCst) == 2 {
-            until(
-                || {
-                    seen.all().iter().any(|u| {
+            seen.until(
+                |heard| {
+                    heard.iter().any(|u| {
                         u.kind == JobKind::Fingerprint && u.progress.is_some_and(|p| p < 1.0)
                     })
                 },
@@ -587,15 +662,19 @@ fn raised_files_a_cancelled_job_did_not_finish_go_to_a_new_job() {
     let (raised_one, raised_two) = (id(2), id(3));
     let stops = Arc::new(Mutex::new(0));
     let seen = stops.clone();
-    let queue = library.queue(library.fingerprinter().on_file(move |file| {
-        // Hold the first file, then the first raised one, once each.
-        let mut stops = seen.lock().unwrap();
-        if *stops < 2 && (*stops == 0 || file == raised_one) {
-            *stops += 1;
-            at.lock().unwrap().send(file).unwrap();
-            wait_for_go.lock().unwrap().recv().unwrap();
-        }
-    }));
+    let heard = Heard::default();
+    let queue = library.queue_with_updates(
+        library.fingerprinter().on_file(move |file| {
+            // Hold the first file, then the first raised one, once each.
+            let mut stops = seen.lock().unwrap();
+            if *stops < 2 && (*stops == 0 || file == raised_one) {
+                *stops += 1;
+                at.lock().unwrap().send(file).unwrap();
+                wait_for_go.lock().unwrap().recv().unwrap();
+            }
+        }),
+        heard.sink(),
+    );
     let job = queue.enqueue(fingerprint_job(None)).unwrap();
     assert_eq!(reached.recv().unwrap(), id(0));
     raise(&queue, &library.first, vec![raised_one, raised_two]).unwrap();
@@ -607,12 +686,17 @@ fn raised_files_a_cancelled_job_did_not_finish_go_to_a_new_job() {
     assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
 
     // Both raised files went to a new job, which does just those.
-    let started = std::time::Instant::now();
-    while library.fingerprint(raised_one).is_none() || library.fingerprint(raised_two).is_none() {
-        assert!(started.elapsed() < Duration::from_secs(120), "never done");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    heard.until(
+        |heard| {
+            heard.iter().any(|u| {
+                u.id != job && u.kind == JobKind::Fingerprint && u.status == JobStatus::Done
+            })
+        },
+        "the new job finishing",
+    );
     queue.shutdown();
+    assert!(library.fingerprint(raised_one).is_some());
+    assert!(library.fingerprint(raised_two).is_some());
     assert!(
         library.fingerprint(id(1)).is_none(),
         "not raised, so not redone"
@@ -1050,18 +1134,6 @@ mod carried {
     }
 }
 
-/// Waits (bounded) until `condition` holds.
-fn until(condition: impl Fn() -> bool, what: &str) {
-    let start = Instant::now();
-    while !condition() {
-        assert!(
-            start.elapsed() < Duration::from_secs(60),
-            "{what}: never happened"
-        );
-        std::thread::sleep(Duration::from_millis(2));
-    }
-}
-
 #[test]
 fn a_fingerprint_job_started_during_a_read_grows_into_the_threads_the_read_gives_back() {
     let library = Library::new();
@@ -1071,25 +1143,49 @@ fn a_fingerprint_job_started_during_a_read_grows_into_the_threads_the_read_gives
     library.walk();
     // A read on the same budget that holds its three borrowed threads
     // until the test lets go: every reader parks on its first file.
-    let released = Arc::new(AtomicBool::new(false));
-    let hold = released.clone();
+    let read_parked = Tally::default();
+    let read_released = Latch::default();
+    let (parked, hold) = (read_parked.clone(), read_released.clone());
     let volume = library.volume.clone();
     let reader = Reader::new(move || volume.clone())
         .threads(4)
         .sharing(library.first.clone())
         .on_file(move |_| {
-            while !hold.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(2));
-            }
+            parked.bump();
+            hold.wait();
         });
-    let done_before = Arc::new(AtomicUsize::new(0));
-    let threads_after = Arc::new(Mutex::new(std::collections::HashSet::new()));
-    let (count, seen, gate) = (done_before.clone(), threads_after.clone(), released.clone());
+    // The fingerprint job's one thread parks on its first file until the
+    // read is over. Every thread that joins it then parks on its first file
+    // until four different threads have taken one, so no thread can finish
+    // the job before the others join.
+    let started = Tally::default();
+    let read_over = Latch::default();
+    let joined = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
+    let (began, hold, threads) = (started.clone(), read_over.clone(), joined.clone());
+    let line = library.first.clone();
     let fingerprinter = library.fingerprinter().threads(4).on_file(move |_| {
-        if gate.load(Ordering::SeqCst) {
-            seen.lock().unwrap().insert(std::thread::current().id());
-        } else {
-            count.fetch_add(1, Ordering::SeqCst);
+        let first = began.bump() == 0;
+        if first {
+            hold.wait();
+        }
+        let (seen, arrived) = &*threads;
+        let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
+        seen.insert(std::thread::current().id());
+        arrived.notify_all();
+        // The first thread is the one that brings the others in, once this
+        // file is done: it can't wait for them here.
+        if !first {
+            // Growing happens before a thread takes its next file: if the
+            // job hasn't taken the three threads by now, it never will.
+            assert_eq!(
+                line.busy(),
+                4,
+                "the job did not grow into the read's threads"
+            );
+            let (_guard, timeout) = arrived
+                .wait_timeout_while(seen, PATIENCE, |seen| seen.len() < 4)
+                .unwrap_or_else(PoisonError::into_inner);
+            assert!(!timeout.timed_out(), "the other threads never joined");
         }
     });
     let queue = JobQueue::builder(library.writer.clone())
@@ -1098,25 +1194,23 @@ fn a_fingerprint_job_started_during_a_read_grows_into_the_threads_the_read_gives
         .handler(JobKind::Fingerprint, fingerprinter)
         .start()
         .unwrap();
+    let _open = OpenOnDrop(vec![read_released.clone(), read_over.clone()]);
     let read = queue.enqueue(read_job(None)).unwrap();
-    until(
-        || library.first.busy() == 3,
-        "the read borrowed three threads",
-    );
+    // The job's own thread and three borrowed ones, all parked.
+    read_parked.wait_for(4, "the read's four threads each took a file");
+    assert_eq!(library.first.busy(), 3, "the read borrowed three threads");
     let fingerprint = queue.enqueue(fingerprint_job(None)).unwrap();
     // It starts on the one thread the budget has left...
-    until(
-        || done_before.load(Ordering::SeqCst) >= 2,
-        "the fingerprint job started on the thread left",
-    );
+    started.wait_for(1, "the fingerprint job started on the thread left");
     assert_eq!(library.first.busy(), 4);
     // ...and once the read ends, takes the three it gave back.
-    released.store(true, Ordering::SeqCst);
+    read_released.open();
     assert_eq!(wait(&library.writer, read).status, JobStatus::Done);
+    read_over.open();
     assert_eq!(wait(&library.writer, fingerprint).status, JobStatus::Done);
     queue.shutdown();
     assert_eq!(
-        threads_after.lock().unwrap().len(),
+        joined.0.lock().unwrap().len(),
         4,
         "one thread from the start and three that joined"
     );

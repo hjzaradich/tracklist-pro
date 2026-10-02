@@ -146,8 +146,21 @@ fn labels_at_end(words: &[Word]) -> (Vec<MarkerKind>, usize) {
     (kinds, end)
 }
 
-/// Intro and Outro together are Intro-Outro; a kind is listed once.
+/// Intro and Outro together are Intro-Outro; a kind is listed once; a cut's
+/// name followed by "Edit" ("Quick Hit Edit") is that one cut.
 fn tidy(kinds: Vec<MarkerKind>) -> Vec<MarkerKind> {
+    let mut previous = None;
+    let kinds: Vec<MarkerKind> = kinds
+        .into_iter()
+        .filter(|&kind| {
+            let echo = kind == MarkerKind::Edit
+                && previous.is_some_and(|p: MarkerKind| {
+                    p != MarkerKind::Edit && p.class() == VersionClass::Cut
+                });
+            previous = Some(kind);
+            !echo
+        })
+        .collect();
     let both = kinds.contains(&MarkerKind::Intro) && kinds.contains(&MarkerKind::Outro);
     let mut out: Vec<MarkerKind> = Vec::new();
     for kind in kinds {
@@ -324,9 +337,13 @@ pub(super) fn split_names(text: &str, joined_acts: bool) -> Vec<String> {
         }
         current.clear();
     };
-    for word in text.split_whitespace() {
-        let splits =
-            word == "&" || (joined_acts && MASHUP_SEPARATORS.contains(&plain(word).as_str()));
+    let count = text.split_whitespace().count();
+    for (i, word) in text.split_whitespace().enumerate() {
+        // A separator with nothing after it is part of the name: the "X" of
+        // "Firstname X - Title".
+        let last = i + 1 == count;
+        let splits = word == "&"
+            || (joined_acts && !last && MASHUP_SEPARATORS.contains(&plain(word).as_str()));
         if splits {
             flush(&mut current, &mut names);
         } else if let Some(before) = word.strip_suffix(',') {

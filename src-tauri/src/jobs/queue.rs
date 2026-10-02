@@ -171,12 +171,9 @@ impl JobContext {
         let fraction = fraction.clamp(0.0, 1.0);
         // Claim the step with one atomic swap, so of two threads reporting
         // at once only one goes on with a given step.
-        // Newer Rust deprecates `fetch_update` for `try_update`, which older
-        // toolchains lack: switch to it once the toolchain is pinned or raised.
-        #[allow(deprecated)]
         let claimed = self
             .last_progress
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |bits| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |bits| {
                 let last = f64::from_bits(bits);
                 let forward = last.is_nan()
                     || (fraction > last && (fraction - last >= PROGRESS_STEP || fraction == 1.0));
