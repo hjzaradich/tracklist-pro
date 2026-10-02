@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use rusty_chromaprint::Fingerprinter;
+use symphonia::core::audio::GenericAudioBufferRef;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::codecs::CodecParameters;
 use symphonia::core::errors::Error as SymphoniaError;
@@ -113,6 +114,124 @@ pub fn fingerprint(
     source: Box<dyn MediaSource>,
     keep_going: &mut dyn FnMut(Option<f64>) -> bool,
 ) -> Result<Fingerprint, Stopped> {
+    let config = config();
+    let mut printer: Option<(Fingerprinter, u32)> = None;
+    let (mut samples, mut mono) = (Vec::<i16>::new(), Vec::<i16>::new());
+    let mut decoded_any = false;
+    let walked = walk(source, keep_going, &mut |block| {
+        block.audio.copy_to_vec_interleaved(&mut samples);
+        if printer.is_none() {
+            let mut fp = Fingerprinter::new(&config);
+            // Only a rate of 1 kHz or less is refused.
+            fp.start(block.rate, 1)
+                .map_err(|_| Unfingerprintable::UnsupportedCodec)?;
+            printer = Some((fp, block.rate));
+        }
+        let Some((fp, started_at)) = printer.as_mut() else {
+            return Ok(Flow::Continue);
+        };
+        // A rate change mid-stream would skew every item after it; the
+        // track up to there is still a fingerprint.
+        if block.rate != *started_at {
+            return Ok(Flow::Stop);
+        }
+        downmix(&samples, block.channels, &mut mono);
+        fp.consume(&mono);
+        decoded_any = true;
+        Ok(Flow::Continue)
+    })?;
+    if walked.end == End::GaveUp {
+        return Err(Unfingerprintable::Damaged.into());
+    }
+    let Some((mut fp, _)) = printer.filter(|_| decoded_any) else {
+        return Err(Unfingerprintable::NoAudio.into());
+    };
+    fp.finish();
+    let items = fp.fingerprint().to_vec();
+    if items.is_empty() {
+        return Err(Unfingerprintable::TooShort.into());
+    }
+    Ok(Fingerprint::new(items))
+}
+
+/// One decoded packet's audio, handed to [`walk`]'s `on_block`.
+pub struct Block<'a> {
+    /// Its sample rate and channel count.
+    pub rate: u32,
+    pub channels: usize,
+    /// The samples, for the caller to copy out in whatever sample type it
+    /// needs (`copy_to_vec_interleaved`).
+    pub audio: &'a GenericAudioBufferRef<'a>,
+}
+
+/// What `on_block` tells [`walk`] to do next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    Continue,
+    /// Stop reading here; what was read so far stands.
+    Stop,
+}
+
+/// How a [`walk`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    /// The stream ran to its end (or a new chained stream began).
+    Finished,
+    /// The file ended in the middle of the stream.
+    CutShort,
+    /// [`MAX_ERRORS_IN_A_ROW`] packets in a row were damaged, so the rest
+    /// wasn't read.
+    GaveUp,
+    /// `on_block` said [`Flow::Stop`].
+    Stopped,
+}
+
+/// The packets that failed, by kind: ones the decoder refused, and ones the
+/// container couldn't produce.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ErrorCounts {
+    pub decode: u32,
+    pub container: u32,
+}
+
+/// What a [`walk`] learned about the stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Walked {
+    /// The sample rate of the first block; 0 if nothing was decoded.
+    pub rate: u32,
+    /// Frames decoded.
+    pub frames: u64,
+    /// The length the container's header claims, in frames, and the rate it
+    /// gives, if it gives them.
+    pub header_frames: Option<u64>,
+    pub header_rate: Option<u32>,
+    pub errors: ErrorCounts,
+    pub end: End,
+}
+
+impl Walked {
+    /// The duration the header claims, in seconds, if it gives one.
+    pub fn header_seconds(&self) -> Option<f64> {
+        let (frames, rate) = (self.header_frames?, self.header_rate?);
+        (rate > 0).then(|| frames as f64 / f64::from(rate))
+    }
+}
+
+/// Reads `source` packet by packet and hands each decoded block to
+/// `on_block`: the one decoding loop fingerprints and quality measurements
+/// share (§5.6).
+///
+/// `keep_going` is called before every packet with how far through the
+/// track the decode is (0 to 1, when the length is known); returning false
+/// stops at once with [`Stopped::Cancelled`]. A packet that fails to
+/// decode is counted and skipped; [`MAX_ERRORS_IN_A_ROW`] of them in a row
+/// end the walk as [`End::GaveUp`], which is for the caller to judge.
+/// `on_block` can fail the file (e.g. a codec it can't use).
+pub fn walk(
+    source: Box<dyn MediaSource>,
+    keep_going: &mut dyn FnMut(Option<f64>) -> bool,
+    on_block: &mut dyn FnMut(&Block<'_>) -> Result<Flow, Unfingerprintable>,
+) -> Result<Walked, Stopped> {
     // Symphonia reports damaged audio as I/O errors too (e.g. "unexpected
     // end of bitstream"), so only the source itself can say the OS failed.
     let os_failed = Arc::new(AtomicBool::new(false));
@@ -138,7 +257,8 @@ pub fn fingerprint(
     let track = format
         .first_track(TrackType::Audio)
         .ok_or(Unfingerprintable::NoAudio)?;
-    let (track_id, total_frames) = (track.id, track.num_frames.filter(|&n| n > 0));
+    let (track_id, header_frames) = (track.id, track.num_frames);
+    let total_frames = header_frames.filter(|&n| n > 0);
     let Some(CodecParameters::Audio(params)) = track.codec_params.clone() else {
         return Err(Unfingerprintable::NoAudio.into());
     };
@@ -146,12 +266,17 @@ pub fn fingerprint(
         .make_audio_decoder(&params, &AudioDecoderOptions::default())
         .map_err(|_| Unfingerprintable::UnsupportedCodec)?;
 
-    let config = config();
-    let mut printer: Option<(Fingerprinter, u32)> = None;
-    let (mut samples, mut mono) = (Vec::<i16>::new(), Vec::<i16>::new());
-    let (mut frames_done, mut errors_in_a_row, mut decoded_any) = (0u64, 0u32, false);
+    let mut walked = Walked {
+        rate: 0,
+        frames: 0,
+        header_frames,
+        header_rate: params.sample_rate,
+        errors: ErrorCounts::default(),
+        end: End::Finished,
+    };
+    let mut errors_in_a_row = 0u32;
     loop {
-        let fraction = total_frames.map(|n| (frames_done as f64 / n as f64).min(1.0));
+        let fraction = total_frames.map(|n| (walked.frames as f64 / n as f64).min(1.0));
         if !keep_going(fraction) {
             return Err(Stopped::Cancelled);
         }
@@ -159,14 +284,19 @@ pub fn fingerprint(
             Ok(Some(packet)) => packet,
             Ok(None) => break,
             Err(_) if unreadable() => return Err(Unfingerprintable::Unreadable.into()),
-            // A file cut short: fingerprint what's there.
-            Err(SymphoniaError::IoError(e)) if e.kind() == ErrorKind::UnexpectedEof => break,
+            // A file cut short: what's there is what there is.
+            Err(SymphoniaError::IoError(e)) if e.kind() == ErrorKind::UnexpectedEof => {
+                walked.end = End::CutShort;
+                break;
+            }
             // A new chained stream: the track so far is the track.
             Err(SymphoniaError::ResetRequired) => break,
             Err(_) => {
+                walked.errors.container += 1;
                 errors_in_a_row += 1;
                 if errors_in_a_row >= MAX_ERRORS_IN_A_ROW {
-                    return Err(Unfingerprintable::Damaged.into());
+                    walked.end = End::GaveUp;
+                    break;
                 }
                 continue;
             }
@@ -183,9 +313,11 @@ pub fn fingerprint(
                 continue;
             }
             Err(_) => {
+                walked.errors.decode += 1;
                 errors_in_a_row += 1;
                 if errors_in_a_row >= MAX_ERRORS_IN_A_ROW {
-                    return Err(Unfingerprintable::Damaged.into());
+                    walked.end = End::GaveUp;
+                    break;
                 }
                 continue;
             }
@@ -193,39 +325,24 @@ pub fn fingerprint(
         errors_in_a_row = 0;
         let rate = decoded.spec().rate();
         let channels = decoded.spec().channels().count().max(1);
-        frames_done += decoded.frames() as u64;
+        walked.frames += decoded.frames() as u64;
         if decoded.frames() == 0 {
             continue;
         }
-        decoded.copy_to_vec_interleaved(&mut samples);
-        if printer.is_none() {
-            let mut fp = Fingerprinter::new(&config);
-            // Only a rate of 1 kHz or less is refused.
-            fp.start(rate, 1)
-                .map_err(|_| Unfingerprintable::UnsupportedCodec)?;
-            printer = Some((fp, rate));
+        if walked.rate == 0 {
+            walked.rate = rate;
         }
-        let Some((fp, started_at)) = printer.as_mut() else {
-            continue;
+        let block = Block {
+            rate,
+            channels,
+            audio: &decoded,
         };
-        // A rate change mid-stream would skew every item after it; the
-        // track up to there is still a fingerprint.
-        if rate != *started_at {
+        if on_block(&block)? == Flow::Stop {
+            walked.end = End::Stopped;
             break;
         }
-        downmix(&samples, channels, &mut mono);
-        fp.consume(&mono);
-        decoded_any = true;
     }
-    let Some((mut fp, _)) = printer.filter(|_| decoded_any) else {
-        return Err(Unfingerprintable::NoAudio.into());
-    };
-    fp.finish();
-    let items = fp.fingerprint().to_vec();
-    if items.is_empty() {
-        return Err(Unfingerprintable::TooShort.into());
-    }
-    Ok(Fingerprint::new(items))
+    Ok(walked)
 }
 
 /// Averages interleaved frames into one channel, as chromaprint would.
