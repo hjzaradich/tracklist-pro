@@ -190,14 +190,7 @@ impl World {
             fs::write(&path, wav(song)).unwrap();
         }
 
-        let app = start_app(app_data.clone());
-        // Startup opened the main window from the config.
-        let webview = app.get_webview_window("main").unwrap();
-        let (heard, updates) = mpsc::channel();
-        let heard = Mutex::new(heard);
-        jobs::JobUpdates::listen_any(app.handle(), move |_| {
-            let _ = heard.lock().unwrap().send(());
-        });
+        let (app, webview, updates) = open_app(app_data.clone());
 
         let mut world = World {
             app,
@@ -213,6 +206,55 @@ impl World {
         };
         world.outside = world.outside_now();
         world
+    }
+
+    /// The app is killed, and started again on the same data folder.
+    /// `left_behind` runs in between, on the database as the dead run
+    /// left it: the place to put what a kill leaves there.
+    pub fn kill_and_start_again(
+        &mut self,
+        left_behind: impl FnOnce(&rusqlite::Connection) + Send + 'static,
+    ) {
+        self.stop_app();
+        self.writer()
+            .call(move |c| {
+                left_behind(c);
+                Ok(())
+            })
+            .unwrap();
+        let (app, webview, updates) = open_app(self.app_data.clone());
+        self.webview = webview;
+        self.updates = updates;
+        self.app = app;
+    }
+
+    /// What closing the app does: no watcher or job outlives the run.
+    fn stop_app(&self) {
+        if let Some(watchers) = self.app.try_state::<scan::Watchers>() {
+            watchers.shutdown();
+        }
+        if let Some(queue) = self.app.try_state::<jobs::JobQueue>() {
+            queue.shutdown();
+        }
+    }
+
+    /// Every job's kind and status, as stored, oldest first.
+    pub fn jobs(&self) -> Vec<(JobId, String, String)> {
+        self.writer()
+            .call(|c| {
+                let mut stmt = c.prepare("SELECT id, kind, status FROM job ORDER BY id")?;
+                let rows = stmt.query_map([], |r| Ok((JobId(r.get(0)?), r.get(1)?, r.get(2)?)))?;
+                rows.collect()
+            })
+            .unwrap()
+    }
+
+    /// A job's row, as stored.
+    pub fn job(&self, id: JobId) -> JobRecord {
+        self.writer()
+            .call(move |c| jobs::store::get(c, id))
+            .unwrap()
+            .unwrap()
     }
 
     // --- the disk outside the app data folder ---
@@ -286,6 +328,15 @@ impl World {
             .unwrap();
         self.outside = self.outside_now();
         path.to_string_lossy().into_owned()
+    }
+
+    /// The user puts a new file in the music folder, outside the app.
+    pub fn user_adds(&mut self, song: &Song) {
+        self.assert_nothing_outside_the_app_data_folder_changed();
+        let path = self.path_of(song);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, wav(song)).unwrap();
+        self.outside = self.outside_now();
     }
 
     /// The user deletes a file from the music folder, outside the app.
@@ -520,17 +571,31 @@ impl World {
 
 impl Drop for World {
     fn drop(&mut self) {
-        // What closing the app does: no watcher or job outlives the run.
-        if let Some(watchers) = self.app.try_state::<scan::Watchers>() {
-            watchers.shutdown();
-        }
-        if let Some(queue) = self.app.try_state::<jobs::JobQueue>() {
-            queue.shutdown();
-        }
+        self.stop_app();
         if !std::thread::panicking() {
             self.assert_nothing_outside_the_app_data_folder_changed();
         }
     }
+}
+
+/// The app started on `data_dir`, its main window, and a channel that
+/// hears each batch of job updates the app sends that window.
+fn open_app(
+    data_dir: PathBuf,
+) -> (
+    tauri::App<MockRuntime>,
+    tauri::WebviewWindow<MockRuntime>,
+    mpsc::Receiver<()>,
+) {
+    let app = start_app(data_dir);
+    // Startup opened the main window from the config.
+    let webview = app.get_webview_window("main").unwrap();
+    let (heard, updates) = mpsc::channel();
+    let heard = Mutex::new(heard);
+    jobs::JobUpdates::listen_any(app.handle(), move |_| {
+        let _ = heard.lock().unwrap().send(());
+    });
+    (app, webview, updates)
 }
 
 /// Starts the app on Tauri's mock runtime with its data folder at
