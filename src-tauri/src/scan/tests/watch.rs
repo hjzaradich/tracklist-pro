@@ -535,7 +535,7 @@ fn a_locked_file_does_not_make_every_rescan_run_the_stages_again() {
     };
     assert_eq!(
         kinds(&writer),
-        ["scan", "read", "hash", "group", "fingerprint"]
+        ["scan", "read", "hash", "group", "fingerprint", "quality"]
     );
     let skipped: Vec<(String, String)> = writer
         .call(|c| {
@@ -567,7 +567,15 @@ fn a_locked_file_does_not_make_every_rescan_run_the_stages_again() {
     wait_idle(&queue);
     assert_eq!(
         kinds(&writer),
-        ["scan", "read", "hash", "group", "fingerprint", "scan"]
+        [
+            "scan",
+            "read",
+            "hash",
+            "group",
+            "fingerprint",
+            "quality",
+            "scan"
+        ]
     );
 
     // A scan that isn't the watcher's own (asked for here; at app start
@@ -584,6 +592,7 @@ fn a_locked_file_does_not_make_every_rescan_run_the_stages_again() {
             "hash",
             "group",
             "fingerprint",
+            "quality",
             "scan",
             "scan",
             "read",

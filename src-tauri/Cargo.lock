@@ -4535,6 +4535,7 @@ dependencies = [
  "proptest",
  "quick-xml",
  "rusqlite",
+ "rustfft",
  "rusty-chromaprint",
  "serde",
  "serde_json",

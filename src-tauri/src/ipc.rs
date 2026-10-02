@@ -197,6 +197,7 @@ mod tests {
                     "read_rekordbox",
                     "relink",
                     "attach",
+                    "quality",
                 ][..],
             ),
             (

@@ -69,6 +69,10 @@
     "where": "Top bar, Activity status and list rows, after matching, while rekordbox data is attached to tracks.",
     "approved": "Adding rekordbox data to tracks"
   },
+  "task.quality": {
+    "purpose": "Names the job that measures each file's audio quality.",
+    "where": "Top bar, Activity status and list rows, after the fingerprints, while each file is analyzed for its frequency range, length and decoding errors."
+  },
   "percent": {
     "purpose": "A task name with its progress.",
     "where": "Top bar, Activity status and list rows, for a running job that reports progress ({{task}} is a task name above).",

@@ -47,11 +47,14 @@ pub enum JobKind {
     Relink,
     /// Attach rekordbox's BPM and key to tracks (1.2, 1aD-4).
     Attach,
+    /// Measure a file's spectral cutoff, decoded duration and decode
+    /// errors (1.6).
+    Quality,
 }
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 12] = [
+    pub const ALL: [JobKind; 13] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
@@ -64,6 +67,7 @@ impl JobKind {
         JobKind::ReadRekordbox,
         JobKind::Relink,
         JobKind::Attach,
+        JobKind::Quality,
     ];
 
     /// The name stored in the database.
@@ -81,6 +85,7 @@ impl JobKind {
             JobKind::ReadRekordbox => "read_rekordbox",
             JobKind::Relink => "relink",
             JobKind::Attach => "attach",
+            JobKind::Quality => "quality",
         }
     }
 
@@ -229,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn the_kinds_are_the_roadmap_ones_plus_reading_files_and_rekordbox_relink_and_attach() {
+    fn the_kinds_are_the_roadmap_ones_plus_reading_files_and_rekordbox_relink_attach_and_quality() {
         let names: Vec<_> = JobKind::ALL.iter().map(|k| k.as_str()).collect();
         assert_eq!(
             names,
@@ -245,7 +250,8 @@ mod tests {
                 "export",
                 "read_rekordbox",
                 "relink",
-                "attach"
+                "attach",
+                "quality"
             ]
         );
     }

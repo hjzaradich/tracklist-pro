@@ -100,6 +100,15 @@ pub fn after_group<H: JobHandler>(grouper: H) -> Chained<H> {
     }
 }
 
+/// The quality job's handler, run once more if the fingerprints asked for
+/// it meanwhile.
+pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
+    Chained {
+        inner: qualifier,
+        next: Next::Nothing,
+    }
+}
+
 /// `fingerprinter`, followed by a relink, and run once more if a walk
 /// asked for it meanwhile.
 pub fn after_fingerprint<H: JobHandler>(fingerprinter: H) -> Chained<H> {
@@ -223,12 +232,17 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
             if to_try(writer, Stage::Fingerprint, fp_version, &scope, rescan)? {
                 let fp = crate::fingerprint::fingerprint_job(None).priority(Priority::BACKGROUND);
                 queue_once(writer, fp, enqueue)?;
+            } else {
+                // No fingerprints to wait for: measure quality now.
+                crate::quality::request(writer, enqueue)?;
             }
         }
         Next::Relink => {
             // Audio hashes and fingerprints are in: a rekordbox track whose
             // file moved or was re-encoded may match by them now (1aD-1).
             crate::relink::request(writer, enqueue)?;
+            // …and each file's quality can be measured (1bA-10).
+            crate::quality::request(writer, enqueue)?;
         }
         Next::Nothing => {}
     }

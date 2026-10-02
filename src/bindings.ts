@@ -492,7 +492,12 @@ export type JobKind =
 /**  Match rekordbox tracks to files (1.2 relink). */
 "relink" | 
 /**  Attach rekordbox's BPM and key to tracks (1.2, 1aD-4). */
-"attach";
+"attach" | 
+/**
+ *  Measure a file's spectral cutoff, decoded duration and decode
+ *  errors (1.6).
+ */
+"quality";
 
 /**
  *  Where a job is in its life. Stored in `job.status` as
