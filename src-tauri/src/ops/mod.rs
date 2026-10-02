@@ -16,9 +16,17 @@
 //! - musicmanager wrote tags into audio files here. This app doesn't write
 //!   audio files in the MVP (CLAUDE.md), so the log covers the database only.
 //!
-//! Single-step undo only: [`undo_last`] undoes the most recent operation,
-//! and once that's undone there's nothing more to undo. Multi-step undo is
-//! 1bA-12.
+//! Undo is multi-step (1bA-12): [`undo_last`] undoes the newest operation
+//! that isn't undone yet, so calling it again walks back through the
+//! history, one operation at a time, with no limit and across restarts
+//! (the marks are in the database). There is no redo. A step that's refused
+//! changes nothing and isn't skipped: the operations before it stay out of
+//! reach until a new operation is made. That works because history is
+//! linear: undoing an operation puts back the state the one before it left.
+//!
+//! Row ids name rows in the log, so a table that code outside the log
+//! inserts into must never reuse an id (`AUTOINCREMENT`; `sync_base`, which
+//! a send writes). A test scans the source for such inserts.
 
 mod schema;
 
@@ -126,6 +134,10 @@ pub struct Recorder<'a> {
     pending: Vec<PendingChange>,
     /// How many `change` rows the finished steps wrote.
     written: usize,
+    /// The operation's details, and whether [`Recorder::detail`] added to
+    /// them.
+    details: serde_json::Map<String, serde_json::Value>,
+    details_changed: bool,
 }
 
 /// One `change` row, before it's written.
@@ -181,6 +193,14 @@ impl SchemaCache {
 }
 
 impl Recorder<'_> {
+    /// Adds to the operation's details something only known once the write
+    /// has run, such as how many tracks it changed. Like every detail it's
+    /// a fact for the UI to describe the operation with, never text.
+    pub fn detail(&mut self, key: &str, value: impl Into<serde_json::Value>) {
+        self.details.insert(key.to_owned(), value.into());
+        self.details_changed = true;
+    }
+
     /// Reads rows inside the operation's transaction, to find what to
     /// change. Only a statement that reads rows is accepted (SQLite also
     /// calls ROLLBACK, SAVEPOINT and ATTACH read-only, but they return no
@@ -434,13 +454,13 @@ pub fn record<T>(
     if !is_kind(kind) {
         return Err(OpsError::BadKind(kind.to_owned()));
     }
-    if !details.is_object() {
+    let Some(details) = details.as_object() else {
         return Err(OpsError::DetailsNotObject);
-    }
+    };
     let tx = conn.transaction()?;
     tx.execute(
         "INSERT INTO operation (kind, details) VALUES (?1, ?2)",
-        params![kind, details.to_string()],
+        params![kind, serde_json::Value::Object(details.clone()).to_string()],
     )?;
     let mut recorder = Recorder {
         tx: &tx,
@@ -448,11 +468,20 @@ pub fn record<T>(
         schema: SchemaCache::default(),
         pending: Vec::new(),
         written: 0,
+        details: details.clone(),
+        details_changed: false,
     };
     // An error drops `tx`, which rolls everything back.
     let value = write(&mut recorder)?;
     let operation_id = (recorder.written > 0).then_some(recorder.operation_id);
-    if operation_id.is_some() {
+    if let Some(id) = operation_id {
+        if recorder.details_changed {
+            let details = serde_json::Value::Object(std::mem::take(&mut recorder.details));
+            tx.execute(
+                "UPDATE operation SET details = ?2 WHERE id = ?1",
+                params![id, details.to_string()],
+            )?;
+        }
         tx.commit()?;
     } else {
         tx.rollback()?;
@@ -478,6 +507,36 @@ where
     writer.call(move |conn| Ok(record(conn, &kind, &details, write)))?
 }
 
+/// What the UI needs to name an operation, read from its `details`. Each
+/// is there only if the operation recorded it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationDetails {
+    /// The crate's name (after a rename, the new one).
+    pub name: Option<String>,
+    /// A renamed crate's name before.
+    pub from: Option<String>,
+    /// How many tracks the operation added or removed.
+    pub tracks: Option<u32>,
+}
+
+impl OperationDetails {
+    /// Reads the details an operation stored. Anything missing or of
+    /// another shape is left out: the UI then names the operation plainly.
+    fn parse(json: &str) -> OperationDetails {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+        let text = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+        OperationDetails {
+            name: text("name"),
+            from: text("from"),
+            tracks: value
+                .get("tracks")
+                .and_then(|v| v.as_u64())
+                .and_then(|n| u32::try_from(n).ok()),
+        }
+    }
+}
+
 /// An operation, as undo reports it.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -488,6 +547,7 @@ pub struct OperationInfo {
     /// What kind of action it was, e.g. `edit_fields`. The UI describes it
     /// from the locale files.
     pub kind: String,
+    pub details: OperationDetails,
 }
 
 /// Something changed since the operation that undo would overwrite.
@@ -514,21 +574,51 @@ pub enum ConflictProblem {
     /// Other rows now reference the row, and undoing would silently delete
     /// or change them through a foreign key.
     Referenced,
+    /// The database's own rules refuse the earlier value now: another row
+    /// holds a name that must be unique, or rows that must not lose this
+    /// one point at it.
+    Blocked,
 }
 
-/// What undoing the last operation did.
+/// Why a step can't be undone, as the UI says it. A code, never text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "code", rename_all = "camelCase")]
+pub enum UndoRefusal {
+    /// A track the step added has been sent to rekordbox since.
+    SentSince,
+    /// The step would bring back a crate name another crate has now.
+    CrateNameTaken { name: String },
+    /// Something the step changed has changed again since.
+    ChangedSince,
+}
+
+/// What undoing the newest operation did.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum UndoOutcome {
     /// Every change of the operation was reversed.
     Undone { operation: OperationInfo },
-    /// No operation, or the last one is already undone.
+    /// No operation is left to undo (or, when one operation was asked for,
+    /// it isn't the next to undo).
     NothingToUndo,
     /// Undoing would overwrite later changes, so nothing was changed.
     Refused {
         operation: OperationInfo,
+        reason: UndoRefusal,
         conflicts: Vec<UndoConflict>,
     },
+}
+
+/// What Undo would do now.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NextUndo {
+    /// The operation Undo would take back; none when nothing is left.
+    pub operation: Option<OperationInfo>,
+    /// Why it would be refused, when that's known. `None` doesn't promise
+    /// the undo will work: a very large operation isn't tried ahead of time
+    /// (see [`TRIED_AHEAD_UP_TO`]).
+    pub refusal: Option<UndoRefusal>,
 }
 
 /// One recorded change, as read back for undo.
@@ -541,31 +631,69 @@ struct ChangeRow {
     after: Option<String>,
 }
 
-/// Undoes the most recent operation exactly: a set gets its old value back,
-/// an inserted row is deleted, a deleted row is put back with its old id.
-///
-/// Refused, changing nothing, if anything the operation wrote has changed
-/// since: undoing would silently throw that later change away.
-pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
-    let tx = conn.transaction()?;
-    let latest: Option<(i64, String, Option<String>)> = tx
+/// The newest operation that isn't undone: the next one to undo.
+fn next_operation(tx: &Transaction<'_>) -> Result<Option<OperationInfo>, OpsError> {
+    Ok(tx
         .query_row(
-            "SELECT id, kind, undone_at FROM operation ORDER BY id DESC LIMIT 1",
+            "SELECT id, kind, details FROM operation
+             WHERE undone_at IS NULL ORDER BY id DESC LIMIT 1",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| {
+                Ok(OperationInfo {
+                    id: r.get(0)?,
+                    kind: r.get(1)?,
+                    details: OperationDetails::parse(r.get_ref(2)?.as_str()?),
+                })
+            },
         )
-        .optional()?;
-    let Some((id, kind, None)) = latest else {
-        return Ok(UndoOutcome::NothingToUndo);
-    };
-    let operation = OperationInfo { id, kind };
+        .optional()?)
+}
 
+/// What stands in the way of undoing one operation.
+#[derive(Default)]
+struct Found {
+    conflicts: Vec<UndoConflict>,
+    /// A crate name the undo would bring back that another crate has now.
+    name_taken: Option<String>,
+}
+
+impl Found {
+    /// The one reason the UI gives, most specific first.
+    fn refusal(&self) -> Option<UndoRefusal> {
+        if let Some(name) = &self.name_taken {
+            return Some(UndoRefusal::CrateNameTaken { name: name.clone() });
+        }
+        if self.conflicts.is_empty() {
+            return None;
+        }
+        // A send marks every track it sent and gives it bases, which then
+        // hold the Library track in place.
+        let sent = self.conflicts.iter().any(|c| {
+            c.entity == "library_track"
+                && (c.problem == ConflictProblem::Blocked
+                    || matches!(
+                        c.field.as_deref(),
+                        Some("last_sent_location" | "last_exported_at")
+                    ))
+        });
+        Some(if sent {
+            UndoRefusal::SentSince
+        } else {
+            UndoRefusal::ChangedSince
+        })
+    }
+}
+
+/// Reverses every change of `operation` inside `tx` and marks it undone,
+/// unless something stands in the way. Then `tx` holds a half-undone state
+/// and must be rolled back.
+fn unwind(tx: &Transaction<'_>, operation: &OperationInfo) -> Result<Found, OpsError> {
     let changes: Vec<ChangeRow> = {
         let mut stmt = tx.prepare(
             "SELECT entity, entity_id, action, field, before, after FROM change
              WHERE operation_id = ?1 ORDER BY id DESC",
         )?;
-        let rows = stmt.query_map([id], |r| {
+        let rows = stmt.query_map([operation.id], |r| {
             Ok(ChangeRow {
                 entity: r.get(0)?,
                 entity_id: r.get(1)?,
@@ -581,7 +709,7 @@ pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
     // Newest first, so changes made in sequence within the operation (insert
     // a row, then set one of its fields) unwind in reverse. Each step first
     // checks the database still holds what the operation left.
-    let mut conflicts = Vec::new();
+    let mut found = Found::default();
     let mut schema = SchemaCache::default();
     let mut i = 0;
     while i < changes.len() {
@@ -598,34 +726,127 @@ pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
             .count()
             .max(1);
         let group = &changes[i..i + run];
-        let table = schema.table(&tx, &change.entity)?;
+        let table = schema.table(tx, &change.entity)?;
         match change.action.as_str() {
-            "set" => undo_set(&tx, &mut schema, &table, change, &mut conflicts)?,
-            "insert" => undo_insert(&tx, &mut schema, &table, group, &mut conflicts)?,
-            "delete" => undo_delete(&tx, &table, group, &mut conflicts)?,
+            "set" => undo_set(tx, &mut schema, &table, change, &mut found)?,
+            "insert" => undo_insert(tx, &mut schema, &table, group, &mut found.conflicts)?,
+            "delete" => undo_delete(tx, &table, group, &mut found)?,
             other => return Err(OpsError::BadAction(other.to_owned())),
         }
         i += run;
     }
-
-    if !conflicts.is_empty() {
-        // Dropping `tx` rolls back the steps already taken.
-        return Ok(UndoOutcome::Refused {
-            operation,
-            conflicts,
-        });
+    if !found.conflicts.is_empty() {
+        return Ok(found);
     }
+
+    // A crate name must differ from its siblings' the way a send compares
+    // them, which is looser than the database's own unique index. History
+    // alone can't break that (the later crate is undone first); a write
+    // outside the log could.
+    let mut crates: Vec<i64> = changes
+        .iter()
+        .filter(|c| c.entity == "crate")
+        .map(|c| c.entity_id)
+        .collect();
+    crates.sort_unstable();
+    crates.dedup();
+    if let Some((id, name)) = crate::crates::name_clash(tx, &crates)? {
+        found.conflicts.push(UndoConflict {
+            entity: "crate".to_owned(),
+            entity_id: id,
+            field: Some("name".to_owned()),
+            problem: ConflictProblem::Blocked,
+        });
+        found.name_taken = Some(name);
+        return Ok(found);
+    }
+
     tx.execute(
         "UPDATE operation SET undone_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
-        [id],
+        [operation.id],
     )?;
-    tx.commit()?;
-    Ok(UndoOutcome::Undone { operation })
+    Ok(found)
+}
+
+fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, OpsError> {
+    let tx = conn.transaction()?;
+    let Some(operation) = next_operation(&tx)? else {
+        return Ok(UndoOutcome::NothingToUndo);
+    };
+    if only.is_some_and(|id| id != operation.id) {
+        return Ok(UndoOutcome::NothingToUndo);
+    }
+    let found = unwind(&tx, &operation)?;
+    match found.refusal() {
+        // Dropping `tx` rolls back the steps already taken.
+        Some(reason) => Ok(UndoOutcome::Refused {
+            operation,
+            reason,
+            conflicts: found.conflicts,
+        }),
+        None => {
+            tx.commit()?;
+            Ok(UndoOutcome::Undone { operation })
+        }
+    }
+}
+
+/// Undoes the newest operation that isn't undone yet, exactly: a set gets
+/// its old value back, an inserted row is deleted, a deleted row is put back
+/// with its old id. Call it again to undo the one before.
+///
+/// Refused, changing nothing, if anything the operation wrote has changed
+/// since: undoing would silently throw that later change away. A refused
+/// operation isn't skipped; the next call tries it again.
+pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
+    undo_step(conn, None)
+}
+
+/// [`undo_last`], but only if `operation` is the one it would undo.
+/// Otherwise nothing is undone ([`UndoOutcome::NothingToUndo`]): an Undo
+/// offered for one action never takes back a different one.
+pub fn undo_only(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, OpsError> {
+    undo_step(conn, Some(operation))
 }
 
 /// [`undo_last`], run on the database's one writer connection.
 pub fn undo_last_via(writer: &Writer) -> Result<UndoOutcome, OpsError> {
     writer.call(|conn| Ok(undo_last(conn)))?
+}
+
+/// The most `change` rows an operation may have for [`next_undo`] to try
+/// its undo ahead of time. Trying costs about what the undo itself does, on
+/// the one writer, each time the UI asks; a bigger operation (adding a whole
+/// rekordbox collection) is only named, and a refusal shows when Undo is
+/// used.
+pub const TRIED_AHEAD_UP_TO: i64 = 2_000;
+
+/// What [`undo_last`] would undo now, and why it would be refused, if it
+/// would. Changes nothing: the undo is tried inside a transaction that is
+/// always rolled back, so this says exactly what [`undo_last`] would.
+pub fn next_undo(conn: &mut Connection) -> Result<NextUndo, OpsError> {
+    let tx = conn.transaction()?;
+    let Some(operation) = next_operation(&tx)? else {
+        return Ok(NextUndo {
+            operation: None,
+            refusal: None,
+        });
+    };
+    let changes: i64 = tx.query_row(
+        "SELECT count(*) FROM change WHERE operation_id = ?1",
+        [operation.id],
+        |r| r.get(0),
+    )?;
+    let refusal = if changes <= TRIED_AHEAD_UP_TO {
+        unwind(&tx, &operation)?.refusal()
+    } else {
+        None
+    };
+    tx.rollback()?;
+    Ok(NextUndo {
+        operation: Some(operation),
+        refusal,
+    })
 }
 
 fn conflict(change: &ChangeRow, field: Option<&str>, problem: ConflictProblem) -> UndoConflict {
@@ -642,8 +863,9 @@ fn undo_set(
     schema: &mut SchemaCache,
     table: &Table,
     change: &ChangeRow,
-    conflicts: &mut Vec<UndoConflict>,
+    found: &mut Found,
 ) -> Result<(), OpsError> {
+    let conflicts = &mut found.conflicts;
     let column = table.column(&change.field)?;
     let now = match table.read_field(tx, change.entity_id, column) {
         Ok(now) => now,
@@ -679,16 +901,45 @@ fn undo_set(
         ));
         return Ok(());
     }
-    tx.prepare_cached(&format!(
-        "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
-        table.sql_name(),
-        quote(&column.name)
-    ))?
-    .execute(params![
-        decode(column, change.before.as_deref())?,
-        change.entity_id
-    ])?;
+    let written = tx
+        .prepare_cached(&format!(
+            "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
+            table.sql_name(),
+            quote(&column.name)
+        ))?
+        .execute(params![
+            decode(column, change.before.as_deref())?,
+            change.entity_id
+        ]);
+    if refused_by_a_constraint(written)? {
+        conflicts.push(conflict(
+            change,
+            Some(&change.field),
+            ConflictProblem::Blocked,
+        ));
+        if is_crate_name(change) {
+            found.name_taken = change.before.clone();
+        }
+    }
     Ok(())
+}
+
+/// Whether the database's rules (a unique index, a foreign key, a check)
+/// refused a write of the undo. Any other failure is an error.
+fn refused_by_a_constraint(written: rusqlite::Result<usize>) -> Result<bool, OpsError> {
+    match written {
+        Ok(_) => Ok(false),
+        Err(rusqlite::Error::SqliteFailure(e, _))
+            if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+        {
+            Ok(true)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn is_crate_name(change: &ChangeRow) -> bool {
+    change.entity == "crate" && change.field == "name"
 }
 
 fn undo_insert(
@@ -737,11 +988,15 @@ fn undo_insert(
         conflicts.push(conflict(first, None, ConflictProblem::Referenced));
         return Ok(());
     }
-    tx.prepare_cached(&format!(
-        "DELETE FROM {} WHERE rowid = ?1",
-        table.sql_name()
-    ))?
-    .execute([first.entity_id])?;
+    let written = tx
+        .prepare_cached(&format!(
+            "DELETE FROM {} WHERE rowid = ?1",
+            table.sql_name()
+        ))?
+        .execute([first.entity_id]);
+    if refused_by_a_constraint(written)? {
+        conflicts.push(conflict(first, None, ConflictProblem::Blocked));
+    }
     Ok(())
 }
 
@@ -749,8 +1004,9 @@ fn undo_delete(
     tx: &Transaction<'_>,
     table: &Table,
     group: &[ChangeRow],
-    conflicts: &mut Vec<UndoConflict>,
+    found: &mut Found,
 ) -> Result<(), OpsError> {
+    let conflicts = &mut found.conflicts;
     let first = &group[0];
     if table.read_row(tx, first.entity_id)?.is_some() {
         conflicts.push(conflict(first, None, ConflictProblem::RowBack));
@@ -764,13 +1020,20 @@ fn undo_delete(
         values.push(decode(column, change.before.as_deref())?);
     }
     let slots: Vec<String> = (1..=values.len()).map(|i| format!("?{i}")).collect();
-    tx.prepare_cached(&format!(
-        "INSERT INTO {} ({}) VALUES ({})",
-        table.sql_name(),
-        names.join(", "),
-        slots.join(", ")
-    ))?
-    .execute(rusqlite::params_from_iter(values))?;
+    let written = tx
+        .prepare_cached(&format!(
+            "INSERT INTO {} ({}) VALUES ({})",
+            table.sql_name(),
+            names.join(", "),
+            slots.join(", ")
+        ))?
+        .execute(rusqlite::params_from_iter(values));
+    if refused_by_a_constraint(written)? {
+        conflicts.push(conflict(first, None, ConflictProblem::Blocked));
+        if let Some(name) = group.iter().find(|c| is_crate_name(c)) {
+            found.name_taken = name.before.clone();
+        }
+    }
     Ok(())
 }
 
@@ -807,16 +1070,30 @@ fn is_kind(kind: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// Undoes the most recent operation, unless something it wrote has changed
-/// since. If the undo hits an error, nothing was changed.
+/// Undoes the newest operation that isn't undone yet, unless something it
+/// wrote has changed since. With `operation_id`, only if that operation is
+/// the one to undo. If the undo hits an error, nothing was changed.
 // `async` runs it off the main thread, so the UI never waits on the writer.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn undo_last_operation(
     writer: tauri::State<'_, Writer>,
+    operation_id: Option<i64>,
 ) -> Result<UndoOutcome, crate::ipc::IpcError> {
-    Ok(undo_last_via(&writer)?)
+    Ok(writer.call(move |conn| Ok(undo_step(conn, operation_id)))??)
 }
 
+/// What Undo would undo now, and why it would be refused, if it would.
+/// Changes nothing.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn next_undo_operation(
+    writer: tauri::State<'_, Writer>,
+) -> Result<NextUndo, crate::ipc::IpcError> {
+    Ok(writer.call(|conn| Ok(next_undo(conn)))??)
+}
+
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod tests;

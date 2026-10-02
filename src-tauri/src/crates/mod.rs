@@ -176,15 +176,42 @@ fn top_level(rec: &ops::Recorder<'_>, except: Option<i64>) -> Result<Vec<(i64, S
     )
 }
 
-/// Whether `id` is a static crate.
-fn is_static(rec: &ops::Recorder<'_>, id: CrateId) -> Result<bool, OpsError> {
-    Ok(!rec
+/// A static crate's name, or `None` if `id` isn't a static crate.
+fn static_name(rec: &ops::Recorder<'_>, id: CrateId) -> Result<Option<String>, OpsError> {
+    Ok(rec
         .read_rows(
-            "SELECT 1 FROM crate WHERE id = ?1 AND kind = 'static'",
+            "SELECT name FROM crate WHERE id = ?1 AND kind = 'static'",
             [id.0],
-            |_| Ok(()),
+            |r| r.get(0),
         )?
-        .is_empty())
+        .pop())
+}
+
+/// The first of the crates `ids` whose name equals a sibling's by the
+/// writer's rule ([`sibling_key`]), with that name. Undo asks before it
+/// brings a crate or an earlier name back: such a pair would make a send
+/// fail. Ids that name no crate are skipped.
+pub fn name_clash(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Option<(i64, String)>> {
+    // `main.`, as the log itself names tables: a TEMP table called `crate`
+    // can't stand in.
+    let mut own = conn.prepare_cached("SELECT parent_id, name FROM main.crate WHERE id = ?1")?;
+    let mut siblings =
+        conn.prepare_cached("SELECT name FROM main.crate WHERE parent_id IS ?1 AND id <> ?2")?;
+    for &id in ids {
+        let mut rows = own.query([id])?;
+        let Some(row) = rows.next()? else {
+            continue;
+        };
+        let (parent, name): (Option<i64>, String) = (row.get(0)?, row.get(1)?);
+        let key = sibling_key(&name);
+        let mut others = siblings.query((parent, id))?;
+        while let Some(other) = others.next()? {
+            if sibling_key(other.get_ref(0)?.as_str()?) == key {
+                return Ok(Some((id, name)));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Makes a crate: static, at the top level, last among its siblings.
@@ -237,13 +264,14 @@ pub fn rename_on(
         RENAME_OPERATION,
         &serde_json::json!({ "crateId": id.0, "name": name }),
         |rec| {
-            if !is_static(rec, id)? {
+            let Some(from) = static_name(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
-            }
+            };
             let name = match checked_name(&top_level(rec, Some(id.0))?, &name) {
                 Ok(name) => name,
                 Err(refusal) => return Ok(Err(refusal)),
             };
+            rec.detail("from", from);
             rec.set("crate", id.0, "name", name)?;
             Ok(Ok(()))
         },
@@ -259,9 +287,10 @@ pub fn delete_on(conn: &mut Connection, id: CrateId) -> Result<Done<()>, OpsErro
         DELETE_OPERATION,
         &serde_json::json!({ "crateId": id.0 }),
         |rec| {
-            if !is_static(rec, id)? {
+            let Some(name) = static_name(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
-            }
+            };
+            rec.detail("name", name);
             // The entries first, one by one: the log doesn't record rows a
             // foreign key deletes along with the crate.
             let entries: Vec<i64> = rec.read_rows(
@@ -294,9 +323,9 @@ pub fn add_on(
         ADD_OPERATION,
         &serde_json::json!({ "crateId": id.0 }),
         |rec| {
-            if !is_static(rec, id)? {
+            let Some(name) = static_name(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
-            }
+            };
             let library: HashSet<i64> = rec
                 .read_rows("SELECT id FROM library_track", [], |r| r.get(0))?
                 .into_iter()
@@ -325,6 +354,8 @@ pub fn add_on(
                     added += 1;
                 }
             }
+            rec.detail("name", name);
+            rec.detail("tracks", added);
             Ok(Ok(Changed {
                 changed: added,
                 skipped: tracks.len() as u32 - added,
@@ -348,9 +379,9 @@ pub fn remove_on(
         REMOVE_OPERATION,
         &serde_json::json!({ "crateId": id.0 }),
         |rec| {
-            if !is_static(rec, id)? {
+            let Some(name) = static_name(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
-            }
+            };
             let entries: HashMap<i64, i64> = rec
                 .read_rows(
                     "SELECT library_track_id, id FROM crate_entry WHERE crate_id = ?1",
@@ -368,6 +399,8 @@ pub fn remove_on(
                 }
             }
             let removed = removed.len() as u32;
+            rec.detail("name", name);
+            rec.detail("tracks", removed);
             Ok(Ok(Changed {
                 changed: removed,
                 skipped: tracks.len() as u32 - removed,
