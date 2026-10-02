@@ -158,11 +158,11 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node .github/scripts/runner-tools.mjs rust clippy node npm git symlinks --builds=tracklist-pro
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      # The version and components come from rust-toolchain.toml, the one
+      # place that names them.
+      - name: Install the pinned Rust toolchain
         if: runner.environment == 'github-hosted'
-        with:
-          toolchain: stable
-          components: clippy
+        run: rustup toolchain install --profile minimal
 
       # Only main saves the cache; PR runs restore main's. A PR's own cache is
       # usable only by that PR, and saving one took up to 3 minutes and
@@ -232,11 +232,11 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node .github/scripts/runner-tools.mjs rust clippy git --builds=fixture-gen
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      # The version and components come from rust-toolchain.toml, the one
+      # place that names them.
+      - name: Install the pinned Rust toolchain
         if: runner.environment == 'github-hosted'
-        with:
-          toolchain: stable
-          components: clippy
+        run: rustup toolchain install --profile minimal
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: runner.environment == 'github-hosted'
@@ -300,11 +300,11 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node .github/scripts/runner-tools.mjs rust rustfmt node npm git
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      # The version and components come from rust-toolchain.toml, the one
+      # place that names them.
+      - name: Install the pinned Rust toolchain
         if: runner.environment == 'github-hosted'
-        with:
-          toolchain: stable
-          components: rustfmt
+        run: rustup toolchain install --profile minimal
 
       - name: cargo fmt --check
         if: env.APP == 'true'
