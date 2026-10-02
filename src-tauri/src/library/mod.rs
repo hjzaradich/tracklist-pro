@@ -101,8 +101,9 @@ pub struct LibraryTrack {
     /// The track (`recording`) it was made from.
     pub recording_id: i64,
     pub kind: LibraryTrackKind,
-    /// The track's title and artist. `None` when it has none yet; the list
-    /// then shows the linked file's name as the title.
+    /// The title and artist the list shows: what a send writes for the
+    /// track, else (for the title) the file's name. `None` only when the
+    /// track has neither.
     pub title: Option<String>,
     pub artist: Option<String>,
     /// The linked file. `None` only for a Library track with no file link.
@@ -760,12 +761,34 @@ fn stored_where(
     Ok(tracks)
 }
 
-/// Every Library track, in the order they were added.
-pub fn stored(conn: &Connection) -> rusqlite::Result<Vec<StoredTrack>> {
-    stored_where(conn, "", [])
+/// Every Library track, in the order they were added, with the title and
+/// artist a list shows for each ([`crate::send_values::shown`]): what a
+/// send would write, and the file's name when there is no title.
+pub fn stored(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Vec<StoredTrack>> {
+    let mut tracks = stored_where(conn, "", [])?;
+    fill_shown(conn, volumes, &mut tracks)?;
+    Ok(tracks)
 }
 
-/// One Library track, if there is one with that id.
+/// Sets each track's title and artist to the ones a list shows. Worked out
+/// now, from what the scan stored: nothing is written.
+fn fill_shown(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    tracks: &mut [StoredTrack],
+) -> rusqlite::Result<()> {
+    let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
+    let mut shown = crate::send_values::shown(conn, volumes, &ids)?;
+    for track in tracks {
+        if let Some(shown) = shown.remove(&track.id) {
+            (track.title, track.artist) = shown.into_options();
+        }
+    }
+    Ok(())
+}
+
+/// One Library track, if there is one with that id. Its title and artist are
+/// the recording's own (none yet in Phase 1a): the lists use [`stored`].
 pub fn stored_one(conn: &Connection, id: LibraryTrackId) -> rusqlite::Result<Option<StoredTrack>> {
     Ok(stored_where(conn, "WHERE lt.id = ?1", [id.0])?
         .into_iter()
@@ -816,8 +839,9 @@ pub fn list(
 /// held.
 pub fn stored_with_locations(
     conn: &Connection,
+    volumes: &impl Volumes,
 ) -> rusqlite::Result<(Vec<StoredTrack>, Vec<Located>)> {
-    let tracks = stored(conn)?;
+    let tracks = stored(conn, volumes)?;
     let files: Vec<i64> = tracks
         .iter()
         .filter_map(|t| t.file.as_ref().map(|f| f.file_id))
@@ -841,11 +865,12 @@ pub fn list_with_fragile(
 #[tauri::command]
 #[specta::specta]
 pub async fn library_tracks(reads: State<'_, ReadPool>) -> Result<Vec<LibraryTrack>, IpcError> {
-    let (tracks, located) = reads.read(stored_with_locations)?;
+    let volumes = system_volumes();
+    let (tracks, located) = reads.read(|conn| stored_with_locations(conn, &volumes))?;
     Ok(list_with_fragile(
         &tracks,
         &located,
-        &system_volumes(),
+        &volumes,
         &FragileDirs::system(),
     ))
 }

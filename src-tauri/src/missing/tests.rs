@@ -341,3 +341,12 @@ fn with_no_missing_tracks_the_list_is_empty() {
     let list = lib.list(&Disk::default());
     assert_eq!((list.total, list.groups), (0, vec![]));
 }
+
+#[test]
+fn a_track_rekordbox_has_no_name_for_is_listed_under_its_files_name() {
+    let lib = Lib::new();
+    let id = lib.track(&format!("{OLD}a.mp3"), "  ", "Artist");
+    let list = lib.list(&Disk::default());
+    let track = &list.groups[0].tracks[0];
+    assert_eq!((track.id, track.title.as_str()), (id, "a.mp3"));
+}

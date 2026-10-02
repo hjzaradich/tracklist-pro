@@ -146,7 +146,11 @@ impl Lib {
     }
 
     fn list_with(&self, volumes: &Mount) -> Vec<LibraryTrack> {
-        let (tracks, located) = self.writer.call(|c| stored_with_locations(c)).unwrap();
+        let mount = Mount(volumes.0.clone());
+        let (tracks, located) = self
+            .writer
+            .call(move |c| stored_with_locations(c, &mount))
+            .unwrap();
         list_with_fragile(&tracks, &located, volumes, &NO_DIRS)
     }
 
@@ -627,15 +631,17 @@ fn a_file_on_an_unplugged_volume_is_listed_where_the_volume_was_last_mounted() {
 }
 
 #[test]
-fn a_track_with_no_title_or_a_blank_one_is_listed_without_a_title() {
+fn a_track_with_no_title_or_a_blank_one_is_listed_under_its_files_name_and_no_artist() {
     let lib = Lib::new();
     for (title, name) in [(None, "a.mp3"), (Some("  "), "b.mp3")] {
         let track = lib.track(title, Some(""));
         lib.file(track, name, "best", true);
         lib.promote(track).unwrap();
     }
-    for row in lib.list() {
-        assert_eq!(row.title, None);
+    let rows = lib.list();
+    let titles: Vec<_> = rows.iter().map(|r| r.title.as_deref()).collect();
+    assert_eq!(titles, [Some("a.mp3"), Some("b.mp3")]);
+    for row in rows {
         assert_eq!(row.artist, None);
     }
 }
@@ -698,7 +704,9 @@ fn library_tracks_are_still_there_after_the_database_is_reopened() {
     let Lib { dir, writer, .. } = lib;
     drop(writer);
     let writer = open(dir.path());
-    let (tracks, located) = writer.call(|c| stored_with_locations(c)).unwrap();
+    let (tracks, located) = writer
+        .call(|c| stored_with_locations(c, &Mount::at(r"E:\\")))
+        .unwrap();
     let mount = Mount::at(r"E:\");
     assert_eq!(
         list_with_fragile(&tracks, &located, &mount, &NO_DIRS),
@@ -863,7 +871,10 @@ fn a_row_whose_file_is_in_a_fragile_folder_says_so_before_the_drive_kind() {
     let track = lib.track(Some("A"), None);
     lib.file(track, "a.mp3", "best", true);
     lib.promote(track).unwrap();
-    let (tracks, located) = lib.writer.call(|c| stored_with_locations(c)).unwrap();
+    let (tracks, located) = lib
+        .writer
+        .call(|c| stored_with_locations(c, &Mount::at(r"E:\\")))
+        .unwrap();
     let dirs = FragileDirs {
         downloads: Some(PathBuf::from(r"E:\Music")),
         temp: vec![],
@@ -881,4 +892,147 @@ fn a_track_just_added_carries_its_fragile_reason() {
         lib.promote(track).unwrap().library_track.fragile,
         Some(FragileReason::External)
     );
+}
+
+// ---- the title and artist shown (1aG-9) --------------------------------------
+
+type Snapshot = (
+    Vec<(String, i64)>,
+    Vec<(i64, Option<String>, Option<String>)>,
+);
+
+impl Lib {
+    /// A file with ID3v2 title and (if given) artist tags.
+    fn tagged_file(&self, track: i64, name: &str, title: &str, artist: Option<&str>) -> i64 {
+        let file = self.file(track, name, "best", true);
+        let mut items = vec![json!({"key": "TIT2", "value": {"type": "text", "text": title}})];
+        if let Some(artist) = artist {
+            items.push(json!({"key": "TPE1", "value": {"type": "text", "text": artist}}));
+        }
+        self.insert(
+            "UPDATE file SET raw_tags = ?1 WHERE id = ?2",
+            (json!({ "id3v2": items }).to_string(), file),
+        );
+        file
+    }
+
+    /// A trusted rekordbox entry for `file` with this name and artist.
+    fn rekordbox_named(&self, file: i64, name: &str, artist: &str) {
+        let track_id = self.next_track_id.get();
+        self.next_track_id.set(track_id + 1);
+        let attributes = json!({
+            "TrackID": track_id.to_string(), "Name": name, "Artist": artist,
+            "Location": format!("file://localhost/E:/Music/{track_id}.mp3"),
+        })
+        .to_string();
+        self.insert(
+            "INSERT INTO rekordbox_track
+                 (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+             VALUES (?1, ?2, '2026-09-30T10:00:00.000Z', ?3, 'path', 0)",
+            (attributes, format!("E:/Music/{track_id}.mp3"), file),
+        );
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        self.writer
+            .call(|c| {
+                let tables: Vec<String> = c
+                    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                let mut counts = Vec::new();
+                for table in tables {
+                    let n: i64 =
+                        c.query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| {
+                            r.get(0)
+                        })?;
+                    counts.push((table, n));
+                }
+                let recordings = c
+                    .prepare("SELECT id, title, artist FROM recording ORDER BY id")?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                Ok((counts, recordings))
+            })
+            .unwrap()
+    }
+}
+
+#[test]
+fn the_list_shows_rekordboxs_title_for_a_known_track_the_tags_for_a_new_one_and_the_file_name_for_neither(
+) {
+    let lib = Lib::new();
+    let known = lib.track(None, None);
+    let known_file = lib.tagged_file(known, "k.mp3", "Tag title", Some("Tag artist"));
+    lib.rekordbox_named(known_file, "Their title", "Their artist");
+    let new = lib.track(None, None);
+    lib.tagged_file(new, "n.mp3", "New title", Some("New artist"));
+    let bare = lib.track(None, None);
+    lib.file(bare, "Sub/bare.mp3", "best", true);
+    let ids: Vec<_> = [known, new, bare]
+        .into_iter()
+        .map(|t| lib.promote(t).unwrap().library_track.id)
+        .collect();
+
+    let listed = lib.list();
+    let shown = |id| {
+        let t = listed.iter().find(|t| t.id == id).unwrap();
+        (t.title.clone(), t.artist.clone())
+    };
+    assert_eq!(
+        shown(ids[0]),
+        (Some("Their title".into()), Some("Their artist".into()))
+    );
+    assert_eq!(
+        shown(ids[1]),
+        (Some("New title".into()), Some("New artist".into()))
+    );
+    assert_eq!(shown(ids[2]), (Some("bare.mp3".into()), None));
+}
+
+#[test]
+fn a_set_recording_title_wins_in_the_list() {
+    let lib = Lib::new();
+    let track = lib.track(Some("Own title"), Some("Own artist"));
+    lib.tagged_file(track, "a.mp3", "Tag title", Some("Tag artist"));
+    lib.promote(track).unwrap();
+
+    let listed = lib.list();
+    assert_eq!(listed[0].title.as_deref(), Some("Own title"));
+    assert_eq!(listed[0].artist.as_deref(), Some("Own artist"));
+}
+
+#[test]
+fn the_list_sorts_by_the_title_shown_not_the_stored_one() {
+    let lib = Lib::new();
+    // No stored titles at all: tags, a rekordbox entry and a file name.
+    let from_tag = lib.track(None, None);
+    lib.tagged_file(from_tag, "1.mp3", "bravo", None);
+    let from_rekordbox = lib.track(None, None);
+    let file = lib.tagged_file(from_rekordbox, "2.mp3", "zzz tag", None);
+    lib.rekordbox_named(file, "Alpha", "");
+    let from_name = lib.track(None, None);
+    lib.file(from_name, "Charlie.mp3", "best", true);
+    let ids: Vec<_> = [from_tag, from_rekordbox, from_name]
+        .into_iter()
+        .map(|t| lib.promote(t).unwrap().library_track.id)
+        .collect();
+
+    let order: Vec<_> = lib.list().iter().map(|t| t.id).collect();
+    assert_eq!(order, [ids[1], ids[0], ids[2]]);
+}
+
+#[test]
+fn listing_the_library_leaves_the_database_unchanged() {
+    let lib = Lib::new();
+    let known = lib.track(None, None);
+    let file = lib.tagged_file(known, "k.mp3", "Tag title", Some("Tag artist"));
+    lib.rekordbox_named(file, "Their title", "Their artist");
+    lib.promote(known).unwrap();
+    let new = lib.track(None, None);
+    lib.tagged_file(new, "n.mp3", "New title", None);
+    lib.promote(new).unwrap();
+    let before = lib.snapshot();
+    assert_eq!(lib.list().len(), 2);
+    assert_eq!(lib.snapshot(), before);
 }

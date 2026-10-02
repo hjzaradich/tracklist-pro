@@ -64,6 +64,7 @@
 //! [`send_values`] is the batch form: a fixed number of queries however
 //! many tracks it's given. Asking for one track is a batch of one.
 
+mod shown;
 mod tag_fields;
 
 use std::collections::HashMap;
@@ -73,6 +74,7 @@ use rusqlite::Connection;
 use crate::library::{file_from, LibraryTrackId, StoredFile, FILE_COLUMNS, FILE_JOINS};
 use crate::paths::Volumes;
 
+pub use shown::{shown, shown_recordings, shown_removed, Removed, Shown};
 pub use tag_fields::TAG_ATTRIBUTES;
 
 /// The `TRACK` attributes that are rekordbox's analysis: a track already in
@@ -200,12 +202,40 @@ struct FileInfo {
     sample_rate: Option<i64>,
     duration_ms: Option<i64>,
     raw_tags: Option<String>,
+    /// The file's name, without its folder.
+    name: String,
 }
 
 struct Row {
     library_track: i64,
     recording: i64,
     linked_file: Option<i64>,
+    /// `recording.title` / `recording.artist`: nothing fills them in Phase 1a.
+    title: Option<String>,
+    artist: Option<String>,
+}
+
+/// How much of the database a batch loads. [`Scope::Names`] is for the
+/// lists ([`shown`]): the same decisions, but only the two attributes a list
+/// shows, and a file's tags only where the track's values come from them.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Send,
+    Names,
+}
+
+/// What a batch loaded for its tracks.
+struct Loaded {
+    rows: HashMap<i64, Row>,
+    by_recording: HashMap<i64, Vec<i64>>,
+    files: HashMap<i64, FileInfo>,
+    entry_for: HashMap<i64, (i64, i64)>,
+    at_location: HashMap<i64, (i64, i64)>,
+    attributes: HashMap<i64, Vec<(String, String)>>,
+}
+
+fn json_ids(ids: &mut dyn Iterator<Item = i64>) -> String {
+    serde_json::to_string(&ids.collect::<Vec<_>>()).expect("numbers always serialize")
 }
 
 /// The values for every Library track in `ids`, in the order given, in a
@@ -216,22 +246,47 @@ pub fn send_values(
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<Vec<SendValues>> {
-    let json = |ids: &mut dyn Iterator<Item = i64>| {
-        serde_json::to_string(&ids.collect::<Vec<_>>()).expect("numbers always serialize")
+    let loaded = load(conn, volumes, ids, Scope::Send)?;
+    let world = World {
+        volumes,
+        loaded: &loaded,
     };
+    Ok(ids
+        .iter()
+        .map(|&id| SendValues {
+            library_track: id,
+            outcome: match loaded.rows.get(&id.0) {
+                None => Outcome::CannotSend(CannotSend::NotInLibrary),
+                Some(row) => world.outcome(row),
+            },
+        })
+        .collect())
+}
+
+/// Loads what the decisions of [`World`] need, in a fixed number of queries.
+fn load(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+    scope: Scope,
+) -> rusqlite::Result<Loaded> {
+    let json = json_ids;
 
     // 1. The Library tracks.
     let wanted = json(&mut ids.iter().map(|id| id.0));
     let rows: HashMap<i64, Row> = conn
         .prepare(
-            "SELECT id, recording_id, linked_file_id FROM library_track
-             WHERE id IN (SELECT value FROM json_each(?1))",
+            "SELECT lt.id, lt.recording_id, lt.linked_file_id, r.title, r.artist
+             FROM library_track lt LEFT JOIN recording r ON r.id = lt.recording_id
+             WHERE lt.id IN (SELECT value FROM json_each(?1))",
         )?
         .query_map([&wanted], |r| {
             Ok(Row {
                 library_track: r.get(0)?,
                 recording: r.get(1)?,
                 linked_file: r.get(2)?,
+                title: r.get(3)?,
+                artist: r.get(4)?,
             })
         })?
         .map(|r| r.map(|r| (r.library_track, r)))
@@ -250,7 +305,8 @@ pub fn send_values(
         by_recording.entry(recording).or_default().push(file);
     }
 
-    // 3. Every file they need, once.
+    // 3. Every file they need, once. A list reads the tags later, and only
+    //    of the files it needs them of.
     let file_ids = json(
         &mut by_recording
             .values()
@@ -258,16 +314,21 @@ pub fn send_values(
             .copied()
             .chain(rows.values().filter_map(|r| r.linked_file)),
     );
+    let tags_column = match scope {
+        Scope::Send => "f.raw_tags",
+        Scope::Names => "NULL",
+    };
     let mut files: HashMap<i64, FileInfo> = HashMap::new();
     let mut stmt = conn.prepare(&format!(
         "SELECT f.present, f.size, f.sniffed_format, f.bitrate, f.sample_rate,
-                f.duration_ms, f.raw_tags, {FILE_COLUMNS}
+                f.duration_ms, {tags_column}, {FILE_COLUMNS}, f.rel_path
          FROM file f {FILE_JOINS}
          WHERE f.id IN (SELECT value FROM json_each(?1))"
     ))?;
     for row in stmt.query_map([&file_ids], |r| {
         let stored = file_from(r, 7)?;
         let id: i64 = r.get(7)?;
+        let rel_path: String = r.get(13)?;
         Ok((
             id,
             FileInfo {
@@ -279,6 +340,7 @@ pub fn send_values(
                 sample_rate: r.get(4)?,
                 duration_ms: r.get(5)?,
                 raw_tags: r.get(6)?,
+                name: file_name(&rel_path).to_owned(),
             },
         ))
     })? {
@@ -305,54 +367,176 @@ pub fn send_values(
     //     Location stands in for it: see `entries_at_missing_files`.
     let at_location = entries_at_missing_files(conn, volumes, &rows, &files, &entry_for)?;
 
-    // 5. The attributes of the linked files' entries, in the order
-    //    rekordbox wrote them.
-    let entries = json(
-        &mut rows.values().filter_map(|r| r.linked_file).filter_map(|f| {
-            entry_for
-                .get(&f)
-                .or_else(|| at_location.get(&f))
-                .map(|e| e.0)
-        }),
-    );
-    let mut attributes: HashMap<i64, Vec<(String, String)>> = HashMap::new();
-    let mut stmt = conn.prepare(
-        "SELECT rt.id, j.key, j.atom FROM rekordbox_track rt, json_each(rt.attributes) j
-         WHERE rt.id IN (SELECT value FROM json_each(?1))
-         ORDER BY rt.id, j.id",
-    )?;
-    for row in stmt.query_map([&entries], |r| {
-        let atom: rusqlite::types::Value = r.get(2)?;
-        let atom = match atom {
-            rusqlite::types::Value::Text(t) => t,
-            rusqlite::types::Value::Integer(n) => n.to_string(),
-            rusqlite::types::Value::Real(n) => n.to_string(),
-            _ => String::new(),
-        };
-        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, atom))
+    let mut loaded = Loaded {
+        rows,
+        by_recording,
+        files,
+        entry_for,
+        at_location,
+        attributes: HashMap::new(),
+    };
+    // 4c. A list needs a file's tags only where nothing of rekordbox's
+    //     stands in for them.
+    if scope == Scope::Names {
+        let needed = loaded.files_read_for_tags();
+        load_tags(conn, &mut loaded.files, &needed)?;
+    }
+    loaded.load_attributes(conn, scope)?;
+    Ok(loaded)
+}
+
+/// The text after the last `/` or `\`: a file's name without its folder.
+pub fn file_name(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or_default()
+}
+
+/// Reads `raw_tags` of the `needed` files into `files`.
+fn load_tags(
+    conn: &Connection,
+    files: &mut HashMap<i64, FileInfo>,
+    needed: &[i64],
+) -> rusqlite::Result<()> {
+    if needed.is_empty() {
+        return Ok(());
+    }
+    let wanted = json_ids(&mut needed.iter().copied());
+    let mut stmt = conn
+        .prepare("SELECT id, raw_tags FROM file WHERE id IN (SELECT value FROM json_each(?1))")?;
+    for row in stmt.query_map([&wanted], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?))
     })? {
-        let (entry, name, value) = row?;
-        attributes.entry(entry).or_default().push((name, value));
+        let (id, raw_tags) = row?;
+        if let Some(file) = files.get_mut(&id) {
+            file.raw_tags = raw_tags;
+        }
+    }
+    Ok(())
+}
+
+impl Loaded {
+    /// 5. The attributes of the linked files' entries, in the order
+    ///    rekordbox wrote them (only `Name` and `Artist` for a list).
+    fn load_attributes(&mut self, conn: &Connection, scope: Scope) -> rusqlite::Result<()> {
+        let entries = json_ids(
+            &mut self
+                .rows
+                .values()
+                .filter_map(|r| r.linked_file)
+                .filter_map(|f| {
+                    self.entry_for
+                        .get(&f)
+                        .or_else(|| self.at_location.get(&f))
+                        .map(|e| e.0)
+                }),
+        );
+        let only = match scope {
+            Scope::Send => "",
+            Scope::Names => "AND j.key IN ('Name', 'Artist')",
+        };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT rt.id, j.key, j.atom FROM rekordbox_track rt, json_each(rt.attributes) j
+             WHERE rt.id IN (SELECT value FROM json_each(?1)) {only}
+             ORDER BY rt.id, j.id"
+        ))?;
+        for row in stmt.query_map([&entries], |r| {
+            let atom: rusqlite::types::Value = r.get(2)?;
+            let atom = match atom {
+                rusqlite::types::Value::Text(t) => t,
+                rusqlite::types::Value::Integer(n) => n.to_string(),
+                rusqlite::types::Value::Real(n) => n.to_string(),
+                _ => String::new(),
+            };
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, atom))
+        })? {
+            let (entry, name, value) = row?;
+            self.attributes
+                .entry(entry)
+                .or_default()
+                .push((name, value));
+        }
+        Ok(())
     }
 
-    let world = World {
-        volumes,
-        files: &files,
-        by_recording: &by_recording,
-        entry_for: &entry_for,
-        at_location: &at_location,
-        attributes: &attributes,
-    };
-    Ok(ids
-        .iter()
-        .map(|&id| SendValues {
-            library_track: id,
-            outcome: match rows.get(&id.0) {
-                None => Outcome::CannotSend(CannotSend::NotInLibrary),
-                Some(row) => world.outcome(row),
-            },
-        })
-        .collect())
+    /// The files whose tags a list reads: those of every track whose values
+    /// don't come from rekordbox's entry.
+    fn files_read_for_tags(&self) -> Vec<i64> {
+        let mut needed: Vec<i64> = Vec::new();
+        for row in self.rows.values() {
+            if let Source::Known { .. } = self.source(row) {
+                continue;
+            }
+            needed.extend(self.tag_order(row));
+        }
+        needed.sort_unstable();
+        needed.dedup();
+        needed
+    }
+
+    /// Where a track's values come from. The one place that decides it, for
+    /// a send and for a list.
+    fn source(&self, row: &Row) -> Source {
+        let Some(file_id) = row.linked_file else {
+            return Source::Cannot(CannotSend::NoLinkedFile);
+        };
+        let Some(file) = self.files.get(&file_id) else {
+            return Source::Cannot(CannotSend::NoLinkedFile);
+        };
+        // rekordbox's own Location is sent for a track it knows, so that
+        // doesn't need the path to read back, and a missing file doesn't
+        // stop it: its entry goes back unchanged, so the crates naming it
+        // stay whole.
+        if let Some(&(entry, track_id)) = self.entry_for.get(&file_id) {
+            return Source::Known {
+                entry,
+                track_id,
+                file_missing: !file.present,
+            };
+        }
+        if !file.present {
+            if let Some(&(entry, track_id)) = self.at_location.get(&file_id) {
+                return Source::Known {
+                    entry,
+                    track_id,
+                    file_missing: true,
+                };
+            }
+            return Source::Cannot(CannotSend::FileMissing { file_id });
+        }
+        if file.stored.is_none() {
+            return Source::Cannot(CannotSend::NoLocation { file_id });
+        }
+        Source::Files { file_id }
+    }
+
+    /// The files a track's tags are read from: the linked file first, then
+    /// the track's other files that are on disk, best first.
+    fn tag_order(&self, row: &Row) -> Vec<i64> {
+        let linked = row.linked_file.filter(|f| self.files.contains_key(f));
+        let mut order: Vec<i64> = linked.into_iter().collect();
+        order.extend(
+            self.by_recording
+                .get(&row.recording)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|&f| Some(f) != linked && self.files.get(&f).is_some_and(|f| f.present)),
+        );
+        order
+    }
+}
+
+/// Where a track's values come from.
+enum Source {
+    /// rekordbox's entry (a row of `rekordbox_track`).
+    Known {
+        entry: i64,
+        track_id: i64,
+        file_missing: bool,
+    },
+    /// The track's files: the linked file is on disk and has a path.
+    Files { file_id: i64 },
+    /// Nothing to send for it.
+    Cannot(CannotSend),
 }
 
 /// For each linked file that's missing and has no match, rekordbox's own
@@ -465,47 +649,70 @@ struct RowAt {
     matched: Option<i64>,
 }
 
-/// Everything the batch loaded.
+/// Everything the batch loaded, with the volumes paths are placed on.
 struct World<'a, V> {
     volumes: &'a V,
-    files: &'a HashMap<i64, FileInfo>,
-    by_recording: &'a HashMap<i64, Vec<i64>>,
-    entry_for: &'a HashMap<i64, (i64, i64)>,
-    /// For a missing linked file: rekordbox's entry at its own Location.
-    at_location: &'a HashMap<i64, (i64, i64)>,
-    attributes: &'a HashMap<i64, Vec<(String, String)>>,
+    loaded: &'a Loaded,
+}
+
+/// Each of `order`'s files with the `wanted` tag values it gives.
+fn read_tags(
+    files: &HashMap<i64, FileInfo>,
+    order: &[i64],
+    wanted: &[&str],
+) -> Vec<(i64, Vec<tag_fields::TagValue>)> {
+    order
+        .iter()
+        .map(|&f| {
+            let tags = files[&f]
+                .raw_tags
+                .as_deref()
+                .map(|raw| tag_fields::read_only(raw, wanted))
+                .unwrap_or_default();
+            (f, tags)
+        })
+        .collect()
+}
+
+/// Every file's value for `attribute`, in the order the files were asked.
+/// The first is the one a send writes.
+fn candidates<'a>(
+    tags: &'a [(i64, Vec<tag_fields::TagValue>)],
+    attribute: &str,
+) -> Vec<(i64, &'a tag_fields::TagValue)> {
+    let mut found = Vec::new();
+    for (file, values) in tags {
+        if let Some(v) = values.iter().find(|v| v.attribute == attribute) {
+            found.push((*file, v));
+        }
+    }
+    found
 }
 
 impl<V: Volumes> World<'_, V> {
     fn outcome(&self, row: &Row) -> Outcome {
-        let Some(file_id) = row.linked_file else {
-            return Outcome::CannotSend(CannotSend::NoLinkedFile);
-        };
-        let Some(file) = self.files.get(&file_id) else {
-            return Outcome::CannotSend(CannotSend::NoLinkedFile);
-        };
-        // rekordbox's own Location is sent for a track it knows, so that
-        // doesn't need the path to read back, and a missing file doesn't
-        // stop it: its entry goes back unchanged, so the crates naming it
-        // stay whole.
-        if let Some(&(entry, track_id)) = self.entry_for.get(&file_id) {
-            return Outcome::Ready(self.known(entry, track_id, !file.present));
-        }
-        if !file.present {
-            if let Some(&(entry, track_id)) = self.at_location.get(&file_id) {
-                return Outcome::Ready(self.known(entry, track_id, true));
+        let loaded = self.loaded;
+        match loaded.source(row) {
+            Source::Cannot(why) => Outcome::CannotSend(why),
+            Source::Known {
+                entry,
+                track_id,
+                file_missing,
+            } => Outcome::Ready(self.known(entry, track_id, file_missing)),
+            Source::Files { file_id } => {
+                let file = &loaded.files[&file_id];
+                let Some(stored) = &file.stored else {
+                    return Outcome::CannotSend(CannotSend::NoLocation { file_id });
+                };
+                Outcome::Ready(self.unknown(row, file_id, file, stored))
             }
-            return Outcome::CannotSend(CannotSend::FileMissing { file_id });
         }
-        let Some(stored) = &file.stored else {
-            return Outcome::CannotSend(CannotSend::NoLocation { file_id });
-        };
-        Outcome::Ready(self.unknown(row, file_id, file, stored))
     }
 
     /// Every attribute of rekordbox's entry, as read.
     fn known(&self, entry: i64, track_id: i64, file_missing: bool) -> TrackValues {
         let values = self
+            .loaded
             .attributes
             .get(&entry)
             .into_iter()
@@ -533,27 +740,8 @@ impl<V: Volumes> World<'_, V> {
         file: &FileInfo,
         stored: &StoredFile,
     ) -> TrackValues {
-        // The linked file first, then the track's other files on disk.
-        let mut order = vec![file_id];
-        order.extend(
-            self.by_recording
-                .get(&row.recording)
-                .into_iter()
-                .flatten()
-                .copied()
-                .filter(|&f| f != file_id && self.files.get(&f).is_some_and(|f| f.present)),
-        );
-        let tags: Vec<(i64, Vec<tag_fields::TagValue>)> = order
-            .iter()
-            .map(|&f| {
-                let tags = self.files[&f]
-                    .raw_tags
-                    .as_deref()
-                    .map(tag_fields::read)
-                    .unwrap_or_default();
-                (f, tags)
-            })
-            .collect();
+        let loaded = self.loaded;
+        let tags = read_tags(&loaded.files, &loaded.tag_order(row), &TAG_ATTRIBUTES);
 
         let fact = |attribute: &str, value: String| Value {
             attribute: attribute.to_owned(),
@@ -576,12 +764,7 @@ impl<V: Volumes> World<'_, V> {
         let mut values = Vec::new();
         let mut disagreements = Vec::new();
         for attribute in TAG_ATTRIBUTES {
-            let mut candidates: Vec<(i64, &tag_fields::TagValue)> = Vec::new();
-            for (file, found) in &tags {
-                if let Some(v) = found.iter().find(|v| v.attribute == attribute) {
-                    candidates.push((*file, v));
-                }
-            }
+            let candidates = candidates(&tags, attribute);
             let Some(&(from, picked)) = candidates.first() else {
                 continue;
             };
@@ -609,14 +792,14 @@ impl<V: Volumes> World<'_, V> {
         values.extend(facts);
         // rekordbox's own order of attributes.
         values.sort_by_key(|v| attribute_rank(&v.attribute));
-        let rekordbox_holds_other_file = self
+        let rekordbox_holds_other_file = loaded
             .by_recording
             .get(&row.recording)
             .into_iter()
             .flatten()
             .filter(|&&f| f != file_id)
             .find_map(|f| {
-                self.entry_for.get(f).map(|&(_, track_id)| SiblingEntry {
+                loaded.entry_for.get(f).map(|&(_, track_id)| SiblingEntry {
                     file_id: *f,
                     track_id,
                 })

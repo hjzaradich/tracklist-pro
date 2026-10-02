@@ -33,7 +33,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
     let Some(read) = stored_source(conn)?.last_read else {
         return Ok(None);
     };
-    let tracks = library::stored(conn)?;
+    let tracks = library::stored(conn, volumes)?;
     let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
     let crates = tree::crate_tree(conn)?;
     // Playlists arrive in Phase 3; the folder is still written (rule 6).

@@ -105,7 +105,11 @@ impl Lib {
     }
 
     fn list_with(&self, search: &'static str, volumes: &Mount) -> AllMusicList {
-        let (total, tracks) = self.writer.call(move |c| stored(c, search)).unwrap();
+        let mount = Mount(volumes.0.clone());
+        let (total, tracks) = self
+            .writer
+            .call(move |c| stored(c, &mount, search))
+            .unwrap();
         list(total, &tracks, volumes)
     }
 
@@ -211,7 +215,7 @@ fn a_track_whose_only_rekordbox_match_is_probable_is_marked_until_it_is_trusted(
 }
 
 #[test]
-fn a_track_with_no_title_is_listed_without_one_and_sorted_by_its_files_name() {
+fn a_track_with_no_title_is_listed_under_its_files_name_and_sorted_by_it() {
     let lib = Lib::new();
     lib.track(Some("  "), None, "Sub/b2.mp3");
     lib.track(Some("beta"), None, "x.mp3");
@@ -219,7 +223,7 @@ fn a_track_with_no_title_is_listed_without_one_and_sorted_by_its_files_name() {
 
     let list = lib.list("");
     let titles: Vec<_> = list.tracks.iter().map(|t| t.title.as_deref()).collect();
-    assert_eq!(titles, vec![Some("Alpha"), None, Some("beta")]);
+    assert_eq!(titles, vec![Some("Alpha"), Some("b2.mp3"), Some("beta")]);
     assert_eq!(list.tracks[1].file.as_ref().unwrap().name, "b2.mp3");
 }
 
@@ -480,4 +484,185 @@ fn a_search_finds_a_track_that_sorts_beyond_the_limit() {
     let wide = lib.list("mp3");
     assert_eq!(wide.total as usize, LIST_LIMIT + 6);
     assert_eq!(wide.tracks.len(), LIST_LIMIT);
+}
+
+// ---- the title and artist shown (1aG-9) --------------------------------------
+
+impl Lib {
+    /// Gives `file` ID3v2 title and artist tags.
+    fn tag(&self, file: i64, title: &str, artist: Option<&str>) {
+        let mut items = vec![serde_json::json!(
+            {"key": "TIT2", "value": {"type": "text", "text": title}}
+        )];
+        if let Some(artist) = artist {
+            items.push(serde_json::json!(
+                {"key": "TPE1", "value": {"type": "text", "text": artist}}
+            ));
+        }
+        let raw = serde_json::json!({ "id3v2": items }).to_string();
+        self.insert("UPDATE file SET raw_tags = ?1 WHERE id = ?2", (raw, file));
+    }
+
+    /// A Library track for `track`, linked to its best file, which
+    /// rekordbox already has under `name` and `artist`.
+    fn library_known(&self, track: i64, file: i64, name: &str, artist: &str) {
+        self.insert(
+            "INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
+             VALUES (?1, 'linked', ?2, 'ok')",
+            (track, file),
+        );
+        let attributes = serde_json::json!({
+            "TrackID": "7", "Name": name, "Artist": artist,
+            "Location": "file://localhost/E:/Music/known.mp3",
+        })
+        .to_string();
+        self.insert(
+            "INSERT INTO rekordbox_track
+                 (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+             VALUES (?1, 'E:/MUSIC/KNOWN.MP3', '2026-09-30T10:00:00.000Z', ?2, 'path', 0)",
+            (attributes, file),
+        );
+    }
+}
+
+#[test]
+fn all_music_rows_show_the_title_a_send_would_write_a_new_tracks_from_its_tags() {
+    let lib = Lib::new();
+    let track = lib.track(None, None, "x.mp3");
+    let file = lib
+        .writer
+        .call(|c| c.query_row("SELECT id FROM file", [], |r| r.get(0)))
+        .unwrap();
+    lib.tag(file, "Tagged title", Some("Tagged artist"));
+
+    let shown = lib.list("").tracks;
+    assert_eq!(shown[0].recording_id, track);
+    assert_eq!(shown[0].title.as_deref(), Some("Tagged title"));
+    assert_eq!(shown[0].artist.as_deref(), Some("Tagged artist"));
+}
+
+#[test]
+fn a_track_with_neither_tags_nor_title_shows_its_file_name_and_no_artist() {
+    let lib = Lib::new();
+    lib.track(Some("  "), None, "Sub/b2.mp3");
+
+    let shown = lib.list("").tracks;
+    assert_eq!(shown[0].title.as_deref(), Some("b2.mp3"));
+    assert_eq!(shown[0].artist, None);
+}
+
+#[test]
+fn all_music_rows_show_the_title_a_send_would_write_a_known_tracks_from_rekordbox_and_a_set_title_wins(
+) {
+    let lib = Lib::new();
+    let known = lib.track(None, None, "known.mp3");
+    let file = lib
+        .writer
+        .call(|c| c.query_row("SELECT id FROM file", [], |r| r.get(0)))
+        .unwrap();
+    lib.tag(file, "Tag title", Some("Tag artist"));
+    lib.library_known(known, file, "Their title", "Their artist");
+    lib.track(Some("Own title"), Some("Own artist"), "other.mp3");
+
+    let shown: Vec<_> = lib
+        .list("")
+        .tracks
+        .into_iter()
+        .map(|t| (t.title.unwrap(), t.artist.unwrap(), t.in_library))
+        .collect();
+    assert_eq!(
+        shown,
+        // In the order of the stored title and the file name ("known.mp3",
+        // "Own title"), each row showing what a send would write.
+        vec![
+            ("Their title".to_owned(), "Their artist".to_owned(), true),
+            ("Own title".to_owned(), "Own artist".to_owned(), false),
+        ]
+    );
+}
+
+#[test]
+fn all_music_search_and_order_are_unchanged_by_shown_titles() {
+    let lib = Lib::new();
+    // No stored titles: the shown ones come from a tag and a rekordbox
+    // entry, but the order and the search still go by the stored title and
+    // the file name, as before titles were shown.
+    let tagged = lib.track(None, None, "m.mp3");
+    let known = lib.track(None, None, "zebra.mp3");
+    let plain = lib.track(None, None, "alpha.mp3");
+    let stored = lib.track(Some("Stored"), None, "q.mp3");
+    let files: Vec<i64> = lib
+        .writer
+        .call(|c| {
+            c.prepare("SELECT id FROM file ORDER BY id")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .unwrap();
+    lib.tag(files[0], "Aardvark", None);
+    lib.library_known(known, files[1], "Aaa Their title", "");
+
+    // The order: file names alpha, m, zebra and the stored title "Stored"
+    // (m < q < zebra by the sort key), each row showing its shown title.
+    let shown: Vec<_> = lib
+        .list("")
+        .tracks
+        .iter()
+        .map(|t| (t.recording_id, t.title.clone().unwrap()))
+        .collect();
+    assert_eq!(
+        shown,
+        vec![
+            (plain, "alpha.mp3".to_owned()),
+            (tagged, "Aardvark".to_owned()),
+            (stored, "Stored".to_owned()),
+            (known, "Aaa Their title".to_owned()),
+        ]
+    );
+    // The search: a title that is only shown isn't searched; the file name
+    // and the stored title still are.
+    assert_eq!(lib.list("aardvark").total, 0);
+    assert_eq!(lib.list("their title").total, 0);
+    assert_eq!(lib.titles("zebra"), vec!["Aaa Their title"]);
+    assert_eq!(lib.titles("stored"), vec!["Stored"]);
+    assert_eq!(lib.titles("m.mp3"), vec!["Aardvark"]);
+}
+
+#[test]
+fn listing_all_music_leaves_the_database_unchanged() {
+    let lib = Lib::new();
+    let track = lib.track(None, None, "known.mp3");
+    let file = lib
+        .writer
+        .call(|c| c.query_row("SELECT id FROM file", [], |r| r.get(0)))
+        .unwrap();
+    lib.tag(file, "Tag title", Some("Tag artist"));
+    lib.library_known(track, file, "Their title", "Their artist");
+    lib.track(None, None, "plain.mp3");
+    let snapshot = || {
+        lib.writer
+            .call(|c| {
+                let tables: Vec<String> = c
+                    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                let mut counts = Vec::new();
+                for table in tables {
+                    let n: i64 =
+                        c.query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| {
+                            r.get(0)
+                        })?;
+                    counts.push((table, n));
+                }
+                let recordings: Vec<(i64, Option<String>, Option<String>)> = c
+                    .prepare("SELECT id, title, artist FROM recording ORDER BY id")?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                Ok((counts, recordings))
+            })
+            .unwrap()
+    };
+    let before = snapshot();
+    assert_eq!(lib.list("").tracks.len(), 2);
+    assert_eq!(snapshot(), before);
 }

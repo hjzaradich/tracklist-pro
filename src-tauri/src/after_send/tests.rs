@@ -791,3 +791,50 @@ fn a_smart_crate_is_not_in_the_apps_tree_since_a_send_does_not_write_it() {
     // one the app no longer has.
     assert_eq!(paths(&lib.lists().stale_playlists), ["Crates / Clever"]);
 }
+
+// ---- the title and artist shown (1aG-9) --------------------------------------
+
+impl Lib {
+    /// A removed track with no title or artist, sent to `location`.
+    fn removed_untitled(&self, location: &str, at: &str) -> i64 {
+        let recording = self.run("INSERT INTO recording DEFAULT VALUES", ());
+        self.run(
+            "INSERT INTO library_removal (recording_id, removed_at, last_sent_location, last_exported_at)
+             VALUES (?1, ?2, ?3, '2026-09-30T10:00:00.000Z')",
+            (recording, at.to_owned(), location.to_owned()),
+        );
+        recording
+    }
+}
+
+#[test]
+fn a_removed_track_shows_the_name_rekordbox_has_at_its_sent_location() {
+    let lib = Lib::new();
+    lib.removed_untitled(A, "2026-10-01T10:00:00.000Z");
+    // A read that holds the track under a name of rekordbox's own.
+    lib.read("2026-10-01T11:00:00.000Z", &[], true);
+    lib.run(
+        "INSERT INTO rekordbox_track (attributes, location_key, read_at)
+         VALUES (?1, ?2, '2026-10-01T11:00:00.000Z')",
+        (
+            format!(
+                "{{\"TrackID\":\"1\",\"Name\":\"Their title\",\"Artist\":\"Their artist\",\"Location\":\"{A}\"}}"
+            ),
+            crate::rekordbox::location::decode(A).unwrap().match_key(),
+        ),
+    );
+    let listed = lib.lists().manual_removals;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].title.as_deref(), Some("Their title"));
+    assert_eq!(listed[0].artist.as_deref(), Some("Their artist"));
+}
+
+#[test]
+fn a_removed_track_with_no_name_anywhere_shows_the_name_of_the_file_it_was_sent_to() {
+    let lib = Lib::new();
+    lib.removed_untitled(A, "2026-10-01T10:00:00.000Z");
+    let listed = lib.lists().manual_removals;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].title.as_deref(), Some("Synthetic A.mp3"));
+    assert_eq!(listed[0].artist, None);
+}

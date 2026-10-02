@@ -1579,3 +1579,70 @@ mod ipc {
         assert!(!guard.app_data_dir().join("tracklist-pro.xml").exists());
     }
 }
+
+#[test]
+fn the_preflights_track_lists_name_each_track_by_what_a_send_writes() {
+    let w = World::new();
+    // No recording here has a title of its own.
+    let untitled = |name: &str, tag: &str, present: bool| {
+        let recording = w.insert("INSERT INTO recording DEFAULT VALUES", ());
+        let file = w.file(recording, name, tag, present);
+        let library = w.insert(
+            "INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
+             VALUES (?1, 'linked', ?2, 'ok')",
+            (recording, file),
+        );
+        (recording, LibraryTrackId(library))
+    };
+    // Left out: its file is gone and rekordbox doesn't have it: its stored tag.
+    let (_, gone) = untitled("gone.mp3", "Remembered title", false);
+    // Left out for a character XML can't carry: shown as it would be sent.
+    let (_, bell) = untitled("bell.mp3", "bell\u{7}title", true);
+    // rekordbox has it but its file is gone: rekordbox's own name and artist.
+    let (_, known_gone) = untitled("known-gone.mp3", "Tag of a known track", false);
+    // rekordbox holds another file of it: this file's tag.
+    let (sibling, linked) = untitled("linked.mp3", "Tag of the linked file", true);
+    w.file(sibling, "other.mp3", "Tag of the other file", true);
+    // rekordbox's own entry is only sent for a track a crate names.
+    w.crate_of("Warm up", &[known_gone]);
+    w.save_export(&[
+        Rb(40, "known-gone.mp3", "Their title"),
+        Rb(41, "other.mp3", "Their other title"),
+    ]);
+
+    let preflight = w.prepare().unwrap();
+    let left_out: Vec<_> = preflight
+        .left_out
+        .iter()
+        .map(|l| {
+            (
+                l.track.library_track,
+                l.track.title.as_deref(),
+                l.track.artist.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        left_out,
+        [
+            (gone, Some("Remembered title"), None),
+            (bell, Some("bell\u{7}title"), None),
+        ]
+    );
+    let file_missing: Vec<_> = preflight
+        .file_missing
+        .iter()
+        .map(|t| (t.library_track, t.title.as_deref(), t.artist.as_deref()))
+        .collect();
+    // The export's own Artist for the track.
+    assert_eq!(
+        file_missing,
+        [(known_gone, Some("Their title"), Some("Kit"))]
+    );
+    let other_file: Vec<_> = preflight
+        .other_file
+        .iter()
+        .map(|o| (o.track.library_track, o.track.title.as_deref()))
+        .collect();
+    assert_eq!(other_file, [(linked, Some("Tag of the linked file"))]);
+}

@@ -170,6 +170,11 @@ pub fn group(gathered: Gathered, volumes: &impl Volumes, disk: &impl DiskProbe) 
             Ok(Location::Streaming(_)) => continue,
             Ok(Location::File(path)) => {
                 track.last_known_path = Some(shown(&path));
+                // Like every list: the file's name stands in for a
+                // missing title.
+                if track.title.trim().is_empty() {
+                    track.title = crate::send_values::file_name(path.as_str()).to_owned();
+                }
                 let folder = Folder::of(&path);
                 groups
                     .entry(folder.key())
