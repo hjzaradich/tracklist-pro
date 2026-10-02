@@ -169,6 +169,20 @@ export const commands = {
 	 *  now. Reads only.
 	 */
 	afterSendLists: () => typedError<AfterSendLists, IpcError>(__TAURI_INVOKE("after_send_lists")),
+	/**  Makes a crate. The name is trimmed. */
+	createCrate: (name: string) => typedError<CrateId, IpcError>(__TAURI_INVOKE("create_crate", { name })),
+	/**  Renames a crate. */
+	renameCrate: (id: CrateId, name: string) => typedError<null, IpcError>(__TAURI_INVOKE("rename_crate", { id, name })),
+	/**  Deletes a crate. Its Library tracks stay in the Library. */
+	deleteCrate: (id: CrateId) => typedError<null, IpcError>(__TAURI_INVOKE("delete_crate", { id })),
+	/**  Adds Library tracks to a crate. A track that's in it already is skipped. */
+	addTracksToCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("add_tracks_to_crate", { id, tracks })),
+	/**  Takes tracks out of a crate. They stay in the Library. */
+	removeTracksFromCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("remove_tracks_from_crate", { id, tracks })),
+	/**  Every crate with its track count. */
+	listCrates: () => typedError<Crate[], IpcError>(__TAURI_INVOKE("list_crates")),
+	/**  A crate's tracks, in the order they were added. */
+	crateTracks: (id: CrateId) => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("crate_tracks", { id })),
 };
 
 /** Events */
@@ -179,7 +193,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -261,6 +275,17 @@ export type CancelOutcome =
 /**  It had already finished, or there's no such job. */
 "not_active";
 
+/**  What adding tracks to a crate, or removing them, did. */
+export type Changed = {
+	/**  How many tracks were added or removed. */
+	changed: number,
+	/**
+	 *  How many were left alone: already in the crate when adding, not in it
+	 *  when removing.
+	 */
+	skipped: number,
+};
+
 export type ConflictProblem = 
 /**  The field holds a different value from the one the operation left. */
 "changedSince" | 
@@ -273,6 +298,16 @@ export type ConflictProblem =
  *  or change them through a foreign key.
  */
 "referenced";
+
+/**  A crate, as the Crates screen lists it. */
+export type Crate = {
+	id: CrateId,
+	name: string,
+	trackCount: number,
+};
+
+/**  A crate's row id. */
+export type CrateId = number;
 
 /**
  *  What went wrong, in terms the user can act on. Each kind has one
@@ -324,7 +359,18 @@ export type ErrorKind =
 /**  The track has no file to link a Library track to. */
 "libraryNoFile" | 
 /**  The file the Library track would link to isn't on disk. */
-"libraryFileMissing";
+"libraryFileMissing" | 
+/**  There's no crate with that id. */
+"crateNotFound" | 
+/**  The crate's name is empty. */
+"crateNameEmpty" | 
+/**
+ *  Another crate already has the name (names that differ only in letter
+ *  case or trailing space count as the same); `name` is that crate's.
+ */
+"crateNameTaken" | 
+/**  The name has a character that can't be sent to rekordbox. */
+"crateNameUnsendable";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),

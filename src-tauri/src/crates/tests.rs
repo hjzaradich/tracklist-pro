@@ -760,7 +760,10 @@ mod ipc {
         let missing = invoke(&app, "crate_tracks", json!({ "id": 99 })).unwrap_err();
         assert_eq!(missing["kind"], json!("crateNotFound"));
         assert_eq!(
-            invoke(&app, "list_crates", json!({})).unwrap().as_array().map(Vec::len),
+            invoke(&app, "list_crates", json!({}))
+                .unwrap()
+                .as_array()
+                .map(Vec::len),
             Some(1)
         );
     }

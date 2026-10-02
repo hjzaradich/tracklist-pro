@@ -263,7 +263,9 @@ describe("renaming a crate", () => {
     expect(input).toHaveValue("Warm up");
     await userEvent.clear(input);
     await userEvent.type(input, "Warm up 2");
-    await userEvent.click(await button("crates:rename.confirm"));
+    // The form's button has the header button's name: look inside the form.
+    const form = input.closest("form") as HTMLElement;
+    await userEvent.click(within(form).getByRole("button", { name: tx("crates:rename.confirm") }));
 
     expect(await screen.findByRole("heading", { level: 2 })).toHaveTextContent("Warm up 2");
     expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:done.renamed"));
