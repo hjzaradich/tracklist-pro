@@ -81,8 +81,8 @@ describe("the Missing list", () => {
   });
 
   it("says so when the list or an add failed, instead of looking empty", () => {
-    render(<MissingList list={undefined} problem="Something went wrong." />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong.");
+    render(<MissingList list={undefined} problem={tx("errors:internal")} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(tx("errors:internal"));
   });
 
   it("holds the add buttons while an add runs", () => {

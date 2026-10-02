@@ -114,8 +114,8 @@ describe("the after-send lists", () => {
   });
 
   it("says so when the lists couldn't be loaded, instead of looking empty", () => {
-    render(<AfterSendLists lists={undefined} problem="Something went wrong." />);
-    expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong.");
+    render(<AfterSendLists lists={undefined} problem={tx("errors:internal")} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(tx("errors:internal"));
   });
 });
 
