@@ -108,6 +108,16 @@ impl Latch {
     }
 }
 
+/// Opens its latches when dropped, so a test that fails part-way doesn't
+/// leave threads parked at them.
+struct OpenOnDrop(Vec<Latch>);
+
+impl Drop for OpenOnDrop {
+    fn drop(&mut self) {
+        self.0.iter().for_each(Latch::open);
+    }
+}
+
 /// A count that threads add to and a test waits on. The limit only stops a
 /// hang.
 #[derive(Clone, Default)]
@@ -1152,6 +1162,7 @@ fn a_fingerprint_job_started_during_a_read_grows_into_the_threads_the_read_gives
     let read_over = Latch::default();
     let joined = Arc::new((Mutex::new(HashSet::new()), Condvar::new()));
     let (began, hold, threads) = (started.clone(), read_over.clone(), joined.clone());
+    let line = library.first.clone();
     let fingerprinter = library.fingerprinter().threads(4).on_file(move |_| {
         let first = began.bump() == 0;
         if first {
@@ -1164,6 +1175,13 @@ fn a_fingerprint_job_started_during_a_read_grows_into_the_threads_the_read_gives
         // The first thread is the one that brings the others in, once this
         // file is done: it can't wait for them here.
         if !first {
+            // Growing happens before a thread takes its next file: if the
+            // job hasn't taken the three threads by now, it never will.
+            assert_eq!(
+                line.busy(),
+                4,
+                "the job did not grow into the read's threads"
+            );
             let (_guard, timeout) = arrived
                 .wait_timeout_while(seen, PATIENCE, |seen| seen.len() < 4)
                 .unwrap_or_else(PoisonError::into_inner);
@@ -1176,6 +1194,7 @@ fn a_fingerprint_job_started_during_a_read_grows_into_the_threads_the_read_gives
         .handler(JobKind::Fingerprint, fingerprinter)
         .start()
         .unwrap();
+    let _open = OpenOnDrop(vec![read_released.clone(), read_over.clone()]);
     let read = queue.enqueue(read_job(None)).unwrap();
     // The job's own thread and three borrowed ones, all parked.
     read_parked.wait_for(4, "the read's four threads each took a file");

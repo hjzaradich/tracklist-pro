@@ -689,3 +689,14 @@ fn a_bare_number_or_a_name_that_is_only_a_bitrate_is_not_junk() {
     assert!(alone.junk.is_empty());
     assert_eq!(alone.base_title, "320kbps");
 }
+
+#[test]
+fn a_file_name_that_is_an_artist_and_a_bitrate_leaves_the_bitrate_as_the_title_not_the_artist() {
+    let name = parse_file_name("Odalys Vane - 320kbps.mp3");
+    assert!(name.junk.iter().all(|j| j.kind != JunkKind::RipTag));
+    assert_eq!(name.credits[0].name, "Odalys Vane");
+    assert_eq!(
+        name.base_title, "320kbps",
+        "the artist is not made the title"
+    );
+}
