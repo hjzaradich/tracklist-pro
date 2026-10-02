@@ -226,7 +226,8 @@
   },
   "review.refused.exportOlderThanLastSend": {
     "purpose": "Refusal: the export was saved before the last send, so it can't show what that send put in rekordbox.",
-    "where": "Send checklist, step 2, alert when the send is refused."
+    "where": "Send checklist, step 2, alert when the send is refused.",
+    "approved": "Can't send: the export was saved before the last send. Export the collection again from rekordbox."
   },
   "review.refused.sameName": {
     "purpose": "Refusal: two crates in one folder share a name.",

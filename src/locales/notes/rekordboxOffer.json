@@ -105,14 +105,14 @@
     "approved": "{{count, number}} waiting in Missing (no file found)"
   },
   "summary.waitingForConfirmation_one": {
-    "purpose": "Says one track waits for its file match to be confirmed.",
+    "purpose": "Says one track was not added because its file match is only probable.",
     "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
-    "approved": "{{count, number}} waiting for a match to be confirmed"
+    "approved": "{{count, number}} not added (rekordbox match uncertain)"
   },
   "summary.waitingForConfirmation_other": {
-    "purpose": "Says how many tracks wait for their file match to be confirmed.",
+    "purpose": "Says how many tracks were not added because their file match is only probable.",
     "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
-    "approved": "{{count, number}} waiting for a match to be confirmed"
+    "approved": "{{count, number}} not added (rekordbox match uncertain)"
   },
   "summary.undo": {
     "purpose": "Button that undoes the add.",

@@ -51,7 +51,8 @@
   },
   "scanAgain": {
     "purpose": "Button that scans one music folder again now.",
-    "where": "Music folders panel on the Overview, on each folder's row. Greyed out while the folder's drive isn't connected."
+    "where": "Music folders panel on the Overview, on each folder's row. Greyed out while the folder's drive isn't connected.",
+    "approved": "Scan again"
   },
   "readOnlineOnly": {
     "purpose": "Label of the switch that lets the app read online-only files.",
