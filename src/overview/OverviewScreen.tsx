@@ -24,7 +24,8 @@ import { EmptyState, StageScreen } from "../shell/StageScreen";
  * it: nothing records how the Library was started.
  *
  * Once the Library holds tracks, "Send to rekordbox" opens the guided send
- * in the Overview's place (1aF-1).
+ * in the Overview's place (1aF-1), and the Music folders panel moves below
+ * the rest, so folders can still be added, watched and scanned again.
  */
 export function OverviewScreen() {
   const { t } = useTranslation("overview");
@@ -68,6 +69,7 @@ export function OverviewScreen() {
         <XmlSourcePanel />
         {library.data !== undefined && <RekordboxOffer firstRun={firstRun} />}
         {firstRun && <StartFresh />}
+        {library.data !== undefined && !firstRun && <MusicFoldersStep />}
       </div>
     </StageScreen>
   );

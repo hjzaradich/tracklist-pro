@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { useCrates } from "../crates/useCrates";
 import { STAGES, type StageId } from "./stages";
 import styles from "./Sidebar.module.css";
 
@@ -11,11 +12,14 @@ interface SidebarProps {
 
 /**
  * The stages in workflow order, each with a count badge slot, then the
- * Crates section (1.14), where the crates will be listed.
+ * Crates section (1.14), where the crates will be listed. Until they are,
+ * it shows how many there are, or says there are none.
  */
 export function Sidebar({ className = "", counts = {} }: SidebarProps) {
   const { t } = useTranslation("shell");
   const workflow = STAGES.filter((stage) => stage.id !== "crates");
+  // How many crates there are; unknown until they've loaded.
+  const crates = useCrates().data?.length;
 
   return (
     <nav aria-label={t("stages.label")} className={`${styles.sidebar} ${className}`}>
@@ -27,8 +31,12 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
         ))}
       </ul>
       <div className={styles.section}>
-        <StageLink to="/crates" label={t("stages.crates")} count={counts.crates} />
-        <p className={styles.empty}>{t("sidebar.noCrates")}</p>
+        <StageLink
+          to="/crates"
+          label={t("stages.crates")}
+          count={counts.crates ?? (crates ? crates : undefined)}
+        />
+        {crates === 0 && <p className={styles.empty}>{t("sidebar.noCrates")}</p>}
       </div>
     </nav>
   );

@@ -27,7 +27,11 @@ export const commands = {
 	undoLastOperation: () => typedError<UndoOutcome, IpcError>(__TAURI_INVOKE("undo_last_operation")),
 	/**  Every music folder, oldest first. */
 	musicFolders: () => typedError<MusicFolder[], IpcError>(__TAURI_INVOKE("music_folders")),
-	/**  Adds a music folder. `role` defaults to scan. */
+	/**
+	 *  Adds a music folder and scans it: the scan is queued before this
+	 *  returns, whichever screen asked, and shows in Activity. `role` defaults
+	 *  to scan.
+	 */
 	addMusicFolder: (path: string, role: 
 /**  Scanned into All music (the default). */
 "scan" | 

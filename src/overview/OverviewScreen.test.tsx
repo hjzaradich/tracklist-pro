@@ -81,6 +81,7 @@ function fakeBackend(state: {
         };
       }
       if (cmd === "music_folders") return [];
+      if (cmd === "read_online_only_files") return false;
       if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
       if (cmd === "rekordbox_xml_source") {
         return {
@@ -191,8 +192,21 @@ describe("the Overview once the Library has tracks", () => {
     expect(screen.getByRole("heading", { name: tx("rekordboxOffer:title") })).toBeInTheDocument();
     // Not the first run any more.
     expect(screen.queryByRole("heading", { name: tx("firstRun:title") })).toBeNull();
-    expect(screen.queryByRole("heading", { name: tx("firstRun:folders.title") })).toBeNull();
     expect(screen.queryByRole("heading", { name: tx("firstRun:fresh.title") })).toBeNull();
+  });
+
+  it("keeps the Music folders panel, below the rest, so folders can still be added", async () => {
+    fakeBackend({ library: 3, toAdd: 0 });
+    renderApp("/overview");
+    const folders = await screen.findByRole("heading", { name: tx("firstRun:folders.title") });
+    const rekordbox = screen.getByRole("heading", { name: tx("rekordbox:title") });
+    expect(
+      rekordbox.compareDocumentPosition(folders) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: tx("firstRun:folders.add") })).toBeEnabled();
+    expect(
+      screen.getByRole("checkbox", { name: tx("musicFolderStatus:readOnlineOnly") }),
+    ).toBeInTheDocument();
   });
 
   it("shows no offer when the count is zero", async () => {

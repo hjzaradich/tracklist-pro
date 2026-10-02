@@ -1,8 +1,12 @@
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createQueryClient } from "../app/queryClient";
 import { renderApp } from "../app/testApp";
+import type { Crate } from "../bindings";
 import { DEFAULT_THEME, syncThemeToDocument, useThemeStore } from "../theme/themeStore";
 import { Sidebar } from "./Sidebar";
 import { tx } from "../test/tx";
@@ -26,15 +30,47 @@ function currentStages() {
     .map((link) => link.textContent);
 }
 
+/** Stands in for the Rust side as far as the sidebar goes: the crates. */
+function crates(names: string[]) {
+  const list: Crate[] = names.map((name, n) => ({ id: n + 1, name, trackCount: 0 }));
+  mockIPC(
+    (cmd) => {
+      if (cmd === "list_crates") return list;
+      throw new Error(`unexpected command ${cmd}`);
+    },
+    { shouldMockEvents: true },
+  );
+}
+
+/** The sidebar alone, on a router of its own. */
+function renderSidebar(counts?: Parameters<typeof Sidebar>[0]["counts"]) {
+  const rootRoute = createRootRoute({ component: () => <Sidebar counts={counts} /> });
+  const router = createRouter({
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  return render(
+    <QueryClientProvider client={createQueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+}
+
+afterEach(() => {
+  cleanup();
+  clearMocks();
+});
+
 describe("layout shell", () => {
   it("has every zone: top bar, sidebar, center, Details panel and player", async () => {
+    crates([]);
     renderApp("/overview");
     const topBar = await screen.findByRole("banner");
     expect(within(topBar).getByRole("search", { name: tx("shell:search.label") })).toBeInTheDocument();
     expect(within(topBar).getByRole("status", { name: tx("activity:label") })).toHaveTextContent(
       tx("activity:idle"),
     );
-    expect(screen.getByRole("navigation", { name: tx("shell:stages.label") })).toHaveTextContent(tx("shell:sidebar.noCrates"));
+    expect(await screen.findByText(tx("shell:sidebar.noCrates"))).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: tx("shell:details.label") })).toHaveTextContent(
       tx("shell:details.empty"),
@@ -93,19 +129,38 @@ describe("sidebar", () => {
   });
 
   it("shows a count badge only for stages given a count", async () => {
-    const rootRoute = createRootRoute({
-      component: () => <Sidebar counts={{ review: 1234, crates: 0 }} />,
-    });
-    const router = createRouter({
-      routeTree: rootRoute,
-      history: createMemoryHistory({ initialEntries: ["/"] }),
-    });
-    render(<RouterProvider router={router} />);
+    crates([]);
+    renderSidebar({ review: 1234, crates: 0 });
 
     const review = await screen.findByRole("link", { name: startingWith(tx("shell:stages.review")) });
     expect(within(review).getByTestId("count-badge")).toHaveTextContent("1,234");
     expect(within(screen.getByRole("link", { name: startingWith(tx("shell:stages.crates")) })).getByTestId("count-badge")).toHaveTextContent("0");
     expect(within(screen.getByRole("link", { name: tx("shell:stages.library") })).queryByTestId("count-badge")).toBeNull();
+  });
+
+  it("says there are no crates only when there are none", async () => {
+    crates([]);
+    renderSidebar();
+    expect(await screen.findByText(tx("shell:sidebar.noCrates"))).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("link", { name: tx("shell:stages.crates") })).queryByTestId("count-badge"),
+    ).toBeNull();
+  });
+
+  it("shows how many crates there are, and no longer says there are none", async () => {
+    crates(["Friday", "Warm up"]);
+    renderSidebar();
+    const link = await screen.findByRole("link", { name: startingWith(tx("shell:stages.crates")) });
+    expect(await within(link).findByTestId("count-badge")).toHaveTextContent("2");
+    expect(screen.queryByText(tx("shell:sidebar.noCrates"))).toBeNull();
+  });
+
+  it("says nothing about crates until it knows", async () => {
+    mockIPC(() => new Promise(() => {}), { shouldMockEvents: true });
+    renderSidebar();
+    await screen.findByRole("link", { name: tx("shell:stages.crates") });
+    expect(screen.queryByText(tx("shell:sidebar.noCrates"))).toBeNull();
+    expect(screen.queryByTestId("count-badge")).toBeNull();
   });
 });
 

@@ -67,6 +67,37 @@ fn keys_of(world: &World, songs: &[Song]) -> Vec<String> {
     songs.iter().map(|s| key_of(&world.path_of(s))).collect()
 }
 
+/// Review → Missing → "Add folder" is one command: adding the folder.
+#[test]
+fn adding_the_folder_of_missing_tracks_scans_it_and_they_stop_being_missing() {
+    let mut world = World::new(&songs());
+    let rb = collection(&world);
+    world.rekordbox_saves(&rb.export());
+    // Only one of the folders rekordbox's tracks live in is a music folder.
+    world.add_folder_and_scan(&world.music.join("House"));
+    world.read_rekordbox();
+    let offer =
+        |world: &World| -> Offer { world.call("rekordbox_offer", json!({ "playlists": null })) };
+    let in_house = KNOWN.iter().filter(|s| s.rel.starts_with("House/")).count() as u32;
+    let elsewhere = KNOWN.len() as u32 - in_house;
+    assert_eq!(
+        (offer(&world).to_add, offer(&world).waiting_in_missing),
+        (in_house, elsewhere + 1)
+    );
+
+    // Nothing but the add: no scan is asked for, the app isn't restarted.
+    world.add_folder_and_scan(&world.music.join("Techno"));
+
+    let in_techno = KNOWN
+        .iter()
+        .filter(|s| s.rel.starts_with("Techno/"))
+        .count() as u32;
+    assert_eq!(
+        (offer(&world).to_add, offer(&world).waiting_in_missing),
+        (in_house + in_techno, elsewhere - in_techno + 1)
+    );
+}
+
 #[test]
 fn starting_from_rekordbox_links_each_track_to_rekordboxs_file_once() {
     let (world, _rb) = started_from_rekordbox();

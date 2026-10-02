@@ -376,7 +376,7 @@ impl JobQueue {
     /// the builder set one), then leaves any job still running behind, on
     /// its own thread. If that job finishes before the process exits, it's
     /// recorded as usual (done, failed, or back in the queue); if the process
-    /// exits first, its row stays `running` for crash resume (1cA-13).
+    /// exits first, its row stays `running` until the next start deals with it (`store::recover_interrupted`).
     ///
     /// Called from the database writer thread or from one of this queue's
     /// workers, it can't wait (that would deadlock, or join the calling
@@ -642,7 +642,7 @@ fn run(shared: &Arc<Shared>, job: Claimed, flag: Arc<AtomicU8>) {
     // nobody sees the job finished in one and running in the other.
     let mut state = shared.lock_worker();
     let stored = ending.clone();
-    // If this fails the row stays `running`; crash resume (1cA-13) finds it.
+    // If this fails the row stays `running`; the next start finds it (`store::recover_interrupted`).
     let _ = shared.writer.call(move |c| store::finish(c, id, &stored));
     state.running.remove(&id);
     let Some(kind) = kind else { return };

@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useWhenJobsEnd } from "../activity/useWhenJobsEnd";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { unwrap } from "../api/errors";
-import { commands, events, type AddSummary, type Offer, type PlaylistChoice } from "../bindings";
+import { commands, type AddSummary, type Offer, type PlaylistChoice } from "../bindings";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { REKORDBOX_OFFER_QUERY_KEY, REKORDBOX_PLAYLISTS_QUERY_KEY } from "./queryKeys";
 
@@ -29,29 +29,10 @@ function reloadAfterChange(queryClient: QueryClient) {
  */
 export function useReloadOfferWhenJobsEnd() {
   const queryClient = useQueryClient();
-  useEffect(() => {
-    let stopped = false;
-    let stop: (() => void) | undefined;
-    events.jobUpdates
-      .listen((event) => {
-        const ended = event.payload.some(
-          (job) => job.status !== "queued" && job.status !== "running",
-        );
-        if (!ended) return;
-        void queryClient.invalidateQueries({ queryKey: REKORDBOX_OFFER_QUERY_KEY });
-        void queryClient.invalidateQueries({ queryKey: REKORDBOX_PLAYLISTS_QUERY_KEY });
-      })
-      .then((unlisten) => {
-        if (stopped) unlisten();
-        else stop = unlisten;
-      })
-      // Outside the app (e.g. a plain browser) no events ever arrive.
-      .catch(() => {});
-    return () => {
-      stopped = true;
-      stop?.();
-    };
-  }, [queryClient]);
+  useWhenJobsEnd(() => {
+    void queryClient.invalidateQueries({ queryKey: REKORDBOX_OFFER_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: REKORDBOX_PLAYLISTS_QUERY_KEY });
+  });
 }
 
 /**

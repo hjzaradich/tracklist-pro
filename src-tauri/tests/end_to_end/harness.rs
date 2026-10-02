@@ -420,14 +420,28 @@ impl World {
 
     // --- what the user does ---
 
-    /// Adds the music folder and scans it, through every stage the scan
-    /// chains (read, hashes, fingerprints, grouping, relink, attach).
+    /// "Add folder": the music folder is added, and the scan that adding
+    /// it queues runs through every stage the scan chains (read, hashes,
+    /// fingerprints, grouping, relink, attach). Nothing else is asked for.
     pub fn add_music_folder_and_scan(&self) {
+        self.add_folder_and_scan(&self.music);
+    }
+
+    /// [`World::add_music_folder_and_scan`], for a folder inside the
+    /// generated one.
+    pub fn add_folder_and_scan(&self, folder: &Path) {
+        let before = self.jobs().len();
         let _: Value = self.call(
             "add_music_folder",
-            json!({ "path": self.music.to_string_lossy(), "role": null }),
+            json!({ "path": folder.to_string_lossy(), "role": null }),
         );
-        self.scan();
+        self.settle();
+        let scans: Vec<_> = self.jobs()[before..]
+            .iter()
+            .filter(|(_, kind, _)| kind == "scan")
+            .map(|(_, _, status)| status.clone())
+            .collect();
+        assert_eq!(scans, ["done"], "adding a folder scans it once");
     }
 
     /// Scans the music folders again.
