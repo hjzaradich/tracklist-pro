@@ -9,7 +9,7 @@
 
 use super::tables::{
     BY_WORDS, CUT_LABELS, FEAT_WORDS, LABEL_SEPARATORS, LIVE_PLACE_WORDS, MASHUP_SEPARATORS,
-    MAX_LABEL_WORDS, NAMED_MIX_WORDS, REWORK_LABELS,
+    MAX_LABEL_WORDS, NAMED_MIX_WORDS, NON_NAME_WORDS, REWORK_LABELS,
 };
 use super::tokenize::is_dash;
 use super::{MarkerKind, VersionClass};
@@ -167,6 +167,17 @@ fn is_name(text: &str) -> bool {
     text.chars().any(char::is_alphanumeric)
 }
 
+/// Whether the words in front of a label can be whose rework it is: at
+/// least one of them is neither an ordinary word ("Main", "DJ", "12") nor a
+/// label word ("Extended").
+fn is_person(text: &str) -> bool {
+    words(text).iter().any(|word| {
+        word.plain.chars().any(char::is_alphanumeric)
+            && !NON_NAME_WORDS.contains(&word.plain.as_str())
+            && lookup(&word.plain).is_none()
+    })
+}
+
 /// Where the text in front of word `end` stops, separators at its end
 /// left out.
 fn name_end(words: &[Word], mut end: usize) -> usize {
@@ -197,7 +208,7 @@ pub(super) fn parse_content(text: &str) -> Option<Vec<Found>> {
     let name = text[..name_end(&words, rest)].trim();
     let detail = if name.is_empty() {
         None
-    } else if !is_name(name) {
+    } else if !is_person(name) {
         return None;
     } else if kinds.iter().any(|k| k.class() == VersionClass::Rework) {
         // Words in front of a rework label are whose rework it is.
@@ -256,7 +267,7 @@ fn label_then_name(text: &str, words: &[Word]) -> Option<Found> {
 fn named_mix(text: &str, words: &[Word]) -> Option<Found> {
     let (last, front) = words.split_last()?;
     let name = text[..name_end(front, front.len())].trim();
-    (NAMED_MIX_WORDS.contains(&last.plain.as_str()) && is_name(name)).then(|| Found {
+    (NAMED_MIX_WORDS.contains(&last.plain.as_str()) && is_person(name)).then(|| Found {
         kind: MarkerKind::Remix,
         detail: Some(name.to_string()),
     })

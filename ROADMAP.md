@@ -327,7 +327,7 @@ Each feature is tagged with its sub-phase.
 #### 1.5 Version awareness · 1b
 - **What:** never merge different versions. Link them instead, as one of two kinds (§1.2):
   - **Cuts:** Original ↔ Extended / Radio Edit / Club Edit / Short, Clean ↔ Dirty, Intro / Outro / Intro-Outro, Quick Hit, a plain "(Edit)", and Remaster (with or without a year).
-  - **Reworks:** remix (per remixer; a named mix, "(Some Name Mix)", is a remix by that name unless the words are a cut's name), VIP, flip, bootleg (including "(Re-Edit)" and a named edit, "(Some Name Edit)"), rework/refix/reboot, dub, cover (labeled "cover"), live, alternate arrangement, instrumental, acapella (neither is a stand-in for the full track), and mashups (`A x B`, linked to each source they contain).
+  - **Reworks:** remix (per remixer; a named mix, "(Some Name Mix)", is a remix by that name unless the words are a cut's name; a "name" made only of ordinary words such as Main, Album, Vocal or DJ is no one's name, so that bracket is not recognized and the pair can't be told), VIP, flip, bootleg (including "(Re-Edit)" and a named edit, "(Some Name Edit)"), rework/refix/reboot, dub, cover (labeled "cover"), live, alternate arrangement, instrumental, acapella (neither is a stand-in for the full track), and mashups (`A x B`, linked to each source they contain).
 - **Signals, combined:** the version parsed from title and filename; fingerprint coverage (full both ways = duplicate candidate, one-sided = cut, none = rework or a different song); and credits. The fingerprint alone decides nothing across versions. When signals disagree, the pair goes to "needs review", with the reason shown.
 - **Rules from the E3 labels** (all in the test corpus):
   - Length decides nothing.

@@ -412,6 +412,113 @@ fn instrumental_and_acapella_are_reworks_with_their_own_labels() {
     );
 }
 
+#[test]
+fn a_mix_or_edit_named_only_with_ordinary_words_is_not_recognized() {
+    for title in [
+        "Velo (Main Mix)",
+        "Velo (Album Mix)",
+        "Velo (Vocal Mix)",
+        "Velo (12\" Mix)",
+        "Velo (DJ Edit)",
+        "Velo (Single Edit)",
+        "Velo (Hype Edit)",
+    ] {
+        let name = parse_title(title);
+        assert!(name.markers.is_empty(), "{title}: {:?}", name.markers);
+        assert_eq!(name.unrecognized.len(), 1, "{title}");
+        assert_eq!(name.base_title, "Velo", "{title}");
+    }
+}
+
+#[test]
+fn a_pair_that_differs_only_in_an_ordinary_word_mix_cant_be_told() {
+    for (a, b) in [
+        ("Velo (Main Mix)", "Velo"),
+        ("Velo (DJ Edit)", "Velo (Edit)"),
+        ("Velo (Single Edit)", "Velo (Radio Edit)"),
+    ] {
+        let got = compare(&parse_title(a), &parse_title(b));
+        assert_eq!(got.outcome, Outcome::CantTell, "{a} / {b}");
+    }
+}
+
+#[test]
+fn two_different_remixers_are_two_different_reworks() {
+    let got = compare(
+        &parse_title("Korvex (Rivetta Remix)"),
+        &parse_title("Korvex (Flint Remix)"),
+    );
+    assert_eq!(got.outcome, Outcome::DifferentRework);
+}
+
+// ---- Accents fold in the comparison only --------------------------------
+
+#[test]
+fn accents_and_sharp_s_dont_make_a_different_title() {
+    for (a, b) in [
+        ("Caf\u{e9} Vireo", "Cafe Vireo"),
+        ("Stra\u{df}e", "STRASSE"),
+        ("\u{130}stanbul", "istanbul"),
+    ] {
+        let got = compare(&parse_title(a), &parse_title(b));
+        assert_eq!(got.outcome, Outcome::SameVersion, "{a} / {b}");
+    }
+}
+
+#[test]
+fn folding_accents_leaves_the_parsed_name_as_written() {
+    let name = parse_title("Caf\u{e9} Stra\u{df}e (Extended Mix)");
+    assert_eq!(name.original, "Caf\u{e9} Stra\u{df}e (Extended Mix)");
+    assert_eq!(name.base_title, "Caf\u{e9} Stra\u{df}e");
+}
+
+// ---- The tables are the one place for a label ---------------------------
+
+#[test]
+fn every_kind_sits_in_exactly_one_label_table_and_takes_its_class_from_it() {
+    use super::super::tables::{CUT_LABELS, REWORK_LABELS};
+    for kind in MarkerKind::ALL {
+        let in_cuts = CUT_LABELS.iter().filter(|(k, _)| *k == kind).count();
+        let in_reworks = REWORK_LABELS.iter().filter(|(k, _)| *k == kind).count();
+        assert_eq!(in_cuts + in_reworks, 1, "{}", kind.as_str());
+        let expected = match in_cuts {
+            1 => VersionClass::Cut,
+            _ => VersionClass::Rework,
+        };
+        assert_eq!(kind.class(), expected, "{}", kind.as_str());
+    }
+}
+
+// ---- A name with very many labels ----------------------------------------
+
+#[test]
+fn a_name_with_a_hundred_label_brackets_compares_as_cant_tell() {
+    let long = format!("Velo{}", " (Remix)".repeat(100));
+    let name = parse_title(&long);
+    assert_eq!(name.original, long);
+    let got = compare(&name, &name);
+    assert_eq!(got.outcome, Outcome::CantTell);
+    assert_eq!(
+        got.reasons,
+        [
+            Reason::TooManyLabels { side: Side::A },
+            Reason::TooManyLabels { side: Side::B },
+        ]
+    );
+    let against_plain = compare(&parse_title("Velo"), &name);
+    assert_eq!(against_plain.outcome, Outcome::CantTell);
+    assert_eq!(
+        against_plain.reasons,
+        [Reason::TooManyLabels { side: Side::B }]
+    );
+}
+
+#[test]
+fn a_name_at_the_label_limit_is_still_compared() {
+    let name = parse_title("Velo (Clean) (Intro) (Extended) (Live) (Dub) (VIP) (Cover) (Flip)");
+    assert_eq!(compare(&name, &name).outcome, Outcome::SameVersion);
+}
+
 // ---- Reasons are data ---------------------------------------------------
 
 #[test]
@@ -450,6 +557,7 @@ fn reason_codes_and_kind_names_are_plain_snake_case_keys() {
         Reason::BaseTitlesMatch,
         Reason::BaseTitlesDiffer,
         Reason::EmptyTitle { side: Side::A },
+        Reason::TooManyLabels { side: Side::A },
         Reason::TitleReadAsMarker {
             side: Side::A,
             text: String::new(),

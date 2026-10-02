@@ -10,9 +10,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use unicode_normalization::char::is_combining_mark;
+use unicode_normalization::UnicodeNormalization;
+
 use super::labels::split_names;
 use super::tokenize::collapse_spaces;
-use super::{CreditRole, Marker, MarkerKind, ParsedName, Reading, VersionClass};
+use super::{CreditRole, Marker, MarkerKind, NameSource, ParsedName, Reading, VersionClass};
 
 /// What two names say about each other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,6 +55,9 @@ pub enum Reason {
     BaseTitlesDiffer,
     /// A name has no title to compare.
     EmptyTitle { side: Side },
+    /// A name has more label groups than [`MAX_LABEL_GROUPS`]: too many
+    /// ways to read it to try them all.
+    TooManyLabels { side: Side },
     /// The titles only match if label words in this name's title are read
     /// as a marker ("Paper Harbor Extended Mix").
     TitleReadAsMarker { side: Side, text: String },
@@ -96,6 +102,7 @@ impl Reason {
             Reason::BaseTitlesMatch => "base_titles_match",
             Reason::BaseTitlesDiffer => "base_titles_differ",
             Reason::EmptyTitle { .. } => "empty_title",
+            Reason::TooManyLabels { .. } => "too_many_labels",
             Reason::TitleReadAsMarker { .. } => "title_read_as_marker",
             Reason::MarkerReadAsTitle { .. } => "marker_read_as_title",
             Reason::SameMarkers => "same_markers",
@@ -110,6 +117,62 @@ impl Reason {
     }
 }
 
+impl Side {
+    fn other(self) -> Side {
+        match self {
+            Side::A => Side::B,
+            Side::B => Side::A,
+        }
+    }
+}
+
+impl Reason {
+    /// The same reason with the two names swapped.
+    fn swapped(self) -> Reason {
+        match self {
+            Reason::EmptyTitle { side } => Reason::EmptyTitle { side: side.other() },
+            Reason::TooManyLabels { side } => Reason::TooManyLabels { side: side.other() },
+            Reason::TitleReadAsMarker { side, text } => Reason::TitleReadAsMarker {
+                side: side.other(),
+                text,
+            },
+            Reason::MarkerReadAsTitle { side, text } => Reason::MarkerReadAsTitle {
+                side: side.other(),
+                text,
+            },
+            Reason::CutDiffers { only_a, only_b } => Reason::CutDiffers {
+                only_a: only_b,
+                only_b: only_a,
+            },
+            Reason::ReworkDiffers { only_a, only_b } => Reason::ReworkDiffers {
+                only_a: only_b,
+                only_b: only_a,
+            },
+            Reason::ReworkDetailMissing { kind, side } => Reason::ReworkDetailMissing {
+                kind,
+                side: side.other(),
+            },
+            Reason::UnrecognizedDiffers { only_a, only_b } => Reason::UnrecognizedDiffers {
+                only_a: only_b,
+                only_b: only_a,
+            },
+            Reason::CreditedToRemixer { side } => Reason::CreditedToRemixer { side: side.other() },
+            Reason::MashupPartMatch { side, part } => Reason::MashupPartMatch {
+                side: side.other(),
+                part,
+            },
+            same @ (Reason::BaseTitlesMatch
+            | Reason::BaseTitlesDiffer
+            | Reason::SameMarkers
+            | Reason::ArtistsDiffer) => same,
+        }
+    }
+}
+
+/// A name with more label groups than this isn't read every way: the work
+/// grows with the cube of the count, and [`compare`] answers "can't tell".
+pub const MAX_LABEL_GROUPS: usize = 8;
+
 /// [`compare`]'s answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Comparison {
@@ -118,16 +181,35 @@ pub struct Comparison {
 }
 
 /// A title as compared: lowercase letters and digits, single spaces, "&"
-/// as "and". A title with no letters or digits compares as written.
+/// as "and", accents on Latin letters dropped ("Caf\u{e9}" is "cafe") and
+/// the letters stores spell out written that way ("Stra\u{df}e" is
+/// "strasse"). A title with no letters or digits compares as written.
+/// Only this key is folded: the parsed name keeps its text.
 pub(super) fn key(text: &str) -> String {
     let mut out = String::new();
-    for c in text.chars() {
-        if c.is_alphanumeric() {
-            out.extend(c.to_lowercase());
-        } else if c == '&' {
-            out.push_str(" and ");
-        } else if c != '\'' {
-            out.push(' ');
+    let mut latin = false;
+    for c in text.chars().flat_map(char::to_lowercase).nfd() {
+        if is_combining_mark(c) {
+            // An accent on a Latin letter goes; marks of other scripts
+            // (a Japanese voicing mark) change the letter, so they stay.
+            if !(latin && ('\u{300}'..='\u{36F}').contains(&c)) {
+                out.push(c);
+            }
+            continue;
+        }
+        latin = c.is_alphabetic() && c < '\u{250}';
+        match c {
+            '\u{df}' => out.push_str("ss"),
+            '\u{e6}' => out.push_str("ae"),
+            '\u{153}' => out.push_str("oe"),
+            '\u{f8}' => out.push('o'),
+            '\u{111}' => out.push('d'),
+            '\u{142}' => out.push('l'),
+            '\u{131}' => out.push('i'),
+            '&' => out.push_str(" and "),
+            '\'' => {}
+            c if c.is_alphanumeric() => out.push(c),
+            _ => out.push(' '),
         }
     }
     let out = collapse_spaces(&out);
@@ -229,12 +311,45 @@ fn matching_readings<'a>(a: &'a [Reading], b: &'a [Reading]) -> Option<(&'a Read
     best
 }
 
-/// Compares two parsed names. See [`Outcome`] and [`Reason`].
+/// Compares two parsed names. See [`Outcome`] and [`Reason`]. The answer
+/// doesn't depend on which name comes first.
 pub fn compare(a: &ParsedName, b: &ParsedName) -> Comparison {
+    // One fixed order for the work, so that two equally good readings are
+    // settled the same way whichever name is `a`.
+    let order = |name: &ParsedName| (name.original.clone(), name.source == NameSource::FileName);
+    if order(a) <= order(b) {
+        return compare_in_order(a, b);
+    }
+    let Comparison { outcome, reasons } = compare_in_order(b, a);
+    let (mut for_a, mut for_b, mut rest) = (Vec::new(), Vec::new(), Vec::new());
+    // Reasons about one name are listed for A, then for B.
+    for reason in reasons.into_iter().map(Reason::swapped) {
+        match reason {
+            Reason::EmptyTitle { side: Side::B } | Reason::TooManyLabels { side: Side::B } => {
+                for_b.push(reason)
+            }
+            Reason::EmptyTitle { .. } | Reason::TooManyLabels { .. } => for_a.push(reason),
+            other => rest.push(other),
+        }
+    }
+    for_a.extend(for_b);
+    for_a.extend(rest);
+    Comparison {
+        outcome,
+        reasons: for_a,
+    }
+}
+
+fn compare_in_order(a: &ParsedName, b: &ParsedName) -> Comparison {
     let mut reasons = Vec::new();
     for (side, name) in [(Side::A, a), (Side::B, b)] {
         if key(&name.base_title).is_empty() {
             reasons.push(Reason::EmptyTitle { side });
+        }
+    }
+    for (side, name) in [(Side::A, a), (Side::B, b)] {
+        if name.qualifiers.len() > MAX_LABEL_GROUPS {
+            reasons.push(Reason::TooManyLabels { side });
         }
     }
     if !reasons.is_empty() {

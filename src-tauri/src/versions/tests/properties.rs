@@ -3,7 +3,7 @@
 use proptest::prelude::*;
 
 use super::super::tokenize::{normalize, tokenize};
-use super::super::{compare, parse, NameSource, ParsedName};
+use super::super::{compare, parse, NameSource, Outcome, ParsedName, Reason};
 
 /// Pieces that names are made of, to reach the parser's branches far more
 /// often than random characters would.
@@ -119,6 +119,36 @@ proptest! {
                 prop_assert_eq!(&first, &compare(&a, &b));
                 prop_assert!(!first.reasons.is_empty());
             }
+        }
+    }
+
+    #[test]
+    fn comparing_gives_the_same_answer_whichever_name_comes_first(a in name_like(), b in name_like()) {
+        let codes = |comparison: &super::super::Comparison| -> Vec<&'static str> {
+            let mut codes: Vec<_> = comparison.reasons.iter().map(|r| r.code()).collect();
+            codes.sort_unstable();
+            codes
+        };
+        for a in both(&a) {
+            for b in both(&b) {
+                let (one_way, other_way) = (compare(&a, &b), compare(&b, &a));
+                prop_assert_eq!(one_way.outcome, other_way.outcome);
+                prop_assert_eq!(codes(&one_way), codes(&other_way));
+            }
+        }
+    }
+
+    #[test]
+    fn a_name_compared_with_itself_is_the_same_version_or_cant_be_read(input in name_like()) {
+        for name in both(&input) {
+            let got = compare(&name, &name);
+            let unreadable = got.reasons.iter().all(|r| {
+                matches!(r, Reason::EmptyTitle { .. } | Reason::TooManyLabels { .. })
+            });
+            prop_assert!(
+                got.outcome == Outcome::SameVersion || (got.outcome == Outcome::CantTell && unreadable),
+                "{:?}: {:?}", input, got
+            );
         }
     }
 

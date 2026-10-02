@@ -235,6 +235,18 @@ pub const MAX_LABEL_WORDS: usize = 3;
 /// name, unless the words are a cut's spelling ("Extended Mix").
 pub const NAMED_MIX_WORDS: &[&str] = &["mix"];
 
+/// Words that are never a person's name. A bracket whose "name" is made
+/// only of these (or of label words) isn't a named mix, edit or rework:
+/// "(Main Mix)", "(DJ Edit)", "(12" Mix)" stay unrecognized, and a pair
+/// that differs only in one compares as "can't tell". The owner may adjust
+/// the list.
+pub const NON_NAME_WORDS: &[&str] = &[
+    "main", "album", "single", "vocal", "video", "full", "long", "hype", "dj", "promo", "special",
+    "new", "final", "bonus", "dance", "party", "acoustic", "7", "10", "12", "inch", "lp", "ep",
+    "vinyl", "digital", "tv", "street", "super", "mega", "mini", "maxi", "demo", "rough", "pool",
+    "version", "mix", "the",
+];
+
 /// A rework label can be followed by one of these and a name:
 /// "(Remix by Quill Ashby)", "(Cover by The Marrow Choir)".
 pub const BY_WORDS: &[&str] = &["by"];
@@ -314,7 +326,6 @@ pub const RIP_TAGS: &[&str] = &[
     "cd rip",
     "rip",
     "promo",
-    "promo only",
     "retag",
     "retagged",
     "out now",

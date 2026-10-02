@@ -31,6 +31,8 @@
 //! [`ParsedName::readings`] lists every way the name can be split, and
 //! [`compare`] picks the one the *other* name supports. Where neither name
 //! settles it, the answer is [`Outcome::CantTell`].
+//! A label after " - " is trusted as a marker when the other name has the
+//! plain title, as a bracketed one is; only bare words are doubted there.
 //!
 //! # Extending
 //!
@@ -48,7 +50,7 @@ pub mod tokenize;
 #[cfg(test)]
 mod tests;
 
-pub use compare::{compare, Comparison, Outcome, Reason, ReworkRef, Side};
+pub use compare::{compare, Comparison, Outcome, Reason, ReworkRef, Side, MAX_LABEL_GROUPS};
 
 /// Where a name came from. A file name can hold an artist, a track number
 /// and an extension; a title tag is taken as a title.
@@ -134,34 +136,13 @@ impl MarkerKind {
         MarkerKind::Mashup,
     ];
 
-    /// Whether this kind is a cut or a rework.
+    /// Whether this kind is a cut or a rework: a cut if its spellings are
+    /// in [`tables::CUT_LABELS`], a rework otherwise. The tables are the
+    /// one place that says so.
     pub fn class(self) -> VersionClass {
-        match self {
-            MarkerKind::Original
-            | MarkerKind::Extended
-            | MarkerKind::RadioEdit
-            | MarkerKind::ClubEdit
-            | MarkerKind::Short
-            | MarkerKind::Clean
-            | MarkerKind::Dirty
-            | MarkerKind::Intro
-            | MarkerKind::Outro
-            | MarkerKind::IntroOutro
-            | MarkerKind::QuickHit
-            | MarkerKind::Edit
-            | MarkerKind::Remaster => VersionClass::Cut,
-            MarkerKind::Remix
-            | MarkerKind::Vip
-            | MarkerKind::Flip
-            | MarkerKind::Bootleg
-            | MarkerKind::Rework
-            | MarkerKind::Dub
-            | MarkerKind::Cover
-            | MarkerKind::Live
-            | MarkerKind::Alternate
-            | MarkerKind::Instrumental
-            | MarkerKind::Acapella
-            | MarkerKind::Mashup => VersionClass::Rework,
+        match tables::CUT_LABELS.iter().any(|(kind, _)| *kind == self) {
+            true => VersionClass::Cut,
+            false => VersionClass::Rework,
         }
     }
 
