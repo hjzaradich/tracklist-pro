@@ -221,9 +221,10 @@ pub struct Removed {
 }
 
 /// The title and artist to show for each removed track, in the order given:
-/// rekordbox's own at the `Location` it was sent to (the newest read's row),
-/// else the recording's tags, else the file's name (the sent path's, else
-/// the recording's best file's).
+/// rekordbox's own at the `Location` it was sent to (a row of the newest
+/// read only; the lowest `TrackID` if it holds several), else the recording's
+/// tags, else the file's name (the sent path's, else the recording's best
+/// file's).
 pub fn shown_removed(conn: &Connection, removed: &[Removed]) -> rusqlite::Result<Vec<Shown>> {
     let keys = serde_json::to_string(
         &removed
@@ -232,14 +233,18 @@ pub fn shown_removed(conn: &Connection, removed: &[Removed]) -> rusqlite::Result
             .collect::<Vec<_>>(),
     )
     .expect("strings always serialize");
-    // Newest read last, the lowest row last among a read's: it overwrites.
+    // Only rows of the newest read count: an incomplete read keeps older
+    // rows, whose values belong to an earlier read. Where two rows of it
+    // share a Location the lowest `TrackID` wins (listed last, so it
+    // overwrites).
     let mut in_rekordbox: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT location_key, json_extract(attributes, '$.Name'),
                 json_extract(attributes, '$.Artist')
          FROM rekordbox_track
          WHERE location_key IN (SELECT value FROM json_each(?1))
-         ORDER BY read_at, id DESC",
+           AND read_at = (SELECT max(read_at) FROM rekordbox_track)
+         ORDER BY track_id DESC",
     )?;
     for row in stmt.query_map([&keys], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))? {
         let (key, names): (String, (Option<String>, Option<String>)) = row?;

@@ -284,6 +284,7 @@ pub fn read(raw_tags: &str) -> Vec<TagValue> {
 }
 
 /// One frame of a `raw_tags` block, as far as the mapping reads it.
+#[derive(Debug, PartialEq, Eq)]
 struct Frame<'a> {
     key: Cow<'a, str>,
     text: Option<Cow<'a, str>>,
@@ -375,6 +376,11 @@ pub fn read_only(raw_tags: &str, wanted: &[&str]) -> Vec<TagValue> {
     let Some(blocks) = parse_frames(raw_tags).or_else(|| parse_frames_loosely(raw_tags)) else {
         return Vec::new();
     };
+    read_blocks(&blocks, wanted)
+}
+
+/// The mapped values of the `wanted` attributes in already parsed blocks.
+fn read_blocks(blocks: &Blocks<'_>, wanted: &[&str]) -> Vec<TagValue> {
     let mut found: Vec<TagValue> = Vec::new();
     for block in BLOCKS {
         let Some(items) = blocks.get(block) else {
@@ -645,5 +651,128 @@ mod tests {
         assert!(read("not json").is_empty());
         assert!(read("[1]").is_empty());
         assert!(read("{}").is_empty());
+    }
+
+    // ---- the loose reader, for tags in a shape the scan doesn't write --------
+
+    /// The values both readers give for `tags`, in the order of `wanted`.
+    fn both(tags: &str, wanted: &[&str]) -> (Vec<TagValue>, Vec<TagValue>) {
+        let strict = parse_frames(tags).expect("the strict reader takes this shape");
+        let loose = parse_frames_loosely(tags).expect("the loose reader takes this shape");
+        (read_blocks(&strict, wanted), read_blocks(&loose, wanted))
+    }
+
+    #[test]
+    fn the_loose_reader_agrees_with_the_strict_one_on_ordinary_tags() {
+        let long = "x".repeat(10);
+        let tags = raw(json!({
+            "id3v2": [
+                text("TIT2", "Title \u{e9} \"quoted\" \\ slash"), text("TPE1", "A\0B"),
+                text("TALB", "Album"), text("TDRC", "2020-05-01"),
+                text("COMM::eng", "a note"), text("COMM:iTunNORM:eng", "not a comment"),
+                {"key": "GEOB:Serato Markers2", "value": {"type": "binary", "len": 1200}},
+                {"key": "CHAP:x", "value": {"type": "unrecorded"}},
+                {"key": "TXXX:LONG", "value": {"type": "text", "text": long, "full_len": 9000}},
+                {"key": "TCOM", "value": {"type": "text", "text": "cut", "full_len": 9000}},
+            ],
+            "vorbis_comments": [text("TITLE", "Vorbis title"), text("artist", "One"), text("ARTIST", "Two")],
+            "id3v1": [text("title", "Old title"), text("artist", "Old artist")],
+            "mp4_ilst": [text("\u{a9}nam", "Mp4 title")],
+        }));
+        let (strict, loose) = both(&tags, &TAG_ATTRIBUTES);
+        assert_eq!(strict, loose);
+        // And the frames themselves are the same, one for one.
+        assert_eq!(parse_frames(&tags), parse_frames_loosely(&tags));
+        // The reading is not empty: the test would pass on nothing.
+        assert_eq!(
+            get(&strict, "Name"),
+            Some("Title \u{e9} \"quoted\" \\ slash")
+        );
+        assert_eq!(get(&strict, "Artist"), Some("A, B"));
+        // A cut value is no value, in both.
+        assert_eq!(get(&strict, "Composer"), None);
+    }
+
+    #[test]
+    fn the_loose_reader_agrees_with_the_strict_one_when_a_name_or_artist_is_all_that_is_asked() {
+        let tags = raw(json!({"id3v2": [
+            text("TIT2", "Title"), text("TPE1", "Artist"), text("TALB", "Album"),
+        ]}));
+        let (strict, loose) = both(&tags, &["Name", "Artist"]);
+        assert_eq!(strict, loose);
+        let attributes: Vec<_> = strict.iter().map(|v| v.attribute).collect();
+        assert_eq!(attributes, ["Name", "Artist"]);
+    }
+
+    #[test]
+    fn a_frame_of_an_unusual_shape_costs_only_that_frame() {
+        // No key, a value that isn't an object, a text that isn't text, and
+        // a cut text: each is skipped; the ordinary frames still give.
+        let tags = raw(json!({"id3v2": [
+            {"value": {"type": "text", "text": "No key at all"}},
+            {"key": "TALB", "value": "just a string"},
+            {"key": "TCOM", "value": {"type": "text", "text": 12}},
+            {"key": "TCON", "value": {"type": "text", "text": "Cut", "full_len": 9000}},
+            text("TIT2", "Still read"),
+            {"key": "TPE1", "value": {"type": "text", "text": "Artist too"}},
+        ]}));
+        assert!(
+            parse_frames(&tags).is_none(),
+            "this is the shape the strict reader refuses"
+        );
+        let v = read(&tags);
+        assert_eq!(get(&v, "Name"), Some("Still read"));
+        assert_eq!(get(&v, "Artist"), Some("Artist too"));
+        for skipped in ["Album", "Composer", "Genre"] {
+            assert_eq!(get(&v, skipped), None, "{skipped}");
+        }
+    }
+
+    #[test]
+    fn a_frame_with_no_key_is_read_as_an_empty_key_and_maps_to_nothing() {
+        let tags =
+            raw(json!({"id3v2": [{"value": {"type": "text", "text": "x"}}, text("TIT2", "T")]}));
+        let frames = parse_frames_loosely(&tags).unwrap();
+        let id3v2 = &frames["id3v2"];
+        assert_eq!(id3v2[0].key, "");
+        assert_eq!(id3v2[0].text.as_deref(), Some("x"));
+        assert!(!id3v2[0].cut);
+        assert_eq!(read(&tags).len(), 1);
+    }
+
+    #[test]
+    fn the_loose_reader_marks_a_cut_text_as_cut_and_keeps_an_uncut_one_whole() {
+        let tags = raw(json!({"id3v2": [
+            {"key": "TIT2", "value": {"type": "text", "text": "Half", "full_len": 9000}},
+            {"key": "TPE1", "value": {"type": "text", "text": "Whole"}},
+            {"key": "TALB", "value": {"type": "binary", "len": 5}},
+        ]}));
+        let frames = parse_frames_loosely(&tags).unwrap();
+        let id3v2 = &frames["id3v2"];
+        assert!(id3v2[0].cut && !id3v2[1].cut && !id3v2[2].cut);
+        assert_eq!(id3v2[1].text.as_deref(), Some("Whole"));
+        assert_eq!(id3v2[2].text, None);
+    }
+
+    #[test]
+    fn a_block_that_is_not_a_list_is_skipped_and_the_others_still_give() {
+        let tags = raw(json!({
+            "id3v2": "not a list",
+            "ape": 5,
+            "vorbis_comments": [text("TITLE", "From vorbis")],
+        }));
+        assert!(parse_frames(&tags).is_none());
+        let v = read(&tags);
+        assert_eq!(get(&v, "Name"), Some("From vorbis"));
+        let frames = parse_frames_loosely(&tags).unwrap();
+        assert!(!frames.contains_key("id3v2") && !frames.contains_key("ape"));
+    }
+
+    #[test]
+    fn tags_that_are_not_an_object_give_nothing_through_either_reader() {
+        for tags in ["[]", "null", "\"text\"", "5", ""] {
+            assert!(read(tags).is_empty(), "{tags:?}");
+            assert!(parse_frames_loosely(tags).is_none(), "{tags:?}");
+        }
     }
 }

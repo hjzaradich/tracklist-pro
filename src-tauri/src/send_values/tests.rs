@@ -1522,8 +1522,102 @@ fn shown_is_what_a_send_writes_for_every_kind_of_track() {
     ids.push(lib.library(track, Some(linked)));
     files.push("n5.mp3");
 
+    // Only a probable match: rekordbox's entry isn't trusted, so the tags
+    // are what a send writes.
+    let track = lib.track();
+    let f = lib.file(
+        track,
+        "p1.mp3",
+        "best",
+        id3(&[("TIT2", "Tag of a probable match"), ("TPE1", "Tag artist")]),
+    );
+    lib.rekordbox(
+        f,
+        &[("Name", "Not trusted"), ("Artist", "Not trusted")],
+        true,
+    );
+    ids.push(lib.library(track, Some(f)));
+    files.push("p1.mp3");
+
+    // A sibling known to rekordbox: the linked file isn't, so the track is
+    // new and the linked file's tags are written, not the sibling's entry.
+    let track = lib.track();
+    let linked = lib.file(
+        track,
+        "s1.mp3",
+        "best",
+        id3(&[
+            ("TIT2", "Tag of the linked file"),
+            ("TPE1", "Linked artist"),
+        ]),
+    );
+    let sibling = lib.file(
+        track,
+        "s2.mp3",
+        "extra",
+        id3(&[("TIT2", "Tag of the sibling")]),
+    );
+    lib.rekordbox(
+        sibling,
+        &[
+            ("Name", "Rekordbox holds the sibling"),
+            ("Artist", "Theirs"),
+        ],
+        false,
+    );
+    ids.push(lib.library(track, Some(linked)));
+    files.push("s1.mp3");
+
+    // Files whose tags disagree: the linked file's value is the one sent,
+    // and a field only the other file has comes from the other file.
+    let track = lib.track();
+    let linked = lib.file(
+        track,
+        "d1.mp3",
+        "best",
+        id3(&[("TIT2", "First file title")]),
+    );
+    lib.file(
+        track,
+        "d2.mp3",
+        "extra",
+        id3(&[
+            ("TIT2", "Second file title"),
+            ("TPE1", "Second file artist"),
+        ]),
+    );
+    ids.push(lib.library(track, Some(linked)));
+    files.push("d1.mp3");
+
+    // The same, with the linked file not the track's best file: the linked
+    // file still comes first.
+    let track = lib.track();
+    lib.file(
+        track,
+        "d3.mp3",
+        "best",
+        id3(&[("TIT2", "Best file title"), ("TPE1", "Best file artist")]),
+    );
+    let linked = lib.file(
+        track,
+        "d4.mp3",
+        "extra",
+        id3(&[("TIT2", "Linked extra title")]),
+    );
+    ids.push(lib.library(track, Some(linked)));
+    files.push("d4.mp3");
+
+    // Three files, each with its own title: the first in order is sent.
+    let track = lib.track();
+    let linked = lib.file(track, "d5.mp3", "best", id3(&[("TIT2", "Title one")]));
+    lib.file(track, "d6.mp3", "extra", id3(&[("TIT2", "Title two")]));
+    lib.file(track, "d7.mp3", "extra", id3(&[("TIT2", "Title three")]));
+    ids.push(lib.library(track, Some(linked)));
+    files.push("d5.mp3");
+
     let shown = lib.shown(&ids);
     let sent = lib.values(&ids);
+    assert_eq!(shown.len(), files.len());
     for ((shown, sent), file) in shown.iter().zip(&sent).zip(files) {
         let Outcome::Ready(values) = &sent.outcome else {
             panic!("{file}: a send has values for it");
@@ -1679,5 +1773,85 @@ fn a_removed_track_shows_rekordboxs_row_at_its_sent_location_else_tags_else_the_
             names("not-held.mp3", ""),
             names("c.mp3", ""),
         ]
+    );
+}
+
+// ---- which rekordbox row names a removed track -------------------------------
+
+impl Lib {
+    /// A rekordbox row with this `TrackID` at `E:\Music\<name>`, from the
+    /// read made at `read_at`, named `title`.
+    fn row_at(&self, track_id: i64, file_name: &str, read_at: &str, title: &str) {
+        let location = format!("file://localhost/E:/Music/{file_name}");
+        let attributes = json!({
+            "TrackID": track_id.to_string(), "Name": title, "Artist": "",
+            "Location": location,
+        })
+        .to_string();
+        let key = crate::rekordbox::location::decode(&location)
+            .unwrap()
+            .match_key();
+        self.insert(
+            "INSERT INTO rekordbox_track (attributes, location_key, read_at)
+             VALUES (?1, ?2, ?3)",
+            (attributes, key, read_at.to_owned()),
+        );
+    }
+
+    /// The names shown for a track removed after being sent to
+    /// `E:\Music\<file_name>`, which has these tags.
+    fn removed_names(&self, file_name: &'static str, tagged: &'static str) -> Shown {
+        let track = self.track();
+        self.file(track, "x.mp3", "best", id3(&[("TIT2", tagged)]));
+        let key =
+            crate::rekordbox::location::decode(&format!("file://localhost/E:/Music/{file_name}"))
+                .unwrap()
+                .match_key();
+        let asked = vec![Removed {
+            recording_id: track,
+            location_key: Some(key),
+            path_name: Some(file_name.to_owned()),
+        }];
+        self.writer
+            .call(move |c| shown_removed(c, &asked))
+            .unwrap()
+            .remove(0)
+    }
+}
+
+const OLD_READ: &str = "2026-09-01T10:00:00.000Z";
+const NEW_READ: &str = "2026-10-01T10:00:00.000Z";
+
+#[test]
+fn when_two_rows_of_one_read_share_the_sent_location_the_lowest_track_id_names_the_track() {
+    let lib = Lib::new();
+    // The higher TrackID is stored first, so it isn't just the first row.
+    lib.row_at(9, "sent.mp3", NEW_READ, "Name of TrackID nine");
+    lib.row_at(3, "sent.mp3", NEW_READ, "Name of TrackID three");
+    lib.row_at(5, "sent.mp3", NEW_READ, "Name of TrackID five");
+    assert_eq!(
+        lib.removed_names("sent.mp3", "Tag"),
+        names("Name of TrackID three", "")
+    );
+}
+
+#[test]
+fn a_row_kept_from_an_older_incomplete_read_names_no_track() {
+    let lib = Lib::new();
+    // The newest read doesn't mention the sent Location (an incomplete read
+    // keeps the older row). Its TrackID belongs to an earlier read.
+    lib.row_at(5, "sent.mp3", OLD_READ, "Name from the older read");
+    lib.row_at(6, "another.mp3", NEW_READ, "Another track");
+    assert_eq!(lib.removed_names("sent.mp3", "Tag"), names("Tag", ""));
+}
+
+#[test]
+fn a_row_of_the_newest_read_wins_over_an_older_one_at_the_same_location() {
+    let lib = Lib::new();
+    lib.row_at(2, "sent.mp3", OLD_READ, "Older name, lower TrackID");
+    lib.row_at(8, "sent.mp3", NEW_READ, "Newest name, higher TrackID");
+    assert_eq!(
+        lib.removed_names("sent.mp3", "Tag"),
+        names("Newest name, higher TrackID", "")
     );
 }
