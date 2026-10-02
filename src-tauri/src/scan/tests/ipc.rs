@@ -252,3 +252,39 @@ fn asking_for_the_same_scan_twice_while_it_waits_queues_it_once() {
     assert_ne!(other, first);
     assert_eq!(scans(&app).len(), 2);
 }
+
+#[test]
+fn a_scan_the_user_asks_for_lifts_the_same_scan_waiting_in_the_background() {
+    let (_data, app) = app();
+    app.state::<jobs::JobQueue>().shutdown();
+    // What a watcher queues: the same scan, at background priority, with
+    // another background job ahead of it.
+    let queue = app.state::<jobs::JobQueue>();
+    let ahead = queue
+        .enqueue(jobs::NewJob::new(jobs::JobKind::Hash).priority(jobs::Priority::BACKGROUND))
+        .unwrap();
+    let waiting = queue
+        .enqueue(
+            crate::scan::scan_job(Some(vec![crate::scan::MusicFolderId(1)]))
+                .priority(jobs::Priority::BACKGROUND),
+        )
+        .unwrap();
+    assert!(ahead < waiting);
+
+    let asked = invoke(&app, "scan_music_folders", json!({ "ids": [1] })).unwrap();
+    assert_eq!(asked, json!(waiting.0), "no second scan is queued");
+    assert_eq!(scans(&app).len(), 1);
+    assert_eq!(scans(&app)[0].1, jobs::Priority::USER.0);
+
+    // A background request for it afterwards doesn't take it back down.
+    let writer = app.state::<crate::db::Writer>();
+    let again = crate::scan::chain::queue_once(
+        &writer,
+        crate::scan::scan_job(Some(vec![crate::scan::MusicFolderId(1)]))
+            .priority(jobs::Priority::BACKGROUND),
+        |job| queue.enqueue(job),
+    )
+    .unwrap();
+    assert_eq!(again, waiting);
+    assert_eq!(scans(&app)[0].1, jobs::Priority::USER.0);
+}

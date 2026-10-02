@@ -660,47 +660,87 @@ fn an_export_saved_after_the_last_send_is_sent() {
     assert_eq!(w.go(false), None);
 }
 
-#[test]
-fn an_export_saved_at_the_very_millisecond_of_the_last_send_is_sent_one_saved_a_millisecond_earlier_is_not(
-) {
-    let (w, ..) = world_with_a_send_waiting();
-    w.prepare().unwrap();
-    assert_eq!(w.go(false), None);
-    let sent = u64::try_from(w.last_send_ms().unwrap()).unwrap();
+/// 2026-10-01T10:00:00.123Z, written out by hand in both forms.
+const SENT_AT: &str = "2026-10-01T10:00:00.123Z";
+const SENT_AT_MS: u64 = 1_790_848_800_123;
 
-    w.export_saved_at(Duration::from_millis(sent));
+#[test]
+fn the_export_is_compared_with_the_last_send_to_the_millisecond() {
+    let (w, ..) = world_with_a_send_waiting();
+    // A send recorded at a time written here by hand, on a Library track
+    // and nowhere else.
+    w.writer
+        .call(|c| {
+            c.execute(
+                "UPDATE library_track SET last_exported_at = ?1 WHERE id = 1",
+                [SENT_AT],
+            )
+        })
+        .unwrap();
+    assert_eq!(w.last_send_ms(), Some(SENT_AT_MS as i64));
+
+    w.export_saved_at(Duration::from_millis(SENT_AT_MS - 1));
+    assert_eq!(w.prepare().unwrap().refusal, older_than_the_last_send());
+
+    w.export_saved_at(Duration::from_millis(SENT_AT_MS));
     assert_eq!(w.prepare().unwrap().refusal, None);
 
-    w.export_saved_at(Duration::from_millis(sent - 1));
-    assert_eq!(w.prepare().unwrap().refusal, older_than_the_last_send());
+    w.export_saved_at(Duration::from_millis(SENT_AT_MS + 1));
+    assert_eq!(w.prepare().unwrap().refusal, None);
 }
 
 #[test]
-fn the_last_send_is_still_known_after_its_tracks_are_removed_or_only_a_crate_was_sent() {
-    // Only an empty crate: no track carries the send's time, the crate does.
+fn each_place_a_send_is_recorded_counts_on_its_own_and_the_latest_wins() {
+    // Rows of each kind, with hand-written times; the other two kinds
+    // hold an earlier time or none.
     let w = World::new();
-    w.crate_of("Empty", &[]);
-    w.save_export(&[Rb(40, "known.mp3", "Known in rekordbox")]);
-    w.prepare().unwrap();
-    assert_eq!(w.go(false), None);
-    let crate_only = w.last_send_ms();
-    assert!(crate_only.is_some());
+    let (track, _) = w.library_track("a.mp3", "A", true);
+    let set = |sql: &'static str| {
+        w.writer.call(move |c| c.execute_batch(sql)).unwrap();
+    };
+    assert_eq!(w.last_send_ms(), None);
 
-    // A sent track that is then removed from the Library: its removal
-    // record keeps the time.
-    let (w, _known, new) = world_with_a_send_waiting();
+    set("UPDATE library_track SET last_exported_at = '2026-10-01T10:00:00.123Z'");
+    assert_eq!(w.last_send_ms(), Some(1_790_848_800_123));
+
+    // A sent crate, a second later.
+    set(r#"INSERT INTO sent_playlist (path, path_key, kind, sent_at)
+           VALUES ('["Crates","A"]', '["crates","a"]', 'playlist', '2026-10-01T10:00:01.005Z')"#);
+    assert_eq!(w.last_send_ms(), Some(1_790_848_801_005));
+
+    // A removed track's record, later still; then the track's own time
+    // goes with the Library track.
+    crate::library::remove(&w.writer, track).unwrap();
+    set("UPDATE library_removal SET last_exported_at = '2026-10-01T10:00:02.999Z'");
+    assert_eq!(w.last_send_ms(), Some(1_790_848_802_999));
+    set("DELETE FROM sent_playlist");
+    assert_eq!(w.last_send_ms(), Some(1_790_848_802_999));
+}
+
+#[test]
+fn a_send_is_still_remembered_by_its_tracks_once_a_read_has_dropped_its_crates() {
+    let (w, ..) = world_with_a_send_waiting();
+    let hour_ago = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        - Duration::from_secs(3600);
+    w.export_saved_at(hour_ago);
     w.prepare().unwrap();
     assert_eq!(w.go(false), None);
-    let sent = w.last_send_ms();
-    assert!(sent.is_some());
+    let file = fs::read(w.send_file()).unwrap();
+
+    // What a later read does when rekordbox no longer has the sent crate:
+    // its record goes. The tracks' own record of the send stays.
     w.writer
         .call(|c| c.execute_batch("DELETE FROM sent_playlist"))
         .unwrap();
-    crate::library::remove(&w.writer, new).unwrap();
-    w.writer
-        .call(|c| c.execute("UPDATE library_track SET last_exported_at = NULL", []))
-        .unwrap();
-    assert_eq!(w.last_send_ms(), sent);
+    assert!(w.last_send_ms().is_some());
+
+    // The export from before that send is still too old.
+    let preflight = w.prepare().unwrap();
+    assert_eq!(preflight.refusal, older_than_the_last_send());
+    assert_eq!(w.go(true), Some(SendFailure::NotSendable));
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
 }
 
 // --- the confirm ---------------------------------------------------------------
