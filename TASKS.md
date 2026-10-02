@@ -161,7 +161,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 3, version parser:** 1bA-5 Bracket/segment tokenizer → 1bA-6 Store and rip junk stripper → 1bA-7 Cut labels + pool conventions → 1bA-8 Rework labels + bootleg patterns → 1bA-9 Mashups (`A x B`)
 - **Lane 4:** 1bA-10 Spectral cutoff analyzer (ported from the spike)
 - **Lane 5:** 1bA-11 Decoded vs header duration + decode-error detection
-- **Lane 6:** 1bA-12 Multi-step undo (needed by "Accept all")
+- **Lane 6:** 1bA-12 Multi-step undo (needed by "Accept all"). Must handle: undoing an older crate rename or delete can bring back a name that now equals a newer crate's (a send would then be refused); refuse that undo or rename on restore (found in the 1aG-7 review)
 
 ### Stage 1bB: Decisions
 - **Lane 1, grouping rules:** 1bB-1 Duplicate rule (≥90% both ways, score ≤4) → 1bB-2 One-sided → cut link; none → name-based rework link → 1bB-3 Version veto + fingerprint veto → 1bB-4 Credits signal (remixer-only credits) → 1bB-5 "Needs review" on disagreement, with a reason
