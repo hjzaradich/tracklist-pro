@@ -186,8 +186,12 @@ fn removing_one_fingerprint_leaves_exactly_the_index_built_without_it() {
     assert_eq!(index.pairs(), rebuilt.pairs());
     assert_eq!(index.len(), rebuilt.len());
     assert_eq!(index.postings(), rebuilt.postings());
-    assert!(!index.contains(1000) && index.candidates_of(1000).is_empty());
-    assert!(index.candidates_of(0).is_empty(), "its copy is gone");
+    let items = |entry: EntryId| &library.iter().find(|(e, _)| *e == entry).unwrap().1;
+    assert!(!index.contains(1000) && index.candidates_of(1000, items(1000)).is_empty());
+    assert!(
+        index.candidates_of(0, items(0)).is_empty(),
+        "its copy is gone"
+    );
 }
 
 #[test]
@@ -200,7 +204,7 @@ fn adding_one_fingerprint_gives_exactly_the_index_built_with_it_in_any_order() {
     assert_eq!(index.pairs().len(), 11);
     index.insert(last[0].0, &last[0].1);
     assert_eq!(index.pairs(), whole.pairs());
-    assert_eq!(index.candidates_of(1040), [40]);
+    assert_eq!(index.candidates_of(1040, &last[0].1), [40]);
     // Backwards gives the same pairs too.
     let mut reversed = library.clone();
     reversed.reverse();

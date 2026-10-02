@@ -21,7 +21,7 @@
 //! ```
 //!
 //! and the same with `10k`. `index_alone_*` builds the block index and
-//! nothing else. `passes_*` puts the library in a database and runs the
+//! nothing else, then compacts it as a pass does. `passes_*` puts the library in a database and runs the
 //! real pass: a first one, one after 100 new files, and one by a new
 //! matcher (what a pass costs when the index isn't kept).
 //!
@@ -276,6 +276,10 @@ struct IndexReport {
     making: Duration,
     postings: usize,
     build: Heap,
+    /// Giving back the buckets' spare room afterwards, as a pass does:
+    /// how long it took and what the index holds then.
+    compact: Duration,
+    kept: usize,
 }
 
 /// Builds the block index over a library of `n` files and nothing else.
@@ -284,18 +288,25 @@ fn index_alone(n: usize, len: usize) -> (IndexReport, BlockIndex) {
     let items: usize = Library::new(n, len).map(|(_, items)| items.len()).sum();
     assert!(items >= n * len / 2);
     let making = start.elapsed();
-    let (index, build) = heap_while(|| {
+    let (mut index, build) = heap_while(|| {
         let mut index = BlockIndex::new();
         for (entry, (_, items)) in Library::new(n, len).enumerate() {
             index.insert(entry as u32, &items);
         }
         index
     });
+    let before = CURRENT.load(Ordering::SeqCst);
+    let start = Instant::now();
+    index.compact();
+    let compact = start.elapsed();
+    let given_back = before.saturating_sub(CURRENT.load(Ordering::SeqCst));
     let report = IndexReport {
         files: n,
         making,
         postings: index.postings(),
         build,
+        compact,
+        kept: build.kept.saturating_sub(given_back),
     };
     (report, index)
 }
@@ -524,6 +535,12 @@ fn print_index(report: &IndexReport) {
         report.postings,
         report.build.kept as f64 / report.postings.max(1) as f64
     );
+    println!(
+        "  compact    {}   kept {} ({:.1} bytes a posting)",
+        secs(report.compact),
+        mib(report.kept),
+        report.kept as f64 / report.postings.max(1) as f64
+    );
     print_process();
 }
 
@@ -604,7 +621,10 @@ fn a_small_library_goes_through_the_same_steps() {
 
     // The made-up blobs are ones the app reads back as the same items.
     let items = track(1, ITEMS);
-    assert_eq!(Fingerprint::from_blob(&blob(&items)).unwrap().items(), items);
+    assert_eq!(
+        Fingerprint::from_blob(&blob(&items)).unwrap().items(),
+        items
+    );
 
     let (report, index) = index_alone(FILES, ITEMS);
     print_index(&report);

@@ -11,6 +11,12 @@
 //! every fingerprint, and skips every pair that already has a stored
 //! result.
 //!
+//! What the index holds, and what a pass costs at 10,000 and 100,000
+//! files, is measured by `tests/matching_memory.rs` (1bA-13). The index
+//! keeps 8 bytes per (key, fingerprint) and nothing else: a fingerprint
+//! that goes is swept out once per pass, and a fingerprint's candidates
+//! are asked for with the fingerprint itself, read for comparing anyway.
+//!
 //! The table is the truth about what has been compared, not the
 //! `Matcher`'s memory. The database deletes a file's results when its
 //! fingerprint changes, even if it changes back before the next pass, so
@@ -277,6 +283,9 @@ impl Matcher {
         for file in gone {
             state.forget(file);
         }
+        // The fingerprints that went leave the index for good, and the
+        // room the new ones' keys didn't fill is given back.
+        state.index.compact();
         summary.files = state.digest_of_file.len() as u64;
         summary.fingerprints = state.classes.len() as u64;
 
@@ -305,6 +314,12 @@ impl Matcher {
                 // Changed under us: the next pass sees it.
                 continue;
             };
+            // The index holds this class's keys only as postings: its
+            // candidates are asked for with the fingerprint itself, which
+            // must be the one the index read.
+            if state.digest_of_entry.get(&entry) != Some(blake3::hash(&blob).as_bytes()) {
+                continue;
+            }
             let pair = |a: i64, b: i64| (a.min(b), a.max(b));
 
             for &other in class.files.iter().filter(|&&f| f != first) {
@@ -322,7 +337,7 @@ impl Matcher {
             let Ok(fingerprint) = Fingerprint::from_blob(&blob) else {
                 continue;
             };
-            for candidate in state.index.candidates_of(entry) {
+            for candidate in state.index.candidates_of(entry, fingerprint.items()) {
                 if !met.insert((entry.min(candidate), entry.max(candidate))) {
                     continue;
                 }
