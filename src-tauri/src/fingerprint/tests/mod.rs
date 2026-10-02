@@ -4,6 +4,7 @@
 mod audio;
 mod decoding;
 mod format;
+mod golden;
 #[cfg(windows)]
 mod job;
 mod matching;
