@@ -37,8 +37,10 @@ on:
   push:
     branches: [main]
     paths-ignore: ["**.md"]
-  # Weekly, everything runs: catches a new stable Rust (lints), new security
-  # advisories, and refreshes main's caches, even in a quiet week.
+  # Weekly, everything runs: catches new security advisories and refreshes
+  # main's caches, even in a quiet week. It builds with the Rust pinned in
+  # rust-toolchain.toml, so a new stable Rust's lints show up when that pin
+  # is bumped, not here.
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
