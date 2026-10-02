@@ -13,7 +13,7 @@
 //!
 //! What the index holds, and what a pass costs at 10,000 and 100,000
 //! files, is measured by `tests/matching_memory.rs` (1bA-13). The index
-//! keeps 8 bytes per (key, fingerprint) and nothing else: a fingerprint
+//! keeps 8 bytes per (key, fingerprint) and little else: a fingerprint
 //! that goes is swept out once per pass, and a fingerprint's candidates
 //! are asked for with the fingerprint itself, read for comparing anyway.
 //!
@@ -283,8 +283,9 @@ impl Matcher {
         for file in gone {
             state.forget(file);
         }
-        // The fingerprints that went leave the index for good, and the
-        // room the new ones' keys didn't fill is given back.
+        // The new fingerprints' keys are merged in and the ones that went
+        // leave for good, so finding candidates is quick and nothing spare
+        // is held.
         state.index.compact();
         summary.files = state.digest_of_file.len() as u64;
         summary.fingerprints = state.classes.len() as u64;

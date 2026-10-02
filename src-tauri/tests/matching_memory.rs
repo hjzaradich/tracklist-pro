@@ -108,9 +108,10 @@ struct Heap {
     kept: usize,
 }
 
-/// This process's peak working set and peak committed memory, in bytes.
+/// This process's peak working set, its peak committed memory, and what
+/// it has committed now, in bytes.
 #[cfg(windows)]
-fn process_memory() -> Option<(usize, usize)> {
+fn process_memory() -> Option<(usize, usize, usize)> {
     use windows_sys::Win32::System::ProcessStatus::{
         K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
     };
@@ -131,11 +132,15 @@ fn process_memory() -> Option<(usize, usize)> {
     // SAFETY: the current process's pseudo-handle is always valid, and the
     // struct and its size are what the call expects.
     let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
-    (ok != 0).then_some((counters.PeakWorkingSetSize, counters.PeakPagefileUsage))
+    (ok != 0).then_some((
+        counters.PeakWorkingSetSize,
+        counters.PeakPagefileUsage,
+        counters.PagefileUsage,
+    ))
 }
 
 #[cfg(not(windows))]
-fn process_memory() -> Option<(usize, usize)> {
+fn process_memory() -> Option<(usize, usize, usize)> {
     None
 }
 
@@ -509,11 +514,12 @@ fn secs(d: Duration) -> String {
 }
 
 fn print_process() {
-    if let Some((working_set, committed)) = process_memory() {
+    if let Some((working_set, committed, now)) = process_memory() {
         println!(
-            "  the process, everything in it: peak working set {}, peak committed {}",
+            "  the process, everything in it: peak working set {}, peak committed {}, committed now {}",
             mib(working_set),
-            mib(committed)
+            mib(committed),
+            mib(now)
         );
     }
     println!("  release build: {}", !cfg!(debug_assertions));
@@ -586,31 +592,73 @@ fn print_passes(report: &PassReport) {
     print_process();
 }
 
+/// The parts of a pass's work on one fingerprint, timed on their own over
+/// `files` files: reading its bytes from the database (one query each),
+/// and decoding them.
+fn print_parts(db: &Db, files: i64) {
+    let start = Instant::now();
+    let mut blobs = Vec::new();
+    for id in 1..=files {
+        let blob: Vec<u8> = db
+            .writer
+            .call(move |c| {
+                c.prepare_cached("SELECT fingerprint FROM file WHERE id = ?1")?
+                    .query_row([id], |r| r.get(0))
+            })
+            .unwrap();
+        blobs.push(blob);
+    }
+    let reading = start.elapsed();
+    let start = Instant::now();
+    let items: usize = blobs
+        .iter()
+        .map(|blob| Fingerprint::from_blob(blob).unwrap().items().len())
+        .sum();
+    let decoding = start.elapsed();
+    let each = |d: Duration| d.as_secs_f64() * 1e6 / files as f64;
+    println!(
+        "  per fingerprint, over {files}: one query {:.0} us, decoding {:.0} us ({} bytes, {} items)",
+        each(reading),
+        each(decoding),
+        blobs.iter().map(Vec::len).sum::<usize>() / files as usize,
+        items / files as usize
+    );
+}
+
 /// Six minutes of audio in fingerprint items.
 const SIX_MINUTES: usize = 2_900;
 
 #[test]
 #[ignore = "a measurement: run alone, in a release build; see the module docs"]
 fn index_alone_10k() {
-    print_index(&index_alone(10_000, SIX_MINUTES).0);
+    let (report, index) = index_alone(10_000, SIX_MINUTES);
+    // The index is still held while the process's numbers are read.
+    print_index(&report);
+    assert_eq!(index.len(), report.files);
 }
 
 #[test]
 #[ignore = "a measurement: run alone, in a release build; see the module docs"]
 fn index_alone_100k() {
-    print_index(&index_alone(100_000, SIX_MINUTES).0);
+    let (report, index) = index_alone(100_000, SIX_MINUTES);
+    print_index(&report);
+    assert_eq!(index.len(), report.files);
 }
 
 #[test]
 #[ignore = "a measurement: run alone, in a release build; see the module docs"]
 fn passes_10k() {
-    print_passes(&passes(10_000, SIX_MINUTES));
+    let report = passes(10_000, SIX_MINUTES);
+    print_parts(&report.db, 2_000);
+    print_passes(&report);
 }
 
 #[test]
 #[ignore = "a measurement: run alone, in a release build; see the module docs"]
 fn passes_100k() {
-    print_passes(&passes(100_000, SIX_MINUTES));
+    let report = passes(100_000, SIX_MINUTES);
+    print_parts(&report.db, 2_000);
+    print_passes(&report);
 }
 
 /// The smoke test: the harness on a small library, checking what it finds.

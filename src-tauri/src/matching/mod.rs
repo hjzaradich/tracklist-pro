@@ -32,10 +32,11 @@
 //!   track has) is skipped.
 //!
 //! The index is built from `file.fingerprint` alone and holds only keys:
-//! 8 bytes for each key of each fingerprint (1bA-13).
-//! Adding a fingerprint touches that fingerprint's keys and nothing else;
-//! one that's removed stops counting at once, and its keys are swept out
-//! at the next [`BlockIndex::compact`]. Work per fingerprint is its keys times the few
+//! 8 bytes for each key of each fingerprint, in a few sorted runs
+//! (1bA-13; measured by `tests/matching_memory.rs`). A new fingerprint's
+//! keys wait in a short list and are merged in now and then; one that's
+//! removed stops counting at once, and its keys go at the next merge
+//! ([`BlockIndex::compact`]). Work per fingerprint is its keys times the few
 //! fingerprints sharing each, so the whole pass grows with the number of
 //! files and of real matches, not with n².
 //!

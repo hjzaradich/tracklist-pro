@@ -675,13 +675,13 @@ fn rows_by_the_plain_index(db: &Db) -> Vec<StoredMatch> {
         })
         .collect();
     let mut plain = PlainIndex::new();
-    // Each row: the two files, the blobs compared, and what was found.
-    let mut rows: Vec<(i64, Vec<u8>, i64, Vec<u8>, Comparison)> = Vec::new();
-    for (entry, (blob, fingerprint, ids)) in classes.iter().enumerate() {
+    // Each row: the two files and what comparing them found.
+    let mut rows: Vec<(i64, i64, Comparison)> = Vec::new();
+    for (entry, (_, fingerprint, ids)) in classes.iter().enumerate() {
         plain.insert(entry as u32, fingerprint.items());
         let identical = Comparison::identical(fingerprint.items().len());
         for &other in &ids[1..] {
-            rows.push((ids[0], blob.clone(), other, blob.clone(), identical.clone()));
+            rows.push((ids[0], other, identical.clone()));
         }
     }
     for (a, b) in plain.pairs() {
@@ -690,7 +690,7 @@ fn rows_by_the_plain_index(db: &Db) -> Vec<StoredMatch> {
             std::mem::swap(&mut a, &mut b);
         }
         if let Ok(comparison) = compare(&a.1, &b.1) {
-            rows.push((a.2[0], a.0.clone(), b.2[0], b.0.clone(), comparison));
+            rows.push((a.2[0], b.2[0], comparison));
         }
     }
 
@@ -705,18 +705,13 @@ fn rows_by_the_plain_index(db: &Db) -> Vec<StoredMatch> {
                     params![id, blob],
                 )?;
             }
-            for (a, blob_a, b, blob_b, comparison) in &rows {
-                let (a, b) = (
-                    Side {
-                        file: *a,
-                        blob: blob_a,
-                    },
-                    Side {
-                        file: *b,
-                        blob: blob_b,
-                    },
-                );
-                assert!(store::put(c, a, b, comparison)?);
+            let blobs: BTreeMap<i64, &Vec<u8>> = files.iter().map(|(id, blob)| (*id, blob)).collect();
+            for (a, b, comparison) in &rows {
+                let side = |file: &i64| Side {
+                    file: *file,
+                    blob: blobs[file],
+                };
+                assert!(store::put(c, side(a), side(b), comparison)?);
             }
             Ok(())
         })

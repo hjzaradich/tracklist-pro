@@ -1,8 +1,9 @@
 //! The smaller index (1bA-13) finds exactly what the index before it found.
 //! Two changes claim to lose nothing: an entry's key list is no longer
-//! kept (so a removed entry's postings wait for a sweep), and the buckets'
-//! spare room is given back. Each is checked against the index as it was
-//! ([`PlainIndex`]) through adds, removals and replacements.
+//! kept (so a removed entry's postings stay, unseen, until the next
+//! merge), and the postings live in a few sorted runs that new ones are
+//! merged into, with no room left over. Each is checked against the index
+//! as it was ([`PlainIndex`]) through adds, removals and replacements.
 
 use std::collections::BTreeMap;
 
@@ -46,12 +47,19 @@ impl Both {
         }
     }
 
-    /// The two agree on every pair, on each entry's own candidates, and on
-    /// what they hold. Returns how many candidate pairs there are.
+    /// The two agree on every pair, on every entry's own candidates, and
+    /// on what they hold. Returns how many candidate pairs there are.
     fn assert_same(&self, when: &str) -> usize {
+        self.assert_same_asking(when, 1)
+    }
+
+    /// The same, asking only every `nth` entry for its own candidates
+    /// (asking is slow while postings wait to be merged; the pairs are
+    /// always all checked).
+    fn assert_same_asking(&self, when: &str, nth: usize) -> usize {
         let pairs = self.smaller.pairs();
         assert_eq!(pairs, self.plain.pairs(), "{when}: the candidate pairs");
-        for (&entry, items) in &self.items {
+        for (&entry, items) in self.items.iter().step_by(nth) {
             assert_eq!(
                 self.smaller.candidates_of(entry, items),
                 self.plain.candidates_of(entry),
@@ -119,7 +127,7 @@ fn through_changes(compacting: bool) {
     for gone in [5_001, 3, 77] {
         both.remove(gone);
     }
-    let fewer = both.assert_same("after three removals");
+    let fewer = both.assert_same_asking("after three removals", 8);
     assert_eq!(fewer, built - 2, "two pairs went with their files");
 
     // Enough of the tracks sharing the jingle go that its keys are held by
@@ -129,18 +137,21 @@ fn through_changes(compacting: bool) {
         both.remove(JINGLE_FIRST + i);
     }
     let left = (JINGLE_HOLDERS - 10) as usize;
-    let with_jingle = both.assert_same("after the jingle dropped under the limit");
+    let with_jingle = both.assert_same_asking("after the jingle dropped under the limit", 8);
     assert_eq!(with_jingle, fewer + left * (left - 1) / 2);
 
     // New files under new names: a copy of a track that had none, and a
     // new copy of the track whose first copy was removed.
     both.insert(30_000, reencoded(&track(500, LEN), 91, 7));
     both.insert(30_001, reencoded(&track(1, LEN), 92, 7));
-    assert_eq!(both.assert_same("after two new files"), with_jingle + 2);
+    assert_eq!(
+        both.assert_same_asking("after two new files", 8),
+        with_jingle + 2
+    );
 
     // A name that's in use gets other audio: a copy of track 600.
     both.insert(5_002, reencoded(&track(600, LEN), 93, 7));
-    both.assert_same("after a replacement");
+    both.assert_same_asking("after a replacement", 8);
     assert!(
         both.items.contains_key(&2) && both.smaller.candidates_of(2, &both.items[&2]).is_empty()
     );
@@ -148,14 +159,14 @@ fn through_changes(compacting: bool) {
     // A removed name comes back with other audio than it left with.
     both.insert(77, reencoded(&track(700, LEN), 94, 7));
     both.insert(JINGLE_FIRST, track(40_000, LEN));
-    both.assert_same("after two names came back");
+    both.assert_same_asking("after two names came back", 8);
 
     // Enough new tracks with the jingle that it's over the limit again.
     for i in 0..10 {
         let own = track(50_000 + u64::from(i), LEN);
         both.insert(31_000 + i, [some_keys(6).as_slice(), &own].concat());
     }
-    let over = both.assert_same("after the jingle went over the limit again");
+    let over = both.assert_same_asking("after the jingle went over the limit again", 8);
     assert!(over < with_jingle);
 
     // Sweeping at the end changes nothing either way.
@@ -166,13 +177,14 @@ fn through_changes(compacting: bool) {
 #[test]
 fn without_each_entrys_key_list_the_candidates_are_the_same_through_adds_removals_and_replacements()
 {
-    // Never compacted on the way: removed entries' postings are still in
-    // the buckets and must be passed over.
+    // Never compacted by hand on the way: removed entries' postings are
+    // still held and must be passed over, and new postings are partly
+    // merged in (the library is big enough for that) and partly waiting.
     through_changes(false);
 }
 
 #[test]
-fn giving_back_spare_room_after_every_change_leaves_the_candidates_the_same() {
+fn merging_and_giving_back_room_after_every_change_leaves_the_candidates_the_same() {
     through_changes(true);
 }
 

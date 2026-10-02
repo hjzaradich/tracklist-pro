@@ -2,17 +2,45 @@
 //! 1.4). The scheme and what it can miss are in the [module docs](super).
 //!
 //! It holds no audio, no whole fingerprints and no list of each entry's
-//! keys: only the (key, entry) postings, 8 bytes each (1bA-13). So the
-//! caller hands an entry's fingerprint over again to ask for its
-//! candidates, and an entry that's taken out leaves its postings behind,
-//! unseen, until [`BlockIndex::compact`] sweeps them. A compact also
-//! gives back the room the buckets grew into and puts each in order, so a
-//! key is found without reading its whole bucket.
+//! keys: only the (key, entry) postings, 8 bytes each (1bA-13).
+//!
+//! - **A few big sorted runs, not many small lists.** The postings are
+//!   kept in order in [`SEGMENTS`] runs. New ones wait in one unsorted
+//!   list and are merged in, a run at a time, when there are enough of
+//!   them or when [`BlockIndex::compact`] is called. So the index is never
+//!   much bigger than its postings while it's built (the waiting list is
+//!   at most an eighth of the rest), nothing is left over afterwards, and
+//!   a key is found among a few hundred neighbours. Many small growing lists cost the process
+//!   about twice their size on Windows: the room each one outgrew stays
+//!   with the heap.
+//! - **No key list per entry.** The caller hands an entry's fingerprint
+//!   over again to ask for its candidates (the matching pass has it in
+//!   hand anyway), and an entry that's taken out stops counting at once
+//!   and leaves its postings behind, unseen, until the next merge.
 
 use std::collections::{HashMap, HashSet};
 
-/// Keys are spread over this many buckets (2^18) by their mixed value.
-const BUCKET_BITS: u32 = 18;
+/// The sorted postings are kept in this many runs (2^8), by the top bits
+/// of the key's mixed value, so merging new ones in never needs a second
+/// copy of more than one run.
+const SEGMENT_BITS: u32 = 8;
+
+/// How many runs there are.
+const SEGMENTS: usize = 1 << SEGMENT_BITS;
+
+/// Each run notes where each of this many (2^10) equal slices of its key
+/// range starts, so a key is looked for among a few hundred postings that
+/// sit together, not by halving the whole run. 1 MB for the whole index.
+const PART_BITS: u32 = 10;
+
+/// How many slices a run's key range is cut into.
+const PARTS: usize = 1 << PART_BITS;
+
+/// New postings are merged in once there are this many (half a megabyte)…
+const MIN_WAITING: usize = 1 << 16;
+
+/// …or this share of the merged ones, whichever is more.
+const WAITING_SHARE: usize = 8;
 
 /// One in this many distinct items of a fingerprint becomes a key. Which
 /// ones is decided by the item's value alone ([`is_key`]), so two
@@ -35,7 +63,8 @@ pub fn is_key(item: u32) -> bool {
 }
 
 /// The 32-bit finalizer of MurmurHash3: every input bit reaches every
-/// output bit, so items that differ in one bit land far apart.
+/// output bit, so items that differ in one bit land far apart. No two
+/// items mix to the same value.
 fn mix(item: u32) -> u32 {
     let mut x = item;
     x ^= x >> 16;
@@ -44,12 +73,6 @@ fn mix(item: u32) -> u32 {
     x = x.wrapping_mul(0xC2B2_AE35);
     x ^= x >> 16;
     x
-}
-
-/// The bucket a key is kept in: the top bits of its mixed value (the
-/// bottom ones decided whether it's a key at all).
-fn bucket_of(key: u32) -> usize {
-    (mix(key) >> (32 - BUCKET_BITS)) as usize
 }
 
 /// The keys of a fingerprint: its distinct sampled items, in order.
@@ -64,35 +87,95 @@ pub fn keys(items: &[u32]) -> Vec<u32> {
 /// fingerprint (the matching job uses one per distinct fingerprint).
 pub type EntryId = u32;
 
-/// One key held by one entry.
-type Posting = (u32, EntryId);
+/// One key held by one entry: the key's mixed value in the top half, the
+/// entry in the bottom half. In order, they're grouped by key, and the top
+/// bits of the mixed value (the bottom ones decided whether it's a key at
+/// all) spread them evenly over the runs.
+type Posting = u64;
 
-/// Fingerprints by their keys. 8 bytes per (key, entry) posting once
-/// [compacted](BlockIndex::compact), plus 6 MB once anything is in it.
-#[derive(Debug, Default)]
-pub struct BlockIndex {
-    /// The postings, by [`bucket_of`] the key, in no order. Empty until
-    /// the first entry goes in.
-    buckets: Vec<Vec<Posting>>,
-    /// The entries in the index, and how many keys each holds.
-    entries: HashMap<EntryId, u32>,
-    /// Entries taken out whose postings are still in the buckets. Nothing
-    /// reads those postings; [`BlockIndex::compact`] drops them.
-    removed: HashSet<EntryId>,
-    /// Whether every bucket is in order (by key, then entry), so a key's
-    /// postings can be found by halving rather than by reading the whole
-    /// bucket. True from a [`BlockIndex::compact`] until the next insert.
-    sorted: bool,
+fn posting(mixed: u32, entry: EntryId) -> Posting {
+    (u64::from(mixed) << 32) | u64::from(entry)
 }
 
-/// Adds `posting` to `bucket`, growing it by an eighth when it's full
-/// rather than doubling it: while a big index is built, the spare room
-/// stays a small part of it.
-fn push(bucket: &mut Vec<Posting>, posting: Posting) {
-    if bucket.len() == bucket.capacity() {
-        bucket.reserve_exact(bucket.len() / 8 + 4);
+fn mixed_of(posting: Posting) -> u32 {
+    (posting >> 32) as u32
+}
+
+fn entry_of(posting: Posting) -> EntryId {
+    posting as u32
+}
+
+/// The run a key with this mixed value is kept in.
+fn segment_of(mixed: u32) -> usize {
+    (mixed >> (32 - SEGMENT_BITS)) as usize
+}
+
+/// The slice of its run's key range a key with this mixed value is in.
+fn part_of(mixed: u32) -> usize {
+    (mixed >> (32 - SEGMENT_BITS - PART_BITS)) as usize & (PARTS - 1)
+}
+
+/// The postings of the key with mixed value `mixed` among `sorted` ones.
+fn of_key(sorted: &[Posting], mixed: u32) -> &[Posting] {
+    let from = sorted.partition_point(|&p| mixed_of(p) < mixed);
+    let len = sorted[from..].partition_point(|&p| mixed_of(p) == mixed);
+    &sorted[from..from + len]
+}
+
+/// One sorted run of postings.
+#[derive(Debug, Default, Clone)]
+struct Segment {
+    /// In order.
+    postings: Vec<Posting>,
+    /// Where each [`part_of`] the key range starts in `postings`, and
+    /// where the last one ends. Empty while there are no postings.
+    starts: Vec<u32>,
+}
+
+impl Segment {
+    fn new(postings: Vec<Posting>) -> Segment {
+        if postings.is_empty() {
+            return Segment::default();
+        }
+        // Count each part, then add up: a part starts where the ones
+        // before it end.
+        let mut starts = vec![0u32; PARTS + 1];
+        for &posting in &postings {
+            starts[part_of(mixed_of(posting)) + 1] += 1;
+        }
+        for part in 0..PARTS {
+            starts[part + 1] += starts[part];
+        }
+        Segment { postings, starts }
     }
-    bucket.push(posting);
+
+    /// The postings of the key with mixed value `mixed`.
+    fn of_key(&self, mixed: u32) -> &[Posting] {
+        let part = part_of(mixed);
+        match (self.starts.get(part), self.starts.get(part + 1)) {
+            (Some(&from), Some(&to)) => of_key(&self.postings[from as usize..to as usize], mixed),
+            _ => &[],
+        }
+    }
+}
+
+/// Fingerprints by their keys: 8 bytes per (key, entry) posting once
+/// [compacted](BlockIndex::compact), plus 1 MB, and at most an eighth more
+/// (or half a megabyte) while entries are being added.
+#[derive(Debug, Default)]
+pub struct BlockIndex {
+    /// The merged postings, in order, by [`segment_of`] the key. Empty
+    /// until the first merge.
+    segments: Vec<Segment>,
+    /// How many postings the segments hold.
+    merged: usize,
+    /// Postings added since the last merge, in the order they came.
+    waiting: Vec<Posting>,
+    /// The entries in the index, and how many keys each holds.
+    entries: HashMap<EntryId, u32>,
+    /// Entries taken out whose postings are still held. Nothing counts
+    /// those postings; the next merge drops them.
+    removed: HashSet<EntryId>,
 }
 
 impl BlockIndex {
@@ -118,71 +201,94 @@ impl BlockIndex {
         self.entries.contains_key(&entry)
     }
 
+    /// How many postings may wait before they're merged in.
+    fn waiting_limit(&self) -> usize {
+        MIN_WAITING.max(self.merged / WAITING_SHARE)
+    }
+
     /// Adds `entry` with the fingerprint `items`, replacing what it held.
     ///
-    /// A new name costs only its own keys. A name that was used before
-    /// (replacing, or adding again after [`BlockIndex::remove`]) sweeps
-    /// the whole index first, so the old fingerprint's postings can't pass
-    /// for the new one's: callers with many changes give each fingerprint
-    /// a name of its own, as the matching job does.
+    /// A new name costs only its own keys, plus a merge now and then. A
+    /// name that was used before (replacing, or adding again after
+    /// [`BlockIndex::remove`]) merges at once, so the old fingerprint's
+    /// postings can't pass for the new one's: callers with many changes
+    /// give each fingerprint a name of its own, as the matching job does.
     pub fn insert(&mut self, entry: EntryId, items: &[u32]) {
         if self.entries.contains_key(&entry) || self.removed.contains(&entry) {
             self.remove(entry);
             self.compact();
         }
-        if self.buckets.is_empty() {
-            self.buckets = vec![Vec::new(); 1 << BUCKET_BITS];
-        }
         let keys = keys(items);
-        for &key in &keys {
-            push(&mut self.buckets[bucket_of(key)], (key, entry));
+        if !self.waiting.is_empty() && self.waiting.len() + keys.len() > self.waiting_limit() {
+            self.compact();
         }
-        self.sorted &= keys.is_empty();
+        // The waiting list grows by doubling, but never past its limit:
+        // the last doubling would be the biggest thing in the index.
+        let needed = self.waiting.len() + keys.len();
+        if self.waiting.capacity() < needed {
+            let room = (self.waiting.capacity() * 2)
+                .clamp(MIN_WAITING, self.waiting_limit())
+                .max(needed);
+            self.waiting.reserve_exact(room - self.waiting.len());
+        }
+        self.waiting
+            .extend(keys.iter().map(|&key| posting(mix(key), entry)));
         self.entries.insert(entry, keys.len() as u32);
     }
 
     /// Takes `entry` out. Nothing happens if it isn't in. Its postings
-    /// stay where they are, unseen, until [`BlockIndex::compact`].
+    /// stay where they are, unseen, until the next merge.
     pub fn remove(&mut self, entry: EntryId) {
         if self.entries.remove(&entry).is_some() {
             self.removed.insert(entry);
         }
     }
 
-    /// Drops the postings of removed entries, gives back the buckets'
-    /// spare room and puts each bucket in order. Changes nothing a caller
-    /// can see but the memory held and how fast
+    /// Merges the waiting postings in, drops the postings of removed
+    /// entries and gives back the room that leaves. Changes nothing a
+    /// caller can see but the memory held and how fast
     /// [`BlockIndex::candidates_of`] is. Worth calling once after a run of
-    /// inserts and removes; it looks at every bucket.
+    /// inserts and removes; with nothing to do it does nothing.
     pub fn compact(&mut self) {
+        if self.waiting.is_empty() && self.removed.is_empty() {
+            return;
+        }
+        if self.segments.is_empty() {
+            self.segments = vec![Segment::default(); SEGMENTS];
+        }
         let removed = std::mem::take(&mut self.removed);
-        for bucket in &mut self.buckets {
-            if !removed.is_empty() {
-                bucket.retain(|posting| !removed.contains(&posting.1));
-            }
-            bucket.shrink_to_fit();
-            if !self.sorted {
-                bucket.sort_unstable();
-            }
-        }
-        self.sorted = true;
-    }
+        let live = |posting: &Posting| removed.is_empty() || !removed.contains(&entry_of(*posting));
+        let mut waiting = std::mem::take(&mut self.waiting);
+        waiting.retain(live);
+        waiting.sort_unstable();
 
-    /// The postings in `key`'s bucket that may be `key`'s: exactly its
-    /// own when the buckets are in order, the whole bucket otherwise.
-    fn bucket_of_key(&self, key: u32) -> &[Posting] {
-        let bucket = &self.buckets[bucket_of(key)];
-        if !self.sorted {
-            return bucket;
+        // One run at a time: a new run of exactly the size needed, filled
+        // from the old one and the new postings that belong in it.
+        let mut rest = waiting.as_slice();
+        for (i, segment) in self.segments.iter_mut().enumerate() {
+            let (new, after) =
+                rest.split_at(rest.partition_point(|&p| segment_of(mixed_of(p)) <= i));
+            rest = after;
+            let kept = if removed.is_empty() {
+                segment.postings.len()
+            } else {
+                segment.postings.iter().filter(|p| live(p)).count()
+            };
+            if new.is_empty() && kept == segment.postings.len() {
+                continue;
+            }
+            let mut merged = Vec::with_capacity(kept + new.len());
+            let mut old = segment.postings.iter().copied().filter(live).peekable();
+            for &posting in new {
+                while let Some(before) = old.next_if(|&o| o < posting) {
+                    merged.push(before);
+                }
+                merged.push(posting);
+            }
+            merged.extend(old);
+            *segment = Segment::new(merged);
         }
-        let from = bucket.partition_point(|posting| posting.0 < key);
-        let len = bucket[from..].partition_point(|posting| posting.0 == key);
-        &bucket[from..from + len]
-    }
-
-    /// Whether a posting is of an entry still in the index.
-    fn live(&self, posting: &Posting) -> bool {
-        self.removed.is_empty() || !self.removed.contains(&posting.1)
+        self.merged = self.segments.iter().map(|s| s.postings.len()).sum();
     }
 
     /// The entries worth comparing with `entry`, whose fingerprint is
@@ -190,23 +296,45 @@ impl BlockIndex {
     /// [`MIN_SHARED_KEYS`] keys with it, not counting keys held by more
     /// than [`MAX_ENTRIES_PER_KEY`] entries. Lowest id first. Nothing if
     /// `entry` isn't in the index.
+    ///
+    /// The answer is the same whether or not the index was
+    /// [compacted](BlockIndex::compact) first, but every call reads the
+    /// whole waiting list, so compact before asking for many.
     pub fn candidates_of(&self, entry: EntryId, items: &[u32]) -> Vec<EntryId> {
         if !self.contains(entry) {
             return Vec::new();
         }
+        let mut mixed: Vec<u32> = keys(items).into_iter().map(mix).collect();
+        mixed.sort_unstable();
+        // The waiting postings that hold one of these keys, in order.
+        let mut waiting: Vec<Posting> = self
+            .waiting
+            .iter()
+            .copied()
+            .filter(|&p| mixed.binary_search(&mixed_of(p)).is_ok())
+            .collect();
+        waiting.sort_unstable();
+        let live = |posting: &&Posting| {
+            self.removed.is_empty() || !self.removed.contains(&entry_of(**posting))
+        };
+
         let mut shared: HashMap<EntryId, u32> = HashMap::new();
         let mut holders: Vec<EntryId> = Vec::new();
-        for key in keys(items) {
+        for &key in &mixed {
+            let merged = match self.segments.get(segment_of(key)) {
+                Some(segment) => segment.of_key(key),
+                None => &[],
+            };
             holders.clear();
-            for posting in self.bucket_of_key(key) {
-                if posting.0 == key && self.live(posting) {
-                    holders.push(posting.1);
-                    // One too many is enough to know it's skipped.
-                    if holders.len() > MAX_ENTRIES_PER_KEY {
-                        break;
-                    }
-                }
-            }
+            // One too many is enough to know the key is skipped.
+            holders.extend(
+                merged
+                    .iter()
+                    .chain(of_key(&waiting, key))
+                    .filter(live)
+                    .take(MAX_ENTRIES_PER_KEY + 1)
+                    .map(|&posting| entry_of(posting)),
+            );
             if holders.len() > MAX_ENTRIES_PER_KEY {
                 continue;
             }
@@ -226,24 +354,28 @@ impl BlockIndex {
     }
 
     /// Every candidate pair, the lower id first, in order. Worked out from
-    /// the postings alone, key by key: for checking and counting, not for
-    /// the matching pass (which asks for one entry's candidates at a time).
+    /// a sorted copy of all the postings, key by key: for checking and
+    /// counting, not for the matching pass (which asks for one entry's
+    /// candidates at a time).
     pub fn pairs(&self) -> Vec<(EntryId, EntryId)> {
+        let mut all: Vec<Posting> = self
+            .segments
+            .iter()
+            .flat_map(|segment| &segment.postings)
+            .chain(&self.waiting)
+            .copied()
+            .filter(|p| self.removed.is_empty() || !self.removed.contains(&entry_of(*p)))
+            .collect();
+        all.sort_unstable();
         let mut shared: HashMap<(EntryId, EntryId), u32> = HashMap::new();
-        let mut sorted: Vec<Posting> = Vec::new();
-        for bucket in &self.buckets {
-            sorted.clear();
-            sorted.extend(bucket.iter().filter(|posting| self.live(posting)));
-            sorted.sort_unstable();
-            // Each run of one key is the entries holding it, lowest first.
-            for holders in sorted.chunk_by(|a, b| a.0 == b.0) {
-                if holders.len() > MAX_ENTRIES_PER_KEY {
-                    continue;
-                }
-                for (i, a) in holders.iter().enumerate() {
-                    for b in &holders[i + 1..] {
-                        *shared.entry((a.1, b.1)).or_default() += 1;
-                    }
+        // Each run of one key is the entries holding it, lowest first.
+        for holders in all.chunk_by(|&a, &b| mixed_of(a) == mixed_of(b)) {
+            if holders.len() > MAX_ENTRIES_PER_KEY {
+                continue;
+            }
+            for (i, &a) in holders.iter().enumerate() {
+                for &b in &holders[i + 1..] {
+                    *shared.entry((entry_of(a), entry_of(b))).or_default() += 1;
                 }
             }
         }
