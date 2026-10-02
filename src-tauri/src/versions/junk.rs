@@ -279,6 +279,37 @@ fn is_bitrate(word: &str) -> bool {
         .is_ok_and(|n| BITRATES.contains(&n) && !number.starts_with('0'))
 }
 
+/// Where a bitrate with its unit starts at the end of `text`, written
+/// without brackets: "Glasswing 320kbps", "Glasswing 192 kbps". A bare number
+/// ("Glasswing 320") is never taken: it may be part of the title.
+pub(super) fn trailing_bitrate(text: &str) -> Option<usize> {
+    let text = text.trim_end();
+    let word_start = text.rfind(char::is_whitespace).map_or(0, |at| {
+        at + text[at..].chars().next().map_or(1, char::len_utf8)
+    });
+    let last = text[word_start..].to_lowercase();
+    if is_bitrate_with_unit(&last) {
+        return Some(word_start);
+    }
+    // "192 kbps": the unit on its own, a bitrate in front of it.
+    if BITRATE_UNITS.contains(&last.as_str()) {
+        let front = text[..word_start].trim_end();
+        let number_start = front.rfind(char::is_whitespace).map_or(0, |at| {
+            at + front[at..].chars().next().map_or(1, char::len_utf8)
+        });
+        if is_bitrate(&front[number_start..]) {
+            return Some(number_start);
+        }
+    }
+    None
+}
+
+fn is_bitrate_with_unit(word: &str) -> bool {
+    BITRATE_UNITS
+        .iter()
+        .any(|unit| word.strip_suffix(unit).is_some() && is_bitrate(word))
+}
+
 /// Whether a bracket's content is a running time: "3:45", "1:02:03".
 fn is_duration(content: &str) -> bool {
     let parts: Vec<&str> = content.trim().split(':').collect();
