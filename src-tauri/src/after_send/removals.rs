@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use specta::Type;
 
-use crate::library::remove_in_rekordbox;
+use crate::library::removed_tracks;
 use crate::rekordbox::location::{decode, Location};
 use crate::rekordbox::source::LAST_READ;
 
@@ -17,7 +17,8 @@ pub struct ManualRemoval {
     pub title: Option<String>,
     pub artist: Option<String>,
     /// Where it was sent, as Windows writes it, so the user can find it in
-    /// rekordbox. `None` if the sent `Location` can't be read back: the row
+    /// rekordbox; for a track that was never sent, where rekordbox's own
+    /// entry for it is. `None` if the sent `Location` can't be read back: the row
     /// then shows only the track's name, and leaves the list once a read made
     /// after the removal has no row matched to the track.
     pub path: Option<String>,
@@ -41,9 +42,49 @@ pub fn manual_removals(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>
     // the removed track (a trusted or probable match to one of its files).
     let mut held_by_track =
         conn.prepare("SELECT 1 FROM rekordbox_track WHERE recording_id = ?1 LIMIT 1")?;
+    // For a track that was never sent: rekordbox's own entry for it, found
+    // through a trusted match to one of the track's files (the lowest
+    // TrackID if it holds several). A probable match doesn't count: it
+    // isn't known to be this track.
+    let mut own_entry = conn.prepare(
+        "SELECT rt.location FROM rekordbox_track rt
+         JOIN recording_file rf ON rf.file_id = rt.file_id
+         WHERE rf.recording_id = ?1 AND rt.relink_probable = 0
+         ORDER BY rt.track_id, rt.id LIMIT 1",
+    )?;
     let mut name = conn.prepare("SELECT title, artist FROM recording WHERE id = ?1")?;
     let mut out = Vec::new();
-    for removed in remove_in_rekordbox(conn)? {
+    for removed in removed_tracks(conn)? {
+        if removed.last_sent_location.is_none() {
+            // Never sent, so only the latest read can say rekordbox has
+            // it: listed while that read holds an entry for it, at that
+            // entry's own Location.
+            let entry: Option<String> = own_entry
+                .query_row([removed.recording_id], |r| r.get(0))
+                .optional()?;
+            let Some(entry) = entry else {
+                continue;
+            };
+            let path = match decode(&entry) {
+                Ok(Location::File(path)) => Some(
+                    path.to_windows()
+                        .unwrap_or_else(|| path.as_str().to_owned()),
+                ),
+                _ => None,
+            };
+            let (title, artist) = name
+                .query_row([removed.recording_id], |r| Ok((r.get(0)?, r.get(1)?)))
+                .optional()?
+                .unwrap_or((None, None));
+            out.push(ManualRemoval {
+                recording_id: removed.recording_id,
+                title,
+                artist,
+                path,
+                removed_at: removed.removed_at,
+            });
+            continue;
+        }
         let location = removed
             .last_sent_location
             .as_deref()

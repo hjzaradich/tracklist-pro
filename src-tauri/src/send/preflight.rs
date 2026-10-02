@@ -127,6 +127,8 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
             reason: RefusalReason::IncompleteExport,
             path: Vec::new(),
         });
+    } else if let Some(refusal) = export_older_than_last_send(conn, read.modified_ms)? {
+        preflight.refusal = Some(refusal);
     }
     let outgoing = outgoing.filter(|_| preflight.refusal.is_none());
     preflight.can_send = preflight.refusal.is_none() && !preflight.nothing_to_send;
@@ -137,6 +139,51 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         preflight,
         outgoing,
     }))
+}
+
+/// What a send from an export saved at `export_modified_ms` gets when that
+/// is before the last send was recorded: such an export shows rekordbox as
+/// it was before that send was imported, so tracks rekordbox now has would
+/// go out as new. It's refused as a whole, and the user exports again
+/// (owner decision, 2026-10-02). `None` when the export is from the very
+/// millisecond of the last send or later, or no send was ever recorded.
+///
+/// The comparison and what follows from it are decided here and nowhere
+/// else.
+fn export_older_than_last_send(
+    conn: &Connection,
+    export_modified_ms: i64,
+) -> rusqlite::Result<Option<Refusal>> {
+    let older = last_send_ms(conn)?.is_some_and(|sent| export_modified_ms < sent);
+    Ok(older.then(|| Refusal {
+        reason: RefusalReason::ExportOlderThanLastSend,
+        path: Vec::new(),
+    }))
+}
+
+/// When the last send was recorded, in milliseconds since the Unix epoch;
+/// `None` if no send ever was.
+///
+/// A send's time is written by `record_send` on every track it sent
+/// (`library_track.last_exported_at`, kept in `library_removal` when the
+/// track is removed) and on every crate and folder it wrote
+/// (`sent_playlist.sent_at`); the latest of them all is the last send. It's
+/// compared with the export's modified time ([`ExportRead::modified_ms`]),
+/// the same clock rekordbox's save and the app's send both run on: an
+/// export saved before it is refused, one saved at that very millisecond or
+/// later isn't.
+pub(super) fn last_send_ms(conn: &Connection) -> rusqlite::Result<Option<i64>> {
+    // Whole seconds, then the three digits after the point: exact, where
+    // julianday arithmetic would round.
+    conn.query_row(
+        "SELECT max(CAST(strftime('%s', at) AS INTEGER) * 1000 + CAST(substr(at, 21, 3) AS INTEGER))
+         FROM (SELECT last_exported_at AS at FROM library_track
+               UNION ALL SELECT last_exported_at FROM library_removal
+               UNION ALL SELECT sent_at FROM sent_playlist)
+         WHERE at IS NOT NULL",
+        [],
+        |r| r.get(0),
+    )
 }
 
 /// Names a preflight by everything it says and every byte it would

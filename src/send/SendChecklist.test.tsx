@@ -392,6 +392,20 @@ describe("the send checklist", () => {
     expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
   });
 
+  it("explains a send refused because the export is older than the last send", async () => {
+    fakeBackend({
+      preflight: preflight({
+        canSend: false,
+        refusal: { reason: "exportOlderThanLastSend", path: [] },
+      }),
+    });
+    renderChecklist();
+    expect(
+      await screen.findByText(tx("send:review.refused.exportOlderThanLastSend")),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeDisabled();
+  });
+
   it("explains a send refused for an incomplete export", async () => {
     fakeBackend({
       preflight: preflight({

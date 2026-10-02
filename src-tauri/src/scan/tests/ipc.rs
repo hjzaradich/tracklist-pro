@@ -171,3 +171,120 @@ fn a_database_failure_in_a_music_folder_command_is_shown_as_the_shared_database_
     let error = MusicFolderError::from(crate::db::DbError::Sqlite(full));
     assert_eq!(IpcError::from(error).kind(), ErrorKind::DiskFull);
 }
+
+/// The scan jobs so far: each one's target and priority, oldest first.
+fn scans(app: &tauri::App<tauri::test::MockRuntime>) -> Vec<(Option<String>, i64)> {
+    app.state::<crate::db::Writer>()
+        .call(|c| {
+            let mut stmt =
+                c.prepare("SELECT target, priority FROM job WHERE kind = 'scan' ORDER BY id")?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap()
+}
+
+fn a_music_folder() -> (tempfile::TempDir, String) {
+    let drive = tempfile::tempdir().unwrap();
+    let music = std::fs::canonicalize(drive.path()).unwrap().join("Music");
+    std::fs::create_dir_all(&music).unwrap();
+    std::fs::write(music.join("a.mp3"), b"a").unwrap();
+    let path = crate::scan::display_path(&music);
+    (drive, path)
+}
+
+#[test]
+fn adding_a_music_folder_queues_exactly_one_scan_of_it_at_the_users_priority() {
+    let (_data, app) = app();
+    // The watchers have had their first look (no folder yet).
+    app.state::<crate::scan::Watchers>().status();
+    let (_drive, path) = a_music_folder();
+
+    let added = invoke(
+        &app,
+        "add_music_folder",
+        json!({ "path": path, "role": null }),
+    )
+    .unwrap();
+    // The watchers have looked at the new folder too, and scanned nothing
+    // more for it.
+    app.state::<crate::scan::Watchers>().status();
+    let target = json!({ "music_folder_ids": [added["id"]] }).to_string();
+    assert_eq!(
+        scans(&app),
+        [(Some(target), jobs::Priority::USER.0)],
+        "one scan, as asked for by the user"
+    );
+}
+
+#[test]
+fn adding_a_music_folder_scans_it_even_when_the_watchers_are_not_running() {
+    let (_data, app) = app();
+    // As when the watch thread couldn't start: nothing there will ever
+    // queue a scan.
+    app.state::<crate::scan::Watchers>().shutdown();
+    let (_drive, path) = a_music_folder();
+
+    let added = invoke(
+        &app,
+        "add_music_folder",
+        json!({ "path": path, "role": null }),
+    )
+    .unwrap();
+    let target = json!({ "music_folder_ids": [added["id"]] }).to_string();
+    assert_eq!(scans(&app), [(Some(target), jobs::Priority::USER.0)]);
+}
+
+#[test]
+fn asking_for_the_same_scan_twice_while_it_waits_queues_it_once() {
+    let (_data, app) = app();
+    // The workers are stopped, so a queued scan stays queued: the state a
+    // double click meets.
+    app.state::<jobs::JobQueue>().shutdown();
+
+    let first = invoke(&app, "scan_music_folders", json!({ "ids": [1] })).unwrap();
+    let second = invoke(&app, "scan_music_folders", json!({ "ids": [1] })).unwrap();
+    assert_eq!(first, second, "the second click gets the waiting job");
+    assert_eq!(scans(&app).len(), 1);
+
+    // Another folder's scan is its own job.
+    let other = invoke(&app, "scan_music_folders", json!({ "ids": [2] })).unwrap();
+    assert_ne!(other, first);
+    assert_eq!(scans(&app).len(), 2);
+}
+
+#[test]
+fn a_scan_the_user_asks_for_lifts_the_same_scan_waiting_in_the_background() {
+    let (_data, app) = app();
+    app.state::<jobs::JobQueue>().shutdown();
+    // What a watcher queues: the same scan, at background priority, with
+    // another background job ahead of it.
+    let queue = app.state::<jobs::JobQueue>();
+    let ahead = queue
+        .enqueue(jobs::NewJob::new(jobs::JobKind::Hash).priority(jobs::Priority::BACKGROUND))
+        .unwrap();
+    let waiting = queue
+        .enqueue(
+            crate::scan::scan_job(Some(vec![crate::scan::MusicFolderId(1)]))
+                .priority(jobs::Priority::BACKGROUND),
+        )
+        .unwrap();
+    assert!(ahead < waiting);
+
+    let asked = invoke(&app, "scan_music_folders", json!({ "ids": [1] })).unwrap();
+    assert_eq!(asked, json!(waiting.0), "no second scan is queued");
+    assert_eq!(scans(&app).len(), 1);
+    assert_eq!(scans(&app)[0].1, jobs::Priority::USER.0);
+
+    // A background request for it afterwards doesn't take it back down.
+    let writer = app.state::<crate::db::Writer>();
+    let again = crate::scan::chain::queue_once(
+        &writer,
+        crate::scan::scan_job(Some(vec![crate::scan::MusicFolderId(1)]))
+            .priority(jobs::Priority::BACKGROUND),
+        |job| queue.enqueue(job),
+    )
+    .unwrap();
+    assert_eq!(again, waiting);
+    assert_eq!(scans(&app)[0].1, jobs::Priority::USER.0);
+}

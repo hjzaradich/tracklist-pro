@@ -45,6 +45,11 @@ pub struct AllMusicTrack {
     /// otherwise its best file, or its first.
     pub file: Option<LinkedFile>,
     pub in_library: bool,
+    /// One of its files is the probable match of a rekordbox track, and
+    /// the match can't be confirmed yet: it can't be added to the Library
+    /// ([`library::match_not_confirmed`]). The row says so and its "Add
+    /// to Library" is greyed out.
+    pub match_not_confirmed: bool,
 }
 
 /// The tracks matching a search, up to [`LIST_LIMIT`] of them.
@@ -63,6 +68,7 @@ pub struct StoredTrack {
     artist: Option<String>,
     file: Option<StoredFile>,
     in_library: bool,
+    match_not_confirmed: bool,
 }
 
 /// A track with what the search and the order are decided on.
@@ -159,6 +165,8 @@ pub fn stored(conn: &Connection, search: &str) -> rusqlite::Result<(u32, Vec<Sto
             title: track.title,
             artist: track.artist,
             file: library::stored_file(conn, file_id)?,
+            match_not_confirmed: !track.in_library
+                && library::match_not_confirmed(conn, track.recording_id)?,
             in_library: track.in_library,
         });
     }
@@ -177,6 +185,7 @@ pub fn list(total: u32, tracks: &[StoredTrack], volumes: &impl Volumes) -> AllMu
                 artist: t.artist.clone(),
                 file: t.file.as_ref().map(|f| f.shown(volumes)),
                 in_library: t.in_library,
+                match_not_confirmed: t.match_not_confirmed,
             })
             .collect(),
     }

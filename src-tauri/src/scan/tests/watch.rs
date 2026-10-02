@@ -176,6 +176,31 @@ fn a_watched_folder_is_scanned_once_at_start_not_once_per_reason() {
 }
 
 #[test]
+fn a_folder_added_with_its_scan_already_queued_is_not_scanned_again_but_one_found_new_is() {
+    let w = Watched::new(false);
+    w.settle();
+    assert_eq!(w.scans_of(w.folder), 1);
+
+    // Added by a caller that queues the scan itself and says so.
+    let told = w.music.parent().unwrap().join("Told");
+    std::fs::create_dir_all(&told).unwrap();
+    let told = add_music(&w.writer, &w.volume, &told);
+    w.watchers.added(told);
+    w.settle();
+    assert_eq!(w.scans_of(told), 0);
+
+    // Found by a plain refresh: new here, so it's scanned.
+    let found = w.music.parent().unwrap().join("Found");
+    std::fs::create_dir_all(&found).unwrap();
+    let found = add_music(&w.writer, &w.volume, &found);
+    w.watchers.refresh();
+    w.settle();
+    assert_eq!(w.scans_of(found), 1);
+    assert_eq!(w.scans_of(told), 0);
+    w.watchers.shutdown();
+}
+
+#[test]
 fn a_file_added_in_a_watched_folder_gets_indexed_and_read() {
     let w = Watched::new(true);
     assert_eq!(w.settle(), [w.folder]);

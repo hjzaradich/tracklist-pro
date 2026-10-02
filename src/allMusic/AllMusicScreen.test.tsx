@@ -26,6 +26,7 @@ function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
     artist: `Made Up Artist ${id}`,
     file: { path: String.raw`E:\Music\tune ` + id + ".mp3", name: `tune ${id}.mp3`, present: true, driveConnected: true },
     inLibrary: false,
+    matchNotConfirmed: false,
     ...fields,
   };
 }
@@ -249,5 +250,23 @@ describe("All music while a scan is still filling it", () => {
     const asked = backend.searches.length;
     await act(() => emit("job-updates", [job("read", "running")]));
     expect(backend.searches).toHaveLength(asked);
+  });
+});
+
+describe("a track whose rekordbox match isn't confirmed", () => {
+  it("can't be added: the button is greyed out and the row says why", async () => {
+    const backend = fakeBackend([track(1), track(2, { matchNotConfirmed: true })]);
+    renderScreen();
+    const [free, held] = await rows();
+
+    expect(within(free).getByRole("button", { name: tx("allMusic:add") })).toBeEnabled();
+    expect(within(free).queryByText(tx("allMusic:matchNotConfirmed"))).toBeNull();
+
+    const button = within(held).getByRole("button", { name: tx("allMusic:add") });
+    expect(button).toBeDisabled();
+    // The reason is on the row before any click, and tied to the button.
+    expect(button).toHaveAccessibleDescription(tx("allMusic:matchNotConfirmed"));
+    await userEvent.click(button);
+    expect(backend.added).toEqual([]);
   });
 });

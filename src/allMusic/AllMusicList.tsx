@@ -6,6 +6,8 @@ import styles from "./AllMusicList.module.css";
  * The minimal All music list (1aE-4): title, artist and file per track, in
  * the order the backend sorted them, and "Add to Library" for each track
  * that isn't in the Library. A track with no title shows its file's name.
+ * A track that can't be added yet (its rekordbox match isn't confirmed)
+ * has the button greyed out, with the reason beside it.
  * `adding` is the track an add is running for.
  */
 export function AllMusicList({
@@ -38,14 +40,22 @@ export function AllMusicList({
               {track.inLibrary ? (
                 <span className={styles.inLibrary}>{t("inLibrary")}</span>
               ) : (
-                <button
-                  type="button"
-                  className={styles.add}
-                  disabled={adding !== undefined}
-                  onClick={() => onAdd(track.recordingId)}
-                >
-                  {t("add")}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className={styles.add}
+                    disabled={adding !== undefined || track.matchNotConfirmed}
+                    aria-describedby={track.matchNotConfirmed ? `why-${track.recordingId}` : undefined}
+                    onClick={() => onAdd(track.recordingId)}
+                  >
+                    {t("add")}
+                  </button>
+                  {track.matchNotConfirmed && (
+                    <span id={`why-${track.recordingId}`} className={styles.inLibrary}>
+                      {t("matchNotConfirmed")}
+                    </span>
+                  )}
+                </>
               )}
             </td>
           </tr>

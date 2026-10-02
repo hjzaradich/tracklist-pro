@@ -128,6 +128,10 @@ struct Inner {
 enum Msg {
     /// The music folders or the drives changed: look at the roots again.
     Refresh,
+    /// A music folder was just added, and whoever added it queued its
+    /// scan: look at the roots again, without scanning that one for
+    /// having come online.
+    Added(MusicFolderId),
     /// The `notify` watcher saw something.
     Event(notify::Result<Event>),
     /// Windows asks whether the drive behind a root's registration may go:
@@ -243,6 +247,13 @@ impl Watchers {
         let _ = self.inner.tx.send(Msg::Refresh);
     }
 
+    /// [`Watchers::refresh`] after music folder `id` was added by a caller
+    /// that queues the folder's scan itself: the folder isn't scanned a
+    /// second time for being new here.
+    pub fn added(&self, id: MusicFolderId) {
+        let _ = self.inner.tx.send(Msg::Added(id));
+    }
+
     /// What's watched right now. Answered after everything sent before.
     pub fn status(&self) -> Status {
         let (reply, answer) = mpsc::channel();
@@ -336,6 +347,16 @@ impl<V: Volumes> Supervisor<V> {
             match msg {
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Msg::Refresh) => {
+                    if self.refresh() == Refreshed::WriterGone {
+                        break;
+                    }
+                }
+                Ok(Msg::Added(id)) => {
+                    // Before the first look every folder is scanned anyway,
+                    // and the chain folds that scan into the one queued.
+                    if let Some(online) = &mut self.online {
+                        online.insert(id);
+                    }
                     if self.refresh() == Refreshed::WriterGone {
                         break;
                     }

@@ -37,13 +37,23 @@
 //!   for one that wasn't, nothing in an export tells the two apart. Only a
 //!   seen path is ever listed, which narrows the window.
 //! - **Manual removals** ([`manual_removals`]): tracks removed from the
-//!   Library that were sent before ([`crate::library::remove_in_rekordbox`])
-//!   and that rekordbox still holds. A track leaves the list when a
-//!   rekordbox read made after its removal no longer has it; a read from
-//!   before the removal says nothing, and an incomplete read can't say a
-//!   track is gone (it keeps the tracks it doesn't mention). A track whose
-//!   sent `Location` can't be read back is matched by the read's rows matched
-//!   to the track instead, shows no path, and leaves the same way.
+//!   Library that rekordbox still holds, whether or not a send ever wrote
+//!   them (owner decision, 2026-10-02).
+//!
+//!   *A track that was sent* is looked up by the `Location` it was sent to.
+//!   It leaves the list when a rekordbox read made after its removal no
+//!   longer has it; a read from before the removal says nothing, and an
+//!   incomplete read can't say a track is gone (it keeps the tracks it
+//!   doesn't mention). One whose sent `Location` can't be read back is
+//!   matched by the read's rows matched to the track instead, shows no
+//!   path, and leaves the same way.
+//!
+//!   *A track that was never sent* (a known track no crate named, in a
+//!   Library started from rekordbox) is listed while the latest read holds
+//!   rekordbox's own entry for it: a trusted match to one of the track's
+//!   files. It shows that entry's path, and leaves once a read no longer
+//!   has the entry. With only a probable match, or no rekordbox entry at
+//!   all, it isn't listed: nothing says rekordbox has it.
 //!
 //! Both are worked out from the database alone, so nothing here depends on
 //! a send having just happened, and nothing here writes a file or sends

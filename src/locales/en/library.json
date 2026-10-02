@@ -31,6 +31,7 @@
   "error": {
     "trackNotFound": "Track not found",
     "noFile": "Can't add: this track has no file",
-    "fileMissing": "Can't add: file missing ({{path}})"
+    "fileMissing": "Can't add: file missing ({{path}})",
+    "matchNotConfirmed": "Can't add: its match to a rekordbox track isn't confirmed"
   }
 }

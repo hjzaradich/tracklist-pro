@@ -160,8 +160,54 @@ fn each_track_is_listed_with_its_title_artist_and_file() {
                 drive_connected: true,
             }),
             in_library: false,
+            match_not_confirmed: false,
         }]
     );
+}
+
+#[test]
+fn a_track_whose_only_rekordbox_match_is_probable_is_marked_until_it_is_trusted() {
+    let lib = Lib::new();
+    lib.track(Some("Plain"), None, "plain.mp3");
+    let held = lib.track(Some("Renamed"), None, "renamed.mp3");
+    let file: i64 = lib
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT file_id FROM recording_file WHERE recording_id = ?1",
+                [held],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    let entry = lib.insert(
+        "INSERT INTO rekordbox_track
+             (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+         VALUES ('{\"TrackID\":\"7\",\"Location\":\"file://localhost/E:/Music/old.mp3\"}',
+                 'E:/Music/old.mp3', '2026-09-30T10:00:00.000Z', ?1, 'filename_only', 1)",
+        (file,),
+    );
+    let marked = |lib: &Lib| -> Vec<(Option<String>, bool)> {
+        lib.list("")
+            .tracks
+            .into_iter()
+            .map(|t| (t.title, t.match_not_confirmed))
+            .collect()
+    };
+    assert_eq!(
+        marked(&lib),
+        [
+            (Some("Plain".to_owned()), false),
+            (Some("Renamed".to_owned()), true)
+        ]
+    );
+
+    // Once the match is trusted, the track is added like any other.
+    lib.insert(
+        "UPDATE rekordbox_track SET relink_probable = 0, relink_method = 'user' WHERE id = ?1",
+        (entry,),
+    );
+    assert!(marked(&lib).iter().all(|(_, held)| !held));
 }
 
 #[test]

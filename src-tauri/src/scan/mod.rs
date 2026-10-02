@@ -59,13 +59,20 @@ pub fn walker<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
 
 /// Scans the music folders `ids`, or all of them. Returns the job's id; its
 /// progress shows in Activity, and new files arrive as `ScannedFiles`.
+/// Asked again while that same scan is waiting, nothing more is queued and
+/// the waiting job's id comes back; while it's running, it runs once more
+/// when it ends, however many times it's asked (a double click is one
+/// scan).
 #[tauri::command(async)]
 #[specta::specta]
 pub fn scan_music_folders(
+    writer: State<'_, crate::db::Writer>,
     jobs: State<'_, JobQueue>,
     ids: Option<Vec<MusicFolderId>>,
 ) -> Result<JobId, IpcError> {
-    Ok(jobs.enqueue(scan_job(ids))?)
+    Ok(chain::queue_once(&writer, scan_job(ids), |job| {
+        jobs.enqueue(job)
+    })?)
 }
 
 /// The volumes mounted right now, as the OS reports them, with clones told

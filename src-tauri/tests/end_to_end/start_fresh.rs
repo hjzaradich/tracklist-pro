@@ -12,7 +12,7 @@ use serde_json::json;
 use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::library::LibraryTrack;
 use tracklist_pro_lib::rekordbox;
-use tracklist_pro_lib::send::{LeftOutReason, LosesEntries, SendFailure, TreeKind};
+use tracklist_pro_lib::send::{LeftOutReason, LosesEntries, RefusalReason, SendFailure, TreeKind};
 
 use super::fixtures::{
     assert_is_rekordboxs_own_entry, children, collection, entries, songs, track_at, KNOWN,
@@ -156,6 +156,9 @@ fn sending_a_fresh_library_again_duplicates_nothing() {
 
     let first = world.send();
     let first_bytes = world.sent_bytes();
+    // Not imported yet: rekordbox exports the same collection again, and
+    // the second send is the same file.
+    world.rekordbox_saves(&rb.export());
     world.send();
     assert_eq!(world.sent_bytes(), first_bytes, "the second send's file");
 
@@ -184,6 +187,39 @@ fn sending_a_fresh_library_again_duplicates_nothing() {
         world.after_send_lists(),
         json!({ "playlistsChecked": true, "stalePlaylists": [], "manualRemovals": [] })
     );
+}
+
+/// The sequence that put duplicates in rekordbox: send new tracks, import
+/// them, then send again without exporting. The old export doesn't know
+/// rekordbox has them now, so they'd go out as new once more.
+#[test]
+fn a_send_from_an_export_older_than_the_last_send_is_refused_until_rekordbox_exports_again() {
+    let (mut world, mut rb) = started_fresh();
+    fresh_library_with_a_crate(&world);
+    let first = world.send();
+    let first_bytes = world.sent_bytes();
+    rb.import(&first);
+
+    // "Read export" again, with no new export.
+    let state = world.prepare_send();
+    assert_eq!(state.failure, None);
+    let preflight = state.preflight.unwrap();
+    assert_eq!(
+        preflight.refusal.as_ref().map(|r| r.reason),
+        Some(RefusalReason::ExportOlderThanLastSend)
+    );
+    assert!(!preflight.can_send);
+    let state = world.write_send(&preflight.token, true);
+    assert_eq!(state.failure, Some(SendFailure::NotSendable));
+    assert_eq!(world.sent_bytes(), first_bytes, "nothing is written");
+
+    // rekordbox exports: the send goes, and the tracks it now has are
+    // known, not new.
+    world.rekordbox_saves(&rb.export());
+    let preflight = world.prepared();
+    assert_eq!(preflight.refusal, None);
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 3));
+    world.write_and_read_back(&preflight, false);
 }
 
 #[test]

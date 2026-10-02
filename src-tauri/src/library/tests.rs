@@ -213,13 +213,14 @@ fn a_trusted_rekordbox_match_beats_the_best_file() {
 }
 
 #[test]
-fn a_probable_rekordbox_match_is_ignored_and_the_best_file_is_linked() {
+fn a_track_whose_only_rekordbox_match_is_probable_cannot_be_added() {
     let lib = Lib::new();
     let track = lib.track(None, None);
     let best = lib.file(track, "best.flac", "best", true);
     let probable = lib.file(track, "maybe.mp3", "undecided", true);
     lib.rekordbox_match(probable, true);
 
+    // The probable match is never the file picked...
     let choice = lib
         .writer
         .call(move |c| linked_file_for(c, track))
@@ -228,8 +229,49 @@ fn a_probable_rekordbox_match_is_ignored_and_the_best_file_is_linked() {
     assert_eq!(choice.file_id, best);
     assert_eq!(choice.source, LinkedFileSource::BestFile);
 
+    // ...and linking the best file instead would send the track as new,
+    // beside the rekordbox entry that is probably its own: refused.
+    assert!(matches!(
+        lib.promote(track),
+        Err(LibraryError::MatchNotConfirmed)
+    ));
+    assert_eq!(lib.library_tracks(), 0);
+    assert_eq!(lib.operations(), 0);
+}
+
+#[test]
+fn a_probable_match_on_the_tracks_only_file_holds_it_back_too() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    let only = lib.file(track, "renamed.mp3", "best", true);
+    lib.rekordbox_match(only, true);
+    assert!(matches!(
+        lib.promote(track),
+        Err(LibraryError::MatchNotConfirmed)
+    ));
+}
+
+#[test]
+fn a_track_with_a_trusted_match_is_added_whatever_else_is_only_probable() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    let trusted = lib.file(track, "best.flac", "best", true);
+    let probable = lib.file(track, "maybe.mp3", "undecided", true);
+    lib.rekordbox_match(trusted, false);
+    lib.rekordbox_match(probable, true);
     lib.promote(track).unwrap();
-    assert_eq!(lib.linked_file(track), Some(best));
+    assert_eq!(lib.linked_file(track), Some(trusted));
+}
+
+#[test]
+fn a_probable_match_to_another_tracks_file_holds_nothing_back() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    lib.file(track, "mine.mp3", "best", true);
+    let other = lib.track(None, None);
+    let theirs = lib.file(other, "theirs.mp3", "best", true);
+    lib.rekordbox_match(theirs, true);
+    lib.promote(track).unwrap();
 }
 
 #[test]
@@ -757,6 +799,33 @@ mod ipc {
         assert_eq!(missing["kind"], json!("libraryFileMissing"));
         let path = missing["params"]["path"].as_str().unwrap();
         assert!(path.ends_with(r"Music\gone.mp3"), "{path}");
+    }
+
+    #[test]
+    fn an_add_held_back_for_an_unconfirmed_match_reaches_the_frontend_as_its_own_error_kind() {
+        let (_data, app) = app();
+        app.state::<Writer>()
+            .call(|c| {
+                c.execute_batch(
+                    "INSERT INTO volume (identity, kind, last_mount_path)
+                         VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
+                     INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                         VALUES (1, 'Music', 'Music');
+                     INSERT INTO recording DEFAULT VALUES;
+                     INSERT INTO file (music_folder_id, rel_path, rel_path_key, present)
+                         VALUES (1, 'renamed.mp3', 'renamed.mp3', 1);
+                     INSERT INTO recording_file (recording_id, file_id, role) VALUES (1, 1, 'best');
+                     INSERT INTO rekordbox_track
+                         (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+                     VALUES ('{\"TrackID\":\"7\",\"Location\":\"file://localhost/Q:/Music/old.mp3\"}',
+                             'Q:/Music/old.mp3', '2026-09-30T10:00:00.000Z', 1, 'filename_only', 1);",
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            invoke(&app, "promote_track", json!({ "recordingId": 1 })),
+            Err(json!({ "kind": "libraryMatchNotConfirmed", "params": {} }))
+        );
     }
 
     #[test]

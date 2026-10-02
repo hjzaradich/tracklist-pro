@@ -59,6 +59,11 @@ impl Track {
         }
     }
 
+    /// Drops an attribute: rekordbox never wrote it for this track.
+    pub fn unset(&mut self, name: &str) {
+        self.attrs.retain(|(n, _)| n != name);
+    }
+
     /// The key two spellings of one `Location` share.
     pub fn location_key(&self) -> String {
         decode(self.get("Location")).unwrap().match_key()

@@ -12,7 +12,7 @@ use tracklist_pro_lib::start::{AddSummary, Offer};
 
 use super::fixtures::{
     assert_is_rekordboxs_own_entry, children, collection, entries, songs, track_at, KNOWN,
-    NEVER_ON_DISK,
+    NEVER_ON_DISK, UNKNOWN,
 };
 use super::harness::{Song, World};
 use super::rekordbox_side::{key_of, Rekordbox};
@@ -208,6 +208,9 @@ fn sending_again_with_nothing_changed_writes_the_same_file_and_leaves_nothing_to
 
     let first = world.send();
     let first_bytes = world.sent_bytes();
+    // The first send is never imported: rekordbox exports the same
+    // collection again, and the second send is the same file.
+    world.rekordbox_saves(&rb.export());
     world.send();
     assert_eq!(world.sent_bytes(), first_bytes, "the second send's file");
 
@@ -299,4 +302,97 @@ fn an_incomplete_export_refuses_the_send_and_the_last_file_stays_as_it_was() {
     world.rekordbox_saves(&rb.export());
     world.send();
     assert_eq!(world.sent_bytes(), last);
+}
+
+/// The sequence that put a second entry in rekordbox: a file moved since
+/// rekordbox imported it is matched by its name alone (a probable match),
+/// so "Start from rekordbox" leaves it out; added by hand it was linked as
+/// a track rekordbox doesn't know, and sent as new beside rekordbox's own
+/// entry. Now it can't be added until the match can be confirmed.
+#[test]
+fn a_track_whose_rekordbox_match_is_only_probable_cannot_be_added_so_it_is_never_sent_as_new() {
+    let mut world = World::new(&songs());
+    let mut rb = collection(&world);
+    let moved = UNKNOWN[0];
+    // rekordbox has the file where it used to be, and no length for it:
+    // only the name ties its entry to the file in the music folder.
+    let old_place = world.music.join("Old place").join(moved.file_name());
+    rb.has(&old_place, &moved, 9, "125.00", "2A");
+    rb.tracks.last_mut().unwrap().unset("TotalTime");
+    world.rekordbox_saves(&rb.export());
+    world.add_music_folder_and_scan();
+    world.read_rekordbox();
+
+    let offer: Offer = world.call("rekordbox_offer", json!({ "playlists": null }));
+    assert_eq!(offer.waiting_for_confirmation, 1);
+    assert_eq!(offer.to_add, KNOWN.len() as u32);
+    let added: AddSummary = world.call("add_rekordbox_tracks", json!({ "playlists": null }));
+    assert_eq!(added.added, KNOWN.len() as u32);
+
+    // All music marks the row: its Add control is greyed out there.
+    let all = world.all_music();
+    let held_back: Vec<_> = all
+        .tracks
+        .iter()
+        .filter(|t| t.match_not_confirmed)
+        .map(|t| t.file.as_ref().unwrap().name.clone())
+        .collect();
+    assert_eq!(held_back, [moved.file_name()]);
+    let row = all.tracks.iter().find(|t| t.match_not_confirmed).unwrap();
+
+    // And the add itself refuses, whoever asks.
+    let refused = world
+        .try_call::<serde_json::Value>("promote_track", json!({ "recordingId": row.recording_id }))
+        .unwrap_err();
+    assert_eq!(refused["kind"], "libraryMatchNotConfirmed");
+    assert_eq!(world.library().len(), KNOWN.len());
+
+    // So a send carries rekordbox's own tracks and nothing new.
+    crates_naming_every_track(&world);
+    let preflight = world.prepared();
+    assert_eq!(
+        (preflight.new_tracks, preflight.known_tracks),
+        (0, KNOWN.len() as u32)
+    );
+    let sent = world.write_and_read_back(&preflight, false);
+    assert!(track_at(&sent, &world.path_of(&moved)).is_none());
+    let before = rb.tracks.len();
+    rb.import(&sent);
+    assert_eq!(rb.tracks.len(), before, "no second entry");
+}
+
+/// A Library started from rekordbox, where almost no track is ever sent
+/// (no crate names it): a removed track is still rekordbox's to remove.
+#[test]
+fn a_removed_track_that_was_never_sent_is_listed_while_rekordbox_still_holds_it() {
+    let (mut world, mut rb) = started_from_rekordbox();
+    let removed = KNOWN[4];
+    let path = world.path_of(&removed);
+    assert_eq!(world.after_send_lists()["manualRemovals"], json!([]));
+
+    world.remove_from_library(world.library_track(&removed).id);
+
+    let lists = world.after_send_lists();
+    let removals = lists["manualRemovals"].as_array().unwrap();
+    assert_eq!(removals.len(), 1, "{removals:?}");
+    assert_eq!(
+        key_of(removals[0]["path"].as_str().unwrap().as_ref()),
+        key_of(&path)
+    );
+
+    // The user removes it in rekordbox; the next read clears the list.
+    let key = key_of(&path);
+    rb.tracks.retain(|t| t.location_key() != key);
+    world.rekordbox_saves(&rb.export());
+    world.read_rekordbox();
+    assert_eq!(world.after_send_lists()["manualRemovals"], json!([]));
+}
+
+/// A track rekordbox has never had isn't rekordbox's to remove.
+#[test]
+fn a_removed_track_rekordbox_never_had_is_not_listed() {
+    let (world, _rb) = started_from_rekordbox();
+    let added = world.add_from_all_music(&UNKNOWN[1]);
+    world.remove_from_library(added.id);
+    assert_eq!(world.after_send_lists()["manualRemovals"], json!([]));
 }

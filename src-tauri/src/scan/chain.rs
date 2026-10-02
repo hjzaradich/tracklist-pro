@@ -360,7 +360,8 @@ pub(crate) fn any_to_try(
 }
 
 /// Queues `job` with `enqueue`, unless a job of the same kind and target
-/// is queued or running. Queued: nothing to do, and its id is returned.
+/// is queued or running. Queued: its id is returned, and it takes `job`'s
+/// priority if that's higher (workers take jobs by their stored priority).
 /// Running: it may already have listed its files, so it's asked to run
 /// once more when it ends (its [`Chained`] wrapper does that), and its id
 /// is returned; if it's already ending (its wrapper has had its last
@@ -375,7 +376,18 @@ pub(crate) fn queue_once<E: From<DbError>>(
     let same = job.clone();
     let active = writer.call(move |c| active(c, &same))?;
     if let Some(queued) = active.iter().find(|(_, running)| !running) {
-        return Ok(queued.0);
+        // The waiting job does for both, at the higher of the two
+        // priorities: a scan the user asks for isn't left behind the
+        // background work a watcher queued it among.
+        let (id, priority) = (queued.0, job.priority);
+        writer.call(move |c| {
+            c.execute(
+                "UPDATE job SET priority = ?2
+                 WHERE id = ?1 AND status = 'queued' AND priority < ?2",
+                (id.0, priority.0),
+            )
+        })?;
+        return Ok(id);
     }
     let key = key(writer, &job);
     match active.first() {

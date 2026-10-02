@@ -316,12 +316,98 @@ fn a_removed_track_is_matched_to_rekordbox_by_location_however_it_is_spelled() {
     assert_eq!(lib.lists().manual_removals.len(), 1);
 }
 
+impl Lib {
+    /// A file of `recording`, and rekordbox's entry at `location` matched
+    /// to it: trusted, or only probable.
+    fn entry_for(&self, recording: i64, location: &'static str, probable: bool) {
+        self.writer
+            .call(move |c| {
+                c.execute_batch(
+                    "INSERT OR IGNORE INTO volume (id, identity, kind, last_mount_path)
+                         VALUES (1, 'serial=NTFS-1A2B3C4D', 'external', 'E:\\');
+                     INSERT OR IGNORE INTO music_folder (id, volume_id, rel_path, rel_path_key)
+                         VALUES (1, 1, 'Music', 'Music');",
+                )?;
+                let name = format!("{recording}-{probable}.mp3");
+                c.execute(
+                    "INSERT INTO file (music_folder_id, rel_path, rel_path_key, present)
+                     VALUES (1, ?1, ?1, 1)",
+                    [&name],
+                )?;
+                let file = c.last_insert_rowid();
+                c.execute(
+                    "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
+                    (recording, file),
+                )?;
+                let key = crate::rekordbox::location::decode(location).unwrap().match_key();
+                c.execute(
+                    "INSERT INTO rekordbox_track
+                         (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+                     VALUES (?1, ?2, '2026-10-01T09:00:00.000Z', ?3, ?4, ?5)",
+                    (
+                        format!("{{\"TrackID\":\"{file}\",\"Location\":\"{location}\"}}"),
+                        key,
+                        file,
+                        if probable { "filename_only" } else { "path" },
+                        probable,
+                    ),
+                )
+            })
+            .unwrap();
+    }
+}
+
 #[test]
-fn a_removed_track_that_was_never_sent_is_not_listed() {
+fn a_removed_track_that_was_never_sent_is_listed_while_rekordbox_holds_its_own_entry() {
+    let lib = Lib::new();
+    // A read from before the removal is enough: the entry is rekordbox's
+    // own, not something a send may or may not have put there.
+    lib.read("2026-10-01T09:00:00.000Z", &[], true);
+    let recording = lib.removed("Never sent", None, "2026-10-01T10:00:00.000Z");
+    lib.entry_for(recording, A, false);
+
+    let listed = lib.lists().manual_removals;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].title.as_deref(), Some("Never sent"));
+    assert_eq!(listed[0].path.as_deref(), Some(r"E:\Music\Synthetic A.mp3"));
+
+    // The user deletes it in rekordbox: the next read has no entry for it.
+    lib.read("2026-10-01T12:00:00.000Z", &[], true);
+    assert_eq!(lib.lists().manual_removals, []);
+}
+
+#[test]
+fn a_never_sent_removed_track_rekordbox_has_no_entry_for_is_not_listed() {
     let lib = Lib::new();
     lib.removed("Never sent", None, "2026-10-01T10:00:00.000Z");
+    // rekordbox holds something, but nothing matched to this track.
     lib.read("2026-10-01T11:00:00.000Z", &[A], true);
     assert_eq!(lib.lists().manual_removals, []);
+}
+
+#[test]
+fn a_never_sent_removed_track_with_only_a_probable_match_is_not_listed() {
+    let lib = Lib::new();
+    lib.read("2026-10-01T09:00:00.000Z", &[], true);
+    let recording = lib.removed("Maybe theirs", None, "2026-10-01T10:00:00.000Z");
+    lib.entry_for(recording, A, true);
+    assert_eq!(lib.lists().manual_removals, []);
+}
+
+#[test]
+fn sent_and_never_sent_removals_are_listed_together_in_the_order_removed() {
+    let lib = Lib::new();
+    lib.read("2026-10-01T09:00:00.000Z", &[], true);
+    let never = lib.removed("Never sent", None, "2026-10-01T10:00:00.000Z");
+    lib.entry_for(never, B, false);
+    lib.removed("Synthetic A", Some(A), "2026-10-01T10:30:00.000Z");
+    let titles: Vec<_> = lib
+        .lists()
+        .manual_removals
+        .into_iter()
+        .map(|r| r.title.unwrap())
+        .collect();
+    assert_eq!(titles, ["Never sent", "Synthetic A"]);
 }
 
 #[test]
