@@ -103,7 +103,7 @@ function backend(
         if (before === null) return { status: "nothingToUndo" };
         crates = before;
         before = null;
-        return { status: "undone", operation: { id: 1, kind: "x" } };
+        return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
       default:
         throw new Error(`unexpected command ${cmd}`);
     }
@@ -344,7 +344,12 @@ describe("undo", () => {
     // The backend refuses the undo.
     mockIPC((cmd) => {
       if (cmd === "undo_last_operation") {
-        return { status: "refused", operation: { id: 1, kind: "create_crate" }, conflicts: [] };
+        return {
+          status: "refused",
+          operation: { id: 1, kind: "create_crate", details: { name: null, from: null, tracks: null } },
+          reason: { code: "changedSince" },
+          conflicts: [],
+        };
       }
       if (cmd === "list_crates") return [{ id: 100, name: "Warm up", trackCount: 0 }];
       if (cmd === "crate_tracks") return [];

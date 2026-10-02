@@ -215,7 +215,7 @@ function removable(initial: LibraryTrack[]) {
     if (cmd === "undo_last_operation") {
       if (last === null) return { status: "nothingToUndo" };
       tracks = [...tracks, last].sort((a, b) => a.id - b.id);
-      return { status: "undone", operation: { id: 1, kind: "remove_from_library" } };
+      return { status: "undone", operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } } };
     }
     throw new Error(`unexpected command ${cmd}`);
   });
@@ -330,7 +330,8 @@ describe("removing a track from the Library", () => {
       if (cmd === "undo_last_operation") {
         return {
           status: "refused",
-          operation: { id: 1, kind: "remove_from_library" },
+          operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } },
+          reason: { code: "changedSince" },
           conflicts: [],
         };
       }
@@ -450,7 +451,7 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
       const target = crates.find((c) => c.id === last?.id);
       if (target) target.trackIds = target.trackIds.filter((id) => !last?.added.includes(id));
       last = null;
-      return { status: "undone", operation: { id: 1, kind: "add_to_crate" } };
+      return { status: "undone", operation: { id: 1, kind: "add_to_crate", details: { name: null, from: null, tracks: null } } };
     }
     throw new Error(`unexpected command ${cmd}`);
   });

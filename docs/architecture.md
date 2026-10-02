@@ -186,8 +186,9 @@ The canonical tag columns on `recording` (title, artist, …) exist but nothing 
 ### Undo
 1. Every user-facing change runs through `ops::record`: a `Recorder` makes each write and its `change` rows in the same transaction.
 2. The recorder refuses a delete that would cascade to rows it didn't record.
-3. `ops::undo_last_operation` reverses the newest operation, but first checks every field still holds what the operation left. If anything changed since, it changes nothing and reports the conflict.
-4. Scans, reads, relink, attach and sends are not operations.
+3. `ops::undo_last_operation` reverses the newest operation that isn't undone yet, but first checks every field still holds what the operation left. If anything changed since, it changes nothing and reports the reason. Called again, it reverses the one before: undo is multi-step, newest first, with no redo, and it never skips a refused step.
+4. `ops::next_undo_operation` says what Undo would take back now (kind and details), and why it would be refused. It tries the undo in a transaction that is always rolled back, for operations of up to 2,000 change rows; a larger one is only named. The top bar's Undo button and Ctrl+Z use both commands.
+5. Scans, reads, relink, attach and sends are not operations. A logged table they insert into never reuses row ids (`sync_base`, `AUTOINCREMENT`), and a source-scan test fails on any other such insert.
 
 ## 5. The safety architecture
 
@@ -234,8 +235,8 @@ Fixtures are generated (`tools/fixture-gen`); CI never depends on a real library
 - **rekordbox's import behavior is observed, not documented** (ROADMAP §5.2). Any 7.x update can change it. Three cases are explicitly unverified: same-name playlists differing only in case or Unicode form; re-sending a track whose `Location` is not a plain drive path; the `Kind` string for MP4 files.
 - **A "Yes" in rekordbox's import dialog is a full overwrite and can't be undone by the app.** Values come from the export read at prepare time; edits made in rekordbox after that export are lost.
 - **Stale playlists are matched by name only.** A user-made playlist with the same name and place as an app crate that was sent but never imported can be listed for deletion (`after_send` module docs).
-- **Single-step undo.** Only the newest operation can be undone. Multi-step is *planned* (1b).
-- **Sends aren't operations.** A send's new `sync_base` rows can reuse row ids of a removed track's rows; undoing that removal is then refused.
+- **A refused undo step blocks the steps before it.** Undo never skips (owner decision), so once the next step is the add of a track that has since been sent, older steps stay out of reach until a new action is made and undone.
+- **Sends aren't operations.** Undoing the add of a track that was sent since is refused; the user removes the track instead.
 - **A crash between writing the XML and recording the send** leaves an unrecorded file. Nothing detects it at the next start; the next send replaces it.
 - **Crash resume for jobs is *planned* (1c).** A clean exit re-queues running jobs; a hard kill leaves rows in `running`.
 - **No conflict detection yet** (*planned*, 1c). Safe today only because the app changes no field of a track rekordbox knows.
@@ -254,7 +255,7 @@ Fixtures are generated (`tools/fixture-gen`); CI never depends on a real library
 2. **Relink redecides every row on every run**, and runs after every read stage, fingerprint run, grouping run and rekordbox read. That makes results independent of history, but the cost is O(collection) each time. Is there an incremental form that keeps the "same input, same output" guarantee?
 3. **The job chain is implicit.** Stages queue each other through handler wrappers plus in-memory "run once more" state (`scan::chain`), and relink/attach have their own request rules. Is there a loop, a lost wake-up or a starvation case we've missed? Would an explicit dependency graph be safer than conventions?
 4. **Rows left `running` after a hard kill.** As we read `scan::chain::queue_once`, a `running` row with the same kind and target counts as active, so a scan stage for that folder would not be queued again until crash resume exists (1c). Is that right, and should startup reset such rows now?
-5. **The operation log is generic and field-level** (`entity`, `entity_id`, `field`, before/after as text), with undo refusing on any later change. It breaks when row ids are reused (the send vs removal case). Is row-id identity sound for a log meant to become multi-step, or should logged tables use ids that are never reused (`AUTOINCREMENT`) or operation-specific inverses?
+5. **The operation log is generic and field-level** (`entity`, `entity_id`, `field`, before/after as text), with undo refusing on any later change. Row-id reuse (the send vs removal case) was settled in 1bA-12: history is linear, so ids reused through the log are harmless, and a logged table written outside the log (`sync_base`) never reuses ids. Is that sound as more code writes logged tables outside the log (reads creating conflicts, 1c)?
 6. **What is and isn't undoable.** Sends, reads, relink and attach bypass the log and may change rows an operation touched. Is the boundary coherent, or will multi-step undo meet states it can't restore?
 7. **The XML round trip rests on "every attribute as read, string for string"**, stored as JSON per track and re-emitted. The send is verified by re-parsing with our own reader, which shares our own assumptions about escaping, attribute order and `Location`. What independent check would catch a bug both sides share?
 8. **The send's consistency model**: an in-memory preflight, a token, the export's modified time and the snapshot's `read_at`. Is mtime a good enough "export unchanged" check? Is the file-then-record order (with byte restore on failure) right, or should the record come first with a pending flag?

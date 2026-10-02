@@ -150,7 +150,7 @@ describe("the offer to add rekordbox tracks", () => {
     const backend = fakeBackend({
       whole: offer(3),
       summary: SUMMARY,
-      undo: { status: "undone", operation: { id: 9, kind: "add_rekordbox_tracks" } },
+      undo: { status: "undone", operation: { id: 9, kind: "add_rekordbox_tracks", details: { name: null, from: null, tracks: 3 } } },
       held: ["undo_add_rekordbox_tracks"],
     });
     renderOffer();
@@ -206,7 +206,7 @@ describe("the offer to add rekordbox tracks", () => {
     const backend = fakeBackend({
       whole: offer(3),
       summary: SUMMARY,
-      undo: { status: "undone", operation: { id: 9, kind: "add_rekordbox_tracks" } },
+      undo: { status: "undone", operation: { id: 9, kind: "add_rekordbox_tracks", details: { name: null, from: null, tracks: 3 } } },
     });
     renderOffer();
     await userEvent.click(await screen.findByRole("button", { name: tx("rekordboxOffer:add") }));

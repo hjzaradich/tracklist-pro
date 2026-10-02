@@ -8,8 +8,9 @@ import styles from "./LibraryTrackList.module.css";
 import { useAddToCrate, useCrates } from "../crates/useCrates";
 import { AddedToCrate, AddToCrate } from "./AddToCrate";
 import { ConfirmRemove, RemoveButton } from "./RemoveFromLibrary";
+import { useUndoAfterAction } from "../shell/useUndo";
 import { useLibraryTracks } from "./useLibraryTracks";
-import { useRemoveLibraryTrack, useUndoLast } from "./useRemoveLibraryTrack";
+import { useRemoveLibraryTrack } from "./useRemoveLibraryTrack";
 
 /** What the strip above the list says about the last removal. */
 type Removal = "removed" | "undone" | "nothingToUndo" | "undoRefused";
@@ -23,7 +24,7 @@ export function LibraryScreen() {
   const { t } = useTranslation("library");
   const tracks = useLibraryTracks();
   const remove = useRemoveLibraryTrack();
-  const undo = useUndoLast();
+  const { arm, offered, undo } = useUndoAfterAction();
   const [pending, setPending] = useState<LibraryTrack | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const crates = useCrates();
@@ -54,7 +55,12 @@ export function LibraryScreen() {
     if (pending === null) return;
     undo.reset();
     addToCrate.reset();
-    remove.mutate(pending.id, { onSuccess: () => setRemoval("removed") });
+    remove.mutate(pending.id, {
+      onSuccess: () => {
+        arm();
+        setRemoval("removed");
+      },
+    });
     setPending(null);
     setRemoval(null);
     setAdded(null);
@@ -85,14 +91,17 @@ export function LibraryScreen() {
         {(removal === "removed" || removal === "nothingToUndo") && (
           <p role="status" className={styles.status}>
             {t("remove.done")}
-            <button
-              type="button"
-              className={styles.button}
-              disabled={undo.isPending || removal === "nothingToUndo"}
-              onClick={undoRemoval}
-            >
-              {t("remove.undo")}
-            </button>
+            {/* Gone once the removal isn't the next step to undo any more. */}
+            {offered && (
+              <button
+                type="button"
+                className={styles.button}
+                disabled={undo.isPending || removal === "nothingToUndo"}
+                onClick={undoRemoval}
+              >
+                {t("remove.undo")}
+              </button>
+            )}
           </p>
         )}
         {removal === "undone" && (

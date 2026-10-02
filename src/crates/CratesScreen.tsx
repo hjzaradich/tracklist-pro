@@ -5,6 +5,7 @@ import type { Crate, LibraryTrack } from "../bindings";
 import { LibraryTrackList } from "../library/LibraryTrackList";
 import { shownTitle } from "../library/RemoveFromLibrary";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
+import { useUndoAfterAction } from "../shell/useUndo";
 import styles from "./CratesScreen.module.css";
 import {
   useCrates,
@@ -13,7 +14,6 @@ import {
   useDeleteCrate,
   useRemoveFromCrate,
   useRenameCrate,
-  useUndoLastChange,
 } from "./useCrates";
 
 /** What the strip above the screen says about the last change. */
@@ -37,7 +37,7 @@ export function CratesScreen() {
   const rename = useRenameCrate();
   const remove = useDeleteCrate();
   const take = useRemoveFromCrate();
-  const undo = useUndoLastChange();
+  const { arm, offered, undo } = useUndoAfterAction();
 
   const list = crates.data ?? [];
   // The crate the right side shows: the chosen one, if it still exists.
@@ -46,6 +46,7 @@ export function CratesScreen() {
 
   const finished = (what: Done) => {
     undo.reset();
+    arm();
     setDone(what);
     setAsking(null);
   };
@@ -66,17 +67,20 @@ export function CratesScreen() {
         {done !== null && (
           <p role="status" className={styles.status}>
             {t(`done.${done}`)}
-            <button
-              type="button"
-              className={styles.button}
-              disabled={undo.isPending}
-              onClick={() => {
-                clearErrors();
-                undo.mutate(undefined, { onSuccess: () => setDone(null) });
-              }}
-            >
-              {t("undo")}
-            </button>
+            {/* Gone once the change isn't the next step to undo any more. */}
+            {offered && (
+              <button
+                type="button"
+                className={styles.button}
+                disabled={undo.isPending}
+                onClick={() => {
+                  clearErrors();
+                  undo.mutate(undefined, { onSuccess: () => setDone(null) });
+                }}
+              >
+                {t("undo")}
+              </button>
+            )}
           </p>
         )}
         {done === null && undo.data?.status === "undone" && (

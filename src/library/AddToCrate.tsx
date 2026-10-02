@@ -1,7 +1,8 @@
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate, LibraryTrack } from "../bindings";
-import { useUndoLastChange } from "../crates/useCrates";
+import { useUndoAfterAction } from "../shell/useUndo";
 import { shownTitle } from "./RemoveFromLibrary";
 import styles from "./LibraryTrackList.module.css";
 
@@ -47,7 +48,13 @@ export function AddToCrate({
  */
 export function AddedToCrate({ crate, changed }: { crate: string; changed: boolean }) {
   const { t } = useTranslation("crates");
-  const undo = useUndoLastChange();
+  const { arm, offered, undo } = useUndoAfterAction();
+  // Shown anew for each add (the caller gives it a new key): the add that
+  // just finished is the one its Undo is for.
+  useEffect(() => {
+    if (changed) arm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when shown
+  }, []);
   if (undo.data?.status === "undone") {
     return (
       <p role="status" className={styles.status}>
@@ -59,7 +66,7 @@ export function AddedToCrate({ crate, changed }: { crate: string; changed: boole
     <>
       <p role="status" className={styles.status}>
         {changed ? t("addTrack.added", { crate }) : t("addTrack.alreadyIn", { crate })}
-        {changed && (
+        {changed && offered && (
           <button
             type="button"
             className={styles.button}
