@@ -363,6 +363,13 @@ jobs:
         if: ${{ !cancelled() && env.APP == 'true' }}
         run: npm run test ${{ runner.environment == 'self-hosted' && '-- --maxWorkers=1' || '' }}
 
+      # The proof that no test depends on the UI wording (1aF-3): the whole
+      # suite again, with every English text replaced by a marker naming its
+      # key. A failure is a test that spells out text instead of using tx().
+      - name: Test the frontend with every UI text swapped for a marker
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        run: npm run test:markers ${{ runner.environment == 'self-hosted' && '-- --maxWorkers=1' || '' }}
+
   licenses:
     name: Licenses and advisories
     # The checks read lockfiles only, so they run on the cheaper Linux runner
