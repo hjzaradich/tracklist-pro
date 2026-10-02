@@ -69,7 +69,7 @@
     "where": "Crates screen, delete confirmation."
   },
   "delete.detail": {
-    "purpose": "Says the crate's tracks stay in the Library and the delete can be undone.",
+    "purpose": "Says the delete can be undone.",
     "where": "Crates screen, delete confirmation."
   },
   "delete.confirm": {

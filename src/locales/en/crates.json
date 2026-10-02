@@ -9,7 +9,7 @@
   "noTracks": "No tracks in this crate",
   "select": "Select a crate",
   "new": {
-    "button": "New crate",
+    "button": "Create crate",
     "label": "Crate name",
     "confirm": "Create",
     "cancel": "Go back"
@@ -23,7 +23,7 @@
   "delete": {
     "button": "Delete",
     "title": "Delete “{{name}}”?",
-    "detail": "Its tracks stay in your Library. This action can be undone.",
+    "detail": "This action can be undone",
     "confirm": "Delete",
     "cancel": "Go back"
   },
@@ -50,7 +50,7 @@
   "error": {
     "notFound": "Crate not found",
     "nameEmpty": "Crate needs a name",
-    "nameTaken": "A crate named “{{name}}” already exists (letter case is ignored)",
+    "nameTaken": "Crate name already used (“{{name}}”)",
     "nameUnsendable": "Name has a character that can't be sent to rekordbox. Remove it and try again."
   }
 }
