@@ -59,6 +59,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0013_library_upkeep"),
     migration!("0014_analysis_never_conflicts"),
     migration!("0015_sent_playlist"),
+    migration!("0016_fingerprint_match"),
 ];
 
 /// The table that records which migrations a database has had.

@@ -14,6 +14,7 @@ pub mod hash;
 pub mod ipc;
 pub mod jobs;
 pub mod library;
+pub mod matching;
 pub mod missing;
 pub mod net;
 pub mod ops;

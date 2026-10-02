@@ -94,6 +94,12 @@ impl Fingerprint {
         self.version
     }
 
+    /// Whether `other`'s items mean the same as this one's: made by the
+    /// same [`VERSION`] and chromaprint algorithm.
+    pub fn comparable_with(&self, other: &Fingerprint) -> bool {
+        self.version == other.version && self.algorithm == other.algorithm
+    }
+
     /// How much audio it covers.
     pub fn seconds(&self) -> f32 {
         self.items.len() as f32 * config().item_duration_in_seconds()
