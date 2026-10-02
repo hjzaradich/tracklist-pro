@@ -5,6 +5,14 @@
 //!
 //! - A track with no files isn't in All music (e.g. one removed from the
 //!   Library after it was sent to rekordbox, kept for the send flow).
+//! - The rows returned show the title and artist the lists show (1aG-9): a
+//!   Library track's are the Library list's, another track's come from its
+//!   own tags, and the file's name stands in for a missing title. They are
+//!   worked out for the rows returned only, so the search and the order go
+//!   by the *stored* title and artist and the file name, as before: a tag
+//!   title that is shown here isn't searched or sorted by (reading the tags
+//!   of every track on each search is far too slow at 100,000 tracks).
+//!   Nothing is stored.
 //! - The search and the order use the Library list's sort key
 //!   ([`library::sort_key`]), so letter case and accents don't matter and
 //!   the same tracks come in the same order in both lists.
@@ -20,9 +28,10 @@ use tauri::State;
 
 use crate::db::ReadPool;
 use crate::ipc::IpcError;
-use crate::library::{self, sort_key, LinkedFile, StoredFile};
+use crate::library::{self, sort_key, LibraryTrackId, LinkedFile, StoredFile};
 use crate::paths::Volumes;
 use crate::scan::system_volumes;
+use crate::send_values::{shown, shown_recordings};
 
 #[cfg(test)]
 mod tests;
@@ -37,8 +46,8 @@ pub const LIST_LIMIT: usize = 200;
 pub struct AllMusicTrack {
     /// The track's id, as "Add to Library" takes it.
     pub recording_id: i64,
-    /// `None` when the track has none yet; the list then shows the file's
-    /// name as the title.
+    /// The title shown: the track's own, else what a send would write for
+    /// it, else the file's name. `None` only when the track has no file.
     pub title: Option<String>,
     pub artist: Option<String>,
     /// The file adding it to the Library would link (ROADMAP 1.8), or
@@ -69,6 +78,8 @@ pub struct StoredTrack {
     file: Option<StoredFile>,
     in_library: bool,
     match_not_confirmed: bool,
+    /// Its Library track, if it's in the Library.
+    library_track: Option<LibraryTrackId>,
 }
 
 /// A track with what the search and the order are decided on.
@@ -76,7 +87,7 @@ struct Candidate {
     recording_id: i64,
     title: Option<String>,
     artist: Option<String>,
-    in_library: bool,
+    library_track: Option<LibraryTrackId>,
     /// Its best file, or else its first: the file whose name stands in for
     /// a missing title.
     file_id: i64,
@@ -117,7 +128,7 @@ fn filled(text: Option<String>) -> Option<String> {
 fn candidates(conn: &Connection) -> rusqlite::Result<Vec<Candidate>> {
     let mut stmt = conn.prepare(
         "SELECT r.id, r.title, r.artist, f.id, f.rel_path,
-                EXISTS (SELECT 1 FROM library_track lt WHERE lt.recording_id = r.id)
+                (SELECT min(lt.id) FROM library_track lt WHERE lt.recording_id = r.id)
          FROM recording r
          JOIN recording_file rf ON rf.recording_id = r.id
          JOIN file f ON f.id = rf.file_id
@@ -134,7 +145,7 @@ fn candidates(conn: &Connection) -> rusqlite::Result<Vec<Candidate>> {
                 recording_id,
                 title: filled(row.get(1)?),
                 artist: filled(row.get(2)?),
-                in_library: row.get(5)?,
+                library_track: row.get::<_, Option<i64>>(5)?.map(LibraryTrackId),
                 file_id: row.get(3)?,
                 paths: vec![path],
             }),
@@ -145,7 +156,11 @@ fn candidates(conn: &Connection) -> rusqlite::Result<Vec<Candidate>> {
 
 /// The tracks matching `search` (all of them when it's blank), in the
 /// Library list's order, and how many match in all.
-pub fn stored(conn: &Connection, search: &str) -> rusqlite::Result<(u32, Vec<StoredTrack>)> {
+pub fn stored(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    search: &str,
+) -> rusqlite::Result<(u32, Vec<StoredTrack>)> {
     let needle = sort_key(search.trim());
     let mut matching = candidates(conn)?;
     if !needle.is_empty() {
@@ -165,12 +180,42 @@ pub fn stored(conn: &Connection, search: &str) -> rusqlite::Result<(u32, Vec<Sto
             title: track.title,
             artist: track.artist,
             file: library::stored_file(conn, file_id)?,
-            match_not_confirmed: !track.in_library
+            match_not_confirmed: track.library_track.is_none()
                 && library::match_not_confirmed(conn, track.recording_id)?,
-            in_library: track.in_library,
+            in_library: track.library_track.is_some(),
+            library_track: track.library_track,
         });
     }
+    fill_shown(conn, volumes, &mut tracks)?;
     Ok((total, tracks))
+}
+
+/// Sets the title and artist of the rows to the ones the lists show: a
+/// Library track's ([`shown`]), another track's own tags' ([`shown_recordings`]).
+/// Two batches for however many rows, at most [`LIST_LIMIT`].
+fn fill_shown(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    tracks: &mut [StoredTrack],
+) -> rusqlite::Result<()> {
+    let in_library: Vec<LibraryTrackId> = tracks.iter().filter_map(|t| t.library_track).collect();
+    let elsewhere: Vec<i64> = tracks
+        .iter()
+        .filter(|t| t.library_track.is_none())
+        .map(|t| t.recording_id)
+        .collect();
+    let mut library_names = shown(conn, volumes, &in_library)?;
+    let mut other_names = shown_recordings(conn, &elsewhere)?;
+    for track in tracks {
+        let names = match track.library_track {
+            Some(id) => library_names.remove(&id),
+            None => other_names.remove(&track.recording_id),
+        };
+        if let Some(names) = names {
+            (track.title, track.artist) = names.into_options();
+        }
+    }
+    Ok(())
 }
 
 /// The list for the frontend, with each file's path made readable.
@@ -201,6 +246,7 @@ pub async fn all_music_tracks(
     search: Option<String>,
 ) -> Result<AllMusicList, IpcError> {
     let search = search.unwrap_or_default();
-    let (total, tracks) = reads.read(|conn| stored(conn, &search))?;
-    Ok(list(total, &tracks, &system_volumes()))
+    let volumes = system_volumes();
+    let (total, tracks) = reads.read(|conn| stored(conn, &volumes, &search))?;
+    Ok(list(total, &tracks, &volumes))
 }

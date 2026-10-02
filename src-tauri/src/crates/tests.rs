@@ -499,7 +499,7 @@ fn a_crates_tracks_come_in_the_order_they_were_added_and_the_order_a_send_writes
     // And as rows, in that order.
     let (stored, located) = lib
         .writer
-        .call(|conn| library::stored_with_locations(conn))
+        .call(|conn| library::stored_with_locations(conn, &NoVolumes))
         .unwrap();
     let rows = ordered_tracks(
         &lib.ids(id),

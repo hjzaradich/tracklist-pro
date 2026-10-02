@@ -1260,3 +1260,424 @@ impl Lib {
             .outcome
     }
 }
+
+// ---- the title and artist the lists show (1aG-9) ----------------------------
+
+fn names(title: &str, artist: &str) -> Shown {
+    Shown {
+        title: title.to_owned(),
+        artist: artist.to_owned(),
+    }
+}
+
+type Snapshot = (
+    Vec<(String, i64)>,
+    Vec<(i64, Option<String>, Option<String>)>,
+);
+
+impl Lib {
+    fn shown(&self, ids: &[LibraryTrackId]) -> Vec<Shown> {
+        let wanted = ids.to_vec();
+        let mut all = self
+            .writer
+            .call(move |c| shown(c, &plugged(), &wanted))
+            .unwrap();
+        ids.iter()
+            .map(|id| all.remove(id).expect("a Library track has names"))
+            .collect()
+    }
+
+    fn shown_one(&self, id: LibraryTrackId) -> Shown {
+        self.shown(&[id]).remove(0)
+    }
+
+    fn recording_of(&self, id: LibraryTrackId) -> i64 {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT recording_id FROM library_track WHERE id = ?1",
+                    [id.0],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
+    fn set_names(&self, recording: i64, title: Option<&str>, artist: Option<&str>) {
+        let (title, artist) = (title.map(str::to_owned), artist.map(str::to_owned));
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE recording SET title = ?1, artist = ?2 WHERE id = ?3",
+                    (title, artist, recording),
+                )
+            })
+            .unwrap();
+    }
+
+    /// Every table's row count, and the whole recording table.
+    fn snapshot(&self) -> Snapshot {
+        self.writer
+            .call(|c| {
+                let tables: Vec<String> = c
+                    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?
+                    .query_map([], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                let mut counts = Vec::new();
+                for table in tables {
+                    let n = c.query_row(&format!("SELECT count(*) FROM \"{table}\""), [], |r| {
+                        r.get(0)
+                    })?;
+                    counts.push((table, n));
+                }
+                let recordings = c
+                    .prepare("SELECT id, title, artist FROM recording ORDER BY id")?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                Ok((counts, recordings))
+            })
+            .unwrap()
+    }
+}
+
+#[test]
+fn a_track_rekordbox_knows_shows_rekordbox_title_and_artist() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(
+        track,
+        "a.mp3",
+        "best",
+        id3(&[("TIT2", "Tag title"), ("TPE1", "Tag artist")]),
+    );
+    lib.rekordbox(
+        file,
+        &[("Name", "Their title"), ("Artist", "Their artist")],
+        false,
+    );
+    let library = lib.library(track, Some(file));
+    assert_eq!(lib.shown_one(library), names("Their title", "Their artist"));
+}
+
+#[test]
+fn a_new_track_shows_its_files_tags() {
+    let lib = Lib::new();
+    let (library, _) = lib.linked(
+        "a.mp3",
+        id3(&[("TIT2", "Tag title"), ("TPE1", "Tag artist")]),
+    );
+    assert_eq!(lib.shown_one(library), names("Tag title", "Tag artist"));
+}
+
+#[test]
+fn a_new_track_takes_a_missing_tag_from_its_other_file() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let linked = lib.file(
+        track,
+        "a.mp3",
+        "best",
+        id3(&[("TIT2", "From the linked file")]),
+    );
+    lib.file(
+        track,
+        "b.mp3",
+        "extra",
+        id3(&[("TIT2", "From the other"), ("TPE1", "Other artist")]),
+    );
+    let library = lib.library(track, Some(linked));
+    assert_eq!(
+        lib.shown_one(library),
+        names("From the linked file", "Other artist")
+    );
+}
+
+#[test]
+fn a_track_with_neither_shows_its_file_name_and_a_blank_artist() {
+    let lib = Lib::new();
+    let (library, _) = lib.linked("Sub folder/some tune.mp3", Spec::default());
+    assert_eq!(lib.shown_one(library), names("some tune.mp3", ""));
+}
+
+#[test]
+fn blank_text_says_nothing_so_the_file_name_and_no_artist_show() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(track, "a.mp3", "best", id3(&[("TIT2", "x")]));
+    lib.rekordbox(file, &[("Name", "  "), ("Artist", "")], false);
+    let library = lib.library(track, Some(file));
+    assert_eq!(lib.shown_one(library), names("a.mp3", ""));
+}
+
+#[test]
+fn a_set_recording_title_and_artist_win_over_what_a_send_writes() {
+    let lib = Lib::new();
+    let (known, known_file) = lib.linked("k.mp3", id3(&[("TIT2", "Tag")]));
+    lib.rekordbox(
+        known_file,
+        &[("Name", "Theirs"), ("Artist", "Their artist")],
+        false,
+    );
+    let (new, _) = lib.linked("n.mp3", id3(&[("TIT2", "Tag"), ("TPE1", "Tag artist")]));
+    lib.set_names(
+        lib.recording_of(known),
+        Some("Own title"),
+        Some("Own artist"),
+    );
+    // Only the title is set here: the artist is still what a send writes.
+    lib.set_names(lib.recording_of(new), Some("Own title"), None);
+    assert_eq!(lib.shown_one(known), names("Own title", "Own artist"));
+    assert_eq!(lib.shown_one(new), names("Own title", "Tag artist"));
+}
+
+#[test]
+fn a_track_a_send_cannot_send_shows_its_stored_tags_else_its_file_name() {
+    let lib = Lib::new();
+    // The file is gone and rekordbox doesn't know it.
+    let gone = |frames: &[(&'static str, &'static str)]| Spec {
+        present: Some(false),
+        ..id3(frames)
+    };
+    let (tagged, _) = lib.linked(
+        "gone.mp3",
+        gone(&[("TIT2", "Remembered title"), ("TPE1", "Remembered artist")]),
+    );
+    let (untagged, _) = lib.linked("gone too.mp3", gone(&[]));
+    // No linked file at all, and no other file.
+    let track = lib.track();
+    let linkless = lib.library(track, None);
+    assert!(matches!(
+        lib.one(tagged).outcome,
+        Outcome::CannotSend(CannotSend::FileMissing { .. })
+    ));
+    assert_eq!(
+        lib.shown(&[tagged, untagged, linkless]),
+        vec![
+            names("Remembered title", "Remembered artist"),
+            names("gone too.mp3", ""),
+            names("", ""),
+        ]
+    );
+}
+
+#[test]
+fn shown_is_what_a_send_writes_for_every_kind_of_track() {
+    let lib = Lib::new();
+    let mut ids = Vec::new();
+    let mut files = Vec::new();
+
+    // Known to rekordbox: with an artist, without one, without a title, with
+    // blanks, and with the file gone (rekordbox's own entry goes back).
+    let known = |file: &str, attributes: &[(&str, &str)], spec: Spec| {
+        let track = lib.track();
+        let f = lib.file(track, file, "best", spec);
+        lib.rekordbox(f, attributes, false);
+        lib.library(track, Some(f))
+    };
+    let gone = Spec {
+        present: Some(false),
+        ..Spec::default()
+    };
+    for (file, attributes, spec) in [
+        (
+            "k1.mp3",
+            vec![("Name", "Their title"), ("Artist", "Their artist")],
+            id3(&[("TIT2", "Tag"), ("TPE1", "Tag")]),
+        ),
+        ("k2.mp3", vec![("Name", "Only a title")], Spec::default()),
+        ("k3.mp3", vec![("Artist", "No title")], Spec::default()),
+        (
+            "k4.mp3",
+            vec![("Name", "Pad "), ("Artist", "")],
+            Spec::default(),
+        ),
+        (
+            "k5.mp3",
+            vec![("Name", "Gone but known"), ("Artist", "Still theirs")],
+            gone,
+        ),
+    ] {
+        ids.push(known(file, &attributes, spec));
+        files.push(file);
+    }
+    // New: tags, only an artist, several values in a field, none.
+    for (file, spec) in [
+        ("n1.mp3", id3(&[("TIT2", "T"), ("TPE1", "A")])),
+        ("n2.mp3", id3(&[("TPE1", "Only an artist")])),
+        ("n3.mp3", id3(&[("TIT2", "a\0b"), ("TPE1", "c\0d")])),
+        ("deep/n4.mp3", Spec::default()),
+    ] {
+        ids.push(lib.linked(file, spec).0);
+        files.push(file);
+    }
+    // New, and its other file has the tags.
+    let track = lib.track();
+    let linked = lib.file(track, "n5.mp3", "best", Spec::default());
+    lib.file(
+        track,
+        "n5b.mp3",
+        "extra",
+        id3(&[("TIT2", "Elsewhere"), ("TPE1", "Else")]),
+    );
+    ids.push(lib.library(track, Some(linked)));
+    files.push("n5.mp3");
+
+    let shown = lib.shown(&ids);
+    let sent = lib.values(&ids);
+    for ((shown, sent), file) in shown.iter().zip(&sent).zip(files) {
+        let Outcome::Ready(values) = &sent.outcome else {
+            panic!("{file}: a send has values for it");
+        };
+        let written = |attribute: &str| value(values, attribute).filter(|v| !v.trim().is_empty());
+        assert_eq!(
+            shown,
+            &Shown {
+                title: written("Name").map_or_else(|| file_name(file).to_owned(), str::to_owned),
+                artist: written("Artist").unwrap_or_default().to_owned(),
+            },
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn listing_names_leaves_the_database_unchanged() {
+    let lib = Lib::new();
+    let (known, known_file) = lib.linked("k.mp3", id3(&[("TIT2", "Tag")]));
+    lib.rekordbox(known_file, &[("Name", "Theirs")], false);
+    let (new, _) = lib.linked("n.mp3", id3(&[("TIT2", "T"), ("TPE1", "A")]));
+    let (gone, _) = lib.linked(
+        "g.mp3",
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
+    );
+    let before = lib.snapshot();
+    let shown = lib.shown(&[known, new, gone]);
+    let recordings = lib
+        .writer
+        .call(|c| shown_recordings(c, &[1, 2, 3]))
+        .unwrap();
+    let removed = lib
+        .writer
+        .call(|c| {
+            shown_removed(
+                c,
+                &[Removed {
+                    recording_id: 1,
+                    location_key: None,
+                    path_name: None,
+                }],
+            )
+        })
+        .unwrap();
+    assert_eq!(shown.len(), 3);
+    assert_eq!(recordings.len(), 3);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(lib.snapshot(), before);
+    // And no title was written: the recordings are still untitled.
+    assert!(before
+        .1
+        .iter()
+        .all(|(_, title, artist)| title.is_none() && artist.is_none()));
+}
+
+#[test]
+fn many_tracks_are_named_in_one_batch_each_by_its_own_values() {
+    let lib = Lib::new();
+    let titles: Vec<&'static str> = (0..60)
+        .map(|i| &*Box::leak(format!("Title {i}").into_boxed_str()))
+        .collect();
+    let ids: Vec<LibraryTrackId> = titles
+        .iter()
+        .enumerate()
+        .map(|(i, title)| lib.linked(&format!("t{i}.mp3"), id3(&[("TIT2", *title)])).0)
+        .collect();
+    for (shown, title) in lib.shown(&ids).iter().zip(titles) {
+        assert_eq!(shown, &names(title, ""));
+    }
+}
+
+#[test]
+fn a_recording_with_no_library_track_shows_its_own_tags_best_file_first() {
+    let lib = Lib::new();
+    let tagged = lib.track();
+    lib.file(tagged, "z.mp3", "extra", id3(&[("TIT2", "From the other")]));
+    lib.file(
+        tagged,
+        "a.mp3",
+        "best",
+        id3(&[("TIT2", "From the best"), ("TPE1", "Best artist")]),
+    );
+    let bare = lib.track();
+    lib.file(bare, "dir/bare.mp3", "best", Spec::default());
+    let set = lib.track();
+    lib.file(set, "s.mp3", "best", id3(&[("TIT2", "Tag")]));
+    lib.set_names(set, Some("Own"), None);
+    let mut all = lib
+        .writer
+        .call(move |c| shown_recordings(c, &[tagged, bare, set]))
+        .unwrap();
+    assert_eq!(
+        all.remove(&tagged),
+        Some(names("From the best", "Best artist"))
+    );
+    assert_eq!(all.remove(&bare), Some(names("bare.mp3", "")));
+    assert_eq!(all.remove(&set), Some(names("Own", "")));
+}
+
+#[test]
+fn a_removed_track_shows_rekordboxs_row_at_its_sent_location_else_tags_else_the_file_name() {
+    let lib = Lib::new();
+    let with_row = lib.track();
+    lib.file(
+        with_row,
+        "a.mp3",
+        "best",
+        id3(&[("TIT2", "Tag"), ("TPE1", "Tag artist")]),
+    );
+    lib.rekordbox_at(
+        "sent.mp3",
+        None,
+        false,
+        READ,
+        &[("Name", "Theirs"), ("Artist", "")],
+    );
+    let with_tags = lib.track();
+    lib.file(
+        with_tags,
+        "b.mp3",
+        "best",
+        id3(&[("TIT2", "Tag"), ("TPE1", "Tag artist")]),
+    );
+    let bare = lib.track();
+    lib.file(bare, "c.mp3", "best", Spec::default());
+    let key = |name: &str| {
+        crate::rekordbox::location::decode(&format!("file://localhost/E:/Music/{name}"))
+            .unwrap()
+            .match_key()
+    };
+    let removed = |recording: i64, location: Option<String>, name: Option<&str>| Removed {
+        recording_id: recording,
+        location_key: location,
+        path_name: name.map(str::to_owned),
+    };
+    let asked = vec![
+        removed(with_row, Some(key("sent.mp3")), Some("sent.mp3")),
+        removed(with_tags, Some(key("not-held.mp3")), Some("not-held.mp3")),
+        removed(bare, Some(key("not-held.mp3")), Some("not-held.mp3")),
+        removed(bare, None, None),
+    ];
+    let answers = lib.writer.call(move |c| shown_removed(c, &asked)).unwrap();
+    assert_eq!(
+        answers,
+        vec![
+            // rekordbox's row says no artist: that's what the user will see.
+            names("Theirs", ""),
+            names("Tag", "Tag artist"),
+            names("not-held.mp3", ""),
+            names("c.mp3", ""),
+        ]
+    );
+}

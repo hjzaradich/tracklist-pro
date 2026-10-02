@@ -39,7 +39,12 @@
 //! - ID3v1 has no usable genre (a number) and MP4's track and disc numbers
 //!   are binary, so those aren't mapped.
 
+use std::borrow::Cow;
+use std::collections::HashMap;
+
 use lofty::id3::v1::GENRES;
+use serde::de::IgnoredAny;
+use serde::Deserialize;
 use serde_json::Value;
 
 /// The TRACK attributes a tag can give, in the order rekordbox writes them.
@@ -79,7 +84,8 @@ const BLOCKS: [&str; 7] = [
 
 /// The attribute a frame gives, if it gives one.
 fn attribute_for(block: &str, key: &str) -> Option<&'static str> {
-    let lower = key.to_ascii_lowercase();
+    // Lowercased only where a block needs it: this runs for every frame.
+    let lower = || key.to_ascii_lowercase();
     Some(match block {
         "id3v2" => match key {
             "TIT2" => "Name",
@@ -105,13 +111,13 @@ fn attribute_for(block: &str, key: &str) -> Option<&'static str> {
             "\u{a9}wrt" => "Composer",
             "\u{a9}day" => "Year",
             "\u{a9}cmt" => "Comments",
-            _ => match lower.as_str() {
+            _ => match lower().as_str() {
                 "----:com.apple.itunes:label" => "Label",
                 "----:com.apple.itunes:remixer" => "Remixer",
                 _ => return None,
             },
         },
-        "vorbis_comments" | "ape" => match lower.as_str() {
+        "vorbis_comments" | "ape" => match lower().as_str() {
             "title" => "Name",
             "artist" => "Artist",
             "album" => "Album",
@@ -272,27 +278,117 @@ fn clean(block: &str, attribute: &str, text: &str) -> Option<String> {
 /// Vorbis and APE blocks a repeated item (two `ARTIST`s) is one value, the
 /// items joined like a NUL-separated one; the first block with the field
 /// gives it.
+#[cfg(test)]
 pub fn read(raw_tags: &str) -> Vec<TagValue> {
+    read_only(raw_tags, &TAG_ATTRIBUTES)
+}
+
+/// One frame of a `raw_tags` block, as far as the mapping reads it.
+struct Frame<'a> {
+    key: Cow<'a, str>,
+    text: Option<Cow<'a, str>>,
+    /// The text was cut when it was stored (`full_len` is set).
+    cut: bool,
+}
+
+type Blocks<'a> = HashMap<Cow<'a, str>, Vec<Frame<'a>>>;
+
+/// The frames of every block, read straight into borrowed text: the lists
+/// read the tags of every track they show, so this skips what the mapping
+/// never looks at instead of building a JSON tree. `None` if the tags aren't
+/// in the shape the scan writes ([`parse_frames_loosely`] then takes over).
+fn parse_frames(raw_tags: &str) -> Option<Blocks<'_>> {
+    #[derive(Deserialize)]
+    struct Item<'a> {
+        #[serde(borrow)]
+        key: Cow<'a, str>,
+        #[serde(borrow, default)]
+        value: ItemValue<'a>,
+    }
+    #[derive(Deserialize, Default)]
+    struct ItemValue<'a> {
+        #[serde(borrow, default)]
+        text: Option<Cow<'a, str>>,
+        #[serde(default)]
+        full_len: Option<IgnoredAny>,
+    }
+    let blocks: HashMap<Cow<'_, str>, Vec<Item<'_>>> = serde_json::from_str(raw_tags).ok()?;
+    Some(
+        blocks
+            .into_iter()
+            .map(|(block, items)| {
+                let frames = items
+                    .into_iter()
+                    .map(|i| Frame {
+                        key: i.key,
+                        text: i.value.text,
+                        cut: i.value.full_len.is_some(),
+                    })
+                    .collect();
+                (block, frames)
+            })
+            .collect(),
+    )
+}
+
+/// [`parse_frames`] for tags in some other shape: any frame that's missing a
+/// part is read as far as it goes, and a block that isn't a list is skipped.
+fn parse_frames_loosely(raw_tags: &str) -> Option<Blocks<'static>> {
     let Ok(Value::Object(blocks)) = serde_json::from_str::<Value>(raw_tags) else {
+        return None;
+    };
+    Some(
+        blocks
+            .into_iter()
+            .filter_map(|(block, items)| {
+                let Value::Array(items) = items else {
+                    return None;
+                };
+                let frames = items
+                    .iter()
+                    .map(|item| {
+                        let value = item.get("value");
+                        Frame {
+                            key: Cow::Owned(
+                                item.get("key")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_owned(),
+                            ),
+                            text: value
+                                .and_then(|v| v.get("text"))
+                                .and_then(Value::as_str)
+                                .map(|t| Cow::Owned(t.to_owned())),
+                            cut: value.and_then(|v| v.get("full_len")).is_some(),
+                        }
+                    })
+                    .collect();
+                Some((Cow::Owned(block), frames))
+            })
+            .collect(),
+    )
+}
+
+/// [`read`] for just the `wanted` attributes: the same rules, with the
+/// frames that give anything else skipped.
+pub fn read_only(raw_tags: &str, wanted: &[&str]) -> Vec<TagValue> {
+    let Some(blocks) = parse_frames(raw_tags).or_else(|| parse_frames_loosely(raw_tags)) else {
         return Vec::new();
     };
     let mut found: Vec<TagValue> = Vec::new();
     for block in BLOCKS {
-        let Some(Value::Array(items)) = blocks.get(block) else {
+        let Some(items) = blocks.get(block) else {
             continue;
         };
         let repeats_join = matches!(block, "vorbis_comments" | "ape");
         // This block's values, by attribute, in item order.
         let mut here: Vec<(&'static str, Vec<String>, String)> = Vec::new();
         for item in items {
-            let key = item.get("key").and_then(Value::as_str).unwrap_or("");
-            let Some(attribute) = attribute_for(block, key) else {
+            let key = item.key.as_ref();
+            let Some(attribute) = attribute_for(block, key).filter(|a| wanted.contains(a)) else {
                 continue;
             };
-            let value = item.get("value");
-            let text = value.and_then(|v| v.get("text")).and_then(Value::as_str);
-            let cut = value.and_then(|v| v.get("full_len")).is_some();
-            let (Some(text), false) = (text, cut) else {
+            let (Some(text), false) = (item.text.as_deref(), item.cut) else {
                 continue;
             };
             let Some(value) = clean(block, attribute, text) else {

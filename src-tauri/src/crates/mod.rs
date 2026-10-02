@@ -506,11 +506,12 @@ pub async fn crate_tracks(
     reads: State<'_, ReadPool>,
     id: CrateId,
 ) -> Result<Vec<LibraryTrack>, IpcError> {
+    let volumes = system_volumes();
     let found = reads.read(|conn| {
         let Some(ids) = track_ids(conn, id)? else {
             return Ok(None);
         };
-        let (stored, located) = library::stored_with_locations(conn)?;
+        let (stored, located) = library::stored_with_locations(conn, &volumes)?;
         Ok(Some((ids, stored, located)))
     })?;
     let Some((ids, stored, located)) = found else {
@@ -520,7 +521,7 @@ pub async fn crate_tracks(
         &ids,
         &stored,
         &located,
-        &system_volumes(),
+        &volumes,
         &FragileDirs::system(),
     ))
 }

@@ -8,12 +8,15 @@ use specta::Type;
 use crate::library::removed_tracks;
 use crate::rekordbox::location::{decode, Location};
 use crate::rekordbox::source::LAST_READ;
+use crate::send_values::{shown_removed, Removed};
 
 /// A removed track to remove in rekordbox by hand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ManualRemoval {
     pub recording_id: i64,
+    /// What rekordbox shows for it if it has a row at the sent `Location`,
+    /// else the file's tags, else the file's name ([`shown_removed`]).
     pub title: Option<String>,
     pub artist: Option<String>,
     /// Where it was sent, as Windows writes it, so the user can find it in
@@ -52,8 +55,9 @@ pub fn manual_removals(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>
          WHERE rf.recording_id = ?1 AND rt.relink_probable = 0
          ORDER BY rt.track_id, rt.id LIMIT 1",
     )?;
-    let mut name = conn.prepare("SELECT title, artist FROM recording WHERE id = ?1")?;
     let mut out = Vec::new();
+    // What to name each row by, asked of [`shown_removed`] for all at once.
+    let mut asked = Vec::new();
     for removed in removed_tracks(conn)? {
         if removed.last_sent_location.is_none() {
             // Never sent, so only the latest read can say rekordbox has
@@ -65,21 +69,25 @@ pub fn manual_removals(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>
             let Some(entry) = entry else {
                 continue;
             };
-            let path = match decode(&entry) {
-                Ok(Location::File(path)) => Some(
+            let decoded = decode(&entry).ok();
+            let path = match &decoded {
+                Some(Location::File(path)) => Some(
                     path.to_windows()
                         .unwrap_or_else(|| path.as_str().to_owned()),
                 ),
                 _ => None,
             };
-            let (title, artist) = name
-                .query_row([removed.recording_id], |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()?
-                .unwrap_or((None, None));
+            asked.push(Removed {
+                recording_id: removed.recording_id,
+                location_key: decoded.as_ref().map(Location::match_key),
+                path_name: path
+                    .as_deref()
+                    .map(|p| crate::send_values::file_name(p).to_owned()),
+            });
             out.push(ManualRemoval {
                 recording_id: removed.recording_id,
-                title,
-                artist,
+                title: None,
+                artist: None,
                 path,
                 removed_at: removed.removed_at,
             });
@@ -107,17 +115,25 @@ pub fn manual_removals(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>
                 continue;
             }
         }
-        let (title, artist) = name
-            .query_row([removed.recording_id], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()?
-            .unwrap_or((None, None));
+        let shown_path = path.map(|p| p.to_windows().unwrap_or_else(|| p.as_str().to_owned()));
+        asked.push(Removed {
+            recording_id: removed.recording_id,
+            location_key: path.map(|p| p.match_key()),
+            path_name: shown_path
+                .as_deref()
+                .map(|p| crate::send_values::file_name(p).to_owned()),
+        });
         out.push(ManualRemoval {
             recording_id: removed.recording_id,
-            title,
-            artist,
-            path: path.map(|p| p.to_windows().unwrap_or_else(|| p.as_str().to_owned())),
+            title: None,
+            artist: None,
+            path: shown_path,
             removed_at: removed.removed_at,
         });
+    }
+    // The names, for all of them at once.
+    for (removal, shown) in out.iter_mut().zip(shown_removed(conn, &asked)?) {
+        (removal.title, removal.artist) = shown.into_options();
     }
     Ok(out)
 }
