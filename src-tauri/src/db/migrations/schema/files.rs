@@ -409,7 +409,6 @@ fn file_hashes_tags_and_audio_properties_have_sane_shapes() {
         "bitrate = 0",
         "sample_rate = 0",
         "duration_ms = -1",
-        "cutoff_hz = 0",
     ] {
         refuses(&conn, &format!("UPDATE file SET {bad}"), "CHECK");
     }

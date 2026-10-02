@@ -5,6 +5,7 @@
 //! Every test uses a fresh database in a temp dir, never the real one.
 
 mod analysis_never_conflicts;
+mod file_quality;
 mod file_stage;
 mod files;
 mod fingerprint_audio_hash;
@@ -162,6 +163,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0015_sent_playlist.sql", &["sent_playlist"]),
     // What comparing two files' fingerprints found (derived state).
     ("0016_fingerprint_match.sql", &["fingerprint_match"]),
+    // The quality job's measurements; drops `file.cutoff_hz`.
+    ("0017_file_quality.sql", &["file_quality"]),
 ];
 
 #[test]
