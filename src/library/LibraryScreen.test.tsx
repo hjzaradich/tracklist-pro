@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -63,6 +63,13 @@ function renderScreen() {
 async function rows() {
   const table = await screen.findByRole("table");
   return within(table).getAllByRole("row").slice(1);
+}
+
+/** The Undo offered after an action, once it knows which action it is for. */
+async function readyUndo(key: string) {
+  const undo = await screen.findByRole("button", { name: tx(key) });
+  await waitFor(() => expect(undo).toBeEnabled());
+  return undo;
 }
 
 afterEach(() => {
@@ -212,6 +219,11 @@ function removable(initial: LibraryTrack[]) {
       tracks = tracks.filter((t) => t !== last);
       return null;
     }
+    if (cmd === "next_undo_operation") {
+      const operation =
+        last === null ? null : { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } };
+      return { operation, refusal: null };
+    }
     if (cmd === "undo_last_operation") {
       if (last === null) return { status: "nothingToUndo" };
       tracks = [...tracks, last].sort((a, b) => a.id - b.id);
@@ -263,7 +275,7 @@ describe("removing a track from the Library", () => {
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    await userEvent.click(await screen.findByRole("button", { name: tx("library:remove.undo") }));
+    await userEvent.click(await readyUndo("library:remove.undo"));
 
     expect(await screen.findByText(tx("library:remove.undone"))).toBeInTheDocument();
     await waitFor(async () => expect(await rows()).toHaveLength(2));
@@ -327,6 +339,9 @@ describe("removing a track from the Library", () => {
         tracks = [];
         return null;
       }
+      if (cmd === "next_undo_operation") {
+        return { operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } }, refusal: null };
+      }
       if (cmd === "undo_last_operation") {
         return {
           status: "refused",
@@ -343,7 +358,7 @@ describe("removing a track from the Library", () => {
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    await userEvent.click(await screen.findByRole("button", { name: tx("library:remove.undo") }));
+    await userEvent.click(await readyUndo("library:remove.undo"));
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("library:remove.undoRefused"));
     expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
   });
@@ -359,6 +374,9 @@ describe("removing a track from the Library", () => {
         tracks = [];
         return null;
       }
+      if (cmd === "next_undo_operation") {
+        return { operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } }, refusal: null };
+      }
       if (cmd === "undo_last_operation") return pending;
       throw new Error(`unexpected command ${cmd}`);
     });
@@ -368,7 +386,7 @@ describe("removing a track from the Library", () => {
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
+    const undo = await readyUndo("library:remove.undo");
     await userEvent.click(undo);
     await waitFor(() => expect(undo).toBeDisabled());
     finish({ status: "nothingToUndo" });
@@ -404,6 +422,9 @@ describe("removing a track from the Library", () => {
         tracks = [];
         return null;
       }
+      if (cmd === "next_undo_operation") {
+        return { operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } }, refusal: null };
+      }
       if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
       throw new Error(`unexpected command ${cmd}`);
     });
@@ -413,8 +434,7 @@ describe("removing a track from the Library", () => {
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
-    expect(undo).toBeEnabled();
+    const undo = await readyUndo("library:remove.undo");
     await userEvent.click(undo);
     await waitFor(() => expect(screen.getByRole("button", { name: tx("library:remove.undo") })).toBeDisabled());
     expect(screen.queryByRole("alert")).toBeNull();
@@ -532,7 +552,7 @@ describe("adding a track to a crate", () => {
     const choice = await addChoice("Synthetic Tune 1");
     await waitFor(() => expect(choice).toBeEnabled());
     await userEvent.selectOptions(choice, "Warm up");
-    await userEvent.click(await screen.findByRole("button", { name: tx("crates:undo") }));
+    await userEvent.click(await readyUndo("crates:undo"));
 
     expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:undone"));
     expect(calls.map((c) => c.cmd)).toContain("undo_last_operation");
@@ -550,5 +570,68 @@ describe("adding a track to a crate", () => {
     await waitFor(() => expect(choice).toBeEnabled());
     await userEvent.selectOptions(choice, "Warm up");
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:error.notFound"));
+  });
+});
+
+describe("the Undo offered after a removal, before it knows which action it is for", () => {
+  /** Removes the one track; `next` answers the ask for the next step to undo. */
+  async function removeWith(next: () => unknown) {
+    let tracks = [track(1)];
+    const undone: unknown[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd === "list_crates") return [];
+      if (cmd === "library_tracks") return tracks;
+      if (cmd === "remove_library_track") {
+        tracks = [];
+        return null;
+      }
+      if (cmd === "next_undo_operation") return next();
+      if (cmd === "undo_last_operation") {
+        undone.push((args as { operationId: number | null }).operationId);
+        return { status: "nothingToUndo" };
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const [row] = await rows();
+    await userEvent.click(
+      within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }),
+    );
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
+    );
+    return undone;
+  }
+
+  it("is greyed out until the answer is in, then undoes exactly that action", async () => {
+    let answer: (value: unknown) => void = () => {};
+    const undone = await removeWith(() => new Promise((resolve) => (answer = resolve)));
+    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
+    expect(undo).toBeDisabled();
+    // A press now does nothing: it can't take back whatever is newest.
+    await userEvent.click(undo);
+    expect(undone).toEqual([]);
+
+    answer({
+      operation: { id: 42, kind: "remove_from_library", details: { name: null, from: null, tracks: null } },
+      refusal: null,
+    });
+    await waitFor(() => expect(undo).toBeEnabled());
+    await userEvent.click(undo);
+    await waitFor(() => expect(undone).toEqual([42]));
+  });
+
+  it("stays greyed out when the answer can't be had", async () => {
+    let asked = 0;
+    const undone = await removeWith(() => {
+      asked += 1;
+      throw { kind: "database", params: {} };
+    });
+    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
+    await waitFor(() => expect(asked).toBeGreaterThan(0));
+    await act(async () => {});
+    expect(undo).toBeDisabled();
+    await userEvent.click(undo);
+    expect(undone).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -42,6 +42,8 @@ function backend(
 ) {
   let crates = initial;
   let before: typeof crates | null = null;
+  // The operation the last change recorded, as the commands answer it.
+  let lastOperation = 9;
   const calls: { cmd: string; args: Record<string, unknown> }[] = [];
   let nextId = 100;
   const refuse = (kind: string, params: Record<string, string> = {}) => {
@@ -63,6 +65,7 @@ function backend(
         const existing = named(name);
         if (existing) return refuse("crateNameTaken", { name: existing.crate.name });
         before = crates;
+        lastOperation = 9;
         const id = nextId++;
         crates = [...crates, { crate: { id, name, trackCount: 0 }, tracks: [] }];
         return id;
@@ -80,10 +83,12 @@ function backend(
         crates = crates.map((c) =>
           c.crate.id === args.id ? { ...c, crate: { ...c.crate, name } } : c,
         );
+        lastOperation = 7;
         return 7;
       }
       case "delete_crate":
         before = crates;
+        lastOperation = 9;
         crates = crates.filter((c) => c.crate.id !== args.id);
         return null;
       case "remove_tracks_from_crate": {
@@ -97,8 +102,14 @@ function backend(
             ? { ...c, tracks: c.tracks.filter((t) => !wanted.includes(t.id)) }
             : c,
         );
+        lastOperation = 8;
         return { changed: wanted.length, skipped: 0, operationId: 8 };
       }
+      case "next_undo_operation":
+        return {
+          operation: before === null ? null : { id: lastOperation, kind: "x", details: { name: null, from: null, tracks: null } },
+          refusal: null,
+        };
       case "undo_last_operation":
         if (before === null) return { status: "nothingToUndo" };
         crates = before;
@@ -129,6 +140,13 @@ afterEach(() => {
 });
 
 const button = (key: string) => screen.findByRole("button", { name: tx(key) });
+
+/** The Undo offered after a change, once it knows which change it is for. */
+async function readyUndo() {
+  const undo = await button("crates:undo");
+  await waitFor(() => expect(undo).toBeEnabled());
+  return undo;
+}
 
 describe("the Crates screen", () => {
   it("names what's absent when there are no crates, and offers a new one", async () => {
@@ -218,7 +236,7 @@ describe("the Crates screen", () => {
         name: tx("crates:removeTrack.buttonFor", { title: "Synthetic Tune 1" }),
       }),
     );
-    await userEvent.click(await button("crates:undo"));
+    await userEvent.click(await readyUndo());
     expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:undone"));
     await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(3));
   });
@@ -268,7 +286,7 @@ describe("making a crate", () => {
     await userEvent.click(await button("crates:new.button"));
     await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Warm up");
     await userEvent.click(await button("crates:new.confirm"));
-    await userEvent.click(await button("crates:undo"));
+    await userEvent.click(await readyUndo());
     expect(await screen.findByText(tx("crates:empty"))).toBeInTheDocument();
   });
 });
@@ -329,7 +347,7 @@ describe("deleting a crate", () => {
       { cmd: "delete_crate", args: { id: 1 } },
     ]);
 
-    await userEvent.click(await button("crates:undo"));
+    await userEvent.click(await readyUndo());
     expect(await screen.findByRole("button", { name: /Warm up/ })).toBeInTheDocument();
   });
 });
@@ -341,6 +359,7 @@ describe("undo", () => {
     await userEvent.click(await button("crates:new.button"));
     await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Warm up");
     await userEvent.click(await button("crates:new.confirm"));
+    const undo = await readyUndo();
     // The backend refuses the undo.
     mockIPC((cmd) => {
       if (cmd === "undo_last_operation") {
@@ -355,7 +374,7 @@ describe("undo", () => {
       if (cmd === "crate_tracks") return [];
       throw new Error(`unexpected command ${cmd}`);
     });
-    await userEvent.click(await button("crates:undo"));
+    await userEvent.click(undo);
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:undoRefused"));
     // The crate is still there.
     expect(await screen.findByRole("heading", { level: 2 })).toHaveTextContent("Warm up");
@@ -464,5 +483,97 @@ describe("errors", () => {
     // And a new attempt clears that one too.
     await userEvent.click(await button("crates:rename.button"));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("the Undo offered after creating or deleting a crate, before it knows which change it is for", () => {
+  /**
+   * A backend with one crate, whose answer to "what is the next step to
+   * undo" is `next`. Records the operation each undo was asked for.
+   */
+  function askingBackend(next: () => unknown) {
+    let crates = [{ id: 1, name: "Warm up", trackCount: 0 }];
+    const undone: unknown[] = [];
+    mockIPC((cmd, args) => {
+      const a = (args ?? {}) as Record<string, unknown>;
+      if (cmd === "list_crates") return crates;
+      if (cmd === "crate_tracks") return [];
+      if (cmd === "create_crate") {
+        crates = [...crates, { id: 2, name: String(a.name), trackCount: 0 }];
+        return 2;
+      }
+      if (cmd === "delete_crate") {
+        crates = crates.filter((c) => c.id !== a.id);
+        return null;
+      }
+      if (cmd === "next_undo_operation") return next();
+      if (cmd === "undo_last_operation") {
+        undone.push(a.operationId);
+        return { status: "nothingToUndo" };
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    return undone;
+  }
+
+  async function createCrate() {
+    renderScreen();
+    await userEvent.click(await button("crates:new.button"));
+    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Peak time");
+    await userEvent.click(await button("crates:new.confirm"));
+  }
+
+  async function deleteCrate() {
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
+    await userEvent.click(await button("crates:delete.button"));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: tx("crates:delete.confirm"),
+      }),
+    );
+  }
+
+  it.each([
+    ["creating", createCrate, "create_crate"],
+    ["deleting", deleteCrate, "delete_crate"],
+  ] as const)(
+    "after %s a crate it is greyed out until the answer is in, then undoes exactly that change",
+    async (_what, change, kind) => {
+      let answer: (value: unknown) => void = () => {};
+      const undone = askingBackend(() => new Promise((resolve) => (answer = resolve)));
+      await change();
+      const undo = await button("crates:undo");
+      expect(undo).toBeDisabled();
+      // A press now does nothing: it can't take back whatever is newest.
+      await userEvent.click(undo);
+      expect(undone).toEqual([]);
+
+      answer({
+        operation: { id: 42, kind, details: { name: null, from: null, tracks: null } },
+        refusal: null,
+      });
+      await waitFor(() => expect(undo).toBeEnabled());
+      await userEvent.click(undo);
+      await waitFor(() => expect(undone).toEqual([42]));
+    },
+  );
+
+  it.each([
+    ["creating", createCrate],
+    ["deleting", deleteCrate],
+  ] as const)("after %s a crate it stays greyed out when the answer can't be had", async (_what, change) => {
+    let asked = 0;
+    const undone = askingBackend(() => {
+      asked += 1;
+      throw { kind: "database", params: {} };
+    });
+    await change();
+    const undo = await button("crates:undo");
+    await waitFor(() => expect(asked).toBeGreaterThan(0));
+    await act(async () => {});
+    expect(undo).toBeDisabled();
+    await userEvent.click(undo);
+    expect(undone).toEqual([]);
   });
 });

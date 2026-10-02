@@ -56,7 +56,7 @@ export function AddedToCrate({
 }) {
   const changed = operationId !== null;
   const { t } = useTranslation("crates");
-  const { arm, offered, undo } = useUndoAfterAction();
+  const { arm, offered, ready, undo } = useUndoAfterAction();
   // Shown anew for each add (the caller gives it a new key): the add that
   // just finished is the one its Undo is for.
   useEffect(() => {
@@ -78,7 +78,7 @@ export function AddedToCrate({
           <button
             type="button"
             className={styles.button}
-            disabled={undo.isPending}
+            disabled={!ready || undo.isPending}
             onClick={() => undo.mutate()}
           >
             {t("undo")}

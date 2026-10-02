@@ -37,7 +37,7 @@ export function CratesScreen() {
   const rename = useRenameCrate();
   const remove = useDeleteCrate();
   const take = useRemoveFromCrate();
-  const { arm, offered, undo } = useUndoAfterAction();
+  const { arm, offered, ready, undo } = useUndoAfterAction();
 
   const list = crates.data ?? [];
   // The crate the right side shows: the chosen one, if it still exists.
@@ -73,7 +73,7 @@ export function CratesScreen() {
               <button
                 type="button"
                 className={styles.button}
-                disabled={undo.isPending}
+                disabled={!ready || undo.isPending}
                 onClick={() => {
                   clearErrors();
                   undo.mutate(undefined, { onSuccess: () => setDone(null) });

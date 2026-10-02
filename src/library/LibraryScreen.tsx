@@ -24,7 +24,7 @@ export function LibraryScreen() {
   const { t } = useTranslation("library");
   const tracks = useLibraryTracks();
   const remove = useRemoveLibraryTrack();
-  const { arm, offered, undo } = useUndoAfterAction();
+  const { arm, offered, ready, undo } = useUndoAfterAction();
   const [pending, setPending] = useState<LibraryTrack | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const crates = useCrates();
@@ -98,7 +98,7 @@ export function LibraryScreen() {
               <button
                 type="button"
                 className={styles.button}
-                disabled={undo.isPending || removal === "nothingToUndo"}
+                disabled={!ready || undo.isPending || removal === "nothingToUndo"}
                 onClick={undoRemoval}
               >
                 {t("remove.undo")}
