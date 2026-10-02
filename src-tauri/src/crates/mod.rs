@@ -71,6 +71,10 @@ pub struct Changed {
     /// How many were left alone: already in the crate when adding, not in it
     /// when removing.
     pub skipped: u32,
+    /// The operation this recorded; `None` when nothing changed. Undo is
+    /// offered only for a recorded operation: with none, undo would take
+    /// back an earlier, unrelated one.
+    pub operation_id: Option<i64>,
 }
 
 /// Why a crate command was refused. Nothing was changed.
@@ -218,10 +222,15 @@ pub fn create_on(conn: &mut Connection, name: &str) -> Result<Done<CrateId>, Ops
     .map(|recorded| recorded.value)
 }
 
-/// Renames a crate. Renaming it to what it's called already changes
-/// nothing and records nothing. A new name that differs only in letter case
-/// or trailing space is fine: it's the same crate.
-pub fn rename_on(conn: &mut Connection, id: CrateId, name: &str) -> Result<Done<()>, OpsError> {
+/// Renames a crate and returns the operation it recorded. Renaming it to
+/// what it's called already changes nothing and records nothing (`None`). A
+/// new name that differs only in letter case or trailing space is fine:
+/// it's the same crate.
+pub fn rename_on(
+    conn: &mut Connection,
+    id: CrateId,
+    name: &str,
+) -> Result<Done<Option<i64>>, OpsError> {
     let name = name.trim().to_owned();
     ops::record(
         conn,
@@ -239,7 +248,7 @@ pub fn rename_on(conn: &mut Connection, id: CrateId, name: &str) -> Result<Done<
             Ok(Ok(()))
         },
     )
-    .map(|recorded| recorded.value)
+    .map(|recorded| recorded.value.map(|()| recorded.operation_id))
 }
 
 /// Deletes a crate and its entries (the Library tracks stay). Recorded as
@@ -270,8 +279,10 @@ pub fn delete_on(conn: &mut Connection, id: CrateId) -> Result<Done<()>, OpsErro
     .map(|recorded| recorded.value)
 }
 
-/// Adds Library tracks to a crate, in the order given. A track already in it
-/// is skipped (and a track listed twice counts once). Recorded as one
+/// Adds Library tracks to a crate. A track already in it is skipped (and a
+/// track listed twice counts once). The entries get the time of the add, and
+/// ties (a batch in one millisecond) are ordered by Library track id, as a
+/// send orders them, not by the order given. Recorded as one
 /// operation; if nothing was added, nothing is recorded.
 pub fn add_on(
     conn: &mut Connection,
@@ -317,10 +328,11 @@ pub fn add_on(
             Ok(Ok(Changed {
                 changed: added,
                 skipped: tracks.len() as u32 - added,
+                operation_id: None,
             }))
         },
     )
-    .map(|recorded| recorded.value)
+    .map(with_operation)
 }
 
 /// Takes tracks out of a crate; the Library tracks stay. A track that isn't
@@ -359,10 +371,19 @@ pub fn remove_on(
             Ok(Ok(Changed {
                 changed: removed,
                 skipped: tracks.len() as u32 - removed,
+                operation_id: None,
             }))
         },
     )
-    .map(|recorded| recorded.value)
+    .map(with_operation)
+}
+
+/// Puts the operation a write recorded (if it recorded one) into its answer.
+fn with_operation(recorded: ops::Recorded<Done<Changed>>) -> Done<Changed> {
+    recorded.value.map(|changed| Changed {
+        operation_id: recorded.operation_id,
+        ..changed
+    })
 }
 
 /// Every crate with its track count, in the order a send writes them.
@@ -430,14 +451,15 @@ pub async fn create_crate(writer: State<'_, Writer>, name: String) -> Result<Cra
     Ok(writer.call(move |conn| Ok(create_on(conn, &name)))???)
 }
 
-/// Renames a crate.
+/// Renames a crate. Answers the operation recorded, or none when the name
+/// is the one it has.
 #[tauri::command]
 #[specta::specta]
 pub async fn rename_crate(
     writer: State<'_, Writer>,
     id: CrateId,
     name: String,
-) -> Result<(), IpcError> {
+) -> Result<Option<i64>, IpcError> {
     Ok(writer.call(move |conn| Ok(rename_on(conn, id, &name)))???)
 }
 

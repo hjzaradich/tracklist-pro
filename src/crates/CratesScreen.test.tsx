@@ -34,7 +34,12 @@ function track(id: number): LibraryTrack {
  * screen calls (recorded in `calls` with their arguments), and a one-step
  * undo that puts the crates back as they were.
  */
-function backend(initial: { crate: Crate; tracks: LibraryTrack[] }[]) {
+function backend(
+  initial: { crate: Crate; tracks: LibraryTrack[] }[],
+  // `gone`: tracks the backend no longer has in any crate, though the screen
+  // still lists them. `failing`: commands that are refused.
+  options: { gone?: number[]; failing?: string[] } = {},
+) {
   let crates = initial;
   let before: typeof crates | null = null;
   const calls: { cmd: string; args: Record<string, unknown> }[] = [];
@@ -45,6 +50,7 @@ function backend(initial: { crate: Crate; tracks: LibraryTrack[] }[]) {
   mockIPC((cmd, rawArgs) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     calls.push({ cmd, args });
+    if (options.failing?.includes(cmd)) return refuse("crateNotFound");
     const named = (name: string) => crates.find((c) => c.crate.name.toLowerCase() === name.trim().toLowerCase());
     switch (cmd) {
       case "list_crates":
@@ -61,23 +67,37 @@ function backend(initial: { crate: Crate; tracks: LibraryTrack[] }[]) {
         crates = [...crates, { crate: { id, name, trackCount: 0 }, tracks: [] }];
         return id;
       }
-      case "rename_crate":
+      case "rename_crate": {
+        const target = crates.find((c) => c.crate.id === args.id);
+        const name = String(args.name).trim();
+        // The name it has: nothing is recorded.
+        if (target?.crate.name === name) return null;
+        const existing = named(name);
+        if (existing && existing !== target) {
+          return refuse("crateNameTaken", { name: existing.crate.name });
+        }
         before = crates;
         crates = crates.map((c) =>
-          c.crate.id === args.id ? { ...c, crate: { ...c.crate, name: String(args.name) } } : c,
+          c.crate.id === args.id ? { ...c, crate: { ...c.crate, name } } : c,
         );
-        return null;
+        return 7;
+      }
       case "delete_crate":
         before = crates;
         crates = crates.filter((c) => c.crate.id !== args.id);
         return null;
       case "remove_tracks_from_crate": {
         before = crates;
-        const gone = args.tracks as number[];
+        const wanted = args.tracks as number[];
+        if (wanted.every((id) => options.gone?.includes(id))) {
+          return { changed: 0, skipped: wanted.length, operationId: null };
+        }
         crates = crates.map((c) =>
-          c.crate.id === args.id ? { ...c, tracks: c.tracks.filter((t) => !gone.includes(t.id)) } : c,
+          c.crate.id === args.id
+            ? { ...c, tracks: c.tracks.filter((t) => !wanted.includes(t.id)) }
+            : c,
         );
-        return { changed: gone.length, skipped: 0 };
+        return { changed: wanted.length, skipped: 0, operationId: 8 };
       }
       case "undo_last_operation":
         if (before === null) return { status: "nothingToUndo" };
@@ -316,7 +336,7 @@ describe("deleting a crate", () => {
 
 describe("undo", () => {
   it("says so, and changes nothing, when the Library has changed since", async () => {
-    const calls = backend([]);
+    backend([]);
     renderScreen();
     await userEvent.click(await button("crates:new.button"));
     await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Warm up");
@@ -332,6 +352,112 @@ describe("undo", () => {
     });
     await userEvent.click(await button("crates:undo"));
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:undoRefused"));
-    expect(calls.map((c) => c.cmd)).toContain("create_crate");
+    // The crate is still there.
+    expect(await screen.findByRole("heading", { level: 2 })).toHaveTextContent("Warm up");
+  });
+});
+
+/** The Rename form's own confirm button (the header's button has the same name). */
+async function confirmRename() {
+  const input = await screen.findByLabelText(tx("crates:rename.label"));
+  await userEvent.click(
+    within(input.closest("form") as HTMLElement).getByRole("button", {
+      name: tx("crates:rename.confirm"),
+    }),
+  );
+}
+
+describe("a change that records nothing", () => {
+  it("offers no Undo after renaming a crate to the name it has, since Undo would take back something else", async () => {
+    const calls = backend([crateWith(1, "Warm up", [track(1)])]);
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
+    await userEvent.click(await button("crates:rename.button"));
+    await confirmRename();
+
+    await waitFor(() => expect(screen.queryByLabelText(tx("crates:rename.label"))).toBeNull());
+    expect(calls.filter((c) => c.cmd === "rename_crate")).toHaveLength(1);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: tx("crates:undo") })).toBeNull();
+  });
+
+  it("offers no Undo after removing a track that was gone already", async () => {
+    const calls = backend([crateWith(1, "Warm up", [track(1), track(2)])], { gone: [1] });
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: tx("crates:removeTrack.buttonFor", { title: "Synthetic Tune 1" }),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(calls.filter((c) => c.cmd === "remove_tracks_from_crate")).toHaveLength(1),
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: tx("crates:undo") })).toBeNull();
+  });
+
+  it("leaves an earlier change's strip as it was", async () => {
+    backend([crateWith(1, "Warm up", [track(1)])]);
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
+    await userEvent.click(await button("crates:rename.button"));
+    const input = await screen.findByLabelText(tx("crates:rename.label"));
+    await userEvent.clear(input);
+    await userEvent.type(input, "Warm up 2");
+    await confirmRename();
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:done.renamed"));
+
+    // Renaming to the name it has records nothing.
+    await userEvent.click(await button("crates:rename.button"));
+    await confirmRename();
+    await waitFor(() => expect(screen.queryByLabelText(tx("crates:rename.label"))).toBeNull());
+    expect(screen.getByRole("status")).toHaveTextContent(tx("crates:done.renamed"));
+  });
+});
+
+describe("errors", () => {
+  it("clears a refused name when the user goes back", async () => {
+    backend([crateWith(1, "Warm up", [])]);
+    renderScreen();
+    await userEvent.click(await button("crates:new.button"));
+    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "warm up");
+    await userEvent.click(await button("crates:new.confirm"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      tx("crates:error.nameTaken", { name: "Warm up" }),
+    );
+
+    await userEvent.click(await button("crates:new.cancel"));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows the newest error alone, not an older one that is still on screen", async () => {
+    backend([crateWith(1, "Warm up", []), crateWith(2, "Peak time", [])], {
+      failing: ["delete_crate"],
+    });
+    renderScreen();
+    // A refused name in the New form...
+    await userEvent.click(await button("crates:new.button"));
+    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "PEAK TIME");
+    await userEvent.click(await button("crates:new.confirm"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      tx("crates:error.nameTaken", { name: "Peak time" }),
+    );
+    // ...is gone once the user does something else, which also fails.
+    await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    await userEvent.click(await button("crates:delete.button"));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: tx("crates:delete.confirm"),
+      }),
+    );
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.map((alert) => alert.textContent)).toEqual([tx("crates:error.notFound")]);
+
+    // And a new attempt clears that one too.
+    await userEvent.click(await button("crates:rename.button"));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

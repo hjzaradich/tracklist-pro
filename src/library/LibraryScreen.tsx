@@ -36,6 +36,7 @@ export function LibraryScreen() {
   const add = (track: LibraryTrack, crate: Crate) => {
     setRemoval(null);
     undo.reset();
+    remove.reset();
     addToCrate.mutate(
       { id: crate.id, tracks: [track.id] },
       {
@@ -52,6 +53,7 @@ export function LibraryScreen() {
   const confirm = () => {
     if (pending === null) return;
     undo.reset();
+    addToCrate.reset();
     remove.mutate(pending.id, { onSuccess: () => setRemoval("removed") });
     setPending(null);
     setRemoval(null);

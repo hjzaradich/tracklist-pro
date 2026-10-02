@@ -171,8 +171,11 @@ export const commands = {
 	afterSendLists: () => typedError<AfterSendLists, IpcError>(__TAURI_INVOKE("after_send_lists")),
 	/**  Makes a crate. The name is trimmed. */
 	createCrate: (name: string) => typedError<CrateId, IpcError>(__TAURI_INVOKE("create_crate", { name })),
-	/**  Renames a crate. */
-	renameCrate: (id: CrateId, name: string) => typedError<null, IpcError>(__TAURI_INVOKE("rename_crate", { id, name })),
+	/**
+	 *  Renames a crate. Answers the operation recorded, or none when the name
+	 *  is the one it has.
+	 */
+	renameCrate: (id: CrateId, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("rename_crate", { id, name })),
 	/**  Deletes a crate. Its Library tracks stay in the Library. */
 	deleteCrate: (id: CrateId) => typedError<null, IpcError>(__TAURI_INVOKE("delete_crate", { id })),
 	/**  Adds Library tracks to a crate. A track that's in it already is skipped. */
@@ -284,6 +287,12 @@ export type Changed = {
 	 *  when removing.
 	 */
 	skipped: number,
+	/**
+	 *  The operation this recorded; `None` when nothing changed. Undo is
+	 *  offered only for a recorded operation: with none, undo would take
+	 *  back an earlier, unrelated one.
+	 */
+	operationId: number | null,
 };
 
 export type ConflictProblem = 

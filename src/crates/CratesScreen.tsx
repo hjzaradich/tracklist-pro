@@ -49,6 +49,15 @@ export function CratesScreen() {
     setDone(what);
     setAsking(null);
   };
+  // Each new attempt, and each Go back, clears what failed before, so the
+  // error on screen is always the newest one.
+  const clearErrors = () => {
+    create.reset();
+    rename.reset();
+    remove.reset();
+    take.reset();
+    undo.reset();
+  };
   const failure = [create, rename, remove, take, undo].find((m) => m.isError);
 
   return (
@@ -61,7 +70,10 @@ export function CratesScreen() {
               type="button"
               className={styles.button}
               disabled={undo.isPending}
-              onClick={() => undo.mutate(undefined, { onSuccess: () => setDone(null) })}
+              onClick={() => {
+                clearErrors();
+                undo.mutate(undefined, { onSuccess: () => setDone(null) });
+              }}
             >
               {t("undo")}
             </button>
@@ -94,7 +106,7 @@ export function CratesScreen() {
                   type="button"
                   className={styles.button}
                   onClick={() => {
-                    create.reset();
+                    clearErrors();
                     setAsking("new");
                   }}
                 >
@@ -109,15 +121,19 @@ export function CratesScreen() {
                   cancel={t("new.cancel")}
                   initial=""
                   pending={create.isPending}
-                  onSubmit={(name) =>
+                  onSubmit={(name) => {
+                    clearErrors();
                     create.mutate(name, {
                       onSuccess: (id) => {
                         choose(id);
                         finished("created");
                       },
-                    })
-                  }
-                  onCancel={() => setAsking(null)}
+                    });
+                  }}
+                  onCancel={() => {
+                    clearErrors();
+                    setAsking(null);
+                  }}
                 />
               )}
               {list.length === 0 ? (
@@ -131,6 +147,7 @@ export function CratesScreen() {
                         className={styles.crate}
                         aria-pressed={crate.id === current?.id}
                         onClick={() => {
+                          clearErrors();
                           setAsking(null);
                           choose(crate.id);
                         }}
@@ -157,27 +174,42 @@ export function CratesScreen() {
                   renaming={rename.isPending}
                   deleting={remove.isPending}
                   onAsk={(what) => {
-                    rename.reset();
-                    remove.reset();
+                    clearErrors();
                     setAsking(what);
                   }}
-                  onRename={(name) =>
-                    rename.mutate({ id: current.id, name }, { onSuccess: () => finished("renamed") })
-                  }
-                  onDelete={() =>
+                  onRename={(name) => {
+                    clearErrors();
+                    rename.mutate(
+                      { id: current.id, name },
+                      {
+                        // Nothing is recorded when the name is the one it has,
+                        // and Undo would then take back an earlier operation.
+                        onSuccess: (operation) =>
+                          operation === null ? setAsking(null) : finished("renamed"),
+                      },
+                    );
+                  }}
+                  onDelete={() => {
+                    clearErrors();
                     remove.mutate(current.id, {
                       onSuccess: () => {
                         choose(null);
                         finished("deleted");
                       },
-                    })
-                  }
-                  onRemoveTrack={(track) =>
+                    });
+                  }}
+                  onRemoveTrack={(track) => {
+                    clearErrors();
                     take.mutate(
                       { id: current.id, tracks: [track.id] },
-                      { onSuccess: () => finished("removed") },
-                    )
-                  }
+                      {
+                        // A track that was gone already records nothing.
+                        onSuccess: (result) => {
+                          if (result.operationId !== null) finished("removed");
+                        },
+                      },
+                    );
+                  }}
                 />
               )}
             </div>

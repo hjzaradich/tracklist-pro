@@ -94,7 +94,7 @@ impl Lib {
         self.create(name).unwrap()
     }
 
-    fn rename(&self, id: CrateId, name: &str) -> Done<()> {
+    fn rename(&self, id: CrateId, name: &str) -> Done<Option<i64>> {
         let name = name.to_owned();
         self.writer
             .call(move |c| Ok(rename_on(c, id, &name)))
@@ -176,6 +176,11 @@ impl Lib {
             );
         }
     }
+}
+
+/// (changed, skipped) of an add or a removal.
+fn counts(changed: Changed) -> (u32, u32) {
+    (changed.changed, changed.skipped)
 }
 
 fn names(refused: Done<CrateId>) -> String {
@@ -366,30 +371,12 @@ fn adding_a_track_twice_leaves_one_entry() {
     let lib = Lib::new();
     let a = lib.track("A");
     let id = lib.made("Warm up");
-    assert_eq!(
-        lib.add(id, &[a]).unwrap(),
-        Changed {
-            changed: 1,
-            skipped: 0
-        }
-    );
-    assert_eq!(
-        lib.add(id, &[a]).unwrap(),
-        Changed {
-            changed: 0,
-            skipped: 1
-        }
-    );
+    assert_eq!(counts(lib.add(id, &[a]).unwrap()), (1, 0));
+    assert_eq!(counts(lib.add(id, &[a]).unwrap()), (0, 1));
     assert_eq!(lib.ids(id), [a]);
     // A track listed twice in one call counts once.
     let b = lib.track("B");
-    assert_eq!(
-        lib.add(id, &[b, b]).unwrap(),
-        Changed {
-            changed: 1,
-            skipped: 1
-        }
-    );
+    assert_eq!(counts(lib.add(id, &[b, b]).unwrap()), (1, 1));
     assert_eq!(lib.crates(), [("Warm up".to_owned(), 2)]);
 }
 
@@ -405,6 +392,50 @@ fn adding_only_tracks_already_there_records_no_operation() {
     // So undo still takes back the add that did something.
     lib.undo();
     assert_eq!(lib.ids(id), Vec::<LibraryTrackId>::new());
+}
+
+#[test]
+fn a_change_answers_with_the_operation_it_recorded() {
+    let lib = Lib::new();
+    let (a, b) = (lib.track("A"), lib.track("B"));
+    let id = lib.made("Warm up");
+    let latest = |lib: &Lib| -> i64 {
+        lib.writer
+            .call(|c| c.query_row("SELECT max(id) FROM operation", [], |r| r.get(0)))
+            .unwrap()
+    };
+    assert_eq!(
+        lib.add(id, &[a, b]).unwrap().operation_id,
+        Some(latest(&lib))
+    );
+    assert_eq!(lib.rename(id, "Peak time").unwrap(), Some(latest(&lib)));
+    assert_eq!(
+        lib.take_out(id, &[a]).unwrap().operation_id,
+        Some(latest(&lib))
+    );
+}
+
+#[test]
+fn a_command_that_changes_nothing_records_no_operation_and_leaves_the_log_alone() {
+    let lib = Lib::new();
+    let (a, b) = (lib.track("A"), lib.track("B"));
+    let id = lib.made("Warm up");
+    lib.add(id, &[a]).unwrap();
+    let (operations, state) = (lib.operations(), lib.state());
+
+    // Renamed to the name it has.
+    assert_eq!(lib.rename(id, "Warm up").unwrap(), None);
+    assert_eq!(lib.rename(id, "  Warm up  ").unwrap(), None);
+    // An add where every track is already there.
+    assert_eq!(lib.add(id, &[a]).unwrap().operation_id, None);
+    // A removal of tracks that aren't in the crate (already gone).
+    assert_eq!(lib.take_out(id, &[b]).unwrap().operation_id, None);
+
+    assert_eq!((lib.operations(), lib.state()), (operations, state));
+    // So undo still takes back the add that did something, not an earlier one.
+    lib.undo();
+    assert_eq!(lib.ids(id), Vec::<LibraryTrackId>::new());
+    assert_eq!(lib.crates(), [("Warm up".to_owned(), 0)]);
 }
 
 #[test]
@@ -440,13 +471,7 @@ fn removing_tracks_takes_them_out_of_the_crate_only_and_skips_those_not_in_it() 
     let id = lib.made("Warm up");
     lib.add(id, &[a, b]).unwrap();
     let changed = lib.take_out(id, &[b, c]).unwrap();
-    assert_eq!(
-        changed,
-        Changed {
-            changed: 1,
-            skipped: 1
-        }
-    );
+    assert_eq!(counts(changed), (1, 1));
     assert_eq!(lib.ids(id), [a]);
     let tracks: i64 = lib
         .writer
@@ -712,7 +737,9 @@ mod ipc {
             json!({ "id": id, "tracks": [library_track] }),
         )
         .unwrap();
-        assert_eq!(added, json!({ "changed": 1, "skipped": 0 }));
+        assert_eq!(added["changed"], json!(1));
+        assert_eq!(added["skipped"], json!(0));
+        assert!(added["operationId"].is_number());
 
         let listed = invoke(&app, "list_crates", json!({})).unwrap();
         assert_eq!(
@@ -723,12 +750,16 @@ mod ipc {
         assert_eq!(tracks[0]["title"], json!("Tune"));
         assert_eq!(tracks[0]["id"], json!(library_track));
 
-        invoke(
+        // Renaming to the name it has records nothing, and says so.
+        let same = invoke(&app, "rename_crate", json!({ "id": id, "name": "Warm up" })).unwrap();
+        assert_eq!(same, json!(null));
+        let renamed = invoke(
             &app,
             "rename_crate",
             json!({ "id": id, "name": "Warm up 2" }),
         )
         .unwrap();
+        assert!(renamed.is_number());
         invoke(
             &app,
             "remove_tracks_from_crate",

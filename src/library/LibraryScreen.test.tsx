@@ -321,8 +321,8 @@ describe("removing a track from the Library", () => {
   it("says so, and keeps the track out, when undo is refused", async () => {
     let tracks = [track(1)];
     mockIPC((cmd) => {
-    if (cmd === "list_crates") return [];
-    if (cmd === "library_tracks") return tracks;
+      if (cmd === "list_crates") return [];
+      if (cmd === "library_tracks") return tracks;
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -352,8 +352,8 @@ describe("removing a track from the Library", () => {
     const pending = new Promise((resolve) => (finish = resolve));
     let tracks = [track(1)];
     mockIPC((cmd) => {
-    if (cmd === "list_crates") return [];
-    if (cmd === "library_tracks") return tracks;
+      if (cmd === "list_crates") return [];
+      if (cmd === "library_tracks") return tracks;
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -397,8 +397,8 @@ describe("removing a track from the Library", () => {
   it("greys out Undo, with no message, when there turns out to be nothing to undo", async () => {
     let tracks = [track(1)];
     mockIPC((cmd) => {
-    if (cmd === "list_crates") return [];
-    if (cmd === "library_tracks") return tracks;
+      if (cmd === "list_crates") return [];
+      if (cmd === "library_tracks") return tracks;
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
