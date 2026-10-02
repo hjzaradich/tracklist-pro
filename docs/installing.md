@@ -38,6 +38,8 @@ Run `tracklist-pro_0.1.0_x64-setup.exe` and keep the defaults. The program goes 
 
 ### The "Windows protected your PC" warning
 
+**Not checked on this build yet.** The wording below is what Windows usually shows for an unsigned installer; it wasn't seen on this build, and Windows versions differ.
+
 tracklist-pro isn't code-signed (signing costs money, and the project is free; ROADMAP §1.1). Windows SmartScreen warns about any unsigned installer that came from the internet:
 
 - A blue window titled **Windows protected your PC**, saying Microsoft Defender SmartScreen prevented an unrecognized app from starting. It shows a single **Don't run** button.

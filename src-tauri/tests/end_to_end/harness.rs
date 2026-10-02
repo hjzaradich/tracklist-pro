@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
-use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+use tauri::test::{mock_builder, MockRuntime};
 use tauri::Manager;
 use tauri_specta::Event;
 use tracklist_pro_lib::all_music::AllMusicList;
@@ -29,7 +29,7 @@ use tracklist_pro_lib::jobs::{self, ActivitySnapshot, JobId, JobRecord, JobStatu
 use tracklist_pro_lib::library::{LibraryTrack, LibraryTrackId, Promoted};
 use tracklist_pro_lib::rekordbox::RekordboxXml;
 use tracklist_pro_lib::send::{Preflight, SendFailure, SendState};
-use tracklist_pro_lib::{db, ipc, rekordbox, scan, send, write_guard, IDENTIFIER};
+use tracklist_pro_lib::{db, scan, IDENTIFIER};
 
 /// A generated audio file: where it goes in the music folder, its tags,
 /// and which audio it holds. Two songs with the same `audio` are
@@ -189,10 +189,9 @@ impl World {
             fs::write(&path, wav(song)).unwrap();
         }
 
-        let app = start_app(app_data.clone(), documents.clone());
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
+        let app = start_app(app_data.clone());
+        // Startup opened the main window from the config.
+        let webview = app.get_webview_window("main").unwrap();
         let (heard, updates) = mpsc::channel();
         let heard = Mutex::new(heard);
         jobs::JobUpdates::listen_any(app.handle(), move |_| {
@@ -520,33 +519,14 @@ impl Drop for World {
 }
 
 /// Starts the app on Tauri's mock runtime with its data folder at
-/// `data_dir`.
-///
-/// This is the body of the app's own startup (`setup` in `lib.rs`), which
-/// only lets its unit tests choose the data folder. Keep the two in step:
-/// the same state, made in the same order, by the same public functions.
-/// The window is opened by [`World::new`] instead of from the config.
+/// `data_dir`: the app's own startup (`setup` in `lib.rs`, through its
+/// test entry point) with the compiled-in `tauri.conf.json`, so the
+/// plugins, the state, the job queue and the guarded main window are the
+/// ones `run` makes. Only the runtime and the data folder differ.
 #[allow(deprecated)]
-fn start_app(data_dir: PathBuf, documents: PathBuf) -> tauri::App<MockRuntime> {
-    let specta = ipc::specta_builder::<MockRuntime>();
-    let mut app = mock_builder()
-        .invoke_handler(specta.invoke_handler())
-        .setup(move |app| {
-            specta.mount_events(app);
-            let guard = write_guard::WriteGuard::app_data(&data_dir)?;
-            let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
-            app.manage(db::ReadPool::open(writer.guarded_path())?);
-            scan::volumes::start(app.handle(), &writer);
-            writer.call(|c| send::drop_unfinished_jobs(c))?;
-            app.manage(send::SendFlow::new(guard.clone()));
-            app.manage(jobs::start(app.handle(), writer.clone())?);
-            app.manage(scan::watch::start(app.handle(), writer.clone()));
-            app.manage(writer);
-            app.manage(guard);
-            app.manage(rekordbox::source::ExportFolder::new(Some(documents)));
-            Ok(())
-        })
-        .build(mock_context(noop_assets()))
+fn start_app(data_dir: PathBuf) -> tauri::App<MockRuntime> {
+    let mut app = tracklist_pro_lib::setup_for_tests(mock_builder(), data_dir)
+        .build(tauri::generate_context!(test = true))
         .unwrap();
     // The startup hook runs when the event loop starts; on the mock
     // runtime one iteration runs it and returns.

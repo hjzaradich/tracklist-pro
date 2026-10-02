@@ -7,6 +7,10 @@
 //! crates ([`harness::crates_by_hand`]), which no command can make before
 //! 1cA-10.
 //!
+//! These drive the backend, not the screens: the React frontend isn't
+//! loaded, and choices that are only a screen ("Start fresh", "Start from
+//! rekordbox") appear here as the commands those screens call.
+//!
 //! What the two runs prove:
 //!
 //! - **Start from rekordbox** ([`start_from_rekordbox`]): a generated music

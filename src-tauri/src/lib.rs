@@ -44,7 +44,6 @@ enum DataDir {
     AppData,
     /// Somewhere else. Tests use a temp dir so they never touch the real
     /// database.
-    #[cfg_attr(not(test), allow(dead_code))]
     At(PathBuf),
 }
 
@@ -95,6 +94,15 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             net::navigation::open_windows(app)?;
             Ok(())
         })
+}
+
+/// The app's real startup with its data folder at `data_dir` instead of
+/// `%APPDATA%`, for the integration tests in `tests/`: they build it on
+/// Tauri's mock runtime, so what they drive is what [`run`] starts.
+/// Nothing in the app calls this.
+#[doc(hidden)]
+pub fn setup_for_tests<R: Runtime>(builder: Builder<R>, data_dir: PathBuf) -> Builder<R> {
+    setup(builder, DataDir::At(data_dir))
 }
 
 pub fn run() {
