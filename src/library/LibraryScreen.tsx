@@ -8,8 +8,9 @@ import styles from "./LibraryTrackList.module.css";
 import { useAddToCrate, useCrates } from "../crates/useCrates";
 import { AddedToCrate, AddToCrate } from "./AddToCrate";
 import { ConfirmRemove, RemoveButton } from "./RemoveFromLibrary";
+import { useUndoAfterAction } from "../shell/useUndo";
 import { useLibraryTracks } from "./useLibraryTracks";
-import { useRemoveLibraryTrack, useUndoLast } from "./useRemoveLibraryTrack";
+import { useRemoveLibraryTrack } from "./useRemoveLibraryTrack";
 
 /** What the strip above the list says about the last removal. */
 type Removal = "removed" | "undone" | "nothingToUndo" | "undoRefused";
@@ -23,15 +24,17 @@ export function LibraryScreen() {
   const { t } = useTranslation("library");
   const tracks = useLibraryTracks();
   const remove = useRemoveLibraryTrack();
-  const undo = useUndoLast();
+  const { arm, offered, ready, undo } = useUndoAfterAction();
   const [pending, setPending] = useState<LibraryTrack | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const crates = useCrates();
   const addToCrate = useAddToCrate();
   // What the last "Add to crate" did; `key` starts its Undo afresh.
-  const [added, setAdded] = useState<{ key: number; crate: string; changed: boolean } | null>(
-    null,
-  );
+  const [added, setAdded] = useState<{
+    key: number;
+    crate: string;
+    operationId: number | null;
+  } | null>(null);
 
   const add = (track: LibraryTrack, crate: Crate) => {
     setRemoval(null);
@@ -44,7 +47,7 @@ export function LibraryScreen() {
           setAdded((previous) => ({
             key: (previous?.key ?? 0) + 1,
             crate: crate.name,
-            changed: result.changed > 0,
+            operationId: result.operationId,
           })),
       },
     );
@@ -54,7 +57,12 @@ export function LibraryScreen() {
     if (pending === null) return;
     undo.reset();
     addToCrate.reset();
-    remove.mutate(pending.id, { onSuccess: () => setRemoval("removed") });
+    remove.mutate(pending.id, {
+      onSuccess: () => {
+        arm();
+        setRemoval("removed");
+      },
+    });
     setPending(null);
     setRemoval(null);
     setAdded(null);
@@ -85,14 +93,17 @@ export function LibraryScreen() {
         {(removal === "removed" || removal === "nothingToUndo") && (
           <p role="status" className={styles.status}>
             {t("remove.done")}
-            <button
-              type="button"
-              className={styles.button}
-              disabled={undo.isPending || removal === "nothingToUndo"}
-              onClick={undoRemoval}
-            >
-              {t("remove.undo")}
-            </button>
+            {/* Gone once the removal isn't the next step to undo any more. */}
+            {offered && (
+              <button
+                type="button"
+                className={styles.button}
+                disabled={!ready || undo.isPending || removal === "nothingToUndo"}
+                onClick={undoRemoval}
+              >
+                {t("remove.undo")}
+              </button>
+            )}
           </p>
         )}
         {removal === "undone" && (
@@ -111,7 +122,7 @@ export function LibraryScreen() {
           </p>
         )}
         {added !== null && !addToCrate.isError && (
-          <AddedToCrate key={added.key} crate={added.crate} changed={added.changed} />
+          <AddedToCrate key={added.key} crate={added.crate} operationId={added.operationId} />
         )}
         {tracks.isError ? (
           <p role="alert" className={styles.error}>

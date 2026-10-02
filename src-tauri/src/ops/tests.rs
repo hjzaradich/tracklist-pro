@@ -780,22 +780,141 @@ fn an_undone_operation_is_marked_not_deleted_and_is_not_undone_twice() {
 }
 
 #[test]
-fn undo_is_single_step_it_undoes_only_the_most_recent_operation() {
+fn repeated_undo_walks_back_one_operation_at_a_time_newest_first() {
     let (_dir, mut conn) = db();
     let id = crate_row(&conn, "Warmup");
-    set_notes(&mut conn, id, "one").unwrap();
+    let first = set_notes(&mut conn, id, "one").unwrap();
     let second = set_notes(&mut conn, id, "two").unwrap();
 
     assert_eq!(undone(undo_last(&mut conn).unwrap()).id, second);
     assert_eq!(crate_notes(&conn, id).as_deref(), Some("one"));
-    // Multi-step undo is 1bA-12: the first operation stays done.
+    assert_eq!(undone(undo_last(&mut conn).unwrap()).id, first);
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
     assert_eq!(undo_last(&mut conn).unwrap(), UndoOutcome::NothingToUndo);
-    assert_eq!(crate_notes(&conn, id).as_deref(), Some("one"));
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
+}
 
-    // A new operation can be undone again.
+#[test]
+fn a_new_operation_after_an_undo_is_the_next_to_undo_and_the_undone_one_stays_undone() {
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    let first = set_notes(&mut conn, id, "one").unwrap();
+    set_notes(&mut conn, id, "two").unwrap();
+    undone(undo_last(&mut conn).unwrap());
+
+    // There is no redo: "two" is gone for good, and history carries on
+    // from "one".
     let third = set_notes(&mut conn, id, "three").unwrap();
     assert_eq!(undone(undo_last(&mut conn).unwrap()).id, third);
     assert_eq!(crate_notes(&conn, id).as_deref(), Some("one"));
+    assert_eq!(undone(undo_last(&mut conn).unwrap()).id, first);
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
+    assert_eq!(undo_last(&mut conn).unwrap(), UndoOutcome::NothingToUndo);
+}
+
+#[test]
+fn a_refused_step_is_not_skipped_so_the_operations_before_it_stay_done() {
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    set_notes(&mut conn, id, "one").unwrap();
+    let second = set_notes(&mut conn, id, "two").unwrap();
+    conn.execute("UPDATE crate SET notes = 'by hand' WHERE id = ?1", [id])
+        .unwrap();
+
+    for _ in 0..2 {
+        match undo_last(&mut conn).unwrap() {
+            UndoOutcome::Refused {
+                operation, reason, ..
+            } => {
+                assert_eq!(operation.id, second);
+                assert_eq!(reason, UndoRefusal::ChangedSince);
+            }
+            other => panic!("expected Refused, got {other:?}"),
+        }
+        assert_eq!(crate_notes(&conn, id).as_deref(), Some("by hand"));
+    }
+    let undone_operations: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM operation WHERE undone_at IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(undone_operations, 0);
+}
+
+#[test]
+fn undoing_only_a_named_operation_does_nothing_unless_it_is_the_next_to_undo() {
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    let first = set_notes(&mut conn, id, "one").unwrap();
+    let second = set_notes(&mut conn, id, "two").unwrap();
+
+    assert_eq!(
+        undo_only(&mut conn, first).unwrap(),
+        UndoOutcome::NothingToUndo
+    );
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("two"));
+    assert_eq!(undone(undo_only(&mut conn, second).unwrap()).id, second);
+    // Asked again for the one that's undone now: nothing older is taken.
+    assert_eq!(
+        undo_only(&mut conn, second).unwrap(),
+        UndoOutcome::NothingToUndo
+    );
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("one"));
+}
+
+#[test]
+fn a_detail_added_during_the_write_is_stored_with_the_operation() {
+    let (_dir, mut conn) = db();
+    let op = record(&mut conn, "add_crate", &json!({ "name": "Peak" }), |rec| {
+        rec.insert(
+            "crate",
+            &[
+                ("kind", Value::Text("static".into())),
+                ("name", Value::Text("Peak".into())),
+            ],
+        )?;
+        rec.detail("tracks", 3);
+        Ok(())
+    })
+    .unwrap()
+    .operation_id
+    .unwrap();
+    let details: String = conn
+        .query_row("SELECT details FROM operation WHERE id = ?1", [op], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&details).unwrap(),
+        json!({ "name": "Peak", "tracks": 3 })
+    );
+    assert_eq!(
+        undone(undo_last(&mut conn).unwrap()).details,
+        OperationDetails {
+            name: Some("Peak".into()),
+            from: None,
+            tracks: Some(3),
+        }
+    );
+}
+
+#[test]
+fn details_of_an_unexpected_shape_are_left_out_not_an_error() {
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    record(
+        &mut conn,
+        "edit_crate",
+        &json!({ "name": 7, "tracks": "many", "from": null }),
+        |rec| rec.set("crate", id, "notes", "x"),
+    )
+    .unwrap();
+    assert_eq!(
+        undone(undo_last(&mut conn).unwrap()).details,
+        OperationDetails::default()
+    );
 }
 
 // --- Undo: refused when something changed since -----------------------
@@ -994,7 +1113,17 @@ fn undo_outcomes_serialize_for_the_ui_with_operation_and_row_ids() {
     let operation = OperationInfo {
         id: 41,
         kind: "edit_crate".into(),
+        details: OperationDetails {
+            name: Some("Peak".into()),
+            from: None,
+            tracks: Some(2),
+        },
     };
+    let operation_json = json!({
+        "id": 41,
+        "kind": "edit_crate",
+        "details": { "name": "Peak", "from": null, "tracks": 2 },
+    });
     assert_eq!(
         serde_json::to_value(UndoOutcome::NothingToUndo).unwrap(),
         json!({ "status": "nothingToUndo" })
@@ -1004,7 +1133,30 @@ fn undo_outcomes_serialize_for_the_ui_with_operation_and_row_ids() {
             operation: operation.clone()
         })
         .unwrap(),
-        json!({ "status": "undone", "operation": { "id": 41, "kind": "edit_crate" } })
+        json!({ "status": "undone", "operation": operation_json })
+    );
+    assert_eq!(
+        serde_json::to_value(UndoRefusal::CrateNameTaken {
+            name: "House".into()
+        })
+        .unwrap(),
+        json!({ "code": "crateNameTaken", "name": "House" })
+    );
+    assert_eq!(
+        serde_json::to_value(NextUndo {
+            operation: Some(operation.clone()),
+            refusal: Some(UndoRefusal::SentSince),
+        })
+        .unwrap(),
+        json!({ "operation": operation_json, "refusal": { "code": "sentSince" } })
+    );
+    assert_eq!(
+        serde_json::to_value(NextUndo {
+            operation: None,
+            refusal: None,
+        })
+        .unwrap(),
+        json!({ "operation": null, "refusal": null })
     );
     assert_eq!(
         serde_json::to_value(ConflictProblem::Referenced).unwrap(),
@@ -1013,6 +1165,7 @@ fn undo_outcomes_serialize_for_the_ui_with_operation_and_row_ids() {
     assert_eq!(
         serde_json::to_value(UndoOutcome::Refused {
             operation,
+            reason: UndoRefusal::ChangedSince,
             conflicts: vec![UndoConflict {
                 entity: "crate".into(),
                 entity_id: 7,
@@ -1023,7 +1176,8 @@ fn undo_outcomes_serialize_for_the_ui_with_operation_and_row_ids() {
         .unwrap(),
         json!({
             "status": "refused",
-            "operation": { "id": 41, "kind": "edit_crate" },
+            "operation": operation_json,
+            "reason": { "code": "changedSince" },
             "conflicts": [{
                 "entity": "crate",
                 "entityId": 7,
@@ -1083,7 +1237,11 @@ fn the_undo_command_answers_over_ipc() {
         undo(),
         json!({
             "status": "undone",
-            "operation": { "id": added.operation_id.unwrap(), "kind": "add_crate" },
+            "operation": {
+                "id": added.operation_id.unwrap(),
+                "kind": "add_crate",
+                "details": { "name": null, "from": null, "tracks": null },
+            },
         })
     );
     assert_eq!(undo(), json!({ "status": "nothingToUndo" }));
@@ -1135,7 +1293,12 @@ fn a_refused_undo_names_the_operation_and_each_conflicting_row_by_id_over_ipc() 
         outcome,
         json!({
             "status": "refused",
-            "operation": { "id": op, "kind": "edit_crate" },
+            "operation": {
+                "id": op,
+                "kind": "edit_crate",
+                "details": { "name": null, "from": null, "tracks": null },
+            },
+            "reason": { "code": "changedSince" },
             "conflicts": [
                 { "entity": "crate", "entityId": b, "field": "notes", "problem": "changedSince" },
                 { "entity": "crate", "entityId": a, "field": "notes", "problem": "changedSince" },
@@ -1158,10 +1321,23 @@ fn bindings_declare_the_undo_command_and_its_outcome() {
     let ts = std::fs::read_to_string(&path).unwrap();
     assert!(
         ts.contains(
-            r#"undoLastOperation: () => typedError<UndoOutcome, IpcError>(__TAURI_INVOKE("undo_last_operation"))"#
+            r#"undoLastOperation: (operationId: number | null) => typedError<UndoOutcome, IpcError>(__TAURI_INVOKE("undo_last_operation", { operationId }))"#
         ),
         "{ts}"
     );
+    assert!(
+        ts.contains(
+            r#"nextUndoOperation: () => typedError<NextUndo, IpcError>(__TAURI_INVOKE("next_undo_operation"))"#
+        ),
+        "{ts}"
+    );
+    for expected in [
+        "export type NextUndo = {",
+        "export type UndoRefusal =",
+        "export type OperationDetails = {",
+    ] {
+        assert!(ts.contains(expected), "missing `{expected}` in:\n{ts}");
+    }
     assert!(ts.contains("export type UndoOutcome ="), "{ts}");
     for expected in [
         "export type OperationInfo = {",
@@ -1299,7 +1475,8 @@ fn undoing_a_small_batch_restores_the_table_and_marks_the_operation() {
         UndoOutcome::Undone {
             operation: OperationInfo {
                 id: 1,
-                kind: "batch".to_owned()
+                kind: "batch".to_owned(),
+                details: OperationDetails::default(),
             }
         }
     );
@@ -1326,6 +1503,7 @@ fn undoing_a_small_batch_is_refused_with_these_conflicts_when_rows_changed_since
     let UndoOutcome::Refused {
         operation,
         conflicts,
+        ..
     } = outcome
     else {
         panic!("{outcome:?}");

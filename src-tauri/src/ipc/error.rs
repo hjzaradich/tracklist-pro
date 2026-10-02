@@ -608,7 +608,7 @@ mod tests {
             "} as const;",
             r#"cancelJob: (id: JobId) => typedError<CancelOutcome, IpcError>("#,
             r#"activity: () => typedError<ActivitySnapshot, IpcError>("#,
-            r#"undoLastOperation: () => typedError<UndoOutcome, IpcError>("#,
+            r#"undoLastOperation: (operationId: number | null) => typedError<UndoOutcome, IpcError>("#,
         ] {
             assert!(ts.contains(expected), "missing `{expected}` in:\n{ts}");
         }

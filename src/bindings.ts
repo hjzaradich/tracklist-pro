@@ -21,10 +21,16 @@ export const commands = {
 	/**  Cancels a queued or running job. */
 	cancelJob: (id: JobId) => typedError<CancelOutcome, IpcError>(__TAURI_INVOKE("cancel_job", { id })),
 	/**
-	 *  Undoes the most recent operation, unless something it wrote has changed
-	 *  since. If the undo hits an error, nothing was changed.
+	 *  Undoes the newest operation that isn't undone yet, unless something it
+	 *  wrote has changed since. With `operation_id`, only if that operation is
+	 *  the one to undo. If the undo hits an error, nothing was changed.
 	 */
-	undoLastOperation: () => typedError<UndoOutcome, IpcError>(__TAURI_INVOKE("undo_last_operation")),
+	undoLastOperation: (operationId: number | null) => typedError<UndoOutcome, IpcError>(__TAURI_INVOKE("undo_last_operation", { operationId })),
+	/**
+	 *  What Undo would undo now, and why it would be refused, if it would.
+	 *  Changes nothing.
+	 */
+	nextUndoOperation: () => typedError<NextUndo, IpcError>(__TAURI_INVOKE("next_undo_operation")),
 	/**  Every music folder, oldest first. */
 	musicFolders: () => typedError<MusicFolder[], IpcError>(__TAURI_INVOKE("music_folders")),
 	/**
@@ -321,7 +327,13 @@ export type ConflictProblem =
  *  Other rows now reference the row, and undoing would silently delete
  *  or change them through a foreign key.
  */
-"referenced";
+"referenced" | 
+/**
+ *  The database's own rules refuse the earlier value now: another row
+ *  holds a name that must be unique, or rows that must not lose this
+ *  one point at it.
+ */
+"blocked";
 
 /**  A crate, as the Crates screen lists it. */
 export type Crate = {
@@ -794,6 +806,18 @@ export type MusicFolderRole =
 /**  Watched for new arrivals (Phase 2, ROADMAP 2.1). */
 "inbox";
 
+/**  What Undo would do now. */
+export type NextUndo = {
+	/**  The operation Undo would take back; none when nothing is left. */
+	operation: OperationInfo | null,
+	/**
+	 *  Why it would be refused, when that's known. `None` doesn't promise
+	 *  the undo will work: a very large operation isn't tried ahead of time
+	 *  (see [`TRIED_AHEAD_UP_TO`]).
+	 */
+	refusal: UndoRefusal | null,
+};
+
 /**  What the offer holds now. */
 export type Offer = {
 	/**  Tracks the add would put in the Library. */
@@ -804,6 +828,19 @@ export type Offer = {
 	waitingInMissing: number,
 	/**  rekordbox entries whose match is still probable. */
 	waitingForConfirmation: number,
+};
+
+/**
+ *  What the UI needs to name an operation, read from its `details`. Each
+ *  is there only if the operation recorded it.
+ */
+export type OperationDetails = {
+	/**  The crate's name (after a rename, the new one). */
+	name: string | null,
+	/**  A renamed crate's name before. */
+	from: string | null,
+	/**  How many tracks the operation added or removed. */
+	tracks: number | null,
 };
 
 /**  An operation, as undo reports it. */
@@ -818,6 +855,7 @@ export type OperationInfo = {
 	 *  from the locale files.
 	 */
 	kind: string,
+	details: OperationDetails,
 };
 
 /**
@@ -1113,14 +1151,32 @@ export type UndoConflict = {
 	problem: ConflictProblem,
 };
 
-/**  What undoing the last operation did. */
+/**  What undoing the newest operation did. */
 export type UndoOutcome = 
 /**  Every change of the operation was reversed. */
 { status: "undone"; operation: OperationInfo } | 
-/**  No operation, or the last one is already undone. */
+/**
+ *  No operation is left to undo (or, when one operation was asked for,
+ *  it isn't the next to undo).
+ */
 { status: "nothingToUndo" } | 
 /**  Undoing would overwrite later changes, so nothing was changed. */
-{ status: "refused"; operation: OperationInfo; conflicts: UndoConflict[] };
+{ status: "refused"; operation: OperationInfo; reason: UndoRefusal; conflicts: UndoConflict[] };
+
+/**  Why a step can't be undone, as the UI says it. A code, never text. */
+export type UndoRefusal = 
+/**  A track the step added has been sent to rekordbox since. */
+{ code: "sentSince" } | 
+/**
+ *  The step would put a Library track back, but the track or the file
+ *  it was linked to is no longer in the database (its music folder was
+ *  removed, or grouping merged the track away).
+ */
+{ code: "sourceGone" } | 
+/**  The step would bring back a crate name another crate has now. */
+{ code: "crateNameTaken"; name: string } | 
+/**  Something the step changed has changed again since. */
+{ code: "changedSince" };
 
 /**  Drives came or went: the music folders' `online` may have changed. */
 export type VolumesChanged = null;

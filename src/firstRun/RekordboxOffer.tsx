@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { AddSummary } from "../bindings";
+import { useNextUndo } from "../shell/useUndo";
 import styles from "./firstRun.module.css";
 import { PlaylistPicker } from "./PlaylistPicker";
 import {
@@ -44,6 +45,7 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
   const playlists = useRekordboxPlaylists(chosen !== null);
   const add = useAddRekordboxTracks();
   const undo = useUndoAddRekordboxTracks();
+  const nextUndo = useNextUndo();
 
   const title = (
     <h2 id={titleId} className={styles.title}>
@@ -85,7 +87,10 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
           </p>
         )}
         <div className={styles.actions}>
-          {operationId !== null && undone === null && (
+          {/* Gone once the add isn't the next step to undo any more. */}
+          {operationId !== null &&
+            undone === null &&
+            (nextUndo.data === undefined || nextUndo.data.operation?.id === operationId) && (
             <button
               type="button"
               className={styles.button}

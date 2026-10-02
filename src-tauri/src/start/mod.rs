@@ -34,7 +34,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -231,22 +231,12 @@ pub fn add_offered(
     })
 }
 
-/// Undoes the add recorded as `operation`, if it's still the most recent
-/// operation. If something else was done since, nothing is undone
-/// ([`UndoOutcome::NothingToUndo`]): the summary's undo never undoes a
-/// different action.
+/// Undoes the add recorded as `operation`, if it's the next operation to
+/// undo. If something else was done since (or the add was undone already),
+/// nothing is undone ([`UndoOutcome::NothingToUndo`]): the summary's undo
+/// never undoes a different action.
 pub fn undo_add(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, OpsError> {
-    let latest: Option<i64> = conn
-        .query_row(
-            "SELECT id FROM operation ORDER BY id DESC LIMIT 1",
-            [],
-            |r| r.get(0),
-        )
-        .optional()?;
-    if latest != Some(operation) {
-        return Ok(UndoOutcome::NothingToUndo);
-    }
-    ops::undo_last(conn)
+    ops::undo_only(conn, operation)
 }
 
 /// How playlist names are ordered in the pick: letter case ignored.

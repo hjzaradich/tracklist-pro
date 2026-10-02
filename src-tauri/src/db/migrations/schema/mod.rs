@@ -14,6 +14,7 @@ mod library;
 mod library_upkeep;
 mod partial_hash;
 mod sent_playlist;
+mod sync_base_ids;
 mod tracks;
 mod workspace;
 
@@ -165,6 +166,9 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0016_fingerprint_match.sql", &["fingerprint_match"]),
     // The quality job's measurements; drops `file.cutoff_hz`.
     ("0017_file_quality.sql", &["file_quality"]),
+    // `sync_base` ids are never reused. `sqlite_sequence` is SQLite's own
+    // table for that (the highest id each AUTOINCREMENT table has held).
+    ("0018_sync_base_ids_never_reused.sql", &["sqlite_sequence"]),
 ];
 
 #[test]
@@ -226,7 +230,8 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
 fn every_phase_1_table_is_strict_so_a_wrongly_typed_value_is_refused() {
     let (_dir, conn) = db();
     for table in tables(&conn) {
-        if table == "schema_migration" {
+        // SQLite's own tables (`sqlite_sequence`) aren't ours to declare.
+        if table == "schema_migration" || table.starts_with("sqlite_") {
             continue;
         }
         let strict: bool = conn

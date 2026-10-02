@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "../api/errors";
-import { commands, type UndoOutcome } from "../bindings";
+import { commands } from "../bindings";
 import { invalidateCrates } from "../crates/useCrates";
 import { LIBRARY_TRACKS_QUERY_KEY } from "./useLibraryTracks";
 
@@ -10,19 +10,6 @@ export function useRemoveLibraryTrack() {
   return useMutation({
     mutationFn: (id: number) => unwrap(commands.removeLibraryTrack(id)),
     // A removed track leaves its crates (and comes back to them on undo).
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: LIBRARY_TRACKS_QUERY_KEY }),
-        invalidateCrates(queryClient),
-      ]),
-  });
-}
-
-/** Undoes the last operation, e.g. a removal. Resolves to what undo did. */
-export function useUndoLast() {
-  const queryClient = useQueryClient();
-  return useMutation<UndoOutcome>({
-    mutationFn: () => unwrap(commands.undoLastOperation()),
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: LIBRARY_TRACKS_QUERY_KEY }),
