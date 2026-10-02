@@ -23,7 +23,7 @@ use crate::jobs::{
 use crate::read::{read_job, Reader};
 use crate::relink::Relinker;
 use crate::scan::chain::{
-    after_fingerprint, after_group, after_hash, after_read, after_walk, queue_once,
+    after_fingerprint, after_group, after_hash, after_quality, after_read, after_walk, queue_once,
 };
 use crate::scan::folders::MusicFolderId;
 use crate::scan::walk::{scan_job, Walker};
@@ -92,7 +92,8 @@ pub(super) fn chained_queue_with(
     workers: usize,
     more: impl FnOnce(JobQueueBuilder) -> JobQueueBuilder,
 ) -> JobQueue {
-    let (v1, v2, v3, v4, v5) = (
+    let (v1, v2, v3, v4, v5, v6) = (
+        volume.clone(),
         volume.clone(),
         volume.clone(),
         volume.clone(),
@@ -180,6 +181,12 @@ pub(super) fn chained_queue_with(
             Relinker::new(move || v5.clone()).on_summary(move |_| {
                 relink_runs.lock().unwrap().push("relink");
             }),
+        )
+        .handler(
+            JobKind::Quality,
+            after_quality(
+                crate::quality::Qualifier::new(move || v6.clone(), FirstUp::default()).threads(1),
+            ),
         );
     more(builder).start().unwrap()
 }
@@ -267,6 +274,7 @@ fn a_finished_walk_leads_to_read_then_hash_and_fingerprint_for_exactly_the_new_o
             ("hash".into(), None, background, "done".into()),
             ("group".into(), None, background, "done".into()),
             ("fingerprint".into(), None, background, "done".into()),
+            ("quality".into(), None, background, "done".into()),
         ]
     );
     assert_eq!(looked.counts(), (2, 2, 2));
@@ -310,7 +318,7 @@ fn a_finished_walk_leads_to_read_then_hash_and_fingerprint_for_exactly_the_new_o
     wait_idle(&queue);
     let target = Some(format!(r#"{{"music_folder_ids":[{}]}}"#, folder.0));
     assert_eq!(
-        jobs(&writer)[5..],
+        jobs(&writer)[6..],
         [
             (
                 "scan".into(),
@@ -322,6 +330,7 @@ fn a_finished_walk_leads_to_read_then_hash_and_fingerprint_for_exactly_the_new_o
             ("hash".into(), target, background, "done".into()),
             ("group".into(), None, background, "done".into()),
             ("fingerprint".into(), None, background, "done".into()),
+            ("quality".into(), None, background, "done".into()),
         ]
     );
     assert_eq!(looked.counts(), (4, 4, 4));
@@ -344,7 +353,7 @@ fn files_are_grouped_once_the_hashes_are_in_so_the_same_audio_is_one_track() {
     wait_idle(&queue);
     assert_eq!(
         kinds(&writer),
-        ["scan", "read", "hash", "group", "fingerprint"]
+        ["scan", "read", "hash", "group", "fingerprint", "quality"]
     );
     let marks = looked.marks.lock().unwrap();
     assert!(
@@ -434,16 +443,53 @@ fn a_walk_that_finds_nothing_new_or_changed_queues_no_stage_job() {
     wait_idle(&queue);
     assert_eq!(
         kinds(&writer),
-        ["scan", "read", "hash", "group", "fingerprint"]
+        ["scan", "read", "hash", "group", "fingerprint", "quality"]
     );
 
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
     assert_eq!(
         kinds(&writer),
-        ["scan", "read", "hash", "group", "fingerprint", "scan"]
+        [
+            "scan",
+            "read",
+            "hash",
+            "group",
+            "fingerprint",
+            "quality",
+            "scan"
+        ]
     );
     assert_eq!(looked.counts(), (1, 1, 1));
+    queue.shutdown();
+}
+
+#[test]
+fn quality_is_measured_when_the_hashes_are_in_even_if_no_fingerprints_are_due() {
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", &audio::mp3());
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    let count = |kind: &str| kinds(&writer).iter().filter(|k| *k == kind).count();
+    assert_eq!((count("fingerprint"), count("quality")), (1, 1));
+
+    // As after an update that adds a measurement: the file is hashed and
+    // fingerprinted already, and has no measurement yet.
+    writer
+        .call(|c| c.execute("DELETE FROM file_quality", []))
+        .unwrap();
+    queue.enqueue(crate::hash::hash_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count("fingerprint"), 1, "nothing was due a fingerprint");
+    assert_eq!(count("quality"), 2, "the measurement didn't wait for one");
+    let measured: i64 = writer
+        .call(|c| c.query_row("SELECT COUNT(*) FROM file_quality", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(measured, 1);
     queue.shutdown();
 }
 
@@ -557,7 +603,7 @@ fn online_only_files_that_stay_due_do_not_keep_the_chain_going() {
     // by each and is still due for each (count_due never reaches 0).
     assert_eq!(
         kinds(&writer),
-        ["scan", "read", "hash", "group", "fingerprint"]
+        ["scan", "read", "hash", "group", "fingerprint", "quality"]
     );
     let due = writer
         .call(|c| scan_state::count_due(c, Stage::Read, crate::read::READ_VERSION, &Scope::All))
@@ -598,6 +644,7 @@ fn online_only_files_that_stay_due_do_not_keep_the_chain_going() {
             "hash",
             "group",
             "fingerprint",
+            "quality",
             "scan",
             "scan"
         ]
@@ -615,8 +662,8 @@ fn online_only_files_that_stay_due_do_not_keep_the_chain_going() {
     queue.enqueue(scan_job(None)).unwrap();
     wait_idle(&queue);
     assert_eq!(
-        kinds(&writer)[7..],
-        ["scan", "read", "hash", "group", "fingerprint"]
+        kinds(&writer)[8..],
+        ["scan", "read", "hash", "group", "fingerprint", "quality"]
     );
     queue.shutdown();
 }

@@ -76,6 +76,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         .handler(JobKind::Export, crate::send::sender(app))
         .handler(JobKind::Attach, crate::attach::attacher())
         .handler(
+            JobKind::Quality,
+            crate::scan::chain::after_quality(crate::quality::qualifier(app)),
+        )
+        .handler(
             JobKind::Group,
             crate::scan::chain::after_group(crate::grouping::Grouper::default()),
         )

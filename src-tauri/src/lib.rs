@@ -19,6 +19,7 @@ pub mod missing;
 pub mod net;
 pub mod ops;
 pub mod paths;
+pub mod quality;
 pub mod read;
 pub mod rekordbox;
 pub mod rekordbox_write;

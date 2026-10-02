@@ -13,7 +13,8 @@
     "export": "Exporting",
     "read_rekordbox": "Reading rekordbox collection",
     "relink": "Matching rekordbox tracks to files",
-    "attach": "Adding rekordbox data to tracks"
+    "attach": "Adding rekordbox data to tracks",
+    "quality": "Checking audio quality"
   },
   "percent": "{{task}} ({{percent}}%)",
   "andMore_one": "{{summary}} ({{count}} other task)",

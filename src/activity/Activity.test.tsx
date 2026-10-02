@@ -121,6 +121,7 @@ describe("Activity status", () => {
       "export",
       "read_rekordbox",
       "relink",
+      "quality",
     ] as const;
     mockApp();
     render(<Activity />);
