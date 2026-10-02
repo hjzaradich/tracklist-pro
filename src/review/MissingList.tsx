@@ -17,11 +17,14 @@ export function MissingList({
   list,
   problem,
   adding = false,
+  waiting,
   onAddFolder,
 }: {
   list: Missing | undefined;
   problem?: string;
   adding?: boolean;
+  /** Shown in place of "no missing tracks" while that isn't known yet. */
+  waiting?: string | null;
   onAddFolder?: OnAddFolder;
 }) {
   const { t } = useTranslation("review");
@@ -37,7 +40,9 @@ export function MissingList({
           {problem}
         </p>
       )}
-      {list?.groups.length === 0 && <p className={styles.empty}>{t("missing.empty")}</p>}
+      {list?.groups.length === 0 && (
+        <p className={styles.empty}>{waiting ?? t("missing.empty")}</p>
+      )}
       {list?.groups.map((group, n) => {
         const folderId = `${folderIdPrefix}-${n}`;
         return (

@@ -34,6 +34,12 @@ describe("the Missing list", () => {
     expect(screen.getByText(tx("review:missing.empty"))).toBeInTheDocument();
   });
 
+  it("says what's still being worked out instead of claiming no track is missing", () => {
+    render(<MissingList list={list([])} waiting={tx("activity:task.relink")} />);
+    expect(screen.getByText(tx("activity:task.relink"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("review:missing.empty"))).toBeNull();
+  });
+
   it("shows each folder with its track count and the tracks' last known paths", () => {
     render(<MissingList list={list([group(String.raw`D:\Old`)])} />);
     expect(screen.getByText(String.raw`D:\Old`)).toBeInTheDocument();

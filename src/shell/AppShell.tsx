@@ -4,6 +4,7 @@ import { DetailsPanel } from "./DetailsPanel";
 import { PlayerBar } from "./PlayerBar";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { useReloadListsWhenJobsEnd } from "./useReloadListsWhenJobsEnd";
 import styles from "./AppShell.module.css";
 
 /**
@@ -13,6 +14,7 @@ import styles from "./AppShell.module.css";
  */
 export function AppShell() {
   useScannedFilesSync();
+  useReloadListsWhenJobsEnd();
   return (
     <div className={styles.shell}>
       <TopBar className={styles.top} />

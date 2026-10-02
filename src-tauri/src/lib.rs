@@ -83,6 +83,13 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             // (the handler ignores them in any case: they name that run),
             // and the send job's handler shares the flow.
             writer.call(|c| send::drop_unfinished_jobs(c))?;
+            // Then every other job an earlier run left running (a kill, a
+            // crash): back in the queue if it can start again, else ended.
+            // Left as it is, such a row blocks its scan stage for good.
+            let recovered = writer.call(|c| jobs::store::recover_interrupted(c))?;
+            if recovered != jobs::store::Recovered::default() {
+                eprintln!("startup: jobs an earlier run left running: {recovered:?}");
+            }
             app.manage(send::SendFlow::new(guard.clone()));
             app.manage(jobs::start(app.handle(), writer.clone())?);
             app.manage(scan::watch::start(app.handle(), writer.clone()));

@@ -38,6 +38,7 @@
 
 mod fixtures;
 mod harness;
+mod interrupted;
 mod rekordbox_side;
 mod start_fresh;
 mod start_from_rekordbox;

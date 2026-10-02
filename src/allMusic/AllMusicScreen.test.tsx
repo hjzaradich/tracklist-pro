@@ -1,10 +1,13 @@
 import { QueryClientProvider } from "@tanstack/react-query";
+import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
-import type { AllMusicTrack } from "../bindings";
+import { useActivityStore } from "../activity/activityStore";
+import type { AllMusicTrack, JobUpdate } from "../bindings";
+import { useReloadListsWhenJobsEnd } from "../shell/useReloadListsWhenJobsEnd";
 import "../i18n";
 import { AllMusicScreen } from "./AllMusicScreen";
 import type { Schedule } from "./useDebounced";
@@ -53,8 +56,18 @@ function fakeBackend(tracks: AllMusicTrack[], options: { total?: number; refuse?
       return { libraryTrack: {}, added: true };
     }
     throw new Error(`unexpected command ${cmd}`);
-  });
+  }, { shouldMockEvents: true });
   return backend;
+}
+
+function job(kind: JobUpdate["kind"], status: JobUpdate["status"], id = 7): JobUpdate {
+  return { seq: id, id, kind, status, progress: null, priority: 0 };
+}
+
+/** All music inside what the shell does for every screen. */
+function InTheShell() {
+  useReloadListsWhenJobsEnd();
+  return <AllMusicScreen schedule={AT_ONCE} />;
 }
 
 function renderScreen(schedule: Schedule = AT_ONCE) {
@@ -181,5 +194,60 @@ describe("the All music screen", () => {
     renderScreen();
     await rows();
     expect(screen.getByText(tx("allMusic:showing", { shown: 2, total: 1234 }))).toBeInTheDocument();
+  });
+});
+
+describe("All music while a scan is still filling it", () => {
+  afterEach(() => useActivityStore.getState().reset());
+
+  it("says what the scan is doing instead of claiming there are no tracks", async () => {
+    fakeBackend([]);
+    useActivityStore.getState().applySnapshot({ seq: 7, jobs: [job("read", "running")] });
+    renderScreen();
+    expect(await screen.findByText(tx("activity:task.read"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("allMusic:empty"))).toBeNull();
+  });
+
+  it("says there are no tracks once nothing that could add one is under way", async () => {
+    fakeBackend([]);
+    // A relink puts no track in All music.
+    useActivityStore.getState().applySnapshot({ seq: 7, jobs: [job("relink", "running")] });
+    renderScreen();
+    expect(await screen.findByText(tx("allMusic:empty"))).toBeInTheDocument();
+  });
+
+  it("still says no tracks match a search", async () => {
+    fakeBackend([]);
+    useActivityStore.getState().applySnapshot({ seq: 7, jobs: [job("scan", "running")] });
+    renderScreen();
+    await userEvent.type(screen.getByRole("searchbox"), "tune");
+    expect(await screen.findByText(tx("allMusic:noMatch"))).toBeInTheDocument();
+  });
+
+  it("loads the tracks when the background task ends, without leaving the screen", async () => {
+    const backend = fakeBackend([]);
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <InTheShell />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText(tx("allMusic:empty"))).toBeInTheDocument();
+
+    backend.tracks = [track(1), track(2)];
+    await act(() => emit("job-updates", [job("group", "done")]));
+    expect(await rows()).toHaveLength(2);
+  });
+
+  it("doesn't ask again while a task is only making progress", async () => {
+    const backend = fakeBackend([]);
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <InTheShell />
+      </QueryClientProvider>,
+    );
+    await screen.findByText(tx("allMusic:empty"));
+    const asked = backend.searches.length;
+    await act(() => emit("job-updates", [job("read", "running")]));
+    expect(backend.searches).toHaveLength(asked);
   });
 });

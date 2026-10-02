@@ -93,6 +93,67 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
     Ok(())
 }
 
+/// The kinds a run cut short can simply start again: the scan stages work
+/// from `file_stage` and the walk's own unchanged check, so a run from the
+/// top redoes only what's still due, and grouping, relink, attach and a
+/// rekordbox read are each one transaction, so a run cut short stored
+/// nothing. These are the kinds a normal close already puts back in the
+/// queue ([`Ending::Requeued`]).
+const RESTARTABLE: [JobKind; 8] = [
+    JobKind::Scan,
+    JobKind::Read,
+    JobKind::Hash,
+    JobKind::Fingerprint,
+    JobKind::Group,
+    JobKind::ReadRekordbox,
+    JobKind::Relink,
+    JobKind::Attach,
+];
+
+/// Why a job [`recover_interrupted`] couldn't restart ended. Kept in the
+/// job's own row; Activity shows only queued and running jobs, so it's
+/// never shown.
+pub const INTERRUPTED: &str = "interrupted: the app closed while it ran";
+
+/// What [`recover_interrupted`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Recovered {
+    /// Jobs put back in the queue.
+    pub requeued: usize,
+    /// Jobs ended as failed.
+    pub failed: usize,
+}
+
+/// Deals with every job an earlier run of the app left `running`: it was
+/// killed, it crashed or the power went. Call it at startup, before the
+/// queue starts (nothing is running then), and after the send jobs are
+/// dropped ([`crate::send::drop_unfinished_jobs`]).
+///
+/// Left alone, such a row is never run again (the queue loads only queued
+/// jobs) and, for a scan stage, it swallows every later request for that
+/// stage: the chain sees a running job and asks it to run once more
+/// (`scan::chain::queue_once`).
+///
+/// A job of a [restartable](RESTARTABLE) kind goes back in the queue, to
+/// run from the top. Any other (a kind with no handler yet, or one this
+/// build doesn't know) ends as failed. This isn't crash resume (1cA-13):
+/// nothing picks up where the run stopped.
+pub fn recover_interrupted(conn: &Connection) -> rusqlite::Result<Recovered> {
+    let kinds = serde_json::to_string(&RESTARTABLE.map(JobKind::as_str))
+        .expect("kind names always serialize");
+    let requeued = conn.execute(
+        "UPDATE job SET status = 'queued', started_at = NULL, progress = NULL
+         WHERE status = 'running' AND kind IN (SELECT value FROM json_each(?1))",
+        [kinds],
+    )?;
+    let sql = format!(
+        "UPDATE job SET status = 'failed', error = ?1, progress = NULL, finished_at = {NOW}
+         WHERE status = 'running'"
+    );
+    let failed = conn.execute(&sql, [INTERRUPTED])?;
+    Ok(Recovered { requeued, failed })
+}
+
 /// Cancels a job that hasn't started. False if it isn't queued (it's
 /// running, finished or doesn't exist).
 pub(super) fn cancel_queued(conn: &Connection, id: JobId) -> rusqlite::Result<bool> {
@@ -337,5 +398,90 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(job.kind, None);
+    }
+
+    #[test]
+    fn a_job_left_running_is_queued_again_if_its_kind_can_restart_and_ends_failed_if_not() {
+        let (_dir, writer) = open();
+        let ended = writer
+            .call(|c| {
+                // One job of every kind, each left running.
+                for kind in JobKind::ALL {
+                    insert(c, &NewJob::new(kind).target(json!({ "n": 1 })))?;
+                    claim_next(c)?.unwrap();
+                }
+                // And one of a kind this build doesn't know.
+                c.execute(
+                    "INSERT INTO job (kind, status, progress) VALUES ('made_up', 'running', 0.5)",
+                    [],
+                )?;
+                set_progress(c, JobId(1), 0.5)?;
+                // A job that wasn't running stays as it is.
+                let waiting = insert(c, &NewJob::new(JobKind::Scan))?;
+
+                let recovered = recover_interrupted(c)?;
+                assert_eq!(
+                    recovered,
+                    Recovered {
+                        requeued: 8,
+                        failed: 5
+                    }
+                );
+                assert_eq!(get(c, waiting)?.unwrap().status, JobStatus::Queued);
+                let mut stmt = c.prepare(
+                    "SELECT kind, status, progress, started_at IS NULL, error FROM job
+                     WHERE id <= 13 ORDER BY id",
+                )?;
+                let rows = stmt.query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<f64>>(2)?,
+                        r.get::<_, bool>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                    ))
+                })?;
+                rows.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .unwrap();
+
+        let restartable = [
+            "scan",
+            "read",
+            "hash",
+            "fingerprint",
+            "group",
+            "read_rekordbox",
+            "relink",
+            "attach",
+        ];
+        assert_eq!(ended.len(), 13);
+        for (kind, status, progress, never_started, error) in ended {
+            if restartable.contains(&kind.as_str()) {
+                // As if it had never started: a worker takes it again.
+                assert_eq!(status, "queued", "{kind}");
+                assert_eq!(
+                    (progress, never_started, error),
+                    (None, true, None),
+                    "{kind}"
+                );
+            } else {
+                assert_eq!(status, "failed", "{kind}");
+                assert_eq!(error.as_deref(), Some(INTERRUPTED), "{kind}");
+                assert_eq!(progress, None, "{kind}");
+            }
+        }
+    }
+
+    #[test]
+    fn with_no_job_left_running_recovery_changes_nothing() {
+        let (_dir, writer) = open();
+        let recovered = writer
+            .call(|c| {
+                insert(c, &NewJob::new(JobKind::Scan))?;
+                recover_interrupted(c)
+            })
+            .unwrap();
+        assert_eq!(recovered, Recovered::default());
     }
 }

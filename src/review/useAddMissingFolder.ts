@@ -6,8 +6,9 @@ import { MISSING_TRACKS_QUERY_KEY } from "./useMissingTracks";
 
 /**
  * Adds a Missing group's folder as a music folder, with the existing
- * add-folder command. The scan and relink that follow run as usual, and the
- * list is reloaded once the folder is in. `isPending` is true while an add
+ * add-folder command, which also queues the folder's scan. The list is
+ * reloaded once the folder is in, and again when the scan and the relink
+ * after it end (`useReloadListsWhenJobsEnd`). `isPending` is true while an add
  * runs, and `error` holds why the last one failed.
  */
 export function useAddMissingFolder() {

@@ -14,7 +14,10 @@
 //! Keep jobs coarse: one per folder or per batch of files, not one per
 //! file.
 //!
-//! Crash resume (jobs left `running` by a crash) is 1cA-13.
+//! A job left `running` by a kill or crash is put back in the queue at
+//! startup, or ended if nothing can start it again
+//! ([`store::recover_interrupted`]). Picking up where it stopped (crash
+//! resume) is 1cA-13.
 
 pub mod commands;
 mod dispatch;

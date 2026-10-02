@@ -9,6 +9,7 @@
   "unreadableFiles_other": "{{count}} files couldn't be read",
   "onlineOnly_one": "{{count}} file online only (not downloaded)",
   "onlineOnly_other": "{{count}} files online only (not downloaded)",
+  "scanAgain": "Scan again",
   "readOnlineOnly": "Read online-only files",
   "readOnlineOnlyHelp": "OneDrive downloads every file the app reads. When off, online-only files are listed but not read."
 }
