@@ -220,9 +220,9 @@ describe("no raw strings in JSX (lint)", { timeout: 120_000 }, () => {
 
   it("flags text props in a spread of a same-file const object", async () => {
     const found = await reported(
-      component(`<EmptyState {...props} />`, `const props = { message: "No tracks", id: "empty" };`),
+      component(`<EmptyState {...props} />`, `const props = { message: "No songs", id: "empty" };`),
     );
-    expect(found).toEqual(["No tracks"]);
+    expect(found).toEqual(["No songs"]);
   });
 
   it("does not flag non-text props, t() values, let objects or unknown objects in a spread", async () => {

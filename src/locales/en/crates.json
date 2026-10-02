@@ -1,3 +1,56 @@
 {
-  "empty": "Groups of Library tracks, collected for a purpose."
+  "empty": "No crates",
+  "list": {
+    "label": "Crates"
+  },
+  "trackCount_zero": "No tracks",
+  "trackCount_one": "{{count}} track",
+  "trackCount_other": "{{count}} tracks",
+  "noTracks": "No tracks in this crate",
+  "select": "Select a crate",
+  "new": {
+    "button": "Create crate",
+    "label": "Crate name",
+    "confirm": "Create",
+    "cancel": "Go back"
+  },
+  "rename": {
+    "button": "Rename",
+    "label": "New name",
+    "confirm": "Rename",
+    "cancel": "Go back"
+  },
+  "delete": {
+    "button": "Delete",
+    "title": "Delete “{{name}}”?",
+    "detail": "This action can be undone",
+    "confirm": "Delete",
+    "cancel": "Go back"
+  },
+  "removeTrack": {
+    "button": "Remove",
+    "buttonFor": "Remove {{title}} from crate"
+  },
+  "addTrack": {
+    "label": "Add to crate",
+    "labelFor": "Add {{title}} to crate",
+    "none": "No crates",
+    "added": "Added to {{crate}}",
+    "alreadyIn": "Already in {{crate}}"
+  },
+  "done": {
+    "created": "Crate created",
+    "renamed": "Crate renamed",
+    "deleted": "Crate deleted",
+    "removed": "Removed from crate"
+  },
+  "undo": "Undo",
+  "undone": "Undone",
+  "undoRefused": "Can't undo: the Library has changed since",
+  "error": {
+    "notFound": "Crate not found",
+    "nameEmpty": "Crate needs a name",
+    "nameTaken": "Crate name already used (“{{name}}”)",
+    "nameUnsendable": "Name has a character that can't be sent to rekordbox. Remove it and try again."
+  }
 }

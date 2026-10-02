@@ -457,6 +457,7 @@ Each feature is tagged with its sub-phase.
 - **"Sort by fit after the selected track":** key compatibility (same key or Camelot neighbors) plus BPM closeness. The Fit column shows dots **with the reason** ("8A → 9A, +1.5 BPM"). Clicking a column header returns to normal sorting.
 - **Membership:** the Details panel lists a track's crates, with "Remove from this crate" (undoable).
 - **Tags vs crates:** tags (3.1) describe what a track is; crates collect tracks for a purpose. Smart crates (3.3) connect the two.
+- **Basics since 1aG (2026-10-02):** a plain Crates screen and "Add to crate" on the Library screen make top-level static crates, rename and delete them, and add or remove Library tracks, each change an undoable operation. A name is trimmed and refused if empty or if it equals another top-level crate's as the XML writer compares siblings (1.9), so a crate the app lets you make never refuses a send. Folders, notes, summaries, the sidebar, drag and drop, the C key, multi-select, adding non-Library tracks, fit sorting and smart crates stay in 1c and Phase 3.
 - **Complexity:** M. **Reuse:** the `playlists.rs` tree.
 
 ---

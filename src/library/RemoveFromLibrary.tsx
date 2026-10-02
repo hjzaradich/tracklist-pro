@@ -61,3 +61,24 @@ export function ConfirmRemove({
     </div>
   );
 }
+
+/** The Remove button of a Library row. Asking comes first ({@link ConfirmRemove}). */
+export function RemoveButton({
+  track,
+  onRemove,
+}: {
+  track: LibraryTrack;
+  onRemove: (track: LibraryTrack) => void;
+}) {
+  const { t } = useTranslation("library");
+  return (
+    <button
+      type="button"
+      className={styles.button}
+      aria-label={t("remove.buttonFor", { title: shownTitle(track) })}
+      onClick={() => onRemove(track)}
+    >
+      {t("remove.button")}
+    </button>
+  );
+}

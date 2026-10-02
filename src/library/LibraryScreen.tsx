@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { LibraryTrack } from "../bindings";
+import type { Crate, LibraryTrack } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { LibraryTrackList } from "./LibraryTrackList";
 import styles from "./LibraryTrackList.module.css";
-import { ConfirmRemove } from "./RemoveFromLibrary";
+import { useAddToCrate, useCrates } from "../crates/useCrates";
+import { AddedToCrate, AddToCrate } from "./AddToCrate";
+import { ConfirmRemove, RemoveButton } from "./RemoveFromLibrary";
 import { useLibraryTracks } from "./useLibraryTracks";
 import { useRemoveLibraryTrack, useUndoLast } from "./useRemoveLibraryTrack";
 
@@ -24,13 +26,38 @@ export function LibraryScreen() {
   const undo = useUndoLast();
   const [pending, setPending] = useState<LibraryTrack | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
+  const crates = useCrates();
+  const addToCrate = useAddToCrate();
+  // What the last "Add to crate" did; `key` starts its Undo afresh.
+  const [added, setAdded] = useState<{ key: number; crate: string; changed: boolean } | null>(
+    null,
+  );
+
+  const add = (track: LibraryTrack, crate: Crate) => {
+    setRemoval(null);
+    undo.reset();
+    remove.reset();
+    addToCrate.mutate(
+      { id: crate.id, tracks: [track.id] },
+      {
+        onSuccess: (result) =>
+          setAdded((previous) => ({
+            key: (previous?.key ?? 0) + 1,
+            crate: crate.name,
+            changed: result.changed > 0,
+          })),
+      },
+    );
+  };
 
   const confirm = () => {
     if (pending === null) return;
     undo.reset();
+    addToCrate.reset();
     remove.mutate(pending.id, { onSuccess: () => setRemoval("removed") });
     setPending(null);
     setRemoval(null);
+    setAdded(null);
   };
   const undoRemoval = () =>
     undo.mutate(undefined, {
@@ -78,6 +105,14 @@ export function LibraryScreen() {
             {undo.isError ? errorMessage(undo.error) : t("remove.undoRefused")}
           </p>
         )}
+        {addToCrate.isError && (
+          <p role="alert" className={styles.error}>
+            {errorMessage(addToCrate.error)}
+          </p>
+        )}
+        {added !== null && !addToCrate.isError && (
+          <AddedToCrate key={added.key} crate={added.crate} changed={added.changed} />
+        )}
         {tracks.isError ? (
           <p role="alert" className={styles.error}>
             {errorMessage(tracks.error)}
@@ -90,11 +125,20 @@ export function LibraryScreen() {
           <div className={styles.scroll}>
             <LibraryTrackList
               tracks={tracks.data}
-              onRemove={(track) => {
-                setRemoval(null);
-                undo.reset();
-                setPending(track);
-              }}
+              actions={(track) => (
+                <>
+                  <AddToCrate track={track} crates={crates.data ?? []} onChoose={add} />
+                  <RemoveButton
+                    track={track}
+                    onRemove={(chosen) => {
+                      setRemoval(null);
+                      setAdded(null);
+                      undo.reset();
+                      setPending(chosen);
+                    }}
+                  />
+                </>
+              )}
             />
           </div>
         )}

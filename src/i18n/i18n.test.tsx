@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { CratesScreen } from "../crates/CratesScreen";
+import { useTranslation } from "react-i18next";
 import i18n, { englishResources, namespaceFromPath, namespaces } from "./index";
 import { tx } from "../test/tx";
 
@@ -35,12 +35,13 @@ describe("i18n", () => {
   });
 
   it("a component renders a string from its namespace", () => {
-    // A screen that asks the backend for nothing, so its text is there at once.
-    render(<CratesScreen />);
-    expect(screen.getByRole("heading", { name: tx("shell:stages.crates") })).toBeInTheDocument();
-    expect(
-      screen.getByText(tx("crates:empty")),
-    ).toBeInTheDocument();
+    // A component that asks the backend for nothing, so its text is there at once.
+    function Probe() {
+      const { t } = useTranslation("crates");
+      return <p>{t("empty")}</p>;
+    }
+    render(<Probe />);
+    expect(screen.getByText(tx("crates:empty"))).toBeInTheDocument();
   });
 
   it("translates a key from a named namespace", () => {
