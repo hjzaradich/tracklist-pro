@@ -308,8 +308,10 @@ test("actions that install toolchains, prune caches or need Docker run on GitHub
   let seen = 0;
   for (const [id, job] of Object.entries(jobs)) {
     for (const step of job.steps) {
-      const action = uses(step);
-      if (!action || !githubOnly.some((a) => action.startsWith(a))) continue;
+      // The toolchain is installed by rustup from rust-toolchain.toml, a run
+      // step; the others are actions.
+      const action = uses(step) ?? (run(step)?.startsWith("rustup toolchain install") ? run(step) : undefined);
+      if (!action || !(githubOnly.some((a) => action.startsWith(a)) || action.startsWith("rustup toolchain install"))) continue;
       seen++;
       assert.match(field(step, "if") ?? "", /runner\.environment == 'github-hosted'/, `${id}: ${action}`);
     }
