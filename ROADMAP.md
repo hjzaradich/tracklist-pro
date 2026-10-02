@@ -768,4 +768,5 @@ Read each service's terms before wiring it up, and recheck them when the project
 
 ## Status
 
-- **Phase 0:** spikes done (2026-09-27). Stages 0A–0E done 2026-09-28: repo, CI (trimmed, with a changed-paths gate), schema, ports, fixtures, the rekordbox behavior check (T1/T3 answered), job queue, network gate, write guard, suggestions and undo. Next: Stage 0F (the owner's Phase 0 check). See [TASKS.md](TASKS.md).
+- **Phase 0:** spikes done (2026-09-27). Stages 0A–0E done 2026-09-28: repo, CI (trimmed, with a changed-paths gate), schema, ports, fixtures, the rekordbox behavior check (T1/T3 answered), job queue, network gate, write guard, suggestions and undo. Phase 0 closed with Stage 0F.
+- **Phase 1a:** Stages 1aA–1aF done by 2026-10-02: scan, hashing and fingerprints, the rekordbox XML reader, relink and attach, starting a Library, the XML writer, the guided send and the after-send lists. Stage 1aG (the owner's Phase 1a check) is open: end-to-end tests, crate basics and the installer are in; the owner's two real cycles are next. Stage 1bA (building blocks for duplicates and versions) started early. See [TASKS.md](TASKS.md).
