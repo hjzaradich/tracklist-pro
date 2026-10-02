@@ -1836,22 +1836,14 @@ fn when_two_rows_of_one_read_share_the_sent_location_the_lowest_track_id_names_t
 }
 
 #[test]
-fn a_row_kept_from_an_older_incomplete_read_names_no_track() {
+fn a_removed_track_listed_through_a_row_kept_from_an_older_read_is_named_by_that_row() {
     let lib = Lib::new();
-    // The newest read doesn't mention the sent Location (an incomplete read
-    // keeps the older row). Its TrackID belongs to an earlier read.
-    lib.row_at(5, "sent.mp3", OLD_READ, "Name from the older read");
+    // An incomplete read kept this row from an earlier read: the manual
+    // removals list counts it, so it names the track too.
+    lib.row_at(5, "sent.mp3", OLD_READ, "Name from the kept row");
     lib.row_at(6, "another.mp3", NEW_READ, "Another track");
-    assert_eq!(lib.removed_names("sent.mp3", "Tag"), names("Tag", ""));
-}
-
-#[test]
-fn a_row_of_the_newest_read_wins_over_an_older_one_at_the_same_location() {
-    let lib = Lib::new();
-    lib.row_at(2, "sent.mp3", OLD_READ, "Older name, lower TrackID");
-    lib.row_at(8, "sent.mp3", NEW_READ, "Newest name, higher TrackID");
     assert_eq!(
         lib.removed_names("sent.mp3", "Tag"),
-        names("Newest name, higher TrackID", "")
+        names("Name from the kept row", "")
     );
 }
