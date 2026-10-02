@@ -3,9 +3,11 @@
 //! Every test here runs the app the way a user does: the real startup, the
 //! real commands over IPC, the real job queue with the app's own handlers,
 //! in the order a user reaches them. Nothing calls an inner function to
-//! skip a step, and no database row is set up by hand, with one exception:
-//! crates ([`harness::crates_by_hand`]), which no command can make before
-//! 1cA-10.
+//! skip a step, and no database row is set up by hand.
+//!
+//! These drive the backend, not the screens: the React frontend isn't
+//! loaded, and choices that are only a screen ("Start fresh", "Start from
+//! rekordbox") appear here as the commands those screens call.
 //!
 //! What the two runs prove:
 //!

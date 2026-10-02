@@ -2,13 +2,14 @@
 //!
 //! The steps, each a real command or job: add the music folder → scan →
 //! "Start fresh" (the Library stays empty) → add tracks from All music →
-//! put some in a crate (by hand, see `crates_by_hand`) → prepare a send
+//! make a crate and add some to it → prepare a send
 //! (which reads rekordbox's export and matches it) → write it → read the
 //! file back with the app's reader.
 
 use std::fs;
 
 use serde_json::json;
+use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::library::LibraryTrack;
 use tracklist_pro_lib::rekordbox;
 use tracklist_pro_lib::send::{LeftOutReason, LosesEntries, SendFailure, TreeKind};
@@ -17,7 +18,7 @@ use super::fixtures::{
     assert_is_rekordboxs_own_entry, children, collection, entries, songs, track_at, KNOWN,
     NEVER_ON_DISK, TRACKS_IN_ALL_MUSIC, TWINS, UNKNOWN,
 };
-use super::harness::{crates_by_hand, Song, World, SONG_SECONDS};
+use super::harness::{Song, World, SONG_SECONDS};
 use super::rekordbox_side::{key_of, Rekordbox, ANALYSIS};
 
 /// The run up to an empty Library over a scanned music folder. rekordbox
@@ -37,8 +38,8 @@ struct Added {
     new: [LibraryTrack; 2],
     /// A track rekordbox has, in the crate.
     known: LibraryTrack,
-    /// The crate `Gigs/Friday`: `new[0]`, `known`, `new[1]`.
-    friday: i64,
+    /// The crate `Friday`: `new[0]`, `known`, `new[1]`.
+    friday: CrateId,
 }
 
 const NEW: [Song; 2] = [UNKNOWN[0], UNKNOWN[1]];
@@ -47,17 +48,17 @@ const IN_CRATE: Song = KNOWN[0];
 const IN_NO_CRATE: Song = KNOWN[3];
 
 fn fresh_library_with_a_crate(world: &World) -> Added {
-    let new = NEW.map(|s| world.add_from_all_music(&s));
+    // Added to the Library in the order the crate will hold them.
+    let first = world.add_from_all_music(&NEW[0]);
     let known = world.add_from_all_music(&IN_CRATE);
+    let last = world.add_from_all_music(&NEW[1]);
     world.add_from_all_music(&IN_NO_CRATE);
-    let gigs = crates_by_hand::folder(world, None, "Gigs");
-    let friday = crates_by_hand::crate_of(
-        world,
-        Some(gigs),
-        "Friday",
-        &[new[0].id, known.id, new[1].id],
-    );
-    Added { new, known, friday }
+    let friday = world.create_crate("Friday", &[first.id, known.id, last.id]);
+    Added {
+        new: [first, last],
+        known,
+        friday,
+    }
 }
 
 /// Fails unless `sent` is a new track made from `song`'s file: its tag
@@ -140,11 +141,10 @@ fn new_tracks_arrive_with_their_tag_values_a_new_track_id_and_their_crate() {
 
     // The crate, under the app's folder, with its entries in order.
     assert_eq!(children(&sent, &[]), ["Crates", "Playlists"]);
-    assert_eq!(children(&sent, &["Crates"]), ["Gigs"]);
-    assert_eq!(children(&sent, &["Crates", "Gigs"]), ["Friday"]);
+    assert_eq!(children(&sent, &["Crates"]), ["Friday"]);
     assert_eq!(children(&sent, &["Playlists"]), [] as [&str; 0]);
     assert_eq!(
-        entries(&sent, &["Crates", "Gigs", "Friday"]),
+        entries(&sent, &["Crates", "Friday"]),
         [NEW[0], IN_CRATE, NEW[1]].map(|s| key_of(&world.path_of(&s)))
     );
 }
@@ -196,14 +196,14 @@ fn after_a_crate_is_renamed_and_a_track_removed_the_lists_name_the_old_crate_and
     rb.import(&world.send());
     world.rekordbox_saves(&rb.export());
 
-    crates_by_hand::rename(&world, added.friday, "Saturday");
+    world.rename_crate(added.friday, "Saturday");
     world.remove_from_library(added.new[1].id);
     let sent = world.send();
 
     // The send carries the crate under its new name, without the track.
-    assert_eq!(children(&sent, &["Crates", "Gigs"]), ["Saturday"]);
+    assert_eq!(children(&sent, &["Crates"]), ["Saturday"]);
     assert_eq!(
-        entries(&sent, &["Crates", "Gigs", "Saturday"]),
+        entries(&sent, &["Crates", "Saturday"]),
         [NEW[0], IN_CRATE].map(|s| key_of(&world.path_of(&s)))
     );
     assert!(track_at(&sent, &world.path_of(&removed)).is_none());
@@ -214,7 +214,7 @@ fn after_a_crate_is_renamed_and_a_track_removed_the_lists_name_the_old_crate_and
     assert_eq!(lists["playlistsChecked"], true);
     let stale = lists["stalePlaylists"].as_array().unwrap();
     assert_eq!(stale.len(), 1, "{stale:?}");
-    assert_eq!(stale[0]["path"], json!(["Crates", "Gigs", "Friday"]));
+    assert_eq!(stale[0]["path"], json!(["Crates", "Friday"]));
     assert_eq!(stale[0]["kind"], "playlist");
     let removals = lists["manualRemovals"].as_array().unwrap();
     assert_eq!(removals.len(), 1, "{removals:?}");
@@ -227,7 +227,7 @@ fn after_a_crate_is_renamed_and_a_track_removed_the_lists_name_the_old_crate_and
 
     // The user deletes both in rekordbox; the next read clears the lists.
     rb.import(&sent);
-    rb.delete_playlist(&["Crates", "Gigs", "Friday"]);
+    rb.delete_playlist(&["Crates", "Friday"]);
     let key = key_of(&world.path_of(&removed));
     rb.tracks.retain(|t| t.location_key() != key);
     world.rekordbox_saves(&rb.export());
@@ -263,7 +263,7 @@ fn a_new_track_whose_file_is_missing_is_left_out_with_the_reason_and_the_send_ne
         preflight.loses_entries,
         [LosesEntries {
             kind: TreeKind::Crate,
-            path: vec!["Gigs".into(), "Friday".into()],
+            path: vec!["Friday".into()],
             lost: 1,
             entries: 3,
         }]
@@ -279,7 +279,7 @@ fn a_new_track_whose_file_is_missing_is_left_out_with_the_reason_and_the_send_ne
     assert_eq!(sent.tracks.len(), 2);
     assert!(track_at(&sent, &world.path_of(&gone)).is_none());
     assert_eq!(
-        entries(&sent, &["Crates", "Gigs", "Friday"]),
+        entries(&sent, &["Crates", "Friday"]),
         [NEW[0], IN_CRATE].map(|s| key_of(&world.path_of(&s)))
     );
 }

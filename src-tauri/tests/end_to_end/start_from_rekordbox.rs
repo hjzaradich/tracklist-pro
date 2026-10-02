@@ -14,7 +14,7 @@ use super::fixtures::{
     assert_is_rekordboxs_own_entry, children, collection, entries, songs, track_at, KNOWN,
     NEVER_ON_DISK,
 };
-use super::harness::{crates_by_hand, World};
+use super::harness::{Song, World};
 use super::rekordbox_side::{key_of, Rekordbox};
 
 /// The run up to a Library started from rekordbox's whole collection.
@@ -41,21 +41,29 @@ fn started_from_rekordbox() -> (World, Rekordbox) {
     (world, rb)
 }
 
-/// The Library tracks of [`KNOWN`], in that order.
-fn known_tracks(world: &World) -> Vec<LibraryTrackId> {
-    KNOWN.iter().map(|s| world.library_track(s).id).collect()
+/// The [`KNOWN`] songs in the order their tracks joined the Library,
+/// which is the order a crate holds tracks added to it together.
+fn in_library_order(world: &World) -> Vec<(Song, LibraryTrackId)> {
+    let mut tracks: Vec<_> = KNOWN
+        .iter()
+        .map(|s| (*s, world.library_track(s).id))
+        .collect();
+    tracks.sort_by_key(|(_, id)| *id);
+    tracks
 }
 
-/// Crates naming every Library track: `Gigs/Friday` holds the first
-/// three, `Everything` all of them.
-fn crates_naming_every_track(world: &World) {
-    let tracks = known_tracks(world);
-    let gigs = crates_by_hand::folder(world, None, "Gigs");
-    crates_by_hand::crate_of(world, Some(gigs), "Friday", &tracks[..3]);
-    crates_by_hand::crate_of(world, None, "Everything", &tracks);
+/// Crates made with the app's own commands, naming every Library track:
+/// `Friday` holds the first three, `Everything` all of them. Returns the
+/// songs in the order the crates hold them.
+fn crates_naming_every_track(world: &World) -> Vec<Song> {
+    let (songs, tracks): (Vec<Song>, Vec<LibraryTrackId>) =
+        in_library_order(world).into_iter().unzip();
+    world.create_crate("Friday", &tracks[..3]);
+    world.create_crate("Everything", &tracks);
+    songs
 }
 
-fn keys_of(world: &World, songs: &[super::harness::Song]) -> Vec<String> {
+fn keys_of(world: &World, songs: &[Song]) -> Vec<String> {
     songs.iter().map(|s| key_of(&world.path_of(s))).collect()
 }
 
@@ -82,10 +90,9 @@ fn starting_from_rekordbox_links_each_track_to_rekordboxs_file_once() {
     assert_eq!(world.library().len(), KNOWN.len());
 }
 
-/// Today's behavior, pinned (the foreman's ruling on the 1aG-1 question):
-/// a known track is sent only when a crate names it, and no command makes
-/// a crate before 1cA-10. So a Library started from rekordbox, as the app
-/// can build one in Phase 1a, has nothing to send.
+/// A known track is sent only when a crate names it (rule 4: it would only
+/// raise a dialog). So a Library started from rekordbox has nothing to
+/// send until a crate is made.
 #[test]
 fn with_no_crate_a_library_started_from_rekordbox_has_nothing_to_send() {
     let (world, _rb) = started_from_rekordbox();
@@ -107,7 +114,7 @@ fn with_no_crate_a_library_started_from_rekordbox_has_nothing_to_send() {
 #[test]
 fn every_known_track_goes_out_as_rekordboxs_own_entry_and_an_import_changes_nothing_in_rekordbox() {
     let (world, mut rb) = started_from_rekordbox();
-    crates_naming_every_track(&world);
+    let in_crates = crates_naming_every_track(&world);
 
     let preflight = world.prepared();
     assert_eq!(
@@ -134,19 +141,18 @@ fn every_known_track_goes_out_as_rekordboxs_own_entry_and_an_import_changes_noth
     // The track whose file was never on disk isn't a Library track.
     assert!(track_at(&sent, &world.path_of(&NEVER_ON_DISK)).is_none());
 
-    // PLAYLISTS: the app's two folders, the crates under `Crates` in
-    // their folders, entries in order.
+    // PLAYLISTS: the app's two folders, the crates under `Crates`,
+    // entries in order.
     assert_eq!(children(&sent, &[]), ["Crates", "Playlists"]);
-    assert_eq!(children(&sent, &["Crates"]), ["Gigs", "Everything"]);
-    assert_eq!(children(&sent, &["Crates", "Gigs"]), ["Friday"]);
+    assert_eq!(children(&sent, &["Crates"]), ["Friday", "Everything"]);
     assert_eq!(children(&sent, &["Playlists"]), [] as [&str; 0]);
     assert_eq!(
-        entries(&sent, &["Crates", "Gigs", "Friday"]),
-        keys_of(&world, &KNOWN[..3])
+        entries(&sent, &["Crates", "Friday"]),
+        keys_of(&world, &in_crates[..3])
     );
     assert_eq!(
         entries(&sent, &["Crates", "Everything"]),
-        keys_of(&world, &KNOWN)
+        keys_of(&world, &in_crates)
     );
 
     // What the file does in rekordbox (by §5.2's rules): one dialog per
@@ -156,14 +162,11 @@ fn every_known_track_goes_out_as_rekordboxs_own_entry_and_an_import_changes_noth
     assert_eq!(rb.import(&sent), KNOWN.len());
     assert_eq!(rb.tracks, before.tracks);
     assert_eq!(rb.playlists[..before.playlists.len()], before.playlists[..]);
-    let ids: Vec<u64> = KNOWN
+    let ids: Vec<u64> = in_crates
         .iter()
         .map(|s| rb.at(&world.path_of(s)).unwrap().id)
         .collect();
-    assert_eq!(
-        rb.playlist(&["Crates", "Gigs", "Friday"]),
-        Some(&ids[..3].to_vec())
-    );
+    assert_eq!(rb.playlist(&["Crates", "Friday"]), Some(&ids[..3].to_vec()));
     assert_eq!(rb.playlist(&["Crates", "Everything"]), Some(&ids));
 }
 
@@ -203,7 +206,7 @@ fn sending_again_with_nothing_changed_writes_the_same_file_and_leaves_nothing_to
 #[test]
 fn a_known_track_whose_file_went_missing_is_sent_as_rekordboxs_own_entry_at_its_own_location() {
     let (mut world, rb) = started_from_rekordbox();
-    crates_naming_every_track(&world);
+    let in_crates = crates_naming_every_track(&world);
     let gone = KNOWN[1];
     let path = world.path_of(&gone);
 
@@ -236,7 +239,7 @@ fn a_known_track_whose_file_went_missing_is_sent_as_rekordboxs_own_entry_at_its_
     assert_eq!(entry.location_raw(), known.get("Location"));
     assert_eq!(
         entries(&sent, &["Crates", "Everything"]),
-        keys_of(&world, &KNOWN)
+        keys_of(&world, &in_crates)
     );
 }
 
