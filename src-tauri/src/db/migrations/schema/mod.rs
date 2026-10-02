@@ -8,6 +8,7 @@ mod analysis_never_conflicts;
 mod file_stage;
 mod files;
 mod fingerprint_audio_hash;
+mod fingerprint_match;
 mod library;
 mod library_upkeep;
 mod partial_hash;
@@ -159,6 +160,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0014_analysis_never_conflicts.sql", &[]),
     // The playlists and folders a send has written.
     ("0015_sent_playlist.sql", &["sent_playlist"]),
+    // What comparing two files' fingerprints found (derived state).
+    ("0016_fingerprint_match.sql", &["fingerprint_match"]),
 ];
 
 #[test]
