@@ -44,9 +44,10 @@ export function CratesScreen() {
   const current = list.find((crate) => crate.id === chosen) ?? null;
   const tracks = useCrateTracks(current?.id ?? null);
 
-  const finished = (what: Done) => {
+  // `operation`: the one the change recorded, when its command says.
+  const finished = (what: Done, operation?: number) => {
     undo.reset();
-    arm();
+    arm(operation);
     setDone(what);
     setAsking(null);
   };
@@ -189,7 +190,7 @@ export function CratesScreen() {
                         // Nothing is recorded when the name is the one it has,
                         // and Undo would then take back an earlier operation.
                         onSuccess: (operation) =>
-                          operation === null ? setAsking(null) : finished("renamed"),
+                          operation === null ? setAsking(null) : finished("renamed", operation),
                       },
                     );
                   }}
@@ -209,7 +210,7 @@ export function CratesScreen() {
                       {
                         // A track that was gone already records nothing.
                         onSuccess: (result) => {
-                          if (result.operationId !== null) finished("removed");
+                          if (result.operationId !== null) finished("removed", result.operationId);
                         },
                       },
                     );

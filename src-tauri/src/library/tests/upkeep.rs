@@ -488,3 +488,68 @@ fn undoing_an_add_is_refused_when_the_linked_file_was_changed_since() {
     assert_eq!(fields, [Some("linked_file_id")]);
     assert_eq!(lib.library_tracks(), 1);
 }
+
+#[test]
+fn a_removal_made_before_base_ids_stopped_being_reused_is_still_undone_after_the_upgrade_and_a_send(
+) {
+    use crate::db::migrations::{run, MIGRATIONS};
+    use crate::rekordbox_write::{record_send, SentTrack};
+
+    // A database as the version before migration 0018 left it.
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = crate::write_guard::test_path(dir.path(), "old.db")
+        .open_database()
+        .unwrap();
+    run(&mut conn, &MIGRATIONS[..17]).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    conn.execute_batch(
+        "INSERT INTO volume (identity, kind) VALUES ('serial=NTFS-1A2B3C4D', 'external');
+         INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'Music', 'Music');
+         INSERT INTO file (music_folder_id, rel_path, rel_path_key) VALUES (1, 'a.mp3', 'a.mp3');
+         INSERT INTO file (music_folder_id, rel_path, rel_path_key) VALUES (1, 'b.mp3', 'b.mp3');
+         INSERT INTO recording (title) VALUES ('A'), ('B');
+         INSERT INTO library_track (recording_id, linked_file_id) VALUES (1, 1), (2, 2);",
+    )
+    .unwrap();
+    let sent = |track: i64, name: &str| SentTrack {
+        library_track: LibraryTrackId(track),
+        in_rekordbox: false,
+        track_id: track as u64,
+        attributes: vec![
+            ("Name".to_owned(), name.to_owned()),
+            ("Location".to_owned(), format!(r"C:\New\{name}.mp3")),
+        ],
+        rekordbox_holds_other_file: None,
+        file_missing: false,
+    };
+    let bases = |conn: &Connection, track: i64| -> Vec<(i64, String, String, String)> {
+        conn.prepare(
+            "SELECT id, field, value, synced_at FROM sync_base
+             WHERE library_track_id = ?1 ORDER BY id",
+        )
+        .unwrap()
+        .query_map([track], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+    };
+    record_send(&mut conn, &[sent(1, "a")], &[]).unwrap();
+    let before = bases(&conn, 1);
+    assert_eq!(before.len(), 2);
+    // The user removes the track: its bases, the highest ids, are deleted.
+    assert!(remove_on(&mut conn, LibraryTrackId(1)).unwrap());
+
+    // The app is updated, and the next send makes bases for another track.
+    run(&mut conn, MIGRATIONS).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    record_send(&mut conn, &[sent(2, "b")], &[]).unwrap();
+    assert_eq!(bases(&conn, 2).len(), 2);
+
+    match crate::ops::undo_last(&mut conn).unwrap() {
+        UndoOutcome::Undone { operation } => assert_eq!(operation.kind, REMOVE_OPERATION),
+        other => panic!("expected the removal to be undone, got {other:?}"),
+    }
+    assert_eq!(bases(&conn, 1), before);
+}

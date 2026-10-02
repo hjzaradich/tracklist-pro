@@ -444,7 +444,12 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
       const fresh = wanted.filter((id) => !target.trackIds.includes(id));
       target.trackIds.push(...fresh);
       last = { id: target.id, added: fresh };
-      return { changed: fresh.length, skipped: wanted.length - fresh.length };
+      return {
+        changed: fresh.length,
+        skipped: wanted.length - fresh.length,
+        // As the Rust side answers: an add that changed nothing records nothing.
+        operationId: fresh.length > 0 ? 1 : null,
+      };
     }
     if (cmd === "undo_last_operation") {
       if (last === null) return { status: "nothingToUndo" };

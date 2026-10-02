@@ -33,10 +33,13 @@ pub(super) const LOGGED_TABLES: [&str; 6] = [
     "conflict",
 ];
 
-/// How many tracks the test Library can hold. The first [`IN_REKORDBOX`]
-/// are also in rekordbox, with a trusted match.
+/// How many tracks the random actions pick among. The first
+/// [`IN_REKORDBOX`] are also in rekordbox, with a trusted match.
 const TRACKS: usize = 6;
 const IN_REKORDBOX: usize = 3;
+/// Two more tracks no random action picks, kept for the steps a test
+/// scripts itself.
+const RESERVED: [i64; 2] = [7, 8];
 
 /// Crate names to draw from. Some equal each other by the writer's sibling
 /// rule (letter case, trailing space), so refusals happen too.
@@ -136,7 +139,7 @@ impl Lib {
                     "INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
                      VALUES (1, 'Music', 'Music');",
                 )?;
-                for n in 1..=TRACKS {
+                for n in 1..=TRACKS + RESERVED.len() {
                     let name = format!("{n}.mp3");
                     c.execute("INSERT INTO recording (title) VALUES (?1)", [&name])?;
                     c.execute(
@@ -317,8 +320,20 @@ impl Lib {
     }
 
     fn add(&self, n: i64) -> LibraryTrackId {
-        assert!(self.apply(&Action::Add(n as usize - 1)));
+        let added = library::promote_with(&self.writer, &Plugged, &NO_DIRS, n).unwrap();
+        assert!(added.added);
         self.library_track(n)
+    }
+
+    fn base_ids(&self, track: LibraryTrackId) -> Vec<i64> {
+        self.writer
+            .call(move |c| {
+                let mut stmt =
+                    c.prepare("SELECT id FROM sync_base WHERE library_track_id = ?1 ORDER BY id")?;
+                let ids = stmt.query_map([track.0], |r| r.get(0))?.collect();
+                ids
+            })
+            .unwrap()
     }
 
     fn create(&self, name: &str) -> CrateId {
@@ -465,7 +480,12 @@ fn step() -> impl Strategy<Value = Step> {
 
 proptest! {
     // Each case builds a database, so fewer cases than the default 256.
-    #![proptest_config(ProptestConfig::with_cases(48))]
+    // A failure isn't written to a regressions file: the case is printed.
+    #![proptest_config(ProptestConfig {
+        cases: 48,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
 
     #[test]
     fn after_any_actions_as_many_undos_restore_the_tables_step_by_step_back_to_the_start(
@@ -494,27 +514,74 @@ proptest! {
 
     #[test]
     fn with_sends_between_actions_each_undo_restores_or_is_refused_whole_and_never_meets_a_reused_id(
-        steps in proptest::collection::vec(step(), 1..16),
+        steps in proptest::collection::vec(step(), 0..12),
+        later in proptest::collection::vec(action(), 0..6),
     ) {
         let lib = Lib::new();
         // The tables before each recorded action, and whether a send has
         // been recorded since.
         let mut before: Vec<(State, bool)> = Vec::new();
+        let act = |before: &mut Vec<(State, bool)>, run: &dyn Fn() -> bool| {
+            let state = lib.state();
+            if run() {
+                before.push((state, false));
+            }
+        };
+        let send = |before: &mut Vec<(State, bool)>| {
+            let out = lib.send();
+            for entry in before.iter_mut() {
+                entry.1 = true;
+            }
+            out
+        };
         for step in &steps {
             match step {
-                Step::Do(action) => {
-                    let state = lib.state();
-                    if lib.apply(action) {
-                        before.push((state, false));
-                    }
-                }
+                Step::Do(action) => act(&mut before, &|| lib.apply(action)),
                 Step::Send => {
-                    lib.send();
-                    for entry in &mut before {
-                        entry.1 = true;
-                    }
+                    send(&mut before);
                 }
             }
+        }
+        // Whatever came before, every case then goes through the sequence
+        // that reused ids before migration 0018: a track's bases are the
+        // newest rows, the track is removed (the highest ids are freed), and
+        // a send makes bases for a track that had none.
+        let crate_id = std::cell::Cell::new(CrateId(0));
+        let in_crate = |n: i64| lib.add_to(crate_id.get(), &[lib.library_track(n)]).operation_id.is_some();
+        act(&mut before, &|| {
+            crate_id.set(lib.create("Reserved"));
+            true
+        });
+        act(&mut before, &|| {
+            lib.add(RESERVED[0]);
+            true
+        });
+        act(&mut before, &|| in_crate(RESERVED[0]));
+        send(&mut before);
+        let removed = lib.library_track(RESERVED[0]);
+        let freed = lib.base_ids(removed);
+        let highest: i64 = lib
+            .writer
+            .call(|c| c.query_row("SELECT max(id) FROM sync_base", [], |r| r.get(0)))
+            .unwrap();
+        prop_assert_eq!(freed.last(), Some(&highest), "the removed track's bases aren't the newest");
+        act(&mut before, &|| {
+            lib.add(RESERVED[1]);
+            true
+        });
+        act(&mut before, &|| in_crate(RESERVED[1]));
+        act(&mut before, &|| {
+            library::remove(&lib.writer, removed).unwrap();
+            true
+        });
+        send(&mut before);
+        let made = lib.base_ids(lib.library_track(RESERVED[1]));
+        prop_assert!(!made.is_empty(), "the send made no new bases");
+        prop_assert!(made.iter().all(|id| *id > highest), "new bases took freed ids: {:?}", made);
+        // More actions, no send: all of them undo, so the walk back always
+        // reaches the removal.
+        for action in &later {
+            act(&mut before, &|| lib.apply(action));
         }
         while let Some((state, sent_since)) = before.pop() {
             let now = lib.everything();
@@ -750,6 +817,93 @@ fn a_removed_track_comes_back_exactly_when_undone_after_a_send_and_goes_out_as_r
         .expect("the restored track is sent");
     assert!(sent_after.in_rekordbox);
     assert_eq!(sent_after.attributes, sent_before.attributes);
+}
+
+#[test]
+fn a_track_marked_as_sent_is_enough_to_refuse_undoing_its_add_with_no_base_holding_it() {
+    // Nothing points at the Library track here, so only the check that its
+    // fields still hold what the add left can refuse.
+    let lib = Lib::new();
+    lib.add(4);
+    lib.run(
+        "UPDATE library_track
+         SET last_sent_location = 'E:/Music/4.mp3', last_exported_at = '2026-10-02T10:00:00.000Z'",
+    );
+    assert_eq!(lib.base_ids(lib.library_track(4)), Vec::<i64>::new());
+    let before = lib.everything();
+
+    assert_eq!(lib.next().refusal, Some(UndoRefusal::SentSince));
+    match lib.undo() {
+        UndoOutcome::Refused {
+            reason, conflicts, ..
+        } => {
+            assert_eq!(reason, UndoRefusal::SentSince);
+            assert!(
+                conflicts
+                    .iter()
+                    .all(|c| c.problem == ConflictProblem::ChangedSince),
+                "{conflicts:?}"
+            );
+        }
+        other => panic!("expected the undo to be refused, got {other:?}"),
+    }
+    assert_eq!(lib.everything(), before);
+}
+
+#[test]
+fn undoing_a_removal_is_refused_with_its_own_reason_when_the_tracks_file_is_gone_from_the_database()
+{
+    // Nothing was sent. The music folder was removed since, and its files
+    // went with it, so the Library track has nothing left to link to.
+    let lib = Lib::new();
+    let track = lib.add(4);
+    library::remove(&lib.writer, track).unwrap();
+    lib.run(
+        "DELETE FROM recording_file WHERE file_id = 4;
+         DELETE FROM file WHERE id = 4;",
+    );
+    let before = lib.everything();
+
+    assert_eq!(lib.next().refusal, Some(UndoRefusal::SourceGone));
+    let (operation, reason) = refusal(lib.undo());
+    assert_eq!(operation.kind, library::REMOVE_OPERATION);
+    assert_eq!(reason, UndoRefusal::SourceGone);
+    assert_eq!(lib.everything(), before);
+}
+
+#[test]
+fn undoing_a_removal_is_refused_with_that_reason_when_the_track_itself_is_gone() {
+    // Grouping merged the track into another and dropped its removal
+    // record with it.
+    let lib = Lib::new();
+    let track = lib.add(4);
+    library::remove(&lib.writer, track).unwrap();
+    lib.run(
+        "DELETE FROM library_removal WHERE recording_id = 4;
+         UPDATE recording_file SET recording_id = 5, role = 'undecided' WHERE recording_id = 4;
+         DELETE FROM recording WHERE id = 4;",
+    );
+    let before = lib.everything();
+
+    let (_, reason) = refusal(lib.undo());
+    assert_eq!(reason, UndoRefusal::SourceGone);
+    assert_eq!(lib.everything(), before);
+}
+
+#[test]
+fn undoing_a_removal_is_refused_as_changed_since_when_grouping_moved_its_removal_record() {
+    // The track lost its files to another in a merge, and its removal
+    // record moved to that one. The track row itself is still there.
+    let lib = Lib::new();
+    let track = lib.add(4);
+    library::remove(&lib.writer, track).unwrap();
+    lib.run("UPDATE library_removal SET recording_id = 5 WHERE recording_id = 4");
+    let before = lib.everything();
+
+    assert_eq!(lib.next().refusal, Some(UndoRefusal::ChangedSince));
+    let (_, reason) = refusal(lib.undo());
+    assert_eq!(reason, UndoRefusal::ChangedSince);
+    assert_eq!(lib.everything(), before);
 }
 
 #[test]
@@ -1162,6 +1316,12 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // reused ids, a new row could take the id of a row an operation
     // deleted, and undoing that operation would be refused for no reason
     // the user could see. So: AUTOINCREMENT, or go through the log.
+    //
+    // The scan finds `INSERT INTO <table>` written out in the source. It
+    // can't see a statement whose table name is put in with `format!`, and
+    // it doesn't look at updates and deletes outside the log (grouping on
+    // `library_removal`, the send on `library_track`): those change rows,
+    // which undo's "changed since" check meets, but never reuse an id.
     let lib = Lib::new();
     let never_reused: Vec<&str> = lib
         .writer

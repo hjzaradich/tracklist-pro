@@ -81,13 +81,19 @@ function OtherAction({ run }: { run: () => void }) {
 }
 
 function renderBar(extra: React.ReactNode = null) {
-  return render(
-    <QueryClientProvider client={createQueryClient()}>
+  const client = createQueryClient();
+  const view = render(
+    <QueryClientProvider client={client}>
       <UndoButton />
       <input aria-label="a text field" />
+      <textarea aria-label="a longer text field" />
+      <div contentEditable suppressContentEditableWarning aria-label="an editable text" role="textbox">
+        <span data-testid="inside-editable">text</span>
+      </div>
       {extra}
     </QueryClientProvider>,
   );
+  return { ...view, client };
 }
 
 /** The top bar's Undo, once it reads `name`. */
@@ -189,6 +195,7 @@ describe("the top bar's Undo", () => {
 
   it.each([
     [{ code: "sentSince" }, "shell:undo.refused.sentSince", {}],
+    [{ code: "sourceGone" }, "shell:undo.refused.sourceGone", {}],
     [{ code: "changedSince" }, "shell:undo.refused.changedSince", {}],
     [{ code: "crateNameTaken", name: "House" }, "shell:undo.refused.crateNameTaken", { name: "House" }],
   ] as const)("gives each refusal its own reason: %o", async (refusal, key, params) => {
@@ -248,6 +255,47 @@ describe("Ctrl+Z", () => {
     // The next Ctrl+Z outside the field takes back the newest action, which
     // shows the one in the field took back none.
     expect(fireEvent.keyDown(document.body, { key: "z", ctrlKey: true })).toBe(false);
+    expect(await undoButton(LABEL.crate())).toBeEnabled();
+    expect(backend.undone).toEqual([2]);
+  });
+
+  it("is left alone in every kind of text field", async () => {
+    const backend = history([{ operation: CRATE }, { operation: ADD }]);
+    renderBar();
+    await undoButton(LABEL.add());
+    for (const field of [
+      screen.getByRole("textbox", { name: "a longer text field" }),
+      screen.getByRole("textbox", { name: "an editable text" }),
+      screen.getByTestId("inside-editable"),
+    ]) {
+      expect(fireEvent.keyDown(field, { key: "z", ctrlKey: true })).toBe(true);
+    }
+    // A checkbox or a button is no text field: there it undoes.
+    fireEvent.keyDown(screen.getByRole("button", { name: LABEL.add() }), { key: "z", ctrlKey: true });
+    expect(await undoButton(LABEL.crate())).toBeEnabled();
+    expect(backend.undone).toEqual([2]);
+  });
+
+  it("does nothing while a dialog is waiting for an answer", async () => {
+    const backend = history([{ operation: CRATE }, { operation: ADD }]);
+    const view = renderBar(
+      <div role="alertdialog" aria-label="a question">
+        <button type="button">go back</button>
+      </div>,
+    );
+    await undoButton(LABEL.add());
+    const inDialog = screen.getByRole("button", { name: "go back" });
+    inDialog.focus();
+    expect(fireEvent.keyDown(inDialog, { key: "z", ctrlKey: true })).toBe(true);
+
+    // Once the dialog has gone, Ctrl+Z takes back the newest action: the
+    // press in the dialog took back none.
+    view.rerender(
+      <QueryClientProvider client={view.client}>
+        <UndoButton />
+      </QueryClientProvider>,
+    );
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
     expect(await undoButton(LABEL.crate())).toBeEnabled();
     expect(backend.undone).toEqual([2]);
   });

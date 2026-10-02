@@ -77,8 +77,9 @@ export function useUndoOperation() {
 
 /**
  * The Undo offered right after an action. Call `arm()` when the action has
- * finished: it notes which operation is then the next to undo, and `undo`
- * takes back only that one. `offered` turns false once that operation isn't
+ * finished, with the operation it recorded if the command said: `undo` takes
+ * back only that one. Without it, `arm` asks which operation is then the
+ * next to undo. `offered` turns false once that operation isn't
  * the next to undo any more (the top bar's Undo or Ctrl+Z took it back, or
  * something else was done), so this Undo never takes back a different action.
  */
@@ -92,8 +93,9 @@ export function useUndoAfterAction() {
     mutationFn: () => unwrap(commands.undoLastOperation(armed)),
     onSettled: () => reloadLists(queryClient),
   });
-  const arm = () => {
-    setArmed(null);
+  const arm = (operationId?: number | null) => {
+    setArmed(operationId ?? null);
+    if (typeof operationId === "number") return;
     // The shell asks the same question when the action settles, which can
     // cancel this ask; then it's asked again.
     const ask = (): Promise<void> =>
@@ -130,9 +132,13 @@ function isTextField(target: EventTarget | null): boolean {
   return target.closest('[contenteditable]:not([contenteditable="false"])') !== null;
 }
 
+/** A dialog that is waiting for an answer: it has the keyboard. */
+const OPEN_DIALOG = '[role="alertdialog"], [role="dialog"], dialog[open]';
+
 /**
- * Calls `onUndo` on Ctrl+Z, except while the focus is in a text field: there
- * Ctrl+Z undoes typing, as everywhere else. A held key counts once.
+ * Calls `onUndo` on Ctrl+Z, except while the focus is in a text field (there
+ * Ctrl+Z undoes typing, as everywhere else) and while a dialog is open. A
+ * held key counts once.
  */
 export function useUndoShortcut(onUndo: () => void) {
   const latest = useRef(onUndo);
@@ -143,6 +149,7 @@ export function useUndoShortcut(onUndo: () => void) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
       if (event.key.toLowerCase() !== "z" || isTextField(event.target)) return;
+      if (document.querySelector(OPEN_DIALOG) !== null) return;
       event.preventDefault();
       if (!event.repeat) latest.current();
     };

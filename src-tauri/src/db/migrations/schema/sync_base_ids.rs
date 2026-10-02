@@ -135,3 +135,64 @@ fn after_the_migration_a_sends_upsert_on_track_and_field_keeps_the_row_and_its_i
     );
     assert_eq!((rows, kept, value.as_str()), (1, id, "2"));
 }
+
+/// Logs, as a removal does, that the base with this id was deleted.
+fn log_a_deleted_base(conn: &Connection, id: i64) {
+    accepts(
+        conn,
+        &format!(
+            "INSERT INTO operation (kind) VALUES ('remove_from_library');
+             INSERT INTO change (operation_id, entity, entity_id, action, field, before)
+             VALUES (last_insert_rowid(), 'sync_base', {id}, 'delete', 'value', 'x');"
+        ),
+    );
+}
+
+#[test]
+fn a_base_deleted_before_the_migration_keeps_its_id_free_if_the_operation_log_names_it() {
+    // A removal made before the upgrade deleted the highest ids. They're
+    // gone from the table, but the log still holds them for an undo.
+    let (_dir, mut conn) = db_at(17);
+    accepts(&conn, SETUP);
+    base(&conn, 1, "Rating");
+    let deleted = [base(&conn, 1, "Name"), base(&conn, 1, "Artist")];
+    for id in deleted {
+        accepts(&conn, &format!("DELETE FROM sync_base WHERE id = {id}"));
+        log_a_deleted_base(&conn, id);
+    }
+
+    run(&mut conn, MIGRATIONS).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+
+    assert!(base(&conn, 2, "Rating") > deleted[1]);
+}
+
+#[test]
+fn a_logged_base_id_stays_free_even_when_no_base_is_left_at_the_migration() {
+    let (_dir, mut conn) = db_at(17);
+    accepts(&conn, SETUP);
+    let only = base(&conn, 1, "Rating");
+    accepts(&conn, "DELETE FROM sync_base");
+    log_a_deleted_base(&conn, only + 4);
+
+    run(&mut conn, MIGRATIONS).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+
+    assert_eq!(base(&conn, 2, "Rating"), only + 5);
+}
+
+#[test]
+fn with_no_bases_and_none_in_the_log_the_first_base_after_the_migration_is_number_one() {
+    let (_dir, mut conn) = db_at(17);
+    accepts(&conn, SETUP);
+    // Other tables' ids in the log don't count.
+    accepts(
+        &conn,
+        "INSERT INTO operation (kind) VALUES ('create_crate');
+         INSERT INTO change (operation_id, entity, entity_id, action, field, after)
+         VALUES (1, 'crate', 900, 'insert', 'name', 'x');",
+    );
+    run(&mut conn, MIGRATIONS).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    assert_eq!(base(&conn, 1, "Rating"), 1);
+}

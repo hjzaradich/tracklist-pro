@@ -1167,6 +1167,12 @@ export type UndoOutcome =
 export type UndoRefusal = 
 /**  A track the step added has been sent to rekordbox since. */
 { code: "sentSince" } | 
+/**
+ *  The step would put a Library track back, but the track or the file
+ *  it was linked to is no longer in the database (its music folder was
+ *  removed, or grouping merged the track away).
+ */
+{ code: "sourceGone" } | 
 /**  The step would bring back a crate name another crate has now. */
 { code: "crateNameTaken"; name: string } | 
 /**  Something the step changed has changed again since. */

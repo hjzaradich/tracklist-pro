@@ -30,9 +30,11 @@ export function LibraryScreen() {
   const crates = useCrates();
   const addToCrate = useAddToCrate();
   // What the last "Add to crate" did; `key` starts its Undo afresh.
-  const [added, setAdded] = useState<{ key: number; crate: string; changed: boolean } | null>(
-    null,
-  );
+  const [added, setAdded] = useState<{
+    key: number;
+    crate: string;
+    operationId: number | null;
+  } | null>(null);
 
   const add = (track: LibraryTrack, crate: Crate) => {
     setRemoval(null);
@@ -45,7 +47,7 @@ export function LibraryScreen() {
           setAdded((previous) => ({
             key: (previous?.key ?? 0) + 1,
             crate: crate.name,
-            changed: result.changed > 0,
+            operationId: result.operationId,
           })),
       },
     );
@@ -120,7 +122,7 @@ export function LibraryScreen() {
           </p>
         )}
         {added !== null && !addToCrate.isError && (
-          <AddedToCrate key={added.key} crate={added.crate} changed={added.changed} />
+          <AddedToCrate key={added.key} crate={added.crate} operationId={added.operationId} />
         )}
         {tracks.isError ? (
           <p role="alert" className={styles.error}>

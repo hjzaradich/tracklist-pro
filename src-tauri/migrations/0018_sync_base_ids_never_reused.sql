@@ -11,6 +11,11 @@
 --
 -- Same columns, checks, unique key and foreign key as before (0013); every
 -- row keeps its id.
+--
+-- "Ever held" has to include rows deleted before this migration ran: a
+-- track removed earlier still has its bases' ids in the operation log,
+-- waiting for an undo. So the count SQLite keeps for the table
+-- (`sqlite_sequence`) is raised past every `sync_base` id the log names.
 CREATE TABLE sync_base_new (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     library_track_id INTEGER NOT NULL REFERENCES library_track (id) ON DELETE RESTRICT,
@@ -28,3 +33,12 @@ ORDER BY id;
 
 DROP TABLE sync_base;
 ALTER TABLE sync_base_new RENAME TO sync_base;
+
+-- The copy made the table's row here only if it copied a row.
+INSERT INTO sqlite_sequence (name, seq)
+SELECT 'sync_base', 0
+WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'sync_base');
+
+UPDATE sqlite_sequence
+SET seq = max(seq, (SELECT ifnull(max(entity_id), 0) FROM change WHERE entity = 'sync_base'))
+WHERE name = 'sync_base';

@@ -48,6 +48,8 @@ function refusalText(t: TFunction<"shell">, refusal: UndoRefusal): string {
   switch (refusal.code) {
     case "sentSince":
       return t("undo.refused.sentSince");
+    case "sourceGone":
+      return t("undo.refused.sourceGone");
     case "crateNameTaken":
       return t("undo.refused.crateNameTaken", { name: refusal.name });
     case "changedSince":

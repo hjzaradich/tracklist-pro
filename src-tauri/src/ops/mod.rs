@@ -586,6 +586,10 @@ pub enum ConflictProblem {
 pub enum UndoRefusal {
     /// A track the step added has been sent to rekordbox since.
     SentSince,
+    /// The step would put a Library track back, but the track or the file
+    /// it was linked to is no longer in the database (its music folder was
+    /// removed, or grouping merged the track away).
+    SourceGone,
     /// The step would bring back a crate name another crate has now.
     CrateNameTaken { name: String },
     /// Something the step changed has changed again since.
@@ -655,6 +659,12 @@ struct Found {
     conflicts: Vec<UndoConflict>,
     /// A crate name the undo would bring back that another crate has now.
     name_taken: Option<String>,
+    /// A Library track the operation added can't be taken out again: rows
+    /// that must not lose it point at it, which only a send makes.
+    held_by_a_send: bool,
+    /// A Library track the operation removed can't be put back: the track
+    /// or file it points at is gone.
+    source_gone: bool,
 }
 
 impl Found {
@@ -668,16 +678,18 @@ impl Found {
         }
         // A send marks every track it sent and gives it bases, which then
         // hold the Library track in place.
-        let sent = self.conflicts.iter().any(|c| {
+        let marked_sent = self.conflicts.iter().any(|c| {
             c.entity == "library_track"
-                && (c.problem == ConflictProblem::Blocked
-                    || matches!(
-                        c.field.as_deref(),
-                        Some("last_sent_location" | "last_exported_at")
-                    ))
+                && c.problem == ConflictProblem::ChangedSince
+                && matches!(
+                    c.field.as_deref(),
+                    Some("last_sent_location" | "last_exported_at")
+                )
         });
-        Some(if sent {
+        Some(if marked_sent || self.held_by_a_send {
             UndoRefusal::SentSince
+        } else if self.source_gone {
+            UndoRefusal::SourceGone
         } else {
             UndoRefusal::ChangedSince
         })
@@ -729,7 +741,7 @@ fn unwind(tx: &Transaction<'_>, operation: &OperationInfo) -> Result<Found, OpsE
         let table = schema.table(tx, &change.entity)?;
         match change.action.as_str() {
             "set" => undo_set(tx, &mut schema, &table, change, &mut found)?,
-            "insert" => undo_insert(tx, &mut schema, &table, group, &mut found.conflicts)?,
+            "insert" => undo_insert(tx, &mut schema, &table, group, &mut found)?,
             "delete" => undo_delete(tx, &table, group, &mut found)?,
             other => return Err(OpsError::BadAction(other.to_owned())),
         }
@@ -947,8 +959,9 @@ fn undo_insert(
     schema: &mut SchemaCache,
     table: &Table,
     group: &[ChangeRow],
-    conflicts: &mut Vec<UndoConflict>,
+    found: &mut Found,
 ) -> Result<(), OpsError> {
+    let conflicts = &mut found.conflicts;
     let first = &group[0];
     let Some(row) = table.read_row(tx, first.entity_id)? else {
         conflicts.push(conflict(first, None, ConflictProblem::RowGone));
@@ -996,6 +1009,7 @@ fn undo_insert(
         .execute([first.entity_id]);
     if refused_by_a_constraint(written)? {
         conflicts.push(conflict(first, None, ConflictProblem::Blocked));
+        found.held_by_a_send |= first.entity == "library_track";
     }
     Ok(())
 }
@@ -1033,6 +1047,7 @@ fn undo_delete(
         if let Some(name) = group.iter().find(|c| is_crate_name(c)) {
             found.name_taken = name.before.clone();
         }
+        found.source_gone |= first.entity == "library_track";
     }
     Ok(())
 }

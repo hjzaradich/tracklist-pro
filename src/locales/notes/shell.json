@@ -113,6 +113,10 @@
     "purpose": "Says the next step can't be undone because the tracks it added have been sent to rekordbox since.",
     "where": "Top bar, beside the greyed-out Undo button."
   },
+  "undo.refused.sourceGone": {
+    "purpose": "Says a removal from the Library can't be undone because the track, or the file it was linked to, is gone from All music since (its music folder was removed, or the track was merged into another).",
+    "where": "Top bar, beside the greyed-out Undo button."
+  },
   "undo.refused.crateNameTaken": {
     "purpose": "Says the next step can't be undone because it would bring back a crate name another crate has now.",
     "where": "Top bar, beside the greyed-out Undo button."

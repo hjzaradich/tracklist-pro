@@ -43,16 +43,24 @@ export function AddToCrate({
 }
 
 /**
- * What the last "Add to crate" did, with Undo while it changed something. A
- * track that was in the crate already changes nothing, so there is nothing to undo.
+ * What the last "Add to crate" did, with Undo while it changed something.
+ * `operationId` is the operation the add recorded: none for a track that was
+ * in the crate already, which changes nothing, so there is nothing to undo.
  */
-export function AddedToCrate({ crate, changed }: { crate: string; changed: boolean }) {
+export function AddedToCrate({
+  crate,
+  operationId,
+}: {
+  crate: string;
+  operationId: number | null;
+}) {
+  const changed = operationId !== null;
   const { t } = useTranslation("crates");
   const { arm, offered, undo } = useUndoAfterAction();
   // Shown anew for each add (the caller gives it a new key): the add that
   // just finished is the one its Undo is for.
   useEffect(() => {
-    if (changed) arm();
+    if (changed) arm(operationId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when shown
   }, []);
   if (undo.data?.status === "undone") {

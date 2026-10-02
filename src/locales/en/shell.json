@@ -35,6 +35,7 @@
     },
     "refused": {
       "sentSince": "Can't undo: the tracks have been sent to rekordbox since",
+      "sourceGone": "Can't undo: the track or its file is no longer in All music",
       "crateNameTaken": "Can't undo: another crate is called “{{name}}” now",
       "changedSince": "Can't undo: the Library has changed since"
     }
