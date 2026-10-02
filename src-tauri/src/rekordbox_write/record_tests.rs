@@ -431,19 +431,21 @@ fn a_track_left_out_of_a_send_keeps_its_earlier_base() {
 }
 
 #[test]
-fn undoing_a_removal_is_refused_once_a_later_send_took_its_base_rows() {
+fn undoing_a_removal_after_a_later_send_puts_the_track_back_as_it_was() {
     // A send isn't in the operation log. Removing a track deletes its
-    // bases (undoably); a later send's new rows can take their freed row
-    // ids, and the undo is then refused, changing nothing.
+    // bases (undoably); a later send's new rows never take their row ids
+    // (migration 0018), so the undo still works and changes nothing else.
     let lib = Lib::new();
     let removed = lib.library_track();
-    // Made before the removal, so only the base rows' ids are reused.
+    // Made before the removal, so only the base rows are new after it.
     let other = lib.library_track();
     lib.record(&sent(vec![new(
         removed,
         &[("Name", "T"), ("Location", r"C:\New\t.mp3")],
     )]))
     .unwrap();
+    let removed_before = (lib.base(removed), lib.mark(removed));
+    assert!(!removed_before.0.is_empty());
     crate::library::remove(&lib.writer, removed).unwrap();
     assert_eq!(lib.base(removed), []);
 
@@ -455,30 +457,27 @@ fn undoing_a_removal_is_refused_once_a_later_send_took_its_base_rows() {
     let other_before = (lib.base(other), lib.mark(other));
 
     match ops::undo_last_via(&lib.writer).unwrap() {
-        UndoOutcome::Refused { conflicts, .. } => {
-            assert!(!conflicts.is_empty());
-            assert!(
-                conflicts.iter().all(|c| c.entity == "sync_base"),
-                "{conflicts:?}"
-            );
+        UndoOutcome::Undone { operation } => {
+            assert_eq!(operation.kind, crate::library::REMOVE_OPERATION);
         }
-        other => panic!("expected the undo to be refused, got {other:?}"),
+        other => panic!("expected the removal to be undone, got {other:?}"),
     }
-    // Nothing changed: the track stays removed, the later send's record
-    // is whole.
-    assert_eq!(lib.base(removed), []);
+    // The track is back with the bases and the mark its own send left, and
+    // the later send's record is whole.
+    assert_eq!((lib.base(removed), lib.mark(removed)), removed_before);
     assert_eq!((lib.base(other), lib.mark(other)), other_before);
-    let still_there: i64 = lib
+    let (tracks, removals): (i64, i64) = lib
         .writer
         .call(move |c| {
             c.query_row(
-                "SELECT count(*) FROM library_track WHERE id = ?1",
+                "SELECT (SELECT count(*) FROM library_track WHERE id = ?1),
+                        (SELECT count(*) FROM library_removal)",
                 [removed.0],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
         })
         .unwrap();
-    assert_eq!(still_there, 0);
+    assert_eq!((tracks, removals), (1, 0));
 }
 
 #[test]
