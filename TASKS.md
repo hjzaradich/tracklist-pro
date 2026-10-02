@@ -157,6 +157,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 ## Phase 1b: Order out of the mess
 
 ### Stage 1bA: Building blocks
+- **Started early (owner decision 2026-10-02):** lanes 1, 3 and 4+5 run while the Phase 1a check (1aG) is still open; they share no files with the send flow. Lanes 2 and 6 follow. Migrations: 0016 lane 1, 0017 lanes 4+5.
 - **Lane 1, fingerprint matching:** 1bA-1 Block index for candidate pairs → 1bA-2 Full-track comparison: two-way coverage + difference score
 - **Lane 2, test corpus:** 1bA-3 Local-only corpus from the 43 private E3 pairs (including #42) → 1bA-4 Synthetic CI corpus covering the same patterns (start from `tools/fixture-gen`'s duplicate/version ground truth, 0D-7; check with real chromaprint that its reworks and cuts land in E3's coverage ranges, since the generator models them with correlation)
 - **Lane 3, version parser:** 1bA-5 Bracket/segment tokenizer → 1bA-6 Store and rip junk stripper → 1bA-7 Cut labels + pool conventions → 1bA-8 Rework labels + bootleg patterns → 1bA-9 Mashups (`A x B`)
