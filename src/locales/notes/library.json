@@ -72,7 +72,7 @@
   "remove.cancel": {
     "purpose": "Button that backs out of the removal.",
     "where": "Library screen, remove confirmation dialog (focused by default).",
-    "approved": "Cancel"
+    "approved": "Go back"
   },
   "remove.done": {
     "purpose": "Says the track was removed.",

@@ -347,22 +347,22 @@
   "import.show": {
     "purpose": "Tells the user how to show the rekordbox xml view (first time only).",
     "where": "Send checklist, step 4, first bullet.",
-    "approved": "In Preferences > View > Layout, tick rekordbox xml (first time only)."
+    "approved": "In Preferences > View > Layout, tick rekordbox xml (first time only)"
   },
   "import.point": {
     "purpose": "Tells the user how to point rekordbox at the file (first time only).",
     "where": "Send checklist, step 4, second bullet.",
-    "approved": "In Preferences > Advanced > Database > rekordbox xml > Imported Library, choose Browse and paste the path (first time only)."
+    "approved": "In Preferences > Advanced > Database > rekordbox xml > Imported Library, choose Browse and paste the path (first time only)"
   },
   "import.refresh": {
     "purpose": "Tells the user to refresh the rekordbox xml view.",
     "where": "Send checklist, step 4, third bullet.",
-    "approved": "In the sidebar, open rekordbox xml and click its refresh icon."
+    "approved": "In the sidebar, open rekordbox xml and click its refresh icon"
   },
   "import.tracks": {
     "purpose": "Tells the user how to import the tracks.",
     "where": "Send checklist, step 4, fourth bullet.",
-    "approved": "Open All Tracks, select every track, right-click and choose Import to Collection."
+    "approved": "Open All Tracks, select every track, right-click and choose Import to Collection"
   },
   "import.dialogsUnknown": {
     "purpose": "Explains the Yes/No dialogs without a count.",
@@ -372,7 +372,7 @@
   "import.dialogsNone": {
     "purpose": "Says no Yes/No dialogs are expected.",
     "where": "Send checklist, step 4, fifth bullet, when no track is already in rekordbox.",
-    "approved": "No Yes/No dialogs expected."
+    "approved": "No Yes/No dialogs expected"
   },
   "import.dialogs_one": {
     "purpose": "Says to expect one Yes/No dialog and to answer Yes.",

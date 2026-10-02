@@ -12,7 +12,7 @@
   "folders.help": {
     "purpose": "Explains what the music folders are for and that they're only read.",
     "where": "Overview screen, first-run panel one, under its title.",
-    "approved": "Pick the folders where you keep music. These folders are read but not altered."
+    "approved": "Choose the folders where you keep music. These folders are read but not altered."
   },
   "folders.add": {
     "purpose": "Button that opens the folder picker.",

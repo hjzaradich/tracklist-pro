@@ -8,10 +8,10 @@
     "fingerprint": "Fingerprinting files",
     "group": "Finding duplicates",
     "analyze": "Estimating BPM and key",
-    "embed": "Running the audio model",
+    "embed": "Running audio model",
     "convert": "Converting files",
     "export": "Exporting",
-    "read_rekordbox": "Reading the rekordbox collection",
+    "read_rekordbox": "Reading rekordbox collection",
     "relink": "Matching rekordbox tracks to files",
     "attach": "Adding rekordbox data to tracks"
   },

@@ -42,7 +42,7 @@
   "task.embed": {
     "purpose": "Names the audio-model job.",
     "where": "Top bar, Activity status and list rows, while the audio model runs.",
-    "approved": "Running the audio model"
+    "approved": "Running audio model"
   },
   "task.convert": {
     "purpose": "Names the file-conversion job.",
@@ -57,7 +57,7 @@
   "task.read_rekordbox": {
     "purpose": "Names the job that reads the rekordbox export.",
     "where": "Top bar, Activity status and list rows, while a rekordbox XML export is read.",
-    "approved": "Reading the rekordbox collection"
+    "approved": "Reading rekordbox collection"
   },
   "task.relink": {
     "purpose": "Names the job that matches rekordbox tracks to files.",

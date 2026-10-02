@@ -81,12 +81,12 @@
   },
   "import": {
     "title": "Import in rekordbox",
-    "show": "In Preferences > View > Layout, tick rekordbox xml (first time only).",
-    "point": "In Preferences > Advanced > Database > rekordbox xml > Imported Library, choose Browse and paste the path (first time only).",
-    "refresh": "In the sidebar, open rekordbox xml and click its refresh icon.",
-    "tracks": "Open All Tracks, select every track, right-click and choose Import to Collection.",
+    "show": "In Preferences > View > Layout, tick rekordbox xml (first time only)",
+    "point": "In Preferences > Advanced > Database > rekordbox xml > Imported Library, choose Browse and paste the path (first time only)",
+    "refresh": "In the sidebar, open rekordbox xml and click its refresh icon",
+    "tracks": "Open All Tracks, select every track, right-click and choose Import to Collection",
     "dialogsUnknown": "rekordbox asks Yes or No for each track it already has. Answer Yes.",
-    "dialogsNone": "No Yes/No dialogs expected.",
+    "dialogsNone": "No Yes/No dialogs expected",
     "dialogs_one": "Expect {{count, number}} Yes/No dialog (for the track rekordbox already has). Answer Yes.",
     "dialogs_other": "Expect {{count, number}} Yes/No dialogs (one for each track rekordbox already has). Answer Yes.",
     "playlists": "Under Playlists, right-click Crates and choose Import Playlist. If rekordbox asks to replace playlists with the same name, click OK."

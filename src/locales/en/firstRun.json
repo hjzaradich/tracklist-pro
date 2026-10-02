@@ -2,7 +2,7 @@
   "title": "Start your Library",
   "folders": {
     "title": "Music folders",
-    "help": "Pick the folders where you keep music. These folders are read but not altered.",
+    "help": "Choose the folders where you keep music. These folders are read but not altered.",
     "add": "Add folder"
   },
   "fromRekordbox": {

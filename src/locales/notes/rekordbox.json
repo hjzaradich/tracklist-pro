@@ -7,7 +7,7 @@
   "howTo": {
     "purpose": "Tells the user how to export the collection from rekordbox.",
     "where": "Overview screen, rekordbox collection panel, shown while no export is chosen.",
-    "approved": "In rekordbox, choose File > Export Collection in xml format, then pick the file here."
+    "approved": "In rekordbox, choose File > Export Collection in xml format, then choose the file here."
   },
   "noneChosen": {
     "purpose": "Says no rekordbox export is chosen yet.",

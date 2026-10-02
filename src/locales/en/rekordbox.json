@@ -1,6 +1,6 @@
 {
   "title": "rekordbox collection",
-  "howTo": "In rekordbox, choose File > Export Collection in xml format, then pick the file here.",
+  "howTo": "In rekordbox, choose File > Export Collection in xml format, then choose the file here.",
   "noneChosen": "No rekordbox export chosen",
   "choose": "Choose export",
   "chooseAnother": "Choose another export",
