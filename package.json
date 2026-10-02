@@ -16,6 +16,7 @@
     "copy:status": "node scripts/copy.mjs status",
     "copy:gate": "node scripts/copy.mjs gate",
     "copy:approve": "node scripts/copy.mjs approve",
+    "test:markers": "node scripts/test-markers.mjs",
     "test:scripts": "node --test scripts/*.test.mjs"
   },
   "dependencies": {

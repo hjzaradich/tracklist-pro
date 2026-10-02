@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import "../i18n";
 import { ReadOnlineOnlySwitch } from "./ReadOnlineOnlySwitch";
+import { tx } from "../test/tx";
 
 /** Stands in for the Rust side: the opt-in as stored, and every call made. */
 function fakeBackend(stored: boolean) {
@@ -28,7 +29,7 @@ function renderSwitch() {
       <ReadOnlineOnlySwitch />
     </QueryClientProvider>,
   );
-  return screen.getByRole("checkbox", { name: "Read online-only files" });
+  return screen.getByRole("checkbox", { name: tx("musicFolderStatus:readOnlineOnly") });
 }
 
 afterEach(() => {
@@ -43,7 +44,7 @@ describe("the online-only opt-in", () => {
     await waitFor(() => expect(backend.calls).toContain("read_online_only_files"));
     expect(box).not.toBeChecked();
     expect(box).toHaveAccessibleDescription(
-      "OneDrive downloads every file the app reads. When off, online-only files are listed but not read.",
+      tx("musicFolderStatus:readOnlineOnlyHelp"),
     );
   });
 

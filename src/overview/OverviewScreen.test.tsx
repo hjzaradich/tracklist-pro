@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
 import type { AddSummary, LibraryTrack, Offer } from "../bindings";
+import { tx } from "../test/tx";
 
 function offer(toAdd: number): Offer {
   return { toAdd, alreadyInLibrary: 0, waitingInMissing: 0, waitingForConfirmation: 0 };
@@ -109,44 +110,44 @@ describe("the Overview while the Library is empty (first run)", () => {
   it("leads with picking music folders, then the rekordbox export", async () => {
     fakeBackend({ library: 0, toAdd: 0 });
     renderApp("/overview");
-    expect(await screen.findByRole("heading", { name: "Start your Library" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: tx("firstRun:title") })).toBeInTheDocument();
     const panels = screen
       .getAllByRole("heading", { level: 2 })
       .map((heading) => heading.textContent);
     expect(panels).toEqual([
-      "Start your Library",
-      "Music folders",
-      "rekordbox collection",
-      "Start fresh",
+      tx("firstRun:title"),
+      tx("firstRun:folders.title"),
+      tx("rekordbox:title"),
+      tx("firstRun:fresh.title"),
     ]);
-    expect(await screen.findByText("No music folders")).toBeInTheDocument();
+    expect(await screen.findByText(tx("musicFolderStatus:empty"))).toBeInTheDocument();
   });
 
   it("offers Start from rekordbox once a read leaves tracks to add, and adds only when asked", async () => {
     const backend = fakeBackend({ library: 0, toAdd: 2 });
     renderApp("/overview");
     expect(
-      await screen.findByRole("heading", { name: "Start from rekordbox" }),
+      await screen.findByRole("heading", { name: tx("firstRun:fromRekordbox.title") }),
     ).toBeInTheDocument();
-    expect(screen.getByText("2 rekordbox tracks aren't in your Library")).toBeInTheDocument();
+    expect(screen.getByText(tx("rekordboxOffer:count", { count: 2 }))).toBeInTheDocument();
     expect(backend.adds).toBe(0);
 
-    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    await userEvent.click(screen.getByRole("button", { name: tx("rekordboxOffer:add") }));
     // The summary stays up although the Library is no longer empty.
-    expect(await screen.findByText("2 tracks added to your Library")).toBeInTheDocument();
+    expect(await screen.findByText(tx("rekordboxOffer:summary.added", { count: 2 }))).toBeInTheDocument();
     expect(backend.adds).toBe(1);
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Start your Library" })).toBeNull(),
+      expect(screen.queryByRole("heading", { name: tx("firstRun:title") })).toBeNull(),
     );
-    expect(screen.getByText("2 tracks added to your Library")).toBeInTheDocument();
+    expect(screen.getByText(tx("rekordboxOffer:summary.added", { count: 2 }))).toBeInTheDocument();
   });
 
   it("starts fresh by going to All music, with nothing stored and nothing added", async () => {
     const backend = fakeBackend({ library: 0, toAdd: 0 });
     const { router } = renderApp("/overview");
-    await userEvent.click(await screen.findByRole("link", { name: "Go to All music" }));
+    await userEvent.click(await screen.findByRole("link", { name: tx("firstRun:fresh.action") }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/all-music"));
-    expect(await screen.findByText("No tracks in All music")).toBeInTheDocument();
+    expect(await screen.findByText(tx("allMusic:empty"))).toBeInTheDocument();
     expect(backend.adds).toBe(0);
     expect(localStorage.length).toBe(0);
   });
@@ -158,25 +159,25 @@ describe("the Overview before it knows the Library", () => {
     renderApp("/overview");
     // The rest of the screen is up.
     expect(
-      await screen.findByRole("heading", { name: "rekordbox collection" }),
+      await screen.findByRole("heading", { name: tx("rekordbox:title") }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Start your Library" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Music folders" })).toBeNull();
-    expect(screen.queryByText("Your Library at a glance, and what to do next.")).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:title") })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:folders.title") })).toBeNull();
+    expect(screen.queryByText(tx("overview:empty"))).toBeNull();
 
     backend.release();
-    expect(await screen.findByRole("heading", { name: "Start your Library" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: tx("firstRun:title") })).toBeInTheDocument();
   });
 
   it("says so when the Library can't be read, and doesn't show the first-run flow", async () => {
     fakeBackend({ library: 0, toAdd: 0, libraryBroken: true });
     renderApp("/overview");
     expect(
-      await screen.findByText("Couldn't read or save the Library. Try again."),
+      await screen.findByText(tx("errors:database")),
     ).toHaveAttribute("role", "alert");
-    expect(screen.queryByRole("heading", { name: "Start your Library" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Start fresh" })).toBeNull();
-    expect(screen.queryByText("Your Library at a glance, and what to do next.")).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:title") })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:fresh.title") })).toBeNull();
+    expect(screen.queryByText(tx("overview:empty"))).toBeNull();
   });
 });
 
@@ -185,25 +186,25 @@ describe("the Overview once the Library has tracks", () => {
     fakeBackend({ library: 3, toAdd: 5 });
     renderApp("/overview");
     expect(
-      await screen.findByText("5 rekordbox tracks aren't in your Library"),
+      await screen.findByText(tx("rekordboxOffer:count", { count: 5 })),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "rekordbox tracks" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: tx("rekordboxOffer:title") })).toBeInTheDocument();
     // Not the first run any more.
-    expect(screen.queryByRole("heading", { name: "Start your Library" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Music folders" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Start fresh" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:title") })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:folders.title") })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:fresh.title") })).toBeNull();
   });
 
   it("shows no offer when the count is zero", async () => {
     fakeBackend({ library: 3, toAdd: 0 });
     renderApp("/overview");
     expect(
-      await screen.findByText("Your Library at a glance, and what to do next."),
+      await screen.findByText(tx("overview:empty")),
     ).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "rekordbox collection" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "rekordbox tracks" })).toBeNull());
-    expect(screen.queryByText(/in your Library$/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
+    expect(await screen.findByRole("heading", { name: tx("rekordbox:title") })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("heading", { name: tx("rekordboxOffer:title") })).toBeNull());
+    expect(screen.queryByText(tx("rekordboxOffer:count", { count: 0 }))).toBeNull();
+    expect(screen.queryByRole("button", { name: tx("rekordboxOffer:add") })).toBeNull();
   });
 });
 
@@ -211,48 +212,48 @@ describe("Send to rekordbox on the Overview", () => {
   it("opens the guided send once the Library has tracks, and returns when it's closed", async () => {
     fakeBackend({ library: 2, toAdd: 0 });
     renderApp("/overview");
-    await userEvent.click(await screen.findByRole("button", { name: "Send to rekordbox" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("send:open") }));
     expect(
-      await screen.findByRole("heading", { level: 2, name: "Send to rekordbox" }),
+      await screen.findByRole("heading", { level: 2, name: tx("send:title") }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "Write file" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: tx("send:write.title") })).toBeInTheDocument();
     // The checklist takes the Overview's place.
-    expect(screen.queryByRole("heading", { name: "rekordbox collection" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("rekordbox:title") })).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    expect(await screen.findByRole("button", { name: "Send to rekordbox" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "rekordbox collection" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: tx("send:close") }));
+    expect(await screen.findByRole("button", { name: tx("send:open") })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: tx("rekordbox:title") })).toBeInTheDocument();
   });
 
   it("shows the after-send lists in the guided send's last step", async () => {
     fakeBackend({ library: 2, toAdd: 0 });
     renderApp("/overview");
-    await userEvent.click(await screen.findByRole("button", { name: "Send to rekordbox" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("send:open") }));
     expect(await screen.findByText("Crates > Old name")).toBeInTheDocument();
-    expect(screen.getByText("No tracks to remove")).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:removals.empty"))).toBeInTheDocument();
   });
 
   it("isn't offered while the Library is empty", async () => {
     fakeBackend({ library: 0, toAdd: 0 });
     renderApp("/overview");
-    expect(await screen.findByRole("heading", { name: "Start your Library" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Send to rekordbox" })).toBeNull();
+    expect(await screen.findByRole("heading", { name: tx("firstRun:title") })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: tx("send:open") })).toBeNull();
   });
 
   it("isn't offered, and neither is adding rekordbox tracks, until the Library is known", async () => {
     const backend = fakeBackend({ library: 0, toAdd: 5, libraryHeld: true });
     renderApp("/overview");
     expect(
-      await screen.findByRole("heading", { name: "rekordbox collection" }),
+      await screen.findByRole("heading", { name: tx("rekordbox:title") }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Send to rekordbox" })).toBeNull();
+    expect(screen.queryByRole("button", { name: tx("send:open") })).toBeNull();
     // The offer's title depends on whether the Library is empty, so it
     // waits too: no regular title flashes before the first-run one.
-    expect(screen.queryByRole("heading", { name: "rekordbox tracks" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Start from rekordbox" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("rekordboxOffer:title") })).toBeNull();
+    expect(screen.queryByRole("heading", { name: tx("firstRun:fromRekordbox.title") })).toBeNull();
 
     backend.release();
-    expect(await screen.findByRole("heading", { name: "Start from rekordbox" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "rekordbox tracks" })).toBeNull();
+    expect(await screen.findByRole("heading", { name: tx("firstRun:fromRekordbox.title") })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: tx("rekordboxOffer:title") })).toBeNull();
   });
 });

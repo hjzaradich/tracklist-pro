@@ -8,9 +8,17 @@ import type { LastRead, ReadFailure, XmlSource } from "../bindings";
 import i18n from "../i18n";
 import { READING_INTERVAL_MS } from "./useXmlSource";
 import { XmlSourcePanel } from "./XmlSourcePanel";
+import { tx } from "../test/tx";
 
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => dialog);
+
+// The date a read is shown with: the same formatting the panel uses.
+const when = (iso: string) =>
+  new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(
+    new Date(iso),
+  );
+const READ_AT = "2026-09-29T13:00:00.000Z";
 
 const EXPORT = "C:\\Users\\dj\\Documents\\rekordbox.xml";
 
@@ -81,35 +89,41 @@ describe("the rekordbox XML source", () => {
   it("says no export is chosen and how to make one", async () => {
     fakeBackend();
     renderPanel();
-    expect(await screen.findByText("No rekordbox export chosen")).toBeInTheDocument();
-    expect(screen.getByText(/File > Export Collection in xml format/)).toBeInTheDocument();
-    expect(await screen.findByText("Not read yet")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose export" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Read again" })).not.toBeInTheDocument();
+    expect(await screen.findByText(tx("rekordbox:noneChosen"))).toBeInTheDocument();
+    expect(screen.getByText(tx("rekordbox:howTo"))).toBeInTheDocument();
+    expect(await screen.findByText(tx("rekordbox:neverRead"))).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("rekordbox:choose") })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: tx("rekordbox:readAgain") })).not.toBeInTheDocument();
   });
 
   it("opens a picker for xml files in Documents and reads the file picked", async () => {
     const backend = fakeBackend();
+    // The read is recorded with a known time, so its line can be looked up in full.
+    backend.onRead = (path) => {
+      backend.source = { ...backend.source, path, lastRead: { ...lastRead(), path, readAt: READ_AT } };
+    };
     dialog.open.mockResolvedValue(EXPORT);
     renderPanel();
-    await userEvent.click(await screen.findByRole("button", { name: "Choose export" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("rekordbox:choose") }));
     expect(dialog.open).toHaveBeenCalledWith({
       multiple: false,
       directory: false,
       defaultPath: "C:\\Users\\dj\\Documents",
-      filters: [{ name: "rekordbox export", extensions: ["xml"] }],
+      filters: [{ name: tx("rekordbox:fileFilter"), extensions: ["xml"] }],
     });
     await waitFor(() => expect(backend.reads).toEqual([EXPORT]));
-    expect(await screen.findByText(/^Read .* \(1,234 tracks\)$/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(tx("rekordbox:lastRead", { when: when(READ_AT), count: 1234 })),
+    ).toBeInTheDocument();
     expect(screen.getByText(EXPORT)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose another export" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: tx("rekordbox:chooseAnother") })).toBeEnabled();
   });
 
   it("reads nothing when the picker is closed without a file", async () => {
     const backend = fakeBackend();
     dialog.open.mockResolvedValue(null);
     renderPanel();
-    await userEvent.click(await screen.findByRole("button", { name: "Choose export" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("rekordbox:choose") }));
     await waitFor(() => expect(dialog.open).toHaveBeenCalled());
     expect(backend.reads).toEqual([]);
   });
@@ -117,7 +131,7 @@ describe("the rekordbox XML source", () => {
   it("reads the chosen export again", async () => {
     const backend = fakeBackend({ path: EXPORT, lastRead: lastRead() });
     renderPanel();
-    await userEvent.click(await screen.findByRole("button", { name: "Read again" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("rekordbox:readAgain") }));
     await waitFor(() => expect(backend.reads).toEqual([null]));
   });
 
@@ -132,17 +146,21 @@ describe("the rekordbox XML source", () => {
       // This read doesn't finish until the test says so.
       backend.onRead = () => {};
       renderPanel();
-      await userEvent.click(await screen.findByRole("button", { name: "Read again" }));
-      expect(await screen.findByText("Reading export")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Read again" })).toBeDisabled();
+      await userEvent.click(await screen.findByRole("button", { name: tx("rekordbox:readAgain") }));
+      expect(await screen.findByText(tx("rekordbox:reading"))).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: tx("rekordbox:readAgain") })).toBeDisabled();
       backend.source = { ...backend.source, lastRead: lastRead({ tracks: 1 }, "2026-09-30T08:00:00.000Z") };
       // The source is asked again once per READING_INTERVAL_MS, not before.
       await act(() => vi.advanceTimersByTimeAsync(READING_INTERVAL_MS - 1));
-      expect(screen.getByText("Reading export")).toBeInTheDocument();
+      expect(screen.getByText(tx("rekordbox:reading"))).toBeInTheDocument();
       expect(backend.reads).toEqual([null]);
       await act(() => vi.advanceTimersByTimeAsync(1));
-      expect(await screen.findByText(/\(1 track\)$/)).toBeInTheDocument();
-      expect(screen.queryByText("Reading export")).not.toBeInTheDocument();
+      expect(
+        await screen.findByText(
+          tx("rekordbox:lastRead", { when: when("2026-09-30T08:00:00.000Z"), count: 1 }),
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(tx("rekordbox:reading"))).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -151,30 +169,29 @@ describe("the rekordbox XML source", () => {
   it("points out an incomplete export and tracks that couldn't be read", async () => {
     fakeBackend({ path: EXPORT, lastRead: lastRead({ complete: false, kept: 3, notStored: 2 }) });
     renderPanel();
-    expect(await screen.findByText("Incomplete export (missing tracks were kept)")).toBeInTheDocument();
-    expect(screen.getByText("2 tracks couldn't be read")).toBeInTheDocument();
+    expect(await screen.findByText(tx("rekordbox:incomplete"))).toBeInTheDocument();
+    expect(screen.getByText(tx("rekordbox:notStored", { count: 2 }))).toBeInTheDocument();
   });
 
-  it.each([
-    ["notFound", `Export not found (${EXPORT})`],
-    ["cantRead", `Can't open export (${EXPORT})`],
-    ["damaged", "The export is cut off or damaged. Export it again from rekordbox."],
-    ["notAnExport", `Not a rekordbox collection export (${EXPORT})`],
-  ] as const)("says why the last read failed (%s)", async (reason, message) => {
+  it.each(["notFound", "cantRead", "damaged", "notAnExport"] as const)(
+    "says why the last read failed (%s)",
+    async (reason) => {
+    const message = tx(`rekordbox:failed.${reason}`, { path: EXPORT });
     const lastFailure: ReadFailure = { path: EXPORT, reason, at: "2026-09-29T12:00:00.000Z" };
     fakeBackend({ path: EXPORT, lastFailure });
     renderPanel();
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
-  });
+    },
+  );
 
   it("shows why a file was refused", async () => {
     const backend = fakeBackend();
     backend.refuse = { kind: "notRekordboxXml", params: { path: "C:\\notes.xml" } };
     dialog.open.mockResolvedValue("C:\\notes.xml");
     renderPanel();
-    await userEvent.click(await screen.findByRole("button", { name: "Choose export" }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("rekordbox:choose") }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Not a rekordbox collection export (C:\\notes.xml)",
+      tx("rekordbox:error.notAnExport", { path: "C:\\notes.xml" }),
     );
   });
 
@@ -187,20 +204,20 @@ describe("the rekordbox XML source", () => {
       newerExport: { path: newer, name: "export 2.xml", modifiedMs: 2 },
     });
     renderPanel();
-    expect(await screen.findByText("Newer export found (export 2.xml)")).toBeInTheDocument();
+    expect(await screen.findByText(tx("rekordbox:newer", { name: "export 2.xml" }))).toBeInTheDocument();
     expect(backend.reads).toEqual([]);
     backend.onRead = (path) => {
       backend.source = { ...backend.source, path, newerExport: null, lastRead: { ...lastRead(), path, readAt: "2026-09-30T00:00:00.000Z" } };
     };
-    await userEvent.click(screen.getByRole("button", { name: "Read" }));
+    await userEvent.click(screen.getByRole("button", { name: tx("rekordbox:readNewer") }));
     await waitFor(() => expect(backend.reads).toEqual([newer]));
-    await waitFor(() => expect(screen.queryByText(/Newer export found/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(tx("rekordbox:newer", { name: "export 2.xml" }))).not.toBeInTheDocument());
   });
 
   it("remembers the watch when it's switched on and off", async () => {
     const backend = fakeBackend();
     renderPanel();
-    const watch = await screen.findByRole("checkbox", { name: "Watch for new exports (Documents)" });
+    const watch = await screen.findByRole("checkbox", { name: tx("rekordbox:watch") });
     await waitFor(() => expect(watch).toBeEnabled());
     await userEvent.click(watch);
     await waitFor(() => expect(watch).toBeChecked());
@@ -211,6 +228,6 @@ describe("the rekordbox XML source", () => {
   });
 
   it("names the read in Activity", () => {
-    expect(i18n.t("task.read_rekordbox", { ns: "activity" })).toBe("Reading the rekordbox collection");
+    expect(i18n.exists("task.read_rekordbox", { ns: "activity" })).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
+import { tx } from "../test/tx";
 
 afterEach(() => clearMocks());
 
@@ -14,8 +15,8 @@ describe("the after-send page", () => {
       throw new Error(`unexpected command ${cmd}`);
     });
     renderApp("/after-send");
-    expect(await screen.findByRole("heading", { level: 1, name: "After import" })).toBeInTheDocument();
-    expect(await screen.findByText("No playlists to delete")).toBeInTheDocument();
-    expect(screen.getByText("No tracks to remove")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: tx("afterSend:page") })).toBeInTheDocument();
+    expect(await screen.findByText(tx("afterSend:stale.empty"))).toBeInTheDocument();
+    expect(screen.getByText(tx("afterSend:removals.empty"))).toBeInTheDocument();
   });
 });

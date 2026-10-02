@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
 import { DEFAULT_THEME, syncThemeToDocument, useThemeStore, type Theme } from "./themeStore";
+import { tx } from "../test/tx";
 import "./tokens.css";
 
 // A sample screen (Overview, inside the app shell) rendered in both themes,
@@ -68,9 +69,9 @@ describe("a sample screen in both themes", () => {
   async function renderIn(theme: Theme) {
     const user = userEvent.setup();
     const { container } = renderApp("/overview");
-    await screen.findByRole("heading", { level: 1, name: "Overview" });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.overview") });
     // Switched the way a user does it, with the theme switch in the top bar.
-    await user.click(screen.getByRole("radio", { name: theme === "dark" ? "Dark" : "Light" }));
+    await user.click(screen.getByRole("radio", { name: theme === "dark" ? tx("theme:dark") : tx("theme:light") }));
     return { container, user };
   }
 
@@ -78,10 +79,10 @@ describe("a sample screen in both themes", () => {
     const { user } = await renderIn("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
 
-    await user.click(screen.getByRole("radio", { name: "Light" }));
+    await user.click(screen.getByRole("radio", { name: tx("theme:light") }));
     expect(document.documentElement.dataset.theme).toBe("light");
 
-    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    await user.click(screen.getByRole("radio", { name: tx("theme:dark") }));
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
@@ -105,7 +106,7 @@ describe("a sample screen in both themes", () => {
     const uses = colorTokenUses(container.firstElementChild!);
     const dark = resolvedTokens(uses);
 
-    await user.click(screen.getByRole("radio", { name: "Light" }));
+    await user.click(screen.getByRole("radio", { name: tx("theme:light") }));
     const light = resolvedTokens(uses);
 
     expect(dark.size).toBeGreaterThan(5);
@@ -117,7 +118,7 @@ describe("a sample screen in both themes", () => {
     }
 
     // And switching back restores the dark values exactly.
-    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    await user.click(screen.getByRole("radio", { name: tx("theme:dark") }));
     expect(resolvedTokens(uses)).toEqual(dark);
   });
 });

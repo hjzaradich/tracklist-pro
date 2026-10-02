@@ -4,6 +4,12 @@ import type { Reason, Suggestion } from "../bindings";
 import i18n from "../i18n";
 import { reasonProblem } from "./reasons";
 import { Suggested } from "./Suggested";
+import { tx } from "../test/tx";
+
+// What the real locale files contribute to a suggestion's line: the joining
+// separator and the audio-model label. The reason texts below are stand-ins.
+const separator = tx("suggest:separator");
+const audioModel = (reason: string) => tx("suggest:audioModel", { reason });
 
 // Stand-in reason texts, loaded only for these tests. Real reasons live in
 // each feature's own namespace file once the owner has worded them.
@@ -57,17 +63,17 @@ describe("a suggestion is shown with its reasons", () => {
       suggestion([fact("sameKey"), fact("nearBpm", { bpm: 2 }), fact("tagged", { tag: "Peak Time" })]),
     );
     expect(screen.getByText("Track A")).toBeInTheDocument();
-    expect(line("same key, +2 BPM, tagged Peak Time")).toBeInTheDocument();
+    expect(line(["same key", "+2 BPM", "tagged Peak Time"].join(separator))).toBeInTheDocument();
     expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("labels the audio model's opinion as such, and only that reason", () => {
     const { container } = renderSuggested(suggestion([fact("sameKey"), audio("soundsDark")]));
-    expect(line("same key, sounds dark (audio model)")).toBeInTheDocument();
+    expect(line(`same key${separator}${audioModel("sounds dark")}`)).toBeInTheDocument();
     const fragments = container.querySelectorAll("[data-source]");
     expect([...fragments].map((f) => [f.getAttribute("data-source"), f.textContent])).toEqual([
       ["fact", "same key"],
-      ["audioModel", ", sounds dark (audio model)"],
+      ["audioModel", `${separator}${audioModel("sounds dark")}`],
     ]);
   });
 

@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands, ERROR_KEYS, type ErrorKind, type IpcError } from "../bindings";
 import i18n, { englishResources } from "../i18n";
 import { CommandError, errorMessage, isIpcError, unwrap } from "./errors";
+import { tx } from "../test/tx";
 
 const kinds = Object.keys(ERROR_KEYS) as ErrorKind[];
-const internalMessage = i18n.t("errors:internal");
+const internalMessage = tx("errors:internal");
 
 describe("command errors", () => {
   afterEach(() => {
@@ -35,12 +36,8 @@ describe("command errors", () => {
   });
 
   it("shows an error's message from its kind", () => {
-    expect(errorMessage({ kind: "diskFull", params: {} })).toBe(
-      "Disk full. Free up some space and try again.",
-    );
-    expect(errorMessage(new CommandError({ kind: "busy", params: {} }))).toBe(
-      "The Library is busy. Try again in a moment.",
-    );
+    expect(errorMessage({ kind: "diskFull", params: {} })).toBe(tx("errors:diskFull"));
+    expect(errorMessage(new CommandError({ kind: "busy", params: {} }))).toBe(tx("errors:busy"));
   });
 
   it("never shows raw error text: anything that isn't an IpcError reads as internal", () => {
@@ -70,7 +67,7 @@ describe("command errors", () => {
     const failed = await unwrap(commands.activity()).catch((e: unknown) => e);
     expect(failed).toBeInstanceOf(CommandError);
     expect((failed as CommandError).kind).toBe("stopped");
-    expect(errorMessage(failed)).toBe("The Library has stopped. Restart the app.");
+    expect(errorMessage(failed)).toBe(tx("errors:stopped"));
   });
 
   it("unwrap turns a raw error string from Tauri into an internal error", async () => {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { MusicFolder } from "../bindings";
 import "../i18n";
 import { MusicFolderList } from "./MusicFolderList";
+import { tx } from "../test/tx";
 
 function folder(id: number, fields: Partial<MusicFolder> = {}): MusicFolder {
   return {
@@ -31,7 +32,9 @@ describe("the music folder list", () => {
     expect(rows[0]).toHaveAttribute("data-online", "true");
     expect(rows[1]).toHaveAttribute("data-online", "false");
     expect(rows[1]).toHaveTextContent(String.raw`F:\Gig`);
-    expect(rows[1]).toHaveAccessibleDescription("Drive not connected (GIG USB)");
+    expect(rows[1]).toHaveAccessibleDescription(
+      tx("musicFolderStatus:offlineNamed", { label: "GIG USB" }),
+    );
     // Nothing to say about a connected folder the scan read in full.
     expect(rows[0]).not.toHaveAttribute("aria-describedby");
   });
@@ -39,13 +42,13 @@ describe("the music folder list", () => {
   it("shows what the last scan couldn't read next to the folder", () => {
     render(<MusicFolderList folders={[folder(1, { unreadableFolders: 2, onlineOnlyFiles: 5 })]} />);
     const row = screen.getByRole("listitem");
-    expect(row).toHaveTextContent("2 folders couldn't be read");
-    expect(row).toHaveTextContent("5 files online only (not downloaded)");
+    expect(row).toHaveTextContent(tx("musicFolderStatus:unreadableFolders", { count: 2 }));
+    expect(row).toHaveTextContent(tx("musicFolderStatus:onlineOnly", { count: 5 }));
   });
 
   it("names what's absent when there are no music folders", () => {
     render(<MusicFolderList folders={[]} />);
-    expect(screen.getByText("No music folders")).toBeInTheDocument();
+    expect(screen.getByText(tx("musicFolderStatus:empty"))).toBeInTheDocument();
     expect(screen.queryByRole("list")).toBeNull();
   });
 });

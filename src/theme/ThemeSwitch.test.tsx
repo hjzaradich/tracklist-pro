@@ -8,6 +8,7 @@ import {
   syncThemeToDocument,
   useThemeStore,
 } from "./themeStore";
+import { tx } from "../test/tx";
 
 function savedTheme(): string | undefined {
   const raw = localStorage.getItem(THEME_STORAGE_KEY);
@@ -31,29 +32,29 @@ describe("theme switch", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
-  it("labels itself and its options in English from the theme namespace", () => {
+  it("labels itself and its options from the theme namespace", () => {
     render(<ThemeSwitch />);
-    expect(screen.getByRole("radiogroup", { name: "Theme" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Light" })).not.toBeChecked();
+    expect(screen.getByRole("radiogroup", { name: tx("theme:label") })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: tx("theme:dark") })).toBeChecked();
+    expect(screen.getByRole("radio", { name: tx("theme:light") })).not.toBeChecked();
   });
 
   it("flips the page to the light theme and back", async () => {
     const user = userEvent.setup();
     render(<ThemeSwitch />);
 
-    await user.click(screen.getByRole("radio", { name: "Light" }));
+    await user.click(screen.getByRole("radio", { name: tx("theme:light") }));
     expect(document.documentElement.dataset.theme).toBe("light");
-    expect(screen.getByRole("radio", { name: "Light" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: tx("theme:light") })).toBeChecked();
 
-    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    await user.click(screen.getByRole("radio", { name: tx("theme:dark") }));
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
   it("saves the choice so it survives a restart", async () => {
     const user = userEvent.setup();
     render(<ThemeSwitch />);
-    await user.click(screen.getByRole("radio", { name: "Light" }));
+    await user.click(screen.getByRole("radio", { name: tx("theme:light") }));
     expect(savedTheme()).toBe("light");
   });
 

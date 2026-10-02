@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActivitySnapshot, JobUpdate } from "../bindings";
 import { Activity } from "./Activity";
 import { SNAPSHOT_RETRY_MS } from "./useActivitySync";
+import { tx } from "../test/tx";
 
 function job(fields: Partial<JobUpdate> & Pick<JobUpdate, "id" | "seq">): JobUpdate {
   return { kind: "scan", status: "running", progress: null, priority: 0, ...fields };
@@ -23,6 +24,9 @@ function flakyApp(failures: number, snapshot: ActivitySnapshot) {
   );
   return () => asked;
 }
+
+// What the status says for a scan at 60%.
+const scanningAt60 = tx("activity:percent", { task: tx("activity:task.scan"), percent: 60 });
 
 afterEach(() => {
   cleanup();
@@ -54,7 +58,7 @@ describe("Activity sync", () => {
         await elapse(1);
         expect(asked()).toBe(n + 2);
       }
-      expect(screen.getByText("Scanning music folders (60%)")).toBeInTheDocument();
+      expect(screen.getByText(scanningAt60)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -82,7 +86,7 @@ describe("Activity sync", () => {
       // An interval of its own, so none of the test's timers shares a wait
       // with the retries (the suite's timeout isn't one either).
       expect(
-        await screen.findByText("Scanning music folders (60%)", undefined, { interval: 17 }),
+        await screen.findByText(scanningAt60, undefined, { interval: 17 }),
       ).toBeInTheDocument();
       expect(asked()).toBe(failures + 1);
       const last = SNAPSHOT_RETRY_MS[SNAPSHOT_RETRY_MS.length - 1];

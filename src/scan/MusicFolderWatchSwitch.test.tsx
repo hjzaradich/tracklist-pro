@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MusicFolder } from "../bindings";
 import "../i18n";
 import { MusicFolderWatchSwitch } from "./MusicFolderWatchSwitch";
+import { tx } from "../test/tx";
 
 function folder(watch: boolean): MusicFolder {
   return {
@@ -26,13 +27,13 @@ afterEach(cleanup);
 describe("the music folder watch switch", () => {
   it("shows whether the folder is watched", () => {
     render(<MusicFolderWatchSwitch folder={folder(true)} onChange={() => {}} />);
-    expect(screen.getByRole("checkbox", { name: "Watch for changes" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: tx("musicFolderWatch:watch") })).toBeChecked();
   });
 
   it("hands the new choice to the caller", async () => {
     const onChange = vi.fn();
     render(<MusicFolderWatchSwitch folder={folder(false)} onChange={onChange} />);
-    await userEvent.click(screen.getByRole("checkbox", { name: "Watch for changes" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: tx("musicFolderWatch:watch") }));
     expect(onChange).toHaveBeenCalledWith(true);
   });
 });
