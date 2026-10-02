@@ -25,6 +25,7 @@ use tauri::test::{mock_builder, MockRuntime};
 use tauri::Manager;
 use tauri_specta::Event;
 use tracklist_pro_lib::all_music::AllMusicList;
+use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::jobs::{self, ActivitySnapshot, JobId, JobRecord, JobStatus};
 use tracklist_pro_lib::library::{LibraryTrack, LibraryTrackId, Promoted};
 use tracklist_pro_lib::rekordbox::RekordboxXml;
@@ -427,6 +428,20 @@ impl World {
         let _: Value = self.call("remove_library_track", json!({ "id": id }));
     }
 
+    /// "New crate", then its tracks added in one go. Give the tracks in
+    /// the order they joined the Library: tracks added together come in
+    /// that order, whatever order they're given in.
+    pub fn create_crate(&self, name: &str, tracks: &[LibraryTrackId]) -> CrateId {
+        let id: CrateId = self.call("create_crate", json!({ "name": name }));
+        let added: Value = self.call("add_tracks_to_crate", json!({ "id": id, "tracks": tracks }));
+        assert_eq!(added["changed"], tracks.len(), "{added}");
+        id
+    }
+
+    pub fn rename_crate(&self, id: CrateId, name: &str) {
+        let _: Value = self.call("rename_crate", json!({ "id": id, "name": name }));
+    }
+
     pub fn send_state(&self) -> SendState {
         self.call("send_state", json!({}))
     }
@@ -532,68 +547,6 @@ fn start_app(data_dir: PathBuf) -> tauri::App<MockRuntime> {
     // runtime one iteration runs it and returns.
     app.run_iteration(|_, _| {});
     app
-}
-
-/// **The one hand-made step.** Crates are put in the database with SQL,
-/// because no command creates, fills or renames one before 1cA-10.
-/// Everything else in these tests goes through the app's commands and
-/// jobs. When crate commands exist, this module becomes calls to them.
-pub mod crates_by_hand {
-    use super::{LibraryTrackId, World};
-
-    fn insert(world: &World, parent: Option<i64>, kind: &'static str, name: &str) -> i64 {
-        let name = name.to_owned();
-        world
-            .writer()
-            .call(move |c| {
-                c.execute(
-                    "INSERT INTO crate (parent_id, kind, name, position)
-                     VALUES (?1, ?2, ?3, (SELECT count(*) FROM crate))",
-                    (parent, kind, name),
-                )?;
-                Ok(c.last_insert_rowid())
-            })
-            .unwrap()
-    }
-
-    /// A crate folder, inside `parent` or at the top.
-    pub fn folder(world: &World, parent: Option<i64>, name: &str) -> i64 {
-        insert(world, parent, "folder", name)
-    }
-
-    /// A hand-made crate holding `tracks`, added in that order.
-    pub fn crate_of(
-        world: &World,
-        parent: Option<i64>,
-        name: &str,
-        tracks: &[LibraryTrackId],
-    ) -> i64 {
-        let id = insert(world, parent, "static", name);
-        let tracks = tracks.to_vec();
-        world
-            .writer()
-            .call(move |c| {
-                for (i, track) in tracks.iter().enumerate() {
-                    c.execute(
-                        "INSERT INTO crate_entry (crate_id, library_track_id, added_at)
-                         VALUES (?1, ?2, ?3)",
-                        (id, track.0, format!("2026-01-01T00:00:{i:02}.000Z")),
-                    )?;
-                }
-                Ok(())
-            })
-            .unwrap();
-        id
-    }
-
-    /// Renames a crate or folder.
-    pub fn rename(world: &World, id: i64, name: &str) {
-        let name = name.to_owned();
-        world
-            .writer()
-            .call(move |c| c.execute("UPDATE crate SET name = ?1 WHERE id = ?2", (name, id)))
-            .unwrap();
-    }
 }
 
 /// The disk record is only worth something if it notices. Each change is
