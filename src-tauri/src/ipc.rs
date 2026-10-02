@@ -103,6 +103,13 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::send::prepare_send,
             crate::send::write_send,
             crate::after_send::commands::after_send_lists,
+            crate::crates::create_crate,
+            crate::crates::rename_crate,
+            crate::crates::delete_crate,
+            crate::crates::add_tracks_to_crate,
+            crate::crates::remove_tracks_from_crate,
+            crate::crates::list_crates,
+            crate::crates::crate_tracks,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

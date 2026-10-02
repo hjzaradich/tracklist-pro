@@ -110,6 +110,15 @@ error_kinds! {
     LibraryNoFile => "library:error.noFile", params: [];
     /// The file the Library track would link to isn't on disk.
     LibraryFileMissing => "library:error.fileMissing", params: ["path"];
+    /// There's no crate with that id.
+    CrateNotFound => "crates:error.notFound", params: [];
+    /// The crate's name is empty.
+    CrateNameEmpty => "crates:error.nameEmpty", params: [];
+    /// Another crate already has the name (names that differ only in letter
+    /// case or trailing space count as the same); `name` is that crate's.
+    CrateNameTaken => "crates:error.nameTaken", params: ["name"];
+    /// The name has a character that can't be sent to rekordbox.
+    CrateNameUnsendable => "crates:error.nameUnsendable", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

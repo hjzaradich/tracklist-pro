@@ -30,6 +30,9 @@ function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
   };
 }
 
+/** What a row's "Add to crate" says while there are no crates to choose. */
+const noCrates = tx("crates:addTrack.none");
+
 /** A linked file the last scan didn't find, on a drive that's connected. */
 const goneFile = {
   path: String.raw`E:\Music\gone.mp3`,
@@ -41,6 +44,7 @@ const goneFile = {
 /** Stands in for the Rust side: the Library holds `tracks`, or can't be read. */
 function library(tracks: LibraryTrack[] | "broken") {
   mockIPC((cmd) => {
+    if (cmd === "list_crates") return [];
     if (cmd !== "library_tracks") throw new Error(`unexpected command ${cmd}`);
     if (tracks === "broken") throw { kind: "database", params: {} };
     return tracks;
@@ -88,7 +92,7 @@ describe("the Library screen", () => {
       within(first)
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
-    ).toEqual(["Synthetic Tune 2", "Made Up Artist 2", String.raw`E:\Music\tune 2.mp3`, tx("library:remove.button")]);
+    ).toEqual(["Synthetic Tune 2", "Made Up Artist 2", String.raw`E:\Music\tune 2.mp3`, `${noCrates}${tx("library:remove.button")}`]);
     expect(second).toHaveTextContent("Synthetic Tune 1");
     expect(screen.queryByText(tx("library:empty"))).toBeNull();
     // Nothing to say about a track whose file is there.
@@ -103,7 +107,7 @@ describe("the Library screen", () => {
       within(row)
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
-    ).toEqual(["tune 1.mp3", "", String.raw`E:\Music\tune 1.mp3`, tx("library:remove.button")]);
+    ).toEqual(["tune 1.mp3", "", String.raw`E:\Music\tune 1.mp3`, `${noCrates}${tx("library:remove.button")}`]);
   });
 
   it("says so next to a track whose file is missing", async () => {
@@ -201,6 +205,7 @@ function removable(initial: LibraryTrack[]) {
   const calls: string[] = [];
   mockIPC((cmd, args) => {
     calls.push(cmd);
+    if (cmd === "list_crates") return [];
     if (cmd === "library_tracks") return tracks;
     if (cmd === "remove_library_track") {
       last = tracks.find((t) => t.id === (args as { id: number }).id) ?? null;
@@ -316,7 +321,8 @@ describe("removing a track from the Library", () => {
   it("says so, and keeps the track out, when undo is refused", async () => {
     let tracks = [track(1)];
     mockIPC((cmd) => {
-      if (cmd === "library_tracks") return tracks;
+    if (cmd === "list_crates") return [];
+    if (cmd === "library_tracks") return tracks;
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -346,7 +352,8 @@ describe("removing a track from the Library", () => {
     const pending = new Promise((resolve) => (finish = resolve));
     let tracks = [track(1)];
     mockIPC((cmd) => {
-      if (cmd === "library_tracks") return tracks;
+    if (cmd === "list_crates") return [];
+    if (cmd === "library_tracks") return tracks;
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -390,7 +397,8 @@ describe("removing a track from the Library", () => {
   it("greys out Undo, with no message, when there turns out to be nothing to undo", async () => {
     let tracks = [track(1)];
     mockIPC((cmd) => {
-      if (cmd === "library_tracks") return tracks;
+    if (cmd === "list_crates") return [];
+    if (cmd === "library_tracks") return tracks;
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -410,5 +418,131 @@ describe("removing a track from the Library", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: tx("library:remove.undo") })).toBeDisabled());
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText(tx("library:remove.undoRefused"))).toBeNull();
+  });
+});
+
+/**
+ * A Library with crates to add to, like the Rust side: `calls` records the
+ * crate commands with their arguments. A track already in the crate is
+ * skipped; an undo takes the last add back out.
+ */
+function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]) {
+  const calls: { cmd: string; args: Record<string, unknown> }[] = [];
+  let last: { id: number; added: number[] } | null = null;
+  mockIPC((cmd, rawArgs) => {
+    const args = (rawArgs ?? {}) as Record<string, unknown>;
+    if (cmd === "library_tracks") return [track(1), track(2)];
+    if (cmd === "list_crates") {
+      return crates.map((c) => ({ id: c.id, name: c.name, trackCount: c.trackIds.length }));
+    }
+    calls.push({ cmd, args });
+    if (cmd === "add_tracks_to_crate") {
+      const target = crates.find((c) => c.id === args.id);
+      if (target === undefined) throw { kind: "crateNotFound", params: {} };
+      const wanted = args.tracks as number[];
+      const fresh = wanted.filter((id) => !target.trackIds.includes(id));
+      target.trackIds.push(...fresh);
+      last = { id: target.id, added: fresh };
+      return { changed: fresh.length, skipped: wanted.length - fresh.length };
+    }
+    if (cmd === "undo_last_operation") {
+      if (last === null) return { status: "nothingToUndo" };
+      const target = crates.find((c) => c.id === last?.id);
+      if (target) target.trackIds = target.trackIds.filter((id) => !last?.added.includes(id));
+      last = null;
+      return { status: "undone", operation: { id: 1, kind: "add_to_crate" } };
+    }
+    throw new Error(`unexpected command ${cmd}`);
+  });
+  return calls;
+}
+
+/** The "Add to crate" choice of the row titled `title`. */
+async function addChoice(title: string) {
+  return screen.findByRole("combobox", { name: tx("crates:addTrack.labelFor", { title }) });
+}
+
+describe("adding a track to a crate", () => {
+  it("offers every crate on each row, and says there are none when there are none", async () => {
+    crateBackend([]);
+    const first = renderScreen();
+    const choice = await addChoice("Synthetic Tune 1");
+    expect(choice).toBeDisabled();
+    expect(within(choice).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      tx("crates:addTrack.none"),
+    ]);
+    first.unmount();
+
+    crateBackend([
+      { id: 1, name: "Warm up", trackIds: [] },
+      { id: 2, name: "Peak time", trackIds: [] },
+    ]);
+    renderScreen();
+    const second = await addChoice("Synthetic Tune 2");
+    await waitFor(() => expect(second).toBeEnabled());
+    expect(within(second).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      tx("crates:addTrack.label"),
+      "Warm up",
+      "Peak time",
+    ]);
+  });
+
+  it("adds that track, and only that track, to the chosen crate", async () => {
+    const calls = crateBackend([
+      { id: 1, name: "Warm up", trackIds: [] },
+      { id: 2, name: "Peak time", trackIds: [] },
+    ]);
+    renderScreen();
+    const choice = await addChoice("Synthetic Tune 2");
+    await waitFor(() => expect(choice).toBeEnabled());
+    await userEvent.selectOptions(choice, "Peak time");
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      tx("crates:addTrack.added", { crate: "Peak time" }),
+    );
+    expect(calls.filter((c) => c.cmd === "add_tracks_to_crate")).toEqual([
+      { cmd: "add_tracks_to_crate", args: { id: 2, tracks: [2] } },
+    ]);
+    // The row goes back to its first line, ready for the next track.
+    expect(choice).toHaveValue("");
+  });
+
+  it("says a track is already in the crate, with nothing to undo", async () => {
+    crateBackend([{ id: 1, name: "Warm up", trackIds: [1] }]);
+    renderScreen();
+    const choice = await addChoice("Synthetic Tune 1");
+    await waitFor(() => expect(choice).toBeEnabled());
+    await userEvent.selectOptions(choice, "Warm up");
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      tx("crates:addTrack.alreadyIn", { crate: "Warm up" }),
+    );
+    expect(screen.queryByRole("button", { name: tx("crates:undo") })).toBeNull();
+  });
+
+  it("takes the track back out when the user undoes the add", async () => {
+    const calls = crateBackend([{ id: 1, name: "Warm up", trackIds: [] }]);
+    renderScreen();
+    const choice = await addChoice("Synthetic Tune 1");
+    await waitFor(() => expect(choice).toBeEnabled());
+    await userEvent.selectOptions(choice, "Warm up");
+    await userEvent.click(await screen.findByRole("button", { name: tx("crates:undo") }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:undone"));
+    expect(calls.map((c) => c.cmd)).toContain("undo_last_operation");
+  });
+
+  it("shows why an add was refused", async () => {
+    mockIPC((cmd) => {
+      if (cmd === "library_tracks") return [track(1)];
+      if (cmd === "list_crates") return [{ id: 1, name: "Warm up", trackCount: 0 }];
+      if (cmd === "add_tracks_to_crate") throw { kind: "crateNotFound", params: {} };
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    renderScreen();
+    const choice = await addChoice("Synthetic Tune 1");
+    await waitFor(() => expect(choice).toBeEnabled());
+    await userEvent.selectOptions(choice, "Warm up");
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:error.notFound"));
   });
 });

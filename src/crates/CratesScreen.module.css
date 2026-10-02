@@ -1,11 +1,4 @@
-/* The stage body centres its content; the list fills it instead. */
-.scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
-/* Strips about a removal, then the list, one above the other. */
+/* The stage body centres its content; the screen fills it instead. */
 .content {
   display: flex;
   flex-direction: column;
@@ -14,74 +7,127 @@
   min-height: 0;
 }
 
-.centered {
-  display: grid;
+.columns {
+  display: flex;
   flex: 1;
-  place-items: center;
+  gap: var(--space-4);
+  min-height: 0;
 }
 
-.table {
+.side {
+  display: flex;
+  flex: 0 0 16rem;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow: auto;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 0;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crate {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
   width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-
-.table th {
   padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
-.table td {
-  padding: var(--space-1) var(--space-2);
-  vertical-align: top;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.row:hover td {
+.crate:hover {
   background: var(--color-surface-hover);
 }
 
-.title,
-.path {
+.crate[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+}
+
+.crate:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.name {
   overflow-wrap: anywhere;
 }
 
-.file .path {
+.count {
+  flex: none;
   color: var(--color-text-muted);
-}
-
-.notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
   font-size: var(--font-size-sm);
 }
 
-.note {
-  color: var(--color-warning);
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
-/* A row's actions sit side by side, whatever they are. */
-.actionsCell {
+.crateName {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-md);
+}
+
+.actions {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-.select {
-  max-width: 12rem;
-  padding: var(--space-1) var(--space-2);
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
+}
+
+.label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.input {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
 }
 
-.select:focus-visible {
+.input:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 1px;
 }
@@ -89,11 +135,6 @@
 .error {
   margin: 0;
   color: var(--color-danger);
-}
-
-.actions {
-  display: flex;
-  gap: var(--space-2);
 }
 
 .button,
@@ -138,7 +179,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  margin: 0 0 var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
@@ -158,14 +199,4 @@
 .confirmDetail {
   margin: 0;
   color: var(--color-text-muted);
-}
-
-/* Read by screen readers, not shown. */
-.hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }

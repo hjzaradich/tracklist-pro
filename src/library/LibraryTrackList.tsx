@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { LibraryTrack } from "../bindings";
 import { describeNote, trackNotes } from "./libraryTrackNotes";
@@ -7,16 +7,17 @@ import styles from "./LibraryTrackList.module.css";
 
 /**
  * The Library list (1aD-6): each Library track's title, artist and linked
- * file, in the order the backend sorted them. A track with no title shows
+ * file, in the order the backend gave them. A track with no title shows
  * its file's name instead. Notes about a track (its file is missing, or sits somewhere fragile) sit
- * under the file's path.
+ * under the file's path. `actions` fills the last cell of a row: the
+ * Library screen puts "Add to crate" and Remove there, a crate Remove only.
  */
 export function LibraryTrackList({
   tracks,
-  onRemove,
+  actions,
 }: {
   tracks: LibraryTrack[];
-  onRemove: (track: LibraryTrack) => void;
+  actions: (track: LibraryTrack) => ReactNode;
 }) {
   const { t } = useTranslation("library");
   return (
@@ -33,7 +34,7 @@ export function LibraryTrackList({
       </thead>
       <tbody>
         {tracks.map((track) => (
-          <TrackRow key={track.id} track={track} onRemove={onRemove} />
+          <TrackRow key={track.id} track={track} actions={actions} />
         ))}
       </tbody>
     </table>
@@ -42,10 +43,10 @@ export function LibraryTrackList({
 
 function TrackRow({
   track,
-  onRemove,
+  actions,
 }: {
   track: LibraryTrack;
-  onRemove: (track: LibraryTrack) => void;
+  actions: (track: LibraryTrack) => ReactNode;
 }) {
   const { t } = useTranslation("library");
   const notesId = useId();
@@ -70,16 +71,7 @@ function TrackRow({
           </span>
         )}
       </td>
-      <td>
-        <button
-          type="button"
-          className={styles.button}
-          aria-label={t("remove.buttonFor", { title: shownTitle(track) })}
-          onClick={() => onRemove(track)}
-        >
-          {t("remove.button")}
-        </button>
-      </td>
+      <td className={styles.actionsCell}>{actions(track)}</td>
     </tr>
   );
 }

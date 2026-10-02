@@ -19,6 +19,7 @@ describe("stage routes", () => {
   beforeEach(() => {
     mockIPC((cmd) => {
       if (cmd === "library_tracks") return [];
+      if (cmd === "list_crates") return [];
       if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
       if (cmd === "music_folders") return [];
       if (cmd === "rekordbox_xml_source") {
