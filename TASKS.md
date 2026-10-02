@@ -164,7 +164,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 3, version parser:** ✅ 1bA-5 Bracket/segment tokenizer → ✅ 1bA-6 Store and rip junk stripper → ✅ 1bA-7 Cut labels + pool conventions → ✅ 1bA-8 Rework labels + bootleg patterns → ✅ 1bA-9 Mashups (`A x B`)
 - **Lane 4:** ✅ 1bA-10 Spectral cutoff analyzer (ported from the spike)
 - **Lane 5:** ✅ 1bA-11 Decoded vs header duration + decode-error detection (built by lane 4 in #43)
-- **Lane 6:** 1bA-12 Multi-step undo (needed by "Accept all"). Must handle: undoing an older crate rename or delete can bring back a name that now equals a newer crate's (a send would then be refused); refuse that undo or rename on restore (found in the 1aG-7 review)
+- **Lane 6:** 1bA-12 Multi-step undo (needed by "Accept all"). Must handle: undoing an older crate rename or delete can bring back a name that now equals a newer crate's (a send would then be refused); refuse that undo or rename on restore (found in the 1aG-7 review). Owner decisions (2026-10-02): Undo steps back one action at a time, newest first, with no limit on steps; a step that can't be undone is refused with its reason; no Redo for now; one Undo button in the top bar that names what it will undo, plus Ctrl+Z, and the Undo offered right after an action stays
 - **Lane 7, matching job** (added 2026-10-02 from the #40 review): 1bA-13 Matching's index within a memory budget, measured at 10k and 100k files → 1bA-14 Matching as a job in the scan chain, after fingerprints; measures only
 - **Lane 8, cleanup** (2026-10-02): 1bA-15 Fingerprint job tests made deterministic; version parser nits from the #42 review; the Rust toolchain pinned
 
