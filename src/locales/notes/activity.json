@@ -74,6 +74,10 @@
     "where": "Top bar, Activity status and list rows, after the fingerprints, while each file is analyzed for its frequency range, length and decoding errors.",
     "approved": "Checking audio quality"
   },
+  "task.match": {
+    "purpose": "Names the job that compares files' fingerprints to measure which files share audio.",
+    "where": "Top bar, Activity status and list rows, last after a scan (after the fingerprints and the quality check), while fingerprints are compared. Nothing else about matching is shown yet."
+  },
   "percent": {
     "purpose": "A task name with its progress.",
     "where": "Top bar, Activity status and list rows, for a running job that reports progress ({{task}} is a task name above).",

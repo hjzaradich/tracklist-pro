@@ -112,8 +112,8 @@
 //! for files that have gone missing (`present = 0`); a reader that only
 //! wants present files filters on that.
 //!
-//! [`Matcher`] is the pass that keeps the table up to date, and a job
-//! handler. It isn't wired into the scan chain yet.
+//! [`Matcher`] is the pass that keeps the table up to date, and the
+//! matching job's handler, last in the scan chain (1bA-14).
 
 pub mod compare;
 pub mod index;
@@ -122,7 +122,8 @@ pub mod store;
 
 pub use compare::{compare, item_seconds, Comparison, Segment};
 pub use index::BlockIndex;
-pub use job::{refresh, Matcher, Summary};
+pub(crate) use job::request;
+pub use job::{matching_job, refresh, Matcher, Summary, PRIORITY};
 pub use store::StoredMatch;
 
 /// The version of the comparison's definition, stored with every result.

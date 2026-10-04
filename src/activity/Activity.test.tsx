@@ -122,6 +122,7 @@ describe("Activity status", () => {
       "read_rekordbox",
       "relink",
       "quality",
+      "match",
     ] as const;
     mockApp();
     render(<Activity />);

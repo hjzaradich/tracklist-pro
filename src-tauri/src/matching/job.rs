@@ -37,7 +37,7 @@ use std::sync::Mutex;
 
 use crate::db::{DbError, Writer};
 use crate::fingerprint::Fingerprint;
-use crate::jobs::{JobContext, JobError, JobHandler};
+use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, NewJob, Priority};
 
 use super::compare::{compare, Comparison};
 use super::index::{BlockIndex, EntryId};
@@ -189,11 +189,79 @@ impl State {
     }
 }
 
-/// Runs matching passes, keeping the index between them. Also the job
-/// handler a later stage registers.
-#[derive(Debug, Default)]
+/// The matching job's priority: below the scan chain's background work,
+/// so a relink or attach queued meanwhile is always taken first (1bA-14).
+pub const PRIORITY: Priority = Priority(Priority::BACKGROUND.0 - 10);
+
+/// How many progress reports go by between looks for a waiting relink or
+/// attach job.
+const LOOK_EVERY: u64 = 64;
+
+/// A matching job: one pass over every fingerprint.
+pub fn matching_job() -> NewJob {
+    NewJob::new(JobKind::Match).priority(PRIORITY)
+}
+
+/// Queues a matching job if any file is due one, unless one is already
+/// queued (a running one is asked to run once more). Called by the scan
+/// chain when the fingerprints are in, or when none were due.
+pub(crate) fn request<E: From<DbError>>(
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+) -> Result<(), E> {
+    if writer.call(|c| store::any_due(c))? {
+        crate::scan::chain::queue_once(writer, matching_job(), enqueue)?;
+    }
+    Ok(())
+}
+
+/// Whether a relink or attach job is waiting. The matching job makes way
+/// for them: they're what the user sees next, matching only measures.
+fn others_waiting(conn: &rusqlite::Connection) -> rusqlite::Result<bool> {
+    conn.prepare_cached(
+        "SELECT EXISTS (SELECT 1 FROM job WHERE status = 'queued' AND kind IN (?1, ?2))",
+    )?
+    .query_row([JobKind::Relink.as_str(), JobKind::Attach.as_str()], |r| {
+        r.get(0)
+    })
+}
+
+/// Why a matching job's pass stopped early.
+enum Stop {
+    /// Cancelled, or it failed.
+    Job(JobError),
+    /// A relink or attach is waiting for the worker.
+    MakeWay,
+}
+
+impl From<DbError> for Stop {
+    fn from(e: DbError) -> Stop {
+        Stop::Job(e.into())
+    }
+}
+
+impl From<JobError> for Stop {
+    fn from(e: JobError) -> Stop {
+        Stop::Job(e)
+    }
+}
+
+/// Test hook: called with each progress report's number, from 1.
+type ReportHook = Box<dyn Fn(u64) + Send + Sync>;
+
+/// Runs matching passes, keeping the index between them. Also the matching
+/// job's handler: one long-lived instance, so the index is kept from one
+/// job to the next.
+#[derive(Default)]
 pub struct Matcher {
     state: Mutex<State>,
+    on_report: Option<ReportHook>,
+}
+
+impl std::fmt::Debug for Matcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Matcher").finish_non_exhaustive()
+    }
 }
 
 /// One result waiting to be written: the two files, the blobs compared,
@@ -232,6 +300,13 @@ fn write(writer: &Writer, batch: Vec<Found>) -> Result<u64, DbError> {
 impl Matcher {
     pub fn new() -> Matcher {
         Matcher::default()
+    }
+
+    /// Calls `hook` with each progress report's number, as a job reports.
+    #[cfg(test)]
+    pub(crate) fn on_report(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
+        self.on_report = Some(Box::new(hook));
+        self
     }
 
     /// One pass. `tick` is called often with how far along it is (0 to 1);
@@ -397,9 +472,33 @@ impl Matcher {
 
 impl JobHandler for Matcher {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
-        let summary = self.pass(job.writer(), &mut |fraction| job.progress(fraction))?;
-        eprintln!("matching job {} done: {summary:?}", job.id());
-        Ok(())
+        let mut reports = 0u64;
+        let passed = self.pass(job.writer(), &mut |fraction| -> Result<(), Stop> {
+            job.progress(fraction)?;
+            reports += 1;
+            if let Some(hook) = &self.on_report {
+                hook(reports);
+            }
+            if reports.is_multiple_of(LOOK_EVERY) && job.writer().call(|c| others_waiting(c))? {
+                return Err(Stop::MakeWay);
+            }
+            Ok(())
+        });
+        match passed {
+            Ok(summary) => {
+                eprintln!("matching job {} done: {summary:?}", job.id());
+                Ok(())
+            }
+            // What was stored stays. The rest is done by one more run, at
+            // this job's priority, so it comes after the waiting job: this
+            // job is still running, so it's asked to run once more, and its
+            // chain wrapper queues that as it ends.
+            Err(Stop::MakeWay) => {
+                crate::scan::chain::queue_once(job.writer(), matching_job(), |j| job.enqueue(j))?;
+                Ok(())
+            }
+            Err(Stop::Job(e)) => Err(e),
+        }
     }
 }
 

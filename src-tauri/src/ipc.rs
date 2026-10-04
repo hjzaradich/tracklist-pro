@@ -199,6 +199,7 @@ mod tests {
                     "relink",
                     "attach",
                     "quality",
+                    "match",
                 ][..],
             ),
             (

@@ -50,11 +50,13 @@ pub enum JobKind {
     /// Measure a file's spectral cutoff, decoded duration and decode
     /// errors (1.6).
     Quality,
+    /// Compare files' fingerprints to find shared audio (1.4).
+    Match,
 }
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 13] = [
+    pub const ALL: [JobKind; 14] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
@@ -68,6 +70,7 @@ impl JobKind {
         JobKind::Relink,
         JobKind::Attach,
         JobKind::Quality,
+        JobKind::Match,
     ];
 
     /// The name stored in the database.
@@ -86,6 +89,7 @@ impl JobKind {
             JobKind::Relink => "relink",
             JobKind::Attach => "attach",
             JobKind::Quality => "quality",
+            JobKind::Match => "match",
         }
     }
 
@@ -234,7 +238,8 @@ mod tests {
     }
 
     #[test]
-    fn the_kinds_are_the_roadmap_ones_plus_reading_files_and_rekordbox_relink_attach_and_quality() {
+    fn the_kinds_are_the_roadmap_ones_plus_reading_files_rekordbox_relink_attach_quality_and_matching(
+    ) {
         let names: Vec<_> = JobKind::ALL.iter().map(|k| k.as_str()).collect();
         assert_eq!(
             names,
@@ -251,7 +256,8 @@ mod tests {
                 "read_rekordbox",
                 "relink",
                 "attach",
-                "quality"
+                "quality",
+                "match"
             ]
         );
     }

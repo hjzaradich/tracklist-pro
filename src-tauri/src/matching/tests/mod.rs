@@ -15,6 +15,7 @@ mod audio;
 mod blocking;
 mod comparing;
 mod corpus;
+mod job;
 mod passes;
 mod reference;
 mod scale;

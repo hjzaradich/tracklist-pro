@@ -205,3 +205,15 @@ pub(crate) fn fingerprint_of(conn: &Connection, id: i64) -> rusqlite::Result<Opt
         .optional()?;
     Ok(blob.flatten())
 }
+
+/// Whether a matching pass has anything to do.
+// PROVISIONAL (1bA-14): waiting for the foreman's call on a ledger
+// (migration 0019) or a stamp in `setting`. Until then: any present file
+// with a fingerprint.
+pub(crate) fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM file WHERE present = 1 AND fingerprint IS NOT NULL)",
+        [],
+        |r| r.get(0),
+    )
+}

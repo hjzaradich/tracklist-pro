@@ -16,12 +16,12 @@ use super::reference::PlainIndex;
 use super::synthetic::{fingerprint, reencoded, track};
 
 /// A migrated database in a temp dir with one music folder.
-struct Db {
-    writer: Writer,
+pub(super) struct Db {
+    pub(super) writer: Writer,
     _dir: tempfile::TempDir,
 }
 
-fn db() -> Db {
+pub(super) fn db() -> Db {
     let dir = tempfile::tempdir().unwrap();
     let writer = Writer::open(&crate::write_guard::test_path(
         dir.path(),
@@ -56,7 +56,7 @@ impl Db {
             .unwrap()
     }
 
-    fn add_items(&self, name: &str, items: Vec<u32>) -> i64 {
+    pub(super) fn add_items(&self, name: &str, items: Vec<u32>) -> i64 {
         self.add(name, &fingerprint(items))
     }
 
@@ -77,7 +77,7 @@ impl Db {
         self.writer.call(|c| store::all(c)).unwrap()
     }
 
-    fn pairs(&self) -> Vec<(i64, i64)> {
+    pub(super) fn pairs(&self) -> Vec<(i64, i64)> {
         self.all().iter().map(|m| (m.file_a, m.file_b)).collect()
     }
 
