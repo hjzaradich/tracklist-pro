@@ -206,14 +206,56 @@ pub(crate) fn fingerprint_of(conn: &Connection, id: i64) -> rusqlite::Result<Opt
     Ok(blob.flatten())
 }
 
-/// Whether a matching pass has anything to do.
-// PROVISIONAL (1bA-14): waiting for the foreman's call on a ledger
-// (migration 0019) or a stamp in `setting`. Until then: any present file
-// with a fingerprint.
-pub(crate) fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
+/// The `setting` row saying what the last finished pass covered.
+const COVERED: &str = "matching_covered";
+
+/// What a pass would work on, summed up: the comparison's [`VERSION`], how
+/// many present files have a fingerprint, the sum of their ids and of
+/// their fingerprints' lengths, and when the fingerprint stage last
+/// finished a file. `None` when no file has a fingerprint.
+///
+/// A new, changed, lost or returned fingerprint changes it. A tag rewrite
+/// that the fingerprint stage looks at again changes it too (the stage
+/// records the file afresh), which costs one pass that finds nothing new.
+/// It says that something changed, not what.
+pub(crate) fn stamp(conn: &Connection) -> rusqlite::Result<Option<String>> {
     conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM file WHERE present = 1 AND fingerprint IS NOT NULL)",
-        [],
+        "SELECT CASE WHEN COUNT(*) = 0 THEN NULL ELSE json_object(
+                    'version', ?1,
+                    'files', COUNT(*),
+                    'ids', SUM(f.id),
+                    'bytes', SUM(length(f.fingerprint)),
+                    'newest', (SELECT MAX(s.done_at) FROM file_stage s
+                               WHERE s.stage = 'fingerprint' AND s.status = 'done'))
+                END
+         FROM file f WHERE f.present = 1 AND f.fingerprint IS NOT NULL",
+        [VERSION],
         |r| r.get(0),
     )
+}
+
+/// Records that a finished pass covered `stamp`.
+pub(crate) fn set_covered(conn: &Connection, stamp: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO setting (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        (COVERED, stamp),
+    )?;
+    Ok(())
+}
+
+/// Whether a matching pass has anything to do: some file has a fingerprint,
+/// and the files' [`stamp`] isn't the one the last finished pass covered.
+pub(crate) fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
+    let Some(now) = stamp(conn)? else {
+        return Ok(false);
+    };
+    let covered: Option<String> = conn
+        .query_row("SELECT value FROM setting WHERE key = ?1", [COVERED], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    Ok(covered.as_deref() != Some(now.as_str()))
 }

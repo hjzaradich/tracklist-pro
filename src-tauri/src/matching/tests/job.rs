@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::db::{DbError, Writer};
 use crate::jobs::{self, JobContext, JobKind, JobQueue, JobRecord, JobStatus};
-use crate::matching::{matching_job, refresh, Matcher, PRIORITY};
+use crate::matching::{matching_job, refresh, store, Matcher, PRIORITY};
 use crate::scan::chain::after_matching;
 
 use super::passes::{db, Db};
@@ -208,4 +208,57 @@ fn a_matching_job_cut_short_by_a_crash_is_queued_again_and_finishes() {
     queue.shutdown();
     assert_eq!(kinds(&all), [(Some(JobKind::Match), JobStatus::Done)]);
     assert_eq!(db.pairs(), expected);
+}
+
+fn due(db: &Db) -> bool {
+    db.writer.call(|c| store::any_due(c)).unwrap()
+}
+
+#[test]
+fn matching_is_due_until_a_pass_finishes_and_again_when_a_fingerprint_arrives_or_a_file_comes_or_goes(
+) {
+    let db = db();
+    assert!(!due(&db), "no fingerprints: nothing to do");
+    let a = track(1, 400);
+    db.add_items("a.flac", a.clone());
+    assert!(due(&db));
+
+    // A pass that stops early has covered nothing.
+    let stopped = Matcher::new().pass(&db.writer, &mut |_| Err::<(), _>(DbError::WriterGone));
+    assert!(stopped.is_err());
+    assert!(due(&db));
+    refresh(&db.writer).unwrap();
+    assert!(!due(&db));
+
+    // A tag rewrite or a new modified time isn't new audio (ROADMAP 5.1).
+    db.sql(
+        "UPDATE file SET size = size + 4096, mtime = mtime + 5000000",
+        (),
+    );
+    assert!(!due(&db));
+
+    // A new file with a fingerprint.
+    let copy = db.add_items("a.mp3", reencoded(&a, 1, 7));
+    assert!(due(&db));
+    refresh(&db.writer).unwrap();
+    assert!(!due(&db));
+    assert_eq!(db.pairs(), [(1, copy)]);
+
+    // A file that goes missing, and one that comes back.
+    db.sql("UPDATE file SET present = 0 WHERE id = 1", ());
+    assert!(due(&db));
+    refresh(&db.writer).unwrap();
+    assert!(!due(&db));
+    db.sql("UPDATE file SET present = 1 WHERE id = 1", ());
+    assert!(due(&db));
+
+    // The fingerprint stage did a file again (its audio changed).
+    refresh(&db.writer).unwrap();
+    assert!(!due(&db));
+    db.sql(
+        "INSERT INTO file_stage (file_id, stage, version, status, done_at)
+         VALUES (1, 'fingerprint', 1, 'done', '2999-01-01T00:00:00.000Z')",
+        (),
+    );
+    assert!(due(&db));
 }

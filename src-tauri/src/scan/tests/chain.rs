@@ -23,7 +23,8 @@ use crate::jobs::{
 use crate::read::{read_job, Reader};
 use crate::relink::Relinker;
 use crate::scan::chain::{
-    after_fingerprint, after_group, after_hash, after_quality, after_read, after_walk, queue_once,
+    after_fingerprint, after_group, after_hash, after_matching, after_quality, after_read,
+    after_walk, queue_once,
 };
 use crate::scan::folders::MusicFolderId;
 use crate::scan::walk::{scan_job, Walker};
@@ -187,6 +188,10 @@ pub(super) fn chained_queue_with(
             after_quality(
                 crate::quality::Qualifier::new(move || v6.clone(), FirstUp::default()).threads(1),
             ),
+        )
+        .handler(
+            JobKind::Match,
+            after_matching(crate::matching::Matcher::new()),
         );
     more(builder).start().unwrap()
 }
@@ -954,5 +959,186 @@ fn a_walk_that_stops_early_asks_for_no_relink() {
         relinks(&writer).is_empty(),
         "a failed read asks for nothing"
     );
+    queue.shutdown();
+}
+
+// Audio long enough to fingerprint, for the matching tests below: the
+// fingerprint tests' generator, taken as it is (the files above are too
+// short to get a fingerprint, so matching never has anything to do there).
+#[path = "../../fingerprint/tests/audio.rs"]
+#[allow(dead_code, clippy::duplicate_mod)]
+mod song;
+
+/// Song `seed` as a 20-second mono WAV at `rate`.
+fn song_wav(seed: u64, rate: u32) -> Vec<u8> {
+    song::wav(&song::pcm(seed, 20.0, rate, 1))
+}
+
+/// A music folder holding one song twice, at two sample rates (the same
+/// audio, other bytes), and another song.
+fn two_copies_and_another(music: &Path) {
+    put(music, "a.wav", &song_wav(1, 11_025));
+    put(music, "a (hi).wav", &song_wav(1, 22_050));
+    put(music, "b.wav", &song_wav(2, 11_025));
+}
+
+fn stored_matches(writer: &Writer) -> i64 {
+    writer
+        .call(|c| c.query_row("SELECT COUNT(*) FROM fingerprint_match", [], |r| r.get(0)))
+        .unwrap()
+}
+
+#[test]
+fn matching_runs_last_once_the_fingerprints_are_in_below_every_other_chained_job() {
+    let (_dir, volume, music) = drive();
+    two_copies_and_another(&music);
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(
+        kinds(&writer),
+        [
+            "scan",
+            "read",
+            "hash",
+            "group",
+            "fingerprint",
+            "quality",
+            "match"
+        ]
+    );
+    let all = jobs(&writer);
+    let matching = all.last().unwrap();
+    assert_eq!(
+        (matching.2, matching.3.as_str()),
+        (crate::matching::PRIORITY.0, "done")
+    );
+    assert!(matching.2 < Priority::BACKGROUND.0);
+    // The relink the fingerprints asked for was queued before it.
+    assert_eq!(relinks(&writer).last().unwrap().0, "done");
+    assert_eq!(stored_matches(&writer), 1, "the two copies were compared");
+    // It only measures: nothing merged or linked on its account.
+    let count = |sql: &'static str| -> i64 {
+        writer
+            .call(move |c| c.query_row(sql, [], |r| r.get(0)))
+            .unwrap()
+    };
+    assert_eq!(count("SELECT COUNT(*) FROM recording"), 3);
+    assert_eq!(count("SELECT COUNT(*) FROM version_link"), 0);
+
+    // Nothing new: the next walk queues no matching job.
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(
+        kinds(&writer),
+        [
+            "scan",
+            "read",
+            "hash",
+            "group",
+            "fingerprint",
+            "quality",
+            "match",
+            "scan"
+        ]
+    );
+    queue.shutdown();
+}
+
+#[test]
+fn matching_runs_when_no_fingerprints_are_due_but_the_files_have_not_been_matched() {
+    let (_dir, volume, music) = drive();
+    two_copies_and_another(&music);
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    let count = |kind: &str| kinds(&writer).iter().filter(|k| *k == kind).count();
+    assert_eq!((count("fingerprint"), count("match")), (1, 1));
+
+    // As after an update that adds matching, or a pass that never
+    // finished: the files are fingerprinted already, and no pass has
+    // covered them.
+    writer
+        .call(|c| {
+            c.execute("DELETE FROM fingerprint_match", [])?;
+            c.execute("DELETE FROM setting WHERE key = 'matching_covered'", [])
+        })
+        .unwrap();
+    queue.enqueue(crate::hash::hash_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count("fingerprint"), 1, "nothing was due a fingerprint");
+    assert_eq!(count("match"), 2, "matching didn't wait for one");
+    assert_eq!(stored_matches(&writer), 1);
+    queue.shutdown();
+}
+
+#[test]
+fn a_matching_job_that_fails_holds_nothing_up_and_the_next_scan_runs_matching_again() {
+    let (_dir, volume, music) = drive();
+    two_copies_and_another(&music);
+    let (_db, writer, _reads) = db();
+    let folder = add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    // The first matching job fails; later ones are the real thing.
+    let failed_once = std::sync::atomic::AtomicBool::new(false);
+    let matcher = crate::matching::Matcher::new();
+    let queue = chained_queue_with(&writer, &volume, &looked, 2, |b| {
+        b.handler(
+            JobKind::Match,
+            after_matching(move |job: &JobContext| {
+                if !failed_once.swap(true, Ordering::SeqCst) {
+                    return Err(JobError::failed("a made-up failure"));
+                }
+                matcher.run(job)
+            }),
+        )
+    });
+
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    let statuses = |writer: &Writer| -> Vec<(String, String)> {
+        jobs(writer).into_iter().map(|j| (j.0, j.3)).collect()
+    };
+    let done = |kind: &str| (kind.to_string(), "done".to_string());
+    assert_eq!(
+        statuses(&writer),
+        [
+            done("scan"),
+            done("read"),
+            done("hash"),
+            done("group"),
+            done("fingerprint"),
+            done("quality"),
+            ("match".into(), "failed".into()),
+        ]
+    );
+    assert!(relinks(&writer).iter().all(|r| r.0 == "done"));
+    assert_eq!(stored_matches(&writer), 0);
+
+    // A later scan runs its whole chain, and matching with it: the failed
+    // job left the files unmatched, so they're still due.
+    put(&music, "c.wav", &song_wav(3, 11_025));
+    queue.enqueue(scan_job(Some(vec![folder]))).unwrap();
+    wait_idle(&queue);
+    assert_eq!(
+        statuses(&writer)[7..],
+        [
+            done("scan"),
+            done("read"),
+            done("hash"),
+            done("group"),
+            done("fingerprint"),
+            done("quality"),
+            done("match"),
+        ]
+    );
+    assert_eq!(stored_matches(&writer), 1);
     queue.shutdown();
 }

@@ -327,6 +327,9 @@ impl Matcher {
         let state = &mut *guard;
         let mut summary = Summary::default();
         writer.call(|c| store::drop_other_versions(c))?;
+        // What this pass sets out to cover, taken before it reads anything:
+        // a fingerprint that arrives meanwhile leaves matching due.
+        let covering = writer.call(|c| store::stamp(c))?;
 
         // 1. The index catches up with the file table.
         let mut seen: HashSet<i64> = HashSet::new();
@@ -465,6 +468,10 @@ impl Matcher {
             state.due.remove(&entry);
         }
         state.results_of_file = results_per_file(&compared);
+        // Only a pass that left nothing undone has covered them.
+        if let (Some(stamp), true) = (covering, state.due.is_empty()) {
+            writer.call(move |c| store::set_covered(c, &stamp))?;
+        }
         tick(1.0)?;
         Ok(summary)
     }

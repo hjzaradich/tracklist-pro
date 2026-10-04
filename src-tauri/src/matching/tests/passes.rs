@@ -67,7 +67,7 @@ impl Db {
         self.sql("UPDATE file SET fingerprint = ?1 WHERE id = ?2", (blob, id));
     }
 
-    fn sql<P: rusqlite::Params + Send + 'static>(&self, sql: &'static str, params: P) {
+    pub(super) fn sql<P: rusqlite::Params + Send + 'static>(&self, sql: &'static str, params: P) {
         self.writer
             .call(move |c| c.execute(sql, params).map(|_| ()))
             .unwrap();
