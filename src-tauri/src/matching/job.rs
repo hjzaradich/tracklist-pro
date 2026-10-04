@@ -27,9 +27,24 @@
 //! file's row (and its results) when its fingerprint changes, even if it
 //! changes back before the next pass, and when a missing file comes back.
 //!
+//! Only fingerprints that are due are looked up. One known gap follows: a
+//! pair that becomes a candidate only because a shared key fell back under
+//! the index's holder limit (files were removed) isn't compared until one
+//! of the two is due again.
+//!
 //! A big index isn't kept: above [`KEEP_INDEX_UP_TO`] it's dropped when a
 //! pass finishes, and the next pass that has something to do builds it
-//! again.
+//! again. (A pass that made way keeps it, to go on from; if the run queued
+//! after it is cancelled, it's held until the next pass.)
+//!
+//! **Making way.** A pass can be asked, at every point where it can stop
+//! without losing work, whether to stop ([`Matcher::pass_making_way`]):
+//! before each page of fingerprints it reads into the index, and before
+//! each fingerprint it works on. It asks only once the run has done
+//! something that stays (read a page of new fingerprints into the index,
+//! or put a fingerprint through with its results and its ledger row), so
+//! every run gets somewhere however often it's asked to stop, and a
+//! library of any size is finished in a bounded number of runs.
 //!
 //! A pair is always compared with the lower file id as A, so what's stored
 //! doesn't depend on which of the two files arrived last (the matcher
@@ -41,7 +56,7 @@
 //! fingerprints are stored for it alone.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::db::{DbError, Writer};
 use crate::fingerprint::Fingerprint;
@@ -176,13 +191,10 @@ impl State {
     }
 }
 
-/// The matching job's priority: below the scan chain's background work,
-/// so a relink or attach queued meanwhile is always taken first (1bA-14).
+/// The matching job's priority: below the scan chain's background work
+/// and everything the user asks for, so any other job queued meanwhile is
+/// taken first (1bA-14).
 pub const PRIORITY: Priority = Priority(Priority::BACKGROUND.0 - 10);
-
-/// How many progress reports go by between looks for a waiting relink or
-/// attach job.
-const LOOK_EVERY: u64 = 64;
 
 /// The index is kept between passes while it holds no more than this
 /// (250 MiB: about 45,000 six-minute tracks at their fullest). A bigger
@@ -209,22 +221,21 @@ pub(crate) fn request<E: From<DbError>>(
     Ok(())
 }
 
-/// Whether a relink or attach job is waiting. The matching job makes way
-/// for them: they're what the user sees next, matching only measures.
-fn others_waiting(conn: &rusqlite::Connection) -> rusqlite::Result<bool> {
+/// Whether a job of a higher priority than matching's is waiting: a relink
+/// or attach, a scan the user asked for, a send, any other stage of the
+/// chain. The matching job makes way for all of them: it only measures.
+fn higher_priority_waiting(conn: &rusqlite::Connection) -> rusqlite::Result<bool> {
     conn.prepare_cached(
-        "SELECT EXISTS (SELECT 1 FROM job WHERE status = 'queued' AND kind IN (?1, ?2))",
+        "SELECT EXISTS (SELECT 1 FROM job WHERE status = 'queued' AND priority > ?1)",
     )?
-    .query_row([JobKind::Relink.as_str(), JobKind::Attach.as_str()], |r| {
-        r.get(0)
-    })
+    .query_row([PRIORITY.0], |r| r.get(0))
 }
 
 /// Why a matching job's pass stopped early.
 enum Stop {
     /// Cancelled, or it failed.
     Job(JobError),
-    /// A relink or attach is waiting for the worker.
+    /// A job of a higher priority is waiting for the worker.
     MakeWay,
 }
 
@@ -250,6 +261,8 @@ pub struct Matcher {
     state: Mutex<State>,
     /// See [`KEEP_INDEX_UP_TO`].
     keep_index_up_to: usize,
+    /// How many fingerprints are read per query.
+    page: usize,
     on_report: Option<ReportHook>,
 }
 
@@ -258,6 +271,7 @@ impl Default for Matcher {
         Matcher {
             state: Mutex::default(),
             keep_index_up_to: KEEP_INDEX_UP_TO,
+            page: PAGE,
             on_report: None,
         }
     }
@@ -335,6 +349,13 @@ impl Matcher {
         self
     }
 
+    /// Reads `page` fingerprints per query.
+    #[cfg(test)]
+    pub(crate) fn page(mut self, page: usize) -> Self {
+        self.page = page.max(1);
+        self
+    }
+
     /// Calls `hook` with each progress report's number, as a job reports.
     #[cfg(test)]
     pub(crate) fn on_report(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
@@ -342,10 +363,23 @@ impl Matcher {
         self
     }
 
+    /// The matcher's state. A pass that panicked may have left the index
+    /// half updated: then it starts over from the file table, which is
+    /// always enough, and the lock is as good as new (so the index built
+    /// next is kept like any other).
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|poisoned| {
+            let mut guard = poisoned.into_inner();
+            *guard = State::default();
+            self.state.clear_poison();
+            guard
+        })
+    }
+
     /// Drops the index if it's over what's kept between passes. A pass
     /// that finishes does this itself; this is for one that failed.
     fn drop_a_big_index(&self) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state();
         if state.index.held_bytes() > self.keep_index_up_to {
             *state = State::default();
         }
@@ -359,15 +393,29 @@ impl Matcher {
         writer: &Writer,
         tick: &mut dyn FnMut(f64) -> Result<(), E>,
     ) -> Result<Summary, E> {
-        // A pass that panicked may have left the index half updated: start
-        // over from the file table, which is always enough.
-        let mut guard = self.state.lock().unwrap_or_else(|poisoned| {
-            let mut guard = poisoned.into_inner();
-            *guard = State::default();
-            guard
-        });
+        self.pass_making_way(writer, tick, &mut || Ok(()))
+    }
+
+    /// [`Matcher::pass`], which also asks `stop_here` at each point where
+    /// it can stop without losing work: before each page of fingerprints
+    /// it reads, and before each fingerprint it works on. An error from
+    /// `stop_here` stops the pass there.
+    ///
+    /// It's only asked once this run has done something that stays: read a
+    /// page of new fingerprints into the index, or put a fingerprint
+    /// through with its results and its ledger row. So a run always gets
+    /// somewhere, however often it's asked to stop.
+    pub fn pass_making_way<E: From<DbError>>(
+        &self,
+        writer: &Writer,
+        tick: &mut dyn FnMut(f64) -> Result<(), E>,
+        stop_here: &mut dyn FnMut() -> Result<(), E>,
+    ) -> Result<Summary, E> {
+        let mut guard = self.state();
         let state = &mut *guard;
         let mut summary = Summary::default();
+        // Whether this run has done something that stays.
+        let mut got_somewhere = false;
         writer.call(|c| store::drop_other_versions(c))?;
 
         // 1. The index catches up with the file table.
@@ -375,9 +423,13 @@ impl Matcher {
         // Files whose fingerprint this build can't read: nothing to compare.
         let mut unreadable: Vec<(i64, Vec<u8>)> = Vec::new();
         let mut after = 0;
+        let per_page = self.page;
         loop {
             tick(0.0)?;
-            let page = writer.call(move |c| store::fingerprints_after(c, after, PAGE))?;
+            if got_somewhere {
+                stop_here()?;
+            }
+            let page = writer.call(move |c| store::fingerprints_after(c, after, per_page))?;
             let Some(last) = page.last() else {
                 break;
             };
@@ -387,6 +439,8 @@ impl Matcher {
                     Some(changed) => {
                         seen.insert(file);
                         summary.changed += u64::from(changed);
+                        // What the index has read is kept if the run stops.
+                        got_somewhere |= changed;
                     }
                     // Unreadable now: whatever it held before is gone.
                     None => {
@@ -442,6 +496,10 @@ impl Matcher {
         let mut met: HashSet<(EntryId, EntryId)> = HashSet::new();
         for (done, entry) in due.into_iter().enumerate() {
             tick(done as f64 / total)?;
+            // Between fingerprints nothing is pending: a stop loses nothing.
+            if got_somewhere {
+                stop_here()?;
+            }
             let Some(class) = state.class_of_entry(entry) else {
                 continue;
             };
@@ -526,6 +584,7 @@ impl Matcher {
                 stands: first,
             };
             summary.stored += write(writer, std::mem::take(&mut batch), Some(through))?;
+            got_somewhere = true;
         }
         if state.index.held_bytes() > self.keep_index_up_to {
             *state = State::default();
@@ -537,18 +596,29 @@ impl Matcher {
 
 impl JobHandler for Matcher {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
+        // Nothing due (a job queued again after a crash that had in fact
+        // finished, say): don't build an index to find that out.
+        if !job.writer().call(|c| store::any_due(c))? {
+            return job.progress(1.0);
+        }
         let mut reports = 0u64;
-        let passed = self.pass(job.writer(), &mut |fraction| -> Result<(), Stop> {
-            job.progress(fraction)?;
-            reports += 1;
-            if let Some(hook) = &self.on_report {
-                hook(reports);
-            }
-            if reports.is_multiple_of(LOOK_EVERY) && job.writer().call(|c| others_waiting(c))? {
-                return Err(Stop::MakeWay);
-            }
-            Ok(())
-        });
+        let passed = self.pass_making_way(
+            job.writer(),
+            &mut |fraction| -> Result<(), Stop> {
+                job.progress(fraction)?;
+                reports += 1;
+                if let Some(hook) = &self.on_report {
+                    hook(reports);
+                }
+                Ok(())
+            },
+            &mut || -> Result<(), Stop> {
+                if job.writer().call(|c| higher_priority_waiting(c))? {
+                    return Err(Stop::MakeWay);
+                }
+                Ok(())
+            },
+        );
         match passed {
             Ok(summary) => {
                 eprintln!("matching job {} done: {summary:?}", job.id());

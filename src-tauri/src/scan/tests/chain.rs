@@ -1142,3 +1142,213 @@ fn a_matching_job_that_fails_holds_nothing_up_and_the_next_scan_runs_matching_ag
     assert_eq!(stored_matches(&writer), 1);
     queue.shutdown();
 }
+
+/// A chain run to its end over [`two_copies_and_another`]: everything is
+/// read, hashed, fingerprinted, measured and matched.
+fn matched_library() -> (
+    tempfile::TempDir,
+    TempVolume,
+    std::path::PathBuf,
+    tempfile::TempDir,
+    Writer,
+    MusicFolderId,
+) {
+    let (dir, volume, music) = drive();
+    two_copies_and_another(&music);
+    let (db, writer, _reads) = db();
+    let folder = add_music(&writer, &volume, &music);
+    (dir, volume, music, db, writer, folder)
+}
+
+fn count_of(writer: &Writer, kind: &str) -> usize {
+    kinds(writer).iter().filter(|k| *k == kind).count()
+}
+
+fn matching_due(writer: &Writer) -> bool {
+    writer.call(|c| crate::matching::any_due(c)).unwrap()
+}
+
+#[test]
+fn a_file_that_comes_back_unchanged_is_matched_by_the_scan_that_finds_it_though_nothing_is_read() {
+    let (_dir, volume, music, _db, writer, _folder) = matched_library();
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(
+        (count_of(&writer, "match"), stored_matches(&writer)),
+        (1, 1)
+    );
+
+    // The copy is moved out of the music folder, and a scan finds it gone.
+    let away = music.parent().unwrap().join("a (hi).wav");
+    fs::rename(at(&music, "a (hi).wav"), &away).unwrap();
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count_of(&writer, "match"), 1, "a missing file isn't due");
+
+    // It's moved back, unchanged: nothing to read, hash or fingerprint,
+    // but it has to be looked at again (files may have arrived meanwhile).
+    fs::rename(&away, at(&music, "a (hi).wav")).unwrap();
+    assert_eq!(count_of(&writer, "read"), 1);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count_of(&writer, "read"), 1, "the file was unchanged");
+    assert_eq!(count_of(&writer, "match"), 2);
+    assert_eq!(kinds(&writer).last().unwrap(), "match");
+    assert!(!matching_due(&writer));
+    assert_eq!(
+        stored_matches(&writer),
+        1,
+        "its result was kept, not made again"
+    );
+    queue.shutdown();
+}
+
+#[test]
+fn a_matching_job_that_failed_or_was_cancelled_is_made_up_for_by_the_next_scan_with_nothing_new() {
+    for (ending, status) in [
+        (JobError::failed("a made-up failure"), "failed"),
+        (JobError::Cancelled, "cancelled"),
+    ] {
+        let (_dir, volume, _music, _db, writer, _folder) = matched_library();
+        let looked = LookedAt::default();
+        // The first matching job ends early; later ones are the real thing.
+        let ending = Mutex::new(Some(ending));
+        let matcher = crate::matching::Matcher::new();
+        let queue = chained_queue_with(&writer, &volume, &looked, 2, |b| {
+            b.handler(
+                JobKind::Match,
+                after_matching(
+                    move |job: &JobContext| match ending.lock().unwrap().take() {
+                        Some(ending) => Err(ending),
+                        None => matcher.run(job),
+                    },
+                ),
+            )
+        });
+        queue.enqueue(scan_job(None)).unwrap();
+        wait_idle(&queue);
+        let last = jobs(&writer).pop().unwrap();
+        assert_eq!((last.0.as_str(), last.3.as_str()), ("match", status));
+        assert_eq!(stored_matches(&writer), 0);
+
+        // Nothing new on disk: the walk is the whole chain, and still asks.
+        queue.enqueue(scan_job(None)).unwrap();
+        wait_idle(&queue);
+        assert_eq!(count_of(&writer, "read"), 1, "{status}");
+        let last = jobs(&writer).pop().unwrap();
+        assert_eq!(
+            (last.0.as_str(), last.3.as_str()),
+            ("match", "done"),
+            "{status}"
+        );
+        assert_eq!(stored_matches(&writer), 1, "{status}");
+        assert!(!matching_due(&writer));
+        queue.shutdown();
+    }
+}
+
+#[test]
+fn a_library_fingerprinted_before_matching_existed_is_matched_by_the_next_scan_with_nothing_new() {
+    let (_dir, volume, _music, _db, writer, _folder) = matched_library();
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    // As a database from before this release: fingerprints, and no file
+    // has been through matching.
+    writer
+        .call(|c| {
+            c.execute("DELETE FROM fingerprint_match", [])?;
+            c.execute("DELETE FROM fingerprint_matched", [])
+        })
+        .unwrap();
+    assert!(matching_due(&writer));
+
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(
+        (count_of(&writer, "read"), count_of(&writer, "fingerprint")),
+        (1, 1),
+        "nothing was read or fingerprinted again"
+    );
+    assert_eq!(count_of(&writer, "match"), 2);
+    assert_eq!(stored_matches(&writer), 1);
+    assert!(!matching_due(&writer));
+    queue.shutdown();
+}
+
+#[test]
+fn results_of_an_older_version_of_the_comparison_are_made_again_by_the_next_scan_with_nothing_new()
+{
+    let (_dir, volume, _music, _db, writer, _folder) = matched_library();
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    // As after an update that changed the comparison: everything stored
+    // is of another version than this build's.
+    writer
+        .call(|c| {
+            c.execute("UPDATE fingerprint_match SET version = version + 1", [])?;
+            c.execute("UPDATE fingerprint_matched SET version = version + 1", [])
+        })
+        .unwrap();
+    assert!(matching_due(&writer));
+
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count_of(&writer, "match"), 2);
+    let current: i64 = writer
+        .call(|c| {
+            c.query_row(
+                "SELECT COUNT(*) FROM fingerprint_match WHERE version = ?1",
+                [crate::matching::VERSION],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!((current, stored_matches(&writer)), (1, 1));
+    assert!(!matching_due(&writer));
+    queue.shutdown();
+}
+
+#[test]
+fn quality_owed_to_files_already_hashed_is_measured_by_the_next_scan_with_nothing_new() {
+    let (_dir, volume, _music, _db, writer, folder) = matched_library();
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    let measured = |writer: &Writer| -> i64 {
+        writer
+            .call(|c| c.query_row("SELECT COUNT(*) FROM file_quality", [], |r| r.get(0)))
+            .unwrap()
+    };
+    assert_eq!((count_of(&writer, "quality"), measured(&writer)), (1, 3));
+
+    // As after a quality job that failed, or an update that adds a
+    // measurement: hashed and fingerprinted files with no measurement.
+    writer
+        .call(|c| c.execute("DELETE FROM file_quality", []))
+        .unwrap();
+
+    // A watcher's rescan doesn't ask: quality stays owed while a file
+    // can't be reached, and every burst of changes would queue a job.
+    let mut rescan = scan_job(Some(vec![folder]));
+    if let Some(serde_json::Value::Object(target)) = &mut rescan.target {
+        target.insert(crate::scan::chain::RESCAN_KEY.into(), true.into());
+    }
+    queue.enqueue(rescan).unwrap();
+    wait_idle(&queue);
+    assert_eq!((count_of(&writer, "quality"), measured(&writer)), (1, 0));
+
+    // Any other scan does, though it has nothing to read.
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count_of(&writer, "read"), 1);
+    assert_eq!((count_of(&writer, "quality"), measured(&writer)), (2, 3));
+    assert_eq!(count_of(&writer, "match"), 1, "matching was owed nothing");
+    queue.shutdown();
+}

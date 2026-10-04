@@ -43,10 +43,14 @@
 //!   a moved or re-encoded file by.
 //! - **Matching last:** once the fingerprints are in (or none were due),
 //!   the fingerprints are compared ([`crate::matching`], 1bA-14), after the
-//!   relink and quality requests and below every other chained job's
-//!   priority. It never holds a relink or attach up: a running pass makes
-//!   way when one is waiting, and picks up where it stopped. Nothing
+//!   relink and quality requests and below every other job's priority. It
+//!   never holds another job up: a running pass makes way when a job of a
+//!   higher priority is waiting, and picks up where it stopped. Nothing
 //!   follows it, so a matching job that fails stops nothing else.
+//! - **Asked again where the chain ends early:** a walk with nothing to
+//!   read ends the chain there, and still asks whether quality or matching
+//!   is owed anything (see `queue_next`), so neither waits for a file to
+//!   change.
 //!
 //! The chain wraps each stage's handler ([`after_walk`], [`after_read`],
 //! [`after_hash`], [`after_fingerprint`]) where the handlers are
@@ -228,10 +232,28 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
                 rescan,
             )? {
                 queue_once(writer, target(crate::read::read_job(ids)), enqueue)?;
-            } else if writer.call(|c| crate::grouping::any_ungrouped(c))? {
-                // Nothing to read, but files the walk found have no track
-                // yet (online-only ones aren't read or hashed): group them.
-                queue_once(writer, crate::grouping::group_job(), enqueue)?;
+            } else {
+                if writer.call(|c| crate::grouping::any_ungrouped(c))? {
+                    // Nothing to read, but files the walk found have no
+                    // track yet (online-only ones aren't read or hashed):
+                    // group them.
+                    queue_once(writer, crate::grouping::group_job(), enqueue)?;
+                }
+                // The chain ends here, at the walk. Work can still be owed
+                // that no stage will ask for: a file that came back
+                // unchanged, a job that failed or was cancelled, a library
+                // fingerprinted before a measurement existed or under an
+                // older version of it. So ask (one cheap query each).
+                //
+                // Matching's answer is exact, so it's asked every time.
+                // Quality's stays yes while a file can't be reached (an
+                // unplugged drive, a locked file), so a watcher's rescan
+                // doesn't ask, or every burst of changes would queue a job
+                // with nothing it can do.
+                if !rescan {
+                    crate::quality::request(writer, enqueue)?;
+                }
+                crate::matching::request(writer, enqueue)?;
             }
         }
         Next::Hash => {
