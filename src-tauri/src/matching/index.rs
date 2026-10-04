@@ -115,6 +115,18 @@ fn part_of(mixed: u32) -> usize {
     (mixed >> (32 - SEGMENT_BITS - PART_BITS)) as usize & (PARTS - 1)
 }
 
+/// Where the index keeps `key`: which run, and which slice of that run's
+/// key range. For tests that place keys at the edges.
+#[cfg(test)]
+pub(super) fn place_of(key: u32) -> (usize, usize) {
+    (segment_of(mix(key)), part_of(mix(key)))
+}
+
+/// How many runs there are, and how many slices each run's key range is
+/// cut into.
+#[cfg(test)]
+pub(super) const PLACES: (usize, usize) = (SEGMENTS, PARTS);
+
 /// The postings of the key with mixed value `mixed` among `sorted` ones.
 fn of_key(sorted: &[Posting], mixed: u32) -> &[Posting] {
     let from = sorted.partition_point(|&p| mixed_of(p) < mixed);

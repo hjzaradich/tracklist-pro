@@ -6,7 +6,8 @@
 use std::collections::BTreeSet;
 
 use crate::matching::index::{
-    is_key, keys, BlockIndex, EntryId, MAX_ENTRIES_PER_KEY, MIN_SHARED_KEYS, SAMPLE,
+    is_key, keys, place_of, BlockIndex, EntryId, MAX_ENTRIES_PER_KEY, MIN_SHARED_KEYS, PLACES,
+    SAMPLE,
 };
 
 use super::corpus::corpus;
@@ -224,4 +225,97 @@ fn a_fingerprint_that_changes_is_replaced_not_added_to() {
     assert_eq!(index.len(), 2);
     let expected: BTreeSet<u32> = keys(&a).into_iter().chain(keys(&b)).collect();
     assert_eq!(index.postings(), expected.len());
+}
+
+/// The first two keys the index keeps in run `run`, slice `slice`.
+fn two_keys_at(run: usize, slice: usize) -> Vec<u32> {
+    (1u32..)
+        .filter(|&i| is_key(i) && place_of(i) == (run, slice))
+        .take(2)
+        .collect()
+}
+
+#[test]
+fn two_shared_keys_are_found_wherever_the_index_keeps_them_first_and_last_runs_and_slices_included()
+{
+    // The index keeps its postings in runs, each cut into slices. A pair
+    // whose only two shared keys sit in the very first or very last run,
+    // or in the first or last slice of a run, is found like any other.
+    let (runs, slices) = PLACES;
+    assert_eq!((runs, slices), (256, 1024));
+    let places = [
+        (0, 0),
+        (0, 1023),
+        (255, 0),
+        (255, 1023),
+        (100, 1023),
+        (101, 0),
+        (100, 500),
+    ];
+    for (n, &(run, slice)) in places.iter().enumerate() {
+        let shared = two_keys_at(run, slice);
+        assert_eq!(shared.len(), 2);
+        let with = |seed: u64| [filler(seed, 300), shared.clone()].concat();
+        let (a, b) = (with(1), with(2));
+        // Unrelated tracks around them, with keys of their own everywhere.
+        let others: Vec<Vec<u32>> = (10..40).map(|seed| track(seed, 600)).collect();
+
+        // Both merged in; one merged and one still waiting; both waiting.
+        for merge_after in [2, 1, 0] {
+            let mut index = BlockIndex::new();
+            for (i, other) in others.iter().enumerate() {
+                index.insert(100 + i as EntryId, other);
+            }
+            for (i, items) in [&a, &b].into_iter().enumerate() {
+                if i == merge_after {
+                    index.compact();
+                }
+                index.insert(i as EntryId, items);
+            }
+            if merge_after == 2 {
+                index.compact();
+            }
+            let when = format!("place {n} ({run}, {slice}), merged after {merge_after}");
+            assert_eq!(index.pairs(), [(0, 1)], "{when}");
+            assert_eq!(index.candidates_of(0, &a), [1], "{when}");
+            assert_eq!(index.candidates_of(1, &b), [0], "{when}");
+        }
+    }
+}
+
+#[test]
+fn a_key_held_by_exactly_200_fingerprints_still_counts_and_by_201_is_skipped() {
+    // The limit itself, written out: 200 holders is still shared audio,
+    // 201 is a sound every track has.
+    assert_eq!(MAX_ENTRIES_PER_KEY, 200);
+    let shared = some_keys(2);
+    let with = |seed: u64| [filler(seed, 300), shared.clone()].concat();
+    for compacted in [true, false] {
+        let mut index = BlockIndex::new();
+        for entry in 0..200u32 {
+            index.insert(entry, &with(u64::from(entry)));
+        }
+        if compacted {
+            index.compact();
+        }
+        // Every one of the 200 is a candidate of every other.
+        assert_eq!(index.pairs().len(), 200 * 199 / 2, "compacted: {compacted}");
+        let of_first = index.candidates_of(0, &with(0));
+        assert_eq!(of_first, (1..200).collect::<Vec<EntryId>>());
+        assert_eq!(index.candidates_of(199, &with(199)).len(), 199);
+
+        // One more holder, and the keys say nothing any more.
+        index.insert(200, &with(200));
+        if compacted {
+            index.compact();
+        }
+        assert_eq!(index.pairs(), [], "compacted: {compacted}");
+        assert!(index.candidates_of(0, &with(0)).is_empty());
+        assert!(index.candidates_of(200, &with(200)).is_empty());
+
+        // And with one gone again, they count again.
+        index.remove(57);
+        assert_eq!(index.pairs().len(), 200 * 199 / 2, "compacted: {compacted}");
+        assert_eq!(index.candidates_of(0, &with(0)).len(), 199);
+    }
 }
