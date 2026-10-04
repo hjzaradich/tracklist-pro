@@ -103,6 +103,10 @@
 //!
 //! # Keeping results ([`store`], [`job`])
 //!
+//! Which files have been through a pass is kept in `fingerprint_matched`
+//! (migration 0019): a present file with a fingerprint and no row there is
+//! what makes matching due ([`any_due`]), and all a pass works on.
+//!
 //! Results live in `fingerprint_match` (migration 0016), one row per
 //! compared pair of files, compared-and-nothing-found included. A file's
 //! rows are deleted by the database when its `fingerprint` bytes change,
@@ -123,8 +127,8 @@ pub mod store;
 pub use compare::{compare, item_seconds, Comparison, Segment};
 pub use index::BlockIndex;
 pub(crate) use job::request;
-pub use job::{matching_job, refresh, Matcher, Summary, PRIORITY};
-pub use store::StoredMatch;
+pub use job::{matching_job, refresh, Matcher, Summary, KEEP_INDEX_UP_TO, PRIORITY};
+pub use store::{any_due, StoredMatch};
 
 /// The version of the comparison's definition, stored with every result.
 /// Bump it when [`compare()`] would give other numbers for the same

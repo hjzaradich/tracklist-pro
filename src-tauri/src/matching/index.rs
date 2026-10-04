@@ -213,6 +213,14 @@ impl BlockIndex {
         self.entries.contains_key(&entry)
     }
 
+    /// About how many bytes the index holds: its postings, merged and
+    /// waiting, and each run's notes of where its slices start.
+    pub fn held_bytes(&self) -> usize {
+        let postings = self.merged + self.waiting.capacity();
+        let starts: usize = self.segments.iter().map(|s| s.starts.len()).sum();
+        postings * std::mem::size_of::<Posting>() + starts * std::mem::size_of::<u32>()
+    }
+
     /// How many postings may wait before they're merged in.
     fn waiting_limit(&self) -> usize {
         MIN_WAITING.max(self.merged / WAITING_SHARE)

@@ -12,8 +12,8 @@ use crate::jobs::{self, JobContext, JobKind, JobQueue, JobRecord, JobStatus};
 use crate::matching::{matching_job, refresh, store, Matcher, PRIORITY};
 use crate::scan::chain::after_matching;
 
-use super::passes::{db, Db};
-use super::synthetic::{reencoded, track};
+use super::passes::{db, pass, Db};
+use super::synthetic::{fingerprint, reencoded, track};
 
 /// 120 made-up tracks, every tenth with a re-encoded copy: a pass reports
 /// progress well over a hundred times.
@@ -215,15 +215,14 @@ fn due(db: &Db) -> bool {
 }
 
 #[test]
-fn matching_is_due_until_a_pass_finishes_and_again_when_a_fingerprint_arrives_or_a_file_comes_or_goes(
-) {
+fn matching_is_due_until_a_pass_has_been_through_every_file_and_again_when_a_fingerprint_arrives() {
     let db = db();
     assert!(!due(&db), "no fingerprints: nothing to do");
     let a = track(1, 400);
     db.add_items("a.flac", a.clone());
     assert!(due(&db));
 
-    // A pass that stops early has covered nothing.
+    // A pass that stops before the file is through leaves it due.
     let stopped = Matcher::new().pass(&db.writer, &mut |_| Err::<(), _>(DbError::WriterGone));
     assert!(stopped.is_err());
     assert!(due(&db));
@@ -244,21 +243,288 @@ fn matching_is_due_until_a_pass_finishes_and_again_when_a_fingerprint_arrives_or
     assert!(!due(&db));
     assert_eq!(db.pairs(), [(1, copy)]);
 
-    // A file that goes missing, and one that comes back.
-    db.sql("UPDATE file SET present = 0 WHERE id = 1", ());
+    // A fingerprint that goes away and comes back the same lost its
+    // results on the way: it's due.
+    let blob = fingerprint(a.clone()).to_blob();
+    db.sql("UPDATE file SET fingerprint = NULL WHERE id = 1", ());
+    assert!(!due(&db), "a file with no fingerprint has nothing to match");
+    db.sql("UPDATE file SET fingerprint = ?1 WHERE id = 1", (blob,));
     assert!(due(&db));
     refresh(&db.writer).unwrap();
     assert!(!due(&db));
+    assert_eq!(db.pairs(), [(1, copy)]);
+
+    // A new version of the comparison makes every file due, with nothing
+    // deleted.
+    db.sql("UPDATE fingerprint_matched SET version = version + 1", ());
+    assert!(due(&db));
+}
+
+#[test]
+fn a_file_that_goes_missing_is_not_due_and_one_that_comes_back_is_compared_with_what_arrived_meanwhile(
+) {
+    let db = db();
+    let a = track(1, 400);
+    db.add_items("a.flac", a.clone());
+    db.add_items("b.flac", track(2, 400));
+    let matcher = Matcher::new();
+    pass(&matcher, &db);
+    assert!(!due(&db));
+
+    // File 1 is gone from its folder. Nothing to do about that.
+    db.sql("UPDATE file SET present = 0 WHERE id = 1", ());
+    assert!(!due(&db));
+    // A copy of it arrives while it's away, and is matched against what's
+    // there: nothing.
+    let copy = db.add_items("a.mp3", reencoded(&a, 1, 7));
+    assert!(due(&db));
+    pass(&matcher, &db);
+    assert!(!due(&db));
+    assert_eq!(db.pairs(), []);
+
+    // It comes back: it's due, and finds the copy that arrived meanwhile.
     db.sql("UPDATE file SET present = 1 WHERE id = 1", ());
     assert!(due(&db));
-
-    // The fingerprint stage did a file again (its audio changed).
-    refresh(&db.writer).unwrap();
+    let summary = pass(&matcher, &db);
+    assert_eq!((summary.compared, summary.stored), (1, 1));
+    assert_eq!(db.pairs(), [(1, copy)]);
     assert!(!due(&db));
+}
+
+#[test]
+fn when_the_file_standing_for_identical_ones_goes_missing_the_rest_are_due_even_after_a_restart() {
+    let db = db();
+    let a = track(1, 400);
+    db.add_items("a.flac", a.clone());
+    db.add_items("a.wav", a.clone());
+    db.add_items("a (backup).wav", a.clone());
+    let mp3 = db.add_items("a.mp3", reencoded(&a, 1, 7));
+    refresh(&db.writer).unwrap();
+    assert_eq!(db.pairs(), [(1, 2), (1, 3), (1, mp3)]);
+    assert!(!due(&db));
+
+    // File 1 held the results for all three. With it gone, file 2 has to.
+    db.sql("UPDATE file SET present = 0 WHERE id = 1", ());
+    assert!(due(&db));
+    // A new matcher, as after a restart: it knows nothing but the tables.
+    let summary = refresh(&db.writer).unwrap();
+    assert_eq!((summary.compared, summary.stored), (1, 2));
+    assert_eq!(
+        db.pairs(),
+        [(1, 2), (1, 3), (1, mp3), (2, 3), (2, mp3)],
+        "file 1's results are kept; file 2 has its own now"
+    );
+    assert!(!due(&db));
+}
+
+#[test]
+fn a_fingerprint_this_build_cannot_read_does_not_keep_matching_due() {
+    let db = db();
+    db.add_items("a.flac", track(1, 400));
     db.sql(
-        "INSERT INTO file_stage (file_id, stage, version, status, done_at)
-         VALUES (1, 'fingerprint', 1, 'done', '2999-01-01T00:00:00.000Z')",
+        "INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, mtime, fingerprint)
+         VALUES (1, 'odd.flac', 'odd.flac', 1000, 1000, x'00010203')",
         (),
     );
     assert!(due(&db));
+    refresh(&db.writer).unwrap();
+    assert!(!due(&db));
+    assert_eq!(db.pairs(), []);
+}
+
+#[test]
+fn a_pass_stopped_partway_leaves_every_file_either_through_with_all_its_results_or_due() {
+    let expected = all_pairs();
+    for stop_after in [3, 10, 40, 90, 130] {
+        let db = library();
+        let mut ticks = 0;
+        let stopped = Matcher::new().pass(&db.writer, &mut |_| {
+            ticks += 1;
+            if ticks > stop_after {
+                Err(DbError::WriterGone)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(stopped.is_err(), "stopping after {stop_after} reports");
+        assert_consistent(
+            &db,
+            &expected,
+            &format!("stopped after {stop_after} reports"),
+        );
+        assert!(due(&db));
+        // And a new matcher finishes from the tables alone.
+        refresh(&db.writer).unwrap();
+        assert_eq!(db.pairs(), expected);
+        assert!(!due(&db));
+    }
+}
+
+/// Every file with a `fingerprint_matched` row has every result it should
+/// have: `expected` is what a full pass stores.
+fn assert_consistent(db: &Db, expected: &[(i64, i64)], when: &str) {
+    let through: Vec<i64> = db
+        .writer
+        .call(|c| {
+            c.prepare("SELECT file_id FROM fingerprint_matched")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .unwrap();
+    let stored = db.pairs();
+    for &(a, b) in expected {
+        if through.contains(&a) || through.contains(&b) {
+            assert!(
+                stored.contains(&(a, b)),
+                "{when}: a file of the pair ({a}, {b}) is marked through, but the pair has no result"
+            );
+        }
+    }
+}
+
+#[test]
+fn matching_finishes_though_a_relink_arrives_during_every_run_and_each_stop_leaves_the_ledger_consistent(
+) {
+    let expected = all_pairs();
+    let db = library();
+    // Every matching run stops at its fifth report until a relink has been
+    // queued behind it: relinks keep arriving for as long as it runs.
+    let (reached, reached_rx) = mpsc::channel::<()>();
+    let (go, go_rx) = mpsc::channel::<()>();
+    let go_rx = Mutex::new(go_rx);
+    let matcher = Matcher::new().on_report(move |n| {
+        if n == 5 {
+            reached.send(()).unwrap();
+            go_rx.lock().unwrap().recv().unwrap();
+        }
+    });
+    // What each relink saw: whether the ledger agreed with the results.
+    let writer = db.writer.clone();
+    let wanted = expected.clone();
+    let checks: Arc<Mutex<Vec<Result<(), String>>>> = Arc::default();
+    let seen = checks.clone();
+    let queue = JobQueue::builder(db.writer.clone())
+        .workers(1)
+        .handler(JobKind::Match, after_matching(matcher))
+        .handler(JobKind::Relink, move |_: &JobContext| {
+            let wanted = wanted.clone();
+            let check = writer
+                .call(move |c| {
+                    let through: Vec<i64> = c
+                        .prepare("SELECT file_id FROM fingerprint_matched")?
+                        .query_map([], |r| r.get(0))?
+                        .collect::<rusqlite::Result<_>>()?;
+                    let stored: Vec<(i64, i64)> = c
+                        .prepare("SELECT file_a, file_b FROM fingerprint_match")?
+                        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                        .collect::<rusqlite::Result<_>>()?;
+                    Ok(wanted
+                        .iter()
+                        .find(|(a, b)| {
+                            (through.contains(a) || through.contains(b))
+                                && !stored.contains(&(*a, *b))
+                        })
+                        .copied())
+                })
+                .map_err(jobs::JobError::from)?;
+            seen.lock().unwrap().push(match check {
+                None => Ok(()),
+                Some(pair) => Err(format!("{pair:?} is marked through with no result")),
+            });
+            Ok(())
+        })
+        .start()
+        .unwrap();
+    queue.enqueue(matching_job()).unwrap();
+
+    // Feed a relink to every run that gets as far as its fifth report,
+    // until matching has nothing left queued or running.
+    let mut runs = 0;
+    loop {
+        match reached_rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(()) => {
+                runs += 1;
+                assert!(runs <= 20, "matching never got through");
+                queue.enqueue(crate::relink::relink_job()).unwrap();
+                go.send(()).unwrap();
+            }
+            Err(_) if queue.activity().unwrap().jobs.is_empty() => break,
+            Err(_) => {}
+        }
+    }
+    queue.shutdown();
+
+    let all = jobs(&db.writer);
+    assert!(all.iter().all(|j| j.status == JobStatus::Done), "{all:?}");
+    let matching = all
+        .iter()
+        .filter(|j| j.kind == Some(JobKind::Match))
+        .count();
+    let relinks = all
+        .iter()
+        .filter(|j| j.kind == Some(JobKind::Relink))
+        .count();
+    assert!(
+        matching >= 2 && relinks >= 2,
+        "it made way more than once: {matching} matching runs, {relinks} relinks"
+    );
+    // Each run but the last ended by making way, and the relink ran next.
+    for pair in all.windows(2) {
+        if pair[0].kind == Some(JobKind::Match) {
+            assert_eq!(pair[1].kind, Some(JobKind::Relink), "{all:?}");
+        }
+    }
+    let checks = checks.lock().unwrap();
+    assert_eq!(checks.len(), relinks);
+    for check in checks.iter() {
+        assert_eq!(*check, Ok(()));
+    }
+    assert_eq!(db.pairs(), expected);
+    assert!(!due(&db));
+}
+
+#[test]
+fn an_index_over_the_budget_is_dropped_after_a_pass_and_the_next_pass_builds_it_again_with_the_same_results(
+) {
+    // One matcher keeps its index, the other may keep none at all.
+    let (kept, dropped) = (library(), library());
+    let (keeping, dropping) = (Matcher::new(), Matcher::new().keep_index_up_to(0));
+    let first = (pass(&keeping, &kept), pass(&dropping, &dropped));
+    assert_eq!(first.0, first.1);
+    assert_eq!(kept.all(), dropped.all());
+
+    // The same new files for both: a copy of a track that had none, an
+    // exact copy, and a track of its own.
+    for db in [&kept, &dropped] {
+        db.add_items("7 (new).mp3", reencoded(&track(7, 400), 91, 7));
+        db.add_items("8 (backup).flac", track(8, 400));
+        db.add_items("900.flac", track(900, 400));
+    }
+    let later = (pass(&keeping, &kept), pass(&dropping, &dropped));
+    // The one that kept its index read three new fingerprints; the one
+    // that dropped it read them all again…
+    assert_eq!(later.0.changed, 3);
+    assert_eq!(later.1.changed, later.1.files);
+    // …and they found and stored the same.
+    assert_eq!(
+        (later.0.candidates, later.0.compared, later.0.stored),
+        (later.1.candidates, later.1.compared, later.1.stored)
+    );
+    assert_eq!(later.0.stored, 2);
+    assert_eq!(kept.all(), dropped.all());
+    assert!(!due(&kept) && !due(&dropped));
+}
+
+#[test]
+fn the_index_of_an_ordinary_library_is_kept_between_passes() {
+    assert_eq!(crate::matching::KEEP_INDEX_UP_TO, 250 * 1024 * 1024);
+    let db = library();
+    let matcher = Matcher::new();
+    pass(&matcher, &db);
+    db.add_items("900.flac", track(900, 400));
+    let later = pass(&matcher, &db);
+    assert_eq!(
+        later.changed, 1,
+        "only the new fingerprint was read into it"
+    );
 }

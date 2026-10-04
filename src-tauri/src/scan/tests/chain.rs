@@ -1063,12 +1063,12 @@ fn matching_runs_when_no_fingerprints_are_due_but_the_files_have_not_been_matche
     assert_eq!((count("fingerprint"), count("match")), (1, 1));
 
     // As after an update that adds matching, or a pass that never
-    // finished: the files are fingerprinted already, and no pass has
-    // covered them.
+    // finished: the files are fingerprinted already, and haven't been
+    // through a pass.
     writer
         .call(|c| {
             c.execute("DELETE FROM fingerprint_match", [])?;
-            c.execute("DELETE FROM setting WHERE key = 'matching_covered'", [])
+            c.execute("DELETE FROM fingerprint_matched", [])
         })
         .unwrap();
     queue.enqueue(crate::hash::hash_job(None)).unwrap();

@@ -634,4 +634,24 @@ mod tests {
     }
 
     use std::time::Duration;
+
+    #[test]
+    fn every_stage_is_queued_again_at_background_priority_and_only_matching_below_it() {
+        // A stage asked for while it runs is queued once more at the
+        // priority its wrapper holds. Matching was given one of its own
+        // (1bA-14); every other stage's is what it always was.
+        let stage = |_: &JobContext| Ok(());
+        for (name, priority) in [
+            ("walk", after_walk(stage).priority),
+            ("read", after_read(stage).priority),
+            ("hash", after_hash(stage).priority),
+            ("group", after_group(stage).priority),
+            ("quality", after_quality(stage).priority),
+            ("fingerprint", after_fingerprint(stage).priority),
+        ] {
+            assert_eq!(priority, Priority::BACKGROUND, "{name}");
+        }
+        assert_eq!(after_matching(stage).priority, crate::matching::PRIORITY);
+        assert!(crate::matching::PRIORITY < Priority::BACKGROUND);
+    }
 }

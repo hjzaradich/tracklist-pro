@@ -73,7 +73,7 @@ impl Db {
             .unwrap();
     }
 
-    fn all(&self) -> Vec<StoredMatch> {
+    pub(super) fn all(&self) -> Vec<StoredMatch> {
         self.writer.call(|c| store::all(c)).unwrap()
     }
 
@@ -86,7 +86,7 @@ impl Db {
     }
 }
 
-fn pass(matcher: &Matcher, db: &Db) -> Summary {
+pub(super) fn pass(matcher: &Matcher, db: &Db) -> Summary {
     matcher
         .pass::<DbError>(&db.writer, &mut |_| Ok(()))
         .unwrap()
@@ -161,10 +161,10 @@ fn a_second_pass_with_nothing_new_compares_nothing_even_after_a_restart() {
         (0, 0, 0, 0)
     );
     // A new matcher (the app restarted) reads every fingerprint again, but
-    // every candidate pair already has its result.
+    // every file has been through a pass: it looks nothing up.
     let restarted = refresh(&db.writer).unwrap();
     assert_eq!(restarted.changed, 5);
-    assert_eq!((restarted.candidates, restarted.already_compared), (3, 3));
+    assert_eq!((restarted.candidates, restarted.already_compared), (0, 0));
     assert_eq!((restarted.compared, restarted.stored), (0, 0));
     assert_eq!(db.pairs().len(), 3);
 }
@@ -384,6 +384,7 @@ fn results_of_another_version_of_the_comparison_are_worked_out_again() {
         "UPDATE fingerprint_match SET version = version + 1, score = 31.0",
         (),
     );
+    db.sql("UPDATE fingerprint_matched SET version = version + 1", ());
     assert_eq!(db.pairs(), [], "another version's rows are never read");
     let summary = refresh(&db.writer).unwrap();
     assert_eq!((summary.compared, summary.stored), (3, 3));

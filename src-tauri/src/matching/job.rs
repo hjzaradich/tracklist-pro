@@ -17,11 +17,19 @@
 //! that goes is swept out once per pass, and a fingerprint's candidates
 //! are asked for with the fingerprint itself, read for comparing anyway.
 //!
-//! The table is the truth about what has been compared, not the
-//! `Matcher`'s memory. The database deletes a file's results when its
-//! fingerprint changes, even if it changes back before the next pass, so
-//! each pass looks at which files have fewer results than it left them
-//! with and works those out again.
+//! The database is the truth about what has been done, not the
+//! `Matcher`'s memory. `fingerprint_matched` (migration 0019) has a row for
+//! each file whose current fingerprint has been through a pass: its
+//! candidates found and every result stored, the row written in the same
+//! transaction as the last of them. A pass works on the fingerprints with
+//! a file that has no such row, and on nothing else: after a restart only
+//! what's new, after a stop only what was left. The database deletes a
+//! file's row (and its results) when its fingerprint changes, even if it
+//! changes back before the next pass, and when a missing file comes back.
+//!
+//! A big index isn't kept: above [`KEEP_INDEX_UP_TO`] it's dropped when a
+//! pass finishes, and the next pass that has something to do builds it
+//! again.
 //!
 //! A pair is always compared with the lower file id as A, so what's stored
 //! doesn't depend on which of the two files arrived last (the matcher
@@ -56,9 +64,10 @@ pub struct Summary {
     pub files: u64,
     /// Distinct fingerprints among them: the index's entries.
     pub fingerprints: u64,
-    /// Files whose fingerprint was new or changed since the last pass.
+    /// Files whose fingerprint this matcher hadn't read, or that changed
+    /// since it did: every file, for a matcher that kept no index.
     pub changed: u64,
-    /// Candidate pairs the index gave for the changed fingerprints.
+    /// Candidate pairs the index gave for the fingerprints that were due.
     pub candidates: u64,
     /// Of those, pairs that already had a stored result.
     pub already_compared: u64,
@@ -78,9 +87,6 @@ struct Class {
     /// The fingerprint's length in items.
     items: usize,
     files: BTreeSet<i64>,
-    /// The file that stood for the class when its results were last
-    /// stored.
-    stored_for: Option<i64>,
 }
 
 impl Class {
@@ -96,22 +102,6 @@ struct State {
     classes: HashMap<Digest, Class>,
     digest_of_entry: HashMap<EntryId, Digest>,
     next_entry: EntryId,
-    /// Classes whose candidates haven't all been compared and stored yet.
-    /// Kept across passes, so a cancelled pass is picked up by the next.
-    due: BTreeSet<EntryId>,
-    /// How many stored results each file was part of when the last
-    /// finished pass ended. A file with fewer now has lost some.
-    results_of_file: HashMap<i64, usize>,
-}
-
-/// How many of the `pairs` each file is part of.
-fn results_per_file(pairs: &HashSet<(i64, i64)>) -> HashMap<i64, usize> {
-    let mut counts: HashMap<i64, usize> = HashMap::new();
-    for &(a, b) in pairs {
-        *counts.entry(a).or_default() += 1;
-        *counts.entry(b).or_default() += 1;
-    }
-    counts
 }
 
 impl State {
@@ -127,11 +117,7 @@ impl State {
             let entry = class.entry;
             self.index.remove(entry);
             self.digest_of_entry.remove(&entry);
-            self.due.remove(&entry);
             self.classes.remove(&digest);
-        } else if class.stored_for != class.first() {
-            // Another file stands for the class now.
-            self.due.insert(class.entry);
         }
     }
 
@@ -155,33 +141,34 @@ impl State {
                     entry,
                     items: fingerprint.items().len(),
                     files: BTreeSet::new(),
-                    stored_for: None,
                 },
             );
         }
         let class = self.classes.get_mut(&digest)?;
         class.files.insert(file);
-        self.due.insert(class.entry);
         self.digest_of_file.insert(file, digest);
         Some(true)
     }
 
-    /// Makes due again every class with a file that has lost stored
-    /// results since the last finished pass: `now` is each file's count as
-    /// the table has it.
-    fn notice_lost_results(&mut self, now: &HashMap<i64, usize>) {
-        for (file, &before) in &self.results_of_file {
-            if now.get(file).copied().unwrap_or(0) >= before {
-                continue;
-            }
-            let class = self
-                .digest_of_file
-                .get(file)
-                .and_then(|digest| self.classes.get(digest));
-            if let Some(class) = class {
-                self.due.insert(class.entry);
-            }
-        }
+    /// The classes a pass has work on, lowest entry first: those with a
+    /// file that `matched` (each covered file and the file standing for
+    /// it) doesn't have, or has under another file than the one standing
+    /// for the class now.
+    fn due(&self, matched: &HashMap<i64, i64>) -> Vec<EntryId> {
+        let mut due: Vec<EntryId> = self
+            .classes
+            .values()
+            .filter(|class| {
+                let first = class.first();
+                class
+                    .files
+                    .iter()
+                    .any(|file| matched.get(file).copied() != first)
+            })
+            .map(|class| class.entry)
+            .collect();
+        due.sort_unstable();
+        due
     }
 
     fn class_of_entry(&self, entry: EntryId) -> Option<&Class> {
@@ -196,6 +183,13 @@ pub const PRIORITY: Priority = Priority(Priority::BACKGROUND.0 - 10);
 /// How many progress reports go by between looks for a waiting relink or
 /// attach job.
 const LOOK_EVERY: u64 = 64;
+
+/// The index is kept between passes while it holds no more than this
+/// (250 MiB: about 45,000 six-minute tracks at their fullest). A bigger
+/// one is dropped when a pass finishes, and built again by the next pass
+/// that has something to do (about two minutes at 100,000 files, measured
+/// in 1bA-13).
+pub const KEEP_INDEX_UP_TO: usize = 250 << 20;
 
 /// A matching job: one pass over every fingerprint.
 pub fn matching_job() -> NewJob {
@@ -252,10 +246,21 @@ type ReportHook = Box<dyn Fn(u64) + Send + Sync>;
 /// Runs matching passes, keeping the index between them. Also the matching
 /// job's handler: one long-lived instance, so the index is kept from one
 /// job to the next.
-#[derive(Default)]
 pub struct Matcher {
     state: Mutex<State>,
+    /// See [`KEEP_INDEX_UP_TO`].
+    keep_index_up_to: usize,
     on_report: Option<ReportHook>,
+}
+
+impl Default for Matcher {
+    fn default() -> Matcher {
+        Matcher {
+            state: Mutex::default(),
+            keep_index_up_to: KEEP_INDEX_UP_TO,
+            on_report: None,
+        }
+    }
 }
 
 impl std::fmt::Debug for Matcher {
@@ -274,8 +279,20 @@ struct Found {
     comparison: Comparison,
 }
 
-fn write(writer: &Writer, batch: Vec<Found>) -> Result<u64, DbError> {
-    if batch.is_empty() {
+/// Files that are through: every result of theirs is stored, or goes in
+/// with this.
+struct Through {
+    files: Vec<i64>,
+    /// The fingerprint they all hold.
+    blob: Vec<u8>,
+    /// The file whose results stand for them.
+    stands: i64,
+}
+
+/// Stores a batch of results and, in the same transaction, records the
+/// files that are `through` with it. Returns how many results were stored.
+fn write(writer: &Writer, batch: Vec<Found>, through: Option<Through>) -> Result<u64, DbError> {
+    if batch.is_empty() && through.is_none() {
         return Ok(0);
     }
     writer.call(move |conn| {
@@ -292,6 +309,15 @@ fn write(writer: &Writer, batch: Vec<Found>) -> Result<u64, DbError> {
             };
             stored += u64::from(store::put(&tx, a, b, &found.comparison)?);
         }
+        if let Some(through) = &through {
+            for &file in &through.files {
+                let side = Side {
+                    file,
+                    blob: &through.blob,
+                };
+                store::mark_matched(&tx, side, through.stands)?;
+            }
+        }
         tx.commit()?;
         Ok(stored)
     })
@@ -302,11 +328,27 @@ impl Matcher {
         Matcher::default()
     }
 
+    /// Keeps the index between passes only up to `bytes`.
+    #[cfg(test)]
+    pub(crate) fn keep_index_up_to(mut self, bytes: usize) -> Self {
+        self.keep_index_up_to = bytes;
+        self
+    }
+
     /// Calls `hook` with each progress report's number, as a job reports.
     #[cfg(test)]
     pub(crate) fn on_report(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
         self.on_report = Some(Box::new(hook));
         self
+    }
+
+    /// Drops the index if it's over what's kept between passes. A pass
+    /// that finishes does this itself; this is for one that failed.
+    fn drop_a_big_index(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.index.held_bytes() > self.keep_index_up_to {
+            *state = State::default();
+        }
     }
 
     /// One pass. `tick` is called often with how far along it is (0 to 1);
@@ -327,12 +369,11 @@ impl Matcher {
         let state = &mut *guard;
         let mut summary = Summary::default();
         writer.call(|c| store::drop_other_versions(c))?;
-        // What this pass sets out to cover, taken before it reads anything:
-        // a fingerprint that arrives meanwhile leaves matching due.
-        let covering = writer.call(|c| store::stamp(c))?;
 
         // 1. The index catches up with the file table.
         let mut seen: HashSet<i64> = HashSet::new();
+        // Files whose fingerprint this build can't read: nothing to compare.
+        let mut unreadable: Vec<(i64, Vec<u8>)> = Vec::new();
         let mut after = 0;
         loop {
             tick(0.0)?;
@@ -341,14 +382,17 @@ impl Matcher {
                 break;
             };
             after = last.0;
-            for (file, blob) in &page {
-                match state.learn(*file, blob) {
+            for (file, blob) in page {
+                match state.learn(file, &blob) {
                     Some(changed) => {
-                        seen.insert(*file);
+                        seen.insert(file);
                         summary.changed += u64::from(changed);
                     }
                     // Unreadable now: whatever it held before is gone.
-                    None => state.forget(*file),
+                    None => {
+                        state.forget(file);
+                        unreadable.push((file, blob));
+                    }
                 }
             }
         }
@@ -368,13 +412,29 @@ impl Matcher {
         summary.files = state.digest_of_file.len() as u64;
         summary.fingerprints = state.classes.len() as u64;
 
-        // 2. Results the database dropped since the last pass are due
-        // again, whatever this matcher remembers.
-        let mut compared = writer.call(|c| store::compared_pairs(c))?;
-        state.notice_lost_results(&results_per_file(&compared));
+        // 2. What's due: the fingerprints with a file that hasn't been
+        // through a pass, whatever this matcher remembers. A fingerprint
+        // that can't be read is through as it is.
+        let matched = writer.call(|c| store::matched(c))?;
+        unreadable.retain(|(file, _)| matched.get(file) != Some(file));
+        if !unreadable.is_empty() {
+            writer.call(move |conn| {
+                let tx = conn.transaction()?;
+                for (file, blob) in &unreadable {
+                    store::mark_matched(&tx, Side { file: *file, blob }, *file)?;
+                }
+                tx.commit()
+            })?;
+        }
+        let due = state.due(&matched);
+        drop(matched);
+        let mut compared = if due.is_empty() {
+            HashSet::new()
+        } else {
+            writer.call(|c| store::compared_pairs(c))?
+        };
 
         // 3. Each due class: its identical files, then its candidates.
-        let due: Vec<EntryId> = state.due.iter().copied().collect();
         let total = due.len().max(1) as f64;
         let mut batch: Vec<Found> = Vec::new();
         // Candidate pairs met in this pass, so one found from both of its
@@ -383,7 +443,6 @@ impl Matcher {
         for (done, entry) in due.into_iter().enumerate() {
             tick(done as f64 / total)?;
             let Some(class) = state.class_of_entry(entry) else {
-                state.due.remove(&entry);
                 continue;
             };
             let Some(first) = class.first() else {
@@ -456,21 +515,20 @@ impl Matcher {
                     comparison,
                 });
                 if batch.len() >= BATCH {
-                    summary.stored += write(writer, std::mem::take(&mut batch))?;
+                    summary.stored += write(writer, std::mem::take(&mut batch), None)?;
                 }
             }
-            summary.stored += write(writer, std::mem::take(&mut batch))?;
-            if let Some(digest) = state.digest_of_entry.get(&entry).copied() {
-                if let Some(class) = state.classes.get_mut(&digest) {
-                    class.stored_for = Some(first);
-                }
-            }
-            state.due.remove(&entry);
+            // The last of its results and "these files are through" go in
+            // together: a pass cut short before this leaves them due.
+            let through = Through {
+                files: class.files.iter().copied().collect(),
+                blob,
+                stands: first,
+            };
+            summary.stored += write(writer, std::mem::take(&mut batch), Some(through))?;
         }
-        state.results_of_file = results_per_file(&compared);
-        // Only a pass that left nothing undone has covered them.
-        if let (Some(stamp), true) = (covering, state.due.is_empty()) {
-            writer.call(move |c| store::set_covered(c, &stamp))?;
+        if state.index.held_bytes() > self.keep_index_up_to {
+            *state = State::default();
         }
         tick(1.0)?;
         Ok(summary)
@@ -504,13 +562,16 @@ impl JobHandler for Matcher {
                 crate::scan::chain::queue_once(job.writer(), matching_job(), |j| job.enqueue(j))?;
                 Ok(())
             }
-            Err(Stop::Job(e)) => Err(e),
+            Err(Stop::Job(e)) => {
+                self.drop_a_big_index();
+                Err(e)
+            }
         }
     }
 }
 
 /// One pass with a fresh index: everything is read from the file table,
-/// and only pairs with no stored result are compared.
+/// and only the fingerprints that are due are worked on.
 pub fn refresh(writer: &Writer) -> Result<Summary, DbError> {
     Matcher::new().pass(writer, &mut |_| Ok(()))
 }
