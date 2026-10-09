@@ -17,26 +17,25 @@
   },
   "undo": {
     "button": "Undo",
-    "nothing": "Nothing to undo",
     "shortcut": "Ctrl Z",
     "action": {
-      "addToLibrary": "Undo: add to Library",
-      "removeFromLibrary": "Undo: remove from Library",
-      "addFromRekordbox_one": "Undo: add {{count}} track from rekordbox",
-      "addFromRekordbox_other": "Undo: add {{count}} tracks from rekordbox",
-      "createCrate": "Undo: create crate “{{name}}”",
-      "renameCrate": "Undo: rename crate “{{from}}” to “{{name}}”",
-      "deleteCrate": "Undo: delete crate “{{name}}”",
-      "addToCrate_one": "Undo: add {{count}} track to “{{name}}”",
-      "addToCrate_other": "Undo: add {{count}} tracks to “{{name}}”",
-      "removeFromCrate_one": "Undo: remove {{count}} track from “{{name}}”",
-      "removeFromCrate_other": "Undo: remove {{count}} tracks from “{{name}}”",
-      "other": "Undo: last change"
+      "addToLibrary": "Undo (added to Library)",
+      "removeFromLibrary": "Undo (removed from Library)",
+      "addFromRekordbox_one": "Undo ({{count}} rekordbox track added)",
+      "addFromRekordbox_other": "Undo ({{count}} rekordbox tracks added)",
+      "createCrate": "Undo (crate “{{name}}” created)",
+      "renameCrate": "Undo (crate “{{from}}” renamed to “{{name}}”)",
+      "deleteCrate": "Undo (crate “{{name}}” deleted)",
+      "addToCrate_one": "Undo ({{count}} track added to “{{name}}”)",
+      "addToCrate_other": "Undo ({{count}} tracks added to “{{name}}”)",
+      "removeFromCrate_one": "Undo ({{count}} track removed from “{{name}}”)",
+      "removeFromCrate_other": "Undo ({{count}} tracks removed from “{{name}}”)",
+      "other": "Undo (last change)"
     },
     "refused": {
-      "sentSince": "Can't undo: the tracks have been sent to rekordbox since",
-      "sourceGone": "Can't undo: the track or its file is no longer in All music",
-      "crateNameTaken": "Can't undo: another crate is called “{{name}}” now",
+      "sentSince": "Can't undo: tracks have been sent to rekordbox since",
+      "sourceGone": "Can't undo: the track is no longer in All music",
+      "crateNameTaken": "Can't undo: crate name already used (“{{name}}”)",
       "changedSince": "Can't undo: the Library has changed since"
     }
   },

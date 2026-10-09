@@ -53,10 +53,6 @@
     "purpose": "The Undo button when there is nothing to undo.",
     "where": "Top bar, Undo button (greyed out)."
   },
-  "undo.nothing": {
-    "purpose": "Says why Undo is greyed out: nothing is left to undo.",
-    "where": "Top bar, Undo button, tooltip while greyed out with nothing to undo."
-  },
   "undo.shortcut": {
     "purpose": "Shows the Undo shortcut.",
     "where": "Top bar, beside the Undo button."

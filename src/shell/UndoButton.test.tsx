@@ -35,11 +35,13 @@ type Step = {
  */
 function history(steps: Step[], more: (cmd: string, args: Record<string, unknown>) => unknown = () => undefined) {
   const undone: number[] = [];
+  const asked = { times: 0 };
   mockIPC(
     (cmd, rawArgs) => {
       const args = (rawArgs ?? {}) as Record<string, unknown>;
       const top = steps.at(-1);
       if (cmd === "next_undo_operation") {
+        asked.times += 1;
         return { operation: top?.operation ?? null, refusal: top?.refusal ?? null };
       }
       if (cmd === "undo_last_operation") {
@@ -62,7 +64,7 @@ function history(steps: Step[], more: (cmd: string, args: Record<string, unknown
     },
     { shouldMockEvents: true },
   );
-  return { steps, undone };
+  return { steps, undone, asked };
 }
 
 /** A button that does some other action, as any screen's would. */
@@ -114,12 +116,17 @@ afterEach(() => {
 });
 
 describe("the top bar's Undo", () => {
-  it("is greyed out, and says nothing is left, when there is nothing to undo", async () => {
-    history([]);
+  it("is greyed out, with no message, when there is nothing to undo", async () => {
+    const backend = history([]);
     renderBar();
     const button = await undoButton(tx("shell:undo.button"));
-    await waitFor(() => expect(button).toHaveAttribute("title", tx("shell:undo.nothing")));
+    // Once the answer is in, as before it.
+    await waitFor(() => expect(backend.asked.times).toBeGreaterThan(0));
+    await act(async () => {});
     expect(button).toBeDisabled();
+    expect(button).not.toHaveAttribute("title");
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText(tx("shell:undo.shortcut"))).toBeInTheDocument();
   });
 

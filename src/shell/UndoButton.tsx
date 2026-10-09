@@ -89,7 +89,6 @@ export function UndoButton() {
         type="button"
         className={styles.undoButton}
         disabled={!available}
-        title={operation === null ? t("undo.nothing") : undefined}
         onClick={run}
       >
         {operation === null ? t("undo.button") : undoLabel(t, operation)}
