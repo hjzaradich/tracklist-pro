@@ -67,7 +67,7 @@
 
 .crate[aria-pressed="true"] {
   border-color: var(--color-accent);
-  background: var(--color-surface-raised);
+  background: var(--color-selected);
 }
 
 .crate:focus-visible {

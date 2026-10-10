@@ -57,6 +57,12 @@
   color: var(--color-text);
 }
 
+/* Every other row, so the eye stays on one row of a long list. Before the
+ * hover rule, so hover wins. */
+.row:nth-child(even) td {
+  background: var(--color-row-stripe);
+}
+
 .row:hover td {
   background: var(--color-surface-hover);
 }
