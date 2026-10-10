@@ -24,13 +24,16 @@
 //! The generated files are WAV only, mono, a few seconds long: enough for
 //! every list, not for format or duration variety.
 
-#[cfg(not(windows))]
+/// The seed is for the Windows debug build the preview runs in: the
+/// preview module it writes through doesn't exist in a release build.
+/// This stub keeps `cargo build --release --examples` building.
+#[cfg(not(all(windows, debug_assertions)))]
 fn main() {
-    eprintln!("preview_seed: the preview is for Windows only");
+    eprintln!("preview_seed: the preview is a Windows debug build only");
     std::process::exit(2);
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, debug_assertions))]
 fn main() {
     use std::path::Path;
     use tracklist_pro_lib::preview::{Preview, ROOT};
@@ -51,7 +54,7 @@ fn main() {
     }
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, debug_assertions))]
 mod seeding {
     use std::collections::{BTreeMap, BTreeSet};
     use std::fmt::Write as _;

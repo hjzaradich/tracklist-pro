@@ -338,6 +338,47 @@ mod tests {
         ));
     }
 
+    /// `link` made a junction to `target` (no privilege needed, unlike a
+    /// symlink).
+    #[cfg(windows)]
+    fn junction(link: &Path, target: &Path) {
+        let out = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "mklink: {out:?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_preview_folder_that_is_a_junction_to_somewhere_else_is_refused() {
+        let (dir, real) = marked();
+        let link = real.parent().unwrap().join("linked-preview");
+        junction(&link, &real);
+        // The folder it points at is a perfectly good preview, but this
+        // spelling of it is a way to somewhere else.
+        assert!(matches!(Preview::at(&link), Err(Refusal::NoFolder(_))));
+        assert!(check(&link, link.join("data")).is_err());
+        drop(dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_data_folder_that_is_a_junction_to_somewhere_else_is_refused() {
+        let (dir, root) = marked();
+        let elsewhere = dir.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        fs::remove_dir(root.join("data")).unwrap();
+        junction(&root.join("data"), &elsewhere);
+        assert!(root.join("data").is_dir(), "the junction opens as a folder");
+        assert_eq!(
+            check(&root, root.join("data")),
+            Err(Refusal::NotTheDataFolder)
+        );
+    }
+
     #[test]
     fn a_missing_preview_folder_is_refused() {
         let dir = tempfile::tempdir().unwrap();

@@ -88,6 +88,57 @@ describe("reset", () => {
     assert.ok(fs.existsSync(path.join(target, "keep.txt")));
   });
 
+  it("removes a junction inside the folder as a link and leaves its target alone", () => {
+    const outside = folder();
+    fs.mkdirSync(path.join(outside, "deep"), { recursive: true });
+    fs.writeFileSync(path.join(outside, "keep.txt"), "keep");
+    fs.writeFileSync(path.join(outside, "deep", "also.txt"), "keep");
+    const root = folder();
+    claim(root);
+    fs.mkdirSync(path.join(root, "data"));
+    fs.symlinkSync(outside, path.join(root, "music"), "junction");
+    assert.equal(reset(root), true);
+    assert.ok(!fs.existsSync(root));
+    assert.equal(fs.readFileSync(path.join(outside, "keep.txt"), "utf8"), "keep");
+    assert.equal(fs.readFileSync(path.join(outside, "deep", "also.txt"), "utf8"), "keep");
+  });
+
+  it("clearing the sample also leaves a junction's target alone", () => {
+    const outside = folder();
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, "keep.txt"), "keep");
+    const root = folder();
+    claim(root);
+    fs.symlinkSync(outside, path.join(root, "documents"), "junction");
+    clearSample(root);
+    assert.ok(!fs.existsSync(path.join(root, "documents")));
+    assert.equal(fs.readFileSync(path.join(outside, "keep.txt"), "utf8"), "keep");
+  });
+
+  it(
+    "a reset that stops part-way keeps the marker, so it can be run again",
+    { skip: process.platform !== "win32" && "a working folder can be deleted elsewhere" },
+    () => {
+      const root = folder();
+      claim(root);
+      const busy = path.join(root, "data");
+      fs.mkdirSync(busy);
+      fs.mkdirSync(path.join(root, "music"));
+      // Windows won't remove a folder a process is working in, as when the
+      // preview window is still open.
+      const before = process.cwd();
+      process.chdir(busy);
+      try {
+        assert.throws(() => reset(root));
+        assert.ok(isPreviewFolder(root), "the marker is still there");
+      } finally {
+        process.chdir(before);
+      }
+      assert.equal(reset(root), true);
+      assert.ok(!fs.existsSync(root));
+    },
+  );
+
   it("refuses a drive root and a relative path", () => {
     assert.throws(() => reset(path.parse(scratch).root));
     assert.throws(() => reset("preview"));

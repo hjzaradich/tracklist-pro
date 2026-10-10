@@ -77,14 +77,57 @@ export function claim(root) {
   );
 }
 
-/** Deletes `root` and everything in it, if it's the preview's folder. */
+/**
+ * Removes a link (a junction or symlink) itself, never what it points at.
+ * Node reports both as symbolic links.
+ */
+function removeLink(target) {
+  try {
+    fs.unlinkSync(target);
+  } catch {
+    fs.rmdirSync(target);
+  }
+}
+
+/**
+ * Deletes `target` and everything under it, without ever following a link:
+ * a junction inside the folder is removed as a link, and the folder it
+ * points at keeps its contents.
+ */
+function removeTree(target) {
+  let stat;
+  try {
+    stat = fs.lstatSync(target);
+  } catch {
+    return;
+  }
+  if (stat.isSymbolicLink()) {
+    removeLink(target);
+  } else if (stat.isDirectory()) {
+    for (const name of fs.readdirSync(target)) removeTree(path.join(target, name));
+    fs.rmdirSync(target);
+  } else {
+    fs.rmSync(target, { force: true });
+  }
+}
+
+/**
+ * Deletes `root` and everything in it, if it's the preview's folder. The
+ * marker goes last: a reset that stops part-way (the preview window still
+ * open) leaves a folder that can be reset again, never one both commands
+ * refuse.
+ */
 export function reset(root) {
   assertSafeRoot(root);
   if (!fs.existsSync(root)) return false;
   if (!isPreviewFolder(root)) {
     throw new Error(`${root} has no ${MARKER}; it isn't the preview's folder. Nothing was deleted.`);
   }
-  fs.rmSync(root, { recursive: true, force: true });
+  for (const name of fs.readdirSync(root)) {
+    if (name !== MARKER) removeTree(path.join(root, name));
+  }
+  fs.unlinkSync(path.join(root, MARKER));
+  fs.rmdirSync(root);
   return true;
 }
 
@@ -94,7 +137,7 @@ export function clearSample(root) {
     throw new Error(`${root} isn't the preview's folder.`);
   }
   for (const name of [...MADE, SEEDED]) {
-    fs.rmSync(path.join(root, name), { recursive: true, force: true });
+    removeTree(path.join(root, name));
   }
 }
 
