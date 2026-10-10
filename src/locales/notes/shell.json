@@ -51,75 +51,93 @@
   },
   "undo.button": {
     "purpose": "The Undo button when there is nothing to undo.",
-    "where": "Top bar, Undo button (greyed out)."
+    "where": "Top bar, Undo button (greyed out).",
+    "approved": "Undo"
   },
   "undo.shortcut": {
     "purpose": "Shows the Undo shortcut.",
-    "where": "Top bar, beside the Undo button."
+    "where": "Top bar, beside the Undo button.",
+    "approved": "Ctrl Z"
   },
   "undo.action.addToLibrary": {
     "purpose": "Undo button naming what it takes back: one track added to the Library.",
-    "where": "Top bar, Undo button, when the next step to undo is an \"Add to Library\"."
+    "where": "Top bar, Undo button, when the next step to undo is an \"Add to Library\".",
+    "approved": "Undo (added to Library)"
   },
   "undo.action.removeFromLibrary": {
     "purpose": "Undo button naming what it takes back: one track removed from the Library.",
-    "where": "Top bar, Undo button, when the next step to undo is a \"Remove from Library\"."
+    "where": "Top bar, Undo button, when the next step to undo is a \"Remove from Library\".",
+    "approved": "Undo (removed from Library)"
   },
   "undo.action.addFromRekordbox_one": {
     "purpose": "Undo button naming what it takes back: rekordbox tracks added to the Library in one go (one track).",
-    "where": "Top bar, Undo button, when the next step to undo is the add of rekordbox tracks."
+    "where": "Top bar, Undo button, when the next step to undo is the add of rekordbox tracks.",
+    "approved": "Undo ({{count}} rekordbox track added)"
   },
   "undo.action.addFromRekordbox_other": {
     "purpose": "Undo button naming what it takes back: rekordbox tracks added to the Library in one go (several tracks).",
-    "where": "Top bar, Undo button, when the next step to undo is the add of rekordbox tracks."
+    "where": "Top bar, Undo button, when the next step to undo is the add of rekordbox tracks.",
+    "approved": "Undo ({{count}} rekordbox tracks added)"
   },
   "undo.action.createCrate": {
     "purpose": "Undo button naming what it takes back: a crate that was created.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Create crate\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Create crate\".",
+    "approved": "Undo (crate “{{name}}” created)"
   },
   "undo.action.renameCrate": {
     "purpose": "Undo button naming what it takes back: a crate rename, with the old and new names.",
-    "where": "Top bar, Undo button, when the next step to undo is a crate rename."
+    "where": "Top bar, Undo button, when the next step to undo is a crate rename.",
+    "approved": "Undo (crate “{{from}}” renamed to “{{name}}”)"
   },
   "undo.action.deleteCrate": {
     "purpose": "Undo button naming what it takes back: a crate that was deleted.",
-    "where": "Top bar, Undo button, when the next step to undo is a crate delete."
+    "where": "Top bar, Undo button, when the next step to undo is a crate delete.",
+    "approved": "Undo (crate “{{name}}” deleted)"
   },
   "undo.action.addToCrate_one": {
     "purpose": "Undo button naming what it takes back: one track added to a crate.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Add to crate\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Add to crate\".",
+    "approved": "Undo ({{count}} track added to “{{name}}”)"
   },
   "undo.action.addToCrate_other": {
     "purpose": "Undo button naming what it takes back: several tracks added to a crate.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Add to crate\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Add to crate\".",
+    "approved": "Undo ({{count}} tracks added to “{{name}}”)"
   },
   "undo.action.removeFromCrate_one": {
     "purpose": "Undo button naming what it takes back: one track removed from a crate.",
-    "where": "Top bar, Undo button, when the next step to undo is a removal from a crate."
+    "where": "Top bar, Undo button, when the next step to undo is a removal from a crate.",
+    "approved": "Undo ({{count}} track removed from “{{name}}”)"
   },
   "undo.action.removeFromCrate_other": {
     "purpose": "Undo button naming what it takes back: several tracks removed from a crate.",
-    "where": "Top bar, Undo button, when the next step to undo is a removal from a crate."
+    "where": "Top bar, Undo button, when the next step to undo is a removal from a crate.",
+    "approved": "Undo ({{count}} tracks removed from “{{name}}”)"
   },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",
-    "where": "Top bar, Undo button, for an action this version has no wording for, or one recorded by an older version without its details."
+    "where": "Top bar, Undo button, for an action this version has no wording for, or one recorded by an older version without its details.",
+    "approved": "Undo (last change)"
   },
   "undo.refused.sentSince": {
     "purpose": "Says the next step can't be undone because the tracks it added have been sent to rekordbox since.",
-    "where": "Top bar, beside the greyed-out Undo button."
+    "where": "Top bar, beside the greyed-out Undo button.",
+    "approved": "Can't undo: tracks have been sent to rekordbox since"
   },
   "undo.refused.sourceGone": {
     "purpose": "Says a removal from the Library can't be undone because the track, or the file it was linked to, is gone from All music since (its music folder was removed, or the track was merged into another).",
-    "where": "Top bar, beside the greyed-out Undo button."
+    "where": "Top bar, beside the greyed-out Undo button.",
+    "approved": "Can't undo: the track is no longer in All music"
   },
   "undo.refused.crateNameTaken": {
     "purpose": "Says the next step can't be undone because it would bring back a crate name another crate has now.",
-    "where": "Top bar, beside the greyed-out Undo button."
+    "where": "Top bar, beside the greyed-out Undo button.",
+    "approved": "Can't undo: crate name already used (“{{name}}”)"
   },
   "undo.refused.changedSince": {
     "purpose": "Says the next step can't be undone because something it changed has changed again since.",
-    "where": "Top bar, beside the greyed-out Undo button."
+    "where": "Top bar, beside the greyed-out Undo button.",
+    "approved": "Can't undo: the Library has changed since"
   },
   "details.label": {
     "purpose": "Accessible name of the Details panel.",
