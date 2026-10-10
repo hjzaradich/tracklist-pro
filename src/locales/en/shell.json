@@ -15,6 +15,30 @@
     "placeholder": "Search or type a command",
     "shortcut": "Ctrl K"
   },
+  "undo": {
+    "button": "Undo",
+    "shortcut": "Ctrl Z",
+    "action": {
+      "addToLibrary": "Undo (added to Library)",
+      "removeFromLibrary": "Undo (removed from Library)",
+      "addFromRekordbox_one": "Undo ({{count}} rekordbox track added)",
+      "addFromRekordbox_other": "Undo ({{count}} rekordbox tracks added)",
+      "createCrate": "Undo (crate “{{name}}” created)",
+      "renameCrate": "Undo (crate “{{from}}” renamed to “{{name}}”)",
+      "deleteCrate": "Undo (crate “{{name}}” deleted)",
+      "addToCrate_one": "Undo ({{count}} track added to “{{name}}”)",
+      "addToCrate_other": "Undo ({{count}} tracks added to “{{name}}”)",
+      "removeFromCrate_one": "Undo ({{count}} track removed from “{{name}}”)",
+      "removeFromCrate_other": "Undo ({{count}} tracks removed from “{{name}}”)",
+      "other": "Undo (last change)"
+    },
+    "refused": {
+      "sentSince": "Can't undo: tracks have been sent to rekordbox since",
+      "sourceGone": "Can't undo: the track is no longer in All music",
+      "crateNameTaken": "Can't undo: crate name already used (“{{name}}”)",
+      "changedSince": "Can't undo: the Library has changed since"
+    }
+  },
   "details": {
     "label": "Details",
     "empty": "Select a track"

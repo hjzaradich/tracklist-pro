@@ -15,9 +15,10 @@
 //! transaction (`sent_playlist`, ROADMAP 1.9 rule 6): the path of each, so
 //! a later read can tell what the app itself put in rekordbox.
 //!
-//! A send isn't an operation in the undo log. Its rows can take the row
-//! ids a removed track's bases had, and undoing that removal is then
-//! refused (nothing is changed; the track can be added back by hand).
+//! A send isn't an operation in the undo log. Its new `sync_base` rows
+//! never take the row id of a deleted one (migration 0018), so undoing the
+//! removal of a track still works after a send. Undoing the add of a track
+//! that was sent since is refused (`ops`).
 
 use rusqlite::{params, Connection};
 

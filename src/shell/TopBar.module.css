@@ -58,4 +58,61 @@
   display: flex;
   align-items: center;
   gap: var(--space-4);
+  min-width: 0;
+}
+
+.undo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.undoButton {
+  max-width: 320px;
+  overflow: hidden;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.undoButton:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.undoButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.undoButton:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.undoShortcut {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+}
+
+.undoReason,
+.undoError {
+  max-width: 360px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.undoError {
+  color: var(--color-danger);
 }

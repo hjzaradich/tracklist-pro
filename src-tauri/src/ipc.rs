@@ -74,6 +74,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::jobs::commands::activity,
             crate::jobs::commands::cancel_job,
             crate::ops::undo_last_operation,
+            crate::ops::next_undo_operation,
             crate::scan::folders::music_folders,
             crate::scan::folders::add_music_folder,
             crate::scan::folders::remove_music_folder,

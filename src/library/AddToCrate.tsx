@@ -1,7 +1,8 @@
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate, LibraryTrack } from "../bindings";
-import { useUndoLastChange } from "../crates/useCrates";
+import { useUndoAfterAction } from "../shell/useUndo";
 import { shownTitle } from "./RemoveFromLibrary";
 import styles from "./LibraryTrackList.module.css";
 
@@ -42,12 +43,26 @@ export function AddToCrate({
 }
 
 /**
- * What the last "Add to crate" did, with Undo while it changed something. A
- * track that was in the crate already changes nothing, so there is nothing to undo.
+ * What the last "Add to crate" did, with Undo while it changed something.
+ * `operationId` is the operation the add recorded: none for a track that was
+ * in the crate already, which changes nothing, so there is nothing to undo.
  */
-export function AddedToCrate({ crate, changed }: { crate: string; changed: boolean }) {
+export function AddedToCrate({
+  crate,
+  operationId,
+}: {
+  crate: string;
+  operationId: number | null;
+}) {
+  const changed = operationId !== null;
   const { t } = useTranslation("crates");
-  const undo = useUndoLastChange();
+  const { arm, offered, ready, undo } = useUndoAfterAction();
+  // Shown anew for each add (the caller gives it a new key): the add that
+  // just finished is the one its Undo is for.
+  useEffect(() => {
+    if (changed) arm(operationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when shown
+  }, []);
   if (undo.data?.status === "undone") {
     return (
       <p role="status" className={styles.status}>
@@ -59,11 +74,11 @@ export function AddedToCrate({ crate, changed }: { crate: string; changed: boole
     <>
       <p role="status" className={styles.status}>
         {changed ? t("addTrack.added", { crate }) : t("addTrack.alreadyIn", { crate })}
-        {changed && (
+        {changed && offered && (
           <button
             type="button"
             className={styles.button}
-            disabled={undo.isPending}
+            disabled={!ready || undo.isPending}
             onClick={() => undo.mutate()}
           >
             {t("undo")}
