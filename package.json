@@ -9,6 +9,8 @@
     "build": "node scripts/i18n-types.mjs --check && tsc && vite build",
     "i18n:types": "node scripts/i18n-types.mjs",
     "preview": "vite preview",
+    "design": "node scripts/preview.mjs start",
+    "design:reset": "node scripts/preview.mjs reset",
     "tauri": "tauri",
     "test": "vitest run",
     "lint": "eslint .",

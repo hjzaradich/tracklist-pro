@@ -51,13 +51,21 @@ pub fn guard<'a, R: Runtime, M: Manager<R>>(
 /// The config marks them `"create": false`, so Tauri never opens one
 /// unguarded.
 pub fn open_windows<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
+    open_windows_with(app, |window| window)
+}
+
+/// [`open_windows`], with `customize` applied to each window's builder
+/// before the guard is: the development preview's title and browser
+/// profile (debug builds only, from `lib.rs`). The guard is added after,
+/// so `customize` can't open a window without it.
+pub fn open_windows_with<R: Runtime>(
+    app: &App<R>,
+    customize: impl Fn(WebviewWindowBuilder<'_, R, App<R>>) -> WebviewWindowBuilder<'_, R, App<R>>,
+) -> tauri::Result<()> {
     let dev_url = dev_url(app);
     for window in &app.config().app.windows {
-        guard(
-            WebviewWindowBuilder::from_config(app, window)?,
-            dev_url.clone(),
-        )
-        .build()?;
+        let builder = customize(WebviewWindowBuilder::from_config(app, window)?);
+        guard(builder, dev_url.clone()).build()?;
     }
     Ok(())
 }

@@ -19,6 +19,8 @@ pub mod missing;
 pub mod net;
 pub mod ops;
 pub mod paths;
+#[cfg(debug_assertions)]
+pub mod preview;
 pub mod quality;
 pub mod read;
 pub mod rekordbox;
@@ -48,6 +50,10 @@ enum DataDir {
     /// Somewhere else. Tests use a temp dir so they never touch the real
     /// database.
     At(PathBuf),
+    /// The development preview's sample library (debug builds only;
+    /// [`preview`]).
+    #[cfg(debug_assertions)]
+    Preview(preview::Preview),
 }
 
 /// Resolves the app data folder without creating it.
@@ -58,7 +64,37 @@ fn resolve_data_dir<R: Runtime, M: Manager<R>>(
     match data_dir {
         DataDir::AppData => app.path().app_data_dir(),
         DataDir::At(dir) => Ok(dir.clone()),
+        #[cfg(debug_assertions)]
+        DataDir::Preview(preview) => Ok(preview.data()),
     }
+}
+
+/// Where the app looks for rekordbox's export: Documents, or in the
+/// preview its own folder, so it never reads the real Documents.
+fn export_folder<R: Runtime, M: Manager<R>>(app: &M, data_dir: &DataDir) -> Option<PathBuf> {
+    #[cfg(debug_assertions)]
+    if let DataDir::Preview(preview) = data_dir {
+        return Some(preview.documents());
+    }
+    let _ = data_dir;
+    app.path().document_dir().ok()
+}
+
+/// Opens the windows from the config, each through the navigation guard.
+/// The preview's window says so in its title and keeps its own browser
+/// profile.
+fn open_windows<R: Runtime>(app: &tauri::App<R>, data_dir: &DataDir) -> tauri::Result<()> {
+    #[cfg(debug_assertions)]
+    if let DataDir::Preview(preview) = data_dir {
+        let profile = preview.webview();
+        return net::navigation::open_windows_with(app, |window| {
+            window
+                .title(preview::WINDOW_TITLE)
+                .data_directory(profile.clone())
+        });
+    }
+    let _ = data_dir;
+    net::navigation::open_windows(app)
 }
 
 /// Everything the app does at startup, shared by `run` and the tests.
@@ -98,10 +134,10 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);
             app.manage(guard);
-            app.manage(rekordbox::source::ExportFolder::new(
-                app.path().document_dir().ok(),
-            ));
-            net::navigation::open_windows(app)?;
+            app.manage(rekordbox::source::ExportFolder::new(export_folder(
+                app, &data_dir,
+            )));
+            open_windows(app, &data_dir)?;
             Ok(())
         })
 }
@@ -115,8 +151,34 @@ pub fn setup_for_tests<R: Runtime>(builder: Builder<R>, data_dir: PathBuf) -> Bu
     setup(builder, DataDir::At(data_dir))
 }
 
+/// Where the app keeps its data. The real folder, except in a debug build
+/// started with [`preview::ENV_VAR`] set, for the development preview;
+/// anything but the marked preview folder stops the app rather than
+/// opening some other folder.
+#[cfg(debug_assertions)]
+fn startup_data_dir() -> Result<DataDir, String> {
+    match preview::Preview::from_env() {
+        Ok(None) => Ok(DataDir::AppData),
+        Ok(Some(preview)) => Ok(DataDir::Preview(preview)),
+        Err(refusal) => Err(format!(
+            "tracklist-pro: not starting, because {refusal}.\nUnset {var} to open the real data folder, or run `npm run design`.",
+            var = preview::ENV_VAR
+        )),
+    }
+}
+
+/// A release build has no preview: it always opens the real folder.
+#[cfg(not(debug_assertions))]
+fn startup_data_dir() -> Result<DataDir, String> {
+    Ok(DataDir::AppData)
+}
+
 pub fn run() {
-    setup(Builder::default(), DataDir::AppData)
+    let data_dir = startup_data_dir().unwrap_or_else(|message| {
+        eprintln!("{message}");
+        std::process::exit(2)
+    });
+    setup(Builder::default(), data_dir)
         .build(tauri::generate_context!())
         .expect("error while building tracklist-pro")
         .run(on_run_event);
@@ -545,6 +607,57 @@ mod tests {
             assert!(start.elapsed() < std::time::Duration::from_secs(10));
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
+    }
+
+    /// A marked preview folder in a temp dir, with its data folder made.
+    #[cfg(debug_assertions)]
+    fn marked_preview() -> (tempfile::TempDir, preview::Preview) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let root = PathBuf::from(root.to_string_lossy().trim_start_matches(r"\\?\"));
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        std::fs::write(root.join(preview::MARKER), "").unwrap();
+        let preview = preview::Preview::at(&root).unwrap();
+        (dir, preview)
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[allow(deprecated)]
+    fn the_preview_opens_its_own_folder_and_looks_for_the_export_in_its_own_documents() {
+        let (_dir, preview) = marked_preview();
+        let mut app = mock_app_with(DataDir::Preview(preview.clone()));
+        app.run_iteration(|_, _| {});
+
+        // The database is in the preview's data folder, and the rekordbox
+        // export is looked for in the preview's own documents folder, not
+        // the real one.
+        let real_data = std::fs::canonicalize(preview.data()).unwrap();
+        assert_eq!(
+            app.state::<write_guard::WriteGuard>().app_data_dir(),
+            real_data
+        );
+        assert!(db::db_path(&real_data).is_file());
+        assert_eq!(
+            app.state::<rekordbox::source::ExportFolder>().get(),
+            Some(preview.documents())
+        );
+        // The window opens (its title and browser profile are applied in
+        // `open_windows`; the mock runtime can't report a title, so the
+        // source is checked in `preview::tests`).
+        assert!(app.get_webview_window("main").is_some());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[allow(deprecated)]
+    fn the_real_startup_looks_for_the_export_in_documents() {
+        let (_data, mut app) = mock_app();
+        app.run_iteration(|_, _| {});
+        assert_eq!(
+            app.state::<rekordbox::source::ExportFolder>().get(),
+            app.path().document_dir().ok()
+        );
     }
 
     #[cfg(windows)]
