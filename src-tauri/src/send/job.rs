@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use tauri::{AppHandle, Manager, Runtime};
 
 use super::file::{send_path, write_and_record, WriteError};
-use super::preflight::{review, Reviewed};
+use super::preflight::{no_file_at_location, review, Reviewed};
 use super::{SendFailure, SendFlow, SendStep, Sent};
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
 use crate::paths::Volumes;
@@ -252,8 +252,13 @@ impl<V: Volumes + 'static> Sender<V> {
                 "another export was read meanwhile",
             ));
         }
+        // The writer is free again: now ask the disk about the tracks
+        // sent at another path than their file's. Only here; the go never
+        // asks again, and the token doesn't cover the answer.
+        let mut preflight = reviewed.preflight;
+        preflight.no_file_at_location = no_file_at_location(&reviewed.sent_elsewhere);
         self.flow.end(SendStep::Prepare, |steps| {
-            steps.review = Some(reviewed.preflight);
+            steps.review = Some(preflight);
         });
         Ok(())
     }

@@ -201,7 +201,9 @@ pub struct Preflight {
     /// file somewhere else (same name and length, say), and a known
     /// track's `Location` is never changed by a send. rekordbox couldn't
     /// find the file before the import and still won't after it. A track
-    /// in [`Preflight::file_missing`] is never here too.
+    /// in [`Preflight::file_missing`] is never here too. Looked up on disk
+    /// once, by the prepare step; the token doesn't cover it, so a file
+    /// that comes back before the go changes nothing about the go.
     pub no_file_at_location: Vec<TrackLabel>,
     pub other_file: Vec<OtherFile>,
     /// Not empty: the send needs an explicit confirm

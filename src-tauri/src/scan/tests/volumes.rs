@@ -188,6 +188,9 @@ fn drive(dir: &tempfile::TempDir, guid: &str) -> Drive {
     }
 }
 
+// Adds a folder at a real temp path, which only parses as a path on
+// Windows (ROADMAP §1.1: elsewhere adding a folder fails cleanly).
+#[cfg(windows)]
 #[test]
 fn a_folder_added_on_a_drive_is_stored_with_the_drives_guid() {
     let dir = tempfile::tempdir().unwrap();
@@ -197,6 +200,7 @@ fn a_folder_added_on_a_drive_is_stored_with_the_drives_guid() {
     assert_eq!(volume_rows(&writer)[0].2.as_deref(), Some(GUID_A));
 }
 
+#[cfg(windows)]
 #[test]
 fn adding_a_folder_on_a_backup_never_told_apart_keeps_the_originals_remembered_guid() {
     let dir = tempfile::tempdir().unwrap();
