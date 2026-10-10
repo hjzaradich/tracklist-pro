@@ -1180,3 +1180,36 @@ fn if_shutdown_cannot_start_its_helper_the_workers_still_stop_taking_jobs() {
         "a worker took a job after the stop"
     );
 }
+
+/// How big the write-ahead log file beside the database is now.
+fn log_bytes(writer: &Writer) -> u64 {
+    let mut log = writer.path().as_os_str().to_owned();
+    log.push("-wal");
+    std::fs::metadata(log).map_or(0, |m| m.len())
+}
+
+#[test]
+fn when_the_last_job_ends_the_databases_log_is_emptied() {
+    let (_dir, writer) = temp_writer();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .handler(JobKind::Scan, |job: &JobContext| {
+            job.writer().call(|c| {
+                c.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS big (x BLOB);
+                     INSERT INTO big VALUES (randomblob(2097152));",
+                )
+            })?;
+            Ok(())
+        })
+        .start()
+        .unwrap();
+
+    let id = queue.enqueue(NewJob::new(JobKind::Scan)).unwrap();
+    assert_eq!(finished(&writer, id).status, JobStatus::Done);
+    // The worker records the job's end and empties the log in one step;
+    // asking the queue anything waits for that step to be over.
+    queue.activity().unwrap();
+    assert_eq!(log_bytes(&writer), 0);
+    queue.shutdown();
+}

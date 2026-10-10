@@ -460,6 +460,252 @@ fn a_track_rekordbox_has_whose_file_is_missing_is_sent_and_listed_not_left_out()
     let _ = here;
 }
 
+// --- sent with rekordbox's path, where no file is ------------------------------
+
+/// A path as a rekordbox `Location`.
+fn location_of(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    let path = path.trim_start_matches("//?/");
+    format!("file://localhost/{}", path.replace(' ', "%20"))
+}
+
+/// An export holding one track rekordbox has at `location`, lasting 200 s.
+fn export_with_one_track_at(location: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.2.19" Company="AlphaTheta"/>
+  <COLLECTION Entries="1">
+    <TRACK TrackID="40" Name="Known in rekordbox" Artist="Kit" TotalTime="200" PlayCount="7" Location="{location}"/>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="0"/>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>
+"#
+    )
+}
+
+/// A Library track on `E:\Music\known.mp3`, in a crate, and rekordbox's
+/// entry for it at `theirs`: another path, so only the name and the length
+/// pair the two (relink's second step, a trusted match).
+fn world_with_a_known_track_rekordbox_has_at(theirs: &Path) -> (World, LibraryTrackId) {
+    world_with_a_known_track_at_location(&location_of(theirs))
+}
+
+/// The same, with rekordbox's `Location` as written.
+fn world_with_a_known_track_at_location(location: &str) -> (World, LibraryTrackId) {
+    let w = World::new();
+    let (known, file) = w.library_track("known.mp3", "Known", true);
+    w.insert(
+        "UPDATE file SET duration_ms = 200000 WHERE id = ?1",
+        (file,),
+    );
+    w.crate_of("Warm up", &[known]);
+    w.save_export_text(&export_with_one_track_at(location));
+    (w, known)
+}
+
+fn listed_without_a_file(preflight: &Preflight) -> Vec<LibraryTrackId> {
+    preflight
+        .no_file_at_location
+        .iter()
+        .map(|t| t.library_track)
+        .collect()
+}
+
+// Off Windows the item never lists anything: no drive is ever connected
+// there, and a rekordbox `Location` is a Windows path.
+#[cfg(windows)]
+#[test]
+fn a_known_track_sent_with_rekordboxs_path_where_no_file_is_is_listed_and_still_sent_unchanged() {
+    let sandbox = tempfile::tempdir().unwrap();
+    let theirs = fs::canonicalize(sandbox.path())
+        .unwrap()
+        .join("Old place")
+        .join("known.mp3");
+    let (w, known) = world_with_a_known_track_rekordbox_has_at(&theirs);
+
+    let preflight = w.prepare().unwrap();
+    // rekordbox has it: it's the app's pairing that put the two together.
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 1));
+    assert_eq!(listed_without_a_file(&preflight), [known]);
+    // A line in the review, not a stop: nothing else about the send moves.
+    assert_eq!(preflight.file_missing, []);
+    assert_eq!(preflight.left_out, []);
+    assert!(preflight.can_send && !preflight.needs_confirm);
+
+    assert_eq!(w.go(false), None);
+    let sent = RekordboxXml::read_file(&w.send_file()).unwrap();
+    assert_eq!(sent.tracks.len(), 1);
+    // rekordbox's own entry at rekordbox's own path, as before.
+    assert_eq!(sent.tracks[0].track_id, Some(40));
+    assert_eq!(
+        sent.tracks[0].location.as_ref().unwrap().match_key(),
+        crate::rekordbox::location::decode(&location_of(&theirs))
+            .unwrap()
+            .match_key()
+    );
+}
+
+#[test]
+fn a_known_track_whose_file_is_at_rekordboxs_path_is_not_listed_even_outside_every_music_folder() {
+    let sandbox = tempfile::tempdir().unwrap();
+    let folder = fs::canonicalize(sandbox.path()).unwrap().join("Old place");
+    fs::create_dir(&folder).unwrap();
+    let theirs = folder.join("known.mp3");
+    // rekordbox's file is really there, in a folder the app doesn't scan.
+    fs::write(&theirs, b"audio").unwrap();
+    let (w, _known) = world_with_a_known_track_rekordbox_has_at(&theirs);
+
+    let preflight = w.prepare().unwrap();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 1));
+    assert_eq!(preflight.no_file_at_location, []);
+}
+
+#[test]
+fn a_known_track_at_a_path_on_a_drive_that_is_not_connected_is_not_listed() {
+    // A drive letter nothing is mounted at on this PC.
+    let Some(letter) = ('D'..='Z').find(|l| !Path::new(&format!("{l}:\\")).exists()) else {
+        return;
+    };
+    let theirs = PathBuf::from(format!("{letter}:\\Old place\\known.mp3"));
+    let (w, _known) = world_with_a_known_track_rekordbox_has_at(&theirs);
+
+    let preflight = w.prepare().unwrap();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 1));
+    // Whether the file is there can't be told while the drive is away.
+    assert_eq!(preflight.no_file_at_location, []);
+}
+
+#[test]
+fn a_known_track_at_a_network_path_or_a_macos_path_is_never_looked_up_or_listed() {
+    for location in [
+        "file://localhost//server/share/Old%20place/known.mp3",
+        "file://localhost/Users/dj/Music/Old%20place/known.mp3",
+    ] {
+        let (w, _known) = world_with_a_known_track_at_location(location);
+        let preflight = w.prepare().unwrap();
+        // Paired with the Library's file by name and length, as before.
+        assert_eq!(
+            (preflight.new_tracks, preflight.known_tracks),
+            (0, 1),
+            "{location}"
+        );
+        assert_eq!(preflight.no_file_at_location, [], "{location}");
+    }
+}
+
+/// A track as a send writes it, for [`super::preflight::sent_elsewhere`].
+fn sent_at(location: &str, in_rekordbox: bool, file_missing: bool) -> SentTrack {
+    SentTrack {
+        library_track: LibraryTrackId(1),
+        in_rekordbox,
+        track_id: 40,
+        attributes: vec![("Location".to_owned(), location.to_owned())],
+        rekordbox_holds_other_file: None,
+        file_missing,
+    }
+}
+
+#[test]
+fn only_a_known_track_sent_at_another_drive_path_than_its_file_is_looked_up_on_disk() {
+    use super::preflight::sent_elsewhere;
+    const LINKED: Option<&str> = Some(r"E:\Music\known.mp3");
+    const ELSEWHERE: &str = "file://localhost/D:/Old%20place/known.mp3";
+
+    // The case the item is for.
+    assert_eq!(
+        sent_elsewhere(&sent_at(ELSEWHERE, true, false), LINKED).as_deref(),
+        Some(r"D:\Old place\known.mp3")
+    );
+    // Sent although its own file is missing, at another path than that
+    // file's (a pairing kept while the file is gone): it's in the
+    // missing-file list, and never in this one too.
+    assert_eq!(
+        sent_elsewhere(&sent_at(ELSEWHERE, true, true), LINKED),
+        None
+    );
+    // A track rekordbox doesn't have is sent where its file is.
+    assert_eq!(
+        sent_elsewhere(&sent_at(ELSEWHERE, false, false), LINKED),
+        None
+    );
+    // The same path, however rekordbox spells or cases it.
+    for same in [
+        "file://localhost/E:/Music/known.mp3",
+        "file://localhost/e:/music/KNOWN.mp3",
+        "file://localhost/E:/Music/%6bnown.mp3",
+    ] {
+        assert_eq!(
+            sent_elsewhere(&sent_at(same, true, false), LINKED),
+            None,
+            "{same}"
+        );
+    }
+    // A network path, a macOS path, a streaming entry, nonsense.
+    for other in [
+        "file://localhost//server/share/Old%20place/known.mp3",
+        "file://localhost/Users/dj/Music/known.mp3",
+        "soundcloud:tracks:1",
+        "",
+    ] {
+        assert_eq!(
+            sent_elsewhere(&sent_at(other, true, false), LINKED),
+            None,
+            "{other}"
+        );
+    }
+    // Without a linked file's path there's nothing to compare with.
+    assert_eq!(sent_elsewhere(&sent_at(ELSEWHERE, true, false), None), None);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_file_coming_back_between_the_review_and_the_go_does_not_refuse_the_go_or_change_what_is_written(
+) {
+    let sandbox = tempfile::tempdir().unwrap();
+    let folder = fs::canonicalize(sandbox.path()).unwrap().join("Old place");
+    let theirs = folder.join("known.mp3");
+    let (w, known) = world_with_a_known_track_rekordbox_has_at(&theirs);
+
+    // Reviewed with the track listed, and written as reviewed.
+    let reviewed = w.prepare().unwrap();
+    assert_eq!(listed_without_a_file(&reviewed), [known]);
+    assert_eq!(w.go(false), None);
+    let as_reviewed = fs::read(w.send_file()).unwrap();
+
+    // Again, from a new export of the same content: listed in the review,
+    // then the file is put back before the go.
+    w.save_export_text(&export_with_one_track_at(&location_of(&theirs)));
+    let reviewed = w.prepare().unwrap();
+    assert_eq!(listed_without_a_file(&reviewed), [known]);
+    fs::create_dir(&folder).unwrap();
+    fs::write(&theirs, b"audio").unwrap();
+
+    // The list was about the disk, not about the send: the go isn't
+    // refused, and the file is the one reviewed.
+    assert_eq!(w.go(false), None);
+    assert_eq!(fs::read(w.send_file()).unwrap(), as_reviewed);
+    // The next review looks again.
+    w.save_export_text(&export_with_one_track_at(&location_of(&theirs)));
+    assert_eq!(w.prepare().unwrap().no_file_at_location, []);
+}
+
+#[test]
+fn a_track_sent_although_its_own_file_is_missing_is_listed_once_under_that_and_not_here() {
+    let w = World::new();
+    let (gone, _) = w.library_track("gone.mp3", "Gone", false);
+    let (new, _) = w.library_track("new.mp3", "New", true);
+    w.crate_of("Warm up", &[gone, new]);
+    w.save_export(&[Rb(40, "gone.mp3", "Gone in rekordbox")]);
+
+    let preflight = w.prepare().unwrap();
+    assert_eq!(preflight.file_missing.len(), 1);
+    // Neither the track whose own file is missing nor the new one.
+    assert_eq!(preflight.no_file_at_location, []);
+}
+
 #[test]
 fn a_track_rekordbox_holds_as_another_file_is_listed_and_can_still_be_sent() {
     let w = World::new();

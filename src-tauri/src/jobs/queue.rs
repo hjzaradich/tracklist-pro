@@ -642,6 +642,16 @@ fn run(shared: &Arc<Shared>, job: Claimed, flag: Arc<AtomicU8>) {
     // If this fails the row stays `running`; the next start finds it (`store::recover_interrupted`).
     let _ = shared.writer.call(move |c| store::finish(c, id, &stored));
     state.running.remove(&id);
+    // The last job there was, and it's over: a quiet point. The database's
+    // log is folded in and emptied before the job is reported finished,
+    // so an idle app never sits on a large log. If a read is in the way,
+    // or it fails, the next time the queue runs dry tries again.
+    let last = state.active.len() == 1 && state.active.contains_key(&id);
+    if last && ending != Ending::Requeued {
+        if let Err(e) = shared.writer.checkpoint() {
+            eprintln!("job queue: the database's log couldn't be emptied: {e}");
+        }
+    }
     let Some(kind) = kind else { return };
     let progress = state.active.get(&id).and_then(|j| j.progress);
     let (status, progress) = match ending {

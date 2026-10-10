@@ -19,6 +19,33 @@ use crate::write_guard::GuardedPath;
 
 type Job = Box<dyn FnOnce(&mut Connection) + Send>;
 
+/// How long a write waits for another connection's lock.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The most the write-ahead log file (`…-wal`, beside the database) keeps
+/// on disk once its contents are in the database: 32 MiB.
+///
+/// Every write goes to the log first and is folded into the database by a
+/// checkpoint. SQLite checkpoints by itself as the writer commits, and
+/// then starts the log again from its beginning, but it never gives the
+/// file's space back: one large burst of writes leaves it that big for
+/// good (365 MB beside an 85 MB database after the first real cycle).
+/// With this limit SQLite cuts the file back to it whenever the log
+/// starts again, and [`Writer::checkpoint`] empties it at quiet points.
+/// While one transaction is still being written the log can be larger;
+/// nothing can bound that from here.
+pub const LOG_SIZE_LIMIT: i64 = 32 * 1024 * 1024;
+
+/// What [`Writer::checkpoint`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Checkpoint {
+    /// Everything in the log is in the database, and the log file is empty.
+    Emptied,
+    /// A read was in progress, so the log couldn't be emptied this time.
+    /// Nothing is wrong: the next quiet point tries again.
+    ReadInProgress,
+}
+
 /// Why a database call failed.
 #[derive(Debug)]
 pub enum DbError {
@@ -125,6 +152,12 @@ impl Writer {
         configure(&conn)?;
         migrations::run(&mut conn, migrations)?;
         conn.pragma_update(None, "foreign_keys", true)?;
+        // Whatever an earlier run left in the log (it may have been killed)
+        // goes into the database now, while nothing reads. If it can't be
+        // done, the app starts all the same.
+        if let Err(e) = checkpoint(&conn) {
+            eprintln!("database: the log couldn't be emptied at startup: {e}");
+        }
         let (jobs, queue) = mpsc::channel::<Job>();
         let thread = thread::Builder::new()
             .name("db-writer".into())
@@ -148,6 +181,15 @@ impl Writer {
     /// [`ReadPool`](super::ReadPool) on it.
     pub fn guarded_path(&self) -> &GuardedPath {
         &self.inner.path
+    }
+
+    /// Folds the write-ahead log into the database and empties the log
+    /// file, if no read is in progress; if one is, it gives up at once
+    /// ([`Checkpoint::ReadInProgress`]) instead of waiting for it. Called
+    /// at quiet points: when the database is opened, whenever the job
+    /// queue has nothing left to do, and when the app closes.
+    pub fn checkpoint(&self) -> Result<Checkpoint, DbError> {
+        self.call(|conn| checkpoint(conn))
     }
 
     /// Runs `job` on the writer connection and waits for its result.
@@ -190,7 +232,7 @@ fn configure(conn: &Connection) -> Result<(), DbError> {
     // First, so switching to WAL waits for another app instance's lock
     // instead of failing at once. rusqlite sets 5 s by default today but
     // may change that; don't depend on it.
-    conn.busy_timeout(Duration::from_secs(5))?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     let mode: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
     if !mode.eq_ignore_ascii_case("wal") {
         return Err(DbError::NotWal(mode));
@@ -198,7 +240,35 @@ fn configure(conn: &Connection) -> Result<(), DbError> {
     // With WAL, NORMAL can't corrupt the database; a power cut can lose only
     // the last few commits.
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    // Answers with the limit now in force; nothing to check in it.
+    conn.pragma_update_and_check(None, "journal_size_limit", LOG_SIZE_LIMIT, |_| Ok(()))?;
     Ok(())
+}
+
+/// [`Writer::checkpoint`], on the writer's connection.
+fn checkpoint(conn: &Connection) -> rusqlite::Result<Checkpoint> {
+    // Emptying the log needs every reader off it. Rather than hold every
+    // write up to five seconds for one, don't wait at all.
+    conn.busy_timeout(Duration::ZERO)?;
+    // The answer's first column is 1 when a reader (or another writer) was
+    // in the way.
+    let blocked = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+        r.get::<_, i64>(0)
+    });
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    match blocked {
+        Ok(0) => Ok(Checkpoint::Emptied),
+        Ok(_) => Ok(Checkpoint::ReadInProgress),
+        Err(rusqlite::Error::SqliteFailure(e, _))
+            if matches!(
+                e.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            ) =>
+        {
+            Ok(Checkpoint::ReadInProgress)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 thread_local! {
@@ -594,5 +664,123 @@ mod tests {
             .call(|c| c.query_row("SELECT x FROM t", [], |r| r.get(0)))
             .unwrap();
         assert_eq!(x, 7);
+    }
+
+    /// How big the write-ahead log file beside the database is now.
+    fn log_bytes(writer: &Writer) -> u64 {
+        let mut log = writer.path().as_os_str().to_owned();
+        log.push("-wal");
+        std::fs::metadata(log).map_or(0, |m| m.len())
+    }
+
+    /// One transaction writing `mib` MiB of rows nothing compresses.
+    fn burst(writer: &Writer, mib: usize) {
+        writer
+            .call(move |c| {
+                c.execute_batch("CREATE TABLE IF NOT EXISTS big (x BLOB)")?;
+                let tx = c.transaction()?;
+                for _ in 0..mib {
+                    tx.execute("INSERT INTO big VALUES (randomblob(1048576))", [])?;
+                }
+                tx.commit()
+            })
+            .unwrap();
+    }
+
+    fn rows(writer: &Writer) -> i64 {
+        writer
+            .call(|c| c.query_row("SELECT count(*) FROM big", [], |r| r.get(0)))
+            .unwrap()
+    }
+
+    #[test]
+    fn after_a_large_burst_of_writes_a_checkpoint_empties_the_log_file_and_loses_nothing() {
+        let (_dir, writer) = open_temp();
+        burst(&writer, 40);
+        assert!(
+            log_bytes(&writer) > LOG_SIZE_LIMIT as u64,
+            "the burst is larger than the limit: {} bytes",
+            log_bytes(&writer)
+        );
+
+        assert_eq!(writer.checkpoint().unwrap(), Checkpoint::Emptied);
+        assert_eq!(log_bytes(&writer), 0);
+        assert_eq!(rows(&writer), 40);
+    }
+
+    #[test]
+    fn without_a_quiet_point_the_log_file_is_still_cut_back_to_the_limit_when_writing_goes_on() {
+        let (_dir, writer) = open_temp();
+        burst(&writer, 40);
+        assert!(log_bytes(&writer) > LOG_SIZE_LIMIT as u64);
+
+        // No checkpoint is asked for. SQLite's own, as the burst committed,
+        // put it all in the database; the next writes start the log again
+        // from its beginning, and that's when the file is cut back.
+        burst(&writer, 1);
+        assert!(
+            log_bytes(&writer) <= LOG_SIZE_LIMIT as u64,
+            "{} bytes",
+            log_bytes(&writer)
+        );
+        assert_eq!(rows(&writer), 41);
+    }
+
+    #[test]
+    fn a_checkpoint_that_meets_a_read_in_progress_gives_up_without_an_error_and_works_once_it_is_over(
+    ) {
+        let (_dir, writer) = open_temp();
+        burst(&writer, 1);
+        let reads = crate::db::ReadPool::open(writer.guarded_path()).unwrap();
+
+        reads
+            .read(|c| {
+                // A read in progress: it keeps its view of the database
+                // while the writer carries on.
+                c.execute_batch("BEGIN")?;
+                let seen: i64 = c.query_row("SELECT count(*) FROM big", [], |r| r.get(0))?;
+                assert_eq!(seen, 1);
+                burst(&writer, 2);
+
+                // Not an error, and not a wait for the read to end.
+                assert_eq!(writer.checkpoint().unwrap(), Checkpoint::ReadInProgress);
+                assert!(log_bytes(&writer) > 0);
+                // The read still sees what it saw; the writer still writes.
+                let seen: i64 = c.query_row("SELECT count(*) FROM big", [], |r| r.get(0))?;
+                assert_eq!(seen, 1);
+                burst(&writer, 1);
+                Ok(())
+            })
+            .unwrap();
+
+        // Tried again at the next quiet point: now it goes through.
+        assert_eq!(writer.checkpoint().unwrap(), Checkpoint::Emptied);
+        assert_eq!(log_bytes(&writer), 0);
+        assert_eq!(rows(&writer), 4);
+    }
+
+    #[test]
+    fn opening_the_database_empties_a_log_an_earlier_run_left_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = test_path(dir.path(), "test.db");
+        let writer = Writer::open(&path).unwrap();
+        burst(&writer, 3);
+        // A second connection, doing nothing, stands in for the kill:
+        // while it's open, the first one going away doesn't tidy the log
+        // up, as a clean close of the last connection would.
+        let holder = path.open_database().unwrap();
+        let seen: i64 = holder
+            .query_row("SELECT count(*) FROM big", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(seen, 3);
+        drop(writer);
+        let mut log = path.as_path().as_os_str().to_owned();
+        log.push("-wal");
+        assert!(std::fs::metadata(&log).unwrap().len() > 0);
+
+        let writer = Writer::open(&path).unwrap();
+        assert_eq!(log_bytes(&writer), 0);
+        assert_eq!(rows(&writer), 3);
+        drop(holder);
     }
 }

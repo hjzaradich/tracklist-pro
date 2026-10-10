@@ -196,6 +196,15 @@ pub struct Preflight {
     /// Tracks rekordbox has whose file is missing: sent all the same, as
     /// rekordbox's own entry, so the crates naming them stay whole.
     pub file_missing: Vec<TrackLabel>,
+    /// Tracks rekordbox has that are sent with rekordbox's own `Location`
+    /// while no file is there: the app paired rekordbox's entry with a
+    /// file somewhere else (same name and length, say), and a known
+    /// track's `Location` is never changed by a send. rekordbox couldn't
+    /// find the file before the import and still won't after it. A track
+    /// in [`Preflight::file_missing`] is never here too. Looked up on disk
+    /// once, by the prepare step; the token doesn't cover it, so a file
+    /// that comes back before the go changes nothing about the go.
+    pub no_file_at_location: Vec<TrackLabel>,
     pub other_file: Vec<OtherFile>,
     /// Not empty: the send needs an explicit confirm
     /// ([`Preflight::needs_confirm`] says when it's needed).

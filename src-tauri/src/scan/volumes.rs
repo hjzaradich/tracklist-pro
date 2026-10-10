@@ -122,6 +122,9 @@ pub fn note_mounted(
 /// After drives came or went: looks at the volumes again, notes where the
 /// known ones are, and rereads what the library remembers.
 pub fn devices_changed(writer: &Writer) -> Result<(), DbError> {
+    // Only Windows has volumes to look at again (ROADMAP §1.1): elsewhere
+    // none is ever mounted (`mounted_now`), and there's nothing to tell.
+    #[cfg(windows)]
     crate::paths::devices_changed();
     let mounted = mounted_now();
     writer.call(move |c| {

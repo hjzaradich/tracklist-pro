@@ -298,6 +298,16 @@ function Review({
           </Rows>
         </>
       )}
+      {preflight.noFileAtLocation.length > 0 && (
+        <>
+          <p className={styles.warning}>
+            {t("review.noFileAtLocation", { count: preflight.noFileAtLocation.length })}
+          </p>
+          <Rows rows={preflight.noFileAtLocation}>
+            {(track) => <li key={track.libraryTrack}>{name(track)}</li>}
+          </Rows>
+        </>
+      )}
       {preflight.otherFile.length > 0 && (
         <>
           <p className={styles.warning}>

@@ -29,6 +29,7 @@ function preflight(fields: Partial<Preflight> = {}): Preflight {
     knownTracks: 12,
     leftOut: [],
     fileMissing: [],
+    noFileAtLocation: [],
     otherFile: [],
     losesEntries: [],
     refusal: null,
@@ -312,6 +313,33 @@ describe("the send checklist", () => {
     expect(review.getByText("Lost")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled();
+  });
+
+  it("lists tracks sent with rekordbox's path where no file is, and asks for no confirm", async () => {
+    fakeBackend({
+      preflight: preflight({ noFileAtLocation: [label(4, "Moved"), label(6, "Renamed")] }),
+    });
+    renderChecklist();
+    const review = step(tx("send:review.title"));
+    expect(
+      await review.findByText(tx("send:review.noFileAtLocation", { count: 2 })),
+    ).toBeInTheDocument();
+    expect(review.getByText("Moved")).toBeInTheDocument();
+    expect(review.getByText("Renamed")).toBeInTheDocument();
+    // It says what rekordbox will show; the send itself isn't held up.
+    expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled();
+  });
+
+  it("says nothing about rekordbox's paths when every sent track has its file there", async () => {
+    fakeBackend({ preflight: preflight({}) });
+    renderChecklist();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled(),
+    );
+    for (const count of [0, 1, 2]) {
+      expect(screen.queryByText(tx("send:review.noFileAtLocation", { count }))).toBeNull();
+    }
   });
 
   it("lists tracks rekordbox already has as another file, and lets them go", async () => {

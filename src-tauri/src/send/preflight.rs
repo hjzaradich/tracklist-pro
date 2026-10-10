@@ -10,11 +10,14 @@ use super::{
 };
 use crate::library::{self, LibraryTrackId, StoredTrack};
 use crate::paths::Volumes;
+use crate::rekordbox::location::{decode, Location, PathStyle};
 use crate::rekordbox::source::stored_source;
 use crate::rekordbox_write::{
-    self, BuildError, Node, Outgoing, Reason, CRATES_FOLDER, PLAYLISTS_FOLDER,
+    self, BuildError, Node, Outgoing, Reason, SentTrack, CRATES_FOLDER, PLAYLISTS_FOLDER,
 };
+use crate::relink::rules::path_key;
 use crate::send_values::CannotSend;
+use crate::volume::VolumeKind;
 
 /// A send as it would go now: its description, and the file's contents
 /// unless the send is refused.
@@ -22,6 +25,20 @@ use crate::send_values::CannotSend;
 pub struct Reviewed {
     pub preflight: Preflight,
     pub outgoing: Option<Outgoing>,
+    /// The tracks rekordbox has that go out at another path than their
+    /// linked file's, for the prepare step to look up on disk
+    /// ([`no_file_at_location`]). Nothing in the preflight or its token
+    /// depends on them.
+    pub sent_elsewhere: Vec<SentElsewhere>,
+}
+
+/// A track rekordbox has, sent with rekordbox's own `Location` although
+/// its linked file is at another path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentElsewhere {
+    pub track: TrackLabel,
+    /// rekordbox's path for it, as Windows writes it: a drive path.
+    pub path: String,
 }
 
 /// Builds the send from the database as it is now (every Library track,
@@ -29,6 +46,12 @@ pub struct Reviewed {
 /// it. Only reads. `None` if rekordbox was never read.
 ///
 /// Call it in one writer job, so everything comes from the same moment.
+///
+/// [`Preflight::no_file_at_location`] is left empty here: it's about the
+/// disk, not about the send, so the prepare step fills it afterwards from
+/// [`Reviewed::sent_elsewhere`], outside the writer job, and the token
+/// doesn't cover it. A file that comes back between the review and the
+/// go changes neither the send nor whether it may be written.
 pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Option<Reviewed>> {
     let Some(read) = stored_source(conn)?.last_read else {
         return Ok(None);
@@ -66,6 +89,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         known_tracks: 0,
         left_out: Vec::new(),
         file_missing: Vec::new(),
+        no_file_at_location: Vec::new(),
         other_file: Vec::new(),
         loses_entries: Vec::new(),
         refusal: None,
@@ -73,6 +97,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         can_send: false,
         needs_confirm: false,
     };
+    let mut elsewhere = Vec::new();
     let outgoing = match built {
         Err(e) => {
             preflight.refusal = Some(refusal(&e));
@@ -101,6 +126,18 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
                 .filter(|sent| sent.file_missing)
                 .map(|sent| label(sent.library_track))
                 .collect();
+            for sent in &out.sent {
+                let linked = labels
+                    .get(&sent.library_track)
+                    .and_then(|t| t.file.as_ref())
+                    .map(|f| f.shown(volumes).path);
+                if let Some(path) = sent_elsewhere(sent, linked.as_deref()) {
+                    elsewhere.push(SentElsewhere {
+                        track: label(sent.library_track),
+                        path,
+                    });
+                }
+            }
             for sent in &out.sent {
                 let Some(other) = &sent.rekordbox_holds_other_file else {
                     continue;
@@ -135,10 +172,98 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
     preflight.needs_confirm =
         !preflight.loses_entries.is_empty() || preflight.export.not_stored > 0;
     preflight.token = token(&preflight, outgoing.as_ref());
+    // A refused send sends nothing anywhere.
+    let sent_elsewhere = match outgoing {
+        Some(_) => elsewhere,
+        None => Vec::new(),
+    };
     Ok(Some(Reviewed {
         preflight,
         outgoing,
+        sent_elsewhere,
     }))
+}
+
+/// rekordbox's path for `sent`, if it's a track rekordbox has that goes
+/// out with rekordbox's own `Location` while its linked file (`linked`, as
+/// Windows writes its path) is somewhere else: the app paired rekordbox's
+/// entry with a file at another path, and a send never changes a known
+/// track's `Location`. Whether rekordbox finds a file at its path is then
+/// a question for the disk ([`no_file_at_location`]). Reads nothing.
+///
+/// `None` for every other track, and for these:
+/// - a track sent although its linked file is missing
+///   ([`SentTrack::file_missing`]). It has its own list in the review
+///   ([`Preflight::file_missing`]) and is never in both, whichever path
+///   rekordbox has for it;
+/// - a `Location` that isn't a Windows drive path (`C:\…`): a network
+///   path (`\\server\share\…`) or a macOS path is never looked up.
+pub(super) fn sent_elsewhere(sent: &SentTrack, linked: Option<&str>) -> Option<String> {
+    if !sent.in_rekordbox || sent.file_missing {
+        return None;
+    }
+    let Ok(Location::File(theirs)) = decode(sent.location()) else {
+        return None;
+    };
+    if theirs.match_key() == path_key(&linked?.replace('\\', "/")) {
+        return None;
+    }
+    if theirs.style() != PathStyle::WindowsDrive {
+        return None;
+    }
+    theirs.to_windows()
+}
+
+/// The tracks among `sent_elsewhere` with no file at rekordbox's path:
+/// rekordbox will show them as missing, as it did before the send. This
+/// asks the disk, once per track and once per drive, so the prepare step
+/// calls it after its writer job, never inside one, and never again for
+/// the go.
+///
+/// The disk is asked because rekordbox's file may well be in a folder the
+/// app doesn't scan: a file there means rekordbox finds it. A track is
+/// listed only when the answer is a plain "nothing is there". It isn't
+/// listed when that can't be told:
+/// - its drive isn't connected now;
+/// - its drive is a network drive, mapped to a letter or not (asking one
+///   that doesn't answer can take a long time);
+/// - the lookup fails for any other reason than the file not being there.
+///
+/// Off Windows nothing is ever listed: no drive is connected there
+/// (ROADMAP §1.1).
+pub fn no_file_at_location(sent_elsewhere: &[SentElsewhere]) -> Vec<TrackLabel> {
+    // By drive (`C:\`, letter case folded): whether it's a local drive
+    // that's connected.
+    let mut local: HashMap<String, bool> = HashMap::new();
+    sent_elsewhere
+        .iter()
+        .filter(|sent| {
+            let Some(drive) = sent.path.get(..3) else {
+                return false;
+            };
+            *local
+                .entry(drive.to_ascii_uppercase())
+                .or_insert_with(|| is_local_drive(drive))
+                && nothing_is_at(&sent.path)
+        })
+        .map(|sent| sent.track.clone())
+        .collect()
+}
+
+/// Whether `drive` (`C:\`) is connected now and isn't a network drive.
+fn is_local_drive(drive: &str) -> bool {
+    let Ok(root) = crate::paths::verbatim_absolute(std::path::Path::new(drive)) else {
+        return false;
+    };
+    crate::volume::volume_for(&root).is_ok_and(|volume| volume.kind != VolumeKind::Network)
+}
+
+/// Whether the disk says plainly that nothing is at `path`. Only looks.
+fn nothing_is_at(path: &str) -> bool {
+    let Ok(path) = crate::paths::verbatim_absolute(std::path::Path::new(path)) else {
+        return false;
+    };
+    matches!(std::fs::metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// What a send from an export saved at `export_modified_ms` gets when that
