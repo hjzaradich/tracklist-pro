@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use tauri::{AppHandle, Manager, Runtime};
 
 use super::file::{send_path, write_and_record, WriteError};
-use super::preflight::{no_file_at_location, review, Reviewed};
+use super::preflight::{may_send_from_this_export, no_file_at_location, review, Reviewed};
 use super::{SendFailure, SendFlow, SendStep, Sent};
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
 use crate::paths::Volumes;
@@ -27,12 +27,20 @@ impl SendFlow {
             .priority(Priority::USER)
     }
 
-    /// The write job: the user's go for the preflight `token` names. It
-    /// only runs in this run of the app.
-    pub fn write_job(&self, token: &str, confirmed: bool) -> NewJob {
+    /// The write job: the user's go for the preflight `token` names, with
+    /// the explicit confirm and the answer about imports since the export
+    /// (see `write_send`). Both belong to this one job: nothing keeps them.
+    /// It only runs in this run of the app.
+    pub fn write_job(
+        &self,
+        token: &str,
+        confirmed: bool,
+        imported_since_export: Option<bool>,
+    ) -> NewJob {
         NewJob::new(JobKind::Export)
             .target(serde_json::json!({
                 "send": "write", "run": &*self.run, "token": token, "confirmed": confirmed,
+                "importedSinceExport": imported_since_export,
             }))
             .priority(Priority::USER)
     }
@@ -298,6 +306,17 @@ impl<V: Volumes + 'static> Sender<V> {
             return Err(Stop::new(
                 SendFailure::NotConfirmed,
                 "the send needs a confirm",
+            ));
+        }
+        // Only a JSON `false` is a "no": anything else there, or nothing,
+        // is no answer.
+        let imported_since_export = target
+            .and_then(|t| t.get("importedSinceExport"))
+            .and_then(|a| a.as_bool());
+        if !may_send_from_this_export(&reviewed, imported_since_export) {
+            return Err(Stop::new(
+                SendFailure::ExportOlderThanLastSend,
+                "the export is older than the last send, and no send was said not to have been imported since",
             ));
         }
         // rekordbox saved the export again since it was read: the read is

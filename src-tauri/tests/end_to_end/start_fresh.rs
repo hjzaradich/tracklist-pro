@@ -12,7 +12,7 @@ use serde_json::json;
 use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::library::LibraryTrack;
 use tracklist_pro_lib::rekordbox;
-use tracklist_pro_lib::send::{LeftOutReason, LosesEntries, RefusalReason, SendFailure, TreeKind};
+use tracklist_pro_lib::send::{LeftOutReason, LosesEntries, SendFailure, TreeKind};
 
 use super::fixtures::{
     assert_is_rekordboxs_own_entry, children, collection, entries, songs, track_at, KNOWN,
@@ -191,35 +191,73 @@ fn sending_a_fresh_library_again_duplicates_nothing() {
 
 /// The sequence that put duplicates in rekordbox: send new tracks, import
 /// them, then send again without exporting. The old export doesn't know
-/// rekordbox has them now, so they'd go out as new once more.
+/// rekordbox has them now, so they'd go out as new once more. The
+/// checklist asks; the true answer here is "yes, a send was imported".
 #[test]
-fn a_send_from_an_export_older_than_the_last_send_is_refused_until_rekordbox_exports_again() {
+fn after_an_import_a_send_from_the_export_from_before_it_is_refused_on_the_users_yes() {
     let (mut world, mut rb) = started_fresh();
     fresh_library_with_a_crate(&world);
     let first = world.send();
     let first_bytes = world.sent_bytes();
     rb.import(&first);
 
-    // "Read export" again, with no new export.
+    // "Read export" again, with no new export: the question is raised, and
+    // the review still counts the imported tracks as new.
     let state = world.prepare_send();
     assert_eq!(state.failure, None);
     let preflight = state.preflight.unwrap();
-    assert_eq!(
-        preflight.refusal.as_ref().map(|r| r.reason),
-        Some(RefusalReason::ExportOlderThanLastSend)
-    );
-    assert!(!preflight.can_send);
-    let state = world.write_send(&preflight.token, true);
-    assert_eq!(state.failure, Some(SendFailure::NotSendable));
-    assert_eq!(world.sent_bytes(), first_bytes, "nothing is written");
+    assert!(preflight.export_older_than_last_send);
+    assert_eq!(preflight.refusal, None);
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (2, 1));
 
-    // rekordbox exports: the send goes, and the tracks it now has are
-    // known, not new.
+    // Unanswered, then answered "a send was imported since": not written.
+    for answer in [None, Some(true)] {
+        let state = world.write_send_answering(&preflight.token, true, answer);
+        assert_eq!(state.failure, Some(SendFailure::ExportOlderThanLastSend));
+        assert_eq!(state.sent, None);
+        assert_eq!(world.sent_bytes(), first_bytes, "nothing is written");
+    }
+
+    // rekordbox exports: no question, the send goes, and the tracks it now
+    // has are known, not new.
     world.rekordbox_saves(&rb.export());
     let preflight = world.prepared();
-    assert_eq!(preflight.refusal, None);
+    assert!(!preflight.export_older_than_last_send);
     assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 3));
     world.write_and_read_back(&preflight, false);
+}
+
+/// The other case the app can't tell from that one (DOGFOOD K16): the
+/// first send was never imported. The user says so, and the send goes
+/// from the same export, exactly as it would from a new one.
+#[test]
+fn a_send_that_was_never_imported_can_be_followed_by_another_from_the_same_export_on_the_users_no()
+{
+    let (mut world, rb) = started_fresh();
+    let added = fresh_library_with_a_crate(&world);
+    world.send();
+    // Nothing was imported. The Library moves on: one more track.
+    let extra = world.add_from_all_music(&UNKNOWN[2]);
+    world.create_crate("Saturday", &[added.new[0].id, extra.id]);
+
+    let preflight = world.prepared();
+    assert!(preflight.export_older_than_last_send);
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (3, 1));
+    let state = world.write_send_answering(&preflight.token, false, Some(false));
+    assert_eq!(state.failure, None);
+    assert!(state.sent.is_some());
+    let on_the_answer = world.sent_bytes();
+    let sent = world.read_sent_file();
+    assert_eq!(sent.tracks.len(), 4);
+    assert!(track_at(&sent, &world.path_of(&UNKNOWN[2])).is_some());
+
+    // rekordbox exports the same collection again: no question this time,
+    // and the file is the same, byte for byte.
+    world.rekordbox_saves(&rb.export());
+    let fresh = world.prepared();
+    assert!(!fresh.export_older_than_last_send);
+    world.write_and_read_back(&fresh, false);
+    assert_eq!(world.sent_bytes(), on_the_answer);
 }
 
 #[test]

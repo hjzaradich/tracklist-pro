@@ -264,8 +264,24 @@ impl World {
 
     /// The go, for the preflight waiting. Returns how it failed, if it did.
     fn go(&self, confirmed: bool) -> Option<SendFailure> {
+        self.go_answering(confirmed, None)
+    }
+
+    /// The go, with the user's answer to "has a send been imported into
+    /// rekordbox since this export was saved?" (`None`: no answer).
+    fn go_answering(
+        &self,
+        confirmed: bool,
+        imported_since_export: Option<bool>,
+    ) -> Option<SendFailure> {
         let token = self.flow.preflight().map(|p| p.token).unwrap_or_default();
-        self.go_with(self.sender(), &token, confirmed)
+        let job = self
+            .flow
+            .write_job(&token, confirmed, imported_since_export);
+        let status = self.run_with(self.sender(), job);
+        let failure = self.flow.failure();
+        assert_eq!(status == JobStatus::Done, failure.is_none(), "{status:?}");
+        failure
     }
 
     fn go_with(
@@ -274,7 +290,7 @@ impl World {
         token: &str,
         confirmed: bool,
     ) -> Option<SendFailure> {
-        let status = self.run_with(sender, self.flow.write_job(token, confirmed));
+        let status = self.run_with(sender, self.flow.write_job(token, confirmed, None));
         let failure = self.flow.failure();
         assert_eq!(status == JobStatus::Done, failure.is_none(), "{status:?}");
         failure
@@ -859,51 +875,213 @@ fn an_incomplete_export_refuses_the_send_and_nothing_is_written_or_recorded() {
 
 // --- an export older than the last send ------------------------------------------
 
-/// The refusal an export saved before the last send gets.
-fn older_than_the_last_send() -> Option<Refusal> {
-    Some(Refusal {
-        reason: RefusalReason::ExportOlderThanLastSend,
-        path: Vec::new(),
-    })
-}
+const NO_ANSWER: Option<bool> = None;
+/// "No send has been imported into rekordbox since this export was saved."
+const NOTHING_IMPORTED_SINCE: Option<bool> = Some(false);
+/// "A send has been imported since."
+const IMPORTED_SINCE: Option<bool> = Some(true);
 
-#[test]
-fn a_second_send_from_the_same_export_is_refused_and_nothing_is_written_or_recorded() {
+/// A world whose one send has gone through, from an export saved an hour
+/// before it: the export is now older than the last send. Returns the
+/// file that send wrote and what it recorded.
+fn world_whose_export_is_older_than_its_last_send() -> (World, Vec<u8>, (Vec<String>, Vec<String>))
+{
     let (w, ..) = world_with_a_send_waiting();
-    // The export was saved an hour ago: before the send about to happen.
     let hour_ago = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         - Duration::from_secs(3600);
     w.export_saved_at(hour_ago);
-    // No send was ever recorded: an export of any age is fine.
+    // No send was ever recorded: an export of any age raises no question.
     assert_eq!(w.last_send_ms(), None);
     let preflight = w.prepare().unwrap();
-    assert_eq!(preflight.refusal, None);
-    assert_eq!(w.go(false), None);
+    assert!(!preflight.export_older_than_last_send);
+    assert_eq!(w.go_answering(false, NO_ANSWER), None);
     let file = fs::read(w.send_file()).unwrap();
     let recorded = w.recorded();
+    (w, file, recorded)
+}
 
-    // rekordbox hasn't exported since: the same export can't show what
-    // that send put there.
+#[test]
+fn an_export_older_than_the_last_send_is_not_refused_but_raises_the_question() {
+    let (w, ..) = world_whose_export_is_older_than_its_last_send();
     let preflight = w.prepare().unwrap();
-    assert_eq!(preflight.refusal, older_than_the_last_send());
-    assert!(!preflight.can_send);
-    assert_eq!(w.go(true), Some(SendFailure::NotSendable));
+    assert!(preflight.export_older_than_last_send);
+    // It's a question for the user, not a refusal: the review is whole.
+    assert_eq!(preflight.refusal, None);
+    assert!(preflight.can_send);
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (1, 1));
+}
+
+#[test]
+fn with_no_answer_a_send_from_an_older_export_is_not_written() {
+    let (w, file, recorded) = world_whose_export_is_older_than_its_last_send();
+    w.prepare().unwrap();
+    assert_eq!(
+        w.go_answering(false, NO_ANSWER),
+        Some(SendFailure::ExportOlderThanLastSend)
+    );
+    // The explicit confirm is another question: it doesn't answer this one.
+    assert_eq!(
+        w.go_answering(true, NO_ANSWER),
+        Some(SendFailure::ExportOlderThanLastSend)
+    );
     assert_eq!(fs::read(w.send_file()).unwrap(), file);
     assert_eq!(w.recorded(), recorded);
 }
 
 #[test]
-fn an_export_saved_after_the_last_send_is_sent() {
+fn answering_that_a_send_was_imported_since_refuses_the_send() {
+    let (w, file, recorded) = world_whose_export_is_older_than_its_last_send();
+    w.prepare().unwrap();
+    assert_eq!(
+        w.go_answering(true, IMPORTED_SINCE),
+        Some(SendFailure::ExportOlderThanLastSend)
+    );
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
+    assert_eq!(w.recorded(), recorded);
+}
+
+#[test]
+fn answering_that_nothing_was_imported_since_sends_exactly_what_a_fresh_export_of_the_same_content_would(
+) {
+    let (w, first, _) = world_whose_export_is_older_than_its_last_send();
+    // The Library has moved on since the first send, so this send differs.
+    let (later, _) = w.library_track("later.mp3", "Later", true);
+    w.crate_of("Later", &[later]);
+
+    let asked = w.prepare().unwrap();
+    assert!(asked.export_older_than_last_send);
+    assert_eq!(w.go_answering(false, NOTHING_IMPORTED_SINCE), None);
+    let on_the_answer = fs::read(w.send_file()).unwrap();
+    assert_ne!(on_the_answer, first);
+    assert_eq!(w.sent_titles(), ["Known in rekordbox", "New", "Later"]);
+
+    // The same content, exported again: no question, and the same file.
+    w.save_export(&[Rb(40, "known.mp3", "Known in rekordbox")]);
+    let fresh = w.prepare().unwrap();
+    assert!(!fresh.export_older_than_last_send);
+    assert_eq!(
+        (fresh.new_tracks, fresh.known_tracks),
+        (asked.new_tracks, asked.known_tracks)
+    );
+    assert_eq!(w.go_answering(false, NO_ANSWER), None);
+    assert_eq!(fs::read(w.send_file()).unwrap(), on_the_answer);
+}
+
+#[test]
+fn the_answer_is_for_one_send_and_the_next_send_from_that_export_asks_again() {
+    let (w, ..) = world_whose_export_is_older_than_its_last_send();
+    w.prepare().unwrap();
+    assert_eq!(w.go_answering(false, NOTHING_IMPORTED_SINCE), None);
+    let file = fs::read(w.send_file()).unwrap();
+    let recorded = w.recorded();
+
+    // The same export once more: it's older than the send just made, the
+    // question is there again, and the earlier "no" answers nothing.
+    let preflight = w.prepare().unwrap();
+    assert!(preflight.export_older_than_last_send);
+    assert_eq!(
+        w.go_answering(false, NO_ANSWER),
+        Some(SendFailure::ExportOlderThanLastSend)
+    );
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
+    assert_eq!(w.recorded(), recorded);
+}
+
+#[test]
+fn an_export_saved_after_the_last_send_raises_no_question_and_needs_no_answer() {
     let (w, ..) = world_with_a_send_waiting();
     w.prepare().unwrap();
     assert_eq!(w.go(false), None);
 
     w.save_export(&[Rb(40, "known.mp3", "Known in rekordbox")]);
     let preflight = w.prepare().unwrap();
+    assert!(!preflight.export_older_than_last_send);
     assert_eq!(preflight.refusal, None);
-    assert_eq!(w.go(false), None);
+    assert_eq!(w.go_answering(false, NO_ANSWER), None);
+}
+
+#[test]
+fn an_answer_to_a_question_that_was_not_asked_changes_nothing() {
+    let (w, ..) = world_with_a_send_waiting();
+    let preflight = w.prepare().unwrap();
+    assert!(!preflight.export_older_than_last_send);
+    assert_eq!(w.go_answering(false, IMPORTED_SINCE), None);
+    assert!(w.send_file().is_file());
+}
+
+#[test]
+fn a_no_does_not_let_through_a_send_that_is_no_longer_the_one_reviewed() {
+    let (w, file, _) = world_whose_export_is_older_than_its_last_send();
+    let reviewed = w.prepare().unwrap();
+    assert!(reviewed.export_older_than_last_send);
+    // The Library changes after the review.
+    let (later, _) = w.library_track("later.mp3", "Later", true);
+    w.crate_of("Later", &[later]);
+    let recorded = w.recorded();
+
+    assert_eq!(
+        w.go_answering(false, NOTHING_IMPORTED_SINCE),
+        Some(SendFailure::LibraryChanged)
+    );
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
+    assert_eq!(w.recorded(), recorded);
+}
+
+#[test]
+fn a_no_does_not_lift_a_refusal_of_the_send() {
+    let (w, file, recorded) = world_whose_export_is_older_than_its_last_send();
+    // The same old export, now also incomplete: three tracks said, one held.
+    let saved = fs::metadata(&w.export).unwrap().modified().unwrap();
+    fs::write(
+        &w.export,
+        export_text(&[Rb(40, "known.mp3", "Known in rekordbox")], 3),
+    )
+    .unwrap();
+    w.export_saved_at(saved.duration_since(SystemTime::UNIX_EPOCH).unwrap());
+
+    let preflight = w.prepare().unwrap();
+    assert!(preflight.export_older_than_last_send);
+    assert_eq!(
+        preflight.refusal.as_ref().map(|r| r.reason),
+        Some(RefusalReason::IncompleteExport)
+    );
+    assert!(!preflight.can_send);
+    assert_eq!(
+        w.go_answering(true, NOTHING_IMPORTED_SINCE),
+        Some(SendFailure::NotSendable)
+    );
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
+    assert_eq!(w.recorded(), recorded);
+}
+
+#[test]
+fn the_answer_travels_with_the_go_and_is_kept_nowhere() {
+    let (w, ..) = world_whose_export_is_older_than_its_last_send();
+    let token = w.prepare().unwrap().token;
+    // Only a plain "no" in the job is a no.
+    for (answer, stored) in [
+        (NO_ANSWER, serde_json::Value::Null),
+        (IMPORTED_SINCE, json!(true)),
+        (NOTHING_IMPORTED_SINCE, json!(false)),
+    ] {
+        let job = w.flow.write_job(&token, false, answer);
+        assert_eq!(job.target.unwrap()["importedSinceExport"], stored);
+    }
+    // After a send on a "no", nothing in the database says so.
+    assert_eq!(w.go_answering(false, NOTHING_IMPORTED_SINCE), None);
+    let mentions: i64 = w
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM setting WHERE key LIKE '%import%' OR value LIKE '%importedSince%'",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(mentions, 0);
 }
 
 /// 2026-10-01T10:00:00.123Z, written out by hand in both forms.
@@ -924,15 +1102,16 @@ fn the_export_is_compared_with_the_last_send_to_the_millisecond() {
         })
         .unwrap();
     assert_eq!(w.last_send_ms(), Some(SENT_AT_MS as i64));
+    let older = |w: &World| w.prepare().unwrap().export_older_than_last_send;
 
     w.export_saved_at(Duration::from_millis(SENT_AT_MS - 1));
-    assert_eq!(w.prepare().unwrap().refusal, older_than_the_last_send());
+    assert!(older(&w));
 
     w.export_saved_at(Duration::from_millis(SENT_AT_MS));
-    assert_eq!(w.prepare().unwrap().refusal, None);
+    assert!(!older(&w));
 
     w.export_saved_at(Duration::from_millis(SENT_AT_MS + 1));
-    assert_eq!(w.prepare().unwrap().refusal, None);
+    assert!(!older(&w));
 }
 
 #[test]
@@ -965,15 +1144,7 @@ fn each_place_a_send_is_recorded_counts_on_its_own_and_the_latest_wins() {
 
 #[test]
 fn a_send_is_still_remembered_by_its_tracks_once_a_read_has_dropped_its_crates() {
-    let (w, ..) = world_with_a_send_waiting();
-    let hour_ago = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        - Duration::from_secs(3600);
-    w.export_saved_at(hour_ago);
-    w.prepare().unwrap();
-    assert_eq!(w.go(false), None);
-    let file = fs::read(w.send_file()).unwrap();
+    let (w, file, _) = world_whose_export_is_older_than_its_last_send();
 
     // What a later read does when rekordbox no longer has the sent crate:
     // its record goes. The tracks' own record of the send stays.
@@ -982,10 +1153,13 @@ fn a_send_is_still_remembered_by_its_tracks_once_a_read_has_dropped_its_crates()
         .unwrap();
     assert!(w.last_send_ms().is_some());
 
-    // The export from before that send is still too old.
+    // The export from before that send is still older than it.
     let preflight = w.prepare().unwrap();
-    assert_eq!(preflight.refusal, older_than_the_last_send());
-    assert_eq!(w.go(true), Some(SendFailure::NotSendable));
+    assert!(preflight.export_older_than_last_send);
+    assert_eq!(
+        w.go_answering(true, NO_ANSWER),
+        Some(SendFailure::ExportOlderThanLastSend)
+    );
     assert_eq!(fs::read(w.send_file()).unwrap(), file);
 }
 
@@ -1270,7 +1444,7 @@ fn a_send_job_queued_by_another_run_of_the_app_does_nothing_whenever_it_runs() {
     // nothing is written, and the preflight is still there for a real go.
     let token = w.prepare().unwrap().token;
     let revision = w.flow.state(None).revision;
-    let status = w.run_with(w.sender(), earlier.write_job(&token, true));
+    let status = w.run_with(w.sender(), earlier.write_job(&token, true, None));
     assert_eq!(status, JobStatus::Cancelled);
     assert_eq!(w.data_files(), Vec::<String>::new());
     assert_eq!(w.recorded(), before);
@@ -1683,7 +1857,7 @@ fn unfinished_send_jobs_are_dropped_and_no_other_job_is() {
         )
     };
     let prepare = w.flow.prepare_job("C:\\x.xml").target;
-    let write = w.flow.write_job("token", true).target;
+    let write = w.flow.write_job("token", true, None).target;
     let dropped = [
         job("export", "queued", prepare.clone()),
         job("export", "queued", write.clone()),
@@ -1767,7 +1941,9 @@ mod ipc {
                 queue
                     .enqueue(earlier.prepare_job(&export.to_string_lossy()))
                     .unwrap(),
-                queue.enqueue(earlier.write_job("token", true)).unwrap(),
+                queue
+                    .enqueue(earlier.write_job("token", true, None))
+                    .unwrap(),
             )
         };
 

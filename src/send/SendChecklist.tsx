@@ -56,12 +56,18 @@ export function SendChecklist({
   const { data: source } = useXmlSource(null);
   // The confirm is for one preflight: a new one starts unticked.
   const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
+  // So is the answer about imports since the export: it belongs to one
+  // preflight, and a new one starts unanswered.
+  const [answer, setAnswer] = useState<{ token: string; imported: boolean } | null>(null);
 
   const when = (date: Date) =>
     new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(date);
 
   const preflight = state?.preflight ?? null;
   const confirmed = preflight !== null && confirmedFor === preflight.token;
+  // `null`: not answered (or not asked).
+  const importedSinceExport =
+    preflight !== null && answer?.token === preflight.token ? answer.imported : null;
   const failure = !busy ? (state?.failure ?? null) : null;
   // The step the failure belongs under: the one that ended last.
   const failedStep = state?.step ?? "write";
@@ -89,13 +95,18 @@ export function SendChecklist({
     if (!preflight || !state) return;
     const since = state.revision;
     write.mutate(
-      { token: preflight.token, confirmed },
+      { token: preflight.token, confirmed, importedSinceExport },
       { onSuccess: (job) => setWaiting({ step: "write", job, revision: since }) },
     );
   };
 
   const canGo =
-    preflight !== null && preflight.canSend && (!preflight.needsConfirm || confirmed) && !working;
+    preflight !== null &&
+    preflight.canSend &&
+    (!preflight.needsConfirm || confirmed) &&
+    // An export older than the last send goes only on a plain "no".
+    (!preflight.exportOlderThanLastSend || importedSinceExport === false) &&
+    !working;
   const dialogs = state?.sent?.knownTracks ?? preflight?.knownTracks ?? null;
 
   return (
@@ -168,6 +179,8 @@ export function SendChecklist({
               preflight={preflight}
               confirmed={confirmed}
               onConfirm={(ticked) => setConfirmedFor(ticked ? preflight.token : null)}
+              importedSinceExport={importedSinceExport}
+              onAnswer={(imported) => setAnswer({ token: preflight.token, imported })}
             />
           ) : (
             <p className={styles.muted}>{t("review.notYet")}</p>
@@ -249,13 +262,19 @@ function Review({
   preflight,
   confirmed,
   onConfirm,
+  importedSinceExport,
+  onAnswer,
 }: {
   preflight: Preflight;
   confirmed: boolean;
   onConfirm: (ticked: boolean) => void;
+  /** The answer to "imported since this export?"; `null` until given. */
+  importedSinceExport: boolean | null;
+  onAnswer: (imported: boolean) => void;
 }) {
   const { t } = useTranslation("send");
   const name = useTrackName();
+  const questionId = useId();
   const { refusal } = preflight;
   return (
     <>
@@ -348,6 +367,43 @@ function Review({
         <p className={styles.warning}>
           {t("review.notStored", { count: preflight.export.notStored })}
         </p>
+      )}
+      {preflight.exportOlderThanLastSend && preflight.canSend && (
+        // The export can't show what the last send put in rekordbox, and
+        // only the user knows whether it was imported.
+        <>
+          <div role="radiogroup" aria-labelledby={questionId}>
+            <p id={questionId} className={styles.warning}>
+              {t("review.importedSince.question")}
+            </p>
+            <label className={styles.confirm}>
+              <input
+                type="radio"
+                name={questionId}
+                checked={importedSinceExport === false}
+                onChange={() => onAnswer(false)}
+              />
+              {t("review.importedSince.no")}
+            </label>
+            <label className={styles.confirm}>
+              <input
+                type="radio"
+                name={questionId}
+                checked={importedSinceExport === true}
+                onChange={() => onAnswer(true)}
+              />
+              {t("review.importedSince.yes")}
+            </label>
+          </div>
+          {importedSinceExport === true && (
+            <p role="alert" className={styles.problem}>
+              {t("review.refused.exportOlderThanLastSend")}
+            </p>
+          )}
+          {importedSinceExport === false && (
+            <p role="status">{t("review.importedSince.goesAhead")}</p>
+          )}
+        </>
       )}
       {preflight.needsConfirm && preflight.canSend && (
         <label className={styles.confirm}>

@@ -547,9 +547,25 @@ impl World {
 
     /// The user's go. Returns what the checklist then shows.
     pub fn write_send(&self, token: &str, confirmed: bool) -> SendState {
+        self.write_send_answering(token, confirmed, None)
+    }
+
+    /// The user's go, with their answer to the checklist's question about
+    /// an export older than the last send: has a send been imported into
+    /// rekordbox since it was saved? (`None`: not asked, or not answered.)
+    pub fn write_send_answering(
+        &self,
+        token: &str,
+        confirmed: bool,
+        imported_since_export: Option<bool>,
+    ) -> SendState {
         self.run_job(
             "write_send",
-            json!({ "token": token, "confirmed": confirmed }),
+            json!({
+                "token": token,
+                "confirmed": confirmed,
+                "importedSinceExport": imported_since_export,
+            }),
         );
         self.send_state()
     }
