@@ -83,6 +83,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             JobKind::Group,
             crate::scan::chain::after_group(crate::grouping::Grouper::default()),
         )
+        .handler(
+            JobKind::Match,
+            crate::scan::chain::after_matching(crate::matching::Matcher::new()),
+        )
         .start()
 }
 

@@ -144,7 +144,7 @@ The canonical tag columns on `recording` (title, artist, …) exist but nothing 
 ### Scan
 1. `scan::folders::add_music_folder` stores a folder as volume + relative path. `scan::scan_music_folders` queues a **Scan** job.
 2. `scan::walk` lists audio files with stat only (size, mtime, NTFS file id) into `file` rows, in batches, and emits `ScannedFiles`. The unchanged check (`scan::unchanged`) compares a stored `partial_hash` when only the mtime moved. A file not found in a folder the walk could list becomes `present = 0`.
-3. `scan::chain` wraps each handler so one stage queues the next, at background priority: walk → **Read** (`read`, using `sniff` and `tags`) → **Hash** (`hash`) → **Group** (`grouping`) and **Fingerprint** (`fingerprint`).
+3. `scan::chain` wraps each handler so one stage queues the next, at background priority: walk → **Read** (`read`, using `sniff` and `tags`) → **Hash** (`hash`) → **Group** (`grouping`) and **Fingerprint** (`fingerprint`). Once the fingerprints are in (or none were due) come **Quality** (`quality`: each file's cutoff, decoded length and decode errors) and, last and one step below background priority, **Match** (`matching`: which files share audio; it makes way for a waiting relink or attach). Both only measure.
 4. Each stage asks `scan_state` which files are due and writes results plus its `file_stage` rows in one transaction per batch.
 5. A finished read, a finished fingerprint run and every grouping run ask for a **Relink**; relink and grouping ask for an **Attach**.
 6. `scan::watch` (optional per folder) turns bursts of file events into one rescan of the root. Every online folder is also rescanned at startup and when its drive returns.

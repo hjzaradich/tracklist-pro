@@ -16,12 +16,12 @@ use super::reference::PlainIndex;
 use super::synthetic::{fingerprint, reencoded, track};
 
 /// A migrated database in a temp dir with one music folder.
-struct Db {
-    writer: Writer,
+pub(super) struct Db {
+    pub(super) writer: Writer,
     _dir: tempfile::TempDir,
 }
 
-fn db() -> Db {
+pub(super) fn db() -> Db {
     let dir = tempfile::tempdir().unwrap();
     let writer = Writer::open(&crate::write_guard::test_path(
         dir.path(),
@@ -56,7 +56,7 @@ impl Db {
             .unwrap()
     }
 
-    fn add_items(&self, name: &str, items: Vec<u32>) -> i64 {
+    pub(super) fn add_items(&self, name: &str, items: Vec<u32>) -> i64 {
         self.add(name, &fingerprint(items))
     }
 
@@ -67,17 +67,17 @@ impl Db {
         self.sql("UPDATE file SET fingerprint = ?1 WHERE id = ?2", (blob, id));
     }
 
-    fn sql<P: rusqlite::Params + Send + 'static>(&self, sql: &'static str, params: P) {
+    pub(super) fn sql<P: rusqlite::Params + Send + 'static>(&self, sql: &'static str, params: P) {
         self.writer
             .call(move |c| c.execute(sql, params).map(|_| ()))
             .unwrap();
     }
 
-    fn all(&self) -> Vec<StoredMatch> {
+    pub(super) fn all(&self) -> Vec<StoredMatch> {
         self.writer.call(|c| store::all(c)).unwrap()
     }
 
-    fn pairs(&self) -> Vec<(i64, i64)> {
+    pub(super) fn pairs(&self) -> Vec<(i64, i64)> {
         self.all().iter().map(|m| (m.file_a, m.file_b)).collect()
     }
 
@@ -86,7 +86,7 @@ impl Db {
     }
 }
 
-fn pass(matcher: &Matcher, db: &Db) -> Summary {
+pub(super) fn pass(matcher: &Matcher, db: &Db) -> Summary {
     matcher
         .pass::<DbError>(&db.writer, &mut |_| Ok(()))
         .unwrap()
@@ -161,10 +161,10 @@ fn a_second_pass_with_nothing_new_compares_nothing_even_after_a_restart() {
         (0, 0, 0, 0)
     );
     // A new matcher (the app restarted) reads every fingerprint again, but
-    // every candidate pair already has its result.
+    // every file has been through a pass: it looks nothing up.
     let restarted = refresh(&db.writer).unwrap();
     assert_eq!(restarted.changed, 5);
-    assert_eq!((restarted.candidates, restarted.already_compared), (3, 3));
+    assert_eq!((restarted.candidates, restarted.already_compared), (0, 0));
     assert_eq!((restarted.compared, restarted.stored), (0, 0));
     assert_eq!(db.pairs().len(), 3);
 }
@@ -384,6 +384,7 @@ fn results_of_another_version_of_the_comparison_are_worked_out_again() {
         "UPDATE fingerprint_match SET version = version + 1, score = 31.0",
         (),
     );
+    db.sql("UPDATE fingerprint_matched SET version = version + 1", ());
     assert_eq!(db.pairs(), [], "another version's rows are never read");
     let summary = refresh(&db.writer).unwrap();
     assert_eq!((summary.compared, summary.stored), (3, 3));

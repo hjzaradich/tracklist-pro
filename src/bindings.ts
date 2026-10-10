@@ -509,7 +509,9 @@ export type JobKind =
  *  Measure a file's spectral cutoff, decoded duration and decode
  *  errors (1.6).
  */
-"quality";
+"quality" | 
+/**  Compare files' fingerprints to find shared audio (1.4). */
+"match";
 
 /**
  *  Where a job is in its life. Stored in `job.status` as

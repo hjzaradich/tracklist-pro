@@ -41,6 +41,16 @@
 //!   a relink the same way (1aD-1). By then the hashes and fingerprints of
 //!   the files the walk found are in, which is what relink's step 4 matches
 //!   a moved or re-encoded file by.
+//! - **Matching last:** once the fingerprints are in (or none were due),
+//!   the fingerprints are compared ([`crate::matching`], 1bA-14), after the
+//!   relink and quality requests and below every other job's priority. It
+//!   never holds another job up: a running pass makes way when a job of a
+//!   higher priority is waiting, and picks up where it stopped. Nothing
+//!   follows it, so a matching job that fails stops nothing else.
+//! - **Asked again where the chain ends early:** a walk with nothing to
+//!   read ends the chain there, and still asks whether quality or matching
+//!   is owed anything (see `queue_next`), so neither waits for a file to
+//!   change.
 //!
 //! The chain wraps each stage's handler ([`after_walk`], [`after_read`],
 //! [`after_hash`], [`after_fingerprint`]) where the handlers are
@@ -72,6 +82,7 @@ pub fn after_walk<H: JobHandler>(walker: H) -> Chained<H> {
     Chained {
         inner: walker,
         next: Next::Read,
+        priority: Priority::BACKGROUND,
     }
 }
 
@@ -80,6 +91,7 @@ pub fn after_read<H: JobHandler>(reader: H) -> Chained<H> {
     Chained {
         inner: reader,
         next: Next::Hash,
+        priority: Priority::BACKGROUND,
     }
 }
 
@@ -88,6 +100,7 @@ pub fn after_hash<H: JobHandler>(hasher: H) -> Chained<H> {
     Chained {
         inner: hasher,
         next: Next::Fingerprint,
+        priority: Priority::BACKGROUND,
     }
 }
 
@@ -97,6 +110,7 @@ pub fn after_group<H: JobHandler>(grouper: H) -> Chained<H> {
     Chained {
         inner: grouper,
         next: Next::Nothing,
+        priority: Priority::BACKGROUND,
     }
 }
 
@@ -106,6 +120,18 @@ pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
     Chained {
         inner: qualifier,
         next: Next::Nothing,
+        priority: Priority::BACKGROUND,
+    }
+}
+
+/// The matching job's handler, run once more if the fingerprints asked
+/// for it meanwhile. Its reruns keep its own priority, below the rest of
+/// the chain.
+pub fn after_matching<H: JobHandler>(matcher: H) -> Chained<H> {
+    Chained {
+        inner: matcher,
+        next: Next::Nothing,
+        priority: crate::matching::PRIORITY,
     }
 }
 
@@ -115,6 +141,7 @@ pub fn after_fingerprint<H: JobHandler>(fingerprinter: H) -> Chained<H> {
     Chained {
         inner: fingerprinter,
         next: Next::Relink,
+        priority: Priority::BACKGROUND,
     }
 }
 
@@ -123,6 +150,8 @@ pub fn after_fingerprint<H: JobHandler>(fingerprinter: H) -> Chained<H> {
 pub struct Chained<H> {
     inner: H,
     next: Next,
+    /// The priority it's queued again at.
+    priority: Priority,
 }
 
 /// What follows a finished stage.
@@ -145,7 +174,7 @@ impl<H: JobHandler> JobHandler for Chained<H> {
         let me = NewJob {
             kind: job.kind(),
             target: job.target().cloned(),
-            priority: Priority::BACKGROUND,
+            priority: self.priority,
         };
         let key = key(job.writer(), &me);
         // This run lists its files now: a rerun asked for from here on is
@@ -203,10 +232,28 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
                 rescan,
             )? {
                 queue_once(writer, target(crate::read::read_job(ids)), enqueue)?;
-            } else if writer.call(|c| crate::grouping::any_ungrouped(c))? {
-                // Nothing to read, but files the walk found have no track
-                // yet (online-only ones aren't read or hashed): group them.
-                queue_once(writer, crate::grouping::group_job(), enqueue)?;
+            } else {
+                if writer.call(|c| crate::grouping::any_ungrouped(c))? {
+                    // Nothing to read, but files the walk found have no
+                    // track yet (online-only ones aren't read or hashed):
+                    // group them.
+                    queue_once(writer, crate::grouping::group_job(), enqueue)?;
+                }
+                // The chain ends here, at the walk. Work can still be owed
+                // that no stage will ask for: a file that came back
+                // unchanged, a job that failed or was cancelled, a library
+                // fingerprinted before a measurement existed or under an
+                // older version of it. So ask (one cheap query each).
+                //
+                // Matching's answer is exact, so it's asked every time.
+                // Quality's stays yes while a file can't be reached (an
+                // unplugged drive, a locked file), so a watcher's rescan
+                // doesn't ask, or every burst of changes would queue a job
+                // with nothing it can do.
+                if !rescan {
+                    crate::quality::request(writer, enqueue)?;
+                }
+                crate::matching::request(writer, enqueue)?;
             }
         }
         Next::Hash => {
@@ -233,16 +280,21 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
                 let fp = crate::fingerprint::fingerprint_job(None).priority(Priority::BACKGROUND);
                 queue_once(writer, fp, enqueue)?;
             } else {
-                // No fingerprints to wait for: measure quality now.
+                // No fingerprints to wait for: measure quality now, and
+                // compare fingerprints (1bA-14).
                 crate::quality::request(writer, enqueue)?;
+                crate::matching::request(writer, enqueue)?;
             }
         }
         Next::Relink => {
             // Audio hashes and fingerprints are in: a rekordbox track whose
             // file moved or was re-encoded may match by them now (1aD-1).
             crate::relink::request(writer, enqueue)?;
-            // …and each file's quality can be measured (1bA-10).
+            // …and each file's quality can be measured (1bA-10), and the
+            // fingerprints compared (1bA-14), in that order, after anything
+            // the user sees.
             crate::quality::request(writer, enqueue)?;
+            crate::matching::request(writer, enqueue)?;
         }
         Next::Nothing => {}
     }
@@ -604,4 +656,24 @@ mod tests {
     }
 
     use std::time::Duration;
+
+    #[test]
+    fn every_stage_is_queued_again_at_background_priority_and_only_matching_below_it() {
+        // A stage asked for while it runs is queued once more at the
+        // priority its wrapper holds. Matching was given one of its own
+        // (1bA-14); every other stage's is what it always was.
+        let stage = |_: &JobContext| Ok(());
+        for (name, priority) in [
+            ("walk", after_walk(stage).priority),
+            ("read", after_read(stage).priority),
+            ("hash", after_hash(stage).priority),
+            ("group", after_group(stage).priority),
+            ("quality", after_quality(stage).priority),
+            ("fingerprint", after_fingerprint(stage).priority),
+        ] {
+            assert_eq!(priority, Priority::BACKGROUND, "{name}");
+        }
+        assert_eq!(after_matching(stage).priority, crate::matching::PRIORITY);
+        assert!(crate::matching::PRIORITY < Priority::BACKGROUND);
+    }
 }

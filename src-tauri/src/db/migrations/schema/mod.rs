@@ -10,6 +10,7 @@ mod file_stage;
 mod files;
 mod fingerprint_audio_hash;
 mod fingerprint_match;
+mod fingerprint_matched;
 mod library;
 mod library_upkeep;
 mod partial_hash;
@@ -169,6 +170,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // `sync_base` ids are never reused. `sqlite_sequence` is SQLite's own
     // table for that (the highest id each AUTOINCREMENT table has held).
     ("0018_sync_base_ids_never_reused.sql", &["sqlite_sequence"]),
+    // Which files matching has covered (derived state).
+    ("0019_fingerprint_matched.sql", &["fingerprint_matched"]),
 ];
 
 #[test]

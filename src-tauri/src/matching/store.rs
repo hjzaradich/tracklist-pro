@@ -8,7 +8,7 @@
 //! that were compared ([`put`]), so a stored result is never about other
 //! audio. A new size or modified time changes nothing here (ROADMAP 5.1).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::types::Type;
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -204,4 +204,51 @@ pub(crate) fn fingerprint_of(conn: &Connection, id: i64) -> rusqlite::Result<Opt
         .query_row([id], |r| r.get(0))
         .optional()?;
     Ok(blob.flatten())
+}
+
+/// Whether a matching pass has anything to do: a present file has a
+/// fingerprint and no `fingerprint_matched` row of this [`VERSION`], or its
+/// row names a file that no longer stands for it (gone, missing, or
+/// holding another fingerprint now).
+pub fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.prepare_cached(
+        "SELECT EXISTS (
+             SELECT 1 FROM file f
+             LEFT JOIN fingerprint_matched m ON m.file_id = f.id AND m.version = ?1
+             WHERE f.present = 1 AND f.fingerprint IS NOT NULL
+               AND (m.file_id IS NULL
+                    OR (m.stands <> f.id AND NOT EXISTS (
+                            SELECT 1 FROM file s
+                            WHERE s.id = m.stands AND s.present = 1
+                              AND s.fingerprint = f.fingerprint))))",
+    )?
+    .query_row([VERSION], |r| r.get(0))
+}
+
+/// Every file that has been through a pass of this [`VERSION`] with its
+/// current fingerprint, and the file whose results stand for it.
+pub(crate) fn matched(conn: &Connection) -> rusqlite::Result<HashMap<i64, i64>> {
+    let mut stmt =
+        conn.prepare("SELECT file_id, stands FROM fingerprint_matched WHERE version = ?1")?;
+    let rows = stmt.query_map([VERSION], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// Records that `file` is through matching with the fingerprint it was
+/// read with, its results standing under `stands`; only if it still holds
+/// exactly that fingerprint. Returns whether it was recorded.
+pub(crate) fn mark_matched(
+    conn: &Connection,
+    file: Side<'_>,
+    stands: i64,
+) -> rusqlite::Result<bool> {
+    let changed = conn
+        .prepare_cached(
+            "INSERT OR REPLACE INTO fingerprint_matched (file_id, version, stands)
+             SELECT ?1, ?2, ?3
+             WHERE (SELECT fingerprint FROM file WHERE id = ?1) = ?4
+               AND EXISTS (SELECT 1 FROM file WHERE id = ?3)",
+        )?
+        .execute(params![file.file, VERSION, stands, file.blob])?;
+    Ok(changed == 1)
 }

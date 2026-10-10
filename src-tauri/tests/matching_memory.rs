@@ -23,7 +23,10 @@
 //! and the same with `10k`. `index_alone_*` builds the block index and
 //! nothing else, then compacts it as a pass does. `passes_*` puts the library in a database and runs the
 //! real pass: a first one, one after 100 new files, and one by a new
-//! matcher (what a pass costs when the index isn't kept).
+//! matcher with nothing due (what building the index again costs: after a
+//! restart, or when the index was over the budget and dropped). At 100k
+//! the index is over the budget, so the pass after 100 new files builds it
+//! again too.
 //!
 //! **`a_small_library_goes_through_the_same_steps`** is the smoke test that
 //! runs in CI: the same harness on 300 short tracks, checking what was
@@ -37,7 +40,7 @@ use rusqlite::params;
 use rusty_chromaprint::FingerprintCompressor;
 use tracklist_pro_lib::db::{DbError, Writer, DB_FILE_NAME};
 use tracklist_pro_lib::fingerprint::{stored, Fingerprint};
-use tracklist_pro_lib::matching::{BlockIndex, Matcher, Summary};
+use tracklist_pro_lib::matching::{any_due, BlockIndex, Matcher, Summary};
 use tracklist_pro_lib::write_guard::WriteGuard;
 
 /// Counts live heap bytes and their peak.
@@ -615,6 +618,16 @@ fn print_parts(db: &Db, files: i64) {
         .map(|blob| Fingerprint::from_blob(blob).unwrap().items().len())
         .sum();
     let decoding = start.elapsed();
+    // What the scan chain asks after every scan: is anything due? Here
+    // nothing is, the slow answer.
+    let start = Instant::now();
+    let due = db.writer.call(|c| any_due(c)).unwrap();
+    let asking = start.elapsed();
+    println!(
+        "  asking whether matching is due (it is{}): {:.0} ms",
+        if due { "" } else { "n't" },
+        asking.as_secs_f64() * 1e3
+    );
     let each = |d: Duration| d.as_secs_f64() * 1e6 / files as f64;
     println!(
         "  per fingerprint, over {files}: one query {:.0} us, decoding {:.0} us ({} bytes, {} items)",
