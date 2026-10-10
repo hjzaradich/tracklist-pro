@@ -12,7 +12,7 @@
   "stale.hint": {
     "purpose": "Explains why the user deletes these playlists and where they come from.",
     "where": "After-send lists, under the stale-playlists heading.",
-    "approved": "Delete these playlists in rekordbox. They come from crates that were renamed or deleted, and an import will not delete them for you."
+    "approved": "In rekordbox, right-click each of these playlists and choose Delete Playlist. They come from crates that were renamed or deleted, and an import will not delete them for you."
   },
   "stale.empty": {
     "purpose": "Says there are no playlists to delete.",
@@ -52,7 +52,7 @@
   "removals.hint": {
     "purpose": "Explains why the user removes these tracks and where they come from.",
     "where": "After-send lists, under the removals heading.",
-    "approved": "Remove these tracks in rekordbox. They were removed from your Library, and an import will not remove them for you."
+    "approved": "In rekordbox, select these tracks, right-click and choose Remove from Collection. They were removed from your Library, and an import will not remove them for you."
   },
   "removals.empty": {
     "purpose": "Says there are no tracks to remove.",
