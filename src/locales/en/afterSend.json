@@ -2,7 +2,7 @@
   "page": "After import",
   "stale": {
     "title": "Playlists to delete in rekordbox",
-    "hint": "Delete these playlists in rekordbox (an import can't). They come from crates that were renamed or deleted.",
+    "hint": "In rekordbox, right-click each of these playlists and choose Delete Playlist. They come from crates that were renamed or deleted, and an import will not delete them for you.",
     "empty": "No playlists to delete",
     "unchecked": "Not checked yet (no rekordbox export read)",
     "emptyFolder": "(empty folder)",
@@ -12,7 +12,7 @@
   },
   "removals": {
     "title": "Tracks to remove in rekordbox",
-    "hint": "Remove these tracks in rekordbox (an import can't). They were removed from your Library.",
+    "hint": "In rekordbox, select these tracks, right-click and choose Remove from Collection. They were removed from your Library, and an import will not remove them for you.",
     "empty": "No tracks to remove",
     "trackName": "{{artist}} - {{title}}",
     "unnamed": "Unnamed track",
