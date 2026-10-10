@@ -12,6 +12,7 @@ use crate::matching::store::{self, Side};
 use crate::matching::{compare, refresh, Comparison, Matcher, StoredMatch, Summary};
 
 use super::corpus::corpus;
+use super::reference::PlainIndex;
 use super::synthetic::{fingerprint, reencoded, track};
 
 /// A migrated database in a temp dir with one music folder.
@@ -649,4 +650,140 @@ fn the_stored_result_is_the_same_whichever_of_the_two_files_arrived_last() {
     );
     assert_eq!(later.all(), expected);
     assert_eq!(earlier.all(), expected);
+}
+
+/// What the table should hold for the files present now, worked out with
+/// the index as it was before 1bA-13 ([`PlainIndex`]): files with the very
+/// same fingerprint are one entry and the first stands for them; every
+/// pair the index proposes is compared with the lower file id as A. The
+/// rows are stored in a database of their own and read back, so both
+/// sides have been through the same storage.
+fn rows_by_the_plain_index(db: &Db) -> Vec<StoredMatch> {
+    let files = db
+        .writer
+        .call(|c| store::fingerprints_after(c, 0, 100_000))
+        .unwrap();
+    let mut same: BTreeMap<Vec<u8>, Vec<i64>> = BTreeMap::new();
+    for (id, blob) in &files {
+        same.entry(blob.clone()).or_default().push(*id);
+    }
+    let classes: Vec<(Vec<u8>, Fingerprint, Vec<i64>)> = same
+        .into_iter()
+        .map(|(blob, ids)| {
+            let fingerprint = Fingerprint::from_blob(&blob).unwrap();
+            (blob, fingerprint, ids)
+        })
+        .collect();
+    let mut plain = PlainIndex::new();
+    // Each row: the two files and what comparing them found.
+    let mut rows: Vec<(i64, i64, Comparison)> = Vec::new();
+    for (entry, (_, fingerprint, ids)) in classes.iter().enumerate() {
+        plain.insert(entry as u32, fingerprint.items());
+        let identical = Comparison::identical(fingerprint.items().len());
+        for &other in &ids[1..] {
+            rows.push((ids[0], other, identical.clone()));
+        }
+    }
+    for (a, b) in plain.pairs() {
+        let (mut a, mut b) = (&classes[a as usize], &classes[b as usize]);
+        if a.2[0] > b.2[0] {
+            std::mem::swap(&mut a, &mut b);
+        }
+        if let Ok(comparison) = compare(&a.1, &b.1) {
+            rows.push((a.2[0], b.2[0], comparison));
+        }
+    }
+
+    let scratch = self::db();
+    scratch
+        .writer
+        .call(move |c| {
+            for (id, blob) in &files {
+                c.execute(
+                    "INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, size, mtime, fingerprint)
+                     VALUES (?1, 1, ?1, ?1, 1000, 1000, ?2)",
+                    params![id, blob],
+                )?;
+            }
+            let blobs: BTreeMap<i64, &Vec<u8>> = files.iter().map(|(id, blob)| (*id, blob)).collect();
+            for (a, b, comparison) in &rows {
+                let side = |file: &i64| Side {
+                    file: *file,
+                    blob: blobs[file],
+                };
+                assert!(store::put(c, side(a), side(b), comparison)?);
+            }
+            Ok(())
+        })
+        .unwrap();
+    scratch.all()
+}
+
+#[test]
+fn the_stored_rows_are_the_ones_the_index_gave_before_it_was_made_smaller() {
+    // 300 made-up tracks that all start with the same silence. Of every
+    // 25: two have a re-encoded copy, one a cut, one a copy at the
+    // duplicate rule's limit, and one an exact copy.
+    const LEN: usize = 500;
+    let silence = track(u64::MAX, 20);
+    let with_silence = |items: &[u32]| [silence.as_slice(), items].concat();
+    let db = db();
+    let mut ids: BTreeMap<String, i64> = BTreeMap::new();
+    let mut add = |name: String, items: Vec<u32>| {
+        let id = db.add_items(&name, with_silence(&items));
+        ids.insert(name, id);
+    };
+    for seed in 1..=300u64 {
+        let items = track(seed, LEN);
+        add(format!("{seed}.flac"), items.clone());
+        match seed % 25 {
+            1 | 2 => add(format!("{seed}.mp3"), reencoded(&items, seed, 7)),
+            3 => add(
+                format!("{seed} (cut).flac"),
+                reencoded(&items[LEN / 4..LEN * 3 / 4], seed, 7),
+            ),
+            4 => add(format!("{seed} (128).mp3"), reencoded(&items, seed, 40)),
+            5 => add(format!("{seed}.wav"), items),
+            _ => {}
+        }
+    }
+
+    let matcher = Matcher::new();
+    let first = pass(&matcher, &db);
+    let expected = rows_by_the_plain_index(&db);
+    assert!(expected.len() >= 48, "{} rows", expected.len());
+    assert_eq!(db.all(), expected);
+    assert_eq!(first.stored as usize, expected.len());
+
+    // New files: a copy of a track that had none, an exact copy, and a
+    // track of its own.
+    add("100 (new).mp3".into(), reencoded(&track(100, LEN), 77, 7));
+    add("101 (backup).flac".into(), track(101, LEN));
+    add("900.flac".into(), track(900, LEN));
+    // Changed audio: a copy becomes a track of its own, a track becomes a
+    // copy of another, and the file standing for two identical ones
+    // becomes something else.
+    let other = |items: Vec<u32>| fingerprint(with_silence(&items));
+    db.set_fingerprint(ids["1.mp3"], &other(track(901, LEN)));
+    db.set_fingerprint(ids["50.flac"], &other(reencoded(&track(60, LEN), 78, 7)));
+    db.set_fingerprint(ids["5.flac"], &other(track(902, LEN)));
+    // And two files go: one loses its fingerprint, one its row.
+    db.sql(
+        "UPDATE file SET fingerprint = NULL WHERE id = ?1",
+        (ids["2.mp3"],),
+    );
+    db.sql("DELETE FROM file WHERE id = ?1", (ids["3 (cut).flac"],));
+
+    let later = pass(&matcher, &db);
+    assert_eq!(later.changed, 6, "three new files and three changed ones");
+    let expected = rows_by_the_plain_index(&db);
+    assert_eq!(db.all(), expected);
+    assert!(db.of_pair(ids["100.flac"], ids["100 (new).mp3"]).is_some());
+    assert!(db.of_pair(ids["50.flac"], ids["60.flac"]).is_some());
+    assert!(db.of_pair(ids["1.flac"], ids["1.mp3"]).is_none());
+
+    // A new matcher builds its index from nothing and agrees.
+    let restarted = refresh(&db.writer).unwrap();
+    assert_eq!((restarted.compared, restarted.stored), (0, 0));
+    assert_eq!(db.all(), expected);
 }

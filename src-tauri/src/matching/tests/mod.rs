@@ -16,7 +16,9 @@ mod blocking;
 mod comparing;
 mod corpus;
 mod passes;
+mod reference;
 mod scale;
+mod smaller;
 mod synthetic;
 
 use std::io::Cursor;
