@@ -123,7 +123,7 @@ export function reset(root) {
   if (!isPreviewFolder(root)) {
     throw new Error(`${root} has no ${MARKER}; it isn't the preview's folder. Nothing was deleted.`);
   }
-  for (const name of fs.readdirSync(root)) {
+  for (const name of fs.readdirSync(root).sort()) {
     if (name !== MARKER) removeTree(path.join(root, name));
   }
   fs.unlinkSync(path.join(root, MARKER));

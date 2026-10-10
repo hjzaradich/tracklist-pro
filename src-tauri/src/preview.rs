@@ -26,7 +26,7 @@
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// The environment variable that asks for the preview.
 pub const ENV_VAR: &str = "TLP_PREVIEW_DIR";
@@ -109,6 +109,33 @@ fn plain(path: PathBuf) -> PathBuf {
     }
 }
 
+/// `path` with `.` and `..` resolved by name alone, without asking the
+/// disk, so a spelling of a folder that isn't there still compares equal
+/// to it.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// The spellings a path is compared by: by name, and (when it exists) as
+/// the disk resolves it.
+fn spellings(path: &Path) -> Vec<PathBuf> {
+    let mut forms = vec![lexical(path)];
+    if let Ok(resolved) = fs::canonicalize(path) {
+        forms.push(plain(resolved));
+    }
+    forms
+}
+
 /// Whether two paths are the same spelling, case apart (Windows paths).
 fn same(a: &Path, b: &Path) -> bool {
     let key = |p: &Path| {
@@ -158,8 +185,14 @@ impl Preview {
             return Err(Refusal::NotAbsolute);
         }
         if let Some(real) = real_app_data {
-            let resolved = fs::canonicalize(asked).map(plain).ok();
-            if same(asked, real) || resolved.is_some_and(|r| same(&r, real)) {
+            // By name and as the disk resolves it, on both sides: naming
+            // the real folder is refused whether or not it exists here,
+            // and however either is spelled (`..`, short names, `\\?\`).
+            let real_forms = spellings(real);
+            if spellings(asked)
+                .iter()
+                .any(|a| real_forms.iter().any(|r| same(a, r)))
+            {
                 return Err(Refusal::RealAppData);
             }
         }
@@ -307,16 +340,54 @@ mod tests {
         let (dir, root) = marked();
         let real = dir.path().join("Roaming").join(crate::IDENTIFIER);
         fs::create_dir_all(&real).unwrap();
-        assert_eq!(
-            Preview::check(&root, real.as_os_str(), Some(&real)),
-            Err(Refusal::RealAppData)
-        );
+        let refused =
+            |asked: &Path, real: &Path| Preview::check(&root, asked.as_os_str(), Some(real));
+        assert_eq!(refused(&real, &real), Err(Refusal::RealAppData));
         // A spelling that resolves to it is the same folder.
         assert_eq!(
-            Preview::check(
-                &root,
-                real.join("..").join(crate::IDENTIFIER).as_os_str(),
-                Some(&real)
+            refused(&real.join("..").join(crate::IDENTIFIER), &real),
+            Err(Refusal::RealAppData)
+        );
+        // However either side is spelled: the app is given one spelling of
+        // the folder (from Windows) and the variable another (a short name
+        // or a `..` on a CI runner's temp folder).
+        let canonical = plain(fs::canonicalize(&real).unwrap());
+        let roundabout = dir
+            .path()
+            .join("Roaming")
+            .join("..")
+            .join("Roaming")
+            .join(crate::IDENTIFIER);
+        assert_eq!(refused(&canonical, &roundabout), Err(Refusal::RealAppData));
+        assert_eq!(refused(&roundabout, &canonical), Err(Refusal::RealAppData));
+        #[cfg(windows)]
+        {
+            let verbatim = format!(r"\\?\{}", canonical.display());
+            assert_eq!(
+                refused(Path::new(&verbatim), &real),
+                Err(Refusal::RealAppData)
+            );
+        }
+    }
+
+    #[test]
+    fn the_real_app_data_folder_is_refused_by_name_when_it_isnt_there() {
+        // A machine that has never run the app has no such folder; naming
+        // it is still refused as the real one, not as "some other folder".
+        let (dir, root) = marked();
+        let real = dir.path().join("Roaming").join(crate::IDENTIFIER);
+        assert!(!real.exists());
+        let refused =
+            |asked: &Path, real: &Path| Preview::check(&root, asked.as_os_str(), Some(real));
+        assert_eq!(refused(&real, &real), Err(Refusal::RealAppData));
+        assert_eq!(
+            refused(&real.join("..").join(crate::IDENTIFIER), &real),
+            Err(Refusal::RealAppData)
+        );
+        assert_eq!(
+            refused(
+                &dir.path().join("Roaming").join(".").join(crate::IDENTIFIER),
+                &real
             ),
             Err(Refusal::RealAppData)
         );

@@ -121,8 +121,13 @@ describe("reset", () => {
     () => {
       const root = folder();
       claim(root);
-      const busy = path.join(root, "data");
+      // `webview` sorts after the marker's name, so a reset that deleted
+      // the marker before the rest (the first version) would have lost it
+      // by the time this one stops it.
+      assert.ok("webview" > MARKER);
+      const busy = path.join(root, "webview");
       fs.mkdirSync(busy);
+      fs.mkdirSync(path.join(root, "data"));
       fs.mkdirSync(path.join(root, "music"));
       // Windows won't remove a folder a process is working in, as when the
       // preview window is still open.
