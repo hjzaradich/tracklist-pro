@@ -169,6 +169,14 @@
     "where": "Send checklist, step 2, warning above that list.",
     "approved": "{{count, number}} tracks sent with files missing (rekordbox's entries are unchanged)"
   },
+  "review.noFileAtLocation_one": {
+    "purpose": "Warns that one track rekordbox has is sent with rekordbox's own path, and no file is at that path: the app found the track's file somewhere else, but a send never changes the path of a track rekordbox has. rekordbox couldn't find the file before and still won't.",
+    "where": "Send checklist, step 2, warning above the list of those tracks."
+  },
+  "review.noFileAtLocation_other": {
+    "purpose": "The same warning for several tracks.",
+    "where": "Send checklist, step 2, warning above the list of those tracks."
+  },
   "review.otherFile_one": {
     "purpose": "Warns that one track is in rekordbox with another file, so sending adds a second entry.",
     "where": "Send checklist, step 2, warning above that list.",

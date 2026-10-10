@@ -10,10 +10,12 @@ use super::{
 };
 use crate::library::{self, LibraryTrackId, StoredTrack};
 use crate::paths::Volumes;
+use crate::rekordbox::location::{decode, Location, PathStyle};
 use crate::rekordbox::source::stored_source;
 use crate::rekordbox_write::{
-    self, BuildError, Node, Outgoing, Reason, CRATES_FOLDER, PLAYLISTS_FOLDER,
+    self, BuildError, Node, Outgoing, Reason, SentTrack, CRATES_FOLDER, PLAYLISTS_FOLDER,
 };
+use crate::relink::rules::path_key;
 use crate::send_values::CannotSend;
 
 /// A send as it would go now: its description, and the file's contents
@@ -66,6 +68,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         known_tracks: 0,
         left_out: Vec::new(),
         file_missing: Vec::new(),
+        no_file_at_location: Vec::new(),
         other_file: Vec::new(),
         loses_entries: Vec::new(),
         refusal: None,
@@ -101,6 +104,18 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
                 .filter(|sent| sent.file_missing)
                 .map(|sent| label(sent.library_track))
                 .collect();
+            let mut drives = HashMap::new();
+            for sent in &out.sent {
+                let linked = labels
+                    .get(&sent.library_track)
+                    .and_then(|t| t.file.as_ref())
+                    .map(|f| f.shown(volumes).path);
+                if no_file_at_location(sent, linked.as_deref(), &mut drives) {
+                    preflight
+                        .no_file_at_location
+                        .push(label(sent.library_track));
+                }
+            }
             for sent in &out.sent {
                 let Some(other) = &sent.rekordbox_holds_other_file else {
                     continue;
@@ -139,6 +154,61 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         preflight,
         outgoing,
     }))
+}
+
+/// Whether `sent` is a track rekordbox has that goes out with rekordbox's
+/// own `Location` while no file is at that path: rekordbox will show it as
+/// "file not found", as it did before the send. `linked` is the Library
+/// track's own file, as Windows writes its path.
+///
+/// Only a track whose `Location` names another path than its linked file
+/// is looked at, so nothing is read from disk for a track sent where its
+/// file is, and a track sent although its linked file is missing
+/// ([`SentTrack::file_missing`]: its `Location` *is* the linked file's
+/// path) is never counted here as well. For the others the disk is asked,
+/// because rekordbox's file may well be in a folder the app doesn't scan:
+/// a file there means rekordbox finds it, and the track isn't listed. Nor
+/// is it listed when that can't be told: the path's drive isn't connected
+/// now (`drives` remembers each drive asked), or the path is a network or
+/// macOS path, which isn't looked up.
+fn no_file_at_location(
+    sent: &SentTrack,
+    linked: Option<&str>,
+    drives: &mut HashMap<String, bool>,
+) -> bool {
+    if !sent.in_rekordbox || sent.file_missing {
+        return false;
+    }
+    let (Ok(Location::File(theirs)), Some(linked)) = (decode(sent.location()), linked) else {
+        return false;
+    };
+    if theirs.match_key() == path_key(&linked.replace('\\', "/")) {
+        return false;
+    }
+    if theirs.style() != PathStyle::WindowsDrive {
+        return false;
+    }
+    let Some(path) = theirs.to_windows() else {
+        return false;
+    };
+    // `C:\`: the drive itself.
+    let Some(drive) = path.get(..3) else {
+        return false;
+    };
+    let connected = *drives
+        .entry(drive.to_owned())
+        .or_insert_with(|| on_disk(drive));
+    connected && !on_disk(&path)
+}
+
+/// Whether something is at `path` on disk right now. Only looks.
+fn on_disk(path: &str) -> bool {
+    let path = std::path::Path::new(path);
+    #[cfg(windows)]
+    let Ok(path) = crate::paths::verbatim_absolute(path) else {
+        return false;
+    };
+    std::fs::metadata(path).is_ok()
 }
 
 /// What a send from an export saved at `export_modified_ms` gets when that

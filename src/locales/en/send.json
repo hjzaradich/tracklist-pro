@@ -38,6 +38,8 @@
     },
     "fileMissing_one": "{{count, number}} track sent with file missing (rekordbox's entry is unchanged)",
     "fileMissing_other": "{{count, number}} tracks sent with files missing (rekordbox's entries are unchanged)",
+    "noFileAtLocation_one": "{{count, number}} track sent with the path rekordbox has, where there is no file (rekordbox will show it as file not found)",
+    "noFileAtLocation_other": "{{count, number}} tracks sent with the paths rekordbox has, where there are no files (rekordbox will show them as file not found)",
     "otherFile_one": "{{count, number}} track in rekordbox with another file (sending adds a second entry)",
     "otherFile_other": "{{count, number}} tracks in rekordbox with another file (sending adds a second entry for each)",
     "libraryFile": "Library file ({{path}})",

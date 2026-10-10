@@ -897,6 +897,15 @@ export type Preflight = {
 	 *  rekordbox's own entry, so the crates naming them stay whole.
 	 */
 	fileMissing: TrackLabel[],
+	/**
+	 *  Tracks rekordbox has that are sent with rekordbox's own `Location`
+	 *  while no file is there: the app paired rekordbox's entry with a
+	 *  file somewhere else (same name and length, say), and a known
+	 *  track's `Location` is never changed by a send. rekordbox couldn't
+	 *  find the file before the import and still won't after it. A track
+	 *  in [`Preflight::file_missing`] is never here too.
+	 */
+	noFileAtLocation: TrackLabel[],
 	otherFile: OtherFile[],
 	/**
 	 *  Not empty: the send needs an explicit confirm

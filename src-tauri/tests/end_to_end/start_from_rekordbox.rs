@@ -396,3 +396,46 @@ fn a_removed_track_rekordbox_never_had_is_not_listed() {
     world.remove_from_library(added.id);
     assert_eq!(world.after_send_lists()["manualRemovals"], json!([]));
 }
+
+/// Cycle 1's surprise (C1-9): rekordbox has a track at a path where its
+/// file no longer is; the app pairs the entry with the file's new place by
+/// name and length, and the send (rightly) leaves rekordbox's path alone.
+/// rekordbox then shows "file not found", and the review said nothing.
+#[test]
+fn a_known_track_rekordbox_still_cannot_find_is_named_in_the_review_and_sent_as_before() {
+    let mut world = World::new(&songs());
+    let mut rb = collection(&world);
+    let moved = UNKNOWN[0];
+    let old_place = world.music.join("Old place").join(moved.file_name());
+    rb.has(&old_place, &moved, 9, "125.00", "2A");
+    world.rekordbox_saves(&rb.export());
+    world.add_music_folder_and_scan();
+    world.read_rekordbox();
+    // Paired for good (name and length), so it's offered like the rest.
+    let added: AddSummary = world.call("add_rekordbox_tracks", json!({ "playlists": null }));
+    assert_eq!(added.added, KNOWN.len() as u32 + 1);
+    let mut tracks: Vec<LibraryTrackId> = world.library().iter().map(|t| t.id).collect();
+    tracks.sort();
+    world.create_crate("Everything", &tracks);
+
+    let preflight = world.prepared();
+    assert_eq!(
+        (preflight.new_tracks, preflight.known_tracks),
+        (0, KNOWN.len() as u32 + 1)
+    );
+    let named: Vec<_> = preflight
+        .no_file_at_location
+        .iter()
+        .map(|t| t.file_name.as_deref())
+        .collect();
+    assert_eq!(named, [Some(moved.file_name())]);
+    assert_eq!(preflight.file_missing, []);
+    assert!(preflight.can_send && !preflight.needs_confirm);
+
+    // What is sent is what was always sent: rekordbox's own entry, at
+    // rekordbox's own path.
+    let sent = world.write_and_read_back(&preflight, false);
+    let entry = track_at(&sent, &old_place).expect("sent at rekordbox's path");
+    assert_is_rekordboxs_own_entry(entry, rb.at(&old_place).unwrap());
+    assert!(track_at(&sent, &world.path_of(&moved)).is_none());
+}
