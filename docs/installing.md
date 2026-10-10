@@ -21,12 +21,12 @@ If it fails with `LNK1207: incompatible PDB format` (left behind by a crash or p
 
 ## 2. Where the installer lands
 
-The build makes two installers. Use the first.
+The build makes two installers. Use the first. `<version>` is the app's version, 0.1.1 at the time of writing.
 
 | File | What it is |
 |---|---|
-| `src-tauri\target\release\bundle\nsis\tracklist-pro_0.1.0_x64-setup.exe` | **The one to use** (about 5 MB). Installs for your Windows account only and needs no administrator rights. |
-| `src-tauri\target\release\bundle\msi\tracklist-pro_0.1.0_x64_en-US.msi` | An MSI (about 7 MB), for the whole PC. It asks for administrator rights. Not needed. |
+| `src-tauri\target\release\bundle\nsis\tracklist-pro_<version>_x64-setup.exe` | **The one to use** (about 5 MB). Installs for your Windows account only and needs no administrator rights. |
+| `src-tauri\target\release\bundle\msi\tracklist-pro_<version>_x64_en-US.msi` | An MSI (about 7 MB), for the whole PC. It asks for administrator rights. Not needed. |
 
 To build only the first one: `npx tauri build --bundles nsis`.
 
@@ -34,7 +34,7 @@ Neither file is committed to the repo.
 
 ## 3. Install
 
-Run `tracklist-pro_0.1.0_x64-setup.exe` and keep the defaults. The program goes to `%LOCALAPPDATA%\tracklist-pro`, with a `tracklist-pro` entry in the Start menu.
+Run `tracklist-pro_<version>_x64-setup.exe` and keep the defaults. The program goes to `%LOCALAPPDATA%\tracklist-pro`, with a `tracklist-pro` entry in the Start menu.
 
 ### The "Windows protected your PC" warning
 
