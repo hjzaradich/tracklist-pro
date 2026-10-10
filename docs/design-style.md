@@ -74,15 +74,22 @@ One line each: the date, what was decided, and why, so the next change holds to 
 - 2026-10-10 · **Long lists get faint row stripes, and a clearly stronger "selected" look.** · Lists run to hundreds of rows; stripes keep the eye on one row, and "selected" must beat "hover" and "stripe". · Style
 - 2026-10-10 · **The amber accent means "selected or active", and nothing else.** Warnings stay yellow. · Amber on screen then always tells you where you are. · Style
 - 2026-10-10 · **Dark stays the default.** A "follow Windows" option may come later. · Dark suits a dim room. The option is a new setting. · Foreman (backlog)
-- 2026-10-10 · **Long titles are cut off with "…" so a row stays one line.** The full text shows on hover and in the Details panel. · A tidy grid beats a ragged one. The cut-off is style; the hover text and the Details panel are not. · Style (cut-off), Foreman (hover text) · **Held:** the cut-off ships with the hover text, so no title ever becomes unreadable.
+- 2026-10-10 · **Long titles are cut off with "…" so a row stays one line.** The full text shows on hover, and in the Details panel once that panel is built. · A tidy grid beats a ragged one. · Style (cut-off), hover text done as `title` (below), Foreman (Details panel, waits for the Phase 1a checkpoint)
 - 2026-10-10 · **One filled accent button per screen, everything else quiet.** Each screen is walked through with the owner to name its one thing. · The loudest thing on a screen should be the thing to do next. · Style, with Foreman for any screen that needs a control moved
 - 2026-10-10 · **Almost no motion:** a quick fade on hover and focus only, and none when Windows' "reduce motion" is on. · Motion costs attention, and some people can't have it. · Style
+
+## The one exception to "class names only"
+
+A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").
+
+Hover text does not reach keyboard users, and a touch screen has no hover. So the full text must also live in the Details panel when that panel is built (today it is a placeholder; showing a track's title and path there is a new feature, logged by the foreman for the Phase 1a checkpoint). Until then the full title is only on hover.
 
 ## How the decisions look in the styles
 
 - **Text:** `--font-size-md` 14px; `--font-size-sm` 12px. A test holds those floors.
 - **Stripes and selected:** three steps, each a clear step stronger than the last: a stripe (faintest), hover, selected (strongest). A test holds the order in both themes, and that text stays readable on each.
 - **Selected** is the warm tint `--color-selected` on the sidebar's active stage and the chosen crate, with the accent bar or border kept.
+- **Cut-off:** Library and All music keep a row to one line (`table-layout: fixed`, title 28% and artist 18% of the width, a fixed actions column); a long title, artist or path ends in "…". Rows are at the compact row height; a row with a note under its path is taller on purpose.
 - **Motion:** one hover fade (`--motion-fast`), colors only, set on hover so a theme switch stays instant. No stylesheet may animate; tests check it.
 
 ## Open questions for the owner

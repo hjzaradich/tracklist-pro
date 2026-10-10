@@ -23,7 +23,22 @@
 .table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   text-align: left;
+}
+
+/* Title and artist take a share of the width, the actions a fixed one, and
+ * the file path what's left. */
+.table th:nth-child(1) {
+  width: 28%;
+}
+
+.table th:nth-child(2) {
+  width: 18%;
+}
+
+.table th:nth-child(4) {
+  width: 14rem;
 }
 
 .table th {
@@ -35,9 +50,17 @@
 }
 
 .table td {
+  height: var(--row-height);
   padding: var(--space-1) var(--space-2);
-  vertical-align: top;
+  vertical-align: middle;
   color: var(--color-text);
+}
+
+/* Controls inside a row are as tall as the row's text, so a row stays at
+ * the compact row height. */
+.table .select,
+.table .button {
+  padding-block: 0;
 }
 
 /* Every other row, so the eye stays on one row of a long list. Before the
@@ -50,9 +73,18 @@
   background: var(--color-surface-hover);
 }
 
+/* A long title, artist or path is cut off with "…" so a row stays one line.
+ * The full text is the cell's title (hover). */
 .title,
+.artist,
 .path {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path {
+  display: block;
 }
 
 .file .path {
@@ -78,7 +110,7 @@
 }
 
 .select {
-  max-width: 12rem;
+  max-width: 7.5rem;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);

@@ -33,9 +33,15 @@ export function AllMusicList({
       <tbody>
         {tracks.map((track) => (
           <tr key={track.recordingId} className={styles.row}>
-            <td className={styles.title}>{track.title ?? track.file?.name}</td>
-            <td>{track.artist}</td>
-            <td className={styles.path}>{track.file?.path}</td>
+            <td className={styles.title} title={track.title ?? track.file?.name}>
+              {track.title ?? track.file?.name}
+            </td>
+            <td className={styles.artist} title={track.artist ?? undefined}>
+              {track.artist}
+            </td>
+            <td className={styles.path} title={track.file?.path}>
+              {track.file?.path}
+            </td>
             <td className={styles.library}>
               {track.inLibrary ? (
                 <span className={styles.inLibrary}>{t("inLibrary")}</span>
