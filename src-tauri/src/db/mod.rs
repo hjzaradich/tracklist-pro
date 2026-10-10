@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 pub use read_pool::ReadPool;
 pub(crate) use writer::on_a_writer_thread;
-pub use writer::{DbError, Writer};
+pub use writer::{Checkpoint, DbError, Writer, LOG_SIZE_LIMIT};
 
 /// The database file's name inside the app data folder.
 pub const DB_FILE_NAME: &str = "tracklist-pro.db";

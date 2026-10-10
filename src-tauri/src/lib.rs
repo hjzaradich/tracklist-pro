@@ -125,7 +125,8 @@ pub fn run() {
 /// Handles the app's lifecycle events. On exit (the process ends right
 /// after, without dropping Tauri's state) it stops the music folder
 /// watchers, so no burst queues a scan behind the queue's back, then the
-/// job queue, so running jobs go back in the queue for the next launch.
+/// job queue, so running jobs go back in the queue for the next launch,
+/// and last empties the database's log file.
 fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
     if let RunEvent::Exit = event {
         if let Some(watchers) = app.try_state::<scan::Watchers>() {
@@ -133,6 +134,12 @@ fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
         }
         if let Some(jobs) = app.try_state::<jobs::JobQueue>() {
             jobs.shutdown();
+        }
+        // The connections are never closed (the process just ends), so
+        // SQLite's own tidy-up at the last close never happens: fold the
+        // log into the database and empty it here.
+        if let Some(writer) = app.try_state::<db::Writer>() {
+            let _ = writer.checkpoint();
         }
     }
 }
@@ -521,6 +528,25 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(job.status, jobs::JobStatus::Queued);
+    }
+
+    #[test]
+    fn exiting_the_app_folds_the_databases_log_into_the_database_and_empties_it() {
+        let (_data, app, _webview) = started_app();
+        let writer = app.state::<db::Writer>().inner().clone();
+        writer
+            .call(|c| {
+                c.execute_batch(
+                    "CREATE TABLE big (x BLOB); INSERT INTO big VALUES (randomblob(2097152));",
+                )
+            })
+            .unwrap();
+        let mut log = writer.path().as_os_str().to_owned();
+        log.push("-wal");
+        assert!(std::fs::metadata(&log).unwrap().len() > 0);
+
+        on_run_event(app.handle(), RunEvent::Exit);
+        assert_eq!(std::fs::metadata(&log).unwrap().len(), 0);
     }
 
     #[test]
