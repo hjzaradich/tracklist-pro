@@ -351,6 +351,14 @@ Each feature is tagged with its sub-phase.
   - 17–19 kHz → shown as "possibly lower quality", not flagged.
   - Lossless with a cutoff below 19.5 kHz → `suspect transcode` ("this FLAC/WAV was made from an MP3").
   - **Bitrate of a lossy file, two levels** (owner decision, 2026-10-10). Below 192 kbps → `low bitrate`: seriously bad, flagged, and the app warns before such a file is added to the Library. From 192 kbps up to full quality → shown as "could be better", not flagged: a note that a better file exists somewhere and a candidate for "Find a better file". Full quality is 320 kbps; for AAC it is 256 kbps, the rate stores sell (foreman's default, the owner may overrule). A lossless file has no bitrate level.
+- **How the verdict is reached** (1bB-6, 2026-10-11; the table is in the `quality::verdict` module):
+  - One verdict per file, the first that applies: `broken`, then `truncated`, then `suspect transcode`, then `low bitrate`, then `ok`. Everything else that applied is kept as a list of findings.
+  - **Rounding room.** Files store an average bitrate, so the lines sit a little under the nominal figures: low below 190 kbps, full quality from 318 kbps (AAC from 240 kbps, because store AAC is variable), and the transcode check from 254 kbps.
+  - **Which codecs.** Vorbis, Opus and WMA use MP3's bitrate lines. AC-3, E-AC-3 and Musepack get no bitrate level: no line was set for them.
+  - **`truncated` by length:** the audio is shorter than the length the file states by more than 2 s and by more than 1%. An MP3 without a length header states an estimate, so such a file can be flagged wrongly; "Keep anyway" covers it.
+  - **A transcode needs room to show:** a file whose sample rate can't carry audio above the cutoff line (32 kHz and below) is not flagged.
+  - A few decode errors in a complete file are a note on an `ok` file, not `broken`.
+  - Without a measurement only what the file's header shows is judged (bitrate, a read that failed); such a file is never called `ok`.
 - Suspect files are reviewed in Review (1.12): "Keep anyway" handles genuinely rolled-off masters, and "Find a better file" sends the track to the wishlist.
 - **Complexity:** M.
 

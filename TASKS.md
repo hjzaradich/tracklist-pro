@@ -174,7 +174,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 
 ### Stage 1bB: Decisions
 - **Lane 1, grouping rules:** 1bB-1 Duplicate rule (≥90% both ways, score ≤4) → 1bB-2 One-sided → cut link; none → name-based rework link → 1bB-3 Version veto + fingerprint veto → 1bB-4 Credits signal (remixer-only credits) → 1bB-5 "Needs review" on disagreement, with a reason
-- **Lane 2:** 1bB-6 Quality verdicts and thresholds, with reasons (1.6). Owner decisions (2026-10-10): a lossy file below 192 kbps is `low bitrate` (flagged); from 192 kbps up to full quality (320 kbps; AAC 256 kbps) it is shown as "could be better", not flagged; `clipped` is held back
+- **Lane 2:** ✅ 1bB-6 Quality verdicts and thresholds, with reasons (1.6). Owner decisions (2026-10-10): a lossy file below 192 kbps is `low bitrate` (flagged); from 192 kbps up to full quality (320 kbps; AAC 256 kbps) it is shown as "could be better", not flagged; `clipped` is held back
 
 ### Stage 1bC: Grouping and best file
 - **Lane 1:** 1bC-1 Grouping job replacing provisional grouping (also bring back relink step 4's same-track fallback, switched off in 1aD-1, together with a check that grouping is current for the files involved); re-point `library_track` rows safely (the merge function must refuse moving a file between linked versions by delete-then-insert, which the schema's triggers can't see)
