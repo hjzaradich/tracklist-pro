@@ -1,7 +1,7 @@
 {
   "empty": "No Library tracks",
-  "trackCount_one": "{{count}} track",
-  "trackCount_other": "{{count}} tracks",
+  "trackCount_one": "{{count, number}} track",
+  "trackCount_other": "{{count, number}} tracks",
   "columns": {
     "title": "Title",
     "artist": "Artist",
