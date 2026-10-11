@@ -233,9 +233,29 @@
     "approved": "Can't send: the export is incomplete. Export the collection again from rekordbox."
   },
   "review.refused.exportOlderThanLastSend": {
-    "purpose": "Refusal: the export was saved before the last send, so it can't show what that send put in rekordbox.",
-    "where": "Send checklist, step 2, alert when the send is refused.",
+    "purpose": "Refusal: the export was saved before the last send, and the user answered that a send was imported into rekordbox since, so the export can't show what that send put there.",
+    "where": "Send checklist, step 2, alert under the question about imports, once the user answers that a send was imported since.",
     "approved": "Can't send: the export was saved before the last send. Export the collection again from rekordbox."
+  },
+  "review.importedSince.question": {
+    "purpose": "Question asked when the export was saved before the last send: the app can't see whether that send (or any send) was imported into rekordbox since, and only then is the export out of date. The answer decides whether this send goes ahead.",
+    "where": "Send checklist, step 2, above two answers (radio buttons). Write file stays greyed out until the answer is the first one."
+  },
+  "review.importedSince.no": {
+    "purpose": "Answer: no send from the app has been imported into rekordbox since this export was saved. The send goes ahead.",
+    "where": "Send checklist, step 2, first answer under the question."
+  },
+  "review.importedSince.yes": {
+    "purpose": "Answer: a send from the app was imported into rekordbox after this export was saved. The send is refused and the user is told to export again.",
+    "where": "Send checklist, step 2, second answer under the question."
+  },
+  "review.importedSince.goesAhead": {
+    "purpose": "Says this send goes ahead from an export older than the last send because of the user's answer.",
+    "where": "Send checklist, step 2, under the question, once the user answers that no send was imported since."
+  },
+  "failure.exportOlderThanLastSend": {
+    "purpose": "Why the write was refused: the export is older than the last send and the write was asked for without the answer that no send was imported since. The screen greys Write file out in that case, so this is the fallback.",
+    "where": "Send checklist, step 3, alert when a write fails for that reason."
   },
   "review.refused.sameName": {
     "purpose": "Refusal: two crates in one folder share a name.",

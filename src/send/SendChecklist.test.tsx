@@ -35,6 +35,7 @@ function preflight(fields: Partial<Preflight> = {}): Preflight {
     refusal: null,
     nothingToSend: false,
     canSend: true,
+    exportOlderThanLastSend: false,
     needsConfirm: false,
     ...fields,
   };
@@ -69,7 +70,7 @@ function fakeBackend(initial: Partial<SendState> = {}) {
       exportFolder: "C:\\Users\\dj\\Documents",
     } as XmlSource,
     prepares: [] as (string | null)[],
-    writes: [] as { token: string; confirmed: boolean }[],
+    writes: [] as { token: string; confirmed: boolean; importedSinceExport?: boolean | null }[],
     refuse: null as unknown,
     /** A step ends: the state records it and its revision moves. */
     end(change: Partial<SendState>) {
@@ -106,7 +107,14 @@ function fakeBackend(initial: Partial<SendState> = {}) {
       return 7;
     }
     if (cmd === "write_send") {
-      backend.writes.push({ token: a.token as string, confirmed: a.confirmed as boolean });
+      backend.writes.push({
+        token: a.token as string,
+        confirmed: a.confirmed as boolean,
+        // Left out of the record when it's `null`: not asked, not answered.
+        ...(a.importedSinceExport == null
+          ? {}
+          : { importedSinceExport: a.importedSinceExport as boolean }),
+      });
       backend.onWrite();
       return 8;
     }
@@ -420,18 +428,113 @@ describe("the send checklist", () => {
     expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
   });
 
-  it("explains a send refused because the export is older than the last send", async () => {
-    fakeBackend({
-      preflight: preflight({
-        canSend: false,
-        refusal: { reason: "exportOlderThanLastSend", path: [] },
-      }),
+  describe("an export saved before the last send", () => {
+    const no = () => screen.getByRole("radio", { name: tx("send:review.importedSince.no") });
+    const yes = () => screen.getByRole("radio", { name: tx("send:review.importedSince.yes") });
+    const go = () => screen.getByRole("button", { name: tx("send:write.go") });
+
+    it("asks whether a send was imported since, and can't be written until that's answered", async () => {
+      const backend = fakeBackend({ preflight: preflight({ exportOlderThanLastSend: true }) });
+      renderChecklist();
+      expect(
+        await screen.findByRole("radiogroup", { name: tx("send:review.importedSince.question") }),
+      ).toBeInTheDocument();
+      expect(no()).not.toBeChecked();
+      expect(yes()).not.toBeChecked();
+      expect(go()).toBeDisabled();
+      // The review is whole: it isn't a refusal.
+      expect(screen.getByText(tx("send:review.new", { count: 3 }))).toBeInTheDocument();
+      await userEvent.click(go());
+      expect(backend.writes).toEqual([]);
     });
+
+    it("goes ahead on the answer that no send was imported since, and the review says so", async () => {
+      const backend = fakeBackend({ preflight: preflight({ exportOlderThanLastSend: true }) });
+      renderChecklist();
+      await userEvent.click(await screen.findByRole("radio", { name: tx("send:review.importedSince.no") }));
+      expect(screen.getByText(tx("send:review.importedSince.goesAhead"))).toBeInTheDocument();
+      await waitFor(() => expect(go()).toBeEnabled());
+
+      await userEvent.click(go());
+      expect(await screen.findByText(WRITTEN)).toBeInTheDocument();
+      expect(backend.writes).toEqual([
+        { token: "token-1", confirmed: false, importedSinceExport: false },
+      ]);
+    });
+
+    it("is refused on the answer that a send was imported since, with the ask to export again", async () => {
+      const backend = fakeBackend({ preflight: preflight({ exportOlderThanLastSend: true }) });
+      renderChecklist();
+      await userEvent.click(await screen.findByRole("radio", { name: tx("send:review.importedSince.yes") }));
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        tx("send:review.refused.exportOlderThanLastSend"),
+      );
+      expect(screen.queryByText(tx("send:review.importedSince.goesAhead"))).toBeNull();
+      expect(go()).toBeDisabled();
+      await userEvent.click(go());
+      expect(backend.writes).toEqual([]);
+
+      // Changing the answer changes what follows.
+      await userEvent.click(no());
+      expect(screen.queryByRole("alert")).toBeNull();
+      await waitFor(() => expect(go()).toBeEnabled());
+    });
+
+    it("still needs Send anyway ticked when the send needs that too", async () => {
+      fakeBackend({
+        preflight: preflight({ exportOlderThanLastSend: true, needsConfirm: true }),
+      });
+      renderChecklist();
+      await userEvent.click(await screen.findByRole("radio", { name: tx("send:review.importedSince.no") }));
+      expect(go()).toBeDisabled();
+      await userEvent.click(screen.getByRole("checkbox", { name: tx("send:review.confirm") }));
+      await waitFor(() => expect(go()).toBeEnabled());
+    });
+
+    it("forgets the answer when the export is read again: the next send is asked afresh", async () => {
+      const backend = fakeBackend({
+        preflight: preflight({ exportOlderThanLastSend: true, token: "old" }),
+      });
+      backend.onPrepare = () =>
+        backend.end({ preflight: preflight({ exportOlderThanLastSend: true, token: "new" }) });
+      renderChecklist();
+      await userEvent.click(await screen.findByRole("radio", { name: tx("send:review.importedSince.no") }));
+      await waitFor(() => expect(go()).toBeEnabled());
+
+      await userEvent.click(screen.getByRole("button", { name: tx("send:export.read") }));
+      await waitFor(() => expect(backend.state.revision).toBe(1));
+      await waitFor(() => expect(no()).not.toBeChecked());
+      expect(yes()).not.toBeChecked();
+      expect(go()).toBeDisabled();
+      expect(screen.queryByText(tx("send:review.importedSince.goesAhead"))).toBeNull();
+    });
+
+    it("isn't asked about when the send is refused anyway", async () => {
+      fakeBackend({
+        preflight: preflight({
+          exportOlderThanLastSend: true,
+          canSend: false,
+          refusal: { reason: "incompleteExport", path: [] },
+        }),
+      });
+      renderChecklist();
+      expect(
+        await screen.findByText(tx("send:review.refused.incompleteExport")),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("radiogroup")).toBeNull();
+    });
+  });
+
+  it("asks nothing about imports when the export is newer than the last send", async () => {
+    const backend = fakeBackend({ preflight: preflight() });
     renderChecklist();
-    expect(
-      await screen.findByText(tx("send:review.refused.exportOlderThanLastSend")),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeDisabled();
+    const go = await screen.findByRole("button", { name: tx("send:write.go") });
+    await waitFor(() => expect(go).toBeEnabled());
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    await userEvent.click(go);
+    await screen.findByText(WRITTEN);
+    // No answer goes with the go.
+    expect(backend.writes).toEqual([{ token: "token-1", confirmed: false }]);
   });
 
   it("explains a send refused for an incomplete export", async () => {

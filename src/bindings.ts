@@ -174,10 +174,15 @@ export const commands = {
 	/**
 	 *  The user's go: writes the send the preflight `token` names and records
 	 *  it, as a job. `confirmed` is the explicit confirm
-	 *  ([`Preflight::needs_confirm`] says when it's needed). Returns the job's id; the job refuses
-	 *  anything that isn't exactly the reviewed send.
+	 *  ([`Preflight::needs_confirm`] says when it's needed).
+	 *  `imported_since_export` is the user's answer to the question an export
+	 *  older than the last send raises
+	 *  ([`Preflight::export_older_than_last_send`]): `false` (no send was
+	 *  imported since) lets the send go, `true` or no answer doesn't. Returns
+	 *  the job's id; the job refuses anything that isn't exactly the reviewed
+	 *  send.
 	 */
-	writeSend: (token: string, confirmed: boolean) => typedError<JobId, IpcError>(__TAURI_INVOKE("write_send", { token, confirmed })),
+	writeSend: (token: string, confirmed: boolean, importedSinceExport: boolean | null) => typedError<JobId, IpcError>(__TAURI_INVOKE("write_send", { token, confirmed, importedSinceExport })),
 	/**
 	 *  The stale playlists and the manual removals, from the database as it is
 	 *  now. Reads only.
@@ -927,6 +932,17 @@ export type Preflight = {
 	 */
 	canSend: boolean,
 	/**
+	 *  The export was saved before the last send was recorded, so it can't
+	 *  show anything that send put in rekordbox. Whether it did put
+	 *  anything there only the user knows (the app can't see an import),
+	 *  so the checklist asks: has a send been imported into rekordbox since
+	 *  this export was saved? The go is taken only with the answer "no"
+	 *  ([`SendFailure::ExportOlderThanLastSend`] otherwise). The answer is
+	 *  for this one send: it's kept only in that send job's own row, and
+	 *  no later send reads it.
+	 */
+	exportOlderThanLastSend: boolean,
+	/**
 	 *  Whether the go needs the explicit confirm: a crate or playlist
 	 *  loses entries, or the read couldn't store some of rekordbox's
 	 *  tracks (a Library track on such a track's file would be sent as
@@ -995,12 +1011,6 @@ export type RefusalReason =
  */
 "incompleteExport" | 
 /**
- *  The export just read was saved before the last send was recorded:
- *  it can't hold what that send put in rekordbox, so tracks rekordbox
- *  now has would go out as new. The user exports again.
- */
-"exportOlderThanLastSend" | 
-/**
  *  Two crates, playlists or folders in one folder share a name (or
  *  names rekordbox may treat as one): one would replace the other.
  */
@@ -1054,6 +1064,13 @@ export type SendFailure =
 "notSendable" | 
 /**  The send needs the explicit confirm and it wasn't given. */
 "notConfirmed" | 
+/**
+ *  The export is older than the last send
+ *  ([`Preflight::export_older_than_last_send`]) and the user didn't
+ *  answer that no send was imported into rekordbox since: they said
+ *  one was, or said nothing. They export again.
+ */
+"exportOlderThanLastSend" | 
 /**
  *  The file couldn't be written. The file from the last send is as it
  *  was.

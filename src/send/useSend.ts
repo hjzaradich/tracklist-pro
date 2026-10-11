@@ -43,12 +43,23 @@ export function usePrepareSend() {
   });
 }
 
-/** The go for the preflight `token` names, as a job. Resolves to the job's id. */
+/**
+ * The go for the preflight `token` names, as a job. `importedSinceExport` is
+ * the answer to the question an export older than the last send raises
+ * (`null`: not asked, or not answered). Resolves to the job's id.
+ */
 export function useWriteSend() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ token, confirmed }: { token: string; confirmed: boolean }) =>
-      unwrap(commands.writeSend(token, confirmed)),
+    mutationFn: ({
+      token,
+      confirmed,
+      importedSinceExport,
+    }: {
+      token: string;
+      confirmed: boolean;
+      importedSinceExport: boolean | null;
+    }) => unwrap(commands.writeSend(token, confirmed, importedSinceExport)),
     onSettled: () => queryClient.invalidateQueries({ queryKey: SEND_STATE_QUERY_KEY }),
   });
 }

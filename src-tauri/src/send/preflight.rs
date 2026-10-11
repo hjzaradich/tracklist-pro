@@ -95,6 +95,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         refusal: None,
         nothing_to_send: false,
         can_send: false,
+        export_older_than_last_send: false,
         needs_confirm: false,
     };
     let mut elsewhere = Vec::new();
@@ -164,9 +165,10 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
             reason: RefusalReason::IncompleteExport,
             path: Vec::new(),
         });
-    } else if let Some(refusal) = export_older_than_last_send(conn, read.modified_ms)? {
-        preflight.refusal = Some(refusal);
     }
+    // An export saved before the last send isn't refused, but the user is
+    // asked about it before the go.
+    preflight.export_older_than_last_send = export_older_than_last_send(conn, read.modified_ms)?;
     let outgoing = outgoing.filter(|_| preflight.refusal.is_none());
     preflight.can_send = preflight.refusal.is_none() && !preflight.nothing_to_send;
     preflight.needs_confirm =
@@ -266,24 +268,37 @@ fn nothing_is_at(path: &str) -> bool {
     matches!(std::fs::metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
 }
 
-/// What a send from an export saved at `export_modified_ms` gets when that
-/// is before the last send was recorded: such an export shows rekordbox as
-/// it was before that send was imported, so tracks rekordbox now has would
-/// go out as new. It's refused as a whole, and the user exports again
-/// (owner decision, 2026-10-02). `None` when the export is from the very
-/// millisecond of the last send or later, or no send was ever recorded.
+/// Whether an export saved at `export_modified_ms` is older than the last
+/// recorded send: saved before it, to the millisecond. `false` when it's
+/// from the very millisecond of the last send or later, or no send was
+/// ever recorded.
 ///
-/// The comparison and what follows from it are decided here and nowhere
-/// else.
+/// Such an export shows rekordbox as it was before that send. If the send
+/// was imported, tracks rekordbox now has would go out as new and the
+/// dialogs rekordbox raises wouldn't be the ones the review counted; if it
+/// never was, the export is as good as a new one. The app can't tell the
+/// two apart, so the user is asked ([`may_send_from_this_export`]).
 fn export_older_than_last_send(
     conn: &Connection,
     export_modified_ms: i64,
-) -> rusqlite::Result<Option<Refusal>> {
-    let older = last_send_ms(conn)?.is_some_and(|sent| export_modified_ms < sent);
-    Ok(older.then(|| Refusal {
-        reason: RefusalReason::ExportOlderThanLastSend,
-        path: Vec::new(),
-    }))
+) -> rusqlite::Result<bool> {
+    Ok(last_send_ms(conn)?.is_some_and(|sent| export_modified_ms < sent))
+}
+
+/// Whether the go may be taken as far as the export's age goes, given the
+/// user's answer to "has a send been imported into rekordbox since this
+/// export was saved?" (`None`: no answer).
+///
+/// An export that isn't older than the last send raises no question, and
+/// whatever came as an answer is ignored. One that is goes only on a plain
+/// "no" (`Some(false)`): "yes" means rekordbox has changed since the
+/// export, and no answer is not a no. This is the only place that decides
+/// it (owner decision, 2026-10-10; before, such a send was always refused).
+pub(super) fn may_send_from_this_export(
+    preflight: &Preflight,
+    imported_since_export: Option<bool>,
+) -> bool {
+    !preflight.export_older_than_last_send || imported_since_export == Some(false)
 }
 
 /// When the last send was recorded, in milliseconds since the Unix epoch;
@@ -294,9 +309,8 @@ fn export_older_than_last_send(
 /// track is removed) and on every crate and folder it wrote
 /// (`sent_playlist.sent_at`); the latest of them all is the last send. It's
 /// compared with the export's modified time ([`ExportRead::modified_ms`]),
-/// the same clock rekordbox's save and the app's send both run on: an
-/// export saved before it is refused, one saved at that very millisecond or
-/// later isn't.
+/// the same clock rekordbox's save and the app's send both run on
+/// ([`export_older_than_last_send`]).
 pub(super) fn last_send_ms(conn: &Connection) -> rusqlite::Result<Option<i64>> {
     // Whole seconds, then the three digits after the point: exact, where
     // julianday arithmetic would round.
