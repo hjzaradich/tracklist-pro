@@ -42,7 +42,7 @@ pub(super) fn db() -> Db {
 impl Db {
     /// Adds a present file named `name` holding `fingerprint`. Returns its
     /// id.
-    fn add(&self, name: &str, fingerprint: &Fingerprint) -> i64 {
+    pub(super) fn add(&self, name: &str, fingerprint: &Fingerprint) -> i64 {
         let (name, blob) = (name.to_string(), fingerprint.to_blob());
         self.writer
             .call(move |c| {
@@ -81,7 +81,7 @@ impl Db {
         self.all().iter().map(|m| (m.file_a, m.file_b)).collect()
     }
 
-    fn of_pair(&self, a: i64, b: i64) -> Option<Comparison> {
+    pub(super) fn of_pair(&self, a: i64, b: i64) -> Option<Comparison> {
         self.writer.call(move |c| store::of_pair(c, a, b)).unwrap()
     }
 }
@@ -431,34 +431,74 @@ fn it_works_as_a_job_and_reports_progress() {
     assert_eq!(db.pairs(), [(1, 2), (1, 3), (2, 3)]);
 }
 
-#[test]
-fn on_the_ground_truth_library_every_duplicate_is_measured_as_one_and_no_other_pair_is() {
-    // The whole way through: real fingerprints of generated audio in the
-    // file table, one pass, then ROADMAP 1.4's rule on the stored numbers.
+/// The made-up library after one pass: real fingerprints of generated
+/// audio in the file table, and what the pass stored for them.
+pub(super) struct Passed {
+    ids: BTreeMap<&'static str, i64>,
+    pub(super) summary: Summary,
+    pub(super) stored: Vec<StoredMatch>,
+    db: Db,
+}
+
+pub(super) fn corpus_pass() -> Passed {
     let db = db();
     let mut ids: BTreeMap<&str, i64> = BTreeMap::new();
     for file in &corpus().files {
         ids.insert(file.name, db.add(file.name, &file.fingerprint));
     }
     let summary = refresh(&db.writer).unwrap();
-    println!("{summary:?}");
     let stored = db.all();
-    // Identical fingerprints are linked to their first file, which holds
-    // the results for all of them.
-    let stands_for = |id: i64| {
-        stored
+    Passed {
+        ids,
+        summary,
+        stored,
+        db,
+    }
+}
+
+impl Passed {
+    /// Identical fingerprints are linked to their first file, which holds
+    /// the results for all of them.
+    fn stands_for(&self, id: i64) -> i64 {
+        self.stored
             .iter()
             .find(|m| m.file_b == id && m.comparison == Comparison::identical(m.comparison.items_a))
             .map_or(id, |m| m.file_a)
-    };
-    let measured = |a: &str, b: &str| -> Option<Comparison> {
-        let (a, b) = (stands_for(ids[a]), stands_for(ids[b]));
+    }
+
+    /// What the pass stored for files `a` and `b`, with `a` as the
+    /// comparison's A. `None` when it never compared them.
+    pub(super) fn measured(&self, a: &str, b: &str) -> Option<Comparison> {
+        let (a, b) = (self.stands_for(self.ids[a]), self.stands_for(self.ids[b]));
         if a == b {
-            let items = stored.iter().find(|m| m.file_a == a)?.comparison.items_a;
+            let items = self
+                .stored
+                .iter()
+                .find(|m| m.file_a == a)?
+                .comparison
+                .items_a;
             return Some(Comparison::identical(items));
         }
-        db.of_pair(a, b)
-    };
+        self.db.of_pair(a, b)
+    }
+
+    /// The name of file `id`.
+    pub(super) fn name(&self, id: i64) -> &'static str {
+        self.ids
+            .iter()
+            .find(|(_, &v)| v == id)
+            .map(|(name, _)| *name)
+            .expect("a file of the library")
+    }
+}
+
+#[test]
+fn on_the_ground_truth_library_every_duplicate_is_measured_as_one_and_no_other_pair_is() {
+    // The whole way through: real fingerprints of generated audio in the
+    // file table, one pass, then ROADMAP 1.4's rule on the stored numbers.
+    let passed = corpus_pass();
+    println!("{:?}", passed.summary);
+    let measured = |a: &str, b: &str| passed.measured(a, b);
     let is_duplicate =
         |c: &Comparison| c.coverage_a >= 0.9 && c.coverage_b >= 0.9 && c.score <= 4.0;
 
@@ -489,9 +529,11 @@ fn on_the_ground_truth_library_every_duplicate_is_measured_as_one_and_no_other_p
         }
     }
     // Every stored pair is between files the corpus calls related.
-    for m in &stored {
-        let name = |id: i64| *ids.iter().find(|(_, &v)| v == id).unwrap().0;
-        assert!(corpus().related(name(m.file_a), name(m.file_b)), "{m:?}");
+    for m in &passed.stored {
+        assert!(
+            corpus().related(passed.name(m.file_a), passed.name(m.file_b)),
+            "{m:?}"
+        );
     }
 }
 

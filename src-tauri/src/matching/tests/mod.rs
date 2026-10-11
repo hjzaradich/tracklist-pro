@@ -5,6 +5,11 @@
 //! mirror the duplicate and version ground truth of `tools/fixture-gen`
 //! ([`corpus`]), at lengths chromaprint has something to work with (the
 //! generator's own clips are a few seconds long, too short to match).
+//!
+//! The made-up library is checked against what E3 measured on real files
+//! in [`e3_patterns`] (1bA-4). The real pairs themselves run only on a PC
+//! that has them: [`local_corpus`] (1bA-3). Both hold a pair to what its
+//! label requires, written once in [`labels`].
 
 // The fingerprint tests' generator, taken as it is: it's private to them,
 // and this lane doesn't edit their module.
@@ -15,7 +20,10 @@ mod audio;
 mod blocking;
 mod comparing;
 mod corpus;
+mod e3_patterns;
 mod job;
+mod labels;
+mod local_corpus;
 mod passes;
 mod reference;
 mod scale;
