@@ -14,6 +14,7 @@
 use std::collections::BTreeSet;
 
 use crate::fingerprint::Fingerprint;
+use crate::grouping::rules::Outcome;
 use crate::matching::index::keys;
 use crate::matching::Comparison;
 
@@ -152,6 +153,30 @@ pub fn unmet(category: Category, c: &Comparison, proposed: bool) -> Vec<&'static
         }
     }
     unmet
+}
+
+/// Whether the grouping rules' `outcome` is one a pair labeled `category`
+/// may get (1bB-7). "Needs review" always is: the user decides.
+///
+/// - **Duplicate:** a merge.
+/// - **Cut:** a cut link.
+/// - **Rework:** a rework link, or "different": plenty of reworks share
+///   nothing a fingerprint or a name shows.
+/// - **Different:** "different", and never a link.
+///
+/// Only a duplicate may merge.
+pub fn allowed(category: Category, outcome: &Outcome) -> bool {
+    matches!(
+        (category, outcome),
+        (_, Outcome::NeedsReview)
+            | (Category::Duplicate, Outcome::Duplicate)
+            | (Category::Cut, Outcome::CutLink { .. })
+            | (
+                Category::Rework,
+                Outcome::ReworkLink { .. } | Outcome::Different
+            )
+            | (Category::Different, Outcome::Different)
+    )
 }
 
 /// How many block-index keys two fingerprints share. The pass proposes a
@@ -359,4 +384,41 @@ fn the_audio_reading_is_full_one_sided_partial_or_none_as_the_grouping_rules_def
         Shape::Partial
     );
     assert_eq!(Shape::of(&lined_up(1500, 1400, 0, 0.0, 0)), Shape::Nothing);
+}
+
+#[test]
+fn only_a_duplicate_label_allows_a_merge_and_review_is_allowed_for_every_label() {
+    use crate::versions::MarkerKind;
+
+    let cut_link = Outcome::CutLink {
+        labels: vec![MarkerKind::Extended],
+    };
+    let rework_link = Outcome::ReworkLink {
+        labels: vec![MarkerKind::Remix],
+    };
+    for category in Category::ALL {
+        assert!(allowed(category, &Outcome::NeedsReview), "{category:?}");
+        assert_eq!(
+            allowed(category, &Outcome::Duplicate),
+            category == Category::Duplicate,
+            "{category:?}"
+        );
+        assert_eq!(
+            allowed(category, &cut_link),
+            category == Category::Cut,
+            "{category:?}"
+        );
+        assert_eq!(
+            allowed(category, &rework_link),
+            category == Category::Rework,
+            "{category:?}"
+        );
+        // Sharing nothing is fine for a rework and for different songs,
+        // and wrong for a duplicate or a cut.
+        assert_eq!(
+            allowed(category, &Outcome::Different),
+            matches!(category, Category::Rework | Category::Different),
+            "{category:?}"
+        );
+    }
 }

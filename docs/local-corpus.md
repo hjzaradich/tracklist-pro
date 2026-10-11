@@ -1,6 +1,6 @@
 # The local corpus
 
-E3's 43 hand-labeled pairs of real files ([spikes/results/e3-summary.md](../spikes/results/e3-summary.md)) can be run through the app's own fingerprinting and matching, on a PC that has them. The pair list, the labels and the audio are private and never in git, so this check is **local only**. CI runs the made-up library instead (`src-tauri/src/matching/tests/e3_patterns.rs`).
+E3's 43 hand-labeled pairs of real files ([spikes/results/e3-summary.md](../spikes/results/e3-summary.md)) can be run through the app's own fingerprinting, matching and grouping rules, on a PC that has them. The pair list, the labels and the audio are private and never in git, so this check is **local only**. CI runs the made-up library instead (`src-tauri/src/matching/tests/e3_patterns.rs`).
 
 ## What it needs
 A `spikes` folder holding:
@@ -11,7 +11,7 @@ A `spikes` folder holding:
 The audio files must be where `pairs.csv` says they are. Everything is only read; nothing is written next to them, and no audio file is touched.
 
 ## Running it
-Set `TLP_E3_DIR` to that `spikes` folder, then run the one test from `src-tauri`:
+Set `TLP_E3_DIR` to that `spikes` folder, then run its two tests from `src-tauri`:
 
 ```powershell
 $env:TLP_E3_DIR = "C:\dev\tracklist-pro\spikes"
@@ -33,6 +33,14 @@ What each label requires is written in `src-tauri/src/matching/tests/labels.rs`:
 | cut, same length (Clean and Dirty) | The audio passes the duplicate rule; the version check, run on the real names, says "cut" on at least one reading (title tags, file names) and "same" on none |
 | rework | Not a duplicate |
 | different | Not a duplicate; at most 5 seconds line up |
+
+### Through the grouping rules
+A second test puts every pair to `grouping::rules::decide`, as the rules' contract says: the audio is "identical" when the two files share an audio hash or a whole-file hash, else what the matching pass stored, else a direct comparison of the two fingerprints. The names are each file's title tag, artist tag and file name, read by the app's tag reader.
+
+- **The hard line:** no pair labeled anything other than duplicate comes out a duplicate.
+- **Per label** (in `labels.rs`, `allowed`): a duplicate merges; a cut gets a cut link; a rework gets a rework link or "different"; different songs get "different", never a link. "Needs review" is allowed for every label.
+
+It prints, per pair, the id, the label, how the rules sort the audio, whether the pass had proposed the pair, the outcome and its reason codes; for a pair the pass never proposed, also what the rules say when nobody compares the two. Then a tally per label, and how many of the real duplicates merge without review, with the reason codes of those that don't.
 
 ## What it prints
 One line per pair: its id, its category, the coverage and found share both ways, the score, both lengths, the number of segments, whether the pass proposed it, the share of lined-up items that are the same bit for bit and the index keys the files share, how the grouping rules would read the audio (full, one-sided, partial, none), what the version check says about the names, and E3's own numbers. Then a tally per category.
