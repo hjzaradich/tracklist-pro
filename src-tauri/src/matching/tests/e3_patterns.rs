@@ -16,7 +16,7 @@
 //! | Clean vs Dirty: 100% / 100%, score 0.23 | three quarter-second mutes |
 //! | a VIP sharing sections: 48% / 36% | a VIP keeping the first half |
 //! | most reworks: 0 to 25% | a remix keeping a ten-second hook; a rework keeping five scattered pieces |
-//! | a second recording under the same name (#42): 62% / 62%, weakly, then nothing | the first 75 s of a song in another mix, then something else |
+//! | a second recording under the same name: 62% / 62%, weakly, then nothing | the first 75 s of a song in another mix, then something else |
 //! | different: 0 to 1% | unrelated songs: nothing lines up |
 //!
 //! # What can't be made up
@@ -319,11 +319,17 @@ fn made_up_reworks_that_keep_a_hook_or_scattered_pieces_share_a_quarter_or_less_
 #[test]
 fn another_recording_under_the_same_name_lines_up_weakly_for_its_first_part_and_is_never_proposed()
 {
-    // E3 pair #42: identical tags, 62% / 62% at a weak score, then
-    // nothing. ROADMAP 1.5 wants a partial match between files with
-    // identical tags sent to review. Pinned as the real pair measured: the
-    // two share so few items bit for bit that the pass never compares
-    // them, so no partial match is stored for the grouping rules to see.
+    // E3 had a second recording under identical tags: it lined up with
+    // the first for well over half at a weak score, then not at all.
+    // ROADMAP 1.5 wants a partial match between files with identical tags
+    // sent to review. Pinned, because real pairs of this kind behave the
+    // same way: the two share so few items bit for bit that the pass never
+    // compares them, so no partial match is stored for the grouping rules
+    // to see.
+    //
+    // This test must flip when the grouping job compares pairs linked by
+    // name directly: a pair like this then gets a stored partial match,
+    // and the "nothing stored" assertion below has to say so.
     let studio = corpus().fingerprint(EMBER_STUDIO);
     let demo = corpus().fingerprint(EMBER_DEMO);
     let c = compare(studio, demo).unwrap();

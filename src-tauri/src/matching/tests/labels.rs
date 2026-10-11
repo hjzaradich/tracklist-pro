@@ -79,7 +79,11 @@ pub fn lined_up_seconds(c: &Comparison) -> f32 {
 
 /// A cut shorter than its other file must be found in it for at least this
 /// share. E3's real cuts were not clean slices: the shorter files were
-/// covered 72% and 85%.
+/// covered 72% and 85%. Half is this corpus's own line, not the roadmap's:
+/// well under what real cuts showed, so a cut from a rough encode still
+/// passes, and well over the quarter most reworks share, so a rework
+/// mislabeled as a cut doesn't. Where a cut link is made is the grouping
+/// rules' call ([`Shape`]).
 pub const CUT_FOUND: f32 = 0.5;
 
 /// The share of the shorter file found in the longer, over every

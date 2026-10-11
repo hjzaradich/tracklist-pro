@@ -108,7 +108,7 @@ fn swapping_the_two_files_swaps_the_two_coverages_and_the_offsets() {
 
 #[test]
 fn a_pair_that_only_diverges_after_two_minutes_is_not_reported_as_full_coverage() {
-    // E3 pair #42: the same for about two minutes, then different. A
+    // As one E3 pair: the same for about two minutes, then different. A
     // short-window comparison would call these the same file.
     let opening = audio::song(41, 125.0, RATE);
     let a = [opening.clone(), audio::song(42, 60.0, RATE)].concat();

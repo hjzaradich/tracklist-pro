@@ -266,7 +266,7 @@ fn build() -> Corpus {
     add(FEN_ORIGINAL, audio::wav(&pcm(&fen)));
     add(FEN_REWORK, audio::wav(&pcm(&fen_rework)));
 
-    // Another recording of a song under the same name (E3 pair #42): the
+    // Another recording of a song under the same name, as E3 had one: the
     // first 75 s follow the studio take, in another mix, and the rest is
     // something else.
     let ember = audio::song(531, 120.0, RATE);

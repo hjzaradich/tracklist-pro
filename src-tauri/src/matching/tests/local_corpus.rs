@@ -4,9 +4,10 @@
 //!
 //! The pair list, the labels and the audio are the owner's and stay
 //! outside git, so this runs **only where they are**: it looks for them
-//! in the folder the [`DIR_VAR`] environment variable names, and when the
-//! variable is unset or the folder isn't there it says so in one line and
-//! passes. CI never has them. `docs/local-corpus.md` says how to run it.
+//! in the folder the [`DIR_VAR`] environment variable names. With the
+//! variable unset it says so in one line and passes: CI never has them.
+//! With it set, the run is meant: a folder that isn't there, or a file
+//! that can't be read, fails. `docs/local-corpus.md` says how to run it.
 //!
 //! In that folder it reads, and only reads:
 //!
@@ -31,10 +32,12 @@
 //! others line up only weakly, with hardly an item the same bit for bit,
 //! so the block index has nothing to propose them by: nothing is stored
 //! for them, and the grouping rules see "never compared", not "a partial
-//! match". Pair #42 is one of those. The test asserts both numbers, so a
-//! change to the pass shows up here as a changed tally.
+//! match". A second recording under identical names is one of those. The
+//! test asserts both numbers, so a change to the pass shows up here as a
+//! changed tally.
 
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
@@ -271,23 +274,29 @@ fn skipped(why: &str) {
     );
 }
 
-/// The folder [`DIR_VAR`] names, when it's set and there.
-fn private_dir() -> Option<PathBuf> {
-    let Some(dir) = std::env::var_os(DIR_VAR).filter(|dir| !dir.is_empty()) else {
-        skipped(&format!("{DIR_VAR} is not set"));
-        return None;
+/// The folder to read, from what [`DIR_VAR`] holds. Unset is `Ok(None)`:
+/// nothing to run. Set is a deliberate run, so a folder that isn't there
+/// is an error, never a quiet skip. The error doesn't repeat the path.
+fn private_dir(var: Option<OsString>) -> Result<Option<PathBuf>, String> {
+    let Some(dir) = var.filter(|dir| !dir.is_empty()) else {
+        return Ok(None);
     };
     let dir = PathBuf::from(dir);
     if !dir.is_dir() {
-        skipped(&format!("the folder {DIR_VAR} names isn't there"));
-        return None;
+        return Err(format!(
+            "{DIR_VAR} is set, but the folder it names isn't there"
+        ));
     }
-    Some(dir)
+    Ok(Some(dir))
 }
 
 #[test]
 fn every_labeled_pair_from_e3_measures_as_its_label_requires() {
-    let Some(dir) = private_dir() else { return };
+    let dir = match private_dir(std::env::var_os(DIR_VAR)) {
+        Ok(Some(dir)) => dir,
+        Ok(None) => return skipped(&format!("{DIR_VAR} is not set")),
+        Err(why) => panic!("{why}"),
+    };
     let pairs = load(&dir);
     assert!(!pairs.is_empty(), "{PAIRS} lists no pairs");
 
@@ -485,6 +494,21 @@ fn the_pair_list_reader_keeps_commas_quotes_and_line_breaks_inside_quoted_fields
     // A byte-order mark in front (a spreadsheet's export) isn't part of the
     // first column's name.
     assert_eq!(table("\u{feff}id,label\n7,same\n")[0]["id"], "7");
+}
+
+#[test]
+fn an_unset_variable_skips_the_run_and_a_set_one_naming_a_missing_folder_fails_it() {
+    assert_eq!(private_dir(None), Ok(None));
+    let here = tempfile::tempdir().unwrap();
+    assert_eq!(
+        private_dir(Some(here.path().into())),
+        Ok(Some(here.path().to_path_buf()))
+    );
+    let gone = here.path().join("not-there");
+    let refused = private_dir(Some(gone.clone().into())).unwrap_err();
+    assert!(refused.contains(DIR_VAR), "{refused}");
+    // The message never repeats the folder: a path can hold a user name.
+    assert!(!refused.contains("not-there"), "{refused}");
 }
 
 #[test]

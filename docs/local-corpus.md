@@ -20,8 +20,8 @@ cargo test --lib local_corpus -- --nocapture
 
 It fingerprints all 86 files, so it takes a few minutes.
 
-- With `TLP_E3_DIR` unset, or naming a folder that isn't there, the test prints `local corpus skipped` and passes. That's what CI sees.
-- With it set, a file that is missing or can't be decoded **fails** the run by pair id, so the corpus never shrinks quietly.
+- With `TLP_E3_DIR` unset, the test prints `local corpus skipped` and passes. That's what CI sees.
+- With it set, the run is meant. A folder that isn't there **fails** it, and so does a file that is missing or can't be decoded (by pair id), so the corpus never shrinks quietly.
 
 ## What it checks
 What each label requires is written in `src-tauri/src/matching/tests/labels.rs`:
@@ -30,7 +30,7 @@ What each label requires is written in `src-tauri/src/matching/tests/labels.rs`:
 |---|---|
 | duplicate | The duplicate rule holds (coverage ≥ 90% both ways, score ≤ 4), in one alignment, and the matching pass proposed the pair |
 | cut, another length | Not a duplicate; the pass proposed it; at least half of the shorter file is found in the longer |
-| cut, same length (Clean and Dirty) | The audio passes the duplicate rule; the version check, run on the real names, says "cut" |
+| cut, same length (Clean and Dirty) | The audio passes the duplicate rule; the version check, run on the real names, says "cut" on at least one reading (title tags, file names) and "same" on none |
 | rework | Not a duplicate |
 | different | Not a duplicate; at most 5 seconds line up |
 
