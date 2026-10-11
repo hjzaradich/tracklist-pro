@@ -1053,3 +1053,28 @@ fn a_fingerprint_stamp_moves_only_with_the_bytes() {
     db.set_fingerprint(1, &fingerprint(track(9, 900)));
     assert_ne!(stamp(1), before);
 }
+
+#[test]
+fn a_row_with_stamp_zero_replaced_by_one_with_the_same_id_stamp_zero_and_no_fingerprint_leaves_the_index(
+) {
+    // A music folder removed and added again: the new file row takes the
+    // deleted one's id. Both have stamp 0 (the deleted one existed before
+    // migration 0020), so only having no fingerprint tells them apart.
+    let db = small();
+    let matcher = Matcher::new();
+    pass(&matcher, &db);
+    db.sql("UPDATE file SET fingerprint_rev = 0", ());
+    // The index reads file 5 again, at stamp 0.
+    let at_zero = pass(&matcher, &db);
+    assert_eq!((at_zero.files, at_zero.read), (5, 5));
+
+    db.sql("DELETE FROM file WHERE id = 5", ());
+    db.sql(
+        "INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, size, mtime)
+         VALUES (5, 1, 'again.flac', 'again.flac', 1000, 1000)",
+        (),
+    );
+    let after = pass(&matcher, &db);
+    assert_eq!((after.files, after.fingerprints), (4, 4));
+    assert_eq!(after.read, 0);
+}

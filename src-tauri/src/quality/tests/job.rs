@@ -10,11 +10,35 @@ use std::time::{Duration, SystemTime};
 use super::support::{wait, Library};
 use super::{audio, low_passed, noise, pcm, wav};
 use crate::hash::hash_job;
-use crate::jobs::{JobKind, JobStatus, Priority};
+use crate::jobs::{JobId, JobKind, JobStatus, Priority};
 use crate::quality::{quality_job, request, VERSION};
 use crate::scan::walk::scan_job;
 
 const RATE: u32 = 44_100;
+
+/// Waits until a hook reports it is at its packet. If the job has ended
+/// instead (it took no file), fails saying so, rather than waiting for
+/// ever for a packet that will never come.
+fn wait_for_packet(library: &Library, job: JobId, packet: &mpsc::Receiver<()>) {
+    loop {
+        match packet.recv_timeout(Duration::from_millis(20)) {
+            Ok(()) => return,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let status = library
+                    .writer
+                    .call(move |c| crate::jobs::store::get(c, job))
+                    .unwrap()
+                    .unwrap()
+                    .status;
+                assert!(
+                    !status.is_finished(),
+                    "the job ended ({status:?}) without reaching the packet"
+                );
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the hook went away"),
+        }
+    }
+}
 
 /// A mono WAV of noise low-passed at `hz`, `seconds` long.
 fn lowpassed_wav(seed: u64, seconds: f64, hz: f64) -> Vec<u8> {
@@ -259,7 +283,7 @@ fn a_cancelled_job_leaves_no_partial_row() {
         }
     }));
     let job = queue.enqueue(quality_job(None)).unwrap();
-    packet.recv().unwrap();
+    wait_for_packet(&library, job, &packet);
     queue.cancel(job).unwrap();
     go.send(()).unwrap();
     assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
@@ -302,7 +326,7 @@ fn a_cancel_keeps_the_files_already_measured_and_the_rest_stay_due() {
             }),
     );
     let job = queue.enqueue(quality_job(None)).unwrap();
-    packet.recv().unwrap();
+    wait_for_packet(&library, job, &packet);
     queue.cancel(job).unwrap();
     go.send(()).unwrap();
     assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
@@ -445,6 +469,10 @@ fn a_job_waits_for_a_free_thread_of_the_shared_budget_and_stops_if_cancelled_whi
             .unwrap()
             .unwrap()
             .status;
+        assert!(
+            !status.is_finished(),
+            "the job ended ({status:?}) instead of waiting for a thread"
+        );
         if status == JobStatus::Running {
             break;
         }

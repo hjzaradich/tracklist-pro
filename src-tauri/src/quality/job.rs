@@ -146,7 +146,7 @@ impl<V: Volumes + Sync + 'static> JobHandler for Qualifier<V> {
         // (they're due again once it's back).
         let reachable: Vec<i64> = folders
             .values()
-            .filter(|f| f.stored_path().resolve(&volumes).is_ok())
+            .filter(|f| f.is_reachable(&volumes))
             .map(|f| f.id.0)
             .collect();
         let own = job

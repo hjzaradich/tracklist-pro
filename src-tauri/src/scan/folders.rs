@@ -340,6 +340,11 @@ impl StoredFolder {
         StoredPath::new(self.volume.clone(), self.rel.clone())
     }
 
+    /// Whether the folder can be reached now: its volume is mounted.
+    pub fn is_reachable(&self, volumes: &impl Volumes) -> bool {
+        self.stored_path().resolve(volumes).is_ok()
+    }
+
     /// The folder for the frontend, placed under its volume's mount point
     /// now, or under the last one if the volume is offline.
     pub fn to_music_folder(&self, volumes: &impl Volumes) -> MusicFolder {

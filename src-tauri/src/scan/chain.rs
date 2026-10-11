@@ -178,7 +178,7 @@ pub(crate) fn reach_by<V: Volumes + 'static>(
         let volumes = volumes();
         folders
             .iter()
-            .filter(|f| f.stored_path().resolve(&volumes).is_ok())
+            .filter(|f| f.is_reachable(&volumes))
             .map(|f| f.id.0)
             .collect()
     })
