@@ -383,6 +383,10 @@ struct Report {
     /// a restart.
     idle: (Decided, Duration),
     restarted: (Decided, Duration),
+    /// How many files' names the run after a restart read with nothing due.
+    restarted_names: usize,
+    /// One new file after a restart: the index of names is built again.
+    restarted_one: (Decided, Duration),
     idle_pass: (Summary, Duration),
     db: Db,
 }
@@ -428,7 +432,23 @@ fn steps(n: usize, len: usize) -> Report {
     let after_later = group(&db);
 
     let idle = decide(&mut names, &db);
-    let restarted = decide(&mut Names::default(), &db);
+    let mut fresh = Names::default();
+    let restarted = decide(&mut fresh, &db);
+    let restarted_names = fresh.files();
+    // One more file, a re-encode of a lone track, decided by a handler
+    // that kept nothing.
+    let lone = &files[planted.singles[60]];
+    db.add(&[Made {
+        name: format!("late/{}.mp3", lone.title),
+        title: lone.title.clone(),
+        artist: lone.artist.clone(),
+        audio: u64::MAX / 16,
+        items: reencoded(&lone.items, 0xFEED),
+    }]);
+    group(&db);
+    compare_fingerprints(&matcher, &db);
+    let restarted_one = decide(&mut Names::default(), &db);
+    group(&db);
     let idle_pass = group(&db);
     Report {
         files: files.len(),
@@ -443,6 +463,8 @@ fn steps(n: usize, len: usize) -> Report {
         after_later,
         idle,
         restarted,
+        restarted_names,
+        restarted_one,
         idle_pass,
         db,
     }
@@ -497,6 +519,7 @@ fn print(report: &Report) {
     pass("grouping pass after it", &report.after_later);
     run("deciding run, nothing due", &report.idle);
     run("  the same after a restart", &report.restarted);
+    run("one new file after a restart", &report.restarted_one);
     pass("grouping pass, nothing to do", &report.idle_pass);
     println!(
         "  tracks: {}   pairs stored: {}   version links: {}   stored comparisons: {}",
@@ -505,8 +528,87 @@ fn print(report: &Report) {
         db.count("SELECT count(*) FROM version_link"),
         db.count("SELECT count(*) FROM fingerprint_match")
     );
+    // Every stored pair, by what the rules said and where it stands.
+    let by_state: Vec<(String, String, i64)> = db
+        .writer
+        .call(|c| {
+            let mut s = c.prepare(
+                "SELECT outcome, state, count(*) FROM grouping_pair GROUP BY 1, 2 ORDER BY 1, 2",
+            )?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    for (outcome, state, pairs) in by_state {
+        println!("  pairs: {outcome:<10} {state:<16} {pairs}");
+    }
+    let held = held_sets(db);
+    println!(
+        "  held sets: {}   files in them: {}   the largest: {} files",
+        held.len(),
+        held.iter().sum::<usize>(),
+        held.iter().max().copied().unwrap_or(0)
+    );
+    // Why each held set is held: the pairs between its files that aren't
+    // duplicates.
+    let causes: Vec<(String, String, i64)> = db
+        .writer
+        .call(|c| {
+            let mut s = c.prepare(
+                "SELECT p.outcome, p.state, count(*) FROM grouping_pair p
+                 WHERE p.outcome <> 'duplicate'
+                   AND EXISTS (SELECT 1 FROM grouping_pair h
+                               WHERE h.state = 'set_disagrees'
+                                 AND (h.file_a IN (p.file_a, p.file_b)
+                                      OR h.file_b IN (p.file_a, p.file_b)))
+                 GROUP BY 1, 2 ORDER BY 1, 2",
+            )?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    for (outcome, state, pairs) in causes {
+        println!("  held because of: {outcome:<10} {state:<16} {pairs} pairs");
+    }
     println!("  release build: {}", !cfg!(debug_assertions));
     println!();
+}
+
+/// The sets held as disagreeing, as their sizes in files: the files joined
+/// by duplicate pairs that stand as `set_disagrees`.
+fn held_sets(db: &Db) -> Vec<usize> {
+    let pairs: Vec<(i64, i64)> = db
+        .writer
+        .call(|c| {
+            let mut s = c.prepare(
+                "SELECT file_a, file_b FROM grouping_pair WHERE state = 'set_disagrees'",
+            )?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    let mut set_of: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    fn find(set_of: &mut std::collections::HashMap<i64, i64>, file: i64) -> i64 {
+        let parent = *set_of.entry(file).or_insert(file);
+        if parent == file {
+            return file;
+        }
+        let root = find(set_of, parent);
+        set_of.insert(file, root);
+        root
+    }
+    for (a, b) in pairs {
+        let (a, b) = (find(&mut set_of, a), find(&mut set_of, b));
+        if a != b {
+            set_of.insert(a.max(b), a.min(b));
+        }
+    }
+    let files: Vec<i64> = set_of.keys().copied().collect();
+    let mut sizes: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
+    for file in files {
+        *sizes.entry(find(&mut set_of, file)).or_default() += 1;
+    }
+    sizes.into_values().collect()
 }
 
 /// What must hold whatever the size.
@@ -562,6 +664,12 @@ fn check(report: &Report) {
     // index kept.
     assert_eq!(report.idle.0, Decided::default());
     assert_eq!(report.restarted.0, Decided::default());
+    assert_eq!(report.restarted_names, 0, "no names read with nothing due");
+    assert_eq!(report.restarted_one.0.files, 1);
+    // Every held set is one of the planted ones: three files.
+    let held = held_sets(db);
+    assert_eq!(held.len(), report.planted.disagreeing.len());
+    assert!(held.iter().all(|&files| files == 3), "{held:?}");
     assert!(!report.idle_pass.0.changed_tracks());
 }
 

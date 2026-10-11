@@ -157,9 +157,10 @@ struct Narrowed {
 
 /// Every present file's titles, in memory: which files share a title, and
 /// which mashups name a title as a part. Kept between runs by the job's
-/// handler, and brought up to date at the start of each
-/// ([`Names::catch_up`]): only what it finds candidates by, never what a
-/// decision is made on, which is read from the database each time.
+/// handler, and brought up to date by each run that has a file to decide,
+/// before it decides the first ([`Names::catch_up`]); a run with nothing
+/// due never builds it. It's only what candidates are found by, never what
+/// a decision is made on, which is read from the database each time.
 #[derive(Debug, Default)]
 pub struct Names {
     of_file: HashMap<i64, Entry>,
@@ -173,6 +174,12 @@ pub struct Names {
 }
 
 impl Names {
+    /// How many files the index holds: none until a run had a file to
+    /// decide.
+    pub fn files(&self) -> usize {
+        self.of_file.len()
+    }
+
     fn remove(&mut self, file: i64) {
         let Some(entry) = self.of_file.remove(&file) else {
             return;
@@ -763,7 +770,6 @@ pub fn run<E: From<DbError>>(
     let mut run = Decided::default();
     let page = page.max(1);
     tick(0.0)?;
-    names.catch_up(writer, tick)?;
     let standing = writer.call(|c| Standing::read(c))?;
     let total = writer
         .call(|c| {
@@ -777,6 +783,7 @@ pub fn run<E: From<DbError>>(
 
     let mut after = 0;
     let mut seen = 0u64;
+    let mut caught_up = false;
     loop {
         tick((seen as f64 / total).min(0.95))?;
         if run.files > 0 {
@@ -788,6 +795,13 @@ pub fn run<E: From<DbError>>(
         };
         after = last;
         seen += due.len() as u64;
+        // The index of names is only needed to decide a file: a run with
+        // none to decide never builds it (after a restart that is every
+        // present file's names read again).
+        if !caught_up {
+            names.catch_up(writer, tick)?;
+            caught_up = true;
+        }
         decide_page(writer, names, &standing, &due, &mut run)?;
     }
 

@@ -411,6 +411,24 @@ fn a_run_over_an_unchanged_database_changes_nothing() {
 }
 
 #[test]
+fn the_index_of_names_is_built_only_by_a_run_that_has_a_file_to_decide() {
+    let db = db();
+    a_bit_of_everything(&db);
+    db.decide();
+    let all = db.count("SELECT count(*) FROM file") as usize;
+    assert_eq!(db.names.lock().unwrap().files(), all);
+    // After a restart nothing is kept. A run with nothing due reads no
+    // names; one new file, and the next run reads them all.
+    *db.names.lock().unwrap() = Default::default();
+    db.decide();
+    assert_eq!(db.names.lock().unwrap().files(), 0);
+    db.add(file("late/Velo.mp3", "Velo", 12, track(55, LEN)));
+    let (decided, _) = db.decide();
+    assert_eq!(decided.files, 1);
+    assert_eq!(db.names.lock().unwrap().files(), all + 1);
+}
+
+#[test]
 fn a_new_file_joins_its_track_without_moving_any_other_file() {
     let db = db();
     a_bit_of_everything(&db);
