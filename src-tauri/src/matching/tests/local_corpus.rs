@@ -1,6 +1,8 @@
-//! The local corpus (1bA-3): E3's 43 hand-labeled pairs of real files, run
-//! through the app's own fingerprinting and matching pass and held to what
-//! each label requires ([`super::labels::unmet`]).
+//! The local corpus (1bA-3, 1bB-7): E3's 43 hand-labeled pairs of real
+//! files, run through the app's own fingerprinting and matching pass and
+//! held to what each label requires ([`super::labels::unmet`]); then
+//! through the grouping rules ([`crate::grouping::rules::decide`]) and
+//! held to what each label allows ([`super::labels::allowed`]).
 //!
 //! The pair list, the labels and the audio are the owner's and stay
 //! outside git, so this runs **only where they are**: it looks for them
@@ -11,15 +13,17 @@
 //!
 //! In that folder it reads, and only reads:
 //!
-//! - `e3/pairs.csv`: each pair's id, its two audio files and their titles;
+//! - `e3/pairs.csv`: each pair's id and its two audio files;
 //! - `results-private/e3-labels.csv`: each pair's label (same, version or
 //!   different);
 //! - `results-private/e3-fingerprints.jsonl`: which versions are cuts, and
 //!   the numbers E3's own tool measured, printed beside ours.
 //!
-//! Every audio file is opened read-only and fingerprinted by the app's
-//! decoder; the fingerprints go into a throwaway database under made-up
-//! file names, and the real matching pass runs over it.
+//! Every audio file is opened read-only: fingerprinted by the app's
+//! decoder, hashed by the app's hasher, and its title and artist tags read
+//! by the app's tag reader. The fingerprints go into a throwaway database
+//! under made-up file names, and the real matching pass runs over it. All
+//! of that happens once, for both tests.
 //!
 //! **Nothing private is ever printed:** a pair is its id, its category and
 //! numbers. No title, artist, file name or path reaches the output, a
@@ -35,6 +39,19 @@
 //! match". A second recording under identical names is one of those. The
 //! test asserts both numbers, so a change to the pass shows up here as a
 //! changed tally.
+//!
+//! # The grouping rules on the real pairs
+//!
+//! Each pair is put to the rules as their contract says: the audio is
+//! "identical" when the two files share an audio hash or a whole-file
+//! hash, else what the pass stored, else a direct comparison of the two
+//! fingerprints; the names are each file's title tag, artist tag and file
+//! name. One line may never be crossed: **no pair labeled anything other
+//! than duplicate comes out a duplicate.** Beyond that, every outcome must
+//! be one its label allows; "needs review" always is. For a pair the pass
+//! never proposed, the run also prints what the rules say when nobody
+//! compares the two, which is what the grouping job gets unless it
+//! compares them itself.
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
@@ -42,14 +59,18 @@ use std::fs::File;
 use std::io::{ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use crate::fingerprint::decode::{self, Stopped};
 use crate::fingerprint::Fingerprint;
-use crate::matching::{compare, item_seconds, refresh, Comparison};
+use crate::grouping::rules::{self, Audio, FileFacts, Measured};
+use crate::hash::{self, FileHashes};
+use crate::matching::{compare, item_seconds, refresh, Comparison, Summary};
 use crate::versions::{self, Outcome};
 
-use super::labels::{identical_share, same_length, shared_keys, unmet, Category, Shape};
+use super::labels::{
+    allowed, identical_share, is_duplicate, same_length, shared_keys, unmet, Category, Shape,
+};
 use super::passes::db;
 
 /// Names the folder holding E3's private files: the `spikes` folder of the
@@ -71,9 +92,6 @@ struct Pair {
     id: u32,
     category: Category,
     paths: [PathBuf; 2],
-    /// Each file's title as E3 listed it: its title tag, or its file name
-    /// without the extension where it has no tag.
-    titles: [String; 2],
     /// What E3's tool measured: coverage of A, of B, and the score.
     e3: Option<(f64, f64, f64)>,
 }
@@ -172,7 +190,6 @@ fn load(dir: &Path) -> Vec<Pair> {
                 category: category(label, cut)
                     .unwrap_or_else(|| panic!("pair {number} has a label this test doesn't know")),
                 paths: [field("a_path").into(), field("b_path").into()],
-                titles: [field("a_title"), field("b_title")],
                 e3: number_of("cover_a")
                     .zip(number_of("cover_b"))
                     .zip(number_of("score"))
@@ -197,18 +214,67 @@ fn fingerprint(path: &Path) -> Result<Fingerprint, &'static str> {
     })
 }
 
-/// Fingerprints every file, a few at a time.
-fn fingerprints(paths: &[&Path]) -> Vec<Result<Fingerprint, &'static str>> {
+/// One audio file as the app sees it. Its names never leave this
+/// struct: they are parsed and compared, never printed.
+struct Seen {
+    fingerprint: Fingerprint,
+    hashes: FileHashes,
+    title: Option<String>,
+    artist: Option<String>,
+    file_name: String,
+}
+
+impl Seen {
+    /// The file's names as the grouping rules take them.
+    fn facts(&self) -> FileFacts {
+        FileFacts::new(
+            self.title.as_deref(),
+            self.artist.as_deref(),
+            &self.file_name,
+        )
+    }
+
+    /// The file's title as the version check reads it: its title tag, or
+    /// its file name where it has none.
+    fn tagged(&self) -> versions::ParsedName {
+        match self.title.as_deref().filter(|t| !t.trim().is_empty()) {
+            Some(title) => versions::parse_title(title),
+            None => versions::parse_file_name(&self.file_name),
+        }
+    }
+}
+
+/// Fingerprints and hashes one file and reads its tags, as the app does.
+/// A failure is a short reason, never the path.
+fn see(path: &Path) -> Result<Seen, &'static str> {
+    let fingerprint = fingerprint(path)?;
+    let mut buffer = vec![0; hash::BUFFER];
+    let hashes = hash::hash_path(path, &mut buffer, &mut |_| false)
+        .ok()
+        .flatten()
+        .ok_or("audio file can't be hashed")?;
+    let tags = crate::tags::read(path).map_err(|_| "tags can't be read")?;
+    Ok(Seen {
+        fingerprint,
+        hashes,
+        title: tags.fields.title,
+        artist: tags.fields.artist,
+        file_name: file_name(path),
+    })
+}
+
+/// Sees every file, a few at a time.
+fn see_all(paths: &[&Path]) -> Vec<Result<Seen, &'static str>> {
     let threads = std::thread::available_parallelism().map_or(2, |n| n.get().min(4));
     let next = AtomicUsize::new(0);
-    let done: Vec<Mutex<Option<Result<Fingerprint, &'static str>>>> =
+    let done: Vec<Mutex<Option<Result<Seen, &'static str>>>> =
         paths.iter().map(|_| Mutex::new(None)).collect();
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some(path) = paths.get(i) else { break };
-                *done[i].lock().unwrap() = Some(fingerprint(path));
+                *done[i].lock().unwrap() = Some(see(path));
             });
         }
     });
@@ -245,23 +311,14 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// What the version check says about the pair, read two ways: from the
+/// What the version check says about two files, read two ways: from the
 /// title tags (a file without one gives its file name), and from the two
 /// file names.
-fn names_say(pair: &Pair) -> (Outcome, Outcome) {
-    let tagged = |side: usize| {
-        let stem = pair.paths[side].file_stem().map(|s| s.to_string_lossy());
-        match stem {
-            Some(stem) if stem != pair.titles[side].as_str() => {
-                versions::parse_title(&pair.titles[side])
-            }
-            _ => versions::parse_file_name(&file_name(&pair.paths[side])),
-        }
-    };
-    let named = |side: usize| versions::parse_file_name(&file_name(&pair.paths[side]));
+fn names_say(a: &Seen, b: &Seen) -> (Outcome, Outcome) {
+    let named = |file: &Seen| versions::parse_file_name(&file.file_name);
     (
-        versions::compare(&tagged(0), &tagged(1)).outcome,
-        versions::compare(&named(0), &named(1)).outcome,
+        versions::compare(&a.tagged(), &b.tagged()).outcome,
+        versions::compare(&named(a), &named(b)).outcome,
     )
 }
 
@@ -290,58 +347,147 @@ fn private_dir(var: Option<OsString>) -> Result<Option<PathBuf>, String> {
     Ok(Some(dir))
 }
 
-#[test]
-fn every_labeled_pair_from_e3_measures_as_its_label_requires() {
-    let dir = match private_dir(std::env::var_os(DIR_VAR)) {
-        Ok(Some(dir)) => dir,
-        Ok(None) => return skipped(&format!("{DIR_VAR} is not set")),
-        Err(why) => panic!("{why}"),
-    };
-    let pairs = load(&dir);
+/// The corpus, seen and passed once, for every test here.
+struct Run {
+    pairs: Vec<Pair>,
+    /// Every file once, whichever pairs it's in.
+    files: Vec<Seen>,
+    /// Each pair's two files, as places in `files`.
+    of_pair: Vec<[usize; 2]>,
+    /// What the pass stored for each pair; `None` where it never proposed
+    /// the pair.
+    stored: Vec<Option<Comparison>>,
+    summary: Summary,
+    /// Stored results between files of two different pairs: how many, how
+    /// many of them share audio, how many pass the duplicate rule.
+    across: [usize; 3],
+}
+
+impl Run {
+    fn files_of(&self, pair: usize) -> (&Seen, &Seen) {
+        let [a, b] = self.of_pair[pair];
+        (&self.files[a], &self.files[b])
+    }
+
+    /// How the pair's two files compare, and whether the pass proposed
+    /// them. What the pass stored is what grouping will read; a pair it
+    /// never proposed is compared directly.
+    fn compared(&self, pair: usize) -> (Comparison, bool) {
+        let (a, b) = self.files_of(pair);
+        match &self.stored[pair] {
+            Some(stored) => (stored.clone(), true),
+            None => (
+                compare(&a.fingerprint, &b.fingerprint).expect("one fingerprint version"),
+                false,
+            ),
+        }
+    }
+}
+
+fn build(dir: &Path) -> Run {
+    let pairs = load(dir);
     assert!(!pairs.is_empty(), "{PAIRS} lists no pairs");
 
-    // Every file once, whichever pairs it's in.
-    let mut files: Vec<&Path> = pairs
+    let mut paths: Vec<&Path> = pairs
         .iter()
         .flat_map(|p| p.paths.iter().map(PathBuf::as_path))
         .collect();
-    files.sort_unstable();
-    files.dedup();
-    let prints = fingerprints(&files);
-    let print_of = |path: &Path| &prints[files.binary_search(&path).expect("listed above")];
+    paths.sort_unstable();
+    paths.dedup();
+    let seen = see_all(&paths);
+    let place = |path: &Path| paths.binary_search(&path).expect("listed above");
 
     // A set variable means "run it": a pair that can't be measured fails
     // the run, so the corpus never shrinks quietly.
     let mut unmeasured = Vec::new();
     for pair in &pairs {
         for (side, path) in ["A", "B"].iter().zip(&pair.paths) {
-            if let Err(why) = print_of(path) {
+            if let Err(why) = &seen[place(path)] {
                 unmeasured.push(format!("pair {} file {side}: {why}", pair.id));
             }
         }
     }
     assert!(
         unmeasured.is_empty(),
-        "these files couldn't be fingerprinted:\n{}",
+        "these files couldn't be read:\n{}",
         unmeasured.join("\n")
     );
+    let files: Vec<Seen> = seen.into_iter().map(Result::unwrap).collect();
 
     // The real pass, over a database holding the fingerprints under
     // made-up names.
     let db = db();
-    let ids: Vec<i64> = prints
+    let ids: Vec<i64> = files
         .iter()
         .enumerate()
-        .map(|(i, print)| db.add(&format!("{i}.audio"), print.as_ref().unwrap()))
+        .map(|(i, file)| db.add(&format!("{i}.audio"), &file.fingerprint))
         .collect();
-    let id_of = |path: &Path| ids[files.binary_search(&path).expect("listed above")];
     let summary = refresh(&db.writer).unwrap();
+    let of_pair: Vec<[usize; 2]> = pairs
+        .iter()
+        .map(|p| [place(&p.paths[0]), place(&p.paths[1])])
+        .collect();
+    let stored: Vec<Option<Comparison>> = of_pair
+        .iter()
+        .map(|&[a, b]| db.of_pair(ids[a], ids[b]))
+        .collect();
+    // Each song was picked for one pair only, so little should line up
+    // across pairs.
+    let labeled: Vec<(i64, i64)> = of_pair
+        .iter()
+        .map(|&[a, b]| (ids[a].min(ids[b]), ids[a].max(ids[b])))
+        .collect();
+    let across: Vec<_> = db
+        .all()
+        .into_iter()
+        .filter(|m| !labeled.contains(&(m.file_a, m.file_b)))
+        .collect();
+    let across = [
+        across.len(),
+        across
+            .iter()
+            .filter(|m| !m.comparison.segments.is_empty())
+            .count(),
+        across
+            .iter()
+            .filter(|m| is_duplicate(&m.comparison))
+            .count(),
+    ];
+    Run {
+        pairs,
+        files,
+        of_pair,
+        stored,
+        summary,
+        across,
+    }
+}
+
+/// The run, made on first use. `None` when [`DIR_VAR`] is unset, which is
+/// said once, on stderr.
+fn run() -> Option<&'static Run> {
+    static RUN: OnceLock<Option<Run>> = OnceLock::new();
+    RUN.get_or_init(|| match private_dir(std::env::var_os(DIR_VAR)) {
+        Ok(Some(dir)) => Some(build(&dir)),
+        Ok(None) => {
+            skipped(&format!("{DIR_VAR} is not set"));
+            None
+        }
+        Err(why) => panic!("{why}"),
+    })
+    .as_ref()
+}
+
+#[test]
+fn every_labeled_pair_from_e3_measures_as_its_label_requires() {
+    let Some(run) = run() else { return };
+    let pairs = &run.pairs;
     println!(
         "{} pairs, {} files; the pass proposed {} pairs and stored {}",
         pairs.len(),
-        files.len(),
-        summary.candidates,
-        summary.stored
+        run.files.len(),
+        run.summary.candidates,
+        run.summary.stored
     );
     println!(
         "coverage: of A / of B by the main alignment. found: over every alignment. \
@@ -354,27 +500,18 @@ fn every_labeled_pair_from_e3_measures_as_its_label_requires() {
     let mut failures: Vec<String> = Vec::new();
     let mut tally: BTreeMap<Category, (u32, u32)> = BTreeMap::new();
     let mut names_tally: BTreeMap<Category, (u32, u32)> = BTreeMap::new();
-    let mut labeled: Vec<(i64, i64)> = Vec::new();
     let (mut sharing, mut sharing_proposed) = (0, 0);
-    for pair in &pairs {
-        let (a, b) = (
-            print_of(&pair.paths[0]).as_ref().unwrap(),
-            print_of(&pair.paths[1]).as_ref().unwrap(),
-        );
-        let (id_a, id_b) = (id_of(&pair.paths[0]), id_of(&pair.paths[1]));
-        labeled.push((id_a.min(id_b), id_a.max(id_b)));
-        // What the pass stored is what grouping will read. A pair it never
-        // proposed is compared here, to show what it would have found.
-        let stored: Option<Comparison> = db.of_pair(id_a, id_b);
-        let proposed = stored.is_some();
-        let c = stored.unwrap_or_else(|| compare(a, b).expect("one fingerprint version"));
+    for (i, pair) in pairs.iter().enumerate() {
+        let (file_a, file_b) = run.files_of(i);
+        let (a, b) = (&file_a.fingerprint, &file_b.fingerprint);
+        let (c, proposed) = run.compared(i);
         if Shape::of(&c) == Shape::Partial {
             sharing += 1;
             sharing_proposed += usize::from(proposed);
         }
 
         let mut wrong: Vec<&str> = unmet(pair.category, &c, proposed);
-        let (by_tags, by_files) = names_say(pair);
+        let (by_tags, by_files) = names_say(file_a, file_b);
         let wanted = names_for(pair.category);
         // Clean and Dirty pass the duplicate rule on audio, so the names
         // are all that stops a false merge: they must say "cut".
@@ -434,24 +571,10 @@ fn every_labeled_pair_from_e3_measures_as_its_label_requires() {
         count.0 += u32::from(names_agree);
     }
 
-    // Each song was picked for one pair only, so little should line up
-    // across pairs. Printed for the record.
-    let across: Vec<_> = db
-        .all()
-        .into_iter()
-        .filter(|m| !labeled.contains(&(m.file_a, m.file_b)))
-        .collect();
+    let [across, sharing_across, merged_across] = run.across;
     println!(
-        "across pairs: {} proposed, {} of them sharing audio, {} passing the duplicate rule",
-        across.len(),
-        across
-            .iter()
-            .filter(|m| !m.comparison.segments.is_empty())
-            .count(),
-        across
-            .iter()
-            .filter(|m| super::labels::is_duplicate(&m.comparison))
-            .count(),
+        "across pairs: {across} proposed, {sharing_across} of them sharing audio, \
+         {merged_across} passing the duplicate rule"
     );
     for category in Category::ALL {
         let (met, of) = tally.get(&category).copied().unwrap_or_default();
@@ -477,6 +600,159 @@ fn every_labeled_pair_from_e3_measures_as_its_label_requires() {
         (SHARING, SHARING_PROPOSED),
         "the pass proposes other weakly sharing pairs than it did: \
          correct the tally in this file and tell the grouping rules' owner"
+    );
+}
+
+/// The audio as the grouping rules sort it (their module docs), for the
+/// printed line only.
+fn audio_class(audio: &Audio, c: &Comparison) -> &'static str {
+    if matches!(audio, Audio::Identical) {
+        return "identical";
+    }
+    let matched: usize = c.segments.iter().map(|s| s.items).sum();
+    let found_score = c
+        .segments
+        .iter()
+        .map(|s| s.score * s.items as f64)
+        .sum::<f64>()
+        / matched.max(1) as f64;
+    let whole = |found: f32| found >= rules::DUPLICATE_COVERAGE;
+    if is_duplicate(c) {
+        "full"
+    } else if whole(c.found_a()) != whole(c.found_b()) && found_score <= rules::DUPLICATE_SCORE {
+        "one inside the other"
+    } else if matched >= rules::MIN_SHARED_ITEMS {
+        "partial"
+    } else {
+        "none"
+    }
+}
+
+/// A decision in a few words and its reason codes. Codes only: a reason's
+/// parameters can hold a title.
+fn decided(decision: &rules::Decision) -> String {
+    let kinds = |labels: &[versions::MarkerKind]| {
+        labels
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect::<Vec<_>>()
+            .join("+")
+    };
+    let outcome = match &decision.outcome {
+        rules::Outcome::Duplicate => String::from("duplicate"),
+        rules::Outcome::CutLink { labels } => format!("cut link [{}]", kinds(labels)),
+        rules::Outcome::ReworkLink { labels } => format!("rework link [{}]", kinds(labels)),
+        rules::Outcome::Different => String::from("different"),
+        rules::Outcome::NeedsReview => String::from("review"),
+    };
+    format!("{outcome} ({})", codes(decision))
+}
+
+fn codes(decision: &rules::Decision) -> String {
+    let codes: Vec<&str> = decision.reasons.iter().map(|r| r.code()).collect();
+    codes.join(", ")
+}
+
+/// An outcome's kind, for the tally.
+fn kind(outcome: &rules::Outcome) -> &'static str {
+    match outcome {
+        rules::Outcome::Duplicate => "duplicate",
+        rules::Outcome::CutLink { .. } => "cut link",
+        rules::Outcome::ReworkLink { .. } => "rework link",
+        rules::Outcome::Different => "different",
+        rules::Outcome::NeedsReview => "review",
+    }
+}
+
+#[test]
+fn the_grouping_rules_merge_no_pair_labeled_other_than_duplicate_and_keep_every_pair_within_what_its_label_allows(
+) {
+    let Some(run) = run() else { return };
+    println!(
+        "audio: as the grouping rules sort it. proposed: whether the pass compared the pair \
+         (if not, it is compared directly here). Then the rules' outcome and its reason codes. \
+         never compared: what the rules say for the same pair when nobody compares it."
+    );
+    let mut merged_wrongly: Vec<String> = Vec::new();
+    let mut not_allowed: Vec<String> = Vec::new();
+    let mut tally: BTreeMap<(Category, &str), u32> = BTreeMap::new();
+    let mut duplicates_in_review: BTreeMap<String, Vec<u32>> = BTreeMap::new();
+    for (i, pair) in run.pairs.iter().enumerate() {
+        let (a, b) = run.files_of(i);
+        let (c, proposed) = run.compared(i);
+        let same_audio_hash = matches!((a.hashes.audio, b.hashes.audio), (Ok(x), Ok(y)) if x == y);
+        let audio = if same_audio_hash || a.hashes.blake3 == b.hashes.blake3 {
+            Audio::Identical
+        } else {
+            Audio::Compared(Measured::try_from(&c).expect("a comparison's own numbers"))
+        };
+        let (facts_a, facts_b) = (a.facts(), b.facts());
+        let decision = rules::decide(&rules::Pair::new(audio, &facts_a, &facts_b));
+        // What the grouping job gets for a pair the pass never proposed,
+        // unless it compares the two itself.
+        let uncompared = (!proposed && audio != Audio::Identical)
+            .then(|| rules::decide(&rules::Pair::new(Audio::NotCompared, &facts_a, &facts_b)));
+
+        let line = format!(
+            "#{:<3}{:<10} audio {:<20} proposed {:<3}  {}{}",
+            pair.id,
+            pair.category.as_str(),
+            audio_class(&audio, &c),
+            if proposed { "yes" } else { "no" },
+            decided(&decision),
+            uncompared.as_ref().map_or(String::new(), |d| format!(
+                "  never compared: {}",
+                decided(d)
+            )),
+        );
+        println!("{line}");
+        *tally
+            .entry((pair.category, kind(&decision.outcome)))
+            .or_default() += 1;
+        if pair.category == Category::Duplicate && decision.outcome == rules::Outcome::NeedsReview {
+            duplicates_in_review
+                .entry(codes(&decision))
+                .or_default()
+                .push(pair.id);
+        }
+        // The hard line, on both ways of asking.
+        let merges = |d: &rules::Decision| d.outcome == rules::Outcome::Duplicate;
+        if pair.category != Category::Duplicate
+            && (merges(&decision) || uncompared.as_ref().is_some_and(merges))
+        {
+            merged_wrongly.push(line.clone());
+        }
+        if !allowed(pair.category, &decision.outcome) {
+            not_allowed.push(line);
+        }
+    }
+
+    for category in Category::ALL {
+        let counts: Vec<String> = tally
+            .iter()
+            .filter(|((of, _), _)| *of == category)
+            .map(|((_, outcome), n)| format!("{n} {outcome}"))
+            .collect();
+        println!("{:<10} {}", category.as_str(), counts.join(", "));
+    }
+    let merged = tally
+        .get(&(Category::Duplicate, "duplicate"))
+        .copied()
+        .unwrap_or(0);
+    let in_review: usize = duplicates_in_review.values().map(Vec::len).sum();
+    println!("duplicates: {merged} merge without review, {in_review} to review");
+    for (codes, ids) in &duplicates_in_review {
+        println!("  to review for ({codes}): pairs {ids:?}");
+    }
+    assert!(
+        merged_wrongly.is_empty(),
+        "pairs not labeled duplicate that the rules merge:\n{}",
+        merged_wrongly.join("\n")
+    );
+    assert!(
+        not_allowed.is_empty(),
+        "pairs whose outcome their label doesn't allow:\n{}",
+        not_allowed.join("\n")
     );
 }
 
