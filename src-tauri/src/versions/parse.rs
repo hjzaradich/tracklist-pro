@@ -3,7 +3,7 @@
 
 use super::junk::{self, bracket_junk, is_site_phrase, looks_like_site, trailing_bitrate};
 use super::labels::{self, Found};
-use super::tokenize::{collapse_spaces, flatten, tokenize, BracketKind, Group, Token};
+use super::tokenize::{collapse_spaces, flatten, normalize, tokenize, BracketKind, Group, Token};
 use super::{
     Credit, CreditRole, Junk, JunkKind, Marker, MarkerForm, MarkerKind, NameSource, ParsedName,
     Qualifier,
@@ -215,6 +215,13 @@ fn artist_credits(text: &str, credits: &mut Vec<Credit>) {
             role: CreditRole::Featured,
         });
     }
+}
+
+/// The artists an artist tag names, split as a file name's artist part is.
+pub(super) fn artist_tag(input: &str) -> Vec<Credit> {
+    let mut credits = Vec::new();
+    artist_credits(&collapse_spaces(&normalize(input)), &mut credits);
+    credits
 }
 
 /// What the brackets after the title turned out to be.

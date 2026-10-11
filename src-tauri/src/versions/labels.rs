@@ -11,6 +11,9 @@ use super::tables::{
     BY_WORDS, CUT_LABELS, FEAT_WORDS, LABEL_SEPARATORS, LIVE_PLACE_WORDS, MASHUP_SEPARATORS,
     MAX_LABEL_WORDS, NAMED_MIX_WORDS, NON_NAME_WORDS, REWORK_LABELS,
 };
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use super::tokenize::is_dash;
 use super::{MarkerKind, VersionClass};
 
@@ -86,6 +89,29 @@ fn lookup(spelling: &str) -> Option<MarkerKind> {
         .chain(REWORK_LABELS)
         .find(|(_, spellings)| spellings.iter().any(|s| table_spelling(s) == spelling))
         .map(|&(kind, _)| kind)
+}
+
+/// The kind `text` stands for when all of it is one label spelling. The
+/// same answer as [`lookup`], from a map made once: this is asked for
+/// every word of every name.
+pub(super) fn kind_of(text: &str) -> Option<MarkerKind> {
+    static KINDS: OnceLock<HashMap<String, MarkerKind>> = OnceLock::new();
+    let kinds = KINDS.get_or_init(|| {
+        let mut kinds = HashMap::new();
+        for (kind, spellings) in CUT_LABELS.iter().chain(REWORK_LABELS) {
+            for spelling in spellings.iter() {
+                // The first row to spell it wins, as in `lookup`.
+                kinds.entry(table_spelling(spelling)).or_insert(*kind);
+            }
+        }
+        kinds
+    });
+    let spelling = text
+        .split_whitespace()
+        .map(plain)
+        .collect::<Vec<_>>()
+        .join(" ");
+    kinds.get(&spelling).copied()
 }
 
 /// A table row, spelled the way [`words`] spells text.

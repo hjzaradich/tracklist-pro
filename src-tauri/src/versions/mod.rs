@@ -12,6 +12,10 @@
 //! - [`compare`] sets two parsed names side by side and answers with an
 //!   [`Outcome`] and its [`Reason`]s, which are codes and parameters, never
 //!   English text.
+//! - A file has two names, its title tag and its file name, and its version
+//!   is what either says: [`ParsedName::with_labels_of`] gives one of them
+//!   the labels only the other carries. [`compare_labels`] sets two names'
+//!   labels side by side whatever their titles.
 //!
 //! # A version word can be the real title
 //!
@@ -50,7 +54,9 @@ pub mod tokenize;
 #[cfg(test)]
 mod tests;
 
-pub use compare::{compare, Comparison, Outcome, Reason, ReworkRef, Side, MAX_LABEL_GROUPS};
+pub use compare::{
+    compare, compare_labels, Comparison, Outcome, Reason, ReworkRef, Side, MAX_LABEL_GROUPS,
+};
 
 /// Where a name came from. A file name can hold an artist, a track number
 /// and an extension; a title tag is taken as a title.
@@ -379,4 +385,28 @@ pub fn parse_title(input: &str) -> ParsedName {
 /// [`parse`] for a file name.
 pub fn parse_file_name(input: &str) -> ParsedName {
     parse(input, NameSource::FileName)
+}
+
+/// The cut or rework `text` stands for, when all of it is one label as the
+/// parser spells them ("dirty", "Radio Edit", "V.I.P."), whatever is
+/// around it in a name. `None` for anything else, a name in front of a
+/// label included ("Quill Ashby Remix").
+///
+/// For looking at words the parser left in a title: it only reads labels
+/// in brackets, after " - " or at the very end.
+pub fn label_kind(text: &str) -> Option<MarkerKind> {
+    labels::kind_of(text)
+}
+
+/// The artists an artist tag names ("A & B feat. C"), split as the artist
+/// part of a file name is once that part is clean: a tag is taken as
+/// written, with no store or rip junk looked for. For callers that hold
+/// the artist apart from the title, as grouping does (1bB-4).
+///
+/// "/" and ";" don't split: either can be part of one act's name
+/// ("Nox/Vey"), and nothing in a tag tells that from a list. Two artists
+/// written that way stay one name, which can cost a link between two
+/// tracks and never makes one.
+pub fn parse_artists(input: &str) -> Vec<Credit> {
+    parse::artist_tag(input)
 }
