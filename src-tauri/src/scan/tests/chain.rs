@@ -113,6 +113,11 @@ pub(super) fn chained_queue_with(
         looked.marks.clone(),
         looked.marks.clone(),
     );
+    // The stages judge what quality is owed by the same volume they run on.
+    let reach = |volume: &TempVolume| {
+        let volume = volume.clone();
+        move || volume.clone()
+    };
     let hold = looked.hold_fingerprint.clone();
     let (group_runs, relink_runs) = (looked.runs.clone(), looked.runs.clone());
     let builder = JobQueue::builder(writer.clone())
@@ -126,14 +131,15 @@ pub(super) fn chained_queue_with(
         )
         .handler(
             JobKind::Scan,
-            after_walk(Walker::new(move || v1.clone(), |_| {})),
+            after_walk(Walker::new(move || v1.clone(), |_| {})).reaching(reach(volume)),
         )
         .handler(
             JobKind::Read,
             after_read(Reader::new(move || v2.clone()).on_file(move |_| {
                 read.fetch_add(1, Ordering::SeqCst);
                 m1.lock().unwrap().last_read = Some(Instant::now());
-            })),
+            }))
+            .reaching(reach(volume)),
         )
         .handler(
             JobKind::Hash,
@@ -156,7 +162,8 @@ pub(super) fn chained_queue_with(
                         hashed.fetch_add(looked_at, Ordering::SeqCst);
                         m3.lock().unwrap().hash_end = Some(Instant::now());
                     }),
-            ),
+            )
+            .reaching(reach(volume)),
         )
         .handler(
             JobKind::Fingerprint,
@@ -175,7 +182,8 @@ pub(super) fn chained_queue_with(
                         }
                         fingerprinted.fetch_add(1, Ordering::SeqCst);
                     }),
-            ),
+            )
+            .reaching(reach(volume)),
         )
         .handler(
             JobKind::Relink,
@@ -1334,8 +1342,8 @@ fn quality_owed_to_files_already_hashed_is_measured_by_the_next_scan_with_nothin
         .call(|c| c.execute("DELETE FROM file_quality", []))
         .unwrap();
 
-    // A watcher's rescan doesn't ask: quality stays owed while a file
-    // can't be reached, and every burst of changes would queue a job.
+    // A watcher's rescan doesn't ask: quality stays owed while a file is
+    // locked, and every burst of changes would queue a job.
     let mut rescan = scan_job(Some(vec![folder]));
     if let Some(serde_json::Value::Object(target)) = &mut rescan.target {
         target.insert(crate::scan::chain::RESCAN_KEY.into(), true.into());
@@ -1350,5 +1358,53 @@ fn quality_owed_to_files_already_hashed_is_measured_by_the_next_scan_with_nothin
     assert_eq!(count_of(&writer, "read"), 1);
     assert_eq!((count_of(&writer, "quality"), measured(&writer)), (2, 3));
     assert_eq!(count_of(&writer, "match"), 1, "matching was owed nothing");
+    queue.shutdown();
+}
+
+/// Measures every file once through the chain, then removes the
+/// measurements, so quality is owed again. Returns how many quality jobs
+/// ran so far.
+fn quality_owed_again(queue: &JobQueue, writer: &Writer) -> usize {
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(queue);
+    writer
+        .call(|c| c.execute("DELETE FROM file_quality", []))
+        .unwrap();
+    count_of(writer, "quality")
+}
+
+#[test]
+fn a_full_scan_with_a_drive_unplugged_queues_no_quality_job() {
+    let (_dir, volume, _music, _db, writer, _folder) = matched_library();
+    let queue = chained_queue(&writer, &volume, &LookedAt::default());
+    let before = quality_owed_again(&queue, &writer);
+    assert_eq!(before, 1);
+
+    // Quality is owed, but nothing can be measured: no job for it.
+    volume.set_online(false);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count_of(&writer, "quality"), before);
+    queue.shutdown();
+}
+
+#[test]
+fn quality_owed_to_files_on_a_drive_that_is_back_is_measured_by_the_next_scan() {
+    let (_dir, volume, _music, _db, writer, _folder) = matched_library();
+    let queue = chained_queue(&writer, &volume, &LookedAt::default());
+    let before = quality_owed_again(&queue, &writer);
+    volume.set_online(false);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count_of(&writer, "quality"), before);
+
+    volume.set_online(true);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(count_of(&writer, "quality"), before + 1);
+    let measured: i64 = writer
+        .call(|c| c.query_row("SELECT COUNT(*) FROM file_quality", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(measured, 3);
     queue.shutdown();
 }
