@@ -77,7 +77,7 @@ What it deliberately is not (ROADMAP §1 principles; CLAUDE.md "Must / never"):
 | `read` | Scan stage 2: tags, format, codec, duration, truncated/broken | Take file facts from rekordbox |
 | `hash` | `blake3`, `audio_hash` (audio frames only), `partial_hash` | — |
 | `fingerprint` | Chromaprint fingerprints, streamed decode, the shared thread budget | Hold a whole track in memory |
-| `grouping` | File → track (`recording`). Today: same `audio_hash` = same track | Merge files with no hash. Fingerprint and version grouping are *planned*, 1b |
+| `grouping` | File → track (`recording`): files with the same `audio_hash`, and files the grouping rules call duplicates; cuts and reworks get a `version_link`; pairs the rules can't settle are stored for Review | Merge two Library tracks, undo a merge, or move a file a Library track points at |
 | `rekordbox` | The XML parser, `Location` decoding, the `rekordbox_track` snapshot, the export source and its watch | Write anything but the snapshot; match by TrackID |
 | `relink` | Matching each rekordbox entry to a file, five rule steps, confirmed relinks | Open a file; match on size; trust a weak match |
 | `attach` | rekordbox's BPM and key → `analysis` rows | Use a probable match |
@@ -117,7 +117,7 @@ erDiagram
 **Track identity, in three layers** (ROADMAP §2):
 
 1. **`file`**: one row per physical file. Its path is a volume identity plus a relative path, stored twice: the exact on-disk spelling (to open it) and an NFC key (to compare). It carries `audio_hash`, which covers only the audio frames. *Why:* rekordbox rewrites tags and bumps modified times, so size, mtime and whole-file hashes all change while the music doesn't. A file that vanishes is marked `present = 0`, never deleted. A file on an unplugged drive stays present.
-2. **`recording`** (a "track"): one piece of music in one version. `recording_file` links it to its files (role `best` / `undecided` / `extra`). *Why:* a track is not a file; duplicates merge, and resolving them changes only the database. **Versions never merge**: `version_link` only links them, and a trigger refuses to put linked versions in one track. Today `grouping` merges only files with the same `audio_hash`, and nothing creates version links yet (*planned*, 1b).
+2. **`recording`** (a "track"): one piece of music in one version. `recording_file` links it to its files (role `best` / `undecided` / `extra`). *Why:* a track is not a file; duplicates merge, and resolving them changes only the database. **Versions never merge**: `version_link` only links them, and a trigger refuses to put linked versions in one track. `grouping` merges files with the same `audio_hash` and files its rules call duplicates (same audio by fingerprint, same version by name), and makes the version links for cuts and reworks; what it decided about each pair of files is in `grouping_pair`.
 3. **`library_track`**: a track the user added. Always `kind = 'linked'` in Phase 1 (a trigger enforces it): it points at `linked_file_id`. `source_status` (ok / missing) follows the file's `present` flag through triggers. One Library track per track.
 
 The other main tables:
@@ -144,7 +144,7 @@ The canonical tag columns on `recording` (title, artist, …) exist but nothing 
 ### Scan
 1. `scan::folders::add_music_folder` stores a folder as volume + relative path. `scan::scan_music_folders` queues a **Scan** job.
 2. `scan::walk` lists audio files with stat only (size, mtime, NTFS file id) into `file` rows, in batches, and emits `ScannedFiles`. The unchanged check (`scan::unchanged`) compares a stored `partial_hash` when only the mtime moved. A file not found in a folder the walk could list becomes `present = 0`.
-3. `scan::chain` wraps each handler so one stage queues the next, at background priority: walk → **Read** (`read`, using `sniff` and `tags`) → **Hash** (`hash`) → **Group** (`grouping`) and **Fingerprint** (`fingerprint`). Once the fingerprints are in (or none were due) come **Quality** (`quality`: each file's cutoff, decoded length and decode errors) and, last and one step below background priority, **Match** (`matching`: which files share audio; it makes way for a waiting relink or attach). Both only measure.
+3. `scan::chain` wraps each handler so one stage queues the next, at background priority: walk → **Read** (`read`, using `sniff` and `tags`) → **Hash** (`hash`) → **Group** (`grouping`) and **Fingerprint** (`fingerprint`). Once the fingerprints are in (or none were due) come **Quality** (`quality`: each file's cutoff, decoded length and decode errors) and, last and one step below background priority, **Match** (`matching`: which files share audio; it makes way for a waiting relink or attach). Both only measure. Once matching has nothing left to compare, the **deciding job** (`grouping`, at matching's priority, making way the same way) asks the grouping rules about the pairs of every file that is due, then groups again.
 4. Each stage asks `scan_state` which files are due and writes results plus its `file_stage` rows in one transaction per batch.
 5. A finished read, a finished fingerprint run and every grouping run ask for a **Relink**; relink and grouping ask for an **Attach**.
 6. `scan::watch` (optional per folder) turns bursts of file events into one rescan of the root. Every online folder is also rescanned at startup and when its drive returns.
@@ -219,7 +219,7 @@ The owner doesn't line-read Rust, so the rule is "tests are the review": every t
 | Safety gates | `write_guard/scan.rs`, `no_writes_elsewhere.rs`, `tests/net_gate.rs`, `tests/csp.rs` | Described above |
 | IPC | `lib.rs`, `ipc.rs` | Real startup on Tauri's mock runtime; commands called as the webview calls them; bindings export is deterministic |
 | End to end | `src-tauri/tests/end_to_end/` | Real startup, real commands, real job queue, generated music and a generated export. Two runs: start from rekordbox, and start fresh. A stand-in for rekordbox's import follows ROADMAP §5.2 only. Every run ends by checking nothing outside the app data folder changed. The React frontend isn't loaded |
-| Scale (ignored by default) | `tests/perf_100k.rs`, `rekordbox_xml_scale.rs`, `fingerprint_memory.rs` | 100k generated files; a 50k-track export; a two-hour mix with flat memory |
+| Scale (ignored by default) | `tests/perf_100k.rs`, `rekordbox_xml_scale.rs`, `fingerprint_memory.rs`, `grouping_scale.rs` | 100k generated files; a 50k-track export; a two-hour mix with flat memory; the grouping job on 100k made-up files |
 | Local only | `matching/tests/local_corpus.rs` | E3's 43 labeled pairs of real files through fingerprinting and matching; needs the private files, and is skipped with one line without them ([local-corpus.md](local-corpus.md)) |
 | Frontend | Vitest + Testing Library, beside each component | Tests never spell out UI text: they look it up by key with `tx("namespace:key")` |
 | Marker run | `npm run test:markers` | Reruns the frontend suite with every UI string replaced by a marker, proving no test depends on wording |
@@ -241,7 +241,6 @@ Fixtures are generated (`tools/fixture-gen`); CI never depends on a real library
 - **A crash between writing the XML and recording the send** leaves an unrecorded file. Nothing detects it at the next start; the next send replaces it.
 - **Crash resume for jobs is *planned* (1c).** A clean exit re-queues running jobs; a hard kill leaves rows in `running`.
 - **No conflict detection yet** (*planned*, 1c). Safe today only because the app changes no field of a track rekordbox knows.
-- **Grouping is by exact audio hash.** Re-encodes aren't grouped; versions aren't detected (*planned*, 1b).
 - **Partial-hash blind spot:** a same-length edit in the middle of the audio with an mtime-only change isn't noticed.
 - **Path relink can be wrong** when a file was replaced by other audio under the same name, or an unplugged drive shared a letter (confidence 0.9).
 - **Unknown durations block relink steps** for that name and folder, for good if the file is broken or online-only.

@@ -45,8 +45,14 @@
 //!   the fingerprints are compared ([`crate::matching`], 1bA-14), after the
 //!   relink and quality requests and below every other job's priority. It
 //!   never holds another job up: a running pass makes way when a job of a
-//!   higher priority is waiting, and picks up where it stopped. Nothing
-//!   follows it, so a matching job that fails stops nothing else.
+//!   higher priority is waiting, and picks up where it stopped. A matching
+//!   job that fails stops nothing else.
+//! - **Deciding after matching:** once matching has nothing left to
+//!   compare, the grouping rules decide the pairs of every file that is due
+//!   ([`crate::grouping::decide_job`], 1bC-1), at matching's priority and
+//!   making way the same way. It's asked for when a matching job ends and
+//!   wherever matching is asked for, and queued only when matching has
+//!   nothing due: it can only decide a file matching has been through.
 //! - **Asked again where the chain ends early:** a walk with nothing to
 //!   read ends the chain there, and still asks whether quality or matching
 //!   is owed anything (see `queue_next`), so neither waits for a file to
@@ -131,12 +137,13 @@ pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
 }
 
 /// The matching job's handler, run once more if the fingerprints asked
-/// for it meanwhile. Its reruns keep its own priority, below the rest of
-/// the chain.
+/// for it meanwhile, and followed by the deciding job once nothing is left
+/// to compare. Its reruns keep its own priority, below the rest of the
+/// chain.
 pub fn after_matching<H: JobHandler>(matcher: H) -> Chained<H> {
     Chained {
         inner: matcher,
-        next: Next::Nothing,
+        next: Next::Decide,
         priority: crate::matching::PRIORITY,
         reach: None,
     }
@@ -209,6 +216,8 @@ enum Next {
     Fingerprint,
     /// The fingerprints are in: relink.
     Relink,
+    /// The fingerprints are compared: the grouping rules decide.
+    Decide,
     /// Nothing follows.
     Nothing,
 }
@@ -218,7 +227,12 @@ impl<H: JobHandler> JobHandler for Chained<H> {
         let me = NewJob {
             kind: job.kind(),
             target: job.target().cloned(),
-            priority: self.priority,
+            // The deciding job shares the grouping job's handler, and
+            // keeps its own priority when it's queued again.
+            priority: match crate::grouping::is_decide(job.target()) {
+                true => crate::grouping::DECIDE_PRIORITY,
+                false => self.priority,
+            },
         };
         let key = key(job.writer(), &me);
         // This run lists its files now: a rerun asked for from here on is
@@ -299,6 +313,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
                     crate::quality::request(writer, reach, enqueue)?;
                 }
                 crate::matching::request(writer, enqueue)?;
+                crate::grouping::request_decide(writer, enqueue)?;
             }
         }
         Next::Hash => {
@@ -329,6 +344,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
                 // compare fingerprints (1bA-14).
                 crate::quality::request(writer, reach, enqueue)?;
                 crate::matching::request(writer, enqueue)?;
+                crate::grouping::request_decide(writer, enqueue)?;
             }
         }
         Next::Relink => {
@@ -340,7 +356,11 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
             // the user sees.
             crate::quality::request(writer, reach, enqueue)?;
             crate::matching::request(writer, enqueue)?;
+            crate::grouping::request_decide(writer, enqueue)?;
         }
+        // A pass that made way has queued itself again, and matching still
+        // has work: nothing is asked for until the one that finishes.
+        Next::Decide => crate::grouping::request_decide(writer, enqueue)?,
         Next::Nothing => {}
     }
     Ok(())

@@ -237,9 +237,13 @@ pub(super) fn wait_idle(queue: &JobQueue) {
 pub(super) fn jobs(writer: &Writer) -> Vec<(String, Option<String>, i64, String)> {
     writer
         .call(|c| {
+            // Not the deciding job either (a grouping job with a target,
+            // 1bC-1): it follows wherever matching has nothing left, and
+            // has a test of its own below.
             let mut s = c.prepare(
                 "SELECT kind, target, priority, status FROM job
-                 WHERE kind <> 'relink' ORDER BY id",
+                 WHERE kind <> 'relink' AND NOT (kind = 'group' AND target IS NOT NULL)
+                 ORDER BY id",
             )?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
             rows.collect()
@@ -1406,5 +1410,76 @@ fn quality_owed_to_files_on_a_drive_that_is_back_is_measured_by_the_next_scan() 
         .call(|c| c.query_row("SELECT COUNT(*) FROM file_quality", [], |r| r.get(0)))
         .unwrap();
     assert_eq!(measured, 3);
+    queue.shutdown();
+}
+
+/// Every deciding job (a grouping job with `decide` in its target): its
+/// priority and status, oldest first.
+fn deciding_jobs(writer: &Writer) -> Vec<(i64, String)> {
+    writer
+        .call(|c| {
+            let mut s = c.prepare(
+                "SELECT priority, status FROM job
+                 WHERE kind = 'group' AND target IS NOT NULL ORDER BY id",
+            )?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap()
+}
+
+#[test]
+fn the_deciding_job_follows_matching_at_its_priority_and_a_scan_with_nothing_new_asks_for_none() {
+    let (_dir, volume, music) = drive();
+    // One song twice under one name, at two sample rates, and another song.
+    put(&music, "House/a.wav", &song_wav(1, 11_025));
+    put(&music, "Backup/a.wav", &song_wav(1, 22_050));
+    put(&music, "House/b.wav", &song_wav(2, 11_025));
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(
+        deciding_jobs(&writer),
+        [(crate::grouping::DECIDE_PRIORITY.0, "done".into())]
+    );
+    // It was queued when the matching job ended, so it ran after it: the
+    // last of the chain.
+    let last_two: Vec<(String, bool)> = writer
+        .call(|c| {
+            let mut s = c.prepare(
+                "SELECT kind, target IS NOT NULL FROM job WHERE kind <> 'relink'
+                 ORDER BY id DESC LIMIT 2",
+            )?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    assert_eq!(last_two, [("group".into(), true), ("match".into(), false)]);
+    let count = |sql: &'static str| -> i64 {
+        writer
+            .call(move |c| c.query_row(sql, [], |r| r.get(0)))
+            .unwrap()
+    };
+    // Every file's pairs are decided, and the two copies are one track.
+    assert_eq!(
+        count("SELECT COUNT(*) FROM grouping_file WHERE decided_as IS NOT NULL"),
+        3
+    );
+    assert_eq!(
+        count(
+            "SELECT COUNT(*) FROM grouping_pair WHERE outcome = 'duplicate' AND state = 'merged'"
+        ),
+        1
+    );
+    assert_eq!(count("SELECT COUNT(*) FROM recording"), 2);
+
+    // Nothing new: the next walk asks for no deciding job.
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(deciding_jobs(&writer).len(), 1);
     queue.shutdown();
 }
