@@ -4,8 +4,8 @@
     "label": "Crates"
   },
   "trackCount_zero": "No tracks",
-  "trackCount_one": "{{count}} track",
-  "trackCount_other": "{{count}} tracks",
+  "trackCount_one": "{{count, number}} track",
+  "trackCount_other": "{{count, number}} tracks",
   "noTracks": "No tracks in this crate",
   "select": "Select a crate",
   "new": {

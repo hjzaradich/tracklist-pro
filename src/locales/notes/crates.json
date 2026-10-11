@@ -17,12 +17,12 @@
   "trackCount_one": {
     "purpose": "Says a crate has one track.",
     "where": "Crates screen, next to a crate's name in the list.",
-    "approved": "{{count}} track"
+    "approved": "{{count, number}} track"
   },
   "trackCount_other": {
     "purpose": "Says how many tracks a crate has.",
     "where": "Crates screen, next to a crate's name in the list.",
-    "approved": "{{count}} tracks"
+    "approved": "{{count, number}} tracks"
   },
   "noTracks": {
     "purpose": "Says the chosen crate has no tracks.",
