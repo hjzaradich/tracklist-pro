@@ -171,11 +171,13 @@
   },
   "review.noFileAtLocation_one": {
     "purpose": "Warns that one track rekordbox has is sent with rekordbox's own path, and no file is at that path: the app found the track's file somewhere else, but a send never changes the path of a track rekordbox has. rekordbox couldn't find the file before and still won't.",
-    "where": "Send checklist, step 2, warning above the list of those tracks."
+    "where": "Send checklist, step 2, warning above the list of those tracks.",
+    "approved": "{{count, number}} track sent with rekordbox's old file path (rekordbox will still show File is missing)"
   },
   "review.noFileAtLocation_other": {
     "purpose": "The same warning for several tracks.",
-    "where": "Send checklist, step 2, warning above the list of those tracks."
+    "where": "Send checklist, step 2, warning above the list of those tracks.",
+    "approved": "{{count, number}} tracks sent with rekordbox's old file paths (rekordbox will still show File is missing)"
   },
   "review.otherFile_one": {
     "purpose": "Warns that one track is in rekordbox with another file, so sending adds a second entry.",
@@ -235,27 +237,32 @@
   "review.refused.exportOlderThanLastSend": {
     "purpose": "Refusal: the export was saved before the last send, and the user answered that a send was imported into rekordbox since, so the export can't show what that send put there.",
     "where": "Send checklist, step 2, alert under the question about imports, once the user answers that a send was imported since.",
-    "approved": "Can't send: the export was saved before the last send. Export the collection again from rekordbox."
+    "approved": "Can't send: a send was imported after this export was saved. Export the collection again from rekordbox."
   },
   "review.importedSince.question": {
     "purpose": "Question asked when the export was saved before the last send: the app can't see whether that send (or any send) was imported into rekordbox since, and only then is the export out of date. The answer decides whether this send goes ahead.",
-    "where": "Send checklist, step 2, above two answers (radio buttons). Write file stays greyed out until the answer is the first one."
+    "where": "Send checklist, step 2, above two answers (radio buttons). Write file stays greyed out until the answer is the first one.",
+    "approved": "This export was saved before the last send. Did you import a send in rekordbox after this export was saved?"
   },
   "review.importedSince.no": {
     "purpose": "Answer: no send from the app has been imported into rekordbox since this export was saved. The send goes ahead.",
-    "where": "Send checklist, step 2, first answer under the question."
+    "where": "Send checklist, step 2, first answer under the question.",
+    "approved": "No send imported since"
   },
   "review.importedSince.yes": {
     "purpose": "Answer: a send from the app was imported into rekordbox after this export was saved. The send is refused and the user is told to export again.",
-    "where": "Send checklist, step 2, second answer under the question."
+    "where": "Send checklist, step 2, second answer under the question.",
+    "approved": "A send was imported since"
   },
   "review.importedSince.goesAhead": {
     "purpose": "Says this send goes ahead from an export older than the last send because of the user's answer.",
-    "where": "Send checklist, step 2, under the question, once the user answers that no send was imported since."
+    "where": "Send checklist, step 2, under the question, once the user answers that no send was imported since.",
+    "approved": "This export will be used for the send"
   },
   "failure.exportOlderThanLastSend": {
     "purpose": "Why the write was refused: the export is older than the last send and the write was asked for without the answer that no send was imported since. The screen greys Write file out in that case, so this is the fallback.",
-    "where": "Send checklist, step 3, alert when a write fails for that reason."
+    "where": "Send checklist, step 3, alert when a write fails for that reason.",
+    "approved": "Nothing was written. Answer the question about the export first."
   },
   "review.refused.sameName": {
     "purpose": "Refusal: two crates in one folder share a name.",
