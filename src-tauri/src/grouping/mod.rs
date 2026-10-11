@@ -11,6 +11,8 @@
 //! at it) is deleted. Real grouping, with fingerprints and versions,
 //! replaces this in 1b (1bC-1); the rule lives in [`plan`], a pure function
 //! that step swaps out.
+//! The rules that step will apply to a pair of files are in [`rules`]
+//! (1bB); nothing here calls them yet.
 //!
 //! - It only touches the database. No audio file is read or written.
 //! - It runs as a background job ([`group_job`]), quick enough to run
@@ -21,6 +23,7 @@
 //!   ([`release_folder_files`]), or their track rows would refuse it.
 
 pub mod plan;
+pub mod rules;
 mod store;
 
 pub use store::{any_ungrouped, regroup, release_folder_files, Summary};

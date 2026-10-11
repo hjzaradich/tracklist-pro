@@ -380,3 +380,10 @@ pub fn parse_title(input: &str) -> ParsedName {
 pub fn parse_file_name(input: &str) -> ParsedName {
     parse(input, NameSource::FileName)
 }
+
+/// The artists an artist tag names ("A & B feat. C"), split exactly as the
+/// artist part of a file name is. For callers that hold the artist apart
+/// from the title, as grouping does (1bB-4).
+pub fn parse_artists(input: &str) -> Vec<Credit> {
+    parse::artist_tag(input)
+}
