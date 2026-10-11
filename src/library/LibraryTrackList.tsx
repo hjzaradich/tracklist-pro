@@ -51,16 +51,24 @@ function TrackRow({
   const { t } = useTranslation("library");
   const notesId = useId();
   const notes = trackNotes(track);
+  // Cut off with "…" when it's long: the full text is the cell's `title`.
+  const title = shownTitle(track);
   return (
     <tr
       className={styles.row}
       data-file-present={track.file?.present ?? false}
       aria-describedby={notes.length > 0 ? notesId : undefined}
     >
-      <td className={styles.title}>{shownTitle(track)}</td>
-      <td>{track.artist}</td>
+      <td className={styles.title} title={title}>
+        {title}
+      </td>
+      <td className={styles.artist} title={track.artist ?? undefined}>
+        {track.artist}
+      </td>
       <td className={styles.file}>
-        <span className={styles.path}>{track.file?.path}</span>
+        <span className={styles.path} title={track.file?.path}>
+          {track.file?.path}
+        </span>
         {notes.length > 0 && (
           <span id={notesId} className={styles.notes}>
             {notes.map((note) => (

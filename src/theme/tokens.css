@@ -20,7 +20,7 @@
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
   --font-size-sm: 12px;
-  --font-size-md: 13px;
+  --font-size-md: 14px;
   --font-size-lg: 16px;
   --font-size-xl: 20px;
 
@@ -35,6 +35,16 @@
 
   /* Compact density by default (ROADMAP 1.1, Density). */
   --row-height: 28px;
+
+  /* The one motion: a quick fade when the pointer moves over something.
+   * "Reduce motion" in Windows turns it off (below). */
+  --motion-fast: 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+  }
 }
 
 :root,
@@ -45,6 +55,11 @@
   --color-surface: #1c1f22;
   --color-surface-raised: #24282c;
   --color-surface-hover: #2c3035;
+  /* Every other row of a long list: fainter than hover, which is fainter
+   * than selected. */
+  --color-row-stripe: #1b1e21;
+  /* A selected row, crate or stage: a warm tint of the accent. */
+  --color-selected: #3d301b;
   --color-border: #343a40;
   --color-border-strong: #4a5158;
 
@@ -68,7 +83,9 @@
   --color-bg: #e9ebed;
   --color-surface: #f4f5f6;
   --color-surface-raised: #fbfbfc;
-  --color-surface-hover: #e1e4e7;
+  --color-surface-hover: #d8dce0;
+  --color-row-stripe: #f2f4f5;
+  --color-selected: #f0dcb6;
   --color-border: #cdd2d7;
   --color-border-strong: #aab1b8;
 
@@ -106,6 +123,21 @@ body {
   font-size: var(--font-size-md);
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Hover fades in instead of snapping. Only color moves, never size or
+ * place. It is set on the hover state only, so a theme switch (which also
+ * changes every color) stays instant. */
+a:hover,
+button:hover,
+input:hover,
+select:hover,
+textarea:hover,
+tr:hover > td {
+  transition:
+    background-color var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out,
+    color var(--motion-fast) ease-out;
 }
 
 :focus-visible {

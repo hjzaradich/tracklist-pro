@@ -43,9 +43,9 @@
   color: var(--color-text);
 }
 
-/* The active stage: raised background, full-strength text and an accent bar. */
+/* The active stage: selected tint, full-strength text and an accent bar. */
 .link[aria-current="page"] {
-  background: var(--color-surface-raised);
+  background: var(--color-selected);
   color: var(--color-text);
   font-weight: 600;
 }

@@ -40,7 +40,22 @@
 .table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   text-align: left;
+}
+
+/* Title and artist take a share of the width, the library column a fixed
+ * one, and the file path what's left. */
+.table th:nth-child(1) {
+  width: 28%;
+}
+
+.table th:nth-child(2) {
+  width: 18%;
+}
+
+.table th:nth-child(4) {
+  width: 14rem;
 }
 
 .table th {
@@ -52,18 +67,30 @@
 }
 
 .table td {
+  height: var(--row-height);
   padding: var(--space-1) var(--space-2);
-  vertical-align: top;
+  vertical-align: middle;
   color: var(--color-text);
+}
+
+/* Every other row, so the eye stays on one row of a long list. Before the
+ * hover rule, so hover wins. */
+.row:nth-child(even) td {
+  background: var(--color-row-stripe);
 }
 
 .row:hover td {
   background: var(--color-surface-hover);
 }
 
+/* A long title, artist or path is cut off with "…" so a row stays one line.
+ * The full text is the cell's title (hover). */
 .title,
+.artist,
 .path {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .table td.path,
@@ -72,7 +99,7 @@
 }
 
 .library {
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .add {

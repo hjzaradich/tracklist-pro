@@ -26,12 +26,13 @@ All in `src/theme/tokens.css`. Components use the variables only.
 | `--font-sans` | Segoe UI Variable Text, Segoe UI, system-ui | All text |
 | `--font-mono` | Cascadia Mono, Consolas | Paths, ids |
 | `--font-size-sm` | 12px | Secondary detail |
-| `--font-size-md` | 13px | Body (the page default) |
+| `--font-size-md` | 14px | Body (the page default) |
 | `--font-size-lg` | 16px | Headings |
 | `--font-size-xl` | 20px | Screen titles |
 | `--space-1` … `--space-6` | 4, 8, 12, 16, 24px | Gaps and padding |
 | `--radius-sm`, `--radius-md` | 3px, 6px | Corners |
 | `--row-height` | 28px | List rows (compact density, ROADMAP 1.1) |
+| `--motion-fast` | 80ms (0 with Windows' "reduce motion") | The hover fade |
 
 ### Colors
 
@@ -40,13 +41,15 @@ All in `src/theme/tokens.css`. Components use the variables only.
 | `--color-bg` | `#151719` | `#e9ebed` | Page |
 | `--color-surface` | `#1c1f22` | `#f4f5f6` | Panels |
 | `--color-surface-raised` | `#24282c` | `#fbfbfc` | Raised panels, menus |
-| `--color-surface-hover` | `#2c3035` | `#e1e4e7` | Hover |
+| `--color-surface-hover` | `#2c3035` | `#d8dce0` | Hover |
+| `--color-row-stripe` | `#1b1e21` | `#f2f4f5` | Every other row of a long list |
+| `--color-selected` | `#3d301b` | `#f0dcb6` | A selected row, crate or stage |
 | `--color-border` | `#343a40` | `#cdd2d7` | Dividers |
 | `--color-border-strong` | `#4a5158` | `#aab1b8` | Controls |
 | `--color-text` | `#e3e5e8` | `#1f2326` | Text |
 | `--color-text-muted` | `#9ba2aa` | `#59616a` | Secondary text |
 | `--color-text-disabled` | `#646b73` | `#969da5` | Unavailable |
-| `--color-accent` | `#e0a13c` | `#a86a12` | Selected, active, the main action |
+| `--color-accent` | `#e0a13c` | `#a86a12` | Selected, active, the main action (bar, border, fill) |
 | `--color-accent-hover` | `#ebb259` | `#8f5a0e` | Accent hover |
 | `--color-on-accent` | `#1c1f22` | `#fbfbfc` | Text on the accent |
 | `--color-focus-ring` | `#e0a13c` | `#a86a12` | Keyboard focus |
@@ -71,9 +74,23 @@ One line each: the date, what was decided, and why, so the next change holds to 
 - 2026-10-10 · **Long lists get faint row stripes, and a clearly stronger "selected" look.** · Lists run to hundreds of rows; stripes keep the eye on one row, and "selected" must beat "hover" and "stripe". · Style
 - 2026-10-10 · **The amber accent means "selected or active", and nothing else.** Warnings stay yellow. · Amber on screen then always tells you where you are. · Style
 - 2026-10-10 · **Dark stays the default.** A "follow Windows" option may come later. · Dark suits a dim room. The option is a new setting. · Foreman (backlog)
-- 2026-10-10 · **Long titles are cut off with "…" so a row stays one line.** The full text shows on hover and in the Details panel. · A tidy grid beats a ragged one. The cut-off is style; the hover text and the Details panel are not. · Style (cut-off), Foreman (hover text)
+- 2026-10-10 · **Long titles are cut off with "…" so a row stays one line.** The full text shows on hover, and in the Details panel once that panel is built. · A tidy grid beats a ragged one. · Style (cut-off), hover text done as `title` (below), Foreman (Details panel, waits for the Phase 1a checkpoint)
 - 2026-10-10 · **One filled accent button per screen, everything else quiet.** Each screen is walked through with the owner to name its one thing. · The loudest thing on a screen should be the thing to do next. · Style, with Foreman for any screen that needs a control moved
 - 2026-10-10 · **Almost no motion:** a quick fade on hover and focus only, and none when Windows' "reduce motion" is on. · Motion costs attention, and some people can't have it. · Style
+
+## The one exception to "class names only"
+
+A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").
+
+Hover text does not reach keyboard users, and a touch screen has no hover. So the full text must also live in the Details panel when that panel is built (today it is a placeholder; showing a track's title and path there is a new feature, logged by the foreman for the Phase 1a checkpoint). Until then the full title is only on hover.
+
+## How the decisions look in the styles
+
+- **Text:** `--font-size-md` 14px; `--font-size-sm` 12px. A test holds those floors.
+- **Stripes and selected:** three steps, each a clear step stronger than the last: a stripe (faintest), hover, selected (strongest). A test holds the order in both themes, and that text stays readable on each.
+- **Selected** is the warm tint `--color-selected` on the sidebar's active stage and the chosen crate, with the accent bar or border kept.
+- **Cut-off:** Library and All music keep a row to one line (`table-layout: fixed`, title 28% and artist 18% of the width, a fixed actions column); a long title, artist or path ends in "…". Rows are at the compact row height; a row with a note under its path is taller on purpose.
+- **Motion:** one hover fade (`--motion-fast`), colors only, set on hover so a theme switch stays instant. No stylesheet may animate; tests check it.
 
 ## Open questions for the owner
 

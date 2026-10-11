@@ -270,3 +270,35 @@ describe("a track whose rekordbox match isn't confirmed", () => {
     expect(backend.added).toEqual([]);
   });
 });
+
+describe("the All music list's cut-off text", () => {
+  const longTitle =
+    "A made-up title that keeps going far past any column width (Extended Club Mix With The Long Intro)";
+  const longArtist = "A Made Up Ensemble Of Many Collaborators feat. Another Very Long Guest Artist";
+  const longPath = "E:\\Music\\Made Up Folder\\" + longTitle + ".mp3";
+
+  it("a cut-off title cell carries its full text", async () => {
+    fakeBackend([
+      track(1, {
+        title: longTitle,
+        artist: longArtist,
+        file: { path: longPath, name: "x.mp3", present: true, driveConnected: true },
+      }),
+    ]);
+    renderScreen();
+    const [row] = await rows();
+    const [title, artist, file] = within(row).getAllByRole("cell");
+    expect(title).toHaveAttribute("title", longTitle);
+    expect(artist).toHaveAttribute("title", longArtist);
+    expect(file).toHaveAttribute("title", longPath);
+  });
+
+  it("a title that is the file's name carries that name", async () => {
+    fakeBackend([track(1, { title: null, artist: null })]);
+    renderScreen();
+    const [row] = await rows();
+    const [title, artist] = within(row).getAllByRole("cell");
+    expect(title).toHaveAttribute("title", "tune 1.mp3");
+    expect(artist).not.toHaveAttribute("title");
+  });
+});

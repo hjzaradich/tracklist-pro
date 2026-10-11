@@ -346,3 +346,97 @@ describe("no hardcoded colors", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe("list row colors", () => {
+  // Stripe < hover < selected, in how far each sits from the page: the
+  // owner's rule that "selected" must beat "hover" and "stripe" (see
+  // docs/design-style.md).
+  for (const theme of ["dark", "light"] as const) {
+    const tokens = colorTokens(themeBlock(theme));
+    const get = (name: string) => {
+      const value = tokens.get(name);
+      if (!value) throw new Error(`the ${theme} theme has no ${name}`);
+      return value;
+    };
+    const bg = get("--color-bg");
+    const [stripe, hover, selected] = [
+      get("--color-row-stripe"),
+      get("--color-surface-hover"),
+      get("--color-selected"),
+    ];
+
+    it(`stripe is visible, hover is stronger, selected is strongest (${theme})`, () => {
+      const [s, h, c] = [stripe, hover, selected].map((color) => perceivedDistance(bg, color));
+      expect(s, "stripe visible").toBeGreaterThanOrEqual(0.02);
+      expect(h, "hover stronger than stripe").toBeGreaterThan(s);
+      expect(c, "selected stronger than hover").toBeGreaterThan(h);
+    });
+
+    it(`text stays readable on a stripe, a hovered row and a selected row (${theme})`, () => {
+      for (const [row, color] of [
+        ["stripe", stripe],
+        ["hover", hover],
+        ["selected", selected],
+      ]) {
+        for (const text of ["--color-text", "--color-text-muted"]) {
+          expect(contrast(get(text), color), `${text} on ${row}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    });
+  }
+});
+
+describe("text size", () => {
+  const shared = blocks(tokensCss).find((b) => b.selector === ":root");
+  const px = (name: string) => {
+    const m = new RegExp(String.raw`${name}\s*:\s*(\d+)px`).exec(shared?.body ?? "");
+    if (!m) throw new Error(`no ${name} in px`);
+    return Number(m[1]);
+  };
+
+  it("body text is at least 14px and secondary detail at least 12px", () => {
+    expect(px("--font-size-md")).toBeGreaterThanOrEqual(14);
+    expect(px("--font-size-sm")).toBeGreaterThanOrEqual(12);
+  });
+
+  it("the scale only goes up: sm < md < lg < xl", () => {
+    const sizes = ["sm", "md", "lg", "xl"].map((n) => px(`--font-size-${n}`));
+    expect([...sizes].sort((a, b) => a - b)).toEqual(sizes);
+    expect(new Set(sizes).size).toBe(4);
+  });
+});
+
+describe("motion", () => {
+  const styles = import.meta.glob<string>(["../**/*.css", "!./tokens.css"], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  });
+
+  it("Windows' reduce motion turns the fade off", () => {
+    const reduced = /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^{}]*:root\s*\{([^{}]*)\}/.exec(
+      tokensCss,
+    );
+    expect(reduced?.[1]).toMatch(/--motion-fast\s*:\s*0ms/);
+  });
+
+  it("no stylesheet animates, and every transition runs on the motion token", () => {
+    const offenders = Object.entries(styles).flatMap(([path, text]) =>
+      [...text.matchAll(/\b(animation[\w-]*|transition[\w-]*)\s*:\s*([^;]+);/g)]
+        .filter((m) => m[1].startsWith("animation") || !m[2].includes("var(--motion-fast)"))
+        .map((m) => `${path}: ${m[0]}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("the shared transition moves color only, and only on hover", () => {
+    const withTransition = blocks(tokensCss).filter((b) => b.body.includes("transition"));
+    expect(withTransition).toHaveLength(1);
+    const { selector, body } = withTransition[0];
+    // Hover states only: a theme switch changes every color at once and
+    // must not fade.
+    for (const part of selector.split(",")) expect(part.trim(), part).toContain(":hover");
+    expect(body).toContain("var(--motion-fast)");
+    expect(body).not.toMatch(/\b(width|height|transform|margin|padding|top|left|all)\b/);
+  });
+});
