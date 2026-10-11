@@ -5,6 +5,8 @@
 //! - `comparisons`: the table of name pairs and what they say about each
 //!   other.
 //! - `rules`: one test per hard rule of ROADMAP §1.5.
+//! - `one_file`: one file's two names taken together, labels compared
+//!   whatever the titles, and artist tags.
 //! - `tokens`: the tokenizer by itself.
 //! - `properties`: whatever the input, no panic, the original kept, the
 //!   same answer twice.
@@ -13,6 +15,7 @@ use super::*;
 
 mod comparisons;
 mod corpus;
+mod one_file;
 mod properties;
 mod rules;
 mod spellings;

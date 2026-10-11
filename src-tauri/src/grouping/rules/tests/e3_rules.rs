@@ -6,7 +6,7 @@ use crate::matching::{Comparison, Segment};
 
 // ---- Length decides nothing --------------------------------------------
 
-/// A comparison where one stretch covers `share_a` of A, for files of the
+/// A comparison where one stretch of `matched` items is shared, for files of the
 /// given lengths in fingerprint items.
 fn one_stretch(items_a: usize, items_b: usize, matched: usize) -> Comparison {
     Comparison {
@@ -30,8 +30,8 @@ fn length_decides_nothing_a_short_pair_and_a_long_pair_with_the_same_shares_get_
 {
     let (a, b) = (titled("Glasswing"), titled("Glasswing"));
     // About one minute and about ten minutes, each matched to 95%.
-    let short = Measured::from(&one_stretch(500, 500, 475));
-    let long = Measured::from(&one_stretch(5000, 5000, 4750));
+    let short = Measured::try_from(&one_stretch(500, 500, 475)).unwrap();
+    let long = Measured::try_from(&one_stretch(5000, 5000, 4750)).unwrap();
     let (short, long) = (
         decided(Audio::Compared(short), &a, &b),
         decided(Audio::Compared(long), &a, &b),

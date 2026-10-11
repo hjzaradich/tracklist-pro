@@ -27,16 +27,9 @@
 //! | not compared | both files have fingerprints, and nobody compared them |
 //! | unknown | a file has no fingerprint |
 //!
-//! **"None" is a finding; "not compared" isn't.** The matching pass only
-//! compares the pairs its block index proposes, and it rarely proposes a
-//! weak match: two files can share a good part of their audio and have
-//! no stored comparison. So a missing comparison never counts as "no audio
-//! shared"
-//! ([`Audio::NotCompared`]). For a pair the names link (the same names, a
-//! mashup and a part it names), the caller runs a direct comparison
-//! ([`crate::matching::compare()`]) before asking, so that such a pair is
-//! judged on its audio. Asked without one, the same names go to review,
-//! never to "different".
+//! Whether two files are "identical" is the caller's to work out; the
+//! rules take it as given. Measurements are checked when they are made
+//! ([`Measured::new`]): a share outside 0 to 1 is refused, not judged.
 //!
 //! **The names** ([`FileFacts`]): each file's title tag and file name, both
 //! parsed, and its artist tag. [`crate::versions::compare`] says how two
@@ -45,36 +38,71 @@
 //! artists agree, differ, or differ only because one file is credited to
 //! the remixer.
 //!
-//! # Two readings of the names
+//! # The caller's contract: "none" is a finding, "not compared" isn't
 //!
-//! A pair's names are read twice ([`Reading`]): by title tag (a file with
-//! none stands in with its file name), and by file name. The two can say
-//! different things: a pair tagged "(Clean)" and "(Dirty)" can have file
-//! names with nothing in common. One reading is picked, and the table is
-//! applied to it:
+//! The matching pass only compares the pairs its block index proposes, and
+//! it rarely proposes a weak match: two files can share a good part of
+//! their audio and have no stored comparison. So a missing comparison
+//! never counts as "no audio shared" ([`Audio::NotCompared`]).
 //!
+//! **Before asking, the grouping job compares directly
+//! ([`crate::matching::compare()`]) every pair whose names are the same, or
+//! where one is a mashup naming the other as a part.** Those are the pairs
+//! a weak match changes the answer for and the names alone would link.
+//! "Not compared" reaching the rules for such a pair is the caller's gap;
+//! the rules then answer:
+//!
+//! - the same names → needs review (`notCompared`), never "different";
+//! - anything else → what they answer when no audio is shared.
+//!
+//! Shared audio also changes the answer under one title with different
+//! artists, and under names that can't be told (review instead of
+//! "different"). The contract doesn't ask for those pairs to be compared:
+//! never compared, they are "different".
+//!
+//! # A file's version is what either of its names says
+//!
+//! A version label can sit in the title tag, in the file name, or in both.
+//! A file's labels are those of both names together
+//! ([`crate::versions::ParsedName::with_labels_of`]), so each file is one
+//! set of labels, and the two files' sets are compared. A file tagged
+//! "Velo" and named "Velo (Dirty).mp3" is a Dirty cut whatever the other
+//! file's names look like; two files that both say "(Dirty)", one in its
+//! tag and one in its file name, are the same version. As within one name
+//! (ROADMAP 1.5), a version word is only a label when the other file
+//! lacks it.
+//!
+//! The *titles* are still read twice: by title tag (a file with none
+//! stands in with its file name), and by file name. One reading is picked,
+//! and the table applied to it:
+//!
+//! - A reading that says *another cut* or *another rework* always wins:
+//!   both readings carry the files' whole labels, so it is the one that
+//!   puts the two titles together.
 //! - **When the audio says "one production"** (identical, full, one inside
-//!   the other), the most cautious reading wins, so that nothing merges
-//!   that either reading would keep apart: a reading that says *another
-//!   cut* first, then one that says *another rework*, *mashup part* or
-//!   *unclear*, then *same*. *Another title* comes last: it never hides
-//!   what the other reading says.
-//! - **Otherwise the names decide**, and the reading that tells the files
-//!   apart wins: *another rework*, then *another cut*, then *same*, then
-//!   *mashup part*, *unclear*, *another title*. A version label one
-//!   reading carries is a fact about the file that the other reading
-//!   merely lacks; and a rework comes before a cut, as it does within one
-//!   name, because a rework is never a stand-in.
+//!   the other), the most cautious reading comes next, so that nothing
+//!   merges that either reading would keep apart: *mashup part*, then
+//!   *unclear*, then *same*.
+//! - **Otherwise the names decide**, and *same* comes before *mashup part*
+//!   and *unclear*: the reading under which the names agree says the most.
+//! - *Another title* is always last: it never hides what the other reading
+//!   says.
 //!
 //! Of two readings that say the same kind of thing, the tags' wins.
-//! [`Decision::reading`] says which one the reasons are about.
+//!
+//! **Under two titles on both readings**, nothing above sets the labels
+//! side by side. With the audio matched (full, or one inside the other)
+//! they are then compared whatever the titles
+//! ([`crate::versions::compare_labels`]): "Velo (Clean)" and "Nightdrive
+//! (Dirty)" with the same audio are a cut link, not a duplicate. The
+//! decision says so with `titlesDiffer` at the end of its reasons.
 //!
 //! # The table
 //!
 //! | Audio | Names | Outcome | Deciding reason |
 //! |---|---|---|---|
 //! | identical | any | duplicate | `identicalAudio` |
-//! | full | same, or another title | duplicate | `sameAudio` |
+//! | full | same, or another title with the same labels | duplicate | `sameAudio` |
 //! | full | another cut | cut link | `versionVeto` |
 //! | full | another rework, unclear, mashup part | needs review | `sameAudioNamesDisagree` |
 //! | one inside the other | same, another cut, unclear | cut link | `audioInsideOther` |
@@ -92,10 +120,14 @@
 //! | none, not compared, unknown | unclear | different | `namesUnclear` |
 //! | partial, none, not compared, unknown | another title | different | `titlesDiffer` |
 //!
+//! A file whose names give both a rework and a cut the other lacks counts
+//! as another rework, as within one name.
+//!
 //! The first reason of a [`Decision`] is the deciding one. The ones after
 //! it are facts worth showing beside it: `namesDiffer` on a duplicate whose
-//! names don't agree, `artistsDiffer`, `creditedToRemixer`, and what the
-//! names said when the audio overruled or doubted them.
+//! names don't agree, `artistsDiffer`, `creditedToRemixer`, what the names
+//! said when the audio overruled or doubted them, and `titlesDiffer` when
+//! the labels were compared under two titles.
 //!
 //! A link made by names alone (`namesSayCut`, `namesSayRework`) needs the
 //! artists to agree: the same title can be a different song. One file being
@@ -104,8 +136,8 @@
 //! # What only merges on audio
 //!
 //! Nothing is ever a duplicate on names. Only identical or full audio
-//! merges, and full audio doesn't when either reading of the names says
-//! the two are different versions: Clean and Dirty fingerprint identically.
+//! merges, and full audio doesn't when the two files' labels differ, or
+//! can't be told: Clean and Dirty fingerprint identically.
 //!
 //! # Known limits
 //!
@@ -121,6 +153,9 @@
 //!   line is one constant ([`DUPLICATE_SCORE`]).
 //! - **A remix credited to its remixer** agrees with any track of the same
 //!   title, whoever made it: the names can't say which song was remixed.
+//! - **Label words a title keeps** ("Come Clean", "Paper Harbor Extended
+//!   Mix" with no brackets) are not a file's labels until the other file's
+//!   title settles it; under two titles they stay title.
 
 use serde::{Serialize, Serializer};
 
@@ -174,27 +209,99 @@ impl From<versions::Side> for Side {
 
 /// What `matching` measured between two files' full-track fingerprints.
 /// The definitions are in [`crate::matching`]'s docs.
+///
+/// Only made through [`Measured::new`] or from a
+/// [`matching::Comparison`], which both refuse numbers that can't be
+/// measurements: a share written as a percent would otherwise pass for a
+/// full match.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Measured {
     /// The share of A the main alignment matched, 0 to 1.
-    pub coverage_a: f32,
+    coverage_a: f32,
     /// The share of B the main alignment matched, 0 to 1.
-    pub coverage_b: f32,
+    coverage_b: f32,
     /// The difference score over the main alignment.
-    pub score: f64,
+    score: f64,
     /// The share of A found anywhere in B, over every alignment.
-    pub found_a: f32,
+    found_a: f32,
     /// The share of B found anywhere in A, over every alignment.
-    pub found_b: f32,
+    found_b: f32,
     /// The difference score over everything found: every alignment's
     /// stretches, weighted by length. Equal to `score` when the main
     /// alignment is the only one.
-    pub found_score: f64,
+    found_score: f64,
     /// How many fingerprint items matched, over every alignment.
-    pub matched_items: usize,
+    matched_items: usize,
 }
 
+/// Why numbers were refused as measurements. Each names the field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BadMeasurement {
+    /// A share isn't a number from 0 to 1.
+    NotAShare(&'static str),
+    /// A difference score isn't a number from 0 to 32.
+    NotAScore(&'static str),
+    /// Nothing matched, yet a share of a file is said to be matched.
+    SharesWithNothingMatched,
+}
+
+impl std::fmt::Display for BadMeasurement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BadMeasurement::NotAShare(field) => write!(f, "{field} is not a share from 0 to 1"),
+            BadMeasurement::NotAScore(field) => write!(f, "{field} is not a score from 0 to 32"),
+            BadMeasurement::SharesWithNothingMatched => {
+                write!(f, "no items matched, but a share of a file is matched")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BadMeasurement {}
+
 impl Measured {
+    /// Measurements, checked: every share is a number from 0 to 1, every
+    /// score a number from 0 to [`matching::compare::NO_MATCH_SCORE`], and
+    /// with no item matched every share is 0.
+    pub fn new(
+        coverage_a: f32,
+        coverage_b: f32,
+        score: f64,
+        found_a: f32,
+        found_b: f32,
+        found_score: f64,
+        matched_items: usize,
+    ) -> Result<Measured, BadMeasurement> {
+        let shares = [
+            ("coverage_a", coverage_a),
+            ("coverage_b", coverage_b),
+            ("found_a", found_a),
+            ("found_b", found_b),
+        ];
+        for (field, share) in shares {
+            if !(0.0..=1.0).contains(&share) {
+                return Err(BadMeasurement::NotAShare(field));
+            }
+        }
+        for (field, value) in [("score", score), ("found_score", found_score)] {
+            if !(0.0..=matching::compare::NO_MATCH_SCORE).contains(&value) {
+                return Err(BadMeasurement::NotAScore(field));
+            }
+        }
+        if matched_items == 0 && shares.iter().any(|(_, share)| *share > 0.0) {
+            return Err(BadMeasurement::SharesWithNothingMatched);
+        }
+        Ok(Measured {
+            coverage_a,
+            coverage_b,
+            score,
+            found_a,
+            found_b,
+            found_score,
+            matched_items,
+        })
+    }
+
     /// The same measurements with the two files swapped.
     pub fn swapped(self) -> Measured {
         Measured {
@@ -207,8 +314,13 @@ impl Measured {
     }
 }
 
-impl From<&matching::Comparison> for Measured {
-    fn from(comparison: &matching::Comparison) -> Measured {
+impl TryFrom<&matching::Comparison> for Measured {
+    type Error = BadMeasurement;
+
+    /// A comparison's measurements, with the found shares and the score
+    /// over every alignment worked out from its stretches. Checked like
+    /// [`Measured::new`]: a stored comparison is read from the database.
+    fn try_from(comparison: &matching::Comparison) -> Result<Measured, BadMeasurement> {
         let matched_items: usize = comparison.segments.iter().map(|s| s.items).sum();
         let found_score = match matched_items {
             0 => matching::compare::NO_MATCH_SCORE,
@@ -221,15 +333,15 @@ impl From<&matching::Comparison> for Measured {
                     / matched_items as f64
             }
         };
-        Measured {
-            coverage_a: comparison.coverage_a,
-            coverage_b: comparison.coverage_b,
-            score: comparison.score,
-            found_a: comparison.found_a(),
-            found_b: comparison.found_b(),
+        Measured::new(
+            comparison.coverage_a,
+            comparison.coverage_b,
+            comparison.score,
+            comparison.found_a(),
+            comparison.found_b(),
             found_score,
             matched_items,
-        }
+        )
     }
 }
 
@@ -288,6 +400,10 @@ impl Name {
 
 /// What is known about one file's names: its title tag, if it has one, and
 /// its file name, each parsed, and its artist tag.
+///
+/// The file's version labels are those of both names together: each name
+/// here carries the labels the other one has and it lacks
+/// ([`ParsedName::with_labels_of`]).
 #[derive(Debug, Clone)]
 pub struct FileFacts {
     tagged: Option<Name>,
@@ -300,24 +416,26 @@ impl FileFacts {
     /// artist tag is split into artists as the artist part of a file name
     /// is, and counts for both names.
     pub fn new(title_tag: Option<&str>, artist_tag: Option<&str>, file_name: &str) -> FileFacts {
-        let tagged = title_tag
+        let by_file_name = versions::parse_file_name(file_name);
+        let by_tag = title_tag
             .filter(|title| !title.trim().is_empty())
-            .map(|title| Name::new(versions::parse_title(title), artist_tag));
+            .map(versions::parse_title);
+        let Some(by_tag) = by_tag else {
+            return FileFacts {
+                tagged: None,
+                file_name: Name::new(by_file_name, artist_tag),
+            };
+        };
         FileFacts {
-            tagged,
-            file_name: Name::new(versions::parse_file_name(file_name), artist_tag),
+            tagged: Some(Name::new(by_tag.with_labels_of(&by_file_name), artist_tag)),
+            file_name: Name::new(by_file_name.with_labels_of(&by_tag), artist_tag),
         }
     }
-}
 
-/// Which of a pair's names a decision went by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Reading {
-    /// The title tags; for a file with none, its file name.
-    Tags,
-    /// The file names.
-    FileNames,
+    /// The file's first name: its title tag's, else its file name's.
+    fn first(&self) -> &Name {
+        self.tagged.as_ref().unwrap_or(&self.file_name)
+    }
 }
 
 /// Two files and what is known about them. Built with [`Pair::new`], so a
@@ -477,8 +595,9 @@ pub enum Reason {
     /// hint: part names match unrelated tracks too.
     MashupPart { mashup: Side, part: String },
     /// The names don't settle what the files are to each other. `doubts`
-    /// are the codes of [`crate::versions::Reason`] the names gave.
-    NamesUnclear { doubts: Vec<&'static str> },
+    /// are the codes of the [`crate::versions::Reason`]s the names gave,
+    /// in camelCase like every code here, sorted.
+    NamesUnclear { doubts: Vec<String> },
     /// The titles differ.
     TitlesDiffer,
 
@@ -607,8 +726,6 @@ impl Reason {
 pub struct Decision {
     pub outcome: Outcome,
     pub reasons: Vec<Reason>,
-    /// Which of the pair's names the reasons are about.
-    pub reading: Reading,
 }
 
 impl Decision {
@@ -617,7 +734,6 @@ impl Decision {
         Decision {
             outcome: self.outcome,
             reasons: self.reasons.into_iter().map(Reason::swapped).collect(),
-            reading: self.reading,
         }
     }
 }
@@ -680,7 +796,7 @@ enum Relation {
         part: String,
     },
     Unclear {
-        doubts: Vec<&'static str>,
+        doubts: Vec<String>,
     },
 }
 
@@ -694,7 +810,24 @@ enum Credits {
     Differ,
 }
 
-fn relation(names: &versions::Comparison) -> Relation {
+/// A snake_case code in camelCase.
+fn camel(code: &str) -> String {
+    let mut out = String::with_capacity(code.len());
+    let mut upper = false;
+    for c in code.chars() {
+        match c {
+            '_' => upper = true,
+            c if upper => {
+                out.extend(c.to_uppercase());
+                upper = false;
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn relation_of(names: &versions::Comparison) -> Relation {
     use versions::Reason as Said;
     match names.outcome {
         versions::Outcome::SameVersion => return Relation::Same,
@@ -740,9 +873,9 @@ fn relation(names: &versions::Comparison) -> Relation {
             }
         }
     }
-    let mut doubts: Vec<&'static str> = Vec::new();
+    let mut doubts: Vec<String> = Vec::new();
     for reason in &names.reasons {
-        let code = reason.code();
+        let code = camel(reason.code());
         if !matches!(reason, Said::BaseTitlesMatch) && !doubts.contains(&code) {
             doubts.push(code);
         }
@@ -755,12 +888,11 @@ fn relation(names: &versions::Comparison) -> Relation {
 /// What one reading of the pair's names says.
 #[derive(Debug, Clone, PartialEq)]
 struct Read {
-    reading: Reading,
     relation: Relation,
     credits: Credits,
 }
 
-fn read(reading: Reading, a: &Name, b: &Name) -> Read {
+fn read(a: &Name, b: &Name) -> Read {
     use versions::Reason as Said;
     let credited = versions::compare(&a.credited, &b.credited);
     let mut remixers: Vec<Side> = credited
@@ -776,59 +908,52 @@ fn read(reading: Reading, a: &Name, b: &Name) -> Read {
         // The artists make the names "can't tell"; what the names say
         // without them is the relation.
         let plain = versions::compare(&a.uncredited, &b.uncredited);
-        (relation(&plain), Credits::Differ)
+        (relation_of(&plain), Credits::Differ)
     } else if remixers.is_empty() {
-        (relation(&credited), Credits::Agree)
+        (relation_of(&credited), Credits::Agree)
     } else {
-        (relation(&credited), Credits::Remixer(remixers))
+        (relation_of(&credited), Credits::Remixer(remixers))
     };
-    Read {
-        reading,
-        relation,
-        credits,
-    }
+    Read { relation, credits }
 }
 
-/// Every reading of the pair's names, the tags' first. Two files with no
-/// title tag have one reading, their file names.
+/// Every reading of the pair's titles, the tags' first (a file with no
+/// title tag stands in with its file name). Two files with no title tag
+/// have one reading, their file names.
 fn readings(a: &FileFacts, b: &FileFacts) -> Vec<Read> {
-    let by_file_name = read(Reading::FileNames, &a.file_name, &b.file_name);
+    let by_file_name = read(&a.file_name, &b.file_name);
     if a.tagged.is_none() && b.tagged.is_none() {
         return vec![by_file_name];
     }
-    let by_tags = read(
-        Reading::Tags,
-        a.tagged.as_ref().unwrap_or(&a.file_name),
-        b.tagged.as_ref().unwrap_or(&b.file_name),
-    );
-    vec![by_tags, by_file_name]
+    vec![read(a.first(), b.first()), by_file_name]
 }
 
 /// Where a relation stands among the readings: the lowest wins, and of two
 /// readings equally low, the tags'.
 ///
+/// Both readings carry the files' whole labels, so a cut or a rework shows
+/// on any reading that puts the two titles together, and it comes first
+/// either way. What is left to rank is what the titles say.
+///
 /// With the audio matched in full, or one file inside the other, the audio
 /// says "one production", so the reading that would stop a merge comes
-/// first: a cut, then whatever asks for review. "Another title" comes last:
-/// it never hides what the other reading says.
+/// first: a mashup part or names that can't be told before "same".
 ///
-/// Otherwise the names decide, and the reading that tells the two files
-/// apart comes first: a label one reading carries is a fact about the file
-/// that the other reading merely lacks. A rework comes before a cut, as it
-/// does within one name: a rework is never a stand-in.
+/// Otherwise the names decide, and the reading under which they are the
+/// same comes before one that says less.
+///
+/// "Another title" is always last: it never hides what the other reading
+/// says.
 fn rank(audio_led: bool, relation: &Relation) -> u8 {
     match (audio_led, relation) {
-        (true, Relation::Cut { .. }) => 0,
-        (true, Relation::Rework { .. }) => 1,
-        (true, Relation::MashupPart { .. }) => 2,
-        (true, Relation::Unclear { .. }) => 3,
-        (true, Relation::Same) => 4,
-        (false, Relation::Rework { .. }) => 0,
-        (false, Relation::Cut { .. }) => 1,
-        (false, Relation::Same) => 2,
-        (false, Relation::MashupPart { .. }) => 3,
-        (false, Relation::Unclear { .. }) => 4,
-        (_, Relation::OtherTitle) => 5,
+        (_, Relation::Cut { .. } | Relation::Rework { .. }) => 0,
+        (true, Relation::MashupPart { .. }) => 1,
+        (true, Relation::Unclear { .. }) => 2,
+        (true, Relation::Same) => 3,
+        (false, Relation::Same) => 1,
+        (false, Relation::MashupPart { .. }) => 2,
+        (false, Relation::Unclear { .. }) => 3,
+        (_, Relation::OtherTitle) => 4,
     }
 }
 
@@ -883,13 +1008,35 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
     );
     // `min_by_key` keeps the first of equals: the tags' reading.
     let Read {
-        reading,
-        relation,
+        mut relation,
         credits,
     } = readings(pair.a, pair.b)
         .into_iter()
         .min_by_key(|read| rank(audio_led, &read.relation))
         .expect("a pair always has a reading");
+    // Under two titles no reading set the labels side by side. With the
+    // audio matched they count whatever the titles: "(Clean)" beside
+    // "(Dirty)" is a cut under any two names.
+    let by_labels = || {
+        let labels =
+            versions::compare_labels(&pair.a.first().uncredited, &pair.b.first().uncredited);
+        relation_of(&labels)
+    };
+    let mut titles_differ = false;
+    if relation == Relation::OtherTitle {
+        let labels_say = match shared {
+            Shared::Full(_) => Some(by_labels()),
+            // One file inside the other under another title already goes
+            // to review; only a cut or a rework says more than that.
+            Shared::Inside(..) => Some(by_labels())
+                .filter(|said| matches!(said, Relation::Cut { .. } | Relation::Rework { .. })),
+            _ => None,
+        };
+        if let Some(said) = labels_say.filter(|said| *said != Relation::Same) {
+            relation = said;
+            titles_differ = true;
+        }
+    }
     // The credits only say something under one title: names with another
     // title are never compared by artist.
     let artists_differ = credits == Credits::Differ;
@@ -1030,7 +1177,10 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
                 // Not compared is no finding: never "different".
                 Shared::NotCompared => (Outcome::NeedsReview, vec![Reason::NotCompared]),
                 // The fingerprint's veto on a name-based merge.
-                _ => (Outcome::Different, vec![Reason::FingerprintVeto]),
+                Shared::Nothing => (Outcome::Different, vec![Reason::FingerprintVeto]),
+                Shared::Identical | Shared::Full(_) | Shared::Inside(..) | Shared::Partial(_) => {
+                    unreachable!("this arm only takes the cases with no audio to go on")
+                }
             },
             Relation::Cut { only_a, only_b } => (
                 Outcome::CutLink {
@@ -1051,9 +1201,8 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
     if reasons[0] != Reason::SameTitleDifferentArtists {
         reasons.extend(notes);
     }
-    Decision {
-        outcome,
-        reasons,
-        reading,
+    if titles_differ {
+        reasons.push(Reason::TitlesDiffer);
     }
+    Decision { outcome, reasons }
 }

@@ -196,12 +196,17 @@ fn both_files_found_in_full_without_the_duplicate_rule_holding_is_not_one_sided(
 // ---- The least audio that counts as shared -----------------------------
 
 fn a_short_stretch(matched_items: usize) -> Measured {
+    // A sliver of each file, or none of it when no item matched.
+    let share = match matched_items {
+        0 => 0.0,
+        _ => 0.001,
+    };
     Measured {
-        coverage_a: 0.001,
-        coverage_b: 0.001,
+        coverage_a: share,
+        coverage_b: share,
         score: 2.0,
-        found_a: 0.001,
-        found_b: 0.001,
+        found_a: share,
+        found_b: share,
         found_score: 2.0,
         matched_items,
     }

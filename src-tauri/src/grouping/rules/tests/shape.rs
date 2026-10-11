@@ -28,6 +28,9 @@ fn every_file() -> Vec<FileFacts> {
         tagged_and_named("Paper Harbor", "Kestrel Nine - Paper Harbor (Clean).mp3"),
         tagged_and_named("Paper Harbor", "Paper Harbor (Quill Ashby Remix).mp3"),
         tagged_and_named("Neon Moth", "Paper Harbor (Skyline Session).mp3"),
+        tagged_and_named("Paper Harbor", "other promo (Dirty).mp3"),
+        tagged_and_named("Paper Harbor (Dub)", "fourth promo.mp3"),
+        tagged_and_named("Paper Harbor x Neon Moth", "Paper Harbor.mp3"),
     ]
 }
 
@@ -184,8 +187,35 @@ fn a_links_labels_are_of_its_own_class_sorted_and_a_rework_link_always_has_one()
 }
 
 #[test]
-fn the_same_pair_gets_the_same_decision_every_time() {
-    assert_eq!(every_decision(), every_decision());
+fn versions_never_merge_wherever_the_label_is_written_tag_or_file_name() {
+    // The first file of each pair, labeled in its tag, in its file name
+    // beside a same-titled tag, or in its file name under another tag.
+    let labeled = |label: &str| {
+        [
+            tagged_and_named(&format!("Paper Harbor {label}"), "other promo.mp3"),
+            tagged_and_named("Paper Harbor", &format!("Paper Harbor {label}.mp3")),
+            tagged_and_named("other promo", &format!("Paper Harbor {label}.mp3")),
+        ]
+    };
+    let plain = [
+        tagged_and_named("Paper Harbor", "fourth promo.mp3"),
+        tagged_and_named("fourth promo", "Paper Harbor.mp3"),
+        tagged_and_named("Paper Harbor", "Paper Harbor.mp3"),
+    ];
+    for label in ["(Dirty)", "(Extended Mix)", "(Quill Ashby Remix)", "(Dub)"] {
+        for a in &labeled(label) {
+            for b in &plain {
+                for (what, audio) in every_audio() {
+                    let got = decided(audio, a, b);
+                    assert_eq!(
+                        got.outcome == Outcome::Duplicate,
+                        what == "identical",
+                        "{label}, {what}: {got:?}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -260,11 +290,11 @@ fn a_reasons_parameters_serialize_in_camel_case_with_kinds_as_their_names() {
         json!({ "code": "mashupContains", "mashup": "a", "part": "Duskline" })
     );
     let unclear = Reason::NamesUnclear {
-        doubts: vec!["unrecognized_differs"],
+        doubts: vec!["unrecognizedDiffers".to_string()],
     };
     assert_eq!(
         serde_json::to_value(&unclear).unwrap(),
-        json!({ "code": "namesUnclear", "doubts": ["unrecognized_differs"] })
+        json!({ "code": "namesUnclear", "doubts": ["unrecognizedDiffers"] })
     );
 }
 
@@ -276,7 +306,6 @@ fn a_decision_serializes_its_outcome_by_kind_with_a_links_labels() {
         json!({
             "outcome": { "kind": "cutLink", "labels": ["clean", "dirty"] },
             "reasons": [{ "code": "versionVeto", "onlyA": ["clean"], "onlyB": ["dirty"] }],
-            "reading": "tags",
         })
     );
     for (outcome, kind) in [

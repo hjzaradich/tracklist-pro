@@ -15,7 +15,9 @@ use unicode_normalization::UnicodeNormalization;
 
 use super::labels::split_names;
 use super::tokenize::collapse_spaces;
-use super::{CreditRole, Marker, MarkerKind, NameSource, ParsedName, Reading, VersionClass};
+use super::{
+    CreditRole, Marker, MarkerKind, NameSource, ParsedName, Qualifier, Reading, VersionClass,
+};
 
 /// What two names say about each other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -327,13 +329,37 @@ fn matching_readings<'a>(a: &'a [Reading], b: &'a [Reading]) -> Option<(&'a Read
 /// Compares two parsed names. See [`Outcome`] and [`Reason`]. The answer
 /// doesn't depend on which name comes first.
 pub fn compare(a: &ParsedName, b: &ParsedName) -> Comparison {
-    // One fixed order for the work, so that two equally good readings are
-    // settled the same way whichever name is `a`.
+    in_fixed_order(a, b, compare_in_order)
+}
+
+/// Sets the version labels of two names side by side, **whatever their
+/// titles**: the same labels, another cut, another rework, or can't tell.
+/// Each name's labels are taken as the parser read them
+/// ([`ParsedName::markers`]); there is no shared title to settle whether a
+/// doubtful one is a label.
+///
+/// For when something other than the names says the two are one
+/// recording (grouping, 1bB): with the same audio, "(Clean)" beside
+/// "(Dirty)" matters under any two titles. The answer never says
+/// [`Outcome::DifferentBase`], and its reasons say nothing of the titles.
+pub fn compare_labels(a: &ParsedName, b: &ParsedName) -> Comparison {
+    in_fixed_order(a, b, |a, b| {
+        versions_apart(a, b, &a.markers, &b.markers, false, Vec::new())
+    })
+}
+
+/// Runs `work` on the two names in one fixed order, so that two equally
+/// good readings are settled the same way whichever name is `a`.
+fn in_fixed_order(
+    a: &ParsedName,
+    b: &ParsedName,
+    work: impl Fn(&ParsedName, &ParsedName) -> Comparison,
+) -> Comparison {
     let order = |name: &ParsedName| (name.original.clone(), name.source == NameSource::FileName);
     if order(a) <= order(b) {
-        return compare_in_order(a, b);
+        return work(a, b);
     }
-    let Comparison { outcome, reasons } = compare_in_order(b, a);
+    let Comparison { outcome, reasons } = work(b, a);
     let (mut for_a, mut for_b, mut rest) = (Vec::new(), Vec::new(), Vec::new());
     // Reasons about one name are listed for A, then for B.
     for reason in reasons.into_iter().map(Reason::swapped) {
@@ -401,7 +427,6 @@ fn compare_in_order(a: &ParsedName, b: &ParsedName) -> Comparison {
     };
 
     reasons.push(Reason::BaseTitlesMatch);
-    let mut unsure = false;
     for (side, reading) in [(Side::A, x), (Side::B, y)] {
         for text in &reading.promoted {
             reasons.push(Reason::TitleReadAsMarker {
@@ -417,9 +442,24 @@ fn compare_in_order(a: &ParsedName, b: &ParsedName) -> Comparison {
         }
     }
     let promoted = !x.promoted.is_empty() || !y.promoted.is_empty();
+    versions_apart(a, b, &x.markers, &y.markers, promoted, reasons)
+}
+
+/// What the markers of two names say about their versions, the titles
+/// taken as the same. `promoted` says a reading took title words as a
+/// marker to get here. Adds its reasons to `reasons`.
+fn versions_apart(
+    a: &ParsedName,
+    b: &ParsedName,
+    markers_a: &[Marker],
+    markers_b: &[Marker],
+    promoted: bool,
+    mut reasons: Vec<Reason>,
+) -> Comparison {
+    let mut unsure = false;
 
     // Reworks: by kind, then whose.
-    let (reworks_a, reworks_b) = (reworks(&x.markers), reworks(&y.markers));
+    let (reworks_a, reworks_b) = (reworks(markers_a), reworks(markers_b));
     let kinds =
         |reworks: &Reworks| -> BTreeSet<MarkerKind> { reworks.keys().map(|k| k.0).collect() };
     let mut rework_differs = kinds(&reworks_a) != kinds(&reworks_b);
@@ -464,10 +504,10 @@ fn compare_in_order(a: &ParsedName, b: &ParsedName) -> Comparison {
         });
     }
 
-    let (cuts_a, cuts_b) = (cuts(&x.markers), cuts(&y.markers));
+    let (cuts_a, cuts_b) = (cuts(markers_a), cuts(markers_b));
     // Two remasters of different years are two cuts (ROADMAP 1.5,
     // 2026-10-11). One that gives no year is the same as any.
-    let (years_a, years_b) = (remaster_years(&x.markers), remaster_years(&y.markers));
+    let (years_a, years_b) = (remaster_years(markers_a), remaster_years(markers_b));
     let other_remaster = !years_a.is_empty() && !years_b.is_empty() && years_a != years_b;
     let cut_differs = cuts_a != cuts_b || other_remaster;
     if cut_differs {
@@ -510,8 +550,8 @@ fn compare_in_order(a: &ParsedName, b: &ParsedName) -> Comparison {
     // remixer.
     let (artists_a, artists_b) = (main_artists(a), main_artists(b));
     if !artists_a.is_empty() && !artists_b.is_empty() && artists_a.is_disjoint(&artists_b) {
-        let mut remixers = remixer_keys(&x.markers);
-        remixers.extend(remixer_keys(&y.markers));
+        let mut remixers = remixer_keys(markers_a);
+        remixers.extend(remixer_keys(markers_b));
         let mut explained = false;
         for (side, artists) in [(Side::A, &artists_a), (Side::B, &artists_b)] {
             if artists.iter().any(|artist| remixers.contains(artist)) {
@@ -541,4 +581,96 @@ fn compare_in_order(a: &ParsedName, b: &ParsedName) -> Comparison {
         Outcome::SameVersion
     };
     Comparison { outcome, reasons }
+}
+
+impl ParsedName {
+    /// This name with the labels `other` carries and this one lacks, for
+    /// two names of **one file** (its title tag and its file name): a
+    /// file's version is what either of its names says. The title, the
+    /// credits and the junk stay this name's own.
+    ///
+    /// - A label this name already has isn't added again, whichever way it
+    ///   is written, and one it holds as part of its title counts as had.
+    /// - A rework that doesn't say whose ("(Remix)") learns it from the
+    ///   other name's ("(Quill Ashby Remix)"), and adds nothing to one that
+    ///   does.
+    /// - A remaster's year is added to a remaster without one.
+    /// - A bracket nobody understands is carried over too: it may be a
+    ///   label.
+    ///
+    /// Only what `other` reads as labels is taken ([`ParsedName::markers`]),
+    /// never the label words it keeps in its title, nor a mashup's "x".
+    pub fn with_labels_of(&self, other: &ParsedName) -> ParsedName {
+        let mut merged = self.clone();
+        for qualifier in &other.qualifiers[other.folded..] {
+            let missing: Vec<Marker> = qualifier
+                .markers
+                .iter()
+                .filter(|marker| !merged.takes_in(marker))
+                .cloned()
+                .collect();
+            if !missing.is_empty() {
+                merged.qualifiers.push(Qualifier {
+                    as_written: qualifier.as_written.clone(),
+                    markers: missing,
+                });
+            }
+        }
+        for text in &other.unrecognized {
+            if !merged
+                .unrecognized
+                .iter()
+                .any(|mine| key(mine) == key(text))
+            {
+                merged.unrecognized.push(text.clone());
+            }
+        }
+        let flat = |qualifiers: &[Qualifier]| -> Vec<Marker> {
+            qualifiers
+                .iter()
+                .flat_map(|q| q.markers.iter().cloned())
+                .collect()
+        };
+        merged.title_markers = flat(&merged.qualifiers[..merged.folded]);
+        merged.markers = flat(&merged.qualifiers[merged.folded..]);
+        merged.markers.extend(merged.separator.iter().cloned());
+        merged
+    }
+
+    /// Whether this name already says what `marker` says. A rework of the
+    /// same kind that doesn't say whose takes the marker's name.
+    fn takes_in(&mut self, marker: &Marker) -> bool {
+        let mut mine: Vec<&mut Marker> = self
+            .qualifiers
+            .iter_mut()
+            .flat_map(|q| q.markers.iter_mut())
+            .filter(|mine| mine.kind == marker.kind)
+            .collect();
+        if mine.is_empty() {
+            return false;
+        }
+        if marker.kind == MarkerKind::Remaster {
+            let held: Vec<Marker> = mine.iter().map(|m| (**m).clone()).collect();
+            return remaster_years(std::slice::from_ref(marker)).is_subset(&remaster_years(&held));
+        }
+        if marker.kind.class() == VersionClass::Cut {
+            return true;
+        }
+        let Some(whose) = marker.detail.as_deref().map(name_key) else {
+            return true;
+        };
+        if mine
+            .iter()
+            .any(|m| m.detail.as_deref().map(name_key).as_ref() == Some(&whose))
+        {
+            return true;
+        }
+        match mine.iter_mut().find(|m| m.detail.is_none()) {
+            Some(unnamed) => {
+                unnamed.detail = marker.detail.clone();
+                true
+            }
+            None => false,
+        }
+    }
 }

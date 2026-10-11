@@ -162,7 +162,7 @@ fn full_coverage_with_names_that_cant_be_told_goes_to_review_with_the_doubt() {
         [
             Reason::SameAudioNamesDisagree,
             Reason::NamesUnclear {
-                doubts: vec!["unrecognized_differs"],
+                doubts: vec!["unrecognizedDiffers".to_string()],
             },
         ]
     );
@@ -395,7 +395,7 @@ fn a_partial_match_with_names_that_cant_be_told_goes_to_review_with_the_doubt() 
                 found_b: 0.48,
             },
             Reason::NamesUnclear {
-                doubts: vec!["rework_detail_missing"],
+                doubts: vec!["reworkDetailMissing".to_string()],
             },
         ]
     );
@@ -642,10 +642,22 @@ fn names_that_cant_be_told_with_no_audio_to_go_on_are_different_and_give_the_dou
         assert_eq!(
             got.reasons,
             [Reason::NamesUnclear {
-                doubts: vec!["cut_differs", "title_read_as_marker"],
+                doubts: vec!["cutDiffers".to_string(), "titleReadAsMarker".to_string()],
             }]
         );
     }
+}
+
+#[test]
+fn names_that_cant_be_told_under_different_artists_with_no_audio_are_different_for_the_names_first()
+{
+    let got = decided(
+        nothing_shared(),
+        &by("Kestrel Nine", "Paper Harbor (Skyline Session)"),
+        &by("The Marrow Choir", "Paper Harbor"),
+    );
+    assert_eq!(got.outcome, Outcome::Different);
+    assert_eq!(codes(&got), ["namesUnclear", "artistsDiffer"]);
 }
 
 // ---- The inputs --------------------------------------------------------
@@ -715,7 +727,7 @@ fn measurements_come_from_a_comparison_with_found_shares_and_score_over_every_al
         ],
     };
     assert_eq!(
-        Measured::from(&comparison),
+        Measured::try_from(&comparison).unwrap(),
         Measured {
             coverage_a: 0.6,
             coverage_b: 0.3,
@@ -739,7 +751,7 @@ fn measurements_from_a_comparison_where_nothing_matched_share_nothing() {
         score: matching::compare::NO_MATCH_SCORE,
         segments: Vec::new(),
     };
-    let measured = Measured::from(&comparison);
+    let measured = Measured::try_from(&comparison).unwrap();
     assert_eq!(measured.matched_items, 0);
     assert_eq!(measured.found_score, matching::compare::NO_MATCH_SCORE);
     let got = decided(
