@@ -220,6 +220,7 @@ The owner doesn't line-read Rust, so the rule is "tests are the review": every t
 | IPC | `lib.rs`, `ipc.rs` | Real startup on Tauri's mock runtime; commands called as the webview calls them; bindings export is deterministic |
 | End to end | `src-tauri/tests/end_to_end/` | Real startup, real commands, real job queue, generated music and a generated export. Two runs: start from rekordbox, and start fresh. A stand-in for rekordbox's import follows ROADMAP §5.2 only. Every run ends by checking nothing outside the app data folder changed. The React frontend isn't loaded |
 | Scale (ignored by default) | `tests/perf_100k.rs`, `rekordbox_xml_scale.rs`, `fingerprint_memory.rs` | 100k generated files; a 50k-track export; a two-hour mix with flat memory |
+| Local only | `matching/tests/local_corpus.rs` | E3's 43 labeled pairs of real files through fingerprinting and matching; needs the private files, and is skipped with one line without them ([local-corpus.md](local-corpus.md)) |
 | Frontend | Vitest + Testing Library, beside each component | Tests never spell out UI text: they look it up by key with `tx("namespace:key")` |
 | Marker run | `npm run test:markers` | Reruns the frontend suite with every UI string replaced by a marker, proving no test depends on wording |
 | Scripts | `node --test` | The copy pipeline and the CI scripts have their own tests |

@@ -8,7 +8,7 @@
 - Ten kinds of case: exact copy, format pair, bitrate pair, extended vs radio, flip/edit, VIP, clean/dirty, mashup, near-duration same artist, same title different artist.
 
 ## Results
-- **24 version · 14 same · 5 different** (one cover pair resolved as a version).
+- **25 version · 13 same · 5 different** as first labeled (one cover pair resolved as a version); **26 · 12 · 5** after the relabel described under "Fingerprint grading".
 - **Length can't separate "same" from "version":**
   - "same" pairs differ by **up to 4 s** (a different release or rip of one mix)
   - **5 "version" pairs are within 5 s**: a Clean vs Dirty pair (0 s), a bootleg edit (1 s), two remixes (1 s and 2 s) and a pair of remixes (4 s)
@@ -52,13 +52,14 @@
 - Stream rips appeared at **129–138 kbps** next to 320 kbps rips of the same songs. These are fake-320 / quality test candidates.
 
 ## Fingerprint grading (audio-lab + rusty-chromaprint 0.3)
-- **Same (13):** all have ≥98% coverage both ways, score ≤2.5 (exact copies score 0.00). **13/13.**
-- **One pair** (a single-tagged FLAC vs an album-tagged MP3) was first labeled *same* but matched only 62%/62%: aligned for about 115 s with weak scores, then nothing. **After listening, the author relabeled it *version*:** one file was a demo or live recording that sounded much worse. **The fingerprint was right and the tags were misleading**: same title and artist, different recording. Final tally: **14 same → 13; 24 versions → 25.**
+- **Same (12):** all have ≥98% coverage both ways, score ≤2.5 (exact copies score 0.00). **12/12.**
+- **One pair** (a single-tagged FLAC vs an album-tagged MP3) was first labeled *same* but matched only 62%/62%: aligned for about 115 s with weak scores, then nothing. **After listening, the author relabeled it *version*:** one file was a demo or live recording that sounded much worse. **The fingerprint was right and the tags were misleading**: same title and artist, different recording. Final tally: **13 same → 12; 25 versions → 26.**
 - **Different (5):** coverage 0–1%. No false matches.
-- **Versions (24):**
+- **Versions (25, before that relabel):**
   - most reworks 0–25%
   - a VIP: 48%/36% (shares sections)
   - cuts: an extended mix 50% / its original 72%; an original 85% / its radio edit 47%
   - **Clean vs Dirty: 100%/100%, score 0.23**, indistinguishable by audio
 - Rule: duplicates = ≥90% both ways and score ≤4, with the name-based version check able to veto; one-sided coverage = cut link.
 - Speed: 43 pairs (86 full tracks, decoded twice) in 25 s on 4 threads, about 1 s per track per core.
+- *Tally corrected 2026-10-11 against the labels file.* This page used to say 14 same and 24 versions (then 13 and 25): it counted the Clean vs Dirty pair, which is labeled a version, with the same pairs, because it is one of the 13 pairs covered ≥98% both ways.

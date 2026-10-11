@@ -31,6 +31,14 @@ pub fn track(seed: u64, len: usize) -> Vec<u32> {
 /// bit-identical and the rest get 1 to 4 bits flipped. With `keep` 7 that's
 /// what a WAV against its MP3 measured (about 1 in 7 identical, score ~2).
 pub fn reencoded(items: &[u32], seed: u64, keep: u64) -> Vec<u32> {
+    worn(items, seed, keep, 4)
+}
+
+/// `items` as another master or a rougher encode of the same audio would
+/// give them: one item in `keep` stays bit-identical and the rest get 1 to
+/// `most` bits flipped. The difference score comes out a little under
+/// `(1 + most) / 2`.
+pub fn worn(items: &[u32], seed: u64, keep: u64, most: u64) -> Vec<u32> {
     let mut rng = Rng(seed ^ 0xE4C0);
     items
         .iter()
@@ -39,7 +47,7 @@ pub fn reencoded(items: &[u32], seed: u64, keep: u64) -> Vec<u32> {
                 return item;
             }
             let mut noisy = item;
-            for _ in 0..=rng.below(4) {
+            for _ in 0..=rng.below(most) {
                 noisy ^= 1 << rng.below(32);
             }
             noisy
