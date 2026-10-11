@@ -601,12 +601,32 @@ impl ParsedName {
     /// Only what `other` reads as labels is taken ([`ParsedName::markers`]),
     /// never the label words it keeps in its title, nor a mashup's "x".
     pub fn with_labels_of(&self, other: &ParsedName) -> ParsedName {
+        self.merged_with(other, true)
+    }
+
+    /// [`with_labels_of`](Self::with_labels_of), except that a label this
+    /// name holds only as part of its title is added all the same.
+    ///
+    /// For two names of one file that [`compare`] says differ by exactly
+    /// such a label: "Come Clean" beside "Come Clean (Clean)" is the Clean
+    /// cut of "Come Clean", and the title's own "Clean" doesn't stand in
+    /// for the bracket.
+    pub fn with_every_label_of(&self, other: &ParsedName) -> ParsedName {
+        self.merged_with(other, false)
+    }
+
+    fn merged_with(&self, other: &ParsedName, title_counts: bool) -> ParsedName {
         let mut merged = self.clone();
+        // Where this name's labels start counting as had.
+        let from = match title_counts {
+            true => 0,
+            false => merged.folded,
+        };
         for qualifier in &other.qualifiers[other.folded..] {
             let missing: Vec<Marker> = qualifier
                 .markers
                 .iter()
-                .filter(|marker| !merged.takes_in(marker))
+                .filter(|marker| !merged.takes_in(marker, from))
                 .cloned()
                 .collect();
             if !missing.is_empty() {
@@ -637,11 +657,11 @@ impl ParsedName {
         merged
     }
 
-    /// Whether this name already says what `marker` says. A rework of the
-    /// same kind that doesn't say whose takes the marker's name.
-    fn takes_in(&mut self, marker: &Marker) -> bool {
-        let mut mine: Vec<&mut Marker> = self
-            .qualifiers
+    /// Whether this name already says what `marker` says, in its label
+    /// groups from `from` on. A rework of the same kind that doesn't say
+    /// whose takes the marker's name.
+    fn takes_in(&mut self, marker: &Marker, from: usize) -> bool {
+        let mut mine: Vec<&mut Marker> = self.qualifiers[from..]
             .iter_mut()
             .flat_map(|q| q.markers.iter_mut())
             .filter(|mine| mine.kind == marker.kind)

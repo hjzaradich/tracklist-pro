@@ -72,6 +72,31 @@
 //! (ROADMAP 1.5), a version word is only a label when the other file
 //! lacks it.
 //!
+//! # A file's own two names
+//!
+//! Labels are only what a name brackets or sets off with " - ". Label
+//! words a title keeps ("Velo Dirty"), and a mashup's "x", can't be
+//! carried from one name to the other. So a file's own title tag and file
+//! name, with their labels put together, are set side by side through
+//! [`crate::versions::compare`], whatever the other file is called:
+//!
+//! - **The same, or unrelated titles:** nothing more to learn.
+//! - **They differ by a cut:** one holds in its title the word the other
+//!   brackets ("Come Clean" beside "Come Clean (Clean)"). The file carries
+//!   that cut, and both its names get it.
+//! - **Anything else** (a bare "Dirty" at the end of one, a mashup's "x"
+//!   in one, or one title that is the other's plus more words ending in
+//!   label words, "Velo Quill Ashby Remix" beside "Velo"): the file's
+//!   version is in doubt.
+//!
+//! A doubt only counts with the audio matched, and only when the pair's
+//! names would otherwise be the same, or have the same labels under two
+//! titles: the pair's names are then unclear (`ownNamesDisagree`), so full
+//! audio goes to review instead of merging. Two files with the same doubt
+//! (the same two titles) don't differ by it.
+//!
+//! # Two readings of the titles
+//!
 //! The *titles* are still read twice: by title tag (a file with none
 //! stands in with its file name), and by file name. One reading is picked,
 //! and the table applied to it:
@@ -154,8 +179,13 @@
 //! - **A remix credited to its remixer** agrees with any track of the same
 //!   title, whoever made it: the names can't say which song was remixed.
 //! - **Label words a title keeps** ("Come Clean", "Paper Harbor Extended
-//!   Mix" with no brackets) are not a file's labels until the other file's
-//!   title settles it; under two titles they stay title.
+//!   Mix" with no brackets) are not a file's labels until another title
+//!   settles it: the file's own other name, or the other file's. A file
+//!   with one name, or two that both keep the words, beside a file under
+//!   another title, stays as titled.
+//! - **A bare label word beside the same label in brackets** ("Velo
+//!   Dirty.mp3" beside "Velo (Dirty).mp3", both tagged "Velo") is a cut
+//!   link, though both are probably the Dirty cut: linked, never merged.
 
 use serde::{Serialize, Serializer};
 
@@ -180,6 +210,11 @@ pub const DUPLICATE_SCORE: f64 = 4.0;
 /// [`matching::compare::MIN_SECONDARY_ITEMS`] or more. The one place to
 /// raise the floor if short chance matches turn out to matter.
 pub const MIN_SHARED_ITEMS: usize = 1;
+
+/// The doubt given when the two files' names are the same, but one file's
+/// own title tag and file name disagree about its version in a way the
+/// parser can't settle (see "A file's own two names" in the module docs).
+pub const OWN_NAMES_DISAGREE: &str = "ownNamesDisagree";
 
 /// One of the two files of a [`Pair`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -408,6 +443,10 @@ impl Name {
 pub struct FileFacts {
     tagged: Option<Name>,
     file_name: Name,
+    /// Set when the file's own two names disagree in a way the labels
+    /// don't settle: the two titles they give, as compared. Two files
+    /// with the same doubt don't differ by it.
+    own_doubt: Option<String>,
 }
 
 impl FileFacts {
@@ -424,11 +463,49 @@ impl FileFacts {
             return FileFacts {
                 tagged: None,
                 file_name: Name::new(by_file_name, artist_tag),
+                own_doubt: None,
             };
         };
+        // A file's own two names are evidence about that file: with their
+        // labels put together, they are set side by side.
+        let both = |tag: ParsedName, file_name: ParsedName| {
+            let (tag, file_name) = (Name::new(tag, artist_tag), Name::new(file_name, artist_tag));
+            let own = versions::compare(&tag.uncredited, &file_name.uncredited).outcome;
+            (tag, file_name, own)
+        };
+        let (mut tagged, mut file_name, mut own) = both(
+            by_tag.with_labels_of(&by_file_name),
+            by_file_name.with_labels_of(&by_tag),
+        );
+        // They still differ by a cut: one holds in its title the word the
+        // other brackets ("Come Clean" beside "Come Clean (Clean)"). The
+        // file carries that cut, so both names get it.
+        if own == versions::Outcome::DifferentCut {
+            (tagged, file_name, own) = both(
+                by_tag.with_every_label_of(&by_file_name),
+                by_file_name.with_every_label_of(&by_tag),
+            );
+        }
+        // The same, or unrelated: nothing more to learn. Anything else (a
+        // bare "Dirty" at the end of one, a mashup's "x" in one) can't be
+        // settled, and the file's version is in doubt.
+        let (tag, name) = (&tagged.uncredited, &file_name.uncredited);
+        let unrelated = own == versions::Outcome::DifferentBase
+            && !extends_with_label_words(tag, name)
+            && !extends_with_label_words(name, tag);
+        let own_doubt = match own {
+            versions::Outcome::SameVersion => None,
+            _ if unrelated => None,
+            _ => Some(format!(
+                "{} / {}",
+                tagged.uncredited.base_title.to_lowercase(),
+                file_name.uncredited.base_title.to_lowercase()
+            )),
+        };
         FileFacts {
-            tagged: Some(Name::new(by_tag.with_labels_of(&by_file_name), artist_tag)),
-            file_name: Name::new(by_file_name.with_labels_of(&by_tag), artist_tag),
+            tagged: Some(tagged),
+            file_name,
+            own_doubt,
         }
     }
 
@@ -436,6 +513,22 @@ impl FileFacts {
     fn first(&self) -> &Name {
         self.tagged.as_ref().unwrap_or(&self.file_name)
     }
+}
+
+/// Whether `longer`'s title is `shorter`'s whole title, then more words,
+/// ending in label words: "Velo Quill Ashby Remix" beside "Velo". The
+/// parser reads two titles there, but the words in between may be whose
+/// rework it is, so one file's two names aren't simply unrelated.
+fn extends_with_label_words(shorter: &ParsedName, longer: &ParsedName) -> bool {
+    let (short, long) = (
+        shorter.base_title.to_lowercase(),
+        longer.base_title.to_lowercase(),
+    );
+    !longer.title_markers.is_empty()
+        && !short.is_empty()
+        && long
+            .strip_prefix(&short)
+            .is_some_and(|rest| rest.starts_with(' '))
 }
 
 /// Two files and what is known about them. Built with [`Pair::new`], so a
@@ -596,7 +689,8 @@ pub enum Reason {
     MashupPart { mashup: Side, part: String },
     /// The names don't settle what the files are to each other. `doubts`
     /// are the codes of the [`crate::versions::Reason`]s the names gave,
-    /// in camelCase like every code here, sorted.
+    /// in camelCase like every code here, sorted; or
+    /// [`OWN_NAMES_DISAGREE`] alone.
     NamesUnclear { doubts: Vec<String> },
     /// The titles differ.
     TitlesDiffer,
@@ -1022,6 +1116,18 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
             versions::compare_labels(&pair.a.first().uncredited, &pair.b.first().uncredited);
         relation_of(&labels)
     };
+    // One file's own names leave its version in doubt, and the other's
+    // don't, or not the same way: with the audio matched, "the same" or
+    // "the same labels" can't be relied on.
+    let own_names_disagree = audio_led && pair.a.own_doubt != pair.b.own_doubt;
+    let doubted = |said: Relation| match said {
+        Relation::Same if own_names_disagree => Relation::Unclear {
+            doubts: vec![OWN_NAMES_DISAGREE.to_string()],
+        },
+        said => said,
+    };
+    relation = doubted(relation);
+    let by_labels = || doubted(by_labels());
     let mut titles_differ = false;
     if relation == Relation::OtherTitle {
         let labels_say = match shared {

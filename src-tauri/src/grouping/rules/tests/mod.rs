@@ -3,6 +3,7 @@
 //! - `table`: one test per row of the decision table in the module docs.
 //! - `one_file`: a file's labels are those of its tag and its file name
 //!   together, and the two files' labels are compared.
+//! - `own_names`: a file's tag and file name set side by side.
 //! - `readings`: which reading of the titles (tags, file names) decides.
 //! - `measured`: numbers that can't be measurements are refused.
 //! - `boundaries`: each threshold (90%, score 4, the shared-audio floor),
@@ -19,6 +20,7 @@ mod boundaries;
 mod e3_rules;
 mod measured;
 mod one_file;
+mod own_names;
 mod readings;
 mod shape;
 mod table;

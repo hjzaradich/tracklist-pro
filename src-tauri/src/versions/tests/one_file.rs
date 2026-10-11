@@ -298,3 +298,40 @@ fn an_artist_tag_is_taken_as_written_with_no_junk_looked_for() {
         "Kestrel Nine"
     );
 }
+
+// ---- A label one name holds in its title and the other brackets -------
+
+#[test]
+fn every_label_of_the_other_name_is_added_even_one_this_name_holds_in_its_title() {
+    let tag = parse_title("Come Clean");
+    let file = parse_file_name("Come Clean (Clean).mp3");
+    // Taken as had, the two names of the file still differ by a cut…
+    let had = tag.with_labels_of(&file);
+    assert!(had.markers.is_empty());
+    assert_eq!(compare(&had, &file).outcome, Outcome::DifferentCut);
+    // …so the bracket is added all the same, and they say the same.
+    let merged = tag.with_every_label_of(&file);
+    assert_eq!(merged.base_title, "Come Clean");
+    assert_eq!(show_markers(&merged.markers), "clean");
+    assert_eq!(compare(&merged, &file).outcome, Outcome::SameVersion);
+    assert_eq!(
+        compare(&merged, &parse_title("Come Clean")).outcome,
+        Outcome::DifferentCut
+    );
+}
+
+#[test]
+fn every_label_of_the_other_name_adds_nothing_this_name_already_reads_as_a_label() {
+    for (title, file_name) in [
+        ("Velo (Clean)", "Velo [CLEAN].mp3"),
+        ("Velo (Quill Ashby Remix)", "Velo (Remix).mp3"),
+        ("Velo", "Halden Rook - Velo.mp3"),
+    ] {
+        let (tag, file) = (parse_title(title), parse_file_name(file_name));
+        assert_eq!(
+            tag.with_every_label_of(&file),
+            tag.with_labels_of(&file),
+            "{title} / {file_name}"
+        );
+    }
+}
