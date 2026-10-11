@@ -11,6 +11,7 @@ mod job;
 mod measuring;
 #[cfg(windows)]
 mod support;
+mod verdict;
 
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;

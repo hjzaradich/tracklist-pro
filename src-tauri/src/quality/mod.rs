@@ -11,8 +11,9 @@
 //! - the **decode errors**, counted by kind.
 //!
 //! These are measurements only. What they mean (`suspect transcode`,
-//! `truncated`, `broken`…) is decided later (1bB-6), from the rows in
-//! `file_quality`. Nothing here shows text to the user.
+//! `truncated`, `broken`…) is decided by [`verdict`] (1bB-6), a pure
+//! function over the rows in `file_quality`. Nothing here shows text to the
+//! user.
 //!
 //! Results follow the audio, not the modified time (§5.1): a row records
 //! the `audio_hash` it was measured from and the [`VERSION`] of the method,
@@ -47,6 +48,7 @@ pub mod cutoff;
 mod job;
 pub mod ledger;
 pub mod measure;
+pub mod verdict;
 
 pub use cutoff::Gap;
 pub use job::{quality_job, Qualifier};
