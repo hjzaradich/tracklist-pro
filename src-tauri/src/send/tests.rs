@@ -476,6 +476,61 @@ fn a_track_rekordbox_has_whose_file_is_missing_is_sent_and_listed_not_left_out()
     let _ = here;
 }
 
+// --- new tracks in a format rekordbox may not play ------------------------------
+
+#[test]
+fn new_tracks_in_a_format_rekordbox_may_not_play_are_listed_and_sent_as_before() {
+    let w = World::new();
+    let (mp3, _) = w.library_track("plain.mp3", "Plain", true);
+    let (ogg, ogg_file) = w.library_track("vorbis.ogg", "Vorbis", true);
+    let (untold, untold_file) = w.library_track("untold.bin", "Untold", true);
+    // What the scan sniffed: a format rekordbox isn't known to play, and
+    // one the app couldn't tell at all.
+    w.insert(
+        "UPDATE file SET sniffed_format = 'ogg' WHERE id = ?1",
+        (ogg_file,),
+    );
+    w.insert(
+        "UPDATE file SET sniffed_format = NULL WHERE id = ?1",
+        (untold_file,),
+    );
+    w.crate_of("Warm up", &[mp3, ogg, untold]);
+    w.save_export(&[]);
+
+    let preflight = w.prepare().unwrap();
+    let listed: Vec<_> = preflight.no_kind.iter().map(|t| t.library_track).collect();
+    assert_eq!(listed, [ogg, untold]);
+    // A line in the review, nothing more: all three are new, none is left
+    // out, and the go needs no confirm.
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (3, 0));
+    assert_eq!(preflight.left_out, []);
+    assert!(preflight.can_send && !preflight.needs_confirm);
+
+    assert_eq!(w.go(false), None);
+    assert_eq!(w.sent_titles(), ["Plain", "Vorbis", "Untold"]);
+    let sent = RekordboxXml::read_file(&w.send_file()).unwrap();
+    let kinds: Vec<_> = sent.tracks.iter().map(|t| t.attrs.get("Kind")).collect();
+    assert_eq!(kinds, [Some("MP3 File"), None, None]);
+}
+
+#[test]
+fn a_track_rekordbox_has_is_never_listed_for_its_format_whatever_its_entry_says() {
+    let w = World::new();
+    let (known, file) = w.library_track("known.mp3", "Known", true);
+    w.insert(
+        "UPDATE file SET sniffed_format = 'ogg' WHERE id = ?1",
+        (file,),
+    );
+    w.crate_of("Warm up", &[known]);
+    // rekordbox's entry has no Kind attribute (the export writes none here).
+    w.save_export(&[Rb(40, "known.mp3", "Known in rekordbox")]);
+
+    let preflight = w.prepare().unwrap();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 1));
+    // It's rekordbox's own entry: rekordbox already has the file.
+    assert_eq!(preflight.no_kind, []);
+}
+
 // --- sent with rekordbox's path, where no file is ------------------------------
 
 /// A path as a rekordbox `Location`.

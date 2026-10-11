@@ -31,6 +31,7 @@ function preflight(fields: Partial<Preflight> = {}): Preflight {
     fileMissing: [],
     noFileAtLocation: [],
     otherFile: [],
+    noKind: [],
     losesEntries: [],
     refusal: null,
     nothingToSend: false,
@@ -348,6 +349,17 @@ describe("the send checklist", () => {
     for (const count of [0, 1, 2]) {
       expect(screen.queryByText(tx("send:review.noFileAtLocation", { count }))).toBeNull();
     }
+  });
+
+  it("lists new tracks in a format rekordbox may not play, and asks for no confirm", async () => {
+    fakeBackend({ preflight: preflight({ noKind: [label(4, "Vorbis"), label(6, "Opus")] }) });
+    renderChecklist();
+    const review = step(tx("send:review.title"));
+    expect(await review.findByText(tx("send:review.noKind", { count: 2 }))).toBeInTheDocument();
+    expect(review.getByText("Vorbis")).toBeInTheDocument();
+    expect(review.getByText("Opus")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled();
   });
 
   it("lists tracks rekordbox already has as another file, and lets them go", async () => {

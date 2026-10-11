@@ -189,6 +189,14 @@
     "where": "Send checklist, step 2, warning above that list.",
     "approved": "{{count, number}} tracks in rekordbox with another file (sending adds a second entry for each)"
   },
+  "review.noKind_one": {
+    "purpose": "Warns that one new track is sent although its file is in a format rekordbox isn't known to play (Ogg, Opus, WMA and similar), or one the app couldn't tell. It's sent as before; rekordbox may refuse it on import or not play it.",
+    "where": "Send checklist, step 2, warning above the list of those tracks."
+  },
+  "review.noKind_other": {
+    "purpose": "The same warning for several tracks.",
+    "where": "Send checklist, step 2, warning above the list of those tracks."
+  },
   "review.libraryFile": {
     "purpose": "Labels the Library's file path for a track whose file differs.",
     "where": "Send checklist, step 2, under a track in the other-file list.",

@@ -91,6 +91,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         file_missing: Vec::new(),
         no_file_at_location: Vec::new(),
         other_file: Vec::new(),
+        no_kind: Vec::new(),
         loses_entries: Vec::new(),
         refusal: None,
         nothing_to_send: false,
@@ -154,6 +155,16 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
                     rekordbox_file,
                 });
             }
+            // A new track gets a `Kind` only for a format rekordbox plays
+            // (`send_values`); a track rekordbox has is its own entry.
+            preflight.no_kind = out
+                .sent
+                .iter()
+                .filter(|sent| {
+                    !sent.in_rekordbox && !sent.attributes.iter().any(|(name, _)| name == "Kind")
+                })
+                .map(|sent| label(sent.library_track))
+                .collect();
             preflight.loses_entries = loses_entries(&out, &crates);
             Some(out)
         }
