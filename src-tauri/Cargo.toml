@@ -12,6 +12,11 @@ publish = false
 name = "tracklist_pro_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# The preview seed's own tests (they seed a temp folder) run with the suite.
+[[example]]
+name = "preview_seed"
+test = true
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
