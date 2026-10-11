@@ -131,15 +131,7 @@ fn a_nominal_192_that_averages_191_is_not_flagged() {
 #[test]
 fn the_low_line_is_the_same_for_aac_and_the_other_lossy_codecs() {
     let stored = row();
-    for codec in [
-        Codec::Aac,
-        Codec::Vorbis,
-        Codec::Opus,
-        Codec::Wma,
-        Codec::Ac3,
-        Codec::Eac3,
-        Codec::Musepack,
-    ] {
+    for codec in [Codec::Aac, Codec::Vorbis, Codec::Opus, Codec::Wma] {
         assert_eq!(
             assess_row(codec, 189, &stored).verdict,
             Some(Verdict::LowBitrate),
@@ -240,6 +232,17 @@ fn codecs_with_nothing_to_judge_them_by_get_no_bitrate_finding() {
     ] {
         let a = assess_row(codec, 8, &stored);
         assert!(is_ok_without_notes(&a), "{codec:?}: {a:?}");
+    }
+}
+
+#[test]
+fn ac3_eac3_and_musepack_have_no_bitrate_level_and_no_transcode_check() {
+    let stored = with_cutoff(16_000);
+    for codec in [Codec::Ac3, Codec::Eac3, Codec::Musepack] {
+        for kbps in [8, 189, 190, 317, 320] {
+            let a = assess_row(codec, kbps, &stored);
+            assert!(is_ok_without_notes(&a), "{codec:?} {kbps}: {a:?}");
+        }
     }
 }
 
@@ -483,6 +486,25 @@ fn the_one_percent_allowance_binds_for_a_long_file() {
     assert_eq!(at.verdict, Some(Verdict::Ok));
     let over = assess_row(Codec::Flac, 900, &with_lengths(593_999, 600_000));
     assert_eq!(over.verdict, Some(Verdict::Truncated));
+}
+
+#[test]
+fn an_absurd_header_length_neither_overflows_nor_hides_a_shortfall() {
+    // A corrupt header claiming the largest length there is: 100 times the
+    // shortfall doesn't fit an i64.
+    let huge = assess_row(Codec::Flac, 900, &with_lengths(0, i64::MAX));
+    assert_eq!(huge.verdict, Some(Verdict::Truncated));
+    assert_eq!(
+        huge.findings,
+        [Finding::TruncatedShort {
+            decoded_ms: 0,
+            header_ms: u32::MAX
+        }]
+    );
+    // Decoded nearly all of it: short by a second, which is under both
+    // allowances.
+    let near = assess_row(Codec::Flac, 900, &with_lengths(i64::MAX - 1_000, i64::MAX));
+    assert_eq!(near.verdict, Some(Verdict::Ok));
 }
 
 #[test]

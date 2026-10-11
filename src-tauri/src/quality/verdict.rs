@@ -112,7 +112,8 @@ enum Class {
     Lossy(Lines),
     /// No bitrate level; the cutoff can show a lossy source.
     Lossless,
-    /// Nothing to judge it by (telephony codecs, speech, unknown ones).
+    /// Nothing to judge it by: telephony codecs, speech, and codecs no
+    /// lines were set for (AC-3, E-AC-3, Musepack, unknown ones).
     Unrated,
 }
 
@@ -124,13 +125,7 @@ fn class(codec: Codec) -> Class {
         full_from: FULL_QUALITY_KBPS,
     };
     match codec {
-        Codec::Mp3
-        | Codec::Vorbis
-        | Codec::Opus
-        | Codec::Wma
-        | Codec::Ac3
-        | Codec::Eac3
-        | Codec::Musepack => Class::Lossy(general),
+        Codec::Mp3 | Codec::Vorbis | Codec::Opus | Codec::Wma => Class::Lossy(general),
         Codec::Aac => Class::Lossy(Lines {
             full_from: FULL_QUALITY_AAC_KBPS,
             ..general
@@ -141,7 +136,12 @@ fn class(codec: Codec) -> Class {
         Codec::Pcm | Codec::PcmFloat | Codec::Flac | Codec::Alac | Codec::WavPack | Codec::Ape => {
             Class::Lossless
         }
-        Codec::AdpcmMs
+        // No lines were set for these (owner, via the foreman, 1bB-6): the
+        // app makes no bitrate claim about a codec nobody decided about.
+        Codec::Ac3
+        | Codec::Eac3
+        | Codec::Musepack
+        | Codec::AdpcmMs
         | Codec::AdpcmIma
         | Codec::Alaw
         | Codec::Mulaw
@@ -437,9 +437,12 @@ pub fn assess(facts: &Facts<'_>) -> Assessment {
 /// Whether `decoded_ms` is short of `header_ms` by more than both
 /// allowances.
 fn is_short(decoded_ms: i64, header_ms: i64) -> bool {
-    let short = header_ms - decoded_ms;
-    short > i64::from(SHORT_MORE_THAN_MS)
-        && short * 100 > header_ms * i64::from(SHORT_MORE_THAN_PERCENT)
+    // i128: a corrupt header can claim any length, and the products below
+    // would overflow an i64.
+    let (decoded, header) = (i128::from(decoded_ms), i128::from(header_ms));
+    let short = header - decoded;
+    short > i128::from(SHORT_MORE_THAN_MS)
+        && short * 100 > header * i128::from(SHORT_MORE_THAN_PERCENT)
 }
 
 fn to_u32(n: i64) -> u32 {
