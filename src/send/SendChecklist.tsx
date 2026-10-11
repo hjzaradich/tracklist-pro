@@ -347,6 +347,16 @@ function Review({
           </Rows>
         </>
       )}
+      {preflight.noKind.length > 0 && (
+        <>
+          <p className={styles.warning}>
+            {t("review.noKind", { count: preflight.noKind.length })}
+          </p>
+          <Rows rows={preflight.noKind}>
+            {(track) => <li key={track.libraryTrack}>{name(track)}</li>}
+          </Rows>
+        </>
+      )}
       {preflight.losesEntries.length > 0 && (
         <>
           <p className={styles.warning}>{t("review.losesEntries")}</p>

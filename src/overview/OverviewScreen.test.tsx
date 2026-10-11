@@ -212,13 +212,20 @@ describe("the Overview once the Library has tracks", () => {
   it("shows no offer when the count is zero", async () => {
     fakeBackend({ library: 3, toAdd: 0 });
     renderApp("/overview");
-    expect(
-      await screen.findByText(tx("overview:empty")),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: tx("send:open") })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: tx("rekordbox:title") })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("heading", { name: tx("rekordboxOffer:title") })).toBeNull());
     expect(screen.queryByText(tx("rekordboxOffer:count", { count: 0 }))).toBeNull();
     expect(screen.queryByRole("button", { name: tx("rekordboxOffer:add") })).toBeNull();
+  });
+});
+
+describe("the Overview's own summary", () => {
+  it("isn't promised before it exists: no line about the Library at a glance", async () => {
+    fakeBackend({ library: 3, toAdd: 0 });
+    renderApp("/overview");
+    await screen.findByRole("button", { name: tx("send:open") });
+    expect(screen.queryByText(tx("overview:empty"))).toBeNull();
   });
 });
 

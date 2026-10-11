@@ -202,6 +202,13 @@ pub struct Preflight {
     /// that comes back before the go changes nothing about the go.
     pub no_file_at_location: Vec<TrackLabel>,
     pub other_file: Vec<OtherFile>,
+    /// New tracks sent without a `Kind`: their file is in a format
+    /// rekordbox isn't known to play (Ogg, Opus, WMA and the like), or in
+    /// one the app couldn't tell. They're sent all the same, exactly as
+    /// before; rekordbox may refuse them on import or fail to play them.
+    /// Read off the send itself, so it never changes whether a send may be
+    /// written.
+    pub no_kind: Vec<TrackLabel>,
     /// Not empty: the send needs an explicit confirm
     /// ([`Preflight::needs_confirm`] says when it's needed).
     pub loses_entries: Vec<LosesEntries>,

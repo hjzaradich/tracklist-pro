@@ -568,6 +568,94 @@ fn progress_only_rises_and_ends_at_one() {
     assert_eq!(progress.last(), Some(&1.0));
 }
 
+/// The progress figures a fingerprint job over every due file reports,
+/// in order. The job is held at its first file until a figure short of
+/// done has been heard, so there is one whatever the machine's speed.
+fn progress_of_a_whole_library_pass(library: &Library) -> Vec<f64> {
+    let heard = Heard::default();
+    let seen = heard.clone();
+    let taken = Arc::new(AtomicUsize::new(0));
+    let fingerprinter = library.fingerprinter().on_file(move |_| {
+        if taken.fetch_add(1, Ordering::SeqCst) == 0 {
+            seen.until(
+                |heard| {
+                    heard.iter().any(|u| {
+                        u.kind == JobKind::Fingerprint && u.progress.is_some_and(|p| p < 1.0)
+                    })
+                },
+                "a progress update short of done",
+            );
+        }
+    });
+    let queue = library.queue_with_updates(fingerprinter, heard.sink());
+    let job = queue.enqueue(fingerprint_job(None)).unwrap();
+    wait(&library.writer, job);
+    let updates = heard.until_done(job);
+    queue.shutdown();
+    updates.iter().filter_map(|u| u.progress).collect()
+}
+
+#[test]
+fn a_second_pass_carries_on_from_the_files_already_done_instead_of_starting_at_zero() {
+    let library = Library::new();
+    for n in 0..4 {
+        library.put(&format!("{n}.flac"), &song(70 + n, 3.0));
+    }
+    library.walk();
+    let first = progress_of_a_whole_library_pass(&library);
+    // Nothing was done before the first pass: it starts at nothing.
+    assert!(first.iter().any(|p| *p < 0.75), "{first:?}");
+    assert_eq!(first.last(), Some(&1.0));
+
+    // One more file turns up after the first pass listed its files.
+    library.put("late.flac", &song(79, 3.0));
+    library.walk();
+    let second = progress_of_a_whole_library_pass(&library);
+    // Four of the five files were done already: the figure never shows
+    // less than that, and ends at done.
+    assert!(second.iter().any(|p| *p < 1.0), "{second:?}");
+    assert!(second.iter().all(|p| *p >= 0.8), "{second:?}");
+    assert!(second.windows(2).all(|w| w[1] >= w[0]), "{second:?}");
+    assert_eq!(second.last(), Some(&1.0));
+}
+
+#[test]
+fn a_job_for_named_files_reports_on_those_files_alone() {
+    let library = Library::new();
+    for n in 0..4 {
+        library.put(&format!("{n}.flac"), &song(80 + n, 3.0));
+    }
+    library.walk();
+    assert_eq!(fingerprint_all(&library), JobStatus::Done);
+    library.put("late.flac", &song(89, 3.0));
+    let late = library.walk()["late.flac"];
+
+    let heard = Heard::default();
+    let seen = heard.clone();
+    let fingerprinter = library.fingerprinter().on_file(move |_| {
+        seen.until(
+            |heard| {
+                heard
+                    .iter()
+                    .any(|u| u.kind == JobKind::Fingerprint && u.progress.is_some_and(|p| p < 1.0))
+            },
+            "a progress update short of done",
+        );
+    });
+    let queue = library.queue_with_updates(fingerprinter, heard.sink());
+    let job = queue.enqueue(fingerprint_job(Some(vec![late]))).unwrap();
+    wait(&library.writer, job);
+    let progress: Vec<f64> = heard
+        .until_done(job)
+        .iter()
+        .filter_map(|u| u.progress)
+        .collect();
+    queue.shutdown();
+    // Its one file is all it speaks for: it starts at nothing.
+    assert_eq!(progress.first(), Some(&0.0), "{progress:?}");
+    assert_eq!(progress.last(), Some(&1.0));
+}
+
 #[test]
 fn several_threads_share_the_work_and_never_do_a_file_twice() {
     let library = Library::new();

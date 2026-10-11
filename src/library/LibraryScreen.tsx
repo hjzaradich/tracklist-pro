@@ -133,25 +133,30 @@ export function LibraryScreen() {
             <EmptyState>{t("empty")}</EmptyState>
           </div>
         ) : (
-          <div className={styles.scroll}>
-            <LibraryTrackList
-              tracks={tracks.data}
-              actions={(track) => (
-                <>
-                  <AddToCrate track={track} crates={crates.data ?? []} onChoose={add} />
-                  <RemoveButton
-                    track={track}
-                    onRemove={(chosen) => {
-                      setRemoval(null);
-                      setAdded(null);
-                      undo.reset();
-                      setPending(chosen);
-                    }}
-                  />
-                </>
-              )}
-            />
-          </div>
+          <>
+            {/* How many tracks the Library holds: the list itself is too
+                long to count. */}
+            <p className={styles.notes}>{t("trackCount", { count: tracks.data.length })}</p>
+            <div className={styles.scroll}>
+              <LibraryTrackList
+                tracks={tracks.data}
+                actions={(track) => (
+                  <>
+                    <AddToCrate track={track} crates={crates.data ?? []} onChoose={add} />
+                    <RemoveButton
+                      track={track}
+                      onRemove={(chosen) => {
+                        setRemoval(null);
+                        setAdded(null);
+                        undo.reset();
+                        setPending(chosen);
+                      }}
+                    />
+                  </>
+                )}
+              />
+            </div>
+          </>
         )}
       </div>
     </StageScreen>

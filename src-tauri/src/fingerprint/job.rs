@@ -329,6 +329,10 @@ struct Run<'a, V> {
     /// the raised ones it took).
     finished: AtomicUsize,
     total: AtomicUsize,
+    /// Present files that needed nothing when the job started (already
+    /// fingerprinted, or found impossible to): counted as done in the
+    /// figure a whole-library job reports. 0 for a job over named files.
+    settled: usize,
     /// How far each thread is through its current file, as f64 bits. One
     /// slot per thread the budget allows, so a thread that joins mid-run
     /// has its own.
@@ -358,9 +362,28 @@ impl<V: Volumes + Sync + 'static> JobHandler for Fingerprinter<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let only = wanted(job.target())
             .ok_or_else(|| JobError::failed("a fingerprint job's target names no files"))?;
-        let own = job
-            .writer()
-            .call(move |c| ledger::due_ids(c, only.as_deref()))?;
+        // A job over every due file reports how far the whole library is,
+        // not how far its own list is: the files settled before it started
+        // count as done. So a second pass, for files that became ready
+        // after the first listed its files, carries on from where the
+        // first left the figure instead of starting again at 0%. A job for
+        // named files (the tracks on screen) reports on those alone.
+        let whole_library = only.is_none();
+        let (own, settled) = job.writer().call(move |c| {
+            let own = ledger::due_ids(c, only.as_deref())?;
+            let settled = if whole_library {
+                let present: i64 =
+                    c.query_row("SELECT count(*) FROM file WHERE present = 1", [], |r| {
+                        r.get(0)
+                    })?;
+                usize::try_from(present)
+                    .unwrap_or(0)
+                    .saturating_sub(own.len())
+            } else {
+                0
+            };
+            Ok((own, settled))
+        })?;
         let folders = job
             .writer()
             .call(|c| folders::stored(c))?
@@ -372,7 +395,7 @@ impl<V: Volumes + Sync + 'static> JobHandler for Fingerprinter<V> {
         let Some(threads) = self.first.threads(own.len(), self.threads, job) else {
             return Err(JobError::Cancelled);
         };
-        let result = self.run_on(job, own, folders, gate, threads.n);
+        let result = self.run_on(job, own, settled, folders, gate, threads.n);
         drop(threads);
         if result.is_err() {
             // Raised files this job didn't get to, and no other job will: a
@@ -392,6 +415,7 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
         &self,
         job: &JobContext,
         own: Vec<i64>,
+        settled: usize,
         folders: HashMap<MusicFolderId, StoredFolder>,
         gate: ReadGate,
         threads: usize,
@@ -401,6 +425,7 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
             gate,
             volumes: (self.volumes)(),
             folders,
+            settled,
             total: AtomicUsize::new(own.len()),
             listed: own.iter().copied().collect(),
             taken: Mutex::default(),
@@ -417,7 +442,7 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
             first: &self.first,
             n: AtomicUsize::new(0),
         };
-        job.progress(0.0)?;
+        run.report()?;
         thread::scope(|s| {
             for n in 0..threads {
                 self.spawn_worker(s, &run, &grown, n);
@@ -646,17 +671,20 @@ impl<V: Volumes> Run<'_, V> {
         folder.stored_path().join(&rel).resolve(&self.volumes).ok()
     }
 
-    /// Reports progress: finished files plus each thread's share of its
-    /// current one, over all the files.
+    /// Reports progress: the files settled before the job started, the
+    /// files it has finished and each thread's share of its current one,
+    /// over all of them.
     fn report(&self) -> Result<(), JobError> {
         let partial: f64 = self
             .partial
             .iter()
             .map(|p| f64::from_bits(p.load(Ordering::SeqCst)))
             .sum();
+        let settled = self.settled as f64;
         let finished = self.finished.load(Ordering::SeqCst) as f64;
-        let total = self.total.load(Ordering::SeqCst).max(1) as f64;
-        self.job.progress(((finished + partial) / total).min(1.0))
+        let total = (self.settled + self.total.load(Ordering::SeqCst)).max(1) as f64;
+        self.job
+            .progress(((settled + finished + partial) / total).min(1.0))
     }
 }
 

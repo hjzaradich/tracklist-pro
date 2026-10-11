@@ -42,6 +42,8 @@
     "noFileAtLocation_other": "{{count, number}} tracks sent with rekordbox's old file paths (rekordbox will still show File is missing)",
     "otherFile_one": "{{count, number}} track in rekordbox with another file (sending adds a second entry)",
     "otherFile_other": "{{count, number}} tracks in rekordbox with another file (sending adds a second entry for each)",
+    "noKind_one": "{{count, number}} new track sent in a format rekordbox may not play",
+    "noKind_other": "{{count, number}} new tracks sent in formats rekordbox may not play",
     "libraryFile": "Library file ({{path}})",
     "rekordboxFile": "rekordbox file ({{path}})",
     "losesEntries": "Crates sent with tracks left out (rekordbox's playlist of the same name will lose them)",
