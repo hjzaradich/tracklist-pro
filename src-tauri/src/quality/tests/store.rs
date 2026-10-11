@@ -694,7 +694,7 @@ fn a_change_to_the_rules_comes_with_a_new_rules_version() {
     use sha2::{Digest, Sha256};
 
     const PINNED_VERSION: u8 = 1;
-    const PINNED_DIGEST: &str = "b65340d386ee0fb3abfe76e68185984d197751970ff7a403ae679939d8415498";
+    const PINNED_DIGEST: &str = "9f3eed338bd649bc64ee00b0599d6b242d6b93993b0f59adc3e82885a53e552a";
 
     let hash = vec![7u8; 34];
     let measured =
@@ -795,6 +795,17 @@ fn a_change_to_the_rules_comes_with_a_new_rules_version() {
         (0, Some(1_000)),
         (1_000, Some(0)),
         (240_000, None),
+        // The 2 s allowance decides (1% of 100 s is only 1 s): short by
+        // exactly 2 s, 1 ms more, and 2.5 s.
+        (98_000, Some(100_000)),
+        (97_999, Some(100_000)),
+        (97_500, Some(100_000)),
+        // The 1% allowance decides (1% of 1000 s is 10 s, well over 2 s):
+        // 1 ms under it, exactly at it, 1 ms over, and 1.5%.
+        (990_001, Some(1_000_000)),
+        (990_000, Some(1_000_000)),
+        (989_999, Some(1_000_000)),
+        (985_000, Some(1_000_000)),
     ] {
         for errors in [0, 1, 9] {
             for ended in ["complete", "cut_short", "gave_up"] {
