@@ -60,14 +60,15 @@
 //! they chain onward too.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
 use rusqlite::Connection;
 
-use super::folders::MusicFolderId;
+use super::folders::{MusicFolderId, StoredFolder};
 use super::ReadGate;
 use crate::db::{DbError, Writer};
 use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, NewJob, Priority};
+use crate::paths::Volumes;
 use crate::scan_state::{Scope, Stage};
 
 /// The key in a stage job's target that marks a watcher's rescan (as
@@ -83,6 +84,7 @@ pub fn after_walk<H: JobHandler>(walker: H) -> Chained<H> {
         inner: walker,
         next: Next::Read,
         priority: Priority::BACKGROUND,
+        reach: None,
     }
 }
 
@@ -92,6 +94,7 @@ pub fn after_read<H: JobHandler>(reader: H) -> Chained<H> {
         inner: reader,
         next: Next::Hash,
         priority: Priority::BACKGROUND,
+        reach: None,
     }
 }
 
@@ -101,6 +104,7 @@ pub fn after_hash<H: JobHandler>(hasher: H) -> Chained<H> {
         inner: hasher,
         next: Next::Fingerprint,
         priority: Priority::BACKGROUND,
+        reach: None,
     }
 }
 
@@ -111,6 +115,7 @@ pub fn after_group<H: JobHandler>(grouper: H) -> Chained<H> {
         inner: grouper,
         next: Next::Nothing,
         priority: Priority::BACKGROUND,
+        reach: None,
     }
 }
 
@@ -121,6 +126,7 @@ pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
         inner: qualifier,
         next: Next::Nothing,
         priority: Priority::BACKGROUND,
+        reach: None,
     }
 }
 
@@ -132,6 +138,7 @@ pub fn after_matching<H: JobHandler>(matcher: H) -> Chained<H> {
         inner: matcher,
         next: Next::Nothing,
         priority: crate::matching::PRIORITY,
+        reach: None,
     }
 }
 
@@ -142,6 +149,7 @@ pub fn after_fingerprint<H: JobHandler>(fingerprinter: H) -> Chained<H> {
         inner: fingerprinter,
         next: Next::Relink,
         priority: Priority::BACKGROUND,
+        reach: None,
     }
 }
 
@@ -152,6 +160,42 @@ pub struct Chained<H> {
     next: Next,
     /// The priority it's queued again at.
     priority: Priority,
+    /// Which music folders can be reached now, for the stages that are only
+    /// worth queuing for files they can reach ([`Chained::reaching`]). `None`:
+    /// every folder counts as reachable.
+    reach: Option<Reach>,
+}
+
+/// Says which of the stored music folders can be reached now: those whose
+/// volume is mounted.
+pub(crate) type Reach = Arc<dyn Fn(&[StoredFolder]) -> Vec<i64> + Send + Sync>;
+
+/// A [`Reach`] that looks at `volumes` afresh each time it's asked.
+pub(crate) fn reach_by<V: Volumes + 'static>(
+    volumes: impl Fn() -> V + Send + Sync + 'static,
+) -> Reach {
+    Arc::new(move |folders| {
+        let volumes = volumes();
+        folders
+            .iter()
+            .filter(|f| f.is_reachable(&volumes))
+            .map(|f| f.id.0)
+            .collect()
+    })
+}
+
+impl<H> Chained<H> {
+    /// Judges which music folders can be reached by `volumes`, so a stage
+    /// that follows isn't queued for files on a drive that's unplugged (they
+    /// count again once it's back). Without it every folder counts as
+    /// reachable.
+    pub fn reaching<V: Volumes + 'static>(
+        mut self,
+        volumes: impl Fn() -> V + Send + Sync + 'static,
+    ) -> Self {
+        self.reach = Some(reach_by(volumes));
+        self
+    }
 }
 
 /// What follows a finished stage.
@@ -191,7 +235,8 @@ impl<H: JobHandler> JobHandler for Chained<H> {
         }
         // The stage's own work is done and written. If what follows can't
         // be queued, the job still says why.
-        let followed = queue_next(job, self.next).and_then(|()| rerun_if_asked(job, me));
+        let followed =
+            queue_next(job, self.next, self.reach.as_ref()).and_then(|()| rerun_if_asked(job, me));
         followed.map_err(|e| match e {
             JobError::Cancelled => JobError::Cancelled,
             JobError::Failed(e) => JobError::failed(format!(
@@ -203,7 +248,7 @@ impl<H: JobHandler> JobHandler for Chained<H> {
 }
 
 /// Queues what follows `job`, a finished stage.
-fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
+fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(), JobError> {
     let ids = folders_in(job.target());
     let rescan = is_rescan(job.target());
     let scope = match &ids {
@@ -246,12 +291,12 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
                 // older version of it. So ask (one cheap query each).
                 //
                 // Matching's answer is exact, so it's asked every time.
-                // Quality's stays yes while a file can't be reached (an
-                // unplugged drive, a locked file), so a watcher's rescan
-                // doesn't ask, or every burst of changes would queue a job
-                // with nothing it can do.
+                // Quality's leaves out files on an unplugged drive (they're due
+                // again when it's back) but stays yes while a file is locked,
+                // so a watcher's rescan doesn't ask, or every burst of changes
+                // would queue a job with nothing it can do.
                 if !rescan {
-                    crate::quality::request(writer, enqueue)?;
+                    crate::quality::request(writer, reach, enqueue)?;
                 }
                 crate::matching::request(writer, enqueue)?;
             }
@@ -265,7 +310,7 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
                 queue_once(writer, target(crate::hash::hash_job(ids)), enqueue)?;
             } else {
                 // Nothing to hash: straight on to the fingerprints.
-                queue_next(job, Next::Fingerprint)?;
+                queue_next(job, Next::Fingerprint, reach)?;
             }
         }
         Next::Fingerprint => {
@@ -282,7 +327,7 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
             } else {
                 // No fingerprints to wait for: measure quality now, and
                 // compare fingerprints (1bA-14).
-                crate::quality::request(writer, enqueue)?;
+                crate::quality::request(writer, reach, enqueue)?;
                 crate::matching::request(writer, enqueue)?;
             }
         }
@@ -293,7 +338,7 @@ fn queue_next(job: &JobContext, next: Next) -> Result<(), JobError> {
             // …and each file's quality can be measured (1bA-10), and the
             // fingerprints compared (1bA-14), in that order, after anything
             // the user sees.
-            crate::quality::request(writer, enqueue)?;
+            crate::quality::request(writer, reach, enqueue)?;
             crate::matching::request(writer, enqueue)?;
         }
         Next::Nothing => {}

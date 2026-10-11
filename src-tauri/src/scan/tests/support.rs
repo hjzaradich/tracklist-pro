@@ -2,6 +2,9 @@
 //! Test helpers: a migrated database in a temp dir, and a made-up volume
 //! mounted at a temp dir, so tests never need a real drive.
 
+// `TempVolume` and `link_dir` are used only by the Windows-only test modules.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

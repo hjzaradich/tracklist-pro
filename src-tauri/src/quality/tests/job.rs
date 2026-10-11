@@ -10,11 +10,35 @@ use std::time::{Duration, SystemTime};
 use super::support::{wait, Library};
 use super::{audio, low_passed, noise, pcm, wav};
 use crate::hash::hash_job;
-use crate::jobs::{JobKind, JobStatus, Priority};
+use crate::jobs::{JobId, JobKind, JobStatus, Priority};
 use crate::quality::{quality_job, request, VERSION};
 use crate::scan::walk::scan_job;
 
 const RATE: u32 = 44_100;
+
+/// Waits until a hook reports it is at its packet. If the job has ended
+/// instead (it took no file), fails saying so, rather than waiting for
+/// ever for a packet that will never come.
+fn wait_for_packet(library: &Library, job: JobId, packet: &mpsc::Receiver<()>) {
+    loop {
+        match packet.recv_timeout(Duration::from_millis(20)) {
+            Ok(()) => return,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let status = library
+                    .writer
+                    .call(move |c| crate::jobs::store::get(c, job))
+                    .unwrap()
+                    .unwrap()
+                    .status;
+                assert!(
+                    !status.is_finished(),
+                    "the job ended ({status:?}) without reaching the packet"
+                );
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the hook went away"),
+        }
+    }
+}
 
 /// A mono WAV of noise low-passed at `hz`, `seconds` long.
 fn lowpassed_wav(seed: u64, seconds: f64, hz: f64) -> Vec<u8> {
@@ -259,7 +283,7 @@ fn a_cancelled_job_leaves_no_partial_row() {
         }
     }));
     let job = queue.enqueue(quality_job(None)).unwrap();
-    packet.recv().unwrap();
+    wait_for_packet(&library, job, &packet);
     queue.cancel(job).unwrap();
     go.send(()).unwrap();
     assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
@@ -302,7 +326,7 @@ fn a_cancel_keeps_the_files_already_measured_and_the_rest_stay_due() {
             }),
     );
     let job = queue.enqueue(quality_job(None)).unwrap();
-    packet.recv().unwrap();
+    wait_for_packet(&library, job, &packet);
     queue.cancel(job).unwrap();
     go.send(()).unwrap();
     assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
@@ -386,16 +410,12 @@ fn a_file_that_cannot_be_decoded_gets_a_failure_row_and_is_not_tried_again() {
 }
 
 #[test]
-fn a_file_on_an_unplugged_drive_gets_no_row_and_is_measured_when_it_is_back() {
+fn a_file_on_an_unplugged_drive_is_not_due_and_is_measured_when_it_is_back() {
     let library = Library::new();
     library.put("a.wav", &full_band_wav(20, 12.0));
     let ids = library.walk_and_hash();
     library.volume.set_online(false);
-    assert_eq!(
-        measure_all(&library),
-        1,
-        "it was taken, and found unreachable"
-    );
+    assert_eq!(measure_all(&library), 0, "not taken: nothing can be done");
     assert_eq!(library.measured_files(), 0);
     library.volume.set_online(true);
     assert_eq!(measure_all(&library), 1);
@@ -449,6 +469,10 @@ fn a_job_waits_for_a_free_thread_of_the_shared_budget_and_stops_if_cancelled_whi
             .unwrap()
             .unwrap()
             .status;
+        assert!(
+            !status.is_finished(),
+            "the job ended ({status:?}) instead of waiting for a thread"
+        );
         if status == JobStatus::Running {
             break;
         }
@@ -503,7 +527,7 @@ fn a_job_is_queued_only_when_a_file_is_due_one() {
     let queued = Arc::new(AtomicUsize::new(0));
     let ask = |library: &Library| {
         let (q, count) = (&queue, queued.clone());
-        request(&library.writer, |job| {
+        request(&library.writer, None, |job| {
             count.fetch_add(1, Ordering::SeqCst);
             q.enqueue(job)
         })
@@ -521,11 +545,101 @@ fn a_job_is_queued_only_when_a_file_is_due_one() {
     // Hashed: due. (The queue is shut down, so the job just waits.)
     let queue = library.queue(library.qualifier());
     let queued2 = queued.clone();
-    request(&library.writer, |job| {
+    request(&library.writer, None, |job| {
         queued2.fetch_add(1, Ordering::SeqCst);
         queue.enqueue(job)
     })
     .unwrap();
     assert_eq!(queued.load(Ordering::SeqCst), 1);
     queue.shutdown();
+}
+
+/// How many quality jobs a request made the way the chain makes it queues,
+/// judging which folders can be reached by the library's volume.
+fn jobs_queued_by_a_request(library: &Library) -> usize {
+    let queue = library.queue(library.qualifier());
+    let queued = Arc::new(AtomicUsize::new(0));
+    let count = queued.clone();
+    let volume = library.volume.clone();
+    let reach = crate::scan::chain::reach_by(move || volume.clone());
+    request(&library.writer, Some(&reach), |job| {
+        count.fetch_add(1, Ordering::SeqCst);
+        queue.enqueue(job)
+    })
+    .unwrap();
+    queue.shutdown();
+    queued.load(Ordering::SeqCst)
+}
+
+#[test]
+fn no_job_is_queued_while_the_only_due_files_are_on_an_unplugged_drive() {
+    let library = Library::new();
+    library.put("a.wav", &full_band_wav(28, 12.0));
+    library.walk_and_hash();
+    library.volume.set_online(false);
+    assert_eq!(jobs_queued_by_a_request(&library), 0);
+}
+
+#[test]
+fn files_on_a_drive_that_is_plugged_back_in_are_due_again() {
+    let library = Library::new();
+    library.put("a.wav", &full_band_wav(29, 12.0));
+    library.walk_and_hash();
+    library.volume.set_online(false);
+    assert_eq!(jobs_queued_by_a_request(&library), 0);
+    library.volume.set_online(true);
+    assert_eq!(jobs_queued_by_a_request(&library), 1);
+}
+
+#[test]
+fn due_files_are_listed_only_from_the_folders_that_can_be_reached() {
+    use crate::quality::ledger;
+    use crate::scan::folders::add;
+    use crate::scan::MusicFolderRole;
+
+    let library = Library::new();
+    library.put("a.wav", &full_band_wav(30, 12.0));
+    // A second music folder, on the same volume.
+    let other = library.music.parent().unwrap().join("other");
+    fs::create_dir_all(&other).unwrap();
+    fs::write(other.join("b.wav"), full_band_wav(31, 12.0)).unwrap();
+    add(
+        &library.writer,
+        &library.volume,
+        &other,
+        MusicFolderRole::Scan,
+    )
+    .unwrap();
+    let ids = library.walk_and_hash();
+    let (a, b) = (ids["a.wav"], ids["b.wav"]);
+    let folder_of = |file: i64| -> i64 {
+        library
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT music_folder_id FROM file WHERE id = ?1",
+                    [file],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    let (in_a, in_b) = (folder_of(a), folder_of(b));
+    assert_ne!(in_a, in_b);
+
+    let due_in = |reachable: Vec<i64>| -> (Vec<i64>, bool) {
+        library
+            .writer
+            .call(move |c| {
+                Ok((
+                    ledger::due_ids(c, None, Some(&reachable))?,
+                    ledger::any_due(c, true, Some(&reachable))?,
+                ))
+            })
+            .unwrap()
+    };
+    assert_eq!(due_in(vec![in_a]), (vec![a], true));
+    assert_eq!(due_in(vec![in_b]), (vec![b], true));
+    assert_eq!(due_in(vec![in_a, in_b]), (vec![a, b], true));
+    assert_eq!(due_in(vec![]), (vec![], false));
 }

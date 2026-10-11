@@ -50,9 +50,12 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         // queues the read of its folders, a finished read their hashes,
         // and finished hashes the fingerprints; a stage asked for again
         // while it ran runs once more.
+        // The stages that ask whether quality is owed anything judge it by
+        // the drives mounted now (`reaching`).
         .handler(
             JobKind::Scan,
-            crate::scan::chain::after_walk(crate::scan::walker(app)),
+            crate::scan::chain::after_walk(crate::scan::walker(app))
+                .reaching(crate::scan::system_volumes),
         )
         .handler(
             JobKind::ReadRekordbox,
@@ -60,17 +63,20 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         )
         .handler(
             JobKind::Hash,
-            crate::scan::chain::after_hash(crate::hash::hasher()),
+            crate::scan::chain::after_hash(crate::hash::hasher())
+                .reaching(crate::scan::system_volumes),
         )
         .handler(
             JobKind::Read,
             crate::scan::chain::after_read(crate::read::reader(crate::fingerprint::shared_first(
                 app,
-            ))),
+            )))
+            .reaching(crate::scan::system_volumes),
         )
         .handler(
             JobKind::Fingerprint,
-            crate::scan::chain::after_fingerprint(crate::fingerprint::fingerprinter(app)),
+            crate::scan::chain::after_fingerprint(crate::fingerprint::fingerprinter(app))
+                .reaching(crate::scan::system_volumes),
         )
         .handler(JobKind::Relink, crate::relink::relinker())
         .handler(JobKind::Export, crate::send::sender(app))

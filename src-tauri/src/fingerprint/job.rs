@@ -181,7 +181,7 @@ impl FirstUp {
     }
 
     /// Threads taken from the budget by every job on this line.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn busy(&self) -> usize {
         self.line().busy
     }
@@ -299,14 +299,14 @@ impl<V: Volumes + Sync + 'static> Fingerprinter<V> {
     }
 
     /// Calls `hook` with each file id as a thread takes it.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_file(mut self, hook: impl Fn(i64) + Send + Sync + 'static) -> Self {
         self.on_file = Some(Box::new(hook));
         self
     }
 
     /// Calls `hook` before each packet, with the packets read so far.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_packet(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
         self.on_packet = Some(Box::new(hook));
         self

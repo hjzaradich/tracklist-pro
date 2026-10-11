@@ -11,7 +11,9 @@
 //! library remembers about each volume. It's read once at startup and kept
 //! here, and read again after anything changes a `volume` row.
 
-use std::sync::{OnceLock, PoisonError, RwLock};
+#[cfg(windows)]
+use std::sync::OnceLock;
+use std::sync::{PoisonError, RwLock};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,7 @@ use crate::volume::{Remembered, Volume, VolumeId};
 static REMEMBERED: RwLock<Option<Vec<Remembered>>> = RwLock::new(None);
 
 /// Where to read it again if the first read failed.
+#[cfg(windows)]
 static DATABASE: OnceLock<Writer> = OnceLock::new();
 
 /// Drives came or went: the music folders' `online` may have changed.
@@ -63,6 +66,7 @@ pub(crate) fn remember(conn: &Connection) -> rusqlite::Result<()> {
 /// What the library remembered at the last [`remember`]. If it has never
 /// been read (the startup read failed), it's read now; until a read
 /// succeeds, clones are told apart without it.
+#[cfg(windows)]
 pub(crate) fn remembered_now() -> Vec<Remembered> {
     let known = || {
         REMEMBERED

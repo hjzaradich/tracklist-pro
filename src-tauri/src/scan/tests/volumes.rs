@@ -2,15 +2,18 @@
 //! 1aB-9: after drives come or go, the `volume` rows note where each known
 //! volume is now, and what the library remembers feeds the clone rule.
 
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(windows)]
+use std::{fs, io, path::Path};
 
 use super::support::{db, serial};
 use crate::db::Writer;
+#[cfg(windows)]
 use crate::paths::Volumes;
+#[cfg(windows)]
 use crate::scan::folders::{add, stored};
 use crate::scan::volumes::{note_mounted, remembered};
+#[cfg(windows)]
 use crate::scan::MusicFolderRole;
 use crate::volume::{Remembered, Volume, VolumeId, VolumeKind};
 
@@ -151,12 +154,14 @@ fn the_library_remembers_each_volumes_identity_guid_and_label() {
 }
 
 /// One drive at a temp folder, reporting a GUID.
+#[cfg(windows)]
 struct Drive {
     mount: PathBuf,
     id: VolumeId,
     guid: String,
 }
 
+#[cfg(windows)]
 impl Volumes for Drive {
     fn real_path(&self, path: &Path) -> io::Result<PathBuf> {
         fs::canonicalize(path)
@@ -180,6 +185,7 @@ impl Volumes for Drive {
     }
 }
 
+#[cfg(windows)]
 fn drive(dir: &tempfile::TempDir, guid: &str) -> Drive {
     Drive {
         mount: fs::canonicalize(dir.path()).unwrap(),

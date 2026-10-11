@@ -577,6 +577,8 @@ fn world_with_a_known_track_at_location(location: &str) -> (World, LibraryTrackI
     (w, known)
 }
 
+// Only the Windows-only tests below use it.
+#[cfg(windows)]
 fn listed_without_a_file(preflight: &Preflight) -> Vec<LibraryTrackId> {
     preflight
         .no_file_at_location

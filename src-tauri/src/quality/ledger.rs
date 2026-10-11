@@ -13,6 +13,13 @@
 //! walk or a hash changed it meanwhile, nothing is written and the file
 //! stays due. A file that couldn't be reached gets no row at all, so it's
 //! tried again next time.
+//!
+//! **Due means checkable now.** A file in a music folder whose volume isn't
+//! mounted (an unplugged drive) isn't due: nothing could be done with it,
+//! and counting it would queue a job with nothing to do after every scan.
+//! Which folders can be reached comes from the caller, who has the volumes
+//! (`reachable`: folder ids; `None` means every folder). The files are due
+//! again the next time a scan or a job looks with their drive back.
 
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -58,25 +65,32 @@ fn sql(template: &str) -> String {
         .replace("?VERSION", &i64::from(VERSION).to_string())
 }
 
+/// `ids` as the JSON array the queries read with `json_each`.
+fn ids_json(ids: &[i64]) -> String {
+    serde_json::to_string(ids).unwrap_or_else(|_| "[]".into())
+}
+
 /// The files due, lowest id first, one page after `after`; among `only`
-/// if given.
+/// if given, and in the `reachable` music folders if given.
 fn page(
     conn: &Connection,
     only: Option<&[i64]>,
+    reachable: Option<&[i64]>,
     after: i64,
     limit: usize,
 ) -> rusqlite::Result<Vec<Due>> {
-    let only = only.map(|ids| serde_json::to_string(ids).unwrap_or_else(|_| "[]".into()));
+    let (only, reachable) = (only.map(ids_json), reachable.map(ids_json));
     let mut stmt = conn.prepare_cached(&sql(&format!(
         "SELECT f.id, f.music_folder_id, f.rel_path, f.size, f.mtime, f.online_only, f.audio_hash
          FROM file f
          WHERE f.present = 1 AND f.id > ?1
            AND (?2 IS NULL OR f.id IN (SELECT value FROM json_each(?2)))
+           AND (?4 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?4)))
            AND {HASH_CURRENT}
            AND {NOT_MEASURED}
          ORDER BY f.id LIMIT ?3"
     )))?;
-    let rows = stmt.query_map(params![after, only, limit as i64], |r| {
+    let rows = stmt.query_map(params![after, only, limit as i64, reachable], |r| {
         Ok(Due {
             id: r.get(0)?,
             folder: MusicFolderId(r.get(1)?),
@@ -91,12 +105,16 @@ fn page(
 }
 
 /// The ids of every file that's due, or of those among `only`, lowest
-/// first.
-pub(crate) fn due_ids(conn: &Connection, only: Option<&[i64]>) -> rusqlite::Result<Vec<i64>> {
+/// first; only files in the `reachable` music folders if given.
+pub(crate) fn due_ids(
+    conn: &Connection,
+    only: Option<&[i64]>,
+    reachable: Option<&[i64]>,
+) -> rusqlite::Result<Vec<i64>> {
     let mut ids = Vec::new();
     let mut after = 0;
     loop {
-        let files = page(conn, only, after, PAGE)?;
+        let files = page(conn, only, reachable, after, PAGE)?;
         let Some(last) = files.last() else {
             return Ok(ids);
         };
@@ -108,19 +126,26 @@ pub(crate) fn due_ids(conn: &Connection, only: Option<&[i64]>) -> rusqlite::Resu
 /// File `id` as it stands now, if it's present and due.
 pub(crate) fn due(conn: &Connection, id: i64) -> rusqlite::Result<Option<Due>> {
     // `id - 1`: the page starts after it, so only `id` itself can come back.
-    Ok(page(conn, Some(&[id]), id - 1, 1)?.into_iter().next())
+    Ok(page(conn, Some(&[id]), None, id - 1, 1)?.into_iter().next())
 }
 
-/// Whether any file is due a measurement that `allows` may read (the
-/// OneDrive gate: online-only files count only if the user opted in), for
-/// the chain to judge whether a job is worth queuing.
-pub(crate) fn any_due(conn: &Connection, allows_online_only: bool) -> rusqlite::Result<bool> {
+/// Whether any file is due a measurement that can be taken now: one the
+/// OneDrive gate allows (online-only files count only if the user opted
+/// in), in the `reachable` music folders if given. For the chain to judge
+/// whether a job is worth queuing.
+pub(crate) fn any_due(
+    conn: &Connection,
+    allows_online_only: bool,
+    reachable: Option<&[i64]>,
+) -> rusqlite::Result<bool> {
+    let reachable = reachable.map(ids_json);
     conn.prepare_cached(&sql(&format!(
         "SELECT EXISTS (SELECT 1 FROM file f
                         WHERE f.present = 1 AND (f.online_only = 0 OR ?1)
+                          AND (?2 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?2)))
                           AND {HASH_CURRENT} AND {NOT_MEASURED})"
     )))?
-    .query_row([allows_online_only], |r| r.get(0))
+    .query_row(params![allows_online_only, reachable], |r| r.get(0))
 }
 
 /// What a measurement says about a file, as one row.

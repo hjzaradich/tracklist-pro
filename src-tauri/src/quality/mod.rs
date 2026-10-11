@@ -57,7 +57,9 @@ pub use measure::{measure, Ended, Errors, Failure, Measured};
 
 use crate::db::{DbError, Writer};
 use crate::jobs::{JobHandler, JobId, NewJob};
-use crate::scan::{chain, ReadGate};
+use crate::scan::chain::{self, Reach};
+use crate::scan::folders;
+use crate::scan::ReadGate;
 use tauri::{AppHandle, Runtime};
 
 /// The version of the method. Bump it when anything that shapes a
@@ -77,13 +79,25 @@ pub fn qualifier<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
 /// Queues a quality job if any file is due one, unless one is already
 /// queued (a running one is asked to run once more). Called when the
 /// fingerprints are in (the scan chain), so the files have audio hashes.
+///
+/// A file is due only if it can be checked now: files in the folders `reach`
+/// doesn't name (their drive is unplugged) don't count, so no job is queued
+/// with nothing to do. With no `reach`, every folder counts.
 pub(crate) fn request<E: From<DbError>>(
     writer: &Writer,
+    reach: Option<&Reach>,
     enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
 ) -> Result<(), E> {
-    let due = writer.call(|c| {
+    let reachable = match reach {
+        Some(reach) => {
+            let folders = writer.call(|c| folders::stored(c))?;
+            Some(reach(&folders))
+        }
+        None => None,
+    };
+    let due = writer.call(move |c| {
         let gate = ReadGate::for_job(c)?;
-        ledger::any_due(c, gate.allows(true))
+        ledger::any_due(c, gate.allows(true), reachable.as_deref())
     })?;
     if due {
         chain::queue_once(writer, quality_job(None), enqueue)?;

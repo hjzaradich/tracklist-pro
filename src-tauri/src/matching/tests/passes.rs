@@ -3,6 +3,7 @@
 //! them, and a pass after one new file works on that file alone.
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::params;
 
@@ -115,6 +116,7 @@ fn a_pass_stores_a_result_for_each_candidate_pair_and_never_compares_the_rest() 
         Summary {
             files: 5,
             fingerprints: 5,
+            read: 5,
             changed: 5,
             candidates: 3,
             already_compared: 0,
@@ -181,6 +183,7 @@ fn a_pass_after_one_new_file_compares_only_that_files_candidates() {
         Summary {
             files: 6,
             fingerprints: 6,
+            read: 1,
             changed: 1,
             candidates: 1,
             already_compared: 0,
@@ -829,4 +832,249 @@ fn the_stored_rows_are_the_ones_the_index_gave_before_it_was_made_smaller() {
     let restarted = refresh(&db.writer).unwrap();
     assert_eq!((restarted.compared, restarted.stored), (0, 0));
     assert_eq!(db.all(), expected);
+}
+
+/// How many files have been through a pass.
+fn through(db: &Db) -> i64 {
+    db.writer
+        .call(|c| c.query_row("SELECT COUNT(*) FROM fingerprint_matched", [], |r| r.get(0)))
+        .unwrap()
+}
+
+/// Whether matching is due.
+fn due(db: &Db) -> bool {
+    db.writer.call(|c| store::any_due(c)).unwrap()
+}
+
+/// A matcher that notes the file of every fingerprint it reads.
+fn matcher_that_notes_its_reads() -> (Matcher, Arc<Mutex<Vec<i64>>>) {
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let log = reads.clone();
+    let matcher = Matcher::new().on_read(move |file| log.lock().unwrap().push(file));
+    (matcher, reads)
+}
+
+/// The files read since the last call.
+fn read_since_last_time(reads: &Mutex<Vec<i64>>) -> Vec<i64> {
+    std::mem::take(&mut *reads.lock().unwrap())
+}
+
+/// A run on `matcher` that makes way as soon as `n` files are through.
+fn run_that_makes_way_after(matcher: &Matcher, db: &Db, n: i64) {
+    let run = matcher.pass_making_way(&db.writer, &mut |_| Ok(()), &mut || {
+        if through(db) >= n {
+            Err(DbError::WriterGone)
+        } else {
+            Ok(())
+        }
+    });
+    assert!(run.is_err(), "the run was meant to make way");
+    assert_eq!(through(db), n);
+}
+
+#[test]
+fn an_unchanged_fingerprint_is_not_read_again() {
+    let db = small();
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [1, 2, 3, 4, 5]);
+
+    let again = pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [] as [i64; 0]);
+    assert_eq!((again.read, again.changed), (0, 0));
+    assert_eq!((again.files, again.fingerprints), (5, 5));
+}
+
+#[test]
+fn a_changed_fingerprint_is_read_again_on_the_next_run() {
+    let db = small();
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    pass(&matcher, &db);
+    read_since_last_time(&reads);
+
+    db.set_fingerprint(2, &fingerprint(reencoded(&track(2, 900), 4, 7)));
+    let next = pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [2]);
+    assert_eq!((next.read, next.changed), (1, 1));
+}
+
+#[test]
+fn a_fingerprint_changed_and_changed_back_is_read_again_but_is_not_new_to_the_index() {
+    let db = small();
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    pass(&matcher, &db);
+    read_since_last_time(&reads);
+
+    db.set_fingerprint(2, &fingerprint(reencoded(&track(2, 900), 4, 7)));
+    db.set_fingerprint(2, &fingerprint(reencoded(&track(1, 900), 1, 7)));
+    let next = pass(&matcher, &db);
+    // Its stamp moved, so the bytes are looked at; they are the ones the
+    // index has, so nothing in it changes.
+    assert_eq!(read_since_last_time(&reads), [2]);
+    assert_eq!((next.read, next.changed), (1, 0));
+    // Reading it again changed nothing: it isn't read a third time.
+    pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [] as [i64; 0]);
+}
+
+#[test]
+fn a_file_whose_fingerprint_was_removed_drops_out_of_the_index_and_is_read_when_it_comes_back() {
+    let db = small();
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    pass(&matcher, &db);
+    read_since_last_time(&reads);
+
+    db.sql("UPDATE file SET fingerprint = NULL WHERE id = 2", ());
+    let without = pass(&matcher, &db);
+    assert_eq!((without.files, without.fingerprints), (4, 4));
+    assert_eq!(without.read, 0);
+
+    // The very same bytes come back: nothing is remembered of them, so
+    // they are read, not trusted.
+    let blob = fingerprint(reencoded(&track(1, 900), 1, 7)).to_blob();
+    db.sql("UPDATE file SET fingerprint = ?1 WHERE id = 2", (blob,));
+    let back = pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [2]);
+    assert_eq!((back.files, back.read), (5, 1));
+}
+
+#[test]
+fn a_run_that_made_way_and_is_resumed_reads_no_fingerprint_that_has_not_changed() {
+    let db = small();
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    run_that_makes_way_after(&matcher, &db, 2);
+    assert_eq!(read_since_last_time(&reads), [1, 2, 3, 4, 5]);
+
+    // Two files are through and three are not: none is read again.
+    let resumed = pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [] as [i64; 0]);
+    assert_eq!(
+        (resumed.read, resumed.files, resumed.fingerprints),
+        (0, 5, 5)
+    );
+    assert_eq!(db.pairs(), [(1, 2), (1, 3), (2, 3)]);
+    assert!(!due(&db));
+}
+
+#[test]
+fn a_resumed_run_notices_fingerprints_that_changed_or_arrived_while_it_waited() {
+    // What a fingerprint job does between two runs of matching: another
+    // fingerprint for a file that was through, another for one that
+    // wasn't, and a new file.
+    let edit = |db: &Db| {
+        // File 1 (through in the first run) now holds a copy of `c`…
+        db.set_fingerprint(1, &fingerprint(reencoded(&track(3, 900), 5, 7)));
+        // …file 4 (not through yet) a copy of `a`…
+        db.set_fingerprint(4, &fingerprint(reencoded(&track(1, 900), 6, 7)));
+        // …and a new file is another copy of `c`.
+        db.add_items("c (copy).mp3", reencoded(&track(3, 900), 8, 7));
+    };
+
+    // What a matcher that never saw the old fingerprints finds.
+    let expected = small();
+    edit(&expected);
+    refresh(&expected.writer).unwrap();
+
+    let db = small();
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    run_that_makes_way_after(&matcher, &db, 2);
+    read_since_last_time(&reads);
+    edit(&db);
+    let resumed = pass(&matcher, &db);
+
+    // Only the three that differ are read.
+    assert_eq!(read_since_last_time(&reads), [1, 4, 6]);
+    assert_eq!((resumed.read, resumed.changed), (3, 3));
+    assert_eq!(db.all(), expected.all());
+    assert!(!due(&db));
+}
+
+#[test]
+fn a_resumed_run_forgets_a_file_that_went_missing_while_it_waited_and_reads_it_when_it_is_back() {
+    let db = small();
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    run_that_makes_way_after(&matcher, &db, 2);
+    read_since_last_time(&reads);
+
+    db.sql("UPDATE file SET present = 0 WHERE id = 5", ());
+    let resumed = pass(&matcher, &db);
+    assert_eq!(
+        (resumed.files, resumed.fingerprints, resumed.read),
+        (4, 4, 0)
+    );
+
+    db.sql("UPDATE file SET present = 1 WHERE id = 5", ());
+    let back = pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [5]);
+    assert_eq!((back.files, back.read), (5, 1));
+}
+
+#[test]
+fn the_first_run_after_an_upgrade_reads_every_fingerprint_once() {
+    // Migration 0020 gives the files it finds stamp 0, and a matcher that
+    // has just started remembers nothing.
+    let db = small();
+    refresh(&db.writer).unwrap();
+    db.sql("UPDATE file SET fingerprint_rev = 0", ());
+
+    let (matcher, reads) = matcher_that_notes_its_reads();
+    let first = pass(&matcher, &db);
+    assert_eq!(read_since_last_time(&reads), [1, 2, 3, 4, 5]);
+    assert_eq!((first.read, first.changed), (5, 5));
+    assert_eq!((first.compared, first.stored), (0, 0));
+
+    let second = pass(&matcher, &db);
+    assert_eq!(second.read, 0);
+}
+
+#[test]
+fn a_fingerprint_stamp_moves_only_with_the_bytes() {
+    let db = small();
+    let stamp = |id: i64| -> i64 {
+        db.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT fingerprint_rev FROM file WHERE id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    let before = stamp(1);
+    assert_ne!(before, 0, "a file inserted with a fingerprint is stamped");
+    // A tag rewrite, a new modified time and the same bytes written again.
+    let same = fingerprint(track(1, 900)).to_blob();
+    db.sql(
+        "UPDATE file SET size = 5, mtime = 6, fingerprint = ?1 WHERE id = 1",
+        (same,),
+    );
+    assert_eq!(stamp(1), before);
+    db.set_fingerprint(1, &fingerprint(track(9, 900)));
+    assert_ne!(stamp(1), before);
+}
+
+#[test]
+fn a_row_with_stamp_zero_replaced_by_one_with_the_same_id_stamp_zero_and_no_fingerprint_leaves_the_index(
+) {
+    // A music folder removed and added again: the new file row takes the
+    // deleted one's id. Both have stamp 0 (the deleted one existed before
+    // migration 0020), so only having no fingerprint tells them apart.
+    let db = small();
+    let matcher = Matcher::new();
+    pass(&matcher, &db);
+    db.sql("UPDATE file SET fingerprint_rev = 0", ());
+    // The index reads file 5 again, at stamp 0.
+    let at_zero = pass(&matcher, &db);
+    assert_eq!((at_zero.files, at_zero.read), (5, 5));
+
+    db.sql("DELETE FROM file WHERE id = 5", ());
+    db.sql(
+        "INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, size, mtime)
+         VALUES (5, 1, 'again.flac', 'again.flac', 1000, 1000)",
+        (),
+    );
+    let after = pass(&matcher, &db);
+    assert_eq!((after.files, after.fingerprints), (4, 4));
+    assert_eq!(after.read, 0);
 }

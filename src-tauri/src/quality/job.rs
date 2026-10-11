@@ -7,8 +7,11 @@
 //! stays responsive and the two kinds of job never use more threads
 //! together than the budget allows.
 //!
-//! Per file: resolve its `\\?\` path, skip it if its volume is offline,
-//! check it may be read (OneDrive), open it read-only (the same path and
+//! Files in a music folder whose volume is offline aren't taken at all:
+//! due means checkable now, so they're due again when the drive is back.
+//!
+//! Per file: resolve its `\\?\` path, skip it if its volume went offline
+//! since the job listed it, check it may be read (OneDrive), open it read-only (the same path and
 //! the same checks the fingerprint job uses), check it's the size and age
 //! its row says, decode it once ([`measure`]) and store the result through
 //! the writer. A file whose content can't be decoded gets a row saying
@@ -92,21 +95,21 @@ impl<V: Volumes + Sync + 'static> Qualifier<V> {
     }
 
     /// How many threads the budget holds. At least 1.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn threads(mut self, threads: usize) -> Self {
         self.threads = threads.max(1);
         self
     }
 
     /// Calls `hook` with each file id as a thread takes it.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_file(mut self, hook: impl Fn(i64) + Send + Sync + 'static) -> Self {
         self.on_file = Some(Box::new(hook));
         self
     }
 
     /// Calls `hook` before each packet, with the packets read so far.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_packet(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
         self.on_packet = Some(Box::new(hook));
         self
@@ -132,15 +135,23 @@ impl<V: Volumes + Sync + 'static> JobHandler for Qualifier<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let only = wanted(job.target())
             .ok_or_else(|| JobError::failed("a quality job's target names no files"))?;
-        let own = job
-            .writer()
-            .call(move |c| ledger::due_ids(c, only.as_deref()))?;
-        let folders = job
+        let folders: HashMap<MusicFolderId, StoredFolder> = job
             .writer()
             .call(|c| folders::stored(c))?
             .into_iter()
             .map(|f| (f.id, f))
             .collect();
+        let volumes = (self.volumes)();
+        // Due means checkable now: files on an unplugged drive aren't taken
+        // (they're due again once it's back).
+        let reachable: Vec<i64> = folders
+            .values()
+            .filter(|f| f.is_reachable(&volumes))
+            .map(|f| f.id.0)
+            .collect();
+        let own = job
+            .writer()
+            .call(move |c| ledger::due_ids(c, only.as_deref(), Some(&reachable)))?;
         // The user's OneDrive opt-in, read once for the whole job.
         let gate = job.writer().call(|c| ReadGate::for_job(c))?;
         if own.is_empty() {
@@ -158,7 +169,7 @@ impl<V: Volumes + Sync + 'static> JobHandler for Qualifier<V> {
         let run = Run {
             job,
             gate,
-            volumes: (self.volumes)(),
+            volumes,
             folders,
             total: own.len(),
             own: Mutex::new(own.into()),

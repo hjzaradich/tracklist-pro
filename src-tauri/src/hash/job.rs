@@ -120,28 +120,28 @@ impl<V: Volumes + 'static> Hasher<V> {
     }
 
     /// Replaces [`BATCH_WINDOW`], so a test decides when batches go out.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn batch_window(mut self, window: Duration) -> Self {
         self.window = window;
         self
     }
 
     /// Replaces [`BUFFER`], so a test can make a small file take many reads.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn buffer(mut self, bytes: usize) -> Self {
         self.buffer = bytes.max(1);
         self
     }
 
     /// Hands each run's [`Summary`] to `hook` as well as to the log.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_summary(mut self, hook: impl Fn(Summary) + Send + Sync + 'static) -> Self {
         self.on_summary = Some(Box::new(hook));
         self
     }
 
     /// Calls `hook` before each buffer read (see [`ReadHook`]).
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_read(mut self, hook: impl Fn(i64, u64) + Send + Sync + 'static) -> Self {
         self.on_read = Some(Box::new(hook));
         self
