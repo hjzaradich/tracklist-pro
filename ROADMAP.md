@@ -343,12 +343,13 @@ Each feature is tagged with its sub-phase.
 - **Complexity:** M–L. This is the parsing library the rest of the app leans on, so it needs a large test corpus. The 43 E3 labeled pairs use real library names and aren't published, so they run as a **local** corpus; CI uses synthetic cases derived from the same patterns.
 
 #### 1.6 Quality verification · 1b
-- **Verdicts:** `ok` / `low bitrate` / `suspect transcode` / `clipped` / `truncated` / `broken`.
+- **Verdicts:** `ok` / `low bitrate` / `suspect transcode` / `truncated` / `broken`. A `clipped` verdict is held back (owner decision, 2026-10-10): nothing measures clipping yet, and loud masters clip on purpose.
 - **How:** FFT spectral cutoff (the highest frequency within 50 dB of the 2–8 kHz level, from a 60 s sample: the 60 s starting 30 s in, to skip intros and fade-ins, or the first 60 s for a file under 50 s), decoded vs header duration, and decode errors.
 - **Thresholds:**
   - MP3 at ≥256 kbps with a cutoff below 17 kHz → `suspect transcode` ("this 320 was made from a ~128 kbps source").
   - 17–19 kHz → shown as "possibly lower quality", not flagged.
   - Lossless with a cutoff below 19.5 kHz → `suspect transcode` ("this FLAC/WAV was made from an MP3").
+  - **Bitrate of a lossy file, two levels** (owner decision, 2026-10-10). Below 192 kbps → `low bitrate`: seriously bad, flagged, and the app warns before such a file is added to the Library. From 192 kbps up to full quality → shown as "could be better", not flagged: a note that a better file exists somewhere and a candidate for "Find a better file". Full quality is 320 kbps; for AAC it is 256 kbps, the rate stores sell (foreman's default, the owner may overrule). A lossless file has no bitrate level.
 - Suspect files are reviewed in Review (1.12): "Keep anyway" handles genuinely rolled-off masters, and "Find a better file" sends the track to the wishlist.
 - **Complexity:** M.
 
