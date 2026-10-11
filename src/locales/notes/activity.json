@@ -76,7 +76,8 @@
   },
   "task.match": {
     "purpose": "Names the job that compares files' fingerprints to measure which files share audio.",
-    "where": "Top bar, Activity status and list rows, last after a scan (after the fingerprints and the quality check), while fingerprints are compared. Nothing else about matching is shown yet."
+    "where": "Top bar, Activity status and list rows, last after a scan (after the fingerprints and the quality check), while fingerprints are compared. Nothing else about matching is shown yet.",
+    "approved": "Comparing fingerprints"
   },
   "percent": {
     "purpose": "A task name with its progress.",
