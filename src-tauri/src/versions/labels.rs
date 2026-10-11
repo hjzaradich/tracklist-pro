@@ -88,6 +88,17 @@ fn lookup(spelling: &str) -> Option<MarkerKind> {
         .map(|&(kind, _)| kind)
 }
 
+/// The kind `text` stands for when all of it is one label spelling.
+pub(super) fn kind_of(text: &str) -> Option<MarkerKind> {
+    lookup(
+        &text
+            .split_whitespace()
+            .map(plain)
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
 /// A table row, spelled the way [`words`] spells text.
 fn table_spelling(row: &str) -> String {
     row.split(' ').map(plain).collect::<Vec<_>>().join(" ")

@@ -3,8 +3,8 @@
 //! tags ([`parse_artists`]).
 
 use super::super::{
-    compare, compare_labels, parse_artists, parse_file_name, parse_title, CreditRole, MarkerKind,
-    Outcome, Reason, Side,
+    compare, compare_labels, label_kind, parse_artists, parse_file_name, parse_title, CreditRole,
+    MarkerKind, Outcome, Reason, Side,
 };
 use super::{show_credits, show_markers};
 
@@ -333,5 +333,38 @@ fn every_label_of_the_other_name_adds_nothing_this_name_already_reads_as_a_label
             tag.with_labels_of(&file),
             "{title} / {file_name}"
         );
+    }
+}
+
+// ---- A whole label, by itself ------------------------------------------
+
+#[test]
+fn label_kind_knows_a_whole_label_however_it_is_spelled() {
+    for (text, kind) in [
+        ("dirty", MarkerKind::Dirty),
+        ("Dirty", MarkerKind::Dirty),
+        ("Radio Edit", MarkerKind::RadioEdit),
+        ("radio   edit", MarkerKind::RadioEdit),
+        ("V.I.P.", MarkerKind::Vip),
+        ("dub", MarkerKind::Dub),
+        ("original mix", MarkerKind::Original),
+    ] {
+        assert_eq!(label_kind(text), Some(kind), "{text}");
+    }
+}
+
+#[test]
+fn label_kind_knows_nothing_that_is_not_exactly_one_label() {
+    for text in [
+        "",
+        "velo",
+        "128",
+        "copy",
+        "mix",
+        "Quill Ashby Remix",
+        "dirty velo",
+        "clean dirty",
+    ] {
+        assert_eq!(label_kind(text), None, "{text}");
     }
 }

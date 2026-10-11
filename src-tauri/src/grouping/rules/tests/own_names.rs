@@ -121,14 +121,185 @@ fn a_file_name_whose_title_only_starts_with_the_letters_of_its_tags_title_is_jus
 }
 
 #[test]
-fn a_file_name_with_its_tags_title_in_the_middle_is_just_another_title() {
+fn a_file_name_with_its_tags_title_in_the_middle_and_a_label_word_sends_full_audio_to_review() {
     let got = decided(
         full(),
         &file("Velo", "Night Velo Quill Ashby Remix.mp3"),
         &plain("Velo"),
     );
+    assert_eq!(got.outcome, Outcome::NeedsReview);
+    assert_eq!(
+        got.reasons,
+        [Reason::SameAudioNamesDisagree, own_names_disagree()]
+    );
+}
+
+// ---- The net: a label word anywhere, behind any separator --------------
+
+#[test]
+fn full_audio_goes_to_review_when_a_file_name_holds_a_label_word_that_is_not_its_last_word() {
+    for file_name in [
+        "Velo Dirty 128.mp3",
+        "Velo Dirty copy.mp3",
+        "Velo-Dirty.mp3",
+        "Dirty Velo.mp3",
+        "Velo.Dirty.mp3",
+        "Velo Dirty 2019.mp3",
+        "Halden Rook - Velo Dirty copy.mp3",
+        "velo_radio_edit_final.mp3",
+    ] {
+        // Both ways round: the doubted file first, then second.
+        for (a, b) in [
+            (file("Velo", file_name), plain("Velo")),
+            (plain("Velo"), file("Velo", file_name)),
+        ] {
+            let got = decided(full(), &a, &b);
+            assert_eq!(got.outcome, Outcome::NeedsReview, "{file_name}");
+            assert_eq!(
+                got.reasons,
+                [Reason::SameAudioNamesDisagree, own_names_disagree()],
+                "{file_name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn full_audio_goes_to_review_when_the_tag_holds_a_label_word_that_is_not_its_last_word() {
+    for title in ["Velo Dirty 320", "Dirty Velo"] {
+        let got = decided(full(), &file(title, "Velo.mp3"), &plain(title));
+        assert_eq!(got.outcome, Outcome::NeedsReview, "{title}");
+        assert_eq!(
+            got.reasons,
+            [Reason::SameAudioNamesDisagree, own_names_disagree()],
+            "{title}"
+        );
+    }
+}
+
+#[test]
+fn full_audio_goes_to_review_when_a_bracketed_label_is_not_at_the_end_of_the_file_names_title() {
+    // A title-first file name: the parser reads "Velo (Clean)" as the
+    // artist. The file's tag says where the title is.
+    for artist_tag in [None, Some("Halden Rook")] {
+        let labeled = FileFacts::new(Some("Velo"), artist_tag, "Velo (Clean) - Halden Rook.mp3");
+        for (a, b) in [(&labeled, &plain("Velo")), (&plain("Velo"), &labeled)] {
+            let got = decided(full(), a, b);
+            assert_eq!(got.outcome, Outcome::NeedsReview);
+            assert_eq!(
+                got.reasons,
+                [Reason::SameAudioNamesDisagree, own_names_disagree()]
+            );
+        }
+    }
+}
+
+#[test]
+fn a_label_word_in_the_artist_part_of_a_file_name_raises_no_doubt() {
+    // "Dub Kestrel" is the artist: "Dub" is no label of this file.
+    for file_name in [
+        "Dub Kestrel - Velo copy.mp3",
+        "Dub Kestrel - Velo 128.mp3",
+        "Dub Kestrel - Velo.mp3",
+    ] {
+        let got = decided(full(), &file("Velo", file_name), &plain("Velo"));
+        assert_eq!(got.outcome, Outcome::Duplicate, "{file_name}");
+        assert_eq!(codes(&got), ["sameAudio"], "{file_name}");
+    }
+}
+
+#[test]
+fn a_label_word_that_belongs_to_the_artist_tag_raises_no_doubt() {
+    // No " - " in the file name, but the artist tag says who "Dub
+    // Kestrel" is, alone or beside another artist.
+    for artist_tag in ["Dub Kestrel", "Halden Rook & Dub Kestrel"] {
+        let got = decided(
+            full(),
+            &FileFacts::new(Some("Velo"), Some(artist_tag), "Dub Kestrel Velo copy.mp3"),
+            &FileFacts::new(Some("Velo"), Some(artist_tag), "nightdrive promo.mp3"),
+        );
+        assert_eq!(got.outcome, Outcome::Duplicate, "{artist_tag}");
+        assert_eq!(codes(&got), ["sameAudio"], "{artist_tag}");
+    }
+}
+
+#[test]
+fn an_artists_label_word_counts_once_so_the_same_word_again_is_still_a_doubt() {
+    // By "Dub Kestrel", and a dub: the second "Dub" is not the artist's.
+    for (artist_tag, file_name) in [
+        (None, "Dub Kestrel - Velo Dub copy.mp3"),
+        (Some("Dub Kestrel"), "Dub Kestrel - Velo Dub copy.mp3"),
+        (Some("Dub Kestrel"), "Dub Kestrel Velo Dub copy.mp3"),
+    ] {
+        let got = decided(
+            full(),
+            &FileFacts::new(Some("Velo"), artist_tag, file_name),
+            &FileFacts::new(Some("Velo"), artist_tag, "nightdrive promo.mp3"),
+        );
+        assert_eq!(got.outcome, Outcome::NeedsReview, "{file_name}");
+        assert_eq!(codes(&got)[1], "namesUnclear", "{file_name}");
+    }
+}
+
+#[test]
+fn with_no_artist_tag_and_no_dash_an_artists_label_word_cant_be_told_from_a_label() {
+    // Known and cautious: review, never a wrong link.
+    let got = decided(
+        full(),
+        &file("Velo", "Dub Kestrel Velo copy.mp3"),
+        &plain("Velo"),
+    );
+    assert_eq!(got.outcome, Outcome::NeedsReview);
+    assert_eq!(
+        got.reasons,
+        [Reason::SameAudioNamesDisagree, own_names_disagree()]
+    );
+}
+
+#[test]
+fn a_label_the_parser_read_in_the_name_is_not_counted_again() {
+    // "(Dirty)" is read as this file's label; "copy" keeps the titles
+    // apart for the parser, and nothing else in the name is a label word.
+    let got = decided(
+        full(),
+        &file("Velo (Dirty)", "Velo copy (Dirty).mp3"),
+        &plain("Velo (Dirty)"),
+    );
     assert_eq!(got.outcome, Outcome::Duplicate);
     assert_eq!(codes(&got), ["sameAudio"]);
+}
+
+#[test]
+fn original_among_the_other_words_is_no_label() {
+    let got = decided(
+        full(),
+        &file("Velo", "Velo original copy.mp3"),
+        &plain("Velo"),
+    );
+    assert_eq!(got.outcome, Outcome::Duplicate);
+    assert_eq!(codes(&got), ["sameAudio"]);
+}
+
+#[test]
+fn two_files_both_named_with_the_same_label_word_in_the_middle_are_duplicates() {
+    let got = decided(
+        full(),
+        &file("Velo", "Velo Dirty 128.mp3"),
+        &file("Velo", "Velo Dirty 128.flac"),
+    );
+    assert_eq!(got.outcome, Outcome::Duplicate);
+    assert_eq!(codes(&got), ["sameAudio"]);
+}
+
+#[test]
+fn a_label_word_in_the_middle_changes_nothing_without_matched_audio_and_keeps_a_cut_link_one_sided()
+{
+    let (a, b) = (file("Velo", "Velo Dirty 128.mp3"), plain("Velo"));
+    assert_eq!(codes(&decided(partial(), &a, &b)), ["sameTagsPartialAudio"]);
+    assert_eq!(codes(&decided(Audio::Unknown, &a, &b)), ["noFingerprint"]);
+    let inside = decided(a_inside_b(), &a, &b);
+    assert_eq!(inside.outcome, cut_link(&[]));
+    assert_eq!(codes(&inside), ["audioInsideOther", "namesUnclear"]);
 }
 
 // ---- A title that ends in the label word -------------------------------

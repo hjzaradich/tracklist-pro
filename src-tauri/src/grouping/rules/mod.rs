@@ -85,15 +85,29 @@
 //!   brackets ("Come Clean" beside "Come Clean (Clean)"). The file carries
 //!   that cut, and both its names get it.
 //! - **Anything else** (a bare "Dirty" at the end of one, a mashup's "x"
-//!   in one, or one title that is the other's plus more words ending in
-//!   label words, "Velo Quill Ashby Remix" beside "Velo"): the file's
-//!   version is in doubt.
+//!   in one): the file's version is in doubt.
+//!
+//! **The net under the parser.** The parser only reads a label in
+//! brackets at the end of a title, after " - ", or as the very last words.
+//! "Velo Dirty 128.mp3", "Dirty Velo.mp3", "Velo-Dirty.mp3" and "Velo
+//! (Clean) - Halden Rook.mp3" are, to it, titles unrelated to the tag
+//! "Velo". So when the two names come out unrelated, they are looked at
+//! word by word (split at spaces, hyphens, underscores, brackets and
+//! dots): if one name holds the other's whole title, as whole words
+//! anywhere, and any of its remaining words is a label the parser knows
+//! ([`crate::versions::label_kind`], up to three words, "Original" aside),
+//! the file's version is in doubt too. Words of the file's own artist
+//! (its artist tag, or the artist part of the name) and labels the parser
+//! did read are not "remaining words": a file by "Dub Kestrel" raises
+//! nothing. Without an artist tag or a " - ", an artist's label word can't
+//! be told from a label, and counts.
 //!
 //! A doubt only counts with the audio matched, and only when the pair's
 //! names would otherwise be the same, or have the same labels under two
-//! titles: the pair's names are then unclear (`ownNamesDisagree`), so full
-//! audio goes to review instead of merging. Two files with the same doubt
-//! (the same two titles) don't differ by it.
+//! titles: the pair's names are then unclear (`ownNamesDisagree`). On a
+//! full match that means review instead of a merge; one file inside the
+//! other stays a cut link, and identical audio a duplicate. Two files with
+//! the same doubt (the same two titles) don't differ by it.
 //!
 //! # Two readings of the titles
 //!
@@ -188,6 +202,9 @@
 //!   link, though both are probably the Dirty cut: linked, never merged.
 
 use serde::{Serialize, Serializer};
+
+use unicode_normalization::char::is_combining_mark;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::matching;
 use crate::versions::{self, MarkerKind, ParsedName};
@@ -488,11 +505,13 @@ impl FileFacts {
         }
         // The same, or unrelated: nothing more to learn. Anything else (a
         // bare "Dirty" at the end of one, a mashup's "x" in one) can't be
-        // settled, and the file's version is in doubt.
+        // settled, and the file's version is in doubt. So it is when the
+        // parser reads two unrelated titles, but one name holds the
+        // other's whole title and a label word besides.
         let (tag, name) = (&tagged.uncredited, &file_name.uncredited);
         let unrelated = own == versions::Outcome::DifferentBase
-            && !extends_with_label_words(tag, name)
-            && !extends_with_label_words(name, tag);
+            && !hides_a_label_word(tag, &by_tag.credits, artist_tag, &name.base_title)
+            && !hides_a_label_word(name, &by_file_name.credits, artist_tag, &tag.base_title);
         let own_doubt = match own {
             versions::Outcome::SameVersion => None,
             _ if unrelated => None,
@@ -515,20 +534,84 @@ impl FileFacts {
     }
 }
 
-/// Whether `longer`'s title is `shorter`'s whole title, then more words,
-/// ending in label words: "Velo Quill Ashby Remix" beside "Velo". The
-/// parser reads two titles there, but the words in between may be whose
-/// rework it is, so one file's two names aren't simply unrelated.
-fn extends_with_label_words(shorter: &ParsedName, longer: &ParsedName) -> bool {
-    let (short, long) = (
-        shorter.base_title.to_lowercase(),
-        longer.base_title.to_lowercase(),
-    );
-    !longer.title_markers.is_empty()
-        && !short.is_empty()
-        && long
-            .strip_prefix(&short)
-            .is_some_and(|rest| rest.starts_with(' '))
+/// The words of a name: lowercase, without accents or apostrophes, split
+/// at everything that isn't a letter or a digit (spaces, hyphens,
+/// underscores, brackets, dots).
+fn words(text: &str) -> Vec<String> {
+    let folded: String = text
+        .nfd()
+        .filter(|c| !is_combining_mark(*c) && *c != '\'')
+        .flat_map(char::to_lowercase)
+        .collect();
+    folded
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Where `run` sits in `words`, as whole words in a row.
+fn position_of(words: &[String], run: &[String]) -> Option<usize> {
+    if run.is_empty() {
+        return None;
+    }
+    words.windows(run.len()).position(|window| window == run)
+}
+
+/// Whether `name`, one of a file's two names, holds the whole title of the
+/// file's other name and, among its remaining words, a label word the
+/// parser didn't read as a label: "Velo Dirty 128.mp3", "Dirty Velo.mp3"
+/// or "Velo (Clean) - Halden Rook.mp3" beside the tag "Velo".
+///
+/// The parser only reads labels in brackets at the end, after " - ", or as
+/// the very last words, so to it these are two unrelated titles. This is
+/// the net under that: any position, any separator.
+///
+/// Not counted as remaining words: the labels the parser did read in
+/// `name`, and the file's artist (`artists`: its artist tag's, and the
+/// artist part of `name` itself), so an artist called "Dub Kestrel"
+/// raises nothing. The artist part of `name` isn't trusted when it is
+/// where the title sits: a title-first file name.
+fn hides_a_label_word(
+    name: &ParsedName,
+    own_artists: &[versions::Credit],
+    artist_tag: Option<&str>,
+    other_title: &str,
+) -> bool {
+    let title = words(other_title);
+    let mut rest = words(&name.original);
+    let Some(at) = position_of(&rest, &title) else {
+        return false;
+    };
+    rest.drain(at..at + title.len());
+
+    let own_artists: Vec<Vec<String>> = own_artists.iter().map(|c| words(&c.name)).collect();
+    let title_in_artist = own_artists
+        .iter()
+        .any(|artist| position_of(artist, &title).is_some());
+    let mut known: Vec<Vec<String>> = match title_in_artist {
+        true => Vec::new(),
+        false => own_artists,
+    };
+    for credit in artist_tag.map(versions::parse_artists).unwrap_or_default() {
+        let artist = words(&credit.name);
+        // An artist named by both the tag and the name is in it once.
+        if !known.contains(&artist) {
+            known.push(artist);
+        }
+    }
+    known.extend(name.markers.iter().map(|marker| words(&marker.text)));
+    for word in known.iter().flatten() {
+        if let Some(at) = rest.iter().position(|left| left == word) {
+            rest.remove(at);
+        }
+    }
+
+    (1..=versions::tables::MAX_LABEL_WORDS).any(|n| {
+        rest.windows(n).any(|run| {
+            versions::label_kind(&run.join(" ")).is_some_and(|kind| kind != MarkerKind::Original)
+        })
+    })
 }
 
 /// Two files and what is known about them. Built with [`Pair::new`], so a

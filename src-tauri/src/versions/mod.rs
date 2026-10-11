@@ -387,6 +387,17 @@ pub fn parse_file_name(input: &str) -> ParsedName {
     parse(input, NameSource::FileName)
 }
 
+/// The cut or rework `text` stands for, when all of it is one label as the
+/// parser spells them ("dirty", "Radio Edit", "V.I.P."), whatever is
+/// around it in a name. `None` for anything else, a name in front of a
+/// label included ("Quill Ashby Remix").
+///
+/// For looking at words the parser left in a title: it only reads labels
+/// in brackets, after " - " or at the very end.
+pub fn label_kind(text: &str) -> Option<MarkerKind> {
+    labels::kind_of(text)
+}
+
 /// The artists an artist tag names ("A & B feat. C"), split as the artist
 /// part of a file name is once that part is clean: a tag is taken as
 /// written, with no store or rip junk looked for. For callers that hold
