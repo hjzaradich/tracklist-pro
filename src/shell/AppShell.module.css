@@ -14,6 +14,22 @@
   overflow: hidden;
 }
 
+/*
+ * A zone that isn't drawn (shell/zones.ts) leaves its space to the center:
+ * without the Details panel the center runs to the right edge, and without
+ * the player the last row goes.
+ */
+.shell[data-details="off"] .center {
+  grid-column: center / details;
+}
+
+.shell[data-player="off"] {
+  grid-template-areas:
+    "top top top"
+    "sidebar center details";
+  grid-template-rows: 40px minmax(0, 1fr);
+}
+
 .top {
   grid-area: top;
 }

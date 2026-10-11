@@ -10,7 +10,7 @@ import { useLibraryTracks } from "../library/useLibraryTracks";
 import { XmlSourcePanel } from "../rekordbox/XmlSourcePanel";
 import { SendChecklist } from "../send/SendChecklist";
 import sendStyles from "../send/SendChecklist.module.css";
-import { EmptyState, StageScreen } from "../shell/StageScreen";
+import { StageScreen } from "../shell/StageScreen";
 
 /**
  * The Overview. Until its own features arrive (1c), it holds where
@@ -28,7 +28,6 @@ import { EmptyState, StageScreen } from "../shell/StageScreen";
  * the rest, so folders can still be added, watched and scanned again.
  */
 export function OverviewScreen() {
-  const { t } = useTranslation("overview");
   const { t: tFirstRun } = useTranslation("firstRun");
   const library = useLibraryTracks();
   const { t: tSend } = useTranslation("send");
@@ -55,10 +54,11 @@ export function OverviewScreen() {
           <p role="alert" className={styles.problem}>
             {errorMessage(library.error)}
           </p>
-        ) : library.data === undefined ? null : firstRun ? (
-          <h2 className={styles.heading}>{tFirstRun("title")}</h2>
         ) : (
-          <EmptyState>{t("empty")}</EmptyState>
+          // Once the Library has tracks there's no heading: the Overview's
+          // own summary (1.13) isn't built, and a line promising it would
+          // be a feature that does nothing.
+          firstRun && <h2 className={styles.heading}>{tFirstRun("title")}</h2>
         )}
         {library.data !== undefined && !firstRun && (
           <button type="button" className={sendStyles.primary} onClick={() => setSending(true)}>

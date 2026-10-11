@@ -8,7 +8,11 @@ import { createQueryClient } from "../app/queryClient";
 import { renderApp } from "../app/testApp";
 import type { Crate } from "../bindings";
 import { DEFAULT_THEME, syncThemeToDocument, useThemeStore } from "../theme/themeStore";
+import { DetailsPanel } from "./DetailsPanel";
+import { PlayerBar } from "./PlayerBar";
 import { Sidebar } from "./Sidebar";
+import { TopBar } from "./TopBar";
+import { ZONES } from "./zones";
 import { tx } from "../test/tx";
 
 const WORKFLOW_ORDER = ["overview", "review", "allMusic", "library", "crates"].map((id) =>
@@ -62,30 +66,61 @@ afterEach(() => {
 });
 
 describe("layout shell", () => {
-  it("has every zone: top bar, sidebar, center, Details panel and player", async () => {
+  it("has the zones that do something: top bar, sidebar and center", async () => {
     crates([]);
     renderApp("/overview");
     const topBar = await screen.findByRole("banner");
-    expect(within(topBar).getByRole("search", { name: tx("shell:search.label") })).toBeInTheDocument();
     expect(within(topBar).getByRole("status", { name: tx("activity:label") })).toHaveTextContent(
       tx("activity:idle"),
     );
     expect(await screen.findByText(tx("shell:sidebar.noCrates"))).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: tx("shell:details.label") })).toHaveTextContent(
-      tx("shell:details.empty"),
-    );
-    expect(screen.getByRole("region", { name: tx("shell:player.label") })).toHaveTextContent(tx("shell:player.empty"));
   });
 
-  it("shows the command palette shortcut in the search slot", async () => {
+  it("shows nothing that looks like a feature and does nothing yet", async () => {
+    crates([]);
     renderApp("/overview");
+    await screen.findByRole("banner");
+    // No search box with its shortcut, no Details panel, no player.
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByText(tx("shell:search.shortcut"))).toBeNull();
+    expect(screen.queryByRole("complementary", { name: tx("shell:details.label") })).toBeNull();
+    expect(screen.queryByText(tx("shell:details.empty"))).toBeNull();
+    expect(screen.queryByRole("region", { name: tx("shell:player.label") })).toBeNull();
+    expect(screen.queryByText(tx("shell:player.empty"))).toBeNull();
+  });
+
+  it("keeps each of those zones ready for the day its feature exists", async () => {
+    // One switch each (shell/zones.ts): nothing is drawn by default.
+    expect(ZONES).toEqual({ search: false, details: false, player: false });
+
+    mockIPC(
+      (cmd) => {
+        if (cmd === "activity") return { seq: 0, jobs: [] };
+        return null;
+      },
+      { shouldMockEvents: true },
+    );
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <TopBar search />
+        <DetailsPanel />
+        <PlayerBar />
+      </QueryClientProvider>,
+    );
     const search = await screen.findByRole("search", { name: tx("shell:search.label") });
     expect(within(search).getByRole("searchbox", { name: tx("shell:search.label") })).toHaveAttribute(
       "placeholder",
       tx("shell:search.placeholder"),
     );
     expect(search).toHaveTextContent(tx("shell:search.shortcut"));
+    expect(screen.getByRole("complementary", { name: tx("shell:details.label") })).toHaveTextContent(
+      tx("shell:details.empty"),
+    );
+    expect(screen.getByRole("region", { name: tx("shell:player.label") })).toHaveTextContent(
+      tx("shell:player.empty"),
+    );
   });
 });
 
@@ -184,8 +219,7 @@ describe("themes", () => {
     expect(document.documentElement.dataset.theme).toBe(theme);
     expect(screen.getByRole("radio", { name: theme === "dark" ? tx("theme:dark") : tx("theme:light") })).toBeChecked();
     expect(screen.getByRole("navigation", { name: tx("shell:stages.label") })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: tx("shell:details.label") })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: tx("shell:player.label") })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeInTheDocument();
   });
 
   it("switches theme from the top bar without leaving the current stage", async () => {
