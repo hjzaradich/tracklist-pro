@@ -15,6 +15,10 @@
 //! function over the rows in `file_quality`. Nothing here shows text to the
 //! user.
 //!
+//! The verdict of each file is kept in `file_verdict` ([`store`], 1bC-5):
+//! [`stored_verdict`] reads it, and [`settle`] recomputes the ones whose
+//! inputs changed, from the stored measurements, without decoding audio.
+//!
 //! Results follow the audio, not the modified time (§5.1): a row records
 //! the `audio_hash` it was measured from and the [`VERSION`] of the method,
 //! and a file is measured again only when its audio changed or the method
@@ -48,12 +52,14 @@ pub mod cutoff;
 mod job;
 pub mod ledger;
 pub mod measure;
+pub mod store;
 pub mod verdict;
 
 pub use cutoff::Gap;
 pub use job::{quality_job, Qualifier};
 pub use ledger::Stored;
 pub use measure::{measure, Ended, Errors, Failure, Measured};
+pub use store::{settle, settle_files, stored_verdict, stored_verdicts, RULES_VERSION};
 
 use crate::db::{DbError, Writer};
 use crate::jobs::{JobHandler, JobId, NewJob};
@@ -76,9 +82,14 @@ pub fn qualifier<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
     )
 }
 
-/// Queues a quality job if any file is due one, unless one is already
-/// queued (a running one is asked to run once more). Called when the
-/// fingerprints are in (the scan chain), so the files have audio hashes.
+/// Queues a quality job if any file is due a measurement, unless one is
+/// already queued (a running one is asked to run once more). Called when
+/// the fingerprints are in (the scan chain), so the files have audio
+/// hashes.
+///
+/// A stale verdict alone queues nothing: the job settles every one when it
+/// starts, and whoever reads verdicts calls [`settle`] first, which costs
+/// one query when nothing is stale.
 ///
 /// A file is due only if it can be checked now: files in the folders `reach`
 /// doesn't name (their drive is unplugged) don't count, so no job is queued

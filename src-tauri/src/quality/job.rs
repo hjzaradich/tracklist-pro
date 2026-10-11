@@ -1,11 +1,14 @@
 //! The quality job: measures each file's cutoff, durations and decode
 //! errors (ROADMAP 1.6; 1bA-10, 1bA-11).
 //!
-//! One job works through every present file that's due (see [`ledger`]),
-//! or the files its target names, on threads taken from the fingerprint
-//! jobs' shared budget ([`FirstUp`]) at below-normal priority, so the app
-//! stays responsive and the two kinds of job never use more threads
-//! together than the budget allows.
+//! The job first settles the stored verdict of every file that has none
+//! current ([`store`]: header-only verdicts for files with no measurement,
+//! and verdicts whose inputs changed). It then works through every present
+//! file that's due (see [`ledger`]), or the files its target names, on
+//! threads taken from the fingerprint jobs' shared budget ([`FirstUp`]) at
+//! below-normal priority, so the app stays responsive and the two kinds of
+//! job never use more threads together than the budget allows. A file's
+//! verdict is settled as its measurement lands.
 //!
 //! Files in a music folder whose volume is offline aren't taken at all:
 //! due means checkable now, so they're due again when the drive is back.
@@ -32,6 +35,7 @@ use std::time::Duration;
 
 use super::ledger::{self, Due, Row};
 use super::measure::{measure, Failure};
+use super::store;
 use crate::fingerprint::decode::Stopped;
 use crate::fingerprint::{default_threads, lower_priority, FirstUp};
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
@@ -135,6 +139,9 @@ impl<V: Volumes + Sync + 'static> JobHandler for Qualifier<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let only = wanted(job.target())
             .ok_or_else(|| JobError::failed("a quality job's target names no files"))?;
+        // Verdicts need no disk: settle every stale one, whatever the
+        // target, before any decoding.
+        settle_stale(job)?;
         let folders: HashMap<MusicFolderId, StoredFolder> = job
             .writer()
             .call(|c| folders::stored(c))?
@@ -299,8 +306,29 @@ impl<V: Volumes + Sync + 'static> Qualifier<V> {
         if !unchanged(&after, &due) {
             return Ok(());
         }
-        job.writer().call(move |c| ledger::record(c, &due, &row))?;
+        job.writer().call(move |c| {
+            if ledger::record(c, &due, &row)? {
+                store::settle_files(c, &[due.id])?;
+            }
+            Ok(())
+        })?;
         Ok(())
+    }
+}
+
+/// Settles the verdict of every file that has none current, a page at a
+/// time so a cancel is noticed and the writer is never held long.
+fn settle_stale(job: &JobContext) -> Result<(), JobError> {
+    let mut after = 0;
+    loop {
+        job.check_cancelled()?;
+        let page = job
+            .writer()
+            .call(move |c| store::settle_page(c, None, after))?;
+        match page.last {
+            Some(last) => after = last,
+            None => return Ok(()),
+        }
     }
 }
 

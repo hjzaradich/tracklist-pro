@@ -38,8 +38,8 @@
 //! first. A damaged frame in the middle costs far less than 2 s and isn't
 //! flagged; decode errors on an otherwise complete file are a note.
 //!
-//! **Not here: reading the rows into [`Facts`].** The job that uses this
-//! (1bC, grouping) maps the stored strings itself. What it has to map:
+//! **Not here: reading the rows into [`Facts`].** [`super::store`] does it
+//! (1bC-5), keeps the answer per file and reads it back. What it maps:
 //!
 //! - `file.codec`: `mp3`, `pcm`, `pcm_float`, `adpcm_ms`, `adpcm_ima`,
 //!   `alaw`, `mulaw`, `flac`, `aac`, `alac`, `vorbis`, `opus`, `speex`,
@@ -47,11 +47,10 @@
 //!   [`Codec::as_str`] writes) to a [`Codec`]; NULL, or a name it doesn't
 //!   know, is `None`.
 //! - `file.quality_verdict`: `truncated` and `broken` to the read stage's
-//!   [`ReadVerdict`]; NULL or anything else is `None`. That column is also
-//!   where these verdicts are stored (`ok`, `low_bitrate`,
-//!   `suspect_transcode`, `truncated`, `broken`), and the read stage clears
-//!   its own two on every read, so a `truncated` this function produced
-//!   must never be fed back in as the read stage's: keep the two apart.
+//!   [`ReadVerdict`]; NULL or anything else is `None`. The column is the
+//!   read stage's own, which it clears on every read, so the answers this
+//!   function gives are kept in `file_verdict` and never written back
+//!   there.
 //! - `file.bitrate` (kbps), `file.sample_rate` (Hz): integers or NULL.
 //! - `file.audio_hash`: the 34-byte blob or NULL.
 //! - `file_quality` through [`super::ledger::stored`]; its `ended`
@@ -59,7 +58,7 @@
 //!   `unsupported_codec`, `no_audio`, `damaged`, `decoder_crashed`) strings
 //!   are compared here, against [`Ended::as_str`] and [`Failure::as_str`].
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::ledger::Stored;
@@ -151,7 +150,7 @@ fn class(codec: Codec) -> Class {
     }
 }
 
-/// The verdicts. Stored in `file.quality_verdict` under [`Verdict::as_str`]
+/// The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]
 /// (`clipped` is held back).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -164,7 +163,7 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    /// The name stored in `file.quality_verdict`.
+    /// The name stored in `file_verdict.verdict`.
     pub fn as_str(self) -> &'static str {
         match self {
             Verdict::Ok => "ok",
@@ -179,7 +178,7 @@ impl Verdict {
 /// One thing found about a file: a reason code and the numbers it's
 /// worded with. Serialized with a camelCase `code` and camelCase fields;
 /// the words come with the screen that shows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum Finding {
     /// The read stage found the file unplayable (zero bytes, an MP4 with no

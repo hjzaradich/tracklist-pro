@@ -7,6 +7,7 @@
 mod analysis_never_conflicts;
 mod file_quality;
 mod file_stage;
+mod file_verdict;
 mod files;
 mod fingerprint_audio_hash;
 mod fingerprint_match;
@@ -175,6 +176,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0019_fingerprint_matched.sql", &["fingerprint_matched"]),
     // Adds `file.fingerprint_rev` and its triggers, no tables.
     ("0020_fingerprint_rev.sql", &[]),
+    // The stored quality verdict per file (derived state).
+    ("0021_file_verdict.sql", &["file_verdict"]),
 ];
 
 #[test]

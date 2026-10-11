@@ -9,6 +9,7 @@ mod audio;
 #[cfg(windows)]
 mod job;
 mod measuring;
+mod store;
 #[cfg(windows)]
 mod support;
 mod verdict;

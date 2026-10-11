@@ -11,7 +11,8 @@ use super::support::{wait, Library};
 use super::{audio, low_passed, noise, pcm, wav};
 use crate::hash::hash_job;
 use crate::jobs::{JobId, JobKind, JobStatus, Priority};
-use crate::quality::{quality_job, request, VERSION};
+use crate::quality::verdict::Verdict;
+use crate::quality::{quality_job, request, store, stored_verdict, VERSION};
 use crate::scan::walk::scan_job;
 
 const RATE: u32 = 44_100;
@@ -642,4 +643,125 @@ fn due_files_are_listed_only_from_the_folders_that_can_be_reached() {
     assert_eq!(due_in(vec![in_b]), (vec![b], true));
     assert_eq!(due_in(vec![in_a, in_b]), (vec![a, b], true));
     assert_eq!(due_in(vec![]), (vec![], false));
+}
+
+/// Gives every file the columns the read stage would have: PCM, 44.1 kHz.
+/// (The support harness runs the walk and the hash stage only.)
+fn as_read_as_pcm(library: &Library) {
+    library
+        .writer
+        .call(|c| c.execute("UPDATE file SET codec = 'pcm', sample_rate = 44100", []))
+        .unwrap();
+}
+
+fn verdict_of(library: &Library, id: i64) -> Option<Verdict> {
+    library
+        .writer
+        .call(move |c| stored_verdict(c, id))
+        .unwrap()
+        .verdict
+}
+
+#[test]
+fn the_job_stores_each_files_verdict_as_its_measurement_lands() {
+    let library = Library::new();
+    library.put("Fake.wav", &lowpassed_wav(40, 12.0, 14_000.0));
+    library.put("Fine.wav", &full_band_wav(41, 12.0));
+    let ids = library.walk_and_hash();
+    as_read_as_pcm(&library);
+    assert_eq!(measure_all(&library), 2);
+    assert_eq!(
+        verdict_of(&library, ids["Fake.wav"]),
+        Some(Verdict::SuspectTranscode)
+    );
+    assert_eq!(verdict_of(&library, ids["Fine.wav"]), Some(Verdict::Ok));
+    // Nothing is left to settle.
+    let any = library.writer.call(|c| store::any_stale(c, None)).unwrap();
+    assert!(!any);
+}
+
+#[test]
+fn a_file_that_is_never_measured_still_gets_the_verdict_its_headers_give() {
+    let library = Library::new();
+    library.put("Low.mp3", &full_band_wav(42, 12.0));
+    library.put("Other.wav", &full_band_wav(43, 12.0));
+    let ids = library.walk_and_hash();
+    // What the read stage would have found, then the drive is unplugged:
+    // the file can't be measured.
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE file SET codec = 'mp3', bitrate = 128, sample_rate = 44100
+                 WHERE rel_path = 'Low.mp3'",
+                [],
+            )
+        })
+        .unwrap();
+    library.volume.set_online(false);
+    // A job for the other file only still settles every stale verdict.
+    let (qualifier, taken) = counting(&library);
+    let queue = library.queue(qualifier);
+    let id = queue
+        .enqueue(quality_job(Some(vec![ids["Other.wav"]])))
+        .unwrap();
+    assert_eq!(wait(&library.writer, id).status, JobStatus::Done);
+    queue.shutdown();
+    assert_eq!(taken.load(Ordering::SeqCst), 0, "nothing was reachable");
+    assert!(library.stored(ids["Low.mp3"]).is_none());
+    assert_eq!(
+        verdict_of(&library, ids["Low.mp3"]),
+        Some(Verdict::LowBitrate)
+    );
+}
+
+#[test]
+fn a_changed_input_is_settled_by_the_next_quality_job_without_decoding_audio() {
+    let library = Library::new();
+    library.put("a.wav", &full_band_wav(44, 12.0));
+    let ids = library.walk_and_hash();
+    as_read_as_pcm(&library);
+    assert_eq!(measure_all(&library), 1);
+
+    // The read stage found another bitrate and codec: the verdict is stale,
+    // the measurement is not.
+    library
+        .writer
+        .call(|c| c.execute("UPDATE file SET codec = 'mp3', bitrate = 128", []))
+        .unwrap();
+    assert_eq!(verdict_of(&library, ids["a.wav"]), None);
+    // Nothing is due a measurement, so the chain asks for no job: a verdict
+    // alone doesn't queue one. A job that runs anyway settles it.
+    assert_eq!(jobs_queued_by_a_request(&library), 0);
+    assert_eq!(measure_all(&library), 0, "no audio was decoded");
+    assert_eq!(
+        verdict_of(&library, ids["a.wav"]),
+        Some(Verdict::LowBitrate)
+    );
+}
+
+#[test]
+fn a_new_version_of_the_rules_is_applied_by_the_job_without_decoding_audio() {
+    let library = Library::new();
+    library.put("a.wav", &lowpassed_wav(45, 12.0, 14_000.0));
+    let ids = library.walk_and_hash();
+    as_read_as_pcm(&library);
+    assert_eq!(measure_all(&library), 1);
+    let id = ids["a.wav"];
+    assert_eq!(verdict_of(&library, id), Some(Verdict::SuspectTranscode));
+
+    // As if an older build's rules had called it fine.
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE file_verdict SET rules_version = rules_version + 1,
+                                         verdict = 'ok', findings = '[]'",
+                [],
+            )
+        })
+        .unwrap();
+    assert_eq!(verdict_of(&library, id), None);
+    assert_eq!(measure_all(&library), 0);
+    assert_eq!(verdict_of(&library, id), Some(Verdict::SuspectTranscode));
 }
