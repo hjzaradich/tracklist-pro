@@ -106,6 +106,27 @@ describe("the Library screen", () => {
     expect(first).not.toHaveAttribute("aria-describedby");
   });
 
+  it("says how many tracks the Library holds, above the list", async () => {
+    library([track(1), track(2), track(3)]);
+    renderScreen();
+    const count = await screen.findByText(tx("library:trackCount", { count: 3 }));
+    const table = screen.getByRole("table");
+    expect(count.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("counts a single track as one track", async () => {
+    library([track(1)]);
+    renderScreen();
+    expect(await screen.findByText(tx("library:trackCount", { count: 1 }))).toBeInTheDocument();
+  });
+
+  it("shows no count for an empty Library: it says there are no Library tracks", async () => {
+    library([]);
+    renderScreen();
+    expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("library:trackCount", { count: 0 }))).toBeNull();
+  });
+
   it("shows the file's name as the title of a track that has none", async () => {
     library([track(1, { title: null, artist: null })]);
     renderScreen();

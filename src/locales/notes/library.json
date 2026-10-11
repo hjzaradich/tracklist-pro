@@ -4,6 +4,14 @@
     "where": "Library screen, when it's empty.",
     "approved": "No Library tracks"
   },
+  "trackCount_one": {
+    "purpose": "How many tracks the Library holds, when it holds one. Same wording as the crate list's count (crates:trackCount_one).",
+    "where": "Library screen, above the track list."
+  },
+  "trackCount_other": {
+    "purpose": "How many tracks the Library holds. Same wording as the crate list's count (crates:trackCount_other).",
+    "where": "Library screen, above the track list."
+  },
   "columns.title": {
     "purpose": "Column heading for a track's title.",
     "where": "Library table header.",
