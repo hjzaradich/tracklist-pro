@@ -50,6 +50,19 @@ An installer you built yourself on the same PC doesn't show the warning. A copy 
 
 Before SmartScreen, a browser may also hold back the download ("isn't commonly downloaded"). Choose to keep the file.
 
+### Installing over an older version
+
+**Not run on this build.** The steps below are read from the installer the build generates.
+
+When an older tracklist-pro is already installed, the installer says so and offers two choices:
+
+- **Do not uninstall**: the new version is installed over the old one. Your Library and everything else in the app's data folders (section 4) are kept.
+- **Uninstall before installing**: the old version's uninstaller runs first, then the new version is installed. That uninstaller shows a box, **Delete the application data**. Leave it unticked. Ticked, it deletes both folders in section 4, your Library with them, and that can't be undone.
+
+Either choice works. **Do not uninstall** never shows that box.
+
+The first time the new version starts, it brings your existing database up to date by itself. Nothing needs doing, and your music files aren't touched.
+
 ## 4. Where your data is kept
 
 | Folder | What's in it |
