@@ -524,15 +524,14 @@ fn check(report: &Report) {
         assert!(together(a, b), "the unproposed copy of {a} isn't with it");
     }
     // Only same-named pairs the pass never proposed are compared directly:
-    // the planted ones, and the far ends of the sets that disagree.
+    // at most the planted ones (the pass does propose some of them: a
+    // flipped bit can make an item equal its neighbour) and the far ends of
+    // the sets that disagree. Never anything like every pair.
     let directly = report.first.0.compared_directly as usize;
-    let (least, most) = (
-        report.planted.unproposed.len(),
-        report.planted.unproposed.len() + report.planted.disagreeing.len(),
-    );
+    let most = report.planted.unproposed.len() + report.planted.disagreeing.len();
     assert!(
-        (least..=most).contains(&directly),
-        "{directly} pairs compared directly, expected {least} to {most}"
+        (1..=most).contains(&directly),
+        "{directly} pairs compared directly, expected 1 to {most}"
     );
     for &(a, b) in &report.planted.cuts {
         assert!(!together(a, b), "the cut {b} merged into {a}");
@@ -555,7 +554,8 @@ fn check(report: &Report) {
     // 100 new files: only they are decided, and each re-encode joins.
     assert_eq!(report.later.0.files, 100);
     assert_eq!(report.after_later.0.moved, 50);
-    for (&new, &single) in report.new_ids.iter().zip(&report.planted.singles) {
+    // The first 50 of them are the re-encodes, of the first 50 lone tracks.
+    for (&new, &single) in report.new_ids.iter().zip(&report.planted.singles).take(50) {
         assert_eq!(db.track_of(new), db.track_of(id(single)));
     }
     // Nothing due: nothing asked, nothing written, with or without the
