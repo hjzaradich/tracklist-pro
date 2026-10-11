@@ -37,6 +37,27 @@
 //! (the estimate shrinks with the file). "Keep anyway" in Review covers the
 //! first. A damaged frame in the middle costs far less than 2 s and isn't
 //! flagged; decode errors on an otherwise complete file are a note.
+//!
+//! **Not here: reading the rows into [`Facts`].** The job that uses this
+//! (1bC, grouping) maps the stored strings itself. What it has to map:
+//!
+//! - `file.codec`: `mp3`, `pcm`, `pcm_float`, `adpcm_ms`, `adpcm_ima`,
+//!   `alaw`, `mulaw`, `flac`, `aac`, `alac`, `vorbis`, `opus`, `speex`,
+//!   `ac3`, `eac3`, `wma`, `wavpack`, `musepack`, `ape`, `other` (the names
+//!   [`Codec::as_str`] writes) to a [`Codec`]; NULL, or a name it doesn't
+//!   know, is `None`.
+//! - `file.quality_verdict`: `truncated` and `broken` to the read stage's
+//!   [`ReadVerdict`]; NULL or anything else is `None`. That column is also
+//!   where these verdicts are stored (`ok`, `low_bitrate`,
+//!   `suspect_transcode`, `truncated`, `broken`), and the read stage clears
+//!   its own two on every read, so a `truncated` this function produced
+//!   must never be fed back in as the read stage's: keep the two apart.
+//! - `file.bitrate` (kbps), `file.sample_rate` (Hz): integers or NULL.
+//! - `file.audio_hash`: the 34-byte blob or NULL.
+//! - `file_quality` through [`super::ledger::stored`]; its `ended`
+//!   (`complete`, `cut_short`, `gave_up`) and `failure` (`unsupported_format`,
+//!   `unsupported_codec`, `no_audio`, `damaged`, `decoder_crashed`) strings
+//!   are compared here, against [`Ended::as_str`] and [`Failure::as_str`].
 
 use serde::Serialize;
 use specta::Type;
@@ -57,8 +78,10 @@ pub const FULL_QUALITY_KBPS: u32 = 318;
 /// 256 kbps but it's variable, so real averages sit around that.
 pub const FULL_QUALITY_AAC_KBPS: u32 = 240;
 /// An MP3 at this average or more has a cutoff worth judging: below it the
-/// encoder low-passes on purpose (a 192 kbps MP3 stops near 18 kHz).
-pub const TRANSCODE_FROM_KBPS: u32 = 256;
+/// encoder low-passes on purpose (a 192 kbps MP3 stops near 18 kHz). The
+/// line is 256 kbps; two kbps of allowance, so a nominal 256 whose average
+/// comes out at 255 is still checked.
+pub const TRANSCODE_FROM_KBPS: u32 = 254;
 /// An MP3 at [`TRANSCODE_FROM_KBPS`] or more with a cutoff below this was
 /// made from a much worse source (a "320" from a ~128 kbps file).
 pub const MP3_TRANSCODE_BELOW_HZ: u32 = 17_000;

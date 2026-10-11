@@ -265,7 +265,7 @@ fn a_file_with_no_known_bitrate_or_codec_gets_no_bitrate_finding() {
 // --- suspect transcode ---
 
 #[test]
-fn an_mp3_at_256_kbps_or_more_with_a_cutoff_below_17_khz_is_a_suspect_transcode() {
+fn an_mp3_at_254_kbps_or_more_with_a_cutoff_below_17_khz_is_a_suspect_transcode() {
     let a = mp3(320, &with_cutoff(16_000));
     assert_eq!(a.verdict, Some(Verdict::SuspectTranscode));
     assert_eq!(
@@ -296,11 +296,14 @@ fn the_mp3_cutoff_line_is_17_khz_exactly() {
 }
 
 #[test]
-fn the_mp3_bitrate_line_for_a_transcode_is_256_kbps_exactly() {
+fn the_mp3_bitrate_line_for_a_transcode_is_254_kbps_exactly() {
     let stored = with_cutoff(16_000);
     assert_eq!(mp3(256, &stored).verdict, Some(Verdict::SuspectTranscode));
-    // 255: a low cutoff is what the encoder does at that rate.
-    let below = mp3(255, &stored);
+    // A nominal 256 that averages 255 is still checked.
+    assert_eq!(mp3(255, &stored).verdict, Some(Verdict::SuspectTranscode));
+    assert_eq!(mp3(254, &stored).verdict, Some(Verdict::SuspectTranscode));
+    // 253: a low cutoff is what the encoder does at that rate.
+    let below = mp3(253, &stored);
     assert_eq!(below.verdict, Some(Verdict::Ok));
     assert!(matches!(below.note(), Some(Finding::CouldBeBetter { .. })));
     assert_eq!(below.findings.len(), 1);
@@ -404,7 +407,7 @@ fn a_cutoff_that_couldnt_be_measured_is_no_finding_and_not_a_flag() {
 // --- the "possibly lower quality" note ---
 
 #[test]
-fn a_cutoff_from_17_to_below_19_khz_is_possibly_lower_quality_at_256_kbps_or_more() {
+fn a_cutoff_from_17_to_below_19_khz_is_possibly_lower_quality_at_254_kbps_or_more() {
     for hz in [17_000, 18_000, 18_999] {
         let a = mp3(320, &with_cutoff(hz));
         assert_eq!(a.verdict, Some(Verdict::Ok), "{hz}");
@@ -422,14 +425,14 @@ fn a_cutoff_from_17_to_below_19_khz_is_possibly_lower_quality_at_256_kbps_or_mor
 }
 
 #[test]
-fn the_possibly_lower_quality_note_needs_256_kbps_or_more() {
+fn the_possibly_lower_quality_note_needs_254_kbps_or_more() {
     let stored = with_cutoff(18_000);
     assert!(matches!(
-        mp3(256, &stored).note(),
+        mp3(254, &stored).note(),
         Some(Finding::PossiblyLowerQuality { .. })
     ));
     // 192 kbps stops there by design: only the bitrate note shows.
-    let a = mp3(255, &stored);
+    let a = mp3(253, &stored);
     assert!(a
         .findings
         .iter()
@@ -610,7 +613,7 @@ fn a_flagged_file_has_no_notes() {
         decode_errors: 4,
         ..with_cutoff(16_000)
     };
-    // Suspect transcode at 256: could-be-better and decode errors would
+    // Suspect transcode at 256 kbps: could-be-better and decode errors would
     // both apply as notes; neither is listed.
     let a = mp3(256, &stored);
     assert_eq!(a.verdict, Some(Verdict::SuspectTranscode));
