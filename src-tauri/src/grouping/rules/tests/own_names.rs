@@ -114,10 +114,14 @@ fn a_file_name_that_adds_words_but_no_label_word_to_its_tags_title_is_just_anoth
 }
 
 #[test]
-fn a_file_name_whose_title_only_starts_with_the_letters_of_its_tags_title_is_just_another_title() {
+fn a_file_name_whose_title_only_starts_with_the_letters_of_its_tags_title_raises_no_doubt_of_its_own(
+) {
+    // "Velocity Clean" doesn't hold the title "Velo": no doubt from the
+    // file's own names. Its "Clean" is still a version word the other
+    // file lacks, so the final guard asks.
     let got = decided(full(), &file("Velo", "Velocity Clean.mp3"), &plain("Velo"));
-    assert_eq!(got.outcome, Outcome::Duplicate);
-    assert_eq!(codes(&got), ["sameAudio"]);
+    assert_eq!(got.outcome, Outcome::NeedsReview);
+    assert_eq!(codes(&got), ["labelWordsDiffer", "sameAudio"]);
 }
 
 #[test]

@@ -59,6 +59,7 @@ fn outcome_of(code: &str) -> &'static str {
         | "audioInsideOtherNamesDisagree"
         | "sameTagsPartialAudio"
         | "partialAudioNamesUnclear"
+        | "labelWordsDiffer"
         | "notCompared"
         | "noFingerprint" => "needsReview",
         "fingerprintVeto"
@@ -119,6 +120,7 @@ fn every_outcome_and_every_deciding_reason_is_reached() {
         "namesSayCut",
         "namesSayRework",
         "mashupContains",
+        "labelWordsDiffer",
         "fingerprintVeto",
         "notCompared",
         "noFingerprint",
@@ -232,7 +234,7 @@ fn a_reasons_code_is_what_it_serializes_as_in_camel_case() {
         }
     }
     // Every reason there is came by.
-    assert_eq!(seen.len(), 21);
+    assert_eq!(seen.len(), 22);
 }
 
 #[test]

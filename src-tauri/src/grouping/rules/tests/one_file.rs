@@ -262,15 +262,6 @@ fn full_audio_under_two_titles_with_the_same_labels_is_a_duplicate_and_says_the_
 }
 
 #[test]
-fn full_audio_under_two_titles_leaves_label_words_in_a_title_alone() {
-    // "Come Clean" beside an unrelated title: nothing says "Clean" is a
-    // cut here, so it is a duplicate under another name.
-    let got = decided(full(), &titled("Come Clean"), &titled("Nightdrive"));
-    assert_eq!(got.outcome, Outcome::Duplicate);
-    assert_eq!(codes(&got), ["sameAudio", "namesDiffer"]);
-}
-
-#[test]
 fn without_matched_audio_labels_under_two_titles_decide_nothing() {
     for audio in [
         partial(),

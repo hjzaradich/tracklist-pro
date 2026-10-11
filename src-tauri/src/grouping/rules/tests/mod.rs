@@ -6,6 +6,8 @@
 //! - `own_names`: a file's tag and file name set side by side.
 //! - `readings`: which reading of the titles (tags, file names) decides.
 //! - `measured`: numbers that can't be measurements are refused.
+//! - `guard`: full audio merges only files whose names carry the same
+//!   version words, however a label word is written.
 //! - `boundaries`: each threshold (90%, score 4, the shared-audio floor),
 //!   on both sides.
 //! - `e3_rules`: one test per rule under "Rules from the E3 labels" in
@@ -18,6 +20,7 @@ use super::*;
 
 mod boundaries;
 mod e3_rules;
+mod guard;
 mod measured;
 mod one_file;
 mod own_names;
@@ -37,7 +40,7 @@ fn plain_file_name() -> String {
         word.push(char::from(b'a' + (n % 26) as u8));
         n /= 26;
     }
-    format!("untitled {word}.wav")
+    format!("untitled zq{word}.wav")
 }
 
 /// A file with a title tag, and a file name that says nothing.

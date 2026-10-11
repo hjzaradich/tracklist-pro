@@ -172,11 +172,47 @@
 //! artists to agree: the same title can be a different song. One file being
 //! credited to the remixer the names give counts as agreeing.
 //!
+//! # The final guard
+//!
+//! Everything above reads names as the parser does, and the parser only
+//! reads a label where convention puts one. So one invariant is checked
+//! last, in front of every merge on a full (not identical) audio match:
+//!
+//! **Two files with a full audio match merge silently only if their names
+//! carry the same version words.**
+//!
+//! - A file's version words are the label words the parser knows
+//!   ([`crate::versions::label_kind`]: the longest label first, up to three
+//!   words, "Original" aside), in brackets or bare, anywhere in its title
+//!   tag or its file name, split at spaces, hyphens, underscores, brackets
+//!   and dots. Each label counts as often as the one name that writes it
+//!   most does: "Come Clean" named "Come Clean (Clean).mp3" is Clean
+//!   twice; named "nightdrive promo.mp3", once. Intro and Outro together
+//!   are Intro-Outro.
+//! - The file's artist is set aside only where a name spells the whole
+//!   artist out, as words in a row: by "Dub Kestrel", "Dub Kestrel - Velo"
+//!   carries no version word, and "Velo Dub 128" carries Dub. The artists
+//!   are the artist tag's, a title tag's "feat.", and a file name's artist
+//!   part when the title tag bears it out (the tag's title is in the
+//!   name's title part and not in its artist part, and the artist part is
+//!   more than label words).
+//! - If the two files' version words differ, a merge becomes "needs
+//!   review" (`labelWordsDiffer`, with the labels each file has more of).
+//!   A pair the table already keeps apart (a cut link, review) is left as
+//!   it is. Identical audio still merges whatever the names; one file
+//!   inside the other and the rows without matched audio are untouched.
+//!
+//! The price is review items for pairs a DJ would call the same: a title
+//! that holds a label word ("Come Clean") beside the same audio under
+//! another title, or an untagged file by an artist named with a label
+//! word beside one that doesn't name the artist.
+//!
 //! # What only merges on audio
 //!
 //! Nothing is ever a duplicate on names. Only identical or full audio
 //! merges, and full audio doesn't when the two files' labels differ, or
-//! can't be told: Clean and Dirty fingerprint identically.
+//! can't be told, or their names don't carry the same version words:
+//! Clean and Dirty fingerprint identically.
 //!
 //! # Known limits
 //!
@@ -192,14 +228,16 @@
 //!   line is one constant ([`DUPLICATE_SCORE`]).
 //! - **A remix credited to its remixer** agrees with any track of the same
 //!   title, whoever made it: the names can't say which song was remixed.
-//! - **Label words a title keeps** ("Come Clean", "Paper Harbor Extended
-//!   Mix" with no brackets) are not a file's labels until another title
-//!   settles it: the file's own other name, or the other file's. A file
-//!   with one name, or two that both keep the words, beside a file under
-//!   another title, stays as titled.
+//! - **A label word fused to another word** ("VeloDirty.mp3", "Velo
+//!   Dirty128.mp3") is not seen by anything here: there is no word break
+//!   to find it by. Such a file merges with its plain twin on full audio.
+//! - **Words the parser doesn't know as labels** ("Acoustic", "Vocal Mix")
+//!   are no version words.
 //! - **A bare label word beside the same label in brackets** ("Velo
 //!   Dirty.mp3" beside "Velo (Dirty).mp3", both tagged "Velo") is a cut
 //!   link, though both are probably the Dirty cut: linked, never merged.
+
+use std::collections::BTreeMap;
 
 use serde::{Serialize, Serializer};
 
@@ -464,6 +502,8 @@ pub struct FileFacts {
     /// don't settle: the two titles they give, as compared. Two files
     /// with the same doubt don't differ by it.
     own_doubt: Option<String>,
+    /// The version words the file's names carry, for the final guard.
+    label_words: LabelWords,
 }
 
 impl FileFacts {
@@ -473,14 +513,19 @@ impl FileFacts {
     /// is, and counts for both names.
     pub fn new(title_tag: Option<&str>, artist_tag: Option<&str>, file_name: &str) -> FileFacts {
         let by_file_name = versions::parse_file_name(file_name);
-        let by_tag = title_tag
-            .filter(|title| !title.trim().is_empty())
-            .map(versions::parse_title);
+        let title_tag = title_tag.filter(|title| !title.trim().is_empty());
+        let by_tag = title_tag.map(versions::parse_title);
+        let label_words = label_words(
+            title_tag.zip(by_tag.as_ref()),
+            (file_name, &by_file_name),
+            artist_tag,
+        );
         let Some(by_tag) = by_tag else {
             return FileFacts {
                 tagged: None,
                 file_name: Name::new(by_file_name, artist_tag),
                 own_doubt: None,
+                label_words,
             };
         };
         // A file's own two names are evidence about that file: with their
@@ -525,6 +570,7 @@ impl FileFacts {
             tagged: Some(tagged),
             file_name,
             own_doubt,
+            label_words,
         }
     }
 
@@ -556,6 +602,131 @@ fn position_of(words: &[String], run: &[String]) -> Option<usize> {
         return None;
     }
     words.windows(run.len()).position(|window| window == run)
+}
+
+/// The version words a file's names carry: for each label the parser
+/// knows, how often it is written in the one name that writes it most.
+type LabelWords = BTreeMap<MarkerKind, usize>;
+
+/// The label words in one name, wherever they are and however they are
+/// set off: its words are read from the left, the longest label first
+/// ("radio edit" before "radio"), "Original" aside. `set_aside` are the
+/// file's artists: each is taken out once, where its whole name stands in
+/// this name as words in a row, so "Dub Kestrel" is no dub, and a "Dub"
+/// elsewhere in the name still is.
+fn label_words_in(name: &str, set_aside: &[Vec<String>]) -> LabelWords {
+    let mut rest = words(name);
+    for artist in set_aside {
+        if let Some(at) = position_of(&rest, artist) {
+            rest.drain(at..at + artist.len());
+        }
+    }
+    let mut found = LabelWords::new();
+    for kind in labels_among(&rest).0 {
+        if kind != MarkerKind::Original {
+            *found.entry(kind).or_default() += 1;
+        }
+    }
+    found
+}
+
+/// The labels among `words`, read from the left, the longest first, and
+/// how many words are no part of any.
+fn labels_among(words: &[String]) -> (Vec<MarkerKind>, usize) {
+    let (mut kinds, mut others) = (Vec::new(), 0);
+    let mut at = 0;
+    while at < words.len() {
+        let longest = (1..=versions::tables::MAX_LABEL_WORDS.min(words.len() - at))
+            .rev()
+            .find_map(|n| versions::label_kind(&words[at..at + n].join(" ")).map(|kind| (kind, n)));
+        match longest {
+            Some((kind, n)) => {
+                kinds.push(kind);
+                at += n;
+            }
+            None => {
+                others += 1;
+                at += 1;
+            }
+        }
+    }
+    (kinds, others)
+}
+
+/// The version words of a file: those of its title tag (as written, with
+/// its parse) and of its file name, each label counted as often as the
+/// name that writes it most does. "Come Clean" named "Come Clean
+/// (Clean).mp3" is Clean twice; named "nightdrive promo.mp3", once.
+///
+/// The artist tag's artists are set aside, and so are the artists each
+/// name itself gives (a title tag's "feat."; a file name's artist part).
+/// A file name's artist part is only trusted as the artist when the
+/// file's title tag says so: the tag's title stands in the name's title
+/// part and not in its artist part, and the artist part isn't label words
+/// and nothing else. "Velo Clean - Halden Rook.mp3" and "Clean - Velo.mp3"
+/// tagged "Velo" keep their "Clean"; so does any file name with no title
+/// tag, where nothing says which side of the dash the artist is on.
+fn label_words(
+    tag: Option<(&str, &ParsedName)>,
+    file_name: (&str, &ParsedName),
+    artist_tag: Option<&str>,
+) -> LabelWords {
+    let artists = |own: &[versions::Credit]| {
+        let mut artists: Vec<Vec<String>> = Vec::new();
+        let tagged = artist_tag.map(versions::parse_artists).unwrap_or_default();
+        for credit in own.iter().chain(&tagged) {
+            let artist = words(&credit.name);
+            if !artist.is_empty() && !artists.contains(&artist) {
+                artists.push(artist);
+            }
+        }
+        artists
+    };
+    let (file_name, by_file_name) = file_name;
+    // Folders in front of a file name are no part of its name.
+    let file_name = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
+    let artist_part_trusted = tag.is_some_and(|(_, by_tag)| {
+        let title = words(&by_tag.base_title);
+        let artist_part: Vec<Vec<String>> = by_file_name
+            .credits
+            .iter()
+            .map(|credit| words(&credit.name))
+            .collect();
+        let only_label_words = artist_part.iter().any(|artist| labels_among(artist).1 == 0);
+        position_of(&words(&by_file_name.base_title), &title).is_some()
+            && !artist_part
+                .iter()
+                .any(|artist| position_of(artist, &title).is_some())
+            && !only_label_words
+    });
+    let own: &[versions::Credit] = match artist_part_trusted {
+        true => &by_file_name.credits,
+        false => &[],
+    };
+    let mut found = label_words_in(file_name, &artists(own));
+    if let Some((title, by_tag)) = tag {
+        for (kind, count) in label_words_in(title, &artists(&by_tag.credits)) {
+            let most = found.entry(kind).or_default();
+            *most = (*most).max(count);
+        }
+    }
+    // Intro and Outro together are Intro-Outro, as within one name.
+    let both = (found.get(&MarkerKind::Intro).copied().unwrap_or(0))
+        .min(found.get(&MarkerKind::Outro).copied().unwrap_or(0));
+    if both > 0 {
+        *found.entry(MarkerKind::IntroOutro).or_default() += both;
+        for kind in [MarkerKind::Intro, MarkerKind::Outro] {
+            match found.get(&kind).copied() {
+                Some(count) if count > both => {
+                    found.insert(kind, count - both);
+                }
+                _ => {
+                    found.remove(&kind);
+                }
+            }
+        }
+    }
+    found
 }
 
 /// Whether `name`, one of a file's two names, holds the whole title of the
@@ -756,6 +927,15 @@ pub enum Reason {
     /// `mashup` names the other file's title as one of its parts, and the
     /// two share audio.
     MashupContains { mashup: Side, part: String },
+    /// The audio matches in full and the table would merge, but the two
+    /// files' names don't carry the same version words (the final guard):
+    /// the labels one file's names carry more of than the other's.
+    LabelWordsDiffer {
+        #[serde(serialize_with = "kind_names")]
+        only_a: Vec<MarkerKind>,
+        #[serde(serialize_with = "kind_names")]
+        only_b: Vec<MarkerKind>,
+    },
     /// The names are the same, but the fingerprints share nothing.
     FingerprintVeto,
     /// The names are the same, and a file has no fingerprint to check
@@ -804,6 +984,7 @@ impl Reason {
             Reason::NamesSayCut { .. } => "namesSayCut",
             Reason::NamesSayRework { .. } => "namesSayRework",
             Reason::MashupContains { .. } => "mashupContains",
+            Reason::LabelWordsDiffer { .. } => "labelWordsDiffer",
             Reason::FingerprintVeto => "fingerprintVeto",
             Reason::NoFingerprint => "noFingerprint",
             Reason::NotCompared => "notCompared",
@@ -862,6 +1043,10 @@ impl Reason {
                 }
             }
             Reason::NamesSayCut { only_a, only_b } => Reason::NamesSayCut {
+                only_a: only_b,
+                only_b: only_a,
+            },
+            Reason::LabelWordsDiffer { only_a, only_b } => Reason::LabelWordsDiffer {
                 only_a: only_b,
                 only_b: only_a,
             },
@@ -1178,6 +1363,34 @@ fn credit_notes(credits: &Credits) -> Vec<Reason> {
 /// the [module docs](self). The answer doesn't depend on which file comes
 /// first: swapping them swaps the sides in the reasons, nothing else.
 pub fn decide(pair: &Pair<'_>) -> Decision {
+    let decision = by_table(pair);
+    // The final guard: on a full (not identical) audio match, two files
+    // merge silently only if their names carry the same version words.
+    let (mine, theirs) = (&pair.a.label_words, &pair.b.label_words);
+    let merges_on_full_audio =
+        decision.outcome == Outcome::Duplicate && matches!(shared(pair.audio), Shared::Full(_));
+    if !merges_on_full_audio || mine == theirs {
+        return decision;
+    }
+    let more = |mine: &LabelWords, theirs: &LabelWords| -> Vec<MarkerKind> {
+        mine.iter()
+            .filter(|(kind, count)| **count > theirs.get(kind).copied().unwrap_or(0))
+            .map(|(kind, _)| *kind)
+            .collect()
+    };
+    let mut reasons = vec![Reason::LabelWordsDiffer {
+        only_a: more(mine, theirs),
+        only_b: more(theirs, mine),
+    }];
+    reasons.extend(decision.reasons);
+    Decision {
+        outcome: Outcome::NeedsReview,
+        reasons,
+    }
+}
+
+/// What the table says, before the final guard.
+fn by_table(pair: &Pair<'_>) -> Decision {
     let shared = shared(pair.audio);
     let audio_led = matches!(
         shared,
