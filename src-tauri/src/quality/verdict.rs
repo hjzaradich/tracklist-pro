@@ -136,8 +136,9 @@ fn class(codec: Codec) -> Class {
         Codec::Pcm | Codec::PcmFloat | Codec::Flac | Codec::Alac | Codec::WavPack | Codec::Ape => {
             Class::Lossless
         }
-        // No lines were set for these (owner, via the foreman, 1bB-6): the
-        // app makes no bitrate claim about a codec nobody decided about.
+        // No lines were set for these (foreman's ruling, 1bB-6: the owner
+        // set lines for MP3-like files only): the app makes no bitrate
+        // claim about a codec nobody decided about.
         Codec::Ac3
         | Codec::Eac3
         | Codec::Musepack
