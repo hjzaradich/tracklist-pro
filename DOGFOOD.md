@@ -28,8 +28,8 @@ Found by a read-through of the Phase 1a flow and by reviews on 2026-10-02, and l
 | K13 | Formats rekordbox may not play | New tracks in Ogg, Opus, WMA and similar are sent without a Kind and without a warning. | |
 | K14 | All music | A row can show a title taken from the file's tags, which the list doesn't sort or search by. Sorting and search use the stored title, artist and file name. | |
 | K15 | Library | The list at 10,000 tracks takes about 0.4 s to load, up from about 0.1 s, since it shows the titles a send would write. | |
-| K16 | Sending | One send per export: after a send, a second send from the same export is refused until a new export is saved, whether or not the first was imported. | |
-| K17 | A drive with coarse file times (FAT, exFAT) | An export saved within 2 s after a send could be refused as older than the send. | |
+| K16 | Sending | One send per export: after a send, a second send from the same export is refused until a new export is saved, whether or not the first was imported. Changed 2026-10-10: the app now asks whether a send was imported since the export was saved, and goes ahead on "no". | |
+| K17 | A drive with coarse file times (FAT, exFAT) | An export saved within 2 s after a send could be refused as older than the send. Since 2026-10-10 it is asked about instead of refused. | |
 
 ## Cycle 1 (backup copy of the rekordbox library)
 
