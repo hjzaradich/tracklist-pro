@@ -293,6 +293,41 @@ fn a_flac_against_a_320_mp3_is_a_format_reason_with_both_formats() {
 }
 
 #[test]
+fn a_trusted_rekordbox_match_is_ahead_of_a_probable_one() {
+    let trusted = with(file(2), |f| f.rekordbox = RekordboxLink::Trusted);
+    let probable = with(file(1), |f| f.rekordbox = RekordboxLink::Probable);
+    assert_eq!(
+        why_ahead(&trusted, &probable),
+        Some(Reason::KnownToRekordbox {
+            best: RekordboxLink::Trusted,
+            other: RekordboxLink::Probable,
+        })
+    );
+    assert_eq!(why_ahead(&probable, &trusted), None);
+}
+
+#[test]
+fn a_probable_rekordbox_match_is_ahead_of_a_file_rekordbox_does_not_know() {
+    let probable = with(file(2), |f| f.rekordbox = RekordboxLink::Probable);
+    let unknown = with(file(1), |f| f.rekordbox = RekordboxLink::Unknown);
+    assert_eq!(
+        why_ahead(&probable, &unknown),
+        Some(Reason::KnownToRekordbox {
+            best: RekordboxLink::Probable,
+            other: RekordboxLink::Unknown,
+        })
+    );
+    assert_eq!(why_ahead(&unknown, &probable), None);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "distinct")]
+fn two_files_with_the_same_id_are_refused_in_debug_builds() {
+    let _ = rank(&[file(1), file(1)]);
+}
+
+#[test]
 fn reasons_serialize_with_a_camel_case_code_and_camel_case_facts() {
     let cut = Reason::HigherCutoff {
         best_hz: Some(20_000),

@@ -72,6 +72,32 @@ fn the_picture_with_more_pixels_wins_even_from_a_worse_ranked_file_and_with_fewe
 }
 
 #[test]
+fn pixels_are_width_times_height_not_the_width_or_the_height_alone() {
+    // 1000 x 100 is 100,000 pixels, less than 400 x 400 (160,000), though
+    // it is wider. 100 x 1000 is the same, taller.
+    for (width, height) in [(1_000, 100), (100, 1_000)] {
+        let thin = with_art(1, sized(500_000, width, height));
+        let square = with_art(2, sized(10_000, 400, 400));
+        let art = pick(&[thin, square]).art.unwrap();
+        assert_eq!(art.from_file, 2, "{width} x {height}");
+        assert_eq!(art.reason, ArtReason::Largest);
+    }
+    // And a non-square picture with more pixels wins.
+    let wide = with_art(1, sized(10_000, 1_000, 300));
+    let square = with_art(2, sized(500_000, 400, 400));
+    assert_eq!(pick(&[wide, square]).art.unwrap().from_file, 1);
+}
+
+#[test]
+fn a_picture_with_known_pixels_beats_one_with_unknown_pixels_whatever_the_bytes() {
+    let known = with_art(1, sized(1_000, 50, 50));
+    let unknown = with_art(2, picture(5_000_000));
+    for files in [[known.clone(), unknown.clone()], [unknown, known]] {
+        assert_eq!(pick(&files).art.unwrap().from_file, 1);
+    }
+}
+
+#[test]
 fn where_pixels_are_unknown_the_larger_size_in_bytes_wins() {
     let small = with_art(1, sized(10_000, 500, 500));
     // Pixels unknown on this one: counted as none, so it loses to a file

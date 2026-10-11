@@ -269,6 +269,88 @@ fn every_codec_the_lists_name_is_in_the_class_it_is_listed_under() {
     }
 }
 
+fn lossy(id: i64, codec: Codec, kbps: Option<u32>) -> FileFacts {
+    with(file(id), |f| {
+        f.format = Format {
+            codec: Some(codec),
+            kbps,
+        }
+    })
+}
+
+#[test]
+fn a_320_kbps_aac_is_ahead_of_a_192_kbps_mp3_full_quality_comes_before_the_codec_list() {
+    let aac = lossy(2, Codec::Aac, Some(320));
+    let mp3 = lossy(1, Codec::Mp3, Some(192));
+    let why = why_ahead(&aac, &mp3).unwrap();
+    assert_eq!(
+        why,
+        Reason::BetterFormat {
+            best: aac.format,
+            other: mp3.format
+        }
+    );
+    assert_eq!(why_ahead(&mp3, &aac), None);
+}
+
+#[test]
+fn a_320_kbps_mp3_is_ahead_of_a_256_kbps_aac_both_are_at_full_quality() {
+    let mp3 = lossy(2, Codec::Mp3, Some(320));
+    let aac = lossy(1, Codec::Aac, Some(256));
+    assert_eq!(why_ahead(&mp3, &aac).unwrap().step(), Some(Step::Format));
+    assert_eq!(why_ahead(&aac, &mp3), None);
+}
+
+#[test]
+fn full_quality_for_aac_starts_at_the_aac_line_not_the_general_one() {
+    use crate::quality::verdict::{FULL_QUALITY_AAC_KBPS, FULL_QUALITY_KBPS};
+    // An AAC on its line is at full quality and beats an MP3 a hair under
+    // the MP3 line, though the list puts MP3 first.
+    let aac = lossy(2, Codec::Aac, Some(FULL_QUALITY_AAC_KBPS));
+    let almost = lossy(1, Codec::Mp3, Some(FULL_QUALITY_KBPS - 1));
+    assert!(why_ahead(&aac, &almost).is_some());
+    // One under the AAC line: neither is at full quality, the list decides.
+    let under = lossy(2, Codec::Aac, Some(FULL_QUALITY_AAC_KBPS - 1));
+    assert!(why_ahead(&almost, &under).is_some());
+    assert!(why_ahead(&under, &almost).is_none());
+    // Both at full quality: the list decides.
+    let mp3 = lossy(1, Codec::Mp3, Some(FULL_QUALITY_KBPS));
+    assert!(why_ahead(&mp3, &aac).is_some());
+}
+
+#[test]
+fn vorbis_opus_and_wma_use_the_general_full_quality_line() {
+    for codec in [Codec::Vorbis, Codec::Opus, Codec::Wma] {
+        let full = lossy(2, codec, Some(320));
+        let not_full = lossy(1, Codec::Mp3, Some(192));
+        assert!(why_ahead(&full, &not_full).is_some(), "{codec:?}");
+    }
+}
+
+#[test]
+fn a_lossy_file_with_no_bitrate_is_not_at_full_quality() {
+    let unknown = lossy(1, Codec::Mp3, None);
+    let aac_full = lossy(2, Codec::Aac, Some(320));
+    assert!(why_ahead(&aac_full, &unknown).is_some());
+    // Beside a file that isn't at full quality either, the list decides.
+    let aac_low = lossy(2, Codec::Aac, Some(128));
+    assert!(why_ahead(&unknown, &aac_low).is_some());
+}
+
+#[test]
+fn among_lossy_files_neither_at_full_quality_the_codec_list_comes_before_the_bitrate() {
+    let mp3 = lossy(2, Codec::Mp3, Some(160));
+    let aac = lossy(1, Codec::Aac, Some(224));
+    assert!(why_ahead(&mp3, &aac).is_some());
+}
+
+#[test]
+fn a_lossless_file_is_ahead_of_a_lossy_file_at_full_quality() {
+    let flac = with_codec(2, Codec::Flac);
+    let mp3 = lossy(1, Codec::Mp3, Some(320));
+    assert!(why_ahead(&flac, &mp3).is_some());
+}
+
 #[test]
 fn a_file_whose_codec_is_not_known_ranks_with_the_unranked() {
     let unknown = with(file(1), |f| f.format.codec = None);
@@ -284,10 +366,15 @@ fn a_file_whose_codec_is_not_known_ranks_with_the_unranked() {
 
 #[test]
 fn among_lossy_files_of_one_codec_the_higher_header_bitrate_is_ahead() {
-    let high = with(file(2), |f| f.format.kbps = Some(320));
-    let low = with(file(1), |f| f.format.kbps = Some(256));
+    // Neither is at full quality: the bitrate is all that's left.
+    let high = with(file(2), |f| f.format.kbps = Some(256));
+    let low = with(file(1), |f| f.format.kbps = Some(192));
     let why = why_ahead(&high, &low).unwrap();
     assert_eq!(why.step(), Some(Step::Format));
+    // Both at full quality: the bitrate still orders them.
+    let a = with(file(2), |f| f.format.kbps = Some(320));
+    let b = with(file(1), |f| f.format.kbps = Some(319));
+    assert_eq!(why_ahead(&a, &b).unwrap().step(), Some(Step::Format));
 }
 
 #[test]

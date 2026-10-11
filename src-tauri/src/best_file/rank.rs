@@ -7,7 +7,9 @@ use serde::Serialize;
 
 use super::pick::tags_filled;
 use super::{FileFacts, FolderRole, Format, Place, RekordboxLink, VolumeKind};
-use crate::quality::verdict::{Verdict, POSSIBLY_LOWER_BELOW_HZ};
+use crate::quality::verdict::{
+    Verdict, FULL_QUALITY_AAC_KBPS, FULL_QUALITY_KBPS, POSSIBLY_LOWER_BELOW_HZ,
+};
 use crate::read::Codec;
 
 /// A cutoff counts in steps of this many Hz: two files whose cutoffs are
@@ -20,10 +22,10 @@ pub const CUTOFF_STEP_HZ: u32 = 1_000;
 /// quality").
 pub const FULL_BAND_FROM_HZ: u32 = POSSIBLY_LOWER_BELOW_HZ;
 
-/// Lossless codecs, best first. FLAC, then WAV and AIFF (both are PCM), then
-/// ALAC, then the formats rekordbox doesn't play. A proposal: when files of
-/// equal quality differ only here, the choice matters little, so the order
-/// follows tag support and how widely the format plays.
+/// Lossless codecs, best first (owner decision, 2026-10-11): FLAC, WAV and
+/// AIFF (both are integer PCM), a float-sample WAV, ALAC, WavPack, APE. The
+/// float WAV is below the integer one because float samples are the rarer
+/// flavour, and more players and tools can't open them.
 pub const LOSSLESS_ORDER: [Codec; 6] = [
     Codec::Flac,
     Codec::Pcm,
@@ -33,8 +35,9 @@ pub const LOSSLESS_ORDER: [Codec; 6] = [
     Codec::Ape,
 ];
 
-/// Lossy codecs, best first: the ones every player and rekordbox play, then
-/// the ones they don't. A proposal.
+/// Lossy codecs, best first (owner decision, 2026-10-11): MP3, AAC, Vorbis,
+/// Opus, WMA. It applies among lossy files that are, or are not, at full
+/// quality for their codec (step 6 in the module docs).
 pub const LOSSY_ORDER: [Codec; 5] = [
     Codec::Mp3,
     Codec::Aac,
@@ -176,8 +179,17 @@ pub fn why_ahead(a: &FileFacts, b: &FileFacts) -> Option<Reason> {
     (ordering == Ordering::Greater).then(|| reason(step, a, b))
 }
 
-/// The files best first, as references.
+/// The files best first, as references. The file ids must be distinct: they
+/// are the last tie-break and how a result names a file.
 pub(super) fn sorted(files: &[FileFacts]) -> Vec<&FileFacts> {
+    debug_assert!(
+        {
+            let mut ids: Vec<i64> = files.iter().map(|file| file.file_id).collect();
+            ids.sort_unstable();
+            ids.windows(2).all(|pair| pair[0] != pair[1])
+        },
+        "the file ids must be distinct"
+    );
     let mut sorted: Vec<&FileFacts> = files.iter().collect();
     sorted.sort_by(|a, b| compare(b, a));
     sorted
@@ -311,9 +323,23 @@ fn class(codec: Option<Codec>) -> Class {
     }
 }
 
-/// Greater is better: the class, then the codec's place in its list, then
-/// (lossy only) the header bitrate.
-fn format_rank(file: &FileFacts) -> (Class, usize, Option<u32>) {
+/// Whether a lossy file is at full quality for its codec, by the quality
+/// verdict's own lines ([`FULL_QUALITY_KBPS`], and AAC's
+/// [`FULL_QUALITY_AAC_KBPS`]): the files `assess` gives no "could be better"
+/// note. A header with no bitrate isn't.
+fn at_full_quality(format: &Format) -> bool {
+    let from = match format.codec {
+        Some(Codec::Aac) => FULL_QUALITY_AAC_KBPS,
+        Some(Codec::Mp3 | Codec::Vorbis | Codec::Opus | Codec::Wma) => FULL_QUALITY_KBPS,
+        _ => return false,
+    };
+    format.kbps.is_some_and(|kbps| kbps >= from)
+}
+
+/// Greater is better: the class; for lossy files, whether at full quality
+/// for the codec; the codec's place in its list; then (lossy only) the
+/// header bitrate.
+fn format_rank(file: &FileFacts) -> (Class, bool, usize, Option<u32>) {
     let class = class(file.format.codec);
     let list: &[Codec] = match class {
         Class::Lossless => &LOSSLESS_ORDER,
@@ -326,10 +352,9 @@ fn format_rank(file: &FileFacts) -> (Class, usize, Option<u32>) {
         .codec
         .and_then(|codec| list.iter().position(|c| *c == codec))
         .map_or(0, |index| list.len() - index);
-    let kbps = (class == Class::Lossy)
-        .then_some(file.format.kbps)
-        .flatten();
-    (class, place, kbps)
+    let lossy = class == Class::Lossy;
+    let kbps = lossy.then_some(file.format.kbps).flatten();
+    (class, lossy && at_full_quality(&file.format), place, kbps)
 }
 
 /// Greater is better: a connected volume, the scan folder, the kind of
