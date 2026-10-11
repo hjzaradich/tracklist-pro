@@ -28,7 +28,9 @@ CREATE TABLE grouping_pair (
     link_source TEXT    CHECK (link_source IN ('parser', 'fingerprint')),
     link_first  TEXT    CHECK (link_first IN ('a', 'b')),
     -- Where the pair stands, set by every grouping run:
-    --   waiting          a duplicate whose set isn't decided in full yet
+    --   waiting          a duplicate whose set isn't decided in full yet,
+    --                    or one of whose two files isn't on disk (it waits
+    --                    for the file to come back)
     --   merged           a duplicate, and the two files share a track
     --   both_in_library  a duplicate held apart: both tracks are in the
     --                    Library (the user decides, 1bE-9)
@@ -59,7 +61,9 @@ CREATE TABLE grouping_file (
     file_id         INTEGER NOT NULL PRIMARY KEY REFERENCES file (id) ON DELETE CASCADE,
     -- The audio the file held when it was put in its track: its
     -- `audio_hash`, or its `blake3` when it has none. NULL when it had
-    -- neither. A file that holds other audio now leaves its track.
+    -- neither. A file that holds other audio now leaves its track. (A tag
+    -- rewrite changes a `blake3`, so a file with no `audio_hash` leaves on
+    -- one, and is decided again.)
     placed_key      BLOB,
     -- The version of the rules and of the comparison every one of the
     -- file's pairs was decided under (`grouping::decided_as`). NULL: due.
@@ -76,9 +80,12 @@ CREATE TABLE grouping_file (
 
 -- A decision the user made about two tracks, kept by what the files hold,
 -- not by file or track id: each side is a file's `audio_hash`, or its
--- `blake3` when it has none, the lower first. So it survives a retag, a
--- move, and a music folder removed and added again, and it covers every
--- pair of files between the two tracks that hold those two pieces of audio.
+-- `blake3` when it has none, the lower first. One row for every pair of
+-- audio between the two tracks when the decision was made, so it covers
+-- every pair of files between them, survives a retag, a move, and a music
+-- folder removed and added again, and holds when the file it was made on
+-- is overwritten or gone. (A `blake3` doesn't survive a tag rewrite: a
+-- decision resting only on a file with no `audio_hash` is lost with one.)
 --   apart: never merge them, and don't ask again.
 --   same:  they are duplicates, whatever the rules say.
 -- A rowid table with a unique pair, so the operation log can record it.

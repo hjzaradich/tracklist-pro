@@ -14,6 +14,7 @@ fn file<'a>(name: &'a str, title: &'a str, n: u8, items: Vec<u32>) -> NewFile<'a
         artist: Some("Halden Rook"),
         hash: Some(hash(n)),
         items: Some(items),
+        blake3: None,
     }
 }
 
@@ -193,14 +194,105 @@ fn a_decision_survives_a_file_moved_and_a_music_folder_removed_and_added_again()
     assert_eq!(db.count("SELECT count(*) FROM file"), 0);
     assert_eq!(db.count("SELECT count(*) FROM grouping_pair"), 0);
     assert_eq!(db.count("SELECT count(*) FROM grouping_decision"), 1);
-    // The same two files are found again, elsewhere, as new rows.
+    // The same two files are found again, elsewhere, as new rows: after
+    // another file, and the other way round, so neither has the row id it
+    // had. A third copy of the same track comes with them.
     db.sql("INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'A', 'A')");
     db.sql("UPDATE music_folder SET id = 1 WHERE rel_path = 'A'");
-    let a = db.add(file("moved/Velo.flac", "Velo", 1, velo.clone()));
+    let other = db.add(file("moved/Velo.m4a", "Velo", 7, reencoded(&velo, 2, 7)));
     let b = db.add(file("moved/Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
+    let a = db.add(file("moved/Velo.flac", "Velo", 1, velo.clone()));
+    assert_eq!((other, b, a), (1, 2, 3), "the row ids are used again");
     db.decide();
     assert_ne!(db.track(a), db.track(b), "still kept apart");
     assert_eq!(db.stands(a, b), ("duplicate".into(), "decided".into()));
+    // The decision was about those two pieces of audio, and no other pair.
+    assert_ne!(db.stands(other, b).1, "decided");
+    assert_ne!(db.stands(other, a).1, "decided");
+}
+
+/// Track A (a flac and its re-encode, merged) and file b, another re-encode
+/// that would join them: the user keeps b apart, answering on the pair of
+/// the flac and b.
+fn a_track_of_two_and_a_file_kept_apart(db: &Db) -> (i64, i64, i64) {
+    let velo = track(1, LEN);
+    let a1 = db.add(file("Velo.flac", "Velo", 1, velo.clone()));
+    let a2 = db.add(file("Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
+    db.decide();
+    assert_eq!(db.track(a1), db.track(a2));
+    let b = db.add(file("other/Velo.mp3", "Velo", 3, reencoded(&velo, 2, 7)));
+    db.group();
+    assert_eq!(db.remember(a1, b, Verdict::Apart), Ok(()));
+    assert_eq!(
+        db.count("SELECT count(*) FROM grouping_decision"),
+        2,
+        "one row for each kind of audio in track A, against b's"
+    );
+    db.decide();
+    assert_eq!(db.groups(), [vec![a1, a2], vec![b]]);
+    assert_eq!(db.stands(a2, b), ("duplicate".into(), "decided".into()));
+    (a1, a2, b)
+}
+
+#[test]
+fn a_decision_still_holds_when_the_file_it_was_made_on_is_overwritten() {
+    let db = db();
+    let (a1, a2, b) = a_track_of_two_and_a_file_kept_apart(&db);
+    // The flac is overwritten with another song, and every stage has been
+    // through it.
+    db.retag(a1, Some("Nightdrive"), Some("Halden Rook"));
+    db.overwrite(a1, Some(hash(9)), None);
+    db.set_items(a1, track(77, LEN));
+    db.decide();
+    db.decide();
+    assert_ne!(db.track(a1), db.track(a2), "it left track A");
+    assert_ne!(db.track(a2), db.track(b), "A and b are still kept apart");
+    assert_eq!(db.stands(a2, b), ("duplicate".into(), "decided".into()));
+    assert_eq!(db.tracks(), 3);
+}
+
+#[test]
+fn a_decision_still_holds_when_the_music_folder_of_the_file_it_was_made_on_is_removed() {
+    let db = db();
+    let velo = track(1, LEN);
+    // The flac is in music folder 2, the other two files in folder 1.
+    let a1 = db.add(file("Velo.flac", "Velo", 1, velo.clone()));
+    db.sql(&format!(
+        "UPDATE file SET music_folder_id = 2 WHERE id = {a1}"
+    ));
+    let a2 = db.add(file("Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
+    db.decide();
+    assert_eq!(db.track(a1), db.track(a2));
+    let b = db.add(file("other/Velo.mp3", "Velo", 3, reencoded(&velo, 2, 7)));
+    db.group();
+    assert_eq!(db.remember(a1, b, Verdict::Apart), Ok(()));
+    db.decide();
+    assert_eq!(db.groups(), [vec![a1, a2], vec![b]]);
+    let removed = db
+        .writer
+        .call(|c| crate::scan::folders::remove(c, crate::scan::folders::MusicFolderId(2)))
+        .unwrap();
+    assert_eq!(removed, Ok(()));
+    assert_eq!(db.count("SELECT count(*) FROM file"), 2);
+    db.decide();
+    db.decide();
+    assert_ne!(db.track(a2), db.track(b), "A and b are still kept apart");
+    assert_eq!(db.stands(a2, b), ("duplicate".into(), "decided".into()));
+}
+
+#[test]
+fn keeping_apart_two_files_that_already_share_a_track_changes_nothing() {
+    // A merge is never undone by the job: taking a file out of a track is
+    // an action of its own.
+    let db = db();
+    let (a, b) = two_duplicates(&db);
+    db.decide();
+    assert_eq!(db.track(a), db.track(b));
+    assert_eq!(db.remember(a, b, Verdict::Apart), Ok(()));
+    assert_eq!(db.count("SELECT count(*) FROM grouping_decision"), 1);
+    db.decide();
+    assert_eq!(db.track(a), db.track(b));
+    assert_eq!(db.stands(a, b), ("duplicate".into(), "merged".into()));
 }
 
 #[test]
@@ -295,6 +387,102 @@ fn a_link_the_job_made_goes_when_the_pair_no_longer_asks_for_it_and_a_confirmed_
     assert_eq!(db.count("SELECT count(*) FROM version_link"), 1);
     assert_ne!(db.track(clean), db.track(dirty));
     assert_eq!(db.stands(clean, dirty).1, "decided");
+}
+
+#[test]
+fn the_same_on_a_pair_the_job_linked_merges_it_in_one_pass() {
+    // Clean and Dirty of one track, by their names: linked by the job.
+    let db = db();
+    let velo = track(1, LEN);
+    let clean = db.add(file("Velo (Clean).mp3", "Velo (Clean)", 1, velo.clone()));
+    let dirty = db.add(file(
+        "Velo (Dirty).mp3",
+        "Velo (Dirty)",
+        2,
+        reencoded(&velo, 1, 7),
+    ));
+    db.decide();
+    assert_eq!(db.stands(clean, dirty), ("cut".into(), "linked".into()));
+    assert!(db.link(clean, dirty).is_some());
+    // The user says they're the same. One quick pass does all of it.
+    assert_eq!(db.remember(clean, dirty, Verdict::Same), Ok(()));
+    let summary = db.group();
+    assert_eq!(db.track(clean), db.track(dirty));
+    assert_eq!(
+        (summary.moved, summary.links_removed, summary.left_alone),
+        (1, 1, 0)
+    );
+    assert_eq!(db.count("SELECT count(*) FROM version_link"), 0);
+    assert_eq!(
+        db.stands(clean, dirty),
+        ("cut".into(), "in_one_track".into())
+    );
+    // And a second pass, or a deciding job, changes nothing.
+    let before = db.dump();
+    let again = db.group();
+    assert!(!again.changed_tracks());
+    assert_eq!((again.links_made, again.links_removed), (0, 0));
+    assert_eq!(db.dump(), before);
+    assert_eq!(db.decide().0, Default::default());
+    assert_eq!(db.dump(), before);
+}
+
+#[test]
+fn a_run_over_an_unchanged_database_changes_nothing_after_the_users_decisions_and_links() {
+    let db = db();
+    // A linked pair the user calls the same.
+    let velo = track(1, LEN);
+    let clean = db.add(file("Velo (Clean).mp3", "Velo (Clean)", 1, velo.clone()));
+    let dirty = db.add(file(
+        "Velo (Dirty).mp3",
+        "Velo (Dirty)",
+        2,
+        reencoded(&velo, 1, 7),
+    ));
+    // Two duplicates the user keeps apart.
+    let drive = track(2, LEN);
+    let kept = db.add(file("Nightdrive.flac", "Nightdrive", 3, drive.clone()));
+    let apart = db.add(file(
+        "Nightdrive.mp3",
+        "Nightdrive",
+        4,
+        reencoded(&drive, 1, 7),
+    ));
+    // Two duplicates the user linked as versions.
+    let harbor = track(3, LEN);
+    let one = db.add(file("Paper Harbor.flac", "Paper Harbor", 5, harbor.clone()));
+    let two = db.add(file(
+        "Paper Harbor.mp3",
+        "Paper Harbor",
+        6,
+        reencoded(&harbor, 1, 7),
+    ));
+    db.group();
+    assert_eq!(db.remember(kept, apart, Verdict::Apart), Ok(()));
+    let (t1, t2) = (db.track(one).unwrap(), db.track(two).unwrap());
+    db.sql(&format!(
+        "INSERT INTO version_link (recording_a, recording_b, kind, source)
+         VALUES ({t1}, {t2}, 'cut', 'user')"
+    ));
+    db.decide();
+    assert_eq!(db.remember(clean, dirty, Verdict::Same), Ok(()));
+    db.decide();
+    assert_eq!(db.track(clean), db.track(dirty));
+    assert_ne!(db.track(kept), db.track(apart));
+    assert_ne!(db.track(one), db.track(two));
+    let before = db.dump();
+    assert!(before.contains("decision ") && before.contains(" user "));
+    for _ in 0..2 {
+        let (again, summary) = db.decide();
+        assert_eq!(again, Default::default());
+        assert!(!summary.changed_tracks());
+        assert_eq!((summary.links_made, summary.links_removed), (0, 0));
+        assert_eq!(db.dump(), before, "not a row was written");
+        *db.names.lock().unwrap() = Default::default();
+    }
+    let quick = db.group();
+    assert!(!quick.changed_tracks());
+    assert_eq!(db.dump(), before);
 }
 
 // ---- the move itself ----------------------------------------------------------------

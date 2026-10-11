@@ -283,8 +283,9 @@ impl Db {
                     for (name, hash, tags, blob) in &rows {
                         tx.execute(
                             "INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, mtime,
-                                               audio_hash, raw_tags, fingerprint)
-                             VALUES (1, ?1, ?1, 1000, 1000, ?2, ?3, ?4)",
+                                               audio_hash, raw_tags, fingerprint,
+                                               fingerprint_audio_hash)
+                             VALUES (1, ?1, ?1, 1000, 1000, ?2, ?3, ?4, ?2)",
                             params![name, hash, tags, blob],
                         )?;
                         ids.push(tx.last_insert_rowid());
@@ -351,17 +352,24 @@ fn compare_fingerprints(matcher: &Matcher, db: &Db) -> Duration {
     .1
 }
 
-fn decide(names: &mut Names, db: &Db) -> (Decided, Duration) {
-    timed(|| {
-        grouping::decide::run::<DbError>(
+/// What a deciding job does ([`grouping::decide_and_group`]): a grouping
+/// pass, the deciding run, a pass over what it stored, and the pairs
+/// waiting sets still miss with a pass after them.
+fn decide(names: &mut Names, db: &Db) -> (Decided, Summary, Duration) {
+    let mut done = (Decided::default(), Summary::default());
+    let ((), took) = timed(|| {
+        grouping::decide_and_group::<DbError>(
             &db.writer,
             names,
             grouping::PAGE,
+            &mut done,
             &mut |_| Ok(()),
+            &mut || Ok(()),
             &mut || Ok(()),
         )
         .unwrap()
-    })
+    });
+    (done.0, done.1, took)
 }
 
 /// What the job's steps did on one library, and how long each took.
@@ -372,21 +380,20 @@ struct Report {
     /// The quick job: every file gets a track, exact copies together.
     placing: (Summary, Duration),
     comparing: Duration,
-    /// The deciding job: the deciding run, then a grouping pass.
-    first: (Decided, Duration),
-    after_first: (Summary, Duration),
+    /// The deciding job: what its deciding run did, and its grouping
+    /// passes.
+    first: (Decided, Summary, Duration),
     /// The same after 100 more files arrive: 50 re-encodes, 50 new tracks.
     new_ids: Vec<i64>,
-    later: (Decided, Duration),
-    after_later: (Summary, Duration),
+    later: (Decided, Summary, Duration),
     /// With nothing due: the index of names kept, and built afresh as after
     /// a restart.
-    idle: (Decided, Duration),
-    restarted: (Decided, Duration),
+    idle: (Decided, Summary, Duration),
+    restarted: (Decided, Summary, Duration),
     /// How many files' names the run after a restart read with nothing due.
     restarted_names: usize,
     /// One new file after a restart: the index of names is built again.
-    restarted_one: (Decided, Duration),
+    restarted_one: (Decided, Summary, Duration),
     idle_pass: (Summary, Duration),
     db: Db,
 }
@@ -401,7 +408,6 @@ fn steps(n: usize, len: usize) -> Report {
     let placing = group(&db);
     let comparing = compare_fingerprints(&matcher, &db);
     let first = decide(&mut names, &db);
-    let after_first = group(&db);
 
     // 100 more files: re-encodes of 50 tracks that had no copy, under
     // their titles, and 50 tracks nobody has.
@@ -429,7 +435,6 @@ fn steps(n: usize, len: usize) -> Report {
     group(&db);
     compare_fingerprints(&matcher, &db);
     let later = decide(&mut names, &db);
-    let after_later = group(&db);
 
     let idle = decide(&mut names, &db);
     let mut fresh = Names::default();
@@ -448,7 +453,6 @@ fn steps(n: usize, len: usize) -> Report {
     group(&db);
     compare_fingerprints(&matcher, &db);
     let restarted_one = decide(&mut Names::default(), &db);
-    group(&db);
     let idle_pass = group(&db);
     Report {
         files: files.len(),
@@ -457,10 +461,8 @@ fn steps(n: usize, len: usize) -> Report {
         placing,
         comparing,
         first,
-        after_first,
         new_ids,
         later,
-        after_later,
         idle,
         restarted,
         restarted_names,
@@ -493,7 +495,7 @@ fn print(report: &Report) {
             s.sets_waiting
         );
     };
-    let run = |name: &str, (d, took): &(Decided, Duration)| {
+    let run = |name: &str, (d, s, took): &(Decided, Summary, Duration)| {
         println!(
             "  {name:<28}{}   {} files decided, {} pairs asked, {} stored, {} compared directly, \
              {} completed; skipped: {} titles, {} pairs",
@@ -506,6 +508,19 @@ fn print(report: &Report) {
             d.skipped_buckets,
             d.skipped_pairs
         );
+        println!(
+            "  {:<28}{:10}   its passes: {} moved, {} tracks made, {} removed, {} links made; \
+             sets held: {} disagreeing, {} both in the Library, {} waiting",
+            "",
+            "",
+            s.moved,
+            s.recordings_made,
+            s.recordings_removed,
+            s.links_made,
+            s.sets_disagreeing,
+            s.sets_both_in_library,
+            s.sets_waiting
+        );
     };
     pass("quick pass (placing)", &report.placing);
     println!(
@@ -513,11 +528,9 @@ fn print(report: &Report) {
         "comparing fingerprints",
         secs(report.comparing)
     );
-    run("deciding run, first", &report.first);
-    pass("grouping pass after it", &report.after_first);
-    run("deciding run, 100 new files", &report.later);
-    pass("grouping pass after it", &report.after_later);
-    run("deciding run, nothing due", &report.idle);
+    run("deciding job, first", &report.first);
+    run("deciding job, 100 new files", &report.later);
+    run("deciding job, nothing due", &report.idle);
     run("  the same after a restart", &report.restarted);
     run("one new file after a restart", &report.restarted_one);
     pass("grouping pass, nothing to do", &report.idle_pass);
@@ -646,16 +659,17 @@ fn check(report: &Report) {
         );
     }
     assert_eq!(
-        report.after_first.0.sets_disagreeing as usize,
+        report.first.1.sets_disagreeing as usize,
         report.planted.disagreeing.len()
     );
+    assert_eq!(report.first.1.sets_waiting, 0, "no set is left waiting");
     // "Intro": one title too many files share, skipped and counted once.
     let intros = INTROS.min(report.files / 4) as u64;
     assert_eq!(report.first.0.skipped_buckets, 1);
     assert_eq!(report.first.0.skipped_pairs, intros * (intros - 1) / 2);
     // 100 new files: only they are decided, and each re-encode joins.
     assert_eq!(report.later.0.files, 100);
-    assert_eq!(report.after_later.0.moved, 50);
+    assert_eq!(report.later.1.moved, 50);
     // The first 50 of them are the re-encodes, of the first 50 lone tracks.
     for (&new, &single) in report.new_ids.iter().zip(&report.planted.singles).take(50) {
         assert_eq!(db.track_of(new), db.track_of(id(single)));
@@ -664,6 +678,7 @@ fn check(report: &Report) {
     // index kept.
     assert_eq!(report.idle.0, Decided::default());
     assert_eq!(report.restarted.0, Decided::default());
+    assert!(!report.idle.1.changed_tracks() && !report.restarted.1.changed_tracks());
     assert_eq!(report.restarted_names, 0, "no names read with nothing due");
     assert_eq!(report.restarted_one.0.files, 1);
     // Every held set is one of the planted ones: three files.

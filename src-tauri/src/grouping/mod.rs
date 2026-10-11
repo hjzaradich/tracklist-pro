@@ -12,10 +12,10 @@
 //!   about, compares directly the ones the matching pass never proposed and
 //!   whose names call for it, asks the rules, and stores the answers
 //!   (`grouping_pair`).
-//! - [`plan`] and [`regroup`] are the **grouping pass**: from the files'
-//!   audio hashes, the stored answers and what the user decided, they put
-//!   files into tracks, keep the job's version links, and say where each
-//!   stored pair stands.
+//! - [`plan`] and [`regroup`] are the **grouping pass**: from the audio
+//!   the files hold, the stored answers and what the user decided, they
+//!   put files into tracks, keep the job's version links, and say where
+//!   each stored pair stands.
 //!
 //! # What happens to a pair
 //!
@@ -41,40 +41,54 @@
 //!   see an update or a replace).
 //! - **A decision sticks** (`grouping_decision`, written by [`remember`]):
 //!   "apart" keeps two tracks apart and the pair is no longer open; "same"
-//!   makes their pairs duplicates. A version link the user made or
-//!   confirmed settles its two tracks the same way. Decisions name what the
-//!   files hold, not file ids, so they survive a retag, a move, and a music
-//!   folder removed and added again.
+//!   makes their pairs duplicates, and takes away a version link the job
+//!   made between the two. A version link the user made or confirmed
+//!   settles its two tracks the same way. A decision is kept by the audio
+//!   the two tracks held when it was made (every pair of audio between
+//!   them), not by file ids, so it survives a retag, a move, a music folder
+//!   removed and added again, and the loss of the file it was made on. (A
+//!   file with no `audio_hash` is named by its `blake3`: a decision resting
+//!   on such a file alone doesn't survive a tag rewrite of it.)
 //! - **A merge is never undone by the job.** A new file or a retag never
 //!   splits a track; a pair inside a track that the rules no longer call a
 //!   duplicate is stored as such (`in_one_track`), and the track stays
-//!   whole.
+//!   whole. Only a file that holds other audio than it joined with leaves.
+//!   So "apart" for two files that already share a track changes nothing.
+//! - **Nothing is decided on a fingerprint of audio a file no longer
+//!   holds** ([`decide`]): a changed file waits for the fingerprint stage,
+//!   as a due file and as any other file's partner.
 //!
 //! # The same again, and a fresh database
 //!
-//! A run over a database nothing changed in changes nothing. A new file
-//! joins without moving the others, and a file whose fingerprint changed
-//! has only its own pairs decided again.
+//! A run over a database nothing changed in changes nothing, a remembered
+//! decision or a version link of the user's included. A new file joins
+//! without moving the others, and a file whose fingerprint changed has only
+//! its own pairs decided again.
 //!
 //! Because merges are kept, a set whose pairs disagree (A and B duplicates,
 //! B and C duplicates, A and C not) can come out differently depending on
-//! the order its files arrived in: scanned in one go, none of the three
-//! merge; with C arriving after A and B merged, A and B stay one track and
-//! C stays apart. A fresh database built from the same files may so differ
-//! from an old one in such sets, and only there.
+//! the order its files were decided in. Where A's and B's pairs with C are
+//! stored by the time a grouping pass reads them, none of the three merge.
+//! Where A and B merged before anything was stored about C (C arrived
+//! later, or wasn't ready when they were decided: its fingerprint, or
+//! matching, came after), A and B stay one track and C stays apart. A fresh
+//! database built from the same files may so differ from an old one in such
+//! sets, and only there.
 //!
 //! # When it runs
 //!
 //! - The **quick job** ([`group_job`]), after every hash stage and after a
 //!   walk that found files nothing will read: one grouping pass, so every
 //!   file has a track early and exact copies are together before the long
-//!   fingerprint run.
+//!   fingerprint run. If its pass finds a set waiting for a pair nobody
+//!   decided, it asks for a deciding job.
 //! - The **deciding job** ([`decide_job`]), once matching has nothing left
-//!   to compare ([`request_decide`]): a grouping pass, the deciding run,
-//!   and a grouping pass over what it stored. It runs below everything
-//!   else, like matching, and makes way for any job of a higher priority
-//!   between two pages; what it wrote stays, and the run queued after it
-//!   goes on from there.
+//!   to compare ([`request_decide`]): a grouping pass, the deciding run, a
+//!   grouping pass over what it stored, and then the pairs that pass found
+//!   waiting sets to miss, with a pass after them
+//!   ([`decide_and_group`]). It runs below everything else, like matching,
+//!   and makes way for any job of a higher priority between two pages; what
+//!   it wrote stays, and the run queued after it goes on from there.
 //!
 //! Both only touch the database. No audio file is read or written.
 //! Removing a music folder lets go of its files first
@@ -89,7 +103,7 @@ pub use decide::{Decided, Names, MAX_TITLE_BUCKET, PAGE};
 pub use plan::Verdict;
 pub use store::{
     any_ungrouped, regroup, regroup_step, release_folder_files, remember, CantRemember, Refused,
-    Summary, BATCH, MAX_SET_FILES,
+    Step, Summary, BATCH, MAX_SET_FILES,
 };
 
 use std::sync::{Mutex, PoisonError};
@@ -140,11 +154,11 @@ pub fn is_decide(target: Option<&serde_json::Value>) -> bool {
         .unwrap_or(false)
 }
 
-/// Queues a deciding job if a file is due one and matching has nothing left
-/// to compare (a file matching hasn't been through can't be decided yet),
-/// unless one is already queued (a running one is asked to run once more).
-/// Called by the scan chain wherever it asks for matching, and when a
-/// matching job ends.
+/// Queues a deciding job if a file is due one and ready
+/// ([`decide::any_due`]) and matching has nothing left to compare (a file
+/// matching hasn't been through can't be decided yet), unless one is
+/// already queued (a running one is asked to run once more). Called by the
+/// scan chain wherever it asks for matching, and when a matching job ends.
 pub(crate) fn request_decide<E: From<DbError>>(
     writer: &Writer,
     enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
@@ -152,6 +166,72 @@ pub(crate) fn request_decide<E: From<DbError>>(
     let due = writer.call(|c| Ok(!crate::matching::any_due(c)? && decide::any_due(c)?))?;
     if due {
         crate::scan::chain::queue_once(writer, decide_job(), enqueue)?;
+    }
+    Ok(())
+}
+
+/// A grouping pass, one transaction a step ([`store::step`]). `between` is
+/// called before every step and may stop the pass there: every step stands
+/// by itself. Returns what the pass did, and the pairs its waiting sets
+/// still miss ([`Step::undecided`]).
+pub fn pass<E: From<DbError>>(
+    writer: &Writer,
+    between: &mut dyn FnMut() -> Result<(), E>,
+) -> Result<(Summary, Vec<(i64, i64)>), E> {
+    let mut summary = Summary::default();
+    loop {
+        between()?;
+        let step = writer.call(|c| store::step(c, BATCH))?;
+        summary.add(step.summary);
+        if !step.more {
+            return Ok((summary, step.undecided));
+        }
+    }
+}
+
+/// How many times in a row the deciding job decides the pairs a pass found
+/// missing and passes again. One round is the rule; a merge it allows can
+/// show another waiting set its missing pairs. Whatever is left after
+/// these is found by the next job's pass.
+const COMPLETING_ROUNDS: usize = 8;
+
+/// Everything a deciding job does, in order: a grouping pass; the deciding
+/// run over every file that is due and ready ([`decide::run`]); a pass over
+/// what it stored; then, while a pass lists pairs that waiting sets miss,
+/// those pairs ([`decide::complete`]) and one more pass.
+///
+/// `done` is added to as the work goes, so it says what was done even when
+/// `tick`, `stop_here` (between two pages) or `between` (between two steps
+/// of a pass) stops it early.
+pub fn decide_and_group<E: From<DbError>>(
+    writer: &Writer,
+    names: &mut Names,
+    page: usize,
+    done: &mut (Decided, Summary),
+    tick: &mut dyn FnMut(f64) -> Result<(), E>,
+    stop_here: &mut dyn FnMut() -> Result<(), E>,
+    between: &mut dyn FnMut() -> Result<(), E>,
+) -> Result<(), E> {
+    let (summary, mut undecided) = pass(writer, between)?;
+    done.1.add(summary);
+    done.0 = decide::run(writer, names, page, tick, stop_here)?;
+    if done.0.wrote() {
+        let (summary, missing) = pass(writer, between)?;
+        done.1.add(summary);
+        undecided = missing;
+    }
+    for _ in 0..COMPLETING_ROUNDS {
+        if undecided.is_empty() {
+            break;
+        }
+        let before = done.0.completed;
+        decide::complete(writer, &undecided, page, &mut done.0, tick, stop_here)?;
+        if done.0.completed == before {
+            break;
+        }
+        let (summary, missing) = pass(writer, between)?;
+        done.1.add(summary);
+        undecided = missing;
     }
     Ok(())
 }
@@ -246,30 +326,19 @@ impl Grouper {
         self
     }
 
-    /// A grouping pass, one transaction a step, stopping between steps if
-    /// the job is cancelled: every step stands by itself.
-    fn pass(&self, job: &JobContext) -> Result<Summary, JobError> {
-        let mut summary = Summary::default();
-        loop {
-            job.check_cancelled()?;
-            let (step, more) = job.writer().call(|c| regroup_step(c, BATCH))?;
-            summary.add(step);
-            if !more {
-                return Ok(summary);
-            }
-        }
-    }
-
-    /// The deciding run, making way for jobs of a higher priority.
-    fn decide(&self, job: &JobContext) -> Result<Decided, Stop> {
+    /// The deciding job's work, making way for jobs of a higher priority
+    /// between two pages and stopping between two steps of a pass if the
+    /// job is cancelled.
+    fn decide(&self, job: &JobContext, done: &mut (Decided, Summary)) -> Result<(), Stop> {
         // A run that panicked left an index that may be half updated: it's
         // only what candidates are found by, and the next run brings it up
         // to date with the file table.
         let mut names = self.names.lock().unwrap_or_else(PoisonError::into_inner);
-        decide::run(
+        decide_and_group(
             job.writer(),
             &mut names,
             self.page,
+            done,
             &mut |fraction| -> Result<(), Stop> {
                 if let Some(hook) = &self.on_tick {
                     hook();
@@ -282,41 +351,53 @@ impl Grouper {
                 }
                 Ok(())
             },
+            &mut || -> Result<(), Stop> { Ok(job.check_cancelled()?) },
         )
     }
 }
 
 impl JobHandler for Grouper {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
-        let mut summary = self.pass(job)?;
         if !is_decide(job.target()) {
+            let (summary, _) = pass(job.writer(), &mut || job.check_cancelled())?;
             eprintln!("group job {} done: {summary:?}", job.id());
             // The hook first, so a test hears the summary before any job
             // this run asks for can start.
             if let Some(hook) = &self.on_summary {
                 hook(summary);
             }
+            // A set waits for a pair nobody decided, and no file is due
+            // that would bring a deciding job by itself (a deciding job was
+            // cut short, or the user called two tracks the same).
+            if summary.undecided_pairs > 0 {
+                let asked =
+                    crate::scan::chain::queue_once(job.writer(), decide_job(), |j| job.enqueue(j));
+                if let Err(e) = asked {
+                    eprintln!(
+                        "group job {}: couldn't ask for a deciding job: {e:?}",
+                        job.id()
+                    );
+                }
+            }
             ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
             ask_for_relink(job.id(), job.writer(), |j| job.enqueue(j));
             return job.progress(1.0);
         }
-        let decided = match self.decide(job) {
-            Ok(decided) => {
-                if decided.wrote() {
-                    summary.add(self.pass(job)?);
-                }
-                Some(decided)
-            }
+        let mut done = (Decided::default(), Summary::default());
+        let finished = match self.decide(job, &mut done) {
+            Ok(()) => true,
             // What was written stays, and so does every file that wasn't
             // reached: one more run, at this job's priority, goes on from
             // there. This job is still running, so it's asked to run once
             // more, and its chain wrapper queues that as it ends.
             Err(Stop::MakeWay) => {
                 crate::scan::chain::queue_once(job.writer(), decide_job(), |j| job.enqueue(j))?;
-                None
+                false
             }
             Err(Stop::Job(e)) => return Err(e),
         };
+        let (decided, summary) = done;
+        let decided = finished.then_some(decided);
         eprintln!("deciding job {} done: {decided:?}, {summary:?}", job.id());
         if let (Some(hook), Some(decided)) = (&self.on_decided, decided) {
             hook(decided, summary);

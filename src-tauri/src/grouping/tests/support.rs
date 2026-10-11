@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use crate::db::{DbError, Writer};
 use crate::fingerprint::Fingerprint;
-use crate::grouping::{decide, regroup, Decided, Names, Summary, PAGE};
+use crate::grouping::{decide, decide_and_group, regroup, Decided, Names, Summary, PAGE};
 
 pub use super::synthetic::{reencoded, track, worn};
 
@@ -49,6 +49,9 @@ pub struct NewFile<'a> {
     pub artist: Option<&'a str>,
     pub hash: Option<[u8; 34]>,
     pub items: Option<Vec<u32>>,
+    /// Its whole-file hash, as one byte repeated: what names the audio of a
+    /// file with no `hash`.
+    pub blake3: Option<u8>,
 }
 
 /// The `raw_tags` of an MP3 with these two tags.
@@ -110,23 +113,59 @@ impl Db {
     }
 
     /// A present file in folder 1 with tags, audio and a fingerprint, as
-    /// the read, hash and fingerprint stages leave one.
+    /// the read, hash and fingerprint stages leave one: the fingerprint is
+    /// of the audio the file holds.
     pub fn add(&self, file: NewFile<'_>) -> i64 {
         let name = file.name.to_string();
         let tags = raw_tags(file.title, file.artist);
         let hash = file.hash.map(|h| h.to_vec());
+        let blake3 = file.blake3.map(|b| vec![b; 32]);
         let blob = file.items.map(|items| Fingerprint::new(items).to_blob());
-        self.writer
+        let id = self
+            .writer
             .call(move |c| {
                 c.execute(
                     "INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, mtime,
-                                       audio_hash, raw_tags, fingerprint)
-                     VALUES (1, ?1, ?1, 100, 1000, ?2, ?3, ?4)",
-                    (name, hash, tags, blob),
+                                       audio_hash, raw_tags, fingerprint, blake3)
+                     VALUES (1, ?1, ?1, 100, 1000, ?2, ?3, ?4, ?5)",
+                    (name, hash, tags, blob, blake3),
                 )?;
                 Ok(c.last_insert_rowid())
             })
-            .unwrap()
+            .unwrap();
+        self.fingerprint_stage_ran(id);
+        id
+    }
+
+    /// What the fingerprint stage records with a fingerprint it wrote: the
+    /// `audio_hash` it came from, and its own row for the file as it is on
+    /// disk (its size and modified time). After this, `file`'s fingerprint
+    /// is of the audio it holds.
+    pub fn fingerprint_stage_ran(&self, file: i64) {
+        self.sql(&format!(
+            "UPDATE file SET fingerprint_audio_hash = audio_hash
+             WHERE id = {file} AND fingerprint IS NOT NULL;
+             INSERT OR REPLACE INTO file_stage (file_id, stage, version, size, mtime, status)
+             SELECT id, 'fingerprint', 1, size, mtime, 'done' FROM file
+             WHERE id = {file} AND fingerprint IS NOT NULL;"
+        ));
+    }
+
+    /// Overwrites `file` on disk as the walk and the hash stage see it: a
+    /// new size and modified time, and the audio it holds now (`hash`, or
+    /// for a file the hash stage can't hash, `blake3`). Its fingerprint is
+    /// left as it was: the fingerprint stage hasn't been through it.
+    pub fn overwrite(&self, file: i64, hash: Option<[u8; 34]>, blake3: Option<u8>) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file SET size = size + 1, mtime = mtime + 1, audio_hash = ?2,
+                                     blake3 = ?3
+                     WHERE id = ?1",
+                    (file, hash.map(|h| h.to_vec()), blake3.map(|b| vec![b; 32])),
+                )
+            })
+            .unwrap();
     }
 
     /// Gives `file` other tags, as a rewrite by rekordbox or the user does.
@@ -137,8 +176,8 @@ impl Db {
             .unwrap();
     }
 
-    /// Gives `file` another fingerprint, as the fingerprint job would after
-    /// its audio changed.
+    /// Gives `file` another fingerprint, as the fingerprint job does once
+    /// it reaches a file whose audio changed.
     pub fn set_items(&self, file: i64, items: Vec<u32>) {
         let blob = Fingerprint::new(items).to_blob();
         self.writer
@@ -149,8 +188,12 @@ impl Db {
                 )
             })
             .unwrap();
+        self.fingerprint_stage_ran(file);
     }
 
+    /// Gives `file` another `audio_hash`, with a fingerprint (if it has
+    /// one) that is of it: both stages have been through the file. For a
+    /// file between the two stages, see [`Db::overwrite`].
     pub fn set_hash(&self, file: i64, hash: Option<[u8; 34]>) {
         self.writer
             .call(move |c| {
@@ -160,6 +203,7 @@ impl Db {
                 )
             })
             .unwrap();
+        self.fingerprint_stage_ran(file);
     }
 
     pub fn set_present(&self, file: i64, present: bool) {
@@ -192,22 +236,54 @@ impl Db {
         crate::matching::refresh(&self.writer).unwrap();
     }
 
-    /// The deciding run alone, `page` files a transaction.
+    /// The deciding run alone, `page` files a transaction: no grouping
+    /// pass, and nothing decided for the sets a pass would find waiting.
     pub fn decide_in_pages(&self, page: usize) -> Decided {
+        self.decide_ticking(page, || {})
+    }
+
+    /// [`Db::decide_in_pages`], calling `tick` wherever the run reports how
+    /// far it is: at its start and before every page.
+    pub fn decide_ticking(&self, page: usize, mut tick: impl FnMut()) -> Decided {
         let mut names = self.names.lock().unwrap();
-        decide::run::<DbError>(&self.writer, &mut names, page, &mut |_| Ok(()), &mut || {
-            Ok(())
-        })
+        decide::run::<DbError>(
+            &self.writer,
+            &mut names,
+            page,
+            &mut |_| {
+                tick();
+                Ok(())
+            },
+            &mut || Ok(()),
+        )
         .unwrap()
     }
 
-    /// What the deciding job does, after the matching pass: a grouping
-    /// pass, the deciding run, and a grouping pass over what it stored.
+    /// Everything a deciding job does ([`decide_and_group`]), without the
+    /// matching pass before it.
+    pub fn deciding_job(&self) -> (Decided, Summary) {
+        let mut names = self.names.lock().unwrap();
+        let mut done = (Decided::default(), Summary::default());
+        decide_and_group::<DbError>(
+            &self.writer,
+            &mut names,
+            PAGE,
+            &mut done,
+            &mut |_| Ok(()),
+            &mut || Ok(()),
+            &mut || Ok(()),
+        )
+        .unwrap();
+        done
+    }
+
+    /// The quick job's pass, the matching pass, and a deciding job, as the
+    /// chain runs them once the fingerprints are in.
     pub fn decide(&self) -> (Decided, Summary) {
         let mut summary = self.group();
         self.compare_fingerprints();
-        let decided = self.decide_in_pages(PAGE);
-        summary.add(self.group());
+        let (decided, passes) = self.deciding_job();
+        summary.add(passes);
         (decided, summary)
     }
 

@@ -17,6 +17,7 @@ fn member(file: i64, recording: Option<i64>, k: Option<u8>) -> Member {
         recording,
         key: k.map(key),
         content: k.map(key),
+        present: true,
         pinned: false,
         placed: Placed::Unknown,
         decided: true,
@@ -34,6 +35,23 @@ fn placed(file: i64, recording: i64, k: u8) -> Member {
 /// A file with no track yet.
 fn new(file: i64, k: u8) -> Member {
     member(file, None, Some(k))
+}
+
+/// The file holds audio `k` now, whatever it was placed with.
+fn holds(m: &mut Member, k: u8) {
+    m.key = Some(key(k));
+    m.content = Some(key(k));
+}
+
+/// A file in a track that the hash stage can't hash: no `audio_hash`, and
+/// whole-file hash `b` when it was placed and now.
+fn unhashed(file: i64, recording: i64, b: u8) -> Member {
+    Member {
+        key: None,
+        content: Some(key(b)),
+        placed: Placed::At(Some(key(b))),
+        ..member(file, Some(recording), None)
+    }
 }
 
 fn pair(a: i64, b: i64, outcome: Outcome) -> Pair {
@@ -173,6 +191,7 @@ fn planning_scales_linearly_with_the_number_of_files() {
         recording: None,
         key: Some(key(n % 50_000)),
         content: Some(key(n % 50_000)),
+        present: true,
         pinned: false,
         placed: Placed::Unknown,
         decided: false,
@@ -209,7 +228,7 @@ fn a_merge_prefers_the_track_something_refers_to_then_the_lowest_id() {
 fn a_file_that_holds_other_audio_than_it_was_placed_at_leaves_its_track() {
     let mut world = World::of([placed(1, 1, 7), placed(2, 1, 7), placed(3, 2, 9)]);
     // File 2 was placed holding 7 and holds 9 now.
-    world.members[1].key = Some(key(9));
+    holds(&mut world.members[1], 9);
     let p = world.plan();
     assert_eq!(p.moves.len(), 1);
     assert_eq!((p.moves[0].file, p.moves[0].to), (2, Dest::Recording(2)));
@@ -218,8 +237,8 @@ fn a_file_that_holds_other_audio_than_it_was_placed_at_leaves_its_track() {
 #[test]
 fn when_every_file_of_a_track_holds_other_audio_the_lowest_stays_as_the_track() {
     let mut world = World::of([placed(4, 1, 7), placed(5, 1, 7)]);
-    world.members[0].key = Some(key(8));
-    world.members[1].key = Some(key(9));
+    holds(&mut world.members[0], 8);
+    holds(&mut world.members[1], 9);
     let p = world.plan();
     assert_eq!(p.moves.len(), 1);
     assert_eq!(p.moves[0].file, 5);
@@ -231,7 +250,7 @@ fn when_a_pinned_file_holds_other_audio_the_track_is_its_and_the_others_leave() 
     let mut world = World::of([placed(1, 1, 7), placed(2, 1, 7), placed(3, 1, 7)]);
     world.library = [1].into();
     world.members[0].pinned = true;
-    world.members[0].key = Some(key(9));
+    holds(&mut world.members[0], 9);
     let p = world.plan();
     let moved: Vec<i64> = p.moves.iter().map(|m| m.file).collect();
     assert_eq!(moved, [2, 3], "the pinned file never moves");
@@ -240,6 +259,35 @@ fn when_a_pinned_file_holds_other_audio_the_track_is_its_and_the_others_leave() 
     assert_eq!(p.new_recordings, 1);
     // Its new audio is recorded only once the others have left.
     assert!(p.settle.is_empty());
+}
+
+#[test]
+fn a_file_with_no_audio_hash_leaves_its_track_when_its_whole_file_hash_changes() {
+    // File 2 has no audio_hash: it joined file 1 as a duplicate, known by
+    // its whole-file hash.
+    let mut world =
+        World::of([placed(1, 1, 7), unhashed(2, 1, 20)]).pairs([pair(1, 2, Outcome::Duplicate)]);
+    assert!(world.plan().moves.is_empty());
+    // Overwritten: still no audio_hash, another whole-file hash. Its pairs
+    // went with its audio (the database drops them), and it's due.
+    world.members[1].content = Some(key(21));
+    world.members[1].decided = false;
+    world.pairs.clear();
+    let p = world.plan();
+    assert_eq!(p.moves.len(), 1);
+    assert_eq!(p.moves[0].file, 2);
+    assert!(matches!(p.moves[0].to, Dest::New(_)));
+}
+
+#[test]
+fn a_pinned_file_with_no_audio_hash_that_was_overwritten_keeps_its_track_to_itself() {
+    let mut world = World::of([unhashed(1, 1, 20), placed(2, 1, 7)]);
+    world.library = [1].into();
+    world.members[0].pinned = true;
+    world.members[0].content = Some(key(21));
+    let p = world.plan();
+    let moved: Vec<i64> = p.moves.iter().map(|m| m.file).collect();
+    assert_eq!(moved, [2], "the pinned file never moves; the other leaves");
 }
 
 #[test]
@@ -390,6 +438,109 @@ fn the_pairs_of_a_file_that_is_due_are_not_relied_on() {
         p.missing.is_empty(),
         "it's decided with the file, not on top"
     );
+}
+
+#[test]
+fn a_due_files_duplicate_pair_keeps_its_set_waiting_and_merges_nothing() {
+    // Every pair is a duplicate, but file 3 is due: what is stored about it
+    // was decided on names or audio it no longer has.
+    let mut world = World::of([placed(1, 1, 7), placed(2, 2, 8), placed(3, 3, 9)]).pairs([
+        pair(1, 2, Outcome::Duplicate),
+        pair(1, 3, Outcome::Duplicate),
+        pair(2, 3, Outcome::Duplicate),
+    ]);
+    world.members[2].decided = false;
+    let p = world.plan();
+    assert!(p.moves.is_empty(), "not even files 1 and 2 merge");
+    assert_eq!(p.sets_waiting, 1);
+    assert!(p.missing.is_empty(), "nothing to decide but the file");
+    for (a, b) in [(1, 2), (1, 3), (2, 3)] {
+        assert_eq!(world.state(&p, a, b), State::Waiting);
+    }
+    // Decided again, with the same answers: one track.
+    world.members[2].decided = true;
+    assert_eq!(world.plan().moves.len(), 2);
+}
+
+#[test]
+fn a_held_set_stays_held_while_one_of_its_files_is_due() {
+    // 1-2 and 2-3 are duplicates, 1-3 is for review: nothing merges. A tag
+    // rewrite then makes file 3 due.
+    let mut world = World::of([placed(1, 1, 7), placed(2, 2, 8), placed(3, 3, 9)]).pairs([
+        pair(1, 2, Outcome::Duplicate),
+        pair(1, 3, Outcome::Review),
+        pair(2, 3, Outcome::Duplicate),
+    ]);
+    let held = world.plan();
+    world.members[2].decided = false;
+    let p = world.plan();
+    assert!(
+        p.moves.is_empty(),
+        "files 1 and 2 don't merge behind its back"
+    );
+    assert_eq!(
+        p.states, held.states,
+        "and every pair stands where it stood"
+    );
+    assert_eq!(world.state(&p, 1, 2), State::SetDisagrees);
+    assert_eq!(world.state(&p, 2, 3), State::SetDisagrees);
+    assert_eq!(world.state(&p, 1, 3), State::Open);
+    assert_eq!((p.sets_disagreeing, p.sets_waiting), (1, 0));
+}
+
+// ---- a file that isn't on disk ------------------------------------------------
+
+#[test]
+fn a_file_that_is_not_on_disk_holds_no_newcomer_out_of_its_track() {
+    // Track 1 holds files 1 and 2; file 2 was deleted from disk. File 3
+    // arrives, a duplicate of file 1. Nothing can be decided between 2 and
+    // 3, ever.
+    let mut world = World::of([placed(1, 1, 7), placed(2, 1, 8), new(3, 9)]).pairs([
+        pair(1, 2, Outcome::Duplicate),
+        pair(1, 3, Outcome::Duplicate),
+    ]);
+    world.members[1].present = false;
+    let p = world.plan();
+    assert_eq!(p.moves.len(), 1);
+    assert_eq!(world.dest(&p, 3), Dest::Recording(1), "the newcomer joins");
+    assert_eq!(
+        world.dest(&p, 2),
+        Dest::Recording(1),
+        "the missing file stays"
+    );
+    assert_eq!(world.state(&p, 1, 3), State::Merged);
+    assert!(p.missing.is_empty());
+    assert_eq!(p.sets_waiting, 0);
+}
+
+#[test]
+fn a_pair_with_a_file_that_is_not_on_disk_joins_no_set_and_waits_for_the_file() {
+    // Files 1 and 2 were called duplicates; file 1 is gone from disk.
+    let mut world =
+        World::of([placed(1, 1, 7), placed(2, 2, 8)]).pairs([pair(1, 2, Outcome::Duplicate)]);
+    world.members[0].present = false;
+    let p = world.plan();
+    assert!(p.moves.is_empty());
+    assert_eq!(world.state(&p, 1, 2), State::Waiting);
+    assert_eq!(
+        (p.sets_waiting, p.sets_disagreeing, p.missing.len()),
+        (0, 0, 0),
+        "no set, nothing owed"
+    );
+    // A pair of its that isn't a duplicate holds nothing either.
+    let mut world = World::of([placed(1, 1, 7), placed(2, 2, 8), placed(3, 3, 9)]).pairs([
+        pair(1, 2, Outcome::Review),
+        pair(1, 3, Outcome::Duplicate),
+        pair(2, 3, Outcome::Duplicate),
+    ]);
+    world.members[0].present = false;
+    let p = world.plan();
+    assert_eq!(
+        world.dest(&p, 2),
+        world.dest(&p, 3),
+        "the two on disk merge"
+    );
+    assert_eq!(world.dest(&p, 1), Dest::Recording(1));
 }
 
 // ---- merges are kept --------------------------------------------------------
@@ -609,11 +760,33 @@ fn the_jobs_own_link_stands_only_while_a_pair_asks_for_it() {
 }
 
 #[test]
+fn the_jobs_own_link_gives_way_at_once_when_the_user_calls_the_two_tracks_the_same() {
+    let mut world = World::of([placed(1, 1, 7), placed(2, 2, 8)]).pairs([pair(1, 2, Outcome::Cut)]);
+    world.links = vec![Link {
+        a: 1,
+        b: 2,
+        settled: false,
+    }];
+    world.remembered = vec![remembered(7, 8, Verdict::Same)];
+    // One plan: the link goes and the file moves.
+    let p = world.plan();
+    assert_eq!(p.unsupported_links, [(1, 2)]);
+    assert_eq!(p.moves.len(), 1);
+    assert_eq!((p.left_alone, p.sets_disagreeing), (0, 0));
+    assert_eq!(world.state(&p, 1, 2), State::InOneTrack);
+    assert!(p.wanted_links.is_empty());
+    // A link the user made stands, whatever they said later.
+    world.links[0].settled = true;
+    let p = world.plan();
+    assert!(p.moves.is_empty() && p.unsupported_links.is_empty());
+}
+
+#[test]
 fn a_file_is_never_moved_between_linked_versions() {
     // File 2 sits in track 1 and holds track 2's audio now; the two tracks
     // are linked versions.
     let mut world = World::of([placed(1, 1, 7), placed(2, 1, 7), placed(3, 2, 9)]);
-    world.members[1].key = Some(key(9));
+    holds(&mut world.members[1], 9);
     world.links = vec![Link {
         a: 1,
         b: 2,

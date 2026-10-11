@@ -15,6 +15,7 @@ fn file<'a>(name: &'a str, title: &'a str, n: u8, items: Vec<u32>) -> NewFile<'a
         artist: Some("Halden Rook"),
         hash: Some(hash(n)),
         items: Some(items),
+        blake3: None,
     }
 }
 
@@ -26,6 +27,7 @@ fn named<'a>(name: &'a str, title: &'a str, artist: Option<&'a str>, n: u8) -> N
         artist,
         hash: Some(hash(n)),
         items: None,
+        blake3: None,
     }
 }
 
@@ -612,6 +614,7 @@ fn intros(db: &Db, n: usize, artist: impl Fn(usize) -> Option<String>) {
             artist: artist.as_deref(),
             hash: Some(hash(i as u8 + 1)),
             items: None,
+            blake3: None,
         });
     }
 }
@@ -665,4 +668,483 @@ fn a_title_with_no_letter_or_digit_brings_no_files_together() {
     let (decided, _) = db.decide();
     assert_eq!(decided.pairs, 0);
     assert_eq!(db.pair(a, b), None);
+}
+
+// ---- a file between the hash stage and the fingerprint stage ---------------------
+
+/// Whether a deciding job is owed: a file is due and ready.
+fn owed(db: &Db) -> bool {
+    db.writer.call(|c| decide::any_due(c)).unwrap()
+}
+
+/// Velo.flac and its re-encode Velo.mp3, decided: one track.
+fn velo_and_its_reencode(db: &Db) -> (i64, i64) {
+    let velo = track(1, LEN);
+    let flac = db.add(file("Velo.flac", "Velo", 1, velo.clone()));
+    let mp3 = db.add(file("Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
+    db.decide();
+    assert_eq!(db.track(flac), db.track(mp3));
+    (flac, mp3)
+}
+
+#[test]
+fn a_file_overwritten_with_another_song_is_not_decided_on_the_fingerprint_of_what_it_held() {
+    // 1. Velo.flac and its re-encode Velo.mp3 are one track.
+    let db = db();
+    let (flac, mp3) = velo_and_its_reencode(&db);
+    // 2. Velo.mp3 is overwritten with another song. The read and the hash
+    //    stage have been through it (new tags, a new audio_hash); the
+    //    fingerprint stage hasn't, so its fingerprint is still Velo's.
+    db.retag(mp3, Some("Nightdrive"), Some("Halden Rook"));
+    db.overwrite(mp3, Some(hash(9)), None);
+    // 3. The quick pass: it leaves the track.
+    db.group();
+    assert_ne!(db.track(flac), db.track(mp3));
+    // 4. A deciding job comes before the fingerprint job reaches the file.
+    //    Nothing is decided on the old fingerprint: the file stays out.
+    let (decided, summary) = db.decide();
+    assert_eq!((decided.files, decided.pairs, summary.moved), (0, 0, 0));
+    assert_ne!(db.track(flac), db.track(mp3));
+    assert_eq!(db.pair(flac, mp3), None);
+    assert!(!db.decided().contains(&mp3), "it waits for its fingerprint");
+    assert!(!owed(&db), "and no deciding job is owed meanwhile");
+    // 5. The fingerprint job writes the new fingerprint, matching goes
+    //    through it, and the file is decided on what it holds: another
+    //    song.
+    db.set_items(mp3, track(77, LEN));
+    let (decided, _) = db.decide();
+    assert_eq!(decided.files, 1);
+    db.decide();
+    assert_ne!(db.track(flac), db.track(mp3), "two songs, two tracks");
+    assert_eq!(db.pair(flac, mp3), None);
+    assert!(db.decided().contains(&mp3));
+}
+
+#[test]
+fn another_version_saved_over_a_file_under_the_same_names_is_not_decided_on_its_old_fingerprint() {
+    let db = db();
+    let (flac, mp3) = velo_and_its_reencode(&db);
+    // The same tags and file name, other audio; the fingerprint stage
+    // hasn't been through it.
+    db.overwrite(mp3, Some(hash(9)), None);
+    db.group();
+    assert_ne!(db.track(flac), db.track(mp3));
+    // A newcomer under the same title, another re-encode of Velo, is
+    // decided meanwhile. The overwritten file isn't asked about as its
+    // partner either, though its old fingerprint would match.
+    let late = db.add(file(
+        "late/Velo.mp3",
+        "Velo",
+        3,
+        reencoded(&track(1, LEN), 2, 7),
+    ));
+    let (decided, _) = db.decide();
+    assert_eq!(decided.files, 1, "the newcomer only");
+    assert_eq!(db.track(late), db.track(flac));
+    assert_ne!(db.track(mp3), db.track(flac));
+    assert_eq!((db.pair(flac, mp3), db.pair(late, mp3)), (None, None));
+    assert!(!db.decided().contains(&mp3));
+    // Its new fingerprint arrives: it shares nothing with the other two.
+    db.set_items(mp3, track(77, LEN));
+    db.decide();
+    db.decide();
+    assert_eq!(db.groups(), [vec![flac, late], vec![mp3]]);
+    assert_eq!((db.pair(flac, mp3), db.pair(late, mp3)), (None, None));
+    assert!(db.decided().contains(&mp3));
+}
+
+/// Velo.flac, and Velo.ogg: a re-encode the hash stage can't hash, known by
+/// its whole-file hash. Decided: one track.
+fn velo_and_a_file_with_no_audio_hash(db: &Db) -> (i64, i64) {
+    let velo = track(1, LEN);
+    let flac = db.add(file("Velo.flac", "Velo", 1, velo.clone()));
+    let ogg = db.add(NewFile {
+        hash: None,
+        blake3: Some(5),
+        ..file("Velo.ogg", "Velo", 0, reencoded(&velo, 1, 7))
+    });
+    db.decide();
+    assert_eq!(db.track(flac), db.track(ogg), "merged by its fingerprint");
+    (flac, ogg)
+}
+
+#[test]
+fn a_newcomer_waits_for_a_file_whose_fingerprint_is_not_known_to_be_of_what_it_holds() {
+    // Velo.ogg is touched on disk: the same bytes, a new modified time.
+    // With no audio_hash, only the fingerprint stage can say its
+    // fingerprint is still its own, and it hasn't been through the file.
+    let db = db();
+    let (flac, ogg) = velo_and_a_file_with_no_audio_hash(&db);
+    db.sql(&format!(
+        "UPDATE file SET mtime = mtime + 1 WHERE id = {ogg}"
+    ));
+    let late = db.add(file(
+        "late/Velo.mp3",
+        "Velo",
+        3,
+        reencoded(&track(1, LEN), 2, 7),
+    ));
+    let (decided, summary) = db.decide();
+    assert_eq!(decided.files, 1, "the newcomer is decided");
+    assert_eq!(db.pair(late, ogg), None, "but not against that file");
+    assert_eq!(
+        db.stands(flac, late),
+        ("duplicate".into(), "waiting".into())
+    );
+    assert_ne!(
+        db.track(late),
+        db.track(flac),
+        "its set waits for that file"
+    );
+    assert_eq!(db.track(ogg), db.track(flac), "which stays where it is");
+    assert_eq!((summary.sets_waiting, summary.undecided_pairs), (1, 0));
+    assert!(
+        !db.decided().contains(&ogg),
+        "and is decided again in its turn"
+    );
+    assert!(!owed(&db));
+    // The fingerprint stage vouches for it: everything is decided, and the
+    // three are one track.
+    db.fingerprint_stage_ran(ogg);
+    assert!(owed(&db));
+    db.decide();
+    assert_eq!(db.groups(), [vec![flac, ogg, late]]);
+    assert_eq!(db.stands(late, ogg), ("duplicate".into(), "merged".into()));
+}
+
+#[test]
+fn a_file_with_no_audio_hash_that_was_overwritten_leaves_the_track_it_merged_into() {
+    let db = db();
+    let (flac, ogg) = velo_and_a_file_with_no_audio_hash(&db);
+    // Overwritten with another song: still nothing the hash stage can
+    // hash, another whole-file hash, new tags, and (once the fingerprint
+    // stage has been through it) a new fingerprint.
+    db.retag(ogg, Some("Nightdrive"), Some("Halden Rook"));
+    db.overwrite(ogg, None, Some(6));
+    db.set_items(ogg, track(77, LEN));
+    assert_eq!(db.pair(flac, ogg), None, "its pairs went with its audio");
+    db.decide();
+    db.decide();
+    assert_ne!(db.track(flac), db.track(ogg), "two songs, two tracks");
+    assert_eq!(db.pair(flac, ogg), None);
+}
+
+#[test]
+fn a_tag_rewrite_of_a_file_with_no_audio_hash_takes_it_out_until_it_is_decided_again() {
+    // Its whole-file hash is all that names its audio, and a tag rewrite
+    // changes that: the file leaves, is decided again, and comes back.
+    let db = db();
+    let (flac, ogg) = velo_and_a_file_with_no_audio_hash(&db);
+    let home = db.track(flac);
+    db.overwrite(ogg, None, Some(6));
+    db.fingerprint_stage_ran(ogg);
+    db.group();
+    assert_ne!(db.track(ogg), home);
+    db.decide();
+    assert_eq!((db.track(flac), db.track(ogg)), (home, home));
+    assert_eq!(db.stands(flac, ogg), ("duplicate".into(), "merged".into()));
+}
+
+// ---- a file that isn't on disk ----------------------------------------------------
+
+#[test]
+fn a_file_gone_from_disk_holds_no_newcomer_out_of_its_track_and_leaves_nothing_owed() {
+    // The track had two copies; one is deleted and a new one arrives (an
+    // MP3 replaced by another encode).
+    let db = db();
+    let (flac, old) = velo_and_its_reencode(&db);
+    db.set_present(old, false);
+    let new = db.add(file(
+        "new/Velo.m4a",
+        "Velo",
+        3,
+        reencoded(&track(1, LEN), 2, 7),
+    ));
+    let (_, summary) = db.decide();
+    assert_eq!(db.track(new), db.track(flac), "the newcomer joins");
+    assert_eq!(db.track(old), db.track(flac), "the missing file stays");
+    assert_eq!(db.stands(flac, new), ("duplicate".into(), "merged".into()));
+    assert_eq!(db.pair(old, new), None, "nothing can be decided about it");
+    assert_eq!((summary.sets_waiting, summary.undecided_pairs), (0, 0));
+    assert_eq!(
+        db.count("SELECT count(*) FROM grouping_pair WHERE state = 'waiting'"),
+        0
+    );
+    assert!(!owed(&db), "no deciding job is owed");
+    let before = db.dump();
+    assert_eq!(db.decide().0, Decided::default());
+    assert_eq!(db.dump(), before);
+}
+
+// ---- a held set and a tag rewrite ---------------------------------------------------
+
+#[test]
+fn a_tag_rewrite_on_one_file_of_a_held_set_does_not_release_the_set() {
+    // Three encodes: 1-2 and 2-3 duplicates, 1-3 for review. Held.
+    let db = db();
+    let first = track(1, LEN);
+    let second = worn(&first, 1, 7, 5);
+    let third = worn(&second, 2, 7, 5);
+    let a = db.add(file("Velo.flac", "Velo", 1, first));
+    let b = db.add(file("Velo.m4a", "Velo", 2, second));
+    let c = db.add(file("Velo.mp3", "Velo", 3, third));
+    db.decide();
+    assert_eq!(db.tracks(), 3);
+    let held = |db: &Db| {
+        assert_eq!(db.tracks(), 3, "nothing in the set merges");
+        assert_eq!(
+            db.stands(a, b),
+            ("duplicate".into(), "set_disagrees".into())
+        );
+        assert_eq!(
+            db.stands(b, c),
+            ("duplicate".into(), "set_disagrees".into())
+        );
+        assert_eq!(db.stands(a, c), ("review".into(), "open".into()));
+    };
+    held(&db);
+    // rekordbox rewrites the third file's tags: the same title, with a
+    // trailing space. The file is due again.
+    db.retag(c, Some("Velo "), Some("Halden Rook"));
+    assert!(!db.decided().contains(&c));
+    // A quick pass before it's decided again: the set is still held.
+    let summary = db.group();
+    assert_eq!((summary.moved, summary.sets_disagreeing), (0, 1));
+    held(&db);
+    // Decided again, to the same answers: still held.
+    let (decided, _) = db.decide();
+    assert_eq!(decided.files, 1);
+    held(&db);
+}
+
+// ---- files that change while a run is under way ---------------------------------------
+
+#[test]
+fn a_file_that_arrives_while_a_run_is_under_way_is_decided_with_its_names() {
+    // One file a page. A third file of the same title gets its track after
+    // the first page: the run reaches it last.
+    let db = db();
+    let a = db.add(named("one/Velo.mp3", "Velo", None, 1));
+    let b = db.add(named("two/Velo.mp3", "Velo", None, 2));
+    db.group();
+    let late = std::cell::Cell::new(None);
+    let decided = db.decide_ticking(1, || {
+        if late.get().is_none() && db.decided().len() == 1 {
+            late.set(Some(db.add(named("three/Velo.mp3", "Velo", None, 3))));
+            db.group();
+        }
+    });
+    let c = late.get().expect("the third file was added");
+    assert_eq!(decided.files, 3);
+    assert_eq!(db.decided(), [a, b, c]);
+    for (x, y) in [(a, b), (a, c), (b, c)] {
+        assert_eq!(db.stands(x, y).0, "review", "files {x} and {y}");
+    }
+}
+
+#[test]
+fn a_file_retagged_while_a_run_is_under_way_is_decided_by_its_new_names() {
+    let db = db();
+    let a = db.add(named("one/Velo.mp3", "Velo", None, 1));
+    let b = db.add(named("two/Nightdrive.mp3", "Nightdrive", None, 2));
+    db.group();
+    let done = std::cell::Cell::new(false);
+    db.decide_ticking(1, || {
+        if !done.get() && db.decided().len() == 1 {
+            done.set(true);
+            db.retag(b, Some("Velo"), None);
+        }
+    });
+    assert_eq!(db.decided(), [a, b]);
+    assert_eq!(db.stands(a, b).0, "review", "found by the title it has now");
+}
+
+// ---- which files are decided, and what goes ----------------------------------------------
+
+#[test]
+fn a_file_matching_has_not_been_through_yet_is_left_due() {
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", "Velo", 1, velo.clone()));
+    db.group();
+    db.compare_fingerprints();
+    // A second file gets its track; matching hasn't seen its fingerprint.
+    let b = db.add(file("Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
+    db.group();
+    let decided = db.decide_in_pages(10);
+    assert_eq!(decided.files, 1);
+    assert_eq!(db.decided(), [a], "the second waits for matching");
+    assert!(!owed(&db), "and nothing is owed until then");
+    db.compare_fingerprints();
+    assert!(owed(&db));
+    db.decide();
+    assert_eq!(db.decided(), [a, b]);
+    assert_eq!(db.track(a), db.track(b));
+}
+
+#[test]
+fn a_pair_a_due_file_is_no_longer_asked_about_goes_and_takes_its_link() {
+    // A remix by its names alone: linked.
+    let db = db();
+    let original = db.add(named("a/Velo.mp3", "Velo", None, 1));
+    let remix = db.add(named(
+        "b/Velo (Quill Ashby Remix).mp3",
+        "Velo (Quill Ashby Remix)",
+        None,
+        2,
+    ));
+    db.decide();
+    assert_eq!(
+        db.stands(original, remix),
+        ("rework".into(), "linked".into())
+    );
+    assert!(db.link(original, remix).is_some());
+    // It was mislabeled: another song altogether, renamed and retagged.
+    db.retag(remix, Some("Nightdrive"), None);
+    db.sql(&format!(
+        "UPDATE file SET rel_path = 'b/Nightdrive.mp3', rel_path_key = 'b/Nightdrive.mp3'
+         WHERE id = {remix}"
+    ));
+    let (decided, summary) = db.decide();
+    assert_eq!(decided.files, 1);
+    assert_eq!(
+        db.pair(original, remix),
+        None,
+        "nothing leads to the pair now"
+    );
+    assert_eq!(summary.links_removed, 1);
+    assert_eq!(db.count("SELECT count(*) FROM version_link"), 0);
+}
+
+// ---- the database says when a file is due, through the job ---------------------------------
+
+#[test]
+fn a_new_fingerprint_under_the_same_audio_hash_has_the_files_pairs_decided_again() {
+    let db = db();
+    let (flac, mp3) = velo_and_its_reencode(&db);
+    assert_eq!(db.stands(flac, mp3), ("duplicate".into(), "merged".into()));
+    // The fingerprint stage gives the file another fingerprint (its audio
+    // hash is what it was): the middle of the track only.
+    db.set_items(mp3, reencoded(&track(1, LEN)[300..700], 3, 7));
+    assert_eq!(
+        db.pair(flac, mp3),
+        None,
+        "its pairs went with its fingerprint"
+    );
+    assert!(!db.decided().contains(&mp3));
+    let (decided, _) = db.decide();
+    assert_eq!(decided.files, 1);
+    // Decided on the new fingerprint. The merge is kept: its audio hash
+    // didn't change.
+    assert_eq!(db.stands(flac, mp3), ("cut".into(), "in_one_track".into()));
+    assert_eq!(db.track(flac), db.track(mp3));
+}
+
+#[test]
+fn a_file_given_another_name_on_disk_is_decided_again_by_its_new_name() {
+    // No title tags: the file names are all there is.
+    let untagged = |name, n| NewFile {
+        title: None,
+        ..named(name, "", None, n)
+    };
+    let db = db();
+    let a = db.add(untagged("a/Velo.mp3", 1));
+    let b = db.add(untagged("b/Nightdrive.mp3", 2));
+    db.decide();
+    assert_eq!(db.pair(a, b), None);
+    db.sql(&format!(
+        "UPDATE file SET rel_path = 'b/Velo.mp3', rel_path_key = 'b/Velo.mp3' WHERE id = {b}"
+    ));
+    assert!(!db.decided().contains(&b), "renamed: due again");
+    let (decided, _) = db.decide();
+    assert_eq!(decided.files, 1);
+    assert_eq!(db.stands(a, b), ("review".into(), "open".into()));
+}
+
+#[test]
+fn a_file_that_comes_back_is_decided_against_what_arrived_while_it_was_gone() {
+    let db = db();
+    let a = db.add(named("one/Velo.mp3", "Velo", None, 1));
+    db.decide();
+    db.set_present(a, false);
+    let b = db.add(named("two/Velo.mp3", "Velo", None, 2));
+    db.decide();
+    assert_eq!(db.pair(a, b), None, "nothing is asked about a missing file");
+    db.set_present(a, true);
+    assert!(!db.decided().contains(&a), "back: due again");
+    let (decided, _) = db.decide();
+    assert_eq!(decided.files, 1);
+    assert_eq!(db.stands(a, b), ("review".into(), "open".into()));
+}
+
+// ---- the caps' edges ------------------------------------------------------------------------
+
+#[test]
+fn a_title_shared_by_exactly_the_cap_is_compared_in_full_whoever_the_artists_are() {
+    // Every file names its own artist: narrowed by artist, no pair would
+    // be left.
+    let db = db();
+    intros(&db, MAX_TITLE_BUCKET, |i| Some(format!("Artist {i}")));
+    let (decided, _) = db.decide();
+    let pairs = (MAX_TITLE_BUCKET * (MAX_TITLE_BUCKET - 1) / 2) as u64;
+    assert_eq!(decided.pairs, pairs);
+    assert_eq!((decided.skipped_buckets, decided.skipped_pairs), (0, 0));
+}
+
+#[test]
+fn one_artists_share_of_an_over_full_title_is_compared_when_it_is_exactly_the_cap() {
+    // One file more than the cap; all but the last are by one artist.
+    let db = db();
+    intros(&db, MAX_TITLE_BUCKET + 1, |i| {
+        Some(
+            if i < MAX_TITLE_BUCKET {
+                "Halden Rook"
+            } else {
+                "Ivo Marsh"
+            }
+            .into(),
+        )
+    });
+    let (decided, _) = db.decide();
+    let pairs = (MAX_TITLE_BUCKET * (MAX_TITLE_BUCKET - 1) / 2) as u64;
+    assert_eq!(decided.pairs, pairs);
+    assert_eq!((decided.skipped_buckets, decided.skipped_pairs), (0, 0));
+}
+
+// ---- a pair a waiting set misses ----------------------------------------------------------
+
+#[test]
+fn a_pair_a_waiting_set_misses_is_stored_whatever_the_rules_say_and_holds_the_set() {
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", "Velo", 1, velo.clone()));
+    let b = db.add(file("Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
+    // The very same audio as the second file, under another name and with
+    // no fingerprint: nothing leads from the first file to it, and the
+    // rules call the two different.
+    let c = db.add(named("Nightdrive.mp3", "Nightdrive", None, 2));
+    let (decided, summary) = db.decide();
+    assert_eq!((decided.completed, decided.compared_directly), (1, 0));
+    assert_eq!(db.stands(a, c), ("different".into(), "apart".into()));
+    assert_eq!(db.track(b), db.track(c), "the very same audio: one track");
+    assert_ne!(
+        db.track(a),
+        db.track(b),
+        "the set is held, not left waiting"
+    );
+    assert_eq!(
+        db.stands(a, b),
+        ("duplicate".into(), "set_disagrees".into())
+    );
+    assert_eq!(
+        (
+            summary.sets_disagreeing,
+            summary.sets_waiting,
+            summary.undecided_pairs
+        ),
+        (1, 0, 0)
+    );
+    let before = db.dump();
+    assert_eq!(db.decide().0, Decided::default());
+    assert_eq!(db.dump(), before);
 }

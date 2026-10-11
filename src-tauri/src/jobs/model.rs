@@ -31,8 +31,8 @@ pub enum JobKind {
     Hash,
     /// Acoustic fingerprint (1.4).
     Fingerprint,
-    /// Put files into tracks; with `decide` in its target, decide their
-    /// pairs by the grouping rules first (1.4, 1.5).
+    /// Put files into tracks, and with `decide` in its target, decide
+    /// their pairs by the grouping rules first (1.4, 1.5).
     Group,
     /// Estimate BPM, key and energy (3.7).
     Analyze,

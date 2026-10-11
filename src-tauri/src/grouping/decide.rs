@@ -9,13 +9,21 @@
 //! current [`super::decided_as`]: it's new, its audio, its fingerprint or
 //! its names changed (the database clears the record then, whichever code
 //! made the change), it came back, or the rules changed. It's **ready** when
-//! it has no fingerprint, or matching has been through its fingerprint
+//! it has no fingerprint, or its fingerprint is of the audio it holds now
+//! (`FINGERPRINT_CURRENT` below) and matching has been through it
 //! (`fingerprint_matched`): before that, the stored comparisons can't be
 //! told from "never compared". Each run takes the files that are both, in
 //! pages, and a file is marked decided in the same transaction as the last
 //! of its pairs, only if nothing a decision reads changed meanwhile. So a
 //! run that stops anywhere leaves every file either decided with all its
 //! pairs, or due.
+//!
+//! The hash stage gives a changed file its new `audio_hash` before the
+//! fingerprint stage reaches it, so for a while a file carries the
+//! fingerprint of what it used to hold. Such a file isn't ready, and
+//! **isn't asked about as another file's partner** either: the pair is left
+//! as it is, the file is made due, and the pair is decided with it once its
+//! fingerprint is its own again.
 //!
 //! # Which pairs
 //!
@@ -43,10 +51,12 @@
 //! not asked about, not recorded, left apart, and counted in [`Decided`].
 //!
 //! Pairs the rules call "different" aren't stored, except inside a set of
-//! duplicates that waits for them ([`super::store::undecided_pairs`]):
-//! those are decided last, compared directly where nobody compared them.
+//! duplicates that waits for them (the grouping pass lists those,
+//! [`super::store::Step::undecided`]): [`complete`] decides them, compared
+//! directly where nobody compared them, and stores every answer.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -164,6 +174,10 @@ struct Narrowed {
 #[derive(Debug, Default)]
 pub struct Names {
     of_file: HashMap<i64, Entry>,
+    /// The `grouping_file.rev` each file's names were read at (`None`: it
+    /// had no record yet). The database changes `rev` whenever a file's
+    /// names change, so an entry read at another `rev` is read again.
+    read_at: HashMap<i64, Option<i64>>,
     titles: HashMap<String, BTreeSet<i64>>,
     /// The mashups naming each title as a part.
     parts: HashMap<String, BTreeSet<i64>>,
@@ -181,9 +195,13 @@ impl Names {
     }
 
     fn remove(&mut self, file: i64) {
+        self.read_at.remove(&file);
         let Some(entry) = self.of_file.remove(&file) else {
             return;
         };
+        for key in &entry.titles {
+            self.narrowed.remove(key);
+        }
         for (keys, index) in [
             (&entry.titles, &mut self.titles),
             (&entry.parts, &mut self.parts),
@@ -199,19 +217,39 @@ impl Names {
         }
     }
 
-    fn set(&mut self, file: i64, entry: Entry) {
+    fn set(&mut self, file: i64, entry: Entry, rev: Option<i64>) {
         self.remove(file);
         for key in &entry.titles {
             self.titles.entry(key.clone()).or_default().insert(file);
+            self.narrowed.remove(key);
         }
         for key in &entry.parts {
             self.parts.entry(key.clone()).or_default().insert(file);
         }
         self.of_file.insert(file, entry);
+        self.read_at.insert(file, rev);
+    }
+
+    /// Whether `file`'s names are in the index as they were at `rev`.
+    fn has(&self, file: i64, rev: Option<i64>) -> bool {
+        self.read_at.get(&file) == Some(&rev)
+    }
+
+    /// Reads the names of `files` (each with its record's `rev` now) into
+    /// the index.
+    fn read(&mut self, writer: &Writer, files: Vec<(i64, Option<i64>)>) -> Result<(), DbError> {
+        let ids: Vec<i64> = files.iter().map(|(file, _)| *file).collect();
+        let revs: HashMap<i64, Option<i64>> = files.into_iter().collect();
+        let named = writer.call(move |c| names_of(c, &ids))?;
+        for (file, names) in named {
+            self.set(file, names.entry(), revs.get(&file).copied().flatten());
+        }
+        Ok(())
     }
 
     /// Brings the index up to date with the file table: every present
-    /// file, and the names of each file that is new to it or due.
+    /// file, and the names of each file that is new to it or whose names
+    /// may have changed since they were read.
     fn catch_up<E: From<DbError>>(
         &mut self,
         writer: &Writer,
@@ -221,12 +259,12 @@ impl Names {
         self.counted.clear();
         let present = writer.call(|c| {
             let mut stmt = c.prepare(
-                "SELECT f.id, g.decided_as IS ?1
+                "SELECT f.id, g.rev
                  FROM file f LEFT JOIN grouping_file g ON g.file_id = f.id
                  WHERE f.present = 1 ORDER BY f.id",
             )?;
-            let rows = stmt.query_map([super::decided_as()], |r| Ok((r.get(0)?, r.get(1)?)))?;
-            rows.collect::<rusqlite::Result<Vec<(i64, bool)>>>()
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<rusqlite::Result<Vec<(i64, Option<i64>)>>>()
         })?;
         let now: HashSet<i64> = present.iter().map(|(file, _)| *file).collect();
         let gone: Vec<i64> = self
@@ -238,20 +276,31 @@ impl Names {
         for file in gone {
             self.remove(file);
         }
-        let stale: Vec<i64> = present
-            .iter()
-            .filter(|(file, decided)| !decided || !self.of_file.contains_key(file))
-            .map(|(file, _)| *file)
+        let stale: Vec<(i64, Option<i64>)> = present
+            .into_iter()
+            .filter(|&(file, rev)| !self.has(file, rev))
             .collect();
         for page in stale.chunks(NAMES_PAGE) {
             tick(0.0)?;
-            let ids = page.to_vec();
-            let named = writer.call(move |c| names_of(c, &ids))?;
-            for (file, names) in named {
-                self.set(file, names.entry());
-            }
+            self.read(writer, page.to_vec())?;
         }
         Ok(())
+    }
+
+    /// Makes sure the files of one page are in the index with the names
+    /// they have now, before candidates are found for them: a file that
+    /// arrived, or was renamed, after the run caught up is never decided
+    /// without them.
+    fn catch_up_page(&mut self, writer: &Writer, due: &[(i64, i64)]) -> Result<(), DbError> {
+        let stale: Vec<(i64, Option<i64>)> = due
+            .iter()
+            .map(|&(file, rev)| (file, Some(rev)))
+            .filter(|&(file, rev)| !self.has(file, rev))
+            .collect();
+        if stale.is_empty() {
+            return Ok(());
+        }
+        self.read(writer, stale)
     }
 
     /// The files of title `key` that `file` is compared with: all of them,
@@ -395,12 +444,49 @@ fn names_of(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Stored
     rows.collect()
 }
 
+/// Whether file `f`'s fingerprint is of the audio it holds now, as SQL.
+///
+/// The hash stage writes a changed file's new `audio_hash` and leaves its
+/// fingerprint alone until the fingerprint stage reaches it, so nothing may
+/// be decided on a fingerprint without this. It's current when it was
+/// computed from the `audio_hash` the file has now
+/// (`fingerprint_audio_hash`, migration 0010), or when the fingerprint
+/// stage finished the file as it is on disk now (its `file_stage` row is
+/// done at the file's size and modified time), which is the only proof
+/// there is for a file with no `audio_hash`.
+///
+/// Before the hash stage has been through a changed file, its `audio_hash`
+/// and its fingerprint are both of what it used to hold, and agree. What
+/// is decided on them then doesn't outlive the hash stage: the database
+/// drops the file's pairs when the new `audio_hash` is written, and the
+/// file leaves the track it was placed in with the old one.
+const FINGERPRINT_CURRENT: &str = "((f.fingerprint_audio_hash IS NOT NULL
+       AND f.fingerprint_audio_hash = f.audio_hash)
+      OR EXISTS (SELECT 1 FROM file_stage p
+                 WHERE p.file_id = f.id AND p.stage = 'fingerprint' AND p.status = 'done'
+                   AND p.size IS f.size AND p.mtime IS f.mtime))";
+
+/// Whether file `f` is ready to be decided, as SQL: see the module docs.
+fn ready() -> String {
+    format!(
+        "(f.fingerprint IS NULL
+          OR ({FINGERPRINT_CURRENT}
+              AND EXISTS (SELECT 1 FROM fingerprint_matched m
+                          WHERE m.file_id = f.id AND m.version = {})))",
+        matching::VERSION
+    )
+}
+
 /// What a decision reads about one file.
 struct Known {
     facts: FileFacts,
     /// The very same audio has the very same content.
     content: Option<Key>,
+    /// It has a fingerprint, of the audio it holds now.
     has_fingerprint: bool,
+    /// It has a fingerprint of audio it no longer holds: nothing is asked
+    /// about it until the fingerprint stage has been through it.
+    stale: bool,
     // The file's quality verdict goes here when "truncated: yes / no /
     // unknown" becomes an input (TASKS 1bC-1, with 1bC-5).
 }
@@ -408,59 +494,68 @@ struct Known {
 fn known(conn: &Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Known>> {
     let ids = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
     let mut stmt = conn.prepare_cached(&format!(
-        "SELECT f.id, f.rel_path, f.raw_tags, {CONTENT_KEY}, f.fingerprint IS NOT NULL
+        "SELECT f.id, f.rel_path, f.raw_tags, {CONTENT_KEY}, f.fingerprint IS NOT NULL,
+                {FINGERPRINT_CURRENT}
          FROM file f
          WHERE f.id IN (SELECT value FROM json_each(?1)) AND f.present = 1"
     ))?;
     let rows = stmt.query_map([ids], |r| {
         let (rel_path, raw_tags): (String, Option<String>) = (r.get(1)?, r.get(2)?);
         let content: Option<Key> = r.get(3)?;
+        let (fingerprinted, current): (bool, bool) = (r.get(4)?, r.get(5)?);
         Ok((
             r.get(0)?,
             Known {
                 facts: StoredNames::new(&rel_path, raw_tags.as_deref()).facts(),
                 content: content.filter(|key| !key.is_empty()),
-                has_fingerprint: r.get(4)?,
+                has_fingerprint: fingerprinted && current,
+                stale: fingerprinted && !current,
             },
         ))
     })?;
     rows.collect()
 }
 
-/// The next `limit` files that are due and ready, by id after `after`:
-/// each one's id and its record's `rev`.
-fn due_page(conn: &Connection, after: i64, limit: usize) -> rusqlite::Result<Vec<(i64, i64)>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT g.file_id, g.rev
+/// A file that is due and ready, as a page lists it.
+#[derive(Debug, Clone, Copy)]
+struct Due {
+    file: i64,
+    /// Its record's `rev`.
+    rev: i64,
+    fingerprinted: bool,
+}
+
+/// The next `limit` files that are due and ready, by id after `after`.
+fn due_page(conn: &Connection, after: i64, limit: usize) -> rusqlite::Result<Vec<Due>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT g.file_id, g.rev, f.fingerprint IS NOT NULL
          FROM grouping_file g JOIN file f ON f.id = g.file_id
-         WHERE g.file_id > ?1 AND f.present = 1 AND g.decided_as IS NOT ?2
-           AND (f.fingerprint IS NULL
-                OR EXISTS (SELECT 1 FROM fingerprint_matched m
-                           WHERE m.file_id = f.id AND m.version = ?3))
-         ORDER BY g.file_id LIMIT ?4",
-    )?;
-    let rows = stmt.query_map(
-        params![after, super::decided_as(), matching::VERSION, limit as i64],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
+         WHERE g.file_id > ?1 AND f.present = 1 AND g.decided_as IS NOT ?2 AND {}
+         ORDER BY g.file_id LIMIT ?3",
+        ready()
+    ))?;
+    let rows = stmt.query_map(params![after, super::decided_as(), limit as i64], |r| {
+        Ok(Due {
+            file: r.get(0)?,
+            rev: r.get(1)?,
+            fingerprinted: r.get(2)?,
+        })
+    })?;
     rows.collect()
 }
 
-/// Whether a deciding run has anything to do: a present file is due and
-/// ready (or has no record at all yet), or a pair still says "waiting".
+/// Whether a deciding run has a file to decide: a present file is due (or
+/// has no record at all yet) and ready. A file that is due and not ready
+/// doesn't count: whatever makes it ready (the fingerprint stage, then
+/// matching) asks for a deciding job when it's done.
 pub fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
-    conn.prepare_cached(
+    conn.prepare_cached(&format!(
         "SELECT EXISTS (
              SELECT 1 FROM file f LEFT JOIN grouping_file g ON g.file_id = f.id
-             WHERE f.present = 1 AND g.decided_as IS NOT ?1
-               AND (f.fingerprint IS NULL
-                    OR EXISTS (SELECT 1 FROM fingerprint_matched m
-                               WHERE m.file_id = f.id AND m.version = ?2)))
-           OR EXISTS (SELECT 1 FROM grouping_pair WHERE state = 'waiting')",
-    )?
-    .query_row(params![super::decided_as(), matching::VERSION], |r| {
-        r.get(0)
-    })
+             WHERE f.present = 1 AND g.decided_as IS NOT ?1 AND {})",
+        ready()
+    ))?
+    .query_row([super::decided_as()], |r| r.get(0))
 }
 
 /// The files of the two sides of a pair, lower id first.
@@ -559,9 +654,9 @@ fn row(a: i64, b: i64, decision: &rules::Decision) -> Row {
 /// the fingerprints, the lower id first, the blobs compared and the result.
 struct Compared {
     low: i64,
-    blob_low: Vec<u8>,
+    blob_low: Arc<[u8]>,
     high: i64,
-    blob_high: Vec<u8>,
+    blob_high: Arc<[u8]>,
     comparison: Comparison,
 }
 
@@ -633,7 +728,8 @@ fn look_up(writer: &Writer, audio: &mut AudioKnown, pairs: Vec<(i64, i64)>) -> R
 /// Compares directly each of `pairs` (files standing for fingerprints, the
 /// lower first): reads the two fingerprints and lines them up, off the
 /// writer. A pair whose fingerprints can't be read or compared stays
-/// unknown.
+/// unknown. Each file's fingerprint is read once and shared by every pair
+/// it's in (an hour-long file's is megabytes).
 fn compare_directly(
     writer: &Writer,
     audio: &mut AudioKnown,
@@ -646,10 +742,10 @@ fn compare_directly(
     let mut ids: Vec<i64> = pairs.iter().flat_map(|&(low, high)| [low, high]).collect();
     ids.sort_unstable();
     ids.dedup();
-    let blobs: HashMap<i64, Vec<u8>> = writer
+    let blobs: HashMap<i64, Arc<[u8]>> = writer
         .call(move |c| matching::store::fingerprints_of(c, &ids))?
         .into_iter()
-        .map(|(file, blob, _)| (file, blob))
+        .map(|(file, blob, _)| (file, Arc::from(blob)))
         .collect();
     let mut prints: HashMap<i64, Option<Fingerprint>> = HashMap::new();
     let mut compared = Vec::new();
@@ -674,9 +770,9 @@ fn compare_directly(
         audio.stored.insert((low, high), comparison.clone());
         compared.push(Compared {
             low,
-            blob_low: blob_low.clone(),
+            blob_low: Arc::clone(blob_low),
             high,
-            blob_high: blob_high.clone(),
+            blob_high: Arc::clone(blob_high),
             comparison,
         });
     }
@@ -755,11 +851,13 @@ fn names_ask_for_a_comparison(decision: &rules::Decision) -> bool {
     )
 }
 
-/// One deciding run over every file that is due and ready, then over the
-/// pairs waiting sets still miss. `tick` is called often with how far along
-/// it is; `stop_here` at each point where the run can stop without losing
-/// work (between pages), once this run has written something. An error
-/// from either stops the run there; what was written stays.
+/// One deciding run over every file that is due and ready, in pages of
+/// `page` files. `tick` is called often with how far along it is;
+/// `stop_here` at each point where the run can stop without losing work
+/// (between pages), once this run has written something. An error from
+/// either stops the run there; what was written stays.
+///
+/// A run with no file to decide reads nothing but the first, empty page.
 pub fn run<E: From<DbError>>(
     writer: &Writer,
     names: &mut Names,
@@ -770,52 +868,67 @@ pub fn run<E: From<DbError>>(
     let mut run = Decided::default();
     let page = page.max(1);
     tick(0.0)?;
-    let standing = writer.call(|c| Standing::read(c))?;
-    let total = writer
-        .call(|c| {
-            c.query_row(
-                "SELECT count(*) FROM grouping_file WHERE decided_as IS NOT ?1",
-                [super::decided_as()],
-                |r| r.get::<_, i64>(0),
-            )
-        })?
-        .max(1) as f64;
-
     let mut after = 0;
     let mut seen = 0u64;
-    let mut caught_up = false;
+    let mut total = 1.0;
+    let mut standing: Option<Standing> = None;
     loop {
         tick((seen as f64 / total).min(0.95))?;
         if run.files > 0 {
             stop_here()?;
         }
-        let due = writer.call(move |c| due_page(c, after, page))?;
-        let Some(&(last, _)) = due.last() else {
+        let listed = writer.call(move |c| due_page(c, after, page))?;
+        let Some(last) = listed.last() else {
             break;
         };
-        after = last;
-        seen += due.len() as u64;
-        // The index of names is only needed to decide a file: a run with
-        // none to decide never builds it (after a restart that is every
-        // present file's names read again).
-        if !caught_up {
+        after = last.file;
+        seen += listed.len() as u64;
+        // What is only needed to decide a file is read by the first page
+        // that has one: the index of names (after a restart that is every
+        // present file's names read again), and how many files are due.
+        if standing.is_none() {
             names.catch_up(writer, tick)?;
-            caught_up = true;
+            total = writer
+                .call(|c| {
+                    c.query_row(
+                        "SELECT count(*) FROM grouping_file WHERE decided_as IS NOT ?1",
+                        [super::decided_as()],
+                        |r| r.get::<_, i64>(0),
+                    )
+                })?
+                .max(1) as f64;
         }
-        decide_page(writer, names, &standing, &due, &mut run)?;
-    }
-
-    // The pairs sets of duplicates still wait for: every one is decided,
-    // compared directly where nobody compared the two.
-    let missing = writer.call(|c| super::store::undecided_pairs(c))?;
-    for pairs in missing.chunks(page) {
-        tick(0.97)?;
-        if run.wrote() {
-            stop_here()?;
+        // Which file stands for which, read again whenever a page lists a
+        // file matching went through since.
+        let behind = standing.as_ref().is_none_or(|standing| {
+            listed
+                .iter()
+                .any(|due| due.fingerprinted && !standing.stands.contains_key(&due.file))
+        });
+        if behind {
+            standing = Some(writer.call(|c| Standing::read(c))?);
         }
-        complete(writer, &standing, pairs, &mut run)?;
+        // Always there by now.
+        let Some(standing) = &standing else { break };
+        let due: Vec<(i64, i64)> = listed.iter().map(|due| (due.file, due.rev)).collect();
+        names.catch_up_page(writer, &due)?;
+        decide_page(writer, names, standing, &due, &mut run)?;
     }
     Ok(run)
+}
+
+/// Makes each of `files` due, if it isn't: its fingerprint isn't of the
+/// audio it holds now, so the pairs it was just left out of are decided
+/// with it, once the fingerprint stage and matching have been through it.
+fn postpone(conn: &Connection, files: &[i64]) -> rusqlite::Result<()> {
+    let mut due = conn.prepare_cached(
+        "UPDATE grouping_file SET decided_as = NULL
+         WHERE file_id = ?1 AND decided_as IS NOT NULL",
+    )?;
+    for file in files {
+        due.execute([file])?;
+    }
+    Ok(())
 }
 
 /// Decides every pair of one page of due files and writes them, marking
@@ -897,6 +1010,15 @@ fn decide_page(
     if !extra.is_empty() {
         known.extend(writer.call(move |c| self::known(c, &extra))?);
     }
+    // A file carrying the fingerprint of audio it no longer holds isn't
+    // asked about, as a partner or (should it have changed since the page
+    // was listed) as a due file: its pairs wait for its own turn.
+    let stale: HashSet<i64> = known
+        .iter()
+        .filter(|(_, known)| known.stale)
+        .map(|(&file, _)| file)
+        .collect();
+    pairs.retain(|(a, b)| !(stale.contains(a) || stale.contains(b)));
 
     // What nobody stored is looked up, then asked about; the pairs whose
     // names call for it are compared directly and asked about again.
@@ -942,8 +1064,10 @@ fn decide_page(
     let (files, recorded) = writer.call(move |conn| {
         let tx = conn.transaction()?;
         store_compared(&tx, &compared)?;
+        let postponed: Vec<i64> = stale.iter().copied().collect();
+        postpone(&tx, &postponed)?;
         // The pairs a due file had and has no more go; the rest are
-        // written over.
+        // written over. A pair with a postponed file stays as it is.
         {
             let mut had = tx.prepare_cached(
                 "SELECT file_a, file_b FROM grouping_pair WHERE file_a = ?1 OR file_b = ?1",
@@ -955,7 +1079,8 @@ fn decide_page(
                     .query_map([file], |r| Ok((r.get(0)?, r.get(1)?)))?
                     .collect::<rusqlite::Result<_>>()?;
                 for pair in before {
-                    if !kept.contains(&pair) {
+                    let waits = stale.contains(&pair.0) || stale.contains(&pair.1);
+                    if !kept.contains(&pair) && !waits {
                         drop.execute([pair.0, pair.1])?;
                     }
                 }
@@ -970,7 +1095,9 @@ fn decide_page(
                 "UPDATE grouping_file SET decided_as = ?1 WHERE file_id = ?2 AND rev = ?3",
             )?;
             for &(file, rev) in &due {
-                files += mark.execute(params![super::decided_as(), file, rev])? as u64;
+                if !stale.contains(&file) {
+                    files += mark.execute(params![super::decided_as(), file, rev])? as u64;
+                }
             }
         }
         tx.commit()?;
@@ -1011,9 +1138,34 @@ fn identical(conn: &Connection, contents: &[Key]) -> rusqlite::Result<HashMap<Ke
     Ok(out)
 }
 
-/// Decides `pairs`, which sets of duplicates wait for, and writes every
-/// answer, "different" included: a pair nobody compared is compared first.
-fn complete(
+/// Decides `pairs`, which sets of duplicates wait for (the grouping pass
+/// lists them, [`super::store::Step::undecided`]), `page` pairs a
+/// transaction, and writes every answer, "different" included: a pair
+/// nobody compared is compared first. `stop_here` is called between
+/// transactions once `run` has written something.
+pub fn complete<E: From<DbError>>(
+    writer: &Writer,
+    pairs: &[(i64, i64)],
+    page: usize,
+    run: &mut Decided,
+    tick: &mut dyn FnMut(f64) -> Result<(), E>,
+    stop_here: &mut dyn FnMut() -> Result<(), E>,
+) -> Result<(), E> {
+    if pairs.is_empty() {
+        return Ok(());
+    }
+    let standing = writer.call(|c| Standing::read(c))?;
+    for pairs in pairs.chunks(page.max(1)) {
+        tick(0.97)?;
+        if run.wrote() {
+            stop_here()?;
+        }
+        complete_page(writer, &standing, pairs, run)?;
+    }
+    Ok(())
+}
+
+fn complete_page(
     writer: &Writer,
     standing: &Standing,
     pairs: &[(i64, i64)],
@@ -1023,6 +1175,20 @@ fn complete(
     ids.sort_unstable();
     ids.dedup();
     let known = writer.call(move |c| known(c, &ids))?;
+    // As in a page of due files: nothing is asked about a file carrying the
+    // fingerprint of audio it no longer holds. It's made due, and the set
+    // waits for it.
+    let postponed: Vec<i64> = known
+        .iter()
+        .filter(|(_, known)| known.stale)
+        .map(|(&file, _)| file)
+        .collect();
+    let pairs: Vec<(i64, i64)> = pairs
+        .iter()
+        .filter(|(a, b)| !(postponed.contains(a) || postponed.contains(b)))
+        .copied()
+        .collect();
+    let pairs = pairs.as_slice();
     let stands_of = |&(a, b): &(i64, i64)| ordered(standing.of(a), standing.of(b));
     let mut audio = AudioKnown::default();
     look_up(
@@ -1055,20 +1221,10 @@ fn complete(
     writer.call(move |conn| {
         let tx = conn.transaction()?;
         store_compared(&tx, &compared)?;
+        postpone(&tx, &postponed)?;
         store_rows(&tx, &rows)?;
         tx.commit()
     })
-}
-
-/// File `file`'s decided pairs: the other file, the outcome and where the
-/// pair stands, for tests and for whoever reads them next (Review, 1bD).
-pub fn pairs_of(conn: &Connection, file: i64) -> rusqlite::Result<Vec<(i64, String, String)>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT CASE WHEN file_a = ?1 THEN file_b ELSE file_a END, outcome, state
-         FROM grouping_pair WHERE file_a = ?1 OR file_b = ?1 ORDER BY 1",
-    )?;
-    let rows = stmt.query_map([file], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
-    rows.collect()
 }
 
 /// The reasons stored for the pair of files `a` and `b`, as JSON.

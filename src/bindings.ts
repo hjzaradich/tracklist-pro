@@ -494,7 +494,10 @@ export type JobKind =
 "hash" | 
 /**  Acoustic fingerprint (1.4). */
 "fingerprint" | 
-/**  Put files into tracks (provisional, 1bC-1 replaces the rule). */
+/**
+ *  Put files into tracks, and with `decide` in its target, decide
+ *  their pairs by the grouping rules first (1.4, 1.5).
+ */
 "group" | 
 /**  Estimate BPM, key and energy (3.7). */
 "analyze" | 

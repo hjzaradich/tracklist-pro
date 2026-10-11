@@ -4,41 +4,55 @@
 //! # What it is given
 //!
 //! - Every file with a track, and every present file without one
-//!   ([`Member`]): the audio it holds (its [`Key`]), the audio it held when
-//!   it was put in its track, and whether a Library track points at it.
+//!   ([`Member`]): the audio it holds, the audio it held when it was put in
+//!   its track, whether it's on disk, and whether a Library track points at
+//!   it.
 //! - What the grouping rules said about pairs of files ([`Pair`]), written
 //!   by the deciding run ([`super::decide`]).
 //! - What the user decided ([`Remembered`]), and the version links.
 //!
 //! # A track is files that are duplicates pair by pair
 //!
-//! 1. **Files with the very same audio** (the same [`Key`]) that sit alone,
-//!    or in tracks holding nothing but that audio, share one track. No
-//!    decided pair is needed for it.
+//! 1. **Files with the very same audio** (the same `audio_hash`,
+//!    [`Member::key`]) that sit alone, or in tracks holding nothing but
+//!    that audio, share one track. No decided pair is needed for it.
 //! 2. **A set joined by duplicate pairs** (tracks and single files, linked
-//!    by a pair the rules call a duplicate, by the same audio, or by the
-//!    user's "these are the same") merges only if *every* pair of files in
-//!    it, between two of its tracks, is a duplicate. One pair that is a
-//!    cut, a rework, a review or different, and nothing in the set merges.
-//!    A pair nobody decided yet makes the set wait ([`Plan::missing`] lists
-//!    those pairs for the deciding run). A set with more files than the cap
-//!    is held as if it disagreed.
+//!    by a stored pair the rules called a duplicate, by the same audio, or
+//!    by the user's "these are the same") merges only if *every* pair of
+//!    files in it, between two of its tracks, is a duplicate. One stored
+//!    pair that is a cut, a rework, a review or different, and nothing in
+//!    the set merges. A pair nobody decided yet makes the set wait
+//!    ([`Plan::missing`] lists those pairs for the deciding run). A set
+//!    with more files than the cap is held as if it disagreed.
 //!
 //! A set never merges, whatever its pairs say, when:
 //!
 //! - two of its tracks are both in the Library (owner decision,
 //!   ROADMAP 1.4: the user merges those, or keeps both);
 //! - the user decided two of its tracks apart;
-//! - two of its tracks are linked versions.
+//! - two of its tracks are linked versions (a link of the job's own gives
+//!   way when the user called the two tracks the same).
+//!
+//! # A file that is due, and a file that isn't on disk
+//!
+//! - **A file that is due** (its pairs are about to be decided again) keeps
+//!   its stored pairs in play: a duplicate pair of its still joins its set,
+//!   but the set waits for the file to be decided and never merges on that
+//!   pair; a pair of its that isn't a duplicate still holds the set. So a
+//!   tag rewrite on one member never releases a held set.
+//! - **A file that isn't on disk** stays in its track, and can't hold a
+//!   set: nothing can be decided about it, so its pairs join no set and
+//!   block no merge among the files that are there. A duplicate pair of
+//!   its whose two files are in two tracks waits for it to come back.
 //!
 //! # Merges are kept
 //!
 //! A track is never split because a file arrived or was retagged. Only a
-//! file whose own audio changed since it was put in its track leaves it
-//! (and when a Library track's own file holds other audio now, the other
-//! files leave: the track is that file's). So a set whose pairs disagree
-//! can group differently depending on the order its files arrived in; a
-//! run over an unchanged database changes nothing.
+//! file that holds other audio than it was put in its track with leaves it
+//! ([`Member::content`]; and when a Library track's own file holds other
+//! audio now, the other files leave: the track is that file's). So a set
+//! whose pairs disagree can group differently depending on the order its
+//! files were decided in; a run over an unchanged database changes nothing.
 //!
 //! # What never moves
 //!
@@ -70,8 +84,7 @@ fn visit() {
 }
 
 /// The audio a file holds, as bytes that are equal only for the very same
-/// audio: its `audio_hash` (or, where a decision is remembered, its
-/// `blake3` when it has none).
+/// audio. Two kinds, see [`Member::key`] and [`Member::content`].
 pub type Key = Vec<u8>;
 
 /// The audio a file held when it was put in its track.
@@ -91,14 +104,21 @@ pub struct Member {
     pub file: i64,
     /// Its track now, if it has one.
     pub recording: Option<i64>,
-    /// The audio it holds, as its `audio_hash`: `None` for a file with
-    /// none. What tracks are told apart by.
+    /// Its `audio_hash`: `None` for a file with none. Files with the same
+    /// one are one track with no pair decided (rule 1).
     pub key: Option<Key>,
-    /// What it holds as a remembered decision names it: its `audio_hash`,
-    /// or its `blake3` when it has none.
+    /// The audio it holds, as everything else names it: its `audio_hash`,
+    /// or its `blake3` when it has none. What [`Placed`] records, what a
+    /// file leaves its track for when it changes, and what a remembered
+    /// decision is kept by. (A tag rewrite changes a `blake3`, so a file
+    /// with no `audio_hash` leaves its track on one and is decided again.)
     pub content: Option<Key>,
+    /// The file is on disk. One that isn't keeps its track and takes no
+    /// part in a set.
+    pub present: bool,
     /// A Library track points at the file, so it can't move.
     pub pinned: bool,
+    /// Its [`Member::content`] when it was put in its track.
     pub placed: Placed,
     /// Every one of its pairs is decided under the current rules, so the
     /// pairs it's part of can be relied on.
@@ -292,15 +312,18 @@ pub struct Plan {
     /// Files that stay where they are and whose record of the audio they
     /// were placed at is to be brought up to date.
     pub settle: Vec<i64>,
-    /// The job's own links that no pair asks for any more, as the two
-    /// tracks: they go before anything moves.
+    /// The job's own links that no pair asks for any more, or between two
+    /// tracks the user called the same, as the two tracks: they go before
+    /// anything moves.
     pub unsupported_links: Vec<(i64, i64)>,
     /// Where each of [`Input::pairs`] stands once the moves are made;
     /// `None` for a pair with a file that isn't a member.
     pub states: Vec<Option<State>>,
     /// The links the pairs ask for, one per pair of tracks.
     pub wanted_links: Vec<Wanted>,
-    /// Pairs inside a waiting set that nobody decided yet.
+    /// Pairs inside a waiting set that nobody decided yet: both files are
+    /// on disk and decided, and nothing is stored for the two. The deciding
+    /// run decides them next.
     pub missing: Vec<(i64, i64)>,
     /// Sets held apart because a pair in them isn't a duplicate, the user
     /// decided two of their tracks apart, two are linked versions, or they
@@ -346,7 +369,7 @@ fn winning_key<'a>(members: &[&'a Member]) -> Option<&'a [u8]> {
 fn changed(m: &Member) -> bool {
     match &m.placed {
         Placed::Unknown => true,
-        Placed::At(key) => *key != m.key,
+        Placed::At(content) => *content != m.content,
     }
 }
 
@@ -377,13 +400,14 @@ fn stays(held: &[&Member]) -> Vec<bool> {
     let anchors: Vec<&[u8]> = held
         .iter()
         .filter(|m| m.pinned && moved_on(m))
-        .filter_map(|m| m.key.as_deref())
+        .filter_map(|m| m.content.as_deref())
         .collect();
     let mut stay: Vec<bool> = held
         .iter()
         .map(|m| {
             visit();
-            let fits = anchors.is_empty() || m.key.as_deref().is_some_and(|k| anchors.contains(&k));
+            let fits =
+                anchors.is_empty() || m.content.as_deref().is_some_and(|k| anchors.contains(&k));
             m.pinned || (!moved_on(m) && fits)
         })
         .collect();
@@ -478,13 +502,10 @@ impl Work<'_> {
         &self.input.members[at]
     }
 
-    /// The pair of files `x` and `y` (member indexes), if it was decided
-    /// and both files' pairs can be relied on.
-    fn current_pair(&self, x: usize, y: usize) -> Option<Outcome> {
+    /// What is stored for the pair of files `x` and `y` (member indexes),
+    /// whether or not the two files are due.
+    fn stored(&self, x: usize, y: usize) -> Option<Outcome> {
         let (mx, my) = (self.member(x), self.member(y));
-        if !(mx.decided && my.decided) {
-            return None;
-        }
         let key = (mx.file.min(my.file), mx.file.max(my.file));
         self.pair_at
             .get(&key)
@@ -565,8 +586,8 @@ impl Work<'_> {
 
     /// Whether every pair of files between two of the set's units is a
     /// duplicate: files holding the same audio are, the user's "the same"
-    /// makes two units' files so, and every other pair must have been
-    /// decided one.
+    /// makes two units' files so, and every other pair of files that are on
+    /// disk must have been decided one, with neither file due.
     fn by_pairs(
         &self,
         merged: &mut Sets,
@@ -602,15 +623,25 @@ impl Work<'_> {
                 if mx.key.is_some() && mx.key == my.key {
                     continue;
                 }
-                match self.current_pair(x, y) {
-                    Some(Outcome::Duplicate) => {}
+                // Nothing can be decided about a file that isn't on disk:
+                // it holds nothing back.
+                if !(mx.present && my.present) {
+                    continue;
+                }
+                let relied_on = mx.decided && my.decided;
+                match self.stored(x, y) {
+                    Some(Outcome::Duplicate) if relied_on => {}
+                    // A due file's duplicate pair never justifies a merge:
+                    // the set waits for the file to be decided again.
+                    Some(Outcome::Duplicate) => status = Status::Waiting,
+                    // What holds a set holds it until it's decided anew.
                     Some(_) => return Status::Disagrees,
                     None => {
                         status = Status::Waiting;
                         // A file that is due has its pairs decided with
                         // it; only a pair between two decided files was
                         // never asked about.
-                        if mx.decided && my.decided {
+                        if relied_on {
                             unknown.push((mx.file.min(my.file), mx.file.max(my.file)));
                         }
                     }
@@ -711,8 +742,7 @@ pub fn plan(input: &Input<'_>) -> Plan {
         }
     }
 
-    // The links that stand: the user's, and the job's own that a pair
-    // between the two tracks still asks for.
+    // The pairs of tracks a cut or a rework asks a link for.
     let mut asked_for: HashSet<(i64, i64)> = HashSet::new();
     let mut pair_at: HashMap<(i64, i64), usize> = HashMap::with_capacity(input.pairs.len());
     for (at, pair) in input.pairs.iter().enumerate() {
@@ -727,21 +757,6 @@ pub fn plan(input: &Input<'_>) -> Plan {
             }
         }
     }
-    let mut links: Vec<(usize, usize, bool)> = Vec::new();
-    let mut linked: HashSet<(i64, i64)> = HashSet::new();
-    let mut unsupported_links = Vec::new();
-    for link in input.links {
-        let pair = tracks(link.a, link.b);
-        if !link.settled && !asked_for.contains(&pair) {
-            unsupported_links.push(pair);
-            continue;
-        }
-        linked.insert(pair);
-        if let (Some(&x), Some(&y)) = (node_of_track.get(&link.a), node_of_track.get(&link.b)) {
-            links.push((x, y, link.settled));
-        }
-    }
-
     // What the user decided, as pairs of nodes. Two tracks holding the
     // very same audio can only be told apart by being in the Library, so a
     // decision between a kind of audio and itself is between Library
@@ -783,6 +798,28 @@ pub fn plan(input: &Input<'_>) -> Plan {
         }
     }
 
+    // The links that stand: the user's, and the job's own that a pair
+    // between the two tracks still asks for, unless the user called the two
+    // tracks the same (then the job's link gives way, and they merge in
+    // this pass).
+    let called_same: HashSet<(usize, usize)> = same.iter().map(|&(x, y)| ordered(x, y)).collect();
+    let mut links: Vec<(usize, usize, bool)> = Vec::new();
+    let mut linked: HashSet<(i64, i64)> = HashSet::new();
+    let mut unsupported_links = Vec::new();
+    for link in input.links {
+        let pair = tracks(link.a, link.b);
+        let ends = node_of_track.get(&link.a).zip(node_of_track.get(&link.b));
+        let gives_way = ends.is_some_and(|(&x, &y)| called_same.contains(&ordered(x, y)));
+        if !link.settled && (gives_way || !asked_for.contains(&pair)) {
+            unsupported_links.push(pair);
+            continue;
+        }
+        linked.insert(pair);
+        if let Some((&x, &y)) = ends {
+            links.push((x, y, link.settled));
+        }
+    }
+
     let work = Work {
         input,
         nodes,
@@ -820,7 +857,8 @@ pub fn plan(input: &Input<'_>) -> Plan {
     work.settle(&mut merged, &mut candidates, false, &mut missing);
 
     // 2. Sets joined by duplicate pairs, by the same audio and by the
-    // user's "the same".
+    // user's "the same". A due file's stored pair joins too (its set then
+    // waits for it); a pair with a file that isn't on disk doesn't.
     let mut candidates = merged.clone();
     for nodes in holders.values() {
         for &node in &nodes[1..] {
@@ -834,7 +872,7 @@ pub fn plan(input: &Input<'_>) -> Plan {
         let (Some(&x), Some(&y)) = (work.index.get(&pair.a), work.index.get(&pair.b)) else {
             continue;
         };
-        if members[x].decided && members[y].decided {
+        if members[x].present && members[y].present {
             candidates.union(work.node_of[x], work.node_of[y]);
         }
     }
@@ -962,7 +1000,7 @@ pub fn plan(input: &Input<'_>) -> Plan {
             continue;
         };
         let (node_x, node_y) = (work.node_of[x], work.node_of[y]);
-        let current = members[x].decided && members[y].decided;
+        let on_disk = members[x].present && members[y].present;
         let state = if dest[x] == dest[y] {
             match pair.outcome {
                 Outcome::Duplicate => State::Merged,
@@ -985,8 +1023,10 @@ pub fn plan(input: &Input<'_>) -> Plan {
                 }
                 Outcome::Review => State::Open,
                 _ => {
+                    // With a file that isn't on disk, the pair is in no
+                    // set: it waits for the file.
                     let set = candidates.find(node_x);
-                    let together = current && set == candidates.find(node_y);
+                    let together = on_disk && set == candidates.find(node_y);
                     let (unit_x, unit_y) = (merged.find(node_x), merged.find(node_y));
                     let both_in_library = merged.library[unit_x] && merged.library[unit_y];
                     match by_pairs.get(&set).filter(|_| together).map(|s| s.0) {

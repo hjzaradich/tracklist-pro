@@ -4,7 +4,7 @@
 //!
 //! Tracks are `recording` rows, and a file's track is its `recording_file`
 //! row (migration 0003). What's written: those two tables;
-//! `grouping_file.placed_key` (the audio each file was placed at) and
+//! `grouping_file.placed_key` (the audio each file was placed with) and
 //! `grouping_pair.state` (where each decided pair stands); the job's own
 //! `version_link` rows (never the user's: one they made or confirmed); and
 //! `rekordbox_track.recording_id`, which grouping owns: a matched rekordbox
@@ -67,6 +67,10 @@ pub struct Summary {
     pub sets_both_in_library: u64,
     /// Sets waiting for a pair to be decided.
     pub sets_waiting: u64,
+    /// Pairs inside those sets that nobody decided yet, between files that
+    /// aren't due: the deciding job decides them
+    /// ([`super::decide::complete`]).
+    pub undecided_pairs: u64,
 }
 
 impl Summary {
@@ -90,6 +94,7 @@ impl Summary {
         self.sets_disagreeing = step.sets_disagreeing;
         self.sets_both_in_library = step.sets_both_in_library;
         self.sets_waiting = step.sets_waiting;
+        self.undecided_pairs = step.undecided_pairs;
     }
 }
 
@@ -108,9 +113,14 @@ const UNREFERENCED: &str =
                      WHERE recording_a = recording.id OR recording_b = recording.id)
      AND NOT EXISTS (SELECT 1 FROM rekordbox_track WHERE recording_id = recording.id)";
 
-/// The audio a file holds as a remembered decision names it: its
-/// `audio_hash`, or its `blake3` when it has none (an empty hash says
-/// nothing, like none).
+/// The audio file `f` holds, as SQL: its `audio_hash`, or its `blake3` when
+/// it has none (an empty hash says nothing, like none). The one name for a
+/// file's audio wherever it's kept or compared for being the very same:
+/// `grouping_file.placed_key`, `grouping_decision`'s keys, the deciding
+/// run's "identical", and the trigger that drops a file's pairs (migration
+/// 0022 spells the same expression out). Only the rule that files with the
+/// same `audio_hash` are one track with no pair decided reads the
+/// `audio_hash` alone ([`Member::key`]).
 pub(super) const CONTENT_KEY: &str = "coalesce(nullif(f.audio_hash, x''), f.blake3)";
 
 /// Every file with a track, and every present file without one.
@@ -119,7 +129,7 @@ fn members(conn: &Connection) -> rusqlite::Result<Vec<Member>> {
         "SELECT f.id, rf.recording_id, f.audio_hash, {CONTENT_KEY},
                 EXISTS (SELECT 1 FROM library_track lt
                         WHERE lt.linked_file_id = f.id OR lt.source_file_id = f.id),
-                g.file_id IS NOT NULL, g.placed_key, g.decided_as IS ?1
+                g.file_id IS NOT NULL, g.placed_key, g.decided_as IS ?1, f.present
          FROM file f LEFT JOIN recording_file rf ON rf.file_id = f.id
                      LEFT JOIN grouping_file g ON g.file_id = f.id
          WHERE f.present = 1 OR rf.file_id IS NOT NULL
@@ -134,6 +144,7 @@ fn members(conn: &Connection) -> rusqlite::Result<Vec<Member>> {
             // An empty hash says nothing, like none.
             key: key.filter(|k| !k.is_empty()),
             content: r.get(3)?,
+            present: r.get(8)?,
             pinned: r.get(4)?,
             placed: match r.get(5)? {
                 true => Placed::At(placed),
@@ -305,13 +316,6 @@ impl Loaded {
     }
 }
 
-/// The pairs inside waiting sets that nobody decided yet: what the deciding
-/// run still has to ask the rules about before those sets can merge. Reads
-/// only.
-pub(super) fn undecided_pairs(conn: &Connection) -> rusqlite::Result<Vec<(i64, i64)>> {
-    Ok(Loaded::read(conn)?.plan().missing)
-}
-
 /// Why a file wasn't moved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
@@ -397,21 +401,41 @@ pub(crate) fn regroup_in_batches(conn: &mut Connection, batch: usize) -> rusqlit
 /// now and applies at most `batch` of it. Returns what it did, and whether
 /// there is more to do (then call it again).
 pub fn regroup_step(conn: &mut Connection, batch: usize) -> rusqlite::Result<(Summary, bool)> {
+    let step = step(conn, batch)?;
+    Ok((step.summary, step.more))
+}
+
+/// What one transaction of a grouping pass did.
+pub struct Step {
+    pub summary: Summary,
+    /// There is more to do: call again.
+    pub more: bool,
+    /// The pairs inside waiting sets that nobody decided yet, as the plan
+    /// this step was made from lists them ([`Plan::missing`]): what the
+    /// deciding job asks the rules about before those sets can merge. What
+    /// stands is the last step's.
+    pub undecided: Vec<(i64, i64)>,
+}
+
+/// [`regroup_step`], with the pairs still to decide.
+pub fn step(conn: &mut Connection, batch: usize) -> rusqlite::Result<Step> {
     let batch = batch.max(1);
     let tx = conn.transaction()?;
     let loaded = Loaded::read(&tx)?;
-    let plan = loaded.plan();
+    let mut plan = loaded.plan();
     let mut summary = Summary {
         left_alone: plan.left_alone as u64,
         sets_disagreeing: plan.sets_disagreeing as u64,
         sets_both_in_library: plan.sets_both_in_library as u64,
         sets_waiting: plan.sets_waiting as u64,
+        undecided_pairs: plan.missing.len() as u64,
         ..Summary::default()
     };
+    // What each file is recorded as placed with: the audio it holds.
     let keys: HashMap<i64, Option<&[u8]>> = loaded
         .members
         .iter()
-        .map(|m| (m.file, m.key.as_deref()))
+        .map(|m| (m.file, m.content.as_deref()))
         .collect();
 
     // The job's own links that no pair asks for any more go first: they
@@ -506,10 +530,15 @@ pub fn regroup_step(conn: &mut Connection, batch: usize) -> rusqlite::Result<(Su
     // A step that got nowhere (every move refused) mustn't be asked for
     // again and again.
     let got_somewhere = summary.placed + summary.moved > 0 || !settle.is_empty();
-    Ok((summary, !done && got_somewhere))
+    Ok(Step {
+        summary,
+        more: !done && got_somewhere,
+        undecided: std::mem::take(&mut plan.missing),
+    })
 }
 
-/// Records the audio `file` holds as the audio it was placed at.
+/// Records the audio `file` holds ([`CONTENT_KEY`]) as the audio it was
+/// placed with.
 fn record_placed(conn: &Connection, file: i64, key: Option<&[u8]>) -> rusqlite::Result<()> {
     conn.prepare_cached(
         "INSERT INTO grouping_file (file_id, placed_key) VALUES (?1, ?2)
@@ -813,10 +842,28 @@ pub enum CantRemember {
 }
 
 /// Remembers what the user decided about the tracks of files `a` and `b`
-/// ([`Verdict`]), replacing an earlier decision about the same two pieces
-/// of audio. The decision names what the two files hold, so it covers every
-/// pair of files between the two tracks, and the next grouping run acts on
-/// it.
+/// ([`Verdict`]), and the next grouping run acts on it.
+///
+/// A decision is kept by audio, not by file or track: one row for every
+/// pair of audio between the two tracks as they are now (each file's
+/// [`CONTENT_KEY`]), replacing an earlier decision about the same two
+/// pieces of audio. So it covers every pair of files between the two
+/// tracks, and still holds when the file it was made on is overwritten or
+/// its music folder is removed, as long as each track keeps a file it held
+/// then.
+///
+/// What it doesn't do:
+///
+/// - **"Apart" for two files that already share a track changes nothing**:
+///   a merge is never undone by the job, and the pair goes on reading as
+///   merged. Taking a file out of a track is an action of its own (Review,
+///   1bE), not a remembered decision. Only the one row for the two files'
+///   audio is written then.
+/// - **A file with no `audio_hash` is named by its `blake3`**, which a tag
+///   rewrite changes: a decision resting on such a file alone doesn't
+///   survive one.
+/// - A file with no audio known at all is refused, and files in the two
+///   tracks with none are left out of the rows.
 ///
 /// Runs on the caller's connection, inside whatever transaction (and
 /// operation) the caller has open. Nothing calls it yet: Review does
@@ -843,16 +890,53 @@ pub fn remember(
     let (Some(key_a), Some(key_b)) = (content(a)?, content(b)?) else {
         return Ok(Err(CantRemember::NoAudioKnown));
     };
-    let (low, high) = match key_a <= key_b {
-        true => (key_a, key_b),
-        false => (key_b, key_a),
+    let track = |file: i64| -> rusqlite::Result<Option<i64>> {
+        conn.query_row(
+            "SELECT recording_id FROM recording_file WHERE file_id = ?1",
+            [file],
+            |r| r.get(0),
+        )
+        .optional()
     };
-    conn.execute(
+    // Every kind of audio the file's track holds, the file's own included.
+    let held_with = |track: Option<i64>, own: Key| -> rusqlite::Result<Vec<Key>> {
+        let mut held = vec![own];
+        if let Some(track) = track {
+            let mut stmt = conn.prepare_cached(&format!(
+                "SELECT DISTINCT {CONTENT_KEY} FROM recording_file rf
+                 JOIN file f ON f.id = rf.file_id
+                 WHERE rf.recording_id = ?1"
+            ))?;
+            let rows = stmt.query_map([track], |r| r.get::<_, Option<Key>>(0))?;
+            for key in rows {
+                held.extend(key?.filter(|key| !key.is_empty()));
+            }
+        }
+        held.sort_unstable();
+        held.dedup();
+        Ok(held)
+    };
+    let (track_a, track_b) = (track(a)?, track(b)?);
+    let (side_a, side_b) = match track_a.is_some() && track_a == track_b {
+        // One track: nothing to keep apart or bring together between two.
+        true => (vec![key_a], vec![key_b]),
+        false => (held_with(track_a, key_a)?, held_with(track_b, key_b)?),
+    };
+    let mut put = conn.prepare_cached(
         "INSERT INTO grouping_decision (key_a, key_b, decision) VALUES (?1, ?2, ?3)
          ON CONFLICT (key_a, key_b) DO UPDATE
              SET decision = excluded.decision,
-                 decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-        params![low, high, verdict.as_str()],
+                 decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE decision IS NOT excluded.decision",
     )?;
+    for key_a in &side_a {
+        for key_b in &side_b {
+            let (low, high) = match key_a <= key_b {
+                true => (key_a, key_b),
+                false => (key_b, key_a),
+            };
+            put.execute(params![low, high, verdict.as_str()])?;
+        }
+    }
     Ok(Ok(()))
 }

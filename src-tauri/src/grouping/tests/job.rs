@@ -259,6 +259,7 @@ fn song<'a>(name: &'a str, title: &'a str, n: u8, items: Option<Vec<u32>>) -> Ne
         artist: Some("Halden Rook"),
         hash: Some(hash(n)),
         items,
+        blake3: None,
     }
 }
 
@@ -413,4 +414,60 @@ fn the_deciding_job_makes_way_for_a_job_of_a_higher_priority_and_goes_on_afterwa
     let heard = heard.lock().unwrap();
     assert_eq!(heard.len(), 1, "one run got to the end");
     assert_eq!(heard[0].files, 5, "and decided what the first left");
+    // The run queued after it is a deciding job like the first, at the
+    // deciding job's priority: it makes way in its turn.
+    let group_jobs: Vec<(Option<String>, i64)> = db
+        .writer
+        .call(|c| {
+            let mut s =
+                c.prepare("SELECT target, priority FROM job WHERE kind = 'group' ORDER BY id")?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    assert_eq!(group_jobs.len(), 2);
+    for (target, priority) in group_jobs {
+        assert!(target.is_some_and(|t| t.contains("decide")));
+        assert_eq!(priority, DECIDE_PRIORITY.0);
+    }
+}
+
+#[test]
+fn the_quick_job_asks_for_a_deciding_job_when_a_set_waits_for_a_pair_nobody_decided() {
+    // 1-2 and 2-3 are proposed and duplicates; nothing leads from 1 to 3
+    // (other names, not an item in common bit for bit).
+    let db = db();
+    let one = track(1, 900);
+    let two = reencoded(&one, 1, 7);
+    let three: Vec<u32> = one
+        .iter()
+        .zip(&two)
+        .map(|(a, b)| if a == b { a ^ 0b101 } else { *b })
+        .collect();
+    let a = db.add(song("Velo.flac", "Velo", 1, Some(one)));
+    let b = db.add(song("Velo.mp3", "Velo", 2, Some(two)));
+    let c = db.add(song("Nightdrive.mp3", "Nightdrive", 3, Some(three)));
+    db.group();
+    db.compare_fingerprints();
+    // A deciding job that was cut short after its pages: every file is
+    // decided, the pair of 1 and 3 isn't.
+    db.decide_in_pages(10);
+    assert_eq!(db.decided(), [a, b, c]);
+    assert_eq!(db.pair(a, c), None);
+    assert_eq!(db.tracks(), 3);
+    let queue = JobQueue::builder(db.writer.clone())
+        .handler(JobKind::Group, after_group(Grouper::default()))
+        .start()
+        .unwrap();
+    let id = queue.enqueue(group_job()).unwrap();
+    assert_eq!(wait(&db, id).status, JobStatus::Done);
+    wait_idle(&queue);
+    queue.shutdown();
+    assert_eq!(
+        db.count("SELECT count(*) FROM job WHERE kind = 'group' AND target IS NOT NULL"),
+        1,
+        "the quick job asked for a deciding job"
+    );
+    assert_eq!(db.stands(a, c), ("duplicate".into(), "merged".into()));
+    assert_eq!(db.tracks(), 1);
 }
