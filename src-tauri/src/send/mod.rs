@@ -219,7 +219,8 @@ pub struct Preflight {
     /// so the checklist asks: has a send been imported into rekordbox since
     /// this export was saved? The go is taken only with the answer "no"
     /// ([`SendFailure::ExportOlderThanLastSend`] otherwise). The answer is
-    /// for this one send and is kept nowhere.
+    /// for this one send: it's kept only in that send job's own row, and
+    /// no later send reads it.
     pub export_older_than_last_send: bool,
     /// Whether the go needs the explicit confirm: a crate or playlist
     /// loses entries, or the read couldn't store some of rekordbox's

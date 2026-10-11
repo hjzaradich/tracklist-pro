@@ -970,23 +970,88 @@ fn answering_that_nothing_was_imported_since_sends_exactly_what_a_fresh_export_o
 }
 
 #[test]
-fn the_answer_is_for_one_send_and_the_next_send_from_that_export_asks_again() {
+fn the_answer_is_kept_only_in_that_send_jobs_row_and_the_next_send_from_that_export_asks_again() {
     let (w, ..) = world_whose_export_is_older_than_its_last_send();
     w.prepare().unwrap();
     assert_eq!(w.go_answering(false, NOTHING_IMPORTED_SINCE), None);
     let file = fs::read(w.send_file()).unwrap();
     let recorded = w.recorded();
 
+    // The "no" is in the row of the job that carried it, and nowhere else
+    // in the database.
+    let answers_in_jobs = || -> Vec<(String, Option<bool>)> {
+        w.writer
+            .call(|c| {
+                let mut stmt = c.prepare(
+                    "SELECT status, json_extract(target, '$.importedSinceExport') FROM job
+                     WHERE json_extract(target, '$.send') = 'write' ORDER BY id",
+                )?;
+                let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                rows.collect()
+            })
+            .unwrap()
+    };
+    assert_eq!(
+        answers_in_jobs(),
+        [("done".to_owned(), None), ("done".to_owned(), Some(false))]
+    );
+    let elsewhere: i64 = w
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM setting WHERE value LIKE '%importedSince%'",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(elsewhere, 0);
+
     // The same export once more: it's older than the send just made, the
-    // question is there again, and the earlier "no" answers nothing.
+    // question is there again, and that finished job's "no" answers
+    // nothing, though its row is still there.
     let preflight = w.prepare().unwrap();
     assert!(preflight.export_older_than_last_send);
     assert_eq!(
         w.go_answering(false, NO_ANSWER),
         Some(SendFailure::ExportOlderThanLastSend)
     );
+    assert_eq!(
+        answers_in_jobs()[..2],
+        [("done".to_owned(), None), ("done".to_owned(), Some(false))]
+    );
     assert_eq!(fs::read(w.send_file()).unwrap(), file);
     assert_eq!(w.recorded(), recorded);
+}
+
+#[test]
+fn a_no_does_not_stand_in_for_the_explicit_confirm() {
+    let (w, file, _) = world_whose_export_is_older_than_its_last_send();
+    // A crate that will arrive with a track left out (its file is missing
+    // and rekordbox doesn't have it): this send needs the confirm.
+    let (gone, _) = w.library_track("gone.mp3", "Gone", false);
+    w.crate_of("Later", &[gone]);
+    let recorded = w.recorded();
+
+    let preflight = w.prepare().unwrap();
+    assert!(preflight.export_older_than_last_send);
+    assert!(preflight.needs_confirm && preflight.can_send);
+    // Two questions, two answers: the "no" answers only its own.
+    assert_eq!(
+        w.go_answering(false, NOTHING_IMPORTED_SINCE),
+        Some(SendFailure::NotConfirmed)
+    );
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
+    assert_eq!(w.recorded(), recorded);
+    // And the confirm answers only its own.
+    assert_eq!(
+        w.go_answering(true, NO_ANSWER),
+        Some(SendFailure::ExportOlderThanLastSend)
+    );
+    assert_eq!(fs::read(w.send_file()).unwrap(), file);
+
+    assert_eq!(w.go_answering(true, NOTHING_IMPORTED_SINCE), None);
+    assert_ne!(fs::read(w.send_file()).unwrap(), file);
 }
 
 #[test]
@@ -1057,10 +1122,9 @@ fn a_no_does_not_lift_a_refusal_of_the_send() {
 }
 
 #[test]
-fn the_answer_travels_with_the_go_and_is_kept_nowhere() {
+fn only_a_plain_no_in_the_send_job_is_a_no() {
     let (w, ..) = world_whose_export_is_older_than_its_last_send();
     let token = w.prepare().unwrap().token;
-    // Only a plain "no" in the job is a no.
     for (answer, stored) in [
         (NO_ANSWER, serde_json::Value::Null),
         (IMPORTED_SINCE, json!(true)),
@@ -1069,19 +1133,6 @@ fn the_answer_travels_with_the_go_and_is_kept_nowhere() {
         let job = w.flow.write_job(&token, false, answer);
         assert_eq!(job.target.unwrap()["importedSinceExport"], stored);
     }
-    // After a send on a "no", nothing in the database says so.
-    assert_eq!(w.go_answering(false, NOTHING_IMPORTED_SINCE), None);
-    let mentions: i64 = w
-        .writer
-        .call(|c| {
-            c.query_row(
-                "SELECT count(*) FROM setting WHERE key LIKE '%import%' OR value LIKE '%importedSince%'",
-                [],
-                |r| r.get(0),
-            )
-        })
-        .unwrap();
-    assert_eq!(mentions, 0);
 }
 
 /// 2026-10-01T10:00:00.123Z, written out by hand in both forms.

@@ -29,7 +29,8 @@ impl SendFlow {
 
     /// The write job: the user's go for the preflight `token` names, with
     /// the explicit confirm and the answer about imports since the export
-    /// (see `write_send`). Both belong to this one job: nothing keeps them.
+    /// (see `write_send`). Both belong to this one job: they're kept only
+    /// in its own row, and no later send reads them.
     /// It only runs in this run of the app.
     pub fn write_job(
         &self,

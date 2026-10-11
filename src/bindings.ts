@@ -938,7 +938,8 @@ export type Preflight = {
 	 *  so the checklist asks: has a send been imported into rekordbox since
 	 *  this export was saved? The go is taken only with the answer "no"
 	 *  ([`SendFailure::ExportOlderThanLastSend`] otherwise). The answer is
-	 *  for this one send and is kept nowhere.
+	 *  for this one send: it's kept only in that send job's own row, and
+	 *  no later send reads it.
 	 */
 	exportOlderThanLastSend: boolean,
 	/**
