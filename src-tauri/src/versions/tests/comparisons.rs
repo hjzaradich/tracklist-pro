@@ -62,6 +62,11 @@ const PAIRS: &[Pair] = &[
     (T, "Glasswing (Edit)", T, "Glasswing (Radio Edit)", DifferentCut, "base_titles_match,cut_differs"),
     (T, "Glasswing (2019 Remaster)", T, "Glasswing", DifferentCut, "base_titles_match,cut_differs"),
     (T, "Glasswing (2019 Remaster)", T, "Glasswing (Remastered)", SameVersion, "base_titles_match,same_markers"),
+    // Two remasters of different years are two cuts; the same year, however written, is one.
+    (T, "Glasswing (2019 Remaster)", T, "Glasswing (2011 Remaster)", DifferentCut, "base_titles_match,cut_differs"),
+    (T, "Glasswing (2019 Remaster)", T, "Glasswing - Remastered 2011", DifferentCut, "base_titles_match,cut_differs"),
+    (T, "Glasswing (2019 Remaster)", T, "Glasswing [Remastered 2019]", SameVersion, "base_titles_match,same_markers"),
+    (T, "Glasswing (Extended Mix) [2019 Remaster]", T, "Glasswing (Extended Mix) [2011 Remaster]", DifferentCut, "base_titles_match,cut_differs"),
     // A version word can be the title: the other name settles it.
     (T, "Velo (dirty)", T, "Velo (dirty) (dirty)", DifferentCut, "base_titles_match,marker_read_as_title,cut_differs"),
     (T, "Velo (dirty) (dirty)", T, "Velo (dirty)", DifferentCut, "base_titles_match,marker_read_as_title,cut_differs"),

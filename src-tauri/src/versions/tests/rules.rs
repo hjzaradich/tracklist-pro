@@ -395,6 +395,59 @@ fn a_remaster_is_a_cut_with_or_without_its_year() {
 }
 
 #[test]
+fn two_remasters_of_different_years_are_different_cuts_and_the_reason_names_remaster_for_both() {
+    let got = compare(
+        &parse_title("Glasswing (2019 Remaster)"),
+        &parse_title("Glasswing (Remastered 2011)"),
+    );
+    assert_eq!(got.outcome, Outcome::DifferentCut);
+    assert_eq!(
+        got.reasons[1],
+        Reason::CutDiffers {
+            only_a: vec![MarkerKind::Remaster],
+            only_b: vec![MarkerKind::Remaster],
+        }
+    );
+}
+
+#[test]
+fn two_remasters_of_the_same_year_are_the_same_version_however_the_year_is_written() {
+    let got = compare(
+        &parse_title("Glasswing (2019 Remaster)"),
+        &parse_title("Glasswing (Remastered 2019)"),
+    );
+    assert_eq!(got.outcome, Outcome::SameVersion);
+}
+
+#[test]
+fn a_remaster_without_a_year_is_the_same_version_as_one_with_a_year() {
+    for (a, b) in [
+        ("Glasswing (Remaster)", "Glasswing (2019 Remaster)"),
+        ("Glasswing (2019 Remaster)", "Glasswing (Remastered)"),
+        ("Glasswing (Remaster)", "Glasswing (Remastered)"),
+    ] {
+        let got = compare(&parse_title(a), &parse_title(b));
+        assert_eq!(got.outcome, Outcome::SameVersion, "{a} / {b}");
+    }
+}
+
+#[test]
+fn a_remasters_year_beside_another_cut_still_tells_the_two_remasters_apart() {
+    let got = compare(
+        &parse_title("Glasswing (2019 Remaster) (Extended Mix)"),
+        &parse_title("Glasswing (2011 Remaster)"),
+    );
+    assert_eq!(got.outcome, Outcome::DifferentCut);
+    assert_eq!(
+        got.reasons[1],
+        Reason::CutDiffers {
+            only_a: vec![MarkerKind::Extended, MarkerKind::Remaster],
+            only_b: vec![MarkerKind::Remaster],
+        }
+    );
+}
+
+#[test]
 fn instrumental_and_acapella_are_reworks_with_their_own_labels() {
     let instrumental = parse_title("Glasswing (Instrumental)");
     let acapella = parse_title("Glasswing (Acapella)");

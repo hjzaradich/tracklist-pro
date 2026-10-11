@@ -66,7 +66,8 @@ pub enum Reason {
     MarkerReadAsTitle { side: Side, text: String },
     /// Both names carry the same markers.
     SameMarkers,
-    /// The cuts differ: the kinds only one name has.
+    /// The cuts differ: the kinds only one name has. Two remasters of
+    /// different years are listed for both.
     CutDiffers {
         only_a: Vec<MarkerKind>,
         only_b: Vec<MarkerKind>,
@@ -243,6 +244,18 @@ fn cuts(markers: &[Marker]) -> BTreeSet<MarkerKind> {
         cuts.insert(MarkerKind::IntroOutro);
     }
     cuts
+}
+
+/// The years a reading's remaster labels give ("2019 Remaster",
+/// "Remastered 2011"), read from the labels as written.
+fn remaster_years(markers: &[Marker]) -> BTreeSet<String> {
+    markers
+        .iter()
+        .filter(|m| m.kind == MarkerKind::Remaster)
+        .flat_map(|m| m.text.split(|c: char| !c.is_ascii_digit()))
+        .filter(|word| word.len() == 4 && (word.starts_with("19") || word.starts_with("20")))
+        .map(str::to_string)
+        .collect()
 }
 
 /// The reworks a reading names, by kind and whose they are.
@@ -452,11 +465,22 @@ fn compare_in_order(a: &ParsedName, b: &ParsedName) -> Comparison {
     }
 
     let (cuts_a, cuts_b) = (cuts(&x.markers), cuts(&y.markers));
-    let cut_differs = cuts_a != cuts_b;
+    // Two remasters of different years are two cuts (ROADMAP 1.5,
+    // 2026-10-11). One that gives no year is the same as any.
+    let (years_a, years_b) = (remaster_years(&x.markers), remaster_years(&y.markers));
+    let other_remaster = !years_a.is_empty() && !years_b.is_empty() && years_a != years_b;
+    let cut_differs = cuts_a != cuts_b || other_remaster;
     if cut_differs {
+        let only = |mine: &BTreeSet<MarkerKind>, theirs: &BTreeSet<MarkerKind>| {
+            let mut only: BTreeSet<MarkerKind> = mine.difference(theirs).copied().collect();
+            if other_remaster {
+                only.insert(MarkerKind::Remaster);
+            }
+            only.into_iter().collect::<Vec<_>>()
+        };
         reasons.push(Reason::CutDiffers {
-            only_a: cuts_a.difference(&cuts_b).copied().collect(),
-            only_b: cuts_b.difference(&cuts_a).copied().collect(),
+            only_a: only(&cuts_a, &cuts_b),
+            only_b: only(&cuts_b, &cuts_a),
         });
     }
 
