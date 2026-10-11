@@ -4,12 +4,24 @@
 //! opened.
 //!
 //! [`Matcher`] keeps the index in memory between passes, so a pass after
-//! one new file compares that file alone: every pass reads each file's
-//! fingerprint bytes to see what changed, but only a new or changed one is
-//! decoded, only its keys go into the index, and only its candidates are
-//! compared. A new `Matcher` (after a restart) rebuilds the index from
-//! every fingerprint, and skips every pair that already has a stored
-//! result.
+//! one new file compares that file alone: a pass reads the fingerprint
+//! bytes of only the files whose `fingerprint_rev` (migration 0020) isn't
+//! the one the index has, only a new or changed one is decoded, only its
+//! keys go into the index, and only its candidates are compared. So a run
+//! that makes way and is queued again doesn't read the library again,
+//! however many other jobs come between.
+//!
+//! **What's remembered.** For each file the index read, the matcher keeps
+//! the digest of its fingerprint and the stamp the file had (`Read`),
+//! only in memory, with the index. The database changes a file's stamp
+//! whenever its stored fingerprint changes, to or from NULL included, so
+//! an equal stamp means the bytes the index read are the bytes the file
+//! holds; a file that lost its fingerprint leaves the index. When the
+//! index goes (a restart, a poisoned lock, or the drop below), what was
+//! remembered goes with it, and the next pass reads every fingerprint
+//! once, as the first one after an upgrade does (every file starts at
+//! stamp 0). A new `Matcher` rebuilds the index from every fingerprint,
+//! and skips every pair that already has a stored result.
 //!
 //! What the index holds, and what a pass costs at 10,000 and 100,000
 //! files, is measured by `tests/matching_memory.rs` (1bA-13). The index
@@ -79,6 +91,9 @@ pub struct Summary {
     pub files: u64,
     /// Distinct fingerprints among them: the index's entries.
     pub fingerprints: u64,
+    /// Fingerprints this pass read from the file table: all of them for a
+    /// matcher with no index, otherwise those no ledger row vouches for.
+    pub read: u64,
     /// Files whose fingerprint this matcher hadn't read, or that changed
     /// since it did: every file, for a matcher that kept no index.
     pub changed: u64,
@@ -110,10 +125,18 @@ impl Class {
     }
 }
 
+/// What the index read of a file: the digest of its fingerprint, and the
+/// file's `fingerprint_rev` (migration 0020) when it was read.
+#[derive(Debug, Clone, Copy)]
+struct Read {
+    digest: Digest,
+    rev: i64,
+}
+
 #[derive(Debug, Default)]
 struct State {
     index: BlockIndex,
-    digest_of_file: HashMap<i64, Digest>,
+    read_of_file: HashMap<i64, Read>,
     classes: HashMap<Digest, Class>,
     digest_of_entry: HashMap<EntryId, Digest>,
     next_entry: EntryId,
@@ -121,7 +144,7 @@ struct State {
 
 impl State {
     fn forget(&mut self, file: i64) {
-        let Some(digest) = self.digest_of_file.remove(&file) else {
+        let Some(Read { digest, .. }) = self.read_of_file.remove(&file) else {
             return;
         };
         let Some(class) = self.classes.get_mut(&digest) else {
@@ -136,12 +159,25 @@ impl State {
         }
     }
 
-    /// Takes in `file`'s fingerprint `blob`. Returns whether the file was
-    /// new or changed, or `None` if this build can't read the blob.
-    fn learn(&mut self, file: i64, blob: &[u8]) -> Option<bool> {
+    /// Whether the index read file `file`'s fingerprint while its stamp was
+    /// `rev`: then it holds what the file holds now.
+    fn has_read(&self, file: i64, rev: i64) -> bool {
+        self.read_of_file
+            .get(&file)
+            .is_some_and(|read| read.rev == rev)
+    }
+
+    /// Takes in `file`'s fingerprint `blob`, read while the file's stamp was
+    /// `rev`. Returns whether the file was new or changed, or `None` if
+    /// this build can't read the blob.
+    fn learn(&mut self, file: i64, blob: &[u8], rev: i64) -> Option<bool> {
         let digest: Digest = *blake3::hash(blob).as_bytes();
-        if self.digest_of_file.get(&file) == Some(&digest) {
-            return Some(false);
+        if let Some(read) = self.read_of_file.get_mut(&file) {
+            if read.digest == digest {
+                // Changed and changed back, or written again: the same one.
+                read.rev = rev;
+                return Some(false);
+            }
         }
         self.forget(file);
         if !self.classes.contains_key(&digest) {
@@ -161,7 +197,7 @@ impl State {
         }
         let class = self.classes.get_mut(&digest)?;
         class.files.insert(file);
-        self.digest_of_file.insert(file, digest);
+        self.read_of_file.insert(file, Read { digest, rev });
         Some(true)
     }
 
@@ -254,6 +290,9 @@ impl From<JobError> for Stop {
 /// Test hook: called with each progress report's number, from 1.
 type ReportHook = Box<dyn Fn(u64) + Send + Sync>;
 
+/// Test hook: called with the id of each file whose fingerprint is read.
+type ReadHook = Box<dyn Fn(i64) + Send + Sync>;
+
 /// Runs matching passes, keeping the index between them. Also the matching
 /// job's handler: one long-lived instance, so the index is kept from one
 /// job to the next.
@@ -264,6 +303,7 @@ pub struct Matcher {
     /// How many fingerprints are read per query.
     page: usize,
     on_report: Option<ReportHook>,
+    on_read: Option<ReadHook>,
 }
 
 impl Default for Matcher {
@@ -273,6 +313,7 @@ impl Default for Matcher {
             keep_index_up_to: KEEP_INDEX_UP_TO,
             page: PAGE,
             on_report: None,
+            on_read: None,
         }
     }
 }
@@ -363,6 +404,13 @@ impl Matcher {
         self
     }
 
+    /// Calls `hook` with the id of each file whose fingerprint a pass reads.
+    #[cfg(test)]
+    pub(crate) fn on_read(mut self, hook: impl Fn(i64) + Send + Sync + 'static) -> Self {
+        self.on_read = Some(Box::new(hook));
+        self
+    }
+
     /// The matcher's state. A pass that panicked may have left the index
     /// half updated: then it starts over from the file table, which is
     /// always enough, and the lock is as good as new (so the index built
@@ -429,13 +477,32 @@ impl Matcher {
             if got_somewhere {
                 stop_here()?;
             }
-            let page = writer.call(move |c| store::fingerprints_after(c, after, per_page))?;
-            let Some(last) = page.last() else {
+            // The stamps first, so a fingerprint that hasn't changed since the
+            // index read it (a kept index; none is kept otherwise) isn't
+            // read again, which a library of 100,000 files would feel.
+            let revs = writer.call(move |c| store::fingerprint_revs_after(c, after, per_page))?;
+            let Some(&(last, _)) = revs.last() else {
                 break;
             };
-            after = last.0;
-            for (file, blob) in page {
-                match state.learn(file, &blob) {
+            after = last;
+            let mut to_read = Vec::new();
+            for (file, rev) in revs {
+                if state.has_read(file, rev) {
+                    seen.insert(file);
+                } else {
+                    to_read.push(file);
+                }
+            }
+            if to_read.is_empty() {
+                continue;
+            }
+            let page = writer.call(move |c| store::fingerprints_of(c, &to_read))?;
+            summary.read += page.len() as u64;
+            for (file, blob, rev) in page {
+                if let Some(hook) = &self.on_read {
+                    hook(file);
+                }
+                match state.learn(file, &blob, rev) {
                     Some(changed) => {
                         seen.insert(file);
                         summary.changed += u64::from(changed);
@@ -451,7 +518,7 @@ impl Matcher {
             }
         }
         let gone: Vec<i64> = state
-            .digest_of_file
+            .read_of_file
             .keys()
             .filter(|file| !seen.contains(file))
             .copied()
@@ -463,7 +530,7 @@ impl Matcher {
         // leave for good, so finding candidates is quick and nothing spare
         // is held.
         state.index.compact();
-        summary.files = state.digest_of_file.len() as u64;
+        summary.files = state.read_of_file.len() as u64;
         summary.fingerprints = state.classes.len() as u64;
 
         // 2. What's due: the fingerprints with a file that hasn't been

@@ -183,6 +183,7 @@ pub(crate) fn put(
 
 /// The next `limit` present files with a fingerprint, by id after `after`:
 /// each file's id and fingerprint blob.
+#[cfg(test)]
 pub(crate) fn fingerprints_after(
     conn: &Connection,
     after: i64,
@@ -194,6 +195,41 @@ pub(crate) fn fingerprints_after(
          ORDER BY id LIMIT ?2",
     )?;
     let rows = stmt.query_map(params![after, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// The next `limit` present files with a fingerprint, by id after `after`:
+/// each file's id and its `fingerprint_rev` (migration 0020), without the
+/// fingerprints, which are never read.
+pub(crate) fn fingerprint_revs_after(
+    conn: &Connection,
+    after: i64,
+    limit: usize,
+) -> rusqlite::Result<Vec<(i64, i64)>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, fingerprint_rev FROM file
+         WHERE id > ?1 AND present = 1 AND fingerprint IS NOT NULL
+         ORDER BY id LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![after, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// The fingerprint blob and `fingerprint_rev` of each of `ids` that is
+/// present and has a fingerprint, by id. The two are read together, so
+/// the stamp is the one the blob had.
+pub(crate) fn fingerprints_of(
+    conn: &Connection,
+    ids: &[i64],
+) -> rusqlite::Result<Vec<(i64, Vec<u8>, i64)>> {
+    let ids = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, fingerprint, fingerprint_rev FROM file
+         WHERE id IN (SELECT value FROM json_each(?1))
+           AND present = 1 AND fingerprint IS NOT NULL
+         ORDER BY id",
+    )?;
+    let rows = stmt.query_map([ids], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
     rows.collect()
 }
 

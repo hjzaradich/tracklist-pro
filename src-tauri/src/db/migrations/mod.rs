@@ -63,6 +63,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0017_file_quality"),
     migration!("0018_sync_base_ids_never_reused"),
     migration!("0019_fingerprint_matched"),
+    migration!("0020_fingerprint_rev"),
 ];
 
 /// The table that records which migrations a database has had.
