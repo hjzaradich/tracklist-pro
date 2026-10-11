@@ -317,8 +317,8 @@ fn to_str(path: &Path) -> Result<&str, PathError> {
 /// name taken literally: the form the write guard checks and then opens,
 /// and the form the sniffer opens files through.
 /// Nothing is looked up on disk, so links aren't followed here.
-// The write guard and the sniffer use this, and only on Windows.
-#[cfg_attr(not(windows), allow(dead_code))]
+// Off Windows no path parses as a Windows path, so it fails cleanly: the
+// send code asks it everywhere.
 pub(crate) fn verbatim_absolute(path: &Path) -> Result<PathBuf, PathError> {
     Ok(PathBuf::from(parse_absolute(to_str(path)?)?.verbatim()))
 }

@@ -158,7 +158,7 @@ where
     }
 
     /// Replaces [`BATCH_WINDOW`], so a test decides when batches go out.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn batch_window(mut self, window: Duration) -> Self {
         self.window = window;
         self
@@ -166,14 +166,14 @@ where
 
     /// Calls `hook` before each directory entry, with the number of entries
     /// looked at so far, e.g. to cancel at an exact point.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_entry(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
         self.on_entry = Some(Box::new(hook));
         self
     }
 
     /// Calls `hook` with each file the unchanged check is about to open.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_read(mut self, hook: impl Fn(&Path) + Send + Sync + 'static) -> Self {
         self.on_read = Some(Box::new(hook));
         self
@@ -601,7 +601,7 @@ impl Reads<'_> {
 
 /// [`upsert_with`] with no partial hashes read: a file whose mtime alone
 /// moved counts as changed.
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(crate) fn upsert(
     conn: &mut Connection,
     folder: MusicFolderId,

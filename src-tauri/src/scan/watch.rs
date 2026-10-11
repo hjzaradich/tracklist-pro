@@ -136,8 +136,11 @@ enum Msg {
     Event(notify::Result<Event>),
     /// Windows asks whether the drive behind a root's registration may go:
     /// stop watching it, then answer.
+    // Only the Windows eject watcher sends this and `RemoveFailed`.
+    #[cfg_attr(not(windows), allow(dead_code))]
     QueryRemove(isize, mpsc::Sender<bool>),
     /// The removal was refused elsewhere: watch the root again.
+    #[cfg_attr(not(windows), allow(dead_code))]
     RemoveFailed(isize),
     /// Asks what's watched right now (tests and diagnostics).
     Status(mpsc::Sender<Status>),
@@ -145,7 +148,7 @@ enum Msg {
     #[cfg(all(test, windows))]
     Window(mpsc::Sender<Option<crate::volume::devices::DeviceWatch>>),
     /// Replaces [`EJECT_GRACE`] (tests).
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     EjectGrace(Duration),
     Stop,
 }
@@ -381,7 +384,7 @@ impl<V: Volumes> Supervisor<V> {
                 Ok(Msg::Window(reply)) => {
                     let _ = reply.send(self.eject.as_ref().map(|e| *e.window()));
                 }
-                #[cfg(test)]
+                #[cfg(all(test, windows))]
                 Ok(Msg::EjectGrace(grace)) => self.eject_grace = grace,
                 Err(RecvTimeoutError::Timeout) => {}
             }
@@ -999,7 +1002,7 @@ mod eject {
 
 impl Watchers {
     /// Replaces [`EJECT_GRACE`] for the tests that wait it out.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn set_eject_grace(&self, grace: Duration) {
         let _ = self.inner.tx.send(Msg::EjectGrace(grace));
     }

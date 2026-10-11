@@ -175,7 +175,7 @@ impl<V: Volumes + Sync + 'static> Reader<V> {
 
     /// Replaces [`BATCH_MAX`] and [`BATCH_WINDOW`], so a test decides when
     /// batches go out.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn batches(mut self, max: usize, window: Duration) -> Self {
         self.batch_max = max.max(1);
         self.window = window;
@@ -183,14 +183,14 @@ impl<V: Volumes + Sync + 'static> Reader<V> {
     }
 
     /// Calls `hook` before each file, with the number looked at so far.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_file(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
         self.on_file = Some(Box::new(hook));
         self
     }
 
     /// Calls `hook` on the job's thread after each page is fetched.
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn on_page(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
         self.on_page = Some(Box::new(hook));
         self
