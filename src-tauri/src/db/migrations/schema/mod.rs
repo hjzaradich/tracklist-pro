@@ -13,6 +13,7 @@ mod fingerprint_audio_hash;
 mod fingerprint_match;
 mod fingerprint_matched;
 mod fingerprint_rev;
+mod grouping;
 mod library;
 mod library_upkeep;
 mod partial_hash;
@@ -178,6 +179,11 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0020_fingerprint_rev.sql", &[]),
     // The stored quality verdict per file (derived state).
     ("0021_file_verdict.sql", &["file_verdict"]),
+    // What the grouping job decided, and what the user decided for it.
+    (
+        "0022_grouping.sql",
+        &["grouping_decision", "grouping_file", "grouping_pair"],
+    ),
 ];
 
 #[test]

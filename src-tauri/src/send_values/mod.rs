@@ -75,6 +75,7 @@ use crate::library::{file_from, LibraryTrackId, StoredFile, FILE_COLUMNS, FILE_J
 use crate::paths::Volumes;
 
 pub use shown::{shown, shown_recordings, shown_removed, Removed, Shown};
+pub(crate) use tag_fields::read_only as tag_values;
 pub use tag_fields::TAG_ATTRIBUTES;
 
 /// The `TRACK` attributes that are rekordbox's analysis: a track already in

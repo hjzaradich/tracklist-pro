@@ -38,12 +38,14 @@ fn all_pairs() -> Vec<(i64, i64)> {
     db.pairs()
 }
 
-/// Every job, in the order they were queued.
+/// Every job, in the order they were queued. Not the deciding job that the
+/// chain asks for when a matching job ends (a grouping job, 1bC-1): these
+/// queues have no handler for it, and grouping's own tests cover it.
 fn jobs(writer: &Writer) -> Vec<JobRecord> {
     writer
         .call(|c| {
             let ids: Vec<i64> = c
-                .prepare("SELECT id FROM job ORDER BY id")?
+                .prepare("SELECT id FROM job WHERE kind <> 'group' ORDER BY id")?
                 .query_map([], |r| r.get(0))?
                 .collect::<rusqlite::Result<_>>()?;
             ids.into_iter()

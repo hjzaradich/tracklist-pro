@@ -58,6 +58,14 @@ pub use compare::{
     compare, compare_labels, Comparison, Outcome, Reason, ReworkRef, Side, MAX_LABEL_GROUPS,
 };
 
+/// A title as [`compare`] compares titles: lowercase letters and digits,
+/// single spaces, "&" as "and", Latin accents dropped. Two titles `compare`
+/// calls the same have the same key, so files can be looked up by it
+/// (grouping, 1bC-1).
+pub fn title_key(text: &str) -> String {
+    compare::key(text)
+}
+
 /// Where a name came from. A file name can hold an artist, a track number
 /// and an extension; a title tag is taken as a title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

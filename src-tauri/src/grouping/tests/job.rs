@@ -8,9 +8,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use super::support::*;
-use crate::grouping::{group_job, start, Grouper, Summary};
-use crate::jobs::{self, JobId, JobKind, JobQueue, JobRecord, JobStatus};
-use crate::scan::chain::after_group;
+use crate::grouping::{decide_job, group_job, start, Decided, Grouper, Summary, DECIDE_PRIORITY};
+use crate::jobs::{self, JobId, JobKind, JobQueue, JobRecord, JobStatus, Priority};
+use crate::matching::{matching_job, Matcher};
+use crate::scan::chain::{after_group, after_matching};
 
 /// Long enough that a passing test never hits it.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -237,4 +238,236 @@ fn grouping_writes_nothing_outside_the_app_data_folder() {
         "changed outside the data folder: {changed:?}"
     );
     assert_eq!(after.len(), 4, "the music folder and its three files");
+}
+
+// ---- the deciding job -------------------------------------------------------
+
+/// Waits until no job is queued or running: a chained job queues what
+/// follows it before it ends.
+fn wait_idle(queue: &JobQueue) {
+    let begun = Instant::now();
+    while !queue.activity().unwrap().jobs.is_empty() {
+        assert!(begun.elapsed() < PATIENCE, "the jobs never finished");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn song<'a>(name: &'a str, title: &'a str, n: u8, items: Option<Vec<u32>>) -> NewFile<'a> {
+    NewFile {
+        name,
+        title: Some(title),
+        artist: Some("Halden Rook"),
+        hash: Some(hash(n)),
+        items,
+        blake3: None,
+    }
+}
+
+#[test]
+fn the_quick_job_gives_every_file_a_track_and_decides_no_pair() {
+    let db = db();
+    let velo = track(1, 900);
+    db.add(song("Velo.flac", "Velo", 1, Some(velo.clone())));
+    db.add(song("Velo.mp3", "Velo", 2, Some(reencoded(&velo, 1, 7))));
+    let queue = JobQueue::builder(db.writer.clone())
+        .handler(JobKind::Group, after_group(Grouper::default()))
+        .start()
+        .unwrap();
+    let id = queue.enqueue(group_job()).unwrap();
+    assert_eq!(wait(&db, id).status, JobStatus::Done);
+    wait_idle(&queue);
+    queue.shutdown();
+    assert_eq!(db.tracks(), 2, "other audio hashes: two tracks for now");
+    assert!(db.decided().is_empty());
+    assert_eq!(db.count("SELECT count(*) FROM grouping_pair"), 0);
+    assert_eq!(
+        db.count("SELECT count(*) FROM job WHERE kind = 'group'"),
+        1,
+        "no deciding job follows it"
+    );
+}
+
+#[test]
+fn once_matching_has_been_through_the_deciding_job_follows_it_and_merges_the_duplicates() {
+    let db = db();
+    let velo = track(1, 900);
+    let a = db.add(song("Velo.flac", "Velo", 1, Some(velo.clone())));
+    let b = db.add(song("Velo.mp3", "Velo", 2, Some(reencoded(&velo, 1, 7))));
+    let heard = Arc::new(Mutex::new(Vec::<(Decided, Summary)>::new()));
+    let sink = heard.clone();
+    let queue = JobQueue::builder(db.writer.clone())
+        .handler(
+            JobKind::Group,
+            after_group(
+                Grouper::default().on_decided(move |d, s| sink.lock().unwrap().push((d, s))),
+            ),
+        )
+        .handler(JobKind::Match, after_matching(Matcher::new()))
+        .start()
+        .unwrap();
+    // The fingerprints are in: the chain asks for matching, and nothing
+    // else has to be asked for.
+    let id = queue.enqueue(matching_job()).unwrap();
+    assert_eq!(wait(&db, id).status, JobStatus::Done);
+    wait_idle(&queue);
+    queue.shutdown();
+    assert_eq!(db.track(a), db.track(b));
+    assert_eq!(db.tracks(), 1);
+    assert_eq!(db.decided(), [a, b]);
+    let heard = heard.lock().unwrap();
+    assert_eq!(heard.len(), 1, "one deciding job");
+    assert_eq!((heard[0].0.files, heard[0].1.moved), (2, 1));
+    // It ran at matching's priority, below the chain's own work.
+    assert_eq!(
+        db.count("SELECT priority FROM job WHERE kind = 'group' AND target IS NOT NULL"),
+        DECIDE_PRIORITY.0
+    );
+    assert!(DECIDE_PRIORITY < Priority::BACKGROUND);
+}
+
+#[test]
+fn a_deciding_job_is_not_asked_for_while_matching_still_has_files_to_compare() {
+    let db = db();
+    db.add(song("Velo.flac", "Velo", 1, Some(track(1, 900))));
+    db.group();
+    let ask = |db: &Db| {
+        let mut asked = 0;
+        crate::grouping::request_decide(&db.writer, |_| -> Result<JobId, crate::db::DbError> {
+            asked += 1;
+            Ok(JobId(99))
+        })
+        .unwrap();
+        asked
+    };
+    assert_eq!(ask(&db), 0, "its fingerprint is still to be compared");
+    db.compare_fingerprints();
+    assert_eq!(ask(&db), 1);
+    // Decided: nothing to ask for.
+    db.decide();
+    assert_eq!(ask(&db), 0);
+}
+
+#[test]
+fn the_deciding_job_makes_way_for_a_job_of_a_higher_priority_and_goes_on_afterwards() {
+    let db = db();
+    for n in 1..=6u8 {
+        let (name, title) = (format!("{n}.mp3"), format!("Song {n}"));
+        db.add(song(&name, &title, n, None));
+    }
+    let asked = Arc::new(Mutex::new(false));
+    let writer = db.writer.clone();
+    // What the higher job found when it ran: how many files were decided.
+    let found = Arc::new(Mutex::new(Vec::<i64>::new()));
+    let (sink, reader) = (found.clone(), db.writer.clone());
+    let heard = Arc::new(Mutex::new(Vec::<Decided>::new()));
+    let decided = heard.clone();
+    let queue = JobQueue::builder(db.writer.clone())
+        .workers(1)
+        .handler(
+            JobKind::Group,
+            after_group(
+                Grouper::default()
+                    .page(1)
+                    // As the run starts, a job the user asked for arrives.
+                    .on_tick(move || {
+                        let mut asked = asked.lock().unwrap();
+                        if !*asked {
+                            *asked = true;
+                            writer
+                                .call(|c| {
+                                    c.execute(
+                                        "INSERT INTO job (kind, priority, status)
+                                         VALUES ('scan', 10, 'queued')",
+                                        [],
+                                    )
+                                })
+                                .unwrap();
+                        }
+                    })
+                    .on_decided(move |d, _| decided.lock().unwrap().push(d)),
+            ),
+        )
+        .handler(JobKind::Scan, move |_: &jobs::JobContext| {
+            let stamp = crate::grouping::decided_as();
+            let so_far = reader.call(move |c| {
+                c.query_row(
+                    "SELECT count(*) FROM grouping_file WHERE decided_as IS ?1",
+                    [stamp],
+                    |r| r.get(0),
+                )
+            })?;
+            sink.lock().unwrap().push(so_far);
+            Ok(())
+        })
+        .start()
+        .unwrap();
+    queue.enqueue(decide_job()).unwrap();
+    let begun = Instant::now();
+    while db.decided().len() < 6 || !queue.activity().unwrap().jobs.is_empty() {
+        assert!(begun.elapsed() < PATIENCE, "the deciding never finished");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    queue.shutdown();
+    // It stopped after its first page, the other job ran, and the run
+    // queued after it decided the rest.
+    assert_eq!(*found.lock().unwrap(), [1]);
+    let heard = heard.lock().unwrap();
+    assert_eq!(heard.len(), 1, "one run got to the end");
+    assert_eq!(heard[0].files, 5, "and decided what the first left");
+    // The run queued after it is a deciding job like the first, at the
+    // deciding job's priority: it makes way in its turn.
+    let group_jobs: Vec<(Option<String>, i64)> = db
+        .writer
+        .call(|c| {
+            let mut s =
+                c.prepare("SELECT target, priority FROM job WHERE kind = 'group' ORDER BY id")?;
+            let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        })
+        .unwrap();
+    assert_eq!(group_jobs.len(), 2);
+    for (target, priority) in group_jobs {
+        assert!(target.is_some_and(|t| t.contains("decide")));
+        assert_eq!(priority, DECIDE_PRIORITY.0);
+    }
+}
+
+#[test]
+fn the_quick_job_asks_for_a_deciding_job_when_a_set_waits_for_a_pair_nobody_decided() {
+    // 1-2 and 2-3 are proposed and duplicates; nothing leads from 1 to 3
+    // (other names, not an item in common bit for bit).
+    let db = db();
+    let one = track(1, 900);
+    let two = reencoded(&one, 1, 7);
+    let three: Vec<u32> = one
+        .iter()
+        .zip(&two)
+        .map(|(a, b)| if a == b { a ^ 0b101 } else { *b })
+        .collect();
+    let a = db.add(song("Velo.flac", "Velo", 1, Some(one)));
+    let b = db.add(song("Velo.mp3", "Velo", 2, Some(two)));
+    let c = db.add(song("Nightdrive.mp3", "Nightdrive", 3, Some(three)));
+    db.group();
+    db.compare_fingerprints();
+    // A deciding job that was cut short after its pages: every file is
+    // decided, the pair of 1 and 3 isn't.
+    db.decide_in_pages(10);
+    assert_eq!(db.decided(), [a, b, c]);
+    assert_eq!(db.pair(a, c), None);
+    assert_eq!(db.tracks(), 3);
+    let queue = JobQueue::builder(db.writer.clone())
+        .handler(JobKind::Group, after_group(Grouper::default()))
+        .start()
+        .unwrap();
+    let id = queue.enqueue(group_job()).unwrap();
+    assert_eq!(wait(&db, id).status, JobStatus::Done);
+    wait_idle(&queue);
+    queue.shutdown();
+    assert_eq!(
+        db.count("SELECT count(*) FROM job WHERE kind = 'group' AND target IS NOT NULL"),
+        1,
+        "the quick job asked for a deciding job"
+    );
+    assert_eq!(db.stands(a, c), ("duplicate".into(), "merged".into()));
+    assert_eq!(db.tracks(), 1);
 }
