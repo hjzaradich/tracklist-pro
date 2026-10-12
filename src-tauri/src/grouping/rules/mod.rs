@@ -518,6 +518,11 @@ pub struct FileFacts {
     own_doubt: Option<String>,
     /// The version words the file's names carry, for the final guard.
     label_words: LabelWords,
+    /// The label words of the folder the file sits in that its names don't
+    /// carry. Kept apart from `label_words` on purpose: a folder's word
+    /// can only add doubt, never make up for a word the other file's own
+    /// names carry ("Clean/Velo Dirty" beside "Dirty/Velo Clean").
+    folder_words: LabelWords,
 }
 
 impl FileFacts {
@@ -546,7 +551,7 @@ impl FileFacts {
         let title_tag = title_tag.filter(|title| !title.trim().is_empty());
         let by_tag = title_tag.map(versions::parse_title);
         let by_file_name = file_name_reading(file_name, by_tag.as_ref());
-        let label_words = label_words(
+        let (label_words, folder_words) = label_words(
             title_tag.zip(by_tag.as_ref()),
             (file_name, &by_file_name),
             artist_tag,
@@ -556,6 +561,7 @@ impl FileFacts {
         // for a file whose names mention a remaster, in any spelling, a
         // bracketed year is no harmless bracket.
         let remaster_named = label_words.contains_key(&MarkerKind::Remaster)
+            || folder_words.contains_key(&MarkerKind::Remaster)
             || [title_tag.unwrap_or(""), file_name]
                 .iter()
                 .any(|name| name.to_lowercase().contains("master"));
@@ -572,6 +578,7 @@ impl FileFacts {
                 file_name: Name::new(by_file_name, artist_tag),
                 own_doubt: None,
                 label_words,
+                folder_words,
             };
         };
         // A file's own two names are evidence about that file: with their
@@ -617,6 +624,7 @@ impl FileFacts {
             file_name,
             own_doubt,
             label_words,
+            folder_words,
         }
     }
 
@@ -846,7 +854,7 @@ fn label_words(
     file_name: (&str, &ParsedName),
     artist_tag: Option<&str>,
     folder: Option<&str>,
-) -> LabelWords {
+) -> (LabelWords, LabelWords) {
     let (file_name, by_file_name) = file_name;
     // The artists the file name's own artist part names.
     let artist_part: Vec<Vec<String>> = by_file_name
@@ -906,12 +914,16 @@ fn label_words(
             *most = (*most).max(count);
         }
     }
-    // The folder's label words, for the ones the names don't carry.
+    // The folder's label words, for the ones the names don't carry. They
+    // are returned apart: they never count among the file's own words.
+    let mut from_folder = LabelWords::new();
     if let Some(folder) =
         folder.and_then(|folder| folder.rsplit(['/', '\\']).find(|part| !part.is_empty()))
     {
         for (kind, _) in folder_label_words(folder, &artists(&[], false).whole) {
-            found.entry(kind).or_insert(1);
+            if !found.contains_key(&kind) {
+                from_folder.insert(kind, 1);
+            }
         }
     }
     // Intro and Outro together are Intro-Outro, as within one name.
@@ -930,7 +942,7 @@ fn label_words(
             }
         }
     }
-    found
+    (found, from_folder)
 }
 
 /// Whether `name`, one of a file's two names, holds the whole title of the
@@ -1576,10 +1588,13 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
     let decision = by_table(pair);
     // The final guard: on a full (not identical) audio match, two files
     // merge silently only if their names carry the same version words.
+    // The words a folder adds are compared on their own: they only add
+    // doubt, and never make up for a word the other file's names carry.
     let (mine, theirs) = (&pair.a.label_words, &pair.b.label_words);
+    let (folder_mine, folder_theirs) = (&pair.a.folder_words, &pair.b.folder_words);
     let merges_on_full_audio =
         decision.outcome == Outcome::Duplicate && matches!(shared(pair.audio), Shared::Full(_));
-    if !merges_on_full_audio || mine == theirs {
+    if !merges_on_full_audio || (mine == theirs && folder_mine == folder_theirs) {
         return decision;
     }
     let more = |mine: &LabelWords, theirs: &LabelWords| -> Vec<MarkerKind> {
@@ -1588,9 +1603,16 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
             .map(|(kind, _)| *kind)
             .collect()
     };
+    let both = |own: Vec<MarkerKind>, folder: Vec<MarkerKind>| -> Vec<MarkerKind> {
+        let mut kinds = own;
+        kinds.extend(folder);
+        kinds.sort();
+        kinds.dedup();
+        kinds
+    };
     let mut reasons = vec![Reason::LabelWordsDiffer {
-        only_a: more(mine, theirs),
-        only_b: more(theirs, mine),
+        only_a: both(more(mine, theirs), more(folder_mine, folder_theirs)),
+        only_b: both(more(theirs, mine), more(folder_theirs, folder_mine)),
     }];
     reasons.extend(decision.reasons);
     Decision {

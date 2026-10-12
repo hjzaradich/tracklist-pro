@@ -217,6 +217,15 @@ fn an_artist_called_like_a_label_with_a_label_in_the_artist_part_of_the_name_is_
 
 // ---- A version given by the folder -------------------------------------
 
+/// The version words of a file: its names' and the ones its folder adds.
+fn all_words(file: &FileFacts) -> Vec<(MarkerKind, usize)> {
+    let mut words = file.label_words.clone();
+    for (kind, count) in &file.folder_words {
+        *words.entry(*kind).or_default() += count;
+    }
+    words.into_iter().collect()
+}
+
 /// A file with no tags, named `file_name`, in a folder called `folder`.
 fn in_folder(folder: &str, file_name: &str) -> FileFacts {
     FileFacts::in_folder(None, None, file_name, Some(folder))
@@ -228,8 +237,8 @@ fn a_clean_folder_and_a_dirty_folder_holding_the_same_file_name_never_merge_on_f
         in_folder("Clean", "Velo.mp3"),
         in_folder("Dirty", "Velo.mp3"),
     );
-    assert_eq!(label_words(&clean), [(MarkerKind::Clean, 1)]);
-    assert_eq!(label_words(&dirty), [(MarkerKind::Dirty, 1)]);
+    assert_eq!(all_words(&clean), [(MarkerKind::Clean, 1)]);
+    assert_eq!(all_words(&dirty), [(MarkerKind::Dirty, 1)]);
     let got = decided(full(), &clean, &dirty);
     assert_eq!(got.outcome, Outcome::NeedsReview);
     assert_eq!(
@@ -301,10 +310,11 @@ fn a_folder_label_the_names_already_carry_changes_nothing_however_the_names_writ
                 let alone = FileFacts::new(None, None, &file_name);
                 let inside = in_folder(&folder, &file_name);
                 assert_eq!(
-                    label_words(&inside),
-                    label_words(&alone),
+                    all_words(&inside),
+                    all_words(&alone),
                     "{folder}/{file_name}"
                 );
+                assert!(inside.folder_words.is_empty(), "{folder}/{file_name}");
                 let in_tag = FileFacts::in_folder(
                     Some(&file_name[..file_name.len() - 4]),
                     None,
@@ -312,8 +322,8 @@ fn a_folder_label_the_names_already_carry_changes_nothing_however_the_names_writ
                     Some(&folder),
                 );
                 assert_eq!(
-                    label_words(&in_tag),
-                    label_words(&FileFacts::new(
+                    all_words(&in_tag),
+                    all_words(&FileFacts::new(
                         Some(&file_name[..file_name.len() - 4]),
                         None,
                         "x.mp3"
@@ -328,11 +338,11 @@ fn a_folder_label_the_names_already_carry_changes_nothing_however_the_names_writ
 #[test]
 fn a_folders_label_word_counts_once_and_beside_the_names_other_labels() {
     assert_eq!(
-        label_words(&in_folder("Dirty Dirty", "Velo.mp3")),
+        all_words(&in_folder("Dirty Dirty", "Velo.mp3")),
         [(MarkerKind::Dirty, 1)]
     );
     assert_eq!(
-        label_words(&in_folder("Dirty", "Velo (Clean).mp3")),
+        all_words(&in_folder("Dirty", "Velo (Clean).mp3")),
         [(MarkerKind::Clean, 1), (MarkerKind::Dirty, 1)]
     );
 }
@@ -348,7 +358,7 @@ fn a_folders_plural_and_two_word_labels_are_read() {
         ("V.I.P.", MarkerKind::Vip),
     ] {
         assert_eq!(
-            label_words(&in_folder(folder, "Velo.mp3")),
+            all_words(&in_folder(folder, "Velo.mp3")),
             [(kind, 1)],
             "{folder}"
         );
@@ -358,15 +368,15 @@ fn a_folders_plural_and_two_word_labels_are_read() {
 #[test]
 fn a_folder_that_holds_no_label_word_adds_none() {
     for folder in ["Inbox", "Music", "2020", "Halden Rook", "Mixes", "Sets"] {
-        assert_eq!(label_words(&in_folder(folder, "Velo.mp3")), [], "{folder}");
+        assert_eq!(all_words(&in_folder(folder, "Velo.mp3")), [], "{folder}");
     }
 }
 
 #[test]
 fn only_the_name_of_the_folder_counts_not_the_path_in_front_of_it() {
-    assert_eq!(label_words(&in_folder("Clean/2020", "Velo.mp3")), []);
+    assert_eq!(all_words(&in_folder("Clean/2020", "Velo.mp3")), []);
     assert_eq!(
-        label_words(&in_folder("Music/Clean", "Velo.mp3")),
+        all_words(&in_folder("Music/Clean", "Velo.mp3")),
         [(MarkerKind::Clean, 1)]
     );
 }
@@ -376,15 +386,15 @@ fn a_folder_named_for_the_files_artist_is_no_version() {
     let by = |artist: Option<&str>| {
         FileFacts::in_folder(Some("Velo"), artist, "Velo.mp3", Some("Dub Kestrel"))
     };
-    assert_eq!(label_words(&by(Some("Dub Kestrel"))), []);
-    assert_eq!(label_words(&by(None)), [(MarkerKind::Dub, 1)]);
+    assert_eq!(all_words(&by(Some("Dub Kestrel"))), []);
+    assert_eq!(all_words(&by(None)), [(MarkerKind::Dub, 1)]);
 }
 
 #[test]
 fn a_file_with_no_folder_is_the_file_new_gives() {
     let a = FileFacts::in_folder(Some("Velo"), Some("Halden Rook"), "Velo (Dirty).mp3", None);
     let b = FileFacts::new(Some("Velo"), Some("Halden Rook"), "Velo (Dirty).mp3");
-    assert_eq!(label_words(&a), label_words(&b));
+    assert_eq!(all_words(&a), all_words(&b));
 }
 
 #[test]
@@ -408,6 +418,63 @@ fn a_version_given_only_by_a_folder_never_comes_out_duplicate_on_a_full_match() 
             }
         }
     }
+}
+
+#[test]
+fn a_folders_word_and_a_file_names_word_that_swap_do_not_cancel() {
+    // "Clean" is the folder's in A and the name's in B, and the other way
+    // round for "Dirty": the files carry different words of their own.
+    let a = in_folder("Clean", "Velo Dirty 128.mp3");
+    let b = in_folder("Dirty", "Velo Clean 128.mp3");
+    for (x, y) in [(&a, &b), (&b, &a)] {
+        let got = decided(full(), x, y);
+        assert_eq!(got.outcome, Outcome::NeedsReview);
+        assert!(matches!(got.reasons[0], Reason::LabelWordsDiffer { .. }));
+    }
+}
+
+#[test]
+fn a_folders_word_never_makes_up_for_a_word_the_other_files_names_carry() {
+    // Folder says X (or nothing), own name says Y (or nothing), on both
+    // sides: two files merge only when their own words are equal and the
+    // words their folders add are equal too.
+    let labels = [
+        None,
+        Some("Clean"),
+        Some("Dirty"),
+        Some("Extended"),
+        Some("Radio Edit"),
+        Some("Dub"),
+        Some("Instrumental"),
+    ];
+    let mut files = Vec::new();
+    for folder in labels {
+        for own in labels {
+            let name = match own {
+                Some(label) => format!("Velo {label} 128.mp3"),
+                None => "Velo 128.mp3".to_string(),
+            };
+            let file = FileFacts::in_folder(None, None, &name, Some(folder.unwrap_or("Inbox")));
+            // What the folder adds: its word, unless the names carry it.
+            let added = folder.filter(|folder| Some(*folder) != own);
+            files.push((folder, own, added, file));
+        }
+    }
+    let mut merged = 0;
+    for (folder_a, own_a, added_a, a) in &files {
+        for (folder_b, own_b, added_b, b) in &files {
+            let got = decided(full(), a, b);
+            let may_merge = own_a == own_b && added_a == added_b;
+            if got.outcome == Outcome::Duplicate {
+                assert!(
+                    may_merge,
+                    "A: folder {folder_a:?}, name {own_a:?}; B: folder {folder_b:?}, name {own_b:?}"
+                );
+                merged += 1;
+            }
+        }
+    }
+    assert!(merged > 0, "equal words never merged");
 }
 
 // ---- Pinned after the 1bB-1 mutation review ----------------------------
