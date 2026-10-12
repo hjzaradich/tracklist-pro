@@ -568,6 +568,37 @@ fn only_the_newest_settled_conflict_answers_its_field() {
     assert_eq!(lib.settled().len(), 2);
 }
 
+#[test]
+fn the_newest_settled_conflict_is_the_one_settled_last_whatever_the_clock_said() {
+    let lib = Lib::new();
+    let (id, first) = with_open(&lib);
+    lib.settle_by_hand_at(
+        first,
+        Status::KeptRekordbox,
+        None,
+        "2026-10-12T10:00:00.000Z",
+    );
+    let moved = genre("Deep House", "Minimal", "House");
+    let second = lib.detect(&[track(id, vec![moved.clone()])]).opened[0];
+    // The clock was set back in between: the later decision has the
+    // earlier time.
+    lib.settle_by_hand_at(second, Status::KeptApp, None, "2026-10-12T09:00:00.000Z");
+    let before = lib.rows();
+
+    let detected = lib.detect(&[track(id, vec![moved])]);
+
+    // The user isn't asked again about what they just settled.
+    assert_eq!(detected.opened, none());
+    assert_eq!(lib.rows(), before);
+    assert_eq!(
+        detected.fields[0].outcome,
+        Outcome::Decided {
+            conflict: second,
+            value: "Deep House".into()
+        }
+    );
+}
+
 // ---- A send that was never imported ---------------------------------------
 
 #[test]

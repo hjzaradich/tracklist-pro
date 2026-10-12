@@ -579,8 +579,8 @@ fn withdraw_open(
 
 fn detect_in(conn: &Connection, tracks: &[TrackSides]) -> rusqlite::Result<Detected> {
     let ids = json_ids(&tracks.iter().map(|t| t.library_track).collect::<Vec<_>>());
-    // Per track and field: the open conflict, and the newest settled one
-    // (the rows come oldest first, so the last one read stays).
+    // Per track and field: the open conflict, and the settled one settled
+    // last (the rows come lowest id first, so the last one read stays).
     let mut open: Rows = HashMap::new();
     let mut settled: Rows = HashMap::new();
     {
@@ -589,7 +589,7 @@ fn detect_in(conn: &Connection, tracks: &[TrackSides]) -> rusqlite::Result<Detec
                     resolved_value
              FROM conflict
              WHERE library_track_id IN (SELECT value FROM json_each(?1))
-             ORDER BY resolved_at, id",
+             ORDER BY id",
         )?;
         let rows = stmt.query_map([&ids], |r| {
             Ok((
