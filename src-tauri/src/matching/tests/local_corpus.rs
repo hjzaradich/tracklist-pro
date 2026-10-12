@@ -68,10 +68,12 @@ use crate::hash::{self, FileHashes};
 use crate::matching::{compare, item_seconds, refresh, Comparison, Summary};
 use crate::versions::{self, Outcome};
 
+use super::corpus_job::{same_track, stands_as};
 use super::labels::{
     allowed, identical_share, is_duplicate, same_length, shared_keys, unmet, Category, Shape,
 };
 use super::passes::db;
+use crate::grouping::tests::support::{self, RealFile};
 
 /// Names the folder holding E3's private files: the `spikes` folder of the
 /// checkout that has them.
@@ -222,6 +224,8 @@ struct Seen {
     title: Option<String>,
     artist: Option<String>,
     file_name: String,
+    /// The `raw_tags` JSON the read stage would store for the file.
+    raw_tags: Option<String>,
 }
 
 impl Seen {
@@ -254,12 +258,16 @@ fn see(path: &Path) -> Result<Seen, &'static str> {
         .flatten()
         .ok_or("audio file can't be hashed")?;
     let tags = crate::tags::read(path).map_err(|_| "tags can't be read")?;
+    let raw_tags = crate::read::read_one(path, |_| Ok(true))
+        .map_err(|_| "file can't be read by the read stage")?
+        .raw_tags;
     Ok(Seen {
         fingerprint,
         hashes,
         title: tags.fields.title,
         artist: tags.fields.artist,
         file_name: file_name(path),
+        raw_tags,
     })
 }
 
@@ -753,6 +761,149 @@ fn the_grouping_rules_merge_no_pair_labeled_other_than_duplicate_and_keep_every_
         not_allowed.is_empty(),
         "pairs whose outcome their label doesn't allow:\n{}",
         not_allowed.join("\n")
+    );
+}
+
+/// Whether two files hold the very same audio: one audio hash or one
+/// whole-file hash.
+fn same_audio(a: &Seen, b: &Seen) -> bool {
+    matches!((a.hashes.audio, b.hashes.audio), (Ok(x), Ok(y)) if x == y)
+        || a.hashes.blake3 == b.hashes.blake3
+}
+
+/// The pair whose two files must never share a track: a "version" pair
+/// that shares much audio and was relabeled after listening (E3's summary,
+/// `spikes/results/e3-summary.md`).
+const KEPT_APART: u32 = 42;
+
+#[test]
+fn the_grouping_job_over_every_real_file_merges_no_pair_labeled_other_than_duplicate_and_keeps_pair_42_apart(
+) {
+    let Some(run) = run() else { return };
+    // PRIVACY: `rel_path` below holds real file names and `raw_tags` real
+    // tags, inside a temporary database. Nothing in this test prints a
+    // `rel_path`, a tag or a reason's fields, calls `Db::dump`, or puts one
+    // in an assertion message: output is ids, labels, outcomes, states and
+    // reason codes.
+    let db = support::db();
+    let ids: Vec<i64> = run
+        .files
+        .iter()
+        .enumerate()
+        .map(|(i, file)| {
+            db.add_real(RealFile {
+                rel_path: &format!("{i}/{}", file.file_name),
+                audio: file.hashes.audio.ok().map(|audio| audio.to_bytes()),
+                blake3: file.hashes.blake3,
+                raw_tags: file.raw_tags.as_deref(),
+                fingerprint: &file.fingerprint,
+            })
+        })
+        .collect();
+    // The steps of the app's chain: the quick grouping pass, the matching
+    // pass, the deciding job.
+    let (decided, _) = db.decide();
+    println!(
+        "{} files in the database; the deciding job asked the rules about {} pairs, compared {} \
+         directly, held {} sets waiting",
+        ids.len(),
+        decided.pairs,
+        decided.compared_directly,
+        db.count("SELECT count(*) FROM grouping_pair WHERE state = 'waiting'"),
+    );
+
+    let (mut duplicates, mut duplicates_merged) = (0, 0);
+    let (mut others, mut false_merges) = (0, Vec::<String>::new());
+    let (mut held, mut waiting) = (Vec::<u32>::new(), Vec::<u32>::new());
+    let mut kept_apart = None;
+    for (i, pair) in run.pairs.iter().enumerate() {
+        let [a, b] = run.of_pair[i].map(|file| ids[file]);
+        let shared = same_track(&db, a, b);
+        let stands = stands_as(&db, a, b);
+        println!(
+            "#{:<3}{:<10} {:<10} {stands}",
+            pair.id,
+            pair.category.as_str(),
+            if shared { "one track" } else { "apart" },
+        );
+        match db.pair(a, b).map(|(_, state)| state).as_deref() {
+            Some("set_disagrees") => held.push(pair.id),
+            Some("waiting") => waiting.push(pair.id),
+            _ => {}
+        }
+        if pair.id == KEPT_APART {
+            kept_apart = Some(shared);
+        }
+        if pair.category == Category::Duplicate {
+            duplicates += 1;
+            duplicates_merged += usize::from(shared);
+        } else {
+            others += 1;
+            if shared {
+                false_merges.push(format!(
+                    "pair {} ({}), files {a} and {b}: {stands}",
+                    pair.id,
+                    pair.category.as_str()
+                ));
+            }
+        }
+    }
+
+    // Two files of different pairs in one track, unless they are the same
+    // audio. The labels say nothing about these, so they are listed, not
+    // asserted.
+    let mut across: Vec<String> = Vec::new();
+    for (p, first) in run.pairs.iter().enumerate() {
+        for (q, second) in run.pairs.iter().enumerate().skip(p + 1) {
+            for &x in &run.of_pair[p] {
+                for &y in &run.of_pair[q] {
+                    if x != y
+                        && same_track(&db, ids[x], ids[y])
+                        && !same_audio(&run.files[x], &run.files[y])
+                    {
+                        across.push(format!(
+                            "pairs {} and {}, files {} and {}: {}",
+                            first.id,
+                            second.id,
+                            ids[x],
+                            ids[y],
+                            stands_as(&db, ids[x], ids[y])
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    println!(
+        "false merges {}/{} pairs not labeled duplicate ({:.1}%)",
+        false_merges.len(),
+        others,
+        100.0 * false_merges.len() as f64 / others.max(1) as f64
+    );
+    println!("duplicates in one track: {duplicates_merged}/{duplicates}");
+    println!("pair {KEPT_APART} in one track: {kept_apart:?}");
+    println!("sets held, set_disagrees: pairs {held:?}");
+    println!("waiting: pairs {waiting:?}");
+    println!(
+        "across pairs, files in one track without the same audio: {}",
+        across.len()
+    );
+    for line in &across {
+        println!("  {line}");
+    }
+
+    assert!(
+        false_merges.is_empty(),
+        "{} of {others} pairs not labeled duplicate share a track (the criterion is under 1%, \
+         which with this many pairs is none):\n{}",
+        false_merges.len(),
+        false_merges.join("\n")
+    );
+    assert_eq!(
+        kept_apart,
+        Some(false),
+        "pair {KEPT_APART} must be in the corpus, and its files in two tracks"
     );
 }
 
