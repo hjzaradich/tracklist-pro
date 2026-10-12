@@ -817,8 +817,8 @@ fn when_the_file_is_moved_back_the_track_follows_it_back() {
 }
 
 #[test]
-fn known_limit_when_the_old_file_comes_back_beside_the_new_one_rekordboxs_entry_returns_to_its_path()
-{
+fn known_limit_when_the_old_file_comes_back_beside_the_new_one_rekordboxs_entry_returns_to_its_path(
+) {
     // The one sequence in which a followed track stops being sent as its
     // rekordbox entry, pinned so it can't change unnoticed. The follow
     // itself changed nothing (the entry was on the new file). Then the old
@@ -910,10 +910,9 @@ fn only_the_follow_ever_changes_a_library_tracks_linked_file_in_the_apps_code() 
     assert_eq!(setters, ["library/follow.rs", "library/mod.rs"]);
     assert_eq!(updaters, Vec::<String>::new());
     // library/mod.rs names it once, in the insert of a new Library track.
-    let library = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/library/mod.rs"),
-    )
-    .unwrap();
+    let library =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/library/mod.rs"))
+            .unwrap();
     let code = library.split("#[cfg(test)]").next().unwrap();
     assert_eq!(code.matches("\"linked_file_id\"").count(), 1);
     assert!(code.contains("(\"linked_file_id\", file_id)"));

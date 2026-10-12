@@ -311,11 +311,13 @@ pub(crate) fn sent_as(
     let loaded = load(conn, volumes, &ids, Scope::Decide, &relinked)?;
     Ok(ids
         .iter()
-        .map(|id| match loaded.rows.get(&id.0).map(|row| loaded.source(row)) {
-            Some(Source::Known { entry, .. }) => SentAs::Entry(entry),
-            Some(Source::Files { .. }) => SentAs::New,
-            Some(Source::Cannot(_)) | None => SentAs::Nothing,
-        })
+        .map(
+            |id| match loaded.rows.get(&id.0).map(|row| loaded.source(row)) {
+                Some(Source::Known { entry, .. }) => SentAs::Entry(entry),
+                Some(Source::Files { .. }) => SentAs::New,
+                Some(Source::Cannot(_)) | None => SentAs::Nothing,
+            },
+        )
         .collect())
 }
 

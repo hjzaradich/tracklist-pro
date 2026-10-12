@@ -276,11 +276,7 @@ fn a_track_sent_before_rekordbox_knew_it_follows_its_file_and_is_then_sent_once_
     // Now the export is read: rekordbox holds the entry the user imported,
     // at the old Location. Relink matches it to the same audio at the new
     // place, where the track already is.
-    let row = lib.track_with(
-        THEIRS,
-        Some("200"),
-        &[("Name", "Theirs"), ("Rating", "51")],
-    );
+    let row = lib.track_with(THEIRS, Some("200"), &[("Name", "Theirs"), ("Rating", "51")]);
     assert!(lib.job(&mounted).followed.is_empty());
     assert_eq!(lib.matched(row), same_audio(new));
     assert_eq!(lib.linked_file(track), new);

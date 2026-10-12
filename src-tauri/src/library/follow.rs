@@ -239,7 +239,11 @@ fn target(
     {
         return Ok(Some(file));
     }
-    let Some(file) = order.iter().map(|c| c.file).find(|&file| on(file).is_some()) else {
+    let Some(file) = order
+        .iter()
+        .map(|c| c.file)
+        .find(|&file| on(file).is_some())
+    else {
         return Ok(None);
     };
     // It would go to rekordbox as a new track. Not beside an entry that is

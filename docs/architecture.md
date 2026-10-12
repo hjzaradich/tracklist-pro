@@ -81,7 +81,7 @@ What it deliberately is not (ROADMAP §1 principles; CLAUDE.md "Must / never"):
 | `rekordbox` | The XML parser, `Location` decoding, the `rekordbox_track` snapshot, the export source and its watch | Write anything but the snapshot; match by TrackID |
 | `relink` | Matching each rekordbox entry to a file, five rule steps, confirmed relinks | Open a file; match on size; trust a weak match |
 | `attach` | rekordbox's BPM and key → `analysis` rows | Use a probable match |
-| `library` | Library tracks: add (`promote`), remove, list | Re-point an existing link; touch a file |
+| `library` | Library tracks: add (`promote`), remove, list; `library::follow` moves a link to the same audio when the linked file is gone (the second step of the relink job) | Re-point a link in any other case (another encode, a better file, a file that is still on disk); change which rekordbox entry a track is sent as; touch a file |
 | `start` | The offer to add rekordbox's tracks, whole or by playlist | Add anything automatically |
 | `all_music` | The list of every track with a file | — |
 | `missing` | rekordbox entries with no file, grouped by folder | Open a file or wake a network path |
@@ -118,7 +118,7 @@ erDiagram
 
 1. **`file`**: one row per physical file. Its path is a volume identity plus a relative path, stored twice: the exact on-disk spelling (to open it) and an NFC key (to compare). It carries `audio_hash`, which covers only the audio frames. *Why:* rekordbox rewrites tags and bumps modified times, so size, mtime and whole-file hashes all change while the music doesn't. A file that vanishes is marked `present = 0`, never deleted. A file on an unplugged drive stays present.
 2. **`recording`** (a "track"): one piece of music in one version. `recording_file` links it to its files (role `best` / `undecided` / `extra`). *Why:* a track is not a file; duplicates merge, and resolving them changes only the database. **Versions never merge**: `version_link` only links them, and a trigger refuses to put linked versions in one track. `grouping` merges files with the same `audio_hash` and files its rules call duplicates (same audio by fingerprint, same version by name), and makes the version links for cuts and reworks; what it decided about each pair of files is in `grouping_pair`.
-3. **`library_track`**: a track the user added. Always `kind = 'linked'` in Phase 1 (a trigger enforces it): it points at `linked_file_id`. `source_status` (ok / missing) follows the file's `present` flag through triggers. One Library track per track.
+3. **`library_track`**: a track the user added. Always `kind = 'linked'` in Phase 1 (a trigger enforces it): it points at `linked_file_id`. `source_status` (ok / missing) follows the file's `present` flag through triggers. One Library track per track. The link is pinned: grouping, the best-file ranking, relink and a send never move it. It moves in one case, on its own: the linked file is gone and a file of the same track with the very same `audio_hash` is on disk (`library::follow`, recorded as an automatic operation that Undo skips).
 
 The other main tables:
 
@@ -166,6 +166,7 @@ The canonical tag columns on `recording` (title, artist, …) exist but nothing 
 - **Fresh:** `all_music::all_music_tracks` lists tracks; `library::promote_track` adds one.
 - Either way `library` picks the linked file: the file rekordbox uses (trusted match), else the track's best file. It refuses if that file isn't on disk. Only database rows change.
 - `library::remove_library_track` deletes the track with its crate entries and sync bases, and adds a `library_removal` row, in one undoable operation.
+- `library::follow::follow_files` runs after every relink (same job, its own transactions): a Library track whose linked file is gone follows it to the same audio, but only where the track is still sent as the same rekordbox entry afterwards (`send_values::sent_as`). Another encode never follows; it shows as "better file" (`better_file`, step `onDisk`) for Review.
 
 ### Crates
 `crates::create_crate`, `rename_crate`, `delete_crate`, `add_tracks_to_crate`, `remove_tracks_from_crate`. Each is one recorded operation. Names are compared the way the XML writer compares siblings (NFC, case and trailing whitespace ignored), so a crate the app accepts can't make a send fail.
