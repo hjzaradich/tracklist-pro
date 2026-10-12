@@ -41,6 +41,7 @@
 //! asks for is queued waits for the next rekordbox read.
 
 use std::cell::OnceCell;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager, Runtime};
 
@@ -97,7 +98,7 @@ impl Asking<'_> {
 
     fn read_due(&self) -> Result<bool, DbError> {
         remembered(&self.read_due, || {
-            self.due(Stage::Read, i64::from(crate::read::READ_VERSION))
+            self.due(Stage::Read, crate::read::READ_VERSION)
         })
     }
 
@@ -193,19 +194,30 @@ fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
     crate::file_roles::request(a.writer, |j| a.enqueue(j))
 }
 
+/// What [`ask_what_is_due`] did.
+#[derive(Debug, Default)]
+pub(crate) struct Asked {
+    /// How many asks failed.
+    pub failed: usize,
+    /// How long each ask took, in the order asked.
+    pub took: Vec<(&'static str, Duration)>,
+}
+
 /// Asks every stage in [`ASKS`] whether anything is due and queues what is.
-/// Returns how many asks failed (each is logged; the others are still asked).
-/// With no music folder, nothing is asked.
-pub(crate) fn ask_what_is_due(writer: &Writer, enqueue: Enqueue<'_>, reach: &Reach) -> usize {
+/// Each failed ask is logged and counted; the others are still asked. With
+/// no music folder, nothing is asked.
+pub(crate) fn ask_what_is_due(writer: &Writer, enqueue: Enqueue<'_>, reach: &Reach) -> Asked {
+    let mut asked = Asked::default();
     let folders = match writer.call(|c| folders::stored(c)) {
         Ok(folders) => folders,
         Err(e) => {
             eprintln!("startup: couldn't read the music folders, so nothing was asked for: {e}");
-            return 1;
+            asked.failed = 1;
+            return asked;
         }
     };
     if folders.is_empty() {
-        return 0;
+        return asked;
     }
     let asking = Asking {
         writer,
@@ -216,14 +228,15 @@ pub(crate) fn ask_what_is_due(writer: &Writer, enqueue: Enqueue<'_>, reach: &Rea
         hash_due: OnceCell::new(),
         fingerprint_due: OnceCell::new(),
     };
-    let mut failed = 0;
     for (stage, ask) in ASKS {
+        let started = Instant::now();
         if let Err(e) = ask(&asking) {
             eprintln!("startup: couldn't ask whether the {stage} stage has work: {e}");
-            failed += 1;
+            asked.failed += 1;
         }
+        asked.took.push((stage, started.elapsed()));
     }
-    failed
+    asked
 }
 
 /// Starts the asking on a thread of its own, once the job queue is in the
@@ -241,7 +254,13 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) {
                     .enqueue(job)
             };
             let reach = reach_by(crate::scan::system_volumes);
-            ask_what_is_due(&writer, &enqueue, &reach);
+            let started = Instant::now();
+            let asked = ask_what_is_due(&writer, &enqueue, &reach);
+            eprintln!(
+                "startup: asked what is due in {:?} ({} failed)",
+                started.elapsed(),
+                asked.failed
+            );
         });
     if let Err(e) = spawned {
         eprintln!("startup: couldn't start asking what is due: {e}");

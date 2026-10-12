@@ -47,7 +47,7 @@ fn ask(writer: &Writer, volume: &TempVolume) -> (usize, Vec<(String, Option<Stri
         })
     };
     let volume = volume.clone();
-    let failed = ask_what_is_due(writer, &enqueue, &reach_by(move || volume.clone()));
+    let failed = ask_what_is_due(writer, &enqueue, &reach_by(move || volume.clone())).failed;
     (failed, queued(writer))
 }
 
@@ -194,7 +194,7 @@ fn an_ask_that_fails_is_counted_and_the_stages_after_it_are_still_asked() {
         Err(DbError::WriterGone)
     };
     let reach_volume = volume.clone();
-    let failed = ask_what_is_due(&writer, &enqueue, &reach_by(move || reach_volume.clone()));
+    let failed = ask_what_is_due(&writer, &enqueue, &reach_by(move || reach_volume.clone())).failed;
     assert_eq!(failed, 3);
     assert_eq!(
         tried.load(std::sync::atomic::Ordering::SeqCst),
@@ -293,7 +293,12 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
     writer.call(move |c| c.execute_batch(&sql)).unwrap();
     // The roles are of this build's version, so nothing is due there either.
     ask(&writer, &volume);
-    writer.call(|c| c.execute("DELETE FROM job", [])).unwrap();
+    writer
+        .call(|c| {
+            c.execute("DELETE FROM best_file_due", [])?;
+            c.execute("DELETE FROM job", [])
+        })
+        .unwrap();
     println!("built 100,000 files in {:?}", started.elapsed());
 
     let time = |what: &str, check: fn(&rusqlite::Connection) -> rusqlite::Result<bool>| {
@@ -301,18 +306,36 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
         let due = writer.call(move |c| check(c)).unwrap();
         println!("{what:>34}: {:>8.1?}  due: {due}", started.elapsed());
     };
-    time("matching: any file due", |c| crate::matching::any_due(c));
+    time("matching: any file due", crate::matching::any_due);
     time("grouping: a file with no track", |c| {
         crate::grouping::any_ungrouped(c)
     });
-    time("roles: any track due", |c| crate::file_roles::any_due(c));
+    time("roles: any track due", crate::file_roles::any_due);
+    let stored = writer.clone();
+    let enqueue = move |job: NewJob| -> Result<JobId, DbError> {
+        stored.call(move |c| {
+            c.execute(
+                "INSERT INTO job (kind, target, priority) VALUES (?1, ?2, ?3)",
+                (
+                    job.kind.as_str(),
+                    job.target.map(|t| t.to_string()),
+                    job.priority.0,
+                ),
+            )?;
+            Ok(JobId(c.last_insert_rowid()))
+        })
+    };
+    let volume = volume.clone();
     let started = Instant::now();
-    let (failed, queued) = ask(&writer, &volume);
+    let asked = ask_what_is_due(&writer, &enqueue, &reach_by(move || volume.clone()));
     println!(
-        "{:>34}: {:>8.1?}  failed: {failed}, queued: {:?}",
+        "{:>34}: {:>8.1?}",
         "the whole startup step",
-        started.elapsed(),
-        kinds(&queued)
+        started.elapsed()
     );
-    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+    for (stage, took) in &asked.took {
+        println!("{stage:>34}: {took:>8.1?}");
+    }
+    assert_eq!(asked.failed, 0);
+    assert_eq!(kinds(&queued(&writer)), Vec::<&str>::new());
 }
