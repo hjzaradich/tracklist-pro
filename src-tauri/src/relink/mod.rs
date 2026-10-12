@@ -160,15 +160,29 @@
 //!      grouping has caught up or after. As for the same audio, any
 //!      present file counts (on a drive that's plugged in or not), and of
 //!      several the track's best file is matched (else the lowest file
-//!      id). Like a fingerprint duplicate, it's accepted (confidence 0.9)
-//!      only when one of the file's title tags agrees with rekordbox's
-//!      `Name`, otherwise stored as **probable** (confidence 0.4):
-//!      grouping compared the two files' names with each other, never
-//!      with what rekordbox calls the entry. It costs no fingerprint
-//!      comparison. *The limit:* once the mate is decided again while the
-//!      gone file is away (a retag, new rules), their pair goes with that
-//!      decision and this rule no longer applies to the row; the next one
-//!      still does.
+//!      id). It costs no fingerprint comparison.
+//!
+//!      It's accepted (confidence 0.9) only when both of these hold, and
+//!      otherwise stored as **probable** (confidence 0.4):
+//!      - the mate lasts within [`rules::FINGERPRINT_WINDOW_MS`] (1 s) of
+//!        the gone file, the limit the fingerprint duplicates below are
+//!        found within. rekordbox's cues and grid are positions in time,
+//!        and grouping calls two files duplicates at 90% of each found in
+//!        the other, whatever their lengths: a copy with a longer lead-in,
+//!        or a cut-off one, has them elsewhere. A length that isn't known,
+//!        on either side, is another length;
+//!      - one of the mate's title tags agrees with rekordbox's `Name`,
+//!        like a fingerprint duplicate: grouping compared the two files'
+//!        names with each other, never with what rekordbox calls the
+//!        entry.
+//!
+//!      *Two limits.* Once the mate is decided again while the gone file
+//!      is away (a retag, new rules), their pair goes with that decision
+//!      and this rule no longer applies to the row. And every new version
+//!      of the grouping rules (or of the comparison) ends it for the files
+//!      that were already gone: a gone file is never decided again, so
+//!      its record is never current again. The fingerprint duplicates are
+//!      then what remains.
 //!    - else, the fingerprint duplicates of the gone file (ROADMAP 1.4:
 //!      at least 90% matched both ways, difference at most 4) among every
 //!      present file lasting within [`rules::FINGERPRINT_WINDOW_MS`] (1 s)
