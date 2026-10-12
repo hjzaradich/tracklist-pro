@@ -544,7 +544,12 @@ export type JobKind =
  */
 "quality" | 
 /**  Compare files' fingerprints to find shared audio (1.4). */
-"match";
+"match" | 
+/**
+ *  Work out the full-text search index of the tracks that changed
+ *  (1.11).
+ */
+"index";
 
 /**
  *  Where a job is in its life. Stored in `job.status` as
