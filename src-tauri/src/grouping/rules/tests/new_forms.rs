@@ -908,3 +908,51 @@ fn a_harmless_bracket_after_a_second_part_label_does_not_hide_it() {
     let got = decided(full(), &radio, &plain);
     assert_eq!(got.outcome, cut_link(&[MarkerKind::RadioEdit]));
 }
+
+// ---- Guards pinned after the PR review -------------------------------------
+
+#[test]
+fn the_title_tag_must_be_the_first_part_for_a_file_name_to_be_read_title_first() {
+    let read = |tag: &str| {
+        let by_tag = crate::versions::parse_title(tag);
+        file_name_reading("Velo - Radio Edit.mp3", Some(&by_tag))
+    };
+    // The tag is the first part: "Velo" is the title, "Radio Edit" a label.
+    let titled = read("Velo");
+    assert_eq!(titled.base_title, "Velo");
+    assert!(titled.credits.is_empty());
+    assert_eq!(titled.markers[0].kind, MarkerKind::RadioEdit);
+    // The tag is the second part, or neither: the parser's own reading,
+    // an artist "Velo" and a title "Radio Edit".
+    for tag in ["Radio Edit", "Nightdrive", "Velo Nightdrive"] {
+        let default = read(tag);
+        assert_eq!(default.base_title, "Radio Edit", "{tag}");
+        assert_eq!(default.credits[0].name, "Velo", "{tag}");
+        assert!(default.markers.is_empty(), "{tag}");
+    }
+    // No tag: the same.
+    let untagged = file_name_reading("Velo - Radio Edit.mp3", None);
+    assert_eq!(untagged.base_title, "Radio Edit");
+}
+
+#[test]
+fn a_bracket_that_could_be_a_version_stops_the_harmless_ones_in_front_of_it() {
+    // Nothing in front of a bracket that isn't harmless is an aside, so
+    // two different counters there are still two unsettled brackets.
+    for (a, b) in [
+        ("Velo (1) (Acoustic).mp3", "Velo (2) (Acoustic).mp3"),
+        ("Velo (1) (Part 2).mp3", "Velo (2) (Part 2).mp3"),
+    ] {
+        let got = decided(full(), &named(a), &named(b));
+        assert_eq!(got.outcome, Outcome::NeedsReview, "{a} / {b}");
+    }
+    // A counter after a label is that label's number, whichever file has it.
+    for (a, b) in [
+        ("Velo (Dirty) (1).mp3", "Velo (1).mp3"),
+        ("Velo (1).mp3", "Velo (Dirty) (1).mp3"),
+        ("Velo (1) (Dirty).mp3", "Velo (1).mp3"),
+    ] {
+        let got = decided(full(), &named(a), &named(b));
+        assert_ne!(got.outcome, Outcome::Duplicate, "{a} / {b}");
+    }
+}
