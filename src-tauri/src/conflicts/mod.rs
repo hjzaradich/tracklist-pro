@@ -96,6 +96,7 @@
 //! takes any field name, so it can become one.
 
 mod compare;
+pub mod store;
 
 #[cfg(test)]
 mod tests;
@@ -104,6 +105,10 @@ use serde::Serialize;
 use specta::Type;
 
 pub use compare::{fits, kind_of, same, Kind, ANALYSIS_FIELDS};
+pub use store::{
+    detect, detect_for, load_sides, open_conflicts, AppValue, AppValues, Conflict, ConflictId,
+    Detected, FieldOutcome, FieldSides, Filter, Outcome, RekordboxEntry, Status, TrackSides,
+};
 
 /// rekordbox's side of one field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
