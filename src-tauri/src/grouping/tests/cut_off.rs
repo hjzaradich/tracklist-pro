@@ -681,7 +681,11 @@ mod chain {
             .unwrap()
             .unwrap();
         assert_eq!(job.status, JobStatus::Done, "{job:?}");
-        db.count("SELECT count(*) FROM job WHERE kind = 'group' AND target IS NOT NULL")
+        // Deciding jobs only: the roles job shares the grouping job's kind.
+        db.count(
+            "SELECT count(*) FROM job
+             WHERE kind = 'group' AND COALESCE(json_extract(target, '$.decide'), 0) = 1",
+        )
     }
 
     #[test]
