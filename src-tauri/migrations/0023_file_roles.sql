@@ -41,6 +41,11 @@ CREATE INDEX better_file_by_file ON better_file (file_id);
 -- the outer statement's own conflict clause override a trigger's `OR
 -- IGNORE`, and the statements that fire these (an upsert of a file's
 -- track) have one.
+--
+-- `recursive_triggers` is off, so an `INSERT OR REPLACE` into
+-- `recording_file`, `rekordbox_track`, `file_quality`, `file_verdict` or
+-- `library_track` would not fire the DELETE triggers for the row it
+-- replaces. Don't use REPLACE on these tables (nothing does).
 
 -- Files joined, left or moved between tracks (a grouping pass).
 CREATE TRIGGER best_file_due_file_placed
