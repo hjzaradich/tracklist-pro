@@ -80,7 +80,11 @@ pub fn settle_page(
         let Some(row) = rows.get(id) else { continue };
         let f = &row.fields;
         let comment: String = f.comment.chars().take(MAX_COMMENT_CHARS).collect();
-        let title = own_name_stem(&f.title, &row.file_names);
+        // A title that is the file's name is indexed like a file name.
+        let title = match f.title_is_file_name {
+            true => file_name_text(&f.title),
+            false => f.title.clone(),
+        };
         tx.prepare_cached(
             "INSERT INTO search_track
                  (rowid, title, artist, album, remixer, label, genre, comment, file_name)
@@ -104,18 +108,6 @@ pub fn settle_page(
     )?;
     tx.commit()?;
     Ok(page.len())
-}
-
-/// A title that is only the file's name (a track with no title shows its
-/// file's name) is indexed like a file name, without the extension.
-fn own_name_stem(title: &str, names: &str) -> String {
-    // `names` holds the stems, so recognise the fallback by the stem.
-    let stem = file_name_text(title);
-    if stem != title && names.split('\u{1f}').any(|n| n == stem) {
-        stem
-    } else {
-        title.to_owned()
-    }
 }
 
 /// The rows to write for the `page` of tracks. A track that doesn't exist,

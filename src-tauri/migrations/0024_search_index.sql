@@ -78,6 +78,7 @@ END;
 
 CREATE TRIGGER search_file_moves_or_changes_role
 AFTER UPDATE OF recording_id, role ON recording_file
+WHEN old.recording_id IS NOT new.recording_id OR old.role IS NOT new.role
 BEGIN
     INSERT INTO search_due (recording_id)
     SELECT old.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = old.recording_id);
@@ -126,6 +127,7 @@ END;
 
 CREATE TRIGGER search_library_track_changes
 AFTER UPDATE OF recording_id, linked_file_id ON library_track
+WHEN old.recording_id IS NOT new.recording_id OR old.linked_file_id IS NOT new.linked_file_id
 BEGIN
     INSERT INTO search_due (recording_id)
     SELECT old.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = old.recording_id);

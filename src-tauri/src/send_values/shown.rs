@@ -241,12 +241,17 @@ pub struct ShownFields {
     pub label: String,
     pub genre: String,
     pub comment: String,
+    /// The title is the file's name, because the track has none of its own:
+    /// the rule's last resort ([`compose`]), known from where the title
+    /// came from, never from how it looks.
+    pub title_is_file_name: bool,
 }
 
 impl ShownFields {
-    fn new(shown: Shown, picked: &[Option<String>]) -> ShownFields {
+    fn new(shown: Shown, own: Option<&str>, picked: &[Option<String>]) -> ShownFields {
         let at = |i: usize| picked[i].clone().unwrap_or_default();
         ShownFields {
+            title_is_file_name: filled(own).or(filled(picked[0].as_deref())).is_none(),
             title: shown.title,
             artist: shown.artist,
             album: at(2),
@@ -276,7 +281,7 @@ pub fn shown_fields(
                 (picked[0].as_deref(), picked[1].as_deref()),
                 loaded.file_name_of(row),
             );
-            Some((id, ShownFields::new(shown, &picked)))
+            Some((id, ShownFields::new(shown, row.title.as_deref(), &picked)))
         })
         .collect())
 }
@@ -295,7 +300,10 @@ pub fn shown_recording_fields(
                 (f.picked[0].as_deref(), f.picked[1].as_deref()),
                 &f.file_name,
             );
-            (id, ShownFields::new(shown, &f.picked))
+            (
+                id,
+                ShownFields::new(shown, f.own_title.as_deref(), &f.picked),
+            )
         })
         .collect())
 }

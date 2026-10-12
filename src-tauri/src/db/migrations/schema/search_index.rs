@@ -101,7 +101,7 @@ fn the_index_is_full_text_with_the_eight_fields_and_keeps_no_text() {
     );
     accepts(
         &conn,
-        "INSERT INTO search_track (rowid, title, file_name) VALUES (1, 'Caf\u{e9} del Mar', 'x');",
+        "INSERT INTO search_track (rowid, title, file_name) VALUES (1, 'Caf\u{e9} Quiet Harbour', 'x');",
     );
     let found: i64 = one(
         &conn,
@@ -140,6 +140,8 @@ fn each_change_that_can_alter_a_tracks_row_notes_that_track_as_due() {
         ("UPDATE recording SET title = 'T' WHERE id = 2", vec![2]),
         ("UPDATE recording SET artist = 'A' WHERE id = 2", vec![2]),
         ("DELETE FROM recording_file WHERE recording_id = 2; DELETE FROM recording WHERE id = 2", vec![2]),
+        // A track with no file goes.
+        ("INSERT INTO recording DEFAULT VALUES; DELETE FROM search_due; DELETE FROM recording WHERE id = 3", vec![3]),
         // The Library.
         ("INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
           VALUES (2, 'linked', 2, 'ok')", vec![2]),
@@ -168,6 +170,8 @@ fn a_change_that_leaves_the_text_alone_notes_nothing() {
         "UPDATE file SET present = 1 WHERE id = 1",
         "UPDATE recording SET title = NULL WHERE id = 1",
         "UPDATE library_track SET added_at = added_at WHERE id = 1",
+        "UPDATE library_track SET linked_file_id = linked_file_id, recording_id = recording_id",
+        "UPDATE recording_file SET role = role, recording_id = recording_id",
         "UPDATE recording_file SET match_confidence = 0.5 WHERE file_id = 1",
         "UPDATE rekordbox_track SET relink_probable = 0",
     ] {

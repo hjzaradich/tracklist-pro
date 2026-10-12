@@ -7,10 +7,14 @@ use crate::search::{match_expression, Why, MAX_TERMS, MAX_TERM_CHARS};
 #[test]
 fn capitals_and_accents_dont_matter_in_the_text_or_the_search() {
     let lib = Lib::new();
-    let (cafe, _) = lib.track(Some("Caf\u{e9} del Mar"), Some("\u{c9}nergie"), "a.mp3");
+    let (cafe, _) = lib.track(
+        Some("Caf\u{e9} Quiet Harbour"),
+        Some("\u{c9}nergie"),
+        "a.mp3",
+    );
     let (plain, _) = lib.track(Some("Plain Title"), None, "b.mp3");
     // The same accent as a letter and a combining mark (NFD).
-    let (nfd, _) = lib.track(Some("Cafe\u{301} Tacvba"), None, "c.mp3");
+    let (nfd, _) = lib.track(Some("Cafe\u{301} Nordlicht"), None, "c.mp3");
 
     for search in ["cafe", "CAFE", "caf\u{e9}", "CAF\u{c9}", "cafe\u{301}"] {
         assert_eq!(lib.finds(search), vec![cafe, nfd], "{search}");
@@ -97,8 +101,8 @@ fn the_file_name_is_searched() {
 #[test]
 fn the_file_name_is_searched_without_its_folder_or_its_extension() {
     let lib = Lib::new();
-    let (track, _) = lib.track(Some("Tune"), None, "Crates/Warmup/take five.mp3");
-    assert_eq!(lib.finds("take"), vec![track]);
+    let (track, _) = lib.track(Some("Tune"), None, "Crates/Warmup/harbour lights.mp3");
+    assert_eq!(lib.finds("harbour"), vec![track]);
     // Not the folders, and not the extension (owner decision, 2026-10-12).
     assert_eq!(lib.finds("warmup"), Vec::<i64>::new());
     assert_eq!(lib.finds("crates"), Vec::<i64>::new());
@@ -485,4 +489,85 @@ fn the_hidden_files_are_the_same_whether_looked_up_by_track_or_by_walking_them()
     let (by_track, walked) = both(vec![tracks[1], tracks[3]]);
     assert_eq!(by_track.len(), 2);
     assert_eq!(by_track, walked);
+}
+
+#[test]
+fn a_real_title_keeps_a_dotted_tail_and_only_a_file_name_standing_in_for_a_title_loses_its_extension(
+) {
+    let lib = Lib::new();
+    // The title is the tag's, however much it looks like a file name.
+    let (dotted, _) = lib.track(Some("Quiet.v2"), None, "Quiet.mp3");
+    let (looks_like_a_file, _) = lib.track(Some("Lantern.mp3"), None, "Lantern.flac");
+    // No title: the file's name stands in for it, without its extension.
+    let (nameless, _) = lib.track(None, None, "Ember.wav");
+    assert_eq!(lib.finds("v2"), vec![dotted]);
+    assert_eq!(lib.finds("mp3"), vec![looks_like_a_file]);
+    assert_eq!(lib.finds("ember"), vec![nameless]);
+    assert_eq!(lib.finds("wav"), Vec::<i64>::new());
+}
+
+#[test]
+fn a_track_whose_best_file_is_hidden_is_not_shown_by_an_unhidden_extra_copy() {
+    // An extra copy is hidden by being an extra, whatever its own state,
+    // so a track whose best file the user hid has no shown file: the lists
+    // have no file to show the track through.
+    let lib = Lib::new();
+    let (track, best) = lib.track(Some("Hidden best"), None, "best.flac");
+    let extra = lib.file(track, "best (copy).mp3", "extra");
+    lib.insert(
+        "UPDATE file SET hidden_reason = 'user' WHERE id = ?1",
+        (best,),
+    );
+    let found = lib.found("hidden").unwrap();
+    assert_eq!(found.tracks, vec![track]);
+    let flags: Vec<_> = found
+        .hidden
+        .iter()
+        .map(|h| (h.file_id, h.why, h.track_has_shown_file))
+        .collect();
+    assert_eq!(
+        flags,
+        vec![(best, Why::UserHid, false), (extra, Why::ExtraFile, false)]
+    );
+}
+
+#[test]
+fn an_accented_search_finds_text_without_accents() {
+    let lib = Lib::new();
+    let (plain, _) = lib.track(Some("Cafe Lumen"), Some("Renee"), "a.mp3");
+    lib.track(Some("Other"), None, "b.mp3");
+    for search in [
+        "caf\u{e9}",
+        "CAF\u{c9}",
+        "cafe\u{301}",
+        "ren\u{e9}e",
+        "Ren\u{c9}E",
+    ] {
+        assert_eq!(lib.finds(search), vec![plain], "{search}");
+    }
+}
+
+#[test]
+fn words_around_punctuation_match_by_the_start_of_each_part() {
+    let lib = Lib::new();
+    let (slash, _) = lib.track(Some("Aqua/Brio"), None, "a.mp3");
+    let (apostrophe, _) = lib.track(Some("Marlo's Dream"), None, "b.mp3");
+    let (hyphen, _) = lib.track(Some("beta-test"), None, "c.mp3");
+    for (search, expected) in [
+        ("brio", slash),
+        ("aqua", slash),
+        ("aqua/brio", slash),
+        ("aqua/br", slash),
+        ("dream", apostrophe),
+        ("marlo", apostrophe),
+        ("marlo's", apostrophe),
+        ("marlo's dre", apostrophe),
+        ("test", hyphen),
+        ("beta", hyphen),
+        ("beta-te", hyphen),
+    ] {
+        assert_eq!(lib.finds(search), vec![expected], "{search}");
+    }
+    // Not from the middle of a part.
+    assert_eq!(lib.finds("rio"), Vec::<i64>::new());
 }

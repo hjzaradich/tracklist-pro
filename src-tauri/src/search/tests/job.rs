@@ -172,3 +172,56 @@ fn a_rebuild_job_throws_the_rows_away_and_works_them_all_out_again() {
     assert_eq!(lib.found_as_is("stray").unwrap().tracks, Vec::<i64>::new());
     assert_eq!(lib.found_as_is("real").unwrap().tracks, vec![track]);
 }
+
+#[test]
+fn the_index_job_gives_way_to_a_waiting_job_of_a_higher_priority_and_finishes_after_it() {
+    let lib = Lib::new();
+    for n in 0..6 {
+        lib.track(Some(&format!("Track {n}")), None, &format!("{n}.mp3"));
+    }
+    // When the first index job starts, a job of a higher priority is waiting.
+    let writer = lib.writer.clone();
+    let once = std::sync::atomic::AtomicBool::new(false);
+    let volumes = move || {
+        if !once.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            writer
+                .call(|c| {
+                    c.execute(
+                        "INSERT INTO job (kind, priority, status) VALUES ('scan', ?1, 'queued')",
+                        [Priority::BACKGROUND.0 + 1],
+                    )
+                })
+                .unwrap();
+        }
+        Mount
+    };
+    // What was still due when the other job ran.
+    let due_then = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let seen = due_then.clone();
+    let writer = lib.writer.clone();
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Index, after_index(indexer_with(volumes, 2)))
+        .handler(JobKind::Scan, move |_: &jobs::JobContext| {
+            let due: i64 = writer
+                .call(|c| c.query_row("SELECT count(*) FROM search_due", [], |r| r.get(0)))
+                .map_err(jobs::JobError::from)?;
+            *seen.lock().unwrap() = Some(due);
+            Ok(())
+        })
+        .start()
+        .unwrap();
+    request_now(&lib, &queue);
+    let jobs = wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+
+    // The first run settled nothing before the other job; a second run
+    // (queued as the first gave way) did the rest from `search_due`.
+    assert_eq!(*due_then.lock().unwrap(), Some(6));
+    assert_eq!(
+        jobs.iter().map(|j| j.status).collect::<Vec<_>>(),
+        [JobStatus::Done, JobStatus::Done]
+    );
+    assert!(!lib.pending());
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 6);
+}

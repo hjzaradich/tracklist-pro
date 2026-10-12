@@ -9,7 +9,7 @@ fn a_files_name_adds_its_stem_without_folder_or_extension() {
     for (path, text) in [
         ("tune.mp3", "tune"),
         ("Sub/Deeper/tune.FLAC", "tune"),
-        ("Sub/take five (live).aiff", "take five (live)"),
+        ("Sub/harbour lights (live).aiff", "harbour lights (live)"),
         ("Mr. Smith - Track.wav", "Mr. Smith - Track"),
         // Not an extension: no letter, too long, or nothing before it.
         ("Track v1.5", "Track v1.5"),
