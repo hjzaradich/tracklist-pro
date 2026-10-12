@@ -6,21 +6,20 @@
 //! [`ask_what_is_due`] with an `enqueue` that only stores the row, so the
 //! test sees exactly what was queued.
 
-use super::chain::{chained_queue, jobs, wait_idle, LookedAt};
+use super::chain::{chained_queue, jobs, two_copies_and_another, wait_idle, LookedAt};
 use super::support::{db, TempVolume};
-use super::walk::{add_music, drive, put};
+use super::walk::{add_music, drive};
 use crate::db::{DbError, Writer};
 use crate::jobs::startup::ask_what_is_due;
 use crate::jobs::{JobId, NewJob};
 use crate::scan::chain::reach_by;
 use crate::scan::walk::scan_job;
-use crate::tags::test_audio as audio;
 
-/// A music folder with a file, scanned through the whole chain; the
+/// A music folder with two copies of a song and another, scanned through the whole chain; the
 /// queue is stopped, so nothing runs while a test looks.
 fn scanned() -> (tempfile::TempDir, TempVolume, tempfile::TempDir, Writer) {
     let (dir, volume, music) = drive();
-    put(&music, "a.mp3", &audio::mp3());
+    two_copies_and_another(&music);
     let (db_dir, writer, _reads) = db();
     add_music(&writer, &volume, &music);
     let queue = chained_queue(&writer, &volume, &LookedAt::default());
@@ -74,7 +73,7 @@ fn bump(writer: &Writer, stage: &str) {
     writer
         .call(move |c| {
             c.execute(
-                "UPDATE file_stage SET version = 0 WHERE stage = ?1",
+                "UPDATE file_stage SET version = 999 WHERE stage = ?1",
                 [stage],
             )
         })
@@ -131,8 +130,12 @@ fn files_with_no_track_are_grouped_and_fingerprints_not_yet_compared_are_matched
         })
         .unwrap();
     let (failed, queued) = ask(&writer, &volume);
-    // Deciding waits for matching, as in the chain.
-    assert_eq!((failed, kinds(&queued)), (0, vec!["group", "match"]));
+    // Deciding waits for matching, as in the chain. The last is the roles
+    // job (a group job with a target): tracks that lost their files are due.
+    assert_eq!(
+        (failed, kinds(&queued)),
+        (0, vec!["group", "match", "group"])
+    );
 }
 
 #[test]
@@ -145,12 +148,17 @@ fn a_drive_that_is_not_plugged_in_gets_no_hash_fingerprint_or_quality_job() {
         .unwrap();
     volume.set_online(false);
     let (failed, queued) = ask(&writer, &volume);
-    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+    // Only the roles job (the dropped measurements made tracks due; roles
+    // are worked out from the database, whatever is plugged in).
+    assert_eq!((failed, kinds(&queued)), (0, vec!["group"]));
+    let roles = crate::grouping::GroupTarget::Roles.to_json().unwrap();
+    let target: serde_json::Value = serde_json::from_str(queued[0].1.as_deref().unwrap()).unwrap();
+    assert_eq!(target, roles);
 
     // Plugged back in, the same database asks for the hashes.
     volume.set_online(true);
     let (_, queued) = ask(&writer, &volume);
-    assert_eq!(kinds(&queued), ["hash"]);
+    assert_eq!(kinds(&queued), ["group", "hash"]);
 }
 
 #[test]
@@ -173,7 +181,7 @@ fn nothing_is_queued_for_a_library_with_no_music_folders() {
 #[test]
 fn an_ask_that_fails_is_counted_and_the_stages_after_it_are_still_asked() {
     let (_dir, volume, _db, writer) = scanned();
-    // Two stages have work: grouping and matching.
+    // Three stages have work: grouping, matching and the roles.
     writer
         .call(|c| {
             c.execute("DELETE FROM recording_file", [])?;
@@ -187,11 +195,11 @@ fn an_ask_that_fails_is_counted_and_the_stages_after_it_are_still_asked() {
     };
     let reach_volume = volume.clone();
     let failed = ask_what_is_due(&writer, &enqueue, &reach_by(move || reach_volume.clone()));
-    assert_eq!(failed, 2);
+    assert_eq!(failed, 3);
     assert_eq!(
         tried.load(std::sync::atomic::Ordering::SeqCst),
-        2,
-        "the second stage was asked though the first failed"
+        3,
+        "the later stage was asked though the first failed"
     );
 }
 
@@ -217,4 +225,24 @@ fn a_walk_with_nothing_to_read_does_not_go_on_to_the_hashes_or_the_fingerprints(
         !after.iter().any(|k| k == "hash" || k == "fingerprint"),
         "{after:?}"
     );
+}
+
+#[test]
+fn after_an_upgrade_that_left_every_track_due_the_next_start_asks_for_the_roles_job() {
+    let (_dir, volume, _db, writer) = scanned();
+    // The roles were made by an older build: every track is due, and no job
+    // is queued.
+    writer
+        .call(|c| c.execute("DELETE FROM setting WHERE key = 'file_roles_version'", []))
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, vec!["group"]));
+    let target: serde_json::Value = serde_json::from_str(queued[0].1.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        target,
+        crate::grouping::GroupTarget::Roles.to_json().unwrap()
+    );
+    // Asked again with that job waiting: still one.
+    let (_, queued) = ask(&writer, &volume);
+    assert_eq!(kinds(&queued), ["group"]);
 }

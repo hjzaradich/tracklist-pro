@@ -1025,7 +1025,7 @@ fn song_wav(seed: u64, rate: u32) -> Vec<u8> {
 
 /// A music folder holding one song twice, at two sample rates (the same
 /// audio, other bytes), and another song.
-fn two_copies_and_another(music: &Path) {
+pub(super) fn two_copies_and_another(music: &Path) {
     put(music, "a.wav", &song_wav(1, 11_025));
     put(music, "a (hi).wav", &song_wav(1, 22_050));
     put(music, "b.wav", &song_wav(2, 11_025));

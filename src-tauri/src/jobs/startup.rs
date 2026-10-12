@@ -15,7 +15,7 @@
 //!   nothing due costs a few quick passes over the file table, off the UI
 //!   path.
 //! - **One list of "ask this stage" calls** ([`ASKS`]), one line per stage,
-//!   in the scan chain's order. Each call goes through the stage's own
+//!   in the scan chain's order (file roles last). Each call goes through the stage's own
 //!   request (`queue_once`), so it never queues what is already queued or
 //!   running, and each leaves a stage alone while an earlier one is still
 //!   due (the earlier stage's job chains on to it, as in the scan chain).
@@ -66,6 +66,7 @@ const ASKS: &[(&str, Ask)] = &[
     ("quality", ask_quality),
     ("matching", ask_matching),
     ("decide", ask_decide),
+    ("file roles", ask_file_roles),
 ];
 
 /// What the asks share.
@@ -183,6 +184,13 @@ fn ask_decide(a: &Asking) -> Result<(), DbError> {
         return Ok(());
     }
     crate::grouping::request_decide(a.writer, |j| a.enqueue(j))
+}
+
+/// A stage with a plain request needs only this: its own check, then the
+/// job. The file roles job is the lowest priority, so it needs no waiting
+/// for the stages before it.
+fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
+    crate::file_roles::request(a.writer, |j| a.enqueue(j))
 }
 
 /// Asks every stage in [`ASKS`] whether anything is due and queues what is.
