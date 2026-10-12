@@ -788,17 +788,19 @@ fn sweep(conn: &Connection) -> rusqlite::Result<u64> {
     Ok(deleted as u64)
 }
 
-/// Gives every track with files but no best file one: the lowest-id file
-/// still on disk (any file, if none is), skipping files marked extra. A
-/// best that's already there is never changed; ranking files is 1bC-2's.
+/// Gives every track with files but no best file one, for the moment: the
+/// first file still undecided (on disk before one that's gone), else the
+/// first file marked extra, in the same order. A best that's already there
+/// is never changed. Which file is really best is the roles job's
+/// ([`crate::file_roles`]), which runs for every track this changes.
 fn ensure_best(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE recording_file SET role = 'best'
          WHERE file_id IN (
              SELECT (SELECT rf.file_id
                      FROM recording_file rf JOIN file f ON f.id = rf.file_id
-                     WHERE rf.recording_id = t.recording_id AND rf.role = 'undecided'
-                     ORDER BY f.present DESC, rf.file_id
+                     WHERE rf.recording_id = t.recording_id AND rf.role <> 'best'
+                     ORDER BY rf.role = 'extra', f.present DESC, rf.file_id
                      LIMIT 1)
              FROM (SELECT DISTINCT recording_id FROM recording_file) t
              WHERE NOT EXISTS (SELECT 1 FROM recording_file b

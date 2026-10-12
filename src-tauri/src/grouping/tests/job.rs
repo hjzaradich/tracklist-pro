@@ -281,7 +281,10 @@ fn the_quick_job_gives_every_file_a_track_and_decides_no_pair() {
     assert!(db.decided().is_empty());
     assert_eq!(db.count("SELECT count(*) FROM grouping_pair"), 0);
     assert_eq!(
-        db.count("SELECT count(*) FROM job WHERE kind = 'group'"),
+        db.count(
+            "SELECT count(*) FROM job
+             WHERE kind = 'group' AND COALESCE(json_extract(target, '$.roles'), 0) = 0"
+        ),
         1,
         "no deciding job follows it"
     );
@@ -419,8 +422,11 @@ fn the_deciding_job_makes_way_for_a_job_of_a_higher_priority_and_goes_on_afterwa
     let group_jobs: Vec<(Option<String>, i64)> = db
         .writer
         .call(|c| {
-            let mut s =
-                c.prepare("SELECT target, priority FROM job WHERE kind = 'group' ORDER BY id")?;
+            let mut s = c.prepare(
+                "SELECT target, priority FROM job
+                     WHERE kind = 'group' AND COALESCE(json_extract(target, '$.roles'), 0) = 0
+                     ORDER BY id",
+            )?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect()
         })
@@ -464,7 +470,10 @@ fn the_quick_job_asks_for_a_deciding_job_when_a_set_waits_for_a_pair_nobody_deci
     wait_idle(&queue);
     queue.shutdown();
     assert_eq!(
-        db.count("SELECT count(*) FROM job WHERE kind = 'group' AND target IS NOT NULL"),
+        db.count(
+            "SELECT count(*) FROM job
+             WHERE kind = 'group' AND COALESCE(json_extract(target, '$.decide'), 0) = 1"
+        ),
         1,
         "the quick job asked for a deciding job"
     );

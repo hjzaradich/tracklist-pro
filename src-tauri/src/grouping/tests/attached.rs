@@ -236,6 +236,8 @@ fn every_table_that_points_at_a_track_is_in_the_reference_list() {
     found.sort();
     let expected: Vec<(String, String)> = [
         ("analysis", "recording_id"),
+        // Derived, and deleted with its track: it never keeps one alive.
+        ("better_file", "recording_id"),
         ("library_removal", "recording_id"),
         ("library_track", "recording_id"),
         ("recording_file", "recording_id"),

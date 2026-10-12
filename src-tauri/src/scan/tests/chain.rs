@@ -257,7 +257,11 @@ fn relinks(writer: &Writer) -> Vec<(String, String)> {
     writer
         .call(|c| {
             let mut s = c.prepare(
-                "SELECT r.status, (SELECT kind FROM job p WHERE p.id < r.id ORDER BY p.id DESC)
+                "SELECT r.status, (SELECT kind FROM job p
+                                   WHERE p.id < r.id
+                                     AND NOT (p.kind = 'group'
+                                              AND COALESCE(json_extract(p.target, '$.roles'), 0) = 1)
+                                   ORDER BY p.id DESC)
                  FROM job r WHERE r.kind = 'relink' ORDER BY r.id",
             )?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
@@ -1420,7 +1424,8 @@ fn deciding_jobs(writer: &Writer) -> Vec<(i64, String)> {
         .call(|c| {
             let mut s = c.prepare(
                 "SELECT priority, status FROM job
-                 WHERE kind = 'group' AND target IS NOT NULL ORDER BY id",
+                 WHERE kind = 'group' AND COALESCE(json_extract(target, '$.decide'), 0) = 1
+                 ORDER BY id",
             )?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect()
@@ -1451,7 +1456,9 @@ fn the_deciding_job_follows_matching_at_its_priority_and_a_scan_with_nothing_new
     let last_two: Vec<(String, bool)> = writer
         .call(|c| {
             let mut s = c.prepare(
-                "SELECT kind, target IS NOT NULL FROM job WHERE kind <> 'relink'
+                "SELECT kind, target IS NOT NULL FROM job
+                 WHERE kind <> 'relink'
+                   AND NOT (kind = 'group' AND COALESCE(json_extract(target, '$.roles'), 0) = 1)
                  ORDER BY id DESC LIMIT 2",
             )?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;

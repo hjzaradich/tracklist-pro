@@ -8,6 +8,7 @@ pub mod attach;
 pub mod best_file;
 pub mod crates;
 pub mod db;
+pub mod file_roles;
 pub mod fingerprint;
 pub mod fragile;
 pub mod grouping;

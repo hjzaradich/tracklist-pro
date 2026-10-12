@@ -89,8 +89,11 @@
 //!   ([`decide_and_group`]). It runs below everything else, like matching,
 //!   and makes way for any job of a higher priority between two pages; what
 //!   it wrote stays, and the run queued after it goes on from there.
+//! - The **roles job** (a third kind of work of the same job kind, see
+//!   [`GroupTarget`]): ranks the files of the tracks that changed and sets
+//!   which is `best` ([`crate::file_roles`]). It never moves a file.
 //!
-//! Both only touch the database. No audio file is read or written.
+//! All three only touch the database. No audio file is read or written.
 //! Removing a music folder lets go of its files first
 //! ([`release_folder_files`]), or their track rows would refuse it.
 
@@ -98,6 +101,7 @@ pub mod decide;
 pub mod plan;
 pub mod rules;
 mod store;
+mod target;
 
 pub use decide::{Decided, Names, MAX_TITLE_BUCKET, PAGE};
 pub use plan::Verdict;
@@ -105,6 +109,7 @@ pub use store::{
     any_ungrouped, regroup, regroup_step, release_folder_files, remember, CantRemember, Refused,
     Step, Summary, BATCH, MAX_SET_FILES,
 };
+pub use target::GroupTarget;
 
 use std::sync::{Mutex, PoisonError};
 
@@ -133,9 +138,6 @@ pub fn decided_as() -> i64 {
 /// background work and everything the user asks for.
 pub const DECIDE_PRIORITY: Priority = crate::matching::PRIORITY;
 
-/// The key in a grouping job's target that makes it a deciding job.
-const DECIDE_KEY: &str = "decide";
-
 /// The quick grouping job, at background priority: nobody is waiting on it.
 pub fn group_job() -> NewJob {
     NewJob::new(JobKind::Group).priority(Priority::BACKGROUND)
@@ -145,16 +147,13 @@ pub fn group_job() -> NewJob {
 /// pass over what it stored.
 pub fn decide_job() -> NewJob {
     NewJob::new(JobKind::Group)
-        .target(serde_json::json!({ DECIDE_KEY: true }))
+        .target(GroupTarget::Decide.to_json().unwrap_or_default())
         .priority(DECIDE_PRIORITY)
 }
 
 /// Whether a grouping job's target makes it a deciding job.
 pub fn is_decide(target: Option<&serde_json::Value>) -> bool {
-    target
-        .and_then(|t| t.get(DECIDE_KEY))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
+    GroupTarget::of(target) == GroupTarget::Decide
 }
 
 /// Queues a deciding job if a file is due one and ready
@@ -415,6 +414,10 @@ impl Grouper {
 
 impl JobHandler for Grouper {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
+        // The roles are a Group job's third kind of work ([`GroupTarget`]).
+        if GroupTarget::of(job.target()) == GroupTarget::Roles {
+            return crate::file_roles::run(job);
+        }
         if !is_decide(job.target()) {
             let (summary, _) = pass(job.writer(), &mut || job.check_cancelled())?;
             eprintln!("group job {} done: {summary:?}", job.id());
