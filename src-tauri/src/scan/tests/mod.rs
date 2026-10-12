@@ -11,6 +11,8 @@ mod ipc;
 #[cfg(windows)]
 mod online_only;
 mod schema;
+#[cfg(windows)]
+mod startup;
 mod support;
 #[cfg(windows)]
 mod unchanged;

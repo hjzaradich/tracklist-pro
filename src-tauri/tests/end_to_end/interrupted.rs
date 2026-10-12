@@ -96,3 +96,90 @@ fn a_job_nothing_can_restart_ends_failed_a_send_job_is_dropped_and_neither_block
     world.scan();
     assert_eq!(world.all_music().total, 3);
 }
+
+#[test]
+fn an_app_that_died_between_scan_and_fingerprint_asks_for_the_fingerprint_stage_at_the_next_start()
+{
+    let mut world = World::new(&KNOWN[..2]);
+    world.add_music_folder_and_scan();
+    let before = world.jobs().len();
+
+    // The last run's fingerprint stage is out of date (an upgrade, or a run
+    // that died before it was done), and no job is left to do it.
+    world.kill_and_start_again(|c| {
+        let waiting: i64 = c
+            .query_row(
+                "SELECT count(*) FROM job WHERE status IN ('queued', 'running')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(waiting, 0);
+        c.execute(
+            "UPDATE file_stage SET version = 0 WHERE stage = 'fingerprint'",
+            [],
+        )
+        .unwrap();
+    });
+    // Nothing was asked of the app after it started: it asked for the stage
+    // itself, through the real startup (the catch-up scan finds nothing
+    // changed, and a walk with nothing to read doesn't go on to it).
+    world.wait_for_a_new_job("fingerprint", before);
+    world.settle();
+
+    let jobs = world.jobs();
+    let (id, _, status) = jobs[before..]
+        .iter()
+        .find(|(_, kind, _)| kind == "fingerprint")
+        .unwrap();
+    assert_eq!(status, "done");
+    assert_eq!(world.job(*id).status, JobStatus::Done);
+    assert_eq!(
+        world.count("SELECT count(*) FROM file_stage WHERE stage = 'fingerprint' AND version = 0"),
+        0,
+        "every file was fingerprinted again"
+    );
+}
+
+#[test]
+fn a_send_job_left_queued_or_running_by_the_dead_run_never_runs_at_the_next_start() {
+    let mut world = scanned_then_a_file_added();
+    let before = world.jobs().len();
+
+    // Both steps of a send, each left queued and each left running.
+    world.kill_and_start_again(|c| {
+        for (step, status, attempts) in [
+            ("prepare", "queued", 0),
+            ("write", "queued", 0),
+            ("prepare", "running", 1),
+            ("write", "running", 1),
+        ] {
+            let target = format!(
+                r#"{{"send":"{step}","run":"the dead run","token":"t","confirmed":true,"path":"x"}}"#
+            );
+            c.execute(
+                "INSERT INTO job (kind, target, priority, status, started_at, attempts)
+                 VALUES ('export', ?1, 10, ?2,
+                         CASE ?2 WHEN 'running' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END, ?3)",
+                (target, status, attempts),
+            )
+            .unwrap();
+        }
+    });
+    world.settle();
+
+    let jobs = world.jobs();
+    let left: Vec<_> = jobs[before..]
+        .iter()
+        .filter(|(_, kind, _)| kind == "export")
+        .collect();
+    assert_eq!(left.len(), 4);
+    for (id, _, status) in left {
+        let job = world.job(*id);
+        assert_eq!(status, "cancelled", "{job:?}");
+        // No worker ever took one: the attempts are what the dead run left.
+        assert_eq!(job.attempts, if job.started_at.is_some() { 1 } else { 0 });
+        assert_eq!(job.error, None);
+    }
+    assert!(!world.sent_file().exists(), "no send was written");
+}
