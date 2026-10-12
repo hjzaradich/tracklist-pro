@@ -32,7 +32,9 @@ pub enum JobKind {
     /// Acoustic fingerprint (1.4).
     Fingerprint,
     /// Put files into tracks, and with `decide` in its target, decide
-    /// their pairs by the grouping rules first (1.4, 1.5).
+    /// their pairs by the grouping rules first (1.4, 1.5). With `roles` in
+    /// its target, rank the files of the tracks that changed and set their
+    /// roles (1.7). The targets are `grouping::GroupTarget`.
     Group,
     /// Estimate BPM, key and energy (3.7).
     Analyze,

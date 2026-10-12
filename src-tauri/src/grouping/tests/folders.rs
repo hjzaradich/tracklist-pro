@@ -65,6 +65,34 @@ fn a_track_something_else_points_at_is_kept() {
 }
 
 #[test]
+fn a_track_that_loses_its_best_file_gets_another_at_once_from_its_extras_on_disk_first() {
+    let db = db();
+    let best = db.file(1, "a.mp3", Some(A));
+    let gone = db.file(2, "b.mp3", Some(A));
+    let first = db.file(2, "c.mp3", Some(A));
+    let second = db.file(2, "d.mp3", Some(A));
+    db.group();
+    db.sql(&format!(
+        "UPDATE recording_file SET role = 'extra' WHERE file_id <> {best};
+         UPDATE recording_file SET role = 'best' WHERE file_id = {best};
+         UPDATE file SET present = 0 WHERE id = {gone};"
+    ));
+    // The best file's folder goes; the rest are all extra.
+    remove_folder(&db, 1).unwrap();
+    assert_eq!(
+        db.role(first),
+        "best",
+        "on disk, and the lowest id of those"
+    );
+    assert_eq!(db.role(gone), "extra");
+    assert_eq!(db.role(second), "extra");
+    assert_eq!(
+        db.count("SELECT count(*) FROM recording_file WHERE role = 'best'"),
+        1
+    );
+}
+
+#[test]
 fn a_file_decided_on_is_let_go_whatever_its_role() {
     let db = db();
     db.file(1, "a.mp3", Some(A));

@@ -125,6 +125,18 @@ pub fn after_group<H: JobHandler>(grouper: H) -> Chained<H> {
     }
 }
 
+/// A job nothing follows (a relink, a read of rekordbox's XML), wrapped
+/// like the stages are so the roles of the tracks it changed are asked for
+/// when it ends ([`crate::file_roles::request`]).
+pub fn after_other<H: JobHandler>(handler: H) -> Chained<H> {
+    Chained {
+        inner: handler,
+        next: Next::Nothing,
+        priority: Priority::BACKGROUND,
+        reach: None,
+    }
+}
+
 /// The quality job's handler, run once more if the fingerprints asked for
 /// it meanwhile.
 pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
@@ -227,12 +239,12 @@ impl<H: JobHandler> JobHandler for Chained<H> {
         let me = NewJob {
             kind: job.kind(),
             target: job.target().cloned(),
-            // The deciding job shares the grouping job's handler, and
-            // keeps its own priority when it's queued again.
-            priority: match crate::grouping::is_decide(job.target()) {
-                true => crate::grouping::DECIDE_PRIORITY,
-                false => self.priority,
-            },
+            // The deciding job and the roles job share the grouping job's
+            // handler, and keep their own priority when queued again.
+            priority: (job.kind() == JobKind::Group)
+                .then(|| crate::grouping::GroupTarget::of(job.target()).priority())
+                .flatten()
+                .unwrap_or(self.priority),
         };
         let key = key(job.writer(), &me);
         // This run lists its files now: a rerun asked for from here on is
@@ -249,8 +261,11 @@ impl<H: JobHandler> JobHandler for Chained<H> {
         }
         // The stage's own work is done and written. If what follows can't
         // be queued, the job still says why.
-        let followed =
-            queue_next(job, self.next, self.reach.as_ref()).and_then(|()| rerun_if_asked(job, me));
+        let followed = queue_next(job, self.next, self.reach.as_ref())
+            // Whatever this stage changed, the roles of the tracks it touched
+            // are worked out after everything else (1bC-4).
+            .and_then(|()| crate::file_roles::request(job.writer(), |j| job.enqueue(j)))
+            .and_then(|()| rerun_if_asked(job, me));
         followed.map_err(|e| match e {
             JobError::Cancelled => JobError::Cancelled,
             JobError::Failed(e) => JobError::failed(format!(

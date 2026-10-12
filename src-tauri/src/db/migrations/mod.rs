@@ -66,6 +66,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0020_fingerprint_rev"),
     migration!("0021_file_verdict"),
     migration!("0022_grouping"),
+    migration!("0023_file_roles"),
 ];
 
 /// The table that records which migrations a database has had.

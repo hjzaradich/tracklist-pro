@@ -119,6 +119,22 @@ pub struct LibraryTrack {
     pub open_conflicts: u32,
     /// When it was added, UTC ISO-8601.
     pub added_at: String,
+    /// Another file of the track ranks ahead of the linked file in what the
+    /// audio is, or in being there at all (ROADMAP 1.7, "Better file
+    /// available"). The linked file itself never changes.
+    pub better_file: Option<BetterFile>,
+}
+
+/// A file of a Library track's that is ahead of its linked file, and why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BetterFile {
+    /// The better file: the track's best-ranked one.
+    pub file_id: i64,
+    /// The step of the ranking that put it ahead: `onDisk`, `verdict`,
+    /// `playable`, `cutoff`, `decodeErrors` or `format`. Never tags, art, a
+    /// rekordbox link or a place: those don't make a file better.
+    pub step: crate::file_roles::BetterStep,
 }
 
 /// What adding a track to the Library did.
@@ -634,6 +650,7 @@ pub struct StoredTrack {
     pub source_missing: bool,
     pub open_conflicts: u32,
     pub added_at: String,
+    pub better_file: Option<BetterFile>,
 }
 
 impl StoredTrack {
@@ -657,6 +674,7 @@ impl StoredTrack {
             source_missing: self.source_missing,
             open_conflicts: self.open_conflicts,
             added_at: self.added_at.clone(),
+            better_file: self.better_file,
         }
     }
 }
@@ -718,9 +736,10 @@ fn stored_where(
         "SELECT lt.id, lt.recording_id, lt.kind, r.title, r.artist, lt.added_at, lt.source_status,
                 (SELECT count(*) FROM conflict c
                  WHERE c.library_track_id = lt.id AND c.status = 'open'),
-                {FILE_COLUMNS}
+                {FILE_COLUMNS}, bf.file_id, bf.step
          FROM library_track lt
          JOIN recording r ON r.id = lt.recording_id
+         LEFT JOIN better_file bf ON bf.recording_id = lt.recording_id
          LEFT JOIN file f ON f.id = lt.linked_file_id
          {FILE_JOINS}
          {filter}
@@ -737,11 +756,25 @@ fn stored_where(
             r.get::<_, String>(6)?,
             r.get::<_, u32>(7)?,
             file_from(r, 8)?,
+            r.get::<_, Option<i64>>(14)?,
+            r.get::<_, Option<String>>(15)?,
         ))
     })?;
     let mut tracks = Vec::new();
     for row in rows {
-        let (id, recording_id, kind, title, artist, added_at, status, open_conflicts, file) = row?;
+        let (
+            id,
+            recording_id,
+            kind,
+            title,
+            artist,
+            added_at,
+            status,
+            open_conflicts,
+            file,
+            better_file,
+            better_step,
+        ) = row?;
         // A kind this build doesn't know is left out rather than guessed.
         let Some(kind) = LibraryTrackKind::parse(&kind) else {
             continue;
@@ -756,6 +789,14 @@ fn stored_where(
             source_missing: status == "missing",
             open_conflicts,
             added_at,
+            // A step this build doesn't know is left out, like a kind.
+            better_file: better_file
+                .zip(
+                    better_step
+                        .as_deref()
+                        .and_then(crate::file_roles::BetterStep::parse),
+                )
+                .map(|(file_id, step)| BetterFile { file_id, step }),
         });
     }
     Ok(tracks)
@@ -881,9 +922,18 @@ pub async fn library_tracks(reads: State<'_, ReadPool>) -> Result<Vec<LibraryTra
 #[specta::specta]
 pub async fn promote_track(
     writer: State<'_, Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
     recording_id: i64,
 ) -> Result<Promoted, IpcError> {
-    Ok(promote(&writer, &system_volumes(), recording_id)?)
+    let promoted = promote(&writer, &system_volumes(), recording_id)?;
+    if promoted.added {
+        // Its "better file" is worked out in the background. A failure to
+        // ask is not the add's: the next job to end asks again.
+        if let Err(e) = crate::file_roles::request(&writer, |j| jobs.enqueue(j)) {
+            eprintln!("promote_track: couldn't ask for the roles: {e:?}");
+        }
+    }
+    Ok(promoted)
 }
 
 /// Removes a track from the Library. Only the Library track goes: the

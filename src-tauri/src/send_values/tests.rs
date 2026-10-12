@@ -1847,3 +1847,60 @@ fn a_removed_track_listed_through_a_row_kept_from_an_older_read_is_named_by_that
         names("Name from the kept row", "")
     );
 }
+
+#[test]
+fn the_send_keeps_using_the_linked_file_after_the_roles_make_another_file_best() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let facts = |format, bitrate| Spec {
+        size: Some(1000),
+        format: Some(format),
+        bitrate: Some(bitrate),
+        sample_rate: Some(44_100),
+        duration_ms: Some(200_000),
+        ..Spec::default()
+    };
+    let linked = lib.file(track, "linked.mp3", "undecided", facts("mp3", 320));
+    let flac = lib.file(track, "better.flac", "undecided", facts("flac", 1411));
+    let library = lib.library(track, Some(linked));
+    for (file, codec) in [(linked, "mp3"), (flac, "flac")] {
+        lib.writer
+            .call(move |c| c.execute("UPDATE file SET codec = ?2 WHERE id = ?1", (file, codec)))
+            .unwrap();
+    }
+
+    // The real step, not a hand-made role.
+    lib.writer
+        .call(|c| crate::file_roles::settle_batch(c, 100).map(|_| ()))
+        .unwrap();
+    let role = |file: i64| -> String {
+        lib.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT role FROM recording_file WHERE file_id = ?1",
+                    [file],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    assert_eq!(role(flac), "best");
+
+    let values = lib.ready(library);
+    assert_eq!(value(&values, "Kind"), Some("MP3 File"));
+    assert_eq!(value(&values, "Location"), Some(r"E:\Music\linked.mp3"));
+    assert_eq!(
+        values.get("Location").unwrap().provenance,
+        Provenance::FileFact { file_id: linked }
+    );
+}
+
+#[test]
+fn the_dj_app_plays_exactly_the_formats_the_send_gives_a_kind() {
+    for format in [
+        "mp3", "flac", "wav", "rf64", "aiff", "aifc", "mp4", "ogg", "opus", "wv", "wma", "ape", "",
+        "MP3",
+    ] {
+        assert_eq!(plays_in_dj_app(format), kind(format).is_some(), "{format}");
+    }
+}

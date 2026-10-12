@@ -141,6 +141,13 @@ impl Lib {
         );
     }
 
+    /// Works out which file of each track is best, as the background job does.
+    fn settle_roles(&self) {
+        self.writer
+            .call(|c| crate::file_roles::settle_batch(c, 100).map(|_| ()))
+            .unwrap();
+    }
+
     fn promote(&self, track: i64) -> Result<Promoted, LibraryError> {
         promote_with(&self.writer, &Mount::at(r"E:\"), &NO_DIRS, track)
     }
@@ -351,17 +358,175 @@ fn a_track_whose_rekordbox_file_is_not_on_disk_is_refused_without_falling_back()
 }
 
 #[test]
-fn a_track_whose_best_file_is_not_on_disk_is_refused() {
+fn a_track_rekordbox_does_not_know_whose_better_copy_is_gone_is_added_linked_to_the_copy_on_disk() {
     let lib = Lib::new();
     let track = lib.track(None, None);
-    lib.file(track, "gone.mp3", "best", false);
-    lib.file(track, "here.mp3", "extra", true);
+    // The FLAC was the better copy, and it was deleted.
+    lib.file(track, "gone.flac", "undecided", false);
+    let here = lib.file(track, "here.mp3", "undecided", true);
+    lib.settle_roles();
+
+    let choice = lib
+        .writer
+        .call(move |c| linked_file_for(c, track))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (choice.file_id, choice.source),
+        (here, LinkedFileSource::BestFile)
+    );
+    let added = lib.promote(track).unwrap();
+    assert!(added.added);
+    assert_eq!(lib.linked_file(track), Some(here));
+    assert_eq!(added.library_track.file.unwrap().path, r"E:\Music\here.mp3");
+}
+
+#[test]
+fn a_track_whose_files_are_all_gone_is_refused() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    lib.file(track, "gone.flac", "undecided", false);
+    lib.file(track, "gone.mp3", "undecided", false);
+    lib.settle_roles();
 
     assert!(matches!(
         lib.promote(track),
         Err(LibraryError::FileMissing { .. })
     ));
     assert_eq!(lib.library_tracks(), 0);
+}
+
+#[test]
+fn a_track_whose_roles_are_not_worked_out_yet_and_whose_best_file_is_gone_is_refused() {
+    // The roles are the ranking's: a gone file is best only until the step
+    // runs. Until then the add fails safe, and works once it has run.
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    lib.file(track, "gone.mp3", "best", false);
+    let here = lib.file(track, "here.mp3", "extra", true);
+
+    assert!(matches!(
+        lib.promote(track),
+        Err(LibraryError::FileMissing { .. })
+    ));
+    assert_eq!(lib.library_tracks(), 0);
+    lib.settle_roles();
+    lib.promote(track).unwrap();
+    assert_eq!(lib.linked_file(track), Some(here));
+}
+
+#[test]
+fn a_trusted_match_whose_file_is_gone_is_still_refused_when_the_roles_favour_another_copy() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    let gone = lib.file(track, "gone.mp3", "undecided", false);
+    lib.file(track, "here.flac", "undecided", true);
+    lib.rekordbox_match(gone, false);
+    lib.settle_roles();
+
+    match lib.promote(track) {
+        Err(LibraryError::FileMissing { path }) => assert_eq!(path, r"E:\Music\gone.mp3"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(lib.library_tracks(), 0);
+}
+
+#[test]
+fn a_trusted_match_that_is_present_is_the_file_linked_when_the_roles_favour_another_copy() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    let played = lib.file(track, "played.mp3", "undecided", true);
+    let better = lib.file(track, "better.flac", "undecided", true);
+    lib.writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE file SET sniffed_format = 'mp3', codec = 'mp3', bitrate = 320 WHERE id = ?1",
+                [played],
+            )?;
+            c.execute(
+                "UPDATE file SET sniffed_format = 'flac', codec = 'flac' WHERE id = ?1",
+                [better],
+            )
+        })
+        .unwrap();
+    lib.rekordbox_match(played, false);
+    lib.settle_roles();
+    let role: String = lib
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT role FROM recording_file WHERE file_id = ?1",
+                [better],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(role, "best", "the roles favour the FLAC");
+
+    let choice = lib
+        .writer
+        .call(move |c| linked_file_for(c, track))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (choice.file_id, choice.source),
+        (played, LinkedFileSource::Rekordbox)
+    );
+    lib.promote(track).unwrap();
+    assert_eq!(lib.linked_file(track), Some(played));
+}
+
+#[test]
+fn a_probable_match_is_never_the_file_linked_even_when_the_roles_pick_another_copy() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    let gone = lib.file(track, "gone.flac", "undecided", false);
+    lib.file(track, "here.mp3", "undecided", true);
+    lib.rekordbox_match(gone, true);
+    lib.settle_roles();
+    assert!(matches!(
+        lib.promote(track),
+        Err(LibraryError::MatchNotConfirmed)
+    ));
+}
+
+#[test]
+fn a_library_track_lists_the_better_file_that_ranks_ahead_of_its_linked_file() {
+    let lib = Lib::new();
+    let track = lib.track(Some("Synthetic Tune"), None);
+    let linked = lib.file(track, "played.mp3", "undecided", true);
+    let better = lib.file(track, "better.flac", "undecided", true);
+    lib.writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE file SET sniffed_format = 'mp3', codec = 'mp3', bitrate = 320 WHERE id = ?1",
+                [linked],
+            )?;
+            c.execute(
+                "UPDATE file SET sniffed_format = 'flac', codec = 'flac' WHERE id = ?1",
+                [better],
+            )
+        })
+        .unwrap();
+    lib.rekordbox_match(linked, false);
+    lib.promote(track).unwrap();
+    assert_eq!(lib.list()[0].better_file, None, "not worked out yet");
+
+    lib.settle_roles();
+    let listed = lib.list();
+    assert_eq!(
+        listed[0].better_file,
+        Some(BetterFile {
+            file_id: better,
+            step: crate::file_roles::BetterStep::Format,
+        })
+    );
+    // The linked file is the pinned one.
+    assert_eq!(lib.linked_file(track), Some(linked));
+    assert_eq!(
+        listed[0].file.as_ref().unwrap().path,
+        r"E:\Music\played.mp3"
+    );
 }
 
 #[test]

@@ -843,6 +843,13 @@ fn attribute_rank(attribute: &str) -> usize {
         .unwrap_or(ORDER.len())
 }
 
+/// Whether rekordbox plays a file of this format (`file.sniffed_format`):
+/// the one rule behind both its `Kind` and the best-file ranking's "plays in
+/// the DJ app".
+pub(crate) fn plays_in_dj_app(format: &str) -> bool {
+    kind(format).is_some()
+}
+
 /// rekordbox's `Kind` for a file format (`file.sniffed_format`), for the
 /// formats it plays. Others (Ogg, Opus, WavPack, WMA, …) get none.
 fn kind(format: &str) -> Option<&'static str> {

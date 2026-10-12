@@ -59,7 +59,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         )
         .handler(
             JobKind::ReadRekordbox,
-            crate::rekordbox::source::XmlReader::default(),
+            crate::scan::chain::after_other(crate::rekordbox::source::XmlReader::default()),
         )
         .handler(
             JobKind::Hash,
@@ -78,7 +78,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             crate::scan::chain::after_fingerprint(crate::fingerprint::fingerprinter(app))
                 .reaching(crate::scan::system_volumes),
         )
-        .handler(JobKind::Relink, crate::relink::relinker())
+        .handler(
+            JobKind::Relink,
+            crate::scan::chain::after_other(crate::relink::relinker()),
+        )
         .handler(JobKind::Export, crate::send::sender(app))
         .handler(JobKind::Attach, crate::attach::attacher())
         .handler(
