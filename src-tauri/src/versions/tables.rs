@@ -260,7 +260,8 @@ pub const ASIDE_NUMBER_BLOCKERS: &[&str] = &[
 /// catalogue code.
 pub const CATALOGUE_STOP_WORDS: &[&str] = &[
     "part", "pt", "vol", "volume", "no", "nr", "disc", "cd", "side", "track", "take", "chapter",
-    "ver", "version", "mix", "cut", "ep", "lp", "bpm", "kbps", "mp", "hz", "khz",
+    "ver", "version", "mix", "cut", "ep", "lp", "bpm", "kbps", "mp", "hz", "khz", "demo", "bonus",
+    "rev", "mstr", "edt",
 ];
 
 /// A rework label can be followed by one of these and a name:

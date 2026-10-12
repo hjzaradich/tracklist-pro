@@ -684,6 +684,37 @@ fn a_year_a_key_a_tempo_and_a_catalogue_number_on_matched_audio_no_longer_make_t
 }
 
 #[test]
+fn a_word_followed_by_digits_is_no_catalogue_number_and_still_goes_to_review() {
+    for bracket in [
+        "(Demo123)",
+        "(Bonus123)",
+        "(Rev123)",
+        "(Mstr123)",
+        "(Edt123)",
+        "(abc123)",
+        "(Abc123)",
+        "(DEMO123)",
+        "(REV123)",
+    ] {
+        let got = decided(
+            full(),
+            &named(&format!("Velo {bracket}.mp3")),
+            &named("Velo.mp3"),
+        );
+        assert_eq!(got.outcome, Outcome::NeedsReview, "{bracket}");
+    }
+    // A code in capitals is harmless, with or without its hyphen.
+    for bracket in ["(ABC123)", "[XYZ-001]"] {
+        let got = decided(
+            full(),
+            &named(&format!("Velo {bracket}.mp3")),
+            &named("Velo.mp3"),
+        );
+        assert_eq!(got.outcome, Outcome::Duplicate, "{bracket}");
+    }
+}
+
+#[test]
 fn a_bracket_that_could_be_a_version_still_sends_matched_audio_to_review() {
     for bracket in [
         "(Part 1)",

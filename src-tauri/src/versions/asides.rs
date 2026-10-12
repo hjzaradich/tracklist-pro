@@ -87,11 +87,17 @@ fn tempo_with_unit(text: &str) -> Option<String> {
     valid.then(|| number.to_string())
 }
 
-/// A catalogue number: one word of 2 to 5 letters and 3 to 5 digits,
-/// "ABC123" or "ABC-123". Not when the letters are a label ("Remix007"),
-/// a word that counts things ("Vol001") or one the parser sets aside.
+/// A catalogue number: one word of 2 to 5 capital letters and 3 to 5
+/// digits, "ABC123" or "ABC-123". Not when the letters are a label
+/// ("RMX007"), a word that counts things ("VOL001") or another word a
+/// name can end in ("DEMO123").
 fn catalogue_number(text: &str) -> Option<String> {
+    // The letters are capitals as written: "Demo123" and "abc123" are
+    // words with a number, not a code.
     let letters: String = text.chars().take_while(char::is_ascii_alphabetic).collect();
+    if !letters.chars().all(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
     let rest = text[letters.len()..].trim_start_matches('-');
     let valid = (2..=5).contains(&letters.len())
         && (3..=5).contains(&rest.len())
