@@ -247,6 +247,22 @@ pub const NON_NAME_WORDS: &[&str] = &[
     "version", "mix", "the",
 ];
 
+/// The last word of a title after which a bare number in brackets is the
+/// title's own number, never a copy counter, a year or a tempo: "Lo+Fi
+/// Run, Pt. (2)". Label words count too (see `asides`).
+pub const ASIDE_NUMBER_BLOCKERS: &[&str] = &[
+    "part", "pt", "vol", "volume", "no", "nr", "number", "disc", "cd", "side", "track", "take",
+    "chapter", "ch", "episode", "act", "book", "version", "ver", "v", "mix", "cut", "#",
+];
+
+/// Letters that can start a catalogue number but are words that count
+/// things or say how a track was made: "Vol001" is a volume, not a
+/// catalogue code.
+pub const CATALOGUE_STOP_WORDS: &[&str] = &[
+    "part", "pt", "vol", "volume", "no", "nr", "disc", "cd", "side", "track", "take", "chapter",
+    "ver", "version", "mix", "cut", "ep", "lp", "bpm", "kbps", "mp", "hz", "khz",
+];
+
 /// A rework label can be followed by one of these and a name:
 /// "(Remix by Quill Ashby)", "(Cover by The Marrow Choir)".
 pub const BY_WORDS: &[&str] = &["by"];

@@ -44,6 +44,7 @@
 //! convention a user reports is a new row there plus a row in the test
 //! corpus (`tests/corpus.rs`).
 
+mod asides;
 mod compare;
 mod junk;
 mod labels;
@@ -268,6 +269,38 @@ pub struct Junk {
     pub text: String,
 }
 
+/// What a harmless bracket is (see [`Aside`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum AsideKind {
+    /// "(1)", "(2)": the number Windows gives a copy.
+    CopyCounter,
+    /// "(2011)".
+    Year,
+    /// "(124)", "[124 BPM]".
+    Tempo,
+    /// "(8A)": a Camelot key.
+    Key,
+    /// "[ABC123]".
+    CatalogueNumber,
+}
+
+/// A trailing bracket that says nothing about the version (1bD-4): a
+/// copy counter, a year, a key, a tempo, a catalogue number. Two names
+/// that differ only by asides of kinds one of them lacks are the same
+/// version. Where both have an aside of one kind and the values differ
+/// (two years, two keys, two tempos, two codes), the names are unclear,
+/// copy counters aside. A year is an aside only until a name mentions a
+/// remaster ([`ParsedName::with_years_unsettled`]). What makes a bracket
+/// harmless, and what doesn't, is in the module `asides`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Aside {
+    pub kind: AsideKind,
+    /// The same for the same thing however it is written: "8a" for "(8A)".
+    pub value: String,
+    /// The bracket as written.
+    pub text: String,
+}
+
 /// A name, described. See the module docs for how doubt is shown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedName {
@@ -290,6 +323,9 @@ pub struct ParsedName {
     /// are left out of `base_title`; two names that differ in one compare
     /// as "can't tell".
     pub unrecognized: Vec<String>,
+    /// Trailing brackets that cannot be a version: a copy counter, a year,
+    /// a key, a tempo, a catalogue number. Left out of `base_title` too.
+    pub asides: Vec<Aside>,
     /// Everything set aside as junk.
     pub junk: Vec<Junk>,
     /// The title with every qualifier taken off.
@@ -330,6 +366,21 @@ impl Reading {
 }
 
 impl ParsedName {
+    /// This name with its years no longer asides: each is back among the
+    /// brackets nobody understands. For a file whose names mention a
+    /// remaster: a year beside "Remaster" is the year of that cut, a
+    /// version, so two names that differ by it are unclear.
+    pub fn with_years_unsettled(&self) -> ParsedName {
+        let mut name = self.clone();
+        let (years, rest): (Vec<Aside>, Vec<Aside>) = std::mem::take(&mut name.asides)
+            .into_iter()
+            .partition(|aside| aside.kind == AsideKind::Year);
+        name.asides = rest;
+        name.unrecognized
+            .extend(years.into_iter().map(|aside| aside.text));
+        name
+    }
+
     /// Every way to read the name, the parser's own reading first. In each,
     /// the labels up to some point belong to the title and the rest are
     /// markers.

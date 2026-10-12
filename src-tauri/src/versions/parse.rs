@@ -1,12 +1,13 @@
 //! Puts the pieces together: clean the name, tokenize it, set junk aside,
 //! split artist from title, read the labels, and say what's doubtful.
 
+use super::asides;
 use super::junk::{self, bracket_junk, is_site_phrase, looks_like_site, trailing_bitrate};
 use super::labels::{self, Found};
 use super::tokenize::{collapse_spaces, flatten, normalize, tokenize, BracketKind, Group, Token};
 use super::{
-    Credit, CreditRole, Junk, JunkKind, Marker, MarkerForm, MarkerKind, NameSource, ParsedName,
-    Qualifier,
+    Aside, Credit, CreditRole, Junk, JunkKind, Marker, MarkerForm, MarkerKind, NameSource,
+    ParsedName, Qualifier,
 };
 
 /// Whether the text holds anything but spaces and plain punctuation.
@@ -231,6 +232,69 @@ struct Trailing {
     junk: Vec<Junk>,
     qualifiers: Vec<Qualifier>,
     unrecognized: Vec<String>,
+    asides: Vec<Aside>,
+}
+
+/// What a bracket after the title is, as far as the asides care.
+enum Slot {
+    /// A featuring credit or junk: they say nothing either way.
+    Neutral,
+    /// Anything else that is not an aside: a label, a bracket nobody
+    /// understands, one with brackets inside.
+    Other,
+    /// Could be an aside: its kind, value, and whether it is a bare
+    /// number.
+    Candidate(Aside, bool),
+}
+
+fn slot(group: &Group) -> Slot {
+    let own = group.own_text();
+    if own.is_empty() {
+        return Slot::Other;
+    }
+    if featured(&own).is_some() || group_junk(group, &own).is_some() {
+        return Slot::Neutral;
+    }
+    if group.closed && group.nested().next().is_none() && labels::parse_content(&own).is_none() {
+        if let Some((kind, value, bare)) = asides::read(&own) {
+            return Slot::Candidate(Aside::new(kind, value, &group.raw), bare);
+        }
+    }
+    Slot::Other
+}
+
+/// Which of the brackets after the title are asides (harmless: see
+/// `asides`), as a run at their end, peeled from the end backwards. The
+/// first bracket that isn't harmless stops it, and nothing in front of
+/// it is an aside. `blocked` says the title's own text ends in a label
+/// or a word like "Part": a bare number after it is the title's own.
+fn find_asides(groups: &[&Group], mut blocked: bool) -> Vec<bool> {
+    let slots: Vec<Slot> = groups.iter().map(|group| slot(group)).collect();
+    let mut is_aside = vec![false; slots.len()];
+    for (at, slot) in slots.iter().enumerate() {
+        match slot {
+            Slot::Neutral => {}
+            Slot::Other => blocked = true,
+            // A bare number after a label or an unrecognized bracket may
+            // be that one's number, and so may whatever follows it.
+            Slot::Candidate(_, true) if blocked => blocked = true,
+            Slot::Candidate(..) => is_aside[at] = true,
+        }
+    }
+    // Peel from the end: the first bracket that is neither neutral nor an
+    // aside stops it.
+    let mut peeling = true;
+    for at in (0..slots.len()).rev() {
+        match (&slots[at], is_aside[at]) {
+            (Slot::Neutral, _) => {}
+            (_, true) if peeling => {}
+            _ => {
+                peeling = false;
+                is_aside[at] = false;
+            }
+        }
+    }
+    is_aside
 }
 
 fn classify(group: &Group, out: &mut Trailing) {
@@ -331,9 +395,27 @@ pub(super) fn parse(input: &str, source: NameSource) -> ParsedName {
         .rposition(|t| matches!(t, Token::Text(text) if has_content(text)));
     let trailing_tokens = title.split_off(last_text.map_or(0, |at| at + 1));
     let mut trailing = Trailing::default();
-    for token in &trailing_tokens {
-        if let Token::Group(group) = token {
-            classify(group, &mut trailing);
+    let groups: Vec<&Group> = trailing_tokens
+        .iter()
+        .filter_map(|token| match token {
+            Token::Group(group) => Some(group),
+            _ => None,
+        })
+        .collect();
+    // A label after a " - " comes after the brackets too: with one, no
+    // bracket is at the end of the name.
+    let is_aside = match dash_qualifiers.is_empty() {
+        true => find_asides(&groups, asides::blocks_a_number(&flatten(&title))),
+        false => vec![false; groups.len()],
+    };
+    for (group, aside) in groups.iter().zip(is_aside) {
+        match aside {
+            true => {
+                if let Slot::Candidate(found, _) = slot(group) {
+                    trailing.asides.push(found);
+                }
+            }
+            false => classify(group, &mut trailing),
         }
     }
     credits.extend(trailing.credits);
@@ -353,8 +435,11 @@ pub(super) fn parse(input: &str, source: NameSource) -> ParsedName {
     qualifiers.extend(trailing.qualifiers);
     qualifiers.extend(dash_qualifiers);
 
+    let mut asides = trailing.asides;
     if core.is_empty() && qualifiers.is_empty() {
-        // Nothing but brackets or junk: the name is its own title.
+        // Nothing but brackets or junk: the name is its own title, and
+        // what would be an aside is not one.
+        unrecognized.splice(0..0, asides.drain(..).map(|aside| aside.text));
         core = match unrecognized.is_empty() {
             false => unrecognized.remove(0),
             true => cleaned.clone(),
@@ -417,6 +502,7 @@ pub(super) fn parse(input: &str, source: NameSource) -> ParsedName {
         title_markers: flat(&qualifiers[..folded]),
         mashup_parts,
         unrecognized,
+        asides,
         junk,
         core: collapse_spaces(&core),
         qualifiers,

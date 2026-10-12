@@ -16,7 +16,8 @@ use unicode_normalization::UnicodeNormalization;
 use super::labels::split_names;
 use super::tokenize::collapse_spaces;
 use super::{
-    CreditRole, Marker, MarkerKind, NameSource, ParsedName, Qualifier, Reading, VersionClass,
+    AsideKind, CreditRole, Marker, MarkerKind, NameSource, ParsedName, Qualifier, Reading,
+    VersionClass,
 };
 
 /// What two names say about each other.
@@ -531,7 +532,26 @@ fn versions_apart(
             .map(|text| (key(text), text.clone()))
             .collect()
     };
-    let (unknown_a, unknown_b) = (unknown(a), unknown(b));
+    let (mut unknown_a, mut unknown_b) = (unknown(a), unknown(b));
+    // Harmless brackets (asides) say nothing, unless both names have one
+    // of a kind (a year, a key, a tempo, a code) and they disagree: then
+    // they are brackets nobody can settle. Copy counters never disagree.
+    for (mine, theirs, unknown) in [(a, b, &mut unknown_a), (b, a, &mut unknown_b)] {
+        for aside in &mine.asides {
+            let kind_of_theirs = || {
+                theirs
+                    .asides
+                    .iter()
+                    .filter(|other| other.kind == aside.kind)
+            };
+            let disagrees = aside.kind != AsideKind::CopyCounter
+                && kind_of_theirs().next().is_some()
+                && kind_of_theirs().all(|other| other.value != aside.value);
+            if disagrees {
+                unknown.insert(key(&aside.text), aside.text.clone());
+            }
+        }
+    }
     if !unknown_a.keys().eq(unknown_b.keys()) {
         unsure = true;
         let only = |mine: &BTreeMap<String, String>, theirs: &BTreeMap<String, String>| {
@@ -643,6 +663,15 @@ impl ParsedName {
                 .any(|mine| key(mine) == key(text))
             {
                 merged.unrecognized.push(text.clone());
+            }
+        }
+        for aside in &other.asides {
+            if !merged
+                .asides
+                .iter()
+                .any(|mine| mine.kind == aside.kind && mine.value == aside.value)
+            {
+                merged.asides.push(aside.clone());
             }
         }
         let flat = |qualifiers: &[Qualifier]| -> Vec<Marker> {

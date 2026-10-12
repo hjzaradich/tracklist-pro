@@ -512,3 +512,207 @@ fn an_artist_the_name_does_not_spell_out_whole_never_lets_full_audio_merge_over_
         Outcome::Duplicate
     );
 }
+
+// ---- Harmless brackets ---------------------------------------------------
+
+/// Every kind of harmless bracket, with whether it is a bare number (which
+/// a label before it can turn into that label's number).
+const HARMLESS: [(&str, bool); 10] = [
+    ("(1)", true),
+    ("(2)", true),
+    ("(12)", true),
+    ("(2011)", true),
+    ("(124)", true),
+    ("(8A)", false),
+    ("[124 BPM]", false),
+    ("(124bpm)", false),
+    ("[ABC123]", false),
+    ("(CAT-0451)", false),
+];
+
+/// `title` and `file_name` with `bracket` added at the end of the
+/// title tag, the file name's title, or both.
+#[derive(Debug, Clone, Copy)]
+enum Where {
+    Tag,
+    FileName,
+    Both,
+}
+
+fn with_bracket(title: &str, stem: &str, bracket: Option<&str>, at: Where) -> FileFacts {
+    let tag = match (bracket, at) {
+        (Some(b), Where::Tag | Where::Both) => format!("{title} {b}"),
+        _ => title.to_string(),
+    };
+    let name = match (bracket, at) {
+        (Some(b), Where::FileName | Where::Both) => format!("{stem} {b}.mp3"),
+        _ => format!("{stem}.mp3"),
+    };
+    FileFacts::new(Some(&tag), Some("Halden Rook"), &name)
+}
+
+#[test]
+fn adding_one_harmless_bracket_to_one_files_names_never_changes_the_outcome() {
+    // (title, stem, whether the names end in a label). A bare number after
+    // a label may be that label's number, so it is no harmless bracket there.
+    let bases = [
+        ("Velo", "Velo", false),
+        ("Velo", "Halden Rook - Velo", false),
+        ("Velo (Dirty)", "Velo (Dirty)", true),
+        ("Velo (Halden Rook Remix)", "Velo - Radio Edit", true),
+        ("Nightdrive", "Nightdrive", false),
+    ];
+    // One bracket of each kind, bare numbers included.
+    let brackets = [
+        ("(1)", true),
+        ("(2011)", true),
+        ("(124)", true),
+        ("(8A)", false),
+        ("[124 BPM]", false),
+        ("[ABC123]", false),
+    ];
+    let mut compared = 0;
+    for at in [Where::Tag, Where::FileName, Where::Both] {
+        for (title_a, stem_a, label_a) in bases {
+            let a = with_bracket(title_a, stem_a, None, at);
+            for (title_b, stem_b, _) in bases {
+                let b = with_bracket(title_b, stem_b, None, at);
+                for (bracket, bare) in brackets {
+                    if bare && label_a {
+                        continue;
+                    }
+                    let bracketed = with_bracket(title_a, stem_a, Some(bracket), at);
+                    for (name, audio) in every_audio() {
+                        // The bracket on A, then the same pair the other way
+                        // round: the bracket on the second file.
+                        let before = decided(audio, &a, &b);
+                        let after = decided(audio, &bracketed, &b);
+                        assert_eq!(
+                            after, before,
+                            "{bracket} on {title_a} / {stem_a} ({at:?}) beside {title_b} / {stem_b}, {name}"
+                        );
+                        let before = decided(audio, &b, &a);
+                        let after = decided(audio, &b, &bracketed);
+                        assert_eq!(
+                            after, before,
+                            "{bracket} on the second file {title_a} / {stem_a} ({at:?}), {name}"
+                        );
+                        compared += 2;
+                    }
+                }
+            }
+        }
+    }
+    assert!(compared > 2000, "only {compared} comparisons ran");
+}
+
+#[test]
+fn a_copy_counter_on_matched_audio_no_longer_makes_the_names_unclear() {
+    for (a, b) in [
+        ("Velo (1).mp3", "Velo.mp3"),
+        ("Velo (2).mp3", "Velo (1).mp3"),
+        ("Halden Rook - Velo (1).mp3", "Halden Rook - Velo.mp3"),
+    ] {
+        let got = decided(full(), &named(a), &named(b));
+        assert_eq!(got.outcome, Outcome::Duplicate, "{a} / {b}");
+        assert_eq!(codes(&got), ["sameAudio"], "{a} / {b}");
+    }
+}
+
+#[test]
+fn a_year_a_key_a_tempo_and_a_catalogue_number_on_matched_audio_no_longer_make_the_names_unclear() {
+    for bracket in ["(2011)", "(8A)", "(124)", "[124 BPM]", "[ABC123]"] {
+        let got = decided(
+            full(),
+            &named(&format!("Velo {bracket}.mp3")),
+            &named("Velo.mp3"),
+        );
+        assert_eq!(got.outcome, Outcome::Duplicate, "{bracket}");
+    }
+}
+
+#[test]
+fn a_bracket_that_could_be_a_version_still_sends_matched_audio_to_review() {
+    for bracket in [
+        "(Part 1)",
+        "(Pt 2)",
+        "(Take 2)",
+        "(01)",
+        "(808)",
+        "(Dub 12)",
+        "(2011 Version)",
+        "(Acoustic)",
+        "(ABC 123)",
+    ] {
+        let got = decided(
+            full(),
+            &named(&format!("Velo {bracket}.mp3")),
+            &named("Velo.mp3"),
+        );
+        assert_eq!(got.outcome, Outcome::NeedsReview, "{bracket}");
+    }
+}
+
+#[test]
+fn a_number_after_a_label_is_not_a_harmless_bracket() {
+    for (with, without) in [
+        ("Velo (Dub) (2).mp3", "Velo (Dub).mp3"),
+        ("Velo Dub (2).mp3", "Velo Dub.mp3"),
+        ("Velo (Dirty) (1).mp3", "Velo (Dirty).mp3"),
+        ("Velo (Remix) (2011).mp3", "Velo (Remix).mp3"),
+    ] {
+        let got = decided(full(), &named(with), &named(without));
+        // A bracket nobody can settle: never a silent merge.
+        assert_ne!(got.outcome, Outcome::Duplicate, "{with}");
+    }
+}
+
+#[test]
+fn two_files_whose_brackets_of_one_kind_disagree_still_go_to_review() {
+    for (a, b) in [
+        ("Velo (2011).mp3", "Velo (2012).mp3"),
+        ("Velo (8A).mp3", "Velo (9A).mp3"),
+        ("Velo [124 BPM].mp3", "Velo [126 BPM].mp3"),
+        ("Velo [ABC123].mp3", "Velo [ABC124].mp3"),
+    ] {
+        let got = decided(full(), &named(a), &named(b));
+        assert_eq!(got.outcome, Outcome::NeedsReview, "{a} / {b}");
+    }
+}
+
+#[test]
+fn a_year_beside_a_remaster_word_anywhere_in_the_files_names_is_a_version() {
+    // A's file name has a year, its tag says remaster; B is the remaster
+    // of another year. The year is the remaster's: not harmless.
+    let a = FileFacts::new(Some("Velo (Remastered)"), None, "Velo (2011).mp3");
+    let b = FileFacts::new(Some("Velo (Remastered 2015)"), None, "Velo.mp3");
+    let got = decided(full(), &a, &b);
+    assert_ne!(got.outcome, Outcome::Duplicate);
+    // The same pair without the year in A merges: a remaster that gives
+    // no year is the same as any (ROADMAP 1.5).
+    let a = FileFacts::new(Some("Velo (Remastered)"), None, "Velo.mp3");
+    assert_eq!(decided(full(), &a, &b).outcome, Outcome::Duplicate);
+    // Any spelling that says "master" counts.
+    for tag in ["Velo (Re-master)", "Velo remastered", "Velo (Mastered)"] {
+        let a = FileFacts::new(Some(tag), None, "Velo (2011).mp3");
+        let b = FileFacts::new(Some(tag), None, "Velo.mp3");
+        assert_ne!(decided(full(), &a, &b).outcome, Outcome::Duplicate, "{tag}");
+    }
+    // A year with no remaster word anywhere is harmless.
+    let a = FileFacts::new(Some("Velo"), None, "Velo (2011).mp3");
+    let b = FileFacts::new(Some("Velo"), None, "Velo.mp3");
+    assert_eq!(decided(full(), &a, &b).outcome, Outcome::Duplicate);
+}
+
+#[test]
+fn a_harmless_bracket_beside_a_real_version_difference_changes_nothing() {
+    let got = decided(
+        full(),
+        &named("Velo (Dirty) [124 BPM].mp3"),
+        &named("Velo (Clean).mp3"),
+    );
+    assert_eq!(
+        got.outcome,
+        cut_link(&[MarkerKind::Clean, MarkerKind::Dirty])
+    );
+}

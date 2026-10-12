@@ -538,6 +538,20 @@ impl FileFacts {
             artist_tag,
             folder,
         );
+        // A year beside "Remaster" is the year of that cut, a version. So
+        // for a file whose names mention a remaster, in any spelling, a
+        // bracketed year is no harmless bracket.
+        let remaster_named = label_words.contains_key(&MarkerKind::Remaster)
+            || [title_tag.unwrap_or(""), file_name]
+                .iter()
+                .any(|name| name.to_lowercase().contains("master"));
+        let (by_file_name, by_tag) = match remaster_named {
+            true => (
+                by_file_name.with_years_unsettled(),
+                by_tag.map(|by_tag| by_tag.with_years_unsettled()),
+            ),
+            false => (by_file_name, by_tag),
+        };
         let Some(by_tag) = by_tag else {
             return FileFacts {
                 tagged: None,
