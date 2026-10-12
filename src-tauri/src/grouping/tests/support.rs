@@ -54,8 +54,20 @@ pub struct NewFile<'a> {
     pub blake3: Option<u8>,
 }
 
+/// A real file's facts, as the stages after the walk record them.
+pub struct RealFile<'a> {
+    pub rel_path: &'a str,
+    /// The 34-byte `audio_hash`; `None` where the hash stage found no audio.
+    pub audio: Option<[u8; 34]>,
+    /// The whole-file BLAKE3.
+    pub blake3: [u8; 32],
+    /// The `file.raw_tags` JSON the read stage wrote.
+    pub raw_tags: Option<&'a str>,
+    pub fingerprint: &'a Fingerprint,
+}
+
 /// The `raw_tags` of an MP3 with these two tags.
-fn raw_tags(title: Option<&str>, artist: Option<&str>) -> String {
+pub fn raw_tags(title: Option<&str>, artist: Option<&str>) -> String {
     let frame = |key: &str, text: &str| serde_json::json!({ "key": key, "value": { "type": "text", "text": text } });
     let frames: Vec<serde_json::Value> = [("TIT2", title), ("TPE1", artist)]
         .into_iter()
@@ -129,6 +141,32 @@ impl Db {
                                        audio_hash, raw_tags, fingerprint, blake3)
                      VALUES (1, ?1, ?1, 100, 1000, ?2, ?3, ?4, ?5)",
                     (name, hash, tags, blob, blake3),
+                )?;
+                Ok(c.last_insert_rowid())
+            })
+            .unwrap();
+        self.fingerprint_stage_ran(id);
+        id
+    }
+
+    /// A present file in folder 1 exactly as the hash, read and fingerprint
+    /// stages leave a real one: its real hashes, the `raw_tags` the read
+    /// stage wrote, and the fingerprint of its audio. `rel_path` is its
+    /// path in the folder; the rules take the file name from its end.
+    pub fn add_real(&self, file: RealFile<'_>) -> i64 {
+        let rel_path = file.rel_path.to_string();
+        let audio = file.audio.map(|h| h.to_vec());
+        let blake3 = file.blake3.to_vec();
+        let raw_tags = file.raw_tags.map(str::to_string);
+        let blob = file.fingerprint.to_blob();
+        let id = self
+            .writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, mtime,
+                                       audio_hash, raw_tags, fingerprint, blake3)
+                     VALUES (1, ?1, ?1, 100, 1000, ?2, ?3, ?4, ?5)",
+                    (rel_path, audio, raw_tags, blob, blake3),
                 )?;
                 Ok(c.last_insert_rowid())
             })

@@ -521,4 +521,4 @@ pub fn start(jobs: &JobQueue, writer: &Writer) -> Result<JobId, crate::db::DbErr
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

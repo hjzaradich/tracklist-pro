@@ -46,6 +46,8 @@ mod codec;
 mod file;
 
 pub use codec::Codec;
+#[cfg(test)]
+pub(crate) use file::read as read_one;
 pub use file::{FileRead, NotRead, Verdict};
 
 use std::collections::VecDeque;

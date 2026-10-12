@@ -20,6 +20,7 @@ mod audio;
 mod blocking;
 mod comparing;
 mod corpus;
+mod corpus_job;
 mod e3_patterns;
 mod job;
 mod labels;
