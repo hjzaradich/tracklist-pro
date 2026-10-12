@@ -168,6 +168,20 @@ pub fn is_decide(target: Option<&serde_json::Value>) -> bool {
     GroupTarget::of(target) == GroupTarget::Decide
 }
 
+/// Queues a quick grouping job if a present file has no track yet, unless
+/// one is already queued (a running one is asked to run once more). The scan
+/// chain asks the same question inline when a walk has nothing to read;
+/// the startup step asks it through here (1cA-13).
+pub(crate) fn request_group<E: From<DbError>>(
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+) -> Result<(), E> {
+    if writer.call(|c| store::any_ungrouped(c))? {
+        crate::scan::chain::queue_once(writer, group_job(), enqueue)?;
+    }
+    Ok(())
+}
+
 /// Queues a deciding job if a file is due one and ready
 /// ([`decide::any_due`]) and matching has nothing left to compare (a file
 /// matching hasn't been through can't be decided yet), unless one is

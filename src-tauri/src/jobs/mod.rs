@@ -16,14 +16,18 @@
 //!
 //! A job left `running` by a kill or crash is put back in the queue at
 //! startup, or ended if nothing can start it again
-//! ([`store::recover_interrupted`]). Picking up where it stopped (crash
-//! resume) is 1cA-13.
+//! ([`store::recover_interrupted`]); one the user had cancelled is ended as
+//! cancelled, not brought back. A job put back runs from the top, and that
+//! is all the resuming there is: every restartable kind works from what is
+//! still due, so it does only what the dead run left. Work that is due when
+//! no job is queued is asked for at startup ([`startup`], 1cA-13).
 
 pub mod commands;
 mod dispatch;
 mod events;
 mod model;
 mod queue;
+pub mod startup;
 pub mod store;
 
 use tauri::{AppHandle, Runtime};

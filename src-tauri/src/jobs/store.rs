@@ -28,6 +28,14 @@ pub(super) enum Ending {
     Requeued,
 }
 
+/// What a running job's `error` says between the user's cancel and the
+/// moment the job's handler returns, so a kill in between doesn't bring the
+/// job back (1cA-13). Written by [`request_cancel`] alone and read by
+/// [`recover_interrupted`] alone. Every ending of the job overwrites it
+/// ([`finish`]), so it is never kept as a finished job's error, and the
+/// job updates sent to the webview carry no error at all.
+const CANCEL_REQUESTED: &str = "cancel requested: the user stopped the job while it ran";
+
 /// Adds a queued job and returns its id.
 pub(super) fn insert(conn: &Connection, job: &NewJob) -> rusqlite::Result<JobId> {
     let target = job.target.as_ref().map(|t| t.to_string());
@@ -67,6 +75,18 @@ pub(super) fn set_progress(conn: &Connection, id: JobId, progress: f64) -> rusql
     Ok(())
 }
 
+/// Records that the user cancelled running job `id`, which has not stopped
+/// yet. If the app dies before the job's handler returns, the next start
+/// ends the job as cancelled instead of putting it back in the queue
+/// ([`recover_interrupted`]). Does nothing for a job that isn't running.
+pub(super) fn request_cancel(conn: &Connection, id: JobId) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE job SET error = ?2 WHERE id = ?1 AND status = 'running'",
+        params![id.0, CANCEL_REQUESTED],
+    )?;
+    Ok(())
+}
+
 /// Records how a running job ended.
 pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite::Result<()> {
     let (status, error) = match ending {
@@ -77,7 +97,7 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
             // Not an attempt: the job goes back as if it had never started.
             conn.execute(
                 "UPDATE job SET status = 'queued', started_at = NULL, progress = NULL,
-                                attempts = max(attempts - 1, 0)
+                                error = NULL, attempts = max(attempts - 1, 0)
                  WHERE id = ?1 AND status = 'running'",
                 params![id.0],
             )?;
@@ -125,6 +145,8 @@ pub const INTERRUPTED: &str = "interrupted: the app closed while it ran";
 /// What [`recover_interrupted`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Recovered {
+    /// Jobs the user had cancelled before the run died, ended as cancelled.
+    pub cancelled: usize,
     /// Jobs put back in the queue.
     pub requeued: usize,
     /// Jobs ended as failed.
@@ -141,11 +163,20 @@ pub struct Recovered {
 /// stage: the chain sees a running job and asks it to run once more
 /// (`scan::chain::queue_once`).
 ///
-/// A job of a [restartable](RESTARTABLE) kind goes back in the queue, to
-/// run from the top. Any other (a kind with no handler yet, or one this
-/// build doesn't know) ends as failed. This isn't crash resume (1cA-13):
-/// nothing picks up where the run stopped.
+/// A job the user cancelled while it ran ([`request_cancel`]) ends as
+/// cancelled, whatever its kind: it is not brought back. A job of a
+/// [restartable](RESTARTABLE) kind goes back in the queue, to run from the
+/// top; that is all the resuming there is (1cA-13): each of these kinds
+/// works from what is still due, so a run from the top does only what the
+/// dead run left. Any other (a kind with no handler yet, or one this build
+/// doesn't know) ends as failed.
 pub fn recover_interrupted(conn: &Connection) -> rusqlite::Result<Recovered> {
+    let sql = format!(
+        "UPDATE job SET status = 'cancelled', error = NULL, progress = NULL,
+                        finished_at = {NOW}
+         WHERE status = 'running' AND error IS ?1"
+    );
+    let cancelled = conn.execute(&sql, [CANCEL_REQUESTED])?;
     let kinds = serde_json::to_string(&RESTARTABLE.map(JobKind::as_str))
         .expect("kind names always serialize");
     let requeued = conn.execute(
@@ -158,7 +189,11 @@ pub fn recover_interrupted(conn: &Connection) -> rusqlite::Result<Recovered> {
          WHERE status = 'running'"
     );
     let failed = conn.execute(&sql, [INTERRUPTED])?;
-    Ok(Recovered { requeued, failed })
+    Ok(Recovered {
+        cancelled,
+        requeued,
+        failed,
+    })
 }
 
 /// Cancels a job that hasn't started. False if it isn't queued (it's
@@ -430,6 +465,7 @@ mod tests {
                 assert_eq!(
                     recovered,
                     Recovered {
+                        cancelled: 0,
                         requeued: 11,
                         failed: 5
                     }

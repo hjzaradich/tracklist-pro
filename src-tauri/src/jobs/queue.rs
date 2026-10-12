@@ -329,7 +329,17 @@ impl JobQueue {
         let mut state = self.shared.lock()?;
         if let Some(flag) = state.running.get(&id) {
             // Don't turn a shutdown into a user's cancel, or back.
-            let _ = flag.compare_exchange(GO, CANCEL, Ordering::SeqCst, Ordering::SeqCst);
+            let asked = flag
+                .compare_exchange(GO, CANCEL, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok();
+            if asked {
+                // So a kill before the handler returns doesn't bring the job
+                // back at the next start (`store::recover_interrupted`). The
+                // cancel itself doesn't depend on it.
+                if let Err(e) = self.shared.writer.call(move |c| store::request_cancel(c, id)) {
+                    eprintln!("job queue: could not record the cancel of job {}: {e}", id.0);
+                }
+            }
             return Ok(CancelOutcome::Stopping);
         }
         if !self

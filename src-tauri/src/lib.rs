@@ -137,6 +137,10 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             }
             app.manage(send::SendFlow::new(guard.clone()));
             app.manage(jobs::start(app.handle(), writer.clone())?);
+            // Work that is due while no job is queued (1cA-13), after the
+            // queue is in the state and the dropped and recovered jobs are
+            // settled.
+            jobs::startup::start(app.handle(), writer.clone());
             app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);
             app.manage(guard);
