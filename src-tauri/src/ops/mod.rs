@@ -1260,6 +1260,6 @@ pub fn next_undo_operation(
 }
 
 #[cfg(test)]
-mod history_tests;
+pub(crate) mod history_tests;
 #[cfg(test)]
 mod tests;

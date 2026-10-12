@@ -367,3 +367,78 @@ fn a_failure_to_ask_for_an_attach_after_relinking_does_not_fail_the_job() {
     assert!(attach_jobs(&lib.writer).is_empty());
     queue.shutdown();
 }
+
+// --- The second step: Library tracks follow their files (1bE-10) ---
+
+/// A Library track linked to `E:\Music\Old.mp3`, whose file moved to
+/// `E:\Music\Moved\Renamed.mp3` (hashed and grouped): returns the library,
+/// the old file, the new file and the Library track.
+fn a_library_track_whose_file_moved() -> (Lib, i64, i64, crate::library::LibraryTrackId) {
+    let (lib, music, _) = e_music();
+    let old = lib.file(music, "Old.mp3", Some(200_000));
+    lib.hashed(old, 1);
+    let track = lib.in_library(old);
+    lib.gone(old);
+    let new = lib.file(music, "Moved/Renamed.mp3", Some(200_000));
+    lib.hashed(new, 1);
+    lib.regroup();
+    (lib, old, new, track)
+}
+
+#[test]
+fn a_relink_job_follows_a_library_track_to_its_file_also_with_no_rekordbox_data() {
+    let (lib, _old, new, track) = a_library_track_whose_file_moved();
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Relink, Relinker::new(plugged_e))
+        .start()
+        .unwrap();
+    let id = request(&lib.writer, |j| queue.enqueue(j)).unwrap();
+    wait_done(&lib.writer, id);
+    assert_eq!(lib.linked_file(track), new);
+    queue.shutdown();
+}
+
+#[test]
+fn the_follow_runs_after_relink_has_committed_and_its_failure_never_fails_the_job() {
+    let (lib, old, new, track) = a_library_track_whose_file_moved();
+    let row = lib.track(&loc("E:/Music/Old.mp3"), Some("200"));
+    // The database refuses the write of the follow.
+    lib.writer
+        .call(|c| {
+            c.execute_batch(
+                "CREATE TEMP TRIGGER refuse_follow
+                 BEFORE UPDATE OF linked_file_id ON main.library_track
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+            )
+        })
+        .unwrap();
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Relink, Relinker::new(plugged_e))
+        .start()
+        .unwrap();
+    let id = request(&lib.writer, |j| queue.enqueue(j)).unwrap();
+    // The job still ends well.
+    wait_done(&lib.writer, id);
+    // The matches relink made are stored: the follow is not in its
+    // transaction, and took nothing down with it.
+    assert_eq!(lib.matched(row), same_audio(new));
+    // The link is where it was, and nothing was logged.
+    assert_eq!(lib.linked_file(track), old);
+    let logged: i64 = lib
+        .writer
+        .call(|c| c.query_row("SELECT count(*) FROM operation", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(logged, 0);
+
+    // The track is still due: the next run follows.
+    lib.writer
+        .call(|c| c.execute_batch("DROP TRIGGER refuse_follow"))
+        .unwrap();
+    let id = request(&lib.writer, |j| queue.enqueue(j)).unwrap();
+    wait_done(&lib.writer, id);
+    assert_eq!(lib.linked_file(track), new);
+    assert_eq!(lib.matched(row), same_audio(new));
+    queue.shutdown();
+}

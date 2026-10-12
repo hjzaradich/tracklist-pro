@@ -44,7 +44,11 @@
 //! # A better file for a Library track
 //!
 //! The linked file of a Library track is pinned: nothing here changes
-//! `library_track.linked_file_id`. When the best-ranked file is another one
+//! `library_track.linked_file_id`, whatever the ranking says. (A link moves
+//! only when its file is gone and the very same audio is on disk in the
+//! track, [`crate::library::follow`]; the trigger on `linked_file_id` then
+//! makes the track due here, and its `better_file` row is worked out for
+//! the new linked file.) When the best-ranked file is another one
 //! and is ahead of it in what the audio is, or in being there at all
 //! ([`audio_step`]), the track gets a `better_file` row: which file, and the
 //! step that put it ahead. A copy that only has more tags, art, a rekordbox

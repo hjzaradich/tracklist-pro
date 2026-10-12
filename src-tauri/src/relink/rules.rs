@@ -193,6 +193,30 @@ pub struct File {
     pub recording: Option<i64>,
     /// Whether it's its track's best file.
     pub best: bool,
+    /// Whether a Library track is linked to it. Among files that are
+    /// equally right, the linked one is matched ([`preferred`]).
+    pub linked: bool,
+}
+
+/// Of several files that are equally right for a row (exact copies, or the
+/// candidates of one step-4 rule), the one to match: the file a Library
+/// track is linked to (1bE-10), else their track's best file, else the
+/// lowest file id.
+///
+/// The linked file first, because a Library track is sent as rekordbox's
+/// entry only while that entry is matched to its linked file: were the
+/// track's best file matched instead, an exact copy that turned up later
+/// and ranked ahead would pull the entry off the linked file, and the
+/// track would go to rekordbox as a new one beside its own entry. With no
+/// linked file among them the order is what it always was.
+fn preferred(files: &[&File]) -> Option<i64> {
+    files
+        .iter()
+        .filter(|f| f.linked)
+        .min_by_key(|f| f.id)
+        .or_else(|| files.iter().find(|f| f.best))
+        .or_else(|| files.iter().min_by_key(|f| f.id))
+        .map(|f| f.id)
 }
 
 impl File {
@@ -563,8 +587,9 @@ impl<'a> Index<'a> {
 
     /// The one file to match among `fits`: the only one, or, when every
     /// one of them holds the same audio (one `audio_hash`, current for each
-    /// file: exact copies), their track's best file, else the lowest id.
-    /// `None` if they differ, or if a hash isn't current.
+    /// file: exact copies), the one [`preferred`]: a Library track's linked
+    /// file, else their track's best file, else the lowest id. `None` if
+    /// they differ, or if a hash isn't current.
     fn pick(&self, fits: &[i64]) -> Option<i64> {
         match fits {
             [] => None,
@@ -575,11 +600,7 @@ impl<'a> Index<'a> {
                 if copies.len() != fits.len() || copies.iter().any(|f| f.audio() != Some(hash)) {
                     return None;
                 }
-                copies
-                    .iter()
-                    .find(|f| f.best)
-                    .or_else(|| copies.iter().min_by_key(|f| f.id))
-                    .map(|f| f.id)
+                preferred(&copies)
             }
         }
     }
@@ -1028,14 +1049,11 @@ pub fn plan<E>(
             }
             by_duration.sort_unstable();
         }
-        // The track's best file among `files`, else the lowest id.
+        // A Library track's linked file among `files`, else the track's
+        // best file, else the lowest id.
         let best_of = |files: &[i64]| -> Option<i64> {
             let files: Vec<&File> = files.iter().filter_map(|&f| index.file(f)).collect();
-            files
-                .iter()
-                .find(|f| f.best)
-                .or_else(|| files.iter().min_by_key(|f| f.id))
-                .map(|f| f.id)
+            preferred(&files)
         };
         // The rows with no file of the same audio, and the present files
         // that last about as long as each one's gone file.

@@ -8,8 +8,19 @@
 //!
 //! Every finished run asks for an attach ([`crate::attach::request`]): the
 //! rekordbox data on tracks follows the matches.
+//!
+//! **The second step: Library tracks follow their files**
+//! ([`crate::library::follow`], 1bE-10). Once relink has committed, a
+//! Library track whose linked file is gone and whose audio is on disk at a
+//! new place is linked to that file. It is a step of this job because this
+//! job runs whenever its evidence becomes current (after the hash stage,
+//! after every grouping run, after every read of rekordbox), and because
+//! which rekordbox entry a track is sent as is decided on relink's matches.
+//! It runs after relink and outside its transaction, also when there is no
+//! rekordbox data at all. If it fails, the failure is logged and the job
+//! still ends well: relink's matches stand, and the next run follows.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tauri::State;
 
@@ -65,15 +76,16 @@ pub fn relink_rekordbox_tracks(
 
 /// The relink job's handler.
 pub struct Relinker<V> {
-    /// The volumes mounted now, asked once per job.
-    volumes: Box<dyn Fn() -> V + Send + Sync>,
+    /// The volumes mounted now, asked once for the relink and once for the
+    /// follow step.
+    volumes: Arc<dyn Fn() -> V + Send + Sync>,
     on_summary: Option<Box<dyn Fn(Summary) + Send + Sync>>,
 }
 
 impl<V: Volumes + 'static> Relinker<V> {
     pub fn new(volumes: impl Fn() -> V + Send + Sync + 'static) -> Relinker<V> {
         Relinker {
-            volumes: Box::new(volumes),
+            volumes: Arc::new(volumes),
             on_summary: None,
         }
     }
@@ -107,6 +119,7 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
                 summary.fingerprint_undecided
             );
         }
+        self.follow(job);
         ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
         // Matches changed, so the titles of Library tracks may have too.
         if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
@@ -116,6 +129,40 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
             hook(summary);
         }
         Ok(())
+    }
+}
+
+impl<V: Volumes + 'static> Relinker<V> {
+    /// The job's second step: Library tracks whose linked file is gone
+    /// follow it to the same audio ([`crate::library::follow`]). Relink has
+    /// committed by now and this runs in transactions of its own, so a
+    /// failure here is logged and the job goes on: the matches stand, and
+    /// the next relink job tries the follow again.
+    fn follow(&self, job: &JobContext) {
+        let volumes = Arc::clone(&self.volumes);
+        let followed = job
+            .writer()
+            .call(move |c| Ok(crate::library::follow::follow_files(c, &volumes())));
+        match followed {
+            Ok(Ok(summary)) => {
+                if !summary.followed.is_empty() || summary.held > 0 {
+                    eprintln!(
+                        "relink job {}: {} Library tracks followed their file, {} held",
+                        job.id(),
+                        summary.followed.len(),
+                        summary.held
+                    );
+                }
+            }
+            Ok(Err(e)) => eprintln!(
+                "relink job {}: Library tracks couldn't follow their files: {e}",
+                job.id()
+            ),
+            Err(e) => eprintln!(
+                "relink job {}: Library tracks couldn't follow their files: {e:?}",
+                job.id()
+            ),
+        }
     }
 }
 
