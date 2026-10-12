@@ -336,8 +336,15 @@ impl JobQueue {
                 // So a kill before the handler returns doesn't bring the job
                 // back at the next start (`store::recover_interrupted`). The
                 // cancel itself doesn't depend on it.
-                if let Err(e) = self.shared.writer.call(move |c| store::request_cancel(c, id)) {
-                    eprintln!("job queue: could not record the cancel of job {}: {e}", id.0);
+                if let Err(e) = self
+                    .shared
+                    .writer
+                    .call(move |c| store::request_cancel(c, id))
+                {
+                    eprintln!(
+                        "job queue: could not record the cancel of job {}: {e}",
+                        id.0
+                    );
                 }
             }
             return Ok(CancelOutcome::Stopping);

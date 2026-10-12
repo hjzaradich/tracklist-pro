@@ -530,4 +530,168 @@ mod tests {
             .unwrap();
         assert_eq!(recovered, Recovered::default());
     }
+
+    /// Every kind, running, with the user's cancel recorded.
+    fn cancelled_while_running(c: &Connection, kind: JobKind) -> rusqlite::Result<JobId> {
+        let id = insert(c, &NewJob::new(kind))?;
+        claim_next(c)?.unwrap();
+        request_cancel(c, id)?;
+        Ok(id)
+    }
+
+    #[test]
+    fn a_job_the_user_cancelled_while_it_ran_is_ended_as_cancelled_at_the_next_start_not_brought_back(
+    ) {
+        let (_dir, writer) = open();
+        let (recovered, rows) = writer
+            .call(|c| {
+                let mut cancelled = Vec::new();
+                // Restartable or not, a kind with a handler or not.
+                for kind in JobKind::ALL {
+                    cancelled.push(cancelled_while_running(c, kind)?);
+                }
+                // A job running that wasn't cancelled is still put back.
+                let other = insert(c, &NewJob::new(JobKind::Scan))?;
+                claim_next(c)?.unwrap();
+                let recovered = recover_interrupted(c)?;
+                let mut rows: Vec<_> = cancelled
+                    .into_iter()
+                    .map(|id| get(c, id).map(|j| j.unwrap()))
+                    .collect::<rusqlite::Result<_>>()?;
+                rows.push(get(c, other)?.unwrap());
+                Ok((recovered, rows))
+            })
+            .unwrap();
+        assert_eq!(
+            recovered,
+            Recovered {
+                cancelled: JobKind::ALL.len(),
+                requeued: 1,
+                failed: 0
+            }
+        );
+        let (other, cancelled) = rows.split_last().unwrap();
+        for job in cancelled {
+            assert_eq!(job.status, JobStatus::Cancelled, "{:?}", job.kind);
+            assert!(job.finished_at.is_some());
+            // The marker is not kept as an error.
+            assert_eq!((job.error.as_deref(), job.progress), (None, None));
+        }
+        assert_eq!(other.status, JobStatus::Queued);
+    }
+
+    #[test]
+    fn a_cancel_is_recorded_for_a_running_job_only() {
+        let (_dir, writer) = open();
+        writer
+            .call(|c| {
+                let running = cancelled_while_running(c, JobKind::Hash)?;
+                let queued = insert(c, &NewJob::new(JobKind::Scan))?;
+                let done = insert(c, &NewJob::new(JobKind::Scan))?;
+                c.execute(
+                    "UPDATE job SET status = 'running', started_at = 'x' WHERE id = ?1",
+                    [done.0],
+                )?;
+                finish(c, done, &Ending::Done)?;
+                request_cancel(c, queued)?;
+                request_cancel(c, done)?;
+                request_cancel(c, JobId(9999))?;
+                for id in [queued, done] {
+                    assert_eq!(get(c, id)?.unwrap().error, None, "{id}");
+                }
+                assert!(get(c, running)?.unwrap().error.is_some());
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn however_a_job_ends_after_a_cancel_the_ending_wins_and_the_marker_is_not_kept() {
+        let (_dir, writer) = open();
+        let stored = writer
+            .call(|c| {
+                let mut stored = Vec::new();
+                for ending in [
+                    Ending::Done,
+                    Ending::Failed("disk full".into()),
+                    Ending::Cancelled,
+                    Ending::Requeued,
+                ] {
+                    let id = cancelled_while_running(c, JobKind::Hash)?;
+                    finish(c, id, &ending)?;
+                    stored.push(get(c, id)?.unwrap());
+                }
+                Ok(stored)
+            })
+            .unwrap();
+        let summary: Vec<_> = stored
+            .iter()
+            .map(|j| (j.status, j.error.as_deref()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (JobStatus::Done, None),
+                (JobStatus::Failed, Some("disk full")),
+                (JobStatus::Cancelled, None),
+                (JobStatus::Queued, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_cancel_marker_is_written_by_request_cancel_alone_and_read_by_recovery_alone() {
+        let source = include_str!("store.rs").replace('\r', "");
+        let code = source.split("#[cfg(test)]").next().unwrap();
+        // Its definition, its one writer and its one reader.
+        assert_eq!(code.matches("CANCEL_REQUESTED").count(), 3);
+        let body = |name: &str| {
+            let start = code.find(name).unwrap();
+            let end = code[start..].find("\n}\n").unwrap();
+            &code[start..start + end]
+        };
+        assert!(body("pub(super) fn request_cancel").contains("CANCEL_REQUESTED"));
+        assert!(body("pub fn recover_interrupted").contains("CANCEL_REQUESTED"));
+        // And nothing else in the app knows it.
+        fn walk(dir: &std::path::Path, found: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, found);
+                } else if path.extension().is_some_and(|e| e == "rs")
+                    && !path.ends_with("jobs/store.rs")
+                    && std::fs::read_to_string(&path)
+                        .unwrap()
+                        .contains("CANCEL_REQUESTED")
+                {
+                    found.push(path.display().to_string());
+                }
+            }
+        }
+        let mut found = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut found,
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn export_is_not_restartable_and_a_send_job_left_running_is_never_put_back_by_recovery() {
+        assert!(!RESTARTABLE.contains(&JobKind::Export));
+        let (_dir, writer) = open();
+        writer
+            .call(|c| {
+                for step in ["prepare", "write"] {
+                    let job =
+                        NewJob::new(JobKind::Export).target(json!({ "send": step, "run": "x" }));
+                    insert(c, &job)?;
+                    claim_next(c)?.unwrap();
+                }
+                let recovered = recover_interrupted(c)?;
+                assert_eq!((recovered.requeued, recovered.failed), (0, 2));
+                Ok(())
+            })
+            .unwrap();
+    }
 }
