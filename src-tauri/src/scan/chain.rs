@@ -138,11 +138,12 @@ pub fn after_other<H: JobHandler>(handler: H) -> Chained<H> {
 }
 
 /// The quality job's handler, run once more if the fingerprints asked for
-/// it meanwhile.
+/// it meanwhile, and followed by a deciding job for the files it found cut
+/// short (1bC-6).
 pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
     Chained {
         inner: qualifier,
-        next: Next::Nothing,
+        next: Next::DecideAfterQuality,
         priority: Priority::BACKGROUND,
         reach: None,
     }
@@ -230,6 +231,9 @@ enum Next {
     Relink,
     /// The fingerprints are compared: the grouping rules decide.
     Decide,
+    /// The quality verdicts are in: a file that turned out truncated (or
+    /// no longer is) is decided again.
+    DecideAfterQuality,
     /// Nothing follows.
     Nothing,
 }
@@ -376,6 +380,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
         // A pass that made way has queued itself again, and matching still
         // has work: nothing is asked for until the one that finishes.
         Next::Decide => crate::grouping::request_decide(writer, enqueue)?,
+        Next::DecideAfterQuality => crate::grouping::request_decide_after_quality(writer, enqueue)?,
         Next::Nothing => {}
     }
     Ok(())

@@ -8,7 +8,9 @@
 //! A file is **due** when its record (`grouping_file.decided_as`) isn't the
 //! current [`super::decided_as`]: it's new, its audio, its fingerprint or
 //! its names changed (the database clears the record then, whichever code
-//! made the change), it came back, or the rules changed. It's **ready** when
+//! made the change), it came back, the rules changed, or it is truncated
+//! and wasn't when it was decided, or the other way round ("The quality
+//! verdict", below). It's **ready** when
 //! it has no fingerprint, or its fingerprint is of the audio it holds now
 //! (`FINGERPRINT_CURRENT` below) and matching has been through it
 //! (`fingerprint_matched`): before that, the stored comparisons can't be
@@ -54,6 +56,33 @@
 //! duplicates that waits for them (the grouping pass lists those,
 //! [`super::store::Step::undecided`]): [`complete`] decides them, compared
 //! directly where nobody compared them, and stores every answer.
+//!
+//! # The quality verdict
+//!
+//! One thing a decision reads comes from the quality job: whether a file
+//! is cut short (its stored verdict is `truncated`). A cut-off copy inside
+//! the whole, same-named file is a worse duplicate, not a cut
+//! ([`super::rules`], "A cut-off copy"). The verdict is read where the
+//! names are ([`known`]), through [`crate::quality::stored_verdicts`]: a
+//! file with no verdict, or one that is out of date, is not known to be
+//! truncated, and its pairs are what they are without the rule.
+//!
+//! The quality job can finish after a file was decided, so each file's
+//! record keeps the verdict it was decided at
+//! (`grouping_file.quality_verdict`, written with `decided_as`), and
+//! [`due_again_where_truncation_changed`] makes a file due again when what
+//! is stored for it now differs **in being truncated or not**. No other
+//! change of a verdict changes a decision, so a library's first verdicts
+//! (none, then `ok`) make nothing due. It runs when a quality job ends
+//! ([`super::request_decide_after_quality`]) and at the start of every
+//! deciding job. The file's pairs stay as they are until they are decided
+//! again, like after a retag: a pair that went would take its version link
+//! with it, or let go of a set that is held, for as long as that takes.
+//!
+//! Verdicts are brought up to date ([`crate::quality::settle`]) by the
+//! deciding job itself, before it lists what is due, but only when a file
+//! is due ([`any_recorded_due`]): a job with nothing to decide doesn't pay
+//! for it, and [`super::request_decide`] never does.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -63,6 +92,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::db::{DbError, Writer};
 use crate::fingerprint::Fingerprint;
 use crate::matching::{self, Comparison};
+use crate::quality::verdict::Verdict as QualityVerdict;
 use crate::versions::{self, CreditRole, ParsedName};
 
 use super::plan::{Key, Outcome};
@@ -492,11 +522,21 @@ struct Known {
     /// It has a fingerprint of audio it no longer holds: nothing is asked
     /// about it until the fingerprint stage has been through it.
     stale: bool,
-    // The file's quality verdict goes here when "truncated: yes / no /
-    // unknown" becomes an input (TASKS 1bC-1, with 1bC-5).
+    /// Its quality verdict, as stored and current for what the file is now
+    /// ([`crate::quality::stored_verdicts`]). `None`: it has none, or the
+    /// one it has is out of date.
+    verdict: Option<QualityVerdict>,
+}
+
+impl Known {
+    /// The file is known to be cut short.
+    fn truncated(&self) -> bool {
+        self.verdict == Some(QualityVerdict::Truncated)
+    }
 }
 
 fn known(conn: &Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Known>> {
+    let verdicts = crate::quality::stored_verdicts(conn, ids)?;
     let ids = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
     let mut stmt = conn.prepare_cached(&format!(
         "SELECT f.id, f.rel_path, f.raw_tags, {CONTENT_KEY}, f.fingerprint IS NOT NULL,
@@ -508,13 +548,15 @@ fn known(conn: &Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Known>
         let (rel_path, raw_tags): (String, Option<String>) = (r.get(1)?, r.get(2)?);
         let content: Option<Key> = r.get(3)?;
         let (fingerprinted, current): (bool, bool) = (r.get(4)?, r.get(5)?);
+        let id: i64 = r.get(0)?;
         Ok((
-            r.get(0)?,
+            id,
             Known {
                 facts: StoredNames::new(&rel_path, raw_tags.as_deref()).facts(),
                 content: content.filter(|key| !key.is_empty()),
                 has_fingerprint: fingerprinted && current,
                 stale: fingerprinted && !current,
+                verdict: verdicts.get(&id).and_then(|stored| stored.verdict),
             },
         ))
     })?;
@@ -561,6 +603,63 @@ pub fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
         ready()
     ))?
     .query_row([super::decided_as()], |r| r.get(0))
+}
+
+/// Whether a file that has a record is due and ready: what a deciding job
+/// asks before it brings the quality verdicts up to date, so a job with no
+/// file to decide doesn't pay for that. Cheap when nothing is due: it reads
+/// the records alone. (A file with no record yet gets one from the grouping
+/// pass every deciding job starts with.)
+pub fn any_recorded_due(conn: &Connection) -> rusqlite::Result<bool> {
+    Ok(!due_page(conn, 0, 1)?.is_empty())
+}
+
+/// Makes due again every file that was decided under the current rules and
+/// whose stored quality verdict now says "truncated" where the verdict it
+/// was decided at didn't, or the other way round: a cut-off copy inside a
+/// same-named file is a duplicate, not a cut, so its pairs may come out
+/// differently. Returns how many files it made due.
+///
+/// No other change of a verdict counts (none to `ok`, `ok` to
+/// `low_bitrate`): no decision reads it. The file's pairs stay until it is
+/// decided again; only its record is cleared, as the database does when a
+/// file's names change.
+///
+/// What a file's verdict is now is asked of the quality store, so one that
+/// is out of date counts as none, exactly as a decision reads it: after a
+/// run, nothing is left for this to find, and a second run changes nothing.
+/// Only the few files either side calls truncated are looked at closely.
+pub fn due_again_where_truncation_changed(conn: &Connection) -> rusqlite::Result<usize> {
+    let truncated = QualityVerdict::Truncated.as_str();
+    let candidates: Vec<(i64, bool)> = {
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT g.file_id, g.quality_verdict IS '{truncated}'
+             FROM grouping_file g
+             WHERE g.decided_as IS ?1
+               AND (g.quality_verdict IS '{truncated}'
+                    OR EXISTS (SELECT 1 FROM file_verdict v
+                               WHERE v.file_id = g.file_id AND v.verdict = '{truncated}'))"
+        ))?;
+        let rows = stmt.query_map([super::decided_as()], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    if candidates.is_empty() {
+        return Ok(0);
+    }
+    let ids: Vec<i64> = candidates.iter().map(|&(file, _)| file).collect();
+    let now = crate::quality::stored_verdicts(conn, &ids)?;
+    // The statement the database's own triggers make a file due with.
+    let mut due = conn.prepare_cached(
+        "UPDATE grouping_file SET decided_as = NULL, rev = random() WHERE file_id = ?1",
+    )?;
+    let mut changed = 0;
+    for (file, decided_truncated) in candidates {
+        let verdict = now.get(&file).and_then(|stored| stored.verdict);
+        if decided_truncated != (verdict == Some(QualityVerdict::Truncated)) {
+            changed += due.execute([file])?;
+        }
+    }
+    Ok(changed)
 }
 
 /// The files of the two sides of a pair, lower id first.
@@ -842,8 +941,8 @@ fn ask(
 ) -> Option<(Audio, rules::Decision)> {
     let (ka, kb) = (known.get(&a)?, known.get(&b)?);
     let heard = audio.of(standing, (a, ka), (b, kb));
-    let decision = rules::decide(&Pair::new(heard, &ka.facts, &kb.facts));
-    Some((heard, decision))
+    let pair = Pair::new(heard, &ka.facts, &kb.facts).truncated(ka.truncated(), kb.truncated());
+    Some((heard, rules::decide(&pair)))
 }
 
 /// The pair's names are the same, or one is a mashup naming the other as a
@@ -1065,7 +1164,15 @@ fn decide_page(
         .map(|(a, b, decision)| row(*a, *b, decision))
         .collect();
     let kept: HashSet<(i64, i64)> = rows.iter().map(|row| (row.a, row.b)).collect();
-    let due = due.to_vec();
+    // Each due file with the quality verdict its pairs were just decided
+    // at: kept in its record, so a later change shows.
+    let due: Vec<(i64, i64, Option<&'static str>)> = due
+        .iter()
+        .map(|&(file, rev)| {
+            let verdict = known.get(&file).and_then(|known| known.verdict);
+            (file, rev, verdict.map(QualityVerdict::as_str))
+        })
+        .collect();
     let (files, recorded) = writer.call(move |conn| {
         let tx = conn.transaction()?;
         store_compared(&tx, &compared)?;
@@ -1079,7 +1186,7 @@ fn decide_page(
             )?;
             let mut drop =
                 tx.prepare_cached("DELETE FROM grouping_pair WHERE file_a = ?1 AND file_b = ?2")?;
-            for &(file, _) in &due {
+            for &(file, _, _) in &due {
                 let before: Vec<(i64, i64)> = had
                     .query_map([file], |r| Ok((r.get(0)?, r.get(1)?)))?
                     .collect::<rusqlite::Result<_>>()?;
@@ -1097,11 +1204,13 @@ fn decide_page(
         let mut files = 0;
         {
             let mut mark = tx.prepare_cached(
-                "UPDATE grouping_file SET decided_as = ?1 WHERE file_id = ?2 AND rev = ?3",
+                "UPDATE grouping_file SET decided_as = ?1, quality_verdict = ?4
+                 WHERE file_id = ?2 AND rev = ?3",
             )?;
-            for &(file, rev) in &due {
+            for &(file, rev, verdict) in &due {
                 if !stale.contains(&file) {
-                    files += mark.execute(params![super::decided_as(), file, rev])? as u64;
+                    let decided = params![super::decided_as(), file, rev, verdict];
+                    files += mark.execute(decided)? as u64;
                 }
             }
         }

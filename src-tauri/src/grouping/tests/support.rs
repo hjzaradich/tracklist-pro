@@ -436,7 +436,8 @@ impl Db {
                     || ' ' || coalesce(label, '-') || ' ' || source || ' ' || created_at
              FROM version_link ORDER BY id",
             "SELECT 'record ' || file_id || ' ' || hex(coalesce(placed_key, x'')) || ' '
-                    || coalesce(decided_as, -1) || ' ' || rev
+                    || coalesce(decided_as, -1) || ' ' || rev || ' '
+                    || coalesce(quality_verdict, '-')
              FROM grouping_file ORDER BY file_id",
             "SELECT 'decision ' || id || ' ' || hex(key_a) || ' ' || hex(key_b) || ' ' || decision
              FROM grouping_decision ORDER BY id",
