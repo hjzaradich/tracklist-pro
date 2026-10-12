@@ -264,9 +264,9 @@ fn an_attribute_rekordbox_does_not_write_is_an_empty_value_on_its_side() {
 fn the_rows_compare_by_the_fields_kind_not_by_text() {
     // rekordbox's spelling of the path, and the send's re-encoded one.
     let location = sides(
-        "file://localhost/D:/Sets/Night%20Bus.mp3",
-        "file://localhost/D:/Sets/Night Bus.mp3",
-        "file://localhost/D:/Sets/Night%20Bus.mp3",
+        "file://localhost/D:/Sets/Lantern%20Quay.mp3",
+        "file://localhost/D:/Sets/Lantern Quay.mp3",
+        "file://localhost/D:/Sets/Lantern%20Quay.mp3",
     );
     assert_eq!(decided("Location", location).0, Verdict::Unchanged);
     // Zero stars, written three ways.
@@ -299,6 +299,13 @@ fn each_verdict_is_handled_in_one_way() {
         (Verdict::Conflict, Handling::Review),
     ] {
         assert_eq!(verdict.handling(), handling, "{verdict:?}");
+        // The one setting only moves the one verdict.
+        let reviewed = verdict.handling_when(Handling::Review);
+        if verdict == Verdict::NotTakenUp {
+            assert_eq!(reviewed, Handling::Review);
+        } else {
+            assert_eq!(reviewed, handling, "{verdict:?}");
+        }
     }
 }
 

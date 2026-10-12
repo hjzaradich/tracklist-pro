@@ -16,29 +16,39 @@
 //! # Keeping `conflict` in step
 //!
 //! An **open** conflict is a copy of three values that live elsewhere, so
-//! [`detect`] is free to rewrite it: withdrawing one drops copies, never a
-//! side's value. A **settled** conflict is the user's decision and the only
-//! record of the value that lost; `detect` never changes or deletes one.
+//! [`detect`] may rewrite it while all three can still be read. A
+//! **settled** conflict is the user's decision and the only record of the
+//! value that lost; `detect` never changes or deletes one.
 //!
-//! Per field of each track it is given:
+//! Per field of each track it is given, the first row that applies:
 //!
-//! | The field is | An open conflict on it | Then |
+//! | The field | An open conflict on it | Then |
 //! |---|---|---|
-//! | to review, and the newest settled conflict still stands | any | the open one is withdrawn; the answer is the value chosen |
-//! | to review | holds the same three texts | nothing is written |
-//! | to review | holds other texts | its three values are updated in place (same id, same `detected_at`) |
-//! | to review | none | one is opened |
-//! | waiting (a stale rekordbox row) | any | nothing is touched |
-//! | anything else | any | it is withdrawn (deleted): the sides no longer disagree |
+//! | belongs to a track with no current rekordbox entry (none, or a row kept from an older read) | any | nothing is touched: there's nothing of rekordbox's to compare with, and the open conflict may hold the only copy of its value |
+//! | is answered by a settled conflict that still stands | any | the open one is withdrawn; the answer is the value chosen, **whatever the table says** |
+//! | is to review | holds the same three texts | nothing is written |
+//! | is to review | holds other texts | its three values are updated in place (same id, same `detected_at`) |
+//! | is to review | none | one is opened |
+//! | is anything else | any | it is withdrawn (deleted): the sides no longer disagree |
 //!
 //! So a rerun on unchanged sides writes nothing at all.
 //!
 //! **A settled conflict stands** while rekordbox's value and the base are
 //! the ones it was settled on and the app's value is either the one it was
-//! settled on or the value chosen. Then the field isn't a conflict again:
-//! the value chosen is what goes out ([`Outcome::Decided`]). Once a side
-//! moves, the table applies again; if that makes a conflict, it is a new
-//! one, and the settled one stays as it is.
+//! settled on or the value chosen. While it stands the value chosen is what
+//! goes out ([`Outcome::Decided`]), and no row of the table is asked: a
+//! value given by hand that is the base's would otherwise read as "only
+//! rekordbox changed" once the app holds it, and rekordbox's value, the
+//! one the user turned down, would come in. Once a side moves, the table
+//! applies again; if that makes a conflict, it is a new one, and the
+//! settled one stays as it is. Of a field's settled conflicts only the one
+//! settled last answers (the highest id: a resolve always inserts, and ids
+//! only grow; the clock isn't asked).
+//!
+//! **A track rekordbox no longer has keeps its open conflicts**, untouched,
+//! until the user resolves them or removes the Library track. If its entry
+//! comes back in a later read, the same conflicts are decided again by the
+//! rules above.
 //!
 //! `detect` isn't an operation: it's derived state, and Undo must never
 //! take a detected conflict away. It inserts rows outside the operation
@@ -55,7 +65,9 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use super::{compare, decide, kind_of, Decision, Handling, Kind, Rekordbox, Sides};
+use super::{
+    compare, decide, kind_of, Decision, Handling, Kind, Rekordbox, Sides, Verdict, NOT_TAKEN_UP,
+};
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
 use crate::send_values::{self, send_values, Provenance, SendValues};
@@ -435,7 +447,7 @@ pub enum Outcome {
     Wait,
 }
 
-/// [`detect`]'s answer for one field the app holds its own value for.
+/// [`detect`]'s answer for one field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldOutcome {
@@ -456,9 +468,11 @@ pub struct Detected {
     /// Open conflicts this run withdrew: the sides no longer disagree, or
     /// a settled conflict answers the field.
     pub withdrawn: Vec<ConflictId>,
-    /// Every field the app holds its own value for and that isn't simply
-    /// in agreement, in the order given: what the send does about it. A
-    /// field that follows rekordbox isn't listed.
+    /// What the send does about each field that needs more than rekordbox's
+    /// own value back, in the order given: every field the app holds its
+    /// own value for that isn't simply in agreement, and every field with
+    /// an open conflict or a decision that stands. A field that follows
+    /// rekordbox isn't listed.
     pub fields: Vec<FieldOutcome>,
 }
 
@@ -513,9 +527,10 @@ fn recorded<'a>(sides: &Sides<'a>) -> (&'a str, &'a str, Option<&'a str>) {
 
 /// Whether a settled conflict still answers its field: rekordbox's value
 /// and the base are the ones it was settled on, and the app's value is the
-/// one it was settled on or the one chosen.
-fn stands(field: &str, settled: &Stored, sides: &Sides<'_>) -> bool {
-    let (app, rekordbox, base) = recorded(sides);
+/// one it was settled on or the one chosen. `base` is the base a conflict
+/// on these sides has.
+fn stands(field: &str, settled: &Stored, sides: &Sides<'_>, base: Option<&str>) -> bool {
+    let (app, rekordbox, _) = recorded(sides);
     let same = |a: Option<&str>, b: Option<&str>| compare::same(field, a, b);
     settled.base.is_some() == base.is_some()
         && same(settled.base.as_deref(), base)
@@ -530,7 +545,20 @@ fn stands(field: &str, settled: &Stored, sides: &Sides<'_>) -> bool {
 /// sides writes nothing.
 pub fn detect(conn: &mut Connection, tracks: &[TrackSides]) -> rusqlite::Result<Detected> {
     let tx = conn.transaction()?;
-    let detected = detect_in(&tx, tracks)?;
+    let detected = detect_in(&tx, tracks, NOT_TAKEN_UP)?;
+    tx.commit()?;
+    Ok(detected)
+}
+
+/// [`detect`] with [`NOT_TAKEN_UP`] set the other way: a send that wasn't
+/// taken up goes to review. For the tests of that setting.
+#[cfg(test)]
+pub(super) fn detect_reviewing_what_was_not_taken_up(
+    conn: &mut Connection,
+    tracks: &[TrackSides],
+) -> rusqlite::Result<Detected> {
+    let tx = conn.transaction()?;
+    let detected = detect_in(&tx, tracks, Handling::Review)?;
     tx.commit()?;
     Ok(detected)
 }
@@ -554,7 +582,7 @@ pub fn detect_for(
     for some in ids.chunks(TRACKS_AT_A_TIME) {
         let sent = send_values(&tx, volumes, some)?;
         let sides = load_sides(&tx, &sent, app)?;
-        detected.extend(detect_in(&tx, &sides)?);
+        detected.extend(detect_in(&tx, &sides, NOT_TAKEN_UP)?);
     }
     tx.commit()?;
     Ok(detected)
@@ -577,7 +605,14 @@ fn withdraw_open(
     Ok(())
 }
 
-fn detect_in(conn: &Connection, tracks: &[TrackSides]) -> rusqlite::Result<Detected> {
+/// [`detect`], inside the caller's transaction. `not_taken_up` is how
+/// [`Verdict::NotTakenUp`] is handled ([`NOT_TAKEN_UP`], but for the tests
+/// of its other setting).
+fn detect_in(
+    conn: &Connection,
+    tracks: &[TrackSides],
+    not_taken_up: Handling,
+) -> rusqlite::Result<Detected> {
     let ids = json_ids(&tracks.iter().map(|t| t.library_track).collect::<Vec<_>>());
     // Per track and field: the open conflict, and the settled one settled
     // last (the rows come lowest id first, so the last one read stays).
@@ -629,65 +664,96 @@ fn detect_in(conn: &Connection, tracks: &[TrackSides]) -> rusqlite::Result<Detec
             let sides = track.sides(field);
             let decision = decide(&field.field, &sides);
             let key = (track.library_track.0, field.field.clone());
-            let handling = decision.verdict.handling();
-            let outcome = match handling {
-                Handling::Wait => Some(Outcome::Wait),
-                // The sides don't disagree (any more).
-                Handling::Nothing | Handling::SendApp | Handling::TakeRekordbox => {
-                    withdraw_open(&mut delete, &mut open, &key, &mut detected.withdrawn)?;
-                    match handling {
-                        Handling::SendApp => Some(Outcome::SendApp),
-                        Handling::TakeRekordbox => Some(Outcome::TakeRekordbox),
-                        _ => None,
-                    }
+            let handling = decision.verdict.handling_when(not_taken_up);
+            let merged = decision.verdict != Verdict::Never;
+            // The base a conflict on this field has: the field's own,
+            // unless a field that isn't a `Conflict` is sent to review
+            // (see `recorded`).
+            let base = if handling == Handling::Review && decision.verdict != Verdict::Conflict {
+                recorded(&sides).2
+            } else {
+                sides.base
+            };
+            let outcome = if !merged {
+                None
+            } else if track.entry != RekordboxEntry::Current {
+                // Nothing of rekordbox's to compare with: no row is touched,
+                // and a conflict that is open stays open.
+                match (handling, open.get(&key)) {
+                    (Handling::Wait, _) => Some(Outcome::Wait),
+                    (_, Some(row)) => Some(Outcome::Open {
+                        conflict: ConflictId(row.id),
+                    }),
+                    (_, None) => Some(Outcome::SendApp),
                 }
-                Handling::Review => {
-                    let (app, rekordbox, base) = recorded(&sides);
-                    let decided = settled
-                        .get(&key)
-                        .filter(|row| stands(&field.field, row, &sides));
-                    if let Some(row) = decided {
+            } else if let Some(row) = settled
+                .get(&key)
+                .filter(|row| stands(&field.field, row, &sides, base))
+            {
+                // The user's decision answers the field, whatever the table
+                // would say now.
+                withdraw_open(&mut delete, &mut open, &key, &mut detected.withdrawn)?;
+                Some(Outcome::Decided {
+                    conflict: ConflictId(row.id),
+                    value: row.chosen().unwrap_or("").to_owned(),
+                })
+            } else {
+                match handling {
+                    // Only without a current entry, handled above.
+                    Handling::Wait => Some(Outcome::Wait),
+                    // The sides don't disagree (any more).
+                    Handling::Nothing | Handling::SendApp | Handling::TakeRekordbox => {
                         withdraw_open(&mut delete, &mut open, &key, &mut detected.withdrawn)?;
-                        Some(Outcome::Decided {
-                            conflict: ConflictId(row.id),
-                            value: row.chosen().unwrap_or("").to_owned(),
-                        })
-                    } else if let Some(row) = open.get_mut(&key) {
-                        let current = row.app.as_deref() == Some(app)
-                            && row.rekordbox.as_deref() == Some(rekordbox)
-                            && row.base.as_deref() == base;
-                        if !current {
-                            update.execute(params![row.id, app, rekordbox, base])?;
-                            row.app = Some(app.to_owned());
-                            row.rekordbox = Some(rekordbox.to_owned());
-                            row.base = base.map(str::to_owned);
-                            detected.updated.push(ConflictId(row.id));
+                        match handling {
+                            Handling::SendApp => Some(Outcome::SendApp),
+                            Handling::TakeRekordbox => Some(Outcome::TakeRekordbox),
+                            _ => None,
                         }
-                        Some(Outcome::Open {
-                            conflict: ConflictId(row.id),
-                        })
-                    } else {
-                        insert.execute(params![key.0, key.1, app, rekordbox, base])?;
-                        let id = conn.last_insert_rowid();
-                        open.insert(
-                            key,
-                            Stored {
-                                id,
-                                app: Some(app.to_owned()),
-                                rekordbox: Some(rekordbox.to_owned()),
-                                base: base.map(str::to_owned),
-                                status: Status::Open,
-                                resolved_value: None,
-                            },
-                        );
-                        detected.opened.push(ConflictId(id));
-                        Some(Outcome::Open {
-                            conflict: ConflictId(id),
-                        })
+                    }
+                    Handling::Review => {
+                        let (app, rekordbox, base) = recorded(&sides);
+                        if let Some(row) = open.get_mut(&key) {
+                            let current = row.app.as_deref() == Some(app)
+                                && row.rekordbox.as_deref() == Some(rekordbox)
+                                && row.base.as_deref() == base;
+                            if !current {
+                                update.execute(params![row.id, app, rekordbox, base])?;
+                                row.app = Some(app.to_owned());
+                                row.rekordbox = Some(rekordbox.to_owned());
+                                row.base = base.map(str::to_owned);
+                                detected.updated.push(ConflictId(row.id));
+                            }
+                            Some(Outcome::Open {
+                                conflict: ConflictId(row.id),
+                            })
+                        } else {
+                            insert.execute(params![key.0, key.1, app, rekordbox, base])?;
+                            let id = conn.last_insert_rowid();
+                            open.insert(
+                                key,
+                                Stored {
+                                    id,
+                                    app: Some(app.to_owned()),
+                                    rekordbox: Some(rekordbox.to_owned()),
+                                    base: base.map(str::to_owned),
+                                    status: Status::Open,
+                                    resolved_value: None,
+                                },
+                            );
+                            detected.opened.push(ConflictId(id));
+                            Some(Outcome::Open {
+                                conflict: ConflictId(id),
+                            })
+                        }
                     }
                 }
             };
-            if let (Some(outcome), true) = (outcome, field.app.is_some()) {
+            let listed = field.app.is_some()
+                || matches!(
+                    outcome,
+                    Some(Outcome::Open { .. } | Outcome::Decided { .. })
+                );
+            if let (Some(outcome), true) = (outcome, listed) {
                 detected.fields.push(FieldOutcome {
                     library_track: track.library_track,
                     field: field.field.clone(),

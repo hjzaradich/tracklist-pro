@@ -88,13 +88,13 @@ fn a_respelled_location_is_not_a_change() {
         "Location",
         &[
             // As rekordbox writes it: lowercase escapes, some characters raw.
-            Some("file://localhost/D:/Sets/Caf%c3%a9 (Night)/Bus #2.mp3"),
+            Some("file://localhost/D:/Sets/Caf%c3%a9 (Late)/Quay #2.mp3"),
             // As a send writes it: everything escaped, uppercase.
-            Some("file://localhost/D:/Sets/Caf%C3%A9%20%28Night%29/Bus%20%232.mp3"),
+            Some("file://localhost/D:/Sets/Caf%C3%A9%20%28Late%29/Quay%20%232.mp3"),
             // Unescaped.
-            Some("file://localhost/D:/Sets/Caf\u{e9} (Night)/Bus #2.mp3"),
+            Some("file://localhost/D:/Sets/Caf\u{e9} (Late)/Quay #2.mp3"),
             // Decomposed, and in another letter case (NTFS ignores it).
-            Some("file://localhost/d:/sets/Cafe\u{301} (night)/BUS #2.MP3"),
+            Some("file://localhost/d:/sets/Cafe\u{301} (late)/QUAY #2.MP3"),
         ],
     );
 }
@@ -107,7 +107,7 @@ fn locations_of_different_files_differ() {
             Some("file://localhost/D:/Sets/Bus.mp3"),
             Some("file://localhost/D:/Sets/Bus.flac"),
             Some("file://localhost/E:/Sets/Bus.mp3"),
-            Some("file://localhost/D:/Sets/Night/Bus.mp3"),
+            Some("file://localhost/D:/Sets/Late/Bus.mp3"),
             // A macOS path keeps its letter case.
             Some("file://localhost/Users/quill/Bus.mp3"),
             Some("file://localhost/Users/quill/bus.mp3"),

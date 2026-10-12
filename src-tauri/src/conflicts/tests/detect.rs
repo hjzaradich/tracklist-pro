@@ -152,7 +152,7 @@ fn a_rerun_on_unchanged_inputs_writes_nothing() {
                 ),
                 field("Mix", Some("Dub"), Some("Dub"), Some("")),
                 // The app holds no value of its own.
-                field("Album", None, Some("Night Bus"), Some("Day Bus")),
+                field("Album", None, Some("Lantern Quay"), Some("Harbor Quay")),
             ],
         ),
         TrackSides {
@@ -295,21 +295,99 @@ fn sides_that_come_to_agree_withdraw_it() {
     }
 }
 
+// ---- A track rekordbox no longer has -------------------------------------
+
+/// The sides of a track rekordbox has no trusted entry for.
+fn not_there(id: LibraryTrackId, fields: Vec<FieldSides>) -> TrackSides {
+    TrackSides {
+        entry: RekordboxEntry::NotThere,
+        ..track(id, fields)
+    }
+}
+
 #[test]
-fn a_track_that_is_no_longer_in_rekordbox_has_its_open_conflicts_withdrawn() {
+fn a_track_rekordbox_no_longer_has_keeps_its_open_conflicts_untouched() {
     let lib = Lib::new();
     let (id, conflict) = with_open(&lib);
+    let before = lib.rows();
 
-    let detected = lib.detect(&[TrackSides {
-        entry: RekordboxEntry::NotThere,
-        ..track(id, vec![usual()])
-    }]);
+    // Whatever the app's side holds now, and with a second field of the
+    // app's own that has no conflict.
+    for app in ["Deep House", "Breaks", "House"] {
+        let gone = vec![not_there(
+            id,
+            vec![
+                genre(app, "Tech House", "House"),
+                field("Label", Some("Kestrel"), None, Some("Kestrel Nine")),
+            ],
+        )];
+        let (detected, written) = lib.written_by(move |c| detect(c, &gone));
 
+        assert_eq!(written, Vec::<String>::new(), "{app}");
+        // The conflict holds the app's only copy of rekordbox's value.
+        assert_eq!(lib.rows(), before, "{app}");
+        assert_eq!(detected.withdrawn, none(), "{app}");
+        let listed: Vec<(&str, &Outcome)> = detected
+            .fields
+            .iter()
+            .map(|f| (f.field.as_str(), &f.outcome))
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("Genre", &Outcome::Open { conflict }),
+                // Nothing of rekordbox's to merge: it goes out as new.
+                ("Label", &Outcome::SendApp),
+            ],
+            "{app}"
+        );
+    }
+}
+
+#[test]
+fn a_track_that_comes_back_in_a_later_export_still_has_its_conflict_once() {
+    let lib = Lib::new();
+    let (id, conflict) = with_open(&lib);
+    let before = lib.rows();
+    lib.detect(&[not_there(id, vec![usual()])]);
+
+    // Back, with the values it had: the very same conflict, and only it.
+    let back = vec![track(id, vec![usual()])];
+    let (detected, written) = lib.written_by(move |c| detect(c, &back));
+
+    assert_eq!(written, Vec::<String>::new());
+    assert_eq!(lib.rows(), before);
+    assert_eq!(detected.opened, none());
+    assert_eq!(detected.fields[0].outcome, Outcome::Open { conflict });
+    assert_eq!(
+        values(&lib.only_open()),
+        (Some("Deep House"), Some("Tech House"), Some("House"))
+    );
+}
+
+#[test]
+fn a_track_that_comes_back_changed_has_its_conflict_decided_again_by_the_usual_rules() {
+    // Back with another value on rekordbox's side: the same conflict, now
+    // holding the values as they are.
+    let lib = Lib::new();
+    let (id, conflict) = with_open(&lib);
+    lib.detect(&[not_there(id, vec![usual()])]);
+    let detected = lib.detect(&[track(id, vec![genre("Deep House", "Minimal", "House")])]);
+    let open = lib.only_open();
+    assert_eq!(open.id, conflict);
+    assert_eq!(
+        values(&open),
+        (Some("Deep House"), Some("Minimal"), Some("House"))
+    );
+    assert_eq!(detected.updated, [conflict]);
+
+    // Back with rekordbox holding the app's value: nothing left to decide.
+    let lib = Lib::new();
+    let (id, conflict) = with_open(&lib);
+    lib.detect(&[not_there(id, vec![usual()])]);
+    let detected = lib.detect(&[track(id, vec![genre("Deep House", "Deep House", "House")])]);
     assert_eq!(lib.rows(), []);
     assert_eq!(detected.withdrawn, [conflict]);
-    // The app's value goes out with the track, as new.
-    assert_eq!(detected.fields[0].outcome, Outcome::SendApp);
-    assert_eq!(detected.fields[0].decision.reason, Reason::NotInRekordbox);
 }
 
 #[test]
@@ -464,11 +542,20 @@ fn a_resolution_stands_until_a_side_moves() {
             "{status:?}"
         );
 
-        // The app has taken the value chosen as its own: still settled.
+        // The app has taken the value chosen as its own: still settled,
+        // and the value chosen is still what goes out.
         let adopted = genre(chosen, "Tech House", "House");
         let detected = lib.detect(&[track(id, vec![adopted])]);
         assert_eq!(lib.rows(), before, "{status:?}, adopted");
         assert_eq!(detected.opened, none(), "{status:?}, adopted");
+        assert_eq!(
+            detected.fields[0].outcome,
+            Outcome::Decided {
+                conflict,
+                value: chosen.to_owned()
+            },
+            "{status:?}, adopted"
+        );
     }
 }
 
@@ -599,6 +686,168 @@ fn the_newest_settled_conflict_is_the_one_settled_last_whatever_the_clock_said()
     );
 }
 
+// ---- A decision is not reversed once the app holds the value chosen --------
+
+/// Opens a conflict on `sides`, settles it with `choice`, lets the app
+/// take the value chosen as its own, and detects. Returns the settled
+/// conflict's id, the value chosen and what detect said.
+fn settled_and_adopted(
+    lib: &Lib,
+    sides: &FieldSides,
+    choice: Choice,
+) -> (ConflictId, String, Detected) {
+    let id = lib.bare();
+    lib.detect(&[track(id, vec![sides.clone()])]);
+    let resolved = lib.resolve(lib.only_open().id, choice).unwrap().value;
+    let adopted = FieldSides {
+        app: Some(resolved.value.clone()),
+        ..sides.clone()
+    };
+    let settled = lib.rows();
+
+    let detected = lib.detect(&[track(id, vec![adopted.clone()])]);
+
+    // Nothing is opened, the decision is as it was, and a rerun writes
+    // nothing.
+    assert_eq!(lib.rows(), settled, "{sides:?}");
+    let again = vec![track(id, vec![adopted])];
+    let (second, written) = lib.written_by(move |c| detect(c, &again));
+    assert_eq!(written, Vec::<String>::new(), "{sides:?}");
+    assert_eq!(lib.rows(), settled, "{sides:?}");
+    assert_eq!(second, detected, "{sides:?}");
+    (resolved.conflict, resolved.value, detected)
+}
+
+#[test]
+fn a_conflict_settled_by_hand_to_the_value_last_sent_is_not_reversed_once_the_app_holds_it() {
+    // The app said 4 stars, rekordbox 5, and 3 were sent. The user says:
+    // neither, put it back to 3. Once the app holds 3 again, the sides read
+    // "only rekordbox changed"; rekordbox's 5 must not come in.
+    let lib = Lib::new();
+    let sides = apart("Rating", "204", "255", "153");
+
+    let (conflict, chosen, detected) =
+        settled_and_adopted(&lib, &sides, Choice::Edit("153".into()));
+
+    assert_eq!(chosen, "153");
+    assert_eq!(detected.opened, none());
+    assert_eq!(detected.fields.len(), 1, "{detected:?}");
+    assert_eq!(
+        detected.fields[0].outcome,
+        Outcome::Decided {
+            conflict,
+            value: "153".into()
+        }
+    );
+}
+
+#[test]
+fn a_decision_is_honoured_whichever_value_was_chosen_once_the_app_holds_it() {
+    for (which, choice, chosen) in [
+        ("the app's value", Choice::KeepApp, "204"),
+        ("rekordbox's value", Choice::KeepRekordbox, "255"),
+        ("the base's value", Choice::Edit("153".into()), "153"),
+        ("a fourth value", Choice::Edit("51".into()), "51"),
+        // The same choices, given by hand.
+        ("the app's value, typed", Choice::Edit("204".into()), "204"),
+        (
+            "rekordbox's value, typed",
+            Choice::Edit("255".into()),
+            "255",
+        ),
+    ] {
+        let lib = Lib::new();
+        let sides = apart("Rating", "204", "255", "153");
+
+        let (conflict, value, detected) = settled_and_adopted(&lib, &sides, choice);
+
+        assert_eq!(value, chosen, "{which}");
+        assert_eq!(detected.opened, none(), "{which}");
+        assert_eq!(detected.withdrawn, none(), "{which}");
+        assert_eq!(detected.fields.len(), 1, "{which}: {detected:?}");
+        assert_eq!(
+            detected.fields[0].outcome,
+            Outcome::Decided {
+                conflict,
+                value: chosen.to_owned()
+            },
+            "{which}"
+        );
+    }
+}
+
+#[test]
+fn text_put_back_or_cleared_by_hand_stays_as_the_user_decided() {
+    for (sides, typed) in [
+        // Put back to what was sent.
+        (apart("Genre", "Deep House", "Tech House", "House"), "House"),
+        // Cleared, where nothing was sent: rekordbox's comment stays out.
+        (apart("Comments", "warm up", "closing /* Peak */", ""), ""),
+        // A field that was never sent.
+        (
+            field("Genre", Some("Deep House"), Some("Tech House"), None),
+            "Minimal",
+        ),
+    ] {
+        let lib = Lib::new();
+
+        let (conflict, value, detected) =
+            settled_and_adopted(&lib, &sides, Choice::Edit(typed.to_owned()));
+
+        assert_eq!(value, typed, "{sides:?}");
+        assert_eq!(
+            detected.fields[0].outcome,
+            Outcome::Decided {
+                conflict,
+                value: typed.to_owned()
+            },
+            "{sides:?}"
+        );
+    }
+}
+
+#[test]
+fn a_decision_the_app_holds_stops_standing_exactly_when_a_side_moves() {
+    // Settled to the base's value and taken by the app: 3 / 5 / 3.
+    let lib = Lib::new();
+    let id = lib.bare();
+    lib.detect(&[track(id, vec![apart("Rating", "204", "255", "153")])]);
+    let settled = lib
+        .resolve(lib.only_open().id, Choice::Edit("153".into()))
+        .unwrap()
+        .value
+        .conflict;
+    let outcome = |app: &str, rekordbox: &str, base: &str| {
+        lib.detect(&[track(
+            id,
+            vec![field("Rating", Some(app), Some(rekordbox), Some(base))],
+        )])
+        .fields
+        .first()
+        .map(|f| f.outcome.clone())
+    };
+    let decided = Some(Outcome::Decided {
+        conflict: settled,
+        value: "153".into(),
+    });
+
+    assert_eq!(outcome("153", "255", "153"), decided);
+    // rekordbox written another way is the same value: it hasn't moved.
+    assert_eq!(outcome("153", "0255", "153"), decided);
+    // rekordbox moves: its new value is taken in, by the table.
+    assert_eq!(outcome("153", "102", "153"), Some(Outcome::TakeRekordbox));
+    // The app moves to a value that is neither the old one nor the one
+    // chosen: a new conflict.
+    assert!(matches!(
+        outcome("51", "255", "153"),
+        Some(Outcome::Open { conflict }) if conflict > settled
+    ));
+    // The base moves (a send recorded 4 stars): both changed alike is
+    // nothing; the decision no longer answers.
+    assert_eq!(outcome("255", "255", "204"), None);
+    assert_eq!(lib.settled().len(), 1);
+}
+
 // ---- A send that was never imported ---------------------------------------
 
 #[test]
@@ -657,7 +906,7 @@ fn what_a_send_does_is_listed_for_each_field_the_app_holds_a_value_for_and_no_ot
                 field("Name", Some("Velo"), Some("Velo"), Some("Velo")),
                 field("Mix", Some("Dub"), Some("Dub"), Some("")),
                 // The app follows rekordbox: not listed.
-                field("Album", None, Some("Night Bus"), Some("Day Bus")),
+                field("Album", None, Some("Lantern Quay"), Some("Harbor Quay")),
             ],
         ),
         TrackSides {
@@ -875,10 +1124,10 @@ fn with_no_values_of_the_apps_own_nothing_conflicts_whatever_rekordbox_changed()
     // Today's app: every field of a known track follows rekordbox.
     let lib = Lib::new();
     let id = lib.known(&[
-        ("Name", "Velo (Night Mix)"),
+        ("Name", "Velo (Late Mix)"),
         ("Genre", "Tech House"),
         ("Rating", "255"),
-        ("Location", "file://localhost/E:/Music/Night Bus.mp3"),
+        ("Location", "file://localhost/E:/Music/Lantern Quay.mp3"),
     ]);
     lib.sent(
         id,
@@ -886,7 +1135,7 @@ fn with_no_values_of_the_apps_own_nothing_conflicts_whatever_rekordbox_changed()
             ("Name", "Velo"),
             ("Genre", "House"),
             ("Rating", "0"),
-            ("Location", "file://localhost/E:/Music/Night%20Bus.mp3"),
+            ("Location", "file://localhost/E:/Music/Lantern%20Quay.mp3"),
         ],
     );
 

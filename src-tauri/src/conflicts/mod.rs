@@ -45,7 +45,9 @@
 //!   conflict already open on the field is left as it is. (A send from
 //!   such a read is refused as a whole, 1.9.)
 //! - **Row 3.** A track rekordbox doesn't have (or has only by a probable
-//!   match) has nothing of rekordbox's to merge: it goes out as new.
+//!   match) has nothing of rekordbox's to merge: it goes out as new. A
+//!   conflict already open on it is left as it is ([`store`]): it may hold
+//!   the only copy of rekordbox's value.
 //! - **Row 4.** [`Sides::app`] is `None` when the app holds no value of its
 //!   own for the field: it sends rekordbox's current value (1.9 rule 1,
 //!   "unless the app means to change it"). That is every field of every
@@ -66,7 +68,11 @@
 //!
 //! # What is done about a verdict
 //!
-//! [`Verdict::handling`] is the one place that says it. `NotTakenUp` is
+//! One thing comes before the table: a decision the user made that still
+//! stands answers its field whatever the verdict ([`store`]), so a value
+//! chosen is never overwritten while no side has moved.
+//!
+//! [`Verdict::handling`] is the one place that says the rest. `NotTakenUp` is
 //! handled as "send the app's value again": nothing is taken in and no
 //! conflict is recorded. To make it a conflict instead (the owner's call),
 //! change [`NOT_TAKEN_UP`] to [`Handling::Review`]; nothing else needs to
@@ -189,12 +195,18 @@ pub const NOT_TAKEN_UP: Handling = Handling::SendApp;
 impl Verdict {
     /// What is done about it. The one place that decides.
     pub fn handling(self) -> Handling {
+        self.handling_when(NOT_TAKEN_UP)
+    }
+
+    /// [`Verdict::handling`] with `NotTakenUp` handled as given, so both
+    /// settings of [`NOT_TAKEN_UP`] can be run.
+    pub(crate) fn handling_when(self, not_taken_up: Handling) -> Handling {
         match self {
             Verdict::Never | Verdict::Unchanged | Verdict::Same => Handling::Nothing,
             Verdict::Wait => Handling::Wait,
             Verdict::SendApp => Handling::SendApp,
             Verdict::TakeRekordbox => Handling::TakeRekordbox,
-            Verdict::NotTakenUp => NOT_TAKEN_UP,
+            Verdict::NotTakenUp => not_taken_up,
             Verdict::Conflict => Handling::Review,
         }
     }
