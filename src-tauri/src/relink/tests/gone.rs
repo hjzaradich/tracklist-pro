@@ -294,6 +294,17 @@ fn a_track_mate_the_rules_no_longer_call_a_duplicate_isnt_matched() {
 }
 
 #[test]
+fn a_track_mate_just_decided_not_a_duplicate_isnt_matched_before_the_grouping_pass() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    // What a deciding run leaves until the pass after it: the rules' new
+    // answer, and where the pair stood before. A relink can run in between.
+    lib.pair(old, mate, "review", "merged");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
 fn a_track_mate_never_decided_against_the_gone_file_isnt_matched() {
     let (lib, music, mounted, old, track) = moved();
     // The gone file and a second file were merged. A third joined the

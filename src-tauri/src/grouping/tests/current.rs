@@ -94,6 +94,21 @@ fn files_sharing_a_track_that_the_rules_no_longer_call_duplicates_arent() {
 }
 
 #[test]
+fn files_just_decided_not_duplicates_arent_even_before_the_grouping_pass() {
+    let db = db();
+    let (flac, mp3) = velo_and_its_reencode(&db);
+    db.retag(mp3, Some("Velo (Dirty)"), Some("Halden Rook"));
+    // The deciding run alone, as when the job makes way for another one
+    // before its closing pass: the pair has the rules' new answer, and
+    // still stands where the last pass left it.
+    db.decide_in_pages(crate::grouping::PAGE);
+    assert_eq!(db.stands(flac, mp3), ("cut".into(), "merged".into()));
+    assert_eq!(db.decided(), [flac, mp3]);
+    assert_eq!(current(&db, flac), NONE);
+    assert_eq!(current(&db, mp3), NONE);
+}
+
+#[test]
 fn files_decided_under_other_rules_arent() {
     let db = db();
     let (flac, mp3) = velo_and_its_reencode(&db);
