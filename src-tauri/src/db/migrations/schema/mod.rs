@@ -228,6 +228,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ),
     // `conflict` ids are never reused, no tables.
     ("0025_conflict_ids_never_reused.sql", &[]),
+    // Partial indexes for the Review queue, no tables.
+    ("0026_review_queue_indexes.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

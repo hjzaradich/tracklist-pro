@@ -18,7 +18,7 @@ use crate::send_values::{plays_in_dj_app, tag_values, TAG_ATTRIBUTES};
 use crate::tags::TagFields;
 
 /// One file of a track, as the ranking sees it, and the role it has now.
-pub(super) struct Loaded {
+pub(crate) struct Loaded {
     pub facts: FileFacts,
     pub role: String,
 }
@@ -26,7 +26,7 @@ pub(super) struct Loaded {
 /// The files of each of `recordings`, by track. A track with no files is
 /// not in the map. Leaves the stored verdicts as they are: whoever calls
 /// settles them first.
-pub(super) fn load(
+pub(crate) fn load(
     conn: &Connection,
     recordings: &[i64],
 ) -> rusqlite::Result<BTreeMap<i64, Vec<Loaded>>> {

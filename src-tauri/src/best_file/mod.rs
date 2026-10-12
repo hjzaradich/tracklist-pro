@@ -119,6 +119,7 @@ pub use pick::{
     pick, ArtPick, ArtReason, DifferentArt, Disagreement, FieldPick, FieldValue, PickReason, Picks,
     TagField, COMPLETENESS_FIELDS,
 };
+pub(crate) use pick::tags_filled;
 pub use rank::{
     rank, why_ahead, Ranked, Ranking, Reason, Step, CUTOFF_STEP_HZ, FULL_BAND_FROM_HZ,
     LOSSLESS_ORDER, LOSSY_ORDER,

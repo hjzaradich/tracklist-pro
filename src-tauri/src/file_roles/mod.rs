@@ -51,7 +51,7 @@
 //! link or a better place is not a better file: tags and art are picked per
 //! field, apart from the audio. A tie is not better either.
 
-mod facts;
+pub(crate) mod facts;
 #[cfg(test)]
 mod tests;
 
