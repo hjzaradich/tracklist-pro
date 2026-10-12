@@ -7,6 +7,9 @@
 //! - `sides`: reading the three sides from the database.
 //! - `detect`: keeping the `conflict` table in step, and what never
 //!   changes.
+//! - `resolve`: settling one conflict or many, and undoing it.
+//! - `never_lost`: any sequence of edits, detects, resolves and undos
+//!   keeps every value a conflict holds.
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -17,13 +20,15 @@ use rusqlite::Connection;
 use super::*;
 use crate::db::Writer;
 use crate::library::LibraryTrackId;
-use crate::ops::{self, UndoOutcome};
+use crate::ops::{self, Recorded, UndoOutcome};
 use crate::paths::Volumes;
 use crate::send_values::send_values;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 mod compare;
 mod detect;
+mod never_lost;
+mod resolve;
 mod sides;
 mod table;
 
@@ -392,6 +397,27 @@ impl Lib {
         let mut open = self.open(&Filter::default());
         assert_eq!(open.len(), 1, "{open:?}");
         open.remove(0)
+    }
+
+    pub fn resolve(
+        &self,
+        id: ConflictId,
+        choice: Choice,
+    ) -> Result<Recorded<Resolved>, ResolveError> {
+        self.writer
+            .call(move |c| Ok(resolve(c, id, &choice)))
+            .unwrap()
+    }
+
+    pub fn resolve_all(
+        &self,
+        filter: &Filter,
+        choice: Choice,
+    ) -> Result<Recorded<Vec<Resolved>>, ResolveError> {
+        let filter = filter.clone();
+        self.writer
+            .call(move |c| Ok(resolve_all(c, &filter, &choice)))
+            .unwrap()
     }
 
     pub fn undo(&self) -> UndoOutcome {

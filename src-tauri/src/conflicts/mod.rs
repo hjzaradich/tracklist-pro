@@ -96,6 +96,7 @@
 //! takes any field name, so it can become one.
 
 mod compare;
+pub mod resolve;
 pub mod store;
 
 #[cfg(test)]
@@ -105,6 +106,10 @@ use serde::Serialize;
 use specta::Type;
 
 pub use compare::{fits, kind_of, same, Kind, ANALYSIS_FIELDS};
+pub use resolve::{
+    resolve, resolve_all, resolve_all_with, resolve_with, Choice, ResolveError, Resolved,
+    RESOLVE_ALL_OPERATION, RESOLVE_OPERATION,
+};
 pub use store::{
     detect, detect_for, load_sides, open_conflicts, AppValue, AppValues, Conflict, ConflictId,
     Detected, FieldOutcome, FieldSides, Filter, Outcome, RekordboxEntry, Status, TrackSides,
