@@ -116,7 +116,7 @@ fn an_app_that_died_between_scan_and_fingerprint_asks_for_the_fingerprint_stage_
             .unwrap();
         assert_eq!(waiting, 0);
         c.execute(
-            "UPDATE file_stage SET version = 0 WHERE stage = 'fingerprint'",
+            "UPDATE file_stage SET version = 999 WHERE stage = 'fingerprint'",
             [],
         )
         .unwrap();
@@ -135,7 +135,8 @@ fn an_app_that_died_between_scan_and_fingerprint_asks_for_the_fingerprint_stage_
     assert_eq!(status, "done");
     assert_eq!(world.job(*id).status, JobStatus::Done);
     assert_eq!(
-        world.count("SELECT count(*) FROM file_stage WHERE stage = 'fingerprint' AND version = 0"),
+        world
+            .count("SELECT count(*) FROM file_stage WHERE stage = 'fingerprint' AND version = 999"),
         0,
         "every file was fingerprinted again"
     );

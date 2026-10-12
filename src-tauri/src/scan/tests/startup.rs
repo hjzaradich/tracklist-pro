@@ -246,3 +246,73 @@ fn after_an_upgrade_that_left_every_track_due_the_next_start_asks_for_the_roles_
     let (_, queued) = ask(&writer, &volume);
     assert_eq!(kinds(&queued), ["group"]);
 }
+
+/// What the startup checks cost when nothing is due, on 100,000 files: the
+/// worst case, since each check then looks at every file once (it stops at
+/// the first due row otherwise). Prints; asserts only that nothing was
+/// queued, so the figures are for a library that really had nothing due.
+///
+/// ```text
+/// cargo test --lib -- --ignored --nocapture what_the_startup_checks_cost
+/// ```
+#[test]
+#[ignore = "a measurement, printed"]
+fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
+    use std::time::Instant;
+    let (_dir, volume, music) = drive();
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let started = Instant::now();
+    let sql = format!(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000)
+         INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, mtime, audio_hash,
+                           fingerprint, present)
+         SELECT 1, 'f' || i, 'f' || i, 1000, 1000, randomblob(34), randomblob(64), 1 FROM n;
+         INSERT INTO file_stage (file_id, stage, version, size, mtime, status)
+         SELECT id, 'read', {read}, 1000, 1000, 'done' FROM file;
+         INSERT INTO file_stage (file_id, stage, version, size, mtime, status)
+         SELECT id, 'hash', {hash}, 1000, 1000, 'done' FROM file;
+         INSERT INTO file_stage (file_id, stage, version, size, mtime, status)
+         SELECT id, 'fingerprint', {fingerprint}, 1000, 1000, 'done' FROM file;
+         INSERT INTO file_quality (file_id, audio_hash, method_version, cutoff_gap, decoded_ms, ended)
+         SELECT id, audio_hash, {quality}, 'too_short', 1000, 'complete' FROM file;
+         INSERT INTO fingerprint_matched (file_id, version, stands)
+         SELECT id, {matching}, id FROM file;
+         INSERT INTO recording (id) SELECT id FROM file;
+         INSERT INTO recording_file (recording_id, file_id, role) SELECT id, id, 'best' FROM file;
+         INSERT INTO grouping_file (file_id, rev, decided_as, placed_key)
+         SELECT id, 0, {decided}, audio_hash FROM file;
+         DELETE FROM best_file_due;",
+        read = crate::read::READ_VERSION,
+        hash = crate::hash::DEFINITION,
+        fingerprint = crate::fingerprint::VERSION,
+        quality = crate::quality::VERSION,
+        matching = crate::matching::VERSION,
+        decided = crate::grouping::decided_as(),
+    );
+    writer.call(move |c| c.execute_batch(&sql)).unwrap();
+    // The roles are of this build's version, so nothing is due there either.
+    ask(&writer, &volume);
+    writer.call(|c| c.execute("DELETE FROM job", [])).unwrap();
+    println!("built 100,000 files in {:?}", started.elapsed());
+
+    let time = |what: &str, check: fn(&rusqlite::Connection) -> rusqlite::Result<bool>| {
+        let started = Instant::now();
+        let due = writer.call(move |c| check(c)).unwrap();
+        println!("{what:>34}: {:>8.1?}  due: {due}", started.elapsed());
+    };
+    time("matching: any file due", |c| crate::matching::any_due(c));
+    time("grouping: a file with no track", |c| {
+        crate::grouping::any_ungrouped(c)
+    });
+    time("roles: any track due", |c| crate::file_roles::any_due(c));
+    let started = Instant::now();
+    let (failed, queued) = ask(&writer, &volume);
+    println!(
+        "{:>34}: {:>8.1?}  failed: {failed}, queued: {:?}",
+        "the whole startup step",
+        started.elapsed(),
+        kinds(&queued)
+    );
+    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+}
