@@ -10,6 +10,21 @@ use serde_json::{json, Value};
 
 use super::*;
 use crate::db::Writer;
+use crate::paths::Volumes;
+use crate::volume::{Volume, VolumeId};
+
+/// No drive is looked up: the overview never needs one for these libraries.
+struct NoVolumes;
+
+impl Volumes for NoVolumes {
+    fn volume_for(&self, path: &Path) -> std::io::Result<Volume> {
+        Err(std::io::Error::other(format!("{} isn't looked up", path.display())))
+    }
+
+    fn mount_path(&self, _: &VolumeId) -> Option<std::path::PathBuf> {
+        None
+    }
+}
 
 /// "Now" in every test: 2026-10-10 12:00 UTC.
 const NOW_MS: i64 = 1_791_633_600_000;
@@ -66,7 +81,7 @@ impl Lib {
     }
 
     fn overview(&self) -> Overview {
-        self.run(|c| overview_at(c, NOW_MS))
+        self.run(|c| overview_at(c, &NoVolumes, NOW_MS))
     }
 
     /// The stored form of the moment `hours` before [`NOW_MS`].
@@ -689,6 +704,154 @@ fn the_awkward_tags_are_not_all_empty() {
     assert!(given >= 15, "{given}");
 }
 
+
+// Missing tags and missing art.
+
+/// A tag block with a title, an artist and a genre, whichever are given.
+fn id3(title: Option<&str>, artist: Option<&str>, genre: Option<&str>) -> Option<Value> {
+    let mut frames = Vec::new();
+    for (key, value) in [("TIT2", title), ("TPE1", artist), ("TCON", genre)] {
+        if let Some(value) = value {
+            frames.push(text(key, value));
+        }
+    }
+    Some(json!({ "id3v2": frames }))
+}
+
+fn file_of(lib: &Lib, name: &str) -> i64 {
+    let name = format!("{name}.mp3");
+    lib.run(move |c| c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| r.get(0)))
+}
+
+#[test]
+fn a_track_is_missing_tags_when_its_shown_title_artist_or_genre_is_blank() {
+    let lib = Lib::new();
+    lib.library_track("Complete", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.library_track("No genre", None, id3(Some("A"), Some("B"), None));
+    lib.library_track("No artist", None, id3(Some("A"), None, Some("House")));
+    lib.library_track("Blank artist", None, id3(Some("A"), Some("  "), Some("House")));
+    // No title tag: the list shows the file's name, so it has a title.
+    lib.library_track("Only the file name", None, id3(None, Some("B"), Some("House")));
+    lib.library_track("Nothing tagged", None, None);
+
+    let o = lib.overview();
+    assert_eq!(o.tracks, 6);
+    assert_eq!(o.missing_tags, 4, "all but Complete and Only the file name");
+    assert_eq!(o.no_genre, 2, "No genre and Nothing tagged");
+}
+
+#[test]
+fn a_track_rekordbox_knows_is_judged_by_rekordboxs_title_artist_and_genre() {
+    let lib = Lib::new();
+    lib.library_track("Known and complete", None, None);
+    lib.library_track("Known without an artist", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.rekordbox(
+        file_of(&lib, "Known and complete"),
+        json!({"Name": "N", "Artist": "B", "Genre": "House"}),
+        false,
+    );
+    // rekordbox's blank artist stands: the file's tag is not looked at.
+    lib.rekordbox(
+        file_of(&lib, "Known without an artist"),
+        json!({"Name": "N", "Artist": "", "Genre": "House"}),
+        false,
+    );
+    let o = lib.overview();
+    assert_eq!(o.missing_tags, 1);
+}
+
+#[test]
+fn a_track_whose_linked_file_is_gone_is_judged_by_its_stored_tags() {
+    let lib = Lib::new();
+    lib.library_track("Gone and tagged", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.library_track("Gone and bare", None, None);
+    lib.exec("UPDATE file SET present = 0", []);
+    let o = lib.overview();
+    assert_eq!(o.missing_tags, 1);
+}
+
+#[test]
+fn a_track_with_no_file_at_all_is_missing_its_tags() {
+    let lib = Lib::new();
+    let track = lib.track("Alpha");
+    lib.exec(
+        "INSERT INTO library_track (recording_id, linked_file_id, source_status)
+         VALUES (?1, NULL, 'missing')",
+        [track],
+    );
+    let o = lib.overview();
+    assert_eq!((o.missing_tags, o.no_genre, o.missing_art), (1, 1, 0));
+}
+
+fn binary(key: &str, len: i64) -> Value {
+    json!({"key": key, "value": {"type": "binary", "len": len}})
+}
+
+#[test]
+fn a_track_is_missing_art_when_its_linked_files_tags_hold_no_picture() {
+    let lib = Lib::new();
+    let with = |name: &str, tags: Value| {
+        lib.library_track(name, None, Some(tags));
+    };
+    with("ID3 cover", json!({"id3v2": [text("TIT2", "A"), binary("APIC", 50_000)]}));
+    with("ID3 cover with a description", json!({"id3v2": [binary("APIC:Front", 50_000)]}));
+    with("MP4 cover", json!({"mp4_ilst": [binary("covr", 9_000)]}));
+    with("FLAC cover", json!({"vorbis_comments": [binary("METADATA_BLOCK_PICTURE", 9_000)]}));
+    with("APE cover", json!({"ape": [binary("Cover Art (Front)", 9_000)]}));
+    // Not covers: other binary frames, an empty picture, a picture named in text.
+    with("Cue data only", json!({"id3v2": [binary("GEOB:Serato Markers2", 5_000)]}));
+    with("Empty picture", json!({"id3v2": [binary("APIC", 0)]}));
+    with("Text called APIC", json!({"id3v2": [text("APIC", "not a picture")]}));
+    with("Untagged", json!({}));
+    // Tags never read: unknown, not missing.
+    lib.library_track("Not read yet", None, None);
+    // No linked file: nothing to look at.
+    let nothing = lib.track("No file");
+    lib.exec(
+        "INSERT INTO library_track (recording_id, linked_file_id, source_status)
+         VALUES (?1, NULL, 'missing')",
+        [nothing],
+    );
+    // A gone file's stored tags still say.
+    lib.library_track("Gone with a cover", None, Some(json!({"id3v2": [binary("APIC", 1)]})));
+    lib.library_track("Gone without", None, Some(json!({})));
+    lib.exec(
+        "UPDATE file SET present = 0 WHERE rel_path IN ('Gone with a cover.mp3', 'Gone without.mp3')",
+        [],
+    );
+
+    let o = lib.overview();
+    assert_eq!(o.missing_art, 5, "cue data, empty, text, untagged, gone without");
+}
+
+#[test]
+fn a_cover_in_a_real_id3_tag_is_found_by_the_art_rule() {
+    use crate::tags::test_audio::{id3_frame, id3v2, mp3};
+    // An APIC frame: UTF-8, MIME, picture type, description, picture data.
+    let mut body = vec![3u8];
+    body.extend_from_slice(b"image/jpeg\0");
+    body.push(3);
+    body.extend_from_slice(b"front\0");
+    body.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4]);
+    let mut bytes = id3v2(&[id3_frame(b"APIC", &body)], 0);
+    bytes.extend(mp3());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cover.mp3");
+    std::fs::write(&path, bytes).unwrap();
+    let read = crate::tags::read(&path).unwrap();
+
+    // The scan stores the blocks like this (`read::file::raw_tags_json`).
+    let mut blocks = serde_json::Map::new();
+    for tag in &read.raw_tags {
+        let kind = serde_json::to_value(tag.tag_type).unwrap();
+        blocks.insert(kind.as_str().unwrap().to_owned(), serde_json::to_value(&tag.items).unwrap());
+    }
+    let lib = Lib::new();
+    lib.library_track("Real cover", None, Some(Value::Object(blocks)));
+    lib.library_track("Real bare", None, Some(json!({})));
+    assert_eq!(lib.overview().missing_art, 1);
+}
+
 // Still counting.
 
 #[test]
@@ -769,8 +932,14 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         let decisions = scans(c, &decisions_sql(), [0]);
         assert_eq!(decisions, ["operation"]);
         let mut genres = scans(c, &genres_sql(), []);
-        genres.retain(|t| t != "blk" && t != "i");
+        genres.retain(|t| t != "blk" && t != "i" && t != "b");
         assert_eq!(genres, ["lt"], "genres: one pass over the Library's tracks");
+        let mut per_track = scans(c, &track_genres_sql(), []);
+        per_track.retain(|t| t != "blk" && t != "i" && t != "b");
+        assert_eq!(per_track, ["lt"], "missing tags: one pass over the Library's tracks");
+        let mut art = scans(c, MISSING_ART, []);
+        art.retain(|t| t != "blk" && t != "i");
+        assert_eq!(art, ["lt"], "missing art: one pass over the Library's tracks");
         Ok(())
     });
 }
@@ -800,18 +969,25 @@ fn build(lib: &Lib, count: i64) {
              INSERT INTO recording (id, title) SELECT i, 'Track ' || i FROM n;
              WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
              INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, duration_ms, raw_tags)
-             SELECT i, 1, 'f' || i || '.mp3', 'f' || i || '.mp3', 1000 + (i % 7) * 1000,
-                    CASE WHEN i % 3 = 0 OR i % 5 = 0 THEN
-                         json_object('id3v2', json_array(json_object('key', 'TIT2', 'value',
-                              json_object('type', 'text', 'text', 'Track ' || i))))
-                         ELSE json_object('id3v2', json_array(
-                              json_object('key', 'TIT2', 'value',
-                                          json_object('type', 'text', 'text', 'Track ' || i)),
-                              json_object('key', 'TCON', 'value',
-                                          json_object('type', 'text', 'text', 'Tag ' || (i % 40))),
-                              json_object('key', 'APIC', 'value',
-                                          json_object('type', 'binary', 'len', 50000))))
-                    END
+             SELECT n.i, 1, 'f' || n.i || '.mp3', 'f' || n.i || '.mp3', 1000 + (n.i % 7) * 1000,
+                    json_object('id3v2', (SELECT json_group_array(json(x)) FROM (
+                        SELECT json_object('key', 'TIT2', 'value',
+                                           json_object('type', 'text', 'text', 'Track ' || n.i)) AS x
+                        UNION ALL
+                        SELECT json_object('key', 'TPE1', 'value',
+                                           json_object('type', 'text', 'text', 'Artist ' || (n.i % 90)))
+                        WHERE n.i % 4 <> 0
+                        UNION ALL
+                        SELECT json_object('key', 'TCON', 'value',
+                                           json_object('type', 'text', 'text', 'Tag ' || (n.i % 40)))
+                        WHERE n.i % 3 <> 0 AND n.i % 5 <> 0
+                        UNION ALL
+                        SELECT json_object('key', 'APIC', 'value',
+                                           json_object('type', 'binary', 'len', 50000))
+                        WHERE n.i % 3 <> 0 AND n.i % 5 <> 0
+                        UNION ALL
+                        SELECT json_object('key', 'GEOB:Serato Markers2', 'value',
+                                           json_object('type', 'binary', 'len', 600)))))
              FROM n;
              INSERT INTO recording_file (recording_id, file_id, role)
              SELECT id, id, 'best' FROM recording;
@@ -821,8 +997,13 @@ fn build(lib: &Lib, count: i64) {
              SELECT 1, id FROM library_track WHERE id % 5 < 2;
              INSERT INTO rekordbox_track
                  (attributes, location_key, read_at, file_id, recording_id, relink_method)
-             SELECT json_object('TrackID', CAST(id AS TEXT), 'Location', 'file://localhost/C:/Music/' || id,
-                                'Genre', 'RB ' || (id % 10), 'AverageBpm', '120.00'),
+             SELECT json_patch(json_object('TrackID', CAST(id AS TEXT),
+                                'Location', 'file://localhost/C:/Music/' || id,
+                                'Genre', 'RB ' || (id % 10), 'AverageBpm', '120.00',
+                                'Name', 'Name ' || id),
+                               CASE WHEN id % 7 <> 0
+                                    THEN json_object('Artist', 'RB Artist ' || (id % 50))
+                                    ELSE '{}' END),
                     'c:/music/' || id, '2026-09-30T10:00:00.000Z', id, id, 'path'
              FROM recording WHERE id % 3 = 0;"
         ))?;
@@ -838,6 +1019,22 @@ fn check_a_library_of(count: i64) {
     let started = std::time::Instant::now();
     let o = lib.overview();
     println!("overview of {count} tracks: {:?}", started.elapsed());
+    let timed = |what: &str, f: &dyn Fn(&Connection) -> rusqlite::Result<()>| {
+        let at = std::time::Instant::now();
+        lib.run(|c| f(c));
+        println!("  {what}: {:?}", at.elapsed());
+    };
+    timed("library numbers", &|c| {
+        c.query_row(&library_sql(), ["2000"], |_| Ok(()))
+    });
+    timed("all music", &|c| c.query_row(ALL_MUSIC, [], |_| Ok(())));
+    timed("genres statement", &|c| {
+        c.prepare(&genres_sql())?.query_map([], |_| Ok(()))?.for_each(drop);
+        Ok(())
+    });
+    timed("genres", &|c| genres(c, 0).map(|_| ()));
+    timed("missing tags", &|c| missing_tags(c, &NoVolumes).map(|_| ()));
+    timed("missing art", &|c| c.query_row(MISSING_ART, [], |_| Ok(())));
 
     let all = 1..=count;
     assert_eq!(i64::from(o.tracks), count);
@@ -854,6 +1051,22 @@ fn check_a_library_of(count: i64) {
         all.clone().filter(|n| n % 3 == 0).count() as i64
     );
     assert_eq!(i64::from(o.all_music), count);
+    // Known tracks (every third) take rekordbox's artist, absent for every
+    // seventh; the rest take the tag's, absent for every fourth. The title is
+    // always there (a tag or, at worst, the file's name).
+    assert_eq!(
+        i64::from(o.missing_tags),
+        all.clone()
+            .filter(|n| {
+                let no_artist = if n % 3 == 0 { n % 7 == 0 } else { n % 4 == 0 };
+                no_artist || made_up_genre(*n).is_none()
+            })
+            .count() as i64
+    );
+    assert_eq!(
+        i64::from(o.missing_art),
+        all.clone().filter(|n| !(n % 3 != 0 && n % 5 != 0)).count() as i64
+    );
     assert_eq!(i64::from(o.added_this_week), count);
     // Every file's verdict is missing, so none is counted and the number
     // says it is still counting.

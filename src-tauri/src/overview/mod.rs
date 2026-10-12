@@ -39,7 +39,7 @@
 //!
 //! Read-only: the whole answer is read in one transaction.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -48,7 +48,10 @@ use tauri::State;
 
 use crate::db::ReadPool;
 use crate::ipc::IpcError;
+use crate::library::LibraryTrackId;
+use crate::paths::Volumes;
 use crate::quality::stale_condition;
+use crate::scan::system_volumes;
 
 #[cfg(test)]
 mod tests;
@@ -149,6 +152,12 @@ pub struct Overview {
     pub genres: Vec<GenreCount>,
     /// Library tracks with no genre.
     pub no_genre: u32,
+    /// Library tracks with no title, no artist or no genre, as the lists
+    /// show them ([`missing_tags`]).
+    pub missing_tags: u32,
+    /// Library tracks whose linked file has tags and no embedded cover
+    /// ([`MISSING_ART`]).
+    pub missing_art: u32,
     pub counting: Counting,
 }
 
@@ -217,6 +226,20 @@ fn decisions_sql() -> String {
 /// `TCON` (ID3v2), `©gen` (MP4), `GENRE` in any case (Vorbis, APE) and
 /// `IGNR` (RIFF INFO). Nothing else in a tag is looked at.
 fn genres_sql() -> String {
+    format!(
+        "SELECT rb, digest, count(*) FROM ({}) GROUP BY rb, digest",
+        genre_source_sql()
+    )
+}
+
+/// [`genres_sql`] for each Library track on its own: `(id, rb, digest)`.
+fn track_genres_sql() -> String {
+    format!("SELECT id, rb, digest FROM ({})", genre_source_sql())
+}
+
+/// Each Library track's `id`, what rekordbox says (`rb`) and the file's
+/// genre frames (`digest`), as [`genres_sql`] describes.
+fn genre_source_sql() -> String {
     // `rb` is `''` for a known track whose genre is blank.
     let tag_needed = if BLANK_GENRE_FALLS_BACK {
         "g.rb IS NULL OR trim(g.rb) = ''"
@@ -224,31 +247,29 @@ fn genres_sql() -> String {
         "g.rb IS NULL"
     };
     format!(
-        "SELECT rb, digest, count(*) FROM (
-             SELECT g.rb AS rb,
-                    CASE WHEN g.fid IS NOT NULL AND ({tag_needed}) THEN (
-                        SELECT json_group_object(b.block, json(b.items)) FROM (
-                            SELECT blk.key AS block, json_group_array(json(i.value)) AS items
-                            FROM file f, json_each(f.raw_tags) blk, json_each(blk.value) i
-                            WHERE f.id = g.fid AND json_type(blk.value) = 'array' AND (
-                                   (blk.key = 'id3v2' AND json_extract(i.value, '$.key') = 'TCON')
-                                OR (blk.key = 'mp4_ilst'
-                                    AND json_extract(i.value, '$.key') = char(169) || 'gen')
-                                OR (blk.key IN ('vorbis_comments', 'ape')
-                                    AND lower(json_extract(i.value, '$.key')) = 'genre')
-                                OR (blk.key = 'riff_info'
-                                    AND json_extract(i.value, '$.key') = 'IGNR'))
-                            GROUP BY blk.key) b) END AS digest
-             FROM (SELECT lt.linked_file_id AS fid,
-                          (SELECT coalesce(CAST(json_extract(rt.attributes, '$.Genre') AS TEXT), '')
-                           FROM rekordbox_track rt
-                           LEFT JOIN recording_file rf
-                                  ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
-                           WHERE rt.recording_id = lt.recording_id AND rt.relink_probable = 0
-                           ORDER BY {order}
-                           LIMIT 1) AS rb
-                   FROM library_track lt) g)
-         GROUP BY rb, digest",
+        "SELECT g.id AS id, g.rb AS rb,
+                CASE WHEN g.fid IS NOT NULL AND ({tag_needed}) THEN (
+                    SELECT json_group_object(b.block, json(b.items)) FROM (
+                        SELECT blk.key AS block, json_group_array(json(i.value)) AS items
+                        FROM file f, json_each(f.raw_tags) blk, json_each(blk.value) i
+                        WHERE f.id = g.fid AND json_type(blk.value) = 'array' AND (
+                               (blk.key = 'id3v2' AND json_extract(i.value, '$.key') = 'TCON')
+                            OR (blk.key = 'mp4_ilst'
+                                AND json_extract(i.value, '$.key') = char(169) || 'gen')
+                            OR (blk.key IN ('vorbis_comments', 'ape')
+                                AND lower(json_extract(i.value, '$.key')) = 'genre')
+                            OR (blk.key = 'riff_info'
+                                AND json_extract(i.value, '$.key') = 'IGNR'))
+                        GROUP BY blk.key) b) END AS digest
+         FROM (SELECT lt.id AS id, lt.linked_file_id AS fid,
+                      (SELECT coalesce(CAST(json_extract(rt.attributes, '$.Genre') AS TEXT), '')
+                       FROM rekordbox_track rt
+                       LEFT JOIN recording_file rf
+                              ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
+                       WHERE rt.recording_id = lt.recording_id AND rt.relink_probable = 0
+                       ORDER BY {order}
+                       LIMIT 1) AS rb
+               FROM library_track lt) g",
         order = crate::attach::PICK_ORDER,
     )
 }
@@ -296,6 +317,71 @@ fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, 
     Ok((genres, tracks.saturating_sub(with_genre)))
 }
 
+/// Library tracks whose linked file has tags and no embedded cover. The
+/// tags layer records a picture as a binary frame under the key of its
+/// format (`tags::raw`): `APIC` in ID3v2 (a description may follow after a
+/// colon), `covr` in MP4, `METADATA_BLOCK_PICTURE` in Vorbis comments
+/// and FLAC, and an item named `Cover Art (...)` in APE. A file whose tags
+/// were never read (`raw_tags` is NULL) is unknown, not without a cover,
+/// and a track with no linked file has nothing to look at: neither counts.
+const MISSING_ART: &str = "SELECT count(*) FROM library_track lt
+     JOIN file f ON f.id = lt.linked_file_id
+     WHERE f.raw_tags IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM json_each(f.raw_tags) blk, json_each(blk.value) i
+         WHERE json_type(blk.value) = 'array'
+           AND json_extract(i.value, '$.value.type') = 'binary'
+           AND json_extract(i.value, '$.value.len') > 0
+           AND ((blk.key = 'id3v2' AND (json_extract(i.value, '$.key') = 'APIC'
+                    OR substr(json_extract(i.value, '$.key'), 1, 5) = 'APIC:'))
+             OR (blk.key = 'mp4_ilst' AND json_extract(i.value, '$.key') = 'covr')
+             OR (blk.key = 'vorbis_comments'
+                 AND (json_extract(i.value, '$.key') = 'METADATA_BLOCK_PICTURE'
+                      OR substr(json_extract(i.value, '$.key'), 1, 23)
+                         = 'METADATA_BLOCK_PICTURE:'))
+             OR (blk.key = 'ape'
+                 AND lower(substr(json_extract(i.value, '$.key'), 1, 9)) = 'cover art')))";
+
+/// How many Library tracks lack a title, an artist or a genre.
+///
+/// The title and the artist are the ones the lists show
+/// ([`crate::send_values::shown`]: rekordbox's for a track rekordbox knows,
+/// else the files' tags, the file's name standing in for a missing title),
+/// so a title that is only the file's name counts as a title, since it is
+/// what the list shows, and a track with a file always has one. The genre is
+/// the one of [`genres`].
+///
+/// The shown values are worked out in Rust, a chunk of tracks at a time.
+pub fn missing_tags(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<u32> {
+    let mut genre_known: HashMap<(Option<String>, Option<String>), bool> = HashMap::new();
+    let mut ids: Vec<(i64, bool)> = Vec::new();
+    let mut stmt = conn.prepare(&track_genres_sql())?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let key: (Option<String>, Option<String>) = (row.get(1)?, row.get(2)?);
+        let has_genre = *genre_known
+            .entry(key)
+            .or_insert_with_key(|(rb, digest)| genre_of(rb.as_deref(), digest.as_deref()).is_some());
+        ids.push((row.get(0)?, has_genre));
+    }
+    let mut missing = 0u32;
+    for chunk in ids.chunks(SHOWN_CHUNK) {
+        let wanted: Vec<LibraryTrackId> = chunk.iter().map(|(id, _)| LibraryTrackId(*id)).collect();
+        let mut shown = crate::send_values::shown(conn, volumes, &wanted)?;
+        for (id, has_genre) in chunk {
+            let (title, artist) = shown
+                .remove(&LibraryTrackId(*id))
+                .map_or((None, None), crate::send_values::Shown::into_options);
+            if title.is_none() || artist.is_none() || !has_genre {
+                missing = missing.saturating_add(1);
+            }
+        }
+    }
+    Ok(missing)
+}
+
+/// How many tracks' shown values are worked out in one go.
+const SHOWN_CHUNK: usize = 5_000;
+
 /// Which sources have background work going, from the queued and running
 /// jobs.
 fn counting(conn: &Connection, verdicts_unsettled: bool) -> rusqlite::Result<Counting> {
@@ -319,7 +405,11 @@ fn count(n: i64) -> u32 {
 /// Every Overview number, as of `now_ms` (milliseconds since the Unix
 /// epoch; it sets where "this week" starts). Reads in one transaction, so
 /// the numbers agree with each other.
-pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview> {
+pub fn overview_at(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    now_ms: i64,
+) -> rusqlite::Result<Overview> {
     let tx = conn.unchecked_transaction()?;
     let conn = &*tx;
 
@@ -345,6 +435,8 @@ pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview>
         r.get::<_, bool>(0)
     })?;
     let (genres, no_genre) = genres(conn, tracks)?;
+    let missing_tags = missing_tags(conn, volumes)?;
+    let missing_art = conn.query_row(MISSING_ART, [], |r| r.get::<_, i64>(0))?;
     let counting = counting(conn, unsettled > 0)?;
     drop(tx);
 
@@ -363,6 +455,8 @@ pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview>
         decisions_this_week: count(decisions),
         genres,
         no_genre,
+        missing_tags,
+        missing_art: count(missing_art),
         counting,
     })
 }
@@ -374,5 +468,5 @@ pub async fn overview(reads: State<'_, ReadPool>) -> Result<Overview, IpcError> 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
-    Ok(reads.read(|conn| overview_at(conn, now_ms))?)
+    Ok(reads.read(|conn| overview_at(conn, &system_volumes(), now_ms))?)
 }
