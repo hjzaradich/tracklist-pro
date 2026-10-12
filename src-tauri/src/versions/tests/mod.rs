@@ -1,5 +1,7 @@
 //! The version parser's tests. Every name here is invented.
 //!
+//! - `asides`: harmless brackets (a copy counter, a year, a key, a tempo, a
+//!   catalogue number) and what is not harmless.
 //! - `corpus`: the table of names and the parse each must give.
 //! - `spellings`: every label spelling, in every bracket style.
 //! - `comparisons`: the table of name pairs and what they say about each
@@ -13,6 +15,7 @@
 
 use super::*;
 
+mod asides;
 mod comparisons;
 mod corpus;
 mod one_file;

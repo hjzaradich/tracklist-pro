@@ -185,7 +185,8 @@
 //!   ([`crate::versions::label_kind`]: the longest label first, up to three
 //!   words, "Original" aside), in brackets or bare, anywhere in its title
 //!   tag or its file name, split at spaces, hyphens, underscores, brackets
-//!   and dots. Each label counts as often as the one name that writes it
+//!   and dots. Dots between single letters spell one word: "V.I.P." is
+//!   Vip ("A.B." is no label and stays two letters). Each label counts as often as the one name that writes it
 //!   most does: "Come Clean" named "Come Clean (Clean).mp3" is Clean
 //!   twice; named "nightdrive promo.mp3", once. Intro and Outro together
 //!   are Intro-Outro.
@@ -195,7 +196,15 @@
 //!   are the artist tag's, a title tag's "feat.", and a file name's artist
 //!   part when the title tag bears it out (the tag's title is in the
 //!   name's title part and not in its artist part, and the artist part is
-//!   more than label words).
+//!   more than label words). An artist who is one label word ("Live",
+//!   "Edit") is set aside only where the file name's artist part names it
+//!   ("Live - Velo") or after "feat."; "Velo Live 128" keeps its Live.
+//! - A file's folder adds its label words too (`FileFacts::in_folder`, the
+//!   name of the folder it sits in, also in the plural: "Clean",
+//!   "Radio Edits"), but only the ones its own names don't carry already:
+//!   "Remixes/Velo (Halden Rook Remix).mp3" says Remix once. A folder named
+//!   like the file's artist adds nothing. Only the folder the file sits
+//!   in counts, not those above it.
 //! - If the two files' version words differ, a merge becomes "needs
 //!   review" (`labelWordsDiffer`, with the labels each file has more of).
 //!   A pair the table already keeps apart (a cut link, review) is left as
@@ -231,6 +240,11 @@
 //! - **A label word fused to another word** ("VeloDirty.mp3", "Velo
 //!   Dirty128.mp3") is not seen by anything here: there is no word break
 //!   to find it by. Such a file merges with its plain twin on full audio.
+//! - **A label spelled with a hyphen in the middle of a name** ("Velo Re-Fix
+//!   128.mp3") is not seen: the words are split at hyphens, and the parser's
+//!   "re-fix" is one word.
+//! - **A version given by a folder further up** than the one a file sits in
+//!   is not seen.
 //! - **Words the parser doesn't know as labels** ("Acoustic", "Vocal Mix")
 //!   are no version words.
 //! - **A bare label word beside the same label in brackets** ("Velo
@@ -504,6 +518,11 @@ pub struct FileFacts {
     own_doubt: Option<String>,
     /// The version words the file's names carry, for the final guard.
     label_words: LabelWords,
+    /// The label words of the folder the file sits in that its names don't
+    /// carry. Kept apart from `label_words` on purpose: a folder's word
+    /// can only add doubt, never make up for a word the other file's own
+    /// names carry ("Clean/Velo Dirty" beside "Dirty/Velo Clean").
+    folder_words: LabelWords,
 }
 
 impl FileFacts {
@@ -512,20 +531,54 @@ impl FileFacts {
     /// artist tag is split into artists as the artist part of a file name
     /// is, and counts for both names.
     pub fn new(title_tag: Option<&str>, artist_tag: Option<&str>, file_name: &str) -> FileFacts {
-        let by_file_name = versions::parse_file_name(file_name);
+        FileFacts::in_folder(title_tag, artist_tag, file_name, None)
+    }
+
+    /// [`FileFacts::new`] for a file that sits in a folder: `folder` is
+    /// the name of the folder it is in (its parent's name alone, not the
+    /// path). A folder called "Clean" or "Radio Edits" can be the only
+    /// place a version is written, so its label words count among the
+    /// file's version words for the final guard, unless the file's own
+    /// names already carry the word (a folder of "Remixes" holding
+    /// "Velo (Halden Rook Remix)" says nothing more). Only the guard sees
+    /// the folder: the table reads the names alone.
+    pub fn in_folder(
+        title_tag: Option<&str>,
+        artist_tag: Option<&str>,
+        file_name: &str,
+        folder: Option<&str>,
+    ) -> FileFacts {
         let title_tag = title_tag.filter(|title| !title.trim().is_empty());
         let by_tag = title_tag.map(versions::parse_title);
-        let label_words = label_words(
+        let by_file_name = file_name_reading(file_name, by_tag.as_ref());
+        let (label_words, folder_words) = label_words(
             title_tag.zip(by_tag.as_ref()),
             (file_name, &by_file_name),
             artist_tag,
+            folder,
         );
+        // A year beside "Remaster" is the year of that cut, a version. So
+        // for a file whose names mention a remaster, in any spelling, a
+        // bracketed year is no harmless bracket.
+        let remaster_named = label_words.contains_key(&MarkerKind::Remaster)
+            || folder_words.contains_key(&MarkerKind::Remaster)
+            || [title_tag.unwrap_or(""), file_name]
+                .iter()
+                .any(|name| name.to_lowercase().contains("master"));
+        let (by_file_name, by_tag) = match remaster_named {
+            true => (
+                by_file_name.with_years_unsettled(),
+                by_tag.map(|by_tag| by_tag.with_years_unsettled()),
+            ),
+            false => (by_file_name, by_tag),
+        };
         let Some(by_tag) = by_tag else {
             return FileFacts {
                 tagged: None,
                 file_name: Name::new(by_file_name, artist_tag),
                 own_doubt: None,
                 label_words,
+                folder_words,
             };
         };
         // A file's own two names are evidence about that file: with their
@@ -571,6 +624,7 @@ impl FileFacts {
             file_name,
             own_doubt,
             label_words,
+            folder_words,
         }
     }
 
@@ -580,20 +634,79 @@ impl FileFacts {
     }
 }
 
+/// A file name parsed. "Velo - Radio Edit.mp3" is "Artist - Title" to the
+/// parser, with a track titled "Radio Edit". It is read as the title
+/// "Velo" with a label instead when the file's title tag is "Velo" and not
+/// "Radio Edit": the tag then says which part is the title. Without a tag
+/// to say so the name stays as the parser reads it.
+fn file_name_reading(file_name: &str, by_tag: Option<&ParsedName>) -> ParsedName {
+    let default = versions::parse_file_name(file_name);
+    let Some(tag) = by_tag else {
+        return default;
+    };
+    match versions::parse_file_name_title_first(file_name) {
+        Some(titled)
+            if versions::title_key(&titled.base_title) == versions::title_key(&tag.base_title)
+                && versions::title_key(&default.base_title)
+                    != versions::title_key(&tag.base_title) =>
+        {
+            titled
+        }
+        _ => default,
+    }
+}
+
 /// The words of a name: lowercase, without accents or apostrophes, split
 /// at everything that isn't a letter or a digit (spaces, hyphens,
-/// underscores, brackets, dots).
+/// underscores, brackets, dots). Dots join letters spelling a label:
+/// "V.I.P." is the word `vip`, "X.V.I.P.128" is `x`, `vip` and `128`.
 fn words(text: &str) -> Vec<String> {
     let folded: String = text
         .nfd()
         .filter(|c| !is_combining_mark(*c) && *c != '\'')
         .flat_map(char::to_lowercase)
         .collect();
-    folded
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| !word.is_empty())
-        .map(str::to_string)
-        .collect()
+    let mut found = Vec::new();
+    for chunk in folded.split(|c: char| !c.is_alphanumeric() && c != '.') {
+        let pieces: Vec<&str> = chunk.split('.').filter(|piece| !piece.is_empty()).collect();
+        let mut at = 0;
+        while at < pieces.len() {
+            let single =
+                |piece: &str| piece.chars().count() == 1 && piece.chars().all(char::is_alphabetic);
+            // A run of single letters: "v", "i", "p".
+            let run = pieces[at..]
+                .iter()
+                .take_while(|piece| single(piece))
+                .count();
+            if run < 2 {
+                found.push(pieces[at].to_string());
+                at += 1;
+                continue;
+            }
+            // Within it, the longest stretch that spells a label, from the
+            // left; the other letters stay words of their own.
+            let end = at + run;
+            let mut from = at;
+            while from < end {
+                let spelled = (from + 2..=end).rev().find_map(|to| {
+                    let joined: String = pieces[from..to].concat();
+                    versions::label_kind(&joined).map(|_| (to, joined))
+                });
+                match spelled {
+                    Some((to, joined)) => {
+                        found.push(joined);
+                        from = to;
+                    }
+                    None => {
+                        found.push(pieces[from].to_string());
+                        from += 1;
+                    }
+                }
+            }
+            at = end;
+        }
+    }
+    found
 }
 
 /// Where `run` sits in `words`, as whole words in a row.
@@ -608,16 +721,43 @@ fn position_of(words: &[String], run: &[String]) -> Option<usize> {
 /// knows, how often it is written in the one name that writes it most.
 type LabelWords = BTreeMap<MarkerKind, usize>;
 
+/// Whether an artist's name is a single word that is also a label word
+/// ("Live", "Edit"): a name that can't be told from a version word.
+fn is_one_label_word(artist: &[String]) -> bool {
+    matches!(artist, [word] if versions::label_kind(word).is_some())
+}
+
+/// The artists of a file that a name sets aside when it spells them out.
+#[derive(Default)]
+struct SetAside {
+    /// Each is taken out once, wherever its whole name stands.
+    whole: Vec<Vec<String>>,
+    /// Artists who are one label word ("Live"): taken out only where they
+    /// follow "feat.", which says they are credited.
+    featured: Vec<Vec<String>>,
+}
+
 /// The label words in one name, wherever they are and however they are
 /// set off: its words are read from the left, the longest label first
 /// ("radio edit" before "radio"), "Original" aside. `set_aside` are the
 /// file's artists: each is taken out once, where its whole name stands in
 /// this name as words in a row, so "Dub Kestrel" is no dub, and a "Dub"
 /// elsewhere in the name still is.
-fn label_words_in(name: &str, set_aside: &[Vec<String>]) -> LabelWords {
+fn label_words_in(name: &str, set_aside: &SetAside) -> LabelWords {
     let mut rest = words(name);
-    for artist in set_aside {
+    for artist in &set_aside.whole {
         if let Some(at) = position_of(&rest, artist) {
+            rest.drain(at..at + artist.len());
+        }
+    }
+    // An artist who is one label word, credited after "feat.": that
+    // occurrence only.
+    for artist in &set_aside.featured {
+        let at = (1..rest.len()).find(|&at| {
+            rest[at..].starts_with(artist)
+                && versions::tables::FEAT_WORDS.contains(&rest[at - 1].as_str())
+        });
+        if let Some(at) = at {
             rest.drain(at..at + artist.len());
         }
     }
@@ -625,6 +765,49 @@ fn label_words_in(name: &str, set_aside: &[Vec<String>]) -> LabelWords {
     for kind in labels_among(&rest).0 {
         if kind != MarkerKind::Original {
             *found.entry(kind).or_default() += 1;
+        }
+    }
+    found
+}
+
+/// The label words in a folder's name, in the plural too ("Edits",
+/// "Radio Edits", "Remixes"): a folder is named for what it holds. The
+/// file's artists are set aside as in a name.
+fn folder_label_words(folder: &str, set_aside: &[Vec<String>]) -> LabelWords {
+    let mut rest = words(folder);
+    for artist in set_aside {
+        if let Some(at) = position_of(&rest, artist) {
+            rest.drain(at..at + artist.len());
+        }
+    }
+    let kind_of = |run: &[String]| {
+        let exact = versions::label_kind(&run.join(" "));
+        exact.or_else(|| {
+            let (last, front) = run.split_last()?;
+            ["es", "s"]
+                .iter()
+                .filter_map(|ending| last.strip_suffix(ending).filter(|stem| stem.len() >= 2))
+                .find_map(|stem| {
+                    let mut singular = front.to_vec();
+                    singular.push(stem.to_string());
+                    versions::label_kind(&singular.join(" "))
+                })
+        })
+    };
+    let mut found = LabelWords::new();
+    let mut at = 0;
+    while at < rest.len() {
+        let longest = (1..=versions::tables::MAX_LABEL_WORDS.min(rest.len() - at))
+            .rev()
+            .find_map(|n| kind_of(&rest[at..at + n]).map(|kind| (kind, n)));
+        match longest {
+            Some((kind, n)) => {
+                if kind != MarkerKind::Original {
+                    *found.entry(kind).or_default() += 1;
+                }
+                at += n;
+            }
+            None => at += 1,
         }
     }
     found
@@ -670,19 +853,40 @@ fn label_words(
     tag: Option<(&str, &ParsedName)>,
     file_name: (&str, &ParsedName),
     artist_tag: Option<&str>,
-) -> LabelWords {
-    let artists = |own: &[versions::Credit]| {
-        let mut artists: Vec<Vec<String>> = Vec::new();
+    folder: Option<&str>,
+) -> (LabelWords, LabelWords) {
+    let (file_name, by_file_name) = file_name;
+    // The artists the file name's own artist part names.
+    let artist_part: Vec<Vec<String>> = by_file_name
+        .credits
+        .iter()
+        .filter(|credit| credit.role == versions::CreditRole::Main)
+        .map(|credit| words(&credit.name))
+        .collect();
+    // `in_file_name` says whether the artists are set aside in the file
+    // name or in the title tag. An artist who is one label word ("Live")
+    // is set aside only where the file name's artist part names it: in
+    // "Velo Live 128" the word is the file's version, not the artist.
+    let artists = |own: &[versions::Credit], in_file_name: bool| {
+        let mut artists = SetAside::default();
         let tagged = artist_tag.map(versions::parse_artists).unwrap_or_default();
         for credit in own.iter().chain(&tagged) {
             let artist = words(&credit.name);
-            if !artist.is_empty() && !artists.contains(&artist) {
-                artists.push(artist);
+            if artist.is_empty() || artists.whole.contains(&artist) {
+                continue;
             }
+            if is_one_label_word(&artist) {
+                if in_file_name && artist_part.contains(&artist) {
+                    artists.whole.push(artist);
+                } else if !artists.featured.contains(&artist) {
+                    artists.featured.push(artist);
+                }
+                continue;
+            }
+            artists.whole.push(artist);
         }
         artists
     };
-    let (file_name, by_file_name) = file_name;
     // Folders in front of a file name are no part of its name.
     let file_name = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
     let artist_part_trusted = tag.is_some_and(|(_, by_tag)| {
@@ -703,11 +907,23 @@ fn label_words(
         true => &by_file_name.credits,
         false => &[],
     };
-    let mut found = label_words_in(file_name, &artists(own));
+    let mut found = label_words_in(file_name, &artists(own, true));
     if let Some((title, by_tag)) = tag {
-        for (kind, count) in label_words_in(title, &artists(&by_tag.credits)) {
+        for (kind, count) in label_words_in(title, &artists(&by_tag.credits, false)) {
             let most = found.entry(kind).or_default();
             *most = (*most).max(count);
+        }
+    }
+    // The folder's label words, for the ones the names don't carry. They
+    // are returned apart: they never count among the file's own words.
+    let mut from_folder = LabelWords::new();
+    if let Some(folder) =
+        folder.and_then(|folder| folder.rsplit(['/', '\\']).find(|part| !part.is_empty()))
+    {
+        for (kind, _) in folder_label_words(folder, &artists(&[], false).whole) {
+            if !found.contains_key(&kind) {
+                from_folder.insert(kind, 1);
+            }
         }
     }
     // Intro and Outro together are Intro-Outro, as within one name.
@@ -726,7 +942,7 @@ fn label_words(
             }
         }
     }
-    found
+    (found, from_folder)
 }
 
 /// Whether `name`, one of a file's two names, holds the whole title of the
@@ -757,6 +973,7 @@ fn hides_a_label_word(
     rest.drain(at..at + title.len());
 
     let own_artists: Vec<Vec<String>> = own_artists.iter().map(|c| words(&c.name)).collect();
+    let named_here = own_artists.clone();
     let title_in_artist = own_artists
         .iter()
         .any(|artist| position_of(artist, &title).is_some());
@@ -766,6 +983,11 @@ fn hides_a_label_word(
     };
     for credit in artist_tag.map(versions::parse_artists).unwrap_or_default() {
         let artist = words(&credit.name);
+        // An artist who is one label word ("Live") is an artist here only
+        // where the name's own artist part says so.
+        if is_one_label_word(&artist) && !named_here.contains(&artist) {
+            continue;
+        }
         // An artist named by both the tag and the name is in it once.
         if !known.contains(&artist) {
             known.push(artist);
@@ -1366,10 +1588,13 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
     let decision = by_table(pair);
     // The final guard: on a full (not identical) audio match, two files
     // merge silently only if their names carry the same version words.
+    // The words a folder adds are compared on their own: they only add
+    // doubt, and never make up for a word the other file's names carry.
     let (mine, theirs) = (&pair.a.label_words, &pair.b.label_words);
+    let (folder_mine, folder_theirs) = (&pair.a.folder_words, &pair.b.folder_words);
     let merges_on_full_audio =
         decision.outcome == Outcome::Duplicate && matches!(shared(pair.audio), Shared::Full(_));
-    if !merges_on_full_audio || mine == theirs {
+    if !merges_on_full_audio || (mine == theirs && folder_mine == folder_theirs) {
         return decision;
     }
     let more = |mine: &LabelWords, theirs: &LabelWords| -> Vec<MarkerKind> {
@@ -1378,9 +1603,16 @@ pub fn decide(pair: &Pair<'_>) -> Decision {
             .map(|(kind, _)| *kind)
             .collect()
     };
+    let both = |own: Vec<MarkerKind>, folder: Vec<MarkerKind>| -> Vec<MarkerKind> {
+        let mut kinds = own;
+        kinds.extend(folder);
+        kinds.sort();
+        kinds.dedup();
+        kinds
+    };
     let mut reasons = vec![Reason::LabelWordsDiffer {
-        only_a: more(mine, theirs),
-        only_b: more(theirs, mine),
+        only_a: both(more(mine, theirs), more(folder_mine, folder_theirs)),
+        only_b: both(more(theirs, mine), more(folder_theirs, folder_mine)),
     }];
     reasons.extend(decision.reasons);
     Decision {

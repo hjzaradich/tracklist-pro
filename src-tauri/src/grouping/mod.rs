@@ -117,7 +117,10 @@ use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, JobQueue, Ne
 /// The version of what the deciding run stores. Bump it when the rules
 /// ([`rules::decide`]), the pairs asked about or what is stored for one
 /// change: every file is then due again, and its pairs are decided afresh.
-pub const RULES_VERSION: u32 = 1;
+///
+/// 2: 1bD-4 (dotted spellings, label-word artists, the folder a file sits
+/// in, harmless brackets, a file name whose second part is only a label).
+pub const RULES_VERSION: u32 = 2;
 
 /// What a file's record says it was decided under
 /// (`grouping_file.decided_as`): the rules' version and the comparison's.
