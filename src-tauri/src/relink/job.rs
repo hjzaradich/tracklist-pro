@@ -108,6 +108,10 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
             );
         }
         ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
+        // Matches changed, so the titles of Library tracks may have too.
+        if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
+            eprintln!("relink: couldn't queue the search index: {e}");
+        }
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }

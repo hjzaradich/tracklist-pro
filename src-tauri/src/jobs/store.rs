@@ -103,7 +103,7 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
 /// a time and skips every pair that already has one, so a run from the top
 /// compares only the rest. These are the kinds a normal close already puts back in the
 /// queue ([`Ending::Requeued`]).
-const RESTARTABLE: [JobKind; 10] = [
+const RESTARTABLE: [JobKind; 11] = [
     JobKind::Scan,
     JobKind::Read,
     JobKind::Hash,
@@ -114,6 +114,7 @@ const RESTARTABLE: [JobKind; 10] = [
     JobKind::Attach,
     JobKind::Quality,
     JobKind::Match,
+    JobKind::Index,
 ];
 
 /// Why a job [`recover_interrupted`] couldn't restart ended. Kept in the

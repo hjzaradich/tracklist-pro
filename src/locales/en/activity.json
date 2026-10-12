@@ -15,7 +15,8 @@
     "relink": "Matching rekordbox tracks to files",
     "attach": "Adding rekordbox data to tracks",
     "quality": "Checking audio quality",
-    "match": "Comparing fingerprints"
+    "match": "Comparing fingerprints",
+    "index": "Updating search"
   },
   "percent": "{{task}} ({{percent}}%)",
   "andMore_one": "{{summary}} ({{count}} other task)",

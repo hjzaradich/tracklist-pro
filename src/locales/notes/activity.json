@@ -79,6 +79,10 @@
     "where": "Top bar, Activity status and list rows, last after a scan (after the fingerprints and the quality check), while fingerprints are compared. Nothing else about matching is shown yet.",
     "approved": "Comparing fingerprints"
   },
+  "task.index": {
+    "purpose": "Names the job that brings the search index up to date after tracks, tags or file names changed.",
+    "where": "Top bar, Activity status and list rows, briefly after a scan, a rekordbox read or a change to a track, while the search words of the changed tracks are worked out."
+  },
   "percent": {
     "purpose": "A task name with its progress.",
     "where": "Top bar, Activity status and list rows, for a running job that reports progress ({{task}} is a task name above).",

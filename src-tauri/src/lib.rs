@@ -30,6 +30,7 @@ pub mod rekordbox_write;
 pub mod relink;
 pub mod scan;
 pub mod scan_state;
+pub mod search;
 pub mod send;
 pub mod send_values;
 pub mod settings;

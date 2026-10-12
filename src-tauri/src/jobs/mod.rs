@@ -96,6 +96,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             JobKind::Match,
             crate::scan::chain::after_matching(crate::matching::Matcher::new()),
         )
+        .handler(
+            JobKind::Index,
+            crate::scan::chain::after_index(crate::search::indexer()),
+        )
         .start()
 }
 

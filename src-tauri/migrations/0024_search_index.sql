@@ -34,6 +34,11 @@ CREATE TABLE search_due (
     recording_id INTEGER NOT NULL PRIMARY KEY
 ) STRICT, WITHOUT ROWID;
 
+-- Finding the hidden files of the tracks a search matched: the few extra
+-- copies and the few files the user hid, without a walk over every file.
+CREATE INDEX recording_file_extras ON recording_file (file_id) WHERE role = 'extra';
+CREATE INDEX file_hidden ON file (hidden_reason) WHERE hidden_reason IS NOT NULL;
+
 -- After an upgrade, every track is due.
 INSERT INTO search_due (recording_id) SELECT id FROM recording;
 

@@ -123,6 +123,7 @@ describe("Activity status", () => {
       "relink",
       "quality",
       "match",
+      "index",
     ] as const;
     mockApp();
     render(<Activity />);
