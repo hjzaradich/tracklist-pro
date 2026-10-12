@@ -893,6 +893,13 @@ fn the_grouping_job_over_every_real_file_merges_no_pair_labeled_other_than_dupli
         println!("  {line}");
     }
 
+    // "Apart" proves nothing if the job placed nothing: pairs were checked,
+    // and at least one duplicate pair really merged.
+    assert!(others > 0, "no pair not labeled duplicate was checked");
+    assert!(
+        duplicates_merged > 0,
+        "none of the {duplicates} pairs labeled duplicate ended in one track:          the job placed nothing, so the pairs kept apart prove nothing"
+    );
     assert!(
         false_merges.is_empty(),
         "{} of {others} pairs not labeled duplicate share a track (the criterion is under 1%, \

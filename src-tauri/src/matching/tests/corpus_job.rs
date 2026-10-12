@@ -96,7 +96,12 @@ fn loaded(corpus: &Corpus) -> (Db, Vec<i64>) {
 fn the_job_merges_the_duplicate_groups_of_the_made_up_library() {
     let corpus = corpus();
     let (db, ids) = loaded(corpus);
-    for (a, b) in corpus.duplicate_pairs() {
+    let duplicates = corpus.duplicate_pairs();
+    assert!(
+        !duplicates.is_empty(),
+        "the library has duplicates to merge"
+    );
+    for (a, b) in duplicates {
         let (a, b) = (ids[corpus.index_of(a)], ids[corpus.index_of(b)]);
         assert!(
             same_track(&db, a, b),
@@ -117,9 +122,14 @@ fn the_job_merges_no_two_files_of_the_made_up_library_that_are_not_duplicates() 
             .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
     };
     let mut merged = Vec::new();
+    let mut checked = 0;
     for (i, a) in corpus.files.iter().enumerate() {
         for (j, b) in corpus.files.iter().enumerate().skip(i + 1) {
-            if !is_duplicate(a.name, b.name) && same_track(&db, ids[i], ids[j]) {
+            if is_duplicate(a.name, b.name) {
+                continue;
+            }
+            checked += 1;
+            if same_track(&db, ids[i], ids[j]) {
                 merged.push(format!(
                     "files {} and {}: {}",
                     ids[i],
@@ -129,6 +139,17 @@ fn the_job_merges_no_two_files_of_the_made_up_library_that_are_not_duplicates() 
             }
         }
     }
+    // The check above only means something on tracks the job really made:
+    // it compared pairs, and it merged the duplicates it was meant to.
+    assert!(checked > 0, "no pair of non-duplicates was checked");
+    assert!(
+        duplicates.iter().any(|&(a, b)| same_track(
+            &db,
+            ids[corpus.index_of(a)],
+            ids[corpus.index_of(b)]
+        )),
+        "the job merged no duplicates at all, so \"apart\" proves nothing"
+    );
     assert!(
         merged.is_empty(),
         "files that are not duplicates share a track:\n{}",
