@@ -883,6 +883,180 @@ fn an_edit_whose_send_was_never_imported_opens_no_conflict_and_is_sent_again() {
     );
 }
 
+/// One field's sides with what the app's value replaced known.
+fn replacing(sides: FieldSides, replaced: &str) -> FieldSides {
+    FieldSides {
+        replaced: Some(replaced.to_owned()),
+        ..sides
+    }
+}
+
+#[test]
+fn a_never_sent_field_whose_rekordbox_value_is_the_one_the_app_replaced_is_sent_with_no_conflict() {
+    let lib = Lib::new();
+    let id = lib.bare();
+    // The app changed House to Deep House; nothing was sent yet, and
+    // rekordbox still shows House.
+    let sides = replacing(
+        field("Genre", Some("Deep House"), Some("House"), None),
+        "House",
+    );
+
+    let detected = lib.detect(&[track(id, vec![sides])]);
+
+    assert_eq!(lib.rows(), []);
+    assert_eq!(
+        detected.fields,
+        [FieldOutcome {
+            library_track: id,
+            field: "Genre".into(),
+            decision: Decision {
+                verdict: Verdict::SendApp,
+                reason: Reason::NeverSentOnlyAppChanged,
+            },
+            outcome: Outcome::SendApp,
+        }]
+    );
+}
+
+#[test]
+fn a_never_sent_field_rekordbox_moved_on_from_what_the_app_replaced_is_a_conflict_with_no_base() {
+    let lib = Lib::new();
+    let id = lib.bare();
+    let sides = replacing(
+        field("Genre", Some("Deep House"), Some("Tech House"), None),
+        "House",
+    );
+
+    let detected = lib.detect(&[track(id, vec![sides])]);
+
+    let open = lib.only_open();
+    assert_eq!(
+        values(&open),
+        (Some("Deep House"), Some("Tech House"), None)
+    );
+    assert_eq!(
+        detected.fields[0].decision.reason,
+        Reason::NeverSentBothDiffer
+    );
+    assert_eq!(
+        detected.fields[0].outcome,
+        Outcome::Open { conflict: open.id }
+    );
+}
+
+#[test]
+fn a_sent_value_rekordbox_moved_on_from_is_rekordboxs_change_and_is_taken_in() {
+    let lib = Lib::new();
+    let id = lib.bare();
+    // Deep House was sent over House; rekordbox now shows neither.
+    let sides = replacing(
+        field(
+            "Genre",
+            Some("Deep House"),
+            Some("Tech House"),
+            Some("Deep House"),
+        ),
+        "House",
+    );
+
+    let detected = lib.detect(&[track(id, vec![sides])]);
+
+    assert_eq!(lib.rows(), []);
+    assert_eq!(
+        detected.fields[0].decision,
+        Decision {
+            verdict: Verdict::TakeRekordbox,
+            reason: Reason::OnlyRekordboxChanged,
+        }
+    );
+    assert_eq!(detected.fields[0].outcome, Outcome::TakeRekordbox);
+}
+
+#[test]
+fn what_the_app_replaced_is_read_with_its_value_and_decides_a_never_sent_field() {
+    // From the database: rekordbox still shows House, nothing was sent,
+    // and the app's Deep House is known to have replaced House.
+    let lib = Lib::new();
+    let still = lib.known(&[("Genre", "House")]);
+    let moved_on = lib.known(&[("Genre", "Tech House")]);
+    let mut app = AppValues::default();
+    app.set(still, own("Genre", "Deep House", Some("House")));
+    app.set(moved_on, own("Genre", "Deep House", Some("House")));
+
+    let detected = lib.detect_for(&[still, moved_on], &app);
+
+    let outcomes: Vec<(LibraryTrackId, &Outcome)> = detected
+        .fields
+        .iter()
+        .map(|f| (f.library_track, &f.outcome))
+        .collect();
+    let open = lib.only_open();
+    assert_eq!(open.library_track, moved_on);
+    assert_eq!(
+        values(&open),
+        (Some("Deep House"), Some("Tech House"), None)
+    );
+    assert_eq!(
+        outcomes,
+        [
+            (still, &Outcome::SendApp),
+            (moved_on, &Outcome::Open { conflict: open.id })
+        ]
+    );
+}
+
+// ---- The other setting of `NOT_TAKEN_UP` -----------------------------------
+
+#[test]
+fn set_to_review_a_send_that_was_not_taken_up_is_a_conflict_without_a_base_and_can_be_settled() {
+    let lib = Lib::new();
+    let id = lib.bare();
+    // Deep House was sent over House, and rekordbox still shows House.
+    let sides = vec![track(
+        id,
+        vec![replacing(
+            field(
+                "Genre",
+                Some("Deep House"),
+                Some("House"),
+                Some("Deep House"),
+            ),
+            "House",
+        )],
+    )];
+    let review = |sides: &Vec<TrackSides>| {
+        let sides = sides.clone();
+        lib.written_by(move |c| store::detect_reviewing_what_was_not_taken_up(c, &sides))
+    };
+
+    let (detected, _) = review(&sides);
+
+    let open = lib.only_open();
+    // The base is the app's own value, so there's no third value to record.
+    assert_eq!(values(&open), (Some("Deep House"), Some("House"), None));
+    assert_eq!(detected.fields[0].decision.verdict, Verdict::NotTakenUp);
+    assert_eq!(
+        detected.fields[0].outcome,
+        Outcome::Open { conflict: open.id }
+    );
+    let (again, written) = review(&sides);
+    assert_eq!(written, Vec::<String>::new());
+    assert_eq!(again.fields, detected.fields);
+
+    // Settled, it answers the field; the user isn't asked again.
+    lib.settle_by_hand(open.id, Status::KeptRekordbox, None);
+    let (decided, written) = review(&sides);
+    assert_eq!(written, Vec::<String>::new());
+    assert_eq!(
+        decided.fields[0].outcome,
+        Outcome::Decided {
+            conflict: open.id,
+            value: "House".into()
+        }
+    );
+}
+
 // ---- What the send is told ------------------------------------------------
 
 #[test]
