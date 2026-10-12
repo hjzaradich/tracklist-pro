@@ -8,8 +8,9 @@
 //! - `detect`: keeping the `conflict` table in step, and what never
 //!   changes.
 //! - `resolve`: settling one conflict or many, and undoing it.
-//! - `never_lost`: any sequence of edits, detects, resolves and undos
-//!   keeps every value a conflict holds.
+//! - `never_lost`: any sequence of edits, reads, sends, resolves and undos
+//!   keeps every value, judged by an account of the sides the test keeps
+//!   itself, not by the engine's own decisions.
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
