@@ -219,7 +219,7 @@ fn linked_to_a_gone_file_whose_entry_went_to_a_track_mate() -> (Lib, i64, i64, i
     lib.gone(old);
     // Another encode of it (music folder 1), merged with it by the
     // grouping job, titled as rekordbox names the entry.
-    let mate = lib.file(1, "Moved Mate/Mate.flac", None);
+    let mate = lib.file(1, "Moved Mate/Mate.flac", Some(200_400));
     lib.hashed(mate, 2);
     lib.title(mate, "Theirs");
     lib.joins(mate, old);
