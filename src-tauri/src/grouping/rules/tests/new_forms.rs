@@ -122,3 +122,95 @@ fn an_artist_called_with_a_dotted_label_is_set_aside_where_the_name_spells_it_ou
     assert_eq!(by_vip("V.I.P. Kestrel - Velo.mp3"), []);
     assert_eq!(by_vip("Velo V.I.P. 128.mp3"), [(MarkerKind::Vip, 1)]);
 }
+
+// ---- An artist called like a label -------------------------------------
+
+/// A file tagged "Velo" by `artist`, named `file_name`.
+fn by_artist(artist: &str, file_name: &str) -> FileFacts {
+    FileFacts::new(Some("Velo"), Some(artist), file_name)
+}
+
+#[test]
+fn an_artist_called_like_a_label_does_not_hide_a_real_version_word() {
+    for (artist, label, kind) in [
+        ("Live", "Live", MarkerKind::Live),
+        ("Edit", "Edit", MarkerKind::Edit),
+        ("Dub", "Dub", MarkerKind::Dub),
+    ] {
+        let file_name = format!("Velo {label} 128.mp3");
+        assert_eq!(
+            label_words(&by_artist(artist, &file_name)),
+            [(kind, 1)],
+            "{file_name}"
+        );
+        let got = decided(
+            full(),
+            &by_artist(artist, &file_name),
+            &by_artist(artist, "Velo 128.mp3"),
+        );
+        assert_eq!(got.outcome, Outcome::NeedsReview, "{file_name}");
+        assert_ne!(got.outcome, Outcome::Duplicate, "{file_name}");
+    }
+}
+
+#[test]
+fn an_artist_called_like_a_label_is_set_aside_where_the_file_names_artist_part_names_it() {
+    for (artist, other) in [("Live", "Edit"), ("Edit", "Live"), ("Dub", "Clean")] {
+        for file_name in [
+            format!("{artist} - Velo 128.mp3"),
+            format!("{artist} & Halden Rook - Velo 128.mp3"),
+            format!("01 {artist} - Velo 128.mp3"),
+        ] {
+            let tag = format!("{artist} & Halden Rook");
+            let file = FileFacts::new(Some("Velo"), Some(&tag), &file_name);
+            assert_eq!(label_words(&file), [], "{file_name}");
+            let plain = FileFacts::new(Some("Velo"), Some(&tag), "Velo 128.mp3");
+            let got = decided(full(), &file, &plain);
+            assert_eq!(got.outcome, Outcome::Duplicate, "{file_name}");
+        }
+        // Another label word beside the artist is still the file's.
+        let file = by_artist(artist, &format!("{artist} - Velo {other} 128.mp3"));
+        assert_eq!(label_words(&file).len(), 1, "{artist} - Velo {other}");
+    }
+}
+
+#[test]
+fn an_artist_called_like_a_label_creates_no_version_word_when_credited_with_feat() {
+    // "feat. Live" credits an artist called Live: no live version.
+    for (title, file_name) in [
+        ("Velo (feat. Live)", "nightdrive promo.mp3"),
+        ("Velo", "Velo feat. Live.mp3"),
+    ] {
+        let file = FileFacts::new(Some(title), Some("Halden Rook & Live"), file_name);
+        assert_eq!(label_words(&file), [], "{title} / {file_name}");
+    }
+    // ... and the credit hides no other "Live" in the same name.
+    let file = FileFacts::new(Some("Velo Live (feat. Live)"), None, "nightdrive promo.mp3");
+    assert_eq!(label_words(&file), [(MarkerKind::Live, 1)]);
+}
+
+#[test]
+fn an_artist_called_like_a_label_still_counts_when_the_file_name_names_no_artist_part() {
+    // "Live Velo.mp3" by "Live": nothing says "Live" is the artist here.
+    // Known and cautious: review, never a wrong merge.
+    let file = by_artist("Live", "Live Velo.mp3");
+    assert_eq!(label_words(&file), [(MarkerKind::Live, 1)]);
+}
+
+#[test]
+fn two_files_by_an_artist_called_like_a_label_with_the_artist_part_in_front_still_merge() {
+    let got = decided(
+        full(),
+        &by_artist("Live", "Live - Velo.mp3"),
+        &by_artist("Live", "Live - Velo.flac"),
+    );
+    assert_eq!(got.outcome, Outcome::Duplicate);
+}
+
+#[test]
+fn an_artist_called_like_a_label_with_a_label_in_the_artist_part_of_the_name_is_not_hidden_in_the_title(
+) {
+    // The second "Live" is a version: the artist is set aside once.
+    let file = by_artist("Live", "Live - Velo Live.mp3");
+    assert_eq!(label_words(&file), [(MarkerKind::Live, 1)]);
+}

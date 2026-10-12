@@ -645,16 +645,43 @@ fn position_of(words: &[String], run: &[String]) -> Option<usize> {
 /// knows, how often it is written in the one name that writes it most.
 type LabelWords = BTreeMap<MarkerKind, usize>;
 
+/// Whether an artist's name is a single word that is also a label word
+/// ("Live", "Edit"): a name that can't be told from a version word.
+fn is_one_label_word(artist: &[String]) -> bool {
+    matches!(artist, [word] if versions::label_kind(word).is_some())
+}
+
+/// The artists of a file that a name sets aside when it spells them out.
+#[derive(Default)]
+struct SetAside {
+    /// Each is taken out once, wherever its whole name stands.
+    whole: Vec<Vec<String>>,
+    /// Artists who are one label word ("Live"): taken out only where they
+    /// follow "feat.", which says they are credited.
+    featured: Vec<Vec<String>>,
+}
+
 /// The label words in one name, wherever they are and however they are
 /// set off: its words are read from the left, the longest label first
 /// ("radio edit" before "radio"), "Original" aside. `set_aside` are the
 /// file's artists: each is taken out once, where its whole name stands in
 /// this name as words in a row, so "Dub Kestrel" is no dub, and a "Dub"
 /// elsewhere in the name still is.
-fn label_words_in(name: &str, set_aside: &[Vec<String>]) -> LabelWords {
+fn label_words_in(name: &str, set_aside: &SetAside) -> LabelWords {
     let mut rest = words(name);
-    for artist in set_aside {
+    for artist in &set_aside.whole {
         if let Some(at) = position_of(&rest, artist) {
+            rest.drain(at..at + artist.len());
+        }
+    }
+    // An artist who is one label word, credited after "feat.": that
+    // occurrence only.
+    for artist in &set_aside.featured {
+        let at = (1..rest.len()).find(|&at| {
+            rest[at..].starts_with(artist)
+                && versions::tables::FEAT_WORDS.contains(&rest[at - 1].as_str())
+        });
+        if let Some(at) = at {
             rest.drain(at..at + artist.len());
         }
     }
@@ -708,18 +735,38 @@ fn label_words(
     file_name: (&str, &ParsedName),
     artist_tag: Option<&str>,
 ) -> LabelWords {
-    let artists = |own: &[versions::Credit]| {
-        let mut artists: Vec<Vec<String>> = Vec::new();
+    let (file_name, by_file_name) = file_name;
+    // The artists the file name's own artist part names.
+    let artist_part: Vec<Vec<String>> = by_file_name
+        .credits
+        .iter()
+        .filter(|credit| credit.role == versions::CreditRole::Main)
+        .map(|credit| words(&credit.name))
+        .collect();
+    // `in_file_name` says whether the artists are set aside in the file
+    // name or in the title tag. An artist who is one label word ("Live")
+    // is set aside only where the file name's artist part names it: in
+    // "Velo Live 128" the word is the file's version, not the artist.
+    let artists = |own: &[versions::Credit], in_file_name: bool| {
+        let mut artists = SetAside::default();
         let tagged = artist_tag.map(versions::parse_artists).unwrap_or_default();
         for credit in own.iter().chain(&tagged) {
             let artist = words(&credit.name);
-            if !artist.is_empty() && !artists.contains(&artist) {
-                artists.push(artist);
+            if artist.is_empty() || artists.whole.contains(&artist) {
+                continue;
             }
+            if is_one_label_word(&artist) {
+                if in_file_name && artist_part.contains(&artist) {
+                    artists.whole.push(artist);
+                } else if !artists.featured.contains(&artist) {
+                    artists.featured.push(artist);
+                }
+                continue;
+            }
+            artists.whole.push(artist);
         }
         artists
     };
-    let (file_name, by_file_name) = file_name;
     // Folders in front of a file name are no part of its name.
     let file_name = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
     let artist_part_trusted = tag.is_some_and(|(_, by_tag)| {
@@ -740,9 +787,9 @@ fn label_words(
         true => &by_file_name.credits,
         false => &[],
     };
-    let mut found = label_words_in(file_name, &artists(own));
+    let mut found = label_words_in(file_name, &artists(own, true));
     if let Some((title, by_tag)) = tag {
-        for (kind, count) in label_words_in(title, &artists(&by_tag.credits)) {
+        for (kind, count) in label_words_in(title, &artists(&by_tag.credits, false)) {
             let most = found.entry(kind).or_default();
             *most = (*most).max(count);
         }
@@ -794,6 +841,7 @@ fn hides_a_label_word(
     rest.drain(at..at + title.len());
 
     let own_artists: Vec<Vec<String>> = own_artists.iter().map(|c| words(&c.name)).collect();
+    let named_here = own_artists.clone();
     let title_in_artist = own_artists
         .iter()
         .any(|artist| position_of(artist, &title).is_some());
@@ -803,6 +851,11 @@ fn hides_a_label_word(
     };
     for credit in artist_tag.map(versions::parse_artists).unwrap_or_default() {
         let artist = words(&credit.name);
+        // An artist who is one label word ("Live") is an artist here only
+        // where the name's own artist part says so.
+        if is_one_label_word(&artist) && !named_here.contains(&artist) {
+            continue;
+        }
         // An artist named by both the tag and the name is in it once.
         if !known.contains(&artist) {
             known.push(artist);
