@@ -5,7 +5,7 @@
 use std::cell::Cell;
 use std::path::Path;
 
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use super::*;

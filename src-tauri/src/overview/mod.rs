@@ -283,7 +283,7 @@ fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, 
     let mut genres: Vec<GenreCount> = by_name
         .into_values()
         .map(|spellings| GenreCount {
-            tracks: spellings.values().fold(0, |sum, n| sum.saturating_add(*n)),
+            tracks: spellings.values().fold(0u32, |sum, n| sum.saturating_add(*n)),
             name: spellings
                 .iter()
                 .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
@@ -292,7 +292,7 @@ fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, 
         })
         .collect();
     genres.sort_by(|a, b| b.tracks.cmp(&a.tracks).then_with(|| a.name.cmp(&b.name)));
-    let with_genre = genres.iter().fold(0, |sum, g| sum.saturating_add(g.tracks));
+    let with_genre = genres.iter().fold(0u32, |sum, g| sum.saturating_add(g.tracks));
     Ok((genres, tracks.saturating_sub(with_genre)))
 }
 
