@@ -231,7 +231,7 @@ fn a_detect_after_a_resolve_does_not_stand_in_the_way_of_undoing_it() {
 
     assert_eq!(lib.undone(), RESOLVE_OPERATION);
 
-    assert_eq!(lib.rows(), [open.clone()]);
+    assert_eq!(lib.rows(), std::slice::from_ref(&open));
     // And detect finds the conflict open, as it is.
     let detected = lib.detect(&[track(id, vec![usual()])]);
     assert_eq!(detected.opened, []);
