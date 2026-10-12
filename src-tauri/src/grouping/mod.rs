@@ -197,6 +197,11 @@ pub(crate) fn request_decide<E: From<DbError>>(
 /// What grouping can't see is the caller's to check: a file that changed on
 /// disk since it was hashed still has its old `audio_hash` here.
 pub fn current_duplicates(conn: &rusqlite::Connection, file: i64) -> rusqlite::Result<Vec<i64>> {
+    // A file is current when its record says so: `f` and `g` are its rows.
+    let current = format!(
+        "g.decided_as IS ?2 AND g.placed_key IS NOT NULL AND g.placed_key IS {}",
+        store::CONTENT_KEY
+    );
     let mut stmt = conn.prepare_cached(&format!(
         "WITH mate (id) AS (
              SELECT file_b FROM grouping_pair
@@ -207,21 +212,16 @@ pub fn current_duplicates(conn: &rusqlite::Connection, file: i64) -> rusqlite::R
          SELECT f.id
          FROM file f JOIN grouping_file g ON g.file_id = f.id
                      JOIN recording_file rf ON rf.file_id = f.id
-         WHERE (f.id = ?1 OR f.id IN (SELECT id FROM mate))
-           AND g.decided_as IS ?2
-           AND g.placed_key IS NOT NULL AND g.placed_key IS {}
+         WHERE f.id IN (SELECT id FROM mate)
+           AND {current}
            AND rf.recording_id = (SELECT recording_id FROM recording_file WHERE file_id = ?1)
-         ORDER BY f.id",
-        store::CONTENT_KEY
+           -- Nothing is said about a file that isn't current itself.
+           AND EXISTS (SELECT 1 FROM file f JOIN grouping_file g ON g.file_id = f.id
+                       WHERE f.id = ?1 AND {current})
+         ORDER BY f.id"
     ))?;
-    let current: Vec<i64> = stmt
-        .query_map((file, decided_as()), |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    // Nothing is said about a file that isn't current itself.
-    if !current.contains(&file) {
-        return Ok(Vec::new());
-    }
-    Ok(current.into_iter().filter(|&id| id != file).collect())
+    let mates = stmt.query_map((file, decided_as()), |r| r.get(0))?;
+    mates.collect()
 }
 
 /// A grouping pass, one transaction a step ([`store::step`]). `between` is
