@@ -8,6 +8,9 @@
 //! - `measured`: numbers that can't be measurements are refused.
 //! - `guard`: full audio merges only files whose names carry the same
 //!   version words, however a label word is written.
+//! - `new_forms`: the version words 1bD-4 added (dotted spellings, label-word
+//!   artists, folders, a label as the whole second part) and the harmless
+//!   brackets.
 //! - `boundaries`: each threshold (90%, score 4, the shared-audio floor),
 //!   on both sides.
 //! - `e3_rules`: one test per rule under "Rules from the E3 labels" in
@@ -22,6 +25,7 @@ mod boundaries;
 mod e3_rules;
 mod guard;
 mod measured;
+mod new_forms;
 mod one_file;
 mod own_names;
 mod readings;

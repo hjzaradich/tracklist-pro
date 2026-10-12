@@ -582,18 +582,55 @@ impl FileFacts {
 
 /// The words of a name: lowercase, without accents or apostrophes, split
 /// at everything that isn't a letter or a digit (spaces, hyphens,
-/// underscores, brackets, dots).
+/// underscores, brackets, dots). Dots join letters spelling a label:
+/// "V.I.P." is the word `vip`, "X.V.I.P.128" is `x`, `vip` and `128`.
 fn words(text: &str) -> Vec<String> {
     let folded: String = text
         .nfd()
         .filter(|c| !is_combining_mark(*c) && *c != '\'')
         .flat_map(char::to_lowercase)
         .collect();
-    folded
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| !word.is_empty())
-        .map(str::to_string)
-        .collect()
+    let mut found = Vec::new();
+    for chunk in folded.split(|c: char| !c.is_alphanumeric() && c != '.') {
+        let pieces: Vec<&str> = chunk.split('.').filter(|piece| !piece.is_empty()).collect();
+        let mut at = 0;
+        while at < pieces.len() {
+            let single =
+                |piece: &str| piece.chars().count() == 1 && piece.chars().all(char::is_alphabetic);
+            // A run of single letters: "v", "i", "p".
+            let run = pieces[at..]
+                .iter()
+                .take_while(|piece| single(piece))
+                .count();
+            if run < 2 {
+                found.push(pieces[at].to_string());
+                at += 1;
+                continue;
+            }
+            // Within it, the longest stretch that spells a label, from the
+            // left; the other letters stay words of their own.
+            let end = at + run;
+            let mut from = at;
+            while from < end {
+                let spelled = (from + 2..=end).rev().find_map(|to| {
+                    let joined: String = pieces[from..to].concat();
+                    versions::label_kind(&joined).map(|_| (to, joined))
+                });
+                match spelled {
+                    Some((to, joined)) => {
+                        found.push(joined);
+                        from = to;
+                    }
+                    None => {
+                        found.push(pieces[from].to_string());
+                        from += 1;
+                    }
+                }
+            }
+            at = end;
+        }
+    }
+    found
 }
 
 /// Where `run` sits in `words`, as whole words in a row.
