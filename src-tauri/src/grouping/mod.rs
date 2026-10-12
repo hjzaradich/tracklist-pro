@@ -58,6 +58,11 @@
 //!   holds** ([`decide`]): a changed file waits for the fingerprint stage,
 //!   as a due file and as any other file's partner.
 //!
+//! One merge needs more than the audio: **a cut-off copy** (quality verdict
+//! `truncated`) inside the whole, same-named file is a worse duplicate, not
+//! a cut ([`rules`], "A cut-off copy"; [`decide`], "The quality verdict").
+//! Everything above holds for it as for any duplicate.
+//!
 //! # The same again, and a fresh database
 //!
 //! A run over a database nothing changed in changes nothing, a remembered
@@ -83,7 +88,10 @@
 //!   fingerprint run. If its pass finds a set waiting for a pair nobody
 //!   decided, it asks for a deciding job.
 //! - The **deciding job** ([`decide_job`]), once matching has nothing left
-//!   to compare ([`request_decide`]): a grouping pass, the deciding run, a
+//!   to compare ([`request_decide`]), and when a quality job ends that
+//!   found a file cut short ([`request_decide_after_quality`]): a grouping
+//!   pass, the quality verdicts brought up to date if a file is due, the
+//!   deciding run, a
 //!   grouping pass over what it stored, and then the pairs that pass found
 //!   waiting sets to miss, with a pass after them
 //!   ([`decide_and_group`]). It runs below everything else, like matching,
@@ -125,7 +133,11 @@ use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, JobQueue, Ne
 ///
 /// 2: 1bD-4 (dotted spellings, label-word artists, the folder a file sits
 /// in, harmless brackets, a file name whose second part is only a label).
-pub const RULES_VERSION: u32 = 2;
+///
+/// 3: 1bC-6 (a cut-off copy inside the whole, same-named file is a
+/// duplicate, not a cut; each file's record keeps the quality verdict it
+/// was decided at).
+pub const RULES_VERSION: u32 = 3;
 
 /// What a file's record says it was decided under
 /// (`grouping_file.decided_as`): the rules' version and the comparison's.
@@ -226,6 +238,56 @@ pub fn current_duplicates(conn: &rusqlite::Connection, file: i64) -> rusqlite::R
     mates.collect()
 }
 
+/// What follows a quality job: a file whose verdict now says "truncated"
+/// where the verdict it was decided at didn't (or the other way round) is
+/// made due again ([`decide::due_again_where_truncation_changed`]), and
+/// then a deciding job is asked for as everywhere else
+/// ([`request_decide`]). A file made due here stays due, so if matching
+/// still has work, the request that follows it finds the file.
+///
+/// The quality job has just brought its verdicts up to date, so nothing is
+/// settled here but the few files looked at closely (an out-of-date
+/// verdict never counts as a changed one).
+pub(crate) fn request_decide_after_quality<E: From<DbError>>(
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+) -> Result<(), E> {
+    writer.call(decide::due_again_where_truncation_changed)?;
+    request_decide(writer, enqueue)
+}
+
+/// Before a deciding run lists what is due: the quality verdicts are
+/// brought up to date, a page a transaction ([`crate::quality::settle`];
+/// `between` may stop it between two), and every file that is truncated
+/// now and wasn't when it was decided, or the other way round, is made due
+/// again.
+///
+/// Every verdict is only brought up to date when a file is due: that reads
+/// every file once, to find the files that turned truncated while nobody
+/// looked, and a job with nothing to decide has no use for it. Whether or
+/// not it ran, no file is made due, and no pair decided, on a verdict that
+/// is out of date: the files looked at for a changed verdict, and the
+/// files of every page, are settled where they are read ([`decide`], "The
+/// quality verdict").
+fn catch_up_with_verdicts<E: From<DbError>>(
+    writer: &Writer,
+    between: &mut dyn FnMut() -> Result<(), E>,
+) -> Result<(), E> {
+    if writer.call(|c| decide::any_recorded_due(c))? {
+        let mut after = 0;
+        loop {
+            between()?;
+            let page = writer.call(move |c| crate::quality::store::settle_page(c, None, after))?;
+            match page.last {
+                Some(last) => after = last,
+                None => break,
+            }
+        }
+    }
+    writer.call(decide::due_again_where_truncation_changed)?;
+    Ok(())
+}
+
 /// A grouping pass, one transaction a step ([`store::step`]). `between` is
 /// called before every step and may stop the pass there: every step stands
 /// by itself. Returns what the pass did, and the pairs its waiting sets
@@ -251,7 +313,10 @@ pub fn pass<E: From<DbError>>(
 /// these is found by the next job's pass.
 const COMPLETING_ROUNDS: usize = 8;
 
-/// Everything a deciding job does, in order: a grouping pass; the deciding
+/// Everything a deciding job does, in order: a grouping pass; the quality
+/// verdicts, brought up to date if a file is due, and the files made due
+/// that are truncated now and weren't when they were decided
+/// ([`decide`], "The quality verdict"); the deciding
 /// run over every file that is due and ready ([`decide::run`]); a pass over
 /// what it stored; then, while a pass lists pairs that waiting sets miss,
 /// those pairs ([`decide::complete`]) and one more pass.
@@ -270,6 +335,7 @@ pub fn decide_and_group<E: From<DbError>>(
 ) -> Result<(), E> {
     let (summary, mut undecided) = pass(writer, between)?;
     done.1.add(summary);
+    catch_up_with_verdicts(writer, between)?;
     done.0 = decide::run(writer, names, page, tick, stop_here)?;
     if done.0.wrote() {
         let (summary, missing) = pass(writer, between)?;

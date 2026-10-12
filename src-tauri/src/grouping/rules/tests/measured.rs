@@ -43,6 +43,7 @@ fn sound_measurements_are_taken_as_given() {
             found_b: 0.92,
             found_score: 1.75,
             matched_items: 2000,
+            main_starts: None,
         }
     );
 }

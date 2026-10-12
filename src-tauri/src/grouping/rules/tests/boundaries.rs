@@ -91,6 +91,7 @@ fn the_duplicate_rule_is_judged_on_the_main_alignment_not_on_what_other_alignmen
         found_b: 0.95,
         found_score: 1.0,
         matched_items: 2000,
+        main_starts: None,
     });
     assert_eq!(got.outcome, Outcome::NeedsReview);
     assert_eq!(codes(&got), ["sameTagsPartialAudio"]);
@@ -106,6 +107,7 @@ fn the_duplicate_rule_is_judged_on_the_main_alignments_score_not_the_score_over_
         found_b: 1.0,
         found_score: 6.0,
         matched_items: 2000,
+        main_starts: None,
     });
     assert_eq!(got.outcome, Outcome::Duplicate);
 }
@@ -150,6 +152,7 @@ fn one_sided_coverage_counts_what_every_alignment_found_not_only_the_main_one() 
         found_b: 0.4,
         found_score: 1.0,
         matched_items: 2000,
+        main_starts: None,
     });
     assert_eq!(got.outcome, cut_link(&[]));
     assert_eq!(codes(&got), ["audioInsideOther"]);
@@ -165,6 +168,7 @@ fn one_sided_coverage_with_a_score_just_over_4_over_everything_found_is_a_partia
         found_b: 0.4,
         found_score: just_over_4(),
         matched_items: 2000,
+        main_starts: None,
     });
     assert_eq!(got.outcome, Outcome::NeedsReview);
     assert_eq!(codes(&got), ["sameTagsPartialAudio"]);
@@ -180,6 +184,7 @@ fn one_sided_coverage_is_judged_on_the_score_over_everything_found_not_the_main_
         found_b: 0.4,
         found_score: 4.0,
         matched_items: 2000,
+        main_starts: None,
     });
     assert_eq!(got.outcome, cut_link(&[]));
 }
@@ -209,6 +214,7 @@ fn a_short_stretch(matched_items: usize) -> Measured {
         found_b: share,
         found_score: 2.0,
         matched_items,
+        main_starts: None,
     }
 }
 
