@@ -20,6 +20,9 @@
 --   -1  stands for "every Library track": a rekordbox read or relink can
 --       change the title a Library track shows (a track that is not in the
 --       Library never takes its text from rekordbox).
+-- (The triggers insert only what is not there yet instead of using OR IGNORE:
+-- a statement's own ON CONFLICT clause, an upsert's, overrides the one in a
+-- trigger body.)
 -- Nothing is hidden in the index: whether a file is hidden is read from
 -- `file` and `recording_file` when a search runs.
 
@@ -49,58 +52,60 @@ WHEN old.raw_tags IS NOT new.raw_tags
   OR old.rel_path IS NOT new.rel_path
   OR old.present IS NOT new.present
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id)
-    SELECT recording_id FROM recording_file WHERE file_id = new.id;
+    INSERT INTO search_due (recording_id)
+    SELECT recording_id FROM recording_file
+    WHERE file_id = new.id
+      AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = recording_file.recording_id);
 END;
 
 -- A file joins, leaves or moves between tracks, or changes role (the best
--- file's tags are read first).
+-- file's tags are read first). (INSERT OR REPLACE over a file's row would
+-- drop the old row without a trigger; the app never does it, and the
+-- tracks-never-merge guard refuses it for linked versions.)
 CREATE TRIGGER search_file_joins_a_track
 AFTER INSERT ON recording_file
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (new.recording_id);
-END;
-
--- INSERT OR REPLACE over a file's row drops the old row without a delete
--- trigger: its track is due too.
-CREATE TRIGGER search_file_replaces_a_row
-BEFORE INSERT ON recording_file
-BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id)
-    SELECT recording_id FROM recording_file WHERE file_id = new.file_id;
+    INSERT INTO search_due (recording_id)
+    SELECT new.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = new.recording_id);
 END;
 
 CREATE TRIGGER search_file_leaves_a_track
 AFTER DELETE ON recording_file
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (old.recording_id);
+    INSERT INTO search_due (recording_id)
+    SELECT old.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = old.recording_id);
 END;
 
 CREATE TRIGGER search_file_moves_or_changes_role
 AFTER UPDATE OF recording_id, role ON recording_file
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (old.recording_id);
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (new.recording_id);
+    INSERT INTO search_due (recording_id)
+    SELECT old.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = old.recording_id);
+    INSERT INTO search_due (recording_id)
+    SELECT new.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = new.recording_id);
 END;
 
 -- A track appears, goes, or gets a title or artist of its own.
 CREATE TRIGGER search_track_appears
 AFTER INSERT ON recording
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (new.id);
+    INSERT INTO search_due (recording_id)
+    SELECT new.id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = new.id);
 END;
 
 CREATE TRIGGER search_track_goes
 AFTER DELETE ON recording
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (old.id);
+    INSERT INTO search_due (recording_id)
+    SELECT old.id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = old.id);
 END;
 
 CREATE TRIGGER search_track_is_named
 AFTER UPDATE OF title, artist ON recording
 WHEN old.title IS NOT new.title OR old.artist IS NOT new.artist
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (new.id);
+    INSERT INTO search_due (recording_id)
+    SELECT new.id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = new.id);
 END;
 
 -- A track joins or leaves the Library, or is linked to another file: where
@@ -108,20 +113,24 @@ END;
 CREATE TRIGGER search_library_track_added
 AFTER INSERT ON library_track
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (new.recording_id);
+    INSERT INTO search_due (recording_id)
+    SELECT new.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = new.recording_id);
 END;
 
 CREATE TRIGGER search_library_track_removed
 AFTER DELETE ON library_track
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (old.recording_id);
+    INSERT INTO search_due (recording_id)
+    SELECT old.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = old.recording_id);
 END;
 
 CREATE TRIGGER search_library_track_changes
 AFTER UPDATE OF recording_id, linked_file_id ON library_track
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (old.recording_id);
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (new.recording_id);
+    INSERT INTO search_due (recording_id)
+    SELECT old.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = old.recording_id);
+    INSERT INTO search_due (recording_id)
+    SELECT new.recording_id WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = new.recording_id);
 END;
 
 -- A rekordbox read replaces the snapshot, and a relink changes which file a
@@ -129,18 +138,21 @@ END;
 CREATE TRIGGER search_rekordbox_row_added
 AFTER INSERT ON rekordbox_track
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1);
+    INSERT INTO search_due (recording_id)
+    SELECT -1 WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = -1);
 END;
 
 CREATE TRIGGER search_rekordbox_row_removed
 AFTER DELETE ON rekordbox_track
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1);
+    INSERT INTO search_due (recording_id)
+    SELECT -1 WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = -1);
 END;
 
 CREATE TRIGGER search_rekordbox_row_matched
 AFTER UPDATE OF file_id, relink_probable ON rekordbox_track
 WHEN old.file_id IS NOT new.file_id OR old.relink_probable IS NOT new.relink_probable
 BEGIN
-    INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1);
+    INSERT INTO search_due (recording_id)
+    SELECT -1 WHERE NOT EXISTS (SELECT 1 FROM search_due WHERE recording_id = -1);
 END;

@@ -1,0 +1,172 @@
+//! The `index` job: it brings the index up to date in the background, from
+//! what `search_due` holds, and is asked for wherever something is due.
+
+use std::time::{Duration, Instant};
+
+use super::support::{Lib, Mount};
+use crate::db::Writer;
+use crate::jobs::{self, JobKind, JobQueue, JobRecord, JobStatus, Priority};
+use crate::scan::chain::after_index;
+use crate::search::{index_job, indexer_with, request, settle_page};
+
+fn queue(lib: &Lib) -> JobQueue {
+    JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Index, after_index(indexer_with(|| Mount, 2)))
+        .start()
+        .unwrap()
+}
+
+fn index_jobs(writer: &Writer) -> Vec<JobRecord> {
+    writer
+        .call(|c| {
+            let ids: Vec<i64> = c
+                .prepare("SELECT id FROM job WHERE kind = 'index' ORDER BY id")?
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            ids.into_iter()
+                .map(|id| jobs::store::get(c, jobs::JobId(id)).map(Option::unwrap))
+                .collect()
+        })
+        .unwrap()
+}
+
+/// Waits until nothing is queued or running.
+fn wait_idle(queue: &JobQueue, writer: &Writer) -> Vec<JobRecord> {
+    let start = Instant::now();
+    loop {
+        if queue.activity().unwrap().jobs.is_empty() {
+            return index_jobs(writer);
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "the jobs never finished: {:?}",
+            index_jobs(writer)
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn request_now(lib: &Lib, queue: &JobQueue) {
+    request(&lib.writer, |j| queue.enqueue(j)).unwrap();
+}
+
+#[test]
+fn the_index_job_works_out_every_track_that_is_due_and_leaves_the_queue_idle() {
+    let lib = Lib::new();
+    for n in 0..7 {
+        lib.track(Some(&format!("Track {n}")), None, &format!("{n}.mp3"));
+    }
+    let queue = queue(&lib);
+    request_now(&lib, &queue);
+    let jobs = wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+
+    assert_eq!(
+        jobs.iter().map(|j| j.status).collect::<Vec<_>>(),
+        [JobStatus::Done]
+    );
+    assert!(!lib.pending());
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 7);
+}
+
+#[test]
+fn nothing_is_queued_when_nothing_is_due_and_never_a_second_job_while_one_waits() {
+    let lib = Lib::new();
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(0)
+        .start()
+        .unwrap();
+    request_now(&lib, &queue);
+    assert!(index_jobs(&lib.writer).is_empty());
+
+    lib.track(Some("Due"), None, "a.mp3");
+    request_now(&lib, &queue);
+    request_now(&lib, &queue);
+    let waiting = index_jobs(&lib.writer);
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].priority, Priority::BACKGROUND);
+    queue.shutdown();
+}
+
+#[test]
+fn adding_a_track_to_the_library_then_asking_makes_the_new_shown_title_findable() {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("Tag title"), None, "a.mp3");
+    lib.rekordbox_entry(file, &[("Name", "Their title")]);
+    let queue = queue(&lib);
+    request_now(&lib, &queue);
+    wait_idle(&queue, &lib.writer);
+    assert_eq!(lib.found_as_is("their").unwrap().tracks, Vec::<i64>::new());
+
+    // The user adds it to the Library: nothing is queued by that alone, and
+    // a search says the index is behind.
+    lib.library(track, file);
+    let behind = lib.found_as_is("tag").unwrap();
+    assert!(behind.behind);
+    assert!(index_jobs(&lib.writer).iter().all(|j| j.status == JobStatus::Done));
+
+    // The search command asks, as the later screen task does.
+    request_now(&lib, &queue);
+    wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+    let after = lib.found_as_is("their").unwrap();
+    assert_eq!(after.tracks, vec![track]);
+    assert!(!after.behind);
+}
+
+#[test]
+fn an_index_job_cut_short_by_a_crash_is_queued_again_and_finishes_from_what_is_still_due() {
+    let lib = Lib::new();
+    for n in 0..5 {
+        lib.track(Some(&format!("Track {n}")), None, &format!("{n}.mp3"));
+    }
+    // A run that stopped after its first page, and its job left running, as
+    // a crash leaves them.
+    assert_eq!(lib.writer.call(|c| settle_page(c, &Mount, 2)).unwrap(), 2);
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 2);
+    lib.writer
+        .call(|c| {
+            c.execute(
+                "INSERT INTO job (kind, priority, status, started_at, progress)
+                 VALUES (?1, ?2, 'running', 'now', 0.4)",
+                (JobKind::Index.as_str(), Priority::BACKGROUND.0),
+            )?;
+            jobs::store::recover_interrupted(c)
+        })
+        .unwrap();
+    assert_eq!(
+        index_jobs(&lib.writer)
+            .iter()
+            .map(|j| j.status)
+            .collect::<Vec<_>>(),
+        [JobStatus::Queued]
+    );
+
+    // The app starts again.
+    let queue = queue(&lib);
+    let jobs = wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+    assert_eq!(
+        jobs.iter().map(|j| j.status).collect::<Vec<_>>(),
+        [JobStatus::Done]
+    );
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 5);
+    assert!(!lib.pending());
+}
+
+#[test]
+fn a_rebuild_job_throws_the_rows_away_and_works_them_all_out_again() {
+    let lib = Lib::new();
+    let (track, _) = lib.track(Some("Real"), None, "a.mp3");
+    lib.settle();
+    lib.exec("INSERT INTO search_track (rowid, title) VALUES (99, 'stray')");
+    assert_eq!(lib.found_as_is("stray").unwrap().tracks, vec![99]);
+
+    let queue = queue(&lib);
+    queue.enqueue(index_job(true)).unwrap();
+    wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+    assert_eq!(lib.found_as_is("stray").unwrap().tracks, Vec::<i64>::new());
+    assert_eq!(lib.found_as_is("real").unwrap().tracks, vec![track]);
+}

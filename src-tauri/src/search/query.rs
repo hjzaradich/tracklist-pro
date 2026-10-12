@@ -54,6 +54,11 @@ pub struct Found {
 /// required. At most [`MAX_TERMS`] words of [`MAX_TERM_CHARS`] characters
 /// count.
 pub fn match_expression(text: &str) -> Option<String> {
+    // A control character (a NUL, say) is no part of a word.
+    let text: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
     let terms: Vec<String> = text
         .split_whitespace()
         .filter(|word| word.chars().any(char::is_alphanumeric))
