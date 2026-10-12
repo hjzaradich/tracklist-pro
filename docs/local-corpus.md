@@ -11,7 +11,7 @@ A `spikes` folder holding:
 The audio files must be where `pairs.csv` says they are. Everything is only read; nothing is written next to them, and no audio file is touched.
 
 ## Running it
-Set `TLP_E3_DIR` to that `spikes` folder, then run its two tests from `src-tauri`:
+Set `TLP_E3_DIR` to that `spikes` folder, then run its three tests from `src-tauri`:
 
 ```powershell
 $env:TLP_E3_DIR = "C:\dev\tracklist-pro\spikes"
@@ -41,6 +41,17 @@ A second test puts every pair to `grouping::rules::decide`, as the rules' contra
 - **Per label** (in `labels.rs`, `allowed`): a duplicate merges; a cut gets a cut link; a rework gets a rework link or "different"; different songs get "different", never a link. "Needs review" is allowed for every label.
 
 It prints, per pair, the id, the label, how the rules sort the audio, whether the pass had proposed the pair, the outcome and its reason codes; for a pair the pass never proposed, also what the rules say when nobody compares the two. Then a tally per label, and how many of the real duplicates merge without review, with the reason codes of those that don't.
+
+### Through the grouping job
+A third test runs the real thing. All the corpus files go into **one** database with their real facts: the fingerprint of the audio, the audio hash, the whole-file hash, the `raw_tags` the read stage writes, and the real file name. It then runs the steps the app runs, in order: the quick grouping pass, the matching pass, and the deciding job (direct comparisons, the set rule, the index of names). "Sharing a track" means the two files have the same `recording_file.recording_id`, whether the job merged them directly or through a chain of other files.
+
+- **False merge:** two files of a pair not labeled duplicate that share a track. The test asserts there are none. The criterion (ROADMAP section 6, row 1b) is under 1%; with about 31 such pairs that means zero.
+- **Pair 42** (a version pair that shares much audio) must not share a track. It is asserted by id.
+- **Across pairs:** files of two different pairs in one track without the same audio are printed, not asserted: the labels cover only the pairs, and two files of different pairs can truly be one recording.
+
+It prints one line per pair: id, label, `one track` or `apart`, then the stored outcome, its state and the reason codes (`no pair stored` where the rules said "different"). Then the false merges as `k/N` with the percentage, how many of the duplicates share a track, the pairs held as `set_disagrees`, the pairs still `waiting`, and the cross-pair list by pair id and file id. The database holds real names (in `rel_path` and `raw_tags`), so the test never dumps it and never prints a reason's fields: codes only.
+
+Its made-up counterpart runs in CI (`src-tauri/src/matching/tests/corpus_job.rs`): the made-up library, given invented titles and an invented artist, goes through the same steps; its duplicate groups must merge and nothing else may.
 
 ## What it prints
 One line per pair: its id, its category, the coverage and found share both ways, the score, both lengths, the number of segments, whether the pass proposed it, the share of lined-up items that are the same bit for bit and the index keys the files share, how the grouping rules would read the audio (full, one-sided, partial, none), what the version check says about the names, and E3's own numbers. Then a tally per category.
