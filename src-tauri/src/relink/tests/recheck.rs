@@ -195,7 +195,7 @@ fn a_huge_candidate_set_is_skipped_before_any_of_its_files_is_looked_at() {
             .tracks
             .push(track(folders + g + 1, format!("D:/Old/Gone {g}.mp3"), 150));
     }
-    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None)).unwrap();
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None), no_mates).unwrap();
     assert_eq!(plan.filename_duration, 2_000);
     assert_eq!(plan.missing, 2_000);
     assert_eq!(plan.examined, 0);
@@ -221,7 +221,7 @@ fn a_small_candidate_set_is_looked_at_once_for_all_its_tracks() {
             let tx = c.transaction()?;
             let input = super::super::load(&tx, &mounted2)?;
             Ok(
-                rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None))
+                rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), |_| Ok(None), no_mates)
                     .unwrap()
                     .examined,
             )
@@ -534,6 +534,7 @@ fn title_tags_are_read_only_for_the_files_step_3_matches() {
                     Ok::<_, ()>(Vec::new())
                 },
                 |_| Ok(None),
+                no_mates,
             )
             .unwrap();
             Ok(asked)

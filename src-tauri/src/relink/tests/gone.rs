@@ -56,30 +56,424 @@ fn a_gone_file_with_no_file_of_its_audio_left_stays_missing() {
     assert_eq!(lib.matched(track), None);
 }
 
-#[test]
-fn another_present_file_of_the_gone_files_track_isnt_matched_yet() {
-    let (lib, music, mounted, old, track) = moved();
-    // Grouped with the gone file, though its audio_hash differs (as 1b's
-    // fingerprint grouping will do). 1bC-1 brings this match back, with a
-    // check that grouping is up to date; until then a track mate with
-    // another hash can only be one that grouping hasn't moved out yet.
-    let mate = elsewhere(&lib, music, "Mate");
+/// A present file that lasts about as long as the gone file of [`moved`]
+/// (200.4 s against 200 s, as another encode of it would), and that
+/// nothing else leads to: other name, a folder of its own, no fingerprint.
+fn encode(lib: &Lib, music: i64, name: &str) -> i64 {
+    lib.file(music, &format!("Moved {name}/{name}.flac"), Some(200_400))
+}
+
+/// Another encode of the gone file's audio (another `audio_hash`), titled
+/// `title`, that the grouping job merged with the gone file `old`: one
+/// track, their pair a duplicate, both decided under the current rules.
+/// Nothing but the track leads to it ([`encode`]).
+fn mate_of(lib: &Lib, music: i64, old: i64, title: &str) -> i64 {
+    mate_lasting(lib, music, old, title, Some(200_400))
+}
+
+/// [`mate_of`], lasting `lasts` ms (`None`: not read yet).
+fn mate_lasting(lib: &Lib, music: i64, old: i64, title: &str, lasts: Option<i64>) -> i64 {
+    let mate = lib.file(music, "Moved Mate/Mate.flac", lasts);
     lib.hashed(mate, 2);
+    lib.title(mate, title);
+    lib.merged(&[old, mate]);
+    mate
+}
+
+#[test]
+fn another_present_file_of_the_gone_files_track_is_matched_when_grouping_is_current() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    let summary = lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_track(mate));
+    assert!(!lib.probable(track));
+    assert_eq!((summary.fingerprint, summary.probable), (1, 0));
+    assert_eq!(lib.recording(track), lib.recording_of(mate));
+    // The audio the match was made to is the mate's.
+    assert_eq!(lib.evidence(track), Some(2));
+}
+
+#[test]
+fn a_track_mate_whose_title_disagrees_with_rekordboxs_name_is_only_probable() {
+    // The entry was renamed in rekordbox, or the mate has no title tag:
+    // grouping compared the two files' names, never rekordbox's.
+    for title in ["Kappa (Dirty)", ""] {
+        let (lib, music, mounted, old, track) = moved();
+        let mate = mate_of(&lib, music, old, title);
+        let summary = lib.relink(&mounted);
+        assert_eq!(
+            lib.matched(track),
+            Some((mate, "fingerprint".to_owned(), 0.4)),
+            "{title:?}"
+        );
+        assert!(lib.probable(track));
+        assert_eq!((summary.fingerprint, summary.probable), (0, 1));
+    }
+}
+
+#[test]
+fn a_track_mate_of_another_length_is_only_probable_whatever_its_title() {
+    // The gone file lasted 200 s. A copy with a longer lead-in, a cut-off
+    // one, and the nearest lengths over the limit either way: the entry's
+    // cues and grid are positions in time, and wouldn't be where they were.
+    for lasts in [212_000, 185_000, 201_001, 198_999] {
+        let (lib, music, mounted, old, track) = moved();
+        let mate = mate_lasting(&lib, music, old, "Kappa", Some(lasts));
+        let summary = lib.relink(&mounted);
+        assert_eq!(
+            lib.matched(track),
+            Some((mate, "fingerprint".to_owned(), 0.4)),
+            "{lasts} ms"
+        );
+        assert!(lib.probable(track), "{lasts} ms");
+        assert_eq!((summary.fingerprint, summary.probable), (0, 1));
+    }
+}
+
+#[test]
+fn a_track_mate_one_second_longer_or_shorter_than_the_gone_file_is_still_trusted() {
+    for lasts in [201_000, 199_000, 200_000] {
+        let (lib, music, mounted, old, track) = moved();
+        let mate = mate_lasting(&lib, music, old, "Kappa", Some(lasts));
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(track), same_track(mate), "{lasts} ms");
+        assert!(!lib.probable(track), "{lasts} ms");
+    }
+}
+
+#[test]
+fn a_track_mate_whose_length_isnt_known_is_only_probable() {
+    let (lib, music, mounted, old, track) = moved();
+    // Not read yet.
+    let mate = mate_lasting(&lib, music, old, "Kappa", None);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((mate, "fingerprint".to_owned(), 0.4))
+    );
+    assert!(lib.probable(track));
+    // Read: it lasts about as long as the gone file did.
+    lib.read(mate, 200_400);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_track(mate));
+    assert!(!lib.probable(track));
+}
+
+#[test]
+fn a_track_mate_of_a_gone_file_whose_length_was_never_known_is_only_probable() {
+    let (lib, music, mounted) = e_music();
+    // Gone before it was read; hashed, so its record says what it held.
+    let old = lib.file(music, "Old.mp3", None);
+    lib.hashed(old, 1);
+    let track = lib.track_with(&loc("E:/Music/Old.mp3"), Some("200"), &[("Name", "Kappa")]);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), path(old));
+    lib.gone(old);
+    let mate = mate_of(&lib, music, old, "Kappa");
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(track),
+        Some((mate, "fingerprint".to_owned(), 0.4))
+    );
+    assert!(lib.probable(track));
+}
+
+#[test]
+fn running_again_with_nothing_changed_keeps_the_track_mate_match() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    lib.relink(&mounted);
+    let before = lib.all_states();
+    lib.relink(&mounted);
+    assert_eq!(lib.all_states(), before);
+    assert_eq!(lib.matched(track), same_track(mate));
+    // A fresh rekordbox read decides it the same way.
+    lib.fresh_read();
+    lib.relink(&mounted);
+    assert_eq!(lib.all_states(), before);
+}
+
+#[test]
+fn a_track_mate_without_a_grouping_record_isnt_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    // In the gone file's track, and nothing says how it got there.
+    let mate = encode(&lib, music, "Mate");
+    lib.hashed(mate, 2);
+    lib.title(mate, "Kappa");
     lib.group(&[old, mate]);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    // Nor when only the pair is stored, or only the gone file is decided.
+    lib.pair(old, mate, "duplicate", "merged");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    lib.decided(old);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    // With the mate decided too, it is matched.
+    lib.decided(mate);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_track(mate));
+}
+
+#[test]
+fn a_track_mate_due_to_be_decided_again_isnt_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa (Clean)");
+    // Its tags are rewritten: the grouping job has to decide it again.
+    lib.title(mate, "Kappa");
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), None);
 }
 
 #[test]
+fn a_track_mate_decided_under_other_rules_isnt_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    // As a build with another rules version finds its record.
+    lib.decided_under_other_rules(mate);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_gone_file_that_was_due_when_it_went_isnt_matched_to_its_track_mate() {
+    for due in [
+        Lib::retagged as fn(&Lib, i64),
+        Lib::decided_under_other_rules,
+    ] {
+        let (lib, music, mounted, old, track) = moved();
+        mate_of(&lib, music, old, "Kappa");
+        // What a file leaves that was retagged just before it went, or
+        // that went before a build with other rules: due, and never
+        // decided again while it's away.
+        due(&lib, old);
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(track), None);
+    }
+}
+
+#[test]
+fn a_gone_file_that_changed_before_it_went_isnt_matched_to_its_track_mate() {
+    let (lib, music, mounted, old, track) = moved();
+    mate_of(&lib, music, old, "Kappa");
+    // Changed on disk and never hashed again before it went: grouping
+    // still has it with its old audio, and nothing says what rekordbox's
+    // entry was last made on.
+    lib.edited(old);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_gone_file_overwritten_with_other_audio_before_it_went_isnt_matched_to_its_track_mate() {
+    let (lib, music, mounted, old, track) = moved();
+    mate_of(&lib, music, old, "Kappa");
+    // Overwritten and hashed again, then gone before grouping ran: it
+    // stays in the track (a gone file keeps its track) with other audio
+    // than it was placed with.
+    lib.edited(old);
+    lib.hashed(old, 9);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_track_mate_the_rules_no_longer_call_a_duplicate_isnt_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    // A merge is never undone: the two still share the track, both decided
+    // under the current rules, and the rules say they aren't duplicates.
+    lib.pair(old, mate, "review", "in_one_track");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    // A duplicate again, but no grouping pass has stood by it yet.
+    lib.pair(old, mate, "duplicate", "in_one_track");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_track_mate_just_decided_not_a_duplicate_isnt_matched_before_the_grouping_pass() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    // What a deciding run leaves until the pass after it: the rules' new
+    // answer, and where the pair stood before. A relink can run in between.
+    lib.pair(old, mate, "review", "merged");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_track_mate_never_decided_against_the_gone_file_isnt_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    // The gone file and a second file were merged. A third joined the
+    // track on its pair with the second while the first was away: nobody
+    // compared it with the gone file.
+    let second = elsewhere(&lib, music, "Second");
+    lib.hashed(second, 2);
+    lib.merged(&[old, second]);
+    let third = encode(&lib, music, "Third");
+    lib.hashed(third, 3);
+    lib.title(third, "Kappa");
+    lib.joins(third, second);
+    // The second file is held by another row, so only the third is free.
+    let holder = lib.track(&loc("E:/Music/Moved Second/Second.flac"), None);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(holder), path(second));
+    assert_eq!(lib.recording_of(third), lib.recording_of(old));
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn a_track_mate_in_another_track_by_now_isnt_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    // Taken out of the track; the pair is as it was stored.
+    lib.split(mate);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+}
+
+#[test]
+fn of_several_track_mates_the_tracks_best_file_is_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    let first = encode(&lib, music, "First");
+    let best = encode(&lib, music, "Best");
+    for (file, hash) in [(first, 2), (best, 3)] {
+        lib.hashed(file, hash);
+        lib.title(file, "Kappa");
+    }
+    lib.merged(&[best, old, first]);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_track(best));
+}
+
+#[test]
+fn of_several_track_mates_none_of_them_the_best_file_the_lowest_file_id_is_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    let first = encode(&lib, music, "First");
+    let second = encode(&lib, music, "Second");
+    for (file, hash) in [(first, 2), (second, 3)] {
+        lib.hashed(file, hash);
+        lib.title(file, "Kappa");
+    }
+    // The gone file is still the track's best file.
+    lib.merged(&[old, second, first]);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_track(first));
+}
+
+#[test]
+fn a_track_mate_another_row_holds_isnt_a_candidate() {
+    let (lib, music, mounted, old, track) = moved();
+    let held = lib.file(music, "Held.mp3", Some(250_000));
+    lib.hashed(held, 2);
+    lib.title(held, "Kappa");
+    lib.merged(&[old, held]);
+    let holder = lib.track(&loc("E:/Music/Held.mp3"), Some("250"));
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(holder), path(held));
+    assert_eq!(lib.matched(track), None);
+    // A second mate nobody holds is matched.
+    let free = encode(&lib, music, "Free");
+    lib.hashed(free, 3);
+    lib.title(free, "Kappa");
+    lib.joins(free, old);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(holder), path(held));
+    assert_eq!(lib.matched(track), same_track(free));
+}
+
+#[test]
+fn two_rows_dont_share_the_one_track_mate_left() {
+    let (lib, music, mounted, old, first) = moved();
+    let twin = lib.file(music, "Twin.mp3", Some(200_000));
+    lib.hashed(twin, 3);
+    let second = lib.track_with(&loc("E:/Music/Twin.mp3"), Some("200"), &[("Name", "Kappa")]);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(second), path(twin));
+    // Two rekordbox entries, each for a file of one track; both files go,
+    // and one mate is left.
+    let mate = encode(&lib, music, "Mate");
+    lib.hashed(mate, 2);
+    lib.title(mate, "Kappa");
+    lib.merged(&[old, twin, mate]);
+    lib.gone(twin);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(first), None);
+    assert_eq!(lib.matched(second), None);
+}
+
+#[test]
+fn the_same_audio_is_matched_before_a_track_mate() {
+    let (lib, music, mounted, old, track) = moved();
+    mate_of(&lib, music, old, "Kappa");
+    let copy = elsewhere(&lib, music, "Copy");
+    lib.hashed(copy, 1);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_audio(copy));
+}
+
+#[test]
+fn a_track_mate_is_matched_before_any_fingerprint_is_compared() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    // Two more files of the gone file's length, both fingerprint
+    // duplicates of it in tracks of their own: ambiguous by themselves.
+    for name in ["A.flac", "B.m4a"] {
+        let file = lib.file(music, &format!("Converted/{name}"), Some(200_400));
+        lib.fingerprinted(file, &reencoded(&song(1, 200)));
+        lib.title(file, "Kappa");
+    }
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_track(mate));
+}
+
+#[test]
+fn a_track_mate_on_a_drive_that_isnt_plugged_in_is_matched_as_the_same_audio_there_is() {
+    for same_audio_there in [true, false] {
+        let lib = Lib::new();
+        let (e, d) = (serial(1), serial(2));
+        let plugged = lib.volume(&e, Some(r"E:\"));
+        let unplugged = lib.volume(&d, Some(r"D:\"));
+        let music = lib.folder(plugged, "Music");
+        let away = lib.folder(unplugged, "Music");
+        let mounted = Mounted::new([(e, r"E:\")]);
+        let old = lib.file(music, "Old.mp3", Some(200_000));
+        lib.hashed(old, 1);
+        let track = lib.track_with(&loc("E:/Music/Old.mp3"), Some("200"), &[("Name", "Kappa")]);
+        lib.relink(&mounted);
+        lib.gone(old);
+        // Still present: nothing walked the drive to find it gone.
+        let there = lib.file(away, "Elsewhere/There.flac", Some(200_400));
+        lib.title(there, "Kappa");
+        if same_audio_there {
+            lib.hashed(there, 1);
+            lib.relink(&mounted);
+            assert_eq!(lib.matched(track), same_audio(there));
+        } else {
+            lib.hashed(there, 2);
+            lib.merged(&[old, there]);
+            lib.relink(&mounted);
+            assert_eq!(lib.matched(track), same_track(there));
+        }
+    }
+}
+
+#[test]
 fn a_track_mate_overwritten_with_other_audio_isnt_matched_before_grouping_catches_up() {
     let (lib, music, mounted, old, track) = moved();
-    let mate = elsewhere(&lib, music, "Mate");
+    let mate = encode(&lib, music, "Mate");
     lib.hashed(mate, 1);
-    lib.group(&[old, mate]);
+    lib.title(mate, "Kappa");
+    // Merged with the gone file, and grouping current for both.
+    lib.merged(&[old, mate]);
     // The mate is overwritten and hashed again (current), and grouping
     // hasn't run since: it's still in the gone file's track.
     lib.edited(mate);
     lib.hashed(mate, 9);
+    assert_eq!(lib.recording_of(mate), lib.recording_of(old));
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), None);
     // Nor after grouping moved it to a track of its own.
@@ -165,15 +559,31 @@ fn a_file_whose_hash_isnt_current_isnt_taken_for_the_gone_files_audio() {
 #[test]
 fn a_track_mate_that_changed_since_it_was_hashed_isnt_trusted() {
     let (lib, music, mounted, old, track) = moved();
-    let mate = elsewhere(&lib, music, "Mate");
+    let mate = encode(&lib, music, "Mate");
     lib.hashed(mate, 1);
-    lib.group(&[old, mate]);
+    lib.title(mate, "Kappa");
+    // Merged with the gone file, and grouping current for both.
+    lib.merged(&[old, mate]);
     // The mate changed on disk and hasn't been hashed again: it may hold
-    // anything.
+    // anything. Grouping can't see that: to it, nothing changed.
     lib.edited(mate);
     lib.relink(&mounted);
     assert_eq!(lib.matched(track), None);
     assert_eq!(lib.evidence(track), None);
+}
+
+#[test]
+fn a_track_mate_of_another_audio_hash_that_changed_since_it_was_hashed_isnt_matched() {
+    let (lib, music, mounted, old, track) = moved();
+    let mate = mate_of(&lib, music, old, "Kappa");
+    lib.edited(mate);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), None);
+    // Hashed again, the same audio as before: nothing changed for
+    // grouping, and it's matched.
+    lib.hashed(mate, 2);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(track), same_track(mate));
 }
 
 #[test]
@@ -456,6 +866,7 @@ fn fingerprints_are_read_only_when_no_present_file_has_the_gone_files_audio() {
                         asked.push(file);
                         Ok(None)
                     },
+                    no_mates,
                 )
                 .unwrap();
                 Ok(asked)
@@ -514,6 +925,7 @@ fn a_run_compares_no_more_fingerprints_than_its_budget() {
             asked += 1;
             Ok(Some(song(asked, 5)))
         },
+        no_mates,
     )
     .unwrap();
     assert_eq!(plan.compared, per_row);
@@ -577,7 +989,7 @@ fn the_budget_goes_to_the_rows_with_the_fewest_candidates_first() {
     gone_row_and_files(&mut input, 3, 300_000, 500_000, few - 1);
     // (Row 3 only brings files of row 2's length; give it no gone file.)
     input.absent.pop();
-    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), prints).unwrap();
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), prints, no_mates).unwrap();
     assert_eq!(plan.compared, few);
     assert_eq!(plan.over_budget, 1, "row 1 is left undecided");
     // Row 2 found its duplicate (probable: no title to agree).
@@ -610,7 +1022,7 @@ fn a_row_the_budget_didnt_reach_still_contests_its_candidates() {
         location: Some(location),
         ..rules::Track::default()
     });
-    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), prints).unwrap();
+    let plan = rules::plan(&input, |_| Ok::<_, ()>(Vec::new()), prints, no_mates).unwrap();
     assert_eq!((plan.compared, plan.over_budget), (per_row, 1));
     assert_eq!(plan.missing, 2);
     assert!(plan.decisions.is_empty());

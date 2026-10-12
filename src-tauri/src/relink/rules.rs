@@ -107,11 +107,16 @@ pub mod confidence {
     /// Step 4: a present file with the audio the gone file had (the same
     /// `audio_hash`).
     pub const SAME_AUDIO: f64 = 0.95;
+    /// Step 4: a present file grouping holds, as it stands now, to be a
+    /// duplicate of the gone file in its track; it lasts about as long as
+    /// the gone file did, and a title tag agrees.
+    pub const SAME_TRACK: f64 = 0.9;
     /// Step 4: a fingerprint duplicate of the gone file, and a title tag
     /// agrees.
     pub const FINGERPRINT: f64 = 0.85;
-    /// Step 4: a fingerprint duplicate no title tag agrees with: probable
-    /// only (a Clean and a Dirty cut fingerprint alike, ROADMAP 1.4).
+    /// Step 4: a track mate or a fingerprint duplicate no title tag agrees
+    /// with (a Clean and a Dirty cut fingerprint alike, ROADMAP 1.4), and a
+    /// track mate of another length than the gone file: probable only.
     pub const FINGERPRINT_PROBABLE: f64 = 0.4;
     /// Step 5: the file name alone, always probable.
     pub const FILENAME_ONLY: f64 = 0.5;
@@ -129,15 +134,26 @@ pub const MAX_CANDIDATES: usize = 50;
 /// Step 4 compares a gone file's fingerprint only with present files whose
 /// duration is within this of its own: a duplicate (ROADMAP 1.4) covers at
 /// least 90% of both files, and a re-encode or a format change moves the
-/// duration by a fraction of a second.
+/// duration by a fraction of a second. A file of the gone file's track is
+/// trusted only within the same limit ([`about_as_long`]): rekordbox's cues
+/// and grid are positions in time, and a copy with a longer lead-in, or one
+/// that was cut off, has them elsewhere.
 pub const FINGERPRINT_WINDOW_MS: i64 = 1000;
+
+/// Whether two files last about as long as each other: within
+/// [`FINGERPRINT_WINDOW_MS`], either way. A length that isn't known is
+/// about as long as nothing.
+fn about_as_long(a: Option<i64>, b: Option<i64>) -> bool {
+    matches!((a, b), (Some(a), Some(b)) if (a - b).abs() <= FINGERPRINT_WINDOW_MS)
+}
 
 /// Step 4 compares no more fingerprint pairs than this in one run: relink
 /// runs on the database's one writer. A row is compared with all of its
 /// candidates or none: a row the budget doesn't reach gets no fingerprint
 /// match this run, and is counted ([`Plan::over_budget`]). Rows with the
 /// fewest candidates go first, so cheap rows are never starved. (The same
-/// audio, by hash, costs none.)
+/// audio, by hash, costs none, and nor does a file of the gone file's
+/// track.)
 pub const MAX_COMPARISONS: usize = 20_000;
 
 /// A file that is present (`file.present = 1`), whether or not its drive
@@ -204,6 +220,10 @@ pub struct Absent {
     /// Its `audio_hash`, if the hash stage was current for the file when
     /// it went (else the hash is of older content, and says nothing).
     pub audio_hash: Option<Vec<u8>>,
+    /// Whether the hash stage was current for the file when it went. If
+    /// not, it changed after grouping last saw what it held, and its track
+    /// says nothing about the audio rekordbox's entry was made on.
+    pub hash_current: bool,
 }
 
 /// One `rekordbox_track` row.
@@ -611,8 +631,32 @@ struct Lead {
     files: Vec<i64>,
     /// The one to match, when the files don't differ.
     pick: Option<i64>,
-    /// Found by `audio_hash` rather than by comparing fingerprints.
-    same_audio: bool,
+    found: Found,
+    /// How long the gone file lasted, if that's known.
+    lasted: Option<i64>,
+}
+
+/// How step 4 found a row's files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Found {
+    /// By the gone file's `audio_hash`: the same audio.
+    SameAudio,
+    /// By grouping's current answer: duplicates of the gone file in its
+    /// track.
+    SameTrack,
+    /// By comparing fingerprints: duplicates of the gone file.
+    Fingerprint,
+}
+
+impl Found {
+    /// How sure a match found this way is, when it's accepted.
+    fn accepted(self) -> f64 {
+        match self {
+            Found::SameAudio => confidence::SAME_AUDIO,
+            Found::SameTrack => confidence::SAME_TRACK,
+            Found::Fingerprint => confidence::FINGERPRINT,
+        }
+    }
 }
 
 /// A row's match as this run decides it.
@@ -629,12 +673,16 @@ struct Now {
 /// the files steps 3 and 4 match, so tags are read for a handful of files,
 /// not every one. `fingerprints` gives a file's stored fingerprint, if it
 /// has one that's still its own; it's asked only for a gone file with no
-/// present file of the same audio, and the present files that last about
-/// as long.
+/// present file of the same audio or of its track, and the present files
+/// that last about as long. `track_mates` gives the files grouping holds,
+/// as it stands now, to be duplicates of a file in its track
+/// (`grouping::current_duplicates`); it's asked only for a gone file with
+/// no present file of the same audio, once a row.
 pub fn plan<E>(
     input: &Input,
     mut titles: impl FnMut(i64) -> Result<Vec<String>, E>,
     mut fingerprints: impl FnMut(i64) -> Result<Option<Fingerprint>, E>,
+    mut track_mates: impl FnMut(i64) -> Result<Vec<i64>, E>,
 ) -> Result<Plan, E> {
     let index = Index::new(&input.files);
     let tracks = &input.tracks;
@@ -943,14 +991,9 @@ pub fn plan<E>(
     // the walk found gone that this row once named: the file of its
     // confirmed relink, else the one at its Location. A present file with
     // that audio (the same `audio_hash`), else a fingerprint duplicate of
-    // about the same length, is a candidate.
-    //
-    // Not a candidate, until 1bC-1: another present file of the gone
-    // file's track. While grouping is by `audio_hash` that finds nothing
-    // the hash doesn't, except a mate whose audio changed and that
-    // grouping hasn't moved out yet, which would be a trusted match to
-    // other audio. It comes back with fingerprint grouping, together with
-    // a check that grouping is up to date.
+    // about the same length, is a candidate. Between the two: a present
+    // file of the gone file's track, on grouping's current answer for the
+    // two files themselves (1bC-7).
     let claimed = taken(&now);
     let gone = Gone::new(&input.absent);
     let mut leads: Vec<Lead> = Vec::new();
@@ -1014,9 +1057,37 @@ pub fn plan<E>(
                     row: i,
                     pick: best_of(&same),
                     files: same,
-                    same_audio: true,
+                    found: Found::SameAudio,
+                    lasted: was.duration_ms,
                 });
                 continue;
+            }
+            // Another file of its track. Sharing the track isn't enough (a
+            // mate overwritten since, one the rules no longer call a
+            // duplicate, one never compared with the gone file), so
+            // grouping is asked what it holds now for the two files
+            // themselves. What grouping can't see is checked here: a gone
+            // file that changed before it went, and a mate that changed
+            // since it was hashed, may hold anything. As for the same
+            // audio: any present file counts, whether or not its drive is
+            // plugged in; a mate another row holds isn't a candidate; and
+            // of several the track's best file is matched.
+            if was.hash_current {
+                let mates: Vec<i64> = track_mates(was.id)?
+                    .into_iter()
+                    .filter(|&f| index.file(f).is_some_and(|f| f.hash_current))
+                    .filter(|&f| !held_by_other(&claimed, f, i))
+                    .collect();
+                if !mates.is_empty() {
+                    leads.push(Lead {
+                        row: i,
+                        pick: best_of(&mates),
+                        files: mates,
+                        found: Found::SameTrack,
+                        lasted: was.duration_ms,
+                    });
+                    continue;
+                }
             }
             let Some(lasted) = was.duration_ms else {
                 continue;
@@ -1053,7 +1124,8 @@ pub fn plan<E>(
                     row: i,
                     files: near.iter().map(|&n| index.files[n].id).collect(),
                     pick: None,
-                    same_audio: false,
+                    found: Found::Fingerprint,
+                    lasted: was.duration_ms,
                 });
                 continue;
             }
@@ -1090,7 +1162,8 @@ pub fn plan<E>(
                 row: i,
                 files: duplicates,
                 pick,
-                same_audio: false,
+                found: Found::Fingerprint,
+                lasted: was.duration_ms,
             });
         }
     }
@@ -1110,16 +1183,28 @@ pub fn plan<E>(
         // The same audio is trusted as it is. A fingerprint duplicate can
         // be another version (a Clean and a Dirty cut fingerprint alike),
         // so it's trusted only when a title tag agrees with rekordbox's
-        // Name; otherwise probable.
-        let (confidence, probable) = if lead.same_audio {
-            (confidence::SAME_AUDIO, false)
-        } else {
+        // Name; otherwise probable. The same for a track mate: grouping
+        // compared the two files' names with each other, never with what
+        // rekordbox calls the entry (1bC-7).
+        //
+        // And only a file that lasts about as long as the gone file did:
+        // the entry's cues and grid are positions in time. A fingerprint
+        // duplicate always does (only such files were compared). A track
+        // mate needn't: grouping calls two files duplicates at 90% of each
+        // found in the other, whatever their lengths, and a cut-off copy
+        // can be one. A mate of another length, or where either length
+        // isn't known, is probable at most, whatever its title.
+        //
+        // This is the one place that decides it.
+        let trusted = lead.found == Found::SameAudio || {
             let name = &tracks[lead.row].name;
-            if !name.is_empty() && titles(file)?.contains(name) {
-                (confidence::FINGERPRINT, false)
-            } else {
-                (confidence::FINGERPRINT_PROBABLE, true)
-            }
+            let lasts = index.file(file).and_then(|f| f.duration_ms);
+            about_as_long(lead.lasted, lasts) && !name.is_empty() && titles(file)?.contains(name)
+        };
+        let confidence = if trusted {
+            lead.found.accepted()
+        } else {
+            confidence::FINGERPRINT_PROBABLE
         };
         set(
             &mut now,
@@ -1127,7 +1212,7 @@ pub fn plan<E>(
             file,
             Method::Fingerprint,
             confidence,
-            probable,
+            !trusted,
         );
     }
 

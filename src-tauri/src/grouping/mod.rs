@@ -173,6 +173,60 @@ pub(crate) fn request_decide<E: From<DbError>>(
     Ok(())
 }
 
+/// The files that are, as grouping stands now, duplicates of `file` in its
+/// track, by id. What relink asks before it trusts a track for a file that
+/// is gone (step 4, 1bC-7).
+///
+/// Sharing a track isn't enough for that. A merge is never undone, so two
+/// files can share one while the rules call them a cut (`in_one_track`),
+/// or without ever having been compared (a file that joined through a
+/// third one while the other was away). So a file is returned only on the
+/// stored answer for the two files themselves, and only while that answer
+/// is current:
+///
+/// - a pair of the two is stored as a duplicate, and a grouping pass found
+///   them in one track (`merged`); and
+/// - grouping is **current** for both: every pair of the file is decided
+///   under these rules ([`decided_as`]), and it sits in its track with the
+///   audio it holds (`placed_key` is its `audio_hash`, or its `blake3` when
+///   it has none). A file that is due (not ready counts as due), that holds
+///   other audio than it was placed with, or that has no record at all,
+///   isn't.
+///
+/// A file that isn't on disk is asked about like any other: its record is
+/// what was known when it went. Its pair goes when the other file is
+/// decided again without it, so after that nothing is returned for the two.
+///
+/// What grouping can't see is the caller's to check: a file that changed on
+/// disk since it was hashed still has its old `audio_hash` here.
+pub fn current_duplicates(conn: &rusqlite::Connection, file: i64) -> rusqlite::Result<Vec<i64>> {
+    // A file is current when its record says so: `f` and `g` are its rows.
+    let current = format!(
+        "g.decided_as IS ?2 AND g.placed_key IS NOT NULL AND g.placed_key IS {}",
+        store::CONTENT_KEY
+    );
+    let mut stmt = conn.prepare_cached(&format!(
+        "WITH mate (id) AS (
+             SELECT file_b FROM grouping_pair
+             WHERE file_a = ?1 AND outcome = 'duplicate' AND state = 'merged'
+             UNION ALL
+             SELECT file_a FROM grouping_pair
+             WHERE file_b = ?1 AND outcome = 'duplicate' AND state = 'merged')
+         SELECT f.id
+         FROM file f JOIN grouping_file g ON g.file_id = f.id
+                     JOIN recording_file rf ON rf.file_id = f.id
+         WHERE f.id IN (SELECT id FROM mate)
+           AND {current}
+           AND rf.recording_id = (SELECT recording_id FROM recording_file WHERE file_id = ?1)
+           -- Nothing is said about a file that isn't current itself.
+           AND EXISTS (SELECT 1 FROM file f JOIN grouping_file g ON g.file_id = f.id
+                       WHERE f.id = ?1 AND {current})
+         ORDER BY f.id"
+    ))?;
+    let mates = stmt.query_map((file, decided_as()), |r| r.get(0))?;
+    mates.collect()
+}
+
 /// A grouping pass, one transaction a step ([`store::step`]). `between` is
 /// called before every step and may stop the pass there: every step stands
 /// by itself. Returns what the pass did, and the pairs its waiting sets

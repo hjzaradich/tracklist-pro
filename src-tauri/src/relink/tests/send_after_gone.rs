@@ -207,6 +207,60 @@ fn a_row_relink_matched_to_another_present_file_is_not_used_so_the_track_is_left
     );
 }
 
+/// A Library track linked to a file that has gone, whose rekordbox entry
+/// relink gave to another file of the same track (step 4, 1bC-7): returns
+/// the library, the gone file, the mate, rekordbox's row and the Library
+/// track.
+fn linked_to_a_gone_file_whose_entry_went_to_a_track_mate() -> (Lib, i64, i64, i64, LibraryTrackId)
+{
+    let (lib, mounted, old, row, track) = linked_to_a_file_rekordbox_holds();
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), path(old));
+    lib.gone(old);
+    // Another encode of it (music folder 1), merged with it by the
+    // grouping job, titled as rekordbox names the entry.
+    let mate = lib.file(1, "Moved Mate/Mate.flac", Some(200_400));
+    lib.hashed(mate, 2);
+    lib.title(mate, "Theirs");
+    lib.joins(mate, old);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), same_track(mate));
+    assert!(!lib.probable(row));
+    (lib, old, mate, row, track)
+}
+
+#[test]
+fn a_library_tracks_linked_file_stays_when_its_entry_is_matched_to_a_mate() {
+    let (lib, old, _mate, _row, track) = linked_to_a_gone_file_whose_entry_went_to_a_track_mate();
+    let linked: i64 = lib.scalar(
+        "SELECT linked_file_id FROM library_track WHERE id = ?1",
+        track.0,
+    );
+    assert_eq!(linked, old);
+}
+
+#[test]
+fn a_library_track_whose_entry_went_to_a_track_mate_is_left_out_of_the_send_never_sent_as_the_mate()
+{
+    // The same as for a row any other step gave to another file (above):
+    // the row belongs to that file now, so it no longer stands in for the
+    // gone one. Nothing is written for the track: no second entry at the
+    // mate's Location, and rekordbox's entry isn't sent with another file.
+    let (lib, old, _mate, _row, track) = linked_to_a_gone_file_whose_entry_went_to_a_track_mate();
+    assert_eq!(
+        lib.send_outcome(track),
+        Outcome::CannotSend(CannotSend::FileMissing { file_id: old })
+    );
+    let (out, read) = send_in_a_crate(&lib, track);
+    assert_eq!(out.sent, []);
+    assert_eq!(out.left_out.len(), 1);
+    assert_eq!(out.left_out[0].library_track, track);
+    assert_eq!(read.tracks.len(), 0);
+    let text = std::str::from_utf8(out.xml()).unwrap();
+    assert!(!text.contains("Mate.flac"));
+    assert!(!text.contains(THEIRS));
+}
+
 #[test]
 fn a_missing_file_with_no_rekordbox_row_at_its_location_is_left_out() {
     let (lib, music, mounted) = e_music();
