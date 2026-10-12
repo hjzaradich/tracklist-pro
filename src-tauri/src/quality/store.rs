@@ -24,9 +24,13 @@
 //! **When it runs.** The quality job settles every stale file when it
 //! starts (files that never get a measurement included: their headers
 //! alone can flag them), and the file it just measured when a measurement
-//! lands. Whatever reads verdicts calls [`settle`] first (one query when
-//! nothing is stale), so the verdicts it reads are current whether or not a
-//! quality job has run since the inputs changed. A stale verdict alone
+//! lands. Whatever acts on verdicts settles the files it reads first, so
+//! the verdicts are current whether or not a quality job has run since the
+//! inputs changed: [`settle_files`] for the files in hand (a lookup per
+//! file), or [`settle`] for all of them (one query that reads every file
+//! when nothing is stale). The grouping job (1bC-6) does the first for
+//! every file it decides or makes due, and the second only at the start of
+//! a deciding job that has a file to decide. A stale verdict alone
 //! queues no job ([`super::request`]): that would add a job to every walk
 //! of files nobody has read yet, to store rows that say nothing.
 //!
