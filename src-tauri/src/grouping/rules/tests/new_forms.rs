@@ -409,3 +409,106 @@ fn a_version_given_only_by_a_folder_never_comes_out_duplicate_on_a_full_match() 
         }
     }
 }
+
+// ---- Pinned after the 1bB-1 mutation review ----------------------------
+
+#[test]
+fn version_words_are_counted_per_file_as_a_multiset_not_a_set() {
+    assert_eq!(
+        label_words(&named("Velo Dub Dub.mp3")),
+        [(MarkerKind::Dub, 2)]
+    );
+    assert_eq!(label_words(&named("Velo Dub.mp3")), [(MarkerKind::Dub, 1)]);
+    for (twice, once) in [
+        ("Velo Dub Dub.mp3", "Velo Dub.mp3"),
+        ("Velo (Dub) Dub.mp3", "Velo (Dub).mp3"),
+        ("Velo Dirty Dirty 128.mp3", "Velo Dirty 128.mp3"),
+    ] {
+        for (a, b) in [(named(twice), named(once)), (named(once), named(twice))] {
+            let got = decided(full(), &a, &b);
+            assert_ne!(got.outcome, Outcome::Duplicate, "{twice} / {once}");
+        }
+    }
+    // The extra count is what the guard names.
+    let got = decided(
+        full(),
+        &named("Velo Dub Dub 128.mp3"),
+        &named("Velo Dub 128.mp3"),
+    );
+    assert_eq!(got.outcome, Outcome::NeedsReview);
+    assert_eq!(got.reasons[0], differ(&[MarkerKind::Dub], &[]));
+    // The same words the same number of times merge.
+    let got = decided(
+        full(),
+        &named("Velo Dub Dub 128.mp3"),
+        &named("Velo Dub Dub 128.flac"),
+    );
+    assert_eq!(got.outcome, Outcome::Duplicate);
+}
+
+#[test]
+fn a_label_written_in_both_of_a_files_names_counts_as_often_as_the_name_that_writes_it_most() {
+    // Not summed over the two names ...
+    let once = FileFacts::new(Some("Velo Dub 128"), None, "Velo Dub 128.mp3");
+    assert_eq!(label_words(&once), [(MarkerKind::Dub, 1)]);
+    // ... and not lost either: the most wins.
+    let twice = FileFacts::new(Some("Velo Dub Dub 128"), None, "Velo Dub 128.mp3");
+    assert_eq!(label_words(&twice), [(MarkerKind::Dub, 2)]);
+    let got = decided(full(), &once, &twice);
+    assert_ne!(got.outcome, Outcome::Duplicate);
+}
+
+#[test]
+fn the_artist_is_set_aside_only_where_a_name_spells_the_whole_artist_out() {
+    let dub = [(MarkerKind::Dub, 1)];
+    let by = |artist: &str, file_name: &str| {
+        label_words(&FileFacts::new(Some("Velo"), Some(artist), file_name))
+    };
+    // The whole artist, as words in a row: set aside.
+    assert_eq!(by("Dub Kestrel", "Dub Kestrel - Velo.mp3"), []);
+    assert_eq!(by("Dub Kestrel", "Velo - Dub Kestrel.mp3"), []);
+    assert_eq!(by("Dub Kestrel", "Velo (Dub Kestrel).mp3"), []);
+    // Only part of the artist, or the artist's words apart or reordered:
+    // the label word stays.
+    assert_eq!(by("Dub Kestrel", "Dub Velo.mp3"), dub);
+    assert_eq!(by("Dub Kestrel", "Velo Dub.mp3"), dub);
+    assert_eq!(by("Dub Kestrel", "Dub Velo Kestrel.mp3"), dub);
+    assert_eq!(by("Dub Kestrel", "Kestrel Dub Velo.mp3"), dub);
+    assert_eq!(by("Dub Kestrel", "Dub Halden Kestrel Velo.mp3"), dub);
+    // The artist's other word alone is no label and sets nothing aside.
+    assert_eq!(by("Dub Kestrel", "Velo Kestrel Dub.mp3"), dub);
+    // The artist is taken out once: a second "Dub" is the file's own.
+    assert_eq!(by("Dub Kestrel", "Dub Kestrel Velo Dub.mp3"), dub);
+    assert_eq!(by("Dub Kestrel", "Dub Kestrel Dub Kestrel Velo.mp3"), dub);
+    // Two artists in the tag: each is set aside whole.
+    assert_eq!(
+        by("Dub Kestrel & Radio Wren", "Dub Kestrel - Velo Radio.mp3"),
+        [(MarkerKind::RadioEdit, 1)]
+    );
+    assert_eq!(by("Dub Kestrel & Radio Wren", "Radio Wren - Velo.mp3"), []);
+}
+
+#[test]
+fn an_artist_the_name_does_not_spell_out_whole_never_lets_full_audio_merge_over_a_label_word() {
+    let plain = FileFacts::new(Some("Velo"), Some("Dub Kestrel"), "Velo 128.mp3");
+    for file_name in [
+        "Velo Dub 128.mp3",
+        "Dub Velo 128.mp3",
+        "Velo Kestrel Dub 128.mp3",
+    ] {
+        let dubbed = FileFacts::new(Some("Velo"), Some("Dub Kestrel"), file_name);
+        for (a, b) in [(&dubbed, &plain), (&plain, &dubbed)] {
+            let got = decided(full(), a, b);
+            assert_ne!(got.outcome, Outcome::Duplicate, "{file_name}");
+        }
+    }
+    let spelled = FileFacts::new(
+        Some("Velo"),
+        Some("Dub Kestrel"),
+        "Dub Kestrel - Velo 128.mp3",
+    );
+    assert_eq!(
+        decided(full(), &spelled, &plain).outcome,
+        Outcome::Duplicate
+    );
+}
