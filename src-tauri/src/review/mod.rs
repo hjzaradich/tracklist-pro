@@ -101,7 +101,9 @@ impl ReviewGroup {
 
     /// The kinds of this group, in the order they are listed.
     pub fn kinds(self) -> impl Iterator<Item = ReviewKind> {
-        ReviewKind::ALL.into_iter().filter(move |k| k.group() == self)
+        ReviewKind::ALL
+            .into_iter()
+            .filter(move |k| k.group() == self)
     }
 }
 

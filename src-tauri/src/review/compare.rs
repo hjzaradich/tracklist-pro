@@ -22,7 +22,9 @@ use super::{
     RekordboxUse, ReviewComparison, ReviewFileRow, ReviewItemId, ReviewKind, ReviewTrackName,
     RowSource, MAX_FILES, PENDING_PAIRS,
 };
-use crate::best_file::{rank, tags_filled, why_ahead, FileFacts, RekordboxLink, COMPLETENESS_FIELDS};
+use crate::best_file::{
+    rank, tags_filled, why_ahead, FileFacts, RekordboxLink, COMPLETENESS_FIELDS,
+};
 use crate::file_roles::facts::{self, Loaded};
 use crate::library::{file_from, LinkedFile, StoredFile, FILE_COLUMNS, FILE_JOINS};
 use crate::paths::Volumes;
@@ -50,7 +52,8 @@ fn details(conn: &Connection, files: &[i64]) -> rusqlite::Result<HashMap<i64, De
     let rows = stmt.query_map([json], |r| {
         let file_id: i64 = r.get(0)?;
         let number = |at: usize| -> rusqlite::Result<Option<u32>> {
-            Ok(r.get::<_, Option<i64>>(at)?.and_then(|n| u32::try_from(n).ok()))
+            Ok(r.get::<_, Option<i64>>(at)?
+                .and_then(|n| u32::try_from(n).ok()))
         };
         Ok((
             file_id,
@@ -169,15 +172,14 @@ fn resolve(conn: &Connection, id: ReviewItemId) -> rusqlite::Result<Option<Resol
             }))
         }
         ReviewKind::QualityProblem => {
-            let queued: bool = conn
-                .query_row(
-                    &format!(
-                        "SELECT EXISTS (SELECT 1 {})",
-                        quality_from("AND lt.recording_id = ?1")
-                    ),
-                    [id.a],
-                    |r| r.get(0),
-                )?;
+            let queued: bool = conn.query_row(
+                &format!(
+                    "SELECT EXISTS (SELECT 1 {})",
+                    quality_from("AND lt.recording_id = ?1")
+                ),
+                [id.a],
+                |r| r.get(0),
+            )?;
             Ok(queued.then(|| plain(vec![id.a])))
         }
     }
@@ -371,8 +373,7 @@ pub fn comparison(
             .best()
             .and_then(|best| ranked_reason(best).map(|r| (best, r))),
     };
-    let suggestion = suggestion
-        .and_then(|(file, reason)| Suggestion::new(file, vec![reason]).ok());
+    let suggestion = suggestion.and_then(|(file, reason)| Suggestion::new(file, vec![reason]).ok());
 
     // Rows: the suggested file first, then the ranking's order.
     let first = suggestion.as_ref().map(|s| *s.what());

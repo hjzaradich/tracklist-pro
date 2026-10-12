@@ -1,9 +1,7 @@
 //! The queue's cost and its keeping to its indexes and its locale file.
 
 use super::super::held::{components_of, HeldPair};
-use super::super::queue::{
-    better_from, quality_from, relink_from, version_doubt_from, DOUBT_PAIR,
-};
+use super::super::queue::{better_from, quality_from, relink_from, version_doubt_from, DOUBT_PAIR};
 use super::*;
 use crate::best_file::{Format, Place, Reason as Rank, RekordboxLink};
 use crate::grouping::plan::State;
@@ -201,7 +199,10 @@ fn every_reason_code_the_read_model_can_send_has_text_in_the_locale_file() {
         },
         Rank::Tied,
     ];
-    let mut keys: Vec<String> = ranks.iter().map(|r| from_rank(r).key().to_owned()).collect();
+    let mut keys: Vec<String> = ranks
+        .iter()
+        .map(|r| from_rank(r).key().to_owned())
+        .collect();
     for method in [
         "filename_only",
         "unique_duration",
@@ -348,8 +349,17 @@ fn a_library_of_100000_files_is_counted_and_paged_from_the_few_rows_that_wait() 
     let page = lib.page(ReviewGroup::NeedsCloserLook, 19_990, 20);
     assert_eq!(page.total, 30_400);
     let kinds: Vec<_> = page.items.iter().map(|i| i.kind).collect();
-    assert_eq!(kinds.iter().filter(|k| **k == ReviewKind::VersionDoubt).count(), 10);
-    assert_eq!(kinds.iter().filter(|k| **k == ReviewKind::HeldSet).count(), 10);
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|k| **k == ReviewKind::VersionDoubt)
+            .count(),
+        10
+    );
+    assert_eq!(
+        kinds.iter().filter(|k| **k == ReviewKind::HeldSet).count(),
+        10
+    );
     assert_eq!(lib.page(ReviewGroup::QualityProblems, 0, 5).total, 500);
 
     // The queries stand on the new indexes, not on a walk of the tables.
@@ -374,17 +384,23 @@ fn a_library_of_100000_files_is_counted_and_paged_from_the_few_rows_that_wait() 
     assert!(plan.contains("grouping_pair_pending"), "{plan}");
     let plan = plan_of(
         &lib,
-        &format!("SELECT lt.recording_id {} ORDER BY 1 LIMIT 100", quality_from("")),
+        &format!(
+            "SELECT lt.recording_id {} ORDER BY 1 LIMIT 100",
+            quality_from("")
+        ),
     );
     assert!(plan.contains("file_verdict_flagged"), "{plan}");
-    let plan = plan_of(
-        &lib,
-        &format!("SELECT count(*) {}", relink_from("")),
-    );
+    let plan = plan_of(&lib, &format!("SELECT count(*) {}", relink_from("")));
     assert!(plan.contains("rekordbox_track_probable"), "{plan}");
     // The better-file kinds walk the small `better_file` table (one row per
     // track with a better copy) and look each track up; never the whole
     // Library.
-    let plan = plan_of(&lib, &format!("SELECT lt.recording_id {}", better_from(true, "")));
-    assert!(plan.contains("SCAN bf") && !plan.contains("SCAN lt"), "{plan}");
+    let plan = plan_of(
+        &lib,
+        &format!("SELECT lt.recording_id {}", better_from(true, "")),
+    );
+    assert!(
+        plan.contains("SCAN bf") && !plan.contains("SCAN lt"),
+        "{plan}"
+    );
 }

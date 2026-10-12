@@ -40,7 +40,10 @@ fn a_version_doubt_lists_the_files_of_both_tracks_the_better_one_first_with_its_
     let keys: Vec<_> = c.doubt.iter().map(|r| r.key().to_owned()).collect();
     assert_eq!(
         keys,
-        ["review:doubt.sameAudioNamesDisagree", "review:doubt.namesDiffer"]
+        [
+            "review:doubt.sameAudioNamesDisagree",
+            "review:doubt.namesDiffer"
+        ]
     );
 }
 
@@ -101,7 +104,9 @@ fn a_quality_problem_has_no_suggestion_only_the_files_verdict() {
     let (t, f) = lib.simple("Velo");
     lib.library(t, f);
     lib.verdict(f, "truncated");
-    let c = lib.compare(id(ReviewKind::QualityProblem, t, None)).unwrap();
+    let c = lib
+        .compare(id(ReviewKind::QualityProblem, t, None))
+        .unwrap();
     assert!(c.suggestion.is_none());
     assert_eq!(c.rows.len(), 1);
     assert_eq!(c.rows[0].verdict, Some(Verdict::Truncated));
@@ -151,7 +156,9 @@ fn an_item_that_is_no_longer_queued_has_no_comparison() {
     lib.exec("UPDATE grouping_pair SET state = 'decided'");
     assert!(lib.compare(item).is_none());
     assert!(lib.compare(id(ReviewKind::Relink, 99, None)).is_none());
-    assert!(lib.compare(id(ReviewKind::QualityProblem, t1, None)).is_none());
+    assert!(lib
+        .compare(id(ReviewKind::QualityProblem, t1, None))
+        .is_none());
 }
 
 #[test]

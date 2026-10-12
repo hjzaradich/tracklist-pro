@@ -69,7 +69,10 @@ fn an_item_and_its_comparison_reach_the_frontend_with_a_suggestion_and_a_reason_
     )
     .unwrap();
     let item = &page["items"][0];
-    assert_eq!(item["id"], json!({ "kind": "clearBestFile", "a": 1, "b": null }));
+    assert_eq!(
+        item["id"],
+        json!({ "kind": "clearBestFile", "a": 1, "b": null })
+    );
     assert_eq!(item["tracks"][0]["title"], json!("Synthetic Tune"));
 
     let comparison = invoke(&app, "review_item", json!({ "id": item["id"] })).unwrap();

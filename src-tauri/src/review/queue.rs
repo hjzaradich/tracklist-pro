@@ -11,8 +11,8 @@ use rusqlite::{params, Connection, Params};
 
 use super::held::{self, Component};
 use super::{
-    FLAGGED, MAX_NAMES, PENDING_PAIRS, PROBABLE_RELINK, ReviewCounts, ReviewGroup, ReviewItem,
-    ReviewItemId, ReviewKind, ReviewPage, ReviewTrackName,
+    ReviewCounts, ReviewGroup, ReviewItem, ReviewItemId, ReviewKind, ReviewPage, ReviewTrackName,
+    FLAGGED, MAX_NAMES, PENDING_PAIRS, PROBABLE_RELINK,
 };
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
@@ -102,21 +102,15 @@ fn kind_counts(
             )?,
             ReviewKind::HeldSet => sets_of(false),
             ReviewKind::SameRecording => sets_of(true),
-            ReviewKind::Relink => count(
-                conn,
-                &format!("SELECT count(*) {}", relink_from("")),
-                [],
-            )?,
+            ReviewKind::Relink => count(conn, &format!("SELECT count(*) {}", relink_from("")), [])?,
             ReviewKind::ClearBestFile => count(
                 conn,
                 &format!("SELECT count(*) {}", better_from(true, "")),
                 [],
             )?,
-            ReviewKind::QualityProblem => count(
-                conn,
-                &format!("SELECT count(*) {}", quality_from("")),
-                [],
-            )?,
+            ReviewKind::QualityProblem => {
+                count(conn, &format!("SELECT count(*) {}", quality_from("")), [])?
+            }
             ReviewKind::BetterFile => count(
                 conn,
                 &format!("SELECT count(*) {}", better_from(false, "")),
@@ -316,7 +310,11 @@ pub fn items(
         before += size;
     }
 
-    let names = names(conn, volumes, found.iter().flat_map(|f| f.tracks.iter().copied()))?;
+    let names = names(
+        conn,
+        volumes,
+        found.iter().flat_map(|f| f.tracks.iter().copied()),
+    )?;
     let items = found
         .into_iter()
         .map(|f| {
@@ -350,13 +348,16 @@ pub fn items(
     })
 }
 
+/// The title and artist shown for each track, by track id.
+pub(super) type Names = HashMap<i64, (Option<String>, Option<String>)>;
+
 /// The title and artist shown for each track: a Library track's as the
 /// Library list shows them, any other track's from its own files.
 pub(super) fn names(
     conn: &Connection,
     volumes: &impl Volumes,
     recordings: impl Iterator<Item = i64>,
-) -> rusqlite::Result<HashMap<i64, (Option<String>, Option<String>)>> {
+) -> rusqlite::Result<Names> {
     let wanted: Vec<i64> = recordings.collect();
     let json = serde_json::to_string(&wanted).unwrap_or_else(|_| "[]".into());
     let library: HashMap<i64, i64> = {
@@ -388,10 +389,7 @@ pub(super) fn names(
     Ok(names)
 }
 
-pub(super) fn name_of(
-    names: &HashMap<i64, (Option<String>, Option<String>)>,
-    recording: i64,
-) -> ReviewTrackName {
+pub(super) fn name_of(names: &Names, recording: i64) -> ReviewTrackName {
     let (title, artist) = names.get(&recording).cloned().unwrap_or((None, None));
     ReviewTrackName {
         recording_id: Some(recording),
