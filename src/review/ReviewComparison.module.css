@@ -1,0 +1,94 @@
+.comparison {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.headingTrack {
+  display: block;
+}
+
+.doubt {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.doubtLabel {
+  color: var(--color-text);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.table th {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.table td {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+  color: var(--color-text);
+}
+
+.row:nth-child(even) td {
+  background: var(--color-row-stripe);
+}
+
+.file {
+  max-width: 18rem;
+}
+
+.name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.warn {
+  color: var(--color-warning);
+}
+
+.quality {
+  white-space: nowrap;
+}
+
+.detail {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.number {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.more {
+  margin: 0;
+  color: var(--color-text-muted);
+}

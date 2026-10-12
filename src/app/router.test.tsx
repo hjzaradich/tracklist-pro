@@ -8,7 +8,7 @@ import { tx } from "../test/tx";
 // Each stage's name and what its screen says with an empty Library.
 const SCREENS = [
   { path: "/overview", name: tx("shell:stages.overview"), empty: tx("firstRun:title") },
-  { path: "/review", name: tx("shell:stages.review"), empty: tx("review:empty") },
+  { path: "/review", name: tx("shell:stages.review"), empty: tx("review:queue.empty") },
   { path: "/all-music", name: tx("shell:stages.allMusic"), empty: tx("allMusic:empty") },
   { path: "/library", name: tx("shell:stages.library"), empty: tx("library:empty") },
   { path: "/crates", name: tx("shell:stages.crates"), empty: tx("crates:empty") },
@@ -22,6 +22,10 @@ describe("stage routes", () => {
       if (cmd === "list_crates") return [];
       if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
       if (cmd === "music_folders") return [];
+      if (cmd === "missing_tracks") return { total: 0, groups: [] };
+      if (cmd === "review_counts") {
+        return { needsCloserLook: 0, clearBestFile: 0, qualityProblems: 0, total: 0 };
+      }
       if (cmd === "rekordbox_xml_source") {
         return {
           path: null,

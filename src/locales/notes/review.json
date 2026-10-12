@@ -1,9 +1,4 @@
 {
-  "empty": {
-    "purpose": "Placeholder describing what Review will hold, until its feature arrives.",
-    "where": "Review screen, above the Missing list.",
-    "approved": "Every decision the app can't make on its own."
-  },
   "missing.title": {
     "purpose": "Title of the list of rekordbox tracks with no file.",
     "where": "Review screen, Missing list heading.",
@@ -43,5 +38,353 @@
     "purpose": "Button that adds a group's folder as a music folder.",
     "where": "Review screen, Missing list, on a group whose folder exists and isn't a music folder yet.",
     "approved": "Add folder"
+  },
+  "group.needsCloserLook": {
+    "purpose": "Heading of the queue group for decisions that take thought.",
+    "where": "Review screen, queue on the left, group heading."
+  },
+  "group.clearBestFile": {
+    "purpose": "Heading of the queue group where a Library track's linked file is gone and a copy is on disk.",
+    "where": "Review screen, queue on the left, group heading."
+  },
+  "group.qualityProblems": {
+    "purpose": "Heading of the queue group for flagged files and better files for a linked file that is still there.",
+    "where": "Review screen, queue on the left, group heading."
+  },
+  "queue.label": {
+    "purpose": "Accessible name of a group's list of items.",
+    "where": "Review screen, queue on the left, each group's list (screen readers only)."
+  },
+  "queue.left_one": {
+    "purpose": "How many items a group still has, when one.",
+    "where": "Review screen, queue on the left, beside a group heading."
+  },
+  "queue.left_other": {
+    "purpose": "How many items a group still has.",
+    "where": "Review screen, queue on the left, beside a group heading."
+  },
+  "queue.empty": {
+    "purpose": "Says nothing is waiting for a decision.",
+    "where": "Review screen, queue on the left, when all groups are empty."
+  },
+  "queue.more": {
+    "purpose": "Loads the next page of a group's items.",
+    "where": "Review screen, queue on the left, under a group that has more items than are shown."
+  },
+  "item.moreTracks_one": {
+    "purpose": "Says one more track is in the item.",
+    "where": "Review screen, queue on the left, an item with more tracks than are named."
+  },
+  "item.moreTracks_other": {
+    "purpose": "Says how many more tracks are in the item.",
+    "where": "Review screen, queue on the left, an item with more tracks than are named."
+  },
+  "item.trackName": {
+    "purpose": "How a track with an artist is named. Same wording as missing.trackName.",
+    "where": "Review screen, queue on the left, each item, and Review screen, comparison on the right, the track column."
+  },
+  "item.untitled": {
+    "purpose": "Names a track that has no title and no file name.",
+    "where": "Review screen, queue on the left, an item's track name."
+  },
+  "kind.versionDoubt": {
+    "purpose": "What kind of item it is: two tracks the rules could not tell apart or keep apart.",
+    "where": "Review screen, queue on the left, under each item of that kind."
+  },
+  "kind.heldSet": {
+    "purpose": "What kind of item it is: duplicate files held because their pairs disagree.",
+    "where": "Review screen, queue on the left, under each item of that kind."
+  },
+  "kind.sameRecording": {
+    "purpose": "What kind of item it is: two Library tracks that are the same recording.",
+    "where": "Review screen, queue on the left, under each item of that kind."
+  },
+  "kind.relink": {
+    "purpose": "What kind of item it is: a rekordbox entry matched to a file only probably.",
+    "where": "Review screen, queue on the left, under each item of that kind."
+  },
+  "kind.clearBestFile": {
+    "purpose": "What kind of item it is: the linked file is gone and a copy is on disk.",
+    "where": "Review screen, queue on the left, under each item of that kind."
+  },
+  "kind.qualityProblem": {
+    "purpose": "What kind of item it is: the linked file is flagged, cut off or broken.",
+    "where": "Review screen, queue on the left, under each item of that kind."
+  },
+  "kind.betterFile": {
+    "purpose": "What kind of item it is: a better copy exists beside a linked file that is still there.",
+    "where": "Review screen, queue on the left, under each item of that kind."
+  },
+  "compare.label": {
+    "purpose": "Accessible name of the table of an item's files.",
+    "where": "Review screen, comparison on the right, table (screen readers only)."
+  },
+  "compare.none": {
+    "purpose": "Says no item is selected.",
+    "where": "Review screen, comparison on the right, when nothing is selected."
+  },
+  "compare.suggested": {
+    "purpose": "Names the file the app suggests; its reason follows.",
+    "where": "Review screen, comparison on the right, above the table ({{name}} is the file's name)."
+  },
+  "compare.doubt": {
+    "purpose": "Label of the reasons an item is in the queue.",
+    "where": "Review screen, comparison on the right, above the table, on items that have such reasons."
+  },
+  "compare.moreFiles_one": {
+    "purpose": "Says one more file is not listed.",
+    "where": "Review screen, comparison on the right, under the table."
+  },
+  "compare.moreFiles_other": {
+    "purpose": "Says how many more files are not listed.",
+    "where": "Review screen, comparison on the right, under the table."
+  },
+  "compare.rekordboxEntry": {
+    "purpose": "Names the row that shows what rekordbox has for the track: its old location.",
+    "where": "Review screen, comparison on the right, the track column of a relink item's second row."
+  },
+  "col.track": {
+    "purpose": "Column heading: which track the file is in.",
+    "where": "Review screen, comparison on the right, table header, items with several tracks."
+  },
+  "col.format": {
+    "purpose": "Column heading: the file's format.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "col.quality": {
+    "purpose": "Column heading: the file's quality verdict.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "col.length": {
+    "purpose": "Column heading: the file's duration.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "col.tags": {
+    "purpose": "Column heading: how many descriptive tags are filled in.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "col.cover": {
+    "purpose": "Column heading: whether the file has embedded cover art.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "col.rekordbox": {
+    "purpose": "Column heading: whether rekordbox uses the file. rekordbox is written as it writes itself.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "mark.suggested": {
+    "purpose": "Marks the file the app suggests.",
+    "where": "Review screen, comparison on the right, the file column of the first row."
+  },
+  "mark.linked": {
+    "purpose": "Marks the file the Library track plays.",
+    "where": "Review screen, comparison on the right, the file column."
+  },
+  "cell.yes": {
+    "purpose": "A yes in a table cell.",
+    "where": "Review screen, comparison on the right, the cover and rekordbox columns."
+  },
+  "cell.no": {
+    "purpose": "A no in a table cell.",
+    "where": "Review screen, comparison on the right, the cover and rekordbox columns."
+  },
+  "cell.tags": {
+    "purpose": "How many of the descriptive tags a file has filled in.",
+    "where": "Review screen, comparison on the right, the tags column."
+  },
+  "cell.cutoff": {
+    "purpose": "The highest frequency measured in the file.",
+    "where": "Review screen, comparison on the right, the quality column, under the verdict."
+  },
+  "verdict.notChecked": {
+    "purpose": "The file has no quality verdict yet.",
+    "where": "Review screen, comparison on the right, the quality column."
+  },
+  "verdict.ok": {
+    "purpose": "The quality check found nothing wrong.",
+    "where": "Review screen, comparison on the right, the quality column."
+  },
+  "verdict.lowBitrate": {
+    "purpose": "The quality check flagged a low bitrate.",
+    "where": "Review screen, comparison on the right, the quality column."
+  },
+  "verdict.suspectTranscode": {
+    "purpose": "The quality check flagged audio made from a lower-quality file.",
+    "where": "Review screen, comparison on the right, the quality column."
+  },
+  "verdict.truncated": {
+    "purpose": "The quality check found the audio ends too early.",
+    "where": "Review screen, comparison on the right, the quality column."
+  },
+  "verdict.broken": {
+    "purpose": "The quality check found the file broken.",
+    "where": "Review screen, comparison on the right, the quality column."
+  },
+  "reason.onlyFile": {
+    "purpose": "Reason: the track has one file.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.notOnDisk": {
+    "purpose": "Reason: the suggested file is there and the other is gone.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.betterVerdict": {
+    "purpose": "Reason: the suggested file's quality verdict is better.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.playable": {
+    "purpose": "Reason: the suggested file's format plays in the DJ app and the other's does not.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.higherCutoff": {
+    "purpose": "Reason: both measured, the suggested file's cutoff is higher.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.higherCutoffMeasured": {
+    "purpose": "Reason: only the suggested file has a measured cutoff.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.fewerDecodeErrors": {
+    "purpose": "Reason: the suggested file has fewer decode errors.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.betterFormat": {
+    "purpose": "Reason: a better format; {{best}} and {{other}} are format names.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.betterBitrate": {
+    "purpose": "Reason: the same format at a higher bitrate.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.moreTags": {
+    "purpose": "Reason: the suggested file has more tags filled in.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.hasArt": {
+    "purpose": "Reason: only the suggested file has cover art.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.knownToRekordbox": {
+    "purpose": "Reason: rekordbox knows the suggested file better.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.betterPlace": {
+    "purpose": "Reason: the suggested file is in a better place.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "reason.tied": {
+    "purpose": "Reason: nothing separates the files; the older one is suggested.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "relink.filenameOnly": {
+    "purpose": "Reason for a relink: matched by file name alone.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "relink.uniqueDuration": {
+    "purpose": "Reason for a relink: matched by its length among nearby files.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "relink.fingerprint": {
+    "purpose": "Reason for a relink: matched by the audio fingerprint.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "relink.filenameDuration": {
+    "purpose": "Reason for a relink: matched by file name and length.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "relink.user": {
+    "purpose": "Reason for a relink: a confirmed match whose file now holds other audio.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "relink.other": {
+    "purpose": "Reason for a relink: any other rule.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "doubt.identicalAudio": {
+    "purpose": "Why the grouping rules put the items' files in doubt: identicalAudio.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.sameAudio": {
+    "purpose": "Why the grouping rules put the items' files in doubt: sameAudio.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.versionVeto": {
+    "purpose": "Why the grouping rules put the items' files in doubt: versionVeto.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.sameAudioNamesDisagree": {
+    "purpose": "Why the grouping rules put the items' files in doubt: sameAudioNamesDisagree.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.audioInsideOther": {
+    "purpose": "Why the grouping rules put the items' files in doubt: audioInsideOther.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.audioInsideOtherNamesDisagree": {
+    "purpose": "Why the grouping rules put the items' files in doubt: audioInsideOtherNamesDisagree.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.sameTagsPartialAudio": {
+    "purpose": "Why the grouping rules put the items' files in doubt: sameTagsPartialAudio.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.partialAudioNamesUnclear": {
+    "purpose": "Why the grouping rules put the items' files in doubt: partialAudioNamesUnclear.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.namesSayCut": {
+    "purpose": "Why the grouping rules put the items' files in doubt: namesSayCut.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.namesSayRework": {
+    "purpose": "Why the grouping rules put the items' files in doubt: namesSayRework.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.mashupContains": {
+    "purpose": "Why the grouping rules put the items' files in doubt: mashupContains.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.labelWordsDiffer": {
+    "purpose": "Why the grouping rules put the items' files in doubt: labelWordsDiffer.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.fingerprintVeto": {
+    "purpose": "Why the grouping rules put the items' files in doubt: fingerprintVeto.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.noFingerprint": {
+    "purpose": "Why the grouping rules put the items' files in doubt: noFingerprint.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.notCompared": {
+    "purpose": "Why the grouping rules put the items' files in doubt: notCompared.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.sameTitleDifferentArtists": {
+    "purpose": "Why the grouping rules put the items' files in doubt: sameTitleDifferentArtists.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.mashupPart": {
+    "purpose": "Why the grouping rules put the items' files in doubt: mashupPart.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.namesUnclear": {
+    "purpose": "Why the grouping rules put the items' files in doubt: namesUnclear.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.titlesDiffer": {
+    "purpose": "Why the grouping rules put the items' files in doubt: titlesDiffer.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.namesDiffer": {
+    "purpose": "Why the grouping rules put the items' files in doubt: namesDiffer.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.artistsDiffer": {
+    "purpose": "Why the grouping rules put the items' files in doubt: artistsDiffer.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+  },
+  "doubt.creditedToRemixer": {
+    "purpose": "Why the grouping rules put the items' files in doubt: creditedToRemixer.",
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
   }
 }
