@@ -59,6 +59,7 @@ pub use cutoff::Gap;
 pub use job::{quality_job, Qualifier};
 pub use ledger::Stored;
 pub use measure::{measure, Ended, Errors, Failure, Measured};
+pub(crate) use store::stale_condition;
 pub use store::{settle, settle_files, stored_verdict, stored_verdicts, RULES_VERSION};
 
 use crate::db::{DbError, Writer};

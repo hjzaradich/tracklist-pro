@@ -96,7 +96,7 @@ pub(crate) const KEY_IGNORES: &[&str] = &["measured_at"];
 /// `v`'s row is missing or not current for the inputs `f` and `q` have now:
 /// made by other rules, or from other inputs. A missing row needs no arm of
 /// its own: its `inputs` is NULL, which is never the key (`IS NOT` is true).
-fn stale_condition() -> String {
+pub(crate) fn stale_condition() -> String {
     format!("(v.rules_version != {RULES_VERSION} OR v.inputs IS NOT {INPUTS})")
 }
 

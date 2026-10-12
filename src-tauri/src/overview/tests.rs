@@ -1,0 +1,893 @@
+//! Overview number tests. Everything is made up: a small library with
+//! known answers in a migrated database in a temp dir, and a generated one
+//! of 100,000 tracks.
+
+use std::cell::Cell;
+use std::path::Path;
+
+use rusqlite::{params, Connection};
+use serde_json::{json, Value};
+
+use super::*;
+use crate::db::Writer;
+
+/// "Now" in every test: 2026-10-10 12:00 UTC.
+const NOW_MS: i64 = 1_791_633_600_000;
+const HOUR_MS: i64 = 3_600_000;
+
+fn open(dir: &Path) -> Writer {
+    Writer::open(&crate::write_guard::test_path(dir, crate::db::DB_FILE_NAME)).unwrap()
+}
+
+fn text(key: &str, text: &str) -> Value {
+    json!({"key": key, "value": {"type": "text", "text": text}})
+}
+
+/// A library database with one volume and one music folder (id 1).
+struct Lib {
+    _dir: tempfile::TempDir,
+    writer: Writer,
+    next_track_id: Cell<i64>,
+}
+
+impl Lib {
+    fn new() -> Lib {
+        let dir = tempfile::tempdir().unwrap();
+        let writer = open(dir.path());
+        writer
+            .call(|c| {
+                c.execute_batch(
+                    "INSERT INTO volume (identity, kind, last_mount_path)
+                     VALUES ('serial=1A2B3C4D', 'internal', 'C:\\');
+                     INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                     VALUES (1, 'Music', 'Music');",
+                )
+            })
+            .unwrap();
+        Lib {
+            _dir: dir,
+            writer,
+            next_track_id: Cell::new(1),
+        }
+    }
+
+    fn run<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,
+    ) -> T {
+        self.writer.call(f).unwrap()
+    }
+
+    fn exec(&self, sql: &'static str, params: impl rusqlite::Params + Send + 'static) -> i64 {
+        self.run(move |c| {
+            c.execute(sql, params)?;
+            Ok(c.last_insert_rowid())
+        })
+    }
+
+    fn overview(&self) -> Overview {
+        self.run(|c| overview_at(c, NOW_MS))
+    }
+
+    /// The stored form of the moment `hours` before [`NOW_MS`].
+    fn ago(&self, hours: i64) -> String {
+        self.run(move |c| {
+            c.query_row(
+                "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?1 / 1000.0, 'unixepoch')",
+                [NOW_MS - hours * HOUR_MS],
+                |r| r.get(0),
+            )
+        })
+    }
+
+    /// A track (a `recording`).
+    fn track(&self, title: &str) -> i64 {
+        self.exec(
+            "INSERT INTO recording (title) VALUES (?1)",
+            [title.to_owned()],
+        )
+    }
+
+    /// A file of `track` that is its best, `ms` long, on the Music folder.
+    fn file(&self, track: i64, name: &str, ms: Option<i64>, tags: Option<Value>) -> i64 {
+        let file = self.exec(
+            "INSERT INTO file (music_folder_id, rel_path, rel_path_key, duration_ms, raw_tags)
+             VALUES (1, ?1, ?1, ?2, ?3)",
+            (name.to_owned(), ms, tags.map(|t| t.to_string())),
+        );
+        self.exec(
+            "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
+            (track, file),
+        );
+        file
+    }
+
+    /// Adds `track` to the Library, linked to `file`, `hours` ago.
+    fn add(&self, track: i64, file: i64, hours: i64) -> i64 {
+        let at = self.ago(hours);
+        self.exec(
+            "INSERT INTO library_track (recording_id, linked_file_id, added_at)
+             VALUES (?1, ?2, ?3)",
+            (track, file, at),
+        )
+    }
+
+    /// A Library track of its own, with a file of the given length.
+    fn library_track(&self, name: &str, ms: Option<i64>, tags: Option<Value>) -> (i64, i64) {
+        let track = self.track(name);
+        let file = self.file(track, &format!("{name}.mp3"), ms, tags);
+        (track, self.add(track, file, 1))
+    }
+
+    /// A rekordbox entry for `file` (and its track), attributes as given.
+    fn rekordbox(&self, file: i64, attributes: Value, probable: bool) {
+        let id = self.next_track_id.get();
+        self.next_track_id.set(id + 1);
+        let mut attributes = attributes;
+        attributes["TrackID"] = json!(id.to_string());
+        attributes["Location"] = json!(format!("file://localhost/C:/Music/{id}.mp3"));
+        self.exec(
+            "INSERT INTO rekordbox_track
+                 (attributes, location_key, read_at, file_id, recording_id, relink_method,
+                  relink_probable)
+             VALUES (?1, ?2, '2026-09-30T10:00:00.000Z', ?3,
+                     (SELECT recording_id FROM recording_file WHERE file_id = ?3), ?4, ?5)",
+            (
+                attributes.to_string(),
+                format!("C:/Music/{id}.mp3"),
+                file,
+                if probable { "filename_only" } else { "path" },
+                probable,
+            ),
+        );
+    }
+
+    /// Writes the `analysis` rows rekordbox gives, as the attach job does.
+    fn attach(&self) {
+        self.run(|c| crate::attach::attach(c).map(|_| ()));
+    }
+
+    fn job(&self, kind: &'static str, status: &'static str) {
+        self.exec(
+            "INSERT INTO job (kind, status, error, finished_at)
+             VALUES (?1, ?2, CASE ?2 WHEN 'failed' THEN 'it failed' END,
+                     CASE WHEN ?2 IN ('done', 'failed', 'cancelled')
+                          THEN '2026-10-10T11:00:00.000Z' END)",
+            (kind, status),
+        );
+    }
+
+    fn crate_with(&self, name: &'static str, kind: &'static str) -> i64 {
+        self.exec(
+            "INSERT INTO crate (kind, name, rules) VALUES (?1, ?2, CASE ?1 WHEN 'smart' THEN '{}' END)",
+            (kind, name),
+        )
+    }
+
+    fn put_in_crate(&self, crate_id: i64, library_track: i64, kind: &'static str) {
+        self.exec(
+            "INSERT INTO crate_entry (crate_id, library_track_id, kind) VALUES (?1, ?2, ?3)",
+            (crate_id, library_track, kind),
+        );
+    }
+}
+
+// The Library's size.
+
+#[test]
+fn the_library_counts_its_tracks_and_adds_up_their_lengths() {
+    let lib = Lib::new();
+    lib.library_track("Alpha", Some(180_000), None);
+    lib.library_track("Beta", Some(240_500), None);
+    // A track whose length isn't read yet adds nothing.
+    lib.library_track("Gamma", None, None);
+    // A track in All music only is not in the Library.
+    let other = lib.track("Delta");
+    lib.file(other, "Delta.mp3", Some(1_000_000), None);
+
+    let o = lib.overview();
+    assert_eq!(o.tracks, 3);
+    assert_eq!(o.total_length_ms, 420_500);
+}
+
+#[test]
+fn a_track_whose_file_is_gone_or_on_an_unplugged_drive_still_counts_with_its_length() {
+    let lib = Lib::new();
+    let (_, gone) = lib.library_track("Alpha", Some(100_000), None);
+    let (_, away) = lib.library_track("Beta", Some(200_000), None);
+    // The file is gone from disk (the scan marks it).
+    lib.exec(
+        "UPDATE file SET present = 0 WHERE rel_path = 'Alpha.mp3'",
+        [],
+    );
+    // The second file is on a drive that isn't plugged in: its volume has
+    // no mount point, and the file stays present.
+    lib.exec(
+        "INSERT INTO volume (identity, kind) VALUES ('serial=0000FFFF', 'external')",
+        [],
+    );
+    lib.exec(
+        "INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (2, 'Gig', 'Gig')",
+        [],
+    );
+    lib.exec(
+        "UPDATE file SET music_folder_id = 2 WHERE rel_path = 'Beta.mp3'",
+        [],
+    );
+    let _ = (gone, away);
+
+    let o = lib.overview();
+    assert_eq!((o.tracks, o.total_length_ms), (2, 300_000));
+}
+
+#[test]
+fn a_hidden_file_does_not_take_its_track_out_of_the_library() {
+    let lib = Lib::new();
+    lib.library_track("Alpha", Some(100_000), None);
+    lib.exec("UPDATE file SET hidden_reason = 'user'", []);
+    let o = lib.overview();
+    assert_eq!((o.tracks, o.total_length_ms), (1, 100_000));
+}
+
+#[test]
+fn a_library_track_with_no_file_link_counts_and_has_no_length() {
+    let lib = Lib::new();
+    let track = lib.track("Alpha");
+    lib.exec(
+        "INSERT INTO library_track (recording_id, linked_file_id, source_status)
+         VALUES (?1, NULL, 'missing')",
+        [track],
+    );
+    let o = lib.overview();
+    assert_eq!((o.tracks, o.total_length_ms), (1, 0));
+    assert_eq!(o.low_quality, 0);
+    assert!(!o.counting.quality);
+}
+
+#[test]
+fn an_empty_library_gives_zeroes_and_nothing_counting() {
+    let o = Lib::new().overview();
+    assert_eq!(o.tracks, 0);
+    assert_eq!((o.in_crates, o.in_no_crate), (0, 0));
+    assert_eq!((o.analyzed_by_rekordbox, o.not_analyzed), (0, 0));
+    assert_eq!((o.low_quality, o.all_music), (0, 0));
+    assert_eq!(o.last_sent_ms, None);
+    assert!(o.genres.is_empty());
+    assert_eq!(o.no_genre, 0);
+    assert!(!o.rekordbox_read);
+    assert_eq!(o.counting, Counting::default());
+}
+
+// Crates.
+
+#[test]
+fn a_track_in_two_crates_counts_once_and_a_smart_crates_rules_are_not_membership() {
+    let lib = Lib::new();
+    let (_, a) = lib.library_track("Alpha", None, None);
+    let (_, b) = lib.library_track("Beta", None, None);
+    let (_, c) = lib.library_track("Gamma", None, None);
+    let warmup = lib.crate_with("Warmup", "static");
+    let peak = lib.crate_with("Peak", "static");
+    let smart = lib.crate_with("Fast", "smart");
+    lib.put_in_crate(warmup, a, "member");
+    lib.put_in_crate(peak, a, "member");
+    lib.put_in_crate(peak, b, "member");
+    lib.put_in_crate(smart, c, "always_include");
+
+    let o = lib.overview();
+    assert_eq!((o.tracks, o.in_crates, o.in_no_crate), (3, 2, 1));
+}
+
+// What rekordbox analyzed.
+
+#[test]
+fn a_track_is_analyzed_when_rekordbox_gave_a_bpm_or_a_key() {
+    let lib = Lib::new();
+    let (_, bpm_only) = lib.library_track("Has a BPM", None, None);
+    let (_, key_only) = lib.library_track("Has a key", None, None);
+    let (_, both) = lib.library_track("Has both", None, None);
+    let (_, neither) = lib.library_track("Has neither", None, None);
+    let (_, probable) = lib.library_track("Probably this one", None, None);
+    lib.library_track("Unknown to rekordbox", None, None);
+    let file = |name: &str| -> i64 {
+        lib.run({
+            let name = format!("{name}.mp3");
+            move |c| c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| r.get(0))
+        })
+    };
+    let _ = (bpm_only, key_only, both, neither, probable);
+    lib.rekordbox(file("Has a BPM"), json!({"AverageBpm": "128.00"}), false);
+    lib.rekordbox(file("Has a key"), json!({"Tonality": "Am"}), false);
+    lib.rekordbox(
+        file("Has both"),
+        json!({"AverageBpm": "126.50", "Tonality": "8A"}),
+        false,
+    );
+    // rekordbox knows the track but never analyzed it: BPM 0, no key.
+    lib.rekordbox(file("Has neither"), json!({"AverageBpm": "0.00"}), false);
+    // A match that isn't trusted gives nothing.
+    lib.rekordbox(
+        file("Probably this one"),
+        json!({"AverageBpm": "140.00", "Tonality": "5A"}),
+        true,
+    );
+    lib.attach();
+
+    let o = lib.overview();
+    assert_eq!(o.tracks, 6);
+    assert_eq!((o.analyzed_by_rekordbox, o.not_analyzed), (3, 3));
+    assert!(o.rekordbox_read);
+}
+
+#[test]
+fn without_a_rekordbox_read_every_track_is_not_analyzed_and_the_overview_says_so() {
+    let lib = Lib::new();
+    lib.library_track("Alpha", None, None);
+    let o = lib.overview();
+    assert_eq!((o.analyzed_by_rekordbox, o.not_analyzed), (0, 1));
+    assert!(!o.rekordbox_read);
+}
+
+// Quality.
+
+/// Makes the verdict of each file current, as the quality job does.
+fn settle(lib: &Lib) {
+    lib.run(|c| crate::quality::settle(c).map(|_| ()));
+}
+
+#[test]
+fn a_track_is_low_quality_when_its_files_current_verdict_is_a_problem() {
+    let lib = Lib::new();
+    lib.library_track("Broken", None, None);
+    lib.library_track("Cut off", None, None);
+    lib.library_track("Thin", None, None);
+    lib.library_track("Fine", None, None);
+    lib.exec(
+        "UPDATE file SET quality_verdict = 'broken' WHERE rel_path = 'Broken.mp3'",
+        [],
+    );
+    lib.exec(
+        "UPDATE file SET quality_verdict = 'truncated' WHERE rel_path = 'Cut off.mp3'",
+        [],
+    );
+    lib.exec(
+        "UPDATE file SET codec = 'mp3', bitrate = 64 WHERE rel_path = 'Thin.mp3'",
+        [],
+    );
+    // A hidden or missing file is still the Library track's file.
+    lib.exec("UPDATE file SET present = 0 WHERE rel_path = 'Broken.mp3'", []);
+    settle(&lib);
+
+    let o = lib.overview();
+    assert_eq!(o.low_quality, 3);
+    assert!(!o.counting.quality, "every verdict is current");
+}
+
+#[test]
+fn a_stale_verdict_is_no_verdict_and_says_the_quality_number_is_still_counting() {
+    let lib = Lib::new();
+    lib.library_track("Broken", None, None);
+    lib.exec("UPDATE file SET quality_verdict = 'broken'", []);
+
+    // No verdict row yet: not counted, and not "ok" either.
+    let o = lib.overview();
+    assert_eq!(o.low_quality, 0);
+    assert!(o.counting.quality);
+
+    settle(&lib);
+    let o = lib.overview();
+    assert_eq!(o.low_quality, 1);
+    assert!(!o.counting.quality);
+
+    // The file's audio properties change: the stored verdict is stale.
+    lib.exec("UPDATE file SET bitrate = 320", []);
+    let o = lib.overview();
+    assert_eq!(o.low_quality, 0);
+    assert!(o.counting.quality);
+
+    settle(&lib);
+    let o = lib.overview();
+    assert_eq!(o.low_quality, 1);
+    assert!(!o.counting.quality);
+}
+
+#[test]
+fn a_file_outside_the_library_with_a_stale_verdict_holds_nothing() {
+    let lib = Lib::new();
+    let other = lib.track("Not mine");
+    lib.file(other, "Not mine.mp3", None, None);
+    assert!(!lib.overview().counting.quality);
+}
+
+// When it was last sent.
+
+#[test]
+fn last_sent_is_the_latest_send_on_a_track_a_removed_track_or_a_crate() {
+    let lib = Lib::new();
+    assert_eq!(lib.overview().last_sent_ms, None);
+
+    let (track, library_track) = lib.library_track("Alpha", None, None);
+    assert_eq!(lib.overview().last_sent_ms, None);
+
+    lib.exec(
+        "UPDATE library_track SET last_exported_at = '2026-09-30T10:00:00.123Z' WHERE id = ?1",
+        [library_track],
+    );
+    assert_eq!(lib.overview().last_sent_ms, Some(1_790_762_400_123));
+
+    // A removed track's send is a send too.
+    let gone = lib.track("Gone");
+    lib.exec(
+        "INSERT INTO library_removal (recording_id, last_exported_at)
+         VALUES (?1, '2026-10-01T08:30:00.000Z')",
+        [gone],
+    );
+    assert_eq!(lib.overview().last_sent_ms, Some(1_790_843_400_000));
+    let _ = track;
+}
+
+// All music.
+
+#[test]
+fn all_music_counts_each_track_with_a_visible_file_once() {
+    let lib = Lib::new();
+    // In the Library, and not.
+    lib.library_track("Alpha", None, None);
+    let beta = lib.track("Beta");
+    lib.file(beta, "Beta.mp3", None, None);
+    // Two files, one track.
+    let gamma = lib.track("Gamma");
+    lib.file(gamma, "Gamma.mp3", None, None);
+    let extra = lib.exec(
+        "INSERT INTO file (music_folder_id, rel_path, rel_path_key) VALUES (1, 'Gamma 2.mp3', 'Gamma 2.mp3')",
+        [],
+    );
+    lib.exec(
+        "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'extra')",
+        (gamma, extra),
+    );
+    // A track with no file isn't in All music.
+    lib.track("No file");
+    // Only hidden files: not shown.
+    let hidden = lib.track("Hidden");
+    let hidden_file = lib.file(hidden, "Hidden.mp3", None, None);
+    lib.exec(
+        "UPDATE file SET hidden_reason = 'user' WHERE id = ?1",
+        [hidden_file],
+    );
+    // One hidden file and one shown: shown.
+    let mixed = lib.track("Mixed");
+    let mixed_file = lib.file(mixed, "Mixed.mp3", None, None);
+    lib.exec(
+        "UPDATE file SET hidden_reason = 'inbox_cleared' WHERE id = ?1",
+        [mixed_file],
+    );
+    let shown = lib.exec(
+        "INSERT INTO file (music_folder_id, rel_path, rel_path_key) VALUES (1, 'Mixed 2.mp3', 'Mixed 2.mp3')",
+        [],
+    );
+    lib.exec(
+        "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'extra')",
+        (mixed, shown),
+    );
+
+    assert_eq!(lib.overview().all_music, 4);
+}
+
+// This week.
+
+#[test]
+fn this_week_is_the_last_seven_days_and_its_edges_are_exact() {
+    let lib = Lib::new();
+    let track = |name: &str, hours: i64| {
+        let t = lib.track(name);
+        let f = lib.file(t, &format!("{name}.mp3"), None, None);
+        lib.add(t, f, hours);
+    };
+    track("Just now", 0);
+    track("Almost a week", 7 * 24 - 1);
+    track("Exactly a week", 7 * 24);
+    track("Over a week", 7 * 24 + 1);
+    // The operation log: the same edges.
+    for (hours, kind) in [(1, "add_to_library"), (7 * 24 + 1, "create_crate")] {
+        let at = lib.ago(hours);
+        lib.exec(
+            "INSERT INTO operation (kind, created_at) VALUES (?1, ?2)",
+            (kind, at),
+        );
+    }
+    let o = lib.overview();
+    assert_eq!(o.added_this_week, 3);
+    assert_eq!(o.decisions_this_week, 1);
+}
+
+#[test]
+fn decisions_count_the_operations_in_the_undo_log_and_an_undone_one_follows_the_choice() {
+    let lib = Lib::new();
+    for undone in [false, false, true] {
+        let at = lib.ago(2);
+        lib.exec(
+            "INSERT INTO operation (kind, created_at, undone_at)
+             VALUES ('add_to_library', ?1, CASE ?2 WHEN 1 THEN ?1 END)",
+            (at, undone),
+        );
+    }
+    let expected = if COUNT_UNDONE_OPERATIONS { 3 } else { 2 };
+    assert_eq!(lib.overview().decisions_this_week, expected);
+}
+
+// Genres.
+
+#[test]
+fn a_track_rekordbox_knows_has_rekordboxs_genre_and_others_have_the_files() {
+    let lib = Lib::new();
+    let tagged = |genre: &str| Some(json!({"id3v2": [text("TCON", genre)]}));
+    let (_, known) = lib.library_track("Known", None, tagged("Tag House"));
+    let (_, unknown) = lib.library_track("Unknown", None, tagged("Techno"));
+    let (_, probable) = lib.library_track("Probable", None, tagged("Disco"));
+    let (_, blank) = lib.library_track("Blank in rekordbox", None, tagged("Trance"));
+    lib.library_track("No tag", None, None);
+    lib.library_track("Empty tag", None, Some(json!({})));
+    let _ = (known, unknown, probable, blank);
+    let file = |name: &str| -> i64 {
+        lib.run({
+            let name = format!("{name}.mp3");
+            move |c| c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| r.get(0))
+        })
+    };
+    lib.rekordbox(file("Known"), json!({"Genre": "Rekordbox House"}), false);
+    // Only a probable match: rekordbox doesn't know the track yet.
+    lib.rekordbox(file("Probable"), json!({"Genre": "Wrong"}), true);
+    lib.rekordbox(file("Blank in rekordbox"), json!({"Genre": "  "}), false);
+
+    let o = lib.overview();
+    let mut expected = vec![("Disco", 1), ("Rekordbox House", 1), ("Techno", 1)];
+    if BLANK_GENRE_FALLS_BACK {
+        expected.push(("Trance", 1));
+    }
+    let got: Vec<(&str, u32)> = o.genres.iter().map(|g| (g.name.as_str(), g.tracks)).collect();
+    assert_eq!(got, expected);
+    assert_eq!(o.no_genre, 6 - expected.len() as u32);
+}
+
+#[test]
+fn genres_are_sorted_by_tracks_then_name_and_capitals_do_not_make_another_genre() {
+    let lib = Lib::new();
+    for (i, genre) in ["house", "House", "House", "Techno", "Ambient", "Ambient", "Disco"]
+        .into_iter()
+        .enumerate()
+    {
+        lib.library_track(
+            &format!("T{i}"),
+            None,
+            Some(json!({"id3v2": [text("TCON", genre)]})),
+        );
+    }
+    let o = lib.overview();
+    let got: Vec<(&str, u32)> = o.genres.iter().map(|g| (g.name.as_str(), g.tracks)).collect();
+    // "House" is spelled that way by most of its tracks.
+    assert_eq!(
+        got,
+        [("House", 3), ("Ambient", 2), ("Disco", 1), ("Techno", 1)]
+    );
+    assert_eq!(o.no_genre, 0);
+}
+
+/// The awkward tags: what each is expected to give is whatever the send's
+/// own rules ([`crate::send_values::tag_values`]) say, so the two can't
+/// drift apart.
+fn awkward_tags() -> Vec<(&'static str, Option<Value>)> {
+    let cut = json!({"key": "TCON", "value": {"type": "text", "text": "Cut off", "full_len": 9000}});
+    vec![
+        ("no tags", None),
+        ("an empty tag object", Some(json!({}))),
+        ("an empty string", Some(json!({"id3v2": [text("TCON", "")]}))),
+        ("only blanks", Some(json!({"id3v2": [text("TCON", "   ")]}))),
+        ("only a NUL", Some(json!({"id3v2": [text("TCON", "\0")]}))),
+        (
+            "several genre frames",
+            Some(json!({"id3v2": [text("TCON", "House"), text("TCON", "Techno")]})),
+        ),
+        (
+            "an empty frame before a filled one",
+            Some(json!({"id3v2": [text("TCON", ""), text("TCON", "Disco")]})),
+        ),
+        ("mixed case", Some(json!({"id3v2": [text("TCON", "hOuSe")]}))),
+        (
+            "two values in one frame",
+            Some(json!({"id3v2": [text("TCON", "House\0Techno")]})),
+        ),
+        ("an ID3 code in brackets", Some(json!({"id3v2": [text("TCON", "(17)")]}))),
+        ("a bare ID3 number", Some(json!({"id3v2": [text("TCON", "17")]}))),
+        (
+            "an ID3 code with a refinement",
+            Some(json!({"id3v2": [text("TCON", "(17)Hard")]})),
+        ),
+        ("an unknown ID3 number", Some(json!({"id3v2": [text("TCON", "(999)")]}))),
+        ("a literal bracket", Some(json!({"id3v2": [text("TCON", "((x)")]}))),
+        ("an ID3v1 number only", Some(json!({"id3v1": [text("genre", "17")]}))),
+        ("a cut-off text", Some(json!({"id3v2": [cut]}))),
+        (
+            "a Vorbis key in capitals",
+            Some(json!({"vorbis_comments": [text("GENRE", "Drum & Bass")]})),
+        ),
+        (
+            "a Vorbis key in lower case",
+            Some(json!({"vorbis_comments": [text("genre", "Jungle")]})),
+        ),
+        (
+            "a repeated Vorbis item",
+            Some(json!({"vorbis_comments": [text("GENRE", "House"), text("Genre", "Techno")]})),
+        ),
+        (
+            "a repeated Vorbis item with a copy",
+            Some(json!({"vorbis_comments": [text("GENRE", "House"), text("genre", "House")]})),
+        ),
+        ("an APE item", Some(json!({"ape": [text("Genre", "Electro")]}))),
+        ("an MP4 atom", Some(json!({"mp4_ilst": [text("\u{a9}gen", "Ambient")]}))),
+        ("a RIFF INFO field", Some(json!({"riff_info": [text("IGNR", "Pop")]}))),
+        ("an AIFF text chunk", Some(json!({"aiff_text": [text("NAME", "Not a genre")]}))),
+        (
+            "ID3v2 before Vorbis",
+            Some(json!({"vorbis_comments": [text("GENRE", "Vorbis")], "id3v2": [text("TCON", "Id3")]})),
+        ),
+        (
+            "a blank ID3v2 genre before a Vorbis one",
+            Some(json!({"id3v2": [text("TCON", " ")], "vorbis_comments": [text("GENRE", "Vorbis")]})),
+        ),
+        (
+            "a genre among other frames",
+            Some(json!({"id3v2": [text("TIT2", "Title"), text("COMM::eng", "Note"),
+                                  text("TCON", "Garage"), text("TXXX:GENRE", "Not this")]})),
+        ),
+        (
+            "binary and unrecorded frames",
+            Some(json!({"id3v2": [
+                {"key": "APIC", "value": {"type": "binary", "len": 1234}},
+                {"key": "TCON", "value": {"type": "unrecorded"}},
+                text("TCON", "Funk")]})),
+        ),
+    ]
+}
+
+#[test]
+fn the_genre_read_from_a_files_tag_in_sql_equals_the_sends_own_reading_of_it() {
+    for (case, tags) in awkward_tags() {
+        let lib = Lib::new();
+        lib.library_track("Track", None, tags.clone());
+        let expected = tags.as_ref().and_then(|t| {
+            crate::send_values::tag_values(&t.to_string(), &["Genre"])
+                .first()
+                .map(|v| v.value.trim().to_owned())
+                .filter(|g| !g.is_empty())
+        });
+        let o = lib.overview();
+        let got: Vec<(String, u32)> = o.genres.iter().map(|g| (g.name.clone(), g.tracks)).collect();
+        match expected {
+            Some(genre) => {
+                assert_eq!(got, [(genre, 1)], "{case}");
+                assert_eq!(o.no_genre, 0, "{case}");
+            }
+            None => {
+                assert!(got.is_empty(), "{case}: {got:?}");
+                assert_eq!(o.no_genre, 1, "{case}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_awkward_tags_are_not_all_empty() {
+    // Guards the test above against passing because nothing gives a genre.
+    let given = awkward_tags()
+        .into_iter()
+        .filter_map(|(_, tags)| tags)
+        .filter(|t| {
+            !crate::send_values::tag_values(&t.to_string(), &["Genre"]).is_empty()
+        })
+        .count();
+    assert!(given >= 15, "{given}");
+}
+
+// Still counting.
+
+#[test]
+fn with_no_jobs_and_nothing_stale_nothing_is_counting() {
+    let lib = Lib::new();
+    lib.library_track("Alpha", None, None);
+    settle(&lib);
+    assert_eq!(lib.overview().counting, Counting::default());
+}
+
+#[test]
+fn a_queued_or_running_job_holds_its_flag_and_a_finished_failed_or_cancelled_one_does_not() {
+    for (kind, queued, running) in [
+        ("scan", Counting { files: true, ..Counting::default() }, "read"),
+        ("group", Counting { files: true, ..Counting::default() }, "scan"),
+        ("read_rekordbox", Counting { rekordbox: true, ..Counting::default() }, "relink"),
+        ("attach", Counting { rekordbox: true, ..Counting::default() }, "relink"),
+        ("quality", Counting { quality: true, ..Counting::default() }, "quality"),
+    ] {
+        let lib = Lib::new();
+        lib.job(kind, "queued");
+        assert_eq!(lib.overview().counting, queued, "{kind} queued");
+
+        let lib = Lib::new();
+        lib.job(running, "running");
+        assert!(
+            lib.overview().counting != Counting::default(),
+            "{running} running"
+        );
+
+        let lib = Lib::new();
+        for status in ["done", "failed", "cancelled"] {
+            lib.job(kind, status);
+        }
+        assert_eq!(lib.overview().counting, Counting::default(), "{kind} ended");
+    }
+}
+
+#[test]
+fn work_that_changes_none_of_the_numbers_holds_no_flag() {
+    let lib = Lib::new();
+    lib.job("export", "running");
+    lib.job("embed", "queued");
+    assert_eq!(lib.overview().counting, Counting::default());
+}
+
+// Cost.
+
+/// The tables a statement's plan scans end to end (`SCAN x` lines), and
+/// whether every other table is reached through an index.
+fn scans(conn: &Connection, sql: &str, args: impl rusqlite::Params) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+        .unwrap();
+    let rows = stmt
+        .query_map(args, |r| r.get::<_, String>(3))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    rows.into_iter()
+        .filter_map(|d| d.strip_prefix("SCAN ").map(str::to_owned))
+        .map(|d| d.split_whitespace().next().unwrap_or_default().to_owned())
+        .collect()
+}
+
+#[test]
+fn no_statement_scans_a_table_it_does_not_have_to() {
+    let lib = Lib::new();
+    lib.run(|c| {
+        // Tables the statements scan, and the table-valued functions that
+        // open one file's tags (`blk`, `i`), which are not tables.
+        let library = scans(c, &library_sql(), ["x"])
+            .into_iter()
+            .collect::<Vec<_>>();
+        assert_eq!(library, ["lt"], "the Library's numbers: one pass over its tracks");
+        let all_music = scans(c, ALL_MUSIC, []);
+        assert_eq!(all_music, ["r"], "All music: one pass over the tracks");
+        let decisions = scans(c, &decisions_sql(), [0]);
+        assert_eq!(decisions, ["operation"]);
+        let mut genres = scans(c, &genres_sql(), []);
+        genres.retain(|t| t != "blk" && t != "i");
+        assert_eq!(genres, ["lt"], "genres: one pass over the Library's tracks");
+        Ok(())
+    });
+}
+
+/// A deterministic spread of tags and rekordbox data, by track number `n`.
+fn made_up_genre(n: i64) -> Option<String> {
+    if n % 3 == 0 {
+        Some(format!("RB {}", n % 10))
+    } else if n % 5 != 0 {
+        Some(format!("Tag {}", n % 40))
+    } else {
+        None
+    }
+}
+
+/// Builds a Library of `count` tracks by SQL alone: 3 in 3 are known to
+/// rekordbox with a BPM, 2 in 5 are in a crate, 4 in 5 of the others have a
+/// genre tag.
+fn build(lib: &Lib, count: i64) {
+    lib.run(move |c| {
+        c.execute_batch(
+            "INSERT INTO crate (id, kind, name) VALUES (1, 'static', 'Warmup');",
+        )?;
+        let tx = c.transaction()?;
+        tx.execute_batch(&format!(
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
+             INSERT INTO recording (id, title) SELECT i, 'Track ' || i FROM n;
+             WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
+             INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, duration_ms, raw_tags)
+             SELECT i, 1, 'f' || i || '.mp3', 'f' || i || '.mp3', 1000 + (i % 7) * 1000,
+                    CASE WHEN i % 3 = 0 OR i % 5 = 0 THEN
+                         json_object('id3v2', json_array(json_object('key', 'TIT2', 'value',
+                              json_object('type', 'text', 'text', 'Track ' || i))))
+                         ELSE json_object('id3v2', json_array(
+                              json_object('key', 'TIT2', 'value',
+                                          json_object('type', 'text', 'text', 'Track ' || i)),
+                              json_object('key', 'TCON', 'value',
+                                          json_object('type', 'text', 'text', 'Tag ' || (i % 40))),
+                              json_object('key', 'APIC', 'value',
+                                          json_object('type', 'binary', 'len', 50000))))
+                    END
+             FROM n;
+             INSERT INTO recording_file (recording_id, file_id, role)
+             SELECT id, id, 'best' FROM recording;
+             INSERT INTO library_track (id, recording_id, linked_file_id, added_at)
+             SELECT id, id, id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM recording;
+             INSERT INTO crate_entry (crate_id, library_track_id)
+             SELECT 1, id FROM library_track WHERE id % 5 < 2;
+             INSERT INTO rekordbox_track
+                 (attributes, location_key, read_at, file_id, recording_id, relink_method)
+             SELECT json_object('TrackID', CAST(id AS TEXT), 'Location', 'file://localhost/C:/Music/' || id,
+                                'Genre', 'RB ' || (id % 10), 'AverageBpm', '120.00'),
+                    'c:/music/' || id, '2026-09-30T10:00:00.000Z', id, id, 'path'
+             FROM recording WHERE id % 3 = 0;"
+        ))?;
+        tx.commit()?;
+        crate::attach::attach(c).map(|_| ())
+    });
+}
+
+fn check_a_library_of(count: i64) {
+    let lib = Lib::new();
+    build(&lib, count);
+
+    let started = std::time::Instant::now();
+    let o = lib.overview();
+    println!("overview of {count} tracks: {:?}", started.elapsed());
+
+    let all = 1..=count;
+    assert_eq!(i64::from(o.tracks), count);
+    assert_eq!(
+        o.total_length_ms as i64,
+        all.clone().map(|n| 1000 + (n % 7) * 1000).sum::<i64>()
+    );
+    assert_eq!(
+        i64::from(o.in_crates),
+        all.clone().filter(|n| n % 5 < 2).count() as i64
+    );
+    assert_eq!(
+        i64::from(o.analyzed_by_rekordbox),
+        all.clone().filter(|n| n % 3 == 0).count() as i64
+    );
+    assert_eq!(i64::from(o.all_music), count);
+    assert_eq!(i64::from(o.added_this_week), count);
+    // Every file's verdict is missing, so none is counted and the number
+    // says it is still counting.
+    assert_eq!(o.low_quality, 0);
+    assert!(o.counting.quality);
+
+    let mut expected: BTreeMap<String, u32> = BTreeMap::new();
+    for n in all {
+        if let Some(genre) = made_up_genre(n) {
+            *expected.entry(genre).or_default() += 1;
+        }
+    }
+    let mut expected: Vec<(String, u32)> = expected.into_iter().collect();
+    expected.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let got: Vec<(String, u32)> = o.genres.iter().map(|g| (g.name.clone(), g.tracks)).collect();
+    assert_eq!(got, expected);
+    assert_eq!(
+        i64::from(o.no_genre),
+        count - expected.iter().map(|g| i64::from(g.1)).sum::<i64>()
+    );
+
+    // Grouping happens in SQL: the genres statement returns a row per
+    // distinct source, not a row per track.
+    let rows = lib.run(|c| Ok(c.prepare(&genres_sql())?.query_map([], |_| Ok(()))?.count()));
+    assert!(rows < 200, "{rows} rows for {count} tracks");
+}
+
+#[test]
+fn a_library_of_5000_tracks_gives_the_right_numbers() {
+    check_a_library_of(5_000);
+}
+
+#[test]
+#[ignore = "builds 100,000 tracks; run with --release -- --ignored --nocapture"]
+fn a_library_of_100000_tracks_gives_the_right_numbers() {
+    check_a_library_of(100_000);
+}
