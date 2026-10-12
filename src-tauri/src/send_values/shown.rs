@@ -145,7 +145,7 @@ pub fn shown(
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<HashMap<LibraryTrackId, Shown>> {
-    let loaded = load(conn, volumes, ids, Scope::Names)?;
+    let loaded = load(conn, volumes, ids, Scope::Names, &HashMap::new())?;
     Ok(ids
         .iter()
         .filter_map(|&id| Some((id, loaded.shown(loaded.rows.get(&id.0)?))))
@@ -270,7 +270,7 @@ pub fn shown_fields(
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<HashMap<LibraryTrackId, ShownFields>> {
-    let loaded = load(conn, volumes, ids, Scope::Search)?;
+    let loaded = load(conn, volumes, ids, Scope::Search, &HashMap::new())?;
     Ok(ids
         .iter()
         .filter_map(|&id| {
