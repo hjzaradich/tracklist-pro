@@ -6,6 +6,7 @@
 
 mod analysis_never_conflicts;
 mod file_quality;
+mod file_roles;
 mod file_stage;
 mod file_verdict;
 mod files;
@@ -58,7 +59,7 @@ pub(super) fn accepts(conn: &Connection, sql: &str) {
 /// `why` (e.g. `CHECK`, `UNIQUE`, `FOREIGN KEY`, or a trigger's message),
 /// and that nothing of it was kept.
 pub(super) fn refuses(conn: &Connection, sql: &str, why: &str) {
-    let changes_before = conn.total_changes();
+    let rows_before = row_counts(conn);
     match conn.execute_batch(sql) {
         Ok(()) => panic!("accepted: {sql}"),
         Err(rusqlite::Error::SqliteFailure(e, message)) => {
@@ -75,7 +76,32 @@ pub(super) fn refuses(conn: &Connection, sql: &str, why: &str) {
         }
         Err(e) => panic!("{sql}: failed for another reason: {e}"),
     }
-    assert_eq!(conn.total_changes(), changes_before, "{sql}: partly kept");
+    // Rows, not `total_changes`: a trigger's writes count there even when
+    // the statement is undone afterwards (a foreign key is checked after
+    // its triggers have run).
+    assert_eq!(row_counts(conn), rows_before, "{sql}: partly kept");
+}
+
+/// How many rows every table holds.
+fn row_counts(conn: &Connection) -> Vec<(String, i64)> {
+    let tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    tables
+        .into_iter()
+        .map(|table| {
+            let rows = conn
+                .query_row(&format!("SELECT COUNT(*) FROM \"{table}\""), [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            (table, rows)
+        })
+        .collect()
 }
 
 /// A value from a one-row, one-column query.
@@ -184,6 +210,7 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
         "0022_grouping.sql",
         &["grouping_decision", "grouping_file", "grouping_pair"],
     ),
+    ("0023_file_roles.sql", &["best_file_due", "better_file"]),
 ];
 
 #[test]
