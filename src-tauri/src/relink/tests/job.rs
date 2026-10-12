@@ -309,6 +309,38 @@ fn a_finished_relink_job_queues_an_attach() {
     queue.shutdown();
 }
 
+/// Search index jobs (1cA-6) in the table.
+fn index_job_count(writer: &Writer) -> i64 {
+    writer
+        .call(|c| {
+            c.query_row("SELECT count(*) FROM job WHERE kind = 'index'", [], |r| {
+                r.get(0)
+            })
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_finished_relink_job_asks_for_the_search_index_because_its_matches_may_change_titles() {
+    let (lib, music, _) = e_music();
+    let file = lib.file(music, "Alpha.mp3", Some(200_000));
+    let track = lib.track(&loc("E:/Music/Alpha.mp3"), Some("200"));
+    // Nothing is owed before the relink.
+    lib.writer
+        .call(|c| c.execute("DELETE FROM search_due", []))
+        .unwrap();
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Relink, Relinker::new(plugged_e))
+        .start()
+        .unwrap();
+    let id = request(&lib.writer, |j| queue.enqueue(j)).unwrap();
+    wait_done(&lib.writer, id);
+    assert_eq!(lib.matched(track), path(file));
+    assert_eq!(index_job_count(&lib.writer), 1);
+    queue.shutdown();
+}
+
 #[test]
 fn a_failure_to_ask_for_an_attach_after_relinking_does_not_fail_the_job() {
     let (lib, music, _) = e_music();
