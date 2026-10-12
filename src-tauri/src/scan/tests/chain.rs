@@ -233,7 +233,8 @@ pub(super) fn wait_idle(queue: &JobQueue) {
 
 /// Every scan-stage job so far: kind, target, priority and status, oldest
 /// first. Relink jobs (queued after each read) are left out; see
-/// [`relinks`].
+/// [`relinks`]. So are the search index jobs (1cA-6), which any stage that
+/// changed a track asks for and which have a test of their own below.
 pub(super) fn jobs(writer: &Writer) -> Vec<(String, Option<String>, i64, String)> {
     writer
         .call(|c| {
@@ -242,7 +243,8 @@ pub(super) fn jobs(writer: &Writer) -> Vec<(String, Option<String>, i64, String)
             // has a test of its own below.
             let mut s = c.prepare(
                 "SELECT kind, target, priority, status FROM job
-                 WHERE kind <> 'relink' AND NOT (kind = 'group' AND target IS NOT NULL)
+                 WHERE kind NOT IN ('relink', 'index')
+                   AND NOT (kind = 'group' AND target IS NOT NULL)
                  ORDER BY id",
             )?;
             let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
@@ -258,7 +260,7 @@ fn relinks(writer: &Writer) -> Vec<(String, String)> {
         .call(|c| {
             let mut s = c.prepare(
                 "SELECT r.status, (SELECT kind FROM job p
-                                   WHERE p.id < r.id
+                                   WHERE p.id < r.id AND p.kind <> 'index'
                                      AND NOT (p.kind = 'group'
                                               AND COALESCE(json_extract(p.target, '$.roles'), 0) = 1)
                                    ORDER BY p.id DESC)
@@ -482,6 +484,33 @@ fn a_walk_that_finds_nothing_new_or_changed_queues_no_stage_job() {
         ]
     );
     assert_eq!(looked.counts(), (1, 1, 1));
+    queue.shutdown();
+}
+
+/// How many search index jobs (1cA-6) have been queued so far.
+fn index_jobs(writer: &Writer) -> i64 {
+    writer
+        .call(|c| c.query_row("SELECT count(*) FROM job WHERE kind = 'index'", [], |r| r.get(0)))
+        .unwrap()
+}
+
+#[test]
+fn the_chain_asks_for_the_search_index_when_a_stage_changed_a_track_and_not_otherwise() {
+    // Nothing found, nothing due: nothing asked for.
+    let (_dir, volume, music) = drive();
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let looked = LookedAt::default();
+    let queue = chained_queue(&writer, &volume, &looked);
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(index_jobs(&writer), 0);
+
+    // A file found: grouping made its track, so the index is owed a row.
+    put(&music, "a.mp3", &audio::mp3());
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert!(index_jobs(&writer) >= 1);
     queue.shutdown();
 }
 
@@ -1457,7 +1486,7 @@ fn the_deciding_job_follows_matching_at_its_priority_and_a_scan_with_nothing_new
         .call(|c| {
             let mut s = c.prepare(
                 "SELECT kind, target IS NOT NULL FROM job
-                 WHERE kind <> 'relink'
+                 WHERE kind NOT IN ('relink', 'index')
                    AND NOT (kind = 'group' AND COALESCE(json_extract(target, '$.roles'), 0) = 1)
                  ORDER BY id DESC LIMIT 2",
             )?;

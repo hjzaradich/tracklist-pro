@@ -265,7 +265,8 @@ mod tests {
                 "relink",
                 "attach",
                 "quality",
-                "match"
+                "match",
+                "index"
             ]
         );
     }
