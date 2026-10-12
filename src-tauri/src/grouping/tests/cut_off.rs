@@ -91,6 +91,15 @@ impl Db {
             .unwrap()
     }
 
+    /// Changes something `file`'s verdict is made from (a re-read gave
+    /// another codec and bitrate; each call another bitrate), so the stored
+    /// one is out of date until it's settled. Settled, it says what it said.
+    fn make_verdict_out_of_date(&self, file: i64) {
+        self.sql(&format!(
+            "UPDATE file SET codec = 'mp3', bitrate = coalesce(bitrate, 319) + 1 WHERE id = {file}"
+        ));
+    }
+
     fn make_due(&self, file: i64) {
         self.sql(&format!(
             "UPDATE grouping_file SET decided_as = NULL, rev = random() WHERE file_id = {file}"
@@ -231,24 +240,116 @@ fn a_deciding_job_with_no_file_due_leaves_the_verdicts_as_they_are() {
 }
 
 #[test]
-fn a_verdict_that_is_out_of_date_counts_as_none() {
+fn a_decision_is_made_on_verdicts_brought_up_to_date_where_they_are_read() {
     let db = db();
     let (whole, copy) = db.velo_and_its_cut_off_copy();
     db.read_as_cut_short(copy, true);
     db.settle();
-    // What the verdict was made from changes, and nothing settles it.
-    db.sql(&format!(
-        "UPDATE file SET codec = 'mp3', bitrate = 320 WHERE id = {copy}"
-    ));
+    // What the verdict was made from changes, and nothing settles it: as
+    // stored, the copy has no verdict.
+    db.make_verdict_out_of_date(copy);
     assert_eq!(db.verdict(copy), None);
     db.group();
     db.compare_fingerprints();
     // The run alone: no job in front of it to settle anything.
     db.decide_in_pages(PAGE);
     db.group();
+    assert_eq!(db.verdict(copy), Some(quality::verdict::Verdict::Truncated));
+    assert_eq!(db.track(whole), db.track(copy));
+    assert_eq!(db.stands(whole, copy).0, "duplicate");
+    assert_eq!(db.decided_at(copy).as_deref(), Some("truncated"));
+}
+
+#[test]
+fn a_stale_verdict_makes_no_file_due_and_flips_no_pair() {
+    // Decided as a cut-off copy; then the copy's verdict goes out of date
+    // (a re-read gave another codec and bitrate) and nothing settles it. No
+    // file is due, and a deciding job runs anyway.
+    let db = db();
+    let (whole, copy) = db.velo_and_its_cut_off_copy();
+    db.read_as_cut_short(copy, true);
+    db.decide();
+    assert_eq!(
+        db.stands(whole, copy),
+        ("duplicate".into(), "merged".into())
+    );
+    let before = db.dump();
+    db.make_verdict_out_of_date(copy);
+    assert_eq!(db.verdict(copy), None, "as stored, it reads as none");
+    let (decided, summary) = db.deciding_job();
+    assert_eq!(decided.files, 0, "no file was made due");
+    assert!(!summary.changed_tracks());
+    assert_eq!(db.decided(), [whole, copy]);
+    assert_eq!(
+        db.stands(whole, copy),
+        ("duplicate".into(), "merged".into())
+    );
+    assert!(db.reasons(whole, copy).contains("truncatedCopy"));
+    assert_eq!(db.decided_at(copy).as_deref(), Some("truncated"));
+    assert_eq!(db.dump(), before);
+    // Nor does the end of a quality job that didn't reach the file.
+    db.make_verdict_out_of_date(copy);
+    assert!(!db.quality_job_ended(), "no deciding job is asked for");
+    assert_eq!(db.dump(), before);
+
+    // Two Library tracks: the pair is held for the user, and stays held.
+    // No version link is made between the two tracks, and so none is
+    // removed again later.
+    let db = super::support::db();
+    let (whole, copy) = db.velo_and_its_cut_off_copy();
+    db.group();
+    db.to_library(whole);
+    db.to_library(copy);
+    db.read_as_cut_short(copy, true);
+    db.decide();
+    let held = ("duplicate".to_string(), "both_in_library".to_string());
+    assert_eq!(db.stands(whole, copy), held);
+    let before = db.dump();
+    db.make_verdict_out_of_date(copy);
+    db.deciding_job();
+    assert_eq!(db.stands(whole, copy), held);
+    assert_eq!(db.count("SELECT count(*) FROM version_link"), 0);
+    assert_eq!(db.dump(), before);
+    db.make_verdict_out_of_date(copy);
+    assert!(!db.quality_job_ended());
+    db.decide();
+    assert_eq!(db.count("SELECT count(*) FROM version_link"), 0);
+    assert_eq!(db.dump(), before);
+}
+
+#[test]
+fn a_cut_off_copy_whose_file_name_carries_another_version_word_is_not_merged() {
+    // The final guard, through the database: both files are tagged "Velo",
+    // and only their file names say Clean and Dirty.
+    let db = db();
+    let velo = track(1, LEN);
+    let whole = db.add(file("Velo Dirty - Artist A.flac", "Velo", 1, velo.clone()));
+    let copy = db.add(file(
+        "Velo Clean - Artist A.mp3",
+        "Velo",
+        2,
+        cut_off(&velo, 400, 7),
+    ));
+    db.read_as_cut_short(copy, true);
+    db.decide();
     assert_ne!(db.track(whole), db.track(copy));
-    assert_eq!(db.stands(whole, copy).0, "cut");
-    assert_eq!(db.decided_at(copy), None);
+    assert_eq!(db.stands(whole, copy), ("cut".into(), "linked".into()));
+    let reasons = db.reasons(whole, copy);
+    assert!(reasons.contains("audioInsideOther"), "{reasons}");
+    assert!(!reasons.contains("truncatedCopy"), "{reasons}");
+    // The same two files with the same word in both names are one track.
+    let db = super::support::db();
+    let whole = db.add(file("Velo Clean - Artist A.flac", "Velo", 1, velo.clone()));
+    let copy = db.add(file(
+        "Velo Clean - Artist A.mp3",
+        "Velo",
+        2,
+        cut_off(&velo, 400, 7),
+    ));
+    db.read_as_cut_short(copy, true);
+    db.decide();
+    assert_eq!(db.track(whole), db.track(copy));
+    assert!(db.reasons(whole, copy).contains("truncatedCopy"));
 }
 
 #[test]
@@ -375,7 +476,7 @@ fn after_the_rules_change_every_file_is_decided_once_with_its_verdict() {
     // Every file is due already: none is made due a second way.
     assert_eq!(
         db.writer
-            .call(|c| decide::due_again_where_truncation_changed(c))
+            .call(decide::due_again_where_truncation_changed)
             .unwrap(),
         0
     );

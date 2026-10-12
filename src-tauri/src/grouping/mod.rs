@@ -245,13 +245,14 @@ pub fn current_duplicates(conn: &rusqlite::Connection, file: i64) -> rusqlite::R
 /// ([`request_decide`]). A file made due here stays due, so if matching
 /// still has work, the request that follows it finds the file.
 ///
-/// The quality job has just brought its verdicts up to date; nothing is
-/// settled here.
+/// The quality job has just brought its verdicts up to date, so nothing is
+/// settled here but the few files looked at closely (an out-of-date
+/// verdict never counts as a changed one).
 pub(crate) fn request_decide_after_quality<E: From<DbError>>(
     writer: &Writer,
     enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
 ) -> Result<(), E> {
-    writer.call(|c| decide::due_again_where_truncation_changed(c))?;
+    writer.call(decide::due_again_where_truncation_changed)?;
     request_decide(writer, enqueue)
 }
 
@@ -261,10 +262,13 @@ pub(crate) fn request_decide_after_quality<E: From<DbError>>(
 /// now and wasn't when it was decided, or the other way round, is made due
 /// again.
 ///
-/// The verdicts are only brought up to date when a file is due: that reads
-/// every file once, and a job with nothing to decide has no use for it.
-/// (Its files' verdicts are still read as they are stored, and one that is
-/// out of date counts as none.)
+/// Every verdict is only brought up to date when a file is due: that reads
+/// every file once, to find the files that turned truncated while nobody
+/// looked, and a job with nothing to decide has no use for it. Whether or
+/// not it ran, no file is made due, and no pair decided, on a verdict that
+/// is out of date: the files looked at for a changed verdict, and the
+/// files of every page, are settled where they are read ([`decide`], "The
+/// quality verdict").
 fn catch_up_with_verdicts<E: From<DbError>>(
     writer: &Writer,
     between: &mut dyn FnMut() -> Result<(), E>,
@@ -280,7 +284,7 @@ fn catch_up_with_verdicts<E: From<DbError>>(
             }
         }
     }
-    writer.call(|c| decide::due_again_where_truncation_changed(c))?;
+    writer.call(decide::due_again_where_truncation_changed)?;
     Ok(())
 }
 

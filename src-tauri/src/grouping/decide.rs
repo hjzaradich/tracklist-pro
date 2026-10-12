@@ -63,15 +63,23 @@
 //! is cut short (its stored verdict is `truncated`). A cut-off copy inside
 //! the whole, same-named file is a worse duplicate, not a cut
 //! ([`super::rules`], "A cut-off copy"). The verdict is read where the
-//! names are ([`known`]), through [`crate::quality::stored_verdicts`]: a
-//! file with no verdict, or one that is out of date, is not known to be
-//! truncated, and its pairs are what they are without the rule.
+//! names are ([`known_settled`]), through
+//! [`crate::quality::stored_verdicts`]. A file with no verdict is not
+//! known to be truncated, and its pairs are what they are without the rule.
+//!
+//! **Only a settled verdict counts.** A stored verdict goes out of date
+//! when something it was made from changes (the quality rules, a re-read
+//! codec or bitrate), and reads as none until it is worked out again. That
+//! is no finding, so nothing here acts on it: the files of a page have
+//! their verdicts brought up to date in the call that reads them
+//! ([`crate::quality::settle_files`], a lookup per file), and so do the
+//! files looked at for a changed verdict, before they are compared.
 //!
 //! The quality job can finish after a file was decided, so each file's
 //! record keeps the verdict it was decided at
 //! (`grouping_file.quality_verdict`, written with `decided_as`), and
-//! [`due_again_where_truncation_changed`] makes a file due again when what
-//! is stored for it now differs **in being truncated or not**. No other
+//! [`due_again_where_truncation_changed`] makes a file due again when its
+//! verdict now differs **in being truncated or not**. No other
 //! change of a verdict changes a decision, so a library's first verdicts
 //! (none, then `ok`) make nothing due. It runs when a quality job ends
 //! ([`super::request_decide_after_quality`]) and at the start of every
@@ -79,10 +87,12 @@
 //! again, like after a retag: a pair that went would take its version link
 //! with it, or let go of a set that is held, for as long as that takes.
 //!
-//! Verdicts are brought up to date ([`crate::quality::settle`]) by the
-//! deciding job itself, before it lists what is due, but only when a file
-//! is due ([`any_recorded_due`]): a job with nothing to decide doesn't pay
-//! for it, and [`super::request_decide`] never does.
+//! Every file's verdict is brought up to date ([`crate::quality::settle`])
+//! by the deciding job itself, before it lists what is due, but only when a
+//! file is due ([`any_recorded_due`]): that reads every file once, and it
+//! is only there to find the files that turned truncated while nobody
+//! looked. A job with nothing to decide doesn't pay for it, and
+//! [`super::request_decide`] never does.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
@@ -523,8 +533,8 @@ struct Known {
     /// about it until the fingerprint stage has been through it.
     stale: bool,
     /// Its quality verdict, as stored and current for what the file is now
-    /// ([`crate::quality::stored_verdicts`]). `None`: it has none, or the
-    /// one it has is out of date.
+    /// ([`crate::quality::stored_verdicts`]). `None`: it has none. (Read
+    /// through [`known_settled`], it is never one that is out of date.)
     verdict: Option<QualityVerdict>,
 }
 
@@ -533,6 +543,14 @@ impl Known {
     fn truncated(&self) -> bool {
         self.verdict == Some(QualityVerdict::Truncated)
     }
+}
+
+/// [`known`], after bringing the files' quality verdicts up to date: what
+/// every decision is made on. An out-of-date verdict reads as none, and a
+/// pair decided on that would come out as if its file weren't truncated.
+fn known_settled(conn: &mut Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Known>> {
+    crate::quality::settle_files(conn, ids)?;
+    known(conn, ids)
 }
 
 fn known(conn: &Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Known>> {
@@ -615,8 +633,8 @@ pub fn any_recorded_due(conn: &Connection) -> rusqlite::Result<bool> {
 }
 
 /// Makes due again every file that was decided under the current rules and
-/// whose stored quality verdict now says "truncated" where the verdict it
-/// was decided at didn't, or the other way round: a cut-off copy inside a
+/// whose quality verdict now says "truncated" where the verdict it was
+/// decided at didn't, or the other way round: a cut-off copy inside a
 /// same-named file is a duplicate, not a cut, so its pairs may come out
 /// differently. Returns how many files it made due.
 ///
@@ -625,11 +643,16 @@ pub fn any_recorded_due(conn: &Connection) -> rusqlite::Result<bool> {
 /// decided again; only its record is cleared, as the database does when a
 /// file's names change.
 ///
-/// What a file's verdict is now is asked of the quality store, so one that
-/// is out of date counts as none, exactly as a decision reads it: after a
-/// run, nothing is left for this to find, and a second run changes nothing.
-/// Only the few files either side calls truncated are looked at closely.
-pub fn due_again_where_truncation_changed(conn: &Connection) -> rusqlite::Result<usize> {
+/// **An out-of-date verdict is never a changed one.** The few files either
+/// side calls truncated (the record, or whatever is stored) have their
+/// verdicts brought up to date first, each by a lookup, and only then are
+/// they compared. Without that, a file decided as truncated whose verdict
+/// went out of date would read as "no verdict", be made due, and have its
+/// pairs decided as if it were whole, until something settled it.
+///
+/// What is compared is what a decision reads, so after a run nothing is
+/// left for this to find, and a second run changes nothing.
+pub fn due_again_where_truncation_changed(conn: &mut Connection) -> rusqlite::Result<usize> {
     let truncated = QualityVerdict::Truncated.as_str();
     let candidates: Vec<(i64, bool)> = {
         let mut stmt = conn.prepare_cached(&format!(
@@ -647,18 +670,23 @@ pub fn due_again_where_truncation_changed(conn: &Connection) -> rusqlite::Result
         return Ok(0);
     }
     let ids: Vec<i64> = candidates.iter().map(|&(file, _)| file).collect();
+    crate::quality::settle_files(conn, &ids)?;
     let now = crate::quality::stored_verdicts(conn, &ids)?;
-    // The statement the database's own triggers make a file due with.
-    let mut due = conn.prepare_cached(
-        "UPDATE grouping_file SET decided_as = NULL, rev = random() WHERE file_id = ?1",
-    )?;
+    let tx = conn.transaction()?;
     let mut changed = 0;
-    for (file, decided_truncated) in candidates {
-        let verdict = now.get(&file).and_then(|stored| stored.verdict);
-        if decided_truncated != (verdict == Some(QualityVerdict::Truncated)) {
-            changed += due.execute([file])?;
+    {
+        // The statement the database's own triggers make a file due with.
+        let mut due = tx.prepare_cached(
+            "UPDATE grouping_file SET decided_as = NULL, rev = random() WHERE file_id = ?1",
+        )?;
+        for (file, decided_truncated) in candidates {
+            let verdict = now.get(&file).and_then(|stored| stored.verdict);
+            if decided_truncated != (verdict == Some(QualityVerdict::Truncated)) {
+                changed += due.execute([file])?;
+            }
         }
     }
+    tx.commit()?;
     Ok(changed)
 }
 
@@ -1089,7 +1117,7 @@ fn decide_page(
     ids.extend(due.iter().map(|&(file, _)| file));
     ids.sort_unstable();
     ids.dedup();
-    let mut known = writer.call(move |c| known(c, &ids))?;
+    let mut known = writer.call(move |c| known_settled(c, &ids))?;
 
     // The very same audio: each due file with up to a bucket of the files
     // holding it.
@@ -1112,7 +1140,7 @@ fn decide_page(
     }
     extra.retain(|file| !known.contains_key(file));
     if !extra.is_empty() {
-        known.extend(writer.call(move |c| self::known(c, &extra))?);
+        known.extend(writer.call(move |c| known_settled(c, &extra))?);
     }
     // A file carrying the fingerprint of audio it no longer holds isn't
     // asked about, as a partner or (should it have changed since the page
@@ -1288,7 +1316,7 @@ fn complete_page(
     let mut ids: Vec<i64> = pairs.iter().flat_map(|&(a, b)| [a, b]).collect();
     ids.sort_unstable();
     ids.dedup();
-    let known = writer.call(move |c| known(c, &ids))?;
+    let known = writer.call(move |c| known_settled(c, &ids))?;
     // As in a page of due files: nothing is asked about a file carrying the
     // fingerprint of audio it no longer holds. It's made due, and the set
     // waits for it.
