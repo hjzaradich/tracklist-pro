@@ -74,7 +74,10 @@ use rusqlite::Connection;
 use crate::library::{file_from, LibraryTrackId, StoredFile, FILE_COLUMNS, FILE_JOINS};
 use crate::paths::Volumes;
 
-pub use shown::{shown, shown_recordings, shown_removed, Removed, Shown};
+pub use shown::{
+    shown, shown_fields, shown_recording_fields, shown_recordings, shown_removed, Removed, Shown,
+    ShownFields,
+};
 pub(crate) use tag_fields::read_only as tag_values;
 pub use tag_fields::TAG_ATTRIBUTES;
 
@@ -223,6 +226,9 @@ struct Row {
 enum Scope {
     Send,
     Names,
+    /// [`Scope::Names`] for the search index: the seven attributes
+    /// [`shown::SEARCH_ATTRIBUTES`] instead of two.
+    Search,
 }
 
 /// What a batch loaded for its tracks.
@@ -317,7 +323,7 @@ fn load(
     );
     let tags_column = match scope {
         Scope::Send => "f.raw_tags",
-        Scope::Names => "NULL",
+        Scope::Names | Scope::Search => "NULL",
     };
     let mut files: HashMap<i64, FileInfo> = HashMap::new();
     let mut stmt = conn.prepare(&format!(
@@ -378,7 +384,7 @@ fn load(
     };
     // 4c. A list needs a file's tags only where nothing of rekordbox's
     //     stands in for them.
-    if scope == Scope::Names {
+    if scope != Scope::Send {
         let needed = loaded.files_read_for_tags();
         load_tags(conn, &mut loaded.files, &needed)?;
     }
@@ -433,6 +439,9 @@ impl Loaded {
         let only = match scope {
             Scope::Send => "",
             Scope::Names => "AND j.key IN ('Name', 'Artist')",
+            Scope::Search => {
+                "AND j.key IN ('Name', 'Artist', 'Album', 'Remixer', 'Label', 'Genre', 'Comments')"
+            }
         };
         let mut stmt = conn.prepare(&format!(
             "SELECT rt.id, j.key, j.atom FROM rekordbox_track rt, json_each(rt.attributes) j
