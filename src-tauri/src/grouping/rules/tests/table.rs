@@ -736,6 +736,9 @@ fn measurements_come_from_a_comparison_with_found_shares_and_score_over_every_al
             found_b: 0.45,
             found_score: 2.0,
             matched_items: 900,
+            // The main alignment's first stretch: at A's start, 100 items
+            // into B.
+            main_starts: Some((0.0, 100.0 * matching::item_seconds())),
         }
     );
 }
@@ -763,7 +766,7 @@ fn measurements_from_a_comparison_where_nothing_matched_share_nothing() {
 }
 
 #[test]
-fn swapping_measurements_swaps_the_two_files_shares_and_nothing_else() {
+fn swapping_measurements_swaps_the_two_files_shares_and_starts_and_nothing_else() {
     let measured = Measured {
         coverage_a: 0.1,
         coverage_b: 0.2,
@@ -772,6 +775,7 @@ fn swapping_measurements_swaps_the_two_files_shares_and_nothing_else() {
         found_b: 0.5,
         found_score: 3.5,
         matched_items: 77,
+        main_starts: Some((1.0, 20.0)),
     };
     assert_eq!(
         measured.swapped(),
@@ -783,6 +787,7 @@ fn swapping_measurements_swaps_the_two_files_shares_and_nothing_else() {
             found_b: 0.4,
             found_score: 3.5,
             matched_items: 77,
+            main_starts: Some((20.0, 1.0)),
         }
     );
 }

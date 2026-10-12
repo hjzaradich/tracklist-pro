@@ -144,6 +144,7 @@
 //! | full | same, or another title with the same labels | duplicate | `sameAudio` |
 //! | full | another cut | cut link | `versionVeto` |
 //! | full | another rework, unclear, mashup part | needs review | `sameAudioNamesDisagree` |
+//! | one inside the other, the inner file a cut-off copy | same, the artists agreeing | duplicate | `truncatedCopy` |
 //! | one inside the other | same, another cut, unclear | cut link | `audioInsideOther` |
 //! | one inside the other | another rework, another title | needs review | `audioInsideOtherNamesDisagree` |
 //! | one inside the other, partial | mashup part | rework link (mashup) | `mashupContains` |
@@ -172,14 +173,50 @@
 //! artists to agree: the same title can be a different song. One file being
 //! credited to the remixer the names give counts as agreeing.
 //!
+//! # A cut-off copy
+//!
+//! A file that was cut short (a download or a copy that stopped) holds the
+//! beginning of the whole file and nothing else, so its audio sits inside
+//! the whole file's: by the audio alone, a cut. It is the same version,
+//! only worse, so the pair is a duplicate (`truncatedCopy`): the files
+//! become one track, and the best-file ranking puts the whole one first.
+//! All of this has to hold:
+//!
+//! - **The inner file's quality verdict is `truncated`** ([`Pair::truncated`];
+//!   the inner file is the one at least 90% of which is found in the
+//!   other). Only the inner file's verdict is read. A truncated outer file
+//!   changes nothing; of two truncated files the shorter is the worse copy
+//!   of the longer; a file with no verdict (not checked yet, or a verdict
+//!   that is out of date) is not known to be truncated, and the pair is
+//!   the cut link it is without this rule.
+//! - **It begins where the other begins, in one piece**: the main
+//!   alignment alone covers at least 90% of it at a difference score ≤ 4,
+//!   and starts within [`CUT_OFF_COPY_START_SECONDS`] of the start of both
+//!   files ([`Measured::main_starts`]). A radio edit that drops the intro,
+//!   or is put together from parts of the long version, doesn't. This is
+//!   there because a file can be called truncated wrongly (an MP3 without
+//!   a length header, ROADMAP 1.6).
+//! - **The names are the same and the artists agree**: the table's row
+//!   "one inside the other, same" with nothing beside its reason. Another
+//!   cut ("Clean" inside "Dirty", a radio edit named as one), names that
+//!   are unclear, another rework, another title, a mashup's part, other
+//!   artists or a file credited to its remixer: all are what they are
+//!   without this rule.
+//! - **The final guard** (below): the two files' names carry the same
+//!   version words.
+//!
+//! What such a pair becomes is one constant, [`CUT_OFF_COPY`]: making it
+//! "needs review" is that one line.
+//!
 //! # The final guard
 //!
 //! Everything above reads names as the parser does, and the parser only
 //! reads a label where convention puts one. So one invariant is checked
-//! last, in front of every merge on a full (not identical) audio match:
+//! last, in front of every merge on audio that isn't identical (a full
+//! match, and a cut-off copy inside the whole file):
 //!
-//! **Two files with a full audio match merge silently only if their names
-//! carry the same version words.**
+//! **Two files whose audio isn't the very same merge silently only if
+//! their names carry the same version words.**
 //!
 //! - A file's version words are the label words the parser knows
 //!   ([`crate::versions::label_kind`]: the longest label first, up to three
@@ -205,11 +242,13 @@
 //!   "Remixes/Velo (Halden Rook Remix).mp3" says Remix once. A folder named
 //!   like the file's artist adds nothing. Only the folder the file sits
 //!   in counts, not those above it.
-//! - If the two files' version words differ, a merge becomes "needs
-//!   review" (`labelWordsDiffer`, with the labels each file has more of).
+//! - If the two files' version words differ, a merge on a full match
+//!   becomes "needs review" (`labelWordsDiffer`, with the labels each file
+//!   has more of), and a cut-off copy inside the whole file stays the cut
+//!   link it is without its verdict.
 //!   A pair the table already keeps apart (a cut link, review) is left as
-//!   it is. Identical audio still merges whatever the names; one file
-//!   inside the other and the rows without matched audio are untouched.
+//!   it is. Identical audio still merges whatever the names; the rows
+//!   without matched audio are untouched.
 //!
 //! The price is review items for pairs a DJ would call the same: a title
 //! that holds a label word ("Come Clean") beside the same audio under
@@ -221,16 +260,18 @@
 //! Nothing is ever a duplicate on names. Only identical or full audio
 //! merges, and full audio doesn't when the two files' labels differ, or
 //! can't be told, or their names don't carry the same version words:
-//! Clean and Dirty fingerprint identically.
+//! Clean and Dirty fingerprint identically. A cut-off copy is the one case
+//! of less than full audio that merges, under the conditions above.
 //!
 //! # Known limits
 //!
-//! - **A truncated copy looks like a cut.** A file cut short holds audio
-//!   that sits inside the whole file, so with the same names it gets a cut
-//!   link. The rules have no quality input; the grouping job (1bC) has the
-//!   quality verdict and decides what to do with such a pair.
-//!   [`Pair`] is built through [`Pair::new`] so that a new input doesn't
-//!   break its callers.
+//! - **A cut-off copy nobody has checked looks like a cut.** Until the
+//!   quality job has been through it, a file cut short has no verdict, and
+//!   with the same names it gets a cut link. The grouping job decides the
+//!   file again once its verdict says truncated.
+//! - **A cut-off copy of another version.** A radio edit that was cut
+//!   short, carries no label, and begins as the long version begins is
+//!   taken for a cut-off copy of the long version, and merges with it.
 //! - **The score line for "one inside the other" is 4**, the duplicate
 //!   rule's. A real cut whose found share is over 90% at a weaker score is
 //!   a partial match, and is linked only if the names say it is a cut. The
@@ -271,6 +312,20 @@ pub const DUPLICATE_COVERAGE: f32 = 0.9;
 /// The duplicate rule's difference score: at most this many differing bits
 /// per fingerprint item (ROADMAP 1.4).
 pub const DUPLICATE_SCORE: f64 = 4.0;
+
+/// How far into each of the two files the main alignment may start for the
+/// inner one to count as a cut-off copy of the other, in seconds: a file
+/// that was cut short begins where the whole file begins. Not 0, because
+/// two encodings of one track don't start on the same sample (an encoder's
+/// delay, a little more or less silence in front); 2 s is also the room
+/// the quality rules leave before they call a file truncated.
+pub const CUT_OFF_COPY_START_SECONDS: f32 = 2.0;
+
+/// What a cut-off copy inside the whole, same-named file is to it: a worse
+/// duplicate, so the two merge without asking (TASKS 1bC-6). The one place
+/// that says so: make it [`Outcome::NeedsReview`] and such a pair is
+/// stored for Review instead, with the same reason (`truncatedCopy`).
+pub const CUT_OFF_COPY: Outcome = Outcome::Duplicate;
 
 /// Two files share audio when at least this many fingerprint items match,
 /// over every alignment. It is 1, the least `matching` ever reports: its
@@ -336,6 +391,11 @@ pub struct Measured {
     found_score: f64,
     /// How many fingerprint items matched, over every alignment.
     matched_items: usize,
+    /// Where the main alignment's first matched stretch starts: seconds
+    /// into A, and seconds into B. `None` when that isn't known (numbers
+    /// given by hand, [`Measured::new`]); a pair is then never taken for a
+    /// cut-off copy and the whole file.
+    main_starts: Option<(f32, f32)>,
 }
 
 /// Why numbers were refused as measurements. Each names the field.
@@ -345,6 +405,8 @@ pub enum BadMeasurement {
     NotAShare(&'static str),
     /// A difference score isn't a number from 0 to 32.
     NotAScore(&'static str),
+    /// A start isn't a number of seconds from 0 up.
+    NotAStart(&'static str),
     /// Nothing matched, yet a share of a file is said to be matched.
     SharesWithNothingMatched,
 }
@@ -354,6 +416,9 @@ impl std::fmt::Display for BadMeasurement {
         match self {
             BadMeasurement::NotAShare(field) => write!(f, "{field} is not a share from 0 to 1"),
             BadMeasurement::NotAScore(field) => write!(f, "{field} is not a score from 0 to 32"),
+            BadMeasurement::NotAStart(field) => {
+                write!(f, "{field} is not a number of seconds from 0 up")
+            }
             BadMeasurement::SharesWithNothingMatched => {
                 write!(f, "no items matched, but a share of a file is matched")
             }
@@ -403,7 +468,29 @@ impl Measured {
             found_b,
             found_score,
             matched_items,
+            main_starts: None,
         })
+    }
+
+    /// The same measurements, with where the main alignment's first
+    /// matched stretch starts: `in_a` seconds into A, `in_b` seconds into
+    /// B. Checked: each is a number from 0 up.
+    pub fn starting(self, in_a: f32, in_b: f32) -> Result<Measured, BadMeasurement> {
+        for (field, start) in [("start in A", in_a), ("start in B", in_b)] {
+            if !(start.is_finite() && start >= 0.0) {
+                return Err(BadMeasurement::NotAStart(field));
+            }
+        }
+        Ok(Measured {
+            main_starts: Some((in_a, in_b)),
+            ..self
+        })
+    }
+
+    /// Where the main alignment's first matched stretch starts, seconds
+    /// into A and seconds into B, if known.
+    pub fn main_starts(&self) -> Option<(f32, f32)> {
+        self.main_starts
     }
 
     /// The same measurements with the two files swapped.
@@ -413,6 +500,7 @@ impl Measured {
             coverage_b: self.coverage_a,
             found_a: self.found_b,
             found_b: self.found_a,
+            main_starts: self.main_starts.map(|(a, b)| (b, a)),
             ..self
         }
     }
@@ -437,7 +525,7 @@ impl TryFrom<&matching::Comparison> for Measured {
                     / matched_items as f64
             }
         };
-        Measured::new(
+        let measured = Measured::new(
             comparison.coverage_a,
             comparison.coverage_b,
             comparison.score,
@@ -445,7 +533,15 @@ impl TryFrom<&matching::Comparison> for Measured {
             comparison.found_b(),
             found_score,
             matched_items,
-        )
+        )?;
+        // Where the main alignment starts in each file: the stretch of it
+        // that starts first in A is the one that starts first in B.
+        let main = comparison.segments.iter().filter(|s| s.alignment == 0);
+        let Some(first) = main.min_by_key(|s| s.offset_a) else {
+            return Ok(measured);
+        };
+        let seconds = |items: usize| items as f32 * matching::item_seconds();
+        measured.starting(seconds(first.offset_a), seconds(first.offset_b))
     }
 }
 
@@ -1007,20 +1103,39 @@ fn hides_a_label_word(
     })
 }
 
-/// Two files and what is known about them. Built with [`Pair::new`], so a
-/// later input (the quality verdict, 1bC) can be added without touching
-/// the callers.
+/// Two files and what is known about them. Built with [`Pair::new`], and
+/// what isn't always known is added to it ([`Pair::truncated`]), so a new
+/// input doesn't touch the callers that have nothing to say about it.
 #[derive(Debug, Clone, Copy)]
 pub struct Pair<'a> {
     audio: Audio,
     a: &'a FileFacts,
     b: &'a FileFacts,
+    /// Whether each file is known to be cut short: `a`, then `b`.
+    truncated: (bool, bool),
 }
 
 impl<'a> Pair<'a> {
-    /// `audio` is seen from `a`: its A is `a`, its B is `b`.
+    /// `audio` is seen from `a`: its A is `a`, its B is `b`. Neither file
+    /// is known to be cut short.
     pub fn new(audio: Audio, a: &'a FileFacts, b: &'a FileFacts) -> Pair<'a> {
-        Pair { audio, a, b }
+        Pair {
+            audio,
+            a,
+            b,
+            truncated: (false, false),
+        }
+    }
+
+    /// The same pair, with whether each file is known to be cut short: its
+    /// quality verdict is `truncated` (ROADMAP 1.6). `false` for a file
+    /// with any other verdict and for one with none: not known is not
+    /// truncated. See "A cut-off copy" in the module docs.
+    pub fn truncated(self, a: bool, b: bool) -> Pair<'a> {
+        Pair {
+            truncated: (a, b),
+            ..self
+        }
     }
 
     /// The same pair with the two files swapped.
@@ -1029,7 +1144,27 @@ impl<'a> Pair<'a> {
             audio: self.audio.swapped(),
             a: self.b,
             b: self.a,
+            truncated: (self.truncated.1, self.truncated.0),
         }
+    }
+
+    /// Whether `inner`, the file found inside the other with `measured`
+    /// between them, is a cut-off copy of it by its verdict and the audio:
+    /// it is known to be cut short, and it begins where the other begins,
+    /// in one piece. What the names say comes on top (the table, and the
+    /// final guard).
+    fn inner_is_cut_off(&self, inner: Side, measured: &Measured) -> bool {
+        let (truncated, coverage) = match inner {
+            Side::A => (self.truncated.0, measured.coverage_a),
+            Side::B => (self.truncated.1, measured.coverage_b),
+        };
+        let begins_with_the_other = measured.main_starts.is_some_and(|(in_a, in_b)| {
+            in_a <= CUT_OFF_COPY_START_SECONDS && in_b <= CUT_OFF_COPY_START_SECONDS
+        });
+        truncated
+            && coverage >= DUPLICATE_COVERAGE
+            && measured.score <= DUPLICATE_SCORE
+            && begins_with_the_other
     }
 }
 
@@ -1128,6 +1263,14 @@ pub enum Reason {
         found_a: f32,
         found_b: f32,
     },
+    /// `inner` is a cut-off copy of the other file: its quality verdict is
+    /// `truncated`, its audio is the beginning of the other file's, and the
+    /// names are the same.
+    TruncatedCopy {
+        inner: Side,
+        found_a: f32,
+        found_b: f32,
+    },
     /// The names are the same, but only part of the audio is shared:
     /// identical tags can hide a different recording.
     SameTagsPartialAudio { found_a: f32, found_b: f32 },
@@ -1201,6 +1344,7 @@ impl Reason {
             Reason::SameAudioNamesDisagree => "sameAudioNamesDisagree",
             Reason::AudioInsideOther { .. } => "audioInsideOther",
             Reason::AudioInsideOtherNamesDisagree { .. } => "audioInsideOtherNamesDisagree",
+            Reason::TruncatedCopy { .. } => "truncatedCopy",
             Reason::SameTagsPartialAudio { .. } => "sameTagsPartialAudio",
             Reason::PartialAudioNamesUnclear { .. } => "partialAudioNamesUnclear",
             Reason::NamesSayCut { .. } => "namesSayCut",
@@ -1250,6 +1394,15 @@ impl Reason {
                 found_a,
                 found_b,
             } => Reason::AudioInsideOtherNamesDisagree {
+                inner: inner.other(),
+                found_a: found_b,
+                found_b: found_a,
+            },
+            Reason::TruncatedCopy {
+                inner,
+                found_a,
+                found_b,
+            } => Reason::TruncatedCopy {
                 inner: inner.other(),
                 found_a: found_b,
                 found_b: found_a,
@@ -1585,16 +1738,26 @@ fn credit_notes(credits: &Credits) -> Vec<Reason> {
 /// the [module docs](self). The answer doesn't depend on which file comes
 /// first: swapping them swaps the sides in the reasons, nothing else.
 pub fn decide(pair: &Pair<'_>) -> Decision {
-    let decision = by_table(pair);
-    // The final guard: on a full (not identical) audio match, two files
-    // merge silently only if their names carry the same version words.
+    // The final guard: two files whose audio isn't the very same merge
+    // silently only if their names carry the same version words.
     // The words a folder adds are compared on their own: they only add
     // doubt, and never make up for a word the other file's names carry.
     let (mine, theirs) = (&pair.a.label_words, &pair.b.label_words);
     let (folder_mine, folder_theirs) = (&pair.a.folder_words, &pair.b.folder_words);
-    let merges_on_full_audio =
-        decision.outcome == Outcome::Duplicate && matches!(shared(pair.audio), Shared::Full(_));
-    if !merges_on_full_audio || (mine == theirs && folder_mine == folder_theirs) {
+    let same_version_words = mine == theirs && folder_mine == folder_theirs;
+    // In front of a cut-off copy: with other version words the pair is
+    // what it is without the verdicts (a cut link), whatever
+    // [`CUT_OFF_COPY`] says such a copy is.
+    let pair = match same_version_words {
+        true => *pair,
+        false => pair.truncated(false, false),
+    };
+    let decision = by_table(&pair);
+    // In front of every other merge on audio that isn't identical (a full
+    // match today): it becomes "needs review".
+    let merges_on_other_than_identical_audio =
+        decision.outcome == Outcome::Duplicate && shared(pair.audio) != Shared::Identical;
+    if !merges_on_other_than_identical_audio || same_version_words {
         return decision;
     }
     let more = |mine: &LabelWords, theirs: &LabelWords| -> Vec<MarkerKind> {
@@ -1723,6 +1886,17 @@ fn by_table(pair: &Pair<'_>) -> Decision {
                 found_b: m.found_b,
             };
             match relation {
+                // A cut-off copy of the other file: the same version, only
+                // worse. Not with the artists differing, or a file credited
+                // to its remixer: then the names aren't simply the same.
+                Relation::Same if credits == Credits::Agree && pair.inner_is_cut_off(inner, &m) => {
+                    let copy = Reason::TruncatedCopy {
+                        inner,
+                        found_a: m.found_a,
+                        found_b: m.found_b,
+                    };
+                    (CUT_OFF_COPY, vec![copy])
+                }
                 Relation::Same => (Outcome::CutLink { labels: Vec::new() }, vec![inside]),
                 Relation::Cut { only_a, only_b } => (
                     Outcome::CutLink {

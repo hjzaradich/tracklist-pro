@@ -16,6 +16,8 @@
 //! - `e3_rules`: one test per rule under "Rules from the E3 labels" in
 //!   ROADMAP §1.5, named after it.
 //! - `shape`: what holds for every decision, and how one is serialized.
+//! - `truncated`: a cut-off copy inside the whole, same-named file is a
+//!   duplicate, and nothing else changes because a file is truncated.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -31,6 +33,7 @@ mod own_names;
 mod readings;
 mod shape;
 mod table;
+mod truncated;
 
 /// A file name that says nothing: no artist, no label, and a title no
 /// other file has. Beside any other it reads as "another title", which
@@ -79,6 +82,7 @@ pub(super) fn measured(coverage_a: f32, coverage_b: f32, score: f64) -> Measured
         found_b: coverage_b,
         found_score: score,
         matched_items: 2000,
+        main_starts: None,
     }
 }
 
@@ -112,6 +116,7 @@ pub(super) fn nothing_shared() -> Audio {
         found_b: 0.0,
         found_score: matching::compare::NO_MATCH_SCORE,
         matched_items: 0,
+        main_starts: None,
     })
 }
 

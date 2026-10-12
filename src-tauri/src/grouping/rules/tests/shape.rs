@@ -5,7 +5,7 @@ use serde_json::json;
 use super::*;
 
 /// Files whose names relate in every way the table tells apart.
-fn every_file() -> Vec<FileFacts> {
+pub(super) fn every_file() -> Vec<FileFacts> {
     vec![
         titled("Paper Harbor"),
         by("Kestrel Nine", "Paper Harbor"),
@@ -50,9 +50,9 @@ fn every_decision() -> Vec<(&'static str, Decision)> {
 }
 
 /// The outcome each deciding reason always comes with.
-fn outcome_of(code: &str) -> &'static str {
+pub(super) fn outcome_of(code: &str) -> &'static str {
     match code {
-        "identicalAudio" | "sameAudio" => "duplicate",
+        "identicalAudio" | "sameAudio" | "truncatedCopy" => "duplicate",
         "versionVeto" | "audioInsideOther" | "namesSayCut" => "cutLink",
         "namesSayRework" | "mashupContains" => "reworkLink",
         "sameAudioNamesDisagree"
@@ -71,7 +71,7 @@ fn outcome_of(code: &str) -> &'static str {
     }
 }
 
-fn kind(outcome: &Outcome) -> &'static str {
+pub(super) fn kind(outcome: &Outcome) -> &'static str {
     match outcome {
         Outcome::Duplicate => "duplicate",
         Outcome::CutLink { .. } => "cutLink",
@@ -233,7 +233,8 @@ fn a_reasons_code_is_what_it_serializes_as_in_camel_case() {
             seen.insert(code);
         }
     }
-    // Every reason there is came by.
+    // Every reason there is came by, but the one that needs a quality
+    // verdict (`truncatedCopy`; the `truncated` tests reach it).
     assert_eq!(seen.len(), 22);
 }
 
@@ -264,6 +265,15 @@ fn a_reasons_parameters_serialize_in_camel_case_with_kinds_as_their_names() {
             "onlyA": [{ "kind": "remix", "whose": "Quill Ashby" }],
             "onlyB": [{ "kind": "vip", "whose": null }],
         })
+    );
+    let copy = Reason::TruncatedCopy {
+        inner: Side::A,
+        found_a: 1.0,
+        found_b: 0.5,
+    };
+    assert_eq!(
+        serde_json::to_value(&copy).unwrap(),
+        json!({ "code": "truncatedCopy", "inner": "a", "foundA": 1.0, "foundB": 0.5 })
     );
     let inside = Reason::AudioInsideOther {
         inner: Side::B,
