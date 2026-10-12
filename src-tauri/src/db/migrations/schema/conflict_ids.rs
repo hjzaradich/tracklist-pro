@@ -130,7 +130,7 @@ fn conflicts_that_exist_when_the_migration_runs_keep_their_ids_and_every_value()
               '2026-02-03T04:05:07.000Z', '2026-02-04T00:00:00.000Z'),
              (8, 2, 'Genre', 'Deep House', '', 'House', 'kept_rekordbox', NULL,
               '2026-02-03T04:05:08.000Z', '2026-02-04T00:00:01.000Z'),
-             (12, 2, 'Comments', 'warm up', 'closing', 'opener', 'edited', 'warm up, closing',
+             (12, 2, 'Comments', 'warm up', 'closing', 'intro', 'edited', 'warm up, closing',
               '2026-02-03T04:05:09.000Z', '2026-02-04T00:00:02.000Z');",
     );
     let before = rows(&conn);
