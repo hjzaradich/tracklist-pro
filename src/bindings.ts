@@ -295,6 +295,18 @@ export type AppInfo = {
 	identifier: string,
 };
 
+/**  A file of a Library track's that is ahead of its linked file, and why. */
+export type BetterFile = {
+	/**  The better file: the track's best-ranked one. */
+	fileId: number,
+	/**
+	 *  The step of the ranking that put it ahead: `onDisk`, `verdict`,
+	 *  `playable`, `cutoff`, `decodeErrors` or `format`. Never tags, art, a
+	 *  rekordbox link or a place: those don't make a file better.
+	 */
+	step: Step,
+};
+
 /**  What asking to cancel a job did. */
 export type CancelOutcome = 
 /**  It hadn't started, and now never will. */
@@ -496,7 +508,9 @@ export type JobKind =
 "fingerprint" | 
 /**
  *  Put files into tracks, and with `decide` in its target, decide
- *  their pairs by the grouping rules first (1.4, 1.5).
+ *  their pairs by the grouping rules first (1.4, 1.5). With `roles` in
+ *  its target, rank the files of the tracks that changed and set their
+ *  roles (1.7). The targets are `grouping::GroupTarget`.
  */
 "group" | 
 /**  Estimate BPM, key and energy (3.7). */
@@ -669,6 +683,12 @@ export type LibraryTrack = {
 	openConflicts: number,
 	/**  When it was added, UTC ISO-8601. */
 	addedAt: string,
+	/**
+	 *  Another file of the track ranks ahead of the linked file in what the
+	 *  audio is, or in being there at all (ROADMAP 1.7, "Better file
+	 *  available"). The linked file itself never changes.
+	 */
+	betterFile: BetterFile | null,
 };
 
 /**  A Library track's row id. */
@@ -1158,6 +1178,9 @@ export type StalePlaylist = {
 	 */
 	empty: boolean,
 };
+
+/**  The steps of the order, first to last. */
+export type Step = "onDisk" | "verdict" | "playable" | "cutoff" | "decodeErrors" | "format" | "tags" | "art" | "rekordbox" | "place" | "tied";
 
 /**
  *  Something the app suggests (`what`), with the reasons it's suggested.

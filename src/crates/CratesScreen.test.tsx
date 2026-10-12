@@ -26,6 +26,7 @@ function track(id: number): LibraryTrack {
     openConflicts: 0,
     fragile: null,
     addedAt: "2026-09-30T10:00:00.000Z",
+    betterFile: null,
   };
 }
 
