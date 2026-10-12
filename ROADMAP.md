@@ -456,18 +456,18 @@ Each feature is tagged with its sub-phase.
 
 #### 1.12 Review screen · 1b
 - **What:** every decision the app can't make alone. Phase 1 covers duplicates, possible version mix-ups, quality problems, relink confirmations and "Better file available", with conflicts (1.10) in 1c. Later phases add tag suggestions (2.2) and unmapped genres (3.2).
-- **Scope:** Library tracks and tracks being added. Duplicates among tracks you never add aren't queued, though All music still shows them.
+- **Scope:** Library tracks, plus every relink match waiting to be confirmed, in the Library or not: a track whose only rekordbox match is probable can't be added until it is confirmed (1.8). Adding is instant, so there is no "being added" state (owner decision, 2026-10-12). Duplicates among tracks you never add aren't queued, though All music still shows them. The Missing list (1.3) stays its own section below the queue and isn't counted in "how many need a decision". Inside a group the oldest item comes first.
 - **Layout:** a queue on the left and a comparison on the right. The queue is grouped by how much thought each item needs: "Needs a closer look" first, then "Clear best file", then "Quality problems". It shows how many are left.
 - **What each group holds in Phase 1** (owner decision, 2026-10-12):
   - "Needs a closer look": possible version mix-ups (pairs the rules send to review), duplicate sets held because their pairs disagree, two Library tracks that are the same recording (1.4), and relink matches to confirm (1.2).
   - "Clear best file": a Library track whose linked file is gone while another copy of the track is on disk. Switching to that copy is the only choice "Accept all N" makes.
-  - "Quality problems": a Library track whose linked file is flagged, cut off or broken, with no better copy.
-- **"Better file available" in Phase 1** (owner decision, 2026-10-12): the item shows the better file and its reason (1.7) and can be dismissed; the dismissal is remembered. Switching the linked file is offered only when the linked file is gone. The Upgrade action arrives with managed copies (2.6).
+  - "Quality problems": a Library track whose linked file is flagged, cut off or broken, with no better copy; and "Better file available" items whose linked file is still there (so a flagged track that has a better copy is here too, as a better-file item).
+- **"Better file available" in Phase 1** (owner decision, 2026-10-12): the item shows the better file and its reason (1.7) and can be dismissed; the dismissal is remembered. A dismissal covers that one file: a different, better file is a new item. Switching the linked file is offered only when the linked file is gone. For a track rekordbox knows the item says plainly what the switch means there: the XML can't change a known track's location, so rekordbox sees the copy as a new track without the old entry's cues and the old entry goes on the list to remove in rekordbox; relocating the file inside rekordbox keeps the cues. "Accept all N" for "Clear best file" is this same switch. The Upgrade action arrives with managed copies (2.6).
 - **"Accept all N"** for clear cases. It can be undone, and what it accepted stays viewable.
 - **Comparison:** one row per file with the same columns, the suggestion first, and a plain-language reason. "More details" shows bitrate, sample rate and date added. The Details panel shows each tag's value for the Library track and which file it comes from; that part arrives in 1c with the Details panel (owner decision, 2026-10-12).
 - **Keyboard:** Enter keeps the suggestion, number keys pick another file, S splits the group ("these aren't the same"). The next item loads automatically.
 - **Listening:** switching between files keeps the playback position. The preview engine (1.11, tasks 1cA-7 and 1cA-8) is built in 1b for this (owner decision, 2026-10-12).
-- **Single-file quality problems:** "Keep anyway", or "Find a better file" (→ wishlist, 2.3).
+- **Single-file quality problems:** "Keep anyway", or "Find a better file" (→ wishlist, 2.3). In Phase 1 (owner decision, 2026-10-12) "Find a better file" stores a remembered mark that you want the track in better quality, which the wishlist picks up in Phase 2; either choice takes the item out of the queue for good. After "Keep anyway" the ranking (1.7) still treats the file as flagged: its audio hasn't changed.
 - **Complexity:** M.
 
 #### 1.13 Overview · 1c
