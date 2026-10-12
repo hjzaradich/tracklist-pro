@@ -448,6 +448,7 @@ Each feature is tagged with its sub-phase.
   - "Show again" for files you hid
   - "Use this file instead" for extra files (reopens the choice in Review)
   - "Put back in Inbox" for cleared Inbox files
+- **What search covers** (owner decision, 2026-10-12; index 1cA-6): title, artist, album, remixer, label, genre, comment and file name. Capitals and accents don't matter, and a word matches from its start ("hou" finds "House"). Results keep the list's own order; there is no relevance ranking.
 - **Search finds hidden files too:** "N hidden files match · Show them".
 - **Keyboard:** Ctrl+K palette; J/K to move, Space to preview, 1–0 to rate energy, T to tag; a bulk selection model.
 - **Audio:** preview in the webview over a custom Tauri protocol, with AIFF and ALAC decoded to PCM/WAV in Rust. Waveforms are computed once in the job queue and cached as peak arrays.
@@ -457,10 +458,15 @@ Each feature is tagged with its sub-phase.
 - **What:** every decision the app can't make alone. Phase 1 covers duplicates, possible version mix-ups, quality problems, relink confirmations and "Better file available", with conflicts (1.10) in 1c. Later phases add tag suggestions (2.2) and unmapped genres (3.2).
 - **Scope:** Library tracks and tracks being added. Duplicates among tracks you never add aren't queued, though All music still shows them.
 - **Layout:** a queue on the left and a comparison on the right. The queue is grouped by how much thought each item needs: "Needs a closer look" first, then "Clear best file", then "Quality problems". It shows how many are left.
+- **What each group holds in Phase 1** (owner decision, 2026-10-12):
+  - "Needs a closer look": possible version mix-ups (pairs the rules send to review), duplicate sets held because their pairs disagree, two Library tracks that are the same recording (1.4), and relink matches to confirm (1.2).
+  - "Clear best file": a Library track whose linked file is gone while another copy of the track is on disk. Switching to that copy is the only choice "Accept all N" makes.
+  - "Quality problems": a Library track whose linked file is flagged, cut off or broken, with no better copy.
+- **"Better file available" in Phase 1** (owner decision, 2026-10-12): the item shows the better file and its reason (1.7) and can be dismissed; the dismissal is remembered. Switching the linked file is offered only when the linked file is gone. The Upgrade action arrives with managed copies (2.6).
 - **"Accept all N"** for clear cases. It can be undone, and what it accepted stays viewable.
-- **Comparison:** one row per file with the same columns, the suggestion first, and a plain-language reason. "More details" shows bitrate, sample rate and date added. The Details panel shows each tag's value for the Library track and which file it comes from.
+- **Comparison:** one row per file with the same columns, the suggestion first, and a plain-language reason. "More details" shows bitrate, sample rate and date added. The Details panel shows each tag's value for the Library track and which file it comes from; that part arrives in 1c with the Details panel (owner decision, 2026-10-12).
 - **Keyboard:** Enter keeps the suggestion, number keys pick another file, S splits the group ("these aren't the same"). The next item loads automatically.
-- **Listening:** switching between files keeps the playback position.
+- **Listening:** switching between files keeps the playback position. The preview engine (1.11, tasks 1cA-7 and 1cA-8) is built in 1b for this (owner decision, 2026-10-12).
 - **Single-file quality problems:** "Keep anyway", or "Find a better file" (→ wishlist, 2.3).
 - **Complexity:** M.
 
@@ -469,6 +475,7 @@ Each feature is tagged with its sub-phase.
 - **What to do next:** unsent changes, tracks made from low-quality files, missing tags or art, tracks rekordbox hasn't analyzed, and tracks in no crate or playlist. Each item disappears when fixed, and the empty list says "Nothing to fix". One progress line sits beside it ("This week: 4 tracks added, 12 decisions made").
 - **Four numbers:** tracks and total length; how many are in crates or playlists; how many rekordbox has analyzed; when the Library was last sent.
 - **Charts:** energy spread and genres as one-color bar charts.
+- **What the numbers mean** (owner decision, 2026-10-12): a track's genre is rekordbox's for a track rekordbox knows, otherwise the file's tag. "Analyzed" means rekordbox supplied a BPM or a key. "Decisions made" counts the operations in the undo log. Nothing stores energy yet, so the energy chart waits for the energy decision (1cC-1). What counts as an unsent change is defined with the Send button (1cB-11).
 - **Outside your Library:** one strip with the All music count, how many need a decision, and links to Review, All music and Manage folders.
 - **Every number is a door:** clicking opens the Library filtered, with a visible filter chip saying why.
 - **No health score.**

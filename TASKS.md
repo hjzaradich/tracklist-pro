@@ -185,20 +185,21 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 - **Lane 4:** ✅ 1bC-5 Store the quality verdict and its findings per file (table `file_verdict`, migration 0021); the grouping job and the best-file ranking read it. Whoever reads verdicts calls `quality::settle` first: nothing queues a job for an out-of-date verdict
 
 ### Stage 1bD: Review scaffold and corpus check
-- **Lane 1, Review scaffold:** 1bD-1 Queue list, grouped with counts → 1bD-2 Comparison pane: one row per file, suggestion first, with its reason
+- **Lane 1, Review scaffold:** 1bD-1 Queue list, grouped with counts (what each group holds: ROADMAP 1.12, owner decision 2026-10-12) → 1bD-2 Comparison pane: one row per file, suggestion first, with its reason
 - **Lane 2:** 1bD-3 Corpus check: false merges <1%, pair #42 kept apart
 - **Lane 3, parser follow-ups** (from the 1bB-1 reviews, 2026-10-11; a fresh lane. 1bB-7 showed 1 of 12 real duplicates going to review, so the harmless brackets are the least urgent part): 1bD-4 Version words the last guard doesn't see: dotted spellings ("V.I.P."), a one-word artist tag that is itself a label word, a version given only by the folder name (Clean/ and Dirty/ folders); tests that pin counting version words per file and setting the artist aside (two review mutations survived); harmless brackets that shouldn't send same-audio pairs to review (copy counters like "(1)", years, catalogue numbers, key and BPM); a file name whose second part is only a label ("Artist - Radio Edit.mp3"). Also: `tools/fixture-gen`'s mashup shares far more audio than real mashups do
 
 ### Stage 1bE: Review features
-- **Lane 1:** 1bE-1 "More details" toggle + tag sources in the Details panel
-- **Lane 2:** 1bE-2 Keyboard: Enter, number keys, S to split, auto-advance
+- **Lane 1:** 1bE-1 "More details" toggle (the tag sources in the Details panel moved to 1cB-17, owner decision 2026-10-12)
+- **Lane 2:** 1bE-2 Keyboard: Enter, number keys, S to split, auto-advance (a split inside one track must also stop relink's same-track match between the two files: today an "apart" decision there doesn't, found in PR 72's review)
 - **Lane 3:** 1bE-3 "Accept all N" with undo and a view of what it accepted
-- **Lane 4:** 1bE-4 Playback that keeps position when switching files
+- **Lane 4:** 1cA-7 Preview over a custom Tauri protocol → 1cA-8 AIFF/ALAC decode for preview (both moved here from Stage 1cA, owner decision 2026-10-12) → 1bE-4 Playback that keeps position when switching files
 - **Lane 5:** 1bE-5 Single-file quality actions: Keep anyway / Find a better file (flagged for the Phase 2 wishlist)
 - **Lane 6:** 1bE-6 Relink confirmation items (withdrawing a confirmation returns the track to recomputation, per 1aC-3; a confirmed match survives audio changes only if the user re-confirms)
-- **Lane 7:** 1bE-7 "Better file available" items
+- **Lane 7:** 1bE-7 "Better file available" items: shown with the reason, dismissable (remembered); switching the linked file only when it is gone (owner decision 2026-10-12, ROADMAP 1.12)
 - **Lane 8:** 1bE-8 Adding a `low bitrate` file to the Library warns first (owner decision 2026-10-10: such files are better left out)
 - **Lane 9:** 1bE-9 Two Library tracks that are the same recording: one Review item for the pair, "keep both" (remembered) or merge into one, choosing which stays; the crates of both then hold the one that stays, the other goes on the list to remove in rekordbox; undoable (owner decision 2026-10-11, ROADMAP 1.4; the 1bC-1 job only keeps such a pair apart and records it)
+- **Lane 10:** 1bE-10 A Library track follows its file (owner decision 2026-10-12): when relink finds the same audio at a new place, the track's linked file moves there on its own (undoable); when only another copy of the track is on disk, a "Clear best file" item in Review, and until it is answered the track is still sent as rekordbox's own entry, so its crate stays whole. Today the track keeps its old link and is left out of the send once relink matches its entry to the other file
 
 ### Stage 1bF: Phase 1b check 👤
 - **Lane 1:** 1bF-1 **Checkpoint:** 1b success criteria (§6)
@@ -208,23 +209,25 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 ## Phase 1c: Round trip and daily use (MVP)
 
 ### Stage 1cA: Engines and components
+Started early, on 2026-10-12 (owner decision): 1cA-1, 1cA-2, 1cA-6, 1cA-12, 1cA-13. Moved to Stage 1bE: 1cA-7, 1cA-8.
 - **Lane 1, conflicts:** 1cA-1 Three-way diff engine per field → 1cA-2 Conflict records + bulk-resolve operations
 - **Lane 2, table:** 1cA-3 Port `TrackTable` with virtualization → 1cA-4 Filter model + filter chips → 1cA-5 Port `ColumnEditor`
 - **Lane 3:** 1cA-6 Full-text search index (SQLite FTS5)
-- **Lane 4, preview:** 1cA-7 Preview over a custom Tauri protocol → 1cA-8 AIFF/ALAC decode for preview
+- **Lane 4, preview:** moved to Stage 1bE, Lane 4
 - **Lane 5, crates:** 1cA-9 Port the playlist tree as the crate folder tree → 1cA-10 Crate commands: create, rename, delete, add, remove, with undo (first decide how `crate_entry`, a WITHOUT ROWID table, becomes undoable: a migration giving it a rowid, or change rows keyed by a composite key; the 0E-10 op log only records rowid tables, and doesn't record ON DELETE CASCADE children, so delete children explicitly) → 1cA-11 Crate folders in the sidebar
 - **Lane 6:** 1cA-12 Overview data queries
 - **Lane 7:** 1cA-13 Job queue: resume unfinished jobs on startup
 
 ### Stage 1cB: Screens
 - **Lane 1, conflicts UI:** 1cB-1 Side-by-side values: keep app / keep rekordbox / edit → 1cB-2 Bulk resolve ("take rekordbox for all ratings")
-- **Lane 2:** 1cB-3 Merge conflicts before every send
+- **Lane 2:** 1cB-18 Where the app keeps its own value per field (the user's edits): it gives the conflict engine the value, or "none of its own", and the rekordbox value an edit replaced → 1cB-19 The send records the value each base replaced, and each track's playlist entries (so an edit whose send was never imported isn't taken for rekordbox changing it back, and playlist membership can be compared) → 1cB-3 Merge conflicts before every send
 - **Lane 3:** 1cB-4 Treat a changed file tag on a linked track as a rekordbox edit
 - **Lane 4, hidden:** 1cB-5 Hidden filter with reasons and "way back" actions → 1cB-6 Search shows "N hidden files match · Show them"
 - **Lane 5, keyboard:** 1cB-7 Command palette (Ctrl+K) → 1cB-8 Hotkeys J/K, Space, 1–0, T + bulk selection
 - **Lane 6, player:** 1cB-9 Waveform peak job + cached display → 1cB-10 Port `PlayerBar`
 - **Lane 7, Overview:** 1cB-11 Header with the Send button + to-do list + progress line → 1cB-12 Four numbers, energy and genre bars, "Outside your Library" strip
 - **Lane 8, adding to crates:** 1cB-13 Drag onto the sidebar, press C, "Add to crate or playlist" dialog → 1cB-14 Crate membership in the Details panel + "Remove from this crate"
+- **Lane 10:** 1cB-17 Details panel: each tag's value for the Library track and which file it comes from (moved from 1bE-1)
 - **Lane 9, crate view:** 1cB-15 Notes line + summary line (BPM, energy, keys, genres) → 1cB-16 "Sort by fit" with reasons in the Fit column
 
 ### Stage 1cC: Integration and performance
