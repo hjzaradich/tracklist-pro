@@ -204,6 +204,37 @@ pub(crate) struct Page {
     pub last: Option<i64>,
 }
 
+/// The statement that lists one page of stale files with their inputs:
+/// `?1` is the id to start after, `?2` the ids to look among as a JSON array
+/// (NULL when every file is looked at), `?3` the page's size.
+///
+/// Two statements, because one can't serve both: with the ids given, each
+/// file is looked up by its primary key, so settling one file costs one
+/// lookup however many files there are (the quality job settles each file
+/// it measures). A single statement with "`?2` is NULL or the id is among
+/// them" walks the whole table either way. The `+` keeps the cursor from
+/// being taken for the way in: it is only a filter there.
+pub(crate) fn stale_page_sql(named: bool) -> String {
+    let among = match named {
+        true => "f.id IN (SELECT value FROM json_each(?2)) AND +f.id > ?1",
+        // `?2` is bound (to NULL) and not read.
+        false => "f.id > ?1",
+    };
+    format!(
+        "SELECT f.id, f.codec, f.bitrate, f.sample_rate, f.quality_verdict, f.audio_hash,
+                q.audio_hash, q.method_version, q.cutoff_hz, q.cutoff_gap, q.decoded_ms,
+                q.header_ms, q.decode_errors, q.error_kinds, q.ended, q.failure,
+                {INPUTS}, v.verdict
+         FROM file f
+         LEFT JOIN file_quality q ON q.file_id = f.id
+         LEFT JOIN file_verdict v ON v.file_id = f.id
+         WHERE {among}
+           AND {stale}
+         ORDER BY f.id LIMIT ?3",
+        stale = stale_condition()
+    )
+}
+
 /// Recomputes up to one page of stale files with an id above `after`
 /// (among `only`, if given), in one transaction. The job calls it in a loop
 /// on the writer, so a long settle can be cancelled and never holds the
@@ -216,20 +247,7 @@ pub(crate) fn settle_page(
     let only = only.map(ids_json);
     let tx = conn.transaction()?;
     let files = {
-        let mut stmt = tx.prepare_cached(&format!(
-            "SELECT f.id, f.codec, f.bitrate, f.sample_rate, f.quality_verdict, f.audio_hash,
-                    q.audio_hash, q.method_version, q.cutoff_hz, q.cutoff_gap, q.decoded_ms,
-                    q.header_ms, q.decode_errors, q.error_kinds, q.ended, q.failure,
-                    {INPUTS}, v.verdict
-             FROM file f
-             LEFT JOIN file_quality q ON q.file_id = f.id
-             LEFT JOIN file_verdict v ON v.file_id = f.id
-             WHERE f.id > ?1
-               AND (?2 IS NULL OR f.id IN (SELECT value FROM json_each(?2)))
-               AND {stale}
-             ORDER BY f.id LIMIT ?3",
-            stale = stale_condition()
-        ))?;
+        let mut stmt = tx.prepare_cached(&stale_page_sql(only.is_some()))?;
         let rows = stmt.query_map(params![after, only, PAGE as i64], |r| {
             // The measurement is there when its (NOT NULL) audio hash is.
             let measured: Option<Vec<u8>> = r.get(6)?;

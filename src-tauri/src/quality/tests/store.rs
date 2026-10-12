@@ -5,8 +5,8 @@ use rusqlite::Connection;
 
 use crate::db::migrations::{run, MIGRATIONS};
 use crate::quality::store::{
-    any_stale, codec_of, read_verdict_of, settle, settle_files, stored_verdict, stored_verdicts,
-    ALL_CODECS, CHUNK, INPUTS, KEY_IGNORES,
+    any_stale, codec_of, read_verdict_of, settle, settle_files, stale_page_sql, stored_verdict,
+    stored_verdicts, ALL_CODECS, CHUNK, INPUTS, KEY_IGNORES,
 };
 use crate::quality::verdict::{Assessment, Finding, Verdict};
 use crate::quality::RULES_VERSION;
@@ -613,6 +613,56 @@ fn settling_named_files_leaves_the_others_stale() {
     assert_eq!(verdict(&conn, b), None);
     assert!(any_stale(&conn, Some(&[b])).unwrap());
     assert!(!any_stale(&conn, Some(&[a])).unwrap());
+}
+
+/// How SQLite reads the `file` table for `sql`, as its query plan says it.
+fn plan_for_file(conn: &Connection, sql: &str) -> Vec<String> {
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+    let steps = stmt
+        .query_map(rusqlite::params![0, "[1]", 500], |r| r.get::<_, String>(3))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<String>>>()
+        .unwrap();
+    steps
+        .into_iter()
+        .filter(|step| step.contains(" f ") || step.ends_with(" f"))
+        .collect()
+}
+
+#[test]
+fn settling_named_files_looks_each_up_by_its_id_and_never_walks_the_file_table() {
+    let (_dir, conn) = db();
+    // The quality job settles each file it measures: at 100,000 files a
+    // walk of the table per file is hours on the writer.
+    assert_eq!(
+        plan_for_file(&conn, &stale_page_sql(true)),
+        ["SEARCH f USING INTEGER PRIMARY KEY (rowid=?)"],
+    );
+    // Settling every file has to read every file; it pages by id.
+    assert_eq!(
+        plan_for_file(&conn, &stale_page_sql(false)),
+        ["SEARCH f USING INTEGER PRIMARY KEY (rowid>?)"],
+    );
+}
+
+#[test]
+fn settling_named_files_takes_them_in_pages_and_skips_ids_that_are_no_file() {
+    let (_dir, mut conn) = db();
+    // More files than one page holds, asked for out of order, twice, and
+    // with ids no file has.
+    let mut ids: Vec<i64> = (0..520)
+        .map(|n| file(&conn, &format!("{n}.mp3"), "mp3", Some(128)))
+        .collect();
+    let left_out = ids.pop().unwrap();
+    ids.reverse();
+    ids.push(ids[0]);
+    ids.extend([0, -4, 1_000_000]);
+    assert_eq!(settle_files(&mut conn, &ids).unwrap(), 519);
+    assert!(!any_stale(&conn, Some(&ids)).unwrap());
+    assert_eq!(verdict(&conn, ids[0]), Some(Verdict::LowBitrate));
+    assert_eq!(verdict(&conn, left_out), None);
+    // Nothing is stale among them now: a second settle changes nothing.
+    assert_eq!(settle_files(&mut conn, &ids).unwrap(), 0);
 }
 
 #[test]
