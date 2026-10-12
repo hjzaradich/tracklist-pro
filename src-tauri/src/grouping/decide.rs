@@ -394,6 +394,9 @@ struct StoredNames {
     title: Option<String>,
     artist: Option<String>,
     file_name: String,
+    /// The name of the folder the file is in: its path's second-to-last
+    /// part. A version can be written only there ("Clean/", "Dirty/").
+    folder: Option<String>,
 }
 
 impl StoredNames {
@@ -402,6 +405,7 @@ impl StoredNames {
             title: None,
             artist: None,
             file_name: rel_path.rsplit('/').next().unwrap_or(rel_path).to_string(),
+            folder: rel_path.rsplit('/').nth(1).map(str::to_string),
         };
         let tags = raw_tags.map(|raw| crate::send_values::tag_values(raw, &["Name", "Artist"]));
         for tag in tags.unwrap_or_default() {
@@ -423,10 +427,11 @@ impl StoredNames {
     }
 
     fn facts(&self) -> FileFacts {
-        FileFacts::new(
+        FileFacts::in_folder(
             self.title.as_deref(),
             self.artist.as_deref(),
             &self.file_name,
+            self.folder.as_deref(),
         )
     }
 }

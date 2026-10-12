@@ -512,6 +512,23 @@ impl FileFacts {
     /// artist tag is split into artists as the artist part of a file name
     /// is, and counts for both names.
     pub fn new(title_tag: Option<&str>, artist_tag: Option<&str>, file_name: &str) -> FileFacts {
+        FileFacts::in_folder(title_tag, artist_tag, file_name, None)
+    }
+
+    /// [`FileFacts::new`] for a file that sits in a folder: `folder` is
+    /// the name of the folder it is in (its parent's name alone, not the
+    /// path). A folder called "Clean" or "Radio Edits" can be the only
+    /// place a version is written, so its label words count among the
+    /// file's version words for the final guard, unless the file's own
+    /// names already carry the word (a folder of "Remixes" holding
+    /// "Velo (Halden Rook Remix)" says nothing more). Only the guard sees
+    /// the folder: the table reads the names alone.
+    pub fn in_folder(
+        title_tag: Option<&str>,
+        artist_tag: Option<&str>,
+        file_name: &str,
+        folder: Option<&str>,
+    ) -> FileFacts {
         let by_file_name = versions::parse_file_name(file_name);
         let title_tag = title_tag.filter(|title| !title.trim().is_empty());
         let by_tag = title_tag.map(versions::parse_title);
@@ -519,6 +536,7 @@ impl FileFacts {
             title_tag.zip(by_tag.as_ref()),
             (file_name, &by_file_name),
             artist_tag,
+            folder,
         );
         let Some(by_tag) = by_tag else {
             return FileFacts {
@@ -694,6 +712,49 @@ fn label_words_in(name: &str, set_aside: &SetAside) -> LabelWords {
     found
 }
 
+/// The label words in a folder's name, in the plural too ("Edits",
+/// "Radio Edits", "Remixes"): a folder is named for what it holds. The
+/// file's artists are set aside as in a name.
+fn folder_label_words(folder: &str, set_aside: &[Vec<String>]) -> LabelWords {
+    let mut rest = words(folder);
+    for artist in set_aside {
+        if let Some(at) = position_of(&rest, artist) {
+            rest.drain(at..at + artist.len());
+        }
+    }
+    let kind_of = |run: &[String]| {
+        let exact = versions::label_kind(&run.join(" "));
+        exact.or_else(|| {
+            let (last, front) = run.split_last()?;
+            ["es", "s"]
+                .iter()
+                .filter_map(|ending| last.strip_suffix(ending).filter(|stem| stem.len() >= 2))
+                .find_map(|stem| {
+                    let mut singular = front.to_vec();
+                    singular.push(stem.to_string());
+                    versions::label_kind(&singular.join(" "))
+                })
+        })
+    };
+    let mut found = LabelWords::new();
+    let mut at = 0;
+    while at < rest.len() {
+        let longest = (1..=versions::tables::MAX_LABEL_WORDS.min(rest.len() - at))
+            .rev()
+            .find_map(|n| kind_of(&rest[at..at + n]).map(|kind| (kind, n)));
+        match longest {
+            Some((kind, n)) => {
+                if kind != MarkerKind::Original {
+                    *found.entry(kind).or_default() += 1;
+                }
+                at += n;
+            }
+            None => at += 1,
+        }
+    }
+    found
+}
+
 /// The labels among `words`, read from the left, the longest first, and
 /// how many words are no part of any.
 fn labels_among(words: &[String]) -> (Vec<MarkerKind>, usize) {
@@ -734,6 +795,7 @@ fn label_words(
     tag: Option<(&str, &ParsedName)>,
     file_name: (&str, &ParsedName),
     artist_tag: Option<&str>,
+    folder: Option<&str>,
 ) -> LabelWords {
     let (file_name, by_file_name) = file_name;
     // The artists the file name's own artist part names.
@@ -792,6 +854,14 @@ fn label_words(
         for (kind, count) in label_words_in(title, &artists(&by_tag.credits, false)) {
             let most = found.entry(kind).or_default();
             *most = (*most).max(count);
+        }
+    }
+    // The folder's label words, for the ones the names don't carry.
+    if let Some(folder) =
+        folder.and_then(|folder| folder.rsplit(['/', '\\']).find(|part| !part.is_empty()))
+    {
+        for (kind, _) in folder_label_words(folder, &artists(&[], false).whole) {
+            found.entry(kind).or_insert(1);
         }
     }
     // Intro and Outro together are Intro-Outro, as within one name.

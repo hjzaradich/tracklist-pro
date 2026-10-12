@@ -1062,6 +1062,62 @@ fn a_file_given_another_name_on_disk_is_decided_again_by_its_new_name() {
 }
 
 #[test]
+fn a_version_given_only_by_the_folder_keeps_two_files_of_the_same_audio_apart() {
+    // Clean/Velo.flac and Dirty/Velo.mp3: the same audio, and the folder
+    // is the only place the version is written. Nothing merges unasked.
+    let db = db();
+    let velo = track(1, LEN);
+    let clean = db.add(file("Clean/Velo.flac", "Velo", 1, velo.clone()));
+    let dirty = db.add(file("Dirty/Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
+    db.decide();
+    assert_eq!(db.stands(clean, dirty), ("review".into(), "open".into()));
+    assert_ne!(db.track(clean), db.track(dirty));
+}
+
+#[test]
+fn folders_that_say_no_version_leave_the_same_audio_merged() {
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Inbox/Velo.flac", "Velo", 1, velo.clone()));
+    let b = db.add(file(
+        "Archive/2020/Velo.mp3",
+        "Velo",
+        2,
+        reencoded(&velo, 1, 7),
+    ));
+    db.decide();
+    assert_eq!(db.stands(a, b), ("duplicate".into(), "merged".into()));
+}
+
+#[test]
+fn only_the_folder_a_file_sits_in_counts_not_the_ones_above_it() {
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Clean/2020/Velo.flac", "Velo", 1, velo.clone()));
+    let b = db.add(file(
+        "Dirty/2021/Velo.mp3",
+        "Velo",
+        2,
+        reencoded(&velo, 1, 7),
+    ));
+    db.decide();
+    assert_eq!(db.stands(a, b), ("duplicate".into(), "merged".into()));
+}
+
+#[test]
+fn a_file_moved_to_another_folder_is_due_again() {
+    let db = db();
+    let a = db.add(file("Inbox/Velo.flac", "Velo", 1, track(1, LEN)));
+    db.decide();
+    assert!(db.decided().contains(&a));
+    db.sql(&format!(
+        "UPDATE file SET rel_path = 'Dirty/Velo.flac', rel_path_key = 'Dirty/Velo.flac'
+         WHERE id = {a}"
+    ));
+    assert!(!db.decided().contains(&a), "moved: due again");
+}
+
+#[test]
 fn a_file_that_comes_back_is_decided_against_what_arrived_while_it_was_gone() {
     let db = db();
     let a = db.add(named("one/Velo.mp3", "Velo", None, 1));

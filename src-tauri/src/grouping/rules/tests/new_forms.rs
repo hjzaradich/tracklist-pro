@@ -214,3 +214,198 @@ fn an_artist_called_like_a_label_with_a_label_in_the_artist_part_of_the_name_is_
     let file = by_artist("Live", "Live - Velo Live.mp3");
     assert_eq!(label_words(&file), [(MarkerKind::Live, 1)]);
 }
+
+// ---- A version given by the folder -------------------------------------
+
+/// A file with no tags, named `file_name`, in a folder called `folder`.
+fn in_folder(folder: &str, file_name: &str) -> FileFacts {
+    FileFacts::in_folder(None, None, file_name, Some(folder))
+}
+
+#[test]
+fn a_clean_folder_and_a_dirty_folder_holding_the_same_file_name_never_merge_on_full_audio() {
+    let (clean, dirty) = (
+        in_folder("Clean", "Velo.mp3"),
+        in_folder("Dirty", "Velo.mp3"),
+    );
+    assert_eq!(label_words(&clean), [(MarkerKind::Clean, 1)]);
+    assert_eq!(label_words(&dirty), [(MarkerKind::Dirty, 1)]);
+    let got = decided(full(), &clean, &dirty);
+    assert_eq!(got.outcome, Outcome::NeedsReview);
+    assert_eq!(
+        got.reasons[0],
+        differ(&[MarkerKind::Clean], &[MarkerKind::Dirty])
+    );
+}
+
+#[test]
+fn a_folder_label_the_file_names_already_carry_adds_nothing_so_the_file_still_merges_elsewhere() {
+    let got = decided(
+        full(),
+        &in_folder("Clean", "Velo (Clean).mp3"),
+        &in_folder("Inbox", "Velo (Clean).mp3"),
+    );
+    assert_eq!(got.outcome, Outcome::Duplicate);
+    assert_eq!(codes(&got), ["sameAudio"]);
+}
+
+#[test]
+fn a_remixes_folder_holding_a_remix_still_merges_with_the_same_file_elsewhere() {
+    let got = decided(
+        full(),
+        &in_folder("Remixes", "Velo (Halden Rook Remix).mp3"),
+        &in_folder("Inbox", "Velo (Halden Rook Remix).mp3"),
+    );
+    assert_eq!(got.outcome, Outcome::Duplicate);
+}
+
+#[test]
+fn an_edits_folder_beside_an_inbox_file_of_the_same_name_goes_to_review() {
+    // Accepted: the folder may be the only place the version is written.
+    let (edits, inbox) = (
+        in_folder("Edits", "Velo.mp3"),
+        in_folder("Inbox", "Velo.mp3"),
+    );
+    let got = decided(full(), &edits, &inbox);
+    assert_eq!(got.outcome, Outcome::NeedsReview);
+    assert_eq!(got.reasons[0], differ(&[MarkerKind::Edit], &[]));
+}
+
+#[test]
+fn a_folder_label_the_names_already_carry_changes_nothing_however_the_names_write_it() {
+    let written = |label: &str| {
+        [
+            format!("Velo ({label}).mp3"),
+            format!("Velo [{label}].mp3"),
+            format!("Velo {label}.mp3"),
+            format!("Velo - {label}.mp3"),
+            format!("Velo {label} 128.mp3"),
+            format!("{label} Velo.mp3"),
+        ]
+    };
+    let plural = |label: &str| match label.ends_with('x') {
+        true => format!("{label}es"),
+        false => format!("{label}s"),
+    };
+    for label in [
+        "Clean",
+        "Dirty",
+        "Extended",
+        "Radio Edit",
+        "Dub",
+        "Instrumental",
+        "Remix",
+    ] {
+        for file_name in written(label) {
+            for folder in [label.to_string(), plural(label), label.to_uppercase()] {
+                let alone = FileFacts::new(None, None, &file_name);
+                let inside = in_folder(&folder, &file_name);
+                assert_eq!(
+                    label_words(&inside),
+                    label_words(&alone),
+                    "{folder}/{file_name}"
+                );
+                let in_tag = FileFacts::in_folder(
+                    Some(&file_name[..file_name.len() - 4]),
+                    None,
+                    "x.mp3",
+                    Some(&folder),
+                );
+                assert_eq!(
+                    label_words(&in_tag),
+                    label_words(&FileFacts::new(
+                        Some(&file_name[..file_name.len() - 4]),
+                        None,
+                        "x.mp3"
+                    )),
+                    "{folder} / tag {file_name}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_folders_label_word_counts_once_and_beside_the_names_other_labels() {
+    assert_eq!(
+        label_words(&in_folder("Dirty Dirty", "Velo.mp3")),
+        [(MarkerKind::Dirty, 1)]
+    );
+    assert_eq!(
+        label_words(&in_folder("Dirty", "Velo (Clean).mp3")),
+        [(MarkerKind::Clean, 1), (MarkerKind::Dirty, 1)]
+    );
+}
+
+#[test]
+fn a_folders_plural_and_two_word_labels_are_read() {
+    for (folder, kind) in [
+        ("Remixes", MarkerKind::Remix),
+        ("Radio Edits", MarkerKind::RadioEdit),
+        ("Instrumentals", MarkerKind::Instrumental),
+        ("Acapellas", MarkerKind::Acapella),
+        ("Extended Mixes", MarkerKind::Extended),
+        ("V.I.P.", MarkerKind::Vip),
+    ] {
+        assert_eq!(
+            label_words(&in_folder(folder, "Velo.mp3")),
+            [(kind, 1)],
+            "{folder}"
+        );
+    }
+}
+
+#[test]
+fn a_folder_that_holds_no_label_word_adds_none() {
+    for folder in ["Inbox", "Music", "2020", "Halden Rook", "Mixes", "Sets"] {
+        assert_eq!(label_words(&in_folder(folder, "Velo.mp3")), [], "{folder}");
+    }
+}
+
+#[test]
+fn only_the_name_of_the_folder_counts_not_the_path_in_front_of_it() {
+    assert_eq!(label_words(&in_folder("Clean/2020", "Velo.mp3")), []);
+    assert_eq!(
+        label_words(&in_folder("Music/Clean", "Velo.mp3")),
+        [(MarkerKind::Clean, 1)]
+    );
+}
+
+#[test]
+fn a_folder_named_for_the_files_artist_is_no_version() {
+    let by = |artist: Option<&str>| {
+        FileFacts::in_folder(Some("Velo"), artist, "Velo.mp3", Some("Dub Kestrel"))
+    };
+    assert_eq!(label_words(&by(Some("Dub Kestrel"))), []);
+    assert_eq!(label_words(&by(None)), [(MarkerKind::Dub, 1)]);
+}
+
+#[test]
+fn a_file_with_no_folder_is_the_file_new_gives() {
+    let a = FileFacts::in_folder(Some("Velo"), Some("Halden Rook"), "Velo (Dirty).mp3", None);
+    let b = FileFacts::new(Some("Velo"), Some("Halden Rook"), "Velo (Dirty).mp3");
+    assert_eq!(label_words(&a), label_words(&b));
+}
+
+#[test]
+fn a_version_given_only_by_a_folder_never_comes_out_duplicate_on_a_full_match() {
+    let labels = [
+        "Clean",
+        "Dirty",
+        "Extended",
+        "Radio Edit",
+        "Dub",
+        "Instrumental",
+        "Remix",
+        "Live",
+    ];
+    for label in labels {
+        for plain in ["Velo.mp3", "Velo 128.mp3", "Halden Rook - Velo.mp3"] {
+            let (versioned, elsewhere) = (in_folder(label, plain), in_folder("Inbox", plain));
+            for (a, b) in [(&versioned, &elsewhere), (&elsewhere, &versioned)] {
+                let got = decided(full(), a, b);
+                assert_ne!(got.outcome, Outcome::Duplicate, "{label}/{plain}");
+            }
+        }
+    }
+}
