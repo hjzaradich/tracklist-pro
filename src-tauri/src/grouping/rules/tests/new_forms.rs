@@ -716,3 +716,112 @@ fn a_harmless_bracket_beside_a_real_version_difference_changes_nothing() {
         cut_link(&[MarkerKind::Clean, MarkerKind::Dirty])
     );
 }
+
+// ---- A file name whose second part is only a label ---------------------
+
+#[test]
+fn a_file_name_whose_second_part_is_a_label_is_that_label_of_the_tags_title() {
+    // Tagged "Velo": "Velo - Radio Edit.mp3" is the Radio Edit of Velo.
+    let radio = FileFacts::new(Some("Velo"), None, "Velo - Radio Edit.mp3");
+    let plain = FileFacts::new(Some("Velo"), None, "Velo.mp3");
+    let got = decided(full(), &radio, &plain);
+    assert_eq!(got.outcome, cut_link(&[MarkerKind::RadioEdit]));
+    assert_eq!(codes(&got), ["versionVeto"]);
+    // The same version in two spellings is the same.
+    let bracketed = FileFacts::new(Some("Velo"), None, "Velo (Radio Edit).mp3");
+    assert_eq!(
+        decided(full(), &radio, &bracketed).outcome,
+        Outcome::Duplicate
+    );
+    // Without matched audio the names alone link them.
+    let got = decided(Audio::Unknown, &radio, &plain);
+    assert_eq!(got.outcome, cut_link(&[MarkerKind::RadioEdit]));
+}
+
+#[test]
+fn a_file_name_whose_second_part_is_a_label_beside_a_label_in_the_tag_is_one_version() {
+    let tagged = FileFacts::new(Some("Velo (Radio Edit)"), None, "Velo - Radio Edit.mp3");
+    let bracketed = FileFacts::new(Some("Velo (Radio Edit)"), None, "Velo.mp3");
+    assert_eq!(
+        decided(full(), &tagged, &bracketed).outcome,
+        Outcome::Duplicate
+    );
+}
+
+#[test]
+fn a_track_really_titled_like_a_label_stays_a_title() {
+    // The tag says "Radio Edit" is the title and "Halden Rook" the artist.
+    let titled =
+        |file_name: &str| FileFacts::new(Some("Radio Edit"), Some("Halden Rook"), file_name);
+    let (a, b) = (
+        titled("Halden Rook - Radio Edit.mp3"),
+        titled("Halden Rook - Radio Edit.flac"),
+    );
+    assert_eq!(decided(full(), &a, &b).outcome, Outcome::Duplicate);
+    // ... and it is another track than Halden Rook's "Velo".
+    let velo = FileFacts::new(Some("Velo"), Some("Halden Rook"), "Halden Rook - Velo.mp3");
+    assert_eq!(decided(partial(), &a, &velo).outcome, Outcome::Different);
+}
+
+#[test]
+fn without_a_title_tag_to_say_so_a_name_with_a_label_second_stays_artist_and_title() {
+    let radio = named("Velo - Radio Edit.mp3");
+    let plain = named("Velo.mp3");
+    let got = decided(full(), &radio, &plain);
+    // Still never a silent merge: the guard sees the label word.
+    assert_ne!(got.outcome, Outcome::Duplicate);
+    assert_eq!(label_words(&radio), [(MarkerKind::RadioEdit, 1)]);
+}
+
+#[test]
+fn a_tag_that_is_neither_part_leaves_the_name_as_the_parser_reads_it() {
+    let radio = FileFacts::new(Some("Nightdrive"), None, "Velo - Radio Edit.mp3");
+    let plain = FileFacts::new(Some("Nightdrive"), None, "Nightdrive.mp3");
+    assert_ne!(decided(full(), &radio, &plain).outcome, Outcome::Duplicate);
+}
+
+#[test]
+fn a_label_added_as_the_second_part_of_a_file_name_never_comes_out_duplicate_on_a_full_match() {
+    let labels = [
+        "Clean",
+        "Dirty",
+        "Extended Mix",
+        "Radio Edit",
+        "Dub",
+        "Instrumental",
+        "Live",
+        "Edit",
+        "Remix",
+        "Short Edit",
+        "Intro",
+        "VIP",
+        "V.I.P.",
+    ];
+    let spare_tags = [Some("Velo"), None];
+    for label in labels {
+        for tag in spare_tags {
+            for artist in [None, Some("Halden Rook")] {
+                for stem in ["Velo", "Halden Rook - Velo"] {
+                    let plain = FileFacts::new(tag, artist, &format!("{stem}.mp3"));
+                    let labeled = FileFacts::new(tag, artist, &format!("{stem} - {label}.mp3"));
+                    for (a, b) in [(&plain, &labeled), (&labeled, &plain)] {
+                        let got = decided(full(), a, b);
+                        assert_ne!(
+                            got.outcome,
+                            Outcome::Duplicate,
+                            "{label} / {tag:?} / {artist:?} / {stem}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_harmless_bracket_after_a_second_part_label_does_not_hide_it() {
+    let radio = FileFacts::new(Some("Velo"), None, "Velo - Radio Edit [124 BPM].mp3");
+    let plain = FileFacts::new(Some("Velo"), None, "Velo.mp3");
+    let got = decided(full(), &radio, &plain);
+    assert_eq!(got.outcome, cut_link(&[MarkerKind::RadioEdit]));
+}

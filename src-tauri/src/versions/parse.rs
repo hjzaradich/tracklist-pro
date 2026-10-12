@@ -110,6 +110,32 @@ fn only_text(segment: &[Token]) -> Option<String> {
         .then(|| flatten(segment))
 }
 
+/// A segment's text and the brackets that end it, when it is plain text
+/// followed by nothing but brackets that say what they are and cannot be a
+/// version (a key, a tempo with its unit, a catalogue number).
+fn text_and_closing_asides(segment: &[Token]) -> Option<(String, Vec<Aside>)> {
+    let tail = segment
+        .iter()
+        .rev()
+        .take_while(|token| match token {
+            Token::Group(group) => matches!(slot(group), Slot::Candidate(_, false)),
+            _ => false,
+        })
+        .count();
+    let (front, closing) = segment.split_at(segment.len() - tail);
+    let asides = closing
+        .iter()
+        .filter_map(|token| match token {
+            Token::Group(group) => match slot(group) {
+                Slot::Candidate(aside, _) => Some(aside),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    only_text(front).map(|text| (text, asides))
+}
+
 /// Site names as whole " - " segments, first or last:
 /// "RipSite.example - Artist - Title".
 fn strip_site_segments(segments: &mut Vec<Vec<Token>>, junk: &mut Vec<Junk>) {
@@ -325,6 +351,31 @@ fn classify(group: &Group, out: &mut Trailing) {
 }
 
 pub(super) fn parse(input: &str, source: NameSource) -> ParsedName {
+    parse_reading(input, source, false)
+}
+
+/// A file name read as "Title - Label" instead of "Artist - Title" when
+/// its second part is only labels (1bD-4): `None` unless that reading
+/// differs, that is, the default reading has an artist and the second
+/// part turns out to be the label of a title that had none.
+pub(super) fn title_first(input: &str) -> Option<ParsedName> {
+    let default = parse(input, NameSource::FileName);
+    let alternative = parse_reading(input, NameSource::FileName, true);
+    let main = |name: &ParsedName| name.credits.iter().any(|c| c.role == CreditRole::Main);
+    let dashed = |name: &ParsedName| {
+        name.qualifiers
+            .iter()
+            .filter(|q| q.markers.iter().any(|m| m.form == MarkerForm::DashSegment))
+            .count()
+    };
+    (main(&default) && !main(&alternative) && dashed(&alternative) == dashed(&default) + 1)
+        .then_some(alternative)
+}
+
+/// [`parse`]; with `title_first` a file name keeps one segment as its
+/// title, as a title tag does, so a last part that is only labels is a
+/// label, not the title.
+fn parse_reading(input: &str, source: NameSource, title_first: bool) -> ParsedName {
     let mut junk = Vec::new();
     let cleaned = junk::clean(input, source, &mut junk);
     let mut tokens = tokenize(&cleaned);
@@ -336,19 +387,24 @@ pub(super) fn parse(input: &str, source: NameSource) -> ParsedName {
 
     // Labels after a " - ": "Title - Extended Mix". A file name keeps two
     // segments, its artist and its title, whatever they say.
-    let keep = match source {
-        NameSource::Title => 1,
-        NameSource::FileName => 2,
+    let keep = match (source, title_first) {
+        (NameSource::Title, _) | (_, true) => 1,
+        (NameSource::FileName, false) => 2,
     };
     let mut dash_qualifiers = Vec::new();
+    // Harmless brackets that closed the name after such a label: "Title -
+    // Radio Edit [124 BPM]". They say what they are wherever they are, so
+    // they don't hide the label from being read.
+    let mut closing_asides: Vec<Aside> = Vec::new();
     while segments.len() > keep {
-        let Some(text) = segments.last().and_then(|s| only_text(s)) else {
+        let Some((text, asides)) = segments.last().and_then(|s| text_and_closing_asides(s)) else {
             break;
         };
         let Some(found) = labels::parse_content(&text) else {
             break;
         };
         dash_qualifiers.insert(0, qualifier(found, &text, MarkerForm::DashSegment, true));
+        closing_asides.splice(0..0, asides);
         segments.pop();
     }
 
@@ -436,6 +492,7 @@ pub(super) fn parse(input: &str, source: NameSource) -> ParsedName {
     qualifiers.extend(dash_qualifiers);
 
     let mut asides = trailing.asides;
+    asides.extend(closing_asides);
     if core.is_empty() && qualifiers.is_empty() {
         // Nothing but brackets or junk: the name is its own title, and
         // what would be an aside is not one.

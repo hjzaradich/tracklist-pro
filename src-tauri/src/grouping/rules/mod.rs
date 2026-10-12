@@ -529,9 +529,9 @@ impl FileFacts {
         file_name: &str,
         folder: Option<&str>,
     ) -> FileFacts {
-        let by_file_name = versions::parse_file_name(file_name);
         let title_tag = title_tag.filter(|title| !title.trim().is_empty());
         let by_tag = title_tag.map(versions::parse_title);
+        let by_file_name = file_name_reading(file_name, by_tag.as_ref());
         let label_words = label_words(
             title_tag.zip(by_tag.as_ref()),
             (file_name, &by_file_name),
@@ -609,6 +609,28 @@ impl FileFacts {
     /// The file's first name: its title tag's, else its file name's.
     fn first(&self) -> &Name {
         self.tagged.as_ref().unwrap_or(&self.file_name)
+    }
+}
+
+/// A file name parsed. "Velo - Radio Edit.mp3" is "Artist - Title" to the
+/// parser, with a track titled "Radio Edit". It is read as the title
+/// "Velo" with a label instead when the file's title tag is "Velo" and not
+/// "Radio Edit": the tag then says which part is the title. Without a tag
+/// to say so the name stays as the parser reads it.
+fn file_name_reading(file_name: &str, by_tag: Option<&ParsedName>) -> ParsedName {
+    let default = versions::parse_file_name(file_name);
+    let Some(tag) = by_tag else {
+        return default;
+    };
+    match versions::parse_file_name_title_first(file_name) {
+        Some(titled)
+            if versions::title_key(&titled.base_title) == versions::title_key(&tag.base_title)
+                && versions::title_key(&default.base_title)
+                    != versions::title_key(&tag.base_title) =>
+        {
+            titled
+        }
+        _ => default,
     }
 }
 

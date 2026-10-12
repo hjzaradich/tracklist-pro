@@ -446,6 +446,18 @@ pub fn parse_file_name(input: &str) -> ParsedName {
     parse(input, NameSource::FileName)
 }
 
+/// A file name read as "Title - Label" rather than "Artist - Title", when
+/// that is a different reading: its last part is only labels ("Velo -
+/// Radio Edit.mp3"). `None` when the name reads the same either way.
+///
+/// The name alone cannot say which is meant: "Halden Rook - Radio Edit" can
+/// be a track really titled "Radio Edit" by Halden Rook. So the caller
+/// uses this reading only when something else supports it: grouping, when
+/// the file's title tag is the first part (1bD-4).
+pub fn parse_file_name_title_first(input: &str) -> Option<ParsedName> {
+    parse::title_first(input)
+}
+
 /// The cut or rework `text` stands for, when all of it is one label as the
 /// parser spells them ("dirty", "Radio Edit", "V.I.P."), whatever is
 /// around it in a name. `None` for anything else, a name in front of a

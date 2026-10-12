@@ -318,3 +318,46 @@ fn an_aside_is_what_it_was_written_as() {
         }]
     );
 }
+
+// ---- A file name whose second part is only a label --------------------------------
+
+use super::super::parse_file_name_title_first;
+
+#[test]
+fn a_file_name_whose_second_part_is_only_labels_can_be_read_title_first() {
+    for (input, kind) in [
+        ("Velo - Radio Edit.mp3", MarkerKind::RadioEdit),
+        ("Velo - Dirty.mp3", MarkerKind::Dirty),
+        ("Velo - Extended Mix.mp3", MarkerKind::Extended),
+        ("Velo - Halden Rook Remix.mp3", MarkerKind::Remix),
+    ] {
+        let name = parse_file_name_title_first(input).expect(input);
+        assert_eq!(name.base_title, "Velo", "{input}");
+        assert!(name.credits.is_empty(), "{input}");
+        assert_eq!(name.markers[0].kind, kind, "{input}");
+        // The default reading is unchanged: an artist and a title.
+        let default = parse_file_name(input);
+        assert_eq!(default.credits[0].name, "Velo", "{input}");
+    }
+}
+
+#[test]
+fn a_harmless_bracket_after_the_label_is_set_apart_and_the_label_still_read() {
+    let name = parse_file_name_title_first("Velo - Radio Edit [124 BPM].mp3").unwrap();
+    assert_eq!(name.base_title, "Velo");
+    assert_eq!(name.markers[0].kind, MarkerKind::RadioEdit);
+    assert_eq!(kinds(&name), [AsideKind::Tempo]);
+}
+
+#[test]
+fn a_file_name_has_no_other_reading_when_its_second_part_is_not_only_labels() {
+    for input in [
+        "Halden Rook - Velo.mp3",
+        "Velo.mp3",
+        "Velo (Radio Edit).mp3",
+        "Halden Rook - Velo - Radio Edit.mp3",
+        "Radio Edit.mp3",
+    ] {
+        assert!(parse_file_name_title_first(input).is_none(), "{input}");
+    }
+}
