@@ -24,6 +24,16 @@
 //! reach until a new operation is made. That works because history is
 //! linear: undoing an operation puts back the state the one before it left.
 //!
+//! **Automatic operations** ([`AutomaticKind`], made with
+//! [`record_automatic`]) are changes the app makes on its own, such as a
+//! Library track following its file to a new place. They are in the log
+//! like any other, but Undo never lands on one: the user's next Undo takes
+//! back their own last action (`next_operation` skips them by kind). When
+//! that action is older than automatic operations on the very rows it
+//! changed, undoing it first takes those back, newest first, in the same
+//! transaction: all of it or nothing. An automatic operation on other rows
+//! stays as it is. So history is still linear for every row.
+//!
 //! Row ids name rows in the log, so a table that code outside the log
 //! inserts into must never reuse an id (`AUTOINCREMENT`; `sync_base`, which
 //! a send writes, and `conflict`, which detecting conflicts writes). A test
@@ -446,7 +456,70 @@ impl Recorder<'_> {
 /// All in one transaction: if `write` fails, nothing it did is kept and
 /// nothing is logged. If it changed nothing, no operation is logged
 /// (`operation_id` is `None`), so undo never lands on a no-op.
+///
+/// For a user's action. A kind that is an automatic operation's
+/// ([`AutomaticKind`]) is refused: those are made with
+/// [`record_automatic`], so no user action is ever skipped by Undo.
 pub fn record<T>(
+    conn: &mut Connection,
+    kind: &str,
+    details: &serde_json::Value,
+    write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+) -> Result<Recorded<T>, OpsError> {
+    if AutomaticKind::of(kind).is_some() {
+        return Err(OpsError::BadKind(kind.to_owned()));
+    }
+    record_as(conn, kind, details, write)
+}
+
+/// An operation the app makes on its own, with nobody asking for it. It is
+/// logged like a user's action, but Undo skips it (see the module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutomaticKind {
+    /// A Library track's linked file moved to the same audio at a new
+    /// place ([`crate::library::follow`]).
+    FollowFile,
+}
+
+impl AutomaticKind {
+    /// Every automatic kind.
+    pub const ALL: [AutomaticKind; 1] = [AutomaticKind::FollowFile];
+
+    /// The kind as the log stores it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AutomaticKind::FollowFile => "follow_file",
+        }
+    }
+
+    /// The automatic kind stored as `kind`, if it is one.
+    pub fn of(kind: &str) -> Option<AutomaticKind> {
+        AutomaticKind::ALL.into_iter().find(|k| k.as_str() == kind)
+    }
+
+    /// The stored kinds as a SQL list, for `kind IN (...)`. They are this
+    /// file's own constants, never input.
+    fn sql_list() -> String {
+        let kinds: Vec<String> = AutomaticKind::ALL
+            .iter()
+            .map(|k| format!("'{}'", k.as_str()))
+            .collect();
+        kinds.join(", ")
+    }
+}
+
+/// [`record`], for an operation the app makes on its own: logged, and
+/// undone only together with an earlier user action on the same rows.
+pub fn record_automatic<T>(
+    conn: &mut Connection,
+    kind: AutomaticKind,
+    details: &serde_json::Value,
+    write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+) -> Result<Recorded<T>, OpsError> {
+    record_as(conn, kind.as_str(), details, write)
+}
+
+fn record_as<T>(
     conn: &mut Connection,
     kind: &str,
     details: &serde_json::Value,
@@ -636,12 +709,17 @@ struct ChangeRow {
     after: Option<String>,
 }
 
-/// The newest operation that isn't undone: the next one to undo.
+/// The newest of the user's operations that isn't undone: the next one to
+/// undo. An automatic operation ([`AutomaticKind`]) is never it.
 fn next_operation(tx: &Transaction<'_>) -> Result<Option<OperationInfo>, OpsError> {
     Ok(tx
         .query_row(
-            "SELECT id, kind, details FROM operation
-             WHERE undone_at IS NULL ORDER BY id DESC LIMIT 1",
+            &format!(
+                "SELECT id, kind, details FROM operation
+                 WHERE undone_at IS NULL AND kind NOT IN ({})
+                 ORDER BY id DESC LIMIT 1",
+                AutomaticKind::sql_list()
+            ),
             [],
             |r| {
                 Ok(OperationInfo {
@@ -652,6 +730,76 @@ fn next_operation(tx: &Transaction<'_>) -> Result<Option<OperationInfo>, OpsErro
             },
         )
         .optional()?)
+}
+
+/// The automatic operations made after `operation` that aren't undone and
+/// changed a row `operation` changed too, newest first: what has to be
+/// taken back before `operation` can be.
+fn automatic_since(
+    tx: &Transaction<'_>,
+    operation: &OperationInfo,
+) -> Result<Vec<OperationInfo>, OpsError> {
+    let newer: Vec<(OperationInfo, String, i64)> = {
+        let mut stmt = tx.prepare(&format!(
+            "SELECT o.id, o.kind, o.details, c.entity, c.entity_id
+             FROM operation o JOIN change c ON c.operation_id = o.id
+             WHERE o.id > ?1 AND o.undone_at IS NULL AND o.kind IN ({})
+             ORDER BY o.id DESC, c.id",
+            AutomaticKind::sql_list()
+        ))?;
+        let rows = stmt.query_map([operation.id], |r| {
+            Ok((
+                OperationInfo {
+                    id: r.get(0)?,
+                    kind: r.get(1)?,
+                    details: OperationDetails::parse(r.get_ref(2)?.as_str()?),
+                },
+                r.get(3)?,
+                r.get(4)?,
+            ))
+        })?;
+        rows.collect::<Result<_, _>>()?
+    };
+    // Nearly always: nothing automatic happened since.
+    if newer.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mine: std::collections::HashSet<(String, i64)> = {
+        let mut stmt =
+            tx.prepare("SELECT DISTINCT entity, entity_id FROM change WHERE operation_id = ?1")?;
+        let rows = stmt.query_map([operation.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    let mut found: Vec<OperationInfo> = Vec::new();
+    for (automatic, entity, entity_id) in newer {
+        if found.last().is_some_and(|last| last.id == automatic.id) {
+            continue;
+        }
+        if mine.contains(&(entity, entity_id)) {
+            found.push(automatic);
+        }
+    }
+    Ok(found)
+}
+
+/// [`unwind`] for a user's operation: first the automatic operations made
+/// since on the rows it changed ([`automatic_since`]), newest first, then
+/// the operation itself. If one of those can't be taken back, the whole
+/// undo is refused as "changed since", and `tx` must be rolled back.
+fn unwind_with_automatic(
+    tx: &Transaction<'_>,
+    operation: &OperationInfo,
+) -> Result<Found, OpsError> {
+    for automatic in automatic_since(tx, operation)? {
+        let found = unwind(tx, &automatic)?;
+        if !found.conflicts.is_empty() {
+            return Ok(Found {
+                conflicts: found.conflicts,
+                ..Found::default()
+            });
+        }
+    }
+    unwind(tx, operation)
 }
 
 /// What stands in the way of undoing one operation.
@@ -789,7 +937,7 @@ fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, Op
     if only.is_some_and(|id| id != operation.id) {
         return Ok(UndoOutcome::NothingToUndo);
     }
-    let found = unwind(&tx, &operation)?;
+    let found = unwind_with_automatic(&tx, &operation)?;
     match found.refusal() {
         // Dropping `tx` rolls back the steps already taken.
         Some(reason) => Ok(UndoOutcome::Refused {
@@ -804,9 +952,11 @@ fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, Op
     }
 }
 
-/// Undoes the newest operation that isn't undone yet, exactly: a set gets
-/// its old value back, an inserted row is deleted, a deleted row is put back
-/// with its old id. Call it again to undo the one before.
+/// Undoes the newest of the user's operations that isn't undone yet,
+/// exactly: a set gets its old value back, an inserted row is deleted, a
+/// deleted row is put back with its old id. Call it again to undo the one
+/// before. An automatic operation is never the one undone; those made since
+/// on the same rows are taken back with it (see the module docs).
 ///
 /// Refused, changing nothing, if anything the operation wrote has changed
 /// since: undoing would silently throw that later change away. A refused
@@ -851,7 +1001,7 @@ pub fn next_undo(conn: &mut Connection) -> Result<NextUndo, OpsError> {
         |r| r.get(0),
     )?;
     let refusal = if changes <= TRIED_AHEAD_UP_TO {
-        unwind(&tx, &operation)?.refusal()
+        unwind_with_automatic(&tx, &operation)?.refusal()
     } else {
         None
     };
