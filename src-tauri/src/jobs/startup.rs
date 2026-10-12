@@ -11,14 +11,19 @@
 //! - **It queues jobs, it does no work,** and it runs on a thread of its own:
 //!   the window doesn't wait for it. Each check is one `EXISTS` query that
 //!   stops at the first due row; when nothing is due it looks at each file
-//!   once (about as long as a no-change walk's own checks), so a library with
-//!   nothing due costs a few quick passes over the file table, off the UI
-//!   path.
+//!   once, so a library with nothing due costs a few passes over the file
+//!   table.
+//! - **Every check runs on a read connection** (the read pool), never on the
+//!   database writer, so a user's first write doesn't wait behind them. The
+//!   writer is taken only for the short statements of a stage that has work:
+//!   the lookup of a queued or running twin and the insert of the job
+//!   (`queue_once`), and, once after an upgrade that changed the roles'
+//!   version, the file roles' one statement that makes every track due.
 //! - **One list of "ask this stage" calls** ([`ASKS`]), one line per stage,
-//!   in the scan chain's order (file roles last). Each call goes through the stage's own
-//!   request (`queue_once`), so it never queues what is already queued or
-//!   running, and each leaves a stage alone while an earlier one is still
-//!   due (the earlier stage's job chains on to it, as in the scan chain).
+//!   in the scan chain's order (file roles last). Each queues through
+//!   `queue_once`, so it never queues what is already queued or running,
+//!   and each leaves a stage alone while an earlier one is still due (the
+//!   earlier stage's job chains on to it, as in the scan chain).
 //! - **Nothing runs against a drive that isn't plugged in** that the normal
 //!   chain wouldn't: what is due is judged on the music folders reachable
 //!   now, as a catch-up scan of them would, and the quality check is given
@@ -43,10 +48,11 @@
 use std::cell::OnceCell;
 use std::time::{Duration, Instant};
 
+use rusqlite::Connection;
 use tauri::{AppHandle, Manager, Runtime};
 
 use super::{JobId, JobQueue, NewJob};
-use crate::db::{DbError, Writer};
+use crate::db::{DbError, ReadPool, Writer};
 use crate::scan::chain::{any_to_try, queue_once, reach_by, Reach};
 use crate::scan::folders::{self, MusicFolderId};
 use crate::scan::ReadGate;
@@ -59,7 +65,8 @@ pub(crate) type Enqueue<'a> = &'a dyn Fn(NewJob) -> Result<JobId, DbError>;
 type Ask = fn(&Asking) -> Result<(), DbError>;
 
 /// Every stage asked at startup, in the scan chain's order. To ask another
-/// stage, add a line.
+/// stage, add a line: check on a read connection (`Asking::read`), then
+/// queue the stage's job with `Asking::queue` if it is due.
 const ASKS: &[(&str, Ask)] = &[
     ("hash", ask_hash),
     ("group", ask_group),
@@ -73,16 +80,30 @@ const ASKS: &[(&str, Ask)] = &[
 /// What the asks share.
 pub(crate) struct Asking<'a> {
     writer: &'a Writer,
+    reads: &'a ReadPool,
     enqueue: Enqueue<'a>,
-    reach: &'a Reach,
     /// The music folders that can be reached now.
     reachable: Vec<i64>,
+    /// Called inside every check, on its read connection, before the check
+    /// runs. Tests hold a check open here.
+    in_check: &'a dyn Fn(),
     read_due: OnceCell<bool>,
     hash_due: OnceCell<bool>,
     fingerprint_due: OnceCell<bool>,
 }
 
 impl Asking<'_> {
+    /// Runs a check on a read connection. Never takes the writer.
+    fn read<T>(
+        &self,
+        check: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> Result<T, DbError> {
+        self.reads.read(|c| {
+            (self.in_check)();
+            check(c)
+        })
+    }
+
     /// Whether `stage` has a file worth trying in the reachable folders, as
     /// a scan of them would judge it (not a watcher's rescan).
     fn due(&self, stage: Stage, version: i64) -> Result<bool, DbError> {
@@ -90,7 +111,7 @@ impl Asking<'_> {
             return Ok(false);
         }
         let scope = Scope::Folders(self.reachable.clone());
-        self.writer.call(move |c| {
+        self.read(|c| {
             let gate = ReadGate::for_job(c)?;
             any_to_try(c, stage, version, &scope, gate, false)
         })
@@ -125,8 +146,10 @@ impl Asking<'_> {
         Ok(self.hashes_owed()? || self.fingerprint_due()?)
     }
 
-    fn enqueue(&self, job: NewJob) -> Result<JobId, DbError> {
-        (self.enqueue)(job)
+    /// Queues `job` unless a twin is queued or running (the chain's own
+    /// dedup). The only part of an ask that takes the writer.
+    fn queue(&self, job: NewJob) -> Result<(), DbError> {
+        queue_once(self.writer, job, |j| (self.enqueue)(j)).map(|_| ())
     }
 }
 
@@ -146,7 +169,7 @@ fn remembered(
 fn ask_hash(a: &Asking) -> Result<(), DbError> {
     if !a.read_due()? && a.hash_due()? {
         let ids = a.reachable.iter().map(|&id| MusicFolderId(id)).collect();
-        queue_once(a.writer, crate::hash::hash_job(Some(ids)), |j| a.enqueue(j))?;
+        a.queue(crate::hash::hash_job(Some(ids)))?;
     }
     Ok(())
 }
@@ -155,13 +178,15 @@ fn ask_group(a: &Asking) -> Result<(), DbError> {
     if a.hashes_owed()? {
         return Ok(());
     }
-    crate::grouping::request_group(a.writer, |j| a.enqueue(j))
+    if a.read(crate::grouping::any_ungrouped)? {
+        a.queue(crate::grouping::group_job())?;
+    }
+    Ok(())
 }
 
 fn ask_fingerprint(a: &Asking) -> Result<(), DbError> {
     if !a.hashes_owed()? && a.fingerprint_due()? {
-        let job = crate::fingerprint::fingerprint_job(None);
-        queue_once(a.writer, job, |j| a.enqueue(j))?;
+        a.queue(crate::fingerprint::fingerprint_job(None))?;
     }
     Ok(())
 }
@@ -170,28 +195,44 @@ fn ask_quality(a: &Asking) -> Result<(), DbError> {
     if a.fingerprints_owed()? {
         return Ok(());
     }
-    crate::quality::request(a.writer, Some(a.reach), |j| a.enqueue(j))
+    if a.read(|c| crate::quality::due(c, Some(&a.reachable)))? {
+        a.queue(crate::quality::quality_job(None))?;
+    }
+    Ok(())
 }
 
 fn ask_matching(a: &Asking) -> Result<(), DbError> {
     if a.fingerprints_owed()? {
         return Ok(());
     }
-    crate::matching::request(a.writer, |j| a.enqueue(j))
+    if a.read(crate::matching::any_due)? {
+        a.queue(crate::matching::matching_job())?;
+    }
+    Ok(())
 }
 
 fn ask_decide(a: &Asking) -> Result<(), DbError> {
     if a.fingerprints_owed()? {
         return Ok(());
     }
-    crate::grouping::request_decide(a.writer, |j| a.enqueue(j))
+    if a.read(crate::grouping::decide_due)? {
+        a.queue(crate::grouping::decide_job())?;
+    }
+    Ok(())
 }
 
-/// A stage with a plain request needs only this: its own check, then the
-/// job. The file roles job is the lowest priority, so it needs no waiting
-/// for the stages before it.
+/// The roles are of another version after an upgrade: that makes every
+/// track due, one statement on the writer, once. Whether anything is due is
+/// read on a read connection. The job is the lowest priority, so it needs no
+/// waiting for the stages before it.
 fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
-    crate::file_roles::request(a.writer, |j| a.enqueue(j))
+    if !a.read(crate::file_roles::version_is_current)? {
+        a.writer.call(|c| crate::file_roles::ensure_version(c))?;
+    }
+    if a.read(crate::file_roles::any_due)? {
+        a.queue(crate::file_roles::roles_job())?;
+    }
+    Ok(())
 }
 
 /// What [`ask_what_is_due`] did.
@@ -206,9 +247,26 @@ pub(crate) struct Asked {
 /// Asks every stage in [`ASKS`] whether anything is due and queues what is.
 /// Each failed ask is logged and counted; the others are still asked. With
 /// no music folder, nothing is asked.
-pub(crate) fn ask_what_is_due(writer: &Writer, enqueue: Enqueue<'_>, reach: &Reach) -> Asked {
+pub(crate) fn ask_what_is_due(
+    writer: &Writer,
+    reads: &ReadPool,
+    enqueue: Enqueue<'_>,
+    reach: &Reach,
+) -> Asked {
+    ask_with(writer, reads, enqueue, reach, &|| {})
+}
+
+/// [`ask_what_is_due`], calling `in_check` inside every check (on its read
+/// connection), for tests that hold a check open.
+pub(crate) fn ask_with(
+    writer: &Writer,
+    reads: &ReadPool,
+    enqueue: Enqueue<'_>,
+    reach: &Reach,
+    in_check: &dyn Fn(),
+) -> Asked {
     let mut asked = Asked::default();
-    let folders = match writer.call(|c| folders::stored(c)) {
+    let folders = match reads.read(folders::stored) {
         Ok(folders) => folders,
         Err(e) => {
             eprintln!("startup: couldn't read the music folders, so nothing was asked for: {e}");
@@ -221,9 +279,10 @@ pub(crate) fn ask_what_is_due(writer: &Writer, enqueue: Enqueue<'_>, reach: &Rea
     }
     let asking = Asking {
         writer,
+        reads,
         enqueue,
-        reach,
         reachable: reach(&folders),
+        in_check,
         read_due: OnceCell::new(),
         hash_due: OnceCell::new(),
         fingerprint_due: OnceCell::new(),
@@ -244,6 +303,10 @@ pub(crate) fn ask_what_is_due(writer: &Writer, enqueue: Enqueue<'_>, reach: &Rea
 /// jobs recovered.
 pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) {
     let handle = app.clone();
+    let Some(reads) = app.try_state::<ReadPool>().map(|r| r.inner().clone()) else {
+        eprintln!("startup: no read pool, so nothing was asked for what is due");
+        return;
+    };
     let spawned = std::thread::Builder::new()
         .name("startup-asks".into())
         .spawn(move || {
@@ -255,7 +318,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) {
             };
             let reach = reach_by(crate::scan::system_volumes);
             let started = Instant::now();
-            let asked = ask_what_is_due(&writer, &enqueue, &reach);
+            let asked = ask_what_is_due(&writer, &reads, &enqueue, &reach);
             eprintln!(
                 "startup: asked what is due in {:?} ({} failed)",
                 started.elapsed(),

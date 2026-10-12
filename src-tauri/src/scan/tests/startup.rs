@@ -6,27 +6,82 @@
 //! [`ask_what_is_due`] with an `enqueue` that only stores the row, so the
 //! test sees exactly what was queued.
 
-use super::chain::{chained_queue, jobs, two_copies_and_another, wait_idle, LookedAt};
+use std::sync::{mpsc, Mutex, OnceLock};
+use std::time::Duration;
+
+use super::chain::{chained_queue, jobs, two_copies_and_another, LookedAt};
 use super::support::{db, TempVolume};
 use super::walk::{add_music, drive};
-use crate::db::{DbError, Writer};
-use crate::jobs::startup::ask_what_is_due;
-use crate::jobs::{JobId, NewJob};
+use crate::db::{DbError, ReadPool, Writer};
+use crate::jobs::startup::{ask_what_is_due, ask_with};
+use crate::jobs::{JobId, JobQueue, NewJob};
 use crate::scan::chain::reach_by;
 use crate::scan::walk::scan_job;
 
-/// A music folder with two copies of a song and another, scanned through the whole chain; the
-/// queue is stopped, so nothing runs while a test looks.
-fn scanned() -> (tempfile::TempDir, TempVolume, tempfile::TempDir, Writer) {
-    let (dir, volume, music) = drive();
-    two_copies_and_another(&music);
-    let (db_dir, writer, _reads) = db();
-    add_music(&writer, &volume, &music);
-    let queue = chained_queue(&writer, &volume, &LookedAt::default());
-    queue.enqueue(scan_job(None)).unwrap();
-    wait_idle(&queue);
-    queue.shutdown();
-    (dir, volume, db_dir, writer)
+/// Long enough that a passing test never hits it; a failing one ends here
+/// with a message instead of hanging.
+const PATIENCE: Duration = Duration::from_secs(60);
+
+/// Waits until nothing is queued or running. No time limit of its own: how
+/// long the chain takes on a loaded machine is not what these tests are
+/// about (the test runner's own limit ends a hung one).
+fn wait_until_idle(queue: &JobQueue) {
+    while !queue.activity().unwrap().jobs.is_empty() {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The library every test starts from, scanned through the whole chain once
+/// per run of the tests (the chain fingerprints real audio, which is slow
+/// and, run for every test at once, is what made them depend on how busy
+/// the machine was). Each test gets its own copy of the database.
+struct Template {
+    volume: TempVolume,
+    /// The database as the chain left it, log folded in.
+    database: std::path::PathBuf,
+    _music: tempfile::TempDir,
+    _db: tempfile::TempDir,
+}
+
+fn template() -> &'static Template {
+    static TEMPLATE: OnceLock<Template> = OnceLock::new();
+    TEMPLATE.get_or_init(|| {
+        let (music_dir, volume, music) = drive();
+        two_copies_and_another(&music);
+        let (db_dir, writer, _reads) = db();
+        add_music(&writer, &volume, &music);
+        let queue = chained_queue(&writer, &volume, &LookedAt::default());
+        queue.enqueue(scan_job(None)).unwrap();
+        wait_until_idle(&queue);
+        queue.shutdown();
+        // Fold the log into the database file, so the file alone is the
+        // whole database.
+        while writer.checkpoint().unwrap() != crate::db::Checkpoint::Emptied {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Template {
+            volume,
+            database: writer.path().to_path_buf(),
+            _music: music_dir,
+            _db: db_dir,
+        }
+    })
+}
+
+/// A copy of the scanned library's database (two copies of a song and
+/// another, taken through the whole chain). Nothing runs; the tests look at
+/// what the startup step queues.
+fn scanned() -> ((), TempVolume, tempfile::TempDir, Writer) {
+    let template = template();
+    let dir = tempfile::tempdir().unwrap();
+    let path = crate::write_guard::test_path(dir.path(), crate::db::DB_FILE_NAME);
+    std::fs::copy(&template.database, path.as_path()).unwrap();
+    let writer = Writer::open(&path).unwrap();
+    // A volume of its own over the same folder: clones of one share the
+    // plugged-in switch, and a test that unplugs it must not unplug it for
+    // the others running beside it.
+    let volume = TempVolume::new(&template.volume.mount, 0x0BAD_F00D);
+    ((), volume, dir, writer)
 }
 
 /// Asks, storing each job the way the queue does (a queued row), and
@@ -47,7 +102,9 @@ fn ask(writer: &Writer, volume: &TempVolume) -> (usize, Vec<(String, Option<Stri
         })
     };
     let volume = volume.clone();
-    let failed = ask_what_is_due(writer, &enqueue, &reach_by(move || volume.clone())).failed;
+    let reads = ReadPool::open(writer.guarded_path()).unwrap();
+    let failed =
+        ask_what_is_due(writer, &reads, &enqueue, &reach_by(move || volume.clone())).failed;
     (failed, queued(writer))
 }
 
@@ -194,7 +251,14 @@ fn an_ask_that_fails_is_counted_and_the_stages_after_it_are_still_asked() {
         Err(DbError::WriterGone)
     };
     let reach_volume = volume.clone();
-    let failed = ask_what_is_due(&writer, &enqueue, &reach_by(move || reach_volume.clone())).failed;
+    let reads = ReadPool::open(writer.guarded_path()).unwrap();
+    let failed = ask_what_is_due(
+        &writer,
+        &reads,
+        &enqueue,
+        &reach_by(move || reach_volume.clone()),
+    )
+    .failed;
     assert_eq!(failed, 3);
     assert_eq!(
         tried.load(std::sync::atomic::Ordering::SeqCst),
@@ -214,7 +278,7 @@ fn a_walk_with_nothing_to_read_does_not_go_on_to_the_hashes_or_the_fingerprints(
     let before = jobs(&writer).len();
     let queue = chained_queue(&writer, &volume, &LookedAt::default());
     queue.enqueue(scan_job(None)).unwrap();
-    wait_idle(&queue);
+    wait_until_idle(&queue);
     queue.shutdown();
     let after: Vec<String> = jobs(&writer)
         .into_iter()
@@ -247,9 +311,111 @@ fn after_an_upgrade_that_left_every_track_due_the_next_start_asks_for_the_roles_
     assert_eq!(kinds(&queued), ["group"]);
 }
 
+/// Runs `work` on a thread and fails the test, instead of hanging, if it has
+/// not finished within [`PATIENCE`].
+fn finishes<T: Send + 'static>(what: &str, work: impl FnOnce() -> T + Send + 'static) -> T {
+    let (done, finished) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(work());
+    });
+    finished
+        .recv_timeout(PATIENCE)
+        .unwrap_or_else(|_| panic!("{what} never finished"))
+}
+
+#[test]
+fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_else() {
+    let (_dir, volume, _db, writer) = scanned();
+    // The writer is taken by a job that doesn't end until released.
+    let (entered, inside) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let busy = writer.clone();
+    let holder = std::thread::spawn(move || {
+        busy.call(move |_| {
+            entered.send(()).unwrap();
+            let _ = released.recv_timeout(PATIENCE);
+            Ok(())
+        })
+    });
+    inside.recv_timeout(PATIENCE).unwrap();
+
+    // Nothing is due, so every ask is only checks: all on read connections.
+    let asked = finishes("the startup step", {
+        let writer = writer.clone();
+        move || {
+            let reads = ReadPool::open(writer.guarded_path()).unwrap();
+            let enqueue = |_: NewJob| -> Result<JobId, DbError> { panic!("nothing is due") };
+            let reach = reach_by(move || volume.clone());
+            ask_what_is_due(&writer, &reads, &enqueue, &reach)
+        }
+    });
+    assert_eq!(asked.failed, 0);
+    assert_eq!(asked.took.len(), 7, "every stage was asked");
+    release.send(()).unwrap();
+    holder.join().unwrap().unwrap();
+}
+
+#[test]
+fn a_write_on_the_writer_is_not_blocked_while_a_startup_check_is_held_open() {
+    let (_dir, volume, _db, writer) = scanned();
+    bump(&writer, "fingerprint");
+    let (entered, inside) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let released = Mutex::new(released);
+    let asking = std::thread::spawn({
+        let writer = writer.clone();
+        move || {
+            let reads = ReadPool::open(writer.guarded_path()).unwrap();
+            let stored = writer.clone();
+            let enqueue = move |job: NewJob| -> Result<JobId, DbError> {
+                stored.call(move |c| {
+                    c.execute(
+                        "INSERT INTO job (kind, target, priority) VALUES (?1, ?2, ?3)",
+                        (job.kind.as_str(), None::<String>, job.priority.0),
+                    )?;
+                    Ok(JobId(c.last_insert_rowid()))
+                })
+            };
+            let reach = reach_by(move || volume.clone());
+            // The first check holds, on its read connection, until released.
+            let held = std::sync::atomic::AtomicBool::new(false);
+            let hold = || {
+                if !held.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    entered.send(()).unwrap();
+                    let _ = released.lock().unwrap().recv_timeout(PATIENCE);
+                }
+            };
+            ask_with(&writer, &reads, &enqueue, &reach, &hold)
+        }
+    });
+    inside.recv_timeout(PATIENCE).unwrap();
+
+    // A check is open right now. A write goes through.
+    finishes("a write on the writer", {
+        let writer = writer.clone();
+        move || {
+            writer
+                .call(|c| {
+                    c.execute(
+                        "INSERT INTO setting (key, value) VALUES ('a_user_write', '1')",
+                        [],
+                    )
+                })
+                .unwrap()
+        }
+    });
+
+    // And the held check, once released, leads to the same job as ever.
+    release.send(()).unwrap();
+    let asked = asking.join().unwrap();
+    assert_eq!(asked.failed, 0);
+    assert_eq!(kinds(&queued(&writer)), ["fingerprint"]);
+}
+
 /// What the startup checks cost when nothing is due, on 100,000 files: the
 /// worst case, since each check then looks at every file once (it stops at
-/// the first due row otherwise). Prints; asserts only that nothing was
+/// the first due row otherwise). The checks run on read connections, as at
+/// startup; the figures are the time each takes, not time the writer is held. Prints; asserts only that nothing was
 /// queued, so the figures are for a library that really had nothing due.
 ///
 /// ```text
@@ -260,7 +426,7 @@ fn after_an_upgrade_that_left_every_track_due_the_next_start_asks_for_the_roles_
 fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
     use std::time::Instant;
     let (_dir, volume, music) = drive();
-    let (_db, writer, _reads) = db();
+    let (_db, writer, reads) = db();
     add_music(&writer, &volume, &music);
     let started = Instant::now();
     let sql = format!(
@@ -303,7 +469,7 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
 
     let time = |what: &str, check: fn(&rusqlite::Connection) -> rusqlite::Result<bool>| {
         let started = Instant::now();
-        let due = writer.call(move |c| check(c)).unwrap();
+        let due = reads.read(check).unwrap();
         println!("{what:>34}: {:>8.1?}  due: {due}", started.elapsed());
     };
     time("matching: any file due", crate::matching::any_due);
@@ -327,7 +493,7 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
     };
     let volume = volume.clone();
     let started = Instant::now();
-    let asked = ask_what_is_due(&writer, &enqueue, &reach_by(move || volume.clone()));
+    let asked = ask_what_is_due(&writer, &reads, &enqueue, &reach_by(move || volume.clone()));
     println!(
         "{:>34}: {:>8.1?}",
         "the whole startup step",

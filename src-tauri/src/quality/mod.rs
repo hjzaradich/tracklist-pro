@@ -107,14 +107,22 @@ pub(crate) fn request<E: From<DbError>>(
         }
         None => None,
     };
-    let due = writer.call(move |c| {
-        let gate = ReadGate::for_job(c)?;
-        ledger::any_due(c, gate.allows(true), reachable.as_deref())
-    })?;
+    let due = writer.call(move |c| due(c, reachable.as_deref()))?;
     if due {
         chain::queue_once(writer, quality_job(None), enqueue)?;
     }
     Ok(())
+}
+
+/// Whether any file is due a measurement that can be taken now, in the
+/// `reachable` music folders if given: the question [`request`] asks, for a
+/// caller that asks it on a read connection.
+pub(crate) fn due(
+    conn: &rusqlite::Connection,
+    reachable: Option<&[i64]>,
+) -> rusqlite::Result<bool> {
+    let gate = ReadGate::for_job(conn)?;
+    ledger::any_due(conn, gate.allows(true), reachable)
 }
 
 #[cfg(test)]

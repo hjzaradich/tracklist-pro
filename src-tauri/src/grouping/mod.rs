@@ -168,20 +168,6 @@ pub fn is_decide(target: Option<&serde_json::Value>) -> bool {
     GroupTarget::of(target) == GroupTarget::Decide
 }
 
-/// Queues a quick grouping job if a present file has no track yet, unless
-/// one is already queued (a running one is asked to run once more). The scan
-/// chain asks the same question inline when a walk has nothing to read;
-/// the startup step asks it through here (1cA-13).
-pub(crate) fn request_group<E: From<DbError>>(
-    writer: &Writer,
-    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
-) -> Result<(), E> {
-    if writer.call(|c| store::any_ungrouped(c))? {
-        crate::scan::chain::queue_once(writer, group_job(), enqueue)?;
-    }
-    Ok(())
-}
-
 /// Queues a deciding job if a file is due one and ready
 /// ([`decide::any_due`]) and matching has nothing left to compare (a file
 /// matching hasn't been through can't be decided yet), unless one is
@@ -191,11 +177,18 @@ pub(crate) fn request_decide<E: From<DbError>>(
     writer: &Writer,
     enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
 ) -> Result<(), E> {
-    let due = writer.call(|c| Ok(!crate::matching::any_due(c)? && decide::any_due(c)?))?;
+    let due = writer.call(|c| decide_due(c))?;
     if due {
         crate::scan::chain::queue_once(writer, decide_job(), enqueue)?;
     }
     Ok(())
+}
+
+/// Whether [`request_decide`] would queue a deciding job: a file is due one
+/// and ready, and matching has nothing left to compare. For a caller that
+/// asks it on a read connection.
+pub(crate) fn decide_due(conn: &rusqlite::Connection) -> rusqlite::Result<bool> {
+    Ok(!crate::matching::any_due(conn)? && decide::any_due(conn)?)
 }
 
 /// The files that are, as grouping stands now, duplicates of `file` in its
