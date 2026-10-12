@@ -38,6 +38,17 @@
 //! A label after " - " is trusted as a marker when the other name has the
 //! plain title, as a bracketed one is; only bare words are doubted there.
 //!
+//! # Harmless brackets
+//!
+//! A trailing bracket that cannot be a version is an [`Aside`], not an
+//! unrecognized bracket: a copy counter "(1)", a year "(2011)", a key
+//! "(8A)", a tempo "(124)" or "[124 BPM]", a catalogue number "[ABC123]".
+//! A bare number counts only when no label or word like "Part" comes
+//! directly before it, and only a run at the very end is peeled off; a year
+//! beside "Remaster" is a version, which grouping decides because it sees
+//! both of a file's names. When in doubt a bracket stays unrecognized. The
+//! rules are in [`asides`](self::asides).
+//!
 //! # Extending
 //!
 //! Label spellings and junk patterns live in [`tables`], in one place. A

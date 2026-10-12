@@ -185,7 +185,8 @@
 //!   ([`crate::versions::label_kind`]: the longest label first, up to three
 //!   words, "Original" aside), in brackets or bare, anywhere in its title
 //!   tag or its file name, split at spaces, hyphens, underscores, brackets
-//!   and dots. Each label counts as often as the one name that writes it
+//!   and dots. Dots between single letters spell one word: "V.I.P." is
+//!   Vip ("A.B." is no label and stays two letters). Each label counts as often as the one name that writes it
 //!   most does: "Come Clean" named "Come Clean (Clean).mp3" is Clean
 //!   twice; named "nightdrive promo.mp3", once. Intro and Outro together
 //!   are Intro-Outro.
@@ -195,7 +196,15 @@
 //!   are the artist tag's, a title tag's "feat.", and a file name's artist
 //!   part when the title tag bears it out (the tag's title is in the
 //!   name's title part and not in its artist part, and the artist part is
-//!   more than label words).
+//!   more than label words). An artist who is one label word ("Live",
+//!   "Edit") is set aside only where the file name's artist part names it
+//!   ("Live - Velo") or after "feat."; "Velo Live 128" keeps its Live.
+//! - A file's folder adds its label words too (`FileFacts::in_folder`, the
+//!   name of the folder it sits in, also in the plural: "Clean",
+//!   "Radio Edits"), but only the ones its own names don't carry already:
+//!   "Remixes/Velo (Halden Rook Remix).mp3" says Remix once. A folder named
+//!   like the file's artist adds nothing. Only the folder the file sits
+//!   in counts, not those above it.
 //! - If the two files' version words differ, a merge becomes "needs
 //!   review" (`labelWordsDiffer`, with the labels each file has more of).
 //!   A pair the table already keeps apart (a cut link, review) is left as
@@ -231,6 +240,11 @@
 //! - **A label word fused to another word** ("VeloDirty.mp3", "Velo
 //!   Dirty128.mp3") is not seen by anything here: there is no word break
 //!   to find it by. Such a file merges with its plain twin on full audio.
+//! - **A label spelled with a hyphen in the middle of a name** ("Velo Re-Fix
+//!   128.mp3") is not seen: the words are split at hyphens, and the parser's
+//!   "re-fix" is one word.
+//! - **A version given by a folder further up** than the one a file sits in
+//!   is not seen.
 //! - **Words the parser doesn't know as labels** ("Acoustic", "Vocal Mix")
 //!   are no version words.
 //! - **A bare label word beside the same label in brackets** ("Velo

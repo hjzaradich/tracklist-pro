@@ -515,21 +515,6 @@ fn an_artist_the_name_does_not_spell_out_whole_never_lets_full_audio_merge_over_
 
 // ---- Harmless brackets ---------------------------------------------------
 
-/// Every kind of harmless bracket, with whether it is a bare number (which
-/// a label before it can turn into that label's number).
-const HARMLESS: [(&str, bool); 10] = [
-    ("(1)", true),
-    ("(2)", true),
-    ("(12)", true),
-    ("(2011)", true),
-    ("(124)", true),
-    ("(8A)", false),
-    ("[124 BPM]", false),
-    ("(124bpm)", false),
-    ("[ABC123]", false),
-    ("(CAT-0451)", false),
-];
-
 /// `title` and `file_name` with `bracket` added at the end of the
 /// title tag, the file name's title, or both.
 #[derive(Debug, Clone, Copy)]
