@@ -139,13 +139,36 @@
 //!      right, so the track's best file is matched (else the lowest file
 //!      id).
 //!
-//!      *Not yet:* another present file of the gone file's **track**.
-//!      While grouping is by `audio_hash`, that finds nothing the hash
-//!      doesn't, except a mate that was overwritten with other audio and
-//!      that grouping hasn't moved out of the track yet: a trusted match
-//!      to other audio. It returns with 1bC-1 (fingerprint grouping, where
-//!      a track's files have different hashes), together with a check that
-//!      grouping is up to date.
+//!    - else, present files no other row holds that are **of the gone
+//!      file's track** (1bC-7), on grouping's own current answer for the
+//!      two files themselves ([`crate::grouping::current_duplicates`]).
+//!      Sharing a track isn't enough: a merge is never undone, so a mate
+//!      can sit there though the rules no longer call it a duplicate, or
+//!      without ever having been compared with the gone file. So all of
+//!      this must hold:
+//!      - a pair of the two files is stored as a duplicate, and a grouping
+//!        pass found them in one track;
+//!      - grouping is current for both: each one's pairs are decided
+//!        under the current rules, and each sits in the track with the
+//!        audio it holds (the gone file: held when it went). A file that
+//!        is due to be decided again, or has no grouping record, isn't;
+//!      - the mate's hash is current, and the gone file's was when it
+//!        went: grouping can't see a file that changed since it was
+//!        hashed.
+//!
+//!      So a mate overwritten with other audio isn't matched, before
+//!      grouping has caught up or after. As for the same audio, any
+//!      present file counts (on a drive that's plugged in or not), and of
+//!      several the track's best file is matched (else the lowest file
+//!      id). Like a fingerprint duplicate, it's accepted (confidence 0.9)
+//!      only when one of the file's title tags agrees with rekordbox's
+//!      `Name`, otherwise stored as **probable** (confidence 0.4):
+//!      grouping compared the two files' names with each other, never
+//!      with what rekordbox calls the entry. It costs no fingerprint
+//!      comparison. *The limit:* once the mate is decided again while the
+//!      gone file is away (a retag, new rules), their pair goes with that
+//!      decision and this rule no longer applies to the row; the next one
+//!      still does.
 //!    - else, the fingerprint duplicates of the gone file (ROADMAP 1.4:
 //!      at least 90% matched both ways, difference at most 4) among every
 //!      present file lasting within [`rules::FINGERPRINT_WINDOW_MS`] (1 s)
@@ -388,9 +411,9 @@ pub struct Summary {
     /// for a file's fingerprint aren't counted.
     pub fingerprint_undecided: u32,
     /// Rows matched but only probable, waiting for the user to confirm:
-    /// every filename-only match, a unique duration or a fingerprint
-    /// duplicate no title tag agrees with, and a confirmation whose file's
-    /// audio changed.
+    /// every filename-only match, a unique duration, a track mate or a
+    /// fingerprint duplicate no title tag agrees with, and a confirmation
+    /// whose file's audio changed.
     pub probable: u32,
     /// Rows keeping a match from a step this run doesn't make (gig stick).
     pub other: u32,
@@ -448,6 +471,7 @@ pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summ
                     .optional()?;
                 Ok(blob.and_then(|b| Fingerprint::from_blob(&b).ok()))
             },
+            |file| crate::grouping::current_duplicates(&tx, file),
         )?
     };
     {
@@ -643,6 +667,7 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                     path,
                     duration_ms,
                     audio_hash: audio_hash.filter(|_| current),
+                    hash_current: current,
                 });
                 continue;
             }

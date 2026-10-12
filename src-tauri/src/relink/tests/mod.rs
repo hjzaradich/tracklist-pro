@@ -344,6 +344,119 @@ impl Lib {
             .unwrap()
     }
 
+    /// A new track holding `files` (the first one as its best file), as
+    /// the grouping job leaves files it merged as duplicates: every pair
+    /// of them stored as a duplicate in one track, and every file decided
+    /// under the current rules with the audio it holds now. Returns the
+    /// track's id.
+    ///
+    /// The triggers of the real schema are there, so what makes a file due
+    /// in the app (other audio, other tags, coming back) does here too.
+    pub fn merged(&self, files: &[i64]) -> i64 {
+        let recording = self.group(files);
+        for (n, &a) in files.iter().enumerate() {
+            self.decided(a);
+            for &b in &files[n + 1..] {
+                self.pair(a, b, "duplicate", "merged");
+            }
+        }
+        recording
+    }
+
+    /// Puts `mate` into `file`'s track, merged with it as [`Lib::merged`]
+    /// leaves two files.
+    pub fn joins(&self, mate: i64, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT INTO recording_file (recording_id, file_id)
+                     SELECT recording_id, ?1 FROM recording_file WHERE file_id = ?2",
+                    [mate, file],
+                )
+            })
+            .unwrap();
+        self.decided(file);
+        self.decided(mate);
+        self.pair(file, mate, "duplicate", "merged");
+    }
+
+    /// The grouping job decided every pair of `file` under the current
+    /// rules, and it sits in its track with the audio it holds now.
+    pub fn decided(&self, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT OR REPLACE INTO grouping_file (file_id, placed_key, decided_as)
+                     SELECT id, coalesce(nullif(audio_hash, x''), blake3), ?2
+                     FROM file WHERE id = ?1",
+                    [file, crate::grouping::decided_as()],
+                )
+            })
+            .unwrap();
+    }
+
+    /// The file's grouping record as a build with another rules version
+    /// finds it: decided, but not under the rules of now.
+    pub fn decided_under_other_rules(&self, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE grouping_file SET decided_as = decided_as + 65536 WHERE file_id = ?1",
+                    [file],
+                )
+            })
+            .unwrap();
+    }
+
+    /// The file's tags were rewritten (another title).
+    pub fn retagged(&self, file: i64) {
+        self.title(file, "Rewritten");
+    }
+
+    /// Takes the file out of its track, into a new one of its own.
+    pub fn split(&self, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute("INSERT INTO recording DEFAULT VALUES", [])?;
+                let recording = c.last_insert_rowid();
+                c.execute(
+                    "UPDATE recording_file SET recording_id = ?2, role = 'undecided'
+                     WHERE file_id = ?1",
+                    [file, recording],
+                )
+            })
+            .unwrap();
+    }
+
+    /// The track a file is in.
+    pub fn recording_of(&self, file: i64) -> Option<i64> {
+        use rusqlite::OptionalExtension;
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT recording_id FROM recording_file WHERE file_id = ?1",
+                    [file],
+                    |r| r.get(0),
+                )
+                .optional()
+            })
+            .unwrap()
+    }
+
+    /// What the grouping job stored for the pair of files `a` and `b`: the
+    /// rules' outcome and where the pair stands.
+    pub fn pair(&self, a: i64, b: i64, outcome: &'static str, state: &'static str) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT OR REPLACE INTO grouping_pair (file_a, file_b, outcome, reasons, state)
+                     VALUES (?1, ?2, ?3, '[]', ?4)",
+                    params![a.min(b), a.max(b), outcome, state],
+                )
+            })
+            .unwrap();
+    }
+
     /// A row's `recording_id`.
     pub fn recording(&self, track: i64) -> Option<i64> {
         self.writer
@@ -520,6 +633,18 @@ pub(super) fn reencoded(
         .map(|(n, item)| if n % 3 == 0 { item ^ 1 } else { *item })
         .collect();
     crate::fingerprint::Fingerprint::new(items)
+}
+
+/// Grouping's answer for a test of the rules alone that has no tracks: no
+/// file has a duplicate in its track.
+pub(super) fn no_mates(_file: i64) -> Result<Vec<i64>, ()> {
+    Ok(Vec::new())
+}
+
+/// What a step-4 match to a file of the gone file's track looks like when a
+/// title tag agrees with rekordbox's Name.
+pub(super) fn same_track(file: i64) -> Option<Match> {
+    Some((file, "fingerprint".to_owned(), 0.9))
 }
 
 /// What a trusted step-4 match to the same audio looks like.
