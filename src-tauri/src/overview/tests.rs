@@ -18,7 +18,10 @@ struct NoVolumes;
 
 impl Volumes for NoVolumes {
     fn volume_for(&self, path: &Path) -> std::io::Result<Volume> {
-        Err(std::io::Error::other(format!("{} isn't looked up", path.display())))
+        Err(std::io::Error::other(format!(
+            "{} isn't looked up",
+            path.display()
+        )))
     }
 
     fn mount_path(&self, _: &VolumeId) -> Option<std::path::PathBuf> {
@@ -112,6 +115,20 @@ impl Lib {
         );
         self.exec(
             "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
+            (track, file),
+        );
+        file
+    }
+
+    /// Another file of `track`, not its best.
+    fn other_file(&self, track: i64, name: &str, tags: Option<Value>) -> i64 {
+        let file = self.exec(
+            "INSERT INTO file (music_folder_id, rel_path, rel_path_key, raw_tags)
+             VALUES (1, ?1, ?1, ?2)",
+            (name.to_owned(), tags.map(|t| t.to_string())),
+        );
+        self.exec(
+            "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'undecided')",
             (track, file),
         );
         file
@@ -307,7 +324,11 @@ fn a_track_is_analyzed_when_rekordbox_gave_a_bpm_or_a_key() {
     let file = |name: &str| -> i64 {
         lib.run({
             let name = format!("{name}.mp3");
-            move |c| c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| r.get(0))
+            move |c| {
+                c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| {
+                    r.get(0)
+                })
+            }
         })
     };
     let _ = (bpm_only, key_only, both, neither, probable);
@@ -370,7 +391,10 @@ fn a_track_is_low_quality_when_its_files_current_verdict_is_a_problem() {
         [],
     );
     // A hidden or missing file is still the Library track's file.
-    lib.exec("UPDATE file SET present = 0 WHERE rel_path = 'Broken.mp3'", []);
+    lib.exec(
+        "UPDATE file SET present = 0 WHERE rel_path = 'Broken.mp3'",
+        [],
+    );
     settle(&lib);
 
     let o = lib.overview();
@@ -547,7 +571,11 @@ fn a_track_rekordbox_knows_has_rekordboxs_genre_and_others_have_the_files() {
     let file = |name: &str| -> i64 {
         lib.run({
             let name = format!("{name}.mp3");
-            move |c| c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| r.get(0))
+            move |c| {
+                c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| {
+                    r.get(0)
+                })
+            }
         })
     };
     lib.rekordbox(file("Known"), json!({"Genre": "Rekordbox House"}), false);
@@ -560,7 +588,11 @@ fn a_track_rekordbox_knows_has_rekordboxs_genre_and_others_have_the_files() {
     if BLANK_GENRE_FALLS_BACK {
         expected.push(("Trance", 1));
     }
-    let got: Vec<(&str, u32)> = o.genres.iter().map(|g| (g.name.as_str(), g.tracks)).collect();
+    let got: Vec<(&str, u32)> = o
+        .genres
+        .iter()
+        .map(|g| (g.name.as_str(), g.tracks))
+        .collect();
     assert_eq!(got, expected);
     assert_eq!(o.no_genre, 6 - expected.len() as u32);
 }
@@ -568,9 +600,11 @@ fn a_track_rekordbox_knows_has_rekordboxs_genre_and_others_have_the_files() {
 #[test]
 fn genres_are_sorted_by_tracks_then_name_and_capitals_do_not_make_another_genre() {
     let lib = Lib::new();
-    for (i, genre) in ["house", "House", "House", "Techno", "Ambient", "Ambient", "Disco"]
-        .into_iter()
-        .enumerate()
+    for (i, genre) in [
+        "house", "House", "House", "Techno", "Ambient", "Ambient", "Disco",
+    ]
+    .into_iter()
+    .enumerate()
     {
         lib.library_track(
             &format!("T{i}"),
@@ -579,7 +613,11 @@ fn genres_are_sorted_by_tracks_then_name_and_capitals_do_not_make_another_genre(
         );
     }
     let o = lib.overview();
-    let got: Vec<(&str, u32)> = o.genres.iter().map(|g| (g.name.as_str(), g.tracks)).collect();
+    let got: Vec<(&str, u32)> = o
+        .genres
+        .iter()
+        .map(|g| (g.name.as_str(), g.tracks))
+        .collect();
     // "House" is spelled that way by most of its tracks.
     assert_eq!(
         got,
@@ -592,11 +630,15 @@ fn genres_are_sorted_by_tracks_then_name_and_capitals_do_not_make_another_genre(
 /// own rules ([`crate::send_values::tag_values`]) say, so the two can't
 /// drift apart.
 fn awkward_tags() -> Vec<(&'static str, Option<Value>)> {
-    let cut = json!({"key": "TCON", "value": {"type": "text", "text": "Cut off", "full_len": 9000}});
+    let cut =
+        json!({"key": "TCON", "value": {"type": "text", "text": "Cut off", "full_len": 9000}});
     vec![
         ("no tags", None),
         ("an empty tag object", Some(json!({}))),
-        ("an empty string", Some(json!({"id3v2": [text("TCON", "")]}))),
+        (
+            "an empty string",
+            Some(json!({"id3v2": [text("TCON", "")]})),
+        ),
         ("only blanks", Some(json!({"id3v2": [text("TCON", "   ")]}))),
         ("only a NUL", Some(json!({"id3v2": [text("TCON", "\0")]}))),
         (
@@ -607,20 +649,38 @@ fn awkward_tags() -> Vec<(&'static str, Option<Value>)> {
             "an empty frame before a filled one",
             Some(json!({"id3v2": [text("TCON", ""), text("TCON", "Disco")]})),
         ),
-        ("mixed case", Some(json!({"id3v2": [text("TCON", "hOuSe")]}))),
+        (
+            "mixed case",
+            Some(json!({"id3v2": [text("TCON", "hOuSe")]})),
+        ),
         (
             "two values in one frame",
             Some(json!({"id3v2": [text("TCON", "House\0Techno")]})),
         ),
-        ("an ID3 code in brackets", Some(json!({"id3v2": [text("TCON", "(17)")]}))),
-        ("a bare ID3 number", Some(json!({"id3v2": [text("TCON", "17")]}))),
+        (
+            "an ID3 code in brackets",
+            Some(json!({"id3v2": [text("TCON", "(17)")]})),
+        ),
+        (
+            "a bare ID3 number",
+            Some(json!({"id3v2": [text("TCON", "17")]})),
+        ),
         (
             "an ID3 code with a refinement",
             Some(json!({"id3v2": [text("TCON", "(17)Hard")]})),
         ),
-        ("an unknown ID3 number", Some(json!({"id3v2": [text("TCON", "(999)")]}))),
-        ("a literal bracket", Some(json!({"id3v2": [text("TCON", "((x)")]}))),
-        ("an ID3v1 number only", Some(json!({"id3v1": [text("genre", "17")]}))),
+        (
+            "an unknown ID3 number",
+            Some(json!({"id3v2": [text("TCON", "(999)")]})),
+        ),
+        (
+            "a literal bracket",
+            Some(json!({"id3v2": [text("TCON", "((x)")]})),
+        ),
+        (
+            "an ID3v1 number only",
+            Some(json!({"id3v1": [text("genre", "17")]})),
+        ),
         ("a cut-off text", Some(json!({"id3v2": [cut]}))),
         (
             "a Vorbis key in capitals",
@@ -638,22 +698,40 @@ fn awkward_tags() -> Vec<(&'static str, Option<Value>)> {
             "a repeated Vorbis item with a copy",
             Some(json!({"vorbis_comments": [text("GENRE", "House"), text("genre", "House")]})),
         ),
-        ("an APE item", Some(json!({"ape": [text("Genre", "Electro")]}))),
-        ("an MP4 atom", Some(json!({"mp4_ilst": [text("\u{a9}gen", "Ambient")]}))),
-        ("a RIFF INFO field", Some(json!({"riff_info": [text("IGNR", "Pop")]}))),
-        ("an AIFF text chunk", Some(json!({"aiff_text": [text("NAME", "Not a genre")]}))),
+        (
+            "an APE item",
+            Some(json!({"ape": [text("Genre", "Electro")]})),
+        ),
+        (
+            "an MP4 atom",
+            Some(json!({"mp4_ilst": [text("\u{a9}gen", "Ambient")]})),
+        ),
+        (
+            "a RIFF INFO field",
+            Some(json!({"riff_info": [text("IGNR", "Pop")]})),
+        ),
+        (
+            "an AIFF text chunk",
+            Some(json!({"aiff_text": [text("NAME", "Not a genre")]})),
+        ),
         (
             "ID3v2 before Vorbis",
-            Some(json!({"vorbis_comments": [text("GENRE", "Vorbis")], "id3v2": [text("TCON", "Id3")]})),
+            Some(
+                json!({"vorbis_comments": [text("GENRE", "Vorbis")], "id3v2": [text("TCON", "Id3")]}),
+            ),
         ),
         (
             "a blank ID3v2 genre before a Vorbis one",
-            Some(json!({"id3v2": [text("TCON", " ")], "vorbis_comments": [text("GENRE", "Vorbis")]})),
+            Some(
+                json!({"id3v2": [text("TCON", " ")], "vorbis_comments": [text("GENRE", "Vorbis")]}),
+            ),
         ),
         (
             "a genre among other frames",
-            Some(json!({"id3v2": [text("TIT2", "Title"), text("COMM::eng", "Note"),
-                                  text("TCON", "Garage"), text("TXXX:GENRE", "Not this")]})),
+            Some(
+                json!({"id3v2": [text("TIT2", "Title"), text("COMM::eng", "Note"),
+                                  text("TCON", "Garage"), text("TXXX:GENRE", "Not this")]}),
+            ),
         ),
         (
             "binary and unrecorded frames",
@@ -677,7 +755,11 @@ fn the_genre_read_from_a_files_tag_in_sql_equals_the_sends_own_reading_of_it() {
                 .filter(|g| !g.is_empty())
         });
         let o = lib.overview();
-        let got: Vec<(String, u32)> = o.genres.iter().map(|g| (g.name.clone(), g.tracks)).collect();
+        let got: Vec<(String, u32)> = o
+            .genres
+            .iter()
+            .map(|g| (g.name.clone(), g.tracks))
+            .collect();
         match expected {
             Some(genre) => {
                 assert_eq!(got, [(genre, 1)], "{case}");
@@ -697,13 +779,10 @@ fn the_awkward_tags_are_not_all_empty() {
     let given = awkward_tags()
         .into_iter()
         .filter_map(|(_, tags)| tags)
-        .filter(|t| {
-            !crate::send_values::tag_values(&t.to_string(), &["Genre"]).is_empty()
-        })
+        .filter(|t| !crate::send_values::tag_values(&t.to_string(), &["Genre"]).is_empty())
         .count();
     assert!(given >= 15, "{given}");
 }
-
 
 // Missing tags and missing art.
 
@@ -720,7 +799,11 @@ fn id3(title: Option<&str>, artist: Option<&str>, genre: Option<&str>) -> Option
 
 fn file_of(lib: &Lib, name: &str) -> i64 {
     let name = format!("{name}.mp3");
-    lib.run(move |c| c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| r.get(0)))
+    lib.run(move |c| {
+        c.query_row("SELECT id FROM file WHERE rel_path = ?1", [name], |r| {
+            r.get(0)
+        })
+    })
 }
 
 #[test]
@@ -729,9 +812,17 @@ fn a_track_is_missing_tags_when_its_shown_title_artist_or_genre_is_blank() {
     lib.library_track("Complete", None, id3(Some("A"), Some("B"), Some("House")));
     lib.library_track("No genre", None, id3(Some("A"), Some("B"), None));
     lib.library_track("No artist", None, id3(Some("A"), None, Some("House")));
-    lib.library_track("Blank artist", None, id3(Some("A"), Some("  "), Some("House")));
+    lib.library_track(
+        "Blank artist",
+        None,
+        id3(Some("A"), Some("  "), Some("House")),
+    );
     // No title tag: the list shows the file's name, so it has a title.
-    lib.library_track("Only the file name", None, id3(None, Some("B"), Some("House")));
+    lib.library_track(
+        "Only the file name",
+        None,
+        id3(None, Some("B"), Some("House")),
+    );
     lib.library_track("Nothing tagged", None, None);
 
     let o = lib.overview();
@@ -744,7 +835,11 @@ fn a_track_is_missing_tags_when_its_shown_title_artist_or_genre_is_blank() {
 fn a_track_rekordbox_knows_is_judged_by_rekordboxs_title_artist_and_genre() {
     let lib = Lib::new();
     lib.library_track("Known and complete", None, None);
-    lib.library_track("Known without an artist", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.library_track(
+        "Known without an artist",
+        None,
+        id3(Some("A"), Some("B"), Some("House")),
+    );
     lib.rekordbox(
         file_of(&lib, "Known and complete"),
         json!({"Name": "N", "Artist": "B", "Genre": "House"}),
@@ -763,7 +858,11 @@ fn a_track_rekordbox_knows_is_judged_by_rekordboxs_title_artist_and_genre() {
 #[test]
 fn a_track_whose_linked_file_is_gone_is_judged_by_its_stored_tags() {
     let lib = Lib::new();
-    lib.library_track("Gone and tagged", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.library_track(
+        "Gone and tagged",
+        None,
+        id3(Some("A"), Some("B"), Some("House")),
+    );
     lib.library_track("Gone and bare", None, None);
     lib.exec("UPDATE file SET present = 0", []);
     let o = lib.overview();
@@ -793,15 +892,33 @@ fn a_track_is_missing_art_when_its_linked_files_tags_hold_no_picture() {
     let with = |name: &str, tags: Value| {
         lib.library_track(name, None, Some(tags));
     };
-    with("ID3 cover", json!({"id3v2": [text("TIT2", "A"), binary("APIC", 50_000)]}));
-    with("ID3 cover with a description", json!({"id3v2": [binary("APIC:Front", 50_000)]}));
+    with(
+        "ID3 cover",
+        json!({"id3v2": [text("TIT2", "A"), binary("APIC", 50_000)]}),
+    );
+    with(
+        "ID3 cover with a description",
+        json!({"id3v2": [binary("APIC:Front", 50_000)]}),
+    );
     with("MP4 cover", json!({"mp4_ilst": [binary("covr", 9_000)]}));
-    with("FLAC cover", json!({"vorbis_comments": [binary("METADATA_BLOCK_PICTURE", 9_000)]}));
-    with("APE cover", json!({"ape": [binary("Cover Art (Front)", 9_000)]}));
+    with(
+        "FLAC cover",
+        json!({"vorbis_comments": [binary("METADATA_BLOCK_PICTURE", 9_000)]}),
+    );
+    with(
+        "APE cover",
+        json!({"ape": [binary("Cover Art (Front)", 9_000)]}),
+    );
     // Not covers: other binary frames, an empty picture, a picture named in text.
-    with("Cue data only", json!({"id3v2": [binary("GEOB:Serato Markers2", 5_000)]}));
+    with(
+        "Cue data only",
+        json!({"id3v2": [binary("GEOB:Serato Markers2", 5_000)]}),
+    );
     with("Empty picture", json!({"id3v2": [binary("APIC", 0)]}));
-    with("Text called APIC", json!({"id3v2": [text("APIC", "not a picture")]}));
+    with(
+        "Text called APIC",
+        json!({"id3v2": [text("APIC", "not a picture")]}),
+    );
     with("Untagged", json!({}));
     // Tags never read: unknown, not missing.
     lib.library_track("Not read yet", None, None);
@@ -813,7 +930,11 @@ fn a_track_is_missing_art_when_its_linked_files_tags_hold_no_picture() {
         [nothing],
     );
     // A gone file's stored tags still say.
-    lib.library_track("Gone with a cover", None, Some(json!({"id3v2": [binary("APIC", 1)]})));
+    lib.library_track(
+        "Gone with a cover",
+        None,
+        Some(json!({"id3v2": [binary("APIC", 1)]})),
+    );
     lib.library_track("Gone without", None, Some(json!({})));
     lib.exec(
         "UPDATE file SET present = 0 WHERE rel_path IN ('Gone with a cover.mp3', 'Gone without.mp3')",
@@ -821,7 +942,10 @@ fn a_track_is_missing_art_when_its_linked_files_tags_hold_no_picture() {
     );
 
     let o = lib.overview();
-    assert_eq!(o.missing_art, 5, "cue data, empty, text, untagged, gone without");
+    assert_eq!(
+        o.missing_art, 5,
+        "cue data, empty, text, untagged, gone without"
+    );
 }
 
 #[test]
@@ -844,7 +968,10 @@ fn a_cover_in_a_real_id3_tag_is_found_by_the_art_rule() {
     let mut blocks = serde_json::Map::new();
     for tag in &read.raw_tags {
         let kind = serde_json::to_value(tag.tag_type).unwrap();
-        blocks.insert(kind.as_str().unwrap().to_owned(), serde_json::to_value(&tag.items).unwrap());
+        blocks.insert(
+            kind.as_str().unwrap().to_owned(),
+            serde_json::to_value(&tag.items).unwrap(),
+        );
     }
     let lib = Lib::new();
     lib.library_track("Real cover", None, Some(Value::Object(blocks)));
@@ -857,35 +984,95 @@ fn a_cover_in_a_real_id3_tag_is_found_by_the_art_rule() {
 /// of asking `shown` about every track must agree.
 fn awkward_library() -> Lib {
     let lib = Lib::new();
-    let vorbis = |artist: &str| Some(json!({"vorbis_comments": [text("GENRE", "House"), text("ARTIST", artist)]}));
+    let vorbis = |artist: &str| {
+        Some(json!({"vorbis_comments": [text("GENRE", "House"), text("ARTIST", artist)]}))
+    };
     lib.library_track("Tagged", None, id3(Some("A"), Some("B"), Some("House")));
     lib.library_track("Vorbis artist", None, vorbis("B"));
     lib.library_track("Vorbis blank artist", None, vorbis("   "));
-    lib.library_track("Lower case key", None, Some(json!({"ape": [text("genre", "House"), text("artist", "B")]})));
-    lib.library_track("Artist is only a NUL", None, Some(json!({"id3v2": [text("TPE1", "\0"), text("TCON", "House")]})));
+    lib.library_track(
+        "Lower case key",
+        None,
+        Some(json!({"ape": [text("genre", "House"), text("artist", "B")]})),
+    );
+    lib.library_track(
+        "Artist is only a NUL",
+        None,
+        Some(json!({"id3v2": [text("TPE1", "\0"), text("TCON", "House")]})),
+    );
     lib.library_track("Artist cut off", None, Some(json!({"id3v2": [
         {"key": "TPE1", "value": {"type": "text", "text": "B", "full_len": 9000}}, text("TCON", "House")]})));
-    lib.library_track("ID3v1 artist", None, Some(json!({"id3v2": [text("TCON", "House")], "id3v1": [text("artist", "B")]})));
-    lib.library_track("AIFF artist", None, Some(json!({"id3v2": [text("TCON", "House")], "aiff_text": [text("AUTH", "B")]})));
-    lib.library_track("Known and artist", None, id3(Some("A"), None, Some("House")));
-    lib.library_track("Known and no artist", None, id3(Some("A"), Some("B"), Some("House")));
-    lib.library_track("Known, entry also has a tag", None, id3(Some("A"), Some("B"), None));
+    lib.library_track(
+        "ID3v1 artist",
+        None,
+        Some(json!({"id3v2": [text("TCON", "House")], "id3v1": [text("artist", "B")]})),
+    );
+    lib.library_track(
+        "AIFF artist",
+        None,
+        Some(json!({"id3v2": [text("TCON", "House")], "aiff_text": [text("AUTH", "B")]})),
+    );
+    lib.library_track(
+        "Known and artist",
+        None,
+        id3(Some("A"), None, Some("House")),
+    );
+    lib.library_track(
+        "Known and no artist",
+        None,
+        id3(Some("A"), Some("B"), Some("House")),
+    );
+    lib.library_track(
+        "Known, entry also has a tag",
+        None,
+        id3(Some("A"), Some("B"), None),
+    );
     lib.library_track("Gone", None, id3(Some("A"), Some("B"), Some("House")));
-    lib.library_track("Gone and no artist", None, id3(Some("A"), None, Some("House")));
+    lib.library_track(
+        "Gone and no artist",
+        None,
+        id3(Some("A"), None, Some("House")),
+    );
     lib.library_track("Probable only", None, id3(None, Some("B"), Some("House")));
     let titled = lib.track("Titled recording");
-    lib.exec("UPDATE recording SET title = 'Own title', artist = ' ' WHERE id = ?1", [titled]);
-    let f = lib.file(titled, "Titled recording.mp3", None, id3(None, None, Some("House")));
+    lib.exec(
+        "UPDATE recording SET title = 'Own title', artist = ' ' WHERE id = ?1",
+        [titled],
+    );
+    let f = lib.file(
+        titled,
+        "Titled recording.mp3",
+        None,
+        id3(None, None, Some("House")),
+    );
     lib.add(titled, f, 1);
     // The artist is in another file of the track, not the linked one.
     let sibling = lib.track("Artist in a sibling file");
-    let linked = lib.file(sibling, "Sibling linked.mp3", None, id3(Some("A"), None, Some("House")));
-    lib.file(sibling, "Sibling other.mp3", None, id3(Some("A"), Some("B"), Some("House")));
+    let linked = lib.file(
+        sibling,
+        "Sibling linked.mp3",
+        None,
+        id3(Some("A"), None, Some("House")),
+    );
+    lib.other_file(
+        sibling,
+        "Sibling other.mp3",
+        id3(Some("A"), Some("B"), Some("House")),
+    );
     lib.add(sibling, linked, 1);
     // A sibling that is gone is not asked.
     let gone_sibling = lib.track("Artist in a gone sibling");
-    let linked = lib.file(gone_sibling, "Gone sibling linked.mp3", None, id3(Some("A"), None, Some("House")));
-    let other = lib.file(gone_sibling, "Gone sibling other.mp3", None, id3(Some("A"), Some("B"), Some("House")));
+    let linked = lib.file(
+        gone_sibling,
+        "Gone sibling linked.mp3",
+        None,
+        id3(Some("A"), None, Some("House")),
+    );
+    let other = lib.other_file(
+        gone_sibling,
+        "Gone sibling other.mp3",
+        id3(Some("A"), Some("B"), Some("House")),
+    );
     lib.exec("UPDATE file SET present = 0 WHERE id = ?1", [other]);
     lib.add(gone_sibling, linked, 1);
     // No linked file.
@@ -898,14 +1085,37 @@ fn awkward_library() -> Lib {
     lib.library_track("Slash/", None, id3(None, Some("B"), Some("House")));
     lib.exec("UPDATE file SET rel_path = 'Slash/', rel_path_key = 'Slash/' WHERE rel_path = 'Slash/.mp3'", []);
 
-    lib.rekordbox(file_of(&lib, "Known and artist"), json!({"Name": "N", "Artist": "B", "Genre": "House"}), false);
-    lib.rekordbox(file_of(&lib, "Known and no artist"), json!({"Name": "N", "Genre": "House"}), false);
-    lib.rekordbox(file_of(&lib, "Known, entry also has a tag"), json!({"Artist": "B", "Genre": "House"}), false);
+    lib.rekordbox(
+        file_of(&lib, "Known and artist"),
+        json!({"Name": "N", "Artist": "B", "Genre": "House"}),
+        false,
+    );
+    lib.rekordbox(
+        file_of(&lib, "Known and no artist"),
+        json!({"Name": "N", "Genre": "House"}),
+        false,
+    );
+    lib.rekordbox(
+        file_of(&lib, "Known, entry also has a tag"),
+        json!({"Artist": "B", "Genre": "House"}),
+        false,
+    );
     // A probable entry is not rekordbox knowing the file.
-    lib.rekordbox(file_of(&lib, "Probable only"), json!({"Artist": "", "Genre": "Wrong"}), true);
+    lib.rekordbox(
+        file_of(&lib, "Probable only"),
+        json!({"Artist": "", "Genre": "Wrong"}),
+        true,
+    );
     // A gone file with an entry: rekordbox's, if it is at its location.
-    lib.rekordbox(file_of(&lib, "Gone"), json!({"Artist": "", "Genre": "House"}), false);
-    lib.exec("UPDATE file SET present = 0 WHERE rel_path IN ('Gone.mp3', 'Gone and no artist.mp3')", []);
+    lib.rekordbox(
+        file_of(&lib, "Gone"),
+        json!({"Artist": "", "Genre": "House"}),
+        false,
+    );
+    lib.exec(
+        "UPDATE file SET present = 0 WHERE rel_path IN ('Gone.mp3', 'Gone and no artist.mp3')",
+        [],
+    );
     lib
 }
 
@@ -937,11 +1147,46 @@ fn with_no_jobs_and_nothing_stale_nothing_is_counting() {
 #[test]
 fn a_queued_or_running_job_holds_its_flag_and_a_finished_failed_or_cancelled_one_does_not() {
     for (kind, queued, running) in [
-        ("scan", Counting { files: true, ..Counting::default() }, "read"),
-        ("group", Counting { files: true, ..Counting::default() }, "scan"),
-        ("read_rekordbox", Counting { rekordbox: true, ..Counting::default() }, "relink"),
-        ("attach", Counting { rekordbox: true, ..Counting::default() }, "relink"),
-        ("quality", Counting { quality: true, ..Counting::default() }, "quality"),
+        (
+            "scan",
+            Counting {
+                files: true,
+                ..Counting::default()
+            },
+            "read",
+        ),
+        (
+            "group",
+            Counting {
+                files: true,
+                ..Counting::default()
+            },
+            "scan",
+        ),
+        (
+            "read_rekordbox",
+            Counting {
+                rekordbox: true,
+                ..Counting::default()
+            },
+            "relink",
+        ),
+        (
+            "attach",
+            Counting {
+                rekordbox: true,
+                ..Counting::default()
+            },
+            "relink",
+        ),
+        (
+            "quality",
+            Counting {
+                quality: true,
+                ..Counting::default()
+            },
+            "quality",
+        ),
     ] {
         let lib = Lib::new();
         lib.job(kind, "queued");
@@ -975,9 +1220,7 @@ fn work_that_changes_none_of_the_numbers_holds_no_flag() {
 /// The tables a statement's plan scans end to end (`SCAN x` lines), and
 /// whether every other table is reached through an index.
 fn scans(conn: &Connection, sql: &str, args: impl rusqlite::Params) -> Vec<String> {
-    let mut stmt = conn
-        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
-        .unwrap();
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
     let rows = stmt
         .query_map(args, |r| r.get::<_, String>(3))
         .unwrap()
@@ -998,7 +1241,11 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         let library = scans(c, &library_sql(), ["x"])
             .into_iter()
             .collect::<Vec<_>>();
-        assert_eq!(library, ["lt"], "the Library's numbers: one pass over its tracks");
+        assert_eq!(
+            library,
+            ["lt"],
+            "the Library's numbers: one pass over its tracks"
+        );
         let all_music = scans(c, ALL_MUSIC, []);
         assert_eq!(all_music, ["r"], "All music: one pass over the tracks");
         let decisions = scans(c, &decisions_sql(), [0]);
@@ -1008,10 +1255,18 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         assert_eq!(genres, ["lt"], "genres: one pass over the Library's tracks");
         let mut per_track = scans(c, &missing_tags_sql(), []);
         per_track.retain(|t| t != "blk" && t != "i" && t != "b");
-        assert_eq!(per_track, ["lt"], "missing tags: one pass over the Library's tracks");
+        assert_eq!(
+            per_track,
+            ["lt"],
+            "missing tags: one pass over the Library's tracks"
+        );
         let mut art = scans(c, MISSING_ART, []);
         art.retain(|t| t != "blk" && t != "i");
-        assert_eq!(art, ["lt"], "missing art: one pass over the Library's tracks");
+        assert_eq!(
+            art,
+            ["lt"],
+            "missing art: one pass over the Library's tracks"
+        );
         Ok(())
     });
 }
@@ -1160,7 +1415,11 @@ fn check_a_library_of(count: i64) {
     }
     let mut expected: Vec<(String, u32)> = expected.into_iter().collect();
     expected.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    let got: Vec<(String, u32)> = o.genres.iter().map(|g| (g.name.clone(), g.tracks)).collect();
+    let got: Vec<(String, u32)> = o
+        .genres
+        .iter()
+        .map(|g| (g.name.clone(), g.tracks))
+        .collect();
     assert_eq!(got, expected);
     assert_eq!(
         i64::from(o.no_genre),

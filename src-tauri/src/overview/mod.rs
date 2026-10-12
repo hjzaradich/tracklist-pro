@@ -328,7 +328,9 @@ fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, 
     let mut genres: Vec<GenreCount> = by_name
         .into_values()
         .map(|spellings| GenreCount {
-            tracks: spellings.values().fold(0u32, |sum, n| sum.saturating_add(*n)),
+            tracks: spellings
+                .values()
+                .fold(0u32, |sum, n| sum.saturating_add(*n)),
             name: spellings
                 .iter()
                 .max_by(|a, b| a.1.cmp(b.1).then_with(|| b.0.cmp(a.0)))
@@ -337,7 +339,9 @@ fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, 
         })
         .collect();
     genres.sort_by(|a, b| b.tracks.cmp(&a.tracks).then_with(|| a.name.cmp(&b.name)));
-    let with_genre = genres.iter().fold(0u32, |sum, g| sum.saturating_add(g.tracks));
+    let with_genre = genres
+        .iter()
+        .fold(0u32, |sum, g| sum.saturating_add(g.tracks));
     Ok((genres, tracks.saturating_sub(with_genre)))
 }
 
@@ -439,11 +443,12 @@ fn missing_tags_by(
         let id: i64 = row.get(0)?;
         let rb: Option<String> = row.get(1)?;
         let digest: Option<String> = row.get(7)?;
-        let has_genre = *genre_known
-            .entry((rb, digest.clone()))
-            .or_insert_with_key(|(rb, digest)| {
-                genre_of(rb.as_deref(), digest.as_deref()).is_some()
-            });
+        let has_genre =
+            *genre_known
+                .entry((rb, digest.clone()))
+                .or_insert_with_key(|(rb, digest)| {
+                    genre_of(rb.as_deref(), digest.as_deref()).is_some()
+                });
         if !has_genre {
             missing = missing.saturating_add(1);
             continue;
@@ -453,8 +458,7 @@ fn missing_tags_by(
         let present: Option<bool> = row.get(4)?;
         let name_ok: bool = row.get(5)?;
         let known_artist: Option<String> = row.get(6)?;
-        let title_ok =
-            title.as_deref().is_some_and(|t| !blank(t)) || (linked.is_some() && name_ok);
+        let title_ok = title.as_deref().is_some_and(|t| !blank(t)) || (linked.is_some() && name_ok);
         // Settled by the values at hand: Some(has an artist).
         let artist = match (&known_artist, present, &digest) {
             _ if ask_all || !title_ok => None,
@@ -528,7 +532,8 @@ pub fn overview_at(
     let tx = conn.unchecked_transaction()?;
     let conn = &*tx;
 
-    let since: String = conn.query_row(&format!("SELECT {}", week_start()), [now_ms], |r| r.get(0))?;
+    let since: String =
+        conn.query_row(&format!("SELECT {}", week_start()), [now_ms], |r| r.get(0))?;
     let (tracks, length, in_crates, analyzed, flagged, unsettled, added) =
         conn.query_row(&library_sql(), params![since], |r| {
             Ok((
@@ -546,9 +551,10 @@ pub fn overview_at(
     let all_music = conn.query_row(ALL_MUSIC, [], |r| r.get::<_, i64>(0))?;
     let decisions = conn.query_row(&decisions_sql(), [now_ms], |r| r.get::<_, i64>(0))?;
     let last_sent = crate::send::last_send_ms(conn)?;
-    let rekordbox_read = conn.query_row("SELECT EXISTS (SELECT 1 FROM rekordbox_track)", [], |r| {
-        r.get::<_, bool>(0)
-    })?;
+    let rekordbox_read =
+        conn.query_row("SELECT EXISTS (SELECT 1 FROM rekordbox_track)", [], |r| {
+            r.get::<_, bool>(0)
+        })?;
     let (genres, no_genre) = genres(conn, tracks)?;
     let missing_tags = missing_tags(conn, volumes)?;
     let missing_art = conn.query_row(MISSING_ART, [], |r| r.get::<_, i64>(0))?;
