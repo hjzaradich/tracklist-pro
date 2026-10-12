@@ -3,7 +3,7 @@
 
 use std::cmp::{Ordering, Reverse};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::pick::tags_filled;
 use super::{FileFacts, FolderRole, Format, Place, RekordboxLink, VolumeKind};
@@ -47,7 +47,7 @@ pub const LOSSY_ORDER: [Codec; 5] = [
 ];
 
 /// The steps of the order, first to last.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Step {
     OnDisk,

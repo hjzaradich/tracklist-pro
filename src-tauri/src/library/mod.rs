@@ -134,7 +134,7 @@ pub struct BetterFile {
     /// The step of the ranking that put it ahead: `onDisk`, `verdict`,
     /// `playable`, `cutoff`, `decodeErrors` or `format`. Never tags, art, a
     /// rekordbox link or a place: those don't make a file better.
-    pub step: crate::best_file::Step,
+    pub step: crate::file_roles::BetterStep,
 }
 
 /// What adding a track to the Library did.
@@ -791,7 +791,11 @@ fn stored_where(
             added_at,
             // A step this build doesn't know is left out, like a kind.
             better_file: better_file
-                .zip(better_step.as_deref().and_then(crate::file_roles::step_of))
+                .zip(
+                    better_step
+                        .as_deref()
+                        .and_then(crate::file_roles::BetterStep::parse),
+                )
                 .map(|(file_id, step)| BetterFile { file_id, step }),
         });
     }

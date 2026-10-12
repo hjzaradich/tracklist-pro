@@ -59,6 +59,7 @@ use std::collections::HashMap;
 use std::ops::AddAssign;
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
 
 use crate::best_file::{rank, why_ahead, Step};
 use crate::db::{DbError, Writer};
@@ -266,22 +267,70 @@ fn rank_track(
     Ok(best_before != Some(best))
 }
 
-/// The step of the ranking that put a file ahead, if it is about the audio
-/// or the file being there: on disk, verdict, plays in the DJ app, cutoff,
-/// decode errors, format. Not tags, art, a rekordbox link, a better place or
-/// a tie.
-pub fn audio_step(reason: &crate::best_file::Reason) -> Option<Step> {
-    let step = reason.step()?;
-    matches!(
-        step,
-        Step::OnDisk
-            | Step::Verdict
-            | Step::Playable
-            | Step::Cutoff
-            | Step::DecodeErrors
-            | Step::Format
-    )
-    .then_some(step)
+/// The steps of the ranking that can make a file a *better file* for a
+/// Library track: about the audio, or about the file being there at all. A
+/// copy that only has more tags, art, a rekordbox link or a better place
+/// is not a better file (tags and art are picked per field, apart from the
+/// audio), and neither is a tie. These are exactly the steps `better_file`
+/// stores and the frontend receives; the table's `CHECK` (migration 0023)
+/// lists the same six names, and a test holds the two together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum BetterStep {
+    OnDisk,
+    Verdict,
+    Playable,
+    Cutoff,
+    DecodeErrors,
+    Format,
+}
+
+impl BetterStep {
+    /// Every step, in the order of the ranking.
+    pub const ALL: [BetterStep; 6] = [
+        BetterStep::OnDisk,
+        BetterStep::Verdict,
+        BetterStep::Playable,
+        BetterStep::Cutoff,
+        BetterStep::DecodeErrors,
+        BetterStep::Format,
+    ];
+
+    /// The name it is stored under (and sent as).
+    pub fn name(self) -> &'static str {
+        match self {
+            BetterStep::OnDisk => "onDisk",
+            BetterStep::Verdict => "verdict",
+            BetterStep::Playable => "playable",
+            BetterStep::Cutoff => "cutoff",
+            BetterStep::DecodeErrors => "decodeErrors",
+            BetterStep::Format => "format",
+        }
+    }
+
+    /// The step stored under `name`, if there is one.
+    pub fn parse(name: &str) -> Option<BetterStep> {
+        BetterStep::ALL.into_iter().find(|s| s.name() == name)
+    }
+
+    /// The better-file step for a step of the ranking, if it is one.
+    pub fn of(step: Step) -> Option<BetterStep> {
+        Some(match step {
+            Step::OnDisk => BetterStep::OnDisk,
+            Step::Verdict => BetterStep::Verdict,
+            Step::Playable => BetterStep::Playable,
+            Step::Cutoff => BetterStep::Cutoff,
+            Step::DecodeErrors => BetterStep::DecodeErrors,
+            Step::Format => BetterStep::Format,
+            Step::Tags | Step::Art | Step::Rekordbox | Step::Place | Step::Tied => return None,
+        })
+    }
+}
+
+/// The better-file step of the reason a file is ahead of another, if it is
+/// about the audio or the file being there.
+pub fn audio_step(reason: &crate::best_file::Reason) -> Option<BetterStep> {
+    BetterStep::of(reason.step()?)
 }
 
 /// Writes a track's `better_file` row, or takes it away, changing nothing
@@ -289,7 +338,7 @@ pub fn audio_step(reason: &crate::best_file::Reason) -> Option<Step> {
 fn write_better(
     conn: &Connection,
     recording: i64,
-    better: Option<(i64, Step)>,
+    better: Option<(i64, BetterStep)>,
 ) -> rusqlite::Result<()> {
     match better {
         Some((file, step)) => {
@@ -299,7 +348,7 @@ fn write_better(
                  SET file_id = excluded.file_id, step = excluded.step
                  WHERE file_id IS NOT excluded.file_id OR step IS NOT excluded.step",
             )?
-            .execute(params![recording, file, step_name(step)])?;
+            .execute(params![recording, file, step.name()])?;
         }
         None => {
             conn.prepare_cached("DELETE FROM better_file WHERE recording_id = ?1")?
@@ -309,36 +358,6 @@ fn write_better(
     Ok(())
 }
 
-/// The name a step is stored and sent under.
-fn step_name(step: Step) -> &'static str {
-    match step {
-        Step::OnDisk => "onDisk",
-        Step::Verdict => "verdict",
-        Step::Playable => "playable",
-        Step::Cutoff => "cutoff",
-        Step::DecodeErrors => "decodeErrors",
-        Step::Format => "format",
-        Step::Tags => "tags",
-        Step::Art => "art",
-        Step::Rekordbox => "rekordbox",
-        Step::Place => "place",
-        Step::Tied => "tied",
-    }
-}
-
-/// The step stored under `name`, if it is one a better file can name.
-pub(crate) fn step_of(name: &str) -> Option<Step> {
-    Some(match name {
-        "onDisk" => Step::OnDisk,
-        "verdict" => Step::Verdict,
-        "playable" => Step::Playable,
-        "cutoff" => Step::Cutoff,
-        "decodeErrors" => Step::DecodeErrors,
-        "format" => Step::Format,
-        _ => return None,
-    })
-}
-
 /// Ranks every due track, a batch a transaction. `between` is called before
 /// each batch and may stop the pass there: every batch stands by itself.
 pub fn pass<E: From<DbError>>(
@@ -346,12 +365,23 @@ pub fn pass<E: From<DbError>>(
     between: &mut dyn FnMut() -> Result<(), E>,
 ) -> Result<Summary, E> {
     let mut total = Summary::default();
+    pass_into(writer, &mut total, between)?;
+    Ok(total)
+}
+
+/// [`pass`], adding what each batch did to `total` as it goes, so a pass
+/// that `between` stopped still says what it did.
+fn pass_into<E: From<DbError>>(
+    writer: &Writer,
+    total: &mut Summary,
+    between: &mut dyn FnMut() -> Result<(), E>,
+) -> Result<(), E> {
     loop {
         between()?;
         let step = writer.call(|c| settle_batch(c, BATCH))?;
-        total += step.summary;
+        *total += step.summary;
         if !step.more {
-            return Ok(total);
+            return Ok(());
         }
     }
 }
@@ -364,25 +394,37 @@ fn higher_priority_waiting(conn: &Connection) -> rusqlite::Result<bool> {
     .query_row([PRIORITY.0], |r| r.get(0))
 }
 
-/// The roles job: ranks every due track. Stops between batches if the job
-/// is cancelled, or makes way for a job of a higher priority; the chain
-/// queues it again as it ends while a track is still due.
+/// Why the roles job's pass stopped before it was done.
+enum Stop {
+    /// Cancelled, or it failed.
+    Job(JobError),
+    /// A job of a higher priority is waiting for the worker.
+    MakeWay,
+}
+
+impl From<DbError> for Stop {
+    fn from(e: DbError) -> Stop {
+        Stop::Job(e.into())
+    }
+}
+
+/// The roles job: ranks every due track ([`pass`]). Stops between batches
+/// if the job is cancelled, or makes way for a job of a higher priority;
+/// the chain queues it again as it ends while a track is still due.
 pub fn run(job: &JobContext) -> Result<(), JobError> {
-    let mut total = Summary::default();
     let writer = job.writer();
-    loop {
-        job.check_cancelled()?;
+    writer.call(|c| ensure_version(c))?;
+    let mut total = Summary::default();
+    let stopped = pass_into(writer, &mut total, &mut || -> Result<(), Stop> {
+        job.check_cancelled().map_err(Stop::Job)?;
         if writer.call(|c| higher_priority_waiting(c))? {
-            break;
+            return Err(Stop::MakeWay);
         }
-        let step = writer.call(|c| {
-            ensure_version(c)?;
-            settle_batch(c, BATCH)
-        })?;
-        total += step.summary;
-        if !step.more {
-            break;
-        }
+        Ok(())
+    });
+    match stopped {
+        Ok(()) | Err(Stop::MakeWay) => {}
+        Err(Stop::Job(e)) => return Err(e),
     }
     eprintln!("roles job {} done: {total:?}", job.id());
     // Which rekordbox entry gives a track its BPM and key is decided on its

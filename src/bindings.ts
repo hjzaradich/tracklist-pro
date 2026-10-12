@@ -304,8 +304,19 @@ export type BetterFile = {
 	 *  `playable`, `cutoff`, `decodeErrors` or `format`. Never tags, art, a
 	 *  rekordbox link or a place: those don't make a file better.
 	 */
-	step: Step,
+	step: BetterStep,
 };
+
+/**
+ *  The steps of the ranking that can make a file a *better file* for a
+ *  Library track: about the audio, or about the file being there at all. A
+ *  copy that only has more tags, art, a rekordbox link or a better place
+ *  is not a better file (tags and art are picked per field, apart from the
+ *  audio), and neither is a tie. These are exactly the steps `better_file`
+ *  stores and the frontend receives; the table's `CHECK` (migration 0023)
+ *  lists the same six names, and a test holds the two together.
+ */
+export type BetterStep = "onDisk" | "verdict" | "playable" | "cutoff" | "decodeErrors" | "format";
 
 /**  What asking to cancel a job did. */
 export type CancelOutcome = 
@@ -1178,9 +1189,6 @@ export type StalePlaylist = {
 	 */
 	empty: boolean,
 };
-
-/**  The steps of the order, first to last. */
-export type Step = "onDisk" | "verdict" | "playable" | "cutoff" | "decodeErrors" | "format" | "tags" | "art" | "rekordbox" | "place" | "tied";
 
 /**
  *  Something the app suggests (`what`), with the reasons it's suggested.

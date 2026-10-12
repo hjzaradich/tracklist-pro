@@ -347,33 +347,42 @@ fn a_track_the_grouping_pass_made_is_ranked_whole() {
 #[test]
 fn the_roles_are_the_same_whichever_drives_are_plugged_in() {
     let rig = Rig::new();
-    // A second drive of the same kind, with a copy that only differs in
-    // where it is.
+    // The first drive is external and holds the scan folder. A second one
+    // is internal and holds an Inbox folder. The ranking prefers a scan
+    // folder over an Inbox before it looks at the kind of volume, so the
+    // external copy is the best one; a ranking that also let "is the drive
+    // connected" in (or that took an external drive for an unplugged one)
+    // would pick the other.
     rig.exec(
         "INSERT INTO volume (identity, kind, last_mount_path)
-         VALUES ('serial=NTFS-5E6F7A8B', 'external', 'F:\\');
-         INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (2, 'Music', 'Music');",
+         VALUES ('serial=NTFS-5E6F7A8B', 'internal', 'F:\\');
+         INSERT INTO music_folder (volume_id, rel_path, rel_path_key, role)
+         VALUES (2, 'Inbox', 'Inbox', 'inbox');",
     );
     let track = rig.track();
-    let first = rig.file(track, "a.mp3", Kind::Mp3(320));
-    let second = rig.file(track, "b.mp3", Kind::Mp3(320));
+    let inbox = rig.file(track, "a.mp3", Kind::Mp3(320));
+    let scan = rig.file(track, "b.mp3", Kind::Mp3(320));
     rig.exec(&format!(
-        "UPDATE file SET music_folder_id = 2 WHERE id = {first}"
+        "UPDATE file SET music_folder_id = 2 WHERE id = {inbox}"
     ));
     rig.settle();
     let before = rig.written();
-    assert_eq!(rig.best_of(track), second, "the folder added first");
+    assert_eq!(rig.best_of(track), scan);
 
-    // Either drive unplugged or plugged in again: what the app stores about
-    // a volume's mount changes, and the ranking does not read it.
-    for mount in ["NULL", "'F:\\'"] {
+    // Either drive unplugged, or plugged in again: what the app stores about
+    // a volume's mount changes. The track is ranked again each time (the
+    // mount change itself asks for nothing), and nothing comes out
+    // different.
+    for (volume, mount) in [(1, "NULL"), (2, "NULL"), (1, "'E:\\'"), (2, "'F:\\'")] {
         rig.exec(&format!(
-            "UPDATE volume SET last_mount_path = {mount}, last_seen_at = '2026-10-11T10:00:00.000Z'
-             WHERE id = 2"
+            "UPDATE volume SET last_mount_path = {mount},
+                               last_seen_at = '2026-10-11T10:00:00.000Z'
+             WHERE id = {volume}"
         ));
         assert_eq!(rig.num("SELECT count(*) FROM best_file_due"), 0);
+        rig.exec(&format!("INSERT INTO best_file_due VALUES ({track})"));
         rig.settle();
-        assert_eq!(rig.written(), before);
+        assert_eq!(rig.written(), before, "volume {volume} at {mount}");
     }
 }
 
@@ -814,7 +823,7 @@ fn base(id: i64) -> FileFacts {
 }
 
 /// The step that makes `better` a better file than `worse`, if any.
-fn better_by(better: &FileFacts, worse: &FileFacts) -> Option<Step> {
+fn better_by(better: &FileFacts, worse: &FileFacts) -> Option<BetterStep> {
     audio_step(&why_ahead(better, worse)?)
 }
 
@@ -822,7 +831,7 @@ fn better_by(better: &FileFacts, worse: &FileFacts) -> Option<Step> {
 fn a_copy_on_disk_is_a_better_file_than_one_that_is_gone() {
     let (better, mut worse) = (base(2), base(1));
     worse.on_disk = false;
-    assert_eq!(better_by(&better, &worse), Some(Step::OnDisk));
+    assert_eq!(better_by(&better, &worse), Some(BetterStep::OnDisk));
 }
 
 #[test]
@@ -830,14 +839,14 @@ fn a_copy_with_a_better_verdict_is_a_better_file() {
     let (mut better, mut worse) = (base(2), base(1));
     better.quality.verdict = Some(Verdict::Ok);
     worse.quality.verdict = Some(Verdict::Truncated);
-    assert_eq!(better_by(&better, &worse), Some(Step::Verdict));
+    assert_eq!(better_by(&better, &worse), Some(BetterStep::Verdict));
 }
 
 #[test]
 fn a_copy_the_dj_app_plays_is_a_better_file_than_one_it_does_not() {
     let (better, mut worse) = (base(2), base(1));
     worse.plays_in_dj_app = false;
-    assert_eq!(better_by(&better, &worse), Some(Step::Playable));
+    assert_eq!(better_by(&better, &worse), Some(BetterStep::Playable));
 }
 
 #[test]
@@ -853,7 +862,7 @@ fn a_copy_with_a_higher_cutoff_is_a_better_file() {
         cutoff_hz: Some(16_000),
         decode_errors: 0,
     };
-    assert_eq!(better_by(&better, &worse), Some(Step::Cutoff));
+    assert_eq!(better_by(&better, &worse), Some(BetterStep::Cutoff));
 }
 
 #[test]
@@ -861,7 +870,7 @@ fn a_copy_with_fewer_decode_errors_is_a_better_file() {
     let (mut better, mut worse) = (base(2), base(1));
     better.quality.decode_errors = 0;
     worse.quality.decode_errors = 4;
-    assert_eq!(better_by(&better, &worse), Some(Step::DecodeErrors));
+    assert_eq!(better_by(&better, &worse), Some(BetterStep::DecodeErrors));
 }
 
 #[test]
@@ -871,7 +880,7 @@ fn a_copy_in_a_better_format_is_a_better_file() {
         codec: Some(Codec::Flac),
         kbps: None,
     };
-    assert_eq!(better_by(&better, &worse), Some(Step::Format));
+    assert_eq!(better_by(&better, &worse), Some(BetterStep::Format));
 }
 
 #[test]
@@ -957,6 +966,94 @@ fn tags_are_read_from_the_stored_frames_and_album_artist_and_isrc_stay_empty() {
     assert_eq!(tags.year, Some(2019));
     assert_eq!(tags.track_no, Some(3));
     assert_eq!((tags.album_artist, tags.isrc), (None, None));
+}
+
+// ---- a measurement of other audio ----------------------------------------------
+
+/// Gives a file this audio hash and a measurement of it with this cutoff.
+fn measured(rig: &Rig, file: i64, hash_byte: u8, cutoff_hz: i64) {
+    let hash = format!("{hash_byte:02x}").repeat(34);
+    rig.exec(&format!(
+        "UPDATE file SET audio_hash = x'{hash}' WHERE id = {file};
+         INSERT INTO file_quality
+             (file_id, audio_hash, method_version, cutoff_hz, decoded_ms, header_ms, ended)
+         VALUES ({file}, x'{hash}', {version}, {cutoff_hz}, 1000, 1000, 'complete');",
+        version = crate::quality::VERSION
+    ));
+}
+
+fn cutoff_of(rig: &Rig, track: i64, file: i64) -> Option<u32> {
+    rig.writer
+        .call(move |c| facts::load(c, &[track]))
+        .unwrap()
+        .remove(&track)
+        .unwrap()
+        .into_iter()
+        .find(|l| l.facts.file_id == file)
+        .unwrap()
+        .facts
+        .quality
+        .cutoff_hz
+}
+
+#[test]
+fn a_cutoff_measured_of_other_audio_reads_as_none_and_the_other_copy_is_not_outranked_by_it() {
+    let rig = Rig::new();
+    let track = rig.track();
+    let first = rig.file(track, "a.mp3", Kind::Mp3(320));
+    let second = rig.file(track, "b.mp3", Kind::Mp3(320));
+    measured(&rig, first, 0x01, 20_000);
+    measured(&rig, second, 0x02, 18_000);
+    rig.settle();
+    assert_eq!(cutoff_of(&rig, track, first), Some(20_000));
+    assert_eq!(rig.best_of(track), first, "the higher cutoff");
+
+    // The first file now holds other audio; its measurement is of the old.
+    rig.exec(&format!(
+        "UPDATE file SET audio_hash = x'{}' WHERE id = {first}",
+        "03".repeat(34)
+    ));
+    rig.settle();
+    assert_eq!(cutoff_of(&rig, track, first), None);
+    assert_eq!(cutoff_of(&rig, track, second), Some(18_000));
+    assert_eq!(
+        rig.best_of(track),
+        second,
+        "not outranked on the old number"
+    );
+}
+
+#[test]
+fn the_better_file_steps_are_exactly_the_ones_the_table_accepts() {
+    let rig = Rig::new();
+    let track = rig.track();
+    rig.file(track, "a.mp3", Kind::Mp3(320));
+    let other = rig.file(track, "b.mp3", Kind::Mp3(320));
+    let accepted = |name: &str| -> bool {
+        let sql = format!(
+            "INSERT OR REPLACE INTO better_file (recording_id, file_id, step)
+             VALUES ({track}, {other}, '{name}')"
+        );
+        rig.writer.call(move |c| c.execute_batch(&sql)).is_ok()
+    };
+    for step in BetterStep::ALL {
+        assert!(accepted(step.name()), "{step:?}");
+        assert_eq!(BetterStep::parse(step.name()), Some(step));
+    }
+    // Every other step of the ranking is refused by the table, and no
+    // better-file step comes from them.
+    for step in [
+        crate::best_file::Step::Tags,
+        crate::best_file::Step::Art,
+        crate::best_file::Step::Rekordbox,
+        crate::best_file::Step::Place,
+        crate::best_file::Step::Tied,
+    ] {
+        let name = serde_json::to_value(step).unwrap();
+        let name = name.as_str().unwrap();
+        assert!(!accepted(name), "{name}");
+        assert_eq!(BetterStep::of(step), None);
+    }
 }
 
 // ---- the job ------------------------------------------------------------------

@@ -432,6 +432,51 @@ fn a_trusted_match_whose_file_is_gone_is_still_refused_when_the_roles_favour_ano
 }
 
 #[test]
+fn a_trusted_match_that_is_present_is_the_file_linked_when_the_roles_favour_another_copy() {
+    let lib = Lib::new();
+    let track = lib.track(None, None);
+    let played = lib.file(track, "played.mp3", "undecided", true);
+    let better = lib.file(track, "better.flac", "undecided", true);
+    lib.writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE file SET sniffed_format = 'mp3', codec = 'mp3', bitrate = 320 WHERE id = ?1",
+                [played],
+            )?;
+            c.execute(
+                "UPDATE file SET sniffed_format = 'flac', codec = 'flac' WHERE id = ?1",
+                [better],
+            )
+        })
+        .unwrap();
+    lib.rekordbox_match(played, false);
+    lib.settle_roles();
+    let role: String = lib
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT role FROM recording_file WHERE file_id = ?1",
+                [better],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(role, "best", "the roles favour the FLAC");
+
+    let choice = lib
+        .writer
+        .call(move |c| linked_file_for(c, track))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (choice.file_id, choice.source),
+        (played, LinkedFileSource::Rekordbox)
+    );
+    lib.promote(track).unwrap();
+    assert_eq!(lib.linked_file(track), Some(played));
+}
+
+#[test]
 fn a_probable_match_is_never_the_file_linked_even_when_the_roles_pick_another_copy() {
     let lib = Lib::new();
     let track = lib.track(None, None);
@@ -473,7 +518,7 @@ fn a_library_track_lists_the_better_file_that_ranks_ahead_of_its_linked_file() {
         listed[0].better_file,
         Some(BetterFile {
             file_id: better,
-            step: crate::best_file::Step::Format,
+            step: crate::file_roles::BetterStep::Format,
         })
     );
     // The linked file is the pinned one.
