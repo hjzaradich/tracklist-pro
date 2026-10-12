@@ -41,7 +41,7 @@
 //!   every track due.
 
 mod job;
-mod query;
+pub(crate) mod query;
 mod settle;
 
 #[cfg(test)]

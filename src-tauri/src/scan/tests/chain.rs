@@ -490,7 +490,11 @@ fn a_walk_that_finds_nothing_new_or_changed_queues_no_stage_job() {
 /// How many search index jobs (1cA-6) have been queued so far.
 fn index_jobs(writer: &Writer) -> i64 {
     writer
-        .call(|c| c.query_row("SELECT count(*) FROM job WHERE kind = 'index'", [], |r| r.get(0)))
+        .call(|c| {
+            c.query_row("SELECT count(*) FROM job WHERE kind = 'index'", [], |r| {
+                r.get(0)
+            })
+        })
         .unwrap()
 }
 

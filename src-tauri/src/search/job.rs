@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use super::settle::{forget_everything, settle_page};
 use super::pending;
+use super::settle::{forget_everything, settle_page};
 use crate::db::{DbError, Writer};
 use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, NewJob, Priority};
 use crate::paths::Volumes;

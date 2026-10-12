@@ -61,7 +61,10 @@ pub fn settle_page(
         )?;
     }
     // Nothing writes any other id that isn't a track's.
-    tx.execute("DELETE FROM search_due WHERE recording_id < -1 OR recording_id = 0", [])?;
+    tx.execute(
+        "DELETE FROM search_due WHERE recording_id < -1 OR recording_id = 0",
+        [],
+    )?;
     let page: Vec<i64> = tx
         .prepare("SELECT recording_id FROM search_due ORDER BY recording_id LIMIT ?1")?
         .query_map([limit.max(1) as i64], |r| r.get(0))?
@@ -84,7 +87,15 @@ pub fn settle_page(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )?
         .execute(params![
-            id, title, f.artist, f.album, f.remixer, f.label, f.genre, comment, row.file_names
+            id,
+            title,
+            f.artist,
+            f.album,
+            f.remixer,
+            f.label,
+            f.genre,
+            comment,
+            row.file_names
         ])?;
     }
     tx.execute(
@@ -123,9 +134,14 @@ fn rows_for(
          WHERE rf.recording_id IN (SELECT value FROM json_each(?1))
          ORDER BY rf.recording_id, (rf.role = 'best') DESC, f.id",
     )?;
-    for row in stmt.query_map([&ids], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? {
+    for row in stmt.query_map([&ids], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+    })? {
         let (recording, rel_path) = row?;
-        names.entry(recording).or_default().push(file_name_text(&rel_path));
+        names
+            .entry(recording)
+            .or_default()
+            .push(file_name_text(&rel_path));
     }
     // The Library tracks among them.
     let mut library: HashMap<i64, LibraryTrackId> = HashMap::new();
@@ -170,7 +186,11 @@ fn rows_for(
 
 /// Settles every track that is due, `page` tracks per transaction, and
 /// returns how many tracks that was.
-pub fn settle(conn: &mut Connection, volumes: &impl Volumes, page: usize) -> rusqlite::Result<usize> {
+pub fn settle(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+    page: usize,
+) -> rusqlite::Result<usize> {
     let mut settled = 0;
     while super::pending(conn)? {
         settled += settle_page(conn, volumes, page)?;
@@ -180,7 +200,11 @@ pub fn settle(conn: &mut Connection, volumes: &impl Volumes, page: usize) -> rus
 
 /// Throws every row away and works them all out again: the index is derived
 /// data, and this is the way back from any drift.
-pub fn rebuild(conn: &mut Connection, volumes: &impl Volumes, page: usize) -> rusqlite::Result<usize> {
+pub fn rebuild(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+    page: usize,
+) -> rusqlite::Result<usize> {
     forget_everything(conn)?;
     settle(conn, volumes, page)
 }
@@ -188,8 +212,14 @@ pub fn rebuild(conn: &mut Connection, volumes: &impl Volumes, page: usize) -> ru
 /// Empties the index and makes every track due.
 pub(super) fn forget_everything(conn: &mut Connection) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
-    tx.execute("INSERT INTO search_track (search_track) VALUES ('delete-all')", [])?;
+    tx.execute(
+        "INSERT INTO search_track (search_track) VALUES ('delete-all')",
+        [],
+    )?;
     tx.execute("DELETE FROM search_due", [])?;
-    tx.execute("INSERT INTO search_due (recording_id) SELECT id FROM recording", [])?;
+    tx.execute(
+        "INSERT INTO search_due (recording_id) SELECT id FROM recording",
+        [],
+    )?;
     tx.commit()
 }

@@ -250,7 +250,10 @@ fn a_removed_track_is_not_found_any_more() {
     let (gone, _) = lib.track(Some("Short Lived"), None, "x.mp3");
     let (kept, _) = lib.track(Some("Short Kept"), None, "y.mp3");
     assert_eq!(lib.finds("short"), vec![gone, kept]);
-    lib.insert("DELETE FROM recording_file WHERE recording_id = ?1", (gone,));
+    lib.insert(
+        "DELETE FROM recording_file WHERE recording_id = ?1",
+        (gone,),
+    );
     lib.insert("DELETE FROM recording WHERE id = ?1", (gone,));
     assert_eq!(lib.finds("short"), vec![kept]);
 }
@@ -443,4 +446,43 @@ fn a_search_says_when_the_index_is_behind_the_tracks() {
         "the old row stands until it is settled"
     );
     assert!(!lib.found("ahead").unwrap().behind);
+}
+
+#[test]
+fn the_hidden_files_are_the_same_whether_looked_up_by_track_or_by_walking_them() {
+    let lib = Lib::new();
+    let mut tracks = Vec::new();
+    for n in 0..6 {
+        let (track, file) = lib.track(Some(&format!("Common {n}")), None, &format!("{n}.mp3"));
+        match n % 3 {
+            0 => {
+                lib.file(track, &format!("{n}-copy.mp3"), "extra");
+            }
+            1 => {
+                lib.insert(
+                    "UPDATE file SET hidden_reason = 'inbox_cleared' WHERE id = ?1",
+                    (file,),
+                );
+            }
+            _ => {}
+        }
+        tracks.push(track);
+    }
+    lib.settle();
+    let both = |wanted: Vec<i64>| {
+        lib.writer
+            .call(move |c| {
+                Ok((
+                    crate::search::query::hidden_files(c, &wanted, true)?,
+                    crate::search::query::hidden_files(c, &wanted, false)?,
+                ))
+            })
+            .unwrap()
+    };
+    let (by_track, walked) = both(tracks.clone());
+    assert_eq!(by_track.len(), 4);
+    assert_eq!(by_track, walked);
+    let (by_track, walked) = both(vec![tracks[1], tracks[3]]);
+    assert_eq!(by_track.len(), 2);
+    assert_eq!(by_track, walked);
 }

@@ -104,7 +104,9 @@ fn adding_a_track_to_the_library_then_asking_makes_the_new_shown_title_findable(
     lib.library(track, file);
     let behind = lib.found_as_is("tag").unwrap();
     assert!(behind.behind);
-    assert!(index_jobs(&lib.writer).iter().all(|j| j.status == JobStatus::Done));
+    assert!(index_jobs(&lib.writer)
+        .iter()
+        .all(|j| j.status == JobStatus::Done));
 
     // The search command asks, as the later screen task does.
     request_now(&lib, &queue);

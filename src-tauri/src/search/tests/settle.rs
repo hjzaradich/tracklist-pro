@@ -161,7 +161,10 @@ fn the_index_built_a_change_at_a_time_is_the_index_built_from_nothing() {
     lib.tag(one_file, &[("Name", "Alpha Uno"), ("Artist", "Artist A")]);
     lib.settle();
     let extra = lib.file(two, "two-copy.mp3", "extra");
-    lib.insert("UPDATE file SET hidden_reason = 'user' WHERE id = ?1", (extra,));
+    lib.insert(
+        "UPDATE file SET hidden_reason = 'user' WHERE id = ?1",
+        (extra,),
+    );
     lib.settle();
     lib.insert(
         "UPDATE file SET rel_path = 'renamed.flac', rel_path_key = 'renamed.flac' WHERE id = ?1",
@@ -170,7 +173,10 @@ fn the_index_built_a_change_at_a_time_is_the_index_built_from_nothing() {
     lib.settle();
     let (gone, _) = lib.track(Some("Short lived"), None, "gone.mp3");
     lib.settle();
-    lib.insert("DELETE FROM recording_file WHERE recording_id = ?1", (gone,));
+    lib.insert(
+        "DELETE FROM recording_file WHERE recording_id = ?1",
+        (gone,),
+    );
     lib.insert("DELETE FROM recording WHERE id = ?1", (gone,));
     let _ = (one, three);
 

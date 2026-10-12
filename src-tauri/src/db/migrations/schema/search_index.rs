@@ -89,7 +89,14 @@ fn the_index_is_full_text_with_the_eight_fields_and_keeps_no_text() {
     assert_eq!(
         columns[..8],
         [
-            "title", "artist", "album", "remixer", "label", "genre", "comment", "file_name"
+            "title",
+            "artist",
+            "album",
+            "remixer",
+            "label",
+            "genre",
+            "comment",
+            "file_name"
         ]
     );
     accepts(

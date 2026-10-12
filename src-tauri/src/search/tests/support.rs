@@ -146,7 +146,10 @@ impl Lib {
     pub fn rekordbox_entry(&self, file: i64, attributes: &[(&str, &str)]) -> i64 {
         let mut object = serde_json::Map::new();
         object.insert("TrackID".into(), "7".into());
-        object.insert("Location".into(), "file://localhost/E:/Music/known.mp3".into());
+        object.insert(
+            "Location".into(),
+            "file://localhost/E:/Music/known.mp3".into(),
+        );
         for (name, value) in attributes {
             object.insert((*name).into(), (*value).into());
         }
@@ -197,9 +200,11 @@ impl Lib {
                      CREATE VIRTUAL TABLE temp.search_vocab
                          USING fts5vocab(main, search_track, instance);",
                 )?;
-                c.prepare("SELECT term, doc, col, offset FROM temp.search_vocab ORDER BY 1, 2, 3, 4")?
-                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-                    .collect()
+                c.prepare(
+                    "SELECT term, doc, col, offset FROM temp.search_vocab ORDER BY 1, 2, 3, 4",
+                )?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                .collect()
             })
             .unwrap()
     }

@@ -92,10 +92,42 @@ pub fn find(conn: &Connection, text: &str) -> rusqlite::Result<Option<Found>> {
         .collect::<rusqlite::Result<_>>()?;
     tracks.sort_unstable();
 
-    // Hidden files are few: walk them, and keep those of matching tracks.
-    let mut hidden = Vec::new();
-    if !tracks.is_empty() {
-        let mut stmt = conn.prepare_cached(
+    let hidden = hidden_files(conn, &tracks, tracks.len() <= BY_TRACK_UP_TO)?;
+    Ok(Some(Found {
+        tracks,
+        hidden,
+        behind: pending(conn)?,
+    }))
+}
+
+/// Up to this many matching tracks, their hidden files are looked up track
+/// by track; for more, the (few) hidden files of the whole library are
+/// walked and those of matching tracks kept.
+const BY_TRACK_UP_TO: usize = 300;
+
+/// The hidden files of the tracks `tracks` (sorted), by file id: looked up
+/// track by track (`by_track`), or by walking every hidden file.
+pub(crate) fn hidden_files(
+    conn: &Connection,
+    tracks: &[i64],
+    by_track: bool,
+) -> rusqlite::Result<Vec<HiddenFile>> {
+    if tracks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<(i64, i64, String, Option<String>)> = if by_track {
+        let ids = serde_json::to_string(tracks).expect("numbers always serialize");
+        conn.prepare_cached(
+            "SELECT rf.recording_id, rf.file_id, rf.role, f.hidden_reason
+             FROM recording_file rf JOIN file f ON f.id = rf.file_id
+             WHERE rf.recording_id IN (SELECT value FROM json_each(?1))
+               AND (rf.role = 'extra' OR f.hidden_reason IS NOT NULL)
+             ORDER BY rf.file_id",
+        )?
+        .query_map([&ids], row)?
+        .collect::<rusqlite::Result<_>>()?
+    } else {
+        conn.prepare_cached(
             "SELECT rf.recording_id, rf.file_id, rf.role, f.hidden_reason
              FROM recording_file rf JOIN file f ON f.id = rf.file_id
              WHERE rf.role = 'extra'
@@ -104,51 +136,44 @@ pub fn find(conn: &Connection, text: &str) -> rusqlite::Result<Option<Found>> {
              FROM file f JOIN recording_file rf ON rf.file_id = f.id
              WHERE f.hidden_reason IS NOT NULL
              ORDER BY 2",
-        )?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut shown: HashMap<i64, bool> = HashMap::new();
-        for (recording_id, file_id, role, reason) in rows {
-            if tracks.binary_search(&recording_id).is_err() {
-                continue;
-            }
-            let why = match reason.as_deref() {
-                Some("user") => Why::UserHid,
-                Some(_) => Why::ClearedInbox,
-                None => {
-                    debug_assert_eq!(role, "extra");
-                    Why::ExtraFile
-                }
-            };
-            let track_has_shown_file = match shown.get(&recording_id) {
-                Some(&known) => known,
-                None => {
-                    let known = has_shown_file(conn, recording_id)?;
-                    shown.insert(recording_id, known);
-                    known
-                }
-            };
-            hidden.push(HiddenFile {
-                file_id,
-                recording_id,
-                why,
-                track_has_shown_file,
-            });
+        )?
+        .query_map([], row)?
+        .collect::<rusqlite::Result<_>>()?
+    };
+    let mut hidden = Vec::new();
+    let mut shown: HashMap<i64, bool> = HashMap::new();
+    for (recording_id, file_id, role, reason) in rows {
+        if tracks.binary_search(&recording_id).is_err() {
+            continue;
         }
+        let why = match reason.as_deref() {
+            Some("user") => Why::UserHid,
+            Some(_) => Why::ClearedInbox,
+            None => {
+                debug_assert_eq!(role, "extra");
+                Why::ExtraFile
+            }
+        };
+        let track_has_shown_file = match shown.get(&recording_id) {
+            Some(&known) => known,
+            None => {
+                let known = has_shown_file(conn, recording_id)?;
+                shown.insert(recording_id, known);
+                known
+            }
+        };
+        hidden.push(HiddenFile {
+            file_id,
+            recording_id,
+            why,
+            track_has_shown_file,
+        });
     }
-    Ok(Some(Found {
-        tracks,
-        hidden,
-        behind: pending(conn)?,
-    }))
+    Ok(hidden)
+}
+
+fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<(i64, i64, String, Option<String>)> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
 }
 
 /// Whether the track has a file that isn't hidden.

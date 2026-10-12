@@ -79,10 +79,7 @@ fn first<'a>(attributes: Option<&'a Vec<(String, String)>>, name: &str) -> Optio
 
 /// The first value of each of `wanted` among the files' tags, as a send
 /// picks them.
-fn picked_tags(
-    tags: &[(i64, Vec<tag_fields::TagValue>)],
-    wanted: &[&str],
-) -> Vec<Option<String>> {
+fn picked_tags(tags: &[(i64, Vec<tag_fields::TagValue>)], wanted: &[&str]) -> Vec<Option<String>> {
     wanted
         .iter()
         .map(|attribute| {
@@ -115,9 +112,10 @@ impl Loaded {
                     .map(|name| first(attributes, name).map(str::to_owned))
                     .collect()
             }
-            Source::Files { .. } | Source::Cannot(_) => {
-                picked_tags(&read_tags(&self.files, &self.tag_order(row), wanted), wanted)
-            }
+            Source::Files { .. } | Source::Cannot(_) => picked_tags(
+                &read_tags(&self.files, &self.tag_order(row), wanted),
+                wanted,
+            ),
         }
     }
 
@@ -167,11 +165,7 @@ struct Found {
 
 /// For each recording in `ids`: what its files give (it may have none), in
 /// one query. The tags are read file by file only until both are found.
-fn found(
-    conn: &Connection,
-    ids: &[i64],
-    wanted: &[&str],
-) -> rusqlite::Result<HashMap<i64, Found>> {
+fn found(conn: &Connection, ids: &[i64], wanted: &[&str]) -> rusqlite::Result<HashMap<i64, Found>> {
     let json = json_ids(&mut ids.iter().copied());
     let mut stmt = conn.prepare(
         "SELECT r.id, r.title, r.artist, f.rel_path, f.raw_tags

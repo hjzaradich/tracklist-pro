@@ -341,7 +341,9 @@ fn tables_that_are_not_strict(conn: &Connection) -> Vec<String> {
     }
     let listed: usize = FTS_TABLES.iter().map(|(_, s)| 1 + s.len()).sum();
     if full_text != listed {
-        problems.push(format!("{listed} full-text tables listed, {full_text} found"));
+        problems.push(format!(
+            "{listed} full-text tables listed, {full_text} found"
+        ));
     }
     problems
 }
@@ -361,9 +363,20 @@ fn only_the_listed_full_text_tables_are_excused_from_being_strict() {
     accepts(&conn, "CREATE VIRTUAL TABLE stray USING fts5(a)");
     accepts(&conn, "CREATE TABLE loose (a)");
     let problems = tables_that_are_not_strict(&conn);
-    assert!(problems.iter().any(|p| p.starts_with("stray is a virtual")), "{problems:?}");
-    assert!(problems.iter().any(|p| p.starts_with("stray_data is a shadow")), "{problems:?}");
-    assert!(problems.contains(&"loose is not STRICT".to_string()), "{problems:?}");
+    assert!(
+        problems.iter().any(|p| p.starts_with("stray is a virtual")),
+        "{problems:?}"
+    );
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.starts_with("stray_data is a shadow")),
+        "{problems:?}"
+    );
+    assert!(
+        problems.contains(&"loose is not STRICT".to_string()),
+        "{problems:?}"
+    );
 }
 
 #[test]
