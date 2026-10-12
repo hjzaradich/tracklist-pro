@@ -446,6 +446,41 @@ fn a_drive_that_is_not_plugged_in_is_never_taken_for_gone() {
     assert!(!lib.shown_missing(scene.track));
 }
 
+/// Only the first test drive is plugged in.
+struct OnlyE;
+
+impl Volumes for OnlyE {
+    fn volume_for(&self, path: &Path) -> std::io::Result<Volume> {
+        Err(std::io::Error::other(format!("{}", path.display())))
+    }
+
+    fn mount_path(&self, id: &VolumeId) -> Option<PathBuf> {
+        (id.as_str() == serial(1)).then(|| PathBuf::from(r"E:\"))
+    }
+}
+
+#[test]
+fn a_copy_on_a_drive_that_is_not_plugged_in_counts_as_on_disk_and_is_followed_to() {
+    // Unplugged isn't missing, here as everywhere: the copy was indexed
+    // while its drive was in, and is still present. The linked file is gone
+    // (its own drive is in, and was walked).
+    let scene = unknown();
+    let lib = &scene.lib;
+    let f = lib.volume(&serial(2), Some(r"F:\"));
+    let other = lib.folder(f, "Sets");
+    let copy = lib.file(other, "Kappa.mp3", Some(200_000));
+    lib.hashed(copy, 1);
+    lib.regroup();
+    lib.gone(scene.old);
+    let follows = lib
+        .writer
+        .call(|c| Ok(follow_files(c, &OnlyE)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(follows, scene.followed(copy));
+    assert!(!lib.shown_missing(scene.track));
+}
+
 #[test]
 fn a_file_is_followed_to_only_while_its_hash_is_current() {
     let scene = unknown();
@@ -915,7 +950,20 @@ fn only_the_follow_ever_changes_a_library_tracks_linked_file_in_the_apps_code() 
             .unwrap();
     let code = library.split("#[cfg(test)]").next().unwrap();
     assert_eq!(code.matches("\"linked_file_id\"").count(), 1);
-    assert!(code.contains("(\"linked_file_id\", file_id)"));
+    let insert = code
+        .split("pub fn insert_linked(")
+        .nth(1)
+        .and_then(|rest| {
+            rest.split(
+                "
+}
+",
+            )
+            .next()
+        })
+        .expect("library::insert_linked");
+    assert!(insert.contains("(\"linked_file_id\", Value::Integer(file_id))"));
+    assert!(insert.contains("rec.insert("));
     // And no migration's trigger writes it.
     let migrations = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
     for entry in std::fs::read_dir(migrations).unwrap() {
