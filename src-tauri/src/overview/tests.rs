@@ -1081,9 +1081,6 @@ fn awkward_library() -> Lib {
         "INSERT INTO library_track (recording_id, linked_file_id, source_status) VALUES (?1, NULL, 'missing')",
         [none],
     );
-    // A name ending in a slash has no file name to show.
-    lib.library_track("Slash/", None, id3(None, Some("B"), Some("House")));
-    lib.exec("UPDATE file SET rel_path = 'Slash/', rel_path_key = 'Slash/' WHERE rel_path = 'Slash/.mp3'", []);
 
     lib.rekordbox(
         file_of(&lib, "Known and artist"),

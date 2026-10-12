@@ -371,7 +371,7 @@ const MISSING_ART: &str = "SELECT count(*) FROM library_track lt
 
 /// Each Library track with what its shown title and artist (and its genre)
 /// are made of, for [`missing_tags`]:
-/// `(id, rb, title, linked, present, name_ok, known_artist, digest)`.
+/// `(id, rb, title, linked, present, known_artist, digest)`.
 ///
 /// `digest` holds the linked file's genre and artist frames, as
 /// [`genre_source_sql`] does for the genre alone.
@@ -382,7 +382,7 @@ fn missing_tags_sql() -> String {
         "s.rb IS NULL OR s.ka IS NULL"
     };
     format!(
-        "SELECT s.id, s.rb, s.title, s.fid, s.present, s.name_ok, s.ka,
+        "SELECT s.id, s.rb, s.title, s.fid, s.present, s.ka,
                 CASE WHEN s.fid IS NOT NULL AND ({tag_needed}) THEN (
                     SELECT json_group_object(b.block, json(b.items)) FROM (
                         SELECT blk.key AS block, json_group_array(json(i.value)) AS items
@@ -391,7 +391,6 @@ fn missing_tags_sql() -> String {
                         GROUP BY blk.key) b) END AS digest
          FROM (SELECT lt.id AS id, lt.linked_file_id AS fid, r.title AS title,
                       f.present AS present,
-                      f.rel_path IS NOT NULL AND substr(f.rel_path, -1) <> '/' AS name_ok,
                       {rekordbox_genre} AS rb,
                       (SELECT coalesce(CAST(json_extract(k.attributes, '$.Artist') AS TEXT), '')
                        FROM rekordbox_track k
@@ -442,7 +441,7 @@ fn missing_tags_by(
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
         let rb: Option<String> = row.get(1)?;
-        let digest: Option<String> = row.get(7)?;
+        let digest: Option<String> = row.get(6)?;
         let has_genre =
             *genre_known
                 .entry((rb, digest.clone()))
@@ -456,9 +455,8 @@ fn missing_tags_by(
         let title: Option<String> = row.get(2)?;
         let linked: Option<i64> = row.get(3)?;
         let present: Option<bool> = row.get(4)?;
-        let name_ok: bool = row.get(5)?;
-        let known_artist: Option<String> = row.get(6)?;
-        let title_ok = title.as_deref().is_some_and(|t| !blank(t)) || (linked.is_some() && name_ok);
+        let known_artist: Option<String> = row.get(5)?;
+        let title_ok = title.as_deref().is_some_and(|t| !blank(t)) || linked.is_some();
         // Settled by the values at hand: Some(has an artist).
         let artist = match (&known_artist, present, &digest) {
             _ if ask_all || !title_ok => None,
