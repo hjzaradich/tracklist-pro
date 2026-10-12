@@ -96,11 +96,11 @@ impl Lib {
     }
 
     /// A track (a `recording`).
-    fn track(&self, title: &str) -> i64 {
-        self.exec(
-            "INSERT INTO recording (title) VALUES (?1)",
-            [title.to_owned()],
-        )
+    /// The name is only for reading the test: nothing fills
+    /// `recording.title` today, so a track is shown by its tags or its
+    /// file's name.
+    fn track(&self, _name: &str) -> i64 {
+        self.exec("INSERT INTO recording DEFAULT VALUES", [])
     }
 
     /// A file of `track` that is its best, `ms` long, on the Music folder.
@@ -852,6 +852,78 @@ fn a_cover_in_a_real_id3_tag_is_found_by_the_art_rule() {
     assert_eq!(lib.overview().missing_art, 1);
 }
 
+/// A library of awkward tracks for the short way of counting missing tags:
+/// each is settled by a different rule, and the counts of the short way and
+/// of asking `shown` about every track must agree.
+fn awkward_library() -> Lib {
+    let lib = Lib::new();
+    let vorbis = |artist: &str| Some(json!({"vorbis_comments": [text("GENRE", "House"), text("ARTIST", artist)]}));
+    lib.library_track("Tagged", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.library_track("Vorbis artist", None, vorbis("B"));
+    lib.library_track("Vorbis blank artist", None, vorbis("   "));
+    lib.library_track("Lower case key", None, Some(json!({"ape": [text("genre", "House"), text("artist", "B")]})));
+    lib.library_track("Artist is only a NUL", None, Some(json!({"id3v2": [text("TPE1", "\0"), text("TCON", "House")]})));
+    lib.library_track("Artist cut off", None, Some(json!({"id3v2": [
+        {"key": "TPE1", "value": {"type": "text", "text": "B", "full_len": 9000}}, text("TCON", "House")]})));
+    lib.library_track("ID3v1 artist", None, Some(json!({"id3v2": [text("TCON", "House")], "id3v1": [text("artist", "B")]})));
+    lib.library_track("AIFF artist", None, Some(json!({"id3v2": [text("TCON", "House")], "aiff_text": [text("AUTH", "B")]})));
+    lib.library_track("Known and artist", None, id3(Some("A"), None, Some("House")));
+    lib.library_track("Known and no artist", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.library_track("Known, entry also has a tag", None, id3(Some("A"), Some("B"), None));
+    lib.library_track("Gone", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.library_track("Gone and no artist", None, id3(Some("A"), None, Some("House")));
+    lib.library_track("Probable only", None, id3(None, Some("B"), Some("House")));
+    let titled = lib.track("Titled recording");
+    lib.exec("UPDATE recording SET title = 'Own title', artist = ' ' WHERE id = ?1", [titled]);
+    let f = lib.file(titled, "Titled recording.mp3", None, id3(None, None, Some("House")));
+    lib.add(titled, f, 1);
+    // The artist is in another file of the track, not the linked one.
+    let sibling = lib.track("Artist in a sibling file");
+    let linked = lib.file(sibling, "Sibling linked.mp3", None, id3(Some("A"), None, Some("House")));
+    lib.file(sibling, "Sibling other.mp3", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.add(sibling, linked, 1);
+    // A sibling that is gone is not asked.
+    let gone_sibling = lib.track("Artist in a gone sibling");
+    let linked = lib.file(gone_sibling, "Gone sibling linked.mp3", None, id3(Some("A"), None, Some("House")));
+    let other = lib.file(gone_sibling, "Gone sibling other.mp3", None, id3(Some("A"), Some("B"), Some("House")));
+    lib.exec("UPDATE file SET present = 0 WHERE id = ?1", [other]);
+    lib.add(gone_sibling, linked, 1);
+    // No linked file.
+    let none = lib.track("No link");
+    lib.exec(
+        "INSERT INTO library_track (recording_id, linked_file_id, source_status) VALUES (?1, NULL, 'missing')",
+        [none],
+    );
+    // A name ending in a slash has no file name to show.
+    lib.library_track("Slash/", None, id3(None, Some("B"), Some("House")));
+    lib.exec("UPDATE file SET rel_path = 'Slash/', rel_path_key = 'Slash/' WHERE rel_path = 'Slash/.mp3'", []);
+
+    lib.rekordbox(file_of(&lib, "Known and artist"), json!({"Name": "N", "Artist": "B", "Genre": "House"}), false);
+    lib.rekordbox(file_of(&lib, "Known and no artist"), json!({"Name": "N", "Genre": "House"}), false);
+    lib.rekordbox(file_of(&lib, "Known, entry also has a tag"), json!({"Artist": "B", "Genre": "House"}), false);
+    // A probable entry is not rekordbox knowing the file.
+    lib.rekordbox(file_of(&lib, "Probable only"), json!({"Artist": "", "Genre": "Wrong"}), true);
+    // A gone file with an entry: rekordbox's, if it is at its location.
+    lib.rekordbox(file_of(&lib, "Gone"), json!({"Artist": "", "Genre": "House"}), false);
+    lib.exec("UPDATE file SET present = 0 WHERE rel_path IN ('Gone.mp3', 'Gone and no artist.mp3')", []);
+    lib
+}
+
+#[test]
+fn the_short_way_of_counting_missing_tags_agrees_with_asking_for_every_shown_value() {
+    let lib = awkward_library();
+    let (short, long) = lib.run(|c| {
+        Ok((
+            missing_tags(c, &NoVolumes)?,
+            missing_tags_by(c, &NoVolumes, true)?,
+        ))
+    });
+    assert_eq!(short, long);
+    // Not everything is missing, and not nothing.
+    let tracks = lib.overview().tracks;
+    assert!(short > 5 && short < tracks, "{short} of {tracks}");
+}
+
 // Still counting.
 
 #[test]
@@ -934,7 +1006,7 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         let mut genres = scans(c, &genres_sql(), []);
         genres.retain(|t| t != "blk" && t != "i" && t != "b");
         assert_eq!(genres, ["lt"], "genres: one pass over the Library's tracks");
-        let mut per_track = scans(c, &track_genres_sql(), []);
+        let mut per_track = scans(c, &missing_tags_sql(), []);
         per_track.retain(|t| t != "blk" && t != "i" && t != "b");
         assert_eq!(per_track, ["lt"], "missing tags: one pass over the Library's tracks");
         let mut art = scans(c, MISSING_ART, []);
@@ -1003,7 +1075,7 @@ fn build(lib: &Lib, count: i64) {
                                 'Name', 'Name ' || id),
                                CASE WHEN id % 7 <> 0
                                     THEN json_object('Artist', 'RB Artist ' || (id % 50))
-                                    ELSE '{}' END),
+                                    ELSE '{{}}' END),
                     'c:/music/' || id, '2026-09-30T10:00:00.000Z', id, id, 'path'
              FROM recording WHERE id % 3 = 0;"
         ))?;
@@ -1019,22 +1091,24 @@ fn check_a_library_of(count: i64) {
     let started = std::time::Instant::now();
     let o = lib.overview();
     println!("overview of {count} tracks: {:?}", started.elapsed());
-    let timed = |what: &str, f: &dyn Fn(&Connection) -> rusqlite::Result<()>| {
+    let timed = |what: &str, f: fn(&Connection) -> rusqlite::Result<()>| {
         let at = std::time::Instant::now();
-        lib.run(|c| f(c));
+        lib.run(move |c| f(c));
         println!("  {what}: {:?}", at.elapsed());
     };
-    timed("library numbers", &|c| {
+    timed("library numbers", |c| {
         c.query_row(&library_sql(), ["2000"], |_| Ok(()))
     });
-    timed("all music", &|c| c.query_row(ALL_MUSIC, [], |_| Ok(())));
-    timed("genres statement", &|c| {
-        c.prepare(&genres_sql())?.query_map([], |_| Ok(()))?.for_each(drop);
+    timed("all music", |c| c.query_row(ALL_MUSIC, [], |_| Ok(())));
+    timed("genres statement", |c| {
+        c.prepare(&genres_sql())?
+            .query_map([], |_| Ok(()))?
+            .for_each(drop);
         Ok(())
     });
-    timed("genres", &|c| genres(c, 0).map(|_| ()));
-    timed("missing tags", &|c| missing_tags(c, &NoVolumes).map(|_| ()));
-    timed("missing art", &|c| c.query_row(MISSING_ART, [], |_| Ok(())));
+    timed("genres", |c| genres(c, 0).map(|_| ()));
+    timed("missing tags", |c| missing_tags(c, &NoVolumes).map(|_| ()));
+    timed("missing art", |c| c.query_row(MISSING_ART, [], |_| Ok(())));
 
     let all = 1..=count;
     assert_eq!(i64::from(o.tracks), count);
@@ -1051,6 +1125,11 @@ fn check_a_library_of(count: i64) {
         all.clone().filter(|n| n % 3 == 0).count() as i64
     );
     assert_eq!(i64::from(o.all_music), count);
+    if count <= 5_000 {
+        // The short way of counting missing tags is the long way.
+        let long = lib.run(|c| missing_tags_by(c, &NoVolumes, true));
+        assert_eq!(o.missing_tags, long);
+    }
     // Known tracks (every third) take rekordbox's artist, absent for every
     // seventh; the rest take the tag's, absent for every fourth. The title is
     // always there (a tag or, at worst, the file's name).

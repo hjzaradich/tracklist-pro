@@ -232,10 +232,46 @@ fn genres_sql() -> String {
     )
 }
 
-/// [`genres_sql`] for each Library track on its own: `(id, rb, digest)`.
-fn track_genres_sql() -> String {
-    format!("SELECT id, rb, digest FROM ({})", genre_source_sql())
+/// The frames of a file's tags that `send_values::tag_fields` maps to
+/// `Genre` (and, with `artist`, to `Artist`), as a condition on a block
+/// (`blk.key`) and an item (`i.value`) of `raw_tags`. Keys are the ones the
+/// tags layer writes: `TCON` / `TPE1` (ID3v2), `©gen` / `©ART` (MP4), `genre`
+/// / `artist` in any case (Vorbis, APE), `IGNR` / `IART` (RIFF INFO), and
+/// for the artist `AUTH` (AIFF) and `artist` (ID3v1).
+fn frame_filter(artist: bool) -> String {
+    let key = "json_extract(i.value, '$.key')";
+    let mut keys = format!(
+        "(blk.key = 'id3v2' AND {key} = 'TCON')
+         OR (blk.key = 'mp4_ilst' AND {key} = char(169) || 'gen')
+         OR (blk.key IN ('vorbis_comments', 'ape') AND lower({key}) = 'genre')
+         OR (blk.key = 'riff_info' AND {key} = 'IGNR')"
+    );
+    if artist {
+        keys += &format!(
+            "
+         OR (blk.key = 'id3v2' AND {key} = 'TPE1')
+         OR (blk.key = 'mp4_ilst' AND {key} = char(169) || 'ART')
+         OR (blk.key IN ('vorbis_comments', 'ape') AND lower({key}) = 'artist')
+         OR (blk.key = 'riff_info' AND {key} = 'IART')
+         OR (blk.key = 'aiff_text' AND {key} = 'AUTH')
+         OR (blk.key = 'id3v1' AND {key} = 'artist')"
+        );
+    }
+    keys
 }
+
+/// What rekordbox says a Library track's genre is, from the trusted entry
+/// attach would pick (`{order}` is [`crate::attach::PICK_ORDER`]): `NULL`
+/// for a track rekordbox doesn't know, `''` for a known track whose genre
+/// is blank. Needs `lt` (`library_track`).
+const REKORDBOX_GENRE: &str =
+    "(SELECT coalesce(CAST(json_extract(rt.attributes, '$.Genre') AS TEXT), '')
+                       FROM rekordbox_track rt
+                       LEFT JOIN recording_file rf
+                              ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
+                       WHERE rt.recording_id = lt.recording_id AND rt.relink_probable = 0
+                       ORDER BY {order}
+                       LIMIT 1)";
 
 /// Each Library track's `id`, what rekordbox says (`rb`) and the file's
 /// genre frames (`digest`), as [`genres_sql`] describes.
@@ -252,25 +288,13 @@ fn genre_source_sql() -> String {
                     SELECT json_group_object(b.block, json(b.items)) FROM (
                         SELECT blk.key AS block, json_group_array(json(i.value)) AS items
                         FROM file f, json_each(f.raw_tags) blk, json_each(blk.value) i
-                        WHERE f.id = g.fid AND json_type(blk.value) = 'array' AND (
-                               (blk.key = 'id3v2' AND json_extract(i.value, '$.key') = 'TCON')
-                            OR (blk.key = 'mp4_ilst'
-                                AND json_extract(i.value, '$.key') = char(169) || 'gen')
-                            OR (blk.key IN ('vorbis_comments', 'ape')
-                                AND lower(json_extract(i.value, '$.key')) = 'genre')
-                            OR (blk.key = 'riff_info'
-                                AND json_extract(i.value, '$.key') = 'IGNR'))
+                        WHERE f.id = g.fid AND json_type(blk.value) = 'array' AND ({frames})
                         GROUP BY blk.key) b) END AS digest
          FROM (SELECT lt.id AS id, lt.linked_file_id AS fid,
-                      (SELECT coalesce(CAST(json_extract(rt.attributes, '$.Genre') AS TEXT), '')
-                       FROM rekordbox_track rt
-                       LEFT JOIN recording_file rf
-                              ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
-                       WHERE rt.recording_id = lt.recording_id AND rt.relink_probable = 0
-                       ORDER BY {order}
-                       LIMIT 1) AS rb
+                      {rekordbox_genre} AS rb
                FROM library_track lt) g",
-        order = crate::attach::PICK_ORDER,
+        frames = frame_filter(false),
+        rekordbox_genre = REKORDBOX_GENRE.replace("{order}", crate::attach::PICK_ORDER),
     )
 }
 
@@ -341,6 +365,43 @@ const MISSING_ART: &str = "SELECT count(*) FROM library_track lt
              OR (blk.key = 'ape'
                  AND lower(substr(json_extract(i.value, '$.key'), 1, 9)) = 'cover art')))";
 
+/// Each Library track with what its shown title and artist (and its genre)
+/// are made of, for [`missing_tags`]:
+/// `(id, rb, title, linked, present, name_ok, known_artist, digest)`.
+///
+/// `digest` holds the linked file's genre and artist frames, as
+/// [`genre_source_sql`] does for the genre alone.
+fn missing_tags_sql() -> String {
+    let tag_needed = if BLANK_GENRE_FALLS_BACK {
+        "s.rb IS NULL OR trim(s.rb) = '' OR s.ka IS NULL"
+    } else {
+        "s.rb IS NULL OR s.ka IS NULL"
+    };
+    format!(
+        "SELECT s.id, s.rb, s.title, s.fid, s.present, s.name_ok, s.ka,
+                CASE WHEN s.fid IS NOT NULL AND ({tag_needed}) THEN (
+                    SELECT json_group_object(b.block, json(b.items)) FROM (
+                        SELECT blk.key AS block, json_group_array(json(i.value)) AS items
+                        FROM file f, json_each(f.raw_tags) blk, json_each(blk.value) i
+                        WHERE f.id = s.fid AND json_type(blk.value) = 'array' AND ({frames})
+                        GROUP BY blk.key) b) END AS digest
+         FROM (SELECT lt.id AS id, lt.linked_file_id AS fid, r.title AS title,
+                      f.present AS present,
+                      f.rel_path IS NOT NULL AND substr(f.rel_path, -1) <> '/' AS name_ok,
+                      {rekordbox_genre} AS rb,
+                      (SELECT coalesce(CAST(json_extract(k.attributes, '$.Artist') AS TEXT), '')
+                       FROM rekordbox_track k
+                       WHERE k.file_id = lt.linked_file_id AND k.relink_probable = 0
+                       ORDER BY COALESCE(k.play_count, 0) DESC, k.track_id
+                       LIMIT 1) AS ka
+               FROM library_track lt
+               LEFT JOIN recording r ON r.id = lt.recording_id
+               LEFT JOIN file f ON f.id = lt.linked_file_id) s",
+        frames = frame_filter(true),
+        rekordbox_genre = REKORDBOX_GENRE.replace("{order}", crate::attach::PICK_ORDER),
+    )
+}
+
 /// How many Library tracks lack a title, an artist or a genre.
 ///
 /// The title and the artist are the ones the lists show
@@ -350,28 +411,82 @@ const MISSING_ART: &str = "SELECT count(*) FROM library_track lt
 /// what the list shows, and a track with a file always has one. The genre is
 /// the one of [`genres`].
 ///
-/// The shown values are worked out in Rust, a chunk of tracks at a time.
+/// One SQL pass hands over, per track, the few values those rules read
+/// (rekordbox's artist for the linked file, the linked file's genre and
+/// artist frames), and Rust applies the same rules to them, with the tag
+/// rules of the send. Only a track those values can't settle is asked of
+/// `shown` itself, in chunks: one with no linked file or a gone one
+/// (rekordbox may stand in by location), or whose linked file's tags give
+/// no artist (another file of the track may). `ask_all` sends every track
+/// there instead; the tests use it to prove the short way agrees.
 pub fn missing_tags(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<u32> {
+    missing_tags_by(conn, volumes, false)
+}
+
+fn missing_tags_by(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ask_all: bool,
+) -> rusqlite::Result<u32> {
     let mut genre_known: HashMap<(Option<String>, Option<String>), bool> = HashMap::new();
-    let mut ids: Vec<(i64, bool)> = Vec::new();
-    let mut stmt = conn.prepare(&track_genres_sql())?;
+    let mut artist_known: HashMap<String, bool> = HashMap::new();
+    let blank = |text: &str| text.trim().is_empty();
+    let mut missing = 0u32;
+    let mut ask: Vec<i64> = Vec::new();
+    let mut stmt = conn.prepare(&missing_tags_sql())?;
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
-        let key: (Option<String>, Option<String>) = (row.get(1)?, row.get(2)?);
+        let id: i64 = row.get(0)?;
+        let rb: Option<String> = row.get(1)?;
+        let digest: Option<String> = row.get(7)?;
         let has_genre = *genre_known
-            .entry(key)
-            .or_insert_with_key(|(rb, digest)| genre_of(rb.as_deref(), digest.as_deref()).is_some());
-        ids.push((row.get(0)?, has_genre));
+            .entry((rb, digest.clone()))
+            .or_insert_with_key(|(rb, digest)| {
+                genre_of(rb.as_deref(), digest.as_deref()).is_some()
+            });
+        if !has_genre {
+            missing = missing.saturating_add(1);
+            continue;
+        }
+        let title: Option<String> = row.get(2)?;
+        let linked: Option<i64> = row.get(3)?;
+        let present: Option<bool> = row.get(4)?;
+        let name_ok: bool = row.get(5)?;
+        let known_artist: Option<String> = row.get(6)?;
+        let title_ok =
+            title.as_deref().is_some_and(|t| !blank(t)) || (linked.is_some() && name_ok);
+        // Settled by the values at hand: Some(has an artist).
+        let artist = match (&known_artist, present, &digest) {
+            _ if ask_all || !title_ok => None,
+            // rekordbox's entry for the linked file: its artist, blank or not.
+            (Some(artist), _, _) => Some(!blank(artist)),
+            // A linked file on disk: its tags, if they give one.
+            (None, Some(true), Some(digest)) => {
+                let given = *artist_known
+                    .entry(digest.clone())
+                    .or_insert_with_key(|digest| {
+                        crate::send_values::tag_values(digest, &["Artist"])
+                            .iter()
+                            .any(|v| !blank(&v.value))
+                    });
+                given.then_some(true)
+            }
+            _ => None,
+        };
+        match artist {
+            Some(true) => {}
+            Some(false) => missing = missing.saturating_add(1),
+            None => ask.push(id),
+        }
     }
-    let mut missing = 0u32;
-    for chunk in ids.chunks(SHOWN_CHUNK) {
-        let wanted: Vec<LibraryTrackId> = chunk.iter().map(|(id, _)| LibraryTrackId(*id)).collect();
+    for chunk in ask.chunks(SHOWN_CHUNK) {
+        let wanted: Vec<LibraryTrackId> = chunk.iter().map(|id| LibraryTrackId(*id)).collect();
         let mut shown = crate::send_values::shown(conn, volumes, &wanted)?;
-        for (id, has_genre) in chunk {
+        for id in chunk {
             let (title, artist) = shown
                 .remove(&LibraryTrackId(*id))
                 .map_or((None, None), crate::send_values::Shown::into_options);
-            if title.is_none() || artist.is_none() || !has_genre {
+            if title.is_none() || artist.is_none() {
                 missing = missing.saturating_add(1);
             }
         }
