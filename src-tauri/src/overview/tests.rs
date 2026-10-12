@@ -1439,3 +1439,37 @@ fn a_library_of_5000_tracks_gives_the_right_numbers() {
 fn a_library_of_100000_tracks_gives_the_right_numbers() {
     check_a_library_of(100_000);
 }
+
+#[test]
+fn the_frontend_gets_every_number_over_ipc() {
+    use crate::ipc::testing::{app, invoke};
+    use tauri::Manager;
+
+    let (_data, app) = app();
+    app.state::<Writer>()
+        .call(|c| {
+            c.execute_batch(
+                "INSERT INTO volume (identity, kind, last_mount_path)
+                 VALUES ('serial=1A2B3C4D', 'internal', 'C:\');
+                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                 VALUES (1, 'Music', 'Music');
+                 INSERT INTO file (music_folder_id, rel_path, rel_path_key, duration_ms)
+                 VALUES (1, 'a.mp3', 'a.mp3', 90000);
+                 INSERT INTO recording DEFAULT VALUES;
+                 INSERT INTO recording_file (recording_id, file_id, role) VALUES (1, 1, 'best');
+                 INSERT INTO library_track (recording_id, linked_file_id) VALUES (1, 1);",
+            )
+        })
+        .unwrap();
+
+    let o = invoke(&app, "overview", json!({})).unwrap();
+    assert_eq!(o["tracks"], 1);
+    assert_eq!(o["totalLengthMs"], 90_000);
+    assert_eq!(o["allMusic"], 1);
+    assert_eq!(o["addedThisWeek"], 1);
+    assert_eq!(o["lastSentMs"], Value::Null);
+    assert_eq!(o["rekordboxRead"], false);
+    assert_eq!(o["genres"], json!([]));
+    assert_eq!(o["noGenre"], 1);
+    assert!(o["counting"]["files"].is_boolean());
+}
