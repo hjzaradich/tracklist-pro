@@ -835,6 +835,32 @@ fn a_job_that_ends_after_a_cancel_request_ends_as_its_handler_says_and_keeps_no_
 }
 
 #[test]
+fn a_cancel_that_arrives_while_the_app_is_closing_records_nothing_so_the_job_is_put_back() {
+    let (_dir, writer) = temp_writer();
+    let (handler, started, release) = stuck();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .shutdown_timeout(Duration::from_millis(100))
+        .handler(JobKind::Scan, handler)
+        .start()
+        .unwrap();
+    let id = queue.enqueue(NewJob::new(JobKind::Scan)).unwrap();
+    started.recv_timeout(PATIENCE).unwrap();
+
+    // The app is closing: the running job has been told to stop for that,
+    // and doesn't (it is stuck). A cancel now doesn't turn the close into
+    // the user's cancel.
+    queue.shutdown();
+    assert_eq!(queue.cancel(id).unwrap(), CancelOutcome::Stopping);
+    let job = stored(&writer, id);
+    assert_eq!((job.status, job.error), (JobStatus::Running, None));
+    // So a kill now puts it back at the next start.
+    let recovered = writer.call(|c| store::recover_interrupted(c)).unwrap();
+    assert_eq!((recovered.cancelled, recovered.requeued), (0, 1));
+    let _ = release.send(());
+}
+
+#[test]
 fn the_updates_the_webview_gets_carry_no_error_field_to_hold_a_marker() {
     let update = JobUpdate {
         seq: 1,

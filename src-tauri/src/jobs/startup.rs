@@ -20,7 +20,7 @@
 //!   (`queue_once`), and, once after an upgrade that changed the roles'
 //!   version, the file roles' one statement that makes every track due.
 //! - **One list of "ask this stage" calls** ([`ASKS`]), one line per stage,
-//!   in the scan chain's order (file roles last). Each queues through
+//!   in the scan chain's order (file roles and the search index last). Each queues through
 //!   `queue_once`, so it never queues what is already queued or running,
 //!   and each leaves a stage alone while an earlier one is still due (the
 //!   earlier stage's job chains on to it, as in the scan chain).
@@ -75,6 +75,7 @@ const ASKS: &[(&str, Ask)] = &[
     ("matching", ask_matching),
     ("decide", ask_decide),
     ("file roles", ask_file_roles),
+    ("search index", ask_search_index),
 ];
 
 /// What the asks share.
@@ -231,6 +232,15 @@ fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
     }
     if a.read(crate::file_roles::any_due)? {
         a.queue(crate::file_roles::roles_job())?;
+    }
+    Ok(())
+}
+
+/// The search index is behind when a track is in `search_due`. Like the
+/// roles, its job needs no waiting for the stages before it.
+fn ask_search_index(a: &Asking) -> Result<(), DbError> {
+    if a.read(crate::search::pending)? {
+        a.queue(crate::search::index_job(false))?;
     }
     Ok(())
 }

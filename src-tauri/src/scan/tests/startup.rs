@@ -54,6 +54,11 @@ fn template() -> &'static Template {
         queue.enqueue(scan_job(None)).unwrap();
         wait_until_idle(&queue);
         queue.shutdown();
+        // The queue here has no index job: the search index counts as
+        // current, as it is in an app that has run its jobs.
+        writer
+            .call(|c| c.execute("DELETE FROM search_due", []))
+            .unwrap();
         // Fold the log into the database file, so the file alone is the
         // whole database.
         while writer.checkpoint().unwrap() != crate::db::Checkpoint::Emptied {
@@ -187,11 +192,12 @@ fn files_with_no_track_are_grouped_and_fingerprints_not_yet_compared_are_matched
         })
         .unwrap();
     let (failed, queued) = ask(&writer, &volume);
-    // Deciding waits for matching, as in the chain. The last is the roles
-    // job (a group job with a target): tracks that lost their files are due.
+    // Deciding waits for matching, as in the chain. Then the roles job (a
+    // group job with a target) and the search index: tracks that lost their
+    // files are due for both.
     assert_eq!(
         (failed, kinds(&queued)),
-        (0, vec!["group", "match", "group"])
+        (0, vec!["group", "match", "group", "index"])
     );
 }
 
@@ -238,7 +244,7 @@ fn nothing_is_queued_for_a_library_with_no_music_folders() {
 #[test]
 fn an_ask_that_fails_is_counted_and_the_stages_after_it_are_still_asked() {
     let (_dir, volume, _db, writer) = scanned();
-    // Three stages have work: grouping, matching and the roles.
+    // Four stages have work: grouping, matching, the roles and the index.
     writer
         .call(|c| {
             c.execute("DELETE FROM recording_file", [])?;
@@ -259,10 +265,10 @@ fn an_ask_that_fails_is_counted_and_the_stages_after_it_are_still_asked() {
         &reach_by(move || reach_volume.clone()),
     )
     .failed;
-    assert_eq!(failed, 3);
+    assert_eq!(failed, 4);
     assert_eq!(
         tried.load(std::sync::atomic::Ordering::SeqCst),
-        3,
+        4,
         "the later stage was asked though the first failed"
     );
 }
@@ -311,6 +317,72 @@ fn after_an_upgrade_that_left_every_track_due_the_next_start_asks_for_the_roles_
     assert_eq!(kinds(&queued), ["group"]);
 }
 
+#[test]
+fn a_search_index_that_is_behind_is_asked_for_at_the_next_start_and_a_current_one_is_not() {
+    let (_dir, volume, _db, writer) = scanned();
+    writer
+        .call(|c| c.execute("DELETE FROM search_due", []))
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+
+    // A run that died with a track's row out of date (-1 stands for every
+    // Library track, as after a rekordbox read).
+    writer
+        .call(|c| c.execute("INSERT INTO search_due (recording_id) VALUES (-1)", []))
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, vec!["index"]));
+    // Asked again with that job waiting: still one.
+    let (_, queued) = ask(&writer, &volume);
+    assert_eq!(kinds(&queued), ["index"]);
+}
+
+#[test]
+fn quality_and_matching_wait_while_the_fingerprints_are_owed() {
+    let (_dir, volume, _db, writer) = scanned();
+    // The fingerprint stage is out of date, and quality and matching each
+    // have files due too: they wait for the fingerprint job's chain.
+    bump(&writer, "fingerprint");
+    writer
+        .call(|c| {
+            c.execute("DELETE FROM file_quality", [])?;
+            c.execute("DELETE FROM fingerprint_matched", [])
+        })
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    // (The second is the roles job: the dropped measurements made tracks due.)
+    assert_eq!((failed, kinds(&queued)), (0, vec!["fingerprint", "group"]));
+}
+
+#[test]
+fn grouping_and_deciding_wait_while_a_file_is_still_to_be_read() {
+    let (_dir, volume, _db, writer) = scanned();
+    // A file the walk has found and nothing has read yet: it has no track,
+    // and no decision. Grouping and deciding wait for its read and hash.
+    writer
+        .call(|c| {
+            c.execute(
+                "INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, mtime, present)
+                 VALUES ((SELECT min(id) FROM music_folder), 'new.wav', 'new.wav', 1, 1, 1)",
+                [],
+            )
+        })
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!(failed, 0);
+    // Nothing but the roles job (a group job with that target).
+    let roles = crate::grouping::GroupTarget::Roles.to_json().unwrap();
+    for (kind, target) in &queued {
+        let target: Option<serde_json::Value> =
+            target.as_deref().map(|t| serde_json::from_str(t).unwrap());
+        assert!(
+            kind == "group" && target.as_ref() == Some(&roles),
+            "{kind} {target:?}"
+        );
+    }
+}
+
 /// Runs `work` on a thread and fails the test, instead of hanging, if it has
 /// not finished within [`PATIENCE`].
 fn finishes<T: Send + 'static>(what: &str, work: impl FnOnce() -> T + Send + 'static) -> T {
@@ -350,7 +422,7 @@ fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_el
         }
     });
     assert_eq!(asked.failed, 0);
-    assert_eq!(asked.took.len(), 7, "every stage was asked");
+    assert_eq!(asked.took.len(), 8, "every stage was asked");
     release.send(()).unwrap();
     holder.join().unwrap().unwrap();
 }
