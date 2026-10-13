@@ -113,6 +113,21 @@ fn open_windows<R: Runtime>(app: &tauri::App<R>, data_dir: &DataDir) -> tauri::R
 /// watchers (`State<scan::Watchers>`), then opens the window, kept on the
 /// app's own pages (`net::navigation`).
 fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
+    setup_with(builder, data_dir, StartupAsks::Run)
+}
+
+/// Whether startup asks the stages what is due ([`jobs::startup`]). The app
+/// always does. Tests that write a library by SQL and then look at it start
+/// from a quiet queue instead (`ipc::testing::app`): jobs queued by the
+/// asking would run beside them and change the very rows they look at.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StartupAsks {
+    Run,
+    Skip,
+}
+
+/// [`setup`], with the startup asking chosen.
+fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupAsks) -> Builder<R> {
     let specta = ipc::specta_builder::<R>();
     builder
         .plugin(tauri_plugin_dialog::init())
@@ -140,7 +155,9 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             // Work that is due while no job is queued (1cA-13), after the
             // queue is in the state and the dropped and recovered jobs are
             // settled.
-            jobs::startup::start(app.handle(), writer.clone());
+            if asks == StartupAsks::Run {
+                app.manage(jobs::startup::start(app.handle(), writer.clone()));
+            }
             app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);
             app.manage(guard);
@@ -269,7 +286,7 @@ mod tests {
         // drop comes first; the jobs left running are dealt with next; the
         // queue starts; and only then is anything asked for.
         let source = include_str!("lib.rs").replace('\r', "");
-        let setup = &source[source.find("fn setup<").unwrap()..];
+        let setup = &source[source.find("fn setup_with<").unwrap()..];
         let at = |what: &str| setup.find(what).unwrap_or_else(|| panic!("{what}"));
         let order = [
             at("send::drop_unfinished_jobs"),
