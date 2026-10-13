@@ -188,6 +188,21 @@ fn a_wav_that_would_pass_four_gib_is_not_decodable() {
 }
 
 #[test]
+fn a_header_whose_sizes_overflow_is_not_decodable_and_never_wraps() {
+    let layout = |rate, frames| Layout {
+        rate,
+        channels: 2,
+        bytes: 3,
+        frames,
+    };
+    // Frames times bytes a frame overflows u64; rate times bytes a frame
+    // overflows u32.
+    assert!(!layout(48_000, u64::MAX / 2).fits());
+    assert!(!layout(u32::MAX, 10).fits());
+    assert!(layout(96_000, 10).fits());
+}
+
+#[test]
 fn bytes_that_are_not_audio_are_not_decodable() {
     assert_eq!(
         refused(Cursor::new(Vec::<u8>::new())),

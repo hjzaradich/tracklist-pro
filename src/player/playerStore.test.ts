@@ -302,6 +302,26 @@ describe("a file that can't be played", () => {
     expect(player.getState()).toMatchObject({ status: "refused", refusal: "unreadable" });
   });
 
+  it("is asked about again when it is chosen again, and plays once it can", async () => {
+    // The drive was unplugged; it is connected by the second try.
+    const refusals: Record<number, PreviewRefusal | null> = { 1: "drive_not_connected" };
+    const t = setup(refusals);
+    t.state().select(A);
+    await settle();
+    expect(t.state()).toMatchObject({ status: "refused", refusal: "drive_not_connected" });
+    expect(t.audio.src).toBe("");
+
+    refusals[1] = null;
+    t.state().select(A);
+    expect(t.state()).toMatchObject({ status: "loading", refusal: null });
+    await settle();
+    expect(t.checked).toEqual([1, 1]);
+    expect(t.audio.src).toBe("media://1");
+    t.audio.loaded(100);
+    expect(t.state()).toMatchObject({ status: "ready", playing: true });
+    expect(t.audio.plays).toBe(1);
+  });
+
   it("keeps the play/pause choice, so the next file carries on", async () => {
     const t = setup({ 1: "online_only" });
     t.state().select(A);

@@ -37,7 +37,8 @@ export interface PlayerState {
    * Plays `file`. The first file starts playing; after that a new file
    * keeps what the last one was doing: the same position (by time; a file
    * shorter than that starts from its beginning), and playing or paused as
-   * it was. The file already loaded is left as it is.
+   * it was. The file already loaded is left as it is; one that couldn't be
+   * played is checked again.
    */
   select: (file: PlayerFile) => void;
   /** Play or pause. */
@@ -150,7 +151,9 @@ export function createPlayer(deps: PlayerDeps) {
 
       select: (file) => {
         const before = get();
-        if (before.file?.id === file.id) return;
+        // The file already loaded is left alone. One that was refused is
+        // asked about again: the drive may be connected by now.
+        if (before.file?.id === file.id && before.status !== "refused") return;
         const a = audio();
         const first = before.file === null;
         const position = before.status === "ready" ? a.currentTime : before.position;

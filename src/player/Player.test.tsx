@@ -168,6 +168,24 @@ describe("a file that can't be played", () => {
     expect(screen.getByRole("region", { name: tx("shell:player.label") })).toHaveTextContent(A.name);
   });
 
+  it("shows a refused file's button as play, and pressing it asks again", async () => {
+    answers[A.id] = "drive_not_connected";
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("player:refused.driveNotConnected"));
+    // Not "Pause" beside a line saying it can't play.
+    expect(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) })).toBeInTheDocument();
+
+    answers[A.id] = null;
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    expect(asked).toEqual([A.id, A.id]);
+    loaded(300);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("slider", { name: tx("player:position") })).toBeEnabled();
+  });
+
   it("uses four different lines for the six codes", () => {
     expect(new Set(lines.map(([, key]) => tx(key))).size).toBe(4);
   });

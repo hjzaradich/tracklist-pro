@@ -52,7 +52,8 @@ fn parse_range(header: Option<&str>) -> Ask {
     };
     let (from, to) = (from.trim(), to.trim());
     match (from.parse::<u64>(), to.parse::<u64>()) {
-        (Ok(a), Ok(b)) => Ask::From(a, Some(b)),
+        // A range that ends before it starts is no range (RFC 9110): ignored.
+        (Ok(a), Ok(b)) if b >= a => Ask::From(a, Some(b)),
         (Ok(a), Err(_)) if to.is_empty() => Ask::From(a, None),
         (Err(_), Ok(n)) if from.is_empty() => Ask::Last(n),
         _ => Ask::Start,
@@ -142,7 +143,22 @@ pub(super) fn answer(
 pub(super) fn contained<T>(
     work: impl FnOnce() -> Result<T, PreviewRefusal>,
 ) -> Result<T, PreviewRefusal> {
-    panic::catch_unwind(AssertUnwindSafe(work)).unwrap_or(Err(PreviewRefusal::NotDecodable))
+    contained_as(PreviewRefusal::NotDecodable, work)
+}
+
+/// [`contained`], with the refusal a panic becomes.
+pub(super) fn contained_as<T>(
+    on_panic: PreviewRefusal,
+    work: impl FnOnce() -> Result<T, PreviewRefusal>,
+) -> Result<T, PreviewRefusal> {
+    panic::catch_unwind(AssertUnwindSafe(work)).unwrap_or(Err(on_panic))
+}
+
+/// Builds the reply with `work`. If that panics anywhere, the request is
+/// still answered (a 500, `unreadable`) rather than left hanging.
+pub(super) fn guarded(work: impl FnOnce() -> Reply) -> Reply {
+    panic::catch_unwind(AssertUnwindSafe(work))
+        .unwrap_or_else(|_| refused(PreviewRefusal::Unreadable))
 }
 
 fn respond(
@@ -244,6 +260,8 @@ mod tests {
             (Some("bytes=0-99999999999"), (0, MAX_CHUNK - 1)),
             (Some("bytes=3-4, 9-10"), (3, 4)),
             (Some("nonsense"), (0, MAX_CHUNK - 1)),
+            // Ends before it starts: ignored, as if there were no header.
+            (Some("bytes=5-3"), (0, MAX_CHUNK - 1)),
         ];
         for (header, expected) in cases {
             assert_eq!(

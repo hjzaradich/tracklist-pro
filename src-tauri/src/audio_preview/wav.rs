@@ -47,13 +47,25 @@ impl Layout {
         u64::from(self.channels) * u64::from(self.bytes)
     }
 
+    /// The data's length, `None` if it overflows.
+    fn checked_data_bytes(&self) -> Option<u64> {
+        self.frames.checked_mul(self.frame_bytes())
+    }
+
     fn data_bytes(&self) -> u64 {
-        self.frames * self.frame_bytes()
+        self.checked_data_bytes().unwrap_or(u64::MAX)
     }
 
     /// Whether the data fits a WAV's 32-bit sizes (under 4 GiB).
     pub fn fits(&self) -> bool {
-        self.data_bytes() <= u64::from(u32::MAX) - 36
+        // Every product the header holds, checked: a hostile header can't
+        // wrap any of them.
+        self.checked_data_bytes()
+            .is_some_and(|data| data <= u64::from(u32::MAX) - 36)
+            && u32::try_from(self.frame_bytes())
+                .ok()
+                .and_then(|frame| self.rate.checked_mul(frame))
+                .is_some()
     }
 
     /// The whole WAV file's length: what `Content-Range` calls the total.

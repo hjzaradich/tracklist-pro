@@ -82,6 +82,59 @@ fn an_online_only_file_is_never_opened_even_when_the_user_allowed_reading_them()
     assert_eq!(lib.get(id, None).refusal(), Some("online_only"));
 }
 
+/// Makes the file at `path` look online-only (a OneDrive placeholder) to the
+/// attribute query, as the read stage's tests do: a real placeholder needs a
+/// sync provider.
+fn set_online_only(path: &std::path::Path, online_only: bool) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_OFFLINE, INVALID_FILE_ATTRIBUTES,
+    };
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let attributes = unsafe { GetFileAttributesW(wide.as_ptr()) };
+    assert_ne!(attributes, INVALID_FILE_ATTRIBUTES, "{}", path.display());
+    let attributes = if online_only {
+        attributes | FILE_ATTRIBUTE_OFFLINE
+    } else {
+        attributes & !FILE_ATTRIBUTE_OFFLINE
+    };
+    assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), attributes) }, 0);
+}
+
+#[test]
+fn a_file_that_became_online_only_since_the_scan_is_refused_by_its_attributes() {
+    // The row says nothing about OneDrive (the scan saw a normal file); the
+    // file on disk is a placeholder now.
+    let lib = Lib::new();
+    let id = lib.put("became.wav", &wav(&pcm(1, 0.5, 44_100, 1)));
+    assert_eq!(lib.get(id, None).status, 200);
+
+    let path = lib.path_of("became.wav");
+    set_online_only(&path, true);
+    let got = lib.get(id, None);
+    assert_eq!(got.status, 403);
+    assert_eq!(got.refusal(), Some("online_only"));
+
+    // The scan's opt-in to read online-only files doesn't change that.
+    lib.writer
+        .call(|c| {
+            c.execute(
+                "INSERT INTO setting (key, value) VALUES ('read_online_only_files', json('true'))",
+                [],
+            )
+        })
+        .unwrap();
+    assert_eq!(lib.get(id, None).refusal(), Some("online_only"));
+
+    // Available on this PC again, it plays.
+    set_online_only(&path, false);
+    assert_eq!(lib.get(id, None).status, 200);
+}
+
 #[test]
 fn a_missing_file_says_missing() {
     let lib = Lib::new();

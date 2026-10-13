@@ -97,8 +97,17 @@ impl PreviewRefusal {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn preview_check(reads: State<'_, ReadPool>, file_id: i64) -> Option<PreviewRefusal> {
-    let volumes = crate::scan::system_volumes();
-    open::open(&reads, &volumes, file_id).err()
+    check(|| {
+        let volumes = crate::scan::system_volumes();
+        open::open(&reads, &volumes, file_id).map(drop)
+    })
+}
+
+/// Runs a check with the guard the protocol handler has: a panic (the
+/// probe is third-party code) is an answer, `unreadable`, not a reply that
+/// never comes and a player stuck on "loading".
+fn check(work: impl FnOnce() -> Result<(), PreviewRefusal>) -> Option<PreviewRefusal> {
+    serve::contained_as(PreviewRefusal::Unreadable, work).err()
 }
 
 /// Registers the `audio-preview` protocol on the builder.
@@ -108,13 +117,15 @@ pub fn register<R: Runtime>(builder: Builder<R>) -> Builder<R> {
         let app = ctx.app_handle().clone();
         // The webview thread's whole job is to hand the request over.
         workers.run(move || {
-            let reply = match app.try_state::<ReadPool>() {
+            // Everything that builds the reply is inside the guard, so the
+            // request is answered whatever happens.
+            let reply = serve::guarded(|| match app.try_state::<ReadPool>() {
                 Some(reads) => {
                     let volumes = crate::scan::system_volumes();
                     serve::answer(&reads, &volumes, &request)
                 }
                 None => serve::refused(PreviewRefusal::Unreadable),
-            };
+            });
             responder.respond(reply);
         });
     })

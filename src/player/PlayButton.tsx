@@ -11,16 +11,19 @@ export function PlayButton({ file }: { file: PlayerFile }) {
   const { t } = useTranslation("player");
   const current = usePlayer((s) => s.file?.id === file.id);
   const playing = usePlayer((s) => s.playing);
+  const refused = usePlayer((s) => s.status === "refused");
   const select = usePlayer((s) => s.select);
   const toggle = usePlayer((s) => s.toggle);
-  const pause = current && playing;
+  // A file that can't be played isn't playing, whatever the intent is.
+  const pause = current && playing && !refused;
   return (
     <button
       type="button"
       className={styles.button}
       data-play-for={file.id}
       aria-label={t(pause ? "pauseNamed" : "playNamed", { name: file.name })}
-      onClick={() => (current ? toggle() : select(file))}
+      // Pressing a refused file again asks again.
+      onClick={() => (current && !refused ? toggle() : select(file))}
     >
       {t(pause ? "pause" : "play")}
     </button>
