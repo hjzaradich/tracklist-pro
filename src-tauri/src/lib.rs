@@ -21,6 +21,7 @@ pub mod matching;
 pub mod missing;
 pub mod net;
 pub mod ops;
+pub mod overview;
 pub mod paths;
 #[cfg(debug_assertions)]
 pub mod preview;

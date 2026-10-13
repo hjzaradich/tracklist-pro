@@ -322,7 +322,7 @@ pub(super) fn may_send_from_this_export(
 /// compared with the export's modified time ([`ExportRead::modified_ms`]),
 /// the same clock rekordbox's save and the app's send both run on
 /// ([`export_older_than_last_send`]).
-pub(super) fn last_send_ms(conn: &Connection) -> rusqlite::Result<Option<i64>> {
+pub(crate) fn last_send_ms(conn: &Connection) -> rusqlite::Result<Option<i64>> {
     // Whole seconds, then the three digits after the point: exact, where
     // julianday arithmetic would round.
     conn.query_row(

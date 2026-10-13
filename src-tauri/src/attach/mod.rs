@@ -43,7 +43,7 @@ use crate::tags::key;
 /// How a track's entries are ranked, the pick first: matched to the
 /// track's best file, then most played, then lowest `TrackID`. Needs `rt`
 /// (`rekordbox_track`) and `rf` (its file's `recording_file`).
-const PICK_ORDER: &str = "COALESCE(rf.role = 'best', 0) DESC,
+pub(crate) const PICK_ORDER: &str = "COALESCE(rf.role = 'best', 0) DESC,
                           COALESCE(rt.play_count, 0) DESC,
                           rt.track_id";
 

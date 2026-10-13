@@ -183,6 +183,8 @@ export const commands = {
 	 *  Library.
 	 */
 	allMusicTracks: (search: string | null) => typedError<AllMusicList, IpcError>(__TAURI_INVOKE("all_music_tracks", { search })),
+	/**  Every number the Overview screen shows, as of now. */
+	overview: () => typedError<Overview, IpcError>(__TAURI_INVOKE("overview")),
 	/**
 	 *  Where the send is: the file's path, the preflight waiting for the go,
 	 *  and how the last step ended.
@@ -387,6 +389,22 @@ export type ConflictProblem =
  */
 "blocked";
 
+/**  Which numbers can still change because background work is running. */
+export type Counting = {
+	/**
+	 *  A scan, a tags read or a grouping run is queued or running: the
+	 *  tracks, total length, genres (from tags) and All music counts.
+	 */
+	files: boolean,
+	/**
+	 *  Rekordbox's data is being read, matched or attached: analyzed and
+	 *  genres (from rekordbox).
+	 */
+	rekordbox: boolean,
+	/**  A quality job is queued or running: the low-quality count. */
+	quality: boolean,
+};
+
 /**  A crate, as the Crates screen lists it. */
 export type Crate = {
 	id: CrateId,
@@ -515,6 +533,16 @@ export type FailureReason =
  *  reason (the wording lives in the locale files).
  */
 export type FragileReason = "downloads" | "temp" | "external" | "network";
+
+/**  One genre and how many Library tracks have it. */
+export type GenreCount = {
+	/**
+	 *  The genre as most of its tracks spell it, without outer blanks.
+	 *  Capitals don't make a genre of its own.
+	 */
+	name: string,
+	tracks: number,
+};
 
 /**
  *  Why a command failed, as the frontend receives it: a kind and the
@@ -939,6 +967,61 @@ export type OtherFile = {
 	libraryFile: string | null,
 	/**  The file rekordbox already has. */
 	rekordboxFile: string | null,
+};
+
+/**  Every Overview number. */
+export type Overview = {
+	/**  Library tracks. */
+	tracks: number,
+	/**  The Library's length: the sum of its linked files' durations. */
+	totalLengthMs: number,
+	/**
+	 *  Library tracks in at least one crate. Crates only until playlists
+	 *  arrive (Phase 3).
+	 */
+	inCrates: number,
+	/**  Library tracks in no crate. */
+	inNoCrate: number,
+	/**  Library tracks rekordbox supplied a BPM or a key for. */
+	analyzedByRekordbox: number,
+	/**  Library tracks it didn't. */
+	notAnalyzed: number,
+	/**
+	 *  Whether a rekordbox library was ever read. Before that every track
+	 *  is "not analyzed", which says nothing.
+	 */
+	rekordboxRead: boolean,
+	/**
+	 *  Library tracks whose linked file has a current verdict that is not
+	 *  `ok`. A file with no current verdict isn't counted.
+	 */
+	lowQuality: number,
+	/**
+	 *  When the Library was last sent, in milliseconds since the Unix
+	 *  epoch; `None` if never.
+	 */
+	lastSentMs: number | null,
+	/**  Tracks in All music: tracks with a file that isn't hidden. */
+	allMusic: number,
+	/**  Library tracks added in the last 7 days ([`THIS_WEEK`]). */
+	addedThisWeek: number,
+	/**  Operations made in the last 7 days ([`THIS_WEEK`]). */
+	decisionsThisWeek: number,
+	/**  Every genre, most tracks first, then by name. */
+	genres: GenreCount[],
+	/**  Library tracks with no genre. */
+	noGenre: number,
+	/**
+	 *  Library tracks with no title, no artist or no genre, as the lists
+	 *  show them ([`missing_tags`]).
+	 */
+	missingTags: number,
+	/**
+	 *  Library tracks whose linked file has tags and no embedded cover
+	 *  ([`MISSING_ART`]).
+	 */
+	missingArt: number,
+	counting: Counting,
 };
 
 /**

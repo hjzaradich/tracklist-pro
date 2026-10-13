@@ -47,6 +47,7 @@ use crate::rekordbox::source::stored_source;
 use crate::write_guard::WriteGuard;
 
 pub use job::{drop_unfinished_jobs, sender, Sender};
+pub(crate) use preflight::last_send_ms;
 pub use preflight::{review, Reviewed};
 pub use tree::crate_tree;
 
