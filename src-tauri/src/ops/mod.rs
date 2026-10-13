@@ -1200,7 +1200,8 @@ pub fn undo_only(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, O
 /// linked file (its "better file", and with it the Review queue) is right
 /// as the undo returns, not when the roles job next runs. An undo that put
 /// a switched link back brings the "Linked file gone, copy found" item back
-/// with it.
+/// with it, and an undone relink confirmation brings its "Confirm relink"
+/// item back ([`crate::relink::decide::after_undo`]).
 ///
 /// The ranking is derived state: if it fails here the undo stands, the
 /// failure is logged, and the roles job ranks the tracks, which are still
@@ -1211,6 +1212,15 @@ pub fn undo_for_user(conn: &mut Connection, only: Option<i64>) -> Result<UndoOut
         if let Err(e) = rank_again_after(conn, operation.id) {
             eprintln!(
                 "undo of operation {}: couldn't rank its tracks again: {e}",
+                operation.id
+            );
+        }
+        // An undone confirmation or "not the same": the entry's rows follow
+        // the `relink` table again (derived state too; the relink run the
+        // command asks for decides them from scratch).
+        if let Err(e) = crate::relink::decide::after_undo(conn, operation.id) {
+            eprintln!(
+                "undo of operation {}: couldn't bring its relink matches back: {e}",
                 operation.id
             );
         }
@@ -1507,11 +1517,26 @@ fn undo_delete(
     Ok(())
 }
 
-/// Columns the database keeps current itself with triggers, such as
-/// `library_track.source_status`, which follows the linked file. Undoing an
-/// insert doesn't treat a change to one as a later edit, and undoing a
-/// delete lets the triggers set it again.
-const DERIVED_FIELDS: &[(&str, &str)] = &[("library_track", "source_status")];
+/// The derived columns of the logged tables, by table: a column that
+/// follows other data and that something outside the log keeps current, so
+/// its moving on is nobody's edit. **The one list of them.** Undoing an
+/// insert doesn't treat a change to one as "changed since" (every other
+/// column of the row still must hold what the operation left), and undoing
+/// a delete puts back what the log holds and lets whatever keeps the column
+/// current set it again.
+///
+/// - `library_track.source_status` follows the linked file's `present`
+///   (database triggers).
+/// - `relink.audio_hash` is the audio a file held when the user confirmed a
+///   match or said "not the same". When the file wasn't hashed yet it is
+///   stored empty, and the relink job fills it in once the hash is current
+///   (never over a value that is there): undoing the confirmation must
+///   still work after that.
+///
+/// A test holds every entry to what the "changed since" check skips; a new
+/// entry needs its own case there.
+pub(crate) const DERIVED_FIELDS: &[(&str, &str)] =
+    &[("library_track", "source_status"), ("relink", "audio_hash")];
 
 fn is_derived(entity: &str, field: &str) -> bool {
     DERIVED_FIELDS.contains(&(entity, field))
@@ -1552,8 +1577,11 @@ pub fn undo_last_operation(
     operation_id: Option<i64>,
 ) -> Result<UndoOutcome, crate::ipc::IpcError> {
     let outcome = writer.call(move |conn| Ok(undo_for_user(conn, operation_id)))??;
-    if matches!(outcome, UndoOutcome::Undone { .. }) {
+    if let UndoOutcome::Undone { operation } = &outcome {
         // Whatever else the undo made due is worked out in the background.
+        if crate::relink::decide::is_operation(&operation.kind) {
+            crate::review::actions::ask_for_relink(&writer, &jobs);
+        }
         crate::review::actions::ask_for_follow_up_work(&writer, &jobs);
     }
     Ok(outcome)

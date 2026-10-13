@@ -2,9 +2,9 @@
 //! 1.12). The queue and the comparison are read-only: they change nothing
 //! in the database, a file or rekordbox. What the user decides about an item
 //! is in [`actions`] (1bE-5, 1bE-7: dismiss a better file, keep a flagged
-//! file, want a better one, switch a gone linked file, "Accept all"); the
-//! other actions (keep both, merge, split, confirm a relink) are the other
-//! 1bE tasks.
+//! file, want a better one, switch a gone linked file, "Accept all"; 1bE-6:
+//! confirm a relink match or say it is not the same); the other actions
+//! (keep both, merge, split) are the other 1bE tasks.
 //!
 //! # What is queued
 //!
@@ -284,6 +284,9 @@ pub struct ReviewComparison {
     /// file, and what it means in rekordbox (or why it can't be made).
     /// `None` for every other kind.
     pub switch: Option<actions::SwitchOffer>,
+    /// The match a "Confirm relink" item asks about. `None` for every other
+    /// kind.
+    pub relink: Option<actions::RelinkOffer>,
 }
 
 /// How many items wait, by group.

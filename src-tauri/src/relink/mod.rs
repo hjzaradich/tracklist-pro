@@ -36,8 +36,8 @@
 //!
 //! In order, each step over every row before the next step starts:
 //!
-//! 0. **A confirmed relink** (the `relink` table, keyed by the Location's
-//!    match key) is re-applied first, over any automatic match, as long as
+//! 0. **A confirmed relink** (a `same` row of the `relink` table, by the
+//!    Location's match key) is re-applied first, over any automatic match, as long as
 //!    its file is still present, at confidence 1.0 and never probable. The
 //!    one exception: if the file is known to hold other audio than the
 //!    user confirmed, the confirmation is kept and still holds the file,
@@ -242,10 +242,25 @@
 //!      skipped over); the file must be unheld; and two unmatched rows with
 //!      the same file name both stay unmatched.
 //!
+//! **"Not the same"** (1bE-6). The user can say a probable match is wrong:
+//! the file is not that entry's ([`decide::reject_match`], a `not_same` row
+//! of `relink`, by the Location's match key and the file). From then on no
+//! run gives that row that file in steps 2 to 5, and a carried match to it
+//! is dropped. Step 1 isn't affected: a file at the Location's own path is
+//! the file rekordbox itself opens, and is never a probable match to say no
+//! to. The step that would have made the match makes none for the row (it
+//! doesn't fall back to an exact copy of that file), and the row goes on
+//! through the later steps, which may find another file: a new item in
+//! Review. The file still counts wherever the rules count files (a name
+//! shared by two files is ambiguous, whatever was said about one of them),
+//! so a "not the same" can only take a match away, never make one. It
+//! names the audio the file held, like a confirmation: once the file is
+//! known to hold other audio, it no longer stands in the way.
+//!
 //! **The audio a match was made to.** Every match records the matched
 //! file's `audio_hash` (`rekordbox_track.relink_audio_hash`), and a
 //! confirmed relink the hash at confirmation (`relink.audio_hash`,
-//! [`confirm`]). It's what a confirmation, and a carried (gig stick)
+//! [`decide::confirm_match`]). It's what a confirmation, and a carried (gig stick)
 //! match, are checked against: a carried match whose file now has another
 //! `audio_hash` is dropped and the row decided again; a confirmation is
 //! downgraded as in step 0. Steps 1–5 are remade by every run, so for
@@ -304,6 +319,7 @@
 //! again when asked. A relink run asks for an attach and nothing else (it
 //! never queues grouping), so the jobs can't go round in a loop.
 
+pub mod decide;
 pub mod job;
 pub mod rules;
 
@@ -342,41 +358,6 @@ pub(crate) fn hash_current_of(alias: &str) -> String {
 /// as `?1`.
 pub(crate) fn hash_version() -> i64 {
     i64::from(crate::hash::DEFINITION)
-}
-
-/// Stores the user's confirmation that the rekordbox track at
-/// `location_key` is `file` (found by `method`), with the file's
-/// `audio_hash` as it is now, if that's current: what a later change of
-/// the file's audio is told by. Confirming again replaces the row, so it
-/// records the audio the user confirmed this time. The next relink run
-/// applies it.
-pub fn confirm(
-    conn: &Connection,
-    location_key: &str,
-    file: i64,
-    method: Method,
-    confidence: Option<f64>,
-) -> rusqlite::Result<()> {
-    conn.execute(
-        &format!(
-            "INSERT INTO relink (location_key, file_id, method, confidence, audio_hash)
-             VALUES (?2, ?3, ?4, ?5,
-                     (SELECT f.audio_hash FROM file f
-                      WHERE f.id = ?3 AND length(f.audio_hash) > 0 AND {HASH_CURRENT}))
-             ON CONFLICT (location_key) DO UPDATE SET
-                 file_id = excluded.file_id, method = excluded.method,
-                 confidence = excluded.confidence, audio_hash = excluded.audio_hash,
-                 confirmed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
-        ),
-        params![
-            hash_version(),
-            location_key,
-            file,
-            method.as_str(),
-            confidence
-        ],
-    )?;
-    Ok(())
 }
 
 /// Where each known volume is mounted right now, by its stored identity:
@@ -559,11 +540,26 @@ pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summ
         }
         // Never over a hash that's already recorded.
         let mut record = tx.prepare(
-            "UPDATE relink SET audio_hash = ?2 WHERE location_key = ?1 AND audio_hash IS NULL",
+            "UPDATE relink SET audio_hash = ?2
+             WHERE location_key = ?1 AND verdict = 'same' AND audio_hash IS NULL",
         )?;
         for (key, audio) in &plan.confirmed_audio {
             record.execute(params![key, audio])?;
         }
+        // The same for a "not the same" said before its file was hashed:
+        // the audio it was said about, once that is known for sure.
+        tx.execute(
+            &format!(
+                "UPDATE relink SET audio_hash =
+                     (SELECT f.audio_hash FROM file f
+                      WHERE f.id = relink.file_id AND length(f.audio_hash) > 0 AND {HASH_CURRENT})
+                 WHERE verdict = 'not_same' AND audio_hash IS NULL
+                   AND EXISTS (SELECT 1 FROM file f
+                               WHERE f.id = relink.file_id AND length(f.audio_hash) > 0
+                                 AND {HASH_CURRENT})"
+            ),
+            [hash_version()],
+        )?;
     }
     tx.commit()?;
     Ok(Summary {
@@ -825,8 +821,9 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
 
     let mut confirmed = HashMap::new();
     {
-        let mut stmt =
-            conn.prepare("SELECT location_key, file_id, method, audio_hash FROM relink")?;
+        let mut stmt = conn.prepare(
+            "SELECT location_key, file_id, method, audio_hash FROM relink WHERE verdict = 'same'",
+        )?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -851,11 +848,35 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
         }
     }
 
+    // What the user said is not an entry's file, by Location key.
+    let mut rejected: HashMap<String, Vec<rules::Rejected>> = HashMap::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT location_key, file_id, audio_hash FROM relink
+             WHERE verdict = 'not_same' ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Option<Vec<u8>>>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (key, file, audio_hash) = row?;
+            rejected.entry(key).or_default().push(rules::Rejected {
+                file,
+                audio_hash: audio_hash.filter(|h| !h.is_empty()),
+            });
+        }
+    }
+
     Ok(rules::Input {
         files,
         absent,
         tracks,
         confirmed,
+        rejected,
     })
 }
 

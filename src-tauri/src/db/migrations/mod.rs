@@ -71,6 +71,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0025_conflict_ids_never_reused"),
     migration!("0026_review_queue_indexes"),
     migration!("0027_review_decisions"),
+    migration!("0028_relink_decisions"),
 ];
 
 /// The table that records which migrations a database has had.

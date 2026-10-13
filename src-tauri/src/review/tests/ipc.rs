@@ -271,3 +271,84 @@ fn the_remembered_decisions_and_their_undo_are_called_the_way_the_frontend_calls
     let next = invoke(&app, "next_undo_operation", json!({})).unwrap();
     assert_eq!(next["operation"]["kind"], json!("want_better_file"));
 }
+
+#[test]
+fn a_relink_match_is_confirmed_refused_and_undone_the_way_the_frontend_calls_it() {
+    let (_data, app) = app();
+    app.state::<Writer>()
+        .call(|c| {
+            // rekordbox's entry names a file that isn't there; the only file
+            // with its name is elsewhere. Nothing is plugged in: the volume
+            // is known by where it was last mounted.
+            c.execute_batch(
+                "INSERT INTO volume (identity, kind, last_mount_path)
+                     VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
+                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                     VALUES (1, 'Music', 'Music');
+                 INSERT INTO file (music_folder_id, rel_path, rel_path_key, sniffed_format, codec,
+                                   bitrate, audio_hash)
+                     VALUES (1, 'Elsewhere/tune.mp3', 'Elsewhere/tune.mp3', 'mp3', 'mp3', 320,
+                             x'0101');
+                 INSERT INTO rekordbox_track (attributes, location_key, read_at)
+                     VALUES (json_object('TrackID', '1', 'Name', 'Synthetic Tune', 'TotalTime',
+                                         '200', 'Location',
+                                         'file://localhost/Q:/Gone/tune.mp3'),
+                             'q:/gone/tune.mp3', '2026-10-13T10:00:00.000Z');",
+            )?;
+            // The relink job's own run: a filename-only match, probable.
+            crate::relink::relink(c, &crate::relink::Mounted::default()).map(|_| ())
+        })
+        .unwrap();
+    let needs = |app: &tauri::App<tauri::test::MockRuntime>| counts(app)["needsCloserLook"].clone();
+    assert_eq!(needs(&app), json!(1));
+    let item = json!({ "kind": "relink", "a": 1, "b": null });
+    let comparison = invoke(&app, "review_item", json!({ "id": item })).unwrap();
+    assert_eq!(
+        comparison["relink"],
+        json!({ "fileId": 1, "confirmedBefore": false })
+    );
+
+    // Confirm, then undo it by the operation the command returned.
+    let confirmed = invoke(
+        &app,
+        "review_confirm_relink",
+        json!({ "entryId": 1, "fileId": 1 }),
+    )
+    .unwrap();
+    assert!(confirmed["operationId"].is_i64());
+    assert_eq!(needs(&app), json!(0));
+    let next = invoke(&app, "next_undo_operation", json!({})).unwrap();
+    assert_eq!(next["operation"]["kind"], json!("confirm_relink"));
+    let undone = invoke(
+        &app,
+        "undo_last_operation",
+        json!({ "operationId": confirmed["operationId"] }),
+    )
+    .unwrap();
+    assert_eq!(undone["status"], json!("undone"));
+    assert_eq!(needs(&app), json!(1));
+
+    // "Not the same", and its own error kind once the item is answered.
+    invoke(
+        &app,
+        "review_reject_relink",
+        json!({ "entryId": 1, "fileId": 1 }),
+    )
+    .unwrap();
+    assert_eq!(needs(&app), json!(0));
+    let again = invoke(
+        &app,
+        "review_reject_relink",
+        json!({ "entryId": 1, "fileId": 1 }),
+    );
+    assert_eq!(
+        again,
+        Err(json!({ "kind": "reviewItemGone", "params": {} }))
+    );
+    let next = invoke(&app, "next_undo_operation", json!({})).unwrap();
+    assert_eq!(next["operation"]["kind"], json!("reject_relink"));
+
+    // Withdrawing where nothing is confirmed is refused the same way.
+    let nothing = invoke(&app, "review_withdraw_relink", json!({ "entryId": 1 }));
+    assert_eq!(nothing.unwrap_err()["kind"], json!("reviewItemGone"));
+}
