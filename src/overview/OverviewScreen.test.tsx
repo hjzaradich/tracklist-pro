@@ -17,7 +17,7 @@ function libraryTrack(id: number): LibraryTrack {
     kind: "linked",
     title: `Synthetic Tune ${id}`,
     artist: null,
-    file: { path: String.raw`E:\Music\tune.mp3`, name: "tune.mp3", present: true, driveConnected: true },
+    file: { id: 1, path: String.raw`E:\Music\tune.mp3`, name: "tune.mp3", present: true, driveConnected: true },
     fragile: null,
     sourceMissing: false,
     openConflicts: 0,

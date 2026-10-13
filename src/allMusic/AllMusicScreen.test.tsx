@@ -1,12 +1,13 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { emit } from "@tauri-apps/api/event";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks, mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import { useActivityStore } from "../activity/activityStore";
 import type { AllMusicTrack, JobUpdate } from "../bindings";
+import { usePlayer } from "../player/playerStore";
 import { useReloadListsWhenJobsEnd } from "../shell/useReloadListsWhenJobsEnd";
 import "../i18n";
 import { AllMusicScreen } from "./AllMusicScreen";
@@ -24,7 +25,7 @@ function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
     recordingId: id,
     title: `Synthetic Tune ${id}`,
     artist: `Made Up Artist ${id}`,
-    file: { path: String.raw`E:\Music\tune ` + id + ".mp3", name: `tune ${id}.mp3`, present: true, driveConnected: true },
+    file: { id, path: String.raw`E:\Music\tune ` + id + ".mp3", name: `tune ${id}.mp3`, present: true, driveConnected: true },
     inLibrary: false,
     matchNotConfirmed: false,
     ...fields,
@@ -37,7 +38,13 @@ function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
  */
 function fakeBackend(
   tracks: AllMusicTrack[],
-  options: { total?: number; refuse?: unknown; lowBitrate?: Record<number, number> } = {},
+  options: {
+    total?: number;
+    refuse?: unknown;
+    lowBitrate?: Record<number, number>;
+    /** Called with the file id of each preview check. */
+    onPreview?: (fileId: number) => void;
+  } = {},
 ) {
   const backend = {
     tracks,
@@ -72,6 +79,10 @@ function fakeBackend(
       );
       return { outcome: "done", libraryTrack: {}, added: true };
     }
+    if (cmd === "preview_check") {
+      options.onPreview?.(a.fileId as number);
+      return null;
+    }
     throw new Error(`unexpected command ${cmd}`);
   }, { shouldMockEvents: true });
   return backend;
@@ -104,6 +115,7 @@ async function rows() {
 afterEach(() => {
   cleanup();
   clearMocks();
+  usePlayer.setState({ file: null, status: "idle", refusal: null, position: 0, duration: 0, playing: false });
 });
 
 describe("the All music screen", () => {
@@ -125,13 +137,34 @@ describe("the All music screen", () => {
       tx("allMusic:columns.library"),
     ]);
     expect(within(first).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      "Synthetic Tune 1",
+      // The play button comes first in the title's cell.
+      tx("player:play") + "Synthetic Tune 1",
       "Made Up Artist 1",
       String.raw`E:\Music\tune 1.mp3`,
       tx("allMusic:add"),
     ]);
     // No title: the file's name stands in.
     expect(within(second).getAllByRole("cell")[0]).toHaveTextContent("tune 2.mp3");
+  });
+
+  it("has a play button on each track with a file, which gives the player that file", async () => {
+    // jsdom plays nothing.
+    vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    mockConvertFileSrc("windows");
+    const asked: number[] = [];
+    fakeBackend([track(1), track(2, { title: null, file: { ...track(2).file!, id: 77 } })], {
+      onPreview: (id) => asked.push(id),
+    });
+    renderScreen();
+    const [first, second] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: tx("player:playNamed", { name: "Synthetic Tune 1" }) }));
+    // The track's own file, by its id, not a path.
+    await waitFor(() => expect(asked).toEqual([1]));
+    // With no title the file's name stands in.
+    await userEvent.click(within(second).getByRole("button", { name: tx("player:playNamed", { name: "tune 2.mp3" }) }));
+    await waitFor(() => expect(asked).toEqual([1, 77]));
   });
 
   it("adds one track to the Library when asked, and then says it's in the Library", async () => {
@@ -144,7 +177,7 @@ describe("the All music screen", () => {
     await waitFor(async () => expect((await rows())[1]).toHaveTextContent(tx("allMusic:inLibrary")));
     expect(backend.added).toEqual([2]);
     const [first, added] = await rows();
-    expect(within(added).queryByRole("button")).toBeNull();
+    expect(within(added).queryByRole("button", { name: tx("allMusic:add") })).toBeNull();
     expect(within(first).getByRole("button", { name: tx("allMusic:add") })).toBeEnabled();
   });
 
@@ -153,7 +186,7 @@ describe("the All music screen", () => {
     renderScreen();
     const [row] = await rows();
     expect(row).toHaveTextContent(tx("allMusic:inLibrary"));
-    expect(within(row).queryByRole("button")).toBeNull();
+    expect(within(row).queryByRole("button", { name: tx("allMusic:add") })).toBeNull();
   });
 
   it("says why a track couldn't be added", async () => {
@@ -298,7 +331,7 @@ describe("the All music list's cut-off text", () => {
       track(1, {
         title: longTitle,
         artist: longArtist,
-        file: { path: longPath, name: "x.mp3", present: true, driveConnected: true },
+        file: { id: 1, path: longPath, name: "x.mp3", present: true, driveConnected: true },
       }),
     ]);
     renderScreen();

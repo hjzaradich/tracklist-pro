@@ -753,7 +753,7 @@ fn an_empty_library_lists_no_tracks() {
 fn the_list_gives_each_tracks_title_artist_file_path_presence_and_kind() {
     let lib = Lib::new();
     let track = lib.track(Some("Synthetic Tune"), Some("Made Up Artist"));
-    lib.file(track, "Sub/tune.mp3", "best", true);
+    let file = lib.file(track, "Sub/tune.mp3", "best", true);
     let added = lib.promote(track).unwrap();
 
     let listed = lib.list();
@@ -766,6 +766,7 @@ fn the_list_gives_each_tracks_title_artist_file_path_presence_and_kind() {
     assert_eq!(
         row.file,
         Some(LinkedFile {
+            id: file,
             path: r"E:\Music\Sub\tune.mp3".to_owned(),
             name: "tune.mp3".to_owned(),
             present: true,

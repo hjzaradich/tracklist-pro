@@ -99,6 +99,9 @@ impl LibraryTrackKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkedFile {
+    /// The file's id (`file.id`): what the preview player is given to play
+    /// it (1cA-7).
+    pub id: i64,
     /// Where the file is, e.g. `E:\DJ Music\a.mp3`: under its volume's
     /// mount point now, or where that was last seen if the volume is
     /// offline.
@@ -684,6 +687,7 @@ impl StoredFile {
             }
         };
         LinkedFile {
+            id: self.file_id,
             path,
             name: self.rel.components().last().unwrap_or_default().to_owned(),
             present: self.present,

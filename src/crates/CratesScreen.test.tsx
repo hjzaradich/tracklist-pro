@@ -17,6 +17,7 @@ function track(id: number): LibraryTrack {
     title: `Synthetic Tune ${id}`,
     artist: `Made Up Artist ${id}`,
     file: {
+      id,
       path: String.raw`E:\Music\tune ` + id + ".mp3",
       name: `tune ${id}.mp3`,
       present: true,

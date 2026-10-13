@@ -28,6 +28,7 @@
         "style-src": "'self'",
         "img-src": "'self'",
         "font-src": "'self'",
+        "media-src": "http://audio-preview.localhost",
         "connect-src": "'self' ipc: http://ipc.localhost",
         "object-src": "'none'",
         "base-uri": "'none'",

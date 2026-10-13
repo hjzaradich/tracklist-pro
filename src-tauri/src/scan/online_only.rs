@@ -99,6 +99,17 @@ impl ReadGate {
     }
 }
 
+/// Whether the file at `path` (in the `\\?\` form) is online only right now, from
+/// its attributes alone: `Ok(true)` it is, `Ok(false)` it is on this PC,
+/// `Err` it couldn't be asked about (gone, no access, drive unplugged).
+///
+/// Unlike [`ReadGate`] this ignores the user's opt-in. It is for the
+/// preview player (1cA-7), which never downloads a file whatever the
+/// setting: the attribute query opens no handle that can read data.
+pub fn is_online_now(path: &Path) -> std::io::Result<bool> {
+    is_local(path).map(|local| !local)
+}
+
 // Stage jobs move their gate into writer calls and worker threads: keep it
 // Send + Sync + Clone + Copy (a compile error otherwise).
 const _: () = {

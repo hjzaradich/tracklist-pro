@@ -17,6 +17,7 @@ function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
     title: `Synthetic Tune ${id}`,
     artist: `Made Up Artist ${id}`,
     file: {
+      id,
       path: String.raw`E:\Music\tune ` + id + ".mp3",
       name: `tune ${id}.mp3`,
       present: true,
@@ -36,6 +37,7 @@ const noCrates = tx("crates:addTrack.none");
 
 /** A linked file the last scan didn't find, on a drive that's connected. */
 const goneFile = {
+  id: 1,
   path: String.raw`E:\Music\gone.mp3`,
   name: "gone.mp3",
   present: false,
@@ -186,6 +188,7 @@ describe("the Library screen", () => {
     library([
       track(1, {
         file: {
+          id: 1,
           path: String.raw`G:\Music\a.mp3`,
           name: "a.mp3",
           present: true,
@@ -669,7 +672,7 @@ describe("the Library list's cut-off text", () => {
       track(1, {
         title: longTitle,
         artist: longArtist,
-        file: { path: longPath, name: "x.mp3", present: true, driveConnected: true },
+        file: { id: 1, path: longPath, name: "x.mp3", present: true, driveConnected: true },
       }),
     ]);
     renderScreen();
