@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReviewComparison as Comparison, ReviewFileRow } from "../bindings";
+import { PlayButton } from "../player/PlayButton";
 import { Suggested } from "../suggest/Suggested";
 import { reasonOptions, reasonProblem } from "../suggest/reasons";
 import { trackLabel } from "./ReviewQueue";
@@ -47,7 +48,10 @@ function rekordboxCell(
  * The comparison (1bD-2): the suggestion and why, then one row per file with
  * the same columns, then the actions for the item (`ReviewActions`, 1bE). The
  * "More details" columns (bitrate, sample rate, date added) join the table:
- * the rows already carry them.
+ * the rows already carry them. Each file has a play button (1bE-4) for the
+ * app's one player: switching from one row to another keeps the position
+ * and whether it is playing (`player/playerStore.ts`). A rekordbox entry
+ * with no file has none.
  */
 export function ReviewComparison({ comparison }: { comparison: Comparison }) {
   const { t } = useTranslation("review");
@@ -110,6 +114,11 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
           {comparison.rows.map((row, n) => (
             <tr key={row.fileId ?? `entry-${n}`} className={styles.row}>
               <th scope="row" className={styles.file}>
+                {row.fileId !== null && (
+                  <span className={styles.play}>
+                    <PlayButton file={{ id: row.fileId, name: row.name }} />
+                  </span>
+                )}
                 <span className={styles.name} title={row.path ?? row.name}>
                   {row.name}
                 </span>
