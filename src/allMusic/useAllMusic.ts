@@ -17,17 +17,28 @@ export function useAllMusic(search: string) {
   });
 }
 
-/** "Add to Library": makes the track a linked Library track. Its file is never written. */
+/** What an "Add to Library" asks for: the track, and whether the user already confirmed the low-bitrate warning. */
+export type AddRequest = { recordingId: number; confirmLowBitrate: boolean };
+
+/**
+ * "Add to Library": makes the track a linked Library track. Its file is never
+ * written. The answer is `done`, or `needsConfirmation` with a warning (1bE-8):
+ * then nothing was added, and asking again with `confirmLowBitrate` adds it.
+ */
 export function useAddToLibrary() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (recordingId: number) => unwrap(commands.promoteTrack(recordingId)),
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ALL_MUSIC_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: LIBRARY_TRACKS_QUERY_KEY }),
-        // A track added by hand leaves the rekordbox offer.
-        queryClient.invalidateQueries({ queryKey: REKORDBOX_OFFER_QUERY_KEY }),
-      ]),
+    mutationFn: ({ recordingId, confirmLowBitrate }: AddRequest) =>
+      unwrap(commands.promoteTrack(recordingId, confirmLowBitrate)),
+    onSuccess: (outcome) =>
+      // A warned add changed nothing, so there is nothing to reload.
+      outcome.outcome !== "done"
+        ? undefined
+        : Promise.all([
+            queryClient.invalidateQueries({ queryKey: ALL_MUSIC_QUERY_KEY }),
+            queryClient.invalidateQueries({ queryKey: LIBRARY_TRACKS_QUERY_KEY }),
+            // A track added by hand leaves the rekordbox offer.
+            queryClient.invalidateQueries({ queryKey: REKORDBOX_OFFER_QUERY_KEY }),
+          ]),
   });
 }

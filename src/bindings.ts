@@ -153,8 +153,13 @@ export const commands = {
 	/**
 	 *  Adds a track to the Library as a linked Library track. Its file is never
 	 *  written. Adding a track that's already there changes nothing.
+	 * 
+	 *  A file with the `low bitrate` finding is not added unless
+	 *  `confirm_low_bitrate` is true (the user saw the warning and chose to add
+	 *  anyway); the answer is `needsConfirmation` and nothing has changed
+	 *  (1bE-8).
 	 */
-	promoteTrack: (recordingId: number) => typedError<Promoted, IpcError>(__TAURI_INVOKE("promote_track", { recordingId })),
+	promoteTrack: (recordingId: number, confirmLowBitrate: boolean) => typedError<PromoteOutcome, IpcError>(__TAURI_INVOKE("promote_track", { recordingId, confirmLowBitrate })),
 	/**
 	 *  Removes a track from the Library. Only the Library track goes: the
 	 *  file on disk is never touched, and undo brings it back.
@@ -269,6 +274,14 @@ export type AddSummary = {
 	 */
 	operationId: number | null,
 };
+
+/**
+ *  Why an add needs the user's go-ahead first. A code and its numbers; the
+ *  words come with the screen.
+ */
+export type AddWarning = 
+/**  The file has the `low bitrate` finding. */
+{ code: "lowBitrate"; kbps: number };
 
 /**  Both lists, for the screen. */
 export type AfterSendLists = {
@@ -1106,6 +1119,18 @@ export type Preflight = {
 	 */
 	needsConfirm: boolean,
 };
+
+/**  What asking to add a track to the Library came to. */
+export type PromoteOutcome = 
+/**  The track is in the Library now (or was already: `added` says). */
+{
+	outcome: "done",
+} & Promoted | 
+/**
+ *  Nothing was added or recorded. Ask again with the matching
+ *  confirmation to add it anyway.
+ */
+{ outcome: "needsConfirmation"; warning: AddWarning };
 
 /**  What adding a track to the Library did. */
 export type Promoted = {

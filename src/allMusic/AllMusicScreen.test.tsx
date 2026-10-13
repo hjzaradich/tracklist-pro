@@ -35,8 +35,17 @@ function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
  * Stands in for the Rust side: All music holds `tracks`; a search keeps the
  * titles holding it; adding a track puts it in the Library, or is refused.
  */
-function fakeBackend(tracks: AllMusicTrack[], options: { total?: number; refuse?: unknown } = {}) {
-  const backend = { tracks, searches: [] as string[], added: [] as number[] };
+function fakeBackend(
+  tracks: AllMusicTrack[],
+  options: { total?: number; refuse?: unknown; lowBitrate?: Record<number, number> } = {},
+) {
+  const backend = {
+    tracks,
+    searches: [] as string[],
+    added: [] as number[],
+    /** Every add asked for, with the confirmation it carried. */
+    asked: [] as { recordingId: number; confirmLowBitrate: boolean }[],
+  };
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     if (cmd === "all_music_tracks") {
@@ -50,11 +59,18 @@ function fakeBackend(tracks: AllMusicTrack[], options: { total?: number; refuse?
     if (cmd === "promote_track") {
       if (options.refuse) throw options.refuse;
       const id = a.recordingId as number;
+      const confirmLowBitrate = a.confirmLowBitrate as boolean;
+      backend.asked.push({ recordingId: id, confirmLowBitrate });
+      // The rule is the backend's: a low-bitrate file needs the confirmation.
+      const kbps = options.lowBitrate?.[id];
+      if (kbps !== undefined && !confirmLowBitrate) {
+        return { outcome: "needsConfirmation", warning: { code: "lowBitrate", kbps } };
+      }
       backend.added.push(id);
       backend.tracks = backend.tracks.map((t) =>
         t.recordingId === id ? { ...t, inLibrary: true } : t,
       );
-      return { libraryTrack: {}, added: true };
+      return { outcome: "done", libraryTrack: {}, added: true };
     }
     throw new Error(`unexpected command ${cmd}`);
   }, { shouldMockEvents: true });
@@ -300,5 +316,138 @@ describe("the All music list's cut-off text", () => {
     const [title, artist] = within(row).getAllByRole("cell");
     expect(title).toHaveAttribute("title", "tune 1.mp3");
     expect(artist).not.toHaveAttribute("title");
+  });
+});
+
+describe("adding a low-bitrate file", () => {
+  /** The warning box, once the backend has asked for the confirmation. */
+  async function warning() {
+    return screen.findByRole("alertdialog");
+  }
+
+  it("shows the warning with exactly two choices, and adds nothing yet", async () => {
+    const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [, second] = await rows();
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+
+    const box = await warning();
+    expect(box).toHaveTextContent(tx("allMusic:lowBitrate.title", { title: "Synthetic Tune 2" }));
+    expect(box).toHaveTextContent(tx("allMusic:lowBitrate.detail", { kbps: 128 }));
+    expect(within(box).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      tx("allMusic:lowBitrate.addAnyway"),
+      tx("allMusic:lowBitrate.cancel"),
+    ]);
+    // Asked once, without the confirmation; nothing is in the Library.
+    expect(backend.asked).toEqual([{ recordingId: 2, confirmLowBitrate: false }]);
+    expect(backend.added).toEqual([]);
+    // The safe choice has focus.
+    expect(within(box).getByRole("button", { name: tx("allMusic:lowBitrate.cancel") })).toHaveFocus();
+  });
+
+  it("calls nothing further when the user chooses Cancel", async () => {
+    const backend = fakeBackend([track(1)], { lowBitrate: { 1: 96 } });
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: tx("allMusic:add") }));
+    const box = await warning();
+
+    await userEvent.click(within(box).getByRole("button", { name: tx("allMusic:lowBitrate.cancel") }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(backend.asked).toEqual([{ recordingId: 1, confirmLowBitrate: false }]);
+    expect(backend.added).toEqual([]);
+    // The track is still there to add, and the list was not reloaded into a different state.
+    const [row] = await rows();
+    expect(within(row).getByRole("button", { name: tx("allMusic:add") })).toBeEnabled();
+    expect(row).not.toHaveTextContent(tx("allMusic:inLibrary"));
+  });
+
+  it("cancels on Escape too", async () => {
+    const backend = fakeBackend([track(1)], { lowBitrate: { 1: 96 } });
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: tx("allMusic:add") }));
+    await warning();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(backend.asked).toHaveLength(1);
+    expect(backend.added).toEqual([]);
+  });
+
+  it("cancels on Escape wherever focus is, and gives focus back to the Add button it came from", async () => {
+    const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [, second] = await rows();
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+    await warning();
+
+    // Focus is outside the box, in the search field.
+    const search = screen.getByRole("searchbox", { name: tx("allMusic:search") });
+    search.focus();
+    expect(search).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(backend.asked).toHaveLength(1);
+    expect(backend.added).toEqual([]);
+    const [, again] = await rows();
+    expect(within(again).getByRole("button", { name: tx("allMusic:add") })).toHaveFocus();
+  });
+
+  it("gives focus back to the Add button after Cancel too", async () => {
+    fakeBackend([track(1)], { lowBitrate: { 1: 96 } });
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: tx("allMusic:add") }));
+    const box = await warning();
+    await userEvent.click(within(box).getByRole("button", { name: tx("allMusic:lowBitrate.cancel") }));
+    expect(await screen.findByRole("button", { name: tx("allMusic:add") })).toHaveFocus();
+  });
+
+  it("closes the warning when the track leaves the list, instead of asking about nothing", async () => {
+    const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [, second] = await rows();
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+    await warning();
+
+    // A search that no longer lists the track.
+    await userEvent.type(screen.getByRole("searchbox", { name: tx("allMusic:search") }), "Tune 1");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(backend.added).toEqual([]);
+  });
+
+  it("adds the track with the confirmation when the user chooses Add anyway", async () => {
+    const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [, second] = await rows();
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+    const box = await warning();
+
+    await userEvent.click(within(box).getByRole("button", { name: tx("allMusic:lowBitrate.addAnyway") }));
+    await waitFor(async () => expect((await rows())[1]).toHaveTextContent(tx("allMusic:inLibrary")));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(backend.asked).toEqual([
+      { recordingId: 2, confirmLowBitrate: false },
+      { recordingId: 2, confirmLowBitrate: true },
+    ]);
+    expect(backend.added).toEqual([2]);
+  });
+
+  it("shows no warning for a track the backend adds at once", async () => {
+    const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [first] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: tx("allMusic:add") }));
+    await waitFor(async () => expect((await rows())[0]).toHaveTextContent(tx("allMusic:inLibrary")));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(backend.asked).toEqual([{ recordingId: 1, confirmLowBitrate: false }]);
+  });
+
+  it("holds the other Add buttons while the question is open", async () => {
+    fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [first, second] = await rows();
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+    await warning();
+    expect(within(first).getByRole("button", { name: tx("allMusic:add") })).toBeDisabled();
   });
 });

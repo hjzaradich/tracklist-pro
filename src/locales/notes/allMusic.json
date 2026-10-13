@@ -53,5 +53,21 @@
     "purpose": "Reason a track can't be added to the Library: one of its files is the probable match of a rekordbox track, and that match can't be confirmed yet.",
     "where": "All music list, Library column, beside a greyed-out Add to Library button.",
     "approved": "rekordbox match uncertain"
+  },
+  "lowBitrate.title": {
+    "purpose": "Question asked before a low-bitrate file is added to the Library (owner decision 2026-10-10).",
+    "where": "All music, warning box above the list, after \"Add to Library\" on a track whose file has the low bitrate finding."
+  },
+  "lowBitrate.detail": {
+    "purpose": "Says why the add is being questioned: the file has a low bitrate, and such files are better left out.",
+    "where": "All music, warning box above the list, under the question."
+  },
+  "lowBitrate.addAnyway": {
+    "purpose": "Adds the track to the Library despite the warning.",
+    "where": "All music, warning box, first button."
+  },
+  "lowBitrate.cancel": {
+    "purpose": "Closes the warning and adds nothing.",
+    "where": "All music, warning box, second button (focused first)."
   }
 }

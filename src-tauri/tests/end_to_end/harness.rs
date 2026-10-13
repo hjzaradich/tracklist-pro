@@ -27,7 +27,7 @@ use tauri_specta::Event;
 use tracklist_pro_lib::all_music::AllMusicList;
 use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::jobs::{self, ActivitySnapshot, JobId, JobRecord, JobStatus};
-use tracklist_pro_lib::library::{LibraryTrack, LibraryTrackId, Promoted};
+use tracklist_pro_lib::library::{LibraryTrack, LibraryTrackId, PromoteOutcome};
 use tracklist_pro_lib::rekordbox::RekordboxXml;
 use tracklist_pro_lib::send::{Preflight, SendFailure, SendState};
 use tracklist_pro_lib::{db, scan, IDENTIFIER};
@@ -522,8 +522,16 @@ impl World {
             .into_iter()
             .find(|t| t.file.as_ref().is_some_and(|f| f.name == song.file_name()))
             .unwrap_or_else(|| panic!("{} isn't in All music", song.rel));
-        let promoted: Promoted =
-            self.call("promote_track", json!({ "recordingId": row.recording_id }));
+        // Asked without the confirmation, as the button does first. The
+        // fixtures are lossless, so the warning never applies: if one ever
+        // did, this fails instead of confirming for the user.
+        let outcome: PromoteOutcome = self.call(
+            "promote_track",
+            json!({ "recordingId": row.recording_id, "confirmLowBitrate": false }),
+        );
+        let PromoteOutcome::Done(promoted) = outcome else {
+            panic!("{} was met with a warning: {outcome:?}", song.rel);
+        };
         assert!(promoted.added, "{} was already in the Library", song.rel);
         promoted.library_track
     }

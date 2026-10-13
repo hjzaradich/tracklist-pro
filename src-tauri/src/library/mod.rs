@@ -24,6 +24,11 @@
 //! else changes a link: not grouping, not the best-file ranking, not
 //! relink, not a send. (Switching to another copy by hand is 1bE-7.)
 //!
+//! A file with the `low bitrate` finding is not added until the user has
+//! agreed (1bE-8; see `warning`): the add answers `needsConfirmation` and
+//! changes nothing. The rekordbox offer's bulk add is the one named
+//! exception.
+//!
 //! - It only touches the database. No audio file is opened, read or written.
 //! - The add goes through the operation log ([`crate::ops`]), so it can be
 //!   undone.
@@ -46,6 +51,10 @@ use crate::ops::{self, OpsError, Recorder};
 use crate::paths::{RelPath, StoredPath, Volumes};
 use crate::scan::{display_path, system_volumes};
 use crate::volume::VolumeId;
+
+mod warning;
+use warning::is_confirmed;
+pub use warning::{warning_for, AddWarning, Confirmed, PromoteOutcome};
 
 /// The operation kind of an add, as the operation log stores it.
 pub const PROMOTE_OPERATION: &str = "promote";
@@ -514,14 +523,26 @@ impl MissingFile {
 }
 
 /// What [`promote_on`] did, before paths are made readable.
-type PromotedStored = (StoredTrack, bool);
+enum Promotion {
+    /// The track is in the Library; `true` if this call added it.
+    Done(StoredTrack, bool),
+    /// The add needs the user's go-ahead first. Nothing was recorded.
+    Warned(AddWarning),
+    /// The add was refused. Nothing was changed.
+    Refused(Refusal, Option<MissingFile>),
+}
 
 /// [`promote`], on the writer connection. One writer job, so nothing can
 /// change between the check and the insert.
+///
+/// The warning (1bE-8) is decided here, between [`check`] and the insert:
+/// the file's verdict is settled, and a file with the `low bitrate` finding
+/// is not added unless `confirmed` says the user agreed.
 fn promote_on(
     conn: &mut Connection,
     recording: i64,
-) -> Result<Result<PromotedStored, (Refusal, Option<MissingFile>)>, OpsError> {
+    confirmed: Confirmed,
+) -> Result<Promotion, OpsError> {
     let (id, added) = match check(conn, recording)? {
         Err(refusal) => {
             let file = match refusal {
@@ -535,10 +556,15 @@ fn promote_on(
                 }),
                 _ => None,
             };
-            return Ok(Err((refusal, file)));
+            return Ok(Promotion::Refused(refusal, file));
         }
         Ok(Plan::AlreadyThere(id)) => (id, false),
         Ok(Plan::Link(choice)) => {
+            if let Some(warning) = warning_for(conn, choice.file_id)? {
+                if !is_confirmed(warning, confirmed) {
+                    return Ok(Promotion::Warned(warning));
+                }
+            }
             let recorded = ops::record(
                 conn,
                 PROMOTE_OPERATION,
@@ -552,18 +578,29 @@ fn promote_on(
         entity: "library_track".to_owned(),
         id: id.0,
     })?;
-    Ok(Ok((track, added)))
+    Ok(Promotion::Done(track, added))
 }
 
 /// Adds the track `recording` to the Library as a linked Library track
 /// ("Add to Library"). Recorded as one operation, so undo removes it again.
 /// The file is never touched.
+///
+/// A file with the `low bitrate` finding is not added unless `confirmed`
+/// says the user agreed: the answer is then
+/// [`PromoteOutcome::NeedsConfirmation`] and nothing has changed.
 pub fn promote(
     writer: &Writer,
     volumes: &impl Volumes,
     recording: i64,
-) -> Result<Promoted, LibraryError> {
-    promote_with(writer, volumes, &FragileDirs::system(), recording)
+    confirmed: Confirmed,
+) -> Result<PromoteOutcome, LibraryError> {
+    promote_with(
+        writer,
+        volumes,
+        &FragileDirs::system(),
+        recording,
+        confirmed,
+    )
 }
 
 /// [`promote`], judging fragile locations against `dirs`.
@@ -572,33 +609,39 @@ pub fn promote_with(
     volumes: &impl Volumes,
     dirs: &FragileDirs,
     recording: i64,
-) -> Result<Promoted, LibraryError> {
+    confirmed: Confirmed,
+) -> Result<PromoteOutcome, LibraryError> {
     let done = writer.call(move |conn| {
-        Ok(promote_on(conn, recording).and_then(|done| {
+        Ok(promote_on(conn, recording, confirmed).and_then(|done| {
             let located = match &done {
-                Ok((track, _)) => match &track.file {
+                Promotion::Done(track, _) => match &track.file {
                     Some(file) => fragile::locate(conn, &[file.file_id])?,
                     None => Vec::new(),
                 },
-                Err(_) => Vec::new(),
+                _ => Vec::new(),
             };
             Ok((done, located))
         }))
     })??;
     match done {
-        (Ok((track, added)), located) => {
+        (Promotion::Done(track, added), located) => {
             let fragile = fragile::judge(&located, volumes, dirs);
-            Ok(Promoted {
+            Ok(PromoteOutcome::Done(Promoted {
                 library_track: track.to_library_track(volumes, &fragile),
                 added,
+            }))
+        }
+        (Promotion::Warned(warning), _) => Ok(PromoteOutcome::NeedsConfirmation { warning }),
+        (Promotion::Refused(Refusal::TrackNotFound, _), _) => Err(LibraryError::TrackNotFound),
+        (Promotion::Refused(Refusal::NoFile, _), _) => Err(LibraryError::NoFile),
+        (Promotion::Refused(Refusal::MatchNotConfirmed, _), _) => {
+            Err(LibraryError::MatchNotConfirmed)
+        }
+        (Promotion::Refused(Refusal::FileMissing { .. }, file), _) => {
+            Err(LibraryError::FileMissing {
+                path: file.map(|f| f.shown(volumes)).unwrap_or_default(),
             })
         }
-        (Err((Refusal::TrackNotFound, _)), _) => Err(LibraryError::TrackNotFound),
-        (Err((Refusal::NoFile, _)), _) => Err(LibraryError::NoFile),
-        (Err((Refusal::MatchNotConfirmed, _)), _) => Err(LibraryError::MatchNotConfirmed),
-        (Err((Refusal::FileMissing { .. }, file)), _) => Err(LibraryError::FileMissing {
-            path: file.map(|f| f.shown(volumes)).unwrap_or_default(),
-        }),
     }
 }
 
@@ -928,22 +971,31 @@ pub async fn library_tracks(reads: State<'_, ReadPool>) -> Result<Vec<LibraryTra
 
 /// Adds a track to the Library as a linked Library track. Its file is never
 /// written. Adding a track that's already there changes nothing.
+///
+/// A file with the `low bitrate` finding is not added unless
+/// `confirm_low_bitrate` is true (the user saw the warning and chose to add
+/// anyway); the answer is `needsConfirmation` and nothing has changed
+/// (1bE-8).
 #[tauri::command]
 #[specta::specta]
 pub async fn promote_track(
     writer: State<'_, Writer>,
     jobs: State<'_, crate::jobs::JobQueue>,
     recording_id: i64,
-) -> Result<Promoted, IpcError> {
-    let promoted = promote(&writer, &system_volumes(), recording_id)?;
-    if promoted.added {
+    confirm_low_bitrate: bool,
+) -> Result<PromoteOutcome, IpcError> {
+    let confirmed = Confirmed {
+        low_bitrate: confirm_low_bitrate,
+    };
+    let outcome = promote(&writer, &system_volumes(), recording_id, confirmed)?;
+    if matches!(&outcome, PromoteOutcome::Done(p) if p.added) {
         // Its "better file" is worked out in the background. A failure to
         // ask is not the add's: the next job to end asks again.
         if let Err(e) = crate::file_roles::request(&writer, |j| jobs.enqueue(j)) {
             eprintln!("promote_track: couldn't ask for the roles: {e:?}");
         }
     }
-    Ok(promoted)
+    Ok(outcome)
 }
 
 /// Removes a track from the Library. Only the Library track goes: the

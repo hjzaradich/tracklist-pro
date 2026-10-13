@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::db::Writer;
+use crate::library::Confirmed;
 use crate::volume::VolumeId;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeKind};
 
@@ -348,7 +349,9 @@ fn starting_fresh_the_library_is_empty_and_adding_one_track_from_the_list_puts_i
     assert_eq!(lib.library_tracks(), 0);
     assert!(lib.list("").tracks.iter().all(|t| !t.in_library));
 
-    let added = library::promote(&lib.writer, &mounted(), track).unwrap();
+    let added = library::promote(&lib.writer, &mounted(), track, Confirmed::default())
+        .unwrap()
+        .done();
     assert!(added.added);
     assert_eq!(lib.library_tracks(), 1);
     let in_library: Vec<_> = lib
@@ -367,12 +370,16 @@ fn starting_fresh_the_library_is_empty_and_adding_one_track_from_the_list_puts_i
 fn a_track_taken_out_of_the_library_is_listed_as_not_in_it_and_can_be_added_back() {
     let lib = Lib::new();
     let track = lib.track(Some("Tune"), None, "tune.mp3");
-    library::promote(&lib.writer, &mounted(), track).unwrap();
+    library::promote(&lib.writer, &mounted(), track, Confirmed::default())
+        .unwrap()
+        .done();
     // Taken out again (here, by undoing the add).
     crate::ops::undo_last_via(&lib.writer).unwrap();
     assert!(!lib.list("").tracks[0].in_library);
 
-    let again = library::promote(&lib.writer, &mounted(), track).unwrap();
+    let again = library::promote(&lib.writer, &mounted(), track, Confirmed::default())
+        .unwrap()
+        .done();
     assert!(again.added);
     assert!(lib.list("").tracks[0].in_library);
 }
@@ -432,7 +439,9 @@ fn a_track_with_no_files_is_not_in_all_music() {
 fn a_track_removed_from_the_library_can_be_added_back_which_clears_its_removal_record() {
     let lib = Lib::new();
     let track = lib.track(Some("Tune"), None, "tune.mp3");
-    let added = library::promote(&lib.writer, &mounted(), track).unwrap();
+    let added = library::promote(&lib.writer, &mounted(), track, Confirmed::default())
+        .unwrap()
+        .done();
     library::remove(&lib.writer, added.library_track.id).unwrap();
     assert!(!lib.list("").tracks[0].in_library);
     let removals = |lib: &Lib| -> i64 {
@@ -442,7 +451,9 @@ fn a_track_removed_from_the_library_can_be_added_back_which_clears_its_removal_r
     };
     assert_eq!(removals(&lib), 1);
 
-    let again = library::promote(&lib.writer, &mounted(), track).unwrap();
+    let again = library::promote(&lib.writer, &mounted(), track, Confirmed::default())
+        .unwrap()
+        .done();
     assert!(again.added);
     assert!(lib.list("").tracks[0].in_library);
     assert_eq!(removals(&lib), 0);

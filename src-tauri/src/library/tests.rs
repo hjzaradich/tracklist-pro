@@ -149,7 +149,16 @@ impl Lib {
     }
 
     fn promote(&self, track: i64) -> Result<Promoted, LibraryError> {
-        promote_with(&self.writer, &Mount::at(r"E:\"), &NO_DIRS, track)
+        self.promote_confirmed(track, Confirmed::default())
+            .map(PromoteOutcome::done)
+    }
+
+    fn promote_confirmed(
+        &self,
+        track: i64,
+        confirmed: Confirmed,
+    ) -> Result<PromoteOutcome, LibraryError> {
+        promote_with(&self.writer, &Mount::at(r"E:\"), &NO_DIRS, track, confirmed)
     }
 
     fn list_with(&self, volumes: &Mount) -> Vec<LibraryTrack> {
@@ -194,6 +203,7 @@ impl Lib {
 }
 
 mod upkeep;
+mod warning;
 
 // Which file a Library track links to.
 
@@ -560,7 +570,9 @@ fn a_track_whose_file_is_on_an_unplugged_drive_can_be_added() {
     let track = lib.track(None, None);
     let file = lib.file(track, "a.mp3", "best", true);
 
-    let added = promote(&lib.writer, &Mount(None), track).unwrap();
+    let added = promote(&lib.writer, &Mount(None), track, Confirmed::default())
+        .unwrap()
+        .done();
     assert!(added.added);
     assert_eq!(lib.linked_file(track), Some(file));
     let linked = added.library_track.file.unwrap();
@@ -688,7 +700,9 @@ fn adding_listing_and_undoing_never_write_or_touch_the_linked_file() {
 
     let track = lib.track(None, None);
     lib.file(track, "a.mp3", "best", true);
-    let added = promote(&lib.writer, &volumes, track).unwrap();
+    let added = promote(&lib.writer, &volumes, track, Confirmed::default())
+        .unwrap()
+        .done();
     // The Library track really names that file.
     assert_eq!(
         added.library_track.file.unwrap().path,
@@ -696,7 +710,9 @@ fn adding_listing_and_undoing_never_write_or_touch_the_linked_file() {
     );
     assert_eq!(lib.list_with(&volumes).len(), 1);
     undo_last_via(&lib.writer).unwrap();
-    promote(&lib.writer, &volumes, track).unwrap();
+    promote(&lib.writer, &volumes, track, Confirmed::default())
+        .unwrap()
+        .done();
 
     let after = std::fs::metadata(&on_disk).unwrap();
     assert_eq!(std::fs::read(&on_disk).unwrap(), b"synthetic audio bytes");
@@ -914,7 +930,12 @@ mod ipc {
             })
             .unwrap();
 
-        let added = invoke(&app, "promote_track", json!({ "recordingId": 1 })).unwrap();
+        let added = invoke(
+            &app,
+            "promote_track",
+            json!({ "recordingId": 1, "confirmLowBitrate": false }),
+        )
+        .unwrap();
         assert_eq!(added["added"], json!(true));
         let track = &added["libraryTrack"];
         assert_eq!(track["recordingId"], json!(1));
@@ -931,7 +952,12 @@ mod ipc {
         assert_eq!(listed, json!([track]));
         assert_eq!(listed[0]["fragile"], json!("external"));
 
-        let again = invoke(&app, "promote_track", json!({ "recordingId": 1 })).unwrap();
+        let again = invoke(
+            &app,
+            "promote_track",
+            json!({ "recordingId": 1, "confirmLowBitrate": false }),
+        )
+        .unwrap();
         assert_eq!(again["added"], json!(false));
         assert_eq!(&again["libraryTrack"], track);
 
@@ -942,10 +968,61 @@ mod ipc {
     }
 
     #[test]
+    fn a_low_bitrate_file_answers_with_a_code_until_the_add_is_confirmed_over_ipc() {
+        let (_data, app) = app();
+        app.state::<Writer>()
+            .call(|c| {
+                c.execute_batch(
+                    "INSERT INTO volume (identity, kind, last_mount_path)
+                         VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\');
+                     INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                         VALUES (1, 'Music', 'Music');
+                     INSERT INTO file (music_folder_id, rel_path, rel_path_key, codec, bitrate)
+                         VALUES (1, 'a.mp3', 'a.mp3', 'mp3', 128);
+                     INSERT INTO recording (title) VALUES ('Synthetic Tune');
+                     INSERT INTO recording_file (recording_id, file_id, role)
+                         VALUES (1, 1, 'best');",
+                )
+            })
+            .unwrap();
+
+        // Not confirmed: a typed outcome, no text, and nothing added.
+        let asked = invoke(
+            &app,
+            "promote_track",
+            json!({ "recordingId": 1, "confirmLowBitrate": false }),
+        )
+        .unwrap();
+        assert_eq!(
+            asked,
+            json!({
+                "outcome": "needsConfirmation",
+                "warning": { "code": "lowBitrate", "kbps": 128 }
+            })
+        );
+        assert_eq!(invoke(&app, "library_tracks", json!({})), Ok(json!([])));
+
+        // Confirmed: the same add goes through.
+        let added = invoke(
+            &app,
+            "promote_track",
+            json!({ "recordingId": 1, "confirmLowBitrate": true }),
+        )
+        .unwrap();
+        assert_eq!(added["outcome"], json!("done"));
+        assert_eq!(added["added"], json!(true));
+        assert_eq!(added["libraryTrack"]["recordingId"], json!(1));
+    }
+
+    #[test]
     fn refused_adds_reach_the_frontend_as_error_kinds() {
         let (_data, app) = app();
         assert_eq!(
-            invoke(&app, "promote_track", json!({ "recordingId": 7 })),
+            invoke(
+                &app,
+                "promote_track",
+                json!({ "recordingId": 7, "confirmLowBitrate": false })
+            ),
             Err(json!({ "kind": "libraryTrackNotFound", "params": {} }))
         );
         app.state::<Writer>()
@@ -965,10 +1042,19 @@ mod ipc {
             })
             .unwrap();
         assert_eq!(
-            invoke(&app, "promote_track", json!({ "recordingId": 1 })),
+            invoke(
+                &app,
+                "promote_track",
+                json!({ "recordingId": 1, "confirmLowBitrate": false })
+            ),
             Err(json!({ "kind": "libraryNoFile", "params": {} }))
         );
-        let missing = invoke(&app, "promote_track", json!({ "recordingId": 2 })).unwrap_err();
+        let missing = invoke(
+            &app,
+            "promote_track",
+            json!({ "recordingId": 2, "confirmLowBitrate": false }),
+        )
+        .unwrap_err();
         assert_eq!(missing["kind"], json!("libraryFileMissing"));
         let path = missing["params"]["path"].as_str().unwrap();
         assert!(path.ends_with(r"Music\gone.mp3"), "{path}");
@@ -996,7 +1082,11 @@ mod ipc {
             })
             .unwrap();
         assert_eq!(
-            invoke(&app, "promote_track", json!({ "recordingId": 1 })),
+            invoke(
+                &app,
+                "promote_track",
+                json!({ "recordingId": 1, "confirmLowBitrate": false })
+            ),
             Err(json!({ "kind": "libraryMatchNotConfirmed", "params": {} }))
         );
     }
@@ -1009,7 +1099,7 @@ mod ipc {
         let ts = std::fs::read_to_string(&path).unwrap();
         for expected in [
             r#"libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks"))"#,
-            r#"promoteTrack: (recordingId: number) => typedError<Promoted, IpcError>(__TAURI_INVOKE("promote_track", { recordingId }))"#,
+            r#"promoteTrack: (recordingId: number, confirmLowBitrate: boolean) => typedError<PromoteOutcome, IpcError>(__TAURI_INVOKE("promote_track", { recordingId, confirmLowBitrate }))"#,
             "export type LibraryTrack = {",
             "export type LinkedFile = {",
             r#"export type LibraryTrackKind = "#,
