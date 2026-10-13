@@ -756,9 +756,10 @@ mod seeding {
             let Some(recording) = recording_of(sample) else {
                 continue;
             };
-            if let Ok(promoted) =
-                app.try_call::<Value>("promote_track", json!({ "recordingId": recording }))
-            {
+            if let Ok(promoted) = app.try_call::<Value>(
+                "promote_track",
+                json!({ "recordingId": recording, "confirmLowBitrate": true }),
+            ) {
                 if let Some(id) = promoted["libraryTrack"]["id"].as_i64() {
                     library.push((n, id));
                 }

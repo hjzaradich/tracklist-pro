@@ -219,6 +219,43 @@ fn tracks_with_a_trusted_match_are_offered_and_the_action_adds_them_linked() {
 }
 
 #[test]
+fn the_bulk_add_from_the_rekordbox_offer_does_not_warn_about_low_bitrate_files_and_adds_them() {
+    // 1bE-8: only a single add by hand warns. The offer adds the tracks
+    // rekordbox already knows without asking per track (they show under
+    // "Quality problems" in Review afterwards).
+    let lib = Lib::new();
+    let (fine, fine_file) = lib.track("a", true);
+    let (low, low_file) = lib.track("b", true);
+    let (cut_off, cut_off_file) = lib.track("c", true);
+    lib.insert(
+        "UPDATE file SET codec = 'mp3', bitrate = 320 WHERE id = ?1",
+        [fine_file],
+    );
+    lib.insert(
+        "UPDATE file SET codec = 'mp3', bitrate = 128 WHERE id = ?1",
+        [low_file],
+    );
+    lib.insert(
+        "UPDATE file SET codec = 'mp3', bitrate = 96, quality_verdict = 'truncated'
+         WHERE id = ?1",
+        [cut_off_file],
+    );
+    for file in [fine_file, low_file, cut_off_file] {
+        lib.entry(Match::Trusted(file), &[]);
+    }
+
+    assert_eq!(lib.offer(), offered(3));
+    let summary = lib.add();
+    assert_eq!(summary.added, 3);
+    assert_eq!(
+        lib.library().iter().map(|(t, _)| *t).collect::<Vec<_>>(),
+        [fine, low, cut_off]
+    );
+    // One operation for the whole batch, as before.
+    assert_eq!(lib.operations(), 1);
+}
+
+#[test]
 fn the_library_track_links_to_the_file_rekordbox_uses_not_the_best_file() {
     let lib = Lib::new();
     let (track, _best) = lib.track("a", true);
@@ -746,7 +783,14 @@ fn a_removed_track_added_back_by_hand_is_an_ordinary_library_track_again() {
     assert_eq!(lib.offer(), offered(0));
 
     // "Add to Library" in All music.
-    let added = library::promote(&lib.writer, &crate::scan::system_volumes(), track).unwrap();
+    let added = library::promote(
+        &lib.writer,
+        &crate::scan::system_volumes(),
+        track,
+        library::Confirmed::default(),
+    )
+    .unwrap()
+    .done();
     assert!(added.added);
     assert_eq!(lib.library(), vec![(track, file)]);
     assert_eq!(lib.removal_records(), 0);

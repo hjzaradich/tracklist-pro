@@ -225,7 +225,15 @@ impl Lib {
         match action {
             Action::Add(n) => {
                 let recording = (n % TRACKS) as i64 + 1;
-                library::promote_with(&self.writer, &Plugged, &NO_DIRS, recording).unwrap();
+                library::promote_with(
+                    &self.writer,
+                    &Plugged,
+                    &NO_DIRS,
+                    recording,
+                    library::Confirmed::default(),
+                )
+                .unwrap()
+                .done();
             }
             Action::AddFromRekordbox => {
                 self.writer
@@ -320,7 +328,15 @@ impl Lib {
     }
 
     fn add(&self, n: i64) -> LibraryTrackId {
-        let added = library::promote_with(&self.writer, &Plugged, &NO_DIRS, n).unwrap();
+        let added = library::promote_with(
+            &self.writer,
+            &Plugged,
+            &NO_DIRS,
+            n,
+            library::Confirmed::default(),
+        )
+        .unwrap()
+        .done();
         assert!(added.added);
         self.library_track(n)
     }
