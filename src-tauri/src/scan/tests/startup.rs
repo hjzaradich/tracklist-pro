@@ -534,6 +534,8 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
     writer
         .call(|c| {
             c.execute("DELETE FROM best_file_due", [])?;
+            // This library never ran the index job: its index is current.
+            c.execute("DELETE FROM search_due", [])?;
             c.execute("DELETE FROM job", [])
         })
         .unwrap();

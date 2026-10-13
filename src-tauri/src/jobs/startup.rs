@@ -46,6 +46,8 @@
 //! asks for is queued waits for the next rekordbox read.
 
 use std::cell::OnceCell;
+use std::sync::{Mutex, PoisonError};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
@@ -308,14 +310,31 @@ pub(crate) fn ask_with(
     asked
 }
 
+/// The thread asking what is due, kept in the app's state so a test that
+/// wants the asking done can wait for it ([`StartupAsks::finished`]). The
+/// app never waits for it. Tests that don't want the asking at all don't
+/// start it (`setup_with` in `lib.rs`).
+pub struct StartupAsks(Mutex<Option<JoinHandle<()>>>);
+
+impl StartupAsks {
+    /// Waits until every stage has been asked. Returns at once if it
+    /// already has been.
+    pub fn finished(&self) {
+        let thread = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(thread) = thread {
+            let _ = thread.join();
+        }
+    }
+}
+
 /// Starts the asking on a thread of its own, once the job queue is in the
 /// app's state. Call it after the send jobs are dropped and the interrupted
 /// jobs recovered.
-pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) {
+pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> StartupAsks {
     let handle = app.clone();
     let Some(reads) = app.try_state::<ReadPool>().map(|r| r.inner().clone()) else {
         eprintln!("startup: no read pool, so nothing was asked for what is due");
-        return;
+        return StartupAsks(Mutex::new(None));
     };
     let spawned = std::thread::Builder::new()
         .name("startup-asks".into())
@@ -335,7 +354,11 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) {
                 asked.failed
             );
         });
-    if let Err(e) = spawned {
-        eprintln!("startup: couldn't start asking what is due: {e}");
+    match spawned {
+        Ok(thread) => StartupAsks(Mutex::new(Some(thread))),
+        Err(e) => {
+            eprintln!("startup: couldn't start asking what is due: {e}");
+            StartupAsks(Mutex::new(None))
+        }
     }
 }
