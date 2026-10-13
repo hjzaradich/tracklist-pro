@@ -50,8 +50,13 @@
   background: var(--color-row-stripe);
 }
 
+/* The file column takes a share of the table, never less than 10rem (so at
+ * the smallest window the table still fits without scrolling sideways). A
+ * long name ends in "..." (the full path is its title). */
 .file {
-  max-width: 18rem;
+  width: 34%;
+  min-width: 10rem;
+  max-width: 0;
 }
 
 /* The file's name is its row's header; it reads as a cell, not a heading. */
@@ -77,6 +82,27 @@
   font-size: var(--font-size-sm);
 }
 
+/* "Suggested" and "Linked": words in a neutral label. Never colour alone,
+ * and never the accent (that means selected or active). */
+.mark {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.markSuggested {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.markLinked {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
 .warn {
   color: var(--color-warning);
 }
@@ -99,4 +125,67 @@
 .more {
   margin: 0;
   color: var(--color-text-muted);
+}
+
+/*
+ * Where the Review actions go (owner decision, docs/design-style.md): one
+ * row under the table acting on the suggested file. The one filled accent
+ * button is "keep the suggested file", the rest are quiet, and `.keys`
+ * says the keys. A file-specific action sits in a quiet `.rowAction` cell
+ * at the end of its row.
+ */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.keys {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.rowAction {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.button,
+.primary {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button:focus-visible,
+.primary:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
 }
