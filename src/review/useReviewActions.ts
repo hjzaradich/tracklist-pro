@@ -1,6 +1,13 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "../api/errors";
-import { commands, type AcceptedAll, type Acted, type SwitchEffect, type Switched } from "../bindings";
+import {
+  commands,
+  type AcceptedAll,
+  type AcceptItem,
+  type Acted,
+  type SwitchEffect,
+  type Switched,
+} from "../bindings";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { REVIEW_ACCEPT_ALL_QUERY_KEY, REVIEW_QUERY_KEYS } from "./useReview";
 
@@ -57,16 +64,22 @@ export function useSwitchLinkedFile() {
   );
 }
 
-/** How many items "Accept all" would switch now: the N on its button. */
-export function useAcceptAllCount(enabled: boolean) {
+/**
+ * The items "Accept all" would switch now. N on its button is how many, and
+ * a click sends exactly these back: an item that joined the queue since the
+ * button was drawn is never switched unseen.
+ */
+export function useAcceptAllItems(enabled: boolean) {
   return useQuery({
     queryKey: REVIEW_ACCEPT_ALL_QUERY_KEY,
     enabled,
-    queryFn: (): Promise<number> => unwrap(commands.reviewAcceptAllCount()),
+    queryFn: (): Promise<AcceptItem[]> => unwrap(commands.reviewAcceptAllItems()),
   });
 }
 
-/** "Accept all" for "Clear best file": every clear switch, as one step. */
+/** "Accept all" for the items shown: every one that is still a clear switch, as one step. */
 export function useAcceptAll() {
-  return useAction<void, AcceptedAll>(() => unwrap(commands.reviewAcceptClearBestFiles()));
+  return useAction<AcceptItem[], AcceptedAll>((items) =>
+    unwrap(commands.reviewAcceptClearBestFiles(items)),
+  );
 }

@@ -7,13 +7,13 @@ use super::follow::Drives;
 use super::*;
 use crate::after_send::{manual_removals, RemovalReason};
 use crate::library::LibraryTrackId;
-use crate::ops::UndoOutcome;
+use crate::ops::{UndoOutcome, UndoRefusal};
 use crate::rekordbox::RekordboxXml;
-use crate::rekordbox_write::{build, Node, Outgoing, SendInput, TrackInput};
+use crate::rekordbox_write::{build, record_send, Node, Outgoing, SendInput, TrackInput};
 use crate::review::actions::{
-    accept_all_count, accept_all_covers, accept_clear_best_files, switch_linked_file, AcceptedAll,
-    Refused, SkipReason, SkippedItem, SwitchEffect, SwitchOffer, SwitchRefusal, Switched,
-    ACCEPT_ALL_OPERATION, SWITCH_OPERATION,
+    accept_all_covers, accept_all_items, accept_clear_best_files, switch_linked_file, AcceptItem,
+    AcceptedAll, Refused, SkipReason, SkippedItem, SwitchEffect, SwitchOffer, SwitchRefusal,
+    Switched, ACCEPT_ALL_OPERATION, SWITCH_OPERATION,
 };
 use crate::review::{ReviewCounts, ReviewGroup, ReviewItemId, ReviewKind};
 use crate::send_values::{send_values_one, SentAs};
@@ -139,11 +139,38 @@ impl Lib {
             .unwrap()
     }
 
-    fn accept_all(&self) -> AcceptedAll {
+    /// The items "Accept all" would switch now: what its button counts.
+    fn clear_cases(&self) -> Vec<AcceptItem> {
+        self.writer.call(|c| accept_all_items(c, &Drives)).unwrap()
+    }
+
+    /// "Accept all", for the items the screen showed.
+    fn accept(&self, shown: &[AcceptItem]) -> AcceptedAll {
+        let shown = shown.to_vec();
         self.writer
-            .call(|c| Ok(accept_clear_best_files(c, &Drives)))
+            .call(move |c| Ok(accept_clear_best_files(c, &Drives, &shown)))
             .unwrap()
             .unwrap_or_else(|e| panic!("{e:?}"))
+    }
+
+    /// The track was sent in a crate, and the send was recorded.
+    fn sent_and_recorded(&self, track: LibraryTrackId) {
+        let (out, _read) = self.send_in_a_crate(track);
+        assert_eq!(out.left_out, []);
+        self.writer
+            .call(move |c| record_send(c, &out.sent, out.paths()))
+            .unwrap();
+    }
+
+    /// What Undo would do now, as the Undo button asks: the kind, and why
+    /// it would be refused.
+    fn next_undo(&self) -> (Option<String>, Option<UndoRefusal>) {
+        let next = self
+            .writer
+            .call(|c| Ok(crate::ops::next_undo(c)))
+            .unwrap()
+            .unwrap();
+        (next.operation.map(|o| o.kind), next.refusal)
     }
 
     /// Undo, as the Undo button runs it.
@@ -360,6 +387,23 @@ fn a_switch_is_refused_when_it_would_take_the_entry_another_library_track_is_sen
     );
     assert_eq!(lib.linked_file(first.track), first.old);
     assert_eq!(lib.sent(second.track), SentAs::Entry(row));
+    // "Accept all" neither counts it nor makes it.
+    assert!(!lib
+        .clear_cases()
+        .iter()
+        .any(|i| i.recording_id == first.recording));
+    let shown = [AcceptItem {
+        recording_id: first.recording,
+        file_id: first.copy,
+    }];
+    assert_eq!(
+        lib.accept(&shown).skipped,
+        [SkippedItem {
+            recording_id: first.recording,
+            reason: SkipReason::EntryOfAnotherTrack,
+        }]
+    );
+    assert_eq!(lib.linked_file(first.track), first.old);
 }
 
 #[test]
@@ -506,9 +550,86 @@ fn the_old_entry_stays_listed_after_the_switched_track_is_removed_from_the_libra
         .unwrap();
     crate::library::remove(&lib.writer, item.track).unwrap();
     // rekordbox still holds the old entry, whatever became of the track.
-    assert!(lib
-        .to_remove()
-        .contains(&(RemovalReason::Replaced, Some(shown_old("Kappa")))));
+    assert_eq!(
+        lib.to_remove(),
+        [(RemovalReason::Replaced, Some(shown_old("Kappa")))]
+    );
+}
+
+#[test]
+fn an_entry_is_listed_once_when_it_is_both_replaced_and_the_entry_of_a_removed_track() {
+    let (lib, mounted, item) = one(Rekordbox::NoMatch);
+    lib.switch(item.recording, item.copy, SwitchEffect::NewTrack)
+        .unwrap();
+    // The old file is on disk again: its entry is matched to it by its
+    // path, and it is a file of the switched track.
+    lib.back(item.old);
+    settle(&lib, &mounted);
+    assert_eq!(lib.matched(item.row.unwrap()), path(item.old));
+    assert_eq!(
+        lib.to_remove(),
+        [(RemovalReason::Replaced, Some(shown_old("Kappa")))]
+    );
+
+    // The track is removed from the Library: rekordbox's entry for it is to
+    // be removed for that reason too. One entry, one line.
+    crate::library::remove(&lib.writer, item.track).unwrap();
+    assert_eq!(
+        lib.to_remove(),
+        [(RemovalReason::Removed, Some(shown_old("Kappa")))]
+    );
+}
+
+#[test]
+fn where_rekordbox_holds_the_copy_as_a_track_of_its_own_the_switched_track_becomes_that_entry() {
+    let (lib, music, mounted) = e_music();
+    let item = item(&lib, music, &mounted, "Kappa", 0, Rekordbox::NoMatch);
+    // rekordbox has a second entry, at the copy's own path.
+    let other = lib.track_with(
+        &loc("E:/Music/Copies/Kappa.flac"),
+        Some("200"),
+        &[("Name", "Kappa (copy)")],
+    );
+    settle(&lib, &mounted);
+    let row = item.row.unwrap();
+    assert_eq!(lib.matched(other), path(item.copy));
+    assert_eq!(lib.sent(item.track), SentAs::Entry(row));
+    assert_eq!(
+        lib.offer(item.recording).and_then(|offer| offer.effect),
+        Some(SwitchEffect::OtherEntry)
+    );
+    // Not a clear case: "Accept all" leaves it, with its own reason.
+    assert_eq!(lib.clear_cases(), []);
+    let shown = [AcceptItem {
+        recording_id: item.recording,
+        file_id: item.copy,
+    }];
+    assert_eq!(
+        lib.accept(&shown).skipped,
+        [SkippedItem {
+            recording_id: item.recording,
+            reason: SkipReason::OtherEntry,
+        }]
+    );
+    assert_eq!(lib.linked_file(item.track), item.old);
+
+    lib.switch(item.recording, item.copy, SwitchEffect::OtherEntry)
+        .unwrap();
+    // Sent as the copy's own entry; the old one is listed to remove.
+    assert_eq!(lib.sent(item.track), SentAs::Entry(other));
+    let (out, _read) = lib.send_in_a_crate(item.track);
+    assert!(out.sent[0].in_rekordbox);
+    assert_eq!(out.sent[0].location(), loc("E:/Music/Copies/Kappa.flac"));
+    assert_eq!(
+        lib.to_remove(),
+        [(RemovalReason::Replaced, Some(shown_old("Kappa")))]
+    );
+    // Nothing new arrives in rekordbox, so Undo works after a send too.
+    lib.sent_and_recorded(item.track);
+    assert!(matches!(lib.undo_last(), UndoOutcome::Undone { .. }));
+    assert_eq!(lib.linked_file(item.track), item.old);
+    assert_eq!(lib.sent(item.track), SentAs::Entry(row));
+    assert_eq!(lib.to_remove(), []);
 }
 
 #[test]
@@ -586,6 +707,99 @@ fn undo_of_a_switch_restores_the_link_brings_the_item_back_and_takes_the_record_
     );
 }
 
+#[test]
+fn undo_of_a_switch_that_made_the_track_new_for_rekordbox_is_refused_once_it_was_sent() {
+    // A track rekordbox knows whose entry isn't trusted on the copy, and a
+    // track rekordbox doesn't know: both go out as a new track.
+    for (rekordbox, effect) in [
+        (Rekordbox::NoMatch, SwitchEffect::NewTrack),
+        (Rekordbox::ProbableOnTheCopy, SwitchEffect::NewTrack),
+        (Rekordbox::Unknown, SwitchEffect::NotInRekordbox),
+    ] {
+        let (lib, _mounted, item) = one(rekordbox);
+        lib.switch(item.recording, item.copy, effect).unwrap();
+        // Before any send the undo is on offer, as it always was.
+        assert_eq!(
+            lib.next_undo(),
+            (Some(SWITCH_OPERATION.to_owned()), None),
+            "{rekordbox:?}"
+        );
+        let listed = lib.to_remove();
+
+        lib.sent_and_recorded(item.track);
+        // The copy's entry is in rekordbox now: the undo is refused, with
+        // its own reason, known before the button is pressed.
+        assert_eq!(
+            lib.next_undo(),
+            (
+                Some(SWITCH_OPERATION.to_owned()),
+                Some(UndoRefusal::SwitchSentSince)
+            ),
+            "{rekordbox:?}"
+        );
+        assert!(
+            matches!(
+                lib.undo_last(),
+                UndoOutcome::Refused {
+                    reason: UndoRefusal::SwitchSentSince,
+                    ..
+                }
+            ),
+            "{rekordbox:?}"
+        );
+        // Nothing changed.
+        assert_eq!(lib.linked_file(item.track), item.copy);
+        assert_eq!(lib.to_remove(), listed);
+        assert_eq!(
+            lib.kinds().last().map(String::as_str),
+            Some(SWITCH_OPERATION)
+        );
+        assert_eq!(lib.clear_items(), Vec::<i64>::new());
+    }
+}
+
+#[test]
+fn undo_of_a_switch_that_kept_rekordboxs_entry_works_after_a_send_too() {
+    let (lib, _mounted, item) = one(Rekordbox::TrustsTheCopy);
+    let row = item.row.unwrap();
+    lib.switch(item.recording, item.copy, SwitchEffect::KeepsEntry)
+        .unwrap();
+    lib.sent_and_recorded(item.track);
+    // The same entry before and after: a send added nothing to rekordbox.
+    assert_eq!(lib.next_undo(), (Some(SWITCH_OPERATION.to_owned()), None));
+    assert!(matches!(lib.undo_last(), UndoOutcome::Undone { .. }));
+    assert_eq!(lib.linked_file(item.track), item.old);
+    assert_eq!(lib.sent(item.track), SentAs::Entry(row));
+    assert_eq!(lib.clear_items(), [item.recording]);
+}
+
+#[test]
+fn undo_of_accept_all_is_refused_once_a_track_it_made_new_for_rekordbox_was_sent() {
+    let (lib, music, mounted) = e_music();
+    let unknown = item(&lib, music, &mounted, "Kappa", 0, Rekordbox::Unknown);
+    let trusted = item(&lib, music, &mounted, "Lambda", 1, Rekordbox::TrustsTheCopy);
+    settle(&lib, &mounted);
+    let accepted = lib.accept(&lib.clear_cases());
+    assert_eq!(accepted.switched.len(), 2);
+    // The track that kept its entry is sent: nothing stands in the way.
+    lib.sent_and_recorded(trusted.track);
+    assert_eq!(
+        lib.next_undo(),
+        (Some(ACCEPT_ALL_OPERATION.to_owned()), None)
+    );
+    // The one rekordbox didn't know is sent as a new track: now it does.
+    lib.sent_and_recorded(unknown.track);
+    assert!(matches!(
+        lib.undo_last(),
+        UndoOutcome::Refused {
+            reason: UndoRefusal::SwitchSentSince,
+            ..
+        }
+    ));
+    assert_eq!(lib.linked_file(unknown.track), unknown.copy);
+    assert_eq!(lib.linked_file(trusted.track), trusted.copy);
+}
+
 // ---- nothing pulls a switched track back -----------------------------------------
 
 #[test]
@@ -641,9 +855,7 @@ fn accept_all_switches_the_clear_items_as_one_operation_and_one_undo_restores_ev
     let unknown = item(&lib, music, &mounted, "Kappa", 0, Rekordbox::Unknown);
     let trusted = item(&lib, music, &mounted, "Lambda", 1, Rekordbox::TrustsTheCopy);
     let new_track = item(&lib, music, &mounted, "Sigma", 2, Rekordbox::NoMatch);
-    let on_disk_again = item(&lib, music, &mounted, "Omega", 3, Rekordbox::Unknown);
-    // Another group's items: a better file for a track whose file is there,
-    // and a relink match to confirm.
+    // Another group's item: a better file for a track whose file is there.
     let fine = lib.file(music, "Fine.mp3", Some(100_000));
     lib.hashed(fine, 80);
     let better = lib.file(music, "Fine.flac", Some(100_000));
@@ -660,24 +872,34 @@ fn accept_all_switches_the_clear_items_as_one_operation_and_one_undo_restores_ev
             )
         })
         .unwrap();
-    // One of the gone files came back after its item was queued: its stored
-    // "better file" is stale until the ranking runs.
-    lib.back(on_disk_again.old);
 
     let before = lib.counts();
-    assert_eq!(before.clear_best_file, 4);
+    assert_eq!(before.clear_best_file, 3);
     assert_eq!(before.quality_problems, 1);
+    // What the button counts: the clear cases, and not the switch that
+    // would arrive in rekordbox as a new track.
+    let shown = lib.clear_cases();
     assert_eq!(
-        lib.writer.call(|c| accept_all_count(c, &Drives)).unwrap(),
-        2
+        shown,
+        [
+            AcceptItem {
+                recording_id: unknown.recording,
+                file_id: unknown.copy,
+            },
+            AcceptItem {
+                recording_id: trusted.recording,
+                file_id: trusted.copy,
+            },
+        ]
     );
 
-    let accepted = lib.accept_all();
+    let accepted = lib.accept(&shown);
     let switched: Vec<(i64, i64, i64)> = accepted
         .switched
         .iter()
         .map(|s| (s.recording_id, s.from_file_id, s.to_file_id))
         .collect();
+    // Exactly the items sent, each to the copy it showed.
     assert_eq!(
         switched,
         [
@@ -685,20 +907,14 @@ fn accept_all_switches_the_clear_items_as_one_operation_and_one_undo_restores_ev
             (trusted.recording, trusted.old, trusted.copy),
         ]
     );
-    assert_eq!(
-        accepted.skipped,
-        [SkippedItem {
-            recording_id: new_track.recording,
-            reason: SkipReason::NewTrack,
-        }]
-    );
+    assert_eq!(accepted.skipped, []);
     assert_eq!(lib.linked_file(unknown.track), unknown.copy);
     assert_eq!(lib.linked_file(trusted.track), trusted.copy);
     // The switch that would arrive in rekordbox as a new track stays for a
-    // decision of its own; the file that came back is no item any more.
+    // decision of its own.
     assert_eq!(lib.linked_file(new_track.track), new_track.old);
-    assert_eq!(lib.linked_file(on_disk_again.track), on_disk_again.old);
     assert_eq!(lib.clear_items(), [new_track.recording]);
+    assert_eq!(lib.clear_cases(), []);
     // Nothing in another group was touched.
     assert_eq!(lib.linked_file(fine_track), fine);
     let after = lib.counts();
@@ -743,13 +959,109 @@ fn accept_all_switches_the_clear_items_as_one_operation_and_one_undo_restores_ev
 }
 
 #[test]
+fn accept_all_never_switches_an_item_the_screen_did_not_show() {
+    let (lib, music, mounted) = e_music();
+    let seen = item(&lib, music, &mounted, "Kappa", 0, Rekordbox::Unknown);
+    settle(&lib, &mounted);
+    let shown = lib.clear_cases();
+    assert_eq!(shown.len(), 1);
+
+    // Another clear item joins the queue before the button is pressed.
+    let unseen = item(&lib, music, &mounted, "Lambda", 1, Rekordbox::Unknown);
+    settle(&lib, &mounted);
+    assert_eq!(lib.clear_cases().len(), 2);
+
+    let accepted = lib.accept(&shown);
+    assert_eq!(accepted.switched.len(), 1);
+    assert_eq!(accepted.switched[0].recording_id, seen.recording);
+    assert_eq!(accepted.skipped, []);
+    assert_eq!(lib.linked_file(seen.track), seen.copy);
+    assert_eq!(lib.linked_file(unseen.track), unseen.old);
+    assert_eq!(lib.clear_items(), [unseen.recording]);
+}
+
+#[test]
+fn an_item_that_is_no_longer_valid_when_accept_all_is_applied_is_skipped_with_its_reason() {
+    let (lib, music, mounted) = e_music();
+    let stays = item(&lib, music, &mounted, "Kappa", 0, Rekordbox::Unknown);
+    let back = item(&lib, music, &mounted, "Lambda", 1, Rekordbox::Unknown);
+    let untrusted = item(&lib, music, &mounted, "Sigma", 2, Rekordbox::TrustsTheCopy);
+    let other_copy = item(&lib, music, &mounted, "Omega", 3, Rekordbox::Unknown);
+    let copy_gone = item(&lib, music, &mounted, "Theta", 4, Rekordbox::Unknown);
+    settle(&lib, &mounted);
+    let shown = lib.clear_cases();
+    assert_eq!(shown.len(), 5);
+
+    // Before the button is pressed:
+    // one linked file is on disk again (its item is stale until ranked);
+    lib.back(back.old);
+    // one entry is no longer trusted on the copy (a new track, by now);
+    lib.title(untrusted.copy, "Renamed since");
+    lib.decided(untrusted.copy);
+    lib.relink(&mounted);
+    // one item suggests another copy (the one shown is gone, a new one came);
+    lib.gone(other_copy.copy);
+    let newer = lib.file(music, "Copies/Omega (2).flac", Some(290_000));
+    lib.hashed(newer, 99);
+    lib.in_the_track_of(newer, other_copy.old);
+    // and one copy is gone, with nothing in its place.
+    lib.gone(copy_gone.copy);
+
+    let accepted = lib.accept(&shown);
+    assert_eq!(
+        accepted
+            .switched
+            .iter()
+            .map(|s| s.recording_id)
+            .collect::<Vec<_>>(),
+        [stays.recording]
+    );
+    let skipped = |recording_id, reason| SkippedItem {
+        recording_id,
+        reason,
+    };
+    assert_eq!(
+        accepted.skipped,
+        [
+            skipped(back.recording, SkipReason::ItemGone),
+            skipped(untrusted.recording, SkipReason::NewTrack),
+            skipped(other_copy.recording, SkipReason::ItemGone),
+            skipped(copy_gone.recording, SkipReason::ItemGone),
+        ]
+    );
+    assert_eq!(lib.linked_file(stays.track), stays.copy);
+    for item in [back, untrusted, other_copy, copy_gone] {
+        assert_eq!(lib.linked_file(item.track), item.old);
+    }
+    // The copy that turned up is offered, and was not switched to unseen.
+    assert_eq!(
+        lib.offer(other_copy.recording).map(|offer| offer.file_id),
+        Some(newer)
+    );
+}
+
+#[test]
 fn accept_all_with_nothing_clear_records_no_operation() {
     let (lib, _mounted, item) = one(Rekordbox::NoMatch);
     let kinds = lib.kinds();
-    let accepted = lib.accept_all();
+    assert_eq!(lib.clear_cases(), []);
+    // Even if the screen sent it: it isn't a clear case.
+    let shown = [AcceptItem {
+        recording_id: item.recording,
+        file_id: item.copy,
+    }];
+    let accepted = lib.accept(&shown);
     assert_eq!(accepted.operation_id, None);
     assert_eq!(accepted.switched, []);
-    assert_eq!(accepted.skipped.len(), 1);
+    assert_eq!(
+        accepted.skipped,
+        [SkippedItem {
+            recording_id: item.recording,
+            reason: SkipReason::NewTrack,
+        }]
+    );
     assert_eq!(lib.kinds(), kinds);
     assert_eq!(lib.linked_file(item.track), item.old);
+    // Nothing shown, nothing done.
+    assert_eq!(lib.accept(&[]).skipped, []);
 }

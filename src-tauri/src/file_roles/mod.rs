@@ -51,7 +51,10 @@
 //! the new linked file.) When the best-ranked file is another one
 //! and is ahead of it in what the audio is, or in being there at all
 //! ([`audio_step`]), the track gets a `better_file` row: which file, and the
-//! step that put it ahead. A copy that only has more tags, art, a rekordbox
+//! step that put it ahead. A better file the user dismissed in Review isn't
+//! offered again: the next better one is, if there is one
+//! ([`offered_better`]; a dismissal made or taken back makes the track due,
+//! by a trigger of migration 0027). A copy that only has more tags, art, a rekordbox
 //! link or a better place is not a better file: tags and art are picked per
 //! field, apart from the audio. A tie is not better either.
 
@@ -291,14 +294,66 @@ fn rank_track(
         promote.execute([best])?;
     }
 
-    let better = linked.filter(|linked| *linked != best).and_then(|linked| {
-        let by_file = facts::by_file(files);
-        let (best_facts, linked_facts) = (by_file.get(&best)?, by_file.get(&linked)?);
-        let step = audio_step(&why_ahead(best_facts, linked_facts)?)?;
-        Some((best, step))
-    });
+    let better = match linked {
+        Some(linked) if linked != best => offered_better(conn, recording, files, &ranking, linked)?,
+        _ => None,
+    };
     write_better(conn, recording, better)?;
     Ok(best_before != Some(best))
+}
+
+/// The better file a Library track is offered: the best-ranked file that is
+/// ahead of its linked file in what the audio is, or in being there at all
+/// ([`audio_step`]), **and that the user hasn't dismissed** for that linked
+/// file (1bE-7: a dismissal hides that one file, so the next better one is
+/// offered instead, a new item in Review). **The one place that skips
+/// dismissed files**: the ranking and the stored best file never read a
+/// dismissal.
+///
+/// A copy that is on disk while the linked file is gone is offered whatever
+/// was dismissed: that is the "Linked file gone, copy found" item, a switch,
+/// not an offer that can be dismissed.
+///
+/// With every better file dismissed the track has none, so a flagged linked
+/// file is then a single-file quality problem in Review again: dismissing a
+/// copy is no decision about the flagged file.
+fn offered_better(
+    conn: &Connection,
+    recording: i64,
+    files: &[Loaded],
+    ranking: &crate::best_file::Ranking,
+    linked: i64,
+) -> rusqlite::Result<Option<(i64, BetterStep)>> {
+    let by_file = facts::by_file(files);
+    let Some(linked_facts) = by_file.get(&linked) else {
+        return Ok(None);
+    };
+    // Read only when a file is ahead of the linked one: nearly never.
+    let mut dismissed: Option<std::collections::HashSet<i64>> = None;
+    for ranked in &ranking.order {
+        if ranked.file_id == linked {
+            break;
+        }
+        let Some(facts) = by_file.get(&ranked.file_id) else {
+            continue;
+        };
+        let Some(step) = why_ahead(facts, linked_facts).as_ref().and_then(audio_step) else {
+            continue;
+        };
+        if step != BetterStep::OnDisk {
+            let dismissed = match &mut dismissed {
+                Some(dismissed) => dismissed,
+                none => none.insert(crate::review::actions::dismissed_better_files(
+                    conn, recording, linked,
+                )?),
+            };
+            if dismissed.contains(&ranked.file_id) {
+                continue;
+            }
+        }
+        return Ok(Some((ranked.file_id, step)));
+    }
+    Ok(None)
 }
 
 /// The steps of the ranking that can make a file a *better file* for a

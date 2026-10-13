@@ -219,7 +219,7 @@ function backend({
       };
     }
     // "Accept all" has nothing clear to switch in these tests: no button.
-    if (cmd === "review_accept_all_count") return 0;
+    if (cmd === "review_accept_all_items") return [];
     if (cmd === "review_item") {
       const { id } = args as { id: ReviewItemId };
       const answered = onItem?.(id);

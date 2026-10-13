@@ -12,7 +12,7 @@ import {
 export const REVIEW_COUNTS_QUERY_KEY = ["reviewCounts"] as const;
 export const REVIEW_ITEMS_QUERY_KEY = ["reviewItems"] as const;
 export const REVIEW_ITEM_QUERY_KEY = ["reviewItem"] as const;
-/** How many items "Accept all" would switch (see useReviewActions). */
+/** The items "Accept all" would switch (see useReviewActions). */
 export const REVIEW_ACCEPT_ALL_QUERY_KEY = ["reviewAcceptAllCount"] as const;
 /** Everything Review shows: invalidate these after an action, an undo, and when a job ends. */
 export const REVIEW_QUERY_KEYS = [

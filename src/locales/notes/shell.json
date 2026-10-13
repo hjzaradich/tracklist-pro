@@ -163,6 +163,10 @@
     "where": "Top bar, beside the greyed-out Undo button.",
     "approved": "Can't undo: the Library has changed since"
   },
+  "undo.refused.switchSentSince": {
+    "purpose": "Says why Undo is greyed out: the step switched a track's linked file to a copy that goes to rekordbox as a new track, and the track has been sent since, so rekordbox holds that new track now.",
+    "where": "Top bar, beside the Undo button, when the next step to undo is such a switch (or an \"Accept all\" holding one)."
+  },
   "details.label": {
     "purpose": "Accessible name of the Details panel.",
     "where": "Details panel on the right (screen-reader label).",

@@ -18,7 +18,7 @@ import {
   useReviewItem,
   useReviewItems,
 } from "./useReview";
-import { useAcceptAll, useAcceptAllCount } from "./useReviewActions";
+import { useAcceptAll, useAcceptAllItems } from "./useReviewActions";
 import styles from "./ReviewScreen.module.css";
 
 /** The background work that decides which rekordbox tracks have no file. */
@@ -39,8 +39,9 @@ export function ReviewScreen() {
   const clear = useReviewItems("clearBestFile", (counts.data?.clearBestFile ?? 0) > 0);
   const quality = useReviewItems("qualityProblems", (counts.data?.qualityProblems ?? 0) > 0);
   const lists = { needsCloserLook: needs, clearBestFile: clear, qualityProblems: quality };
-  // "Accept all N" for "Clear best file": N is what it would switch now.
-  const acceptCount = useAcceptAllCount((counts.data?.clearBestFile ?? 0) > 0);
+  // "Accept all N": N is how many items it would switch, and a click sends
+  // exactly those items.
+  const acceptItems = useAcceptAllItems((counts.data?.clearBestFile ?? 0) > 0);
   const accept = useAcceptAll();
 
   const groups: QueueGroup[] = GROUPS.flatMap((group) => {
@@ -58,9 +59,9 @@ export function ReviewScreen() {
         acceptAll:
           group === "clearBestFile"
             ? {
-                count: acceptCount.data ?? 0,
+                count: acceptItems.data?.length ?? 0,
                 pending: accept.isPending,
-                onAccept: () => accept.mutate(),
+                onAccept: () => accept.mutate(acceptItems.data ?? []),
               }
             : undefined,
       },

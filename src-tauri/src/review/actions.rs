@@ -10,7 +10,11 @@
 //!
 //! - **Dismiss** a "Better file available" item ([`dismiss_better_file`]).
 //!   It covers that one better file for that linked file: another better
-//!   file later is a new item.
+//!   file, now or later, is a new item. The roles job offers a track the
+//!   best-ranked better file that isn't dismissed, and a dismissal made or
+//!   taken back makes the track due for it (a trigger), so the next item is
+//!   there as the action returns. With every better file dismissed, a
+//!   flagged linked file is a single-file quality problem again.
 //! - **Keep anyway**, for a quality problem ([`keep_anyway`]). The track
 //!   leaves "Quality problems" for good. Nothing about the verdict or the
 //!   ranking changes: the file is still flagged there.
@@ -51,9 +55,16 @@
 //! ([`Refused::Changed`]) and the screen shows the item again.
 //!
 //! **"Accept all"** ([`accept_clear_best_files`]) makes that same switch for
-//! every "Linked file gone, copy found" item, to each item's suggested
-//! copy, as one operation, and for nothing else. Which effects it covers is
-//! said in one place, [`accept_all_covers`].
+//! the "Linked file gone, copy found" items the screen showed, each to the
+//! copy it showed, as one operation, and for nothing else: an item that
+//! joined the queue since is never switched unseen. Which effects it covers
+//! is said in one place, [`accept_all_covers`].
+//!
+//! **Undo after a send.** A switch that made the track a new one for
+//! rekordbox can't be undone once the track was sent since
+//! ([`sent_as_new_since`]): the copy's entry is in rekordbox by then, and
+//! nothing would list it. A switch that kept the track rekordbox's own
+//! entry can be undone whenever.
 //!
 //! Nothing here opens, moves or writes a file, and nothing asks the system
 //! where a drive is on the database's writer: the commands take that answer
@@ -211,14 +222,42 @@ pub fn dismiss_better_file(
     let (Some(linked_key), Some(other_key)) = keys else {
         return Err(Refused::NoAudioKnown);
     };
-    remember(
+    let acted = remember(
         conn,
         DISMISS_OPERATION,
         json!({ "recordingId": recording, "fileId": file }),
         DISMISSED_BETTER,
         linked_key,
         other_key,
-    )
+    )?;
+    // The dismissal made the track due (a trigger): ranked again at once,
+    // the next better file that isn't dismissed is its item, if it has one.
+    rank_again(conn, &[recording]);
+    Ok(acted)
+}
+
+/// The files of the track `recording` that were dismissed as a better file
+/// for the audio the file `linked` holds. What the roles job leaves out when
+/// it works out which better file a Library track is offered
+/// ([`crate::file_roles`]).
+pub(crate) fn dismissed_better_files(
+    conn: &Connection,
+    recording: i64,
+    linked: i64,
+) -> rusqlite::Result<HashSet<i64>> {
+    conn.prepare_cached(&format!(
+        "SELECT bfile.id FROM recording_file rf
+         JOIN file bfile ON bfile.id = rf.file_id
+         JOIN file lf ON lf.id = ?2
+         WHERE rf.recording_id = ?1
+           AND EXISTS (SELECT 1 FROM review_decision d
+                       WHERE d.kind = '{DISMISSED_BETTER}'
+                         AND d.linked_key = {} AND d.other_key = {})",
+        content_key("lf"),
+        content_key("bfile")
+    ))?
+    .query_map([recording, linked], |r| r.get(0))?
+    .collect()
 }
 
 /// The key of the linked file of the quality-problem item of `recording`.
@@ -315,8 +354,8 @@ pub enum SwitchEffect {
 /// Which switches "Accept all" makes: the clear cases. A switch that arrives
 /// in rekordbox as another track than today (a new one without the old
 /// cues, or another entry) isn't one; those items stay in the queue for a
-/// decision one by one. **The one place that says it** (the owner may decide
-/// to include them).
+/// decision one by one (owner decision, 2026-10-13). **The one place that
+/// says it.**
 pub fn accept_all_covers(effect: SwitchEffect) -> bool {
     match effect {
         SwitchEffect::NotInRekordbox | SwitchEffect::KeepsEntry => true,
@@ -383,6 +422,9 @@ pub(crate) struct Effect {
     /// The `rekordbox_track` row the track is sent as today and wouldn't be
     /// after the switch: what goes on the list to remove in rekordbox.
     pub left_behind: Option<i64>,
+    /// Linked to the copy, the track goes to rekordbox as a new track (the
+    /// next send adds an entry for the copy).
+    pub arrives_new: bool,
 }
 
 /// The Library track of `recording` and its linked file, with what stands
@@ -532,23 +574,20 @@ pub(crate) fn plan(
             .get(&p.library_track)
             .copied()
             .unwrap_or(SentAs::Nothing);
-        p.outcome = Ok(match (was, after) {
-            (SentAs::Entry(old), SentAs::Entry(new)) if old == new => Effect {
-                effect: SwitchEffect::KeepsEntry,
-                left_behind: None,
-            },
-            (SentAs::Entry(old), SentAs::Entry(_)) => Effect {
-                effect: SwitchEffect::OtherEntry,
-                left_behind: Some(old),
-            },
-            (SentAs::Entry(old), SentAs::New | SentAs::Nothing) => Effect {
-                effect: SwitchEffect::NewTrack,
-                left_behind: Some(old),
-            },
-            (SentAs::New | SentAs::Nothing, _) => Effect {
-                effect: SwitchEffect::NotInRekordbox,
-                left_behind: None,
-            },
+        let (effect, left_behind) = match (was, after) {
+            (SentAs::Entry(old), SentAs::Entry(new)) if old == new => {
+                (SwitchEffect::KeepsEntry, None)
+            }
+            (SentAs::Entry(old), SentAs::Entry(_)) => (SwitchEffect::OtherEntry, Some(old)),
+            (SentAs::Entry(old), SentAs::New | SentAs::Nothing) => {
+                (SwitchEffect::NewTrack, Some(old))
+            }
+            (SentAs::New | SentAs::Nothing, _) => (SwitchEffect::NotInRekordbox, None),
+        };
+        p.outcome = Ok(Effect {
+            effect,
+            left_behind,
+            arrives_new: after == SentAs::New,
         });
     }
     Ok(planned)
@@ -618,6 +657,31 @@ fn apply(rec: &mut Recorder<'_>, p: &Planned, effect: Effect) -> Result<Switched
     })
 }
 
+/// The detail of a switch operation that names the Library tracks it made
+/// new tracks for rekordbox: what [`sent_as_new_since`] reads.
+const SENT_AS_NEW: &str = "sentAsNew";
+
+/// Whether a Library track that the switch operation `operation` made a new
+/// track for rekordbox (a track rekordbox didn't know, or one whose entry
+/// isn't trusted on the copy) **has been sent since**. Then the copy's new
+/// entry is in rekordbox (or about to be imported), and undoing the switch
+/// would leave it there with nothing to list it: the undo is refused, as
+/// undoing the add of a track that was sent since is (ROADMAP §2,
+/// `operation` / `change`).
+///
+/// A switch that keeps the track rekordbox's own entry adds nothing to
+/// rekordbox, so a send in between doesn't stand in the way of its undo.
+pub(crate) fn sent_as_new_since(conn: &Connection, operation: i64) -> rusqlite::Result<bool> {
+    conn.prepare_cached(&format!(
+        "SELECT EXISTS (
+             SELECT 1 FROM operation o, json_each(o.details, '$.{SENT_AS_NEW}') made
+             JOIN library_track lt ON lt.id = made.value
+             WHERE o.id = ?1 AND o.kind IN ('{SWITCH_OPERATION}', '{ACCEPT_ALL_OPERATION}')
+               AND lt.last_exported_at >= o.created_at)"
+    ))?
+    .query_row([operation], |r| r.get(0))
+}
+
 /// What a switch did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -626,14 +690,15 @@ pub struct Switched {
     pub track: SwitchedTrack,
 }
 
-/// Ranks the files of the switched tracks again, so their "better file" is
-/// of the new link as the action returns. The switch has committed by now:
-/// a failure here is logged and left to the roles job, which finds the
-/// tracks due.
+/// Ranks the files of the tracks an action changed again, so their "better
+/// file" is right as the action returns: the first [`crate::file_roles::BATCH`]
+/// of them (500); beyond that the roles job does it, and the queue is right
+/// when that job ends. The action has committed by now: a failure here is
+/// logged and left to the roles job, which finds the tracks due.
 fn rank_again(conn: &mut Connection, recordings: &[i64]) {
     let now = &recordings[..recordings.len().min(crate::file_roles::BATCH)];
     if let Err(e) = crate::file_roles::settle_tracks(conn, now) {
-        eprintln!("review: couldn't rank the switched tracks again: {e}");
+        eprintln!("review: couldn't rank the tracks again: {e}");
     }
 }
 
@@ -666,6 +731,9 @@ pub fn switch_linked_file(
     });
     // One writer call: nothing can change between the plan and the write.
     let recorded = ops::record(conn, SWITCH_OPERATION, &details, |rec| {
+        if effect.arrives_new {
+            rec.detail(SENT_AS_NEW, vec![planned.library_track.0]);
+        }
         apply(rec, &planned, effect)
     })?;
     rank_again(conn, &[recording]);
@@ -689,6 +757,9 @@ pub enum SkipReason {
     NewTrack,
     /// The switch would make the track another of rekordbox's entries.
     OtherEntry,
+    /// The item isn't in the queue any more, or suggests another copy than
+    /// the one the screen showed.
+    ItemGone,
 }
 
 /// An item "Accept all" left in the queue.
@@ -751,41 +822,75 @@ fn sort_out(planned: Vec<Planned>) -> (Vec<(Planned, Effect)>, Vec<SkippedItem>)
     (clear, skipped)
 }
 
-/// How many items "Accept all" would switch now: the N on its button.
-pub fn accept_all_count(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<u32> {
+/// One "Linked file gone, copy found" item as "Accept all" names it: the
+/// track and the copy the item suggests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptItem {
+    pub recording_id: i64,
+    pub file_id: i64,
+}
+
+/// The items "Accept all" would switch now, oldest first: the N on its
+/// button is how many, and a click sends exactly these back.
+pub fn accept_all_items(
+    conn: &Connection,
+    volumes: &impl Volumes,
+) -> rusqlite::Result<Vec<AcceptItem>> {
     let conn = conn.unchecked_transaction()?;
     let items = clear_best_file_items(&conn)?;
     let (clear, _) = sort_out(plan(&conn, volumes, &items)?);
-    Ok(u32::try_from(clear.len()).unwrap_or(u32::MAX))
+    Ok(clear
+        .into_iter()
+        .map(|(p, _)| AcceptItem {
+            recording_id: p.recording,
+            file_id: p.to,
+        })
+        .collect())
 }
 
-/// "Accept all" for "Clear best file": switches every "Linked file gone,
-/// copy found" item that is a clear case ([`accept_all_covers`]) to its
-/// suggested copy, as ONE operation, so one Undo restores every link.
-/// Nothing in another group is touched. Returns what it switched and what
-/// it left, with why.
+/// "Accept all" for "Clear best file": switches the items `shown` (what the
+/// screen showed when the button was pressed) that are still clear cases
+/// ([`accept_all_covers`]) to the copy each one showed, as ONE operation, so
+/// one Undo restores every link. **Only items in `shown` are ever switched**:
+/// one that joined the queue since is left for the next look. An item that
+/// is gone from the queue, suggests another copy by now, is refused, or
+/// isn't a clear case any more is left as it is and returned with why.
+/// Nothing in another group is touched.
 ///
-/// A track of the group whose files are due to be ranked again (an item in
-/// the queue, or a Library track whose linked file is gone) is ranked first,
-/// so each item and its suggested copy are what the ranking gives now.
+/// A shown track whose files are due to be ranked again is ranked first, so
+/// each item is compared with what the ranking gives now.
 pub fn accept_clear_best_files(
     conn: &mut Connection,
     volumes: &impl Volumes,
+    shown: &[AcceptItem],
 ) -> Result<AcceptedAll, Refused> {
+    let mut shown: Vec<AcceptItem> = shown.to_vec();
+    shown.sort_by_key(|item| (item.recording_id, item.file_id));
+    shown.dedup();
+    let tracks = serde_json::to_string(&shown.iter().map(|i| i.recording_id).collect::<Vec<_>>())
+        .expect("numbers always serialize");
     let due: Vec<i64> = conn
         .prepare_cached(
-            "SELECT d.recording_id FROM best_file_due d
-             WHERE d.recording_id IN (SELECT recording_id FROM better_file WHERE step = 'onDisk')
-                OR d.recording_id IN (SELECT lt.recording_id FROM library_track lt
-                                      JOIN file a ON a.id = lt.linked_file_id
-                                      WHERE lt.kind = 'linked' AND a.present = 0)",
+            "SELECT recording_id FROM best_file_due
+             WHERE recording_id IN (SELECT value FROM json_each(?1))",
         )?
-        .query_map([], |r| r.get(0))?
+        .query_map([&tracks], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     crate::file_roles::settle_tracks(conn, &due)?;
 
-    let items = clear_best_file_items(conn)?;
-    let (clear, skipped) = sort_out(plan(conn, volumes, &items)?);
+    // The shown items that are still items, with the copy they showed.
+    let now: HashSet<(i64, i64)> = clear_best_file_items(conn)?.into_iter().collect();
+    let (still, gone): (Vec<AcceptItem>, Vec<AcceptItem>) = shown
+        .into_iter()
+        .partition(|item| now.contains(&(item.recording_id, item.file_id)));
+    let wanted: Vec<(i64, i64)> = still.iter().map(|i| (i.recording_id, i.file_id)).collect();
+    let (clear, mut skipped) = sort_out(plan(conn, volumes, &wanted)?);
+    skipped.extend(gone.into_iter().map(|item| SkippedItem {
+        recording_id: item.recording_id,
+        reason: SkipReason::ItemGone,
+    }));
+    skipped.sort_by_key(|item| item.recording_id);
     if clear.is_empty() {
         return Ok(AcceptedAll {
             operation_id: None,
@@ -796,10 +901,17 @@ pub fn accept_clear_best_files(
     // One writer call: nothing can change between the plan and the writes.
     let recorded = ops::record(conn, ACCEPT_ALL_OPERATION, &json!({}), |rec| {
         let mut switched = Vec::with_capacity(clear.len());
+        let mut new_tracks = Vec::new();
         for (p, effect) in &clear {
             switched.push(apply(rec, p, *effect)?);
+            if effect.arrives_new {
+                new_tracks.push(p.library_track.0);
+            }
         }
         rec.detail("tracks", switched.len());
+        if !new_tracks.is_empty() {
+            rec.detail(SENT_AS_NEW, new_tracks);
+        }
         Ok(switched)
     })?;
     let recordings: Vec<i64> = recorded.value.iter().map(|s| s.recording_id).collect();
@@ -837,10 +949,13 @@ pub(crate) fn ask_for_follow_up_work(writer: &Writer, jobs: &JobQueue) {
 #[specta::specta]
 pub fn review_dismiss_better_file(
     writer: State<'_, Writer>,
+    jobs: State<'_, JobQueue>,
     recording_id: i64,
     file_id: i64,
 ) -> Result<Acted, IpcError> {
-    Ok(writer.call(move |c| Ok(dismiss_better_file(c, recording_id, file_id)))??)
+    let acted = writer.call(move |c| Ok(dismiss_better_file(c, recording_id, file_id)))??;
+    ask_for_follow_up_work(&writer, &jobs);
+    Ok(acted)
 }
 
 /// "Keep anyway" for a quality problem.
@@ -886,24 +1001,28 @@ pub fn review_switch_linked_file(
     Ok(switched)
 }
 
-/// How many items "Accept all" would switch now.
+/// The items "Accept all" would switch now: N on its button is how many.
 #[tauri::command]
 #[specta::specta]
-pub async fn review_accept_all_count(reads: State<'_, ReadPool>) -> Result<u32, IpcError> {
+pub async fn review_accept_all_items(
+    reads: State<'_, ReadPool>,
+) -> Result<Vec<AcceptItem>, IpcError> {
     let volumes = system_volumes();
-    Ok(reads.read(|c| accept_all_count(c, &volumes))?)
+    Ok(reads.read(|c| accept_all_items(c, &volumes))?)
 }
 
-/// "Accept all" for "Clear best file", as one operation.
+/// "Accept all" for "Clear best file", as one operation: `items` are the
+/// ones the screen showed, and no other item is switched.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn review_accept_clear_best_files(
     writer: State<'_, Writer>,
     reads: State<'_, ReadPool>,
     jobs: State<'_, JobQueue>,
+    items: Vec<AcceptItem>,
 ) -> Result<AcceptedAll, IpcError> {
     let mounted = mounted(&reads)?;
-    let accepted = writer.call(move |c| Ok(accept_clear_best_files(c, &mounted)))??;
+    let accepted = writer.call(move |c| Ok(accept_clear_best_files(c, &mounted, &items)))??;
     ask_for_follow_up_work(&writer, &jobs);
     Ok(accepted)
 }

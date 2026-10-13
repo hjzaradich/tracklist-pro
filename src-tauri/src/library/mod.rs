@@ -149,7 +149,8 @@ pub struct LibraryTrack {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BetterFile {
-    /// The better file: the track's best-ranked one.
+    /// The better file: the track's best-ranked one that the user hasn't
+    /// dismissed in Review.
     pub file_id: i64,
     /// The step of the ranking that put it ahead: `onDisk`, `verdict`,
     /// `playable`, `cutoff`, `decodeErrors` or `format`. Never tags, art, a

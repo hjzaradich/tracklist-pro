@@ -83,6 +83,13 @@ impl Lib {
             .unwrap()
     }
 
+    /// The track's best file, as the ranking stored it.
+    fn best_of(&self, track: i64) -> i64 {
+        self.num(&format!(
+            "SELECT file_id FROM recording_file WHERE recording_id = {track} AND role = 'best'"
+        ))
+    }
+
     /// The operations that aren't undone, by kind, oldest first.
     fn kinds(&self) -> Vec<String> {
         self.writer
@@ -141,11 +148,15 @@ fn dismissing_a_better_file_takes_its_item_out_of_the_queue_and_undo_brings_it_b
     assert_eq!(lib.counts().total, 0);
     assert_eq!(lib.compare(id(BETTER, track, None)), None);
     assert_eq!(lib.kinds(), [DISMISS_OPERATION]);
-    // Nothing else changed: the link, and the stored better file.
+    // Nothing else changed: the link, and the ranking's best file. Only the
+    // better file the track is offered is gone: it has no other.
     assert_eq!(lib.num("SELECT linked_file_id FROM library_track"), linked);
-    assert_eq!(lib.better_of(track), Some((better, "format".to_owned())));
+    assert_eq!(lib.best_of(track), better);
+    assert_eq!(lib.better_of(track), None);
 
+    // Undo: the item is back as the undo returns, with its better file.
     assert_eq!(lib.undo(), DISMISS_OPERATION);
+    assert_eq!(lib.better_of(track), Some((better, "format".to_owned())));
     assert_eq!(lib.quality_items(), [(BETTER, track, None)]);
     assert_eq!(lib.counts().quality_problems, 1);
     assert_eq!(lib.num("SELECT count(*) FROM review_decision"), 0);
@@ -157,9 +168,10 @@ fn a_dismissal_survives_a_roles_rerun_a_retag_and_a_rescan_that_gives_the_file_a
     let (track, _linked, better) = with_a_better_file(&lib);
     lib.dismiss(track, better).unwrap();
 
-    // The roles job ranks the track again.
+    // The roles job ranks the track again: the dismissed file isn't offered.
     lib.rank(track);
-    assert_eq!(lib.better_of(track), Some((better, "format".to_owned())));
+    assert_eq!(lib.better_of(track), None);
+    assert_eq!(lib.best_of(track), better);
     assert_eq!(lib.quality_items(), []);
 
     // The better file is retagged and moved: the same audio.
@@ -184,34 +196,105 @@ fn a_dismissal_survives_a_roles_rerun_a_retag_and_a_rescan_that_gives_the_file_a
     lib.audio(again, 2);
     lib.audio(filler, 77);
     lib.rank(track);
-    assert_eq!(lib.better_of(track), Some((again, "format".to_owned())));
+    assert_eq!(lib.best_of(track), again);
+    assert_eq!(lib.better_of(track), None);
     assert_eq!(lib.quality_items(), []);
     assert_eq!(lib.counts().quality_problems, 0);
 }
 
 #[test]
-fn a_different_better_file_is_a_new_item_after_a_dismissal() {
+fn a_dismissal_hides_only_that_file_and_the_next_better_file_is_a_new_item_at_once() {
+    // A linked MP3 with two FLACs that hold different audio.
+    let lib = Lib::new();
+    let (track, linked, first) = with_a_better_file(&lib);
+    let second = lib.file(track, "Made-up Tune (remaster).flac", "flac", true);
+    lib.audio(second, 3);
+    lib.rank(track);
+    assert_eq!(lib.better_of(track), Some((first, "format".to_owned())));
+
+    // The first is dismissed: the second is the item, as the action returns.
+    lib.dismiss(track, first).unwrap();
+    assert_eq!(lib.better_of(track), Some((second, "format".to_owned())));
+    assert_eq!(lib.quality_items(), [(BETTER, track, None)]);
+    let shown = lib.compare(id(BETTER, track, None)).unwrap();
+    assert_eq!(shown.suggestion.map(|s| *s.what()), Some(second));
+    // The ranking itself is as it was: the first FLAC is still the best
+    // file, and the link hasn't moved.
+    assert_eq!(lib.best_of(track), first);
+    assert_eq!(lib.num("SELECT linked_file_id FROM library_track"), linked);
+
+    // Dismissing that one too leaves two decisions, one per better file,
+    // and no item.
+    lib.dismiss(track, second).unwrap();
+    assert_eq!(lib.better_of(track), None);
+    assert_eq!(lib.quality_items(), []);
+    assert_eq!(lib.num("SELECT count(*) FROM review_decision"), 2);
+
+    // Each Undo brings its own item back.
+    assert_eq!(lib.undo(), DISMISS_OPERATION);
+    assert_eq!(lib.better_of(track), Some((second, "format".to_owned())));
+    assert_eq!(lib.quality_items(), [(BETTER, track, None)]);
+    assert_eq!(lib.undo(), DISMISS_OPERATION);
+    assert_eq!(lib.better_of(track), Some((first, "format".to_owned())));
+}
+
+#[test]
+fn a_better_file_that_turns_up_after_a_dismissal_is_a_new_item() {
     let lib = Lib::new();
     let (track, _linked, better) = with_a_better_file(&lib);
     lib.dismiss(track, better).unwrap();
     assert_eq!(lib.quality_items(), []);
 
-    // Another file, holding other audio, is the better file now.
-    lib.exec(&format!(
-        "DELETE FROM better_file WHERE file_id = {better};
-         DELETE FROM recording_file WHERE file_id = {better};
-         DELETE FROM file WHERE id = {better};"
-    ));
     let other = lib.file(track, "Made-up Tune (remaster).flac", "flac", true);
     lib.audio(other, 3);
     lib.rank(track);
     assert_eq!(lib.better_of(track), Some((other, "format".to_owned())));
     assert_eq!(lib.quality_items(), [(BETTER, track, None)]);
+}
 
-    // Dismissing that one too leaves two decisions, one per better file.
-    lib.dismiss(track, other).unwrap();
+#[test]
+fn when_every_better_copy_is_dismissed_a_flagged_linked_file_is_a_quality_problem_again() {
+    // Dismissing a copy is no decision about the flagged file.
+    let lib = Lib::new();
+    let (track, flagged_file) = flagged(&lib, "Made-up Tune", 1);
+    let fine = lib.file(track, "Made-up Tune (fine).mp3", "mp3", true);
+    lib.audio(fine, 2);
+    lib.verdict(fine, "ok");
+    lib.rank(track);
+    // With a better copy, the track is a "Better file available" item.
+    assert_eq!(lib.better_of(track), Some((fine, "verdict".to_owned())));
+    assert_eq!(lib.quality_items(), [(BETTER, track, None)]);
+    assert!(matches!(lib.keep(track), Err(Refused::ItemGone)));
+
+    lib.dismiss(track, fine).unwrap();
+    // No copy is offered any more: the flagged file is the question.
+    assert_eq!(lib.quality_items(), [(QUALITY, track, None)]);
+    assert_eq!(lib.counts().quality_problems, 1);
+    let shown = lib.compare(id(QUALITY, track, None)).unwrap();
+    assert!(shown.suggestion.is_none());
+    assert!(shown.rows.iter().any(|r| r.file_id == Some(flagged_file)));
+
+    // And it is answered like any quality problem.
+    lib.keep(track).unwrap();
     assert_eq!(lib.quality_items(), []);
-    assert_eq!(lib.num("SELECT count(*) FROM review_decision"), 2);
+    assert_eq!(lib.undo(), KEEP_OPERATION);
+    assert_eq!(lib.quality_items(), [(QUALITY, track, None)]);
+    assert_eq!(lib.undo(), DISMISS_OPERATION);
+    assert_eq!(lib.quality_items(), [(BETTER, track, None)]);
+}
+
+#[test]
+fn a_dismissed_copy_is_still_offered_when_the_linked_file_is_gone() {
+    // "Linked file gone, copy found" is a switch, not an offer that was
+    // dismissed: the only copy on disk is what the track can be linked to.
+    let lib = Lib::new();
+    let (track, linked, better) = with_a_better_file(&lib);
+    lib.dismiss(track, better).unwrap();
+    assert_eq!(lib.counts().total, 0);
+    lib.exec(&format!("UPDATE file SET present = 0 WHERE id = {linked}"));
+    lib.rank(track);
+    assert_eq!(lib.better_of(track), Some((better, "onDisk".to_owned())));
+    assert_eq!(lib.counts().clear_best_file, 1);
 }
 
 #[test]

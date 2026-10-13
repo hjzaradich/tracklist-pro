@@ -204,6 +204,7 @@ describe("the top bar's Undo", () => {
     [{ code: "sentSince" }, "shell:undo.refused.sentSince", {}],
     [{ code: "sourceGone" }, "shell:undo.refused.sourceGone", {}],
     [{ code: "changedSince" }, "shell:undo.refused.changedSince", {}],
+    [{ code: "switchSentSince" }, "shell:undo.refused.switchSentSince", {}],
     [{ code: "crateNameTaken", name: "House" }, "shell:undo.refused.crateNameTaken", { name: "House" }],
   ] as const)("gives each refusal its own reason: %o", async (refusal, key, params) => {
     history([{ operation: ADD, refusal }]);

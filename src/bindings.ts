@@ -165,10 +165,13 @@ export const commands = {
 	 *  `effect` is what the item showed the switch means in rekordbox.
 	 */
 	reviewSwitchLinkedFile: (recordingId: number, fileId: number, effect: SwitchEffect) => typedError<Switched, IpcError>(__TAURI_INVOKE("review_switch_linked_file", { recordingId, fileId, effect })),
-	/**  How many items "Accept all" would switch now. */
-	reviewAcceptAllCount: () => typedError<number, IpcError>(__TAURI_INVOKE("review_accept_all_count")),
-	/**  "Accept all" for "Clear best file", as one operation. */
-	reviewAcceptClearBestFiles: () => typedError<AcceptedAll, IpcError>(__TAURI_INVOKE("review_accept_clear_best_files")),
+	/**  The items "Accept all" would switch now: N on its button is how many. */
+	reviewAcceptAllItems: () => typedError<AcceptItem[], IpcError>(__TAURI_INVOKE("review_accept_all_items")),
+	/**
+	 *  "Accept all" for "Clear best file", as one operation: `items` are the
+	 *  ones the screen showed, and no other item is switched.
+	 */
+	reviewAcceptClearBestFiles: (items: AcceptItem[]) => typedError<AcceptedAll, IpcError>(__TAURI_INVOKE("review_accept_clear_best_files", { items })),
 	/**  Every Library track, sorted for the Library list (see [`list`]). */
 	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
 	/**
@@ -272,6 +275,15 @@ export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
 /* Types */
+/**
+ *  One "Linked file gone, copy found" item as "Accept all" names it: the
+ *  track and the copy the item suggests.
+ */
+export type AcceptItem = {
+	recordingId: number,
+	fileId: number,
+};
+
 /**  What "Accept all" did. */
 export type AcceptedAll = {
 	/**  One operation for every switch; `None` if nothing was switched. */
@@ -373,7 +385,10 @@ export type AppInfo = {
 
 /**  A file of a Library track's that is ahead of its linked file, and why. */
 export type BetterFile = {
-	/**  The better file: the track's best-ranked one. */
+	/**
+	 *  The better file: the track's best-ranked one that the user hasn't
+	 *  dismissed in Review.
+	 */
 	fileId: number,
 	/**
 	 *  The step of the ranking that put it ahead: `onDisk`, `verdict`,
@@ -1494,7 +1509,12 @@ export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetL
  */
 "newTrack" | 
 /**  The switch would make the track another of rekordbox's entries. */
-"otherEntry";
+"otherEntry" | 
+/**
+ *  The item isn't in the queue any more, or suggests another copy than
+ *  the one the screen showed.
+ */
+"itemGone";
 
 /**  An item "Accept all" left in the queue. */
 export type SkippedItem = {
@@ -1664,7 +1684,14 @@ export type UndoRefusal =
 /**  The step would bring back a crate name another crate has now. */
 { code: "crateNameTaken"; name: string } | 
 /**  Something the step changed has changed again since. */
-{ code: "changedSince" };
+{ code: "changedSince" } | 
+/**
+ *  The step switched a Library track's linked file so that the track
+ *  goes to rekordbox as a new track, and the track has been sent since:
+ *  the copy's entry is in rekordbox, and taking the switch back would
+ *  leave it there with nothing to list it.
+ */
+{ code: "switchSentSince" };
 
 /**
  *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]

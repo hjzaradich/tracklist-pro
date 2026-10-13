@@ -20,17 +20,20 @@ const GONE_WITH_A_COPY: &str = "
     INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2);
     INSERT INTO library_track (recording_id, kind, linked_file_id) VALUES (1, 'linked', 1);";
 
-/// Leaves a library written by SQL as the background jobs leave one: every
-/// file placed in its track by grouping, a grouping pass run, and every
-/// track's files ranked (which writes the "better file" rows, from the
-/// ranking itself).
+/// Writes a library by SQL and leaves it as the background jobs leave
+/// one: every file placed in its track by grouping, a grouping pass run,
+/// and every track's files ranked (which writes the "better file" rows and
+/// the quality verdicts, from the app's own rules).
 ///
 /// The app asks at startup what is due, on a thread of its own (1cA-13), so
-/// its jobs can run before or after a test writes its rows. Run here, they
-/// find nothing left to do, and the test reads the same thing either way.
-fn settle(app: &tauri::App<tauri::test::MockRuntime>) {
+/// its jobs can run before or after a test writes its rows. Here the rows
+/// and the jobs' work are one writer call, so no job can run in between,
+/// and one that runs later finds nothing left to do: the test reads the
+/// same thing either way.
+fn library(app: &tauri::App<tauri::test::MockRuntime>, sql: &'static str) {
     app.state::<Writer>()
-        .call(|c| {
+        .call(move |c| {
+            c.execute_batch(sql)?;
             c.execute(
                 "INSERT INTO grouping_file (file_id, placed_key, decided_as)
                  SELECT id, coalesce(nullif(audio_hash, x''), blake3), ?1 FROM file",
@@ -80,10 +83,7 @@ fn a_fresh_library_has_an_empty_queue_over_ipc() {
 #[test]
 fn an_item_and_its_comparison_reach_the_frontend_with_a_suggestion_and_a_reason_code() {
     let (_data, app) = app();
-    app.state::<Writer>()
-        .call(|c| c.execute_batch(GONE_WITH_A_COPY))
-        .unwrap();
-    settle(&app);
+    library(&app, GONE_WITH_A_COPY);
 
     let counts = invoke(&app, "review_counts", json!({})).unwrap();
     assert_eq!(counts["clearBestFile"], json!(1));
@@ -119,10 +119,7 @@ fn counts(app: &tauri::App<tauri::test::MockRuntime>) -> serde_json::Value {
 #[test]
 fn the_switch_its_undo_and_accept_all_are_called_the_way_the_frontend_calls_them() {
     let (_data, app) = app();
-    app.state::<Writer>()
-        .call(|c| c.execute_batch(GONE_WITH_A_COPY))
-        .unwrap();
-    settle(&app);
+    library(&app, GONE_WITH_A_COPY);
     let item = json!({ "kind": "clearBestFile", "a": 1, "b": null });
 
     // The item carries the switch it offers, as codes.
@@ -131,10 +128,9 @@ fn the_switch_its_undo_and_accept_all_are_called_the_way_the_frontend_calls_them
         comparison["switch"],
         json!({ "fileId": 2, "effect": "notInRekordbox", "refusal": null })
     );
-    assert_eq!(
-        invoke(&app, "review_accept_all_count", json!({})),
-        Ok(json!(1))
-    );
+    // What "Accept all" would switch: its button counts these.
+    let clear = invoke(&app, "review_accept_all_items", json!({})).unwrap();
+    assert_eq!(clear, json!([{ "recordingId": 1, "fileId": 2 }]));
 
     // A switch that no longer means what the item showed is refused with
     // its own kind, and nothing changes.
@@ -175,7 +171,21 @@ fn the_switch_its_undo_and_accept_all_are_called_the_way_the_frontend_calls_them
     assert_eq!(counts(&app)["clearBestFile"], json!(1));
 
     // "Accept all": the same switch, and what it switched.
-    let accepted = invoke(&app, "review_accept_clear_best_files", json!({})).unwrap();
+    // "Accept all" takes the items the screen showed, and only those.
+    let none = invoke(
+        &app,
+        "review_accept_clear_best_files",
+        json!({ "items": [] }),
+    )
+    .unwrap();
+    assert_eq!(none["switched"], json!([]));
+    assert_eq!(counts(&app)["clearBestFile"], json!(1));
+    let accepted = invoke(
+        &app,
+        "review_accept_clear_best_files",
+        json!({ "items": clear }),
+    )
+    .unwrap();
     assert_eq!(
         accepted["switched"],
         json!([{
@@ -205,28 +215,24 @@ fn the_switch_its_undo_and_accept_all_are_called_the_way_the_frontend_calls_them
 #[test]
 fn the_remembered_decisions_and_their_undo_are_called_the_way_the_frontend_calls_them() {
     let (_data, app) = app();
-    app.state::<Writer>()
-        .call(|c| {
-            // Track 1: linked to an mp3 with a better FLAC. Track 2: linked
-            // to a file the quality rules flag (128 kbps is a low bitrate).
-            c.execute_batch(
-                "INSERT INTO volume (identity, kind, last_mount_path)
-                     VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
-                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
-                     VALUES (1, 'Music', 'Music');
-                 INSERT INTO recording (title) VALUES ('Synthetic Tune'), ('Synthetic Other');
-                 INSERT INTO file (music_folder_id, rel_path, rel_path_key, sniffed_format,
-                                   codec, bitrate, audio_hash)
-                     VALUES (1, 'a.mp3', 'a.mp3', 'mp3', 'mp3', 320, x'0101'),
-                            (1, 'a.flac', 'a.flac', 'flac', 'flac', NULL, x'0202'),
-                            (1, 'b.mp3', 'b.mp3', 'mp3', 'mp3', 128, x'0303');
-                 INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2), (2, 3);
-                 INSERT INTO library_track (recording_id, kind, linked_file_id)
-                     VALUES (1, 'linked', 1), (2, 'linked', 3);",
-            )
-        })
-        .unwrap();
-    settle(&app);
+    // Track 1: linked to an mp3 with a better FLAC. Track 2: linked to a
+    // file the quality rules flag (128 kbps is a low bitrate).
+    library(
+        &app,
+        "INSERT INTO volume (identity, kind, last_mount_path)
+             VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
+         INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+             VALUES (1, 'Music', 'Music');
+         INSERT INTO recording (title) VALUES ('Synthetic Tune'), ('Synthetic Other');
+         INSERT INTO file (music_folder_id, rel_path, rel_path_key, sniffed_format, codec,
+                           bitrate, audio_hash)
+             VALUES (1, 'a.mp3', 'a.mp3', 'mp3', 'mp3', 320, x'0101'),
+                    (1, 'a.flac', 'a.flac', 'flac', 'flac', NULL, x'0202'),
+                    (1, 'b.mp3', 'b.mp3', 'mp3', 'mp3', 128, x'0303');
+         INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2), (2, 3);
+         INSERT INTO library_track (recording_id, kind, linked_file_id)
+             VALUES (1, 'linked', 1), (2, 'linked', 3);",
+    );
     assert_eq!(counts(&app)["qualityProblems"], json!(2));
 
     let dismissed = invoke(

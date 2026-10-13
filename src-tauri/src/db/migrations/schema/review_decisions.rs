@@ -182,3 +182,64 @@ fn the_migration_applies_to_a_database_that_already_holds_a_library() {
     let replaced: i64 = one(&conn, "SELECT count(*) FROM replaced_entry");
     assert_eq!((tracks, decisions, replaced), (1, 0, 0));
 }
+
+/// Library track 1 (track 1) linked to a file holding audio `0A`, track 2
+/// linked to a file with no `audio_hash` (its `blake3` is all `0B`), and a
+/// track that isn't in the Library holding audio `0A` too.
+const LIBRARY: &str = "
+    INSERT INTO volume (identity, kind) VALUES ('serial=NTFS-1A2B3C4D', 'external');
+    INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'Music', 'Music');
+    INSERT INTO file (music_folder_id, rel_path, rel_path_key, audio_hash, blake3)
+        VALUES (1, 'a.mp3', 'a.mp3', x'0A', NULL),
+               (1, 'b.mp3', 'b.mp3', NULL, zeroblob(32)),
+               (1, 'c.mp3', 'c.mp3', x'0A', NULL);
+    INSERT INTO recording (title) VALUES ('One'), ('Two'), ('Three');
+    INSERT INTO library_track (recording_id, linked_file_id) VALUES (1, 1), (2, 2);
+    DELETE FROM best_file_due;";
+
+fn due(conn: &rusqlite::Connection) -> Vec<i64> {
+    let mut stmt = conn
+        .prepare("SELECT recording_id FROM best_file_due ORDER BY 1")
+        .unwrap();
+    let rows = stmt.query_map([], |r| r.get(0)).unwrap();
+    rows.map(Result::unwrap).collect()
+}
+
+#[test]
+fn a_dismissal_made_or_taken_back_makes_the_tracks_linked_to_that_audio_due_for_the_ranking() {
+    let (_dir, conn) = db();
+    accepts(&conn, LIBRARY);
+    accepts(
+        &conn,
+        "INSERT INTO review_decision (kind, linked_key, other_key)
+         VALUES ('dismissed_better', x'0A', x'77')",
+    );
+    // The Library track linked to that audio, and no other track.
+    assert_eq!(due(&conn), [1]);
+    accepts(&conn, "DELETE FROM best_file_due");
+    accepts(&conn, "DELETE FROM review_decision");
+    assert_eq!(due(&conn), [1]);
+
+    // A file with no `audio_hash` is known by its `blake3`.
+    accepts(&conn, "DELETE FROM best_file_due");
+    accepts(
+        &conn,
+        "INSERT INTO review_decision (kind, linked_key, other_key)
+         VALUES ('dismissed_better', zeroblob(32), x'77')",
+    );
+    assert_eq!(due(&conn), [2]);
+}
+
+#[test]
+fn keep_anyway_and_want_better_make_no_track_due() {
+    // They don't change which better file a track is offered.
+    let (_dir, conn) = db();
+    accepts(&conn, LIBRARY);
+    accepts(
+        &conn,
+        "INSERT INTO review_decision (kind, linked_key) VALUES ('keep_anyway', x'0A');
+         INSERT INTO review_decision (kind, linked_key) VALUES ('want_better', x'0A');
+         DELETE FROM review_decision;",
+    );
+    assert_eq!(due(&conn), Vec::<i64>::new());
+}

@@ -99,7 +99,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::review::actions::review_keep_anyway,
             crate::review::actions::review_want_better_file,
             crate::review::actions::review_switch_linked_file,
-            crate::review::actions::review_accept_all_count,
+            crate::review::actions::review_accept_all_items,
             crate::review::actions::review_accept_clear_best_files,
             crate::library::library_tracks,
             crate::library::promote_track,

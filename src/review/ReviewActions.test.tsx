@@ -98,7 +98,7 @@ interface World {
   lists: Record<ReviewGroup, ReviewItem[]>;
   /** The switch the "Linked file gone" items offer. */
   offer: SwitchOffer;
-  /** How many items "Accept all" would switch. */
+  /** How many of the "Linked file gone" items "Accept all" would switch (the first ones). */
   clear: number;
   /** What a command answers instead of working, by command. */
   refuse: Record<string, { kind: string; params: object }>;
@@ -157,8 +157,10 @@ function backend(start: Partial<World> = {}): World {
           .find((i) => i.id.kind === id.kind && i.id.a === id.a);
         return found ? comparisonOf(found, world.offer) : null;
       }
-      case "review_accept_all_count":
-        return world.clear;
+      case "review_accept_all_items":
+        return world.lists.clearBestFile
+          .slice(0, world.clear)
+          .map((i) => ({ recordingId: i.id.a, fileId: 32 }));
       case "review_dismiss_better_file":
         return { operationId: act("qualityProblems", args.recordingId as number, "dismiss_better_file") };
       case "review_keep_anyway":
@@ -180,9 +182,11 @@ function backend(start: Partial<World> = {}): World {
         };
       }
       case "review_accept_clear_best_files": {
+        // Exactly the items it was sent, and nothing else.
+        const sent = (args.items as { recordingId: number }[]).map((i) => i.recordingId);
         const before = world.lists.clearBestFile;
-        const switched = before.slice(0, world.clear);
-        world.lists.clearBestFile = before.slice(world.clear);
+        const switched = before.filter((i) => sent.includes(i.id.a));
+        world.lists.clearBestFile = before.filter((i) => !sent.includes(i.id.a));
         world.clear = 0;
         const id = nextOperation++;
         world.undo = {
@@ -198,7 +202,7 @@ function backend(start: Partial<World> = {}): World {
             toFileId: 32,
             effect: "notInRekordbox",
           })),
-          skipped: world.lists.clearBestFile.map((i) => ({ recordingId: i.id.a, reason: "newTrack" })),
+          skipped: [],
         };
       }
       case "next_undo_operation":
@@ -468,7 +472,10 @@ describe("Accept all", () => {
 
     const before = callsOf(world, "review_counts").length;
     await userEvent.click(accept);
-    expect(callsOf(world, "review_accept_clear_best_files")).toHaveLength(1);
+    // The click sends the items the button counted: one item, N of 1.
+    expect(callsOf(world, "review_accept_clear_best_files").map((c) => c.args)).toEqual([
+      { items: [{ recordingId: 30, fileId: 32 }] },
+    ]);
     // The item that isn't a clear case stays; the queue was asked for again.
     await waitFor(() => expect(within(clear).getAllByRole("option")).toHaveLength(1));
     expect(callsOf(world, "review_counts").length).toBeGreaterThan(before);

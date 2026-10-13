@@ -56,8 +56,15 @@ pub fn manual_removals(
     conn: &Connection,
     volumes: &impl Volumes,
 ) -> rusqlite::Result<Vec<ManualRemoval>> {
-    let mut out = removed_from_library(conn)?;
-    out.extend(replaced_entries(conn, volumes)?);
+    let (mut out, listed) = removed_from_library(conn)?;
+    // One rekordbox entry is listed once: an entry a switch left behind
+    // that a removed track is already listed at isn't listed again.
+    out.extend(
+        replaced_entries(conn, volumes)?
+            .into_iter()
+            .filter(|(_, key)| !listed.contains(key))
+            .map(|(removal, _)| removal),
+    );
     Ok(out)
 }
 
@@ -70,10 +77,11 @@ pub fn manual_removals(
 /// the entry on a Library track's linked file, or the user confirms it
 /// there, the track is sent as that entry again and the record is moot. It
 /// is asked of the send itself ([`sent_as`]), so the two can't disagree.
+/// Each comes with its Location key.
 fn replaced_entries(
     conn: &Connection,
     volumes: &impl Volumes,
-) -> rusqlite::Result<Vec<ManualRemoval>> {
+) -> rusqlite::Result<Vec<(ManualRemoval, String)>> {
     struct Record {
         recording: i64,
         location: String,
@@ -139,6 +147,7 @@ fn replaced_entries(
         .collect();
 
     let mut out = Vec::new();
+    let mut keys = Vec::new();
     let mut asked = Vec::new();
     for record in records {
         let none: &[i64] = &[];
@@ -153,6 +162,7 @@ fn replaced_entries(
             ),
             _ => None,
         };
+        keys.push(record.key.clone());
         asked.push(Removed {
             recording_id: record.recording,
             location_key: Some(record.key),
@@ -173,12 +183,14 @@ fn replaced_entries(
     for (removal, shown) in out.iter_mut().zip(shown_removed(conn, &asked)?) {
         (removal.title, removal.artist) = shown.into_options();
     }
-    Ok(out)
+    Ok(out.into_iter().zip(keys).collect())
 }
 
 /// The removed tracks rekordbox still holds, in the order they were
-/// removed.
-fn removed_from_library(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>> {
+/// removed, and the Location keys of the entries they are listed at.
+fn removed_from_library(
+    conn: &Connection,
+) -> rusqlite::Result<(Vec<ManualRemoval>, HashSet<String>)> {
     let last_read: Option<String> = conn
         .query_row(
             "SELECT json_extract(value, '$.readAt') FROM setting WHERE key = ?1",
@@ -284,5 +296,6 @@ fn removed_from_library(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval
     for (removal, shown) in out.iter_mut().zip(shown_removed(conn, &asked)?) {
         (removal.title, removal.artist) = shown.into_options();
     }
-    Ok(out)
+    let listed = asked.into_iter().filter_map(|a| a.location_key).collect();
+    Ok((out, listed))
 }

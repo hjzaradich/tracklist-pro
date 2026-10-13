@@ -59,3 +59,28 @@ CREATE TABLE replaced_entry (
     location_key TEXT    NOT NULL UNIQUE CHECK (location_key <> ''),
     replaced_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ) STRICT;
+
+-- A dismissal decides which better file a track is offered (`better_file`,
+-- migration 0023: the best-ranked file the user hasn't dismissed), so making
+-- one or taking it back (Undo) makes the tracks linked to that audio due for
+-- the ranking again, whichever code changes the row. The same audio is
+-- looked up through the hash indexes of `file`.
+CREATE TRIGGER best_file_due_dismissal_made
+AFTER INSERT ON review_decision
+WHEN new.kind = 'dismissed_better'
+BEGIN
+    INSERT INTO best_file_due (recording_id)
+    SELECT lt.recording_id FROM file f JOIN library_track lt ON lt.linked_file_id = f.id
+    WHERE f.audio_hash = new.linked_key OR f.blake3 = new.linked_key
+    ON CONFLICT DO NOTHING;
+END;
+
+CREATE TRIGGER best_file_due_dismissal_taken_back
+AFTER DELETE ON review_decision
+WHEN old.kind = 'dismissed_better'
+BEGIN
+    INSERT INTO best_file_due (recording_id)
+    SELECT lt.recording_id FROM file f JOIN library_track lt ON lt.linked_file_id = f.id
+    WHERE f.audio_hash = old.linked_key OR f.blake3 = old.linked_key
+    ON CONFLICT DO NOTHING;
+END;
