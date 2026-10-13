@@ -754,7 +754,8 @@ export type LibraryTrack = {
 	/**
 	 *  Another file of the track ranks ahead of the linked file in what the
 	 *  audio is, or in being there at all (ROADMAP 1.7, "Better file
-	 *  available"). The linked file itself never changes.
+	 *  available"). The linked file doesn't change for it: a link only
+	 *  follows the same audio ([`follow`]).
 	 */
 	betterFile: BetterFile | null,
 };

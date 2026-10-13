@@ -1,3 +1,5 @@
+mod automatic;
+
 use super::*;
 use crate::db::migrations;
 use crate::write_guard;

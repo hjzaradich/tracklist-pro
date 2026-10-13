@@ -191,20 +191,112 @@ fn case_b_a_file_already_missing_at_the_first_read_is_sent_whole_and_in_its_crat
     assert_written_whole_and_recorded(&lib, row, track);
 }
 
-#[test]
-fn a_row_relink_matched_to_another_present_file_is_not_used_so_the_track_is_left_out() {
+/// A Library track linked to a file that has gone, whose rekordbox entry
+/// relink gave to a same-named file of the same length elsewhere (step 2):
+/// returns the library, the gone file, that file, rekordbox's row and the
+/// Library track.
+fn linked_to_a_gone_file_whose_entry_went_to_a_lookalike() -> (Lib, i64, i64, i64, LibraryTrackId) {
     let (lib, mounted, old, row, track) = linked_to_a_file_rekordbox_holds();
     lib.gone(old);
-    // A same-named file of the same length elsewhere: relink gives
-    // rekordbox's row to it (step 2), so the row belongs to that file.
     let elsewhere = lib.folder(1, "Elsewhere");
     let copy = lib.file(elsewhere, "Old #1.mp3", Some(200_000));
     lib.relink(&mounted);
     assert_eq!(lib.matched(row).map(|m| m.0), Some(copy));
+    (lib, old, copy, row, track)
+}
+
+#[test]
+fn a_track_whose_entry_relink_gave_to_another_file_is_still_sent_as_rekordboxs_own_entry() {
+    // Until 1bE-10 this track was left out of the send (the test here was
+    // `a_row_relink_matched_to_another_present_file_is_not_used_so_the_track_is_left_out`):
+    // the bug the owner's decision of 2026-10-12 ends. The entry at the
+    // linked file's own Location is the track's own, so its crate stays
+    // whole; the file relink matched it to is never what is sent.
+    let (lib, _old, _copy, row, track) = linked_to_a_gone_file_whose_entry_went_to_a_lookalike();
+    assert!(
+        matches!(lib.send_outcome(track), Outcome::Ready(v) if v.in_rekordbox && v.file_missing)
+    );
+    let (out, _) = send_in_a_crate(&lib, track);
+    let text = std::str::from_utf8(out.xml()).unwrap();
+    assert!(!text.contains("Elsewhere"));
+    assert_written_whole_and_recorded(&lib, row, track);
+}
+
+#[test]
+fn the_entry_goes_to_the_track_that_owns_the_matched_file_while_that_track_is_in_the_library() {
+    // The one case in which the gone-file track is still left out, as it
+    // was before 1bE-10: the file relink matched the entry to is another
+    // Library track's linked file, so that track sends the entry. One entry
+    // is never sent for two tracks.
+    let (lib, old, copy, _row, track) = linked_to_a_gone_file_whose_entry_went_to_a_lookalike();
+    let owner = lib.linked(copy);
     assert_eq!(
         lib.send_outcome(track),
         Outcome::CannotSend(CannotSend::FileMissing { file_id: old })
     );
+    assert!(
+        matches!(lib.send_outcome(owner), Outcome::Ready(v) if v.in_rekordbox && !v.file_missing)
+    );
+    // Removed from the Library again: the entry stands in for the gone file
+    // once more.
+    crate::library::remove(&lib.writer, owner).unwrap();
+    assert!(
+        matches!(lib.send_outcome(track), Outcome::Ready(v) if v.in_rekordbox && v.file_missing)
+    );
+}
+
+#[test]
+fn a_track_sent_before_rekordbox_knew_it_follows_its_file_and_is_then_sent_once_as_the_entry_at_the_old_place(
+) {
+    let (lib, music, mounted) = e_music();
+    let old = lib.file(music, "Old #1.mp3", Some(200_000));
+    lib.hashed(old, 1);
+    let track = lib.linked(old);
+    // rekordbox holds something else, not this track.
+    lib.track_with(&loc("E:/Music/Unrelated.mp3"), Some("100"), &[]);
+    lib.relink(&mounted);
+
+    // Sent as a new track at the old place, and recorded.
+    let (out, _) = send_in_a_crate(&lib, track);
+    assert_eq!(out.sent.len(), 1);
+    assert!(!out.sent[0].in_rekordbox);
+    lib.writer
+        .call(move |c| record_send(c, &out.sent, out.paths()))
+        .unwrap();
+
+    // The file moves, and the track follows it. rekordbox's export hasn't
+    // been read since the send.
+    lib.gone(old);
+    let new = lib.file(music, "Moved/New name.mp3", Some(200_000));
+    lib.hashed(new, 1);
+    lib.regroup();
+    assert_eq!(lib.job(&mounted).followed.len(), 1);
+    assert_eq!(lib.linked_file(track), new);
+
+    // Now the export is read: rekordbox holds the entry the user imported,
+    // at the old Location. Relink matches it to the same audio at the new
+    // place, where the track already is.
+    let row = lib.track_with(THEIRS, Some("200"), &[("Name", "Theirs"), ("Rating", "51")]);
+    assert!(lib.job(&mounted).followed.is_empty());
+    assert_eq!(lib.matched(row), same_audio(new));
+    assert_eq!(lib.linked_file(track), new);
+
+    // Sent once, as that entry: the app makes no second entry.
+    let (out, read) = send_in_a_crate(&lib, track);
+    assert_eq!(out.left_out, []);
+    assert_eq!(out.sent.len(), 1);
+    let sent = &out.sent[0];
+    assert!(sent.in_rekordbox && !sent.file_missing);
+    let key = location::decode(sent.location()).unwrap().match_key();
+    let row_key: String = lib.scalar(
+        "SELECT location_key FROM rekordbox_track WHERE id = ?1",
+        row,
+    );
+    assert_eq!(key, row_key);
+    assert_eq!(read.tracks.len(), 1);
+    assert_eq!(read.playlists.playlists()[0].1.entries.len(), 1);
+    let text = std::str::from_utf8(out.xml()).unwrap();
+    assert!(!text.contains("New%20name") && !text.contains("New name"));
 }
 
 /// A Library track linked to a file that has gone, whose rekordbox entry
@@ -240,25 +332,27 @@ fn a_library_tracks_linked_file_stays_when_its_entry_is_matched_to_a_mate() {
 }
 
 #[test]
-fn a_library_track_whose_entry_went_to_a_track_mate_is_left_out_of_the_send_never_sent_as_the_mate()
-{
-    // The same as for a row any other step gave to another file (above):
-    // the row belongs to that file now, so it no longer stands in for the
-    // gone one. Nothing is written for the track: no second entry at the
-    // mate's Location, and rekordbox's entry isn't sent with another file.
-    let (lib, old, _mate, _row, track) = linked_to_a_gone_file_whose_entry_went_to_a_track_mate();
-    assert_eq!(
-        lib.send_outcome(track),
-        Outcome::CannotSend(CannotSend::FileMissing { file_id: old })
+fn a_library_track_whose_entry_went_to_a_track_mate_is_sent_as_rekordboxs_own_entry_never_as_the_mate(
+) {
+    // Until 1bE-10 this track was left out of the send (the test here was
+    // `a_library_track_whose_entry_went_to_a_track_mate_is_left_out_of_the_send_never_sent_as_the_mate`).
+    // Only another copy of the track is on disk: nothing follows, the copy
+    // is the user's to pick in Review, and until then the track is sent as
+    // rekordbox's own entry, so its crate stays whole. What still holds:
+    // never as the mate. No second entry at the mate's Location, and
+    // rekordbox's entry isn't sent with another file.
+    let (lib, _old, _mate, row, track) = linked_to_a_gone_file_whose_entry_went_to_a_track_mate();
+    assert!(
+        matches!(lib.send_outcome(track), Outcome::Ready(v) if v.in_rekordbox && v.file_missing)
     );
     let (out, read) = send_in_a_crate(&lib, track);
-    assert_eq!(out.sent, []);
-    assert_eq!(out.left_out.len(), 1);
-    assert_eq!(out.left_out[0].library_track, track);
-    assert_eq!(read.tracks.len(), 0);
+    assert_eq!(out.left_out, []);
+    assert_eq!(out.sent.len(), 1);
+    assert_eq!(read.tracks.len(), 1);
     let text = std::str::from_utf8(out.xml()).unwrap();
     assert!(!text.contains("Mate.flac"));
-    assert!(!text.contains(THEIRS));
+    assert!(text.contains(&format!("Location=\"{THEIRS}\"")));
+    assert_written_whole_and_recorded(&lib, row, track);
 }
 
 #[test]

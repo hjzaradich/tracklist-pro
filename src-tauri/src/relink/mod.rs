@@ -136,8 +136,11 @@
 //!      `audio_hash`: **the same audio**, accepted at confidence 0.95. A
 //!      candidate counts only while its own hash is current: a file that
 //!      changed since it was hashed may hold anything. Any of them is
-//!      right, so the track's best file is matched (else the lowest file
-//!      id).
+//!      right, so the file a Library track is linked to is matched, else
+//!      the track's best file (else the lowest file id): see "Exact copies
+//!      aren't ambiguous" below. (For the candidates further down, which a
+//!      title tag or a length can make probable, the linked file is only a
+//!      tie-break at equal trust.)
 //!
 //!    - else, present files no other row holds that are **of the gone
 //!      file's track** (1bC-7), on grouping's own current answer for the
@@ -263,9 +266,24 @@
 //!
 //! **Exact copies aren't ambiguous.** When every file that fits in step 2,
 //! 3 or 5 has the same `audio_hash` (current for each file), they hold the
-//! same audio: the track's
-//! best file is matched (else the lowest file id), not nothing; if another
-//! row holds any of the copies, none is taken.
+//! same audio: one of them is matched, not nothing; if another row holds
+//! any of the copies, none is taken. Which one, here and among the
+//! candidates of step 4 ([`rules`], `Pick`): the track's best file, else
+//! the lowest file id; but the file a Library track is linked to instead,
+//! wherever a match to it gets the same trust as a match to that one. A
+//! Library track is sent as rekordbox's entry only while the entry is
+//! matched to its linked file (1bE-10): a copy that turns up later, and
+//! ranks ahead, mustn't pull the entry off it. It is a tie-break only. In
+//! steps 3 and 4 a match is trusted on the file's own title tags and
+//! length, and the linked file is matched only if it would be trusted
+//! exactly as the usual file would: being linked never turns a trusted
+//! match into a probable one, or a probable one into a trusted one. A row
+//! none of whose candidates is linked gets the file it always got.
+//!
+//! **Relink never changes a Library track's linked file.** The step after
+//! it does, in the same job and in a transaction of its own
+//! ([`crate::library::follow`]): a Library track whose linked file is gone
+//! follows it to the same audio.
 //!
 //! A file of unknown duration blocks steps 2 and 3: a same-named file
 //! that's online-only (never read unless the user opts in) or not read yet
@@ -307,8 +325,22 @@ const HASH_CURRENT: &str = "EXISTS (SELECT 1 FROM file_stage s
              WHERE s.file_id = f.id AND s.stage = 'hash' AND s.status = 'done'
                AND s.version = ?1 AND s.size IS f.size AND s.mtime IS f.mtime)";
 
-/// The hash stage's version in `file_stage`.
-fn hash_version() -> i64 {
+/// [`HASH_CURRENT`] for a `file` row under another alias than `f`: the one
+/// rule for "this hash is what the file holds now", for the code outside
+/// relink that asks it ([`crate::library::follow`]). For a file that's
+/// gone it says the hash was current when it went: the row keeps the size
+/// and mtime it had then. Takes [`hash_version`] as `?1`.
+pub(crate) fn hash_current_of(alias: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM file_stage s
+             WHERE s.file_id = {alias}.id AND s.stage = 'hash' AND s.status = 'done'
+               AND s.version = ?1 AND s.size IS {alias}.size AND s.mtime IS {alias}.mtime)"
+    )
+}
+
+/// The hash stage's version in `file_stage`: what [`HASH_CURRENT`] takes
+/// as `?1`.
+pub(crate) fn hash_version() -> i64 {
     i64::from(crate::hash::DEFINITION)
 }
 
@@ -381,6 +413,24 @@ impl Mounted {
                 })
                 .collect(),
         )
+    }
+}
+
+/// A [`Mounted`] answers where a volume is as the volumes it was asked of
+/// did, without asking anything again: a snapshot to hand to code that runs
+/// on the database's writer and must not ask the system there
+/// ([`crate::library::follow`]). It knows mount points only, so it doesn't
+/// look a path's volume up.
+impl Volumes for Mounted {
+    fn volume_for(&self, path: &std::path::Path) -> std::io::Result<crate::volume::Volume> {
+        Err(std::io::Error::other(format!(
+            "a mount snapshot doesn't look up the volume of {}",
+            path.display()
+        )))
+    }
+
+    fn mount_path(&self, id: &VolumeId) -> Option<std::path::PathBuf> {
+        self.0.get(id.as_str()).map(std::path::PathBuf::from)
     }
 }
 
@@ -641,7 +691,8 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                     NOT EXISTS (SELECT 1 FROM file_stage s
                                 WHERE s.file_id = f.id AND s.stage = 'fingerprint'
                                   AND s.version = ?2 AND s.size IS f.size
-                                  AND s.mtime IS f.mtime)
+                                  AND s.mtime IS f.mtime),
+                    EXISTS (SELECT 1 FROM library_track lt WHERE lt.linked_file_id = f.id)
              FROM file f LEFT JOIN recording_file rf ON rf.file_id = f.id
              ORDER BY f.id"
         ))?;
@@ -661,13 +712,14 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                     r.get::<_, bool>(7)?,
                     r.get::<_, bool>(8)?,
                     r.get::<_, bool>(9)?,
+                    r.get::<_, bool>(10)?,
                 ),
             ))
         })?;
         for row in rows {
             let (
                 (id, folder, rel, duration_ms, audio_hash),
-                (recording, best, present, current, fingerprint_pending),
+                (recording, best, present, current, fingerprint_pending, linked),
             ) = row?;
             let (base, online) = folders.get(&folder).cloned().unwrap_or((None, false));
             let path = base.map(|b| format!("{b}/{rel}"));
@@ -702,6 +754,7 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 fingerprint_pending,
                 recording,
                 best: best.unwrap_or(false),
+                linked,
             });
         }
     }

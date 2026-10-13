@@ -1202,7 +1202,7 @@ fn inserts_into<'a>(source: &str, tables: &[&'a str]) -> Vec<&'a str> {
 /// The app's own code, without its tests: every `.rs` file under `src`
 /// except the modules declared under `#[cfg(test)]` (a file or a folder),
 /// each file cut at its inline `#[cfg(test)] mod tests {`.
-fn app_sources() -> Vec<(PathBuf, String)> {
+pub(crate) fn app_sources() -> Vec<(PathBuf, String)> {
     fn files(dir: &Path, out: &mut Vec<PathBuf>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();

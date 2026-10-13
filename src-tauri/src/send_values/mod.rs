@@ -50,12 +50,20 @@
 //! or playlist naming it keeps it (owner decision, 2026-10-01). Relink never
 //! matches a rekordbox row to a missing file, so the entry is found by the
 //! file's own path instead: the one row of the newest read at that path's
-//! `Location` key (relink's own key: NFC, NTFS letter case) that is matched
-//! to no file. The path is built from the volume's mount point by relink's
+//! `Location` key (relink's own key: NFC, NTFS letter case). The entry at
+//! the linked file's own `Location` is this track's entry, whatever relink
+//! made of it since: it is used when it is matched to no file, and when
+//! relink matched it to a file no Library track is linked to (another copy
+//! of the track, or a look-alike elsewhere; 1bE-10, owner decision
+//! 2026-10-12), so the track's crates stay whole until the user answers in
+//! Review. Only a row matched to a file some Library track is linked to
+//! isn't used: that track sends it, and no entry is ever sent for two
+//! tracks. The path is built from the volume's mount point by relink's
 //! own rule: where it's mounted now, or where it was last mounted only if no
 //! other known volume was. It only echoes rekordbox's entry back at its own
-//! `Location`; nothing is attached to any file. Two rows at the `Location`,
-//! a row matched to a file, a row kept from an earlier read, or one row
+//! `Location`; nothing is attached to any file, and the file relink matched
+//! it to is never what is sent. Two rows at the `Location`, a row matched to
+//! another Library track's file, a row kept from an earlier read, or one row
 //! wanted by two files leave the track out. A Library
 //! track whose linked file is missing and that rekordbox doesn't know, or
 //! whose file is unplaceable, comes back as [`Outcome::CannotSend`], for
@@ -222,6 +230,7 @@ struct Row {
 /// How much of the database a batch loads. [`Scope::Names`] is for the
 /// lists ([`shown`]): the same decisions, but only the two attributes a list
 /// shows, and a file's tags only where the track's values come from them.
+/// [`Scope::Decide`] is for [`sent_as`]: the decisions alone, no values.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scope {
     Send,
@@ -229,6 +238,7 @@ enum Scope {
     /// [`Scope::Names`] for the search index: the seven attributes
     /// [`shown::SEARCH_ATTRIBUTES`] instead of two.
     Search,
+    Decide,
 }
 
 /// What a batch loaded for its tracks.
@@ -253,7 +263,7 @@ pub fn send_values(
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<Vec<SendValues>> {
-    let loaded = load(conn, volumes, ids, Scope::Send)?;
+    let loaded = load(conn, volumes, ids, Scope::Send, &HashMap::new())?;
     let world = World {
         volumes,
         loaded: &loaded,
@@ -270,12 +280,56 @@ pub fn send_values(
         .collect())
 }
 
+/// What a send would write a Library track from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SentAs {
+    /// rekordbox's own entry: this `rekordbox_track` row.
+    Entry(i64),
+    /// A new track, made from its files.
+    New,
+    /// Nothing: the track is left out of the send.
+    Nothing,
+}
+
+/// What each of `tracks` would be sent as: as it is linked now (`None`), or
+/// as if it were linked to the given file instead (`Some`). Decided by the
+/// same code as a send ([`Loaded::source`]), so it can't drift from it.
+/// Nothing is written.
+///
+/// What [`crate::library::follow`] asks before it moves a link: a follow
+/// never changes which rekordbox entry a track is sent as.
+pub(crate) fn sent_as(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    tracks: &[(LibraryTrackId, Option<i64>)],
+) -> rusqlite::Result<Vec<SentAs>> {
+    let ids: Vec<LibraryTrackId> = tracks.iter().map(|(id, _)| *id).collect();
+    let relinked: HashMap<i64, i64> = tracks
+        .iter()
+        .filter_map(|(id, file)| Some((id.0, (*file)?)))
+        .collect();
+    let loaded = load(conn, volumes, &ids, Scope::Decide, &relinked)?;
+    Ok(ids
+        .iter()
+        .map(
+            |id| match loaded.rows.get(&id.0).map(|row| loaded.source(row)) {
+                Some(Source::Known { entry, .. }) => SentAs::Entry(entry),
+                Some(Source::Files { .. }) => SentAs::New,
+                Some(Source::Cannot(_)) | None => SentAs::Nothing,
+            },
+        )
+        .collect())
+}
+
 /// Loads what the decisions of [`World`] need, in a fixed number of queries.
+/// `relinked` (Library track id to file id) answers for those tracks as if
+/// they were linked to that file ([`sent_as`]); a send passes none.
 fn load(
     conn: &Connection,
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
     scope: Scope,
+    relinked: &HashMap<i64, i64>,
 ) -> rusqlite::Result<Loaded> {
     let json = json_ids;
 
@@ -296,7 +350,14 @@ fn load(
                 artist: r.get(4)?,
             })
         })?
-        .map(|r| r.map(|r| (r.library_track, r)))
+        .map(|r| {
+            r.map(|mut r| {
+                if let Some(&file) = relinked.get(&r.library_track) {
+                    r.linked_file = Some(file);
+                }
+                (r.library_track, r)
+            })
+        })
         .collect::<rusqlite::Result<_>>()?;
 
     // 2. Their files, in the order their tags are asked: best first.
@@ -323,7 +384,7 @@ fn load(
     );
     let tags_column = match scope {
         Scope::Send => "f.raw_tags",
-        Scope::Names | Scope::Search => "NULL",
+        Scope::Names | Scope::Search | Scope::Decide => "NULL",
     };
     let mut files: HashMap<i64, FileInfo> = HashMap::new();
     let mut stmt = conn.prepare(&format!(
@@ -384,11 +445,13 @@ fn load(
     };
     // 4c. A list needs a file's tags only where nothing of rekordbox's
     //     stands in for them.
-    if scope != Scope::Send {
+    if matches!(scope, Scope::Names | Scope::Search) {
         let needed = loaded.files_read_for_tags();
         load_tags(conn, &mut loaded.files, &needed)?;
     }
-    loaded.load_attributes(conn, scope)?;
+    if scope != Scope::Decide {
+        loaded.load_attributes(conn, scope)?;
+    }
     Ok(loaded)
 }
 
@@ -437,7 +500,7 @@ impl Loaded {
                 }),
         );
         let only = match scope {
-            Scope::Send => "",
+            Scope::Send | Scope::Decide => "",
             Scope::Names => "AND j.key IN ('Name', 'Artist')",
             Scope::Search => {
                 "AND j.key IN ('Name', 'Artist', 'Album', 'Remixer', 'Label', 'Genre', 'Comments')"
@@ -560,8 +623,14 @@ enum Source {
 /// - is from the current read (an incomplete read keeps older rows, whose
 ///   `TrackID`s belong to an earlier read),
 /// - is the only row at that `Location` (two rows are ambiguous),
-/// - is matched to no file (a probable match always has a file): a row
-///   matched to a file belongs to that file's track, and
+/// - is matched to no file, or to a file no Library track is linked to
+///   (1bE-10): the entry at the linked file's own `Location` is this track's,
+///   also once relink has matched it to another copy of the track or to a
+///   look-alike elsewhere, so the track's crates stay whole until the user
+///   answers in Review. A row matched (trusted or probable) to a file some
+///   Library track is linked to is left to that track: an entry is never the
+///   source of two Library tracks. That is asked of every Library track, not
+///   only those of this batch, and
 /// - isn't wanted by a second file: a row whose key two files lead to goes
 ///   to neither, whatever the order.
 ///
@@ -637,13 +706,23 @@ fn entries_at_missing_files<V: Volumes>(
     for (_, key) in &wanted {
         *files_per_key.entry(key).or_default() += 1;
     }
+    // The files those rows are matched to that a Library track is linked
+    // to: such a row is that track's.
+    let matched = json_ids(&mut at.values().flatten().filter_map(|row| row.matched));
+    let linked: std::collections::HashSet<i64> = conn
+        .prepare(
+            "SELECT DISTINCT linked_file_id FROM library_track
+             WHERE linked_file_id IN (SELECT value FROM json_each(?1))",
+        )?
+        .query_map([&matched], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
     let mut found = HashMap::new();
     for (file_id, key) in &wanted {
         if files_per_key[key.as_str()] > 1 {
             continue;
         }
         if let Some([only]) = at.get(key).map(Vec::as_slice) {
-            if only.matched.is_none() {
+            if only.matched.is_none_or(|file| !linked.contains(&file)) {
                 found.insert(*file_id, (only.id, only.track_id));
             }
         }
@@ -655,7 +734,8 @@ fn entries_at_missing_files<V: Volumes>(
 struct RowAt {
     id: i64,
     track_id: i64,
-    /// The file it is matched to, if any (a probable match always has one).
+    /// The file relink matched it to, if any (a probable match always has
+    /// one).
     matched: Option<i64>,
 }
 

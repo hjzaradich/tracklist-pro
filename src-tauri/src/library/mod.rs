@@ -15,12 +15,21 @@
 //! an unplugged drive counts as on disk (`file.present` stays 1, 1aB-9), so
 //! its track can be added and isn't shown as missing. Adding a
 //! track that's already in the Library changes nothing and returns the
-//! Library track it has; an existing link is never re-pointed here.
+//! Library track it has; an add never re-points an existing link.
+//!
+//! **When a link moves** ([`follow`], 1bE-10): only when the linked file is
+//! gone from disk and a file with the very same audio is on disk in the
+//! same track, and only where that doesn't change which rekordbox entry the
+//! track is sent as. Then the link follows the file on its own. Nothing
+//! else changes a link: not grouping, not the best-file ranking, not
+//! relink, not a send. (Switching to another copy by hand is 1bE-7.)
 //!
 //! - It only touches the database. No audio file is opened, read or written.
 //! - The add goes through the operation log ([`crate::ops`]), so it can be
 //!   undone.
 //! - One Library track per track: the table enforces it.
+
+pub mod follow;
 
 use std::collections::HashMap;
 
@@ -121,7 +130,8 @@ pub struct LibraryTrack {
     pub added_at: String,
     /// Another file of the track ranks ahead of the linked file in what the
     /// audio is, or in being there at all (ROADMAP 1.7, "Better file
-    /// available"). The linked file itself never changes.
+    /// available"). The linked file doesn't change for it: a link only
+    /// follows the same audio ([`follow`]).
     pub better_file: Option<BetterFile>,
 }
 

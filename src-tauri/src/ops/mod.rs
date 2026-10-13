@@ -24,6 +24,28 @@
 //! reach until a new operation is made. That works because history is
 //! linear: undoing an operation puts back the state the one before it left.
 //!
+//! **Automatic operations** ([`AutomaticKind`], made with
+//! [`record_automatic`]) are changes the app makes on its own, such as a
+//! Library track following its file to a new place. They are in the log
+//! like any other, but Undo never lands on one: the user's next Undo takes
+//! back their own last action (`next_operation` skips them by kind). When
+//! that action is older than automatic operations on the very rows it
+//! changed, undoing it takes those back with it, in the same transaction:
+//! all of it or nothing. An automatic operation on other rows stays as it
+//! is. So history is still linear for every row.
+//!
+//! What counts is where the rows end up: as they were before the user's
+//! action. The automatic operations since are taken back as one net change
+//! per field (what the oldest found, what the newest left), not replayed
+//! step by step, so a value that only they passed through never has to be
+//! written again. Undoing the add of a Library track that has since
+//! followed its file deletes the track; it is not first linked back to the
+//! file it followed from, whose row may be gone with its music folder.
+//! Undo still refuses, changing nothing, when a field doesn't hold what the
+//! newest automatic operation left (something else changed it since), and
+//! when a value it does have to write back is refused by the database (the
+//! row it names is gone).
+//!
 //! Row ids name rows in the log, so a table that code outside the log
 //! inserts into must never reuse an id (`AUTOINCREMENT`; `sync_base`, which
 //! a send writes, and `conflict`, which detecting conflicts writes). A test
@@ -446,7 +468,70 @@ impl Recorder<'_> {
 /// All in one transaction: if `write` fails, nothing it did is kept and
 /// nothing is logged. If it changed nothing, no operation is logged
 /// (`operation_id` is `None`), so undo never lands on a no-op.
+///
+/// For a user's action. A kind that is an automatic operation's
+/// ([`AutomaticKind`]) is refused: those are made with
+/// [`record_automatic`], so no user action is ever skipped by Undo.
 pub fn record<T>(
+    conn: &mut Connection,
+    kind: &str,
+    details: &serde_json::Value,
+    write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+) -> Result<Recorded<T>, OpsError> {
+    if AutomaticKind::of(kind).is_some() {
+        return Err(OpsError::BadKind(kind.to_owned()));
+    }
+    record_as(conn, kind, details, write)
+}
+
+/// An operation the app makes on its own, with nobody asking for it. It is
+/// logged like a user's action, but Undo skips it (see the module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutomaticKind {
+    /// A Library track's linked file moved to the same audio at a new
+    /// place ([`crate::library::follow`]).
+    FollowFile,
+}
+
+impl AutomaticKind {
+    /// Every automatic kind.
+    pub const ALL: [AutomaticKind; 1] = [AutomaticKind::FollowFile];
+
+    /// The kind as the log stores it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AutomaticKind::FollowFile => "follow_file",
+        }
+    }
+
+    /// The automatic kind stored as `kind`, if it is one.
+    pub fn of(kind: &str) -> Option<AutomaticKind> {
+        AutomaticKind::ALL.into_iter().find(|k| k.as_str() == kind)
+    }
+
+    /// The stored kinds as a SQL list, for `kind IN (...)`. They are this
+    /// file's own constants, never input.
+    fn sql_list() -> String {
+        let kinds: Vec<String> = AutomaticKind::ALL
+            .iter()
+            .map(|k| format!("'{}'", k.as_str()))
+            .collect();
+        kinds.join(", ")
+    }
+}
+
+/// [`record`], for an operation the app makes on its own: logged, and
+/// undone only together with an earlier user action on the same rows.
+pub fn record_automatic<T>(
+    conn: &mut Connection,
+    kind: AutomaticKind,
+    details: &serde_json::Value,
+    write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+) -> Result<Recorded<T>, OpsError> {
+    record_as(conn, kind.as_str(), details, write)
+}
+
+fn record_as<T>(
     conn: &mut Connection,
     kind: &str,
     details: &serde_json::Value,
@@ -636,12 +721,17 @@ struct ChangeRow {
     after: Option<String>,
 }
 
-/// The newest operation that isn't undone: the next one to undo.
+/// The newest of the user's operations that isn't undone: the next one to
+/// undo. An automatic operation ([`AutomaticKind`]) is never it.
 fn next_operation(tx: &Transaction<'_>) -> Result<Option<OperationInfo>, OpsError> {
     Ok(tx
         .query_row(
-            "SELECT id, kind, details FROM operation
-             WHERE undone_at IS NULL ORDER BY id DESC LIMIT 1",
+            &format!(
+                "SELECT id, kind, details FROM operation
+                 WHERE undone_at IS NULL AND kind NOT IN ({})
+                 ORDER BY id DESC LIMIT 1",
+                AutomaticKind::sql_list()
+            ),
             [],
             |r| {
                 Ok(OperationInfo {
@@ -652,6 +742,242 @@ fn next_operation(tx: &Transaction<'_>) -> Result<Option<OperationInfo>, OpsErro
             },
         )
         .optional()?)
+}
+
+/// The automatic operations made after `operation` that aren't undone and
+/// changed a row `operation` changed too, newest first: what has to be
+/// taken back before `operation` can be.
+fn automatic_since(
+    tx: &Transaction<'_>,
+    operation: &OperationInfo,
+) -> Result<Vec<OperationInfo>, OpsError> {
+    let newer: Vec<(OperationInfo, String, i64)> = {
+        let mut stmt = tx.prepare(&format!(
+            "SELECT o.id, o.kind, o.details, c.entity, c.entity_id
+             FROM operation o JOIN change c ON c.operation_id = o.id
+             WHERE o.id > ?1 AND o.undone_at IS NULL AND o.kind IN ({})
+             ORDER BY o.id DESC, c.id",
+            AutomaticKind::sql_list()
+        ))?;
+        let rows = stmt.query_map([operation.id], |r| {
+            Ok((
+                OperationInfo {
+                    id: r.get(0)?,
+                    kind: r.get(1)?,
+                    details: OperationDetails::parse(r.get_ref(2)?.as_str()?),
+                },
+                r.get(3)?,
+                r.get(4)?,
+            ))
+        })?;
+        rows.collect::<Result<_, _>>()?
+    };
+    // Nearly always: nothing automatic happened since.
+    if newer.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mine: std::collections::HashSet<(String, i64)> = {
+        let mut stmt =
+            tx.prepare("SELECT DISTINCT entity, entity_id FROM change WHERE operation_id = ?1")?;
+        let rows = stmt.query_map([operation.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    let mut found: Vec<OperationInfo> = Vec::new();
+    for (automatic, entity, entity_id) in newer {
+        if found.last().is_some_and(|last| last.id == automatic.id) {
+            continue;
+        }
+        if mine.contains(&(entity, entity_id)) {
+            found.push(automatic);
+        }
+    }
+    Ok(found)
+}
+
+/// A field of a row, as the log names it: table, row id, field.
+type FieldKey = (String, i64, String);
+
+/// What the automatic operations since did to one field, end to end.
+struct Net {
+    /// What the oldest of them found.
+    before: Option<String>,
+    /// What the newest of them left.
+    after: Option<String>,
+}
+
+/// The changes of one operation, oldest first.
+fn changes_of(tx: &Transaction<'_>, operation: i64) -> Result<Vec<ChangeRow>, OpsError> {
+    let mut stmt = tx.prepare(
+        "SELECT entity, entity_id, action, field, before, after FROM change
+         WHERE operation_id = ?1 ORDER BY id",
+    )?;
+    let rows = stmt.query_map([operation], |r| {
+        Ok(ChangeRow {
+            entity: r.get(0)?,
+            entity_id: r.get(1)?,
+            action: r.get(2)?,
+            field: r.get(3)?,
+            before: r.get(4)?,
+            after: r.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// [`unwind`] for a user's operation, with the automatic operations made
+/// since on the rows it changed ([`automatic_since`]): the rows end up as
+/// they were before the user's operation, and all of those operations are
+/// marked undone. If anything stands in the way, the whole undo is refused
+/// and `tx` must be rolled back.
+///
+/// The automatic operations are taken back as one net change per field,
+/// not one after the other (see the module docs):
+/// - every field they set must hold what the newest of them left, and each
+///   must have found what the one before it left; else something changed it
+///   since, and the undo is refused as "changed since";
+/// - a field the user's operation wrote itself (it set it, or inserted the
+///   row) is then taken to hold what the oldest of them found, and the
+///   user's operation is undone from there: the value in between is never
+///   written;
+/// - a field the user's operation didn't write gets back what the oldest of
+///   them found, for real. If the database refuses that value, the undo is
+///   refused.
+fn unwind_with_automatic(
+    tx: &Transaction<'_>,
+    operation: &OperationInfo,
+) -> Result<Found, OpsError> {
+    let automatic = automatic_since(tx, operation)?;
+    if automatic.is_empty() {
+        return unwind(tx, operation, &HashMap::new());
+    }
+    // Oldest first.
+    let mut theirs: Vec<ChangeRow> = Vec::new();
+    for op in automatic.iter().rev() {
+        theirs.extend(changes_of(tx, op.id)?);
+    }
+    // An automatic operation that made or deleted rows has no net change
+    // per field: those are taken back one after the other, newest first.
+    if theirs.iter().any(|c| c.action != "set") {
+        for op in &automatic {
+            let found = unwind(tx, op, &HashMap::new())?;
+            if !found.conflicts.is_empty() {
+                return Ok(Found {
+                    conflicts: found.conflicts,
+                    ..Found::default()
+                });
+            }
+        }
+        return unwind(tx, operation, &HashMap::new());
+    }
+
+    let mut found = Found::default();
+    let mut keys: Vec<FieldKey> = Vec::new();
+    let mut net: HashMap<FieldKey, Net> = HashMap::new();
+    for change in &theirs {
+        let key = (
+            change.entity.clone(),
+            change.entity_id,
+            change.field.clone(),
+        );
+        match net.get_mut(&key) {
+            Some(n) => {
+                if n.after != change.before {
+                    found.conflicts.push(conflict(
+                        change,
+                        Some(&change.field),
+                        ConflictProblem::ChangedSince,
+                    ));
+                }
+                n.after.clone_from(&change.after);
+            }
+            None => {
+                keys.push(key.clone());
+                net.insert(
+                    key,
+                    Net {
+                        before: change.before.clone(),
+                        after: change.after.clone(),
+                    },
+                );
+            }
+        }
+    }
+    if !found.conflicts.is_empty() {
+        return Ok(found);
+    }
+
+    // What the user's operation wrote itself.
+    let mine = changes_of(tx, operation.id)?;
+    let covered = |key: &FieldKey| {
+        mine.iter().any(|c| {
+            c.entity == key.0
+                && c.entity_id == key.1
+                && (c.action == "insert" || (c.action == "set" && c.field == key.2))
+        })
+    };
+    let mut schema = SchemaCache::default();
+    let mut taken_to_hold: HashMap<FieldKey, Option<String>> = HashMap::new();
+    for key in keys {
+        let n = &net[&key];
+        let table = schema.table(tx, &key.0)?;
+        let net_change = ChangeRow {
+            entity: key.0.clone(),
+            entity_id: key.1,
+            action: "set".to_owned(),
+            field: key.2.clone(),
+            before: n.before.clone(),
+            after: n.after.clone(),
+        };
+        if covered(&key) {
+            // Still what the newest of them left? Then the user's operation
+            // is undone as if the field held what the oldest found.
+            let column = table.column(&key.2)?;
+            match table.read_field(tx, key.1, column) {
+                Ok(now) if now == n.after => {
+                    taken_to_hold.insert(key, n.before.clone());
+                }
+                Ok(_) => found.conflicts.push(conflict(
+                    &net_change,
+                    Some(&net_change.field),
+                    ConflictProblem::ChangedSince,
+                )),
+                Err(OpsError::RowNotFound { .. }) => {
+                    found
+                        .conflicts
+                        .push(conflict(&net_change, None, ConflictProblem::RowGone));
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            // Not the user's to undo: put back for real, as a set is.
+            undo_set(
+                tx,
+                &mut schema,
+                &table,
+                &net_change,
+                &mut found,
+                &HashMap::new(),
+            )?;
+        }
+    }
+    if !found.conflicts.is_empty() {
+        return Ok(Found {
+            conflicts: found.conflicts,
+            ..Found::default()
+        });
+    }
+
+    let found = unwind(tx, operation, &taken_to_hold)?;
+    if !found.conflicts.is_empty() {
+        return Ok(found);
+    }
+    for op in &automatic {
+        tx.execute(
+            "UPDATE operation SET undone_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1",
+            [op.id],
+        )?;
+    }
+    Ok(found)
 }
 
 /// What stands in the way of undoing one operation.
@@ -700,7 +1026,15 @@ impl Found {
 /// Reverses every change of `operation` inside `tx` and marks it undone,
 /// unless something stands in the way. Then `tx` holds a half-undone state
 /// and must be rolled back.
-fn unwind(tx: &Transaction<'_>, operation: &OperationInfo) -> Result<Found, OpsError> {
+///
+/// `taken_to_hold` names fields that are taken to hold another value than
+/// the database has: what they held before the automatic operations since
+/// ([`unwind_with_automatic`], which has checked what they hold now).
+fn unwind(
+    tx: &Transaction<'_>,
+    operation: &OperationInfo,
+    taken_to_hold: &HashMap<FieldKey, Option<String>>,
+) -> Result<Found, OpsError> {
     let changes: Vec<ChangeRow> = {
         let mut stmt = tx.prepare(
             "SELECT entity, entity_id, action, field, before, after FROM change
@@ -741,8 +1075,8 @@ fn unwind(tx: &Transaction<'_>, operation: &OperationInfo) -> Result<Found, OpsE
         let group = &changes[i..i + run];
         let table = schema.table(tx, &change.entity)?;
         match change.action.as_str() {
-            "set" => undo_set(tx, &mut schema, &table, change, &mut found)?,
-            "insert" => undo_insert(tx, &mut schema, &table, group, &mut found)?,
+            "set" => undo_set(tx, &mut schema, &table, change, &mut found, taken_to_hold)?,
+            "insert" => undo_insert(tx, &mut schema, &table, group, &mut found, taken_to_hold)?,
             "delete" => undo_delete(tx, &table, group, &mut found)?,
             other => return Err(OpsError::BadAction(other.to_owned())),
         }
@@ -789,7 +1123,7 @@ fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, Op
     if only.is_some_and(|id| id != operation.id) {
         return Ok(UndoOutcome::NothingToUndo);
     }
-    let found = unwind(&tx, &operation)?;
+    let found = unwind_with_automatic(&tx, &operation)?;
     match found.refusal() {
         // Dropping `tx` rolls back the steps already taken.
         Some(reason) => Ok(UndoOutcome::Refused {
@@ -804,9 +1138,11 @@ fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, Op
     }
 }
 
-/// Undoes the newest operation that isn't undone yet, exactly: a set gets
-/// its old value back, an inserted row is deleted, a deleted row is put back
-/// with its old id. Call it again to undo the one before.
+/// Undoes the newest of the user's operations that isn't undone yet,
+/// exactly: a set gets its old value back, an inserted row is deleted, a
+/// deleted row is put back with its old id. Call it again to undo the one
+/// before. An automatic operation is never the one undone; those made since
+/// on the same rows are taken back with it (see the module docs).
 ///
 /// Refused, changing nothing, if anything the operation wrote has changed
 /// since: undoing would silently throw that later change away. A refused
@@ -851,7 +1187,7 @@ pub fn next_undo(conn: &mut Connection) -> Result<NextUndo, OpsError> {
         |r| r.get(0),
     )?;
     let refusal = if changes <= TRIED_AHEAD_UP_TO {
-        unwind(&tx, &operation)?.refusal()
+        unwind_with_automatic(&tx, &operation)?.refusal()
     } else {
         None
     };
@@ -877,16 +1213,30 @@ fn undo_set(
     table: &Table,
     change: &ChangeRow,
     found: &mut Found,
+    taken_to_hold: &HashMap<FieldKey, Option<String>>,
 ) -> Result<(), OpsError> {
     let conflicts = &mut found.conflicts;
     let column = table.column(&change.field)?;
-    let now = match table.read_field(tx, change.entity_id, column) {
-        Ok(now) => now,
-        Err(OpsError::RowNotFound { .. }) => {
-            conflicts.push(conflict(change, None, ConflictProblem::RowGone));
-            return Ok(());
-        }
-        Err(e) => return Err(e),
+    // Nearly always empty: no key is built then.
+    let held = (!taken_to_hold.is_empty())
+        .then(|| {
+            taken_to_hold.get(&(
+                change.entity.clone(),
+                change.entity_id,
+                change.field.clone(),
+            ))
+        })
+        .flatten();
+    let now = match held {
+        Some(held) => held.clone(),
+        None => match table.read_field(tx, change.entity_id, column) {
+            Ok(now) => now,
+            Err(OpsError::RowNotFound { .. }) => {
+                conflicts.push(conflict(change, None, ConflictProblem::RowGone));
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        },
     };
     if now != change.after {
         conflicts.push(conflict(
@@ -961,6 +1311,7 @@ fn undo_insert(
     table: &Table,
     group: &[ChangeRow],
     found: &mut Found,
+    taken_to_hold: &HashMap<FieldKey, Option<String>>,
 ) -> Result<(), OpsError> {
     let conflicts = &mut found.conflicts;
     let first = &group[0];
@@ -983,7 +1334,17 @@ fn undo_insert(
                 entity: table.name.clone(),
                 field: change.field.clone(),
             })?;
-        if row[index] != change.after {
+        let held = (!taken_to_hold.is_empty())
+            .then(|| {
+                taken_to_hold.get(&(
+                    change.entity.clone(),
+                    change.entity_id,
+                    change.field.clone(),
+                ))
+            })
+            .flatten();
+        let now = held.unwrap_or(&row[index]);
+        if *now != change.after {
             changed_since = true;
             conflicts.push(conflict(
                 change,
@@ -1110,6 +1471,6 @@ pub fn next_undo_operation(
 }
 
 #[cfg(test)]
-mod history_tests;
+pub(crate) mod history_tests;
 #[cfg(test)]
 mod tests;

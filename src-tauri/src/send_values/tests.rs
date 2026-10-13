@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value as Json};
 
+mod entry;
+
 use super::*;
 use crate::db::Writer;
 use crate::paths::Volumes;
@@ -795,7 +797,7 @@ fn two_rekordbox_entries_at_the_location_are_ambiguous_so_the_track_is_left_out(
 }
 
 #[test]
-fn an_entry_matched_to_a_different_file_is_not_used() {
+fn an_entry_matched_to_another_library_tracks_file_is_not_used() {
     let lib = Lib::new();
     let (library, file) = gone(&lib);
     // rekordbox's row at that Location is already the entry of another
@@ -809,7 +811,7 @@ fn an_entry_matched_to_a_different_file_is_not_used() {
 }
 
 #[test]
-fn a_probable_entry_matched_to_another_file_is_not_used() {
+fn a_probable_entry_matched_to_another_library_tracks_file_is_not_used() {
     let lib = Lib::new();
     let (library, file) = gone(&lib);
     let (_, other) = lib.linked("other.mp3", Spec::default());

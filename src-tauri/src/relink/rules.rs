@@ -193,6 +193,78 @@ pub struct File {
     pub recording: Option<i64>,
     /// Whether it's its track's best file.
     pub best: bool,
+    /// Whether a Library track is linked to it. Among files that are
+    /// equally right and equally trusted, the linked one is matched
+    /// ([`Pick`]).
+    pub linked: bool,
+}
+
+/// One of several files that are equally right for a row (exact copies,
+/// or the candidates of one step-4 rule): the file the usual order gives,
+/// and the file a Library track is linked to, to match instead **if it
+/// gets the same trust** (1bE-10).
+///
+/// The linked file first, because a Library track is sent as rekordbox's
+/// entry only while that entry is matched to its linked file: were the
+/// track's best file matched instead, an exact copy that turned up later
+/// and ranked ahead would pull the entry off the linked file, and the
+/// track would go to rekordbox as a new one beside its own entry.
+///
+/// But only as a tie-break. "Equally right" includes equally trusted: where
+/// a step trusts a match on the file's own tags or length (steps 3 and 4),
+/// the linked file is matched only if it would be trusted exactly as the
+/// usual file would ([`Pick::settle`]). So being linked never turns a match
+/// that would be trusted into a probable one, nor the other way round; and
+/// a row none of whose candidates is linked gets the file it always got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Pick {
+    /// The usual order: their track's best file, else the lowest file id.
+    usual: i64,
+    /// The file a Library track is linked to (the lowest id of several),
+    /// when there is one and it isn't `usual`.
+    linked: Option<i64>,
+}
+
+impl Pick {
+    fn only(file: i64) -> Pick {
+        Pick {
+            usual: file,
+            linked: None,
+        }
+    }
+
+    /// The pick among `files`; `None` if there are none.
+    fn among(files: &[&File]) -> Option<Pick> {
+        let usual = files
+            .iter()
+            .find(|f| f.best)
+            .or_else(|| files.iter().min_by_key(|f| f.id))?
+            .id;
+        let linked = files
+            .iter()
+            .filter(|f| f.linked)
+            .map(|f| f.id)
+            .min()
+            .filter(|&linked| linked != usual);
+        Some(Pick { usual, linked })
+    }
+
+    /// The file to match where every candidate gets the same trust whatever
+    /// its tags (steps 2 and 5, and the same audio): the linked one.
+    fn any(self) -> i64 {
+        self.linked.unwrap_or(self.usual)
+    }
+
+    /// The file to match where `trusted` says whether a match to a file
+    /// would be trusted, and that answer: the linked file only if it gets
+    /// the usual file's answer.
+    fn settle<E>(self, mut trusted: impl FnMut(i64) -> Result<bool, E>) -> Result<(i64, bool), E> {
+        let usual = trusted(self.usual)?;
+        match self.linked {
+            Some(linked) if trusted(linked)? == usual => Ok((linked, usual)),
+            _ => Ok((self.usual, usual)),
+        }
+    }
 }
 
 impl File {
@@ -563,23 +635,20 @@ impl<'a> Index<'a> {
 
     /// The one file to match among `fits`: the only one, or, when every
     /// one of them holds the same audio (one `audio_hash`, current for each
-    /// file: exact copies), their track's best file, else the lowest id.
-    /// `None` if they differ, or if a hash isn't current.
-    fn pick(&self, fits: &[i64]) -> Option<i64> {
+    /// file: exact copies), their [`Pick`]: their track's best file, else
+    /// the lowest id, and a Library track's linked file to prefer at equal
+    /// trust. `None` if they differ, or if a hash isn't current.
+    fn pick(&self, fits: &[i64]) -> Option<Pick> {
         match fits {
             [] => None,
-            [only] => Some(*only),
+            [only] => Some(Pick::only(*only)),
             _ => {
                 let hash = self.file(fits[0])?.audio()?;
                 let copies: Vec<&File> = fits.iter().filter_map(|&f| self.file(f)).collect();
                 if copies.len() != fits.len() || copies.iter().any(|f| f.audio() != Some(hash)) {
                     return None;
                 }
-                copies
-                    .iter()
-                    .find(|f| f.best)
-                    .or_else(|| copies.iter().min_by_key(|f| f.id))
-                    .map(|f| f.id)
+                Pick::among(&copies)
             }
         }
     }
@@ -630,7 +699,7 @@ struct Lead {
     /// Every present file that could be the gone file's audio.
     files: Vec<i64>,
     /// The one to match, when the files don't differ.
-    pick: Option<i64>,
+    pick: Option<Pick>,
     found: Found,
     /// How long the gone file lasted, if that's known.
     lasted: Option<i64>,
@@ -845,7 +914,8 @@ pub fn plan<E>(
         if *blocked {
             continue;
         }
-        let Some(file) = index.pick(fits) else {
+        // Trusted whichever copy it is: the linked one if there is one.
+        let Some(file) = index.pick(fits).map(Pick::any) else {
             continue;
         };
         let copy_taken = fits.iter().any(|&f| held_by_other(&claimed, f, *i));
@@ -958,20 +1028,23 @@ pub fn plan<E>(
         if *blocked {
             continue;
         }
-        let Some(file) = index.pick(fits) else {
+        let Some(pick) = index.pick(fits) else {
             continue;
         };
         let alone = fits.iter().all(|&f| wants(f).iter().all(|&o| o == *i));
         let copy_taken = fits.iter().any(|&f| held_by_other(&claimed, f, *i));
         if alone && !copy_taken {
-            decided.push((*i, file));
+            decided.push((*i, pick));
         }
     }
     // Accepted only when one of the file's title tags agrees with
     // rekordbox's Name; otherwise probable, like a filename-only match.
-    for (i, file) in decided {
+    // Exact copies can carry different tags: a Library-linked copy is
+    // matched only if its tags give the answer the usual copy's give.
+    for (i, pick) in decided {
         let name = &tracks[i].name;
-        let agrees = !name.is_empty() && titles(file)?.contains(name);
+        let (file, agrees) =
+            pick.settle(|file| Ok(!name.is_empty() && titles(file)?.contains(name)))?;
         let confidence = if agrees {
             confidence::UNIQUE_DURATION
         } else {
@@ -1028,14 +1101,11 @@ pub fn plan<E>(
             }
             by_duration.sort_unstable();
         }
-        // The track's best file among `files`, else the lowest id.
-        let best_of = |files: &[i64]| -> Option<i64> {
+        // The track's best file among `files`, else the lowest id; and a
+        // Library track's linked file, to prefer at equal trust.
+        let best_of = |files: &[i64]| -> Option<Pick> {
             let files: Vec<&File> = files.iter().filter_map(|&f| index.file(f)).collect();
-            files
-                .iter()
-                .find(|f| f.best)
-                .or_else(|| files.iter().min_by_key(|f| f.id))
-                .map(|f| f.id)
+            Pick::among(&files)
         };
         // The rows with no file of the same audio, and the present files
         // that last about as long as each one's gone file.
@@ -1176,7 +1246,7 @@ pub fn plan<E>(
         }
     }
     for lead in &leads {
-        let Some(file) = lead.pick else { continue };
+        let Some(pick) = lead.pick else { continue };
         if !lead.files.iter().all(|&f| alone(&sought, f, lead.row)) {
             continue;
         }
@@ -1195,12 +1265,18 @@ pub fn plan<E>(
         // can be one. A mate of another length, or where either length
         // isn't known, is probable at most, whatever its title.
         //
-        // This is the one place that decides it.
-        let trusted = lead.found == Found::SameAudio || {
-            let name = &tracks[lead.row].name;
-            let lasts = index.file(file).and_then(|f| f.duration_ms);
-            about_as_long(lead.lasted, lasts) && !name.is_empty() && titles(file)?.contains(name)
-        };
+        // This is the one place that decides it. A Library-linked
+        // candidate is matched only if it gets the answer the usual one
+        // gets ([`Pick`]): being linked never costs a match its trust.
+        let (file, trusted) = pick.settle(|file| {
+            Ok(lead.found == Found::SameAudio || {
+                let name = &tracks[lead.row].name;
+                let lasts = index.file(file).and_then(|f| f.duration_ms);
+                about_as_long(lead.lasted, lasts)
+                    && !name.is_empty()
+                    && titles(file)?.contains(name)
+            })
+        })?;
         let confidence = if trusted {
             lead.found.accepted()
         } else {
@@ -1253,7 +1329,8 @@ pub fn plan<E>(
             })
             .map(|f| f.id)
             .collect();
-        let Some(file) = index.pick(&files) else {
+        // Probable whichever copy it is: the linked one if there is one.
+        let Some(file) = index.pick(&files).map(Pick::any) else {
             continue;
         };
         if !files.iter().any(|&f| held_by_other(&claimed, f, i)) {

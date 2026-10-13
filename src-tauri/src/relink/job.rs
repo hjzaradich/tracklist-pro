@@ -8,6 +8,17 @@
 //!
 //! Every finished run asks for an attach ([`crate::attach::request`]): the
 //! rekordbox data on tracks follows the matches.
+//!
+//! **The second step: Library tracks follow their files**
+//! ([`crate::library::follow`], 1bE-10). Once relink has committed, a
+//! Library track whose linked file is gone and whose audio is on disk at a
+//! new place is linked to that file. It is a step of this job because this
+//! job runs whenever its evidence becomes current (after the hash stage,
+//! after every grouping run, after every read of rekordbox), and because
+//! which rekordbox entry a track is sent as is decided on relink's matches.
+//! It runs after relink and outside its transaction, also when there is no
+//! rekordbox data at all. If it fails, the failure is logged and the job
+//! still ends well: relink's matches stand, and the next run follows.
 
 use std::sync::Mutex;
 
@@ -95,7 +106,10 @@ pub fn relinker() -> impl JobHandler {
 impl<V: Volumes + 'static> JobHandler for Relinker<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let known = job.writer().call(|c| identities(c))?;
+        // The one time this job asks the system anything, and off the
+        // database's writer: both steps work from this answer.
         let mounted = Mounted::ask(&known, &(self.volumes)());
+        let for_the_follow = mounted.clone();
         job.check_cancelled()?;
         // One transaction: a cancel from here on changes nothing.
         let summary = job.writer().call(move |c| relink(c, &mounted))?;
@@ -107,6 +121,7 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
                 summary.fingerprint_undecided
             );
         }
+        follow(job, for_the_follow);
         ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
         // Matches changed, so the titles of Library tracks may have too.
         if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
@@ -116,6 +131,43 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
             hook(summary);
         }
         Ok(())
+    }
+}
+
+/// The job's second step: Library tracks whose linked file is gone follow
+/// it to the same audio ([`crate::library::follow`]). Relink has committed
+/// by now and this runs in transactions of its own, so a failure here is
+/// logged and the job goes on: the matches stand, and the next relink job
+/// tries the follow again.
+///
+/// `mounted` is where the drives were when the job asked, before it took
+/// the writer: nothing in here asks the system, so no other write waits on
+/// a drive. Inside the writer call are the follow's own reads of the
+/// database, the check of each move against what the database holds then,
+/// and the writes.
+fn follow(job: &JobContext, mounted: Mounted) {
+    let followed = job
+        .writer()
+        .call(move |c| Ok(crate::library::follow::follow_files(c, &mounted)));
+    match followed {
+        Ok(Ok(summary)) => {
+            if !summary.followed.is_empty() || summary.held > 0 {
+                eprintln!(
+                    "relink job {}: {} Library tracks followed their file, {} held",
+                    job.id(),
+                    summary.followed.len(),
+                    summary.held
+                );
+            }
+        }
+        Ok(Err(e)) => eprintln!(
+            "relink job {}: Library tracks couldn't follow their files: {e}",
+            job.id()
+        ),
+        Err(e) => eprintln!(
+            "relink job {}: Library tracks couldn't follow their files: {e:?}",
+            job.id()
+        ),
     }
 }
 
