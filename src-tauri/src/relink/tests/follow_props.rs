@@ -20,7 +20,8 @@
 //!   same `audio_hash`, current for both;
 //! - the automatic follow never changes which rekordbox entry a track is
 //!   sent as: a followed track that was sent as an entry is sent as that
-//!   entry, one that was sent as none isn't sent as an entry afterwards,
+//!   entry; one that was sent as none is sent as none, or as the one entry
+//!   matched to the file it followed to, which no other track was sent as;
 //!   and every other Library track is sent exactly as before;
 //! - running it again moves nothing.
 
@@ -246,6 +247,18 @@ impl World {
             .unwrap()
     }
 
+    /// The rekordbox rows matched to a file, whatever the match.
+    fn entries_matched_to(&self, file: i64) -> Vec<i64> {
+        self.lib
+            .writer
+            .call(move |c| {
+                c.prepare("SELECT id FROM rekordbox_track WHERE file_id = ?1 ORDER BY id")?
+                    .query_map([file], |r| r.get(0))?
+                    .collect()
+            })
+            .unwrap()
+    }
+
     /// What holds after every step.
     fn check(&self, after: &str) {
         assert_eq!(
@@ -305,12 +318,28 @@ impl World {
                         now, *was,
                         "the follow changed which rekordbox entry {track:?} is sent as"
                     ),
-                    // Its file was gone and rekordbox had no entry for it:
-                    // it isn't given one by following.
-                    SentAs::Nothing => assert!(
-                        !matches!(now, SentAs::Entry(_)),
-                        "the follow put {track:?}, which had no entry, on a rekordbox entry"
-                    ),
+                    // Its file was gone and it was sent as no entry. If it
+                    // is on one now, that is the only entry matched to the
+                    // file it followed to, and nobody else's.
+                    SentAs::Nothing => {
+                        if let SentAs::Entry(entry) = now {
+                            let to = follows
+                                .followed
+                                .iter()
+                                .find(|f| f.library_track == *track)
+                                .map(|f| f.to)
+                                .unwrap();
+                            assert_eq!(
+                                self.entries_matched_to(to),
+                                vec![entry],
+                                "{track:?} followed onto a file with a second entry"
+                            );
+                            assert!(
+                                !before.values().any(|was| *was == SentAs::Entry(entry)),
+                                "{track:?} followed onto another track's entry"
+                            );
+                        }
+                    }
                     SentAs::New => panic!("{track:?} followed though its file was on disk"),
                 }
             } else {
@@ -455,17 +484,38 @@ proptest! {
 
     #[test]
     fn no_sequence_of_scans_moves_returns_and_follows_breaks_what_a_follow_promises(
-        scripted in any::<bool>(),
+        scripted in 0..3u8,
         ops in proptest::collection::vec(op(), 1..28),
     ) {
         let mut world = World::new();
-        if scripted {
+        if scripted == 1 {
             // Start where an entry stands in for a gone file while relink
             // has matched it to a file of another track: the moment the
             // tracks around it are added and removed is what follows.
             for op in [Op::Lookalike(0), Op::Vanish(0), Op::Job] {
                 world.apply(&op);
             }
+        }
+        if scripted == 2 {
+            // Start with a file moved away and back again: the first track
+            // (which rekordbox holds an entry for) follows there and back,
+            // and is sent as the entry it was sent as at the start.
+            let first = world.library_tracks()[0];
+            let sent_as_now = |world: &World| {
+                world.sent().into_iter().find(|(t, _)| *t == first).map(|(_, s)| s)
+            };
+            let at_the_start = sent_as_now(&world);
+            prop_assert!(matches!(at_the_start, Some(SentAs::Entry(_))));
+            world.apply(&Op::Move(0));
+            world.apply(&Op::Job);
+            let moved = world.files.len() - 1;
+            prop_assert_eq!(world.lib.linked_file(first), world.files[moved].id);
+            prop_assert_eq!(sent_as_now(&world), at_the_start);
+            for op in [Op::Vanish(moved), Op::Return(0), Op::Job] {
+                world.apply(&op);
+            }
+            prop_assert_eq!(world.lib.linked_file(first), world.files[0].id);
+            prop_assert_eq!(sent_as_now(&world), at_the_start);
         }
         for op in &ops {
             world.apply(op);

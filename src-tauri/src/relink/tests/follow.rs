@@ -766,27 +766,86 @@ fn a_follow_never_takes_the_file_another_tracks_entry_is_matched_to() {
 }
 
 #[test]
-fn a_track_rekordbox_does_not_know_never_follows_onto_a_file_rekordbox_holds_an_entry_for() {
-    // The track is sent as no entry today. On a file an entry is matched
-    // to, it would be sent as that entry (a trusted match), or as a new
-    // track beside the entry that is probably its own (a probable one):
-    // either way the follow would decide which rekordbox entry the track
-    // is. That is the user's choice in Review.
-    for probable in [true, false] {
-        let scene = unknown();
-        let lib = &scene.lib;
-        let new = scene.moved_to("Moved/Renamed.mp3");
-        let row = lib.track_with(&loc("E:/Gone/Other name.mp3"), Some("200"), &[]);
-        if probable {
-            lib.make_probable(row, new);
-        } else {
-            lib.matched_before(row, new, "user", 1.0);
-        }
-        assert_eq!(lib.sent(scene.track), SentAs::Nothing);
-        assert_eq!(lib.follow(), HELD, "probable: {probable}");
-        assert_eq!(lib.linked_file(scene.track), scene.old);
-        assert_eq!(lib.sent(scene.track), SentAs::Nothing);
-    }
+fn a_track_rekordbox_did_not_know_follows_onto_the_file_rekordbox_has_since_learned() {
+    // No entry today, and on the new file the only entry matched to it:
+    // rekordbox has imported the file at its new place. The link follows,
+    // and the track is sent as that entry, as it would be if it were added
+    // now (an add links the file rekordbox uses).
+    let scene = unknown();
+    let lib = &scene.lib;
+    let new = scene.moved_to("Moved/Renamed.mp3");
+    let row = lib.track_with(
+        &loc("E:/Music/Moved/Renamed.mp3"),
+        Some("200"),
+        &[("Name", "Kappa")],
+    );
+    assert_eq!(lib.sent(scene.track), SentAs::Nothing);
+    assert_eq!(lib.job(&scene.mounted), scene.followed(new));
+    assert_eq!(lib.matched(row), path(new));
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+}
+
+#[test]
+fn no_entry_today_and_two_entries_matched_to_the_file_nothing_moves() {
+    // The same, but rekordbox holds two entries for the file: which of them
+    // the track would be is not the app's to pick.
+    let scene = unknown();
+    let lib = &scene.lib;
+    let new = scene.moved_to("Moved/Renamed.mp3");
+    let at_its_path = lib.track_with(
+        &loc("E:/Music/Moved/Renamed.mp3"),
+        Some("200"),
+        &[("Name", "Kappa")],
+    );
+    let confirmed = lib.track_with(&loc("E:/Gone/Other name.mp3"), Some("200"), &[]);
+    lib.confirm_now(&loc("E:/Gone/Other name.mp3"), new, Method::Fingerprint);
+    assert_eq!(lib.job(&scene.mounted), HELD);
+    assert_eq!(lib.matched(at_its_path), path(new));
+    assert_eq!(lib.matched(confirmed).map(|m| m.0), Some(new));
+    assert_eq!(lib.linked_file(scene.track), scene.old);
+    assert_eq!(lib.sent(scene.track), SentAs::Nothing);
+}
+
+#[test]
+fn a_track_rekordbox_does_not_know_never_follows_onto_a_probable_match() {
+    // The one entry matched to the file is only probable. Linked there the
+    // track would go to rekordbox as a new one, beside the entry that is
+    // probably its own: an add refuses that too (1.8). Once the match is
+    // trusted (confirmed in Review), it follows, onto that entry.
+    let scene = unknown();
+    let lib = &scene.lib;
+    let new = scene.moved_to("Moved/Renamed.mp3");
+    let row = lib.track_with(&loc("E:/Gone/Other name.mp3"), Some("200"), &[]);
+    lib.make_probable(row, new);
+    assert_eq!(lib.follow(), HELD);
+    assert_eq!(lib.linked_file(scene.track), scene.old);
+    assert_eq!(lib.sent(scene.track), SentAs::Nothing);
+    lib.confirm_now(&loc("E:/Gone/Other name.mp3"), new, Method::FilenameOnly);
+    assert_eq!(lib.job(&scene.mounted), scene.followed(new));
+    assert!(!lib.probable(row));
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+}
+
+#[test]
+fn sent_as_one_entry_today_and_as_another_on_the_file_nothing_moves() {
+    // The track is sent as the entry at its old Location. The only entry
+    // matched to the moved file is another one: rekordbox's own, at the new
+    // path. Following would change which entry the track is.
+    let (scene, row) = known();
+    let lib = &scene.lib;
+    let new = scene.moved_to("Moved/Renamed.mp3");
+    let other = lib.track_with(
+        &loc("E:/Music/Moved/Renamed.mp3"),
+        Some("200"),
+        &[("Name", "Kappa")],
+    );
+    let before = lib.sent(scene.track);
+    assert_eq!(before, SentAs::Entry(row));
+    assert_eq!(lib.job(&scene.mounted), HELD);
+    assert_eq!(lib.matched(other), path(new));
+    assert_eq!(lib.matched(row), None);
+    assert_eq!(lib.linked_file(scene.track), scene.old);
+    assert_eq!(lib.sent(scene.track), before);
 }
 
 #[test]
@@ -808,7 +867,7 @@ fn a_track_does_not_follow_while_a_file_of_its_track_is_the_probable_match_of_an
 }
 
 #[test]
-fn no_follow_while_any_other_rekordbox_entry_is_matched_to_the_file_whatever_the_match() {
+fn no_follow_while_two_entries_are_matched_to_the_file_whatever_the_matches() {
     // The track's own entry is on the moved file, and so is a second entry.
     // Which of the two a send would pick for a file both are trusted on
     // (the most played, then the lowest TrackID) must not decide: the track
@@ -926,37 +985,47 @@ fn when_the_file_is_moved_back_a_track_rekordbox_holds_no_entry_for_follows_it_b
 }
 
 #[test]
-fn known_limit_when_the_file_is_moved_back_to_the_path_of_rekordboxs_entry_the_track_waits_in_review(
+fn a_file_moved_away_and_back_is_followed_back_and_the_track_is_sent_as_the_same_entry_as_at_the_start(
 ) {
-    // The file moved, the track followed, and the file is moved back: the
-    // new place is gone and the old one is there again. Relink matches
-    // rekordbox's entry to the file at its own path (step 1). The track,
-    // linked to the file that is gone now, is sent as no entry at that
-    // moment (no entry is at the gone file's own path), and the only file
-    // it could follow to has an entry matched to it. A follow never puts a
-    // track on an entry it isn't sent as: nothing moves, the track is a
-    // "Clear best file" item, and until the user answers it is left out of
-    // the send. Pinned so it can't change unnoticed.
+    // Undoing a move in Explorer. Away: the track follows, on its entry.
+    // Back: the new place is gone and the old one is there again. Relink
+    // matches rekordbox's entry to the file at its own path (step 1), and
+    // the track, linked to the copy that is gone now, is sent as nothing in
+    // between. The file at the entry's path has that one entry and no
+    // other: the link follows back, and the track is what it was.
     let (scene, row) = known();
     let lib = &scene.lib;
+    let at_the_start = lib.sent(scene.track);
+    assert_eq!(at_the_start, SentAs::Entry(row));
+
     let new = scene.moved_to("Moved/Renamed.mp3");
     assert_eq!(lib.job(&scene.mounted), scene.followed(new));
-    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+    assert_eq!(lib.sent(scene.track), at_the_start);
+
     lib.gone(new);
     lib.back(scene.old);
     lib.regroup();
-    for _ in 0..2 {
-        assert_eq!(lib.job(&scene.mounted), HELD);
-    }
-    assert_eq!(lib.matched(row), path(scene.old));
-    assert_eq!(lib.linked_file(scene.track), new);
-    assert_eq!(lib.sent(scene.track), SentAs::Nothing);
-    assert!(lib.shown_missing(scene.track));
-    lib.roles();
     assert_eq!(
-        lib.better_file(scene.track),
-        Some((scene.old, "onDisk".to_owned()))
+        lib.job(&scene.mounted),
+        Follows {
+            followed: vec![Followed {
+                library_track: scene.track,
+                from: new,
+                to: scene.old,
+            }],
+            held: 0,
+        }
     );
+    assert_eq!(lib.matched(row), path(scene.old));
+    assert_eq!(lib.linked_file(scene.track), scene.old);
+    assert_eq!(lib.sent(scene.track), at_the_start);
+    assert!(!lib.shown_missing(scene.track));
+    // In the send itself: rekordbox's own entry, the file there.
+    let Outcome::Ready(values) = lib.outcome(scene.track) else {
+        panic!("not sent");
+    };
+    assert!(values.in_rekordbox && !values.file_missing);
+    assert_eq!(lib.job(&scene.mounted), Follows::default());
 }
 
 #[test]
