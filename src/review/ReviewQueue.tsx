@@ -22,7 +22,7 @@ export interface QueueGroup {
   loadingMore: boolean;
   onLoadMore: () => void;
   /**
-   * "Accept all N" for the group, if it has one ("Clear best file"): how many
+   * "Accept all N" for the group, if it has one ("Clearly best file"): how many
    * items it would switch, and what to do on a click. Left out, or with a
    * count of zero, there is no button.
    */

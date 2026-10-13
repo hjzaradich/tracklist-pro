@@ -168,7 +168,7 @@ export const commands = {
 	/**  The items "Accept all" would switch now: N on its button is how many. */
 	reviewAcceptAllItems: () => typedError<AcceptItem[], IpcError>(__TAURI_INVOKE("review_accept_all_items")),
 	/**
-	 *  "Accept all" for "Clear best file", as one operation: `items` are the
+	 *  "Accept all" for "Clearly best file", as one operation: `items` are the
 	 *  ones the screen showed, and no other item is switched.
 	 */
 	reviewAcceptClearBestFiles: (items: AcceptItem[]) => typedError<AcceptedAll, IpcError>(__TAURI_INVOKE("review_accept_clear_best_files", { items })),

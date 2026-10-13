@@ -132,11 +132,11 @@
   },
   "undo.action.acceptClearBestFiles_one": {
     "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (one track).",
-    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clear best file\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\"."
   },
   "undo.action.acceptClearBestFiles_other": {
     "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (several tracks).",
-    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clear best file\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\"."
   },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",

@@ -454,7 +454,7 @@ describe("a Linked file gone, copy found item", () => {
 });
 
 describe("Accept all", () => {
-  it("is offered at the Clear best file heading with how many it will switch", async () => {
+  it("is offered at the Clearly best file heading with how many it will switch", async () => {
     const world = backend({
       lists: { needsCloserLook: [], clearBestFile: [GONE, GONE_TOO], qualityProblems: [QUALITY] },
       clear: 1,

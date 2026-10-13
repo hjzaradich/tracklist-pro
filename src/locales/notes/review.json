@@ -76,7 +76,7 @@
   },
   "queue.acceptAll": {
     "purpose": "Button that switches the \"Linked file gone, copy found\" items that are clear cases to their suggested copy, in one step. {{count}} is how many it will switch: exactly the items the screen showed when it was pressed.",
-    "where": "Review screen, queue on the left, beside the \"Clear best file\" heading, when at least one item can be switched this way."
+    "where": "Review screen, queue on the left, beside the \"Clearly best file\" heading, when at least one item can be switched this way."
   },
   "item.moreTracks_one": {
     "purpose": "Says one more track is in the item.",

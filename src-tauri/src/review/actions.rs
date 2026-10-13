@@ -849,7 +849,7 @@ pub fn accept_all_items(
         .collect())
 }
 
-/// "Accept all" for "Clear best file": switches the items `shown` (what the
+/// "Accept all" for "Clearly best file": switches the items `shown` (what the
 /// screen showed when the button was pressed) that are still clear cases
 /// ([`accept_all_covers`]) to the copy each one showed, as ONE operation, so
 /// one Undo restores every link. **Only items in `shown` are ever switched**:
@@ -1011,7 +1011,7 @@ pub async fn review_accept_all_items(
     Ok(reads.read(|c| accept_all_items(c, &volumes))?)
 }
 
-/// "Accept all" for "Clear best file", as one operation: `items` are the
+/// "Accept all" for "Clearly best file", as one operation: `items` are the
 /// ones the screen showed, and no other item is switched.
 #[tauri::command(async)]
 #[specta::specta]

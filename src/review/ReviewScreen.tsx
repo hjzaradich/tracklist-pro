@@ -29,7 +29,7 @@ const DECIDES_MISSING = ["read_rekordbox", "relink"] as const;
  * comparison of the selected item on the right, then the Missing list as its
  * own section (nothing to compare there: it has no file). The actions for an
  * item are under its comparison (`ReviewActions`), and "Accept all N" is at
- * the "Clear best file" heading.
+ * the "Clearly best file" heading.
  */
 export function ReviewScreen() {
   const { t } = useTranslation("review");
