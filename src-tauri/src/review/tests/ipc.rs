@@ -6,6 +6,47 @@ use tauri::Manager;
 use crate::db::Writer;
 use crate::ipc::testing::{app, invoke};
 
+/// A Library track (track 1) whose linked file is gone, with a copy on
+/// disk in the same track.
+const GONE_WITH_A_COPY: &str = "
+    INSERT INTO volume (identity, kind, last_mount_path)
+        VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
+    INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'Music', 'Music');
+    INSERT INTO recording (title) VALUES ('Synthetic Tune');
+    INSERT INTO file (music_folder_id, rel_path, rel_path_key, present, sniffed_format, codec,
+                      bitrate, audio_hash)
+        VALUES (1, 'gone.mp3', 'gone.mp3', 0, 'mp3', 'mp3', 320, x'0101'),
+               (1, 'copy.mp3', 'copy.mp3', 1, 'mp3', 'mp3', 320, x'0202');
+    INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2);
+    INSERT INTO library_track (recording_id, kind, linked_file_id) VALUES (1, 'linked', 1);";
+
+/// Leaves a library written by SQL as the background jobs leave one: every
+/// file placed in its track by grouping, a grouping pass run, and every
+/// track's files ranked (which writes the "better file" rows, from the
+/// ranking itself).
+///
+/// The app asks at startup what is due, on a thread of its own (1cA-13), so
+/// its jobs can run before or after a test writes its rows. Run here, they
+/// find nothing left to do, and the test reads the same thing either way.
+fn settle(app: &tauri::App<tauri::test::MockRuntime>) {
+    app.state::<Writer>()
+        .call(|c| {
+            c.execute(
+                "INSERT INTO grouping_file (file_id, placed_key, decided_as)
+                 SELECT id, coalesce(nullif(audio_hash, x''), blake3), ?1 FROM file",
+                [crate::grouping::decided_as()],
+            )?;
+            crate::grouping::regroup(c)?;
+            c.execute(
+                "INSERT OR IGNORE INTO best_file_due (recording_id) SELECT id FROM recording",
+                [],
+            )?;
+            while crate::file_roles::settle_batch(c, 100)?.more {}
+            Ok(())
+        })
+        .unwrap();
+}
+
 #[test]
 fn a_fresh_library_has_an_empty_queue_over_ipc() {
     let (_data, app) = app();
@@ -40,24 +81,9 @@ fn a_fresh_library_has_an_empty_queue_over_ipc() {
 fn an_item_and_its_comparison_reach_the_frontend_with_a_suggestion_and_a_reason_code() {
     let (_data, app) = app();
     app.state::<Writer>()
-        .call(|c| {
-            c.execute_batch(
-                "INSERT INTO volume (identity, kind, last_mount_path)
-                     VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
-                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
-                     VALUES (1, 'Music', 'Music');
-                 INSERT INTO recording (title) VALUES ('Synthetic Tune');
-                 INSERT INTO file (music_folder_id, rel_path, rel_path_key, present, sniffed_format)
-                     VALUES (1, 'gone.mp3', 'gone.mp3', 0, 'mp3'),
-                            (1, 'copy.mp3', 'copy.mp3', 1, 'mp3');
-                 INSERT INTO recording_file (recording_id, file_id)
-                     VALUES (1, 1), (1, 2);
-                 INSERT INTO library_track (recording_id, kind, linked_file_id)
-                     VALUES (1, 'linked', 1);
-                 INSERT INTO better_file (recording_id, file_id, step) VALUES (1, 2, 'onDisk');",
-            )
-        })
+        .call(|c| c.execute_batch(GONE_WITH_A_COPY))
         .unwrap();
+    settle(&app);
 
     let counts = invoke(&app, "review_counts", json!({})).unwrap();
     assert_eq!(counts["clearBestFile"], json!(1));
@@ -86,21 +112,6 @@ fn an_item_and_its_comparison_reach_the_frontend_with_a_suggestion_and_a_reason_
     assert_eq!(comparison["rows"][1]["linked"], json!(true));
 }
 
-/// A Library track (track 1) whose linked file is gone, with a copy on
-/// disk, as the roles job leaves it: a "Linked file gone, copy found" item.
-const GONE_WITH_A_COPY: &str = "
-    INSERT INTO volume (identity, kind, last_mount_path)
-        VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
-    INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'Music', 'Music');
-    INSERT INTO recording (title) VALUES ('Synthetic Tune');
-    INSERT INTO file (music_folder_id, rel_path, rel_path_key, present, sniffed_format, audio_hash)
-        VALUES (1, 'gone.mp3', 'gone.mp3', 0, 'mp3', x'0101'),
-               (1, 'copy.mp3', 'copy.mp3', 1, 'mp3', x'0202');
-    INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2);
-    INSERT INTO library_track (recording_id, kind, linked_file_id) VALUES (1, 'linked', 1);
-    INSERT INTO better_file (recording_id, file_id, step) VALUES (1, 2, 'onDisk');
-    DELETE FROM best_file_due;";
-
 fn counts(app: &tauri::App<tauri::test::MockRuntime>) -> serde_json::Value {
     invoke(app, "review_counts", json!({})).unwrap()
 }
@@ -111,6 +122,7 @@ fn the_switch_its_undo_and_accept_all_are_called_the_way_the_frontend_calls_them
     app.state::<Writer>()
         .call(|c| c.execute_batch(GONE_WITH_A_COPY))
         .unwrap();
+    settle(&app);
     let item = json!({ "kind": "clearBestFile", "a": 1, "b": null });
 
     // The item carries the switch it offers, as codes.
@@ -193,17 +205,10 @@ fn the_switch_its_undo_and_accept_all_are_called_the_way_the_frontend_calls_them
 #[test]
 fn the_remembered_decisions_and_their_undo_are_called_the_way_the_frontend_calls_them() {
     let (_data, app) = app();
-    let verdict = format!(
-        "INSERT INTO file_verdict (file_id, rules_version, inputs, verdict, findings)
-         SELECT f.id, {}, {}, 'low_bitrate', '[]' FROM file f
-         LEFT JOIN file_quality q ON q.file_id = f.id WHERE f.id = 3;",
-        crate::quality::RULES_VERSION,
-        crate::quality::store::INPUTS
-    );
     app.state::<Writer>()
-        .call(move |c| {
+        .call(|c| {
             // Track 1: linked to an mp3 with a better FLAC. Track 2: linked
-            // to a flagged file.
+            // to a file the quality rules flag (128 kbps is a low bitrate).
             c.execute_batch(
                 "INSERT INTO volume (identity, kind, last_mount_path)
                      VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
@@ -211,19 +216,17 @@ fn the_remembered_decisions_and_their_undo_are_called_the_way_the_frontend_calls
                      VALUES (1, 'Music', 'Music');
                  INSERT INTO recording (title) VALUES ('Synthetic Tune'), ('Synthetic Other');
                  INSERT INTO file (music_folder_id, rel_path, rel_path_key, sniffed_format,
-                                   audio_hash)
-                     VALUES (1, 'a.mp3', 'a.mp3', 'mp3', x'0101'),
-                            (1, 'a.flac', 'a.flac', 'flac', x'0202'),
-                            (1, 'b.mp3', 'b.mp3', 'mp3', x'0303');
+                                   codec, bitrate, audio_hash)
+                     VALUES (1, 'a.mp3', 'a.mp3', 'mp3', 'mp3', 320, x'0101'),
+                            (1, 'a.flac', 'a.flac', 'flac', 'flac', NULL, x'0202'),
+                            (1, 'b.mp3', 'b.mp3', 'mp3', 'mp3', 128, x'0303');
                  INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2), (2, 3);
                  INSERT INTO library_track (recording_id, kind, linked_file_id)
-                     VALUES (1, 'linked', 1), (2, 'linked', 3);
-                 INSERT INTO better_file (recording_id, file_id, step) VALUES (1, 2, 'format');
-                 DELETE FROM best_file_due;",
-            )?;
-            c.execute_batch(&verdict)
+                     VALUES (1, 'linked', 1), (2, 'linked', 3);",
+            )
         })
         .unwrap();
+    settle(&app);
     assert_eq!(counts(&app)["qualityProblems"], json!(2));
 
     let dismissed = invoke(
