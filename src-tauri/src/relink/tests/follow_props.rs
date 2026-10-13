@@ -20,9 +20,8 @@
 //!   same `audio_hash`, current for both;
 //! - the automatic follow never changes which rekordbox entry a track is
 //!   sent as: a followed track that was sent as an entry is sent as that
-//!   entry, a followed track is never one that was left alone before for
-//!   being on its entry, and every other Library track is sent exactly as
-//!   before;
+//!   entry, one that was sent as none isn't sent as an entry afterwards,
+//!   and every other Library track is sent exactly as before;
 //! - running it again moves nothing.
 
 use std::collections::{HashMap, HashSet};
@@ -306,8 +305,12 @@ impl World {
                         now, *was,
                         "the follow changed which rekordbox entry {track:?} is sent as"
                     ),
-                    // Its file was gone and rekordbox had no entry for it.
-                    SentAs::Nothing => {}
+                    // Its file was gone and rekordbox had no entry for it:
+                    // it isn't given one by following.
+                    SentAs::Nothing => assert!(
+                        !matches!(now, SentAs::Entry(_)),
+                        "the follow put {track:?}, which had no entry, on a rekordbox entry"
+                    ),
                     SentAs::New => panic!("{track:?} followed though its file was on disk"),
                 }
             } else {

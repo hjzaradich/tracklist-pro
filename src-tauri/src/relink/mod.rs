@@ -138,7 +138,9 @@
 //!      changed since it was hashed may hold anything. Any of them is
 //!      right, so the file a Library track is linked to is matched, else
 //!      the track's best file (else the lowest file id): see "Exact copies
-//!      aren't ambiguous" below.
+//!      aren't ambiguous" below. (For the candidates further down, which a
+//!      title tag or a length can make probable, the linked file is only a
+//!      tie-break at equal trust.)
 //!
 //!    - else, present files no other row holds that are **of the gone
 //!      file's track** (1bC-7), on grouping's own current answer for the
@@ -266,12 +268,17 @@
 //! 3 or 5 has the same `audio_hash` (current for each file), they hold the
 //! same audio: one of them is matched, not nothing; if another row holds
 //! any of the copies, none is taken. Which one, here and among the
-//! candidates of step 4 ([`rules`], `preferred`): the file a Library track
-//! is linked to, else the track's best file, else the lowest file id. The
-//! linked file comes first because a Library track is sent as rekordbox's
-//! entry only while the entry is matched to its linked file (1bE-10): a
-//! copy that turns up later, and ranks ahead, mustn't pull the entry off
-//! it.
+//! candidates of step 4 ([`rules`], `Pick`): the track's best file, else
+//! the lowest file id; but the file a Library track is linked to instead,
+//! wherever a match to it gets the same trust as a match to that one. A
+//! Library track is sent as rekordbox's entry only while the entry is
+//! matched to its linked file (1bE-10): a copy that turns up later, and
+//! ranks ahead, mustn't pull the entry off it. It is a tie-break only. In
+//! steps 3 and 4 a match is trusted on the file's own title tags and
+//! length, and the linked file is matched only if it would be trusted
+//! exactly as the usual file would: being linked never turns a trusted
+//! match into a probable one, or a probable one into a trusted one. A row
+//! none of whose candidates is linked gets the file it always got.
 //!
 //! **Relink never changes a Library track's linked file.** The step after
 //! it does, in the same job and in a transaction of its own
@@ -406,6 +413,24 @@ impl Mounted {
                 })
                 .collect(),
         )
+    }
+}
+
+/// A [`Mounted`] answers where a volume is as the volumes it was asked of
+/// did, without asking anything again: a snapshot to hand to code that runs
+/// on the database's writer and must not ask the system there
+/// ([`crate::library::follow`]). It knows mount points only, so it doesn't
+/// look a path's volume up.
+impl Volumes for Mounted {
+    fn volume_for(&self, path: &std::path::Path) -> std::io::Result<crate::volume::Volume> {
+        Err(std::io::Error::other(format!(
+            "a mount snapshot doesn't look up the volume of {}",
+            path.display()
+        )))
+    }
+
+    fn mount_path(&self, id: &VolumeId) -> Option<std::path::PathBuf> {
+        self.0.get(id.as_str()).map(std::path::PathBuf::from)
     }
 }
 

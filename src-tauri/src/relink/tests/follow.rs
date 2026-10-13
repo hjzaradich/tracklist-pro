@@ -766,27 +766,102 @@ fn a_follow_never_takes_the_file_another_tracks_entry_is_matched_to() {
 }
 
 #[test]
-fn a_track_rekordbox_does_not_know_never_follows_onto_a_probable_match() {
-    // Linked there it would go to rekordbox as a new track, beside the
-    // entry that is probably its own: an add refuses that too (1.8).
+fn a_track_rekordbox_does_not_know_never_follows_onto_a_file_rekordbox_holds_an_entry_for() {
+    // The track is sent as no entry today. On a file an entry is matched
+    // to, it would be sent as that entry (a trusted match), or as a new
+    // track beside the entry that is probably its own (a probable one):
+    // either way the follow would decide which rekordbox entry the track
+    // is. That is the user's choice in Review.
+    for probable in [true, false] {
+        let scene = unknown();
+        let lib = &scene.lib;
+        let new = scene.moved_to("Moved/Renamed.mp3");
+        let row = lib.track_with(&loc("E:/Gone/Other name.mp3"), Some("200"), &[]);
+        if probable {
+            lib.make_probable(row, new);
+        } else {
+            lib.matched_before(row, new, "user", 1.0);
+        }
+        assert_eq!(lib.sent(scene.track), SentAs::Nothing);
+        assert_eq!(lib.follow(), HELD, "probable: {probable}");
+        assert_eq!(lib.linked_file(scene.track), scene.old);
+        assert_eq!(lib.sent(scene.track), SentAs::Nothing);
+    }
+}
+
+#[test]
+fn a_track_does_not_follow_while_a_file_of_its_track_is_the_probable_match_of_an_entry() {
+    // The file it would follow to has no entry, but another file of the
+    // track is probably an entry's own: linked to the new file the track
+    // would go to rekordbox as new beside it. An add is refused there too
+    // (1.8).
     let scene = unknown();
     let lib = &scene.lib;
     let new = scene.moved_to("Moved/Renamed.mp3");
+    let encode = lib.file(scene.music, "Moved/Kappa.flac", Some(200_000));
+    lib.hashed(encode, 2);
+    lib.joins(encode, new);
     let row = lib.track_with(&loc("E:/Gone/Other name.mp3"), Some("200"), &[]);
-    lib.make_probable(row, new);
+    lib.make_probable(row, encode);
     assert_eq!(lib.follow(), HELD);
     assert_eq!(lib.linked_file(scene.track), scene.old);
-    // Confirmed (trusted), it follows, onto that entry.
-    lib.matched_before(row, new, "user", 1.0);
-    lib.writer
-        .call(move |c| {
-            c.execute(
-                "UPDATE rekordbox_track SET relink_probable = 0 WHERE id = ?1",
-                [row],
-            )
-        })
-        .unwrap();
-    assert_eq!(lib.follow(), scene.followed(new));
+}
+
+#[test]
+fn no_follow_while_any_other_rekordbox_entry_is_matched_to_the_file_whatever_the_match() {
+    // The track's own entry is on the moved file, and so is a second entry.
+    // Which of the two a send would pick for a file both are trusted on
+    // (the most played, then the lowest TrackID) must not decide: the track
+    // doesn't follow, and is sent as the same entry before and after.
+    for second_is_played_more in [true, false] {
+        // 1. The track's entry is a confirmed relink to the moved file
+        //    (step 0), and rekordbox holds its own entry at the new path
+        //    (step 1 doesn't look at who holds the file).
+        let (scene, row) = known();
+        let lib = &scene.lib;
+        let new = scene.moved_to("Moved/Renamed.mp3");
+        lib.confirm_now(&loc(OLD), new, Method::Fingerprint);
+        let plays = if second_is_played_more { "90" } else { "0" };
+        let second = lib.track_with(
+            &loc("E:/Music/Moved/Renamed.mp3"),
+            Some("200"),
+            &[("Name", "Kappa"), ("PlayCount", plays)],
+        );
+        lib.relink(&scene.mounted);
+        assert_eq!(lib.matched(row).map(|m| m.0), Some(new));
+        assert!(!lib.probable(row));
+        assert_eq!(lib.matched(second), path(new));
+        let before = lib.sent(scene.track);
+        assert_eq!(before, SentAs::Entry(row));
+        assert_eq!(
+            lib.follow(),
+            HELD,
+            "second played more: {second_is_played_more}"
+        );
+        assert_eq!(lib.linked_file(scene.track), scene.old);
+        assert_eq!(lib.sent(scene.track), before);
+    }
+
+    // 2. The second entry is only a probable match to the file.
+    let (scene, row) = known();
+    let lib = &scene.lib;
+    let new = scene.moved_to("Moved/Renamed.mp3");
+    lib.relink(&scene.mounted);
+    assert_eq!(lib.matched(row), same_audio(new));
+    let second = lib.track_with(&loc("E:/Gone/Other name.mp3"), Some("200"), &[]);
+    lib.make_probable(second, new);
+    let before = lib.sent(scene.track);
+    assert_eq!(before, SentAs::Entry(row));
+    assert_eq!(lib.follow(), HELD);
+    assert_eq!(lib.linked_file(scene.track), scene.old);
+    assert_eq!(lib.sent(scene.track), before);
+
+    // With only its own entry on the file, the same track follows.
+    let (scene, row) = known();
+    let lib = &scene.lib;
+    let new = scene.moved_to("Moved/Renamed.mp3");
+    lib.confirm_now(&loc(OLD), new, Method::Fingerprint);
+    assert_eq!(lib.job(&scene.mounted), scene.followed(new));
     assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
 }
 
@@ -1041,6 +1116,95 @@ fn undoing_the_add_after_a_follow_takes_the_follow_back_with_it() {
     // Nothing is left to undo, and nothing to follow.
     assert_eq!(lib.undo(), UndoOutcome::NothingToUndo);
     assert_eq!(lib.job(&scene.mounted), Follows::default());
+}
+
+#[test]
+fn undoing_the_add_still_works_after_the_follow_and_the_removal_of_the_old_music_folder() {
+    // The main flow of this feature: the files move to a new music folder,
+    // the tracks follow, and the user removes the old folder from the app,
+    // which deletes the old file rows. Undoing the add then deletes the
+    // track; it is never linked back to a file row that is gone.
+    let scene = unknown();
+    let lib = &scene.lib;
+    let new_place = lib.folder(1, "New place");
+    lib.gone(scene.old);
+    let new = lib.file(new_place, "Kappa.mp3", Some(200_000));
+    lib.hashed(new, 1);
+    lib.regroup();
+    assert_eq!(lib.job(&scene.mounted), scene.followed(new));
+
+    let old_folder = crate::scan::MusicFolderId(scene.music);
+    lib.writer
+        .call(move |c| crate::scan::folders::remove(c, old_folder))
+        .unwrap()
+        .unwrap();
+    let old = scene.old;
+    let rows: i64 = lib
+        .writer
+        .call(move |c| {
+            c.query_row("SELECT count(*) FROM file WHERE id = ?1", [old], |r| {
+                r.get(0)
+            })
+        })
+        .unwrap();
+    assert_eq!(rows, 0, "the old file row went with its folder");
+
+    let next = lib
+        .writer
+        .call(|c| Ok(crate::ops::next_undo(c)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(next.refusal, None);
+    let UndoOutcome::Undone { operation } = lib.undo() else {
+        panic!("not undone");
+    };
+    assert_eq!(operation.kind, "promote");
+    assert_eq!(lib.library_tracks(), 0);
+    assert_eq!(
+        lib.operations(),
+        [
+            ("promote".to_owned(), true),
+            ("follow_file".to_owned(), true)
+        ]
+    );
+    // The file that is there is untouched, and the track can be added again
+    // (once grouping and the ranking have run, as they do after a folder is
+    // removed).
+    lib.regroup();
+    lib.roles();
+    let again = lib.add(new);
+    assert_eq!(lib.linked_file(again), new);
+}
+
+#[test]
+fn undoing_the_removal_of_a_followed_track_is_refused_once_the_file_it_was_on_is_gone_too() {
+    // What an undo has to write back must still exist: here the removed
+    // track's own linked file, whose row went with its music folder. The
+    // reason is the one this always had.
+    let scene = unknown();
+    let lib = &scene.lib;
+    let new_place = lib.folder(1, "New place");
+    lib.gone(scene.old);
+    let new = lib.file(new_place, "Kappa.mp3", Some(200_000));
+    lib.hashed(new, 1);
+    lib.regroup();
+    assert_eq!(lib.job(&scene.mounted), scene.followed(new));
+    crate::library::remove(&lib.writer, scene.track).unwrap();
+    let folder = crate::scan::MusicFolderId(new_place);
+    lib.writer
+        .call(move |c| crate::scan::folders::remove(c, folder))
+        .unwrap()
+        .unwrap();
+    let outcome = lib.undo();
+    let UndoOutcome::Refused {
+        operation, reason, ..
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(operation.kind, "remove_from_library");
+    assert_eq!(reason, UndoRefusal::SourceGone);
+    assert_eq!(lib.library_tracks(), 0);
 }
 
 #[test]

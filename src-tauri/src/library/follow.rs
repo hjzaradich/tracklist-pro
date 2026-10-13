@@ -32,28 +32,39 @@
 //!   grouping holds about the linked file stays true: the track's linked
 //!   file is one of its files, before and after. A file grouping keeps in
 //!   another track isn't followed.
-//! - **One track, one file**: no Library track is linked to the new file,
-//!   and no other Library track's linked file holds that audio (two Library
-//!   tracks that are one recording are the user's to merge or keep, 1bE-9).
-//!   Where two tracks could claim one file, nobody follows.
+//! - **One track, one file** ([`NO_OTHER_TRACK_ON_THE_AUDIO`]): no other
+//!   Library track's linked file holds that audio. That covers the new file
+//!   itself (a file a Library track is linked to is never followed to) and
+//!   two Library tracks that are one recording, which are the user's to
+//!   merge or keep (1bE-9). Where two tracks could claim one file, nobody
+//!   follows.
 //! - **The automatic follow never changes which rekordbox entry a track is
-//!   sent as.** [`crate::send_values::sent_as`] is asked what the track is
-//!   sent as now and what it would be sent as linked to the new file. A
-//!   track sent as rekordbox's own entry follows only to a file on which it
-//!   is still sent as that same entry (relink matched the entry to it, as
-//!   the same audio). So when rekordbox's entry is unmatched, sits on
-//!   another file, or rekordbox already holds a second entry for the new
-//!   file, nothing moves: the track keeps its old link, is still sent as
+//!   sent as.** Two checks, both needed:
+//!   - *No other entry on the new file.* No rekordbox entry other than the
+//!     one the track is sent as today may be matched to the new file,
+//!     whatever the match is (trusted, probable or confirmed). So when
+//!     rekordbox already holds a second entry for the moved file, nothing
+//!     moves, whichever of the two a send would pick; and a track rekordbox
+//!     doesn't know never follows onto a file rekordbox holds any entry
+//!     for. Nor does a follow ever take a file another track's entry is
+//!     matched to.
+//!   - *The same answer from the send.* [`crate::send_values::sent_as`] is
+//!     asked what the track is sent as now and what it would be sent as
+//!     linked to the new file. A track sent as rekordbox's own entry
+//!     follows only where it is still sent as that entry: relink has
+//!     matched the entry to the new file, and trusts the match. While the
+//!     entry is unmatched, only probable there, or on another file, nothing
+//!     moves.
+//!
+//!   Where nothing moves the track keeps its old link, is still sent as
 //!   rekordbox's own entry, and the choice is the user's in Review. A track
 //!   rekordbox doesn't know follows on the app's own evidence, and is then
-//!   sent as a new track at the new place; not onto a track whose only
-//!   rekordbox match is probable, which an add refuses too
-//!   ([`super::match_not_confirmed`]). And a follow never takes a file that
-//!   another track's entry is matched to, which would leave that track out
-//!   of the send.
+//!   sent as a new track at the new place; not while a file of its track is
+//!   the probable match of a rekordbox entry, where an add is refused too
+//!   ([`super::match_not_confirmed`]).
 //!
-//! Of several files that qualify, the one the track is sent as rekordbox's
-//! entry on, else the track's best file, else the lowest file id.
+//! Of several files that qualify, the track's best file, else the lowest
+//! file id.
 //!
 //! # How it runs
 //!
@@ -62,7 +73,9 @@
 //! grouping run and after every read of rekordbox, which are the moments
 //! the evidence above becomes current. Never on the UI path, and never
 //! inside relink's transaction. It reads only the database: no file is
-//! opened, moved or written.
+//! opened, moved or written, and no drive is asked anything here. The job
+//! asks where the drives are before it calls this, off the database's
+//! writer, and hands the answer in ([`crate::relink::Mounted`]).
 //!
 //! Each follow is one automatic operation in the log
 //! ([`crate::ops::AutomaticKind::FollowFile`]) with its own transaction.
@@ -72,8 +85,8 @@
 //!
 //! Cost: one pass over the Library tracks whose linked file is gone, found
 //! by primary key from `library_track`, and the files of their own tracks.
-//! With no linked file gone it is one query. The send is only asked about
-//! the tracks that have a file to follow to.
+//! With no linked file gone it is one query. The send is only asked when a
+//! track has a file to follow to.
 //!
 //! The tests are in `relink/tests/follow*.rs`, beside the job it runs in.
 
@@ -103,11 +116,22 @@ pub struct Summary {
     /// The links that moved, by Library track id.
     pub followed: Vec<Followed>,
     /// Library tracks whose linked file is gone and that have a file of the
-    /// same audio in their track, but didn't follow: it would change which
-    /// rekordbox entry the track (or another track) is sent as, or the
-    /// track's only rekordbox match is probable.
+    /// same audio in their track, but didn't follow: another rekordbox
+    /// entry is matched to that file, the track wouldn't be sent as the
+    /// entry it is sent as now, or a file of the track is the probable
+    /// match of an entry.
     pub held: u32,
 }
+
+/// One track, one file, as SQL over a Library track `lt` and its gone
+/// linked file `a`: no other Library track's linked file holds `a`'s audio.
+/// The one guard against two Library tracks on one file. A file a Library
+/// track is linked to holds its own audio, so a candidate (which holds
+/// `a`'s) that is linked is refused by it too; and so are two Library
+/// tracks that are the same recording, whichever of them the file is in.
+const NO_OTHER_TRACK_ON_THE_AUDIO: &str = "NOT EXISTS (
+        SELECT 1 FROM file xf JOIN library_track x ON x.linked_file_id = xf.id
+        WHERE xf.audio_hash = a.audio_hash AND x.id <> lt.id)";
 
 /// A file a Library track could follow to.
 struct Candidate {
@@ -122,14 +146,19 @@ struct Lead {
     library_track: LibraryTrackId,
     recording: i64,
     from: i64,
+    /// The track's best file first, then by file id.
     candidates: Vec<Candidate>,
 }
 
 /// Moves the linked file of every Library track whose file is gone to the
 /// same audio at a new place (see the module docs for the rule). Each move
 /// is recorded as its own automatic operation; a run with nothing to follow
-/// writes nothing. `volumes` only places files for the send's own answer;
-/// no file is opened.
+/// writes nothing.
+///
+/// `volumes` says where each drive is, for the send's own answer; no file
+/// is opened. It is asked on the thread this runs on, which is the
+/// database's writer: hand in an answer taken beforehand
+/// ([`crate::relink::Mounted`]), never something that asks the system.
 ///
 /// If a write fails, the moves made before it stay (each is whole), the
 /// error is returned, and the next run goes on from there.
@@ -139,9 +168,8 @@ pub fn follow_files(conn: &mut Connection, volumes: &impl Volumes) -> Result<Sum
         return Ok(Summary::default());
     }
 
-    // What every Library track with a gone linked file is sent as now: the
-    // tracks that could follow, and the tracks whose entry a follow mustn't
-    // take.
+    // What every Library track with a gone linked file is sent as now, in
+    // one send: the entry each of the tracks here is on.
     let gone = gone_tracks(conn)?;
     let asked: Vec<(LibraryTrackId, Option<i64>)> = gone.iter().map(|id| (*id, None)).collect();
     let before: HashMap<LibraryTrackId, SentAs> = gone
@@ -149,40 +177,42 @@ pub fn follow_files(conn: &mut Connection, volumes: &impl Volumes) -> Result<Sum
         .copied()
         .zip(sent_as(conn, volumes, &asked)?)
         .collect();
-    let mut entry_of: HashMap<i64, LibraryTrackId> = HashMap::new();
-    for (track, sent) in &before {
-        if let SentAs::Entry(row) = sent {
-            entry_of.insert(*row, *track);
-        }
-    }
-    // The rekordbox rows matched to each candidate file, trusted or not.
+    // The rekordbox rows matched to each candidate file, whatever the match.
     let rows_on = rows_matched_to(conn, &leads)?;
-    // A candidate another track's entry is matched to is never taken: that
-    // entry stands in for the other track's gone file only while no Library
-    // track is linked to the file it's matched to.
-    let free = |lead: &Lead, file: i64| -> bool {
-        rows_on.get(&file).into_iter().flatten().all(|row| {
-            entry_of
-                .get(row)
-                .is_none_or(|owner| *owner == lead.library_track)
-        })
-    };
 
-    // What each track would be sent as on each candidate, a round of
+    // Each track's candidates no other entry is matched to: only the entry
+    // the track is sent as today may be on the file.
+    let clear: Vec<Vec<i64>> = leads
+        .iter()
+        .map(|lead| {
+            let own = match before.get(&lead.library_track) {
+                Some(SentAs::Entry(row)) => Some(*row),
+                _ => None,
+            };
+            lead.candidates
+                .iter()
+                .map(|c| c.file)
+                .filter(|file| {
+                    rows_on
+                        .get(file)
+                        .into_iter()
+                        .flatten()
+                        .all(|row| Some(*row) == own)
+                })
+                .collect()
+        })
+        .collect();
+
+    // What each track would be sent as on each of those, a round of
     // candidates at a time (a fixed number of queries a round).
-    let rounds = leads.iter().map(|l| l.candidates.len()).max().unwrap_or(0);
+    let rounds = clear.iter().map(Vec::len).max().unwrap_or(0);
     let mut after: HashMap<(LibraryTrackId, i64), SentAs> = HashMap::new();
     for round in 0..rounds {
         let asked: Vec<(LibraryTrackId, Option<i64>)> = leads
             .iter()
-            .filter_map(|lead| {
-                let candidate = lead.candidates.get(round)?;
-                free(lead, candidate.file).then_some((lead.library_track, Some(candidate.file)))
-            })
+            .zip(&clear)
+            .filter_map(|(lead, clear)| Some((lead.library_track, Some(*clear.get(round)?))))
             .collect();
-        if asked.is_empty() {
-            continue;
-        }
         for ((track, file), sent) in asked.iter().zip(sent_as(conn, volumes, &asked)?) {
             if let Some(file) = file {
                 after.insert((*track, *file), sent);
@@ -191,12 +221,12 @@ pub fn follow_files(conn: &mut Connection, volumes: &impl Volumes) -> Result<Sum
     }
 
     let mut summary = Summary::default();
-    for lead in &leads {
+    for (lead, clear) in leads.iter().zip(&clear) {
         let was = before
             .get(&lead.library_track)
             .copied()
             .unwrap_or(SentAs::Nothing);
-        let Some(to) = target(conn, lead, was, &after)? else {
+        let Some(to) = target(conn, lead, was, clear, &after)? else {
             summary.held += 1;
             continue;
         };
@@ -211,66 +241,62 @@ pub fn follow_files(conn: &mut Connection, volumes: &impl Volumes) -> Result<Sum
     Ok(summary)
 }
 
-/// The file `lead`'s track follows to, if any: see the module docs.
+/// The file `lead`'s track follows to, if any, among `clear` (its
+/// candidates no other entry is matched to, the best file first): see the
+/// module docs.
 fn target(
     conn: &Connection,
     lead: &Lead,
     was: SentAs,
+    clear: &[i64],
     after: &HashMap<(LibraryTrackId, i64), SentAs>,
 ) -> rusqlite::Result<Option<i64>> {
-    // In order: the track's best file, then the lowest file id.
-    let mut order: Vec<&Candidate> = lead.candidates.iter().collect();
-    order.sort_by_key(|c| (!c.best, c.file));
     let on = |file: i64| after.get(&(lead.library_track, file)).copied();
     if let SentAs::Entry(entry) = was {
         // Sent as rekordbox's own entry: only to a file on which it still
         // is that entry.
-        return Ok(order
+        return Ok(clear
             .iter()
-            .map(|c| c.file)
+            .copied()
             .find(|&file| on(file) == Some(SentAs::Entry(entry))));
     }
-    // rekordbox doesn't know the track (or its entry can't be told): a file
-    // rekordbox holds an entry for first.
-    if let Some(file) = order
+    // rekordbox has no entry for the track, and none for the file: it
+    // stays a track rekordbox doesn't know.
+    let Some(file) = clear
         .iter()
-        .map(|c| c.file)
-        .find(|&file| matches!(on(file), Some(SentAs::Entry(_))))
-    {
-        return Ok(Some(file));
-    }
-    let Some(file) = order
-        .iter()
-        .map(|c| c.file)
-        .find(|&file| on(file).is_some())
+        .copied()
+        .find(|&file| matches!(on(file), Some(SentAs::New | SentAs::Nothing)))
     else {
         return Ok(None);
     };
     // It would go to rekordbox as a new track. Not beside an entry that is
-    // probably its own: that waits for the match to be confirmed, as an add
-    // does (ROADMAP 1.8).
+    // probably its own (the probable match of another file of the track):
+    // that waits for the match to be confirmed, as an add does (ROADMAP
+    // 1.8).
     if on(file) == Some(SentAs::New) && super::match_not_confirmed(conn, lead.recording)? {
         return Ok(None);
     }
     Ok(Some(file))
 }
 
-/// Moves one link, as one automatic operation. The evidence is checked
-/// again inside the operation's own transaction, so the write is only made
-/// on what the database holds then. Returns whether the link moved.
+/// Moves one link, as one automatic operation. What the write rests on is
+/// checked again inside the operation's own transaction: the link is still
+/// on the gone file, the new file is on disk with the same audio, and no
+/// other Library track is on that audio. Returns whether the link moved.
 fn record(conn: &mut Connection, lead: &Lead, to: i64) -> Result<bool, OpsError> {
     let (track, from) = (lead.library_track.0, lead.from);
     let details = json!({ "libraryTrackId": track, "from": from, "to": to });
     let recorded = ops::record_automatic(conn, AutomaticKind::FollowFile, &details, |rec| {
         let still: Vec<i64> = rec.read_rows(
-            "SELECT lt.id FROM library_track lt
-             JOIN file a ON a.id = lt.linked_file_id
-             JOIN recording_file rf ON rf.recording_id = lt.recording_id AND rf.file_id = ?3
-             JOIN file n ON n.id = rf.file_id
-             WHERE lt.id = ?1 AND lt.linked_file_id = ?2
-               AND a.present = 0 AND n.present = 1 AND n.audio_hash = a.audio_hash
-               AND NOT EXISTS (SELECT 1 FROM library_track x
-                               WHERE x.linked_file_id = n.id OR x.source_file_id = n.id)",
+            &format!(
+                "SELECT lt.id FROM library_track lt
+                 JOIN file a ON a.id = lt.linked_file_id
+                 JOIN recording_file rf ON rf.recording_id = lt.recording_id AND rf.file_id = ?3
+                 JOIN file n ON n.id = rf.file_id
+                 WHERE lt.id = ?1 AND lt.linked_file_id = ?2
+                   AND a.present = 0 AND n.present = 1 AND n.audio_hash = a.audio_hash
+                   AND {NO_OTHER_TRACK_ON_THE_AUDIO}"
+            ),
             [track, from, to],
             |r| r.get(0),
         )?;
@@ -294,10 +320,10 @@ fn gone_tracks(conn: &Connection) -> rusqlite::Result<Vec<LibraryTrackId>> {
 }
 
 /// The Library tracks that have a file to follow to, by id, each with its
-/// candidates by file id: the evidence query. A candidate is a present file
-/// of the Library track's own track with the gone linked file's
-/// `audio_hash`, both hashes current, that no Library track points at; and
-/// only where no other Library track's linked file holds that audio.
+/// candidates (the track's best file first, then by file id): the evidence
+/// query. A candidate is a present file of the Library track's own track
+/// with the gone linked file's `audio_hash`, both hashes current; and only
+/// where no other Library track's linked file holds that audio.
 fn leads(conn: &Connection) -> rusqlite::Result<Vec<Lead>> {
     let gone_current = crate::relink::hash_current_of("a");
     let new_current = crate::relink::hash_current_of("n");
@@ -311,12 +337,8 @@ fn leads(conn: &Connection) -> rusqlite::Result<Vec<Lead>> {
            AND a.present = 0 AND length(a.audio_hash) > 0 AND {gone_current}
            AND n.present = 1 AND n.id <> a.id AND n.audio_hash = a.audio_hash
            AND {new_current}
-           AND NOT EXISTS (SELECT 1 FROM library_track x
-                           WHERE x.linked_file_id = n.id OR x.source_file_id = n.id)
-           AND NOT EXISTS (SELECT 1 FROM file xf
-                           JOIN library_track x ON x.linked_file_id = xf.id
-                           WHERE xf.audio_hash = a.audio_hash AND x.id <> lt.id)
-         ORDER BY lt.id, n.id"
+           AND {NO_OTHER_TRACK_ON_THE_AUDIO}
+         ORDER BY lt.id, rf.role = 'best' DESC, n.id"
     ))?;
     let rows = stmt.query_map([crate::relink::hash_version()], |r| {
         Ok((
@@ -342,6 +364,9 @@ fn leads(conn: &Connection) -> rusqlite::Result<Vec<Lead>> {
             }),
         }
     }
+    debug_assert!(leads
+        .iter()
+        .all(|l| l.candidates.iter().skip(1).all(|c| !c.best)));
     Ok(leads)
 }
 

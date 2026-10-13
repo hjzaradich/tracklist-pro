@@ -152,3 +152,140 @@ fn exact_copies_that_fit_by_name_match_the_linked_file_before_the_tracks_best_fi
         Some((a, "filename_duration".to_owned(), 0.9))
     );
 }
+
+// --- Linked first is a tie-break at equal trust, nothing more ---
+
+/// A rekordbox row named Kappa at `E:\Music\Old.mp3`, whose file (audio 1,
+/// 200 s) is gone, and two other encodes of it merged into its track: the
+/// best file titled `best_title`, the other titled `other_title`. Returns
+/// the library, what is mounted, the row, the best file and the other.
+fn two_mates(best_title: &str, other_title: &str) -> (Lib, Mounted, i64, i64, i64) {
+    let (lib, music, mounted) = e_music();
+    let old = lib.file(music, "Old.mp3", Some(200_000));
+    lib.hashed(old, 1);
+    let row = lib.track_with(&loc("E:/Music/Old.mp3"), Some("200"), &[("Name", "Kappa")]);
+    lib.relink(&mounted);
+    lib.gone(old);
+    let best = lib.file(music, "Moved Best/Best.flac", Some(200_400));
+    let other = lib.file(music, "Moved Other/Other.flac", Some(200_400));
+    for (file, hash, title) in [(best, 2, best_title), (other, 3, other_title)] {
+        lib.hashed(file, hash);
+        lib.title(file, title);
+    }
+    lib.merged(&[best, old, other]);
+    (lib, mounted, row, best, other)
+}
+
+#[test]
+fn a_trusted_match_stays_trusted_when_a_library_track_links_a_mate_whose_title_disagrees() {
+    // Only the best file is titled as rekordbox names the entry. Matched to
+    // the linked mate the entry would be probable, and its rekordbox data
+    // detached until someone confirmed it: being linked never costs that.
+    let (lib, mounted, row, best, other) = two_mates("Kappa", "Kappa (Dirty)");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), same_track(best));
+    assert!(!lib.probable(row));
+    lib.in_library(other);
+    for _ in 0..2 {
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(row), same_track(best));
+        assert!(!lib.probable(row));
+    }
+}
+
+#[test]
+fn a_probable_match_is_not_made_trusted_by_a_linked_mate_whose_title_agrees() {
+    // The other way round: the tie-break never changes what a row gets,
+    // only which of two equally trusted files it is on.
+    let (lib, mounted, row, best, other) = two_mates("Kappa (Dirty)", "Kappa");
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(row),
+        Some((best, "fingerprint".to_owned(), 0.4))
+    );
+    assert!(lib.probable(row));
+    lib.in_library(other);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(row),
+        Some((best, "fingerprint".to_owned(), 0.4))
+    );
+    assert!(lib.probable(row));
+}
+
+#[test]
+fn at_equal_trust_the_linked_mate_is_matched_trusted_or_probable_alike() {
+    for (titles, confidence, probable) in [("Kappa", 0.9, false), ("Kappa (Dirty)", 0.4, true)] {
+        let (lib, mounted, row, best, other) = two_mates(titles, titles);
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(row).map(|m| m.0), Some(best));
+        lib.in_library(other);
+        lib.relink(&mounted);
+        assert_eq!(
+            lib.matched(row),
+            Some((other, "fingerprint".to_owned(), confidence))
+        );
+        assert_eq!(lib.probable(row), probable);
+    }
+}
+
+/// Two exact copies in the folder a rekordbox row named Kappa still names
+/// (step 3, a unique duration): the best file titled `best_title`, the other
+/// titled `other_title`. Returns the library, what is mounted, the row, the
+/// best file and the other.
+fn two_copies_by_duration(best_title: &str, other_title: &str) -> (Lib, Mounted, i64, i64, i64) {
+    let (lib, music, mounted) = e_music();
+    let other = lib.file(music, "Album/Kappa (1).mp3", Some(200_300));
+    let best = lib.file(music, "Album/Kappa (2).mp3", Some(200_300));
+    for (file, title) in [(best, best_title), (other, other_title)] {
+        lib.audio_hash(file, 9);
+        lib.title(file, title);
+    }
+    lib.group(&[best, other]);
+    let row = lib.track_with(
+        &loc("E:/Music/Album/Kappa.mp3"),
+        Some("200"),
+        &[("Name", "Kappa")],
+    );
+    (lib, mounted, row, best, other)
+}
+
+#[test]
+fn exact_copies_with_different_tags_keep_the_trust_of_the_usual_copy_when_the_other_is_linked() {
+    // Step 3 trusts a match on the title tag of the file itself, and exact
+    // copies can be tagged differently.
+    let trusted = Some((0, "unique_duration".to_owned(), 0.8));
+    let probable = Some((0, "unique_duration".to_owned(), 0.4));
+    for (best_title, other_title, expected) in [
+        ("Kappa", "Untitled", &trusted),
+        ("Untitled", "Kappa", &probable),
+    ] {
+        let (lib, mounted, row, best, other) = two_copies_by_duration(best_title, other_title);
+        let on_best = expected.clone().map(|(_, method, c)| (best, method, c));
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(row), on_best);
+        lib.in_library(other);
+        lib.relink(&mounted);
+        assert_eq!(lib.matched(row), on_best, "{best_title} / {other_title}");
+    }
+    // Tagged alike, the linked copy is matched.
+    let (lib, mounted, row, _best, other) = two_copies_by_duration("Kappa", "Kappa");
+    lib.in_library(other);
+    lib.relink(&mounted);
+    assert_eq!(
+        lib.matched(row),
+        Some((other, "unique_duration".to_owned(), 0.8))
+    );
+}
+
+#[test]
+fn a_row_none_of_whose_candidates_is_linked_gets_the_file_it_always_got() {
+    // A Library track elsewhere changes nothing for this row.
+    let (lib, mounted, row, best, _other) = two_mates("Kappa", "Kappa");
+    let elsewhere = lib.file(1, "Unrelated/Song.mp3", Some(100_000));
+    lib.hashed(elsewhere, 50);
+    lib.in_library(elsewhere);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), same_track(best));
+    assert!(!lib.probable(row));
+}

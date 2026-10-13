@@ -20,7 +20,7 @@
 //! rekordbox data at all. If it fails, the failure is logged and the job
 //! still ends well: relink's matches stand, and the next run follows.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use tauri::State;
 
@@ -76,16 +76,15 @@ pub fn relink_rekordbox_tracks(
 
 /// The relink job's handler.
 pub struct Relinker<V> {
-    /// The volumes mounted now, asked once for the relink and once for the
-    /// follow step.
-    volumes: Arc<dyn Fn() -> V + Send + Sync>,
+    /// The volumes mounted now, asked once per job.
+    volumes: Box<dyn Fn() -> V + Send + Sync>,
     on_summary: Option<Box<dyn Fn(Summary) + Send + Sync>>,
 }
 
 impl<V: Volumes + 'static> Relinker<V> {
     pub fn new(volumes: impl Fn() -> V + Send + Sync + 'static) -> Relinker<V> {
         Relinker {
-            volumes: Arc::new(volumes),
+            volumes: Box::new(volumes),
             on_summary: None,
         }
     }
@@ -107,7 +106,10 @@ pub fn relinker() -> impl JobHandler {
 impl<V: Volumes + 'static> JobHandler for Relinker<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let known = job.writer().call(|c| identities(c))?;
+        // The one time this job asks the system anything, and off the
+        // database's writer: both steps work from this answer.
         let mounted = Mounted::ask(&known, &(self.volumes)());
+        let for_the_follow = mounted.clone();
         job.check_cancelled()?;
         // One transaction: a cancel from here on changes nothing.
         let summary = job.writer().call(move |c| relink(c, &mounted))?;
@@ -119,7 +121,7 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
                 summary.fingerprint_undecided
             );
         }
-        self.follow(job);
+        follow(job, for_the_follow);
         ask_for_attach(job.id(), job.writer(), |j| job.enqueue(j));
         // Matches changed, so the titles of Library tracks may have too.
         if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
@@ -132,37 +134,40 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
     }
 }
 
-impl<V: Volumes + 'static> Relinker<V> {
-    /// The job's second step: Library tracks whose linked file is gone
-    /// follow it to the same audio ([`crate::library::follow`]). Relink has
-    /// committed by now and this runs in transactions of its own, so a
-    /// failure here is logged and the job goes on: the matches stand, and
-    /// the next relink job tries the follow again.
-    fn follow(&self, job: &JobContext) {
-        let volumes = Arc::clone(&self.volumes);
-        let followed = job
-            .writer()
-            .call(move |c| Ok(crate::library::follow::follow_files(c, &volumes())));
-        match followed {
-            Ok(Ok(summary)) => {
-                if !summary.followed.is_empty() || summary.held > 0 {
-                    eprintln!(
-                        "relink job {}: {} Library tracks followed their file, {} held",
-                        job.id(),
-                        summary.followed.len(),
-                        summary.held
-                    );
-                }
+/// The job's second step: Library tracks whose linked file is gone follow
+/// it to the same audio ([`crate::library::follow`]). Relink has committed
+/// by now and this runs in transactions of its own, so a failure here is
+/// logged and the job goes on: the matches stand, and the next relink job
+/// tries the follow again.
+///
+/// `mounted` is where the drives were when the job asked, before it took
+/// the writer: nothing in here asks the system, so no other write waits on
+/// a drive. Inside the writer call are the follow's own reads of the
+/// database, the check of each move against what the database holds then,
+/// and the writes.
+fn follow(job: &JobContext, mounted: Mounted) {
+    let followed = job
+        .writer()
+        .call(move |c| Ok(crate::library::follow::follow_files(c, &mounted)));
+    match followed {
+        Ok(Ok(summary)) => {
+            if !summary.followed.is_empty() || summary.held > 0 {
+                eprintln!(
+                    "relink job {}: {} Library tracks followed their file, {} held",
+                    job.id(),
+                    summary.followed.len(),
+                    summary.held
+                );
             }
-            Ok(Err(e)) => eprintln!(
-                "relink job {}: Library tracks couldn't follow their files: {e}",
-                job.id()
-            ),
-            Err(e) => eprintln!(
-                "relink job {}: Library tracks couldn't follow their files: {e:?}",
-                job.id()
-            ),
         }
+        Ok(Err(e)) => eprintln!(
+            "relink job {}: Library tracks couldn't follow their files: {e}",
+            job.id()
+        ),
+        Err(e) => eprintln!(
+            "relink job {}: Library tracks couldn't follow their files: {e:?}",
+            job.id()
+        ),
     }
 }
 

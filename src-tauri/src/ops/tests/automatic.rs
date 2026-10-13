@@ -192,3 +192,261 @@ fn an_automatic_operation_already_taken_back_is_not_taken_back_twice() {
     assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
     assert_eq!(undone_at(&conn, automatic), at);
 }
+
+// --- Taken back as a net change, all or nothing ---
+
+#[test]
+fn an_automatic_operation_that_alone_cannot_be_taken_back_refuses_the_whole_undo() {
+    // The action wrote the name; the automatic operation wrote the notes,
+    // which then changed outside the log. Nothing is wrong with what the
+    // action itself wrote, and still nothing is undone.
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    let user = record(&mut conn, "edit_crate", &no_details(), |rec| {
+        rec.set("crate", id, "name", "Renamed")
+    })
+    .unwrap()
+    .operation_id
+    .unwrap();
+    let automatic = automatic_notes(&mut conn, id, "moved").unwrap();
+    conn.execute("UPDATE crate SET notes = 'later' WHERE id = ?1", [id])
+        .unwrap();
+
+    assert_eq!(
+        next_undo(&mut conn).unwrap().refusal,
+        Some(UndoRefusal::ChangedSince)
+    );
+    let outcome = undo_last(&mut conn).unwrap();
+    let UndoOutcome::Refused {
+        operation,
+        reason,
+        conflicts,
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(operation.id, user);
+    assert_eq!(reason, UndoRefusal::ChangedSince);
+    assert_eq!(
+        conflicts,
+        vec![UndoConflict {
+            entity: "crate".into(),
+            entity_id: id,
+            field: Some("notes".into()),
+            problem: ConflictProblem::ChangedSince,
+        }]
+    );
+    assert_eq!(crate_name(&conn, id).as_deref(), Some("Renamed"));
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("later"));
+    assert_eq!(undone_at(&conn, user), None);
+    assert_eq!(undone_at(&conn, automatic), None);
+}
+
+#[test]
+fn a_field_the_action_did_not_write_gets_back_what_it_held_before_the_automatic_operations() {
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    let user = record(&mut conn, "edit_crate", &no_details(), |rec| {
+        rec.set("crate", id, "name", "Renamed")
+    })
+    .unwrap()
+    .operation_id
+    .unwrap();
+    let first = automatic_notes(&mut conn, id, "moved once").unwrap();
+    let second = automatic_notes(&mut conn, id, "moved twice").unwrap();
+    assert_eq!(undone(undo_last(&mut conn).unwrap()).id, user);
+    assert_eq!(crate_name(&conn, id).as_deref(), Some("Warmup"));
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
+    for operation in [user, first, second] {
+        assert!(undone_at(&conn, operation).is_some());
+    }
+}
+
+#[test]
+fn a_change_between_two_automatic_operations_refuses_the_undo() {
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    let user = set_notes(&mut conn, id, "my notes").unwrap();
+    automatic_notes(&mut conn, id, "moved once").unwrap();
+    // Outside the log, between the two.
+    conn.execute("UPDATE crate SET notes = 'between' WHERE id = ?1", [id])
+        .unwrap();
+    automatic_notes(&mut conn, id, "moved twice").unwrap();
+    let conflicts = refused(undo_last(&mut conn).unwrap());
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].problem, ConflictProblem::ChangedSince);
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("moved twice"));
+    assert_eq!(undone_at(&conn, user), None);
+}
+
+/// A row of `child_restrict` pointing at `parent`, written outside the log.
+fn child_of(conn: &Connection, parent: i64) -> i64 {
+    conn.execute(
+        "INSERT INTO child_restrict (parent_id) VALUES (?1)",
+        [parent],
+    )
+    .unwrap();
+    conn.last_insert_rowid()
+}
+
+fn parent_of(conn: &Connection, child: i64) -> Option<i64> {
+    conn.query_row(
+        "SELECT parent_id FROM child_restrict WHERE id = ?1",
+        [child],
+        |r| r.get(0),
+    )
+    .unwrap()
+}
+
+/// Points a child at another parent as the app does on its own.
+fn automatic_parent(conn: &mut Connection, child: i64, parent: i64) -> i64 {
+    record_automatic(conn, AutomaticKind::FollowFile, &no_details(), |rec| {
+        rec.set("child_restrict", child, "parent_id", parent)
+    })
+    .unwrap()
+    .operation_id
+    .unwrap()
+}
+
+#[test]
+fn undoing_an_insert_never_writes_back_a_value_only_the_automatic_operations_passed_through() {
+    // The action made a row pointing at one parent. An automatic operation
+    // pointed it at another, and the first parent was deleted since (as a
+    // file row goes with its music folder). Undoing the insert deletes the
+    // row: it is never pointed back at the parent that is gone, which the
+    // database would refuse.
+    let (_dir, mut conn) = db();
+    let gone = parent_row(&conn, "one");
+    let there = parent_row(&conn, "two");
+    let made = record(&mut conn, "add_child", &no_details(), |rec| {
+        rec.insert("child_restrict", &[("parent_id", Value::Integer(gone))])
+    })
+    .unwrap();
+    let (user, child) = (made.operation_id.unwrap(), made.value);
+    let automatic = automatic_parent(&mut conn, child, there);
+    conn.execute("DELETE FROM parent WHERE id = ?1", [gone])
+        .unwrap();
+
+    assert_eq!(next_undo(&mut conn).unwrap().refusal, None);
+    assert_eq!(undone(undo_last(&mut conn).unwrap()).id, user);
+    assert_eq!(count(&conn, "child_restrict"), 0);
+    assert!(undone_at(&conn, user).is_some());
+    assert!(undone_at(&conn, automatic).is_some());
+    assert_eq!(undo_last(&mut conn).unwrap(), UndoOutcome::NothingToUndo);
+}
+
+#[test]
+fn undoing_a_set_writes_its_own_old_value_straight_over_what_the_automatic_operations_left() {
+    let (_dir, mut conn) = db();
+    let first = parent_row(&conn, "one");
+    let second = parent_row(&conn, "two");
+    let third = parent_row(&conn, "three");
+    let child = child_of(&conn, first);
+    let user = record(&mut conn, "move_child", &no_details(), |rec| {
+        rec.set("child_restrict", child, "parent_id", second)
+    })
+    .unwrap()
+    .operation_id
+    .unwrap();
+    automatic_parent(&mut conn, child, third);
+    // The value in between is gone: it is never needed.
+    conn.execute("DELETE FROM parent WHERE id = ?1", [second])
+        .unwrap();
+    assert_eq!(undone(undo_last(&mut conn).unwrap()).id, user);
+    assert_eq!(parent_of(&conn, child), Some(first));
+}
+
+#[test]
+fn undo_is_refused_when_the_value_it_must_restore_no_longer_exists() {
+    // The action pointed the child from the first parent to the second; an
+    // automatic operation moved it on. The first parent is gone, and that
+    // is the value the undo has to write: refused, nothing changed.
+    let (_dir, mut conn) = db();
+    let first = parent_row(&conn, "one");
+    let second = parent_row(&conn, "two");
+    let third = parent_row(&conn, "three");
+    let child = child_of(&conn, first);
+    let user = record(&mut conn, "move_child", &no_details(), |rec| {
+        rec.set("child_restrict", child, "parent_id", second)
+    })
+    .unwrap()
+    .operation_id
+    .unwrap();
+    let automatic = automatic_parent(&mut conn, child, third);
+    conn.execute("DELETE FROM parent WHERE id = ?1", [first])
+        .unwrap();
+
+    assert_eq!(
+        next_undo(&mut conn).unwrap().refusal,
+        Some(UndoRefusal::ChangedSince)
+    );
+    let outcome = undo_last(&mut conn).unwrap();
+    let UndoOutcome::Refused {
+        reason, conflicts, ..
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(reason, UndoRefusal::ChangedSince);
+    assert_eq!(
+        conflicts,
+        vec![UndoConflict {
+            entity: "child_restrict".into(),
+            entity_id: child,
+            field: Some("parent_id".into()),
+            problem: ConflictProblem::Blocked,
+        }]
+    );
+    assert_eq!(parent_of(&conn, child), Some(third));
+    assert_eq!(undone_at(&conn, user), None);
+    assert_eq!(undone_at(&conn, automatic), None);
+}
+
+#[test]
+fn a_field_the_action_did_not_write_that_cannot_get_its_old_value_back_refuses_the_undo() {
+    // The action wrote another field of the child. The automatic operation
+    // moved the child, and the parent it came from is gone: its move cannot
+    // be taken back, so the undo is refused.
+    let (_dir, mut conn) = db();
+    conn.execute_batch("ALTER TABLE child_restrict ADD COLUMN note TEXT")
+        .unwrap();
+    let first = parent_row(&conn, "one");
+    let second = parent_row(&conn, "two");
+    let child = child_of(&conn, first);
+    let user = record(&mut conn, "note_child", &no_details(), |rec| {
+        rec.set("child_restrict", child, "note", "mine")
+    })
+    .unwrap()
+    .operation_id
+    .unwrap();
+    automatic_parent(&mut conn, child, second);
+    conn.execute("DELETE FROM parent WHERE id = ?1", [first])
+        .unwrap();
+    let conflicts = refused(undo_last(&mut conn).unwrap());
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].field.as_deref(), Some("parent_id"));
+    assert_eq!(conflicts[0].problem, ConflictProblem::Blocked);
+    assert_eq!(parent_of(&conn, child), Some(second));
+    assert_eq!(undone_at(&conn, user), None);
+}
+
+#[test]
+fn an_automatic_operation_that_made_a_row_is_taken_back_step_by_step() {
+    // No automatic operation does this today; if one ever does, undo still
+    // takes it back whole.
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    let user = set_notes(&mut conn, id, "my notes").unwrap();
+    let automatic = record_automatic(&mut conn, AutomaticKind::FollowFile, &no_details(), |rec| {
+        rec.set("crate", id, "notes", "moved")?;
+        rec.insert("sample", &[("t", Value::Text("made".into()))])
+    })
+    .unwrap()
+    .operation_id
+    .unwrap();
+    assert_eq!(count(&conn, "sample"), 1);
+    assert_eq!(undone(undo_last(&mut conn).unwrap()).id, user);
+    assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
+    assert_eq!(count(&conn, "sample"), 0);
+    assert!(undone_at(&conn, automatic).is_some());
+}
