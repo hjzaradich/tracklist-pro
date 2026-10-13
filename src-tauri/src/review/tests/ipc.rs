@@ -85,3 +85,180 @@ fn an_item_and_its_comparison_reach_the_frontend_with_a_suggestion_and_a_reason_
     assert_eq!(comparison["rows"][0]["fileId"], json!(2));
     assert_eq!(comparison["rows"][1]["linked"], json!(true));
 }
+
+/// A Library track (track 1) whose linked file is gone, with a copy on
+/// disk, as the roles job leaves it: a "Linked file gone, copy found" item.
+const GONE_WITH_A_COPY: &str = "
+    INSERT INTO volume (identity, kind, last_mount_path)
+        VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
+    INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'Music', 'Music');
+    INSERT INTO recording (title) VALUES ('Synthetic Tune');
+    INSERT INTO file (music_folder_id, rel_path, rel_path_key, present, sniffed_format, audio_hash)
+        VALUES (1, 'gone.mp3', 'gone.mp3', 0, 'mp3', x'0101'),
+               (1, 'copy.mp3', 'copy.mp3', 1, 'mp3', x'0202');
+    INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2);
+    INSERT INTO library_track (recording_id, kind, linked_file_id) VALUES (1, 'linked', 1);
+    INSERT INTO better_file (recording_id, file_id, step) VALUES (1, 2, 'onDisk');
+    DELETE FROM best_file_due;";
+
+fn counts(app: &tauri::App<tauri::test::MockRuntime>) -> serde_json::Value {
+    invoke(app, "review_counts", json!({})).unwrap()
+}
+
+#[test]
+fn the_switch_its_undo_and_accept_all_are_called_the_way_the_frontend_calls_them() {
+    let (_data, app) = app();
+    app.state::<Writer>()
+        .call(|c| c.execute_batch(GONE_WITH_A_COPY))
+        .unwrap();
+    let item = json!({ "kind": "clearBestFile", "a": 1, "b": null });
+
+    // The item carries the switch it offers, as codes.
+    let comparison = invoke(&app, "review_item", json!({ "id": item })).unwrap();
+    assert_eq!(
+        comparison["switch"],
+        json!({ "fileId": 2, "effect": "notInRekordbox", "refusal": null })
+    );
+    assert_eq!(
+        invoke(&app, "review_accept_all_count", json!({})),
+        Ok(json!(1))
+    );
+
+    // A switch that no longer means what the item showed is refused with
+    // its own kind, and nothing changes.
+    let stale = invoke(
+        &app,
+        "review_switch_linked_file",
+        json!({ "recordingId": 1, "fileId": 2, "effect": "keepsEntry" }),
+    );
+    assert_eq!(stale.unwrap_err()["kind"], json!("reviewSwitchChanged"));
+    assert_eq!(counts(&app)["clearBestFile"], json!(1));
+
+    let switched = invoke(
+        &app,
+        "review_switch_linked_file",
+        json!({ "recordingId": 1, "fileId": 2, "effect": "notInRekordbox" }),
+    )
+    .unwrap();
+    assert_eq!(switched["track"]["fromFileId"], json!(1));
+    assert_eq!(switched["track"]["toFileId"], json!(2));
+    assert_eq!(switched["track"]["effect"], json!("notInRekordbox"));
+    assert_eq!(counts(&app)["total"], json!(0));
+    assert_eq!(
+        invoke(&app, "review_item", json!({ "id": item })),
+        Ok(json!(null))
+    );
+    // The Undo button names it by its kind.
+    let next = invoke(&app, "next_undo_operation", json!({})).unwrap();
+    assert_eq!(next["operation"]["kind"], json!("switch_linked_file"));
+
+    // Undo, by the operation the switch returned: the item is back.
+    let undone = invoke(
+        &app,
+        "undo_last_operation",
+        json!({ "operationId": switched["operationId"] }),
+    )
+    .unwrap();
+    assert_eq!(undone["status"], json!("undone"));
+    assert_eq!(counts(&app)["clearBestFile"], json!(1));
+
+    // "Accept all": the same switch, and what it switched.
+    let accepted = invoke(&app, "review_accept_clear_best_files", json!({})).unwrap();
+    assert_eq!(
+        accepted["switched"],
+        json!([{
+            "recordingId": 1, "libraryTrackId": 1, "fromFileId": 1, "toFileId": 2,
+            "effect": "notInRekordbox"
+        }])
+    );
+    assert_eq!(accepted["skipped"], json!([]));
+    assert_eq!(counts(&app)["total"], json!(0));
+    let next = invoke(&app, "next_undo_operation", json!({})).unwrap();
+    assert_eq!(next["operation"]["kind"], json!("accept_clear_best_files"));
+    assert_eq!(next["operation"]["details"]["tracks"], json!(1));
+
+    // A switch for a track whose linked file is on disk is refused with
+    // its reason.
+    let again = invoke(
+        &app,
+        "review_switch_linked_file",
+        json!({ "recordingId": 1, "fileId": 1, "effect": "notInRekordbox" }),
+    );
+    assert_eq!(
+        again.unwrap_err()["kind"],
+        json!("reviewSwitchLinkedOnDisk")
+    );
+}
+
+#[test]
+fn the_remembered_decisions_and_their_undo_are_called_the_way_the_frontend_calls_them() {
+    let (_data, app) = app();
+    let verdict = format!(
+        "INSERT INTO file_verdict (file_id, rules_version, inputs, verdict, findings)
+         SELECT f.id, {}, {}, 'low_bitrate', '[]' FROM file f
+         LEFT JOIN file_quality q ON q.file_id = f.id WHERE f.id = 3;",
+        crate::quality::RULES_VERSION,
+        crate::quality::store::INPUTS
+    );
+    app.state::<Writer>()
+        .call(move |c| {
+            // Track 1: linked to an mp3 with a better FLAC. Track 2: linked
+            // to a flagged file.
+            c.execute_batch(
+                "INSERT INTO volume (identity, kind, last_mount_path)
+                     VALUES ('serial=NTFS-1A2B3C4D', 'external', 'Q:\\');
+                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                     VALUES (1, 'Music', 'Music');
+                 INSERT INTO recording (title) VALUES ('Synthetic Tune'), ('Synthetic Other');
+                 INSERT INTO file (music_folder_id, rel_path, rel_path_key, sniffed_format,
+                                   audio_hash)
+                     VALUES (1, 'a.mp3', 'a.mp3', 'mp3', x'0101'),
+                            (1, 'a.flac', 'a.flac', 'flac', x'0202'),
+                            (1, 'b.mp3', 'b.mp3', 'mp3', x'0303');
+                 INSERT INTO recording_file (recording_id, file_id) VALUES (1, 1), (1, 2), (2, 3);
+                 INSERT INTO library_track (recording_id, kind, linked_file_id)
+                     VALUES (1, 'linked', 1), (2, 'linked', 3);
+                 INSERT INTO better_file (recording_id, file_id, step) VALUES (1, 2, 'format');
+                 DELETE FROM best_file_due;",
+            )?;
+            c.execute_batch(&verdict)
+        })
+        .unwrap();
+    assert_eq!(counts(&app)["qualityProblems"], json!(2));
+
+    let dismissed = invoke(
+        &app,
+        "review_dismiss_better_file",
+        json!({ "recordingId": 1, "fileId": 2 }),
+    )
+    .unwrap();
+    assert!(dismissed["operationId"].is_i64());
+    assert_eq!(counts(&app)["qualityProblems"], json!(1));
+    // Answered already: its own error kind, never text.
+    let again = invoke(
+        &app,
+        "review_dismiss_better_file",
+        json!({ "recordingId": 1, "fileId": 2 }),
+    );
+    assert_eq!(
+        again,
+        Err(json!({ "kind": "reviewItemGone", "params": {} }))
+    );
+
+    let kept = invoke(&app, "review_keep_anyway", json!({ "recordingId": 2 })).unwrap();
+    assert_eq!(counts(&app)["total"], json!(0));
+    let undone = invoke(
+        &app,
+        "undo_last_operation",
+        json!({ "operationId": kept["operationId"] }),
+    )
+    .unwrap();
+    assert_eq!(undone["status"], json!("undone"));
+    assert_eq!(undone["operation"]["kind"], json!("keep_anyway"));
+    assert_eq!(counts(&app)["qualityProblems"], json!(1));
+
+    invoke(&app, "review_want_better_file", json!({ "recordingId": 2 })).unwrap();
+    assert_eq!(counts(&app)["total"], json!(0));
+    let next = invoke(&app, "next_undo_operation", json!({})).unwrap();
+    assert_eq!(next["operation"]["kind"], json!("want_better_file"));
+}

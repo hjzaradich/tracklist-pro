@@ -15,6 +15,7 @@ mod path;
 mod recheck;
 mod same_name;
 mod send_after_gone;
+mod switch;
 mod titles;
 mod unique_duration;
 mod window;

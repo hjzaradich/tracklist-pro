@@ -119,6 +119,8 @@ pub use store::{
 };
 pub use target::GroupTarget;
 
+pub(crate) use store::CONTENT_KEY;
+
 use std::sync::{Mutex, PoisonError};
 
 use tauri::State;

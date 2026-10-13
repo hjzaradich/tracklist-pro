@@ -190,7 +190,33 @@ pub fn settle_batch(conn: &mut Connection, batch: usize) -> rusqlite::Result<Bat
     if due.is_empty() {
         return Ok(Batch::default());
     }
-    let wanted = serde_json::to_string(&due).unwrap_or_else(|_| "[]".into());
+    let summary = settle_these(conn, &due)?;
+    Ok(Batch {
+        summary,
+        more: any_due(conn)?,
+    })
+}
+
+/// Ranks the files of the given tracks now, whether they are due or not,
+/// exactly as [`settle_batch`] does, and clears them from the due list. For
+/// a user action that changes what a track's "better file" is (its linked
+/// file was switched in Review, or that was undone): the Review queue is
+/// right as the action returns, not when the roles job next runs. For a
+/// handful of tracks; anything larger is the job's ([`request`]).
+pub fn settle_tracks(conn: &mut Connection, recordings: &[i64]) -> rusqlite::Result<Summary> {
+    if recordings.is_empty() {
+        return Ok(Summary::default());
+    }
+    let mut wanted = recordings.to_vec();
+    wanted.sort_unstable();
+    wanted.dedup();
+    settle_these(conn, &wanted)
+}
+
+/// Ranks the files of `due` (track ids) and writes their roles and their
+/// "better file", in one transaction, clearing them from `best_file_due`.
+fn settle_these(conn: &mut Connection, due: &[i64]) -> rusqlite::Result<Summary> {
+    let wanted = serde_json::to_string(due).unwrap_or_else(|_| "[]".into());
     let files: Vec<i64> = {
         let mut stmt = conn.prepare_cached(
             "SELECT file_id FROM recording_file
@@ -202,10 +228,10 @@ pub fn settle_batch(conn: &mut Connection, batch: usize) -> rusqlite::Result<Bat
     crate::quality::settle_files(conn, &files)?;
 
     let tx = conn.transaction()?;
-    let mut by_recording = facts::load(&tx, &due)?;
+    let mut by_recording = facts::load(&tx, due)?;
     let linked = linked_files(&tx, &wanted)?;
     let mut summary = Summary::default();
-    for recording in &due {
+    for recording in due {
         let files = by_recording.remove(recording).unwrap_or_default();
         summary.ranked += 1;
         if rank_track(&tx, *recording, &files, linked.get(recording).copied())? {
@@ -217,10 +243,7 @@ pub fn settle_batch(conn: &mut Connection, batch: usize) -> rusqlite::Result<Bat
         [&wanted],
     )?;
     tx.commit()?;
-    Ok(Batch {
-        summary,
-        more: any_due(conn)?,
-    })
+    Ok(summary)
 }
 
 /// The linked file of each of the given tracks that is in the Library.

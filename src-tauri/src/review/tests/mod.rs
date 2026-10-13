@@ -2,6 +2,7 @@
 //! and track names, and the rows grouping, the roles job and the quality job
 //! would have written, set by SQL, in a migrated database in a temp dir.
 
+mod actions;
 mod compare;
 mod ipc;
 mod plan;

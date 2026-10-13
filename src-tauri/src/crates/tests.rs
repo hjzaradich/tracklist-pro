@@ -681,7 +681,7 @@ fn a_crate_made_filled_and_renamed_is_sent_under_its_new_name_and_the_old_one_is
         .unwrap();
     let stale = |lib: &Lib| -> Vec<String> {
         lib.writer
-            .call(|c| lists(c))
+            .call(|c| lists(c, &NoVolumes))
             .unwrap()
             .stale_playlists
             .iter()

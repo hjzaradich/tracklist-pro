@@ -21,8 +21,9 @@
 //! gone from disk and a file with the very same audio is on disk in the
 //! same track, and only where that doesn't change which rekordbox entry the
 //! track is sent as. Then the link follows the file on its own. Nothing
-//! else changes a link: not grouping, not the best-file ranking, not
-//! relink, not a send. (Switching to another copy by hand is 1bE-7.)
+//! else changes a link on its own: not grouping, not the best-file ranking,
+//! not relink, not a send. The user can switch a gone linked file to
+//! another copy of the track in Review ([`crate::review::actions`], 1bE-7).
 //!
 //! A file with the `low bitrate` finding is not added until the user has
 //! agreed (1bE-8; see `warning`): the add answers `needsConfirmation` and

@@ -1,19 +1,35 @@
 //! Tracks removed from the Library that rekordbox may still hold (ROADMAP
 //! 1.9 rule 7).
 
+use std::collections::{HashMap, HashSet};
+
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use specta::Type;
 
-use crate::library::removed_tracks;
+use crate::library::{removed_tracks, LibraryTrackId};
+use crate::paths::Volumes;
 use crate::rekordbox::location::{decode, Location};
 use crate::rekordbox::source::LAST_READ;
-use crate::send_values::{shown_removed, Removed};
+use crate::send_values::{sent_as, shown_removed, Removed, SentAs};
 
-/// A removed track to remove in rekordbox by hand.
+/// Why a track is to be removed in rekordbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum RemovalReason {
+    /// The user removed the track from the Library.
+    Removed,
+    /// The track is still in the Library, linked to another file since the
+    /// user switched it in Review: this is the entry of the file that is
+    /// gone, which the track is no longer sent as (`replaced_entry`).
+    Replaced,
+}
+
+/// A track to remove in rekordbox by hand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ManualRemoval {
+    pub reason: RemovalReason,
     pub recording_id: i64,
     /// What rekordbox shows for it if it has a row at the sent `Location`,
     /// else the file's tags, else the file's name ([`shown_removed`]).
@@ -25,13 +41,144 @@ pub struct ManualRemoval {
     /// then shows only the track's name, and leaves the list once a read made
     /// after the removal has no row matched to the track.
     pub path: Option<String>,
-    /// When the user removed it, UTC ISO-8601.
+    /// When the user removed it (or switched its file), UTC ISO-8601.
     pub removed_at: String,
 }
 
+/// The tracks to remove in rekordbox by hand: the removed tracks rekordbox
+/// still holds, in the order they were removed, then the entries a switch
+/// of a linked file left behind ([`replaced_entries`]). See the module notes
+/// of [`super`] for when one leaves.
+///
+/// `volumes` says where each drive is, for the send's own answer to which
+/// entries Library tracks are sent as; no file is opened.
+pub fn manual_removals(
+    conn: &Connection,
+    volumes: &impl Volumes,
+) -> rusqlite::Result<Vec<ManualRemoval>> {
+    let mut out = removed_from_library(conn)?;
+    out.extend(replaced_entries(conn, volumes)?);
+    Ok(out)
+}
+
+/// The rekordbox entries a switch of a Library track's linked file left
+/// behind (`replaced_entry`; [`crate::review::actions`]), in the order they
+/// were replaced: each is listed while the store holds an entry at its
+/// `Location` (any row, as for a removed track: an incomplete read can't say
+/// an entry is gone) and **no Library track is sent as an entry there**. So
+/// an entry is never both sent and listed for removal: once relink trusts
+/// the entry on a Library track's linked file, or the user confirms it
+/// there, the track is sent as that entry again and the record is moot. It
+/// is asked of the send itself ([`sent_as`]), so the two can't disagree.
+fn replaced_entries(
+    conn: &Connection,
+    volumes: &impl Volumes,
+) -> rusqlite::Result<Vec<ManualRemoval>> {
+    struct Record {
+        recording: i64,
+        location: String,
+        key: String,
+        at: String,
+    }
+    let records: Vec<Record> = conn
+        .prepare(
+            "SELECT r.recording_id, r.location, r.location_key, r.replaced_at
+             FROM replaced_entry r
+             WHERE EXISTS (SELECT 1 FROM rekordbox_track t WHERE t.location_key = r.location_key)
+             ORDER BY r.id",
+        )?
+        .query_map([], |r| {
+            Ok(Record {
+                recording: r.get(0)?,
+                location: r.get(1)?,
+                key: r.get(2)?,
+                at: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    // Nearly always: nothing was ever replaced.
+    if records.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // The entries at those Locations.
+    let keys = serde_json::to_string(&records.iter().map(|r| &r.key).collect::<Vec<_>>())
+        .expect("strings always serialize");
+    let mut entries_at: HashMap<String, Vec<i64>> = HashMap::new();
+    for row in conn
+        .prepare(
+            "SELECT location_key, id FROM rekordbox_track
+             WHERE location_key IN (SELECT value FROM json_each(?1))",
+        )?
+        .query_map([&keys], |r| Ok((r.get(0)?, r.get(1)?)))?
+    {
+        let (key, id): (String, i64) = row?;
+        entries_at.entry(key).or_default().push(id);
+    }
+    // Every Library track that could be sent as one of them: one linked to
+    // a file such an entry is matched to, and one whose linked file is gone
+    // (it is sent as the entry at that file's own Location).
+    let could: Vec<LibraryTrackId> = conn
+        .prepare(
+            "SELECT lt.id FROM library_track lt
+             JOIN file f ON f.id = lt.linked_file_id
+             WHERE f.present = 0
+                OR f.id IN (SELECT file_id FROM rekordbox_track
+                            WHERE location_key IN (SELECT value FROM json_each(?1)))
+             ORDER BY lt.id",
+        )?
+        .query_map([&keys], |r| r.get(0).map(LibraryTrackId))?
+        .collect::<rusqlite::Result<_>>()?;
+    let asked: Vec<(LibraryTrackId, Option<i64>)> = could.iter().map(|id| (*id, None)).collect();
+    let sent: HashSet<i64> = sent_as(conn, volumes, &asked)?
+        .into_iter()
+        .filter_map(|sent| match sent {
+            SentAs::Entry(row) => Some(row),
+            SentAs::New | SentAs::Nothing => None,
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    let mut asked = Vec::new();
+    for record in records {
+        let none: &[i64] = &[];
+        let rows = entries_at.get(&record.key).map_or(none, Vec::as_slice);
+        if rows.iter().any(|row| sent.contains(row)) {
+            continue;
+        }
+        let path = match decode(&record.location).ok() {
+            Some(Location::File(path)) => Some(
+                path.to_windows()
+                    .unwrap_or_else(|| path.as_str().to_owned()),
+            ),
+            _ => None,
+        };
+        asked.push(Removed {
+            recording_id: record.recording,
+            location_key: Some(record.key),
+            path_name: path
+                .as_deref()
+                .map(|p| crate::send_values::file_name(p).to_owned()),
+        });
+        out.push(ManualRemoval {
+            reason: RemovalReason::Replaced,
+            recording_id: record.recording,
+            title: None,
+            artist: None,
+            path,
+            removed_at: record.at,
+        });
+    }
+    // Named by what rekordbox calls the entry: it is the one to look for.
+    for (removal, shown) in out.iter_mut().zip(shown_removed(conn, &asked)?) {
+        (removal.title, removal.artist) = shown.into_options();
+    }
+    Ok(out)
+}
+
 /// The removed tracks rekordbox still holds, in the order they were
-/// removed. See the module notes of [`super`] for when one leaves.
-pub fn manual_removals(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>> {
+/// removed.
+fn removed_from_library(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>> {
     let last_read: Option<String> = conn
         .query_row(
             "SELECT json_extract(value, '$.readAt') FROM setting WHERE key = ?1",
@@ -85,6 +232,7 @@ pub fn manual_removals(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>
                     .map(|p| crate::send_values::file_name(p).to_owned()),
             });
             out.push(ManualRemoval {
+                reason: RemovalReason::Removed,
                 recording_id: removed.recording_id,
                 title: None,
                 artist: None,
@@ -124,6 +272,7 @@ pub fn manual_removals(conn: &Connection) -> rusqlite::Result<Vec<ManualRemoval>
                 .map(|p| crate::send_values::file_name(p).to_owned()),
         });
         out.push(ManualRemoval {
+            reason: RemovalReason::Removed,
             recording_id: removed.recording_id,
             title: None,
             artist: None,

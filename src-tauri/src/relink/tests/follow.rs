@@ -1094,8 +1094,10 @@ fn nothing_but_the_follow_moves_a_link_not_grouping_the_ranking_relink_or_a_send
 }
 
 #[test]
-fn only_the_follow_ever_changes_a_library_tracks_linked_file_in_the_apps_code() {
-    // A source scan: an existing link is written in one place. Anything
+fn only_the_follow_and_the_users_switch_ever_change_a_library_tracks_linked_file() {
+    // A source scan: an existing link is written in two places, the
+    // automatic follow and the switch the user makes in Review
+    // (`review::actions`, 1bE-7), both through the operation log. Anything
     // else that names the column in a write is an insert of a new Library
     // track (`library::insert_linked`).
     let mut setters = Vec::new();
@@ -1126,7 +1128,10 @@ fn only_the_follow_ever_changes_a_library_tracks_linked_file_in_the_apps_code() 
         }
     }
     setters.sort();
-    assert_eq!(setters, ["library/follow.rs", "library/mod.rs"]);
+    assert_eq!(
+        setters,
+        ["library/follow.rs", "library/mod.rs", "review/actions.rs"]
+    );
     assert_eq!(updaters, Vec::<String>::new());
     // library/mod.rs names it once, in the insert of a new Library track.
     let library =

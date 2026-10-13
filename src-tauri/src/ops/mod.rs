@@ -1158,6 +1158,54 @@ pub fn undo_only(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, O
     undo_step(conn, Some(operation))
 }
 
+/// [`undo_last`] (or [`undo_only`], with `only`) as the Undo button runs
+/// it: once the undo has committed, the files of the Library tracks it
+/// changed are ranked again where that is due, so what follows a track's
+/// linked file (its "better file", and with it the Review queue) is right
+/// as the undo returns, not when the roles job next runs. An undo that put
+/// a switched link back brings the "Linked file gone, copy found" item back
+/// with it.
+///
+/// The ranking is derived state: if it fails here the undo stands, the
+/// failure is logged, and the roles job ranks the tracks, which are still
+/// due.
+pub fn undo_for_user(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, OpsError> {
+    let outcome = undo_step(conn, only)?;
+    if let UndoOutcome::Undone { operation } = &outcome {
+        if let Err(e) = rank_again_after(conn, operation.id) {
+            eprintln!(
+                "undo of operation {}: couldn't rank its tracks again: {e}",
+                operation.id
+            );
+        }
+    }
+    Ok(outcome)
+}
+
+/// Ranks again the tracks whose Library track `operation` changed, where
+/// they are due (a database trigger made them so when the link or the
+/// Library track changed): at most one batch of the roles job, the rest is
+/// the job's.
+fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<()> {
+    let due: Vec<i64> = conn
+        .prepare_cached(
+            "SELECT recording_id FROM best_file_due WHERE recording_id IN (
+                 SELECT lt.recording_id FROM change c
+                 JOIN library_track lt ON lt.id = c.entity_id
+                 WHERE c.operation_id = ?1 AND c.entity = 'library_track'
+                 UNION
+                 SELECT CAST(coalesce(c.before, c.after) AS INTEGER) FROM change c
+                 WHERE c.operation_id = ?1 AND c.entity = 'library_track'
+                   AND c.field = 'recording_id')
+             ORDER BY recording_id LIMIT ?2",
+        )?
+        .query_map(params![operation, crate::file_roles::BATCH as i64], |r| {
+            r.get(0)
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    crate::file_roles::settle_tracks(conn, &due).map(|_| ())
+}
+
 /// [`undo_last`], run on the database's one writer connection.
 pub fn undo_last_via(writer: &Writer) -> Result<UndoOutcome, OpsError> {
     writer.call(|conn| Ok(undo_last(conn)))?
@@ -1455,9 +1503,15 @@ fn is_kind(kind: &str) -> bool {
 #[specta::specta]
 pub fn undo_last_operation(
     writer: tauri::State<'_, Writer>,
+    jobs: tauri::State<'_, crate::jobs::JobQueue>,
     operation_id: Option<i64>,
 ) -> Result<UndoOutcome, crate::ipc::IpcError> {
-    Ok(writer.call(move |conn| Ok(undo_step(conn, operation_id)))??)
+    let outcome = writer.call(move |conn| Ok(undo_for_user(conn, operation_id)))??;
+    if matches!(outcome, UndoOutcome::Undone { .. }) {
+        // Whatever else the undo made due is worked out in the background.
+        crate::review::actions::ask_for_follow_up_work(&writer, &jobs);
+    }
+    Ok(outcome)
 }
 
 /// What Undo would undo now, and why it would be refused, if it would.

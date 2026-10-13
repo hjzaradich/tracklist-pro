@@ -11,5 +11,6 @@ use crate::ipc::IpcError;
 #[tauri::command]
 #[specta::specta]
 pub async fn after_send_lists(reads: State<'_, ReadPool>) -> Result<AfterSendLists, IpcError> {
-    Ok(reads.read(lists)?)
+    let volumes = crate::scan::system_volumes();
+    Ok(reads.read(|c| lists(c, &volumes))?)
 }

@@ -19,6 +19,7 @@ mod grouping;
 mod library;
 mod library_upkeep;
 mod partial_hash;
+mod review_decisions;
 mod search_index;
 mod sent_playlist;
 mod sync_base_ids;
@@ -230,6 +231,12 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0025_conflict_ids_never_reused.sql", &[]),
     // Partial indexes for the Review queue, no tables.
     ("0026_review_queue_indexes.sql", &[]),
+    // What the user decided in Review about a linked file, and the
+    // rekordbox entries a switch of the linked file left behind.
+    (
+        "0027_review_decisions.sql",
+        &["replaced_entry", "review_decision"],
+    ),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

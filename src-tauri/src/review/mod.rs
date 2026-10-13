@@ -1,7 +1,10 @@
 //! The Review queue and the comparison of one item (1bD-1, 1bD-2; ROADMAP
-//! 1.12). Read-only: nothing here changes the database, a file or rekordbox.
-//! The actions (accept, keep both, merge, split, dismiss, confirm a relink)
-//! are the 1bE tasks.
+//! 1.12). The queue and the comparison are read-only: they change nothing
+//! in the database, a file or rekordbox. What the user decides about an item
+//! is in [`actions`] (1bE-5, 1bE-7: dismiss a better file, keep a flagged
+//! file, want a better one, switch a gone linked file, "Accept all"); the
+//! other actions (keep both, merge, split, confirm a relink) are the other
+//! 1bE tasks.
 //!
 //! # What is queued
 //!
@@ -18,8 +21,8 @@
 //! | `sameRecording` | `state = 'both_in_library'`: two Library tracks that are the same recording (a set that also holds a third copy is the same item) |
 //! | `relink` | `rekordbox_track` with `relink_probable = 1` and a file |
 //! | `clearBestFile` | a Library track with a `better_file` whose step is `onDisk`: its linked file is gone and a copy is on disk |
-//! | `qualityProblem` | a Library track whose linked file is on disk and whose current stored verdict flags it, with no better copy |
-//! | `betterFile` | a Library track with a `better_file` whose step is anything else: its linked file is still there |
+//! | `qualityProblem` | a Library track whose linked file is on disk and whose current stored verdict flags it, with no better copy, that the user hasn't answered ("Keep anyway", "Find a better file") |
+//! | `betterFile` | a Library track with a `better_file` whose step is anything else: its linked file is still there; and the user hasn't dismissed that better file |
 //!
 //! One item is one pair of tracks however many pairs of their files the
 //! grouping stored (ROADMAP 1.4: the user is asked once per pair of tracks).
@@ -50,6 +53,7 @@
 //! The shown title isn't stored, so a title order would mean computing every
 //! title.
 
+pub mod actions;
 pub mod compare;
 pub mod held;
 mod queue;
@@ -276,6 +280,10 @@ pub struct ReviewComparison {
     /// The first [`MAX_FILES`] files, the suggested one first.
     pub rows: Vec<ReviewFileRow>,
     pub more_files: u32,
+    /// The switch a "Linked file gone, copy found" item offers: to which
+    /// file, and what it means in rekordbox (or why it can't be made).
+    /// `None` for every other kind.
+    pub switch: Option<actions::SwitchOffer>,
 }
 
 /// How many items wait, by group.
