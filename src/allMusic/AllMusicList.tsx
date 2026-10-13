@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { AllMusicTrack } from "../bindings";
+import { PlayButton } from "../player/PlayButton";
 import styles from "./AllMusicList.module.css";
 
 /**
@@ -34,6 +35,11 @@ export function AllMusicList({
         {tracks.map((track) => (
           <tr key={track.recordingId} className={styles.row}>
             <td className={styles.title} title={track.title ?? track.file?.name}>
+              {track.file && (
+                <span className={styles.play}>
+                  <PlayButton file={{ id: track.file.id, name: track.title ?? track.file.name }} />
+                </span>
+              )}
               {track.title ?? track.file?.name}
             </td>
             <td className={styles.artist} title={track.artist ?? undefined}>

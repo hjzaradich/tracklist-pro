@@ -7,7 +7,8 @@
  *
  * - `search`: the top bar's search and command palette (1.11, Ctrl+K);
  * - `details`: the Details panel on the right (the selected track);
- * - `player`: the preview player along the bottom (1.11).
+ * - `player`: the preview player along the bottom (1.11), drawn since the
+ *   preview engine (1cA-7).
  */
 export interface Zones {
   search: boolean;
@@ -15,4 +16,4 @@ export interface Zones {
   player: boolean;
 }
 
-export const ZONES: Zones = { search: false, details: false, player: false };
+export const ZONES: Zones = { search: false, details: false, player: true };

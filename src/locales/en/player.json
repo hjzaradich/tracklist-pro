@@ -1,0 +1,13 @@
+{
+  "play": "Play",
+  "pause": "Pause",
+  "playNamed": "Play {{name}}",
+  "pauseNamed": "Pause {{name}}",
+  "position": "Position",
+  "refused": {
+    "missing": "Can't play: the file is missing",
+    "driveNotConnected": "Can't play: its drive isn't connected",
+    "onlineOnly": "Can't play: the file is online-only in OneDrive",
+    "cantPlay": "Can't play this file"
+  }
+}

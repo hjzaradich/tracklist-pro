@@ -66,7 +66,7 @@ afterEach(() => {
 });
 
 describe("layout shell", () => {
-  it("has the zones that do something: top bar, sidebar and center", async () => {
+  it("has the zones that do something: top bar, sidebar, center and the player", async () => {
     crates([]);
     renderApp("/overview");
     const topBar = await screen.findByRole("banner");
@@ -75,25 +75,28 @@ describe("layout shell", () => {
     );
     expect(await screen.findByText(tx("shell:sidebar.noCrates"))).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
+    // The player runs along the bottom, below the center and the sidebar.
+    const player = screen.getByRole("region", { name: tx("shell:player.label") });
+    expect(player).toHaveTextContent(tx("shell:player.empty"));
+    expect(player.parentElement).toHaveAttribute("data-player", "on");
   });
 
-  it("shows nothing that looks like a feature and does nothing yet", async () => {
+  it("shows no search or Details panel, whose features don't exist yet", async () => {
     crates([]);
     renderApp("/overview");
     await screen.findByRole("banner");
-    // No search box with its shortcut, no Details panel, no player.
+    // No search box with its shortcut and no Details panel. (The player is
+    // drawn: the preview engine exists.)
     expect(screen.queryByRole("search")).toBeNull();
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.queryByText(tx("shell:search.shortcut"))).toBeNull();
     expect(screen.queryByRole("complementary", { name: tx("shell:details.label") })).toBeNull();
     expect(screen.queryByText(tx("shell:details.empty"))).toBeNull();
-    expect(screen.queryByRole("region", { name: tx("shell:player.label") })).toBeNull();
-    expect(screen.queryByText(tx("shell:player.empty"))).toBeNull();
   });
 
-  it("keeps each of those zones ready for the day its feature exists", async () => {
-    // One switch each (shell/zones.ts): nothing is drawn by default.
-    expect(ZONES).toEqual({ search: false, details: false, player: false });
+  it("keeps the zones that aren't drawn ready for the day their features exist", async () => {
+    // One switch each (shell/zones.ts): only the player is drawn by default.
+    expect(ZONES).toEqual({ search: false, details: false, player: true });
 
     mockIPC(
       (cmd) => {

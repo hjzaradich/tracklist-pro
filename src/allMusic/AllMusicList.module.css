@@ -125,3 +125,8 @@
   margin: 0;
   color: var(--color-danger);
 }
+
+/* The play button sits before the title, in the title's own cell. */
+.play {
+  margin-right: var(--space-2);
+}

@@ -54,10 +54,8 @@ fn existing_decoder_samples(bytes: &[u8]) -> Vec<i16> {
 }
 
 fn samples_of_wav(wav: &[u8]) -> Vec<i16> {
-    wav[HEADER_LEN as usize..]
-        .chunks_exact(2)
-        .map(|b| i16::from_le_bytes([b[0], b[1]]))
-        .collect()
+    let (pairs, _) = wav[HEADER_LEN as usize..].as_chunks::<2>();
+    pairs.iter().map(|b| i16::from_le_bytes(*b)).collect()
 }
 
 #[test]
