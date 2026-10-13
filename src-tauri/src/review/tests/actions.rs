@@ -42,9 +42,7 @@ impl Lib {
     }
 
     fn wants_better(&self, track: i64) -> bool {
-        self.writer
-            .call(move |c| wants_better(c, track))
-            .unwrap()
+        self.writer.call(move |c| wants_better(c, track)).unwrap()
     }
 
     /// Undo, as the Undo button runs it; returns the kind it took back.

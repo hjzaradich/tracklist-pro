@@ -20,6 +20,7 @@ function stale(path: string[], fields: Partial<StalePlaylist> = {}): StalePlayli
 
 function removal(fields: Partial<ManualRemoval> = {}): ManualRemoval {
   return {
+    reason: "removed",
     recordingId: 1,
     title: "Song",
     artist: "Artist",
@@ -94,6 +95,27 @@ describe("the after-send lists", () => {
     expect(within(section).getByText(tx("afterSend:removals.trackName", { artist: "Artist", title: "Song" }))).toBeInTheDocument();
     expect(within(section).getByText(String.raw`E:\Music\song.mp3`)).toBeInTheDocument();
     expect(within(section).queryByText(tx("afterSend:removals.empty"))).toBeNull();
+  });
+
+  it("says which track is the old entry of a file that was switched, and lists it beside a removed one", () => {
+    // The same track can be on the list twice: removed from the Library, and
+    // (earlier) switched to another file, which left its old entry behind.
+    render(
+      <AfterSendLists
+        lists={lists({
+          manualRemovals: [
+            removal({ path: String.raw`E:\Music\new.flac` }),
+            removal({ reason: "replaced", path: String.raw`E:\Music\old.mp3` }),
+          ],
+        })}
+      />,
+    );
+    const section = screen.getByRole("region", { name: tx("afterSend:removals.title") });
+    const rows = within(section).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).queryByText(tx("afterSend:removals.replaced"))).toBeNull();
+    expect(within(rows[1]).getByText(tx("afterSend:removals.replaced"))).toBeInTheDocument();
+    expect(within(rows[1]).getByText(String.raw`E:\Music\old.mp3`)).toBeInTheDocument();
   });
 
   it("falls back to the file name, then to a plain label, for a track with no title", () => {

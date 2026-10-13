@@ -18,6 +18,7 @@ import {
   useReviewItem,
   useReviewItems,
 } from "./useReview";
+import { useAcceptAll, useAcceptAllCount } from "./useReviewActions";
 import styles from "./ReviewScreen.module.css";
 
 /** The background work that decides which rekordbox tracks have no file. */
@@ -26,8 +27,9 @@ const DECIDES_MISSING = ["read_rekordbox", "relink"] as const;
 /**
  * Review (1bD): the queue of decisions on the left, grouped, and the
  * comparison of the selected item on the right, then the Missing list as its
- * own section (nothing to compare there: it has no file). Read-only until the
- * 1bE tasks add the actions.
+ * own section (nothing to compare there: it has no file). The actions for an
+ * item are under its comparison (`ReviewActions`), and "Accept all N" is at
+ * the "Clear best file" heading.
  */
 export function ReviewScreen() {
   const { t } = useTranslation("review");
@@ -37,6 +39,9 @@ export function ReviewScreen() {
   const clear = useReviewItems("clearBestFile", (counts.data?.clearBestFile ?? 0) > 0);
   const quality = useReviewItems("qualityProblems", (counts.data?.qualityProblems ?? 0) > 0);
   const lists = { needsCloserLook: needs, clearBestFile: clear, qualityProblems: quality };
+  // "Accept all N" for "Clear best file": N is what it would switch now.
+  const acceptCount = useAcceptAllCount((counts.data?.clearBestFile ?? 0) > 0);
+  const accept = useAcceptAll();
 
   const groups: QueueGroup[] = GROUPS.flatMap((group) => {
     const count = counts.data?.[group] ?? 0;
@@ -50,6 +55,14 @@ export function ReviewScreen() {
         hasMore: list.hasNextPage,
         loadingMore: list.isFetchingNextPage,
         onLoadMore: () => void list.fetchNextPage(),
+        acceptAll:
+          group === "clearBestFile"
+            ? {
+                count: acceptCount.data ?? 0,
+                pending: accept.isPending,
+                onAccept: () => accept.mutate(),
+              }
+            : undefined,
       },
     ];
   });
@@ -87,7 +100,14 @@ export function ReviewScreen() {
           <EmptyState>{t("queue.empty")}</EmptyState>
         ) : (
           <div className={styles.panes}>
-            <ReviewQueue groups={groups} selected={selected} onSelect={setChosen} />
+            <div className={styles.left}>
+              {accept.error && (
+                <p role="alert" className={styles.error}>
+                  {errorMessage(accept.error)}
+                </p>
+              )}
+              <ReviewQueue groups={groups} selected={selected} onSelect={setChosen} />
+            </div>
             <div className={styles.right}>
               {comparison.isError ? (
                 <p role="alert" className={styles.error}>

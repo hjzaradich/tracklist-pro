@@ -30,6 +30,12 @@
       "addToCrate_other": "Undo ({{count}} tracks added to “{{name}}”)",
       "removeFromCrate_one": "Undo ({{count}} track removed from “{{name}}”)",
       "removeFromCrate_other": "Undo ({{count}} tracks removed from “{{name}}”)",
+      "dismissBetterFile": "Undo (better file dismissed)",
+      "keepAnyway": "Undo (file kept anyway)",
+      "wantBetterFile": "Undo (better file wanted)",
+      "switchLinkedFile": "Undo (linked file switched)",
+      "acceptClearBestFiles_one": "Undo ({{count}} linked file switched)",
+      "acceptClearBestFiles_other": "Undo ({{count}} linked files switched)",
       "other": "Undo (last change)"
     },
     "refused": {

@@ -98,6 +98,10 @@ pub(crate) fn content_key(alias: &str) -> String {
     crate::grouping::CONTENT_KEY.replace("f.", &format!("{alias}."))
 }
 
+/// What a file holds, as [`content_key`] reads it: `None` if it has no hash
+/// yet.
+type Key = Option<Vec<u8>>;
+
 /// Why an action changed nothing.
 #[derive(Debug)]
 pub enum Refused {
@@ -189,7 +193,7 @@ pub fn dismiss_better_file(
     recording: i64,
     file: i64,
 ) -> Result<Acted, Refused> {
-    let keys: Option<(Option<Vec<u8>>, Option<Vec<u8>>)> = conn
+    let keys: Option<(Key, Key)> = conn
         .query_row(
             &format!(
                 "SELECT {}, {} {}",
@@ -219,7 +223,7 @@ pub fn dismiss_better_file(
 
 /// The key of the linked file of the quality-problem item of `recording`.
 fn quality_item(conn: &Connection, recording: i64) -> Result<Vec<u8>, Refused> {
-    let key: Option<Option<Vec<u8>>> = conn
+    let key: Option<Key> = conn
         .query_row(
             &format!(
                 "SELECT {} {}",
@@ -842,10 +846,7 @@ pub fn review_dismiss_better_file(
 /// "Keep anyway" for a quality problem.
 #[tauri::command(async)]
 #[specta::specta]
-pub fn review_keep_anyway(
-    writer: State<'_, Writer>,
-    recording_id: i64,
-) -> Result<Acted, IpcError> {
+pub fn review_keep_anyway(writer: State<'_, Writer>, recording_id: i64) -> Result<Acted, IpcError> {
     Ok(writer.call(move |c| Ok(keep_anyway(c, recording_id)))??)
 }
 
@@ -872,8 +873,15 @@ pub fn review_switch_linked_file(
     effect: SwitchEffect,
 ) -> Result<Switched, IpcError> {
     let mounted = mounted(&reads)?;
-    let switched = writer
-        .call(move |c| Ok(switch_linked_file(c, &mounted, recording_id, file_id, effect)))??;
+    let switched = writer.call(move |c| {
+        Ok(switch_linked_file(
+            c,
+            &mounted,
+            recording_id,
+            file_id,
+            effect,
+        ))
+    })??;
     ask_for_follow_up_work(&writer, &jobs);
     Ok(switched)
 }

@@ -114,6 +114,30 @@
     "where": "Top bar, Undo button, when the next step to undo is a removal from a crate.",
     "approved": "Undo ({{count}} tracks removed from “{{name}}”)"
   },
+  "undo.action.dismissBetterFile": {
+    "purpose": "Undo button naming what it takes back: a \"Better file available\" item that was dismissed in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is a dismissed better file."
+  },
+  "undo.action.keepAnyway": {
+    "purpose": "Undo button naming what it takes back: \"Keep anyway\" for a quality problem in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is \"Keep anyway\"."
+  },
+  "undo.action.wantBetterFile": {
+    "purpose": "Undo button naming what it takes back: \"Find a better file\" for a quality problem in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is \"Find a better file\"."
+  },
+  "undo.action.switchLinkedFile": {
+    "purpose": "Undo button naming what it takes back: one Library track's linked file switched to another copy in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is a switched linked file."
+  },
+  "undo.action.acceptClearBestFiles_one": {
+    "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (one track).",
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clear best file\"."
+  },
+  "undo.action.acceptClearBestFiles_other": {
+    "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (several tracks).",
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clear best file\"."
+  },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",
     "where": "Top bar, Undo button, for an action this version has no wording for, or one recorded by an older version without its details.",

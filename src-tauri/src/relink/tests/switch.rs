@@ -564,10 +564,15 @@ fn undo_of_a_switch_restores_the_link_brings_the_item_back_and_takes_the_record_
     let row = item.row.unwrap();
     lib.switch(item.recording, item.copy, SwitchEffect::NewTrack)
         .unwrap();
-    assert_eq!(lib.kinds().last().map(String::as_str), Some(SWITCH_OPERATION));
+    assert_eq!(
+        lib.kinds().last().map(String::as_str),
+        Some(SWITCH_OPERATION)
+    );
     assert_eq!(lib.to_remove().len(), 1);
 
-    assert!(matches!(lib.undo_last(), UndoOutcome::Undone { operation } if operation.kind == SWITCH_OPERATION));
+    assert!(
+        matches!(lib.undo_last(), UndoOutcome::Undone { operation } if operation.kind == SWITCH_OPERATION)
+    );
     assert_eq!(lib.linked_file(item.track), item.old);
     // Back in the queue as the undo returned, and sent as its entry again.
     assert_eq!(lib.clear_items(), [item.recording]);
@@ -576,7 +581,9 @@ fn undo_of_a_switch_restores_the_link_brings_the_item_back_and_takes_the_record_
     assert_eq!(lib.count("SELECT count(*) FROM replaced_entry"), 0);
     assert_eq!(lib.to_remove(), []);
     // The next undo is the add itself, as before the switch.
-    assert!(matches!(lib.undo_last(), UndoOutcome::Undone { operation } if operation.kind == "promote"));
+    assert!(
+        matches!(lib.undo_last(), UndoOutcome::Undone { operation } if operation.kind == "promote")
+    );
 }
 
 // ---- nothing pulls a switched track back -----------------------------------------

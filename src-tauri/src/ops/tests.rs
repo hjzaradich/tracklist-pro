@@ -1200,6 +1200,13 @@ fn the_undo_command_answers_over_ipc() {
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .unwrap();
     app.manage(writer.clone());
+    // The command asks for background work after an undo (the roles of the
+    // tracks it changed), so it needs the job queue.
+    app.manage(
+        crate::jobs::JobQueue::builder(writer.clone())
+            .start()
+            .unwrap(),
+    );
     let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .unwrap();

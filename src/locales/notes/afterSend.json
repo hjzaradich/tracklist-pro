@@ -73,5 +73,9 @@
     "purpose": "Tooltip explaining the path shown under a removed track.",
     "where": "After-send lists, hover title of the file path in a removals row.",
     "approved": "Location sent to rekordbox"
+  },
+  "removals.replaced": {
+    "purpose": "Says why a track is on the list though it is still in the Library: it is rekordbox's old entry for a track whose linked file was switched to another copy in Review.",
+    "where": "After-send lists, removals rows, after the name of such a track."
   }
 }
