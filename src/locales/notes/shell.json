@@ -114,6 +114,30 @@
     "where": "Top bar, Undo button, when the next step to undo is a removal from a crate.",
     "approved": "Undo ({{count}} tracks removed from “{{name}}”)"
   },
+  "undo.action.dismissBetterFile": {
+    "purpose": "Undo button naming what it takes back: a \"Better file available\" item that was dismissed in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is a dismissed better file."
+  },
+  "undo.action.keepAnyway": {
+    "purpose": "Undo button naming what it takes back: \"Keep anyway\" for a quality problem in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is \"Keep anyway\"."
+  },
+  "undo.action.wantBetterFile": {
+    "purpose": "Undo button naming what it takes back: \"Find a better file\" for a quality problem in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is \"Find a better file\"."
+  },
+  "undo.action.switchLinkedFile": {
+    "purpose": "Undo button naming what it takes back: one Library track's linked file switched to another copy in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is a switched linked file."
+  },
+  "undo.action.acceptClearBestFiles_one": {
+    "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (one track).",
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\"."
+  },
+  "undo.action.acceptClearBestFiles_other": {
+    "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (several tracks).",
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\"."
+  },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",
     "where": "Top bar, Undo button, for an action this version has no wording for, or one recorded by an older version without its details.",
@@ -138,6 +162,10 @@
     "purpose": "Says the next step can't be undone because something it changed has changed again since.",
     "where": "Top bar, beside the greyed-out Undo button.",
     "approved": "Can't undo: the Library has changed since"
+  },
+  "undo.refused.switchSentSince": {
+    "purpose": "Says why Undo is greyed out: the step switched a track's linked file to a copy that goes to rekordbox as a new track, and the track has been sent since, so rekordbox holds that new track now.",
+    "where": "Top bar, beside the Undo button, when the next step to undo is such a switch (or an \"Accept all\" holding one)."
   },
   "details.label": {
     "purpose": "Accessible name of the Details panel.",

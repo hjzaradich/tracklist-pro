@@ -147,7 +147,31 @@ export const commands = {
 	/**  The first [`MAX_FILES`] files, the suggested one first. */
 	rows: ReviewFileRow[],
 	moreFiles: number,
+	/**
+	 *  The switch a "Linked file gone, copy found" item offers: to which
+	 *  file, and what it means in rekordbox (or why it can't be made).
+	 *  `None` for every other kind.
+	 */
+	switch: SwitchOffer | null,
 } | null, IpcError>(__TAURI_INVOKE("review_item", { id })),
+	/**  Dismisses a "Better file available" item, for that one better file. */
+	reviewDismissBetterFile: (recordingId: number, fileId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_dismiss_better_file", { recordingId, fileId })),
+	/**  "Keep anyway" for a quality problem. */
+	reviewKeepAnyway: (recordingId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_keep_anyway", { recordingId })),
+	/**  "Find a better file" for a quality problem: remembers the wish. */
+	reviewWantBetterFile: (recordingId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_want_better_file", { recordingId })),
+	/**
+	 *  Switches a Library track's linked file, which is gone, to `file_id`.
+	 *  `effect` is what the item showed the switch means in rekordbox.
+	 */
+	reviewSwitchLinkedFile: (recordingId: number, fileId: number, effect: SwitchEffect) => typedError<Switched, IpcError>(__TAURI_INVOKE("review_switch_linked_file", { recordingId, fileId, effect })),
+	/**  The items "Accept all" would switch now: N on its button is how many. */
+	reviewAcceptAllItems: () => typedError<AcceptItem[], IpcError>(__TAURI_INVOKE("review_accept_all_items")),
+	/**
+	 *  "Accept all" for "Clearly best file", as one operation: `items` are the
+	 *  ones the screen showed, and no other item is switched.
+	 */
+	reviewAcceptClearBestFiles: (items: AcceptItem[]) => typedError<AcceptedAll, IpcError>(__TAURI_INVOKE("review_accept_clear_best_files", { items })),
 	/**  Every Library track, sorted for the Library list (see [`list`]). */
 	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
 	/**
@@ -246,11 +270,36 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
 /* Types */
+/**
+ *  One "Linked file gone, copy found" item as "Accept all" names it: the
+ *  track and the copy the item suggests.
+ */
+export type AcceptItem = {
+	recordingId: number,
+	fileId: number,
+};
+
+/**  What "Accept all" did. */
+export type AcceptedAll = {
+	/**  One operation for every switch; `None` if nothing was switched. */
+	operationId: number | null,
+	/**  Every Library track that was switched, with its old and new file. */
+	switched: SwitchedTrack[],
+	/**  The items left in the queue, each with why. */
+	skipped: SkippedItem[],
+};
+
+/**  What an action recorded. */
+export type Acted = {
+	/**  The operation to offer Undo for. `None` only if nothing changed. */
+	operationId: number | null,
+};
+
 /**
  *  Every queued and running job, and the `seq` of the last update already
  *  reflected in it.
@@ -336,7 +385,10 @@ export type AppInfo = {
 
 /**  A file of a Library track's that is ahead of its linked file, and why. */
 export type BetterFile = {
-	/**  The better file: the track's best-ranked one. */
+	/**
+	 *  The better file: the track's best-ranked one that the user hasn't
+	 *  dismissed in Review.
+	 */
 	fileId: number,
 	/**
 	 *  The step of the ranking that put it ahead: `onDisk`, `verdict`,
@@ -494,7 +546,29 @@ export type ErrorKind =
  */
 "crateNameTaken" | 
 /**  The name has a character that can't be sent to rekordbox. */
-"crateNameUnsendable";
+"crateNameUnsendable" | 
+/**  The Review item was answered already, or isn't in the queue any more. */
+"reviewItemGone" | 
+/**
+ *  A decision is remembered by what a file holds, and the file hasn't
+ *  been hashed yet.
+ */
+"reviewNoAudioKnown" | 
+/**  The linked file is on disk after all, so it isn't switched. */
+"reviewSwitchLinkedOnDisk" | 
+/**  The file to switch to isn't a file of the track. */
+"reviewSwitchNotInTrack" | 
+/**  The file to switch to is gone from disk itself. */
+"reviewSwitchTargetGone" | 
+/**  Another Library track is linked to the file to switch to. */
+"reviewSwitchTargetLinked" | 
+/**
+ *  rekordbox's entry on the file to switch to is the one another Library
+ *  track is sent as.
+ */
+"reviewSwitchEntryTaken" | 
+/**  What the switch means in rekordbox changed since the item was shown. */
+"reviewSwitchChanged";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -817,8 +891,9 @@ export type LosesEntries = {
 	entries: number,
 };
 
-/**  A removed track to remove in rekordbox by hand. */
+/**  A track to remove in rekordbox by hand. */
 export type ManualRemoval = {
+	reason: RemovalReason,
 	recordingId: number,
 	/**
 	 *  What rekordbox shows for it if it has a row at the sent `Location`,
@@ -834,7 +909,7 @@ export type ManualRemoval = {
 	 *  after the removal has no row matched to the track.
 	 */
 	path: string | null,
-	/**  When the user removed it, UTC ISO-8601. */
+	/**  When the user removed it (or switched its file), UTC ISO-8601. */
 	removedAt: string,
 };
 
@@ -1208,6 +1283,17 @@ export type RefusalReason =
 /**  Whether rekordbox knows a file. */
 export type RekordboxUse = "unknown" | "probable" | "trusted";
 
+/**  Why a track is to be removed in rekordbox. */
+export type RemovalReason = 
+/**  The user removed the track from the Library. */
+"removed" | 
+/**
+ *  The track is still in the Library, linked to another file since the
+ *  user switched it in Review: this is the entry of the file that is
+ *  gone, which the track is no longer sent as (`replaced_entry`).
+ */
+"replaced";
+
 /**  The comparison for one item: its files, the suggested one first. */
 export type ReviewComparison = {
 	id: ReviewItemId,
@@ -1227,6 +1313,12 @@ export type ReviewComparison = {
 	/**  The first [`MAX_FILES`] files, the suggested one first. */
 	rows: ReviewFileRow[],
 	moreFiles: number,
+	/**
+	 *  The switch a "Linked file gone, copy found" item offers: to which
+	 *  file, and what it means in rekordbox (or why it can't be made).
+	 *  `None` for every other kind.
+	 */
+	switch: SwitchOffer | null,
 };
 
 /**  How many items wait, by group. */
@@ -1409,6 +1501,27 @@ export type Sent = {
 	knownTracks: number,
 };
 
+/**  Why "Accept all" left an item as it is. */
+export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetLinked" | "entryOfAnotherTrack" | 
+/**
+ *  The switch would arrive in rekordbox as a new track without the old
+ *  cues: not a clear case ([`accept_all_covers`]).
+ */
+"newTrack" | 
+/**  The switch would make the track another of rekordbox's entries. */
+"otherEntry" | 
+/**
+ *  The item isn't in the queue any more, or suggests another copy than
+ *  the one the screen showed.
+ */
+"itemGone";
+
+/**  An item "Accept all" left in the queue. */
+export type SkippedItem = {
+	recordingId: number,
+	reason: SkipReason,
+};
+
 /**  What a read did to the snapshot. */
 export type SnapshotSummary = {
 	/**  Tracks stored from this read, streaming ones included. */
@@ -1449,6 +1562,78 @@ export type StalePlaylist = {
 export type Suggestion<T> = {
 	what: T,
 	reasons: Reason[],
+};
+
+/**
+ *  What switching a Library track's linked file means in rekordbox, by what
+ *  the track is sent as before and after ([`sent_as`]).
+ */
+export type SwitchEffect = 
+/**
+ *  rekordbox doesn't know the track: it is sent as no entry today.
+ *  Nothing of rekordbox's changes.
+ */
+"notInRekordbox" | 
+/**
+ *  rekordbox's entry stays the track's: relink trusts it on the copy
+ *  (or the user confirmed it). rekordbox keeps the track and its cues,
+ *  and shows the file as missing until it is relocated there.
+ */
+"keepsEntry" | 
+/**
+ *  The track is sent as rekordbox's entry today and as a new track on
+ *  the copy: rekordbox sees a new track without the old cues, and the
+ *  old entry goes on the list of tracks to remove in rekordbox.
+ */
+"newTrack" | 
+/**
+ *  The track is sent as one entry today, and on the copy as another
+ *  entry rekordbox already holds for that file. The old entry goes on
+ *  the list of tracks to remove in rekordbox.
+ */
+"otherEntry";
+
+/**  The switch a "Linked file gone, copy found" item offers. */
+export type SwitchOffer = {
+	/**  The copy to switch to: the item's suggested file. */
+	fileId: number,
+	/**  What the switch means in rekordbox; `None` when it is refused. */
+	effect: SwitchEffect | null,
+	/**  Why the switch can't be made now, if it can't. */
+	refusal: SwitchRefusal | null,
+};
+
+/**  Why a linked file can't be switched. Nothing was changed. */
+export type SwitchRefusal = 
+/**  The linked file is on disk after all. */
+"linkedOnDisk" | 
+/**  The file to switch to isn't a file of the track. */
+"notInTrack" | 
+/**  The file to switch to is gone from disk itself. */
+"targetGone" | 
+/**  Another Library track is linked to the file to switch to. */
+"targetLinked" | 
+/**
+ *  A rekordbox entry matched to the file to switch to is the entry
+ *  another Library track is sent as today: that track would lose it.
+ */
+"entryOfAnotherTrack";
+
+/**  What a switch did. */
+export type Switched = {
+	operationId: number | null,
+	track: SwitchedTrack,
+};
+
+/**  One switched Library track. */
+export type SwitchedTrack = {
+	recordingId: number,
+	libraryTrackId: LibraryTrackId,
+	/**  The linked file before: gone from disk. */
+	fromFileId: number,
+	/**  The linked file now. */
+	toFileId: number,
+	effect: SwitchEffect,
 };
 
 /**  A Library track, as the preflight's lists name it. */
@@ -1499,7 +1684,14 @@ export type UndoRefusal =
 /**  The step would bring back a crate name another crate has now. */
 { code: "crateNameTaken"; name: string } | 
 /**  Something the step changed has changed again since. */
-{ code: "changedSince" };
+{ code: "changedSince" } | 
+/**
+ *  The step switched a Library track's linked file so that the track
+ *  goes to rekordbox as a new track, and the track has been sent since:
+ *  the copy's entry is in rekordbox, and taking the switch back would
+ *  leave it there with nothing to list it.
+ */
+{ code: "switchSentSince" };
 
 /**
  *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]

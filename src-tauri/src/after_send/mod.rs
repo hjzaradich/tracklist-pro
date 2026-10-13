@@ -55,6 +55,14 @@
 //!   has the entry. With only a probable match, or no rekordbox entry at
 //!   all, it isn't listed: nothing says rekordbox has it.
 //!
+//!   *An entry a switch left behind* (1bE-7): when the user switches a
+//!   Library track whose linked file is gone to another copy in Review, and
+//!   the track is then sent as another track than the entry it was sent as
+//!   (relink doesn't trust that entry on the copy), the old entry stays in
+//!   rekordbox. The switch records it (`replaced_entry`), and it is listed
+//!   while a read still holds an entry at that `Location` and no Library
+//!   track is sent as it. The track itself is still in the Library.
+//!
 //! Both are worked out from the database alone, so nothing here depends on
 //! a send having just happened, and nothing here writes a file or sends
 //! anything. The playlist tree of each read is kept as one setting
@@ -70,7 +78,7 @@ pub mod commands;
 mod removals;
 mod tree;
 
-pub use removals::{manual_removals, ManualRemoval};
+pub use removals::{manual_removals, ManualRemoval, RemovalReason};
 pub use tree::{
     app_tree, load_recorded, load_tree, save_tree, stale_playlists, AppTree, Recorded,
     RekordboxTree, StaleKind, StalePlaylist, TreeNode, PLAYLIST_TREE,
@@ -79,6 +87,8 @@ pub use tree::{
 use rusqlite::Connection;
 use serde::Serialize;
 use specta::Type;
+
+use crate::paths::Volumes;
 
 /// Both lists, for the screen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
@@ -92,8 +102,9 @@ pub struct AfterSendLists {
     pub manual_removals: Vec<ManualRemoval>,
 }
 
-/// Both lists, from the database as it is now.
-pub fn lists(conn: &Connection) -> rusqlite::Result<AfterSendLists> {
+/// Both lists, from the database as it is now. `volumes` says where each
+/// drive is (see [`manual_removals`]).
+pub fn lists(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<AfterSendLists> {
     let read = load_tree(conn)?;
     Ok(AfterSendLists {
         playlists_checked: read.is_some(),
@@ -101,7 +112,7 @@ pub fn lists(conn: &Connection) -> rusqlite::Result<AfterSendLists> {
             Some(read) => stale_playlists(read, &app_tree(conn)?, &load_recorded(conn)?),
             None => Vec::new(),
         },
-        manual_removals: manual_removals(conn)?,
+        manual_removals: manual_removals(conn, volumes)?,
     })
 }
 

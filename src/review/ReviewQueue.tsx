@@ -21,13 +21,20 @@ export interface QueueGroup {
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
+  /**
+   * "Accept all N" for the group, if it has one ("Clearly best file"): how many
+   * items it would switch, and what to do on a click. Left out, or with a
+   * count of zero, there is no button.
+   */
+  acceptAll?: { count: number; pending: boolean; onAccept: () => void };
 }
 
 /**
  * The queue (1bD-1): one list per non-empty group, each with its heading and
  * how many are left. Each list is one tab stop (the selected item, else the
  * first); Up, Down, Home and End move through it and select as they go. The
- * 1bE keyboard (Enter, number keys, S) joins here.
+ * 1bE keyboard (Enter, number keys, S) joins here. A group's heading carries
+ * its "Accept all N" button, when it has one.
  */
 export function ReviewQueue({
   groups,
@@ -86,6 +93,16 @@ function GroupList({
           {t(`group.${group.group}`)}
         </h2>
         <span className={styles.count}>{t("queue.left", { count: group.count })}</span>
+        {group.acceptAll !== undefined && group.acceptAll.count > 0 && (
+          <button
+            type="button"
+            className={styles.more}
+            disabled={group.acceptAll.pending}
+            onClick={group.acceptAll.onAccept}
+          >
+            {t("queue.acceptAll", { count: group.acceptAll.count })}
+          </button>
+        )}
       </div>
       {/* The list is a listbox, named by its group's heading: one tab stop,
           arrow keys inside. */}

@@ -18,7 +18,8 @@
     "left_one": "{{count, number}} item left",
     "left_other": "{{count, number}} items left",
     "empty": "No items to review",
-    "more": "Show more"
+    "more": "Show more",
+    "acceptAll": "Accept all {{count, number}}"
   },
   "item": {
     "moreTracks_one": "({{count, number}} other)",
@@ -43,6 +44,18 @@
     "moreFiles_one": "({{count, number}} other file)",
     "moreFiles_other": "({{count, number}} other files)",
     "rekordboxEntry": "rekordbox's entry"
+  },
+  "action": {
+    "label": "Actions",
+    "dismiss": "Dismiss",
+    "keepAnyway": "Keep anyway",
+    "findBetter": "Find a better file",
+    "switch": "Switch file"
+  },
+  "switch": {
+    "keepsEntry": "rekordbox keeps this track and its cues. It will show the file as missing until you relocate it in rekordbox.",
+    "newTrack": "rekordbox will see a new track, without the cues of the old one. The old track will be listed under Tracks to remove in rekordbox. To keep the cues, relocate the file in rekordbox instead.",
+    "otherEntry": "rekordbox already has this file as another track, and your Library track will become that one, with its cues. The old track will be listed under Tracks to remove in rekordbox. To keep the old cues, relocate the file in rekordbox instead."
   },
   "col": {
     "track": "Track",
@@ -118,5 +131,15 @@
     "namesDiffer": "the names differ",
     "artistsDiffer": "the artists differ",
     "creditedToRemixer": "credited to the remixer"
+  },
+  "error": {
+    "itemGone": "This item was already answered",
+    "noAudioKnown": "Can't remember this yet: the file is still being scanned",
+    "switchLinkedOnDisk": "Can't switch: the linked file is on disk again",
+    "switchNotInTrack": "Can't switch: that file is no longer a file of this track",
+    "switchTargetGone": "Can't switch: the copy is gone too",
+    "switchTargetLinked": "Can't switch: another Library track uses that file",
+    "switchEntryTaken": "Can't switch: rekordbox's track for that file belongs to another Library track",
+    "switchChanged": "This changed while you were looking at it. Read it again before you switch."
   }
 }

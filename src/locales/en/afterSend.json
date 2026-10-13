@@ -16,6 +16,7 @@
     "empty": "No tracks to remove",
     "trackName": "{{artist}} - {{title}}",
     "unnamed": "Unnamed track",
-    "sentTo": "Location sent to rekordbox"
+    "sentTo": "Location sent to rekordbox",
+    "replaced": "(old track, its file was switched in your Library)"
   }
 }

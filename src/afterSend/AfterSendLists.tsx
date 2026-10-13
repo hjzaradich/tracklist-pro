@@ -45,6 +45,9 @@ function RemovalItem({ removal }: { removal: ManualRemoval }) {
   return (
     <li className={styles.item}>
       <span className={styles.name}>{name}</span>
+      {removal.reason === "replaced" && (
+        <span className={styles.detail}>{t("removals.replaced")}</span>
+      )}
       {removal.path !== null && (
         <span className={styles.path} title={t("removals.sentTo")}>
           {removal.path}
@@ -98,7 +101,10 @@ export function AfterSendLists({ lists, problem }: { lists: Lists | undefined; p
         {lists && lists.manualRemovals.length > 0 && (
           <ul className={styles.items}>
             {lists.manualRemovals.map((removal) => (
-              <RemovalItem key={removal.recordingId} removal={removal} />
+              <RemovalItem
+                key={`${removal.reason}:${removal.recordingId}:${removal.path ?? ""}`}
+                removal={removal}
+              />
             ))}
           </ul>
         )}

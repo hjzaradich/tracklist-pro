@@ -40,6 +40,17 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
         return t("undo.action.removeFromCrate", { count: tracks, name });
       }
       break;
+    case "dismiss_better_file":
+      return t("undo.action.dismissBetterFile");
+    case "keep_anyway":
+      return t("undo.action.keepAnyway");
+    case "want_better_file":
+      return t("undo.action.wantBetterFile");
+    case "switch_linked_file":
+      return t("undo.action.switchLinkedFile");
+    case "accept_clear_best_files":
+      if (tracks !== null) return t("undo.action.acceptClearBestFiles", { count: tracks });
+      break;
   }
   return t("undo.action.other");
 }
@@ -54,6 +65,8 @@ function refusalText(t: TFunction<"shell">, refusal: UndoRefusal): string {
       return t("undo.refused.crateNameTaken", { name: refusal.name });
     case "changedSince":
       return t("undo.refused.changedSince");
+    case "switchSentSince":
+      return t("undo.refused.switchSentSince");
   }
 }
 

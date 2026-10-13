@@ -5,8 +5,10 @@
 //! and a file with **the very same audio** is on disk, the link moves to
 //! that file on its own: the user moved or renamed the file, and nothing
 //! about the track changed. This is the one place in the app that changes
-//! an existing `library_track.linked_file_id` (a test scans the source for
-//! any other).
+//! an existing `library_track.linked_file_id` on its own. The only other
+//! one is the user's: the switch to another copy in Review
+//! ([`crate::review::actions`], 1bE-7). A test scans the source for any
+//! third.
 //!
 //! # When a link moves
 //!

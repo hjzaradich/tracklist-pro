@@ -24,13 +24,15 @@ use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 6] = [
+pub(super) const LOGGED_TABLES: [&str; 8] = [
     "library_track",
     "library_removal",
     "crate",
     "crate_entry",
     "sync_base",
     "conflict",
+    "review_decision",
+    "replaced_entry",
 ];
 
 /// How many tracks the random actions pick among. The first

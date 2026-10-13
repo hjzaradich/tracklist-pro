@@ -6,6 +6,19 @@ use crate::db::Writer;
 use crate::rekordbox::source::LAST_READ;
 use crate::rekordbox::RekordboxXml;
 
+/// No drive is plugged in: nothing here asks where a file is.
+struct NoDrives;
+
+impl crate::paths::Volumes for NoDrives {
+    fn volume_for(&self, path: &std::path::Path) -> std::io::Result<crate::volume::Volume> {
+        Err(std::io::Error::other(format!("{}", path.display())))
+    }
+
+    fn mount_path(&self, _id: &crate::volume::VolumeId) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
 fn playlist(name: &str) -> TreeNode {
     TreeNode::playlist(name)
 }
@@ -232,7 +245,7 @@ impl Lib {
     }
 
     fn lists(&self) -> AfterSendLists {
-        self.writer.call(|c| lists(c)).unwrap()
+        self.writer.call(|c| lists(c, &NoDrives)).unwrap()
     }
 
     /// A removed track that was sent to `location` and removed at `at`.

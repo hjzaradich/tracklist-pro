@@ -5,6 +5,8 @@ import type { ReviewComparison as Comparison, ReviewFileRow } from "../bindings"
 import { Suggested } from "../suggest/Suggested";
 import { reasonOptions, reasonProblem } from "../suggest/reasons";
 import { trackLabel } from "./ReviewQueue";
+import { ReviewActions } from "./ReviewActions";
+import { itemKey } from "./useReview";
 import styles from "./ReviewComparison.module.css";
 
 /** A duration as m:ss. */
@@ -43,9 +45,9 @@ function rekordboxCell(
 
 /**
  * The comparison (1bD-2): the suggestion and why, then one row per file with
- * the same columns. Read-only. The 1bE actions go under the table
- * (`ReviewActions`), and the "More details" columns (bitrate, sample rate,
- * date added) join the table: the rows already carry them.
+ * the same columns, then the actions for the item (`ReviewActions`, 1bE). The
+ * "More details" columns (bitrate, sample rate, date added) join the table:
+ * the rows already carry them.
  */
 export function ReviewComparison({ comparison }: { comparison: Comparison }) {
   const { t } = useTranslation("review");
@@ -137,6 +139,7 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
           ))}
         </tbody>
       </table>
+      <ReviewActions key={itemKey(comparison.id)} comparison={comparison} />
       {comparison.moreFiles > 0 && (
         <p className={styles.more}>{t("compare.moreFiles", { count: comparison.moreFiles })}</p>
       )}

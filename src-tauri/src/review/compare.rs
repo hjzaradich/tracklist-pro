@@ -426,6 +426,15 @@ pub fn comparison(
     }
     tracks.extend(item.tracks.iter().map(|t| name_of(&names, *t)));
 
+    // What switching to the copy means in rekordbox, for the send's own
+    // answer as the database is now.
+    let switch = match (id.kind, item.about) {
+        (ReviewKind::ClearBestFile, Some(copy)) => {
+            super::actions::offer(conn, volumes, id.a, copy)?
+        }
+        _ => None,
+    };
+
     Ok(Some(ReviewComparison {
         id,
         kind: id.kind,
@@ -439,5 +448,6 @@ pub fn comparison(
         suggestion,
         rows,
         more_files,
+        switch,
     }))
 }

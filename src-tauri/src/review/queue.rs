@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use rusqlite::{params, Connection, Params};
 
+use super::actions::{content_key, DISMISSED_BETTER, KEEP_ANYWAY, WANT_BETTER};
 use super::held::{self, Component};
 use super::{
     ReviewCounts, ReviewGroup, ReviewItem, ReviewItemId, ReviewKind, ReviewPage, ReviewTrackName,
@@ -46,23 +47,41 @@ pub(super) fn relink_from(extra: &str) -> String {
 }
 
 /// The `FROM … WHERE` of the Library tracks with a better file, by step:
-/// `bf.step = 'onDisk'` (the linked file is gone) or not.
+/// `bf.step = 'onDisk'` (the linked file is gone) or not. `lf` is the
+/// linked file and `bfile` the better one.
+///
+/// A "Better file available" item the user dismissed isn't one: a
+/// `dismissed_better` decision for the audio the linked file holds and the
+/// audio that better file holds ([`content_key`]). Another better file has
+/// another key, so it is an item again. A "Linked file gone, copy found"
+/// item can't be dismissed.
 pub(super) fn better_from(on_disk: bool, extra: &str) -> String {
     let step = if on_disk {
-        "bf.step = 'onDisk'"
+        "bf.step = 'onDisk'".to_owned()
     } else {
-        "bf.step <> 'onDisk'"
+        format!(
+            "bf.step <> 'onDisk'
+             AND NOT EXISTS (SELECT 1 FROM review_decision d
+                             WHERE d.kind = '{DISMISSED_BETTER}'
+                               AND d.linked_key = {} AND d.other_key = {})",
+            content_key("lf"),
+            content_key("bfile")
+        )
     };
     format!(
         "FROM better_file bf
          JOIN library_track lt ON lt.recording_id = bf.recording_id
+         JOIN file bfile ON bfile.id = bf.file_id
+         LEFT JOIN file lf ON lf.id = lt.linked_file_id
          WHERE {step} {extra}"
     )
 }
 
 /// The `FROM … WHERE` of the quality problems: a Library track whose linked
 /// file is on disk and whose stored verdict, as long as it is current,
-/// flags it, with no better copy.
+/// flags it, with no better copy; and that the user hasn't answered ("Keep
+/// anyway" or "Find a better file": a decision for the audio the linked
+/// file holds).
 pub(super) fn quality_from(extra: &str) -> String {
     format!(
         "FROM file_verdict v
@@ -72,7 +91,11 @@ pub(super) fn quality_from(extra: &str) -> String {
          WHERE {FLAGGED} AND v.rules_version = {RULES_VERSION} AND v.inputs IS {INPUTS}
            AND f.present = 1
            AND NOT EXISTS (SELECT 1 FROM better_file bf WHERE bf.recording_id = lt.recording_id)
-           {extra}"
+           AND NOT EXISTS (SELECT 1 FROM review_decision d
+                           WHERE d.kind IN ('{KEEP_ANYWAY}', '{WANT_BETTER}')
+                             AND d.linked_key = {})
+           {extra}",
+        content_key("f")
     )
 }
 

@@ -121,7 +121,7 @@ const UNREFERENCED: &str =
 /// 0022 spells the same expression out). Only the rule that files with the
 /// same `audio_hash` are one track with no pair decided reads the
 /// `audio_hash` alone ([`Member::key`]).
-pub(super) const CONTENT_KEY: &str = "coalesce(nullif(f.audio_hash, x''), f.blake3)";
+pub(crate) const CONTENT_KEY: &str = "coalesce(nullif(f.audio_hash, x''), f.blake3)";
 
 /// Every file with a track, and every present file without one.
 fn members(conn: &Connection) -> rusqlite::Result<Vec<Member>> {

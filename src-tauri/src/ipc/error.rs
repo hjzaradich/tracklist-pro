@@ -122,6 +122,24 @@ error_kinds! {
     CrateNameTaken => "crates:error.nameTaken", params: ["name"];
     /// The name has a character that can't be sent to rekordbox.
     CrateNameUnsendable => "crates:error.nameUnsendable", params: [];
+    /// The Review item was answered already, or isn't in the queue any more.
+    ReviewItemGone => "review:error.itemGone", params: [];
+    /// A decision is remembered by what a file holds, and the file hasn't
+    /// been hashed yet.
+    ReviewNoAudioKnown => "review:error.noAudioKnown", params: [];
+    /// The linked file is on disk after all, so it isn't switched.
+    ReviewSwitchLinkedOnDisk => "review:error.switchLinkedOnDisk", params: [];
+    /// The file to switch to isn't a file of the track.
+    ReviewSwitchNotInTrack => "review:error.switchNotInTrack", params: [];
+    /// The file to switch to is gone from disk itself.
+    ReviewSwitchTargetGone => "review:error.switchTargetGone", params: [];
+    /// Another Library track is linked to the file to switch to.
+    ReviewSwitchTargetLinked => "review:error.switchTargetLinked", params: [];
+    /// rekordbox's entry on the file to switch to is the one another Library
+    /// track is sent as.
+    ReviewSwitchEntryTaken => "review:error.switchEntryTaken", params: [];
+    /// What the switch means in rekordbox changed since the item was shown.
+    ReviewSwitchChanged => "review:error.switchChanged", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

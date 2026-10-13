@@ -46,6 +46,15 @@
 //! when a value it does have to write back is refused by the database (the
 //! row it names is gone).
 //!
+//! **What the log knows of the features above it.** Two things, both on
+//! the Undo button's path only ([`undo_for_user`], [`refused_by_a_rule`]),
+//! never in recording or in the unwinding itself: once an undo has
+//! committed, the files of the Library tracks it changed are ranked again
+//! ([`crate::file_roles`]), so what is derived from a link is right as the
+//! undo returns; and one undo is refused by a feature's own rule, the
+//! switch of a linked file that made a track a new one for rekordbox and
+//! was sent since ([`crate::review::actions`]).
+//!
 //! Row ids name rows in the log, so a table that code outside the log
 //! inserts into must never reuse an id (`AUTOINCREMENT`; `sync_base`, which
 //! a send writes, and `conflict`, which detecting conflicts writes). A test
@@ -680,6 +689,11 @@ pub enum UndoRefusal {
     CrateNameTaken { name: String },
     /// Something the step changed has changed again since.
     ChangedSince,
+    /// The step switched a Library track's linked file so that the track
+    /// goes to rekordbox as a new track, and the track has been sent since:
+    /// the copy's entry is in rekordbox, and taking the switch back would
+    /// leave it there with nothing to list it.
+    SwitchSentSince,
 }
 
 /// What undoing the newest operation did.
@@ -1115,6 +1129,21 @@ fn unwind(
     Ok(found)
 }
 
+/// Why a feature's own rule refuses to undo `operation`, whatever its rows
+/// hold: asked before anything is unwound, by [`undo_step`] and by
+/// [`next_undo`] alike. Today one rule: a switch of a linked file that made
+/// the track a new one for rekordbox, sent since
+/// ([`crate::review::actions::sent_as_new_since`]). It is the counterpart of
+/// "sent since" for an add ([`Found::refusal`]), which the rows themselves
+/// show; a switch writes nothing a send changes, so it has to be asked.
+fn refused_by_a_rule(
+    tx: &Transaction<'_>,
+    operation: &OperationInfo,
+) -> Result<Option<UndoRefusal>, OpsError> {
+    Ok(crate::review::actions::sent_as_new_since(tx, operation.id)?
+        .then_some(UndoRefusal::SwitchSentSince))
+}
+
 fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, OpsError> {
     let tx = conn.transaction()?;
     let Some(operation) = next_operation(&tx)? else {
@@ -1122,6 +1151,13 @@ fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, Op
     };
     if only.is_some_and(|id| id != operation.id) {
         return Ok(UndoOutcome::NothingToUndo);
+    }
+    if let Some(reason) = refused_by_a_rule(&tx, &operation)? {
+        return Ok(UndoOutcome::Refused {
+            operation,
+            reason,
+            conflicts: Vec::new(),
+        });
     }
     let found = unwind_with_automatic(&tx, &operation)?;
     match found.refusal() {
@@ -1158,6 +1194,63 @@ pub fn undo_only(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, O
     undo_step(conn, Some(operation))
 }
 
+/// [`undo_last`] (or [`undo_only`], with `only`) as the Undo button runs
+/// it: once the undo has committed, the files of the Library tracks it
+/// changed are ranked again where that is due, so what follows a track's
+/// linked file (its "better file", and with it the Review queue) is right
+/// as the undo returns, not when the roles job next runs. An undo that put
+/// a switched link back brings the "Linked file gone, copy found" item back
+/// with it.
+///
+/// The ranking is derived state: if it fails here the undo stands, the
+/// failure is logged, and the roles job ranks the tracks, which are still
+/// due.
+pub fn undo_for_user(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, OpsError> {
+    let outcome = undo_step(conn, only)?;
+    if let UndoOutcome::Undone { operation } = &outcome {
+        if let Err(e) = rank_again_after(conn, operation.id) {
+            eprintln!(
+                "undo of operation {}: couldn't rank its tracks again: {e}",
+                operation.id
+            );
+        }
+    }
+    Ok(outcome)
+}
+
+/// Ranks again the tracks whose Library track `operation` changed, and
+/// those linked to the audio a dismissal it made or took back was about
+/// (which better file a track is offered skips dismissed ones), where they
+/// are due (a database trigger made them so): at most one batch of the roles
+/// job, the rest is the job's.
+fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<()> {
+    let due: Vec<i64> = conn
+        .prepare_cached(&format!(
+            "SELECT recording_id FROM best_file_due WHERE recording_id IN (
+                 SELECT lt.recording_id FROM change c
+                 JOIN library_track lt ON lt.id = c.entity_id
+                 WHERE c.operation_id = ?1 AND c.entity = 'library_track'
+                 UNION
+                 SELECT CAST(coalesce(c.before, c.after) AS INTEGER) FROM change c
+                 WHERE c.operation_id = ?1 AND c.entity = 'library_track'
+                   AND c.field = 'recording_id'
+                 UNION
+                 SELECT lt.recording_id FROM library_track lt
+                 JOIN file f ON f.id = lt.linked_file_id
+                 WHERE lower(hex({})) IN (
+                     SELECT coalesce(c.before, c.after) FROM change c
+                     WHERE c.operation_id = ?1 AND c.entity = 'review_decision'
+                       AND c.field = 'linked_key'))
+             ORDER BY recording_id LIMIT ?2",
+            crate::grouping::CONTENT_KEY
+        ))?
+        .query_map(params![operation, crate::file_roles::BATCH as i64], |r| {
+            r.get(0)
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    crate::file_roles::settle_tracks(conn, &due).map(|_| ())
+}
+
 /// [`undo_last`], run on the database's one writer connection.
 pub fn undo_last_via(writer: &Writer) -> Result<UndoOutcome, OpsError> {
     writer.call(|conn| Ok(undo_last(conn)))?
@@ -1186,10 +1279,10 @@ pub fn next_undo(conn: &mut Connection) -> Result<NextUndo, OpsError> {
         [operation.id],
         |r| r.get(0),
     )?;
-    let refusal = if changes <= TRIED_AHEAD_UP_TO {
-        unwind_with_automatic(&tx, &operation)?.refusal()
-    } else {
-        None
+    let refusal = match refused_by_a_rule(&tx, &operation)? {
+        Some(refusal) => Some(refusal),
+        None if changes <= TRIED_AHEAD_UP_TO => unwind_with_automatic(&tx, &operation)?.refusal(),
+        None => None,
     };
     tx.rollback()?;
     Ok(NextUndo {
@@ -1455,9 +1548,15 @@ fn is_kind(kind: &str) -> bool {
 #[specta::specta]
 pub fn undo_last_operation(
     writer: tauri::State<'_, Writer>,
+    jobs: tauri::State<'_, crate::jobs::JobQueue>,
     operation_id: Option<i64>,
 ) -> Result<UndoOutcome, crate::ipc::IpcError> {
-    Ok(writer.call(move |conn| Ok(undo_step(conn, operation_id)))??)
+    let outcome = writer.call(move |conn| Ok(undo_for_user(conn, operation_id)))??;
+    if matches!(outcome, UndoOutcome::Undone { .. }) {
+        // Whatever else the undo made due is worked out in the background.
+        crate::review::actions::ask_for_follow_up_work(&writer, &jobs);
+    }
+    Ok(outcome)
 }
 
 /// What Undo would undo now, and why it would be refused, if it would.
