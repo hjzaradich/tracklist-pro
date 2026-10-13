@@ -87,15 +87,20 @@ impl Lib {
         self.run(|c| overview_at(c, &NoVolumes, NOW_MS))
     }
 
-    /// The stored form of the moment `hours` before [`NOW_MS`].
-    fn ago(&self, hours: i64) -> String {
+    /// The stored form of the moment `ms` milliseconds before [`NOW_MS`].
+    fn ms_ago(&self, ms: i64) -> String {
         self.run(move |c| {
             c.query_row(
                 "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?1 / 1000.0, 'unixepoch')",
-                [NOW_MS - hours * HOUR_MS],
+                [NOW_MS - ms],
                 |r| r.get(0),
             )
         })
+    }
+
+    /// The stored form of the moment `hours` before [`NOW_MS`].
+    fn ago(&self, hours: i64) -> String {
+        self.ms_ago(hours * HOUR_MS)
     }
 
     /// A track (a `recording`).
@@ -364,6 +369,70 @@ fn without_a_rekordbox_read_every_track_is_not_analyzed_and_the_overview_says_so
     assert!(!o.rekordbox_read);
 }
 
+#[test]
+fn a_bpm_or_key_from_another_source_is_not_rekordbox_analyzing_the_track() {
+    let lib = Lib::new();
+    for source in ["tag", "mik", "local"] {
+        let (track, _) = lib.library_track(source, None, None);
+        lib.exec(
+            "INSERT INTO analysis (recording_id, source, bpm, key) VALUES (?1, ?2, 128.0, '8A')",
+            (track, source),
+        );
+    }
+    let (rekordbox, _) = lib.library_track("From rekordbox", None, None);
+    lib.exec(
+        "INSERT INTO analysis (recording_id, source, bpm) VALUES (?1, 'rekordbox', 128.0)",
+        [rekordbox],
+    );
+    let o = lib.overview();
+    assert_eq!((o.analyzed_by_rekordbox, o.not_analyzed), (1, 3));
+}
+
+#[test]
+fn a_track_with_two_rekordbox_entries_takes_the_one_attach_picks() {
+    let lib = Lib::new();
+    // The entry on the track's best file wins over one on another file,
+    // however often the other was played; the pick has no BPM, so the track
+    // is not analyzed even though the other entry has one.
+    let two_files = lib.track("Two files");
+    let best = lib.file(two_files, "Two files.mp3", None, None);
+    let other = lib.other_file(two_files, "Two files other.mp3", None);
+    lib.add(two_files, best, 1);
+    lib.rekordbox(
+        best,
+        json!({"Genre": "On best file", "PlayCount": "1", "AverageBpm": "0.00"}),
+        false,
+    );
+    lib.rekordbox(
+        other,
+        json!({"Genre": "On the other file", "PlayCount": "9", "AverageBpm": "128.00"}),
+        false,
+    );
+    // On one file, the most played wins (the lower TrackID would lose).
+    let (_, _) = lib.library_track("One file", None, None);
+    let one = file_of(&lib, "One file");
+    lib.rekordbox(
+        one,
+        json!({"Genre": "Played most", "PlayCount": "9", "AverageBpm": "120.00"}),
+        false,
+    );
+    lib.rekordbox(
+        one,
+        json!({"Genre": "Played less", "PlayCount": "1", "AverageBpm": "0.00"}),
+        false,
+    );
+    lib.attach();
+
+    let o = lib.overview();
+    let got: Vec<(&str, u32)> = o
+        .genres
+        .iter()
+        .map(|g| (g.name.as_str(), g.tracks))
+        .collect();
+    assert_eq!(got, [("On best file", 1), ("Played most", 1)]);
+    assert_eq!((o.analyzed_by_rekordbox, o.not_analyzed), (1, 1));
+}
+
 // Quality.
 
 /// Makes the verdict of each file current, as the quality job does.
@@ -403,31 +472,47 @@ fn a_track_is_low_quality_when_its_files_current_verdict_is_a_problem() {
 }
 
 #[test]
-fn a_stale_verdict_is_no_verdict_and_says_the_quality_number_is_still_counting() {
-    let lib = Lib::new();
-    lib.library_track("Broken", None, None);
-    lib.exec("UPDATE file SET quality_verdict = 'broken'", []);
+fn a_stale_verdict_is_no_verdict_and_holds_the_quality_flag_only_while_a_quality_job_is_there() {
+    let flagged = || {
+        let lib = Lib::new();
+        lib.library_track("Broken", None, None);
+        lib.exec("UPDATE file SET quality_verdict = 'broken'", []);
+        lib
+    };
 
-    // No verdict row yet: not counted, and not "ok" either.
+    // No verdict row yet and no job: not counted (and not "ok" either), and
+    // nothing is counting, so the screen never waits for ever.
+    let lib = flagged();
     let o = lib.overview();
     assert_eq!(o.low_quality, 0);
-    assert!(o.counting.quality);
-
-    settle(&lib);
-    let o = lib.overview();
-    assert_eq!(o.low_quality, 1);
     assert!(!o.counting.quality);
 
-    // The file's audio properties change: the stored verdict is stale.
+    // A failed or a cancelled job settled nothing and holds nothing.
+    for status in ["failed", "cancelled", "done"] {
+        let lib = flagged();
+        lib.job("quality", status);
+        let o = lib.overview();
+        assert_eq!((o.low_quality, o.counting.quality), (0, false), "{status}");
+    }
+
+    // A queued or running job is counting.
+    for status in ["queued", "running"] {
+        let lib = flagged();
+        lib.job("quality", status);
+        let o = lib.overview();
+        assert_eq!((o.low_quality, o.counting.quality), (0, true), "{status}");
+    }
+
+    // Settled, the verdict counts; a change makes it stale again.
+    let lib = flagged();
+    settle(&lib);
+    let o = lib.overview();
+    assert_eq!((o.low_quality, o.counting.quality), (1, false));
     lib.exec("UPDATE file SET bitrate = 320", []);
     let o = lib.overview();
-    assert_eq!(o.low_quality, 0);
-    assert!(o.counting.quality);
-
+    assert_eq!((o.low_quality, o.counting.quality), (0, false));
     settle(&lib);
-    let o = lib.overview();
-    assert_eq!(o.low_quality, 1);
-    assert!(!o.counting.quality);
+    assert_eq!(lib.overview().low_quality, 1);
 }
 
 #[test]
@@ -541,7 +626,7 @@ fn this_week_is_the_last_seven_days_and_its_edges_are_exact() {
 }
 
 #[test]
-fn decisions_count_the_operations_in_the_undo_log_and_an_undone_one_follows_the_choice() {
+fn decisions_count_the_operations_in_the_undo_log_and_an_undone_one_does_not_count() {
     let lib = Lib::new();
     for undone in [false, false, true] {
         let at = lib.ago(2);
@@ -551,8 +636,38 @@ fn decisions_count_the_operations_in_the_undo_log_and_an_undone_one_follows_the_
             (at, undone),
         );
     }
-    let expected = if COUNT_UNDONE_OPERATIONS { 3 } else { 2 };
-    assert_eq!(lib.overview().decisions_this_week, expected);
+    // Three operations in the log, one of them undone (owner decision,
+    // 2026-10-12): two decisions.
+    assert_eq!(lib.overview().decisions_this_week, 2);
+}
+
+#[test]
+fn the_decisions_week_reaches_back_exactly_seven_days() {
+    let lib = Lib::new();
+    let week_ms = 7 * 24 * HOUR_MS;
+    for (kind, ms) in [
+        ("just inside", week_ms - 1),
+        ("exactly seven days", week_ms),
+        ("just outside", week_ms + 1),
+        ("a day outside", week_ms + 24 * HOUR_MS),
+    ] {
+        let at = lib.ms_ago(ms);
+        lib.exec(
+            "INSERT INTO operation (kind, created_at) VALUES (?1, ?2)",
+            (kind, at),
+        );
+    }
+    assert_eq!(lib.overview().decisions_this_week, 2);
+}
+
+#[test]
+fn the_owners_answers_are_the_values_of_the_three_choices() {
+    // ROADMAP 1.13, "What the numbers mean" (2026-10-12).
+    assert_eq!(
+        [COUNT_UNDONE_OPERATIONS, BLANK_GENRE_FALLS_BACK],
+        [false, false]
+    );
+    assert_eq!(THIS_WEEK, "-7 days");
 }
 
 // Genres.
@@ -584,17 +699,16 @@ fn a_track_rekordbox_knows_has_rekordboxs_genre_and_others_have_the_files() {
     lib.rekordbox(file("Blank in rekordbox"), json!({"Genre": "  "}), false);
 
     let o = lib.overview();
-    let mut expected = vec![("Disco", 1), ("Rekordbox House", 1), ("Techno", 1)];
-    if BLANK_GENRE_FALLS_BACK {
-        expected.push(("Trance", 1));
-    }
+    // A track rekordbox knows with a blank genre has no genre: its file's
+    // tag ("Trance") is not used (owner decision, 2026-10-12).
+    let expected = [("Disco", 1), ("Rekordbox House", 1), ("Techno", 1)];
     let got: Vec<(&str, u32)> = o
         .genres
         .iter()
         .map(|g| (g.name.as_str(), g.tracks))
         .collect();
     assert_eq!(got, expected);
-    assert_eq!(o.no_genre, 6 - expected.len() as u32);
+    assert_eq!(o.no_genre, 3);
 }
 
 #[test]
@@ -807,7 +921,7 @@ fn file_of(lib: &Lib, name: &str) -> i64 {
 }
 
 #[test]
-fn a_track_is_missing_tags_when_its_shown_title_artist_or_genre_is_blank() {
+fn a_track_is_missing_tags_when_it_has_no_title_no_artist_or_no_genre() {
     let lib = Lib::new();
     lib.library_track("Complete", None, id3(Some("A"), Some("B"), Some("House")));
     lib.library_track("No genre", None, id3(Some("A"), Some("B"), None));
@@ -817,7 +931,7 @@ fn a_track_is_missing_tags_when_its_shown_title_artist_or_genre_is_blank() {
         None,
         id3(Some("A"), Some("  "), Some("House")),
     );
-    // No title tag: the list shows the file's name, so it has a title.
+    // No title tag: the file's name doesn't count as a title.
     lib.library_track(
         "Only the file name",
         None,
@@ -827,8 +941,49 @@ fn a_track_is_missing_tags_when_its_shown_title_artist_or_genre_is_blank() {
 
     let o = lib.overview();
     assert_eq!(o.tracks, 6);
-    assert_eq!(o.missing_tags, 4, "all but Complete and Only the file name");
+    assert_eq!(o.missing_tags, 5, "all but Complete");
     assert_eq!(o.no_genre, 2, "No genre and Nothing tagged");
+}
+
+#[test]
+fn a_title_is_the_files_title_tag_or_rekordboxs_name_never_the_files_name() {
+    let lib = Lib::new();
+    // A track rekordbox doesn't know: its Title tag, or nothing.
+    lib.library_track(
+        "Unknown with a title tag",
+        None,
+        id3(Some("T"), Some("B"), Some("House")),
+    );
+    lib.library_track(
+        "Unknown without a title tag",
+        None,
+        id3(None, Some("B"), Some("House")),
+    );
+    // A track rekordbox knows: its Name there, whatever the tags say.
+    lib.library_track(
+        "Known with a name",
+        None,
+        id3(None, Some("B"), Some("House")),
+    );
+    lib.library_track(
+        "Known with a blank name",
+        None,
+        id3(Some("T"), Some("B"), Some("House")),
+    );
+    // The track's own title counts, too.
+    let (own, _) = lib.library_track("Own title", None, id3(None, Some("B"), Some("House")));
+    lib.exec("UPDATE recording SET title = 'Mine' WHERE id = ?1", [own]);
+    let entry = |name: &str| json!({"Name": name, "Artist": "B", "Genre": "House"});
+    lib.rekordbox(file_of(&lib, "Known with a name"), entry("N"), false);
+    lib.rekordbox(file_of(&lib, "Known with a blank name"), entry(" "), false);
+
+    let o = lib.overview();
+    assert_eq!(o.tracks, 5);
+    assert_eq!(
+        o.missing_tags, 2,
+        "the unknown track with no title tag and the known one with a blank name"
+    );
+    assert_eq!(o.no_genre, 0);
 }
 
 #[test]
@@ -906,8 +1061,16 @@ fn a_track_is_missing_art_when_its_linked_files_tags_hold_no_picture() {
         json!({"vorbis_comments": [binary("METADATA_BLOCK_PICTURE", 9_000)]}),
     );
     with(
+        "FLAC cover with a description",
+        json!({"vorbis_comments": [binary("METADATA_BLOCK_PICTURE:Front cover", 9_000)]}),
+    );
+    with(
         "APE cover",
         json!({"ape": [binary("Cover Art (Front)", 9_000)]}),
+    );
+    with(
+        "APE cover in lower case",
+        json!({"ape": [binary("cover art (back)", 9_000)]}),
     );
     // Not covers: other binary frames, an empty picture, a picture named in text.
     with(
@@ -1075,6 +1238,51 @@ fn awkward_library() -> Lib {
     );
     lib.exec("UPDATE file SET present = 0 WHERE id = ?1", [other]);
     lib.add(gone_sibling, linked, 1);
+    // The track's own artist and title win over rekordbox and the tags.
+    let (own, _) = lib.library_track("Own artist", None, id3(None, None, Some("House")));
+    lib.exec(
+        "UPDATE recording SET title = 'Mine', artist = 'Me' WHERE id = ?1",
+        [own],
+    );
+    lib.rekordbox(
+        file_of(&lib, "Own artist"),
+        json!({"Name": "", "Artist": "", "Genre": "House"}),
+        false,
+    );
+    // The title is in another file of the track, not the linked one.
+    let title_sibling = lib.track("Title in a sibling file");
+    let linked = lib.file(
+        title_sibling,
+        "Title sibling linked.mp3",
+        None,
+        id3(None, Some("B"), Some("House")),
+    );
+    lib.other_file(
+        title_sibling,
+        "Title sibling other.mp3",
+        id3(Some("A"), None, None),
+    );
+    lib.add(title_sibling, linked, 1);
+    // A known track with a blank name, and a gone file with no title tag.
+    lib.library_track(
+        "Known blank name",
+        None,
+        id3(Some("A"), Some("B"), Some("House")),
+    );
+    lib.rekordbox(
+        file_of(&lib, "Known blank name"),
+        json!({"Name": " ", "Artist": "B", "Genre": "House"}),
+        false,
+    );
+    lib.library_track(
+        "Gone, no title tag",
+        None,
+        id3(None, Some("B"), Some("House")),
+    );
+    lib.exec(
+        "UPDATE file SET present = 0 WHERE rel_path = 'Gone, no title tag.mp3'",
+        [],
+    );
     // No linked file.
     let none = lib.track("No link");
     lib.exec(
@@ -1116,92 +1324,203 @@ fn awkward_library() -> Lib {
     lib
 }
 
+/// The ids the short way counts and the ids asking `shown_tags` about every
+/// track counts, sorted.
+fn both_ways(lib: &Lib) -> (Vec<i64>, Vec<i64>) {
+    lib.run(|c| {
+        let mut short = missing_tag_ids(c, &NoVolumes, false)?;
+        let mut long = missing_tag_ids(c, &NoVolumes, true)?;
+        short.sort_unstable();
+        long.sort_unstable();
+        Ok((short, long))
+    })
+}
+
 #[test]
 fn the_short_way_of_counting_missing_tags_agrees_with_asking_for_every_shown_value() {
     let lib = awkward_library();
-    let (short, long) = lib.run(|c| {
-        Ok((
-            missing_tags(c, &NoVolumes)?,
-            missing_tags_by(c, &NoVolumes, true)?,
-        ))
-    });
+    let (short, long) = both_ways(&lib);
     assert_eq!(short, long);
     // Not everything is missing, and not nothing.
-    let tracks = lib.overview().tracks;
-    assert!(short > 5 && short < tracks, "{short} of {tracks}");
+    let tracks = lib.overview().tracks as usize;
+    assert!(
+        short.len() > 5 && short.len() < tracks,
+        "{} of {tracks}",
+        short.len()
+    );
+    assert_eq!(lib.overview().missing_tags as usize, short.len());
+}
+
+/// splitmix64: a seeded, platform-independent random source.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+
+    /// Nothing, a blank, or a value.
+    fn text(&mut self) -> Option<&'static str> {
+        [None, Some("  "), Some("\0"), Some("Value"), Some("Value")][self.below(5) as usize]
+    }
+}
+
+/// A random block of tags in one of the formats, each of title, artist and
+/// genre absent, blank or filled, keys in either case.
+fn random_tags(rng: &mut Rng) -> Option<Value> {
+    let (title, artist, genre) = (rng.text(), rng.text(), rng.text());
+    let upper = rng.below(2) == 0;
+    let pick = |upper: bool, a: &'static str, b: &'static str| if upper { a } else { b };
+    let frames = |keys: [&'static str; 3]| -> Vec<Value> {
+        [title, artist, genre]
+            .into_iter()
+            .zip(keys)
+            .filter_map(|(value, key)| value.map(|v| text(key, v)))
+            .collect()
+    };
+    match rng.below(6) {
+        0 => None,
+        1 => Some(json!({})),
+        2 => Some(json!({"id3v2": frames(["TIT2", "TPE1", "TCON"])})),
+        3 => Some(json!({"vorbis_comments": frames([
+            pick(upper, "TITLE", "title"), pick(upper, "ARTIST", "artist"), pick(upper, "GENRE", "genre")])})),
+        4 => Some(json!({"ape": frames(["Title", "Artist", "Genre"]),
+                         "id3v1": frames(["title", "artist", "genre"])})),
+        _ => Some(json!({"riff_info": frames(["INAM", "IART", "IGNR"])})),
+    }
+}
+
+/// `count` random Library tracks: some without a linked file, some with a
+/// gone one, some with a second file of the track (on disk or gone), the
+/// track's own title and artist set now and then, and up to two rekordbox
+/// entries (some only probable) with names, artists and genres absent,
+/// blank or filled.
+fn random_library(seed: u64, count: usize) -> Lib {
+    let lib = Lib::new();
+    let mut rng = Rng(seed);
+    for n in 0..count {
+        let track = lib.track("Random");
+        let own = |rng: &mut Rng| match rng.below(4) {
+            0 => Some("Own".to_owned()),
+            1 => Some(" ".to_owned()),
+            _ => None,
+        };
+        lib.exec(
+            "UPDATE recording SET title = ?1, artist = ?2 WHERE id = ?3",
+            (own(&mut rng), own(&mut rng), track),
+        );
+        let mut files = Vec::new();
+        if rng.below(8) != 0 {
+            let tags = random_tags(&mut rng);
+            files.push(lib.file(track, &format!("Random {n}.mp3"), None, tags));
+            if rng.below(3) == 0 {
+                let tags = random_tags(&mut rng);
+                files.push(lib.other_file(track, &format!("Random {n} other.mp3"), tags));
+            }
+            for file in &files {
+                if rng.below(5) == 0 {
+                    lib.exec("UPDATE file SET present = 0 WHERE id = ?1", [*file]);
+                }
+            }
+        }
+        match files.first() {
+            Some(linked) => {
+                lib.add(track, *linked, 1);
+            }
+            None => {
+                lib.exec(
+                    "INSERT INTO library_track (recording_id, linked_file_id, source_status)
+                     VALUES (?1, NULL, 'missing')",
+                    [track],
+                );
+            }
+        }
+        for _ in 0..rng.below(3) {
+            if files.is_empty() {
+                break;
+            }
+            let file = files[rng.below(files.len() as u64) as usize];
+            let mut attributes = serde_json::Map::new();
+            for key in ["Name", "Artist", "Genre"] {
+                if let Some(value) = rng.text() {
+                    attributes.insert(key.to_owned(), json!(value));
+                }
+            }
+            attributes.insert("PlayCount".to_owned(), json!(rng.below(3).to_string()));
+            let probable = rng.below(4) == 0;
+            lib.rekordbox(file, Value::Object(attributes), probable);
+        }
+    }
+    lib
+}
+
+#[test]
+fn the_short_way_agrees_with_asking_for_every_track_on_four_hundred_random_ones() {
+    // A fixed seed: the same four hundred tracks on every run.
+    let lib = random_library(0x2026_1012, 400);
+    let (short, long) = both_ways(&lib);
+    assert_eq!(short, long);
+    let tracks = lib.overview().tracks as usize;
+    assert!(
+        short.len() > tracks / 4 && short.len() < tracks,
+        "{} of {tracks}",
+        short.len()
+    );
 }
 
 // Still counting.
 
 #[test]
-fn with_no_jobs_and_nothing_stale_nothing_is_counting() {
+fn with_no_jobs_nothing_is_counting_whatever_is_stale() {
     let lib = Lib::new();
     lib.library_track("Alpha", None, None);
+    assert_eq!(lib.overview().counting, Counting::default());
     settle(&lib);
     assert_eq!(lib.overview().counting, Counting::default());
 }
 
 #[test]
-fn a_queued_or_running_job_holds_its_flag_and_a_finished_failed_or_cancelled_one_does_not() {
-    for (kind, queued, running) in [
-        (
-            "scan",
-            Counting {
-                files: true,
-                ..Counting::default()
-            },
-            "read",
-        ),
-        (
-            "group",
-            Counting {
-                files: true,
-                ..Counting::default()
-            },
-            "scan",
-        ),
-        (
-            "read_rekordbox",
-            Counting {
-                rekordbox: true,
-                ..Counting::default()
-            },
-            "relink",
-        ),
-        (
-            "attach",
-            Counting {
-                rekordbox: true,
-                ..Counting::default()
-            },
-            "relink",
-        ),
-        (
-            "quality",
-            Counting {
-                quality: true,
-                ..Counting::default()
-            },
-            "quality",
-        ),
+fn a_queued_or_running_job_holds_exactly_its_flag_and_a_finished_failed_or_cancelled_one_holds_none(
+) {
+    let flags = |files, rekordbox, quality| Counting {
+        files,
+        rekordbox,
+        quality,
+    };
+    for (kind, held) in [
+        ("scan", flags(true, false, false)),
+        ("read", flags(true, false, false)),
+        ("group", flags(true, false, false)),
+        ("read_rekordbox", flags(false, true, false)),
+        ("relink", flags(false, true, false)),
+        ("attach", flags(false, true, false)),
+        ("quality", flags(false, false, true)),
     ] {
-        let lib = Lib::new();
-        lib.job(kind, "queued");
-        assert_eq!(lib.overview().counting, queued, "{kind} queued");
-
-        let lib = Lib::new();
-        lib.job(running, "running");
-        assert!(
-            lib.overview().counting != Counting::default(),
-            "{running} running"
-        );
-
+        for status in ["queued", "running"] {
+            let lib = Lib::new();
+            lib.job(kind, status);
+            assert_eq!(lib.overview().counting, held, "{kind} {status}");
+        }
         let lib = Lib::new();
         for status in ["done", "failed", "cancelled"] {
             lib.job(kind, status);
         }
         assert_eq!(lib.overview().counting, Counting::default(), "{kind} ended");
     }
+    // Several at once hold all their flags.
+    let lib = Lib::new();
+    lib.job("scan", "running");
+    lib.job("attach", "queued");
+    lib.job("quality", "queued");
+    assert_eq!(lib.overview().counting, flags(true, true, true));
 }
 
 #[test]
@@ -1379,8 +1698,8 @@ fn check_a_library_of(count: i64) {
     assert_eq!(i64::from(o.all_music), count);
     if count <= 5_000 {
         // The short way of counting missing tags is the long way.
-        let long = lib.run(|c| missing_tags_by(c, &NoVolumes, true));
-        assert_eq!(o.missing_tags, long);
+        let long = lib.run(|c| missing_tag_ids(c, &NoVolumes, true)).len();
+        assert_eq!(o.missing_tags as usize, long);
     }
     // Known tracks (every third) take rekordbox's artist, absent for every
     // seventh; the rest take the tag's, absent for every fourth. The title is

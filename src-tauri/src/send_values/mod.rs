@@ -75,8 +75,8 @@ use crate::library::{file_from, LibraryTrackId, StoredFile, FILE_COLUMNS, FILE_J
 use crate::paths::Volumes;
 
 pub use shown::{
-    shown, shown_fields, shown_recording_fields, shown_recordings, shown_removed, Removed, Shown,
-    ShownFields,
+    shown, shown_fields, shown_recording_fields, shown_recordings, shown_removed, shown_tags,
+    Removed, Shown, ShownFields,
 };
 pub(crate) use tag_fields::read_only as tag_values;
 pub use tag_fields::TAG_ATTRIBUTES;

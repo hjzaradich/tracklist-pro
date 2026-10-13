@@ -17,22 +17,26 @@
 //! - *Unsent changes* ("Send N changes"): defined with the Send button
 //!   (1cB-11), from `send::preflight`.
 //! - *How many need a decision*: the Review screen's read model (1bD-1/2).
-//! - *Missing tags or art*: nothing says which tags or what counts as art.
+//! - **Missing tags** is a Library track with no title, no artist or no
+//!   genre ([`missing_tags`]); **missing art** one whose linked file holds
+//!   no picture ([`MISSING_ART`]).
 //!
-//! **Cost.** Every number is an aggregate SQL statement on the read pool;
-//! no row is loaded to be counted in Rust. The Library's numbers come from
-//! one pass over `library_track` that looks the rest up by primary key or
-//! index ([`LIBRARY`]); a test reads each statement's query plan to prove
-//! nothing else is scanned. The genres statement groups the tracks by what
-//! their tags say and Rust reads the *distinct* groups only ([`genres`]).
+//! **Cost.** Every number is an aggregate SQL statement on the read pool.
+//! The Library's numbers come from one pass over `library_track` that looks
+//! the rest up by primary key or index; a test reads each statement's query
+//! plan to prove nothing else is scanned. The genres statement groups the
+//! tracks by what their tags say and Rust reads the *distinct* groups only
+//! ([`genres`]). Missing tags is the exception: its statement hands Rust one
+//! small row per Library track, and `shown` is asked only about the tracks
+//! those rows can't settle.
 //!
 //! **Still counting** ([`Counting`]): a flag per source of numbers that can
 //! change while background work runs. A flag is true while a job of one of
-//! its kinds is queued or running (a failed or cancelled job holds
-//! nothing), and for `quality` also while any Library file's verdict is
-//! missing or stale, since a stale verdict is no verdict ([`crate::quality`]).
+//! its kinds is queued or running, and only then: a failed or cancelled job
+//! holds nothing, and neither does a stale verdict with no job to settle it
+//! (a stale verdict is no verdict: it isn't counted as low quality).
 //!
-//! **One place to change** each choice still waiting on the owner:
+//! **One place to change** each choice the owner answered (2026-10-12):
 //! [`COUNT_UNDONE_OPERATIONS`], [`THIS_WEEK`] and [`BLANK_GENRE_FALLS_BACK`].
 //! The crate count is `crate_entry` rows of kind `member` ([`IN_A_CRATE`]);
 //! playlists arrive in Phase 3.
@@ -57,18 +61,17 @@ use crate::scan::system_volumes;
 mod tests;
 
 /// Whether an operation that was undone still counts as a decision made
-/// (owner question; the default is no: a decision taken back no longer
-/// stands).
+/// (owner decision: no, a decision taken back no longer stands).
 pub const COUNT_UNDONE_OPERATIONS: bool = false;
 
 /// How far back "this week" reaches: a rolling week ending now, in UTC
-/// (owner question; the default is the last 7 days, not the calendar week).
-/// It is an SQLite date modifier.
+/// (owner decision: the last 7 days, not the calendar week). It is an
+/// SQLite date modifier.
 pub const THIS_WEEK: &str = "-7 days";
 
 /// Whether a track rekordbox knows, but whose genre in rekordbox is blank,
-/// takes the genre of its file's tag (owner question; the default is no:
-/// rekordbox's blank is the answer).
+/// takes the genre of its file's tag (owner decision: no, rekordbox's blank
+/// is the answer).
 pub const BLANK_GENRE_FALLS_BACK: bool = false;
 
 /// The verdicts that make a track "made from a low-quality file".
@@ -111,8 +114,7 @@ pub struct Counting {
     /// Rekordbox's data is being read, matched or attached: analyzed and
     /// genres (from rekordbox).
     pub rekordbox: bool,
-    /// A quality job is queued or running, or a Library file's verdict is
-    /// missing or stale: the low-quality count.
+    /// A quality job is queued or running: the low-quality count.
     pub quality: bool,
 }
 
@@ -165,8 +167,9 @@ pub struct Overview {
 /// is looked up by its primary key or an index. `?1` is the start of this
 /// week.
 ///
-/// `q` is 0 for a track with no verdict to read, 1 for a flagged file whose
-/// verdict is current, and 2 for a file whose verdict is missing or stale.
+/// `q` is 1 for a flagged file whose verdict is current and 0 for any other
+/// track: a missing or stale verdict is no verdict, never `ok`, and isn't
+/// counted.
 fn library_sql() -> String {
     format!(
         "SELECT count(*),
@@ -174,13 +177,11 @@ fn library_sql() -> String {
                 coalesce(sum(s.in_a_crate), 0),
                 coalesce(sum(s.analyzed), 0),
                 coalesce(sum(s.q = 1), 0),
-                coalesce(sum(s.q = 2), 0),
                 coalesce(sum(s.added >= ?1), 0)
          FROM (SELECT f.duration_ms AS duration_ms,
                       {IN_A_CRATE} AS in_a_crate,
                       {ANALYZED} AS analyzed,
-                      CASE WHEN f.id IS NULL THEN 0
-                           WHEN {stale} THEN 2
+                      CASE WHEN f.id IS NULL OR {stale} THEN 0
                            WHEN v.verdict IN ({LOW_QUALITY_VERDICTS}) THEN 1
                            ELSE 0 END AS q,
                       lt.added_at AS added
@@ -233,12 +234,13 @@ fn genres_sql() -> String {
 }
 
 /// The frames of a file's tags that `send_values::tag_fields` maps to
-/// `Genre` (and, with `artist`, to `Artist`), as a condition on a block
-/// (`blk.key`) and an item (`i.value`) of `raw_tags`. Keys are the ones the
-/// tags layer writes: `TCON` / `TPE1` (ID3v2), `©gen` / `©ART` (MP4), `genre`
-/// / `artist` in any case (Vorbis, APE), `IGNR` / `IART` (RIFF INFO), and
-/// for the artist `AUTH` (AIFF) and `artist` (ID3v1).
-fn frame_filter(artist: bool) -> String {
+/// `Genre` (and, with `more`, to `Name` and `Artist`), as a condition on a
+/// block (`blk.key`) and an item (`i.value`) of `raw_tags`. Keys are the ones
+/// the tags layer writes: `TCON` / `TIT2` / `TPE1` (ID3v2), `©gen` /
+/// `©nam` / `©ART` (MP4), `genre` / `title` / `artist` in any case
+/// (Vorbis, APE), `IGNR` / `INAM` / `IART` (RIFF INFO), and for the title and
+/// artist `NAME` and `AUTH` (AIFF) and `title` and `artist` (ID3v1).
+fn frame_filter(more: bool) -> String {
     let key = "json_extract(i.value, '$.key')";
     let mut keys = format!(
         "(blk.key = 'id3v2' AND {key} = 'TCON')
@@ -246,15 +248,15 @@ fn frame_filter(artist: bool) -> String {
          OR (blk.key IN ('vorbis_comments', 'ape') AND lower({key}) = 'genre')
          OR (blk.key = 'riff_info' AND {key} = 'IGNR')"
     );
-    if artist {
+    if more {
         keys += &format!(
             "
-         OR (blk.key = 'id3v2' AND {key} = 'TPE1')
-         OR (blk.key = 'mp4_ilst' AND {key} = char(169) || 'ART')
-         OR (blk.key IN ('vorbis_comments', 'ape') AND lower({key}) = 'artist')
-         OR (blk.key = 'riff_info' AND {key} = 'IART')
-         OR (blk.key = 'aiff_text' AND {key} = 'AUTH')
-         OR (blk.key = 'id3v1' AND {key} = 'artist')"
+         OR (blk.key = 'id3v2' AND {key} IN ('TIT2', 'TPE1'))
+         OR (blk.key = 'mp4_ilst' AND {key} IN (char(169) || 'nam', char(169) || 'ART'))
+         OR (blk.key IN ('vorbis_comments', 'ape') AND lower({key}) IN ('title', 'artist'))
+         OR (blk.key = 'riff_info' AND {key} IN ('INAM', 'IART'))
+         OR (blk.key = 'aiff_text' AND {key} IN ('NAME', 'AUTH'))
+         OR (blk.key = 'id3v1' AND {key} IN ('title', 'artist'))"
         );
     }
     keys
@@ -369,12 +371,14 @@ const MISSING_ART: &str = "SELECT count(*) FROM library_track lt
              OR (blk.key = 'ape'
                  AND lower(substr(json_extract(i.value, '$.key'), 1, 9)) = 'cover art')))";
 
-/// Each Library track with what its shown title and artist (and its genre)
-/// are made of, for [`missing_tags`]:
-/// `(id, rb, title, linked, present, known_artist, digest)`.
+/// Each Library track with what its title, artist and genre are made of,
+/// for [`missing_tags`]: `(id, rb, own_title, own_artist, linked, present,
+/// known_name, known_artist, digest)`.
 ///
-/// `digest` holds the linked file's genre and artist frames, as
-/// [`genre_source_sql`] does for the genre alone.
+/// `known_name` and `known_artist` are the `Name` and `Artist` of the
+/// trusted rekordbox entry for the linked file (`NULL` when there is none,
+/// `''` for a blank one). `digest` holds the linked file's genre, title
+/// and artist frames, as [`genre_source_sql`] does for the genre alone.
 fn missing_tags_sql() -> String {
     let tag_needed = if BLANK_GENRE_FALLS_BACK {
         "s.rb IS NULL OR trim(s.rb) = '' OR s.ka IS NULL"
@@ -382,7 +386,7 @@ fn missing_tags_sql() -> String {
         "s.rb IS NULL OR s.ka IS NULL"
     };
     format!(
-        "SELECT s.id, s.rb, s.title, s.fid, s.present, s.ka,
+        "SELECT s.id, s.rb, s.title, s.artist, s.fid, s.present, s.kn, s.ka,
                 CASE WHEN s.fid IS NOT NULL AND ({tag_needed}) THEN (
                     SELECT json_group_object(b.block, json(b.items)) FROM (
                         SELECT blk.key AS block, json_group_array(json(i.value)) AS items
@@ -390,8 +394,13 @@ fn missing_tags_sql() -> String {
                         WHERE f.id = s.fid AND json_type(blk.value) = 'array' AND ({frames})
                         GROUP BY blk.key) b) END AS digest
          FROM (SELECT lt.id AS id, lt.linked_file_id AS fid, r.title AS title,
-                      f.present AS present,
+                      r.artist AS artist, f.present AS present,
                       {rekordbox_genre} AS rb,
+                      (SELECT coalesce(CAST(json_extract(k.attributes, '$.Name') AS TEXT), '')
+                       FROM rekordbox_track k
+                       WHERE k.file_id = lt.linked_file_id AND k.relink_probable = 0
+                       ORDER BY COALESCE(k.play_count, 0) DESC, k.track_id
+                       LIMIT 1) AS kn,
                       (SELECT coalesce(CAST(json_extract(k.attributes, '$.Artist') AS TEXT), '')
                        FROM rekordbox_track k
                        WHERE k.file_id = lt.linked_file_id AND k.relink_probable = 0
@@ -405,43 +414,51 @@ fn missing_tags_sql() -> String {
     )
 }
 
-/// How many Library tracks lack a title, an artist or a genre.
+/// How many Library tracks lack a title, an artist or a genre (owner
+/// decision, ROADMAP 1.13).
 ///
-/// The title and the artist are the ones the lists show
-/// ([`crate::send_values::shown`]: rekordbox's for a track rekordbox knows,
-/// else the files' tags, the file's name standing in for a missing title),
-/// so a title that is only the file's name counts as a title, since it is
-/// what the list shows, and a track with a file always has one. The genre is
-/// the one of [`genres`].
+/// - **Title and artist** come from the same rules the lists use
+///   ([`crate::send_values::shown`]): the track's own, else rekordbox's
+///   `Name` and `Artist` for a track rekordbox knows, else the Title and
+///   Artist tags of its files. The one difference: **the file's name does not
+///   stand in for a missing title**. A track rekordbox doesn't know whose
+///   files have no Title tag has no title, and so does a known track whose
+///   `Name` in rekordbox is blank.
+/// - **Genre** is the one of [`genres`].
 ///
 /// One SQL pass hands over, per track, the few values those rules read
-/// (rekordbox's artist for the linked file, the linked file's genre and
-/// artist frames), and Rust applies the same rules to them, with the tag
-/// rules of the send. Only a track those values can't settle is asked of
-/// `shown` itself, in chunks: one with no linked file or a gone one
-/// (rekordbox may stand in by location), or whose linked file's tags give
-/// no artist (another file of the track may). `ask_all` sends every track
-/// there instead; the tests use it to prove the short way agrees.
+/// (rekordbox's name and artist for the linked file, the linked file's
+/// genre, title and artist frames), and Rust applies the same rules to them,
+/// with the tag rules of the send. Only a track those values can't settle is
+/// asked of `shown_tags` itself, in chunks: one with no linked file or a
+/// gone one (rekordbox may stand in by location), or whose linked file's
+/// tags lack a title or an artist (another file of the track may have it).
 pub fn missing_tags(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<u32> {
-    missing_tags_by(conn, volumes, false)
+    let ids = missing_tag_ids(conn, volumes, false)?;
+    Ok(u32::try_from(ids.len()).unwrap_or(u32::MAX))
 }
 
-fn missing_tags_by(
+/// The ids of the Library tracks [`missing_tags`] counts. `ask_all` sends
+/// every track to `shown_tags` instead of settling some by the values at
+/// hand; the tests use it to prove the short way agrees.
+fn missing_tag_ids(
     conn: &Connection,
     volumes: &impl Volumes,
     ask_all: bool,
-) -> rusqlite::Result<u32> {
+) -> rusqlite::Result<Vec<i64>> {
     let mut genre_known: HashMap<(Option<String>, Option<String>), bool> = HashMap::new();
-    let mut artist_known: HashMap<String, bool> = HashMap::new();
+    // What the linked file's frames give: (a title, an artist).
+    let mut frames_give: HashMap<String, (bool, bool)> = HashMap::new();
     let blank = |text: &str| text.trim().is_empty();
-    let mut missing = 0u32;
+    let filled = |text: &Option<String>| text.as_deref().is_some_and(|t| !blank(t));
+    let mut missing: Vec<i64> = Vec::new();
     let mut ask: Vec<i64> = Vec::new();
     let mut stmt = conn.prepare(&missing_tags_sql())?;
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
         let rb: Option<String> = row.get(1)?;
-        let digest: Option<String> = row.get(6)?;
+        let digest: Option<String> = row.get(8)?;
         let has_genre =
             *genre_known
                 .entry((rb, digest.clone()))
@@ -449,47 +466,66 @@ fn missing_tags_by(
                     genre_of(rb.as_deref(), digest.as_deref()).is_some()
                 });
         if !has_genre {
-            missing = missing.saturating_add(1);
+            missing.push(id);
             continue;
         }
-        let title: Option<String> = row.get(2)?;
-        let linked: Option<i64> = row.get(3)?;
-        let present: Option<bool> = row.get(4)?;
-        let known_artist: Option<String> = row.get(5)?;
-        let title_ok = title.as_deref().is_some_and(|t| !blank(t)) || linked.is_some();
-        // Settled by the values at hand: Some(has an artist).
-        let artist = match (&known_artist, present, &digest) {
-            _ if ask_all || !title_ok => None,
-            // rekordbox's entry for the linked file: its artist, blank or not.
-            (Some(artist), _, _) => Some(!blank(artist)),
-            // A linked file on disk: its tags, if they give one.
-            (None, Some(true), Some(digest)) => {
-                let given = *artist_known
-                    .entry(digest.clone())
-                    .or_insert_with_key(|digest| {
-                        crate::send_values::tag_values(digest, &["Artist"])
-                            .iter()
-                            .any(|v| !blank(&v.value))
-                    });
+        let own_title: Option<String> = row.get(2)?;
+        let own_artist: Option<String> = row.get(3)?;
+        let linked: Option<i64> = row.get(4)?;
+        let present: Option<bool> = row.get(5)?;
+        let known_name: Option<String> = row.get(6)?;
+        let known_artist: Option<String> = row.get(7)?;
+        // For one of title and artist: `Some(has one)` when the values at
+        // hand settle it, `None` when `shown_tags` has to.
+        let mut settle = |own: &Option<String>,
+                          known: &Option<String>,
+                          from_tags: &dyn Fn(&(bool, bool)) -> bool| {
+            if ask_all || linked.is_none() {
+                None
+            } else if filled(own) {
+                Some(true)
+            } else if known.is_some() {
+                // rekordbox's entry for the linked file: its value, blank or not.
+                Some(filled(known))
+            } else if present == Some(true) {
+                // A linked file on disk: its tags, if they give one. If not,
+                // another file of the track may.
+                let given = digest.as_ref().is_some_and(|digest| {
+                    from_tags(
+                        frames_give
+                            .entry(digest.clone())
+                            .or_insert_with_key(|digest| {
+                                let give = |name: &str| {
+                                    crate::send_values::tag_values(digest, &[name])
+                                        .iter()
+                                        .any(|v| !blank(&v.value))
+                                };
+                                (give("Name"), give("Artist"))
+                            }),
+                    )
+                });
                 given.then_some(true)
+            } else {
+                None
             }
-            _ => None,
         };
-        match artist {
-            Some(true) => {}
-            Some(false) => missing = missing.saturating_add(1),
-            None => ask.push(id),
+        let title = settle(&own_title, &known_name, &|g| g.0);
+        let artist = settle(&own_artist, &known_artist, &|g| g.1);
+        match (title, artist) {
+            (Some(true), Some(true)) => {}
+            (Some(false), _) | (_, Some(false)) => missing.push(id),
+            _ => ask.push(id),
         }
     }
     for chunk in ask.chunks(SHOWN_CHUNK) {
         let wanted: Vec<LibraryTrackId> = chunk.iter().map(|id| LibraryTrackId(*id)).collect();
-        let mut shown = crate::send_values::shown(conn, volumes, &wanted)?;
+        let mut shown = crate::send_values::shown_tags(conn, volumes, &wanted)?;
         for id in chunk {
             let (title, artist) = shown
                 .remove(&LibraryTrackId(*id))
                 .map_or((None, None), crate::send_values::Shown::into_options);
             if title.is_none() || artist.is_none() {
-                missing = missing.saturating_add(1);
+                missing.push(*id);
             }
         }
     }
@@ -501,7 +537,7 @@ const SHOWN_CHUNK: usize = 5_000;
 
 /// Which sources have background work going, from the queued and running
 /// jobs.
-fn counting(conn: &Connection, verdicts_unsettled: bool) -> rusqlite::Result<Counting> {
+fn counting(conn: &Connection) -> rusqlite::Result<Counting> {
     let mut stmt =
         conn.prepare("SELECT DISTINCT kind FROM job WHERE status IN ('queued', 'running')")?;
     let kinds: HashSet<String> = stmt
@@ -511,7 +547,7 @@ fn counting(conn: &Connection, verdicts_unsettled: bool) -> rusqlite::Result<Cou
     Ok(Counting {
         files: any(&FILE_JOBS),
         rekordbox: any(&REKORDBOX_JOBS),
-        quality: verdicts_unsettled || any(&QUALITY_JOBS),
+        quality: any(&QUALITY_JOBS),
     })
 }
 
@@ -532,7 +568,7 @@ pub fn overview_at(
 
     let since: String =
         conn.query_row(&format!("SELECT {}", week_start()), [now_ms], |r| r.get(0))?;
-    let (tracks, length, in_crates, analyzed, flagged, unsettled, added) =
+    let (tracks, length, in_crates, analyzed, flagged, added) =
         conn.query_row(&library_sql(), params![since], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
@@ -541,7 +577,6 @@ pub fn overview_at(
                 r.get::<_, i64>(3)?,
                 r.get::<_, i64>(4)?,
                 r.get::<_, i64>(5)?,
-                r.get::<_, i64>(6)?,
             ))
         })?;
     let tracks = count(tracks);
@@ -556,7 +591,7 @@ pub fn overview_at(
     let (genres, no_genre) = genres(conn, tracks)?;
     let missing_tags = missing_tags(conn, volumes)?;
     let missing_art = conn.query_row(MISSING_ART, [], |r| r.get::<_, i64>(0))?;
-    let counting = counting(conn, unsettled > 0)?;
+    let counting = counting(conn)?;
     drop(tx);
 
     Ok(Overview {

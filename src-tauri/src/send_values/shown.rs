@@ -128,11 +128,21 @@ impl Loaded {
     }
 
     fn shown(&self, row: &Row) -> Shown {
+        self.shown_with(row, true)
+    }
+
+    /// [`Loaded::shown`], with or without the file's name standing in for
+    /// a missing title.
+    fn shown_with(&self, row: &Row, name_fallback: bool) -> Shown {
         let picked = self.picked(row, &NAMES);
         compose(
             (row.title.as_deref(), row.artist.as_deref()),
             (picked[0].as_deref(), picked[1].as_deref()),
-            self.file_name_of(row),
+            if name_fallback {
+                self.file_name_of(row)
+            } else {
+                ""
+            },
         )
     }
 }
@@ -149,6 +159,21 @@ pub fn shown(
     Ok(ids
         .iter()
         .filter_map(|&id| Some((id, loaded.shown(loaded.rows.get(&id.0)?))))
+        .collect())
+}
+
+/// [`shown`], except that a track with no title of its own, in rekordbox or
+/// in its tags has a blank title: the file's name doesn't stand in for it.
+/// For counting tracks whose tags are missing.
+pub fn shown_tags(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<HashMap<LibraryTrackId, Shown>> {
+    let loaded = load(conn, volumes, ids, Scope::Names)?;
+    Ok(ids
+        .iter()
+        .filter_map(|&id| Some((id, loaded.shown_with(loaded.rows.get(&id.0)?, false))))
         .collect())
 }
 
