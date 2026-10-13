@@ -342,7 +342,10 @@ fn a_track_whose_rekordbox_match_is_only_probable_cannot_be_added_so_it_is_never
 
     // And the add itself refuses, whoever asks.
     let refused = world
-        .try_call::<serde_json::Value>("promote_track", json!({ "recordingId": row.recording_id }))
+        .try_call::<serde_json::Value>(
+            "promote_track",
+            json!({ "recordingId": row.recording_id, "confirmLowBitrate": false }),
+        )
         .unwrap_err();
     assert_eq!(refused["kind"], "libraryMatchNotConfirmed");
     assert_eq!(world.library().len(), KNOWN.len());
