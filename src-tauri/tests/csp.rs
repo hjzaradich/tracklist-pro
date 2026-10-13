@@ -5,6 +5,12 @@
 //! the exact header text Tauri sends with every page. Tauri adds hashes for
 //! its own scripts and styles to that header when it builds the app; those
 //! aren't in the config and aren't checked here.
+//!
+//! One source is allowed beyond that, on purpose (owner decision,
+//! 2026-10-13, ROADMAP 1.11 "Audio"): the app's own preview protocol as a
+//! media source, so the player's audio element can play files the app serves
+//! by id (`audio_preview`). It is allowed in `media-src` only, and is the
+//! only thing that directive holds.
 
 use tauri::utils::config::{Config, Csp, DisabledCspModificationKind};
 
@@ -33,12 +39,18 @@ fn sources<'a>(directives: &'a [(String, Vec<String>)], name: &str) -> Option<&'
         .map(|(_, s)| s.as_slice())
 }
 
+/// The preview protocol, as WebView2 on Windows spells a custom scheme:
+/// `http://<scheme>.localhost`.
+const PREVIEW_SOURCE: &str = "http://audio-preview.localhost";
+
 /// What each directive may contain beyond `'self'` and `'none'`. Tauri's
 /// IPC calls go to `ipc://localhost`, which WebView2 on Windows spells
-/// `http://ipc.localhost`. Nothing else is allowed anywhere.
+/// `http://ipc.localhost`; the preview player's audio comes from the
+/// app's own protocol. Nothing else is allowed anywhere.
 fn extra_sources_allowed(directive: &str) -> &'static [&'static str] {
     match directive {
         "connect-src" => &["ipc:", "http://ipc.localhost"],
+        "media-src" => &[PREVIEW_SOURCE],
         _ => &[],
     }
 }
@@ -169,6 +181,30 @@ fn the_app_csp_allows_tauri_ipc() {
     }
 }
 
+#[test]
+fn the_app_csp_allows_exactly_one_media_source_the_preview_protocol() {
+    let config = config();
+    let policy = config.app.security.csp.expect("a CSP").to_string();
+    let directives = directives(&policy);
+    assert_eq!(
+        sources(&directives, "media-src"),
+        Some([PREVIEW_SOURCE.to_owned()].as_slice()),
+        "media-src must list the preview protocol and nothing else"
+    );
+}
+
+#[test]
+fn the_preview_source_is_the_one_the_app_registers() {
+    // The scheme the app serves previews on, spelled as WebView2 does.
+    assert_eq!(
+        PREVIEW_SOURCE,
+        format!(
+            "http://{}.localhost",
+            tracklist_pro_lib::audio_preview::SCHEME
+        )
+    );
+}
+
 // The checks above are only as good as `problems`, so it's tested too.
 
 #[test]
@@ -234,6 +270,54 @@ fn the_check_rejects_unsafe_eval_and_unsafe_inline() {
     ] {
         let loose = strict_with("script-src", &format!("'self' {source}"));
         assert_one_problem(&loose, &format!("allows {}", source.to_lowercase()));
+    }
+}
+
+#[test]
+fn the_check_allows_the_preview_source_in_media_src_only() {
+    assert_eq!(
+        problems_in(&strict_with("media-src", PREVIEW_SOURCE)),
+        Vec::<String>::new()
+    );
+    // Anywhere else it is a loosening, one problem each.
+    for directive in [
+        "script-src",
+        "style-src",
+        "img-src",
+        "font-src",
+        "connect-src",
+    ] {
+        assert_one_problem(
+            &strict_with(directive, &format!("'self' {PREVIEW_SOURCE}")),
+            &format!("allows {PREVIEW_SOURCE}"),
+        );
+    }
+}
+
+#[test]
+fn the_check_rejects_every_other_media_source() {
+    for source in [
+        "*",
+        "http:",
+        "https:",
+        "blob:",
+        "data:",
+        "mediastream:",
+        "filesystem:",
+        "https://example.com",
+        "http://localhost:1420",
+        "http://ipc.localhost",
+        "audio-preview:",
+        "http://audio-preview.localhost.example.com",
+        "http://audio-preview.localhost:8080",
+        "https://audio-preview.localhost",
+        "http://other.localhost",
+        "http://asset.localhost",
+    ] {
+        assert_one_problem(
+            &strict_with("media-src", &format!("{PREVIEW_SOURCE} {source}")),
+            &format!("allows {source}"),
+        );
     }
 }
 

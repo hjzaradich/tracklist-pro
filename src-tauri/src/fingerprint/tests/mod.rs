@@ -1,7 +1,7 @@
 //! Behavior tests for fingerprints (1aB-7). The audio is generated in code
 //! (`audio`), never committed.
 
-mod audio;
+pub(crate) mod audio;
 mod decoding;
 mod format;
 mod golden;

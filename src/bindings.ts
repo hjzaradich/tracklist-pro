@@ -212,6 +212,27 @@ export const commands = {
 	 *  Library.
 	 */
 	allMusicTracks: (search: string | null) => typedError<AllMusicList, IpcError>(__TAURI_INVOKE("all_music_tracks", { search })),
+	/**
+	 *  Whether file `file_id` can be played, and if not why: `None` means it
+	 *  can. The same check the protocol makes before it answers, so the player
+	 *  can show the reason when its audio element reports a failure.
+	 */
+	previewCheck: (fileId: number) => __TAURI_INVOKE<
+/**  No such file, or not in a music folder the app knows. */
+"unknown_file" | 
+/**  The last scan didn't find it, or it isn't there now. */
+"missing" | 
+/**  Its drive isn't connected. */
+"drive_not_connected" | 
+/**
+ *  A OneDrive file that isn't on this PC. Never opened: reading it
+ *  would download it.
+ */
+"online_only" | 
+/**  The OS wouldn't read it (locked, no access, an I/O error). */
+"unreadable" | 
+/**  Not a format the player can play, or damaged beyond decoding. */
+"not_decodable" | null>("preview_check", { fileId }),
 	/**  Every number the Overview screen shows, as of now. */
 	overview: () => typedError<Overview, IpcError>(__TAURI_INVOKE("overview")),
 	/**
@@ -860,6 +881,11 @@ export type LibraryTrackKind =
 /**  The file a linked Library track plays, as the frontend sees it. */
 export type LinkedFile = {
 	/**
+	 *  The file's id (`file.id`): what the preview player is given to play
+	 *  it (1cA-7).
+	 */
+	id: number,
+	/**
 	 *  Where the file is, e.g. `E:\DJ Music\a.mp3`: under its volume's
 	 *  mount point now, or where that was last seen if the volume is
 	 *  offline.
@@ -1194,6 +1220,24 @@ export type Preflight = {
 	 */
 	needsConfirm: boolean,
 };
+
+/**  Why a file can't be previewed. The player shows a line for each. */
+export type PreviewRefusal = 
+/**  No such file, or not in a music folder the app knows. */
+"unknown_file" | 
+/**  The last scan didn't find it, or it isn't there now. */
+"missing" | 
+/**  Its drive isn't connected. */
+"drive_not_connected" | 
+/**
+ *  A OneDrive file that isn't on this PC. Never opened: reading it
+ *  would download it.
+ */
+"online_only" | 
+/**  The OS wouldn't read it (locked, no access, an I/O error). */
+"unreadable" | 
+/**  Not a format the player can play, or damaged beyond decoding. */
+"not_decodable";
 
 /**  What asking to add a track to the Library came to. */
 export type PromoteOutcome = 

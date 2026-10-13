@@ -5,6 +5,7 @@ use tauri::{Builder, Manager, RunEvent, Runtime};
 pub mod after_send;
 pub mod all_music;
 pub mod attach;
+pub mod audio_preview;
 pub mod best_file;
 pub mod conflicts;
 pub mod crates;
@@ -131,7 +132,7 @@ enum StartupAsks {
 /// [`setup`], with the startup asking chosen.
 fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupAsks) -> Builder<R> {
     let specta = ipc::specta_builder::<R>();
-    builder
+    audio_preview::register(builder)
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {

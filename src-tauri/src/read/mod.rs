@@ -45,7 +45,7 @@
 mod codec;
 mod file;
 
-pub use codec::Codec;
+pub use codec::{codec as codec_of, Codec};
 #[cfg(test)]
 pub(crate) use file::read as read_one;
 pub use file::{FileRead, NotRead, Verdict};

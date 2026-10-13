@@ -103,4 +103,4 @@ pub fn raise(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

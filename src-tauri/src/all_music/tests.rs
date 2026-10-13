@@ -84,12 +84,17 @@ impl Lib {
 
     /// A track with one best file on disk.
     fn track(&self, title: Option<&str>, artist: Option<&str>, file: &str) -> i64 {
+        self.track_and_file(title, artist, file).0
+    }
+
+    /// [`Lib::track`], and the id of its file.
+    fn track_and_file(&self, title: Option<&str>, artist: Option<&str>, file: &str) -> (i64, i64) {
         let track = self.insert(
             "INSERT INTO recording (title, artist) VALUES (?1, ?2)",
             (title.map(str::to_owned), artist.map(str::to_owned)),
         );
-        self.file(track, file, "best", true);
-        track
+        let file = self.file(track, file, "best", true);
+        (track, file)
     }
 
     fn file(&self, track: i64, name: &str, role: &str, present: bool) -> i64 {
@@ -148,7 +153,7 @@ fn with_no_tracks_the_list_is_empty() {
 #[test]
 fn each_track_is_listed_with_its_title_artist_and_file() {
     let lib = Lib::new();
-    let track = lib.track(Some("Tune"), Some("Someone"), "Sub/tune.mp3");
+    let (track, file) = lib.track_and_file(Some("Tune"), Some("Someone"), "Sub/tune.mp3");
 
     let list = lib.list("");
     assert_eq!(list.total, 1);
@@ -159,6 +164,7 @@ fn each_track_is_listed_with_its_title_artist_and_file() {
             title: Some("Tune".to_owned()),
             artist: Some("Someone".to_owned()),
             file: Some(LinkedFile {
+                id: file,
                 path: r"E:\Music\Sub\tune.mp3".to_owned(),
                 name: "tune.mp3".to_owned(),
                 present: true,
