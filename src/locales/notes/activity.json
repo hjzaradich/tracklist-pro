@@ -81,7 +81,8 @@
   },
   "task.index": {
     "purpose": "Names the job that brings the search index up to date after tracks, tags or file names changed.",
-    "where": "Top bar, Activity status and list rows, briefly after a scan, a rekordbox read or a change to a track, while the search words of the changed tracks are worked out."
+    "where": "Top bar, Activity status and list rows, briefly after a scan, a rekordbox read or a change to a track, while the search words of the changed tracks are worked out.",
+    "approved": "Updating search"
   },
   "percent": {
     "purpose": "A task name with its progress.",
