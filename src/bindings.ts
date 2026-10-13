@@ -377,10 +377,7 @@ export type Counting = {
 	 *  genres (from rekordbox).
 	 */
 	rekordbox: boolean,
-	/**
-	 *  A quality job is queued or running, or a Library file's verdict is
-	 *  missing or stale: the low-quality count.
-	 */
+	/**  A quality job is queued or running: the low-quality count. */
 	quality: boolean,
 };
 
