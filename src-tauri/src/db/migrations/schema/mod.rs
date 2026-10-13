@@ -5,6 +5,7 @@
 //! Every test uses a fresh database in a temp dir, never the real one.
 
 mod analysis_never_conflicts;
+mod conflict_ids;
 mod file_quality;
 mod file_roles;
 mod file_stage;
@@ -225,6 +226,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
             "search_track_idx",
         ],
     ),
+    // `conflict` ids are never reused, no tables.
+    ("0025_conflict_ids_never_reused.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

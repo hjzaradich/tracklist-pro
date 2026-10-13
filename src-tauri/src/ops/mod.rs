@@ -26,7 +26,8 @@
 //!
 //! Row ids name rows in the log, so a table that code outside the log
 //! inserts into must never reuse an id (`AUTOINCREMENT`; `sync_base`, which
-//! a send writes). A test scans the source for such inserts.
+//! a send writes, and `conflict`, which detecting conflicts writes). A test
+//! scans the source for such inserts.
 
 mod schema;
 

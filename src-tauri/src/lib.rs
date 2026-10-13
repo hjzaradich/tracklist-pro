@@ -6,6 +6,7 @@ pub mod after_send;
 pub mod all_music;
 pub mod attach;
 pub mod best_file;
+pub mod conflicts;
 pub mod crates;
 pub mod db;
 pub mod file_roles;

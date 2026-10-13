@@ -1340,7 +1340,8 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
             Ok(found)
         })
         .unwrap();
-    assert_eq!(never_reused, ["sync_base"]);
+    // `sync_base` since migration 0018, `conflict` since 0025.
+    assert_eq!(never_reused, ["sync_base", "conflict"]);
 
     let sources = app_sources();
     assert!(
@@ -1361,8 +1362,10 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
             );
         }
     }
-    // The scan does see the send's insert, so it isn't passing by blindness.
-    assert_eq!(seen, ["sync_base"]);
+    // The scan does see the inserts made outside the log (detecting
+    // conflicts, and a send), so it isn't passing by blindness.
+    seen.sort_unstable();
+    assert_eq!(seen, ["conflict", "sync_base"]);
 }
 
 #[test]
