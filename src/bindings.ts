@@ -153,6 +153,11 @@ export const commands = {
 	 *  `None` for every other kind.
 	 */
 	switch: SwitchOffer | null,
+	/**
+	 *  The match a "Confirm relink" item asks about. `None` for every other
+	 *  kind.
+	 */
+	relink: RelinkOffer | null,
 } | null, IpcError>(__TAURI_INVOKE("review_item", { id })),
 	/**  Dismisses a "Better file available" item, for that one better file. */
 	reviewDismissBetterFile: (recordingId: number, fileId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_dismiss_better_file", { recordingId, fileId })),
@@ -172,6 +177,18 @@ export const commands = {
 	 *  ones the screen showed, and no other item is switched.
 	 */
 	reviewAcceptClearBestFiles: (items: AcceptItem[]) => typedError<AcceptedAll, IpcError>(__TAURI_INVOKE("review_accept_clear_best_files", { items })),
+	/**
+	 *  Confirms a probable relink match: the rekordbox entry `entry_id` is the
+	 *  file `file_id`.
+	 */
+	reviewConfirmRelink: (entryId: number, fileId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_confirm_relink", { entryId, fileId })),
+	/**  "Not the same": the rekordbox entry `entry_id` is not the file `file_id`. */
+	reviewRejectRelink: (entryId: number, fileId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_reject_relink", { entryId, fileId })),
+	/**
+	 *  Withdraws the confirmation of the rekordbox entry `entry_id`'s Location:
+	 *  the entry is decided again from scratch. No screen calls it yet.
+	 */
+	reviewWithdrawRelink: (entryId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_withdraw_relink", { entryId })),
 	/**  Every Library track, sorted for the Library list (see [`list`]). */
 	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
 	/**
@@ -1327,6 +1344,20 @@ export type RefusalReason =
 /**  Whether rekordbox knows a file. */
 export type RekordboxUse = "unknown" | "probable" | "trusted";
 
+/**
+ *  What a "Confirm relink" item offers to decide: the file its entry is
+ *  probably matched to.
+ */
+export type RelinkOffer = {
+	/**  The matched file. */
+	fileId: number,
+	/**
+	 *  The user confirmed this very match before, and the file holds other
+	 *  audio now: it is asked again.
+	 */
+	confirmedBefore: boolean,
+};
+
 /**  Why a track is to be removed in rekordbox. */
 export type RemovalReason = 
 /**  The user removed the track from the Library. */
@@ -1363,6 +1394,11 @@ export type ReviewComparison = {
 	 *  `None` for every other kind.
 	 */
 	switch: SwitchOffer | null,
+	/**
+	 *  The match a "Confirm relink" item asks about. `None` for every other
+	 *  kind.
+	 */
+	relink: RelinkOffer | null,
 };
 
 /**  How many items wait, by group. */

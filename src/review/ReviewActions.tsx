@@ -133,7 +133,7 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
       <>
         <button
           type="button"
-          className={styles.button}
+          className={styles.primary}
           disabled={busy}
           onClick={() => confirm.mutate({ entryId, fileId })}
         >
