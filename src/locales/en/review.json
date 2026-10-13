@@ -11,7 +11,7 @@
   },
   "group": {
     "needsCloserLook": "Needs a closer look",
-    "clearBestFile": "Clear best file",
+    "clearBestFile": "Clearly best file",
     "qualityProblems": "Quality problems"
   },
   "queue": {
@@ -21,17 +21,17 @@
     "more": "Show more"
   },
   "item": {
-    "moreTracks_one": "and {{count, number}} more",
-    "moreTracks_other": "and {{count, number}} more",
+    "moreTracks_one": "({{count, number}} other)",
+    "moreTracks_other": "({{count, number}} others)",
     "trackName": "{{artist}} - {{title}}",
-    "untitled": "Untitled"
+    "untitled": "Unnamed track"
   },
   "kind": {
     "versionDoubt": "Possible version mix-up",
-    "heldSet": "Duplicates held back",
+    "heldSet": "Unclear duplicates",
     "sameRecording": "Same track twice in your Library",
-    "relink": "Confirm relink",
-    "clearBestFile": "Linked file gone, copy found",
+    "relink": "rekordbox match uncertain",
+    "clearBestFile": "File missing, copy found",
     "qualityProblem": "Quality problem",
     "betterFile": "Better file available"
   },

@@ -56,18 +56,22 @@
   },
   "lowBitrate.title": {
     "purpose": "Question asked before a low-bitrate file is added to the Library (owner decision 2026-10-10).",
-    "where": "All music, warning box above the list, after \"Add to Library\" on a track whose file has the low bitrate finding."
+    "where": "All music, warning box above the list, after \"Add to Library\" on a track whose file has the low bitrate finding.",
+    "approved": "Add “{{title}}” to your Library?"
   },
   "lowBitrate.detail": {
     "purpose": "Says why the add is being questioned: the file has a low bitrate, and such files are better left out.",
-    "where": "All music, warning box above the list, under the question."
+    "where": "All music, warning box above the list, under the question.",
+    "approved": "This file has a low bitrate ({{kbps}} kbps)"
   },
   "lowBitrate.addAnyway": {
     "purpose": "Adds the track to the Library despite the warning.",
-    "where": "All music, warning box, first button."
+    "where": "All music, warning box, first button.",
+    "approved": "Add anyway"
   },
   "lowBitrate.cancel": {
     "purpose": "Closes the warning and adds nothing.",
-    "where": "All music, warning box, second button (focused first)."
+    "where": "All music, warning box, second button (focused first).",
+    "approved": "Go back"
   }
 }

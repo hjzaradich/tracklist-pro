@@ -41,75 +41,93 @@
   },
   "group.needsCloserLook": {
     "purpose": "Heading of the queue group for decisions that take thought.",
-    "where": "Review screen, queue on the left, group heading."
+    "where": "Review screen, queue on the left, group heading.",
+    "approved": "Needs a closer look"
   },
   "group.clearBestFile": {
     "purpose": "Heading of the queue group where a Library track's linked file is gone and a copy is on disk.",
-    "where": "Review screen, queue on the left, group heading."
+    "where": "Review screen, queue on the left, group heading.",
+    "approved": "Clearly best file"
   },
   "group.qualityProblems": {
     "purpose": "Heading of the queue group for flagged files and better files for a linked file that is still there.",
-    "where": "Review screen, queue on the left, group heading."
+    "where": "Review screen, queue on the left, group heading.",
+    "approved": "Quality problems"
   },
   "queue.left_one": {
     "purpose": "How many items a group still has, when one.",
-    "where": "Review screen, queue on the left, beside a group heading."
+    "where": "Review screen, queue on the left, beside a group heading.",
+    "approved": "{{count, number}} item left"
   },
   "queue.left_other": {
     "purpose": "How many items a group still has.",
-    "where": "Review screen, queue on the left, beside a group heading."
+    "where": "Review screen, queue on the left, beside a group heading.",
+    "approved": "{{count, number}} items left"
   },
   "queue.empty": {
     "purpose": "Says nothing is waiting for a decision.",
-    "where": "Review screen, queue on the left, when all groups are empty."
+    "where": "Review screen, queue on the left, when all groups are empty.",
+    "approved": "No items to review"
   },
   "queue.more": {
     "purpose": "Loads the next page of a group's items.",
-    "where": "Review screen, queue on the left, under a group that has more items than are shown."
+    "where": "Review screen, queue on the left, under a group that has more items than are shown.",
+    "approved": "Show more"
   },
   "item.moreTracks_one": {
     "purpose": "Says one more track is in the item.",
-    "where": "Review screen, queue on the left, an item with more tracks than are named."
+    "where": "Review screen, queue on the left, an item with more tracks than are named.",
+    "approved": "({{count, number}} other)"
   },
   "item.moreTracks_other": {
     "purpose": "Says how many more tracks are in the item.",
-    "where": "Review screen, queue on the left, an item with more tracks than are named."
+    "where": "Review screen, queue on the left, an item with more tracks than are named.",
+    "approved": "({{count, number}} others)"
   },
   "item.trackName": {
     "purpose": "How a track with an artist is named. Same wording as missing.trackName.",
-    "where": "Review screen, queue on the left, each item, and Review screen, comparison on the right, the track column."
+    "where": "Review screen, queue on the left, each item, and Review screen, comparison on the right, the track column.",
+    "approved": "{{artist}} - {{title}}"
   },
   "item.untitled": {
     "purpose": "Names a track that has no title and no file name.",
-    "where": "Review screen, queue on the left, an item's track name."
+    "where": "Review screen, queue on the left, an item's track name.",
+    "approved": "Unnamed track"
   },
   "kind.versionDoubt": {
     "purpose": "What kind of item it is: two tracks the rules could not tell apart or keep apart.",
-    "where": "Review screen, queue on the left, under each item of that kind."
+    "where": "Review screen, queue on the left, under each item of that kind.",
+    "approved": "Possible version mix-up"
   },
   "kind.heldSet": {
     "purpose": "What kind of item it is: duplicate files held because their pairs disagree.",
-    "where": "Review screen, queue on the left, under each item of that kind."
+    "where": "Review screen, queue on the left, under each item of that kind.",
+    "approved": "Unclear duplicates"
   },
   "kind.sameRecording": {
     "purpose": "What kind of item it is: two Library tracks that are the same recording.",
-    "where": "Review screen, queue on the left, under each item of that kind."
+    "where": "Review screen, queue on the left, under each item of that kind.",
+    "approved": "Same track twice in your Library"
   },
   "kind.relink": {
     "purpose": "What kind of item it is: a rekordbox entry matched to a file only probably.",
-    "where": "Review screen, queue on the left, under each item of that kind."
+    "where": "Review screen, queue on the left, under each item of that kind.",
+    "approved": "rekordbox match uncertain"
   },
   "kind.clearBestFile": {
     "purpose": "What kind of item it is: the linked file is gone and a copy is on disk.",
-    "where": "Review screen, queue on the left, under each item of that kind."
+    "where": "Review screen, queue on the left, under each item of that kind.",
+    "approved": "File missing, copy found"
   },
   "kind.qualityProblem": {
     "purpose": "What kind of item it is: the linked file is flagged, cut off or broken.",
-    "where": "Review screen, queue on the left, under each item of that kind."
+    "where": "Review screen, queue on the left, under each item of that kind.",
+    "approved": "Quality problem"
   },
   "kind.betterFile": {
     "purpose": "What kind of item it is: a better copy exists beside a linked file that is still there.",
-    "where": "Review screen, queue on the left, under each item of that kind."
+    "where": "Review screen, queue on the left, under each item of that kind.",
+    "approved": "Better file available"
   },
   "compare.label": {
     "purpose": "Accessible name of the table of an item's files.",
@@ -117,7 +135,8 @@
   },
   "compare.none": {
     "purpose": "Says no item is selected.",
-    "where": "Review screen, comparison on the right, when nothing is selected."
+    "where": "Review screen, comparison on the right, when nothing is selected.",
+    "approved": "Select an item"
   },
   "compare.suggested": {
     "purpose": "Names the file the app suggests; its reason follows.",

@@ -14,8 +14,8 @@
   "matchNotConfirmed": "rekordbox match uncertain",
   "lowBitrate": {
     "title": "Add “{{title}}” to your Library?",
-    "detail": "This file has a low bitrate ({{kbps}} kbps). Files like it are better left out of your Library.",
+    "detail": "This file has a low bitrate ({{kbps}} kbps)",
     "addAnyway": "Add anyway",
-    "cancel": "Cancel"
+    "cancel": "Go back"
   }
 }
