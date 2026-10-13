@@ -373,6 +373,48 @@ describe("adding a low-bitrate file", () => {
     expect(backend.added).toEqual([]);
   });
 
+  it("cancels on Escape wherever focus is, and gives focus back to the Add button it came from", async () => {
+    const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [, second] = await rows();
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+    await warning();
+
+    // Focus is outside the box, in the search field.
+    const search = screen.getByRole("searchbox", { name: tx("allMusic:search") });
+    search.focus();
+    expect(search).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(backend.asked).toHaveLength(1);
+    expect(backend.added).toEqual([]);
+    const [, again] = await rows();
+    expect(within(again).getByRole("button", { name: tx("allMusic:add") })).toHaveFocus();
+  });
+
+  it("gives focus back to the Add button after Cancel too", async () => {
+    fakeBackend([track(1)], { lowBitrate: { 1: 96 } });
+    renderScreen();
+    await userEvent.click(await screen.findByRole("button", { name: tx("allMusic:add") }));
+    const box = await warning();
+    await userEvent.click(within(box).getByRole("button", { name: tx("allMusic:lowBitrate.cancel") }));
+    expect(await screen.findByRole("button", { name: tx("allMusic:add") })).toHaveFocus();
+  });
+
+  it("closes the warning when the track leaves the list, instead of asking about nothing", async () => {
+    const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
+    renderScreen();
+    const [, second] = await rows();
+    await userEvent.click(within(second).getByRole("button", { name: tx("allMusic:add") }));
+    await warning();
+
+    // A search that no longer lists the track.
+    await userEvent.type(screen.getByRole("searchbox", { name: tx("allMusic:search") }), "Tune 1");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(backend.added).toEqual([]);
+  });
+
   it("adds the track with the confirmation when the user chooses Add anyway", async () => {
     const backend = fakeBackend([track(1), track(2)], { lowBitrate: { 2: 128 } });
     renderScreen();

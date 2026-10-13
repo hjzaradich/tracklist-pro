@@ -249,9 +249,11 @@ fn a_refusal_that_is_not_the_warning_still_comes_first() {
 
 #[test]
 fn only_the_library_add_and_the_rekordbox_offer_insert_linked_library_tracks() {
-    // The low-bitrate rule is in `promote`. This fails if a third code path
+    // The low-bitrate rule is in `promote`. This fails if another code path
     // starts adding linked tracks without going through it; the rekordbox
-    // offer is the one named exception (`start::add_offered`).
+    // offer is the one named exception (`start::add_offered`). It counts
+    // call sites per file, whitespace and line breaks ignored, so one more
+    // call anywhere (this module and `start` included) fails it.
     fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
@@ -265,25 +267,54 @@ fn only_the_library_add_and_the_rekordbox_offer_insert_linked_library_tracks() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
     sources(&src, &mut files);
-    let mut callers: Vec<String> = files
-        .iter()
-        .filter(|path| {
-            let name = path.file_name().unwrap().to_string_lossy();
-            !name.starts_with("tests") && !path.components().any(|c| c.as_os_str() == "tests")
-        })
-        .filter(|path| {
-            let text = std::fs::read_to_string(path).unwrap();
-            text.lines()
-                .map(str::trim)
-                .any(|line| !line.starts_with("//") && line.contains("insert_linked("))
-        })
-        .map(|path| {
-            path.strip_prefix(&src)
-                .unwrap()
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
-        .collect();
-    callers.sort();
-    assert_eq!(callers, ["library/mod.rs", "start/mod.rs"]);
+    // (file, text of its shipped code with all whitespace removed)
+    let mut found: Vec<(String, usize, usize, usize)> = Vec::new();
+    for path in files.iter().filter(|path| {
+        let name = path.file_name().unwrap().to_string_lossy();
+        // Test code: `tests.rs`, `*_tests.rs`, `tests/` and the migration
+        // schema tests.
+        !name.starts_with("tests")
+            && !name.ends_with("_tests.rs")
+            && !path
+                .components()
+                .any(|c| c.as_os_str() == "tests" || c.as_os_str() == "schema")
+    }) {
+        let text = std::fs::read_to_string(path).unwrap();
+        let code: String = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .flat_map(|line| line.chars().filter(|c| !c.is_whitespace()))
+            .collect();
+        let name = path
+            .strip_prefix(&src)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let counts = (
+            code.matches("insert_linked").count(),
+            code.matches("insert(\"library_track\"").count(),
+            code.to_lowercase()
+                .matches("insertintolibrary_track")
+                .count()
+                + code
+                    .to_lowercase()
+                    .matches("insertorreplaceintolibrary_track")
+                    .count(),
+        );
+        if counts != (0, 0, 0) {
+            found.push((name, counts.0, counts.1, counts.2));
+        }
+    }
+    found.sort();
+    // (file, "insert_linked" mentions, `insert("library_track"` calls,
+    // SQL inserts into library_track). library/mod.rs: the function and its
+    // one use in `promote_on`, and the one insert inside it. start/mod.rs:
+    // the offer's one call.
+    assert_eq!(
+        found,
+        [
+            ("library/mod.rs".to_owned(), 2, 1, 0),
+            ("start/mod.rs".to_owned(), 1, 0, 0),
+        ]
+    );
 }

@@ -50,6 +50,7 @@ export function AllMusicList({
                   <button
                     type="button"
                     className={styles.add}
+                    data-add-for={track.recordingId}
                     disabled={adding !== undefined || track.matchNotConfirmed}
                     aria-describedby={track.matchNotConfirmed ? `why-${track.recordingId}` : undefined}
                     onClick={() => onAdd(track.recordingId)}

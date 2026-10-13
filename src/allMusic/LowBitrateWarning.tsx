@@ -4,7 +4,7 @@ import styles from "./LowBitrateWarning.module.css";
 
 /**
  * Warns before a low-bitrate file joins the Library (1bE-8). Nothing is
- * added until the user chooses "Add anyway"; "Cancel" (or Escape) changes
+ * added until the user chooses "Add anyway"; "Cancel" (or Escape, wherever focus is) changes
  * nothing at all. The rule that asks for this lives in the backend: this is
  * only how its answer is shown.
  */
@@ -23,6 +23,14 @@ export function LowBitrateWarning({
   // The dialog takes focus, on the safe choice.
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => cancel.current?.focus(), []);
+  // Escape cancels wherever focus is, for as long as the question is open.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
   const titleId = useId();
   const detailId = useId();
   return (
@@ -31,9 +39,6 @@ export function LowBitrateWarning({
       aria-labelledby={titleId}
       aria-describedby={detailId}
       className={styles.confirm}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onCancel();
-      }}
     >
       <p id={titleId} className={styles.title}>
         {t("lowBitrate.title", { title })}
