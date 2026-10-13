@@ -8,7 +8,8 @@ import {
   useSwitchLinkedFile,
   useWantBetterFile,
 } from "./useReviewActions";
-import styles from "./ReviewActions.module.css";
+import styles from "./ReviewComparison.module.css";
+import screenStyles from "./ReviewScreen.module.css";
 
 /** The error kind that says why a switch is refused: its words are the error's. */
 const REFUSAL_KIND: Record<SwitchRefusal, ErrorKind> = {
@@ -37,6 +38,12 @@ const EFFECT_TEXT: Record<SwitchEffect, "switch.keepsEntry" | "switch.newTrack" 
  * - "Quality problem": Keep anyway, Find a better file.
  * - "Linked file gone, copy found": Switch file, with what the switch means
  *   in rekordbox said first, for a track rekordbox knows.
+ *
+ * The layout is the designer's (docs/design-style.md, "Review screen"): one
+ * row of buttons directly under the table; the one filled button (`primary`)
+ * is the one that takes the suggested file, the others are quiet. What a
+ * switch means in rekordbox, and why a button is greyed out, are lines under
+ * the row.
  *
  * Every action can be undone from the top bar's Undo. Give it a `key` per
  * item, so a refusal shown for one item doesn't stay under the next.
@@ -96,7 +103,7 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
     buttons = (
       <button
         type="button"
-        className={styles.button}
+        className={styles.primary}
         disabled={busy || effect === null}
         onClick={() => {
           if (effect !== null) switchFile.mutate({ recordingId, fileId, effect });
@@ -109,17 +116,21 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
   if (buttons === null) return null;
 
   return (
-    <div className={styles.actions}>
-      {note !== null && <p className={styles.note}>{note}</p>}
-      <div role="group" aria-label={t("action.label")} className={styles.buttons}>
+    <>
+      <div role="group" aria-label={t("action.label")} className={styles.actions}>
         {buttons}
       </div>
-      {greyedOutBecause !== null && <p className={styles.reason}>{greyedOutBecause}</p>}
+      {note !== null && (
+        <p className={styles.doubt}>
+          <span className={styles.doubtLabel}>{note}</span>
+        </p>
+      )}
+      {greyedOutBecause !== null && <p className={styles.doubt}>{greyedOutBecause}</p>}
       {failure && (
-        <p role="alert" className={styles.error}>
+        <p role="alert" className={screenStyles.error}>
           {errorMessage(failure)}
         </p>
       )}
-    </div>
+    </>
   );
 }

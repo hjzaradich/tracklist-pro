@@ -75,7 +75,7 @@
     "approved": "Show more"
   },
   "queue.acceptAll": {
-    "purpose": "Button that switches the \"Linked file gone, copy found\" items that are clear cases to their suggested copy, in one step. {{count}} is how many it will switch: exactly the items the screen showed when it was pressed.",
+    "purpose": "Button that switches the \"File missing, copy found\" items that are clear cases to their suggested copy, in one step. {{count}} is how many it will switch: exactly the items the screen showed when it was pressed.",
     "where": "Review screen, queue on the left, beside the \"Clearly best file\" heading, when at least one item can be switched this way."
   },
   "item.moreTracks_one": {
@@ -185,7 +185,7 @@
   },
   "action.switch": {
     "purpose": "Button that links the Library track to the suggested copy, because its linked file is gone. It can be undone.",
-    "where": "Review screen, comparison on the right, under the table, for a \"Linked file gone, copy found\" item."
+    "where": "Review screen, comparison on the right, under the table, for a \"File missing, copy found\" item."
   },
   "switch.keepsEntry": {
     "purpose": "Says what switching the linked file means in rekordbox when rekordbox's entry stays the track's (the app trusts the match of that entry to the copy).",
