@@ -123,6 +123,8 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StartupAsks {
     Run,
+    /// Only tests skip it.
+    #[cfg_attr(not(test), allow(dead_code))]
     Skip,
 }
 
