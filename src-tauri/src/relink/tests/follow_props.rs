@@ -194,7 +194,13 @@ impl World {
         if let Some(recording) = self.lib.recording_of(self.files[at].id) {
             // Refused where the app refuses (the file isn't on disk, the
             // only match is probable): nothing changed then.
-            let _ = crate::library::promote_with(&self.lib.writer, &Drives, &NO_DIRS, recording);
+            let _ = crate::library::promote_with(
+                &self.lib.writer,
+                &Drives,
+                &NO_DIRS,
+                recording,
+                crate::library::Confirmed::default(),
+            );
         }
     }
 

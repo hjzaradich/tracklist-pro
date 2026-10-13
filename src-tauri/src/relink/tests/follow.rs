@@ -57,10 +57,17 @@ impl Lib {
     /// ("Add to Library"), as a recorded operation.
     pub(super) fn add(&self, file: i64) -> LibraryTrackId {
         let recording = self.recording_of(file).expect("the file has a track");
-        crate::library::promote_with(&self.writer, &Drives, &NO_DIRS, recording)
-            .unwrap()
-            .library_track
-            .id
+        crate::library::promote_with(
+            &self.writer,
+            &Drives,
+            &NO_DIRS,
+            recording,
+            crate::library::Confirmed::default(),
+        )
+        .unwrap()
+        .done()
+        .library_track
+        .id
     }
 
     /// A Library track linked to `file`, written straight into the table
