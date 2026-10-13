@@ -1718,10 +1718,10 @@ fn check_a_library_of(count: i64) {
         all.clone().filter(|n| !(n % 3 != 0 && n % 5 != 0)).count() as i64
     );
     assert_eq!(i64::from(o.added_this_week), count);
-    // Every file's verdict is missing, so none is counted and the number
-    // says it is still counting.
+    // Every file's verdict is missing, so none is counted; with no quality
+    // job queued, nothing is counting.
     assert_eq!(o.low_quality, 0);
-    assert!(o.counting.quality);
+    assert!(!o.counting.quality);
 
     let mut expected: BTreeMap<String, u32> = BTreeMap::new();
     for n in all {
