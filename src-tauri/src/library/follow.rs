@@ -125,7 +125,8 @@ pub struct Summary {
 
 /// One track, one file, as SQL over a Library track `lt` and its gone
 /// linked file `a`: no other Library track's linked file holds `a`'s audio.
-/// The one guard against two Library tracks on one file. A file a Library
+/// The one guard against two Library tracks on one file, asked in one place
+/// ([`leads`]). A file a Library
 /// track is linked to holds its own audio, so a candidate (which holds
 /// `a`'s) that is linked is refused by it too; and so are two Library
 /// tracks that are the same recording, whichever of them the file is in.
@@ -133,21 +134,15 @@ const NO_OTHER_TRACK_ON_THE_AUDIO: &str = "NOT EXISTS (
         SELECT 1 FROM file xf JOIN library_track x ON x.linked_file_id = xf.id
         WHERE xf.audio_hash = a.audio_hash AND x.id <> lt.id)";
 
-/// A file a Library track could follow to.
-struct Candidate {
-    file: i64,
-    /// It's the track's best file.
-    best: bool,
-}
-
 /// A Library track whose linked file is gone, with the files of the same
 /// audio in its own track.
 struct Lead {
     library_track: LibraryTrackId,
     recording: i64,
     from: i64,
-    /// The track's best file first, then by file id.
-    candidates: Vec<Candidate>,
+    /// The files it could follow to: the track's best file first, then by
+    /// file id.
+    candidates: Vec<i64>,
 }
 
 /// Moves the linked file of every Library track whose file is gone to the
@@ -191,7 +186,7 @@ pub fn follow_files(conn: &mut Connection, volumes: &impl Volumes) -> Result<Sum
             };
             lead.candidates
                 .iter()
-                .map(|c| c.file)
+                .copied()
                 .filter(|file| {
                     rows_on
                         .get(file)
@@ -279,24 +274,24 @@ fn target(
     Ok(Some(file))
 }
 
-/// Moves one link, as one automatic operation. What the write rests on is
-/// checked again inside the operation's own transaction: the link is still
-/// on the gone file, the new file is on disk with the same audio, and no
-/// other Library track is on that audio. Returns whether the link moved.
+/// Moves one link, as one automatic operation. What the write itself rests
+/// on is checked again inside the operation's own transaction: the link is
+/// still on the gone file, and the new file is a file of the track, on
+/// disk, with the same audio. (Whether another Library track is on that
+/// audio is asked once, in [`leads`]: a follow never changes the audio a
+/// track is linked to, so no follow of this run can change that answer.)
+/// Returns whether the link moved.
 fn record(conn: &mut Connection, lead: &Lead, to: i64) -> Result<bool, OpsError> {
     let (track, from) = (lead.library_track.0, lead.from);
     let details = json!({ "libraryTrackId": track, "from": from, "to": to });
     let recorded = ops::record_automatic(conn, AutomaticKind::FollowFile, &details, |rec| {
         let still: Vec<i64> = rec.read_rows(
-            &format!(
-                "SELECT lt.id FROM library_track lt
-                 JOIN file a ON a.id = lt.linked_file_id
-                 JOIN recording_file rf ON rf.recording_id = lt.recording_id AND rf.file_id = ?3
-                 JOIN file n ON n.id = rf.file_id
-                 WHERE lt.id = ?1 AND lt.linked_file_id = ?2
-                   AND a.present = 0 AND n.present = 1 AND n.audio_hash = a.audio_hash
-                   AND {NO_OTHER_TRACK_ON_THE_AUDIO}"
-            ),
+            "SELECT lt.id FROM library_track lt
+             JOIN file a ON a.id = lt.linked_file_id
+             JOIN recording_file rf ON rf.recording_id = lt.recording_id AND rf.file_id = ?3
+             JOIN file n ON n.id = rf.file_id
+             WHERE lt.id = ?1 AND lt.linked_file_id = ?2
+               AND a.present = 0 AND n.present = 1 AND n.audio_hash = a.audio_hash",
             [track, from, to],
             |r| r.get(0),
         )?;
@@ -328,7 +323,7 @@ fn leads(conn: &Connection) -> rusqlite::Result<Vec<Lead>> {
     let gone_current = crate::relink::hash_current_of("a");
     let new_current = crate::relink::hash_current_of("n");
     let mut stmt = conn.prepare_cached(&format!(
-        "SELECT lt.id, lt.recording_id, a.id, n.id, rf.role = 'best'
+        "SELECT lt.id, lt.recording_id, a.id, n.id
          FROM library_track lt
          JOIN file a ON a.id = lt.linked_file_id
          JOIN recording_file rf ON rf.recording_id = lt.recording_id
@@ -345,10 +340,7 @@ fn leads(conn: &Connection) -> rusqlite::Result<Vec<Lead>> {
             LibraryTrackId(r.get(0)?),
             r.get::<_, i64>(1)?,
             r.get::<_, i64>(2)?,
-            Candidate {
-                file: r.get(3)?,
-                best: r.get(4)?,
-            },
+            r.get::<_, i64>(3)?,
         ))
     })?;
     let mut leads: Vec<Lead> = Vec::new();
@@ -364,9 +356,6 @@ fn leads(conn: &Connection) -> rusqlite::Result<Vec<Lead>> {
             }),
         }
     }
-    debug_assert!(leads
-        .iter()
-        .all(|l| l.candidates.iter().skip(1).all(|c| !c.best)));
     Ok(leads)
 }
 
@@ -374,7 +363,7 @@ fn leads(conn: &Connection) -> rusqlite::Result<Vec<Lead>> {
 fn rows_matched_to(conn: &Connection, leads: &[Lead]) -> rusqlite::Result<HashMap<i64, Vec<i64>>> {
     let files: HashSet<i64> = leads
         .iter()
-        .flat_map(|l| l.candidates.iter().map(|c| c.file))
+        .flat_map(|l| l.candidates.iter().copied())
         .collect();
     let wanted = serde_json::to_string(&files.into_iter().collect::<Vec<_>>())
         .expect("numbers always serialize");

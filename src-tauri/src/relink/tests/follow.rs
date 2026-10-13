@@ -900,10 +900,10 @@ fn the_old_file_coming_back_moves_nothing_back() {
 }
 
 #[test]
-fn when_the_file_is_moved_back_the_track_follows_it_back() {
+fn when_the_file_is_moved_back_a_track_rekordbox_holds_no_entry_for_follows_it_back() {
     // Not a loop: each move is a change on disk. The new file is gone and
     // the old one is there again.
-    let (scene, row) = known();
+    let scene = unknown();
     let lib = &scene.lib;
     let new = scene.moved_to("Moved/Renamed.mp3");
     assert_eq!(lib.job(&scene.mounted), scene.followed(new));
@@ -921,9 +921,42 @@ fn when_the_file_is_moved_back_the_track_follows_it_back() {
             held: 0,
         }
     );
-    assert_eq!(lib.matched(row), path(scene.old));
-    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+    assert_eq!(lib.sent(scene.track), SentAs::New);
     assert_eq!(lib.job(&scene.mounted), Follows::default());
+}
+
+#[test]
+fn known_limit_when_the_file_is_moved_back_to_the_path_of_rekordboxs_entry_the_track_waits_in_review(
+) {
+    // The file moved, the track followed, and the file is moved back: the
+    // new place is gone and the old one is there again. Relink matches
+    // rekordbox's entry to the file at its own path (step 1). The track,
+    // linked to the file that is gone now, is sent as no entry at that
+    // moment (no entry is at the gone file's own path), and the only file
+    // it could follow to has an entry matched to it. A follow never puts a
+    // track on an entry it isn't sent as: nothing moves, the track is a
+    // "Clear best file" item, and until the user answers it is left out of
+    // the send. Pinned so it can't change unnoticed.
+    let (scene, row) = known();
+    let lib = &scene.lib;
+    let new = scene.moved_to("Moved/Renamed.mp3");
+    assert_eq!(lib.job(&scene.mounted), scene.followed(new));
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+    lib.gone(new);
+    lib.back(scene.old);
+    lib.regroup();
+    for _ in 0..2 {
+        assert_eq!(lib.job(&scene.mounted), HELD);
+    }
+    assert_eq!(lib.matched(row), path(scene.old));
+    assert_eq!(lib.linked_file(scene.track), new);
+    assert_eq!(lib.sent(scene.track), SentAs::Nothing);
+    assert!(lib.shown_missing(scene.track));
+    lib.roles();
+    assert_eq!(
+        lib.better_file(scene.track),
+        Some((scene.old, "onDisk".to_owned()))
+    );
 }
 
 #[test]
