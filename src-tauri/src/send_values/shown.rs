@@ -170,7 +170,7 @@ pub fn shown_tags(
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<HashMap<LibraryTrackId, Shown>> {
-    let loaded = load(conn, volumes, ids, Scope::Names)?;
+    let loaded = load(conn, volumes, ids, Scope::Names, &HashMap::new())?;
     Ok(ids
         .iter()
         .filter_map(|&id| Some((id, loaded.shown_with(loaded.rows.get(&id.0)?, false))))
