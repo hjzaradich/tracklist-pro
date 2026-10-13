@@ -137,6 +137,9 @@ fn sets_for(conn: &Connection, kinds: &[ReviewKind]) -> rusqlite::Result<Vec<Com
 /// How many items wait, by group. What the Overview reuses ("how many need
 /// a decision" is [`ReviewCounts::total`]).
 pub fn counts(conn: &Connection) -> rusqlite::Result<ReviewCounts> {
+    // One read transaction: the kinds are counted as of the same moment.
+    let conn = conn.unchecked_transaction()?;
+    let conn = &*conn;
     let sets = sets_for(conn, &ReviewKind::ALL)?;
     let by_kind = kind_counts(conn, &ReviewKind::ALL, &sets)?;
     let of = |group: ReviewGroup| -> u32 { group.kinds().map(|k| by_kind[&k]).sum() };
@@ -291,6 +294,11 @@ pub fn items(
     offset: u32,
     limit: u32,
 ) -> rusqlite::Result<ReviewPage> {
+    // One read transaction for the counts and the page: the window over the
+    // kinds is computed from the counts, so a write between the two reads
+    // would shift later kinds by one.
+    let conn = conn.unchecked_transaction()?;
+    let conn = &*conn;
     let kinds: Vec<ReviewKind> = group.kinds().collect();
     let sets = sets_for(conn, &kinds)?;
     let by_kind = kind_counts(conn, &kinds, &sets)?;

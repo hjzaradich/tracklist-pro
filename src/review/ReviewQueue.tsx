@@ -87,8 +87,9 @@ function GroupList({
         </h2>
         <span className={styles.count}>{t("queue.left", { count: group.count })}</span>
       </div>
-      {/* The list is a listbox: one tab stop, arrow keys inside. */}
-      <ul role="listbox" aria-label={t("queue.label")} className={styles.list} onKeyDown={move}>
+      {/* The list is a listbox, named by its group's heading: one tab stop,
+          arrow keys inside. */}
+      <ul role="listbox" aria-labelledby={headingId} className={styles.list} onKeyDown={move}>
         {group.items.map((item, n) => {
           const isSelected = itemKey(item.id) === selectedKey;
           return (
@@ -123,10 +124,11 @@ function GroupList({
 /** Each track on a line of its own, then "and N more" if the item has more tracks. */
 function ItemName({ item }: { item: ReviewItem }) {
   const { t } = useTranslation("review");
-  const extra = Math.max(item.tracks.length - 2, 0) + item.moreTracks;
+  // The backend names the first few tracks and counts the rest.
+  const extra = item.moreTracks;
   return (
     <span className={styles.names}>
-      {item.tracks.slice(0, 2).map((track, n) => (
+      {item.tracks.map((track, n) => (
         <span key={n} className={styles.track}>
           {trackLabel(t, track)}
         </span>

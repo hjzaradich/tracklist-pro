@@ -1,6 +1,6 @@
 //! The queue's cost and its keeping to its indexes and its locale file.
 
-use super::super::held::{components_of, HeldPair};
+use super::super::held::{components_of, held_pairs_sql, HeldPair};
 use super::super::queue::{better_from, quality_from, relink_from, version_doubt_from, DOUBT_PAIR};
 use super::*;
 use crate::best_file::{Format, Place, Reason as Rank, RekordboxLink};
@@ -337,6 +337,34 @@ fn a_library_of_100000_files_is_counted_and_paged_from_the_few_rows_that_wait() 
     let lib = Lib::new();
     seed_big(&lib);
 
+    let timed = |what: &str, run: &dyn Fn()| {
+        let start = std::time::Instant::now();
+        run();
+        // Printed, not asserted: read it with `--nocapture`. A debug build.
+        eprintln!("100,000 files, {what}: {:?}", start.elapsed());
+    };
+    timed("counts", &|| {
+        lib.counts();
+    });
+    timed("first page of Needs a closer look", &|| {
+        lib.page(ReviewGroup::NeedsCloserLook, 0, 100);
+    });
+    timed("a page of held sets", &|| {
+        lib.page(ReviewGroup::NeedsCloserLook, 20_000, 100);
+    });
+    timed("opening a held set", &|| {
+        let held = lib.compare(id(ReviewKind::HeldSet, 40_001, None));
+        assert_eq!(held.unwrap().rows.len(), 2);
+    });
+    timed("opening a same-recording item", &|| {
+        let same = lib.compare(id(ReviewKind::SameRecording, 20_001, None));
+        assert_eq!(same.unwrap().rows.len(), 2);
+    });
+    timed("opening a version doubt", &|| {
+        let doubt = lib.compare(id(ReviewKind::VersionDoubt, 1, Some(60_001)));
+        assert_eq!(doubt.unwrap().rows.len(), 2);
+    });
+
     let counts = lib.counts();
     // 20,000 doubts + 100 held sets + 10,000 same-recording pairs + 300 relinks.
     assert_eq!(counts.needs_closer_look, 30_400);
@@ -371,16 +399,7 @@ fn a_library_of_100000_files_is_counted_and_paged_from_the_few_rows_that_wait() 
         ),
     );
     assert!(plan.contains("grouping_pair_pending"), "{plan}");
-    let plan = plan_of(
-        &lib,
-        &format!(
-            "SELECT ra.recording_id, rb.recording_id, state = 'both_in_library'
-             FROM grouping_pair
-             JOIN recording_file ra ON ra.file_id = grouping_pair.file_a
-             JOIN recording_file rb ON rb.file_id = grouping_pair.file_b
-             WHERE {PENDING_PAIRS} AND state <> 'open'"
-        ),
-    );
+    let plan = plan_of(&lib, &held_pairs_sql());
     assert!(plan.contains("grouping_pair_pending"), "{plan}");
     let plan = plan_of(
         &lib,

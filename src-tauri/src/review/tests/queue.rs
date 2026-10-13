@@ -120,6 +120,10 @@ fn only_a_probable_relink_with_a_file_is_queued_library_or_not() {
             (ReviewKind::Relink, probable_too, None)
         ]
     );
+    // The Missing list (an entry with no file) and a trusted match are not
+    // "how many need a decision".
+    assert_eq!(lib.counts().total, 2);
+    assert_eq!(lib.counts().needs_closer_look, 2);
     // A relink item is named by rekordbox's own entry.
     let page = lib.page(NEEDS, 0, 10);
     assert_eq!(page.items[0].tracks[0].recording_id, None);
@@ -284,4 +288,87 @@ fn the_group_of_each_kind_is_the_one_the_roadmap_names() {
     // Every kind is in exactly one group, and the groups' kinds are all of them.
     let listed: usize = ReviewGroup::ALL.iter().map(|g| g.kinds().count()).sum();
     assert_eq!(listed, ReviewKind::ALL.len());
+}
+
+/// The ids of `group`'s items of one kind, in the order listed.
+fn ids_of(lib: &Lib, group: ReviewGroup, kind: ReviewKind) -> Vec<(i64, Option<i64>)> {
+    lib.ids(group)
+        .into_iter()
+        .filter(|i| i.0 == kind)
+        .map(|i| (i.1, i.2))
+        .collect()
+}
+
+#[test]
+fn inside_a_kind_the_oldest_item_comes_first() {
+    let lib = Lib::new();
+    // Three version doubts, made in this order; a Library track is in each.
+    let mut doubts = Vec::new();
+    for n in 0..3 {
+        let (t1, f1) = lib.simple(&format!("Doubt {n}"));
+        let (t2, f2) = lib.simple(&format!("Doubt {n} b"));
+        lib.library(t1, f1);
+        lib.open_pair(f1, f2);
+        doubts.push((t1, Some(t2)));
+    }
+    // Two held sets, two same-recording sets.
+    let (mut held, mut same) = (Vec::new(), Vec::new());
+    for n in 0..2 {
+        let (t1, f1) = lib.simple(&format!("Held {n}"));
+        let (_, f2) = lib.simple(&format!("Held {n} b"));
+        lib.library(t1, f1);
+        lib.pair(f1, f2, "duplicate", "set_disagrees");
+        held.push((t1, None));
+        let (t3, f3) = lib.simple(&format!("Same {n}"));
+        let (t4, f4) = lib.simple(&format!("Same {n} b"));
+        lib.library(t3, f3);
+        lib.library(t4, f4);
+        lib.pair(f3, f4, "duplicate", "both_in_library");
+        same.push((t3, None));
+    }
+    // Two relinks, two clear best files, two quality problems, two better files.
+    let mut relinks = Vec::new();
+    let (mut clear, mut quality, mut better) = (Vec::new(), Vec::new(), Vec::new());
+    for n in 0..2 {
+        let (_, f) = lib.simple(&format!("Relink {n}"));
+        relinks.push((lib.rekordbox(Some(f), "filename_only", true), None));
+        let t = lib.track(&format!("Clear {n}"));
+        let gone = lib.file(t, &format!("Clear {n}.mp3"), "mp3", false);
+        let copy = lib.file(t, &format!("Clear {n} copy.mp3"), "mp3", true);
+        lib.library(t, gone);
+        lib.better(t, copy, "onDisk");
+        clear.push((t, None));
+        let (t, f) = lib.simple(&format!("Quality {n}"));
+        lib.library(t, f);
+        lib.verdict(f, "broken");
+        quality.push((t, None));
+        let t = lib.track(&format!("Better {n}"));
+        let mp3 = lib.file(t, &format!("Better {n}.mp3"), "mp3", true);
+        let flac = lib.file(t, &format!("Better {n}.flac"), "flac", true);
+        lib.library(t, mp3);
+        lib.better(t, flac, "format");
+        better.push((t, None));
+    }
+    // Made first, listed first, in every kind.
+    assert_eq!(ids_of(&lib, NEEDS, ReviewKind::VersionDoubt), doubts);
+    assert_eq!(ids_of(&lib, NEEDS, ReviewKind::HeldSet), held);
+    assert_eq!(ids_of(&lib, NEEDS, ReviewKind::SameRecording), same);
+    assert_eq!(ids_of(&lib, NEEDS, ReviewKind::Relink), relinks);
+    assert_eq!(ids_of(&lib, CLEAR, ReviewKind::ClearBestFile), clear);
+    assert_eq!(ids_of(&lib, QUALITY, ReviewKind::QualityProblem), quality);
+    assert_eq!(ids_of(&lib, QUALITY, ReviewKind::BetterFile), better);
+}
+
+#[test]
+fn counting_and_listing_leave_no_transaction_open() {
+    let lib = Lib::new();
+    lib.writer
+        .call(|c| {
+            counts(c)?;
+            items(c, &Mount, ReviewGroup::NeedsCloserLook, 0, 10)?;
+            comparison(c, &Mount, id(ReviewKind::Relink, 1, None))?;
+            assert!(c.is_autocommit());
+            Ok(())
+        })
+        .unwrap();
 }

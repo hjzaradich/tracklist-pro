@@ -85,7 +85,7 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
       )}
       {doubt.length > 0 && (
         <p className={styles.doubt}>
-          <span className={styles.doubtLabel}>{t("compare.doubt")}: </span>
+          <span className={styles.doubtLabel}>{t("compare.doubt")} </span>
           {doubt
             .map((reason) => translate(reason.key, reasonOptions(reason)))
             .join(separator)}
@@ -107,7 +107,7 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
         <tbody>
           {comparison.rows.map((row, n) => (
             <tr key={row.fileId ?? `entry-${n}`} className={styles.row}>
-              <td className={styles.file}>
+              <th scope="row" className={styles.file}>
                 <span className={styles.name} title={row.path ?? row.name}>
                   {row.name}
                 </span>
@@ -121,7 +121,7 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
                     <span className={styles.warn}>{tLibrary("driveNotConnected")}</span>
                   )}
                 </span>
-              </td>
+              </th>
               {many && <td>{trackOf(row)}</td>}
               <td>{row.format?.toUpperCase() ?? ""}</td>
               <td className={styles.quality}>

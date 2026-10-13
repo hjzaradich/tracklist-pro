@@ -101,10 +101,9 @@ pub fn components_of(pairs: &[HeldPair]) -> Vec<Component> {
         .collect()
 }
 
-/// The held pairs: every `set_disagrees` and `both_in_library` pair between
-/// two tracks, with whether each track is in the Library.
-pub fn held_pairs(conn: &Connection) -> rusqlite::Result<Vec<HeldPair>> {
-    let mut stmt = conn.prepare_cached(&format!(
+/// The query behind [`held_pairs`]; a test reads its plan.
+pub(super) fn held_pairs_sql() -> String {
+    format!(
         "SELECT ra.recording_id, rb.recording_id, state = 'both_in_library',
                 ra.recording_id IN (SELECT recording_id FROM library_track),
                 rb.recording_id IN (SELECT recording_id FROM library_track)
@@ -112,7 +111,13 @@ pub fn held_pairs(conn: &Connection) -> rusqlite::Result<Vec<HeldPair>> {
          JOIN recording_file ra ON ra.file_id = grouping_pair.file_a
          JOIN recording_file rb ON rb.file_id = grouping_pair.file_b
          WHERE {PENDING_PAIRS} AND state <> 'open' AND ra.recording_id <> rb.recording_id"
-    ))?;
+    )
+}
+
+/// The held pairs: every `set_disagrees` and `both_in_library` pair between
+/// two tracks, with whether each track is in the Library.
+pub fn held_pairs(conn: &Connection) -> rusqlite::Result<Vec<HeldPair>> {
+    let mut stmt = conn.prepare_cached(&held_pairs_sql())?;
     let rows = stmt.query_map([], |r| {
         Ok(HeldPair {
             a: r.get(0)?,

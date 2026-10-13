@@ -51,10 +51,6 @@
     "purpose": "Heading of the queue group for flagged files and better files for a linked file that is still there.",
     "where": "Review screen, queue on the left, group heading."
   },
-  "queue.label": {
-    "purpose": "Accessible name of a group's list of items.",
-    "where": "Review screen, queue on the left, each group's list (screen readers only)."
-  },
   "queue.left_one": {
     "purpose": "How many items a group still has, when one.",
     "where": "Review screen, queue on the left, beside a group heading."

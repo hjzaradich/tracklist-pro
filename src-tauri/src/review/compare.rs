@@ -191,7 +191,8 @@ fn relink(conn: &Connection, row: i64) -> rusqlite::Result<Option<Resolved>> {
             &format!(
                 "SELECT file_id, relink_method, location_key,
                         json_extract(attributes, '$.Name'), json_extract(attributes, '$.Artist'),
-                        CAST(json_extract(attributes, '$.TotalTime') AS INTEGER),
+                        CASE WHEN json_extract(attributes, '$.TotalTime') GLOB '[0-9]*'
+                             THEN CAST(json_extract(attributes, '$.TotalTime') AS INTEGER) END,
                         CAST(json_extract(attributes, '$.BitRate') AS INTEGER),
                         CAST(json_extract(attributes, '$.SampleRate') AS INTEGER),
                         (SELECT recording_id FROM recording_file WHERE file_id = rekordbox_track.file_id)
@@ -258,7 +259,7 @@ fn row_of(
     ReviewFileRow {
         file_id: Some(facts.file_id),
         source: RowSource::File,
-        recording_id: Some(recording),
+        recording_id: Some(recording).filter(|track| *track != 0),
         name: shown
             .as_ref()
             .map_or_else(|| last_component(rel_path), |s| s.name.clone()),
@@ -313,6 +314,10 @@ pub fn comparison(
     volumes: &impl Volumes,
     id: ReviewItemId,
 ) -> rusqlite::Result<Option<ReviewComparison>> {
+    // One read transaction: the item, its files and their names are of the
+    // same moment.
+    let conn = conn.unchecked_transaction()?;
+    let conn = &*conn;
     let Some(item) = resolve(conn, id)? else {
         return Ok(None);
     };
@@ -326,6 +331,17 @@ pub fn comparison(
                 files.push((track, file));
             }
         }
+    }
+    // A relink's matched file that is in no track yet (scanned, not grouped)
+    // has a row of its own all the same.
+    let unplaced = match &item.entry {
+        Some(entry) if !files.iter().any(|(_, l)| l.facts.file_id == entry.file) => {
+            facts::load_unplaced(conn, entry.file)?
+        }
+        _ => None,
+    };
+    if let Some(loaded) = &unplaced {
+        files.push((0, loaded));
     }
     let ids: Vec<i64> = files.iter().map(|(_, l)| l.facts.file_id).collect();
     let details = details(conn, &ids)?;

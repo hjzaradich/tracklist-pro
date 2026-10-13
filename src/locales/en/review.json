@@ -15,7 +15,6 @@
     "qualityProblems": "Quality problems"
   },
   "queue": {
-    "label": "Review queue",
     "left_one": "{{count, number}} item left",
     "left_other": "{{count, number}} items left",
     "empty": "No items to review",
@@ -40,7 +39,7 @@
     "label": "Files to compare",
     "none": "Select an item",
     "suggested": "Suggested: {{name}}",
-    "doubt": "Why it is here",
+    "doubt": "Why it is here:",
     "moreFiles_one": "and {{count, number}} more file",
     "moreFiles_other": "and {{count, number}} more files",
     "rekordboxEntry": "rekordbox's entry"

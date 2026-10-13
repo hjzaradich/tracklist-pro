@@ -1,10 +1,12 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { emit } from "@tauri-apps/api/event";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type {
+  JobUpdate,
   ReviewComparison,
   ReviewCounts,
   ReviewFileRow,
@@ -14,6 +16,7 @@ import type {
 } from "../bindings";
 import "../i18n";
 import { tx } from "../test/tx";
+import { useReloadListsWhenJobsEnd } from "../shell/useReloadListsWhenJobsEnd";
 import { ReviewScreen } from "./ReviewScreen";
 
 function item(kind: ReviewItem["kind"], a: number, titles: string[]): ReviewItem {
@@ -50,15 +53,12 @@ function row(fileId: number, name: string, fields: Partial<ReviewFileRow> = {}):
   };
 }
 
-const COUNTS: ReviewCounts = {
-  needsCloserLook: 2,
-  clearBestFile: 1,
-  qualityProblems: 0,
-  total: 3,
-};
-
 const DOUBT = item("versionDoubt", 10, ["Synthetic Tune", "Synthetic Tune Dirty"]);
-const HELD = item("heldSet", 20, ["Another Tune", "Another Tune b", "Another Tune c"]);
+/** A held set of five tracks: three are named, two are counted. */
+const HELD: ReviewItem = {
+  ...item("heldSet", 20, ["Another Tune", "Another Tune b", "Another Tune c"]),
+  moreTracks: 2,
+};
 const CLEAR = item("clearBestFile", 30, ["Gone Tune"]);
 
 /** What selecting `DOUBT` shows: a FLAC suggested over the linked MP3. */
@@ -113,17 +113,78 @@ const QUALITY_COMPARISON: ReviewComparison = {
   moreFiles: 0,
 };
 
-const COMPARISONS = [DOUBT_COMPARISON, CLEAR_COMPARISON, QUALITY_COMPARISON];
+const HELD_COMPARISON: ReviewComparison = {
+  id: HELD.id,
+  kind: "heldSet",
+  group: "needsCloserLook",
+  tracks: HELD.tracks,
+  doubt: [],
+  suggestion: {
+    what: 7,
+    reasons: [{ key: "review:reason.onlyFile", params: {}, source: "fact" }],
+  },
+  rows: [row(7, "another tune.mp3", { recordingId: 20 })],
+  moreFiles: 0,
+};
+
+/** A probable relink: the matched file, and rekordbox's own entry beside it. */
+const RELINK = item("relink", 50, ["Old Tune"]);
+const RELINK_COMPARISON: ReviewComparison = {
+  id: RELINK.id,
+  kind: "relink",
+  group: "needsCloserLook",
+  tracks: [
+    { recordingId: null, title: "Old Tune", artist: "Made Up Artist" },
+    { recordingId: 60, title: "New Tune", artist: "Made Up Artist" },
+  ],
+  doubt: [],
+  suggestion: {
+    what: 8,
+    reasons: [{ key: "review:relink.filenameOnly", params: {}, source: "fact" }],
+  },
+  rows: [
+    row(8, "new tune.mp3", { recordingId: 60 }),
+    row(0, "old tune.mp3", {
+      fileId: null,
+      source: "rekordboxEntry",
+      recordingId: null,
+      path: "E:\\Old\\old tune.mp3",
+      onDisk: false,
+      driveConnected: false,
+      format: null,
+      tagsFilled: 0,
+    }),
+  ],
+  moreFiles: 0,
+};
+
+const COMPARISONS = [
+  DOUBT_COMPARISON,
+  HELD_COMPARISON,
+  CLEAR_COMPARISON,
+  QUALITY_COMPARISON,
+  RELINK_COMPARISON,
+];
 
 interface Backend {
+  /** What the queue holds: by default, the counts of the lists. */
   counts?: ReviewCounts | "broken";
   pages?: Partial<Record<ReviewGroup, ReviewItem[]>>;
   /** How many items a group says it has, when more than it lists. */
   totals?: Partial<Record<ReviewGroup, number>>;
 }
 
-/** Stands in for the Rust side. Returns the calls it got, for the test to read. */
-function backend({ counts = COUNTS, pages, totals = {} }: Backend = {}) {
+/**
+ * Stands in for the Rust side. Returns the calls it got and the lists it
+ * answers from, for a test to read and change. `onItem` answers a comparison
+ * instead of the fixtures.
+ */
+function backend({
+  counts,
+  pages,
+  totals = {},
+  onItem,
+}: Backend & { onItem?: (id: ReviewItemId) => ReviewComparison | null | undefined } = {}) {
   const lists: Record<ReviewGroup, ReviewItem[]> = {
     needsCloserLook: [DOUBT, HELD],
     clearBestFile: [CLEAR],
@@ -136,7 +197,13 @@ function backend({ counts = COUNTS, pages, totals = {} }: Backend = {}) {
     if (cmd === "missing_tracks") return { total: 0, groups: [] };
     if (cmd === "review_counts") {
       if (counts === "broken") throw { kind: "database", params: {} };
-      return counts;
+      if (counts !== undefined) return counts;
+      const [a, b, c] = [
+        lists.needsCloserLook.length,
+        lists.clearBestFile.length,
+        lists.qualityProblems.length,
+      ];
+      return { needsCloserLook: a, clearBestFile: b, qualityProblems: c, total: a + b + c };
     }
     if (cmd === "review_items") {
       const { group, offset, limit } = args as { group: ReviewGroup; offset: number; limit: number };
@@ -148,11 +215,23 @@ function backend({ counts = COUNTS, pages, totals = {} }: Backend = {}) {
     }
     if (cmd === "review_item") {
       const { id } = args as { id: ReviewItemId };
+      const answered = onItem?.(id);
+      if (answered !== undefined) return answered;
       return COMPARISONS.find((c) => c.id.kind === id.kind && c.id.a === id.a) ?? null;
     }
     throw new Error(`unexpected command ${cmd}`);
-  });
-  return calls;
+  }, { shouldMockEvents: true });
+  return { calls, lists };
+}
+
+function job(kind: JobUpdate["kind"], status: JobUpdate["status"], id = 7): JobUpdate {
+  return { seq: id, id, kind, status, progress: null, priority: 0 };
+}
+
+/** Review inside what the shell does for every screen. */
+function InTheShell() {
+  useReloadListsWhenJobsEnd();
+  return <ReviewScreen />;
 }
 
 function renderScreen() {
@@ -164,8 +243,8 @@ function renderScreen() {
 }
 
 afterEach(() => {
-  clearMocks();
   cleanup();
+  clearMocks();
 });
 
 describe("the Review queue", () => {
@@ -204,10 +283,11 @@ describe("the Review queue", () => {
       tx("review:item.trackName", { artist: "Made Up Artist", title: "Synthetic Tune Dirty" }),
     );
     expect(first).toHaveTextContent(tx("review:kind.versionDoubt"));
-    // A third track is counted, not listed.
+    // Three tracks are named, two more are counted.
     expect(options[1]).toHaveTextContent(
-      tx("review:item.moreTracks", { count: 1 }),
+      tx("review:item.trackName", { artist: "Made Up Artist", title: "Another Tune c" }),
     );
+    expect(options[1]).toHaveTextContent(tx("review:item.moreTracks", { count: 2 }));
   });
 
   it("selects the first item and shows its files, the suggestion first, with its reason", async () => {
@@ -262,9 +342,10 @@ describe("the Review queue", () => {
 
   it("loads the next page of a group on request", async () => {
     const many = Array.from({ length: 150 }, (_, n) => item("versionDoubt", 100 + n * 2, [`Tune ${n}`, `Tune ${n} b`]));
-    const calls = backend({
+    const { calls } = backend({
       counts: { needsCloserLook: 150, clearBestFile: 0, qualityProblems: 0, total: 150 },
       pages: { needsCloserLook: many, clearBestFile: [] },
+      onItem: () => DOUBT_COMPARISON,
     });
     renderScreen();
     const needs = await screen.findByRole("region", { name: tx("review:group.needsCloserLook") });
@@ -273,8 +354,7 @@ describe("the Review queue", () => {
     await waitFor(() => expect(within(needs).getAllByRole("option")).toHaveLength(150));
     expect(within(needs).queryByRole("button", { name: tx("review:queue.more") })).toBeNull();
     const offsets = calls.filter((c) => c.cmd === "review_items").map((c) => (c.args as { offset: number }).offset);
-    // (Page 0 may be asked for twice: this fake answers "gone" for items it has no comparison for.)
-    expect([...new Set(offsets)]).toEqual([0, 100]);
+    expect(offsets).toEqual([0, 100]);
   });
 
   it("says what's absent when nothing waits, and still shows the Missing list", async () => {
@@ -301,5 +381,75 @@ describe("the Review queue", () => {
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent(tx("review:verdict.truncated"));
     expect(screen.queryByText(tx("review:mark.suggested"))).toBeNull();
     expect(screen.queryByText(tx("review:compare.suggested", { name: "flagged.mp3" }))).toBeNull();
+  });
+  it("names each group's list by its heading", async () => {
+    backend();
+    renderScreen();
+    await screen.findByRole("region", { name: tx("review:group.needsCloserLook") });
+    expect(screen.getByRole("listbox", { name: tx("review:group.needsCloserLook") })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: tx("review:group.clearBestFile") })).toBeInTheDocument();
+  });
+
+  it("drops an item that has gone by the time it is opened, and shows the next one", async () => {
+    let gone = false;
+    const { lists } = backend({
+      onItem: (id) => {
+        if (id.kind !== "versionDoubt" || gone) return undefined;
+        // Settled between the list and the open: the queue no longer holds it.
+        gone = true;
+        lists.needsCloserLook = [HELD];
+        return null;
+      },
+    });
+    renderScreen();
+    const needs = await screen.findByRole("region", { name: tx("review:group.needsCloserLook") });
+    await waitFor(() => expect(within(needs).getAllByRole("option")).toHaveLength(1));
+    // The next item is selected and its files are shown; no stale "Select an item".
+    expect(within(needs).getByRole("option")).toHaveAttribute("aria-selected", "true");
+    const table = await screen.findByRole("table", { name: tx("review:compare.label") });
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("another tune.mp3");
+    expect(screen.queryByText(tx("review:compare.none"))).toBeNull();
+  });
+
+  it("shows a relink item with the matched file suggested and rekordbox's own entry beside it", async () => {
+    backend({ pages: { needsCloserLook: [RELINK], clearBestFile: [] } });
+    renderScreen();
+    const table = await screen.findByRole("table", { name: tx("review:compare.label") });
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toHaveTextContent("new tune.mp3");
+    expect(rows[1]).toHaveTextContent(tx("review:mark.suggested"));
+    expect(rows[2]).toHaveTextContent("old tune.mp3");
+    expect(rows[2]).toHaveTextContent(tx("review:compare.rekordboxEntry"));
+    // The entry has no file to check: no verdict to claim.
+    expect(rows[2]).not.toHaveTextContent(tx("review:verdict.notChecked"));
+    expect(screen.getByText(tx("review:relink.filenameOnly"))).toBeInTheDocument();
+    expect(screen.getByText(tx("review:kind.relink"))).toBeInTheDocument();
+  });
+
+  it("asks for the queue again when a background job ends, and selects the first item left", async () => {
+    const { lists, calls } = backend();
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <InTheShell />
+      </QueryClientProvider>,
+    );
+    const needs = await screen.findByRole("region", { name: tx("review:group.needsCloserLook") });
+    // Choose the second item; then a job settles it.
+    await userEvent.click((await within(needs).findAllByRole("option"))[1] as HTMLElement);
+    await waitFor(() =>
+      expect(within(needs).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true"),
+    );
+    const before = calls.filter((c) => c.cmd === "review_counts").length;
+    lists.needsCloserLook = [DOUBT];
+    lists.clearBestFile = [];
+    await act(() => emit("job-updates", [job("group", "done")]));
+
+    await waitFor(() =>
+      expect(calls.filter((c) => c.cmd === "review_counts").length).toBeGreaterThan(before),
+    );
+    await waitFor(() => expect(within(needs).getAllByRole("option")).toHaveLength(1));
+    expect(within(needs).getByRole("option")).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("region", { name: tx("review:group.clearBestFile") })).toBeNull();
   });
 });

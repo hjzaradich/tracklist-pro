@@ -95,7 +95,7 @@ export function ReviewScreen() {
                 </p>
               ) : comparison.data ? (
                 <ReviewComparison comparison={comparison.data} />
-              ) : comparison.isSuccess || selected === null ? (
+              ) : selected === null ? (
                 <EmptyState>{t("compare.none")}</EmptyState>
               ) : null}
             </div>

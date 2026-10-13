@@ -35,6 +35,14 @@
 //! is at most one per Library duplicate (about 50,000 for a library of
 //! 100,000 files that holds every track twice).
 //!
+//! # Consistency
+//!
+//! `counts`, `items` and `comparison` each read in one transaction, so a
+//! list never disagrees with its count. Pages are separate calls: a queue
+//! that changes between two "Show more" clicks can skip or repeat one item
+//! across pages (the screen asks for the queue again when background work
+//! ends).
+//!
 //! # Order
 //!
 //! Inside a group the kinds come in [`ReviewKind::ALL`] order, and inside a

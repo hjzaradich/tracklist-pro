@@ -54,6 +54,14 @@
   max-width: 18rem;
 }
 
+/* The file's name is its row's header; it reads as a cell, not a heading. */
+.table th.file {
+  border-bottom: none;
+  color: var(--color-text);
+  font-size: inherit;
+  font-weight: normal;
+}
+
 .name {
   display: block;
   overflow: hidden;

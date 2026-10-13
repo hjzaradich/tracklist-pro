@@ -178,3 +178,41 @@ fn a_comparison_lists_at_most_fifty_files() {
     assert_eq!(c.rows.len(), MAX_FILES);
     assert_eq!(c.more_files, 61 - MAX_FILES as u32);
 }
+
+#[test]
+fn a_relink_whose_file_is_in_no_track_yet_still_shows_that_file_as_the_suggestion() {
+    let lib = Lib::new();
+    // Scanned, not yet grouped: a file with no track.
+    lib.exec(
+        "INSERT INTO file (music_folder_id, rel_path, rel_path_key, sniffed_format, codec, bitrate)
+         VALUES (1, 'new.mp3', 'new.mp3', 'mp3', 'mp3', 320)",
+    );
+    let file = lib.num("SELECT max(id) FROM file");
+    let row = lib.rekordbox(Some(file), "filename_only", true);
+    assert_eq!(lib.ids(ReviewGroup::NeedsCloserLook).len(), 1);
+
+    let c = lib.compare(id(ReviewKind::Relink, row, None)).unwrap();
+    assert_eq!(*c.suggestion.as_ref().unwrap().what(), file);
+    assert_eq!(c.rows.len(), 2);
+    assert_eq!(c.rows[0].file_id, Some(file));
+    assert_eq!(c.rows[0].recording_id, None);
+    assert_eq!(c.rows[0].name, "new.mp3");
+    assert_eq!(c.rows[1].source, RowSource::RekordboxEntry);
+    assert_eq!(c.tracks.len(), 1);
+}
+
+#[test]
+fn a_rekordbox_length_that_is_not_a_number_shows_no_length() {
+    let lib = Lib::new();
+    let (_, f) = lib.simple("Velo");
+    lib.exec(&format!(
+        "INSERT INTO rekordbox_track
+             (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+         VALUES (json_object('TrackID', '1', 'Location', 'file://localhost/E:/Old/old.mp3',
+                             'TotalTime', 'n/a'),
+                 'E:/Old/old.mp3', '2026-09-30T10:00:00.000Z', {f}, 'filename_only', 1)"
+    ));
+    let row = lib.num("SELECT max(id) FROM rekordbox_track");
+    let c = lib.compare(id(ReviewKind::Relink, row, None)).unwrap();
+    assert_eq!(c.rows[1].duration_ms, None);
+}
