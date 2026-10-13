@@ -1,5 +1,4 @@
 {
-  "empty": "Every decision the app can't make on its own.",
   "missing": {
     "title": "Missing",
     "empty": "No missing tracks",
@@ -9,5 +8,115 @@
     "unknownFolder": "Unknown folder",
     "lastKnown": "Last known location",
     "addFolder": "Add folder"
+  },
+  "group": {
+    "needsCloserLook": "Needs a closer look",
+    "clearBestFile": "Clear best file",
+    "qualityProblems": "Quality problems"
+  },
+  "queue": {
+    "left_one": "{{count, number}} item left",
+    "left_other": "{{count, number}} items left",
+    "empty": "No items to review",
+    "more": "Show more"
+  },
+  "item": {
+    "moreTracks_one": "and {{count, number}} more",
+    "moreTracks_other": "and {{count, number}} more",
+    "trackName": "{{artist}} - {{title}}",
+    "untitled": "Untitled"
+  },
+  "kind": {
+    "versionDoubt": "Possible version mix-up",
+    "heldSet": "Duplicates held back",
+    "sameRecording": "Same track twice in your Library",
+    "relink": "Confirm relink",
+    "clearBestFile": "Linked file gone, copy found",
+    "qualityProblem": "Quality problem",
+    "betterFile": "Better file available"
+  },
+  "compare": {
+    "label": "Files to compare",
+    "none": "Select an item",
+    "suggested": "Suggested: {{name}}",
+    "doubt": "Why it is here:",
+    "moreFiles_one": "and {{count, number}} more file",
+    "moreFiles_other": "and {{count, number}} more files",
+    "rekordboxEntry": "rekordbox's entry"
+  },
+  "col": {
+    "track": "Track",
+    "format": "Format",
+    "quality": "Quality",
+    "length": "Length",
+    "tags": "Tags",
+    "cover": "Cover",
+    "rekordbox": "rekordbox"
+  },
+  "mark": {
+    "suggested": "Suggested",
+    "linked": "Linked"
+  },
+  "cell": {
+    "yes": "Yes",
+    "no": "No",
+    "tags": "{{filled}} of {{total}} filled",
+    "cutoff": "{{khz}} kHz cutoff"
+  },
+  "verdict": {
+    "notChecked": "Not checked",
+    "ok": "OK",
+    "lowBitrate": "Low bitrate",
+    "suspectTranscode": "Suspect transcode",
+    "truncated": "Cut off",
+    "broken": "Broken"
+  },
+  "reason": {
+    "onlyFile": "the only file",
+    "notOnDisk": "on disk (the other file is gone)",
+    "betterVerdict": "better quality check",
+    "playable": "plays in rekordbox",
+    "higherCutoff": "{{bestKhz}} kHz cutoff ({{otherKhz}} kHz)",
+    "higherCutoffMeasured": "measured {{bestKhz}} kHz cutoff (the other isn't measured)",
+    "fewerDecodeErrors": "fewer decode errors ({{best}} against {{other}})",
+    "betterFormat": "{{best}} (the other is {{other}})",
+    "betterBitrate": "{{bestKbps}} kbps (the other is {{otherKbps}} kbps)",
+    "moreTags": "more tags filled",
+    "hasArt": "has cover art",
+    "knownToRekordbox": "known to rekordbox",
+    "betterPlace": "better location",
+    "tied": "no difference between the files"
+  },
+  "relink": {
+    "filenameOnly": "same file name, no other file has it",
+    "uniqueDuration": "only file of this length nearby",
+    "fingerprint": "same audio fingerprint",
+    "filenameDuration": "same file name and length",
+    "user": "confirmed before, the audio has changed",
+    "other": "matched another way"
+  },
+  "doubt": {
+    "identicalAudio": "the same audio",
+    "sameAudio": "the same audio, found in full in both",
+    "versionVeto": "the same audio, but the names give different cuts",
+    "sameAudioNamesDisagree": "the same audio, but the names disagree",
+    "audioInsideOther": "the audio of one file sits inside the other",
+    "audioInsideOtherNamesDisagree": "the audio of one file sits inside the other, but the names disagree",
+    "sameTagsPartialAudio": "the same names, but only part of the audio is shared",
+    "partialAudioNamesUnclear": "part of the audio is shared, and the names don't say what the files are",
+    "namesSayCut": "the names give different cuts",
+    "namesSayRework": "the names give different reworks",
+    "mashupContains": "a mashup that contains the other file",
+    "labelWordsDiffer": "the same audio, but the names carry different version words",
+    "fingerprintVeto": "the same names, but the audio shares nothing",
+    "noFingerprint": "the same names, and a file has no fingerprint yet",
+    "notCompared": "the same names, and the audio was never compared",
+    "sameTitleDifferentArtists": "the same title by different artists",
+    "mashupPart": "one name looks like a mashup part of the other",
+    "namesUnclear": "the names don't say what the files are",
+    "titlesDiffer": "the titles differ",
+    "namesDiffer": "the names differ",
+    "artistsDiffer": "the artists differ",
+    "creditedToRemixer": "credited to the remixer"
   }
 }

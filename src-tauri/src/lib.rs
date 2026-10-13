@@ -29,6 +29,7 @@ pub mod read;
 pub mod rekordbox;
 pub mod rekordbox_write;
 pub mod relink;
+pub mod review;
 pub mod scan;
 pub mod scan_state;
 pub mod search;

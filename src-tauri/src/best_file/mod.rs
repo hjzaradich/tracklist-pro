@@ -115,6 +115,7 @@ use crate::quality::verdict::{Assessment, Finding, Verdict};
 use crate::read::Codec;
 use crate::tags::TagFields;
 
+pub(crate) use pick::tags_filled;
 pub use pick::{
     pick, ArtPick, ArtReason, DifferentArt, Disagreement, FieldPick, FieldValue, PickReason, Picks,
     TagField, COMPLETENESS_FIELDS,

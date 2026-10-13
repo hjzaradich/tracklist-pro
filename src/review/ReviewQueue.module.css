@@ -1,0 +1,84 @@
+.queue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  max-height: 100%;
+  overflow: auto;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) var(--space-2);
+  border-left: 3px solid transparent;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.item:nth-child(even) {
+  background: var(--color-row-stripe);
+}
+
+.item:hover {
+  background: var(--color-surface-hover);
+}
+
+.item[aria-selected="true"] {
+  border-left-color: var(--color-accent);
+  background: var(--color-selected);
+}
+
+.item:focus-visible,
+.more:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.names {
+  display: flex;
+  flex-direction: column;
+}
+
+.track {
+  overflow-wrap: anywhere;
+}
+
+.kind {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.more {
+  align-self: flex-start;
+}

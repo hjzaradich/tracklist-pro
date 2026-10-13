@@ -124,6 +124,30 @@ export const commands = {
 	 *  offer to add each folder that exists now (1aD-5).
 	 */
 	missingTracks: () => typedError<MissingList, IpcError>(__TAURI_INVOKE("missing_tracks")),
+	/**  How many items wait, by group. */
+	reviewCounts: () => typedError<ReviewCounts, IpcError>(__TAURI_INVOKE("review_counts")),
+	/**  A page of one group's items, the oldest first. */
+	reviewItems: (group: ReviewGroup, offset: number, limit: number) => typedError<ReviewPage, IpcError>(__TAURI_INVOKE("review_items", { group, offset, limit })),
+	/**  The comparison for one item, or `None` if it is no longer in the queue. */
+	reviewItem: (id: ReviewItemId) => typedError<{
+	id: ReviewItemId,
+	kind: ReviewKind,
+	group: ReviewGroup,
+	tracks: ReviewTrackName[],
+	/**
+	 *  Why the item is in the queue, from the grouping's own reasons (a
+	 *  version doubt, a held set): at most three, the deciding one first.
+	 */
+	doubt: Reason[],
+	/**
+	 *  The file the app suggests (`what` is its id) and why. `None` when
+	 *  there is nothing to suggest (a quality problem with no better copy).
+	 */
+	suggestion: Suggestion<number> | null,
+	/**  The first [`MAX_FILES`] files, the suggested one first. */
+	rows: ReviewFileRow[],
+	moreFiles: number,
+} | null, IpcError>(__TAURI_INVOKE("review_item", { id })),
 	/**  Every Library track, sorted for the Library list (see [`list`]). */
 	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
 	/**
@@ -1072,6 +1096,118 @@ export type RefusalReason =
 /**  The file couldn't be made (a bug; nothing is written). */
 "internal";
 
+/**  Whether rekordbox knows a file. */
+export type RekordboxUse = "unknown" | "probable" | "trusted";
+
+/**  The comparison for one item: its files, the suggested one first. */
+export type ReviewComparison = {
+	id: ReviewItemId,
+	kind: ReviewKind,
+	group: ReviewGroup,
+	tracks: ReviewTrackName[],
+	/**
+	 *  Why the item is in the queue, from the grouping's own reasons (a
+	 *  version doubt, a held set): at most three, the deciding one first.
+	 */
+	doubt: Reason[],
+	/**
+	 *  The file the app suggests (`what` is its id) and why. `None` when
+	 *  there is nothing to suggest (a quality problem with no better copy).
+	 */
+	suggestion: Suggestion<number> | null,
+	/**  The first [`MAX_FILES`] files, the suggested one first. */
+	rows: ReviewFileRow[],
+	moreFiles: number,
+};
+
+/**  How many items wait, by group. */
+export type ReviewCounts = {
+	needsCloserLook: number,
+	clearBestFile: number,
+	qualityProblems: number,
+	/**
+	 *  How many need a decision in all: the three above added up. What the
+	 *  Overview and the sidebar can show.
+	 */
+	total: number,
+};
+
+/**  One row of a comparison: a file, with the same columns for every file. */
+export type ReviewFileRow = {
+	fileId: number | null,
+	source: RowSource,
+	/**  The track the file is in; `None` for rekordbox's entry. */
+	recordingId: number | null,
+	name: string,
+	path: string | null,
+	/**  The last scan found it on disk (a file on an unplugged drive is). */
+	onDisk: boolean,
+	driveConnected: boolean,
+	/**  The Library track plays this file. */
+	linked: boolean,
+	/**  The format sniffed from the bytes, e.g. `mp3`, `flac`. */
+	format: string | null,
+	/**  `None`: not checked. */
+	verdict: Verdict | null,
+	cutoffHz: number | null,
+	durationMs: number | null,
+	tagsFilled: number,
+	tagsTotal: number,
+	hasArt: boolean,
+	rekordbox: RekordboxUse,
+	bitrateKbps: number | null,
+	sampleRateHz: number | null,
+	addedAt: string | null,
+};
+
+/**  The queue's groups, in the order they are shown. */
+export type ReviewGroup = "needsCloserLook" | "clearBestFile" | "qualityProblems";
+
+/**  One line of the queue. */
+export type ReviewItem = {
+	id: ReviewItemId,
+	kind: ReviewKind,
+	/**  The first [`MAX_NAMES`] tracks. */
+	tracks: ReviewTrackName[],
+	/**  How many more tracks the item has. */
+	moreTracks: number,
+};
+
+/**
+ *  Which item. A pair item names its two tracks (`a` < `b`); a held or
+ *  same-recording set names its lowest track (`b` is `None`); a relink item
+ *  names the rekordbox entry; the others name the Library track's track.
+ */
+export type ReviewItemId = {
+	kind: ReviewKind,
+	a: number,
+	b: number | null,
+};
+
+/**  What kind of decision an item asks for. */
+export type ReviewKind = "versionDoubt" | "heldSet" | "sameRecording" | "relink" | "clearBestFile" | "qualityProblem" | "betterFile";
+
+/**  A page of one group. */
+export type ReviewPage = {
+	group: ReviewGroup,
+	/**  How many items the group has in all. */
+	total: number,
+	items: ReviewItem[],
+};
+
+/**  A track named for the queue. */
+export type ReviewTrackName = {
+	/**  `None` for rekordbox's own entry (a relink item). */
+	recordingId: number | null,
+	title: string | null,
+	artist: string | null,
+};
+
+/**  What a comparison row stands for. */
+export type RowSource = "file" | 
+/**  rekordbox's own entry (a relink item): the file it names is gone. */
+"rekordboxEntry";
+
 /**  A file the walk added to the index, as the frontend hears it. */
 export type ScannedFile = {
 	/**  The `file` row id. */
@@ -1255,6 +1391,12 @@ export type UndoRefusal =
 { code: "crateNameTaken"; name: string } | 
 /**  Something the step changed has changed again since. */
 { code: "changedSince" };
+
+/**
+ *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]
+ *  (`clipped` is held back).
+ */
+export type Verdict = "ok" | "lowBitrate" | "suspectTranscode" | "truncated" | "broken";
 
 /**  Drives came or went: the music folders' `online` may have changed. */
 export type VolumesChanged = null;

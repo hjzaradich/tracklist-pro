@@ -1,0 +1,443 @@
+//! The comparison of one queue item (1bD-2; ROADMAP 1.12): one row per file
+//! with the same columns, the suggested file first, and the reason for the
+//! suggestion as a code plus parameters ([`super::reasons`]).
+//!
+//! The rows are made from the facts the best-file ranking itself reads
+//! ([`crate::file_roles::facts`]), so what a row shows is what the ranking
+//! saw. The suggestion is the stored "better file" where the item is about
+//! one (a Library track with a copy ahead of its linked file); otherwise the
+//! live ranking's best file. A quality problem has no suggestion: there is
+//! no better copy to name.
+
+use std::collections::{HashMap, HashSet};
+
+use rusqlite::{Connection, OptionalExtension};
+
+use super::held;
+use super::queue::{
+    better_from, name_of, names, quality_from, relink_from, version_doubt_from, DOUBT_PAIR,
+};
+use super::reasons::{from_grouping, from_rank, from_relink};
+use super::{
+    RekordboxUse, ReviewComparison, ReviewFileRow, ReviewItemId, ReviewKind, ReviewTrackName,
+    RowSource, MAX_FILES, PENDING_PAIRS,
+};
+use crate::best_file::{
+    rank, tags_filled, why_ahead, FileFacts, RekordboxLink, COMPLETENESS_FIELDS,
+};
+use crate::file_roles::facts::{self, Loaded};
+use crate::library::{file_from, LinkedFile, StoredFile, FILE_COLUMNS, FILE_JOINS};
+use crate::paths::Volumes;
+use crate::suggest::{Reason, Suggestion};
+
+/// What the ranking doesn't read about a file.
+struct Detail {
+    stored: Option<StoredFile>,
+    rel_path: String,
+    duration_ms: Option<u32>,
+    bitrate_kbps: Option<u32>,
+    sample_rate_hz: Option<u32>,
+    added_at: Option<String>,
+    format: Option<String>,
+}
+
+fn details(conn: &Connection, files: &[i64]) -> rusqlite::Result<HashMap<i64, Detail>> {
+    let json = serde_json::to_string(files).unwrap_or_else(|_| "[]".into());
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT {FILE_COLUMNS}, f.duration_ms, f.bitrate, f.sample_rate, f.first_seen_at,
+                f.sniffed_format
+         FROM file f {FILE_JOINS}
+         WHERE f.id IN (SELECT value FROM json_each(?1))"
+    ))?;
+    let rows = stmt.query_map([json], |r| {
+        let file_id: i64 = r.get(0)?;
+        let number = |at: usize| -> rusqlite::Result<Option<u32>> {
+            Ok(r.get::<_, Option<i64>>(at)?
+                .and_then(|n| u32::try_from(n).ok()))
+        };
+        Ok((
+            file_id,
+            Detail {
+                stored: file_from(r, 0)?,
+                rel_path: r.get(3)?,
+                duration_ms: number(6)?,
+                bitrate_kbps: number(7)?,
+                sample_rate_hz: number(8)?,
+                added_at: r.get(9)?,
+                format: r.get(10)?,
+            },
+        ))
+    })?;
+    rows.collect()
+}
+
+/// What an item turned out to be, once it is known to be queued.
+struct Resolved {
+    /// The tracks, in the order the item lists them.
+    tracks: Vec<i64>,
+    /// The grouping's stored reasons for the item's pair, if it has one.
+    reasons: Option<String>,
+    /// The file the item is about, if it is about one.
+    about: Option<i64>,
+    /// A relink item's entry.
+    entry: Option<Entry>,
+}
+
+/// rekordbox's entry in a relink item.
+struct Entry {
+    file: i64,
+    method: String,
+    title: Option<String>,
+    artist: Option<String>,
+    path: Option<String>,
+    duration_ms: Option<u32>,
+    bitrate_kbps: Option<u32>,
+    sample_rate_hz: Option<u32>,
+}
+
+fn resolve(conn: &Connection, id: ReviewItemId) -> rusqlite::Result<Option<Resolved>> {
+    let plain = |tracks: Vec<i64>| Resolved {
+        tracks,
+        reasons: None,
+        about: None,
+        entry: None,
+    };
+    match id.kind {
+        ReviewKind::VersionDoubt => {
+            let Some(b) = id.b else { return Ok(None) };
+            let reasons: Option<String> = conn
+                .query_row(
+                    &format!(
+                        "SELECT grouping_pair.reasons {}
+                         ORDER BY grouping_pair.file_a, grouping_pair.file_b LIMIT 1",
+                        version_doubt_from(&format!("AND ({DOUBT_PAIR}) = (?1, ?2)"))
+                    ),
+                    [id.a, b],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(reasons.map(|reasons| Resolved {
+                reasons: Some(reasons),
+                ..plain(vec![id.a, b])
+            }))
+        }
+        ReviewKind::HeldSet | ReviewKind::SameRecording => {
+            let same = id.kind == ReviewKind::SameRecording;
+            let Some(set) = held::components(conn)?
+                .into_iter()
+                .find(|c| c.anchor == id.a && c.same_recording == same)
+            else {
+                return Ok(None);
+            };
+            let json = serde_json::to_string(&set.tracks).unwrap_or_else(|_| "[]".into());
+            let reasons: Option<String> = conn
+                .query_row(
+                    &format!(
+                        "SELECT reasons FROM grouping_pair
+                         JOIN recording_file ra ON ra.file_id = grouping_pair.file_a
+                         JOIN recording_file rb ON rb.file_id = grouping_pair.file_b
+                         WHERE {PENDING_PAIRS} AND state <> 'open'
+                           AND ra.recording_id IN (SELECT value FROM json_each(?1))
+                           AND rb.recording_id IN (SELECT value FROM json_each(?1))
+                         ORDER BY (state = 'both_in_library') DESC,
+                                  grouping_pair.file_a, grouping_pair.file_b LIMIT 1"
+                    ),
+                    [json],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(Some(Resolved {
+                reasons,
+                ..plain(set.tracks)
+            }))
+        }
+        ReviewKind::Relink => relink(conn, id.a),
+        ReviewKind::ClearBestFile | ReviewKind::BetterFile => {
+            let file: Option<i64> = conn
+                .query_row(
+                    &format!(
+                        "SELECT bf.file_id {}",
+                        better_from(
+                            id.kind == ReviewKind::ClearBestFile,
+                            "AND lt.recording_id = ?1"
+                        )
+                    ),
+                    [id.a],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(file.map(|file| Resolved {
+                about: Some(file),
+                ..plain(vec![id.a])
+            }))
+        }
+        ReviewKind::QualityProblem => {
+            let queued: bool = conn.query_row(
+                &format!(
+                    "SELECT EXISTS (SELECT 1 {})",
+                    quality_from("AND lt.recording_id = ?1")
+                ),
+                [id.a],
+                |r| r.get(0),
+            )?;
+            Ok(queued.then(|| plain(vec![id.a])))
+        }
+    }
+}
+
+fn relink(conn: &Connection, row: i64) -> rusqlite::Result<Option<Resolved>> {
+    let found = conn
+        .query_row(
+            &format!(
+                "SELECT file_id, relink_method, location_key,
+                        json_extract(attributes, '$.Name'), json_extract(attributes, '$.Artist'),
+                        CASE WHEN json_extract(attributes, '$.TotalTime') GLOB '[0-9]*'
+                             THEN CAST(json_extract(attributes, '$.TotalTime') AS INTEGER) END,
+                        CAST(json_extract(attributes, '$.BitRate') AS INTEGER),
+                        CAST(json_extract(attributes, '$.SampleRate') AS INTEGER),
+                        (SELECT recording_id FROM recording_file WHERE file_id = rekordbox_track.file_id)
+                 {}",
+                relink_from("AND id = ?1")
+            ),
+            [row],
+            |r| {
+                let number = |at: usize| -> rusqlite::Result<Option<u32>> {
+                    Ok(r.get::<_, Option<i64>>(at)?.and_then(|n| u32::try_from(n).ok()))
+                };
+                let seconds = number(5)?;
+                Ok((
+                    Entry {
+                        file: r.get(0)?,
+                        method: r.get(1)?,
+                        path: r
+                            .get::<_, Option<String>>(2)?
+                            .map(|key| key.replace('/', "\\")),
+                        title: r.get(3)?,
+                        artist: r.get(4)?,
+                        duration_ms: seconds.map(|s| s.saturating_mul(1000)),
+                        bitrate_kbps: number(6)?,
+                        sample_rate_hz: number(7)?,
+                    },
+                    r.get::<_, Option<i64>>(8)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(found.map(|(entry, recording)| Resolved {
+        tracks: recording.into_iter().collect(),
+        reasons: None,
+        about: Some(entry.file),
+        entry: Some(entry),
+    }))
+}
+
+fn rekordbox_use(link: RekordboxLink) -> RekordboxUse {
+    match link {
+        RekordboxLink::Unknown => RekordboxUse::Unknown,
+        RekordboxLink::Probable => RekordboxUse::Probable,
+        RekordboxLink::Trusted => RekordboxUse::Trusted,
+    }
+}
+
+/// The file's last path component.
+fn last_component(path: &str) -> String {
+    path.rsplit(['/', '\\']).next().unwrap_or(path).to_owned()
+}
+
+fn row_of(
+    recording: i64,
+    loaded: &Loaded,
+    detail: Option<&Detail>,
+    linked: &HashSet<i64>,
+    volumes: &impl Volumes,
+) -> ReviewFileRow {
+    let facts = &loaded.facts;
+    let shown: Option<LinkedFile> = detail
+        .and_then(|d| d.stored.as_ref())
+        .map(|stored| stored.shown(volumes));
+    let rel_path = detail.map_or("", |d| d.rel_path.as_str());
+    ReviewFileRow {
+        file_id: Some(facts.file_id),
+        source: RowSource::File,
+        recording_id: Some(recording).filter(|track| *track != 0),
+        name: shown
+            .as_ref()
+            .map_or_else(|| last_component(rel_path), |s| s.name.clone()),
+        path: shown.as_ref().map(|s| s.path.clone()),
+        on_disk: facts.on_disk,
+        drive_connected: shown.as_ref().is_some_and(|s| s.drive_connected),
+        linked: linked.contains(&facts.file_id),
+        format: detail.and_then(|d| d.format.clone()),
+        verdict: facts.quality.verdict,
+        cutoff_hz: facts.quality.cutoff_hz,
+        duration_ms: detail.and_then(|d| d.duration_ms),
+        tags_filled: tags_filled(&facts.tags),
+        tags_total: COMPLETENESS_FIELDS.len() as u32,
+        has_art: facts.art.is_some(),
+        rekordbox: rekordbox_use(facts.rekordbox),
+        bitrate_kbps: detail.and_then(|d| d.bitrate_kbps),
+        sample_rate_hz: detail.and_then(|d| d.sample_rate_hz),
+        added_at: detail.and_then(|d| d.added_at.clone()),
+    }
+}
+
+fn entry_row(entry: &Entry) -> ReviewFileRow {
+    ReviewFileRow {
+        file_id: None,
+        source: RowSource::RekordboxEntry,
+        recording_id: None,
+        name: entry
+            .path
+            .as_deref()
+            .map_or_else(String::new, last_component),
+        path: entry.path.clone(),
+        on_disk: false,
+        drive_connected: false,
+        linked: false,
+        format: None,
+        verdict: None,
+        cutoff_hz: None,
+        duration_ms: entry.duration_ms,
+        tags_filled: 0,
+        tags_total: COMPLETENESS_FIELDS.len() as u32,
+        has_art: false,
+        rekordbox: RekordboxUse::Trusted,
+        bitrate_kbps: entry.bitrate_kbps,
+        sample_rate_hz: entry.sample_rate_hz,
+        added_at: None,
+    }
+}
+
+/// The comparison for `id`, or `None` if the item is no longer in the queue.
+pub fn comparison(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    id: ReviewItemId,
+) -> rusqlite::Result<Option<ReviewComparison>> {
+    // One read transaction: the item, its files and their names are of the
+    // same moment.
+    let conn = conn.unchecked_transaction()?;
+    let conn = &*conn;
+    let Some(item) = resolve(conn, id)? else {
+        return Ok(None);
+    };
+
+    // The files, by track.
+    let by_track = facts::load(conn, &item.tracks)?;
+    let mut files: Vec<(i64, &Loaded)> = Vec::new();
+    for (&track, loaded) in &by_track {
+        for file in loaded {
+            if item.entry.is_none() || Some(file.facts.file_id) == item.about {
+                files.push((track, file));
+            }
+        }
+    }
+    // A relink's matched file that is in no track yet (scanned, not grouped)
+    // has a row of its own all the same.
+    let unplaced = match &item.entry {
+        Some(entry) if !files.iter().any(|(_, l)| l.facts.file_id == entry.file) => {
+            facts::load_unplaced(conn, entry.file)?
+        }
+        _ => None,
+    };
+    if let Some(loaded) = &unplaced {
+        files.push((0, loaded));
+    }
+    let ids: Vec<i64> = files.iter().map(|(_, l)| l.facts.file_id).collect();
+    let details = details(conn, &ids)?;
+    let linked: HashSet<i64> = {
+        let json = serde_json::to_string(&item.tracks).unwrap_or_else(|_| "[]".into());
+        let mut stmt = conn.prepare_cached(
+            "SELECT linked_file_id FROM library_track
+             WHERE linked_file_id IS NOT NULL
+               AND recording_id IN (SELECT value FROM json_each(?1))",
+        )?;
+        let rows = stmt.query_map([json], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+
+    // The ranking, over every file of the item.
+    let all: Vec<FileFacts> = files.iter().map(|(_, l)| l.facts.clone()).collect();
+    let ranking = rank(&all);
+
+    // The suggestion: which file, and why.
+    let facts_of = |file: i64| all.iter().find(|f| f.file_id == file);
+    let ranked_reason = |file: i64| {
+        ranking
+            .order
+            .iter()
+            .find(|r| r.file_id == file)
+            .map(|r| from_rank(&r.reason))
+    };
+    let suggestion: Option<(i64, Reason)> = match id.kind {
+        ReviewKind::QualityProblem => None,
+        ReviewKind::Relink => item
+            .entry
+            .as_ref()
+            .map(|e| (e.file, from_relink(&e.method))),
+        ReviewKind::ClearBestFile | ReviewKind::BetterFile => item.about.and_then(|better| {
+            // Why it is ahead of the linked file; else the ranking's reason.
+            let linked_file = linked.iter().copied().find(|f| *f != better);
+            let ahead = linked_file
+                .and_then(facts_of)
+                .zip(facts_of(better))
+                .and_then(|(linked, better)| why_ahead(better, linked))
+                .map(|reason| from_rank(&reason));
+            ahead.or_else(|| ranked_reason(better)).map(|r| (better, r))
+        }),
+        _ => ranking
+            .best()
+            .and_then(|best| ranked_reason(best).map(|r| (best, r))),
+    };
+    let suggestion = suggestion.and_then(|(file, reason)| Suggestion::new(file, vec![reason]).ok());
+
+    // Rows: the suggested file first, then the ranking's order.
+    let first = suggestion.as_ref().map(|s| *s.what());
+    let mut order: Vec<i64> = first.into_iter().collect();
+    order.extend(
+        ranking
+            .order
+            .iter()
+            .map(|r| r.file_id)
+            .filter(|f| Some(*f) != first),
+    );
+    let mut rows: Vec<ReviewFileRow> = order
+        .iter()
+        .filter_map(|file| {
+            let (track, loaded) = files.iter().find(|(_, l)| l.facts.file_id == *file)?;
+            Some(row_of(*track, loaded, details.get(file), &linked, volumes))
+        })
+        .collect();
+    if let Some(entry) = &item.entry {
+        rows.push(entry_row(entry));
+    }
+    let more_files = rows.len().saturating_sub(MAX_FILES) as u32;
+    rows.truncate(MAX_FILES);
+
+    // The tracks' names.
+    let names = names(conn, volumes, item.tracks.iter().copied())?;
+    let mut tracks: Vec<ReviewTrackName> = Vec::new();
+    if let Some(entry) = &item.entry {
+        tracks.push(ReviewTrackName {
+            recording_id: None,
+            title: entry.title.clone(),
+            artist: entry.artist.clone(),
+        });
+    }
+    tracks.extend(item.tracks.iter().map(|t| name_of(&names, *t)));
+
+    Ok(Some(ReviewComparison {
+        id,
+        kind: id.kind,
+        group: id.kind.group(),
+        tracks,
+        doubt: item
+            .reasons
+            .as_deref()
+            .map(from_grouping)
+            .unwrap_or_default(),
+        suggestion,
+        rows,
+        more_files,
+    }))
+}

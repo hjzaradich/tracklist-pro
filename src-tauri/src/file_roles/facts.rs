@@ -18,7 +18,7 @@ use crate::send_values::{plays_in_dj_app, tag_values, TAG_ATTRIBUTES};
 use crate::tags::TagFields;
 
 /// One file of a track, as the ranking sees it, and the role it has now.
-pub(super) struct Loaded {
+pub(crate) struct Loaded {
     pub facts: FileFacts,
     pub role: String,
 }
@@ -26,11 +26,49 @@ pub(super) struct Loaded {
 /// The files of each of `recordings`, by track. A track with no files is
 /// not in the map. Leaves the stored verdicts as they are: whoever calls
 /// settles them first.
-pub(super) fn load(
+pub(crate) fn load(
     conn: &Connection,
     recordings: &[i64],
 ) -> rusqlite::Result<BTreeMap<i64, Vec<Loaded>>> {
     let wanted = serde_json::to_string(recordings).unwrap_or_else(|_| "[]".into());
+    read(
+        conn,
+        "FROM recording_file rf
+         JOIN file f ON f.id = rf.file_id
+         JOIN music_folder mf ON mf.id = f.music_folder_id
+         JOIN volume v ON v.id = mf.volume_id
+         LEFT JOIN file_quality q ON q.file_id = f.id
+         WHERE rf.recording_id IN (SELECT value FROM json_each(?1))
+         ORDER BY rf.recording_id, f.id",
+        wanted,
+    )
+}
+
+/// One file that is in no track yet (scanned, not yet grouped), as the
+/// ranking sees it, with track 0 and the role `undecided`. `None` if there
+/// is no such file or the file has a track (use [`load`]).
+pub(crate) fn load_unplaced(conn: &Connection, file: i64) -> rusqlite::Result<Option<Loaded>> {
+    let mut found = read(
+        conn,
+        "FROM (SELECT 0 AS recording_id, 'undecided' AS role) rf
+         JOIN file f ON f.id = CAST(?1 AS INTEGER)
+         JOIN music_folder mf ON mf.id = f.music_folder_id
+         JOIN volume v ON v.id = mf.volume_id
+         LEFT JOIN file_quality q ON q.file_id = f.id
+         WHERE NOT EXISTS (SELECT 1 FROM recording_file x WHERE x.file_id = f.id)",
+        file.to_string(),
+    )?;
+    Ok(found.remove(&0).and_then(|mut files| files.pop()))
+}
+
+/// Reads the rows `tail` (a `FROM … ORDER BY` over `rf`, `f`, `mf`, `v` and
+/// `q`, with `?1` bound to `param`) selects, and the stored verdicts of
+/// their files.
+fn read(
+    conn: &Connection,
+    tail: &str,
+    param: String,
+) -> rusqlite::Result<BTreeMap<i64, Vec<Loaded>>> {
     let mut rows = Vec::new();
     {
         let mut stmt = conn.prepare_cached(&format!(
@@ -44,16 +82,10 @@ pub(super) fn load(
                          WHEN EXISTS (SELECT 1 FROM rekordbox_track rt
                                       WHERE rt.file_id = f.id AND rt.relink_probable = 1) THEN 1
                          ELSE 0 END
-             FROM recording_file rf
-             JOIN file f ON f.id = rf.file_id
-             JOIN music_folder mf ON mf.id = f.music_folder_id
-             JOIN volume v ON v.id = mf.volume_id
-             LEFT JOIN file_quality q ON q.file_id = f.id
-             WHERE rf.recording_id IN (SELECT value FROM json_each(?1))
-             ORDER BY rf.recording_id, f.id",
+             {tail}",
             version = crate::quality::VERSION
         ))?;
-        let mapped = stmt.query_map([wanted], |r| {
+        let mapped = stmt.query_map([param], |r| {
             Ok(Row {
                 recording: r.get(0)?,
                 role: r.get(1)?,

@@ -96,7 +96,7 @@ pub const COMPLETENESS_FIELDS: [TagField; 6] = [
 ];
 
 /// How many of [`COMPLETENESS_FIELDS`] the tags have a value for.
-pub(super) fn tags_filled(tags: &TagFields) -> u32 {
+pub(crate) fn tags_filled(tags: &TagFields) -> u32 {
     COMPLETENESS_FIELDS
         .iter()
         .filter(|field| field.value(tags).is_some())

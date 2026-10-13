@@ -1,0 +1,28 @@
+/* The stage body centres its content; Review fills it instead. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-self: stretch;
+  justify-self: stretch;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* The queue on the left, the comparison on the right, each scrolling on its own. */
+.panes {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) minmax(0, 2fr);
+  gap: var(--space-4);
+  min-height: 16rem;
+}
+
+.right {
+  min-width: 0;
+  overflow: auto;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+}
