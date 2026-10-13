@@ -50,7 +50,10 @@
     "dismiss": "Dismiss",
     "keepAnyway": "Keep anyway",
     "findBetter": "Find a better file",
-    "switch": "Switch file"
+    "switch": "Switch file",
+    "confirm": "Confirm",
+    "confirmAgain": "Confirm again",
+    "notSame": "Not the same"
   },
   "switch": {
     "keepsEntry": "rekordbox keeps this track and its cues. It will show the file as missing until you relocate it in rekordbox.",

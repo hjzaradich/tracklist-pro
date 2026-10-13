@@ -8,20 +8,32 @@ import {
   type SwitchEffect,
   type Switched,
 } from "../bindings";
+import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
+import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { MISSING_TRACKS_QUERY_KEY } from "./useMissingTracks";
 import { REVIEW_ACCEPT_ALL_QUERY_KEY, REVIEW_QUERY_KEYS } from "./useReview";
 
-// What the user decides about a Review item (1bE-5, 1bE-7). Each action is
+// What the user decides about a Review item (1bE-5, 1bE-6, 1bE-7). Each action is
 // one undoable step on the Rust side; here it only calls the command and asks
 // for the queue again, whether it worked or was refused (a refused action
 // means the item changed under the screen, so the screen shows it again).
 
-/** The queue, the comparison and the Library list, asked for again. */
+/**
+ * The queue and the comparison, asked for again, with the lists an answer
+ * can change: the Library (a switched file), All music and the rekordbox
+ * offer (a match that is confirmed can be added), and Missing (an entry
+ * whose match was refused has no file again).
+ */
 function reload(queryClient: QueryClient) {
   return Promise.all(
-    [...REVIEW_QUERY_KEYS, LIBRARY_TRACKS_QUERY_KEY].map((queryKey) =>
-      queryClient.invalidateQueries({ queryKey }),
-    ),
+    [
+      ...REVIEW_QUERY_KEYS,
+      LIBRARY_TRACKS_QUERY_KEY,
+      ALL_MUSIC_QUERY_KEY,
+      REKORDBOX_OFFER_QUERY_KEY,
+      MISSING_TRACKS_QUERY_KEY,
+    ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );
 }
 
@@ -81,5 +93,25 @@ export function useAcceptAllItems(enabled: boolean) {
 export function useAcceptAll() {
   return useAction<AcceptItem[], AcceptedAll>((items) =>
     unwrap(commands.reviewAcceptClearBestFiles(items)),
+  );
+}
+
+/** A probable relink match: the rekordbox entry and the file it is matched to. */
+export interface RelinkMatch {
+  entryId: number;
+  fileId: number;
+}
+
+/** "Confirm" for a relink match: the entry is that file. */
+export function useConfirmRelink() {
+  return useAction<RelinkMatch, Acted>(({ entryId, fileId }) =>
+    unwrap(commands.reviewConfirmRelink(entryId, fileId)),
+  );
+}
+
+/** "Not the same" for a relink match: the entry is not that file, and is never matched to it again. */
+export function useRejectRelink() {
+  return useAction<RelinkMatch, Acted>(({ entryId, fileId }) =>
+    unwrap(commands.reviewRejectRelink(entryId, fileId)),
   );
 }

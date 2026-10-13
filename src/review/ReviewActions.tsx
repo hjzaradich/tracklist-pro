@@ -3,8 +3,10 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { ErrorKind, ReviewComparison, SwitchEffect, SwitchRefusal } from "../bindings";
 import {
+  useConfirmRelink,
   useDismissBetterFile,
   useKeepAnyway,
+  useRejectRelink,
   useSwitchLinkedFile,
   useWantBetterFile,
 } from "./useReviewActions";
@@ -32,12 +34,14 @@ const EFFECT_TEXT: Record<SwitchEffect, "switch.keepsEntry" | "switch.newTrack" 
 };
 
 /**
- * The actions for the selected item (1bE-5, 1bE-7), under the comparison
- * table. Buttons only. Which ones depends on the item's kind:
+ * The actions for the selected item (1bE-5, 1bE-6, 1bE-7), under the
+ * comparison table. Buttons only. Which ones depends on the item's kind:
  * - "Better file available": Dismiss.
  * - "Quality problem": Keep anyway, Find a better file.
  * - "Linked file gone, copy found": Switch file, with what the switch means
  *   in rekordbox said first, for a track rekordbox knows.
+ * - "Confirm relink": Confirm (Confirm again, for a match confirmed before
+ *   whose file holds other audio now) and Not the same.
  *
  * The layout is the designer's (docs/design-style.md, "Review screen"): one
  * row of buttons directly under the table; the one filled button (`primary`)
@@ -54,9 +58,20 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
   const keep = useKeepAnyway();
   const want = useWantBetterFile();
   const switchFile = useSwitchLinkedFile();
+  const confirm = useConfirmRelink();
+  const reject = useRejectRelink();
+  // A relink item names rekordbox's entry; every other kind names a track.
   const recordingId = comparison.id.a;
-  const busy = dismiss.isPending || keep.isPending || want.isPending || switchFile.isPending;
-  const failure = dismiss.error ?? keep.error ?? want.error ?? switchFile.error;
+  const entryId = comparison.id.a;
+  const busy =
+    dismiss.isPending ||
+    keep.isPending ||
+    want.isPending ||
+    switchFile.isPending ||
+    confirm.isPending ||
+    reject.isPending;
+  const failure =
+    dismiss.error ?? keep.error ?? want.error ?? switchFile.error ?? confirm.error ?? reject.error;
 
   let buttons: ReactNode = null;
   let note: string | null = null;
@@ -111,6 +126,28 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
       >
         {t("action.switch")}
       </button>
+    );
+  } else if (comparison.kind === "relink" && comparison.relink) {
+    const { fileId, confirmedBefore } = comparison.relink;
+    buttons = (
+      <>
+        <button
+          type="button"
+          className={styles.button}
+          disabled={busy}
+          onClick={() => confirm.mutate({ entryId, fileId })}
+        >
+          {confirmedBefore ? t("action.confirmAgain") : t("action.confirm")}
+        </button>
+        <button
+          type="button"
+          className={styles.button}
+          disabled={busy}
+          onClick={() => reject.mutate({ entryId, fileId })}
+        >
+          {t("action.notSame")}
+        </button>
+      </>
     );
   }
   if (buttons === null) return null;

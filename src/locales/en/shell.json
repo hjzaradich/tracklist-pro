@@ -36,6 +36,9 @@
       "switchLinkedFile": "Undo (linked file switched)",
       "acceptClearBestFiles_one": "Undo ({{count}} linked file switched)",
       "acceptClearBestFiles_other": "Undo ({{count}} linked files switched)",
+      "confirmRelink": "Undo (relink confirmed)",
+      "rejectRelink": "Undo (relink marked not the same)",
+      "withdrawRelink": "Undo (relink confirmation withdrawn)",
       "other": "Undo (last change)"
     },
     "refused": {

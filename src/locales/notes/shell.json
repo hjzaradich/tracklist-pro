@@ -138,6 +138,18 @@
     "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (several tracks).",
     "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\"."
   },
+  "undo.action.confirmRelink": {
+    "purpose": "Undo button naming what it takes back: a relink match confirmed in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is a confirmed relink."
+  },
+  "undo.action.rejectRelink": {
+    "purpose": "Undo button naming what it takes back: \"Not the same\" said about a relink match in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is a \"Not the same\"."
+  },
+  "undo.action.withdrawRelink": {
+    "purpose": "Undo button naming what it takes back: a relink confirmation that was withdrawn.",
+    "where": "Top bar, Undo button, when the next step to undo is a withdrawn relink confirmation (no screen withdraws one yet)."
+  },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",
     "where": "Top bar, Undo button, for an action this version has no wording for, or one recorded by an older version without its details.",

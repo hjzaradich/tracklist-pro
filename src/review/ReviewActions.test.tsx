@@ -59,9 +59,37 @@ const BETTER = item("betterFile", 10, "Better Tune");
 const QUALITY = item("qualityProblem", 20, "Flagged Tune");
 const GONE = item("clearBestFile", 30, "Gone Tune");
 const GONE_TOO = item("clearBestFile", 31, "Other Gone Tune");
+/** A probable relink match: the item names rekordbox's entry (row 50). */
+const RELINK = item("relink", 50, "Old Tune");
 
-function comparisonOf(it: ReviewItem, switchOffer: SwitchOffer | null): ReviewComparison {
+function comparisonOf(
+  it: ReviewItem,
+  switchOffer: SwitchOffer | null,
+  confirmedBefore: boolean,
+): ReviewComparison {
   const base = { id: it.id, kind: it.kind, tracks: it.tracks, doubt: [], moreFiles: 0 };
+  if (it.kind === "relink") {
+    return {
+      ...base,
+      group: "needsCloserLook",
+      suggestion: {
+        what: 8,
+        reasons: [
+          {
+            key: confirmedBefore ? "review:relink.user" : "review:relink.filenameOnly",
+            params: {},
+            source: "fact",
+          },
+        ],
+      },
+      rows: [
+        row(8, "new tune.mp3"),
+        row(0, "old tune.mp3", { fileId: null, source: "rekordboxEntry", recordingId: null, onDisk: false }),
+      ],
+      switch: null,
+      relink: { fileId: 8, confirmedBefore },
+    };
+  }
   if (it.kind === "betterFile") {
     return {
       ...base,
@@ -74,6 +102,7 @@ function comparisonOf(it: ReviewItem, switchOffer: SwitchOffer | null): ReviewCo
       },
       rows: [row(12, "better.flac", { format: "flac" }), row(11, "linked.mp3", { linked: true })],
       switch: null,
+      relink: null,
     };
   }
   if (it.kind === "qualityProblem") {
@@ -83,6 +112,7 @@ function comparisonOf(it: ReviewItem, switchOffer: SwitchOffer | null): ReviewCo
       suggestion: null,
       rows: [row(21, "flagged.mp3", { linked: true, verdict: "lowBitrate" })],
       switch: null,
+      relink: null,
     };
   }
   return {
@@ -91,6 +121,7 @@ function comparisonOf(it: ReviewItem, switchOffer: SwitchOffer | null): ReviewCo
     suggestion: { what: 32, reasons: [{ key: "review:reason.notOnDisk", params: {}, source: "fact" }] },
     rows: [row(32, "copy.flac"), row(31, "gone.mp3", { linked: true, onDisk: false })],
     switch: switchOffer,
+    relink: null,
   };
 }
 
@@ -98,6 +129,8 @@ interface World {
   lists: Record<ReviewGroup, ReviewItem[]>;
   /** The switch the "Linked file gone" items offer. */
   offer: SwitchOffer;
+  /** Whether the relink items were confirmed before (their audio changed since). */
+  confirmedBefore: boolean;
   /** How many of the "Linked file gone" items "Accept all" would switch (the first ones). */
   clear: number;
   /** What a command answers instead of working, by command. */
@@ -115,6 +148,7 @@ function backend(start: Partial<World> = {}): World {
   const world: World = {
     lists: { needsCloserLook: [], clearBestFile: [], qualityProblems: [] },
     offer: { fileId: 32, effect: "notInRekordbox", refusal: null },
+    confirmedBefore: false,
     clear: 0,
     refuse: {},
     calls: [],
@@ -155,7 +189,7 @@ function backend(start: Partial<World> = {}): World {
         const found = Object.values(world.lists)
           .flat()
           .find((i) => i.id.kind === id.kind && i.id.a === id.a);
-        return found ? comparisonOf(found, world.offer) : null;
+        return found ? comparisonOf(found, world.offer, world.confirmedBefore) : null;
       }
       case "review_accept_all_items":
         return world.lists.clearBestFile
@@ -181,6 +215,10 @@ function backend(start: Partial<World> = {}): World {
           },
         };
       }
+      case "review_confirm_relink":
+        return { operationId: act("needsCloserLook", args.entryId as number, "confirm_relink") };
+      case "review_reject_relink":
+        return { operationId: act("needsCloserLook", args.entryId as number, "reject_relink") };
       case "review_accept_clear_best_files": {
         // Exactly the items it was sent, and nothing else.
         const sent = (args.items as { recordingId: number }[]).map((i) => i.recordingId);
@@ -450,6 +488,86 @@ describe("a Linked file gone, copy found item", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.switchChanged"));
     expect(await screen.findByText(tx("review:switch.newTrack"))).toBeInTheDocument();
     expect(screen.queryByText(tx("review:switch.keepsEntry"))).not.toBeInTheDocument();
+  });
+});
+
+describe("a Confirm relink item", () => {
+  // A new object each time: the stand-in backend takes items out of it.
+  const relinkOnly = () => ({ needsCloserLook: [RELINK], clearBestFile: [], qualityProblems: [] });
+
+  it("offers Confirm and Not the same, and no way to withdraw", async () => {
+    backend({ lists: relinkOnly() });
+    renderScreen();
+    const buttons = await actions();
+    expect(buttons.getAllByRole("button").map((b) => b.textContent)).toEqual([
+      tx("review:action.confirm"),
+      tx("review:action.notSame"),
+    ]);
+  });
+
+  it("leaves the queue when it is confirmed, and Undo brings it back", async () => {
+    const world = backend({ lists: relinkOnly() });
+    renderScreen();
+    const buttons = await actions();
+    const before = callsOf(world, "review_counts").length;
+    await userEvent.click(buttons.getByRole("button", { name: tx("review:action.confirm") }));
+    // The entry and the file the item showed.
+    expect(callsOf(world, "review_confirm_relink")[0]?.args).toEqual({ entryId: 50, fileId: 8 });
+    expect(await screen.findByText(tx("review:queue.empty"))).toBeInTheDocument();
+    expect(callsOf(world, "review_counts").length).toBeGreaterThan(before);
+
+    const beforeUndo = callsOf(world, "review_counts").length;
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.confirmRelink") }),
+    );
+    expect(
+      await screen.findByRole("region", { name: tx("review:group.needsCloserLook") }),
+    ).toBeInTheDocument();
+    expect(callsOf(world, "review_counts").length).toBeGreaterThan(beforeUndo);
+  });
+
+  it("leaves the queue on Not the same, and Undo brings it back", async () => {
+    const world = backend({ lists: relinkOnly() });
+    renderScreen();
+    const buttons = await actions();
+    await userEvent.click(buttons.getByRole("button", { name: tx("review:action.notSame") }));
+    expect(callsOf(world, "review_reject_relink")[0]?.args).toEqual({ entryId: 50, fileId: 8 });
+    expect(callsOf(world, "review_confirm_relink")).toHaveLength(0);
+    expect(await screen.findByText(tx("review:queue.empty"))).toBeInTheDocument();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.rejectRelink") }),
+    );
+    expect(
+      await screen.findByRole("region", { name: tx("review:group.needsCloserLook") }),
+    ).toBeInTheDocument();
+  });
+
+  it("asks to confirm again when the match was confirmed before and the audio changed", async () => {
+    const world = backend({ lists: relinkOnly(), confirmedBefore: true });
+    renderScreen();
+    const buttons = await actions();
+    expect(buttons.getAllByRole("button").map((b) => b.textContent)).toEqual([
+      tx("review:action.confirmAgain"),
+      tx("review:action.notSame"),
+    ]);
+    // Why it is asked again is the suggestion's reason.
+    expect(screen.getByText(tx("review:relink.user"), { exact: false })).toBeInTheDocument();
+    await userEvent.click(buttons.getByRole("button", { name: tx("review:action.confirmAgain") }));
+    expect(callsOf(world, "review_confirm_relink")[0]?.args).toEqual({ entryId: 50, fileId: 8 });
+  });
+
+  it("says so when the match was answered already, and asks for the queue again", async () => {
+    const world = backend({
+      lists: relinkOnly(),
+      refuse: { review_confirm_relink: { kind: "reviewItemGone", params: {} } },
+    });
+    renderScreen();
+    const buttons = await actions();
+    const before = callsOf(world, "review_counts").length;
+    await userEvent.click(buttons.getByRole("button", { name: tx("review:action.confirm") }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.itemGone"));
+    await waitFor(() => expect(callsOf(world, "review_counts").length).toBeGreaterThan(before));
   });
 });
 

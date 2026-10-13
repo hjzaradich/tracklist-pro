@@ -84,6 +84,7 @@ const DOUBT_COMPARISON: ReviewComparison = {
   ],
   moreFiles: 0,
   switch: null,
+  relink: null,
 };
 
 const CLEAR_COMPARISON: ReviewComparison = {
@@ -99,6 +100,7 @@ const CLEAR_COMPARISON: ReviewComparison = {
   rows: [row(4, "gone copy.mp3"), row(3, "gone.mp3", { linked: true, onDisk: false })],
   moreFiles: 0,
   switch: { fileId: 4, effect: "notInRekordbox", refusal: null },
+  relink: null,
 };
 
 const QUALITY = item("qualityProblem", 40, ["Flagged Tune"]);
@@ -114,6 +116,7 @@ const QUALITY_COMPARISON: ReviewComparison = {
   rows: [row(5, "flagged.mp3", { linked: true, verdict: "truncated" })],
   moreFiles: 0,
   switch: null,
+  relink: null,
 };
 
 const HELD_COMPARISON: ReviewComparison = {
@@ -129,6 +132,7 @@ const HELD_COMPARISON: ReviewComparison = {
   rows: [row(7, "another tune.mp3", { recordingId: 20 })],
   moreFiles: 0,
   switch: null,
+  relink: null,
 };
 
 /** A probable relink: the matched file, and rekordbox's own entry beside it. */
@@ -161,6 +165,7 @@ const RELINK_COMPARISON: ReviewComparison = {
   ],
   moreFiles: 0,
   switch: null,
+  relink: { fileId: 8, confirmedBefore: false },
 };
 
 const COMPARISONS = [
