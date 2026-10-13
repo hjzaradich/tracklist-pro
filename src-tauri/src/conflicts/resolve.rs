@@ -13,7 +13,7 @@
 //! `detected_at`, both through the log: the settled conflict has a new id
 //! ([`Resolved::conflict`]; the open one's was [`Resolved::was`]), and Undo
 //! puts the open row back under its old id. Ids are never reused (migration
-//! 0024).
+//! 0025).
 //!
 //! **Nothing here touches the three sides.** Settling records the decision;
 //! [`super::detect`] then answers the field with the value chosen

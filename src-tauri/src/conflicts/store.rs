@@ -52,7 +52,7 @@
 //!
 //! `detect` isn't an operation: it's derived state, and Undo must never
 //! take a detected conflict away. It inserts rows outside the operation
-//! log, which is why `conflict` ids are never reused (migration 0024).
+//! log, which is why `conflict` ids are never reused (migration 0025).
 //!
 //! A track that can't be sent ([`crate::send_values::CannotSend`]) is left
 //! out by [`load_sides`]: nothing about it is decided, and its conflicts
