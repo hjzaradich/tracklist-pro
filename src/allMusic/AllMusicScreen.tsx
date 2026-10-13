@@ -5,6 +5,7 @@ import { errorMessage } from "../api/errors";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { AllMusicList } from "./AllMusicList";
 import styles from "./AllMusicList.module.css";
+import { LowBitrateWarning } from "./LowBitrateWarning";
 import { useAddToLibrary, useAllMusic } from "./useAllMusic";
 import { after, useDebounced, type Schedule } from "./useDebounced";
 
@@ -29,6 +30,25 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
   const search = useDebounced(typed, schedule);
   const list = useAllMusic(search);
   const add = useAddToLibrary();
+  // The add the backend asked the user to confirm (1bE-8), until they choose.
+  const [warned, setWarned] = useState<{ recordingId: number; title: string; kbps: number } | null>(
+    null,
+  );
+  const addTrack = (recordingId: number) =>
+    add.mutate(
+      { recordingId, confirmLowBitrate: false },
+      {
+        onSuccess: (outcome) => {
+          if (outcome.outcome !== "needsConfirmation") return;
+          const track = list.data?.tracks.find((candidate) => candidate.recordingId === recordingId);
+          setWarned({
+            recordingId,
+            title: track?.title ?? track?.file?.name ?? "",
+            kbps: outcome.warning.kbps,
+          });
+        },
+      },
+    );
   const failure = list.error ?? add.error;
   // Tracks exist once a scan has read, checked and grouped its files.
   const waiting = useWaitingOn(FILLS_ALL_MUSIC);
@@ -49,6 +69,17 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
             {errorMessage(failure)}
           </p>
         )}
+        {warned !== null && (
+          <LowBitrateWarning
+            title={warned.title}
+            kbps={warned.kbps}
+            onAddAnyway={() => {
+              add.mutate({ recordingId: warned.recordingId, confirmLowBitrate: true });
+              setWarned(null);
+            }}
+            onCancel={() => setWarned(null)}
+          />
+        )}
         {list.data === undefined ? null : list.data.tracks.length === 0 ? (
           <EmptyState>{search.trim() === "" ? (waiting ?? t("empty")) : t("noMatch")}</EmptyState>
         ) : (
@@ -61,8 +92,8 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
             <div className={styles.scroll}>
               <AllMusicList
                 tracks={list.data.tracks}
-                adding={add.isPending ? add.variables : undefined}
-                onAdd={(recordingId) => add.mutate(recordingId)}
+                adding={add.isPending ? add.variables.recordingId : warned?.recordingId}
+                onAdd={addTrack}
               />
             </div>
           </>

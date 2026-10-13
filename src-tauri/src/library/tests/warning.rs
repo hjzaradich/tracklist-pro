@@ -2,9 +2,9 @@
 //! like the rest of the tests: made-up tracks, artists and files.
 
 use super::*;
-use crate::quality::verdict::{Assessment, Finding, Verdict};
 use crate::quality::store::any_stale;
 use crate::quality::stored_verdict;
+use crate::quality::verdict::{Assessment, Finding, Verdict};
 
 const CONFIRMED: Confirmed = Confirmed { low_bitrate: true };
 
