@@ -131,7 +131,8 @@
   },
   "compare.label": {
     "purpose": "Accessible name of the table of an item's files.",
-    "where": "Review screen, comparison on the right, table (screen readers only)."
+    "where": "Review screen, comparison on the right, table (screen readers only).",
+    "approved": "Files to compare"
   },
   "compare.none": {
     "purpose": "Says no item is selected.",
@@ -140,7 +141,8 @@
   },
   "compare.suggested": {
     "purpose": "Names the file the app suggests; its reason follows.",
-    "where": "Review screen, comparison on the right, above the table ({{name}} is the file's name)."
+    "where": "Review screen, comparison on the right, above the table ({{name}} is the file's name).",
+    "approved": "Suggested: {{name}}"
   },
   "compare.doubt": {
     "purpose": "Label of the reasons an item is in the queue.",
@@ -148,91 +150,113 @@
   },
   "compare.moreFiles_one": {
     "purpose": "Says one more file is not listed.",
-    "where": "Review screen, comparison on the right, under the table."
+    "where": "Review screen, comparison on the right, under the table.",
+    "approved": "({{count, number}} other file)"
   },
   "compare.moreFiles_other": {
     "purpose": "Says how many more files are not listed.",
-    "where": "Review screen, comparison on the right, under the table."
+    "where": "Review screen, comparison on the right, under the table.",
+    "approved": "({{count, number}} other files)"
   },
   "compare.rekordboxEntry": {
     "purpose": "Names the row that shows what rekordbox has for the track: its old location.",
-    "where": "Review screen, comparison on the right, the track column of a relink item's second row."
+    "where": "Review screen, comparison on the right, the track column of a relink item's second row.",
+    "approved": "rekordbox's entry"
   },
   "col.track": {
     "purpose": "Column heading: which track the file is in.",
-    "where": "Review screen, comparison on the right, table header, items with several tracks."
+    "where": "Review screen, comparison on the right, table header, items with several tracks.",
+    "approved": "Track"
   },
   "col.format": {
     "purpose": "Column heading: the file's format.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Format"
   },
   "col.quality": {
     "purpose": "Column heading: the file's quality verdict.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Quality"
   },
   "col.length": {
     "purpose": "Column heading: the file's duration.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Length"
   },
   "col.tags": {
     "purpose": "Column heading: how many descriptive tags are filled in.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Tags"
   },
   "col.cover": {
     "purpose": "Column heading: whether the file has embedded cover art.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Cover"
   },
   "col.rekordbox": {
     "purpose": "Column heading: whether rekordbox uses the file. rekordbox is written as it writes itself.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "rekordbox"
   },
   "mark.suggested": {
     "purpose": "Marks the file the app suggests.",
-    "where": "Review screen, comparison on the right, the file column of the first row."
+    "where": "Review screen, comparison on the right, the file column of the first row.",
+    "approved": "Suggested"
   },
   "mark.linked": {
     "purpose": "Marks the file the Library track plays.",
-    "where": "Review screen, comparison on the right, the file column."
+    "where": "Review screen, comparison on the right, the file column.",
+    "approved": "Library file"
   },
   "cell.yes": {
     "purpose": "A yes in a table cell.",
-    "where": "Review screen, comparison on the right, the cover and rekordbox columns."
+    "where": "Review screen, comparison on the right, the cover and rekordbox columns.",
+    "approved": "Yes"
   },
   "cell.no": {
     "purpose": "A no in a table cell.",
-    "where": "Review screen, comparison on the right, the cover and rekordbox columns."
+    "where": "Review screen, comparison on the right, the cover and rekordbox columns.",
+    "approved": "No"
   },
   "cell.tags": {
     "purpose": "How many of the descriptive tags a file has filled in.",
-    "where": "Review screen, comparison on the right, the tags column."
+    "where": "Review screen, comparison on the right, the tags column.",
+    "approved": "{{filled}} of {{total}} filled"
   },
   "cell.cutoff": {
     "purpose": "The highest frequency measured in the file.",
-    "where": "Review screen, comparison on the right, the quality column, under the verdict."
+    "where": "Review screen, comparison on the right, the quality column, under the verdict.",
+    "approved": "{{khz}} kHz cutoff"
   },
   "verdict.notChecked": {
     "purpose": "The file has no quality verdict yet.",
-    "where": "Review screen, comparison on the right, the quality column."
+    "where": "Review screen, comparison on the right, the quality column.",
+    "approved": "Not checked"
   },
   "verdict.ok": {
     "purpose": "The quality check found nothing wrong.",
-    "where": "Review screen, comparison on the right, the quality column."
+    "where": "Review screen, comparison on the right, the quality column.",
+    "approved": "OK"
   },
   "verdict.lowBitrate": {
     "purpose": "The quality check flagged a low bitrate.",
-    "where": "Review screen, comparison on the right, the quality column."
+    "where": "Review screen, comparison on the right, the quality column.",
+    "approved": "Low bitrate"
   },
   "verdict.suspectTranscode": {
     "purpose": "The quality check flagged audio made from a lower-quality file.",
-    "where": "Review screen, comparison on the right, the quality column."
+    "where": "Review screen, comparison on the right, the quality column.",
+    "approved": "Looks upconverted from lower quality"
   },
   "verdict.truncated": {
     "purpose": "The quality check found the audio ends too early.",
-    "where": "Review screen, comparison on the right, the quality column."
+    "where": "Review screen, comparison on the right, the quality column.",
+    "approved": "Ends early"
   },
   "verdict.broken": {
     "purpose": "The quality check found the file broken.",
-    "where": "Review screen, comparison on the right, the quality column."
+    "where": "Review screen, comparison on the right, the quality column.",
+    "approved": "Broken"
   },
   "reason.onlyFile": {
     "purpose": "Reason: the track has one file.",

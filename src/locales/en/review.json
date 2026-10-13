@@ -40,8 +40,8 @@
     "none": "Select an item",
     "suggested": "Suggested: {{name}}",
     "doubt": "Why it is here:",
-    "moreFiles_one": "and {{count, number}} more file",
-    "moreFiles_other": "and {{count, number}} more files",
+    "moreFiles_one": "({{count, number}} other file)",
+    "moreFiles_other": "({{count, number}} other files)",
     "rekordboxEntry": "rekordbox's entry"
   },
   "col": {
@@ -55,7 +55,7 @@
   },
   "mark": {
     "suggested": "Suggested",
-    "linked": "Linked"
+    "linked": "Library file"
   },
   "cell": {
     "yes": "Yes",
@@ -67,8 +67,8 @@
     "notChecked": "Not checked",
     "ok": "OK",
     "lowBitrate": "Low bitrate",
-    "suspectTranscode": "Suspect transcode",
-    "truncated": "Cut off",
+    "suspectTranscode": "Looks upconverted from lower quality",
+    "truncated": "Ends early",
     "broken": "Broken"
   },
   "reason": {
