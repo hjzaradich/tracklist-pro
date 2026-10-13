@@ -78,6 +78,13 @@ One line each: the date, what was decided, and why, so the next change holds to 
 - 2026-10-10 · **One filled accent button per screen, everything else quiet.** Each screen is walked through with the owner to name its one thing. · The loudest thing on a screen should be the thing to do next. · Style, with Foreman for any screen that needs a control moved
 - 2026-10-10 · **Almost no motion:** a quick fade on hover and focus only, and none when Windows' "reduce motion" is on. · Motion costs attention, and some people can't have it. · Style
 
+## Review screen (decided 2026-10-13)
+
+- 2026-10-13 · **Two panes: the queue at a fixed ~20rem, the comparison table takes the rest.** The file column is a share of the table (never under 10rem) and long names end in "…" with the path on hover. · The table has 7-8 columns and is what is read; the queue is short names. · Style
+- 2026-10-13 · **Below 1100px the queue goes on top (shorter) and the table is full width.** · No column is scrolled out of sight while comparing; the table fits without sideways scrolling at the 900px minimum. · Style
+- 2026-10-13 · **"Suggested" and "Linked" are words in neutral bordered labels** ("Suggested" bold and filled, "Linked" an outline). The accent is not used for them. · Never colour alone, and amber means selected or active. · Style
+- 2026-10-13 · **Actions: one row directly under the comparison table, acting on the suggested file.** The one filled accent button is "keep the suggested file", the rest are quiet, a small line under them (`.keys`) shows the keys (Enter, number keys, S). A file-specific action goes in a quiet cell at the end of its row (`.rowAction`). · The loudest thing is the thing to do next. · Style, with Foreman for the buttons themselves (1bE)
+
 ## The one exception to "class names only"
 
 A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").

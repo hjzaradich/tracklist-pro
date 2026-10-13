@@ -9,12 +9,21 @@
   overflow: auto;
 }
 
-/* The queue on the left, the comparison on the right, each scrolling on its own. */
+/* The queue on the left at a comfortable fixed width, the comparison (7-8
+ * columns) on the right with everything else, each scrolling on its own. */
 .panes {
   display: grid;
-  grid-template-columns: minmax(16rem, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr);
   gap: var(--space-4);
   min-height: 16rem;
+}
+
+/* On a narrow window the queue goes on top, shorter, and the comparison
+ * takes the full width below it, so no column is scrolled out of sight. */
+@media (max-width: 1100px) {
+  .panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .right {

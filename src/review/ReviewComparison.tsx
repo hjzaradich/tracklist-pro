@@ -113,9 +113,9 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
                 </span>
                 <span className={styles.marks}>
                   {row.fileId !== null && row.fileId === comparison.suggestion?.what && (
-                    <span>{t("mark.suggested")}</span>
+                    <span className={`${styles.mark} ${styles.markSuggested}`}>{t("mark.suggested")}</span>
                   )}
-                  {row.linked && <span>{t("mark.linked")}</span>}
+                  {row.linked && <span className={`${styles.mark} ${styles.markLinked}`}>{t("mark.linked")}</span>}
                   {row.source === "file" && !row.onDisk && <span className={styles.warn}>{tLibrary("fileMissing")}</span>}
                   {row.source === "file" && row.onDisk && !row.driveConnected && (
                     <span className={styles.warn}>{tLibrary("driveNotConnected")}</span>
