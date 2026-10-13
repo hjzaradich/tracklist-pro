@@ -68,6 +68,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0022_grouping"),
     migration!("0023_file_roles"),
     migration!("0024_search_index"),
+    migration!("0025_conflict_ids_never_reused"),
 ];
 
 /// The table that records which migrations a database has had.
