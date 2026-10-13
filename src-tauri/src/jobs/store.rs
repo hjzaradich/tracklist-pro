@@ -103,7 +103,7 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
 /// a time and skips every pair that already has one, so a run from the top
 /// compares only the rest. These are the kinds a normal close already puts back in the
 /// queue ([`Ending::Requeued`]).
-const RESTARTABLE: [JobKind; 10] = [
+const RESTARTABLE: [JobKind; 11] = [
     JobKind::Scan,
     JobKind::Read,
     JobKind::Hash,
@@ -114,6 +114,7 @@ const RESTARTABLE: [JobKind; 10] = [
     JobKind::Attach,
     JobKind::Quality,
     JobKind::Match,
+    JobKind::Index,
 ];
 
 /// Why a job [`recover_interrupted`] couldn't restart ended. Kept in the
@@ -429,14 +430,14 @@ mod tests {
                 assert_eq!(
                     recovered,
                     Recovered {
-                        requeued: 10,
+                        requeued: 11,
                         failed: 5
                     }
                 );
                 assert_eq!(get(c, waiting)?.unwrap().status, JobStatus::Queued);
                 let mut stmt = c.prepare(
                     "SELECT kind, status, progress, started_at IS NULL, error FROM job
-                     WHERE id <= 15 ORDER BY id",
+                     WHERE id <= 16 ORDER BY id",
                 )?;
                 let rows = stmt.query_map([], |r| {
                     Ok((
@@ -462,8 +463,9 @@ mod tests {
             "attach",
             "quality",
             "match",
+            "index",
         ];
-        assert_eq!(ended.len(), 15);
+        assert_eq!(ended.len(), 16);
         for (kind, status, progress, never_started, error) in ended {
             if restartable.contains(&kind.as_str()) {
                 // As if it had never started: a worker takes it again.

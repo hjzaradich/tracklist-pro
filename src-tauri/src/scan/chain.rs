@@ -149,6 +149,17 @@ pub fn after_quality<H: JobHandler>(qualifier: H) -> Chained<H> {
     }
 }
 
+/// The index job's handler, run once more if something asked for it
+/// meanwhile.
+pub fn after_index<H: JobHandler>(indexer: H) -> Chained<H> {
+    Chained {
+        inner: indexer,
+        next: Next::Nothing,
+        priority: Priority::BACKGROUND,
+        reach: None,
+    }
+}
+
 /// The matching job's handler, run once more if the fingerprints asked
 /// for it meanwhile, and followed by the deciding job once nothing is left
 /// to compare. Its reruns keep its own priority, below the rest of the
@@ -383,6 +394,8 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
         Next::DecideAfterQuality => crate::grouping::request_decide_after_quality(writer, enqueue)?,
         Next::Nothing => {}
     }
+    // Whatever the stage changed, the search index follows (1cA-6).
+    crate::search::request(writer, enqueue)?;
     Ok(())
 }
 

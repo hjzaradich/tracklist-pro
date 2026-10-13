@@ -588,6 +588,10 @@ impl XmlReader {
         if let Err(e) = crate::relink::request(job.writer(), |j| job.enqueue(j)) {
             eprintln!("rekordbox read: couldn't queue a relink: {e}");
         }
+        // The titles of Library tracks rekordbox knows may have changed.
+        if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
+            eprintln!("rekordbox read: couldn't queue the search index: {e}");
+        }
         Ok(())
     }
 }

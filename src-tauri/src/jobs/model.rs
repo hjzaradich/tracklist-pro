@@ -55,11 +55,14 @@ pub enum JobKind {
     Quality,
     /// Compare files' fingerprints to find shared audio (1.4).
     Match,
+    /// Work out the full-text search index of the tracks that changed
+    /// (1.11).
+    Index,
 }
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 14] = [
+    pub const ALL: [JobKind; 15] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
@@ -74,6 +77,7 @@ impl JobKind {
         JobKind::Attach,
         JobKind::Quality,
         JobKind::Match,
+        JobKind::Index,
     ];
 
     /// The name stored in the database.
@@ -93,6 +97,7 @@ impl JobKind {
             JobKind::Attach => "attach",
             JobKind::Quality => "quality",
             JobKind::Match => "match",
+            JobKind::Index => "index",
         }
     }
 
@@ -260,7 +265,8 @@ mod tests {
                 "relink",
                 "attach",
                 "quality",
-                "match"
+                "match",
+                "index"
             ]
         );
     }

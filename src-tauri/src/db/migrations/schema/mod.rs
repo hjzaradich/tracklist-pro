@@ -18,6 +18,7 @@ mod grouping;
 mod library;
 mod library_upkeep;
 mod partial_hash;
+mod search_index;
 mod sent_playlist;
 mod sync_base_ids;
 mod tracks;
@@ -211,7 +212,35 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
         &["grouping_decision", "grouping_file", "grouping_pair"],
     ),
     ("0023_file_roles.sql", &["best_file_due", "better_file"]),
+    // The search index (derived state): an FTS5 table, which SQLite backs
+    // with shadow tables (`FTS_TABLES`), and the list of tracks due.
+    (
+        "0024_search_index.sql",
+        &[
+            "search_due",
+            "search_track",
+            "search_track_config",
+            "search_track_data",
+            "search_track_docsize",
+            "search_track_idx",
+        ],
+    ),
 ];
+
+/// The full-text tables, by exact name: each virtual table with the shadow
+/// tables SQLite keeps for it. These are the only tables that may be
+/// something other than STRICT, and the only virtual or shadow tables the
+/// schema may hold: [`every_phase_1_table_is_strict_so_a_wrongly_typed_value_is_refused`]
+/// fails for any other.
+pub(super) const FTS_TABLES: &[(&str, &[&str])] = &[(
+    "search_track",
+    &[
+        "search_track_config",
+        "search_track_data",
+        "search_track_docsize",
+        "search_track_idx",
+    ],
+)];
 
 #[test]
 fn each_migration_applies_cleanly_on_top_of_the_ones_before_it_and_adds_exactly_its_tables() {
@@ -268,23 +297,86 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     }
 }
 
-#[test]
-fn every_phase_1_table_is_strict_so_a_wrongly_typed_value_is_refused() {
-    let (_dir, conn) = db();
-    for table in tables(&conn) {
+/// What is wrong with the tables' types: a table that isn't STRICT, and any
+/// virtual or shadow table that isn't one of [`FTS_TABLES`], by exact name
+/// and as what it is. Empty when all is well.
+fn tables_that_are_not_strict(conn: &Connection) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut full_text = 0;
+    for table in tables(conn) {
         // SQLite's own tables (`sqlite_sequence`) aren't ours to declare.
         if table == "schema_migration" || table.starts_with("sqlite_") {
             continue;
         }
-        let strict: bool = conn
+        let (kind, strict): (String, bool) = conn
             .query_row(
-                "SELECT strict FROM pragma_table_list WHERE name = ?1",
+                "SELECT type, strict FROM pragma_table_list WHERE name = ?1",
                 [&table],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
-        assert!(strict, "{table} is not STRICT");
+        match kind.as_str() {
+            "virtual" if FTS_TABLES.iter().any(|(t, _)| *t == table) => {
+                let sql: String = one(
+                    conn,
+                    &format!("SELECT sql FROM sqlite_master WHERE name = '{table}'"),
+                );
+                if sql.contains("USING fts5") {
+                    full_text += 1;
+                } else {
+                    problems.push(format!("{table} is not an FTS5 table"));
+                }
+            }
+            "shadow"
+                if FTS_TABLES
+                    .iter()
+                    .any(|(_, shadows)| shadows.contains(&table.as_str())) =>
+            {
+                full_text += 1;
+            }
+            "table" if strict => {}
+            "table" => problems.push(format!("{table} is not STRICT")),
+            other => problems.push(format!("{table} is a {other} table not in FTS_TABLES")),
+        }
     }
+    let listed: usize = FTS_TABLES.iter().map(|(_, s)| 1 + s.len()).sum();
+    if full_text != listed {
+        problems.push(format!(
+            "{listed} full-text tables listed, {full_text} found"
+        ));
+    }
+    problems
+}
+
+#[test]
+fn every_phase_1_table_is_strict_so_a_wrongly_typed_value_is_refused() {
+    let (_dir, conn) = db();
+    assert_eq!(tables_that_are_not_strict(&conn), Vec::<String>::new());
+}
+
+#[test]
+fn only_the_listed_full_text_tables_are_excused_from_being_strict() {
+    // The excuse is for the search index and its shadow tables by exact
+    // name: another full-text table, an ordinary table that isn't STRICT,
+    // or a table dressed up with a listed name, still fails.
+    let (_dir, conn) = db();
+    accepts(&conn, "CREATE VIRTUAL TABLE stray USING fts5(a)");
+    accepts(&conn, "CREATE TABLE loose (a)");
+    let problems = tables_that_are_not_strict(&conn);
+    assert!(
+        problems.iter().any(|p| p.starts_with("stray is a virtual")),
+        "{problems:?}"
+    );
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.starts_with("stray_data is a shadow")),
+        "{problems:?}"
+    );
+    assert!(
+        problems.contains(&"loose is not STRICT".to_string()),
+        "{problems:?}"
+    );
 }
 
 #[test]

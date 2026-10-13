@@ -979,3 +979,23 @@ fn a_read_that_fails_leaves_the_previous_tree_with_the_previous_tracks() {
         before
     );
 }
+
+#[test]
+fn a_finished_read_asks_for_the_search_index_because_rekordbox_titles_may_have_changed() {
+    let (dir, writer) = db();
+    let path = dir.path().join("export.xml");
+    write_at(&path, &export(&[1, 2]), 1_000);
+    let count = |writer: &Writer| -> i64 {
+        writer
+            .call(|c| {
+                c.query_row("SELECT count(*) FROM job WHERE kind = 'index'", [], |r| {
+                    r.get(0)
+                })
+            })
+            .unwrap()
+    };
+    assert_eq!(count(&writer), 0);
+    let (status, error) = read_as_job(&writer, &path);
+    assert_eq!((status, error), (JobStatus::Done, None));
+    assert_eq!(count(&writer), 1);
+}

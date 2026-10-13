@@ -200,6 +200,7 @@ mod tests {
                     "attach",
                     "quality",
                     "match",
+                    "index",
                 ][..],
             ),
             (
