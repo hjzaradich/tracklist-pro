@@ -47,7 +47,7 @@ const COMPARISON: Comparison = {
     row(21, "tune.flac"),
     row(22, "tune.mp3", { linked: true }),
     row(23, "tune gone.mp3", { onDisk: false }),
-    row(null, "tune in rekordbox.mp3"),
+    row(null, "tune entry.mp3"),
   ],
   moreFiles: 0,
   switch: null,
@@ -126,7 +126,7 @@ describe("playing the files of a Review item", () => {
       expect(within(table).getByRole("button", { name: tx("player:playNamed", { name }) })).toBeInTheDocument();
     }
     expect(within(table).getAllByRole("button", { name: /./ }).filter((b) => b.hasAttribute("data-play-for"))).toHaveLength(3);
-    expect(within(table).queryByRole("button", { name: tx("player:playNamed", { name: "tune in rekordbox.mp3" }) })).toBeNull();
+    expect(within(table).queryByRole("button", { name: tx("player:playNamed", { name: "tune entry.mp3" }) })).toBeNull();
   });
 
   it("plays the file of the row, by its id", async () => {
