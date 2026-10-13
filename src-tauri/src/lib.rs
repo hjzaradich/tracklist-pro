@@ -137,6 +137,10 @@ fn setup<R: Runtime>(builder: Builder<R>, data_dir: DataDir) -> Builder<R> {
             }
             app.manage(send::SendFlow::new(guard.clone()));
             app.manage(jobs::start(app.handle(), writer.clone())?);
+            // Work that is due while no job is queued (1cA-13), after the
+            // queue is in the state and the dropped and recovered jobs are
+            // settled.
+            jobs::startup::start(app.handle(), writer.clone());
             app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);
             app.manage(guard);
@@ -257,6 +261,23 @@ mod tests {
             .filter_map(std::env::var_os)
             .any(|root| lower(path.as_os_str()).starts_with(&lower(&root)));
         by_name || by_env
+    }
+
+    #[test]
+    fn startup_ends_send_jobs_before_it_recovers_the_others_and_asks_what_is_due_last() {
+        // 1cA-13: a send job an earlier run left must never run, so the
+        // drop comes first; the jobs left running are dealt with next; the
+        // queue starts; and only then is anything asked for.
+        let source = include_str!("lib.rs").replace('\r', "");
+        let setup = &source[source.find("fn setup<").unwrap()..];
+        let at = |what: &str| setup.find(what).unwrap_or_else(|| panic!("{what}"));
+        let order = [
+            at("send::drop_unfinished_jobs"),
+            at("jobs::store::recover_interrupted"),
+            at("jobs::start(app.handle()"),
+            at("jobs::startup::start"),
+        ];
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
     }
 
     #[test]

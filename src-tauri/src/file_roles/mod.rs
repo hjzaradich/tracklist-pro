@@ -116,9 +116,10 @@ pub fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
         .query_row([], |r| r.get(0))
 }
 
-/// Makes every track due if the roles are of another [`ROLES_VERSION`]
-/// than this build's.
-fn ensure_version(conn: &Connection) -> rusqlite::Result<()> {
+/// Whether the stored roles are of this build's [`ROLES_VERSION`]. Read-only:
+/// the startup step asks it on a read connection and takes the writer
+/// ([`ensure_version`]) only when it says no.
+pub(crate) fn version_is_current(conn: &Connection) -> rusqlite::Result<bool> {
     let stored: Option<i64> = conn
         .query_row(
             "SELECT json_extract(value, '$') FROM setting WHERE key = ?1",
@@ -127,7 +128,13 @@ fn ensure_version(conn: &Connection) -> rusqlite::Result<()> {
         )
         .optional()?
         .flatten();
-    if stored == Some(i64::from(ROLES_VERSION)) {
+    Ok(stored == Some(i64::from(ROLES_VERSION)))
+}
+
+/// Makes every track due if the roles are of another [`ROLES_VERSION`]
+/// than this build's.
+pub(crate) fn ensure_version(conn: &Connection) -> rusqlite::Result<()> {
+    if version_is_current(conn)? {
         return Ok(());
     }
     conn.execute(

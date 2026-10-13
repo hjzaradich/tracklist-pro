@@ -177,11 +177,18 @@ pub(crate) fn request_decide<E: From<DbError>>(
     writer: &Writer,
     enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
 ) -> Result<(), E> {
-    let due = writer.call(|c| Ok(!crate::matching::any_due(c)? && decide::any_due(c)?))?;
+    let due = writer.call(|c| decide_due(c))?;
     if due {
         crate::scan::chain::queue_once(writer, decide_job(), enqueue)?;
     }
     Ok(())
+}
+
+/// Whether [`request_decide`] would queue a deciding job: a file is due one
+/// and ready, and matching has nothing left to compare. For a caller that
+/// asks it on a read connection.
+pub(crate) fn decide_due(conn: &rusqlite::Connection) -> rusqlite::Result<bool> {
+    Ok(!crate::matching::any_due(conn)? && decide::any_due(conn)?)
 }
 
 /// The files that are, as grouping stands now, duplicates of `file` in its

@@ -745,6 +745,140 @@ fn closing_the_app_puts_running_jobs_back_in_the_queue_not_cancelled() {
     assert_eq!(stored(&writer, running).attempts, 1);
 }
 
+// 1cA-13: a cancel is recorded, so a kill doesn't bring the job back.
+
+/// A handler that waits to be released and then ends as `ending` says.
+fn ends_as(
+    ending: Result<(), JobError>,
+) -> (impl JobHandler, mpsc::Receiver<JobId>, mpsc::Sender<()>) {
+    let (started_tx, started) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let started_tx = Mutex::new(started_tx);
+    let release_rx = Mutex::new(release_rx);
+    let ending = Mutex::new(Some(ending));
+    let handler = move |job: &JobContext| {
+        started_tx.lock().unwrap().send(job.id()).unwrap();
+        let _ = release_rx.lock().unwrap().recv_timeout(PATIENCE);
+        ending.lock().unwrap().take().unwrap()
+    };
+    (handler, started, release)
+}
+
+#[test]
+fn a_running_job_cancelled_by_the_user_is_ended_as_cancelled_if_the_app_dies_before_it_stops() {
+    let (_dir, writer) = temp_writer();
+    let updates = Updates::default();
+    let (handler, started, release) = ends_as(Ok(()));
+    let queue = JobQueue::builder(writer.clone())
+        .on_updates(updates.sink())
+        .handler(JobKind::Scan, handler)
+        .start()
+        .unwrap();
+    let id = queue.enqueue(NewJob::new(JobKind::Scan)).unwrap();
+    started.recv_timeout(PATIENCE).unwrap();
+    assert_eq!(queue.cancel(id).unwrap(), CancelOutcome::Stopping);
+
+    // The handler hasn't returned: the row says running, with the cancel
+    // recorded. The app dies here, and the next start deals with the row.
+    let job = stored(&writer, id);
+    assert_eq!(job.status, JobStatus::Running);
+    let marker = job.error.expect("the cancel is recorded");
+    let recovered = writer.call(|c| store::recover_interrupted(c)).unwrap();
+    assert_eq!(
+        (recovered.cancelled, recovered.requeued, recovered.failed),
+        (1, 0, 0)
+    );
+    let job = stored(&writer, id);
+    assert_eq!((job.status, job.error), (JobStatus::Cancelled, None));
+
+    // Nothing the webview is sent shows the marker, with the row marked or
+    // not: an update carries no error at all.
+    let snapshot = serde_json::to_string(&queue.activity().unwrap()).unwrap();
+    let sent = serde_json::to_string(&updates.all().iter().collect::<Vec<_>>()).unwrap();
+    for shown in [snapshot, sent] {
+        assert!(
+            !shown.contains(&marker) && !shown.contains("error"),
+            "{shown}"
+        );
+    }
+    release.send(()).unwrap();
+}
+
+#[test]
+fn a_job_that_ends_after_a_cancel_request_ends_as_its_handler_says_and_keeps_no_marker() {
+    for (ending, status, error) in [
+        (Ok(()), JobStatus::Done, None),
+        (
+            Err(JobError::failed("the disk is full")),
+            JobStatus::Failed,
+            Some("the disk is full"),
+        ),
+        (Err(JobError::Cancelled), JobStatus::Cancelled, None),
+    ] {
+        let (_dir, writer) = temp_writer();
+        let (handler, started, release) = ends_as(ending);
+        let queue = JobQueue::builder(writer.clone())
+            .handler(JobKind::Scan, handler)
+            .start()
+            .unwrap();
+        let id = queue.enqueue(NewJob::new(JobKind::Scan)).unwrap();
+        started.recv_timeout(PATIENCE).unwrap();
+        assert_eq!(queue.cancel(id).unwrap(), CancelOutcome::Stopping);
+        assert!(
+            stored(&writer, id).error.is_some(),
+            "recorded while it runs"
+        );
+        release.send(()).unwrap();
+        let job = finished(&writer, id);
+        assert_eq!((job.status, job.error.as_deref()), (status, error));
+    }
+}
+
+#[test]
+fn a_cancel_that_arrives_while_the_app_is_closing_records_nothing_so_the_job_is_put_back() {
+    let (_dir, writer) = temp_writer();
+    let (handler, started, release) = stuck();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .shutdown_timeout(Duration::from_millis(100))
+        .handler(JobKind::Scan, handler)
+        .start()
+        .unwrap();
+    let id = queue.enqueue(NewJob::new(JobKind::Scan)).unwrap();
+    started.recv_timeout(PATIENCE).unwrap();
+
+    // The app is closing: the running job has been told to stop for that,
+    // and doesn't (it is stuck). A cancel now doesn't turn the close into
+    // the user's cancel.
+    queue.shutdown();
+    assert_eq!(queue.cancel(id).unwrap(), CancelOutcome::Stopping);
+    let job = stored(&writer, id);
+    assert_eq!((job.status, job.error), (JobStatus::Running, None));
+    // So a kill now puts it back at the next start.
+    let recovered = writer.call(|c| store::recover_interrupted(c)).unwrap();
+    assert_eq!((recovered.cancelled, recovered.requeued), (0, 1));
+    let _ = release.send(());
+}
+
+#[test]
+fn the_updates_the_webview_gets_carry_no_error_field_to_hold_a_marker() {
+    let update = JobUpdate {
+        seq: 1,
+        id: JobId(1),
+        kind: JobKind::Scan,
+        status: JobStatus::Running,
+        progress: None,
+        priority: 0,
+    };
+    let json = serde_json::to_value(&update).unwrap();
+    let mut keys: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        ["id", "kind", "priority", "progress", "seq", "status"]
+    );
+}
+
 // Review fixes: races, deadlocks and volume.
 
 #[test]

@@ -249,6 +249,29 @@ impl World {
             .unwrap()
     }
 
+    /// Waits until a job of `kind` exists beyond the first `already` jobs
+    /// (`World::jobs`), on the job queue's own update events. For work the
+    /// app queues by itself after it starts, which `settle` can't wait for
+    /// because it may return before the app has queued anything.
+    pub fn wait_for_a_new_job(&self, kind: &str, already: usize) {
+        loop {
+            if self.jobs().iter().skip(already).any(|(_, k, _)| k == kind) {
+                return;
+            }
+            self.updates
+                .recv_timeout(PATIENCE)
+                .unwrap_or_else(|_| panic!("no {kind} job was ever queued"));
+        }
+    }
+
+    /// How many rows `sql` (a `SELECT count(*) …`) counts, in the app's
+    /// database.
+    pub fn count(&self, sql: &'static str) -> i64 {
+        self.writer()
+            .call(move |c| c.query_row(sql, [], |r| r.get(0)))
+            .unwrap()
+    }
+
     /// A job's row, as stored.
     pub fn job(&self, id: JobId) -> JobRecord {
         self.writer()
