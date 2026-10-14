@@ -440,3 +440,35 @@ describe("motion", () => {
     expect(body).not.toMatch(/\b(width|height|transform|margin|padding|top|left|all)\b/);
   });
 });
+
+describe("disabled text", () => {
+  // --color-text-disabled is for controls that can't be used. Text the user
+  // needs to read (an empty state, "Nothing playing") is muted, which keeps
+  // a readable contrast (the tests above).
+  const styles = import.meta.glob<string>(["../**/*.module.css"], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  });
+
+  it("an empty state is never in the disabled color", () => {
+    const offenders = Object.entries(styles).flatMap(([path, text]) =>
+      blocks(text)
+        .filter((b) => /empty/i.test(b.selector) && b.body.includes("--color-text-disabled"))
+        .map((b) => `${path}: ${b.selector}`),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  for (const theme of ["dark", "light"] as const) {
+    it(`muted text reads on the surface and the page (${theme})`, () => {
+      const tokens = colorTokens(themeBlock(theme));
+      for (const ground of ["--color-surface", "--color-bg"]) {
+        expect(
+          contrast(tokens.get("--color-text-muted")!, tokens.get(ground)!),
+          ground,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  }
+});
