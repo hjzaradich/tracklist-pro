@@ -114,13 +114,16 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
           {comparison.rows.map((row, n) => (
             <tr key={row.fileId ?? `entry-${n}`} className={styles.row}>
               <th scope="row" className={styles.file}>
-                {row.fileId !== null && (
-                  <span className={styles.play}>
-                    <PlayButton file={{ id: row.fileId, name: row.name }} />
+                {/* The play button and the name share one line, so a row is no taller for it. */}
+                <span className={styles.nameLine}>
+                  {row.fileId !== null && (
+                    <span className={styles.play}>
+                      <PlayButton file={{ id: row.fileId, name: row.name }} />
+                    </span>
+                  )}
+                  <span className={styles.name} title={row.path ?? row.name}>
+                    {row.name}
                   </span>
-                )}
-                <span className={styles.name} title={row.path ?? row.name}>
-                  {row.name}
                 </span>
                 <span className={styles.marks}>
                   {row.fileId !== null && row.fileId === comparison.suggestion?.what && (

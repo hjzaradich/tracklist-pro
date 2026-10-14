@@ -198,6 +198,19 @@ describe("playing the files of a Review item", () => {
     expect(playOf("tune.mp3")).toBeInTheDocument();
   });
 
+  it("never sets the audio source for a row whose file the player refuses", async () => {
+    answers[23] = "drive_not_connected";
+    const user = userEvent.setup();
+    renderReview();
+    await user.click(playOf("tune gone.mp3"));
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("player:refused.driveNotConnected"));
+    // Asked about, then refused: the element was never given anything to load.
+    expect(asked).toEqual([23]);
+    expect(HTMLMediaElement.prototype.load).not.toHaveBeenCalled();
+    expect(element).toBeNull();
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+  });
+
   it("says why a file can't be played, and the next row carries on from the same time", async () => {
     answers[23] = "missing";
     const user = userEvent.setup();
