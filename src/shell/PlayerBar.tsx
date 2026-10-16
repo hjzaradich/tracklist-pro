@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { formatTime } from "../player/formatTime";
+import { PlayPauseIcon } from "../player/PlayPauseIcon";
 import { usePlayer } from "../player/playerStore";
 import styles from "./PlayerBar.module.css";
 
@@ -44,9 +45,11 @@ export function PlayerBar({ className = "" }: { className?: string }) {
             type="button"
             className={styles.toggle}
             disabled={status === "refused"}
+            aria-label={t(playing ? "player:pause" : "player:play")}
+            title={t(playing ? "player:pause" : "player:play")}
             onClick={toggle}
           >
-            {t(playing ? "player:pause" : "player:play")}
+            <PlayPauseIcon playing={playing} />
           </button>
           <span className={styles.name} title={file.name}>
             {file.name}

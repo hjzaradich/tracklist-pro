@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { PlayPauseIcon } from "./PlayPauseIcon";
 import { usePlayer, type PlayerFile } from "./playerStore";
 import styles from "./PlayButton.module.css";
 
@@ -16,16 +17,20 @@ export function PlayButton({ file }: { file: PlayerFile }) {
   const toggle = usePlayer((s) => s.toggle);
   // A file that can't be played isn't playing, whatever the intent is.
   const pause = current && playing && !refused;
+  // An icon has no words of its own: the name is the button's label, and the
+  // same text is its hover text.
+  const label = t(pause ? "pauseNamed" : "playNamed", { name: file.name });
   return (
     <button
       type="button"
       className={styles.button}
       data-play-for={file.id}
-      aria-label={t(pause ? "pauseNamed" : "playNamed", { name: file.name })}
+      aria-label={label}
+      title={label}
       // Pressing a refused file again asks again.
       onClick={() => (current && !refused ? toggle() : select(file))}
     >
-      {t(pause ? "pause" : "play")}
+      <PlayPauseIcon playing={pause} />
     </button>
   );
 }

@@ -95,12 +95,13 @@ describe("the player bar", () => {
 
     const bar = screen.getByRole("region", { name: tx("shell:player.label") });
     const toggle = () => bar.querySelector("button") as HTMLButtonElement;
-    expect(toggle()).toHaveTextContent(tx("player:pause"));
+    // An icon: the name is the label, not text.
+    expect(toggle()).toHaveAccessibleName(tx("player:pause"));
     await user.click(toggle());
-    expect(toggle()).toHaveTextContent(tx("player:play"));
+    expect(toggle()).toHaveAccessibleName(tx("player:play"));
     expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
     await user.click(toggle());
-    expect(toggle()).toHaveTextContent(tx("player:pause"));
+    expect(toggle()).toHaveAccessibleName(tx("player:pause"));
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
   });
 
