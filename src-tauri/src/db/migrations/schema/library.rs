@@ -447,9 +447,13 @@ fn a_location_has_one_confirmed_relink_to_a_known_file() {
         "INSERT INTO relink (location_key, file_id, method, confidence) VALUES ('E:/b.mp3', 1, 'user', 2)",
         "CHECK",
     );
-    // The file a confirmed relink points at can't be deleted under it.
+    // Since migration 0028 (1bE-6) a confirmation doesn't hold its file in
+    // place: it is kept by what the file held, and only points at the file
+    // while it exists.
     accepts(&conn, "DELETE FROM recording_file WHERE file_id = 1");
-    refuses(&conn, "DELETE FROM file WHERE id = 1", "FOREIGN KEY");
+    accepts(&conn, "DELETE FROM file WHERE id = 1");
+    let pointer: Option<i64> = one(&conn, "SELECT file_id FROM relink");
+    assert_eq!(pointer, None);
 }
 
 // sync_base.

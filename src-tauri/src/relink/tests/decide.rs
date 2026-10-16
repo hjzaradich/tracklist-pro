@@ -114,6 +114,12 @@ impl Lib {
             .unwrap()
     }
 
+    fn count_rows(&self, table: &'static str) -> i64 {
+        self.writer
+            .call(move |c| c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0)))
+            .unwrap()
+    }
+
     fn operation_kinds(&self) -> Vec<String> {
         self.writer
             .call(|c| {
@@ -336,12 +342,13 @@ fn not_the_same_on_a_match_confirmed_before_takes_the_confirmation_away_too() {
 #[test]
 fn not_the_same_takes_the_match_away_at_once_and_no_run_makes_it_again() {
     let (lib, mounted, guess, row) = a_name_guess();
+    lib.hashed(guess, 9);
     assert!(lib.reject_item(row, guess).unwrap().is_some());
     assert_eq!(lib.matched(row), None);
     assert!(!lib.probable(row));
     assert_eq!(lib.relink_items(), Vec::<i64>::new());
     assert_eq!(lib.operation_kinds(), [REJECT_OPERATION]);
-    assert_eq!(lib.said(), [("not_same".to_owned(), guess, None)]);
+    assert_eq!(lib.said(), [("not_same".to_owned(), guess, Some(9))]);
 
     let summary = lib.relink(&mounted);
     assert_eq!(lib.matched(row), None);
@@ -355,6 +362,7 @@ fn not_the_same_takes_the_match_away_at_once_and_no_run_makes_it_again() {
 #[test]
 fn undo_of_not_the_same_brings_the_match_and_its_item_back() {
     let (lib, mounted, guess, row) = a_name_guess();
+    lib.hashed(guess, 9);
     lib.reject_item(row, guess).unwrap();
     assert_eq!(lib.undo_decision(), REJECT_OPERATION);
     assert_eq!(lib.said(), []);
@@ -369,6 +377,7 @@ fn undo_of_not_the_same_brings_the_match_and_its_item_back() {
 #[test]
 fn after_not_the_same_another_file_can_be_proposed_and_that_is_a_new_item() {
     let (lib, mounted, guess, row) = a_name_guess();
+    lib.hashed(guess, 9);
     lib.reject_item(row, guess).unwrap();
     lib.relink(&mounted);
     assert_eq!(lib.matched(row), None);
@@ -391,6 +400,7 @@ fn after_not_the_same_another_file_can_be_proposed_and_that_is_a_new_item() {
 #[test]
 fn a_refused_file_still_makes_its_name_ambiguous_so_saying_no_never_makes_a_match() {
     let (lib, mounted, guess, row) = a_name_guess();
+    lib.hashed(guess, 9);
     lib.reject_item(row, guess).unwrap();
     // A second file with the name: two files, so the name says nothing,
     // whatever was said about one of them.
@@ -406,6 +416,7 @@ fn not_the_same_stands_in_the_way_in_every_step_from_two_to_five() {
     // Step 2: the same file name and a fitting length.
     let (lib, music, mounted) = e_music();
     let file = lib.file(music, "Elsewhere/Alpha.mp3", Some(200_000));
+    lib.hashed(file, 7);
     let location = loc("E:/Gone/Alpha.mp3");
     let row = lib.track(&location, Some("200"));
     lib.relink(&mounted);
@@ -417,6 +428,7 @@ fn not_the_same_stands_in_the_way_in_every_step_from_two_to_five() {
     // Step 3: the only file of that length in the Location's own folder.
     let (lib, music, mounted) = e_music();
     let file = lib.file(music, "Renamed.mp3", Some(200_000));
+    lib.hashed(file, 7);
     let location = loc("E:/Music/Beta.mp3");
     let row = lib.track(&location, Some("200"));
     lib.relink(&mounted);
@@ -448,6 +460,7 @@ fn a_file_at_the_locations_own_path_is_matched_whatever_was_said() {
     // Step 1 isn't a guess: it is the file rekordbox itself opens.
     let (lib, music, mounted) = e_music();
     let own = lib.file(music, "Alpha.mp3", Some(200_000));
+    lib.hashed(own, 7);
     let location = loc("E:/Music/Alpha.mp3");
     let row = lib.track(&location, Some("200"));
     lib.said_not_the_same(&location, own, Method::FilenameOnly);
@@ -459,6 +472,7 @@ fn a_file_at_the_locations_own_path_is_matched_whatever_was_said() {
 fn a_carried_match_to_a_refused_file_is_dropped() {
     let (lib, music, mounted) = e_music();
     let file = lib.file(music, "Elsewhere/Delta.mp3", Some(300_000));
+    lib.hashed(file, 7);
     let location = loc("E:/Gone/Other name.mp3");
     let row = lib.track(&location, Some("200"));
     lib.matched_before(row, file, "gig_stick", 0.7);
@@ -484,29 +498,162 @@ fn a_not_the_same_about_a_file_that_holds_other_audio_now_no_longer_stands_in_th
     assert_eq!(lib.matched(row), name_only(guess));
     assert!(lib.probable(row));
     assert_eq!(lib.relink_items(), [row]);
-    // Said again, for the audio of now: it stands again.
+    // Said again, for the audio of now: it stands again, beside the first
+    // answer, which still stands for the audio it was about.
     lib.reject_item(row, guess).unwrap();
-    assert_eq!(lib.said(), [("not_same".to_owned(), guess, Some(2))]);
+    assert_eq!(
+        lib.said(),
+        [
+            ("not_same".to_owned(), guess, Some(1)),
+            ("not_same".to_owned(), guess, Some(2)),
+        ]
+    );
     lib.relink(&mounted);
     assert_eq!(lib.matched(row), None);
 }
 
 #[test]
-fn a_not_the_same_said_before_the_file_was_hashed_gets_its_audio_recorded_by_the_job() {
+fn not_the_same_waits_for_the_files_audio_to_be_known() {
+    // It is kept by what the file holds: before the hash stage there is
+    // nothing to keep it by, so nothing is stored and the item stays.
     let (lib, mounted, guess, row) = a_name_guess();
-    lib.reject_item(row, guess).unwrap();
-    assert_eq!(lib.said(), [("not_same".to_owned(), guess, None)]);
+    assert!(matches!(
+        lib.reject_item(row, guess),
+        Err(Refused::NoAudioKnown)
+    ));
+    assert_eq!(lib.said(), []);
+    assert_eq!(lib.operation_kinds(), Vec::<String>::new());
+    assert_eq!(lib.relink_items(), [row]);
     lib.hashed(guess, 4);
     lib.relink(&mounted);
+    lib.reject_item(row, guess).unwrap();
     assert_eq!(lib.said(), [("not_same".to_owned(), guess, Some(4))]);
-    // Undo still works after that.
-    assert_eq!(lib.undo_decision(), REJECT_OPERATION);
-    assert_eq!(lib.said(), []);
-    assert_eq!(lib.matched(row), name_only(guess));
 }
 
 #[test]
-fn confirming_a_file_takes_back_a_not_the_same_said_about_it() {
+fn not_the_same_stands_for_the_audio_wherever_the_file_goes() {
+    // The file is moved (or renamed, or its folder added again): a new row
+    // with the same audio. The question doesn't come back.
+    let (lib, mounted, guess, row) = a_name_guess();
+    lib.hashed(guess, 9);
+    lib.reject_item(row, guess).unwrap();
+    lib.gone(guess);
+    let moved = lib.file(1, "Moved here/Omicron.mp3", None);
+    lib.hashed(moved, 9);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), None);
+    assert_eq!(lib.relink_items(), Vec::<i64>::new());
+    // A copy elsewhere with the same audio, the first file still there: the
+    // same answer.
+    lib.back(guess);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), None);
+}
+
+#[test]
+fn not_the_same_leaves_the_locations_other_decisions_alone() {
+    // Two files refused one after the other: both answers stand.
+    let (lib, mounted, first, row) = a_name_guess();
+    lib.hashed(first, 1);
+    lib.reject_item(row, first).unwrap();
+    lib.gone(first);
+    let second = lib.file(1, "Other place/Omicron.mp3", None);
+    lib.hashed(second, 2);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), name_only(second));
+    lib.reject_item(row, second).unwrap();
+    assert_eq!(
+        lib.said(),
+        [
+            ("not_same".to_owned(), first, Some(1)),
+            ("not_same".to_owned(), second, Some(2)),
+        ]
+    );
+    // The first file is back: still refused.
+    lib.back(first);
+    lib.gone(second);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), None);
+
+    // A confirmation whose file is gone survives a "not the same" about
+    // another file.
+    let (lib, mounted, confirmed_file, row) = a_name_guess();
+    lib.hashed(confirmed_file, 1);
+    lib.confirm_item(row, confirmed_file).unwrap();
+    lib.gone(confirmed_file);
+    let other = lib.file(1, "Other place/Omicron.mp3", None);
+    lib.hashed(other, 2);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), name_only(other));
+    lib.reject_item(row, other).unwrap();
+    assert_eq!(
+        lib.said(),
+        [
+            ("same".to_owned(), confirmed_file, Some(1)),
+            ("not_same".to_owned(), other, Some(2)),
+        ]
+    );
+    // And it applies again once its file is back.
+    lib.back(confirmed_file);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(row), confirmed(confirmed_file));
+}
+
+#[test]
+fn removing_the_music_folder_of_a_decided_file_works_and_the_decisions_outlive_it() {
+    let (lib, music, mounted) = e_music();
+    let refused = lib.file(music, "Elsewhere/Omicron.mp3", None);
+    lib.hashed(refused, 1);
+    let kept = lib.file(music, "Elsewhere/Sigma.mp3", None);
+    lib.hashed(kept, 2);
+    let refused_row = lib.track_with(&loc(OLD), Some("200"), &[("Name", "Omicron")]);
+    let kept_row = lib.track_with(&loc("E:/Gone/Sigma.mp3"), Some("200"), &[("Name", "Sigma")]);
+    lib.relink(&mounted);
+    lib.reject_item(refused_row, refused).unwrap();
+    lib.confirm_item(kept_row, kept).unwrap();
+
+    // A read of rekordbox that no longer has the entries matched (a match
+    // to a file holds its folder, as before 1bE-6), then "Remove music
+    // folder": nothing the user decided stands in the way.
+    lib.fresh_read();
+    let folder = crate::scan::folders::MusicFolderId(music);
+    let removed = lib
+        .writer
+        .call(move |c| crate::scan::folders::remove(c, folder))
+        .unwrap();
+    assert!(removed.is_ok(), "{removed:?}");
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(refused_row), None);
+    assert_eq!(lib.matched(kept_row), None);
+    assert_eq!(lib.count_rows("relink"), 2);
+
+    // The folder is added again: the files are new rows, with the same
+    // audio. The answers hold for them.
+    let again = lib.folder(1, "Music");
+    let refused_again = lib.file(again, "Elsewhere/Omicron.mp3", None);
+    lib.hashed(refused_again, 1);
+    let kept_again = lib.file(again, "Elsewhere/Sigma.mp3", None);
+    lib.hashed(kept_again, 2);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(refused_row), None);
+    assert_eq!(lib.matched(kept_row), confirmed(kept_again));
+    assert!(!lib.probable(kept_row));
+
+    // Undo works after all that: the confirmation, then the "not the same".
+    assert_eq!(lib.undo_decision(), CONFIRM_OPERATION);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(kept_row), name_only(kept_again));
+    assert_eq!(lib.undo_decision(), REJECT_OPERATION);
+    lib.relink(&mounted);
+    assert_eq!(lib.matched(refused_row), name_only(refused_again));
+    assert_eq!(lib.count_rows("relink"), 0);
+}
+
+#[test]
+fn confirming_the_file_with_other_audio_leaves_the_earlier_not_the_same_standing() {
+    // "Not the same" was about the audio the file held then. The file now
+    // holds other audio, which is confirmed: both answers stand, each for
+    // its own audio.
     let (lib, mounted, guess, row) = a_name_guess();
     lib.hashed(guess, 1);
     lib.reject_item(row, guess).unwrap();
@@ -515,10 +662,28 @@ fn confirming_a_file_takes_back_a_not_the_same_said_about_it() {
     assert_eq!(lib.matched(row), name_only(guess));
 
     lib.confirm_item(row, guess).unwrap();
-    assert_eq!(lib.said(), [("same".to_owned(), guess, Some(2))]);
+    assert_eq!(
+        lib.said(),
+        [
+            ("not_same".to_owned(), guess, Some(1)),
+            ("same".to_owned(), guess, Some(2)),
+        ]
+    );
     assert_eq!(lib.matched(row), confirmed(guess));
     lib.relink(&mounted);
     assert_eq!(lib.matched(row), confirmed(guess));
+}
+
+#[test]
+fn confirming_a_match_takes_back_a_not_the_same_about_that_audio() {
+    // The two can only meet when the user is asked about refused audio
+    // again: here a confirmation stored the way the app stores one, over a
+    // "not the same" about the very same audio.
+    let (lib, _mounted, guess, row) = a_name_guess();
+    lib.hashed(guess, 1);
+    lib.reject_item(row, guess).unwrap();
+    lib.confirm_now(&loc(OLD), guess, Method::FilenameOnly);
+    assert_eq!(lib.said(), [("same".to_owned(), guess, Some(1))]);
 }
 
 // ---- withdraw ---------------------------------------------------------------------------
@@ -591,6 +756,7 @@ fn a_track_whose_only_match_is_probable_cannot_be_added_until_it_is_confirmed() 
 #[test]
 fn after_not_the_same_the_track_can_be_added_as_one_rekordbox_does_not_know() {
     let (lib, mounted, guess, row) = a_name_guess();
+    lib.hashed(guess, 9);
     let recording = lib.group(&[guess]);
     lib.relink(&mounted);
     lib.reject_item(row, guess).unwrap();

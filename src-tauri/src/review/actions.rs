@@ -158,6 +158,7 @@ impl From<crate::relink::decide::Refused> for Refused {
     fn from(e: crate::relink::decide::Refused) -> Self {
         match e {
             crate::relink::decide::Refused::ItemGone => Refused::ItemGone,
+            crate::relink::decide::Refused::NoAudioKnown => Refused::NoAudioKnown,
             crate::relink::decide::Refused::Ops(e) => Refused::Ops(e),
         }
     }

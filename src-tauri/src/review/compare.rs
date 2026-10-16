@@ -201,7 +201,10 @@ fn relink(conn: &Connection, row: i64) -> rusqlite::Result<Option<Resolved>> {
                         (SELECT recording_id FROM recording_file WHERE file_id = rekordbox_track.file_id),
                         EXISTS (SELECT 1 FROM relink r
                                 WHERE r.location_key = rekordbox_track.location_key
-                                  AND r.file_id = rekordbox_track.file_id AND r.verdict = 'same')
+                                  AND r.verdict = 'same'
+                                  AND (r.file_id = rekordbox_track.file_id
+                                       OR r.file_key = (SELECT coalesce(nullif(f.audio_hash, x''), f.blake3)
+                                                        FROM file f WHERE f.id = rekordbox_track.file_id)))
                  {}",
                 relink_from("AND id = ?1")
             ),

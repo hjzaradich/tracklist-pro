@@ -1706,7 +1706,12 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
     // case here.
     assert_eq!(
         DERIVED_FIELDS,
-        [("library_track", "source_status"), ("relink", "audio_hash")]
+        [
+            ("library_track", "source_status"),
+            ("relink", "audio_hash"),
+            ("relink", "file_key"),
+            ("relink", "file_id"),
+        ]
     );
     for (table, field) in DERIVED_FIELDS {
         // (the insert, what moves the derived column on, what moves another
@@ -1731,6 +1736,27 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
                     ],
                     // The relink job records the audio once the file is hashed.
                     "UPDATE relink SET audio_hash = x'0A0B' WHERE audio_hash IS NULL",
+                    "UPDATE relink SET confidence = 0.9",
+                ),
+                ("relink", "file_key") => (
+                    vec![
+                        ("location_key", Value::Text("e:/old/a.mp3".into())),
+                        ("file_id", Value::Integer(1)),
+                        ("method", Value::Text("filename_only".into())),
+                    ],
+                    // The relink job records what a confirmation is kept by.
+                    "UPDATE relink SET file_key = x'0A0B' WHERE file_key IS NULL",
+                    "UPDATE relink SET confidence = 0.9",
+                ),
+                ("relink", "file_id") => (
+                    vec![
+                        ("location_key", Value::Text("e:/old/a.mp3".into())),
+                        ("file_key", Value::Blob(vec![1])),
+                        ("file_id", Value::Integer(1)),
+                        ("method", Value::Text("filename_only".into())),
+                    ],
+                    // The file's music folder is removed: the pointer goes.
+                    "DELETE FROM file WHERE id = 1",
                     "UPDATE relink SET confidence = 0.9",
                 ),
                 other => panic!("no case for the derived column {other:?}"),

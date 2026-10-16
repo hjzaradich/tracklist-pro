@@ -197,6 +197,9 @@ pub struct File {
     /// equally right and equally trusted, the linked one is matched
     /// ([`Pick`]).
     pub linked: bool,
+    /// What it holds, as a decision about it is kept by: its `audio_hash`,
+    /// or its `blake3` when it has none (`relink::decide::FILE_KEY`).
+    pub content_key: Option<Vec<u8>>,
 }
 
 /// One of several files that are equally right for a row (exact copies,
@@ -342,13 +345,11 @@ pub struct Confirmed {
     pub audio_hash: Option<Vec<u8>>,
 }
 
-/// A file the user said is not an entry's (a `not_same` row of `relink`).
+/// Audio the user said is not an entry's (a `not_same` row of `relink`):
+/// what the file held when the user said it.
 #[derive(Debug, Clone)]
 pub struct Rejected {
-    pub file: i64,
-    /// The file's `audio_hash` when the user said it; `None` if it wasn't
-    /// known.
-    pub audio_hash: Option<Vec<u8>>,
+    pub audio: Vec<u8>,
 }
 
 /// Everything [`plan`] looks at.
@@ -782,20 +783,20 @@ pub fn plan<E>(
         });
     };
 
-    // "Not the same": the user said this file is not this row's. No step
-    // from 2 on gives the row that file, and a carried match to it is
-    // dropped, unless the file is known to hold other audio than it held
-    // when the user said so. The file still counts wherever files are
+    // "Not the same": the user said the audio a file held is not this
+    // row's. No step from 2 on gives the row a file holding that audio,
+    // wherever it is now (moved, renamed, its folder added again), and a
+    // carried match to one is dropped. A file encoded again holds other
+    // audio: another question. The file still counts wherever files are
     // counted: this only ever takes a match away.
     let refused = |i: usize, file: i64| -> bool {
-        input.rejected.get(&tracks[i].key).is_some_and(|said| {
-            said.iter().any(|no| {
-                no.file == file
-                    && !index
-                        .file(file)
-                        .is_some_and(|f| f.audio_changed(no.audio_hash.as_deref()))
-            })
-        })
+        let Some(holds) = index.file(file).and_then(|f| f.content_key.as_deref()) else {
+            return false;
+        };
+        input
+            .rejected
+            .get(&tracks[i].key)
+            .is_some_and(|said| said.iter().any(|no| no.audio == holds))
     };
 
     // Step 0: every confirmed relink is re-applied first, while its file is

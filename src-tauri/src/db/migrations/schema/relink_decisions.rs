@@ -37,12 +37,27 @@ fn the_migration_keeps_every_confirmation_as_it_was() {
                 ('e:/old/alpha.mp3', 1, 'user', NULL, NULL, '2026-10-01T11:00:00.000Z'),
                 ('e:/old/mid.mp3', 3, 'fingerprint', 0.4, x'', '2026-10-02T12:00:00.000Z');",
     );
+    // One of the files has been hashed, one has only a whole-file hash.
+    accepts(
+        &conn,
+        "UPDATE file SET audio_hash = x'0B0C' WHERE id = 2;
+         UPDATE file SET blake3 = zeroblob(32) WHERE id = 3;",
+    );
     let before = rows(&conn, AS_TEXT);
     assert_eq!(before.len(), 3);
 
     run(&mut conn, &MIGRATIONS[..28]).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     assert_eq!(rows(&conn, AS_TEXT), before);
+    // Each is kept by what its file holds: the audio, else the whole file,
+    // else nothing yet (the relink job fills that in once it's hashed).
+    assert_eq!(
+        rows(
+            &conn,
+            "CASE WHEN file_key IS NULL THEN 'none' ELSE hex(file_key) END"
+        ),
+        vec!["none".to_owned(), "00".repeat(32), "0B0C".to_owned()]
+    );
     // Every row is a confirmation, and has an id of its own.
     let same: i64 = one(&conn, "SELECT count(*) FROM relink WHERE verdict = 'same'");
     let ids: i64 = one(&conn, "SELECT count(DISTINCT id) FROM relink");
@@ -110,48 +125,77 @@ fn a_relink_row_never_takes_the_id_of_a_deleted_one() {
 }
 
 #[test]
-fn a_location_has_one_confirmation_and_says_not_the_same_once_per_file() {
+fn a_location_has_one_confirmation_and_says_not_the_same_once_per_piece_of_audio() {
     let (_dir, conn) = db();
     accepts(&conn, SETUP);
     accepts(
         &conn,
         "INSERT INTO relink (location_key, file_id, method) VALUES ('e:/a.mp3', 1, 'user');
-         INSERT INTO relink (location_key, file_id, verdict, method)
-             VALUES ('e:/a.mp3', 2, 'not_same', 'filename_only'),
-                    ('e:/a.mp3', 3, 'not_same', 'fingerprint'),
-                    ('e:/other.mp3', 2, 'not_same', 'filename_only');",
+         INSERT INTO relink (location_key, file_key, file_id, verdict, method)
+             VALUES ('e:/a.mp3', x'02', 2, 'not_same', 'filename_only'),
+                    ('e:/a.mp3', x'03', 3, 'not_same', 'fingerprint'),
+                    ('e:/other.mp3', x'02', 2, 'not_same', 'filename_only');",
     );
     refuses(
         &conn,
         "INSERT INTO relink (location_key, file_id, method) VALUES ('e:/a.mp3', 3, 'user')",
         "UNIQUE",
     );
+    // The same audio again, whichever file holds it now.
     refuses(
         &conn,
-        "INSERT INTO relink (location_key, file_id, verdict, method)
-         VALUES ('e:/a.mp3', 2, 'not_same', 'unique_duration')",
+        "INSERT INTO relink (location_key, file_key, file_id, verdict, method)
+         VALUES ('e:/a.mp3', x'02', 3, 'not_same', 'unique_duration')",
         "UNIQUE",
     );
     refuses(
         &conn,
-        "INSERT INTO relink (location_key, file_id, verdict, method)
-         VALUES ('e:/b.mp3', 1, 'maybe', 'user')",
+        "INSERT INTO relink (location_key, file_key, file_id, verdict, method)
+         VALUES ('e:/b.mp3', x'01', 1, 'maybe', 'user')",
         "CHECK",
     );
 }
 
 #[test]
-fn a_file_named_by_a_confirmation_or_a_not_the_same_cannot_be_deleted_under_it() {
-    // So the file's id is never another file's while a row names it.
+fn not_the_same_is_always_about_known_audio() {
+    let (_dir, conn) = db();
+    accepts(&conn, SETUP);
+    refuses(
+        &conn,
+        "INSERT INTO relink (location_key, file_id, verdict, method)
+         VALUES ('e:/a.mp3', 1, 'not_same', 'filename_only')",
+        "CHECK",
+    );
+    refuses(
+        &conn,
+        "INSERT INTO relink (location_key, file_key, file_id, verdict, method)
+         VALUES ('e:/a.mp3', x'', 1, 'not_same', 'filename_only')",
+        "CHECK",
+    );
+    // A confirmation can be made before its file is hashed.
+    accepts(
+        &conn,
+        "INSERT INTO relink (location_key, file_id, method) VALUES ('e:/a.mp3', 1, 'user')",
+    );
+}
+
+#[test]
+fn a_decided_file_can_be_deleted_and_the_decisions_stay_by_what_it_held() {
+    // Removing a music folder deletes its files' rows: a decision lets go
+    // of the file it pointed at, and never stands in the way.
     let (_dir, conn) = db();
     accepts(&conn, SETUP);
     accepts(
         &conn,
-        "INSERT INTO relink (location_key, file_id, method) VALUES ('e:/a.mp3', 1, 'user');
-         INSERT INTO relink (location_key, file_id, verdict, method)
-             VALUES ('e:/b.mp3', 2, 'not_same', 'filename_only');",
+        "INSERT INTO relink (location_key, file_key, file_id, method)
+             VALUES ('e:/a.mp3', x'01', 1, 'user');
+         INSERT INTO relink (location_key, file_key, file_id, verdict, method)
+             VALUES ('e:/b.mp3', x'02', 2, 'not_same', 'filename_only');",
     );
-    refuses(&conn, "DELETE FROM file WHERE id = 1", "FOREIGN KEY");
-    refuses(&conn, "DELETE FROM file WHERE id = 2", "FOREIGN KEY");
-    accepts(&conn, "DELETE FROM file WHERE id = 3");
+    accepts(&conn, "DELETE FROM file WHERE id IN (1, 2)");
+    let rows: Vec<String> = rows(
+        &conn,
+        "verdict || '|' || hex(file_key) || '|' || ifnull(file_id, 'none')",
+    );
+    assert_eq!(rows, ["same|01|none", "not_same|02|none"]);
 }

@@ -244,18 +244,19 @@
 //!
 //! **"Not the same"** (1bE-6). The user can say a probable match is wrong:
 //! the file is not that entry's ([`decide::reject_match`], a `not_same` row
-//! of `relink`, by the Location's match key and the file). From then on no
-//! run gives that row that file in steps 2 to 5, and a carried match to it
-//! is dropped. Step 1 isn't affected: a file at the Location's own path is
-//! the file rekordbox itself opens, and is never a probable match to say no
-//! to. The step that would have made the match makes none for the row (it
-//! doesn't fall back to an exact copy of that file), and the row goes on
-//! through the later steps, which may find another file: a new item in
-//! Review. The file still counts wherever the rules count files (a name
-//! shared by two files is ambiguous, whatever was said about one of them),
-//! so a "not the same" can only take a match away, never make one. It
-//! names the audio the file held, like a confirmation: once the file is
-//! known to hold other audio, it no longer stands in the way.
+//! of `relink`, by the Location's match key and the audio the file holds:
+//! its `audio_hash`, or its `blake3` when it has none). From then on no run
+//! gives that row a file holding that audio in steps 2 to 5, wherever the
+//! file is now (moved, renamed, its music folder removed and added again),
+//! and a carried match to one is dropped. Step 1 isn't affected: a file at
+//! the Location's own path is the file rekordbox itself opens, and is never
+//! a probable match to say no to. The step that would have made the match
+//! makes none for the row, and the row goes on through the later steps,
+//! which may find another file: a new item in Review. The file still counts
+//! wherever the rules count files (a name shared by two files is ambiguous,
+//! whatever was said about one of them), so a "not the same" can only take
+//! a match away, never make one. A file encoded again holds other audio: it
+//! is another question.
 //!
 //! **The audio a match was made to.** Every match records the matched
 //! file's `audio_hash` (`rekordbox_track.relink_audio_hash`), and a
@@ -546,19 +547,18 @@ pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summ
         for (key, audio) in &plan.confirmed_audio {
             record.execute(params![key, audio])?;
         }
-        // The same for a "not the same" said before its file was hashed:
-        // the audio it was said about, once that is known for sure.
+        // A confirmation made before its file was hashed gets the audio it
+        // is kept by, once that is known (never over one that is there).
         tx.execute(
             &format!(
-                "UPDATE relink SET audio_hash =
-                     (SELECT f.audio_hash FROM file f
-                      WHERE f.id = relink.file_id AND length(f.audio_hash) > 0 AND {HASH_CURRENT})
-                 WHERE verdict = 'not_same' AND audio_hash IS NULL
+                "UPDATE relink SET file_key =
+                     (SELECT {key} FROM file f WHERE f.id = relink.file_id)
+                 WHERE file_key IS NULL AND file_id IS NOT NULL
                    AND EXISTS (SELECT 1 FROM file f
-                               WHERE f.id = relink.file_id AND length(f.audio_hash) > 0
-                                 AND {HASH_CURRENT})"
+                               WHERE f.id = relink.file_id AND {key} IS NOT NULL)",
+                key = decide::FILE_KEY
             ),
-            [hash_version()],
+            [],
         )?;
     }
     tx.commit()?;
@@ -688,9 +688,11 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                                 WHERE s.file_id = f.id AND s.stage = 'fingerprint'
                                   AND s.version = ?2 AND s.size IS f.size
                                   AND s.mtime IS f.mtime),
-                    EXISTS (SELECT 1 FROM library_track lt WHERE lt.linked_file_id = f.id)
+                    EXISTS (SELECT 1 FROM library_track lt WHERE lt.linked_file_id = f.id),
+                    {}
              FROM file f LEFT JOIN recording_file rf ON rf.file_id = f.id
-             ORDER BY f.id"
+             ORDER BY f.id",
+            decide::FILE_KEY
         ))?;
         let fingerprint_version = i64::from(crate::fingerprint::VERSION);
         let rows = stmt.query_map([hash_version(), fingerprint_version], |r| {
@@ -709,13 +711,14 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                     r.get::<_, bool>(8)?,
                     r.get::<_, bool>(9)?,
                     r.get::<_, bool>(10)?,
+                    r.get::<_, Option<Vec<u8>>>(11)?,
                 ),
             ))
         })?;
         for row in rows {
             let (
                 (id, folder, rel, duration_ms, audio_hash),
-                (recording, best, present, current, fingerprint_pending, linked),
+                (recording, best, present, current, fingerprint_pending, linked, content_key),
             ) = row?;
             let (base, online) = folders.get(&folder).cloned().unwrap_or((None, false));
             let path = base.map(|b| format!("{b}/{rel}"));
@@ -751,6 +754,7 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
                 recording,
                 best: best.unwrap_or(false),
                 linked,
+                content_key: content_key.filter(|k| !k.is_empty()),
             });
         }
     }
@@ -821,19 +825,32 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
 
     let mut confirmed = HashMap::new();
     {
+        // The file a confirmation points at; when that row is gone (its
+        // music folder was removed), a file on disk with the audio it was
+        // made for. A confirmation with neither waits for one.
         let mut stmt = conn.prepare(
-            "SELECT location_key, file_id, method, audio_hash FROM relink WHERE verdict = 'same'",
+            "SELECT r.location_key,
+                    coalesce(r.file_id,
+                             (SELECT f.id FROM file f
+                              WHERE f.present = 1
+                                AND (f.audio_hash = r.file_key OR f.blake3 = r.file_key)
+                              ORDER BY f.id LIMIT 1)),
+                    r.method, r.audio_hash
+             FROM relink r WHERE r.verdict = 'same'",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
+                r.get::<_, Option<i64>>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, Option<Vec<u8>>>(3)?,
             ))
         })?;
         for row in rows {
             let (key, file, method, audio_hash) = row?;
+            let Some(file) = file else {
+                continue;
+            };
             if let Some(method) = Method::parse(&method) {
                 let audio_hash = audio_hash.filter(|h| !h.is_empty());
                 confirmed.insert(
@@ -848,26 +865,21 @@ fn load(conn: &Connection, mounted: &Mounted) -> rusqlite::Result<rules::Input> 
         }
     }
 
-    // What the user said is not an entry's file, by Location key.
+    // What the user said is not an entry's audio, by Location key.
     let mut rejected: HashMap<String, Vec<rules::Rejected>> = HashMap::new();
     {
         let mut stmt = conn.prepare(
-            "SELECT location_key, file_id, audio_hash FROM relink
-             WHERE verdict = 'not_same' ORDER BY id",
+            "SELECT location_key, file_key FROM relink WHERE verdict = 'not_same' ORDER BY id",
         )?;
         let rows = stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, Option<Vec<u8>>>(2)?,
-            ))
+            Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
         })?;
         for row in rows {
-            let (key, file, audio_hash) = row?;
-            rejected.entry(key).or_default().push(rules::Rejected {
-                file,
-                audio_hash: audio_hash.filter(|h| !h.is_empty()),
-            });
+            let (key, audio) = row?;
+            rejected
+                .entry(key)
+                .or_default()
+                .push(rules::Rejected { audio });
         }
     }
 

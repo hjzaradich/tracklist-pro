@@ -308,7 +308,9 @@ fn a_relink_match_is_confirmed_refused_and_undone_the_way_the_frontend_calls_it(
         json!({ "fileId": 1, "confirmedBefore": false })
     );
 
-    // Confirm, then undo it by the operation the command returned.
+    // Confirm, then undo it by the operation the command returned. Each of
+    // them queues a relink run, which decides the entry again.
+    let before = relink_runs_settled(&app);
     let confirmed = invoke(
         &app,
         "review_confirm_relink",
@@ -317,6 +319,7 @@ fn a_relink_match_is_confirmed_refused_and_undone_the_way_the_frontend_calls_it(
     .unwrap();
     assert!(confirmed["operationId"].is_i64());
     assert_eq!(needs(&app), json!(0));
+    let before = relink_run_queued_since(&app, before, "confirm");
     let next = invoke(&app, "next_undo_operation", json!({})).unwrap();
     assert_eq!(next["operation"]["kind"], json!("confirm_relink"));
     let undone = invoke(
@@ -327,6 +330,7 @@ fn a_relink_match_is_confirmed_refused_and_undone_the_way_the_frontend_calls_it(
     .unwrap();
     assert_eq!(undone["status"], json!("undone"));
     assert_eq!(needs(&app), json!(1));
+    let before = relink_run_queued_since(&app, before, "undo of a confirm");
 
     // "Not the same", and its own error kind once the item is answered.
     invoke(
@@ -336,6 +340,7 @@ fn a_relink_match_is_confirmed_refused_and_undone_the_way_the_frontend_calls_it(
     )
     .unwrap();
     assert_eq!(needs(&app), json!(0));
+    let before = relink_run_queued_since(&app, before, "not the same");
     let again = invoke(
         &app,
         "review_reject_relink",
@@ -351,4 +356,60 @@ fn a_relink_match_is_confirmed_refused_and_undone_the_way_the_frontend_calls_it(
     // Withdrawing where nothing is confirmed is refused the same way.
     let nothing = invoke(&app, "review_withdraw_relink", json!({ "entryId": 1 }));
     assert_eq!(nothing.unwrap_err()["kind"], json!("reviewItemGone"));
+
+    // Undo of "Not the same": the item is back, and a run is queued.
+    let undone = invoke(&app, "undo_last_operation", json!({ "operationId": null })).unwrap();
+    assert_eq!(undone["operation"]["kind"], json!("reject_relink"));
+    assert_eq!(needs(&app), json!(1));
+    let before = relink_run_queued_since(&app, before, "undo of a not the same");
+
+    // A confirmation withdrawn: probable again, and a run is queued.
+    invoke(
+        &app,
+        "review_confirm_relink",
+        json!({ "entryId": 1, "fileId": 1 }),
+    )
+    .unwrap();
+    let before = relink_run_queued_since(&app, before, "confirm again");
+    invoke(&app, "review_withdraw_relink", json!({ "entryId": 1 })).unwrap();
+    assert_eq!(needs(&app), json!(1));
+    relink_run_queued_since(&app, before, "withdraw");
+}
+
+/// Waits until no relink run is queued or running, and returns the newest
+/// relink job's id (0 for none). A run queued after that is a new one: the
+/// queue reuses only a run that is still waiting.
+fn relink_runs_settled(app: &tauri::App<tauri::test::MockRuntime>) -> i64 {
+    for _ in 0..600 {
+        let (busy, newest): (bool, i64) = app
+            .state::<Writer>()
+            .call(|c| {
+                c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM job WHERE kind = 'relink'
+                                    AND status IN ('queued', 'running')),
+                            ifnull((SELECT max(id) FROM job WHERE kind = 'relink'), 0)",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+            })
+            .unwrap();
+        if !busy {
+            return newest;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("a relink run never ended");
+}
+
+/// Asserts that a relink run was queued after `before` (what
+/// [`relink_runs_settled`] said before the step), and returns the newest id
+/// once it has ended.
+fn relink_run_queued_since(
+    app: &tauri::App<tauri::test::MockRuntime>,
+    before: i64,
+    step: &str,
+) -> i64 {
+    let after = relink_runs_settled(app);
+    assert!(after > before, "no relink run was queued after {step}");
+    after
 }

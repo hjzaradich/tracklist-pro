@@ -5,35 +5,42 @@
 //! from one run to the next.
 //!
 //! - **Confirm** ([`confirm_match`]) stores a `same` row for the entry's
-//!   Location key and the file, with the file's `audio_hash` if that is
-//!   current. It replaces an earlier confirmation of that Location
-//!   (confirming again after the audio changed records the audio of now)
-//!   and takes away a "not the same" said about the same file.
+//!   Location key and the audio the file holds, with the file's `audio_hash`
+//!   if that is current. It replaces an earlier confirmation of that
+//!   Location (confirming again after the audio changed records the audio of
+//!   now) and takes away a "not the same" said about that audio.
 //! - **Not the same** ([`reject_match`]) stores a `not_same` row for the
-//!   Location key and the file. Relink then never matches the two on again
-//!   in steps 2 to 5 ([`super::rules`]); it may propose another file, which
-//!   is a new item. A confirmation of that very file goes with it.
+//!   Location key and the audio. Relink then never matches that entry to a
+//!   file holding that audio again in steps 2 to 5 ([`super::rules`]); it may
+//!   propose another file, which is a new item. A confirmation of that very
+//!   file or audio goes with it; every other decision about the Location
+//!   stays.
 //! - **Withdraw** ([`withdraw`]) deletes the confirmation of a Location: the
 //!   entry is decided again from scratch by the next relink run. No screen
 //!   offers it yet (the Details panel will); it is also what Undo of a
 //!   confirmation amounts to.
 //!
-//! **Kept by the Location key and the file**, as a confirmation always was:
-//! the file's row can't be deleted while a `relink` row names it (the
-//! table's foreign key), so its id is never another file's, and both kinds
-//! survive a rescan and every fresh read of rekordbox. Both name the audio
-//! the file held ([`super::HASH_CURRENT`]): a confirmed file that holds other
-//! audio later is probable again until confirmed again, and a "not the same"
-//! about a file that holds other audio later no longer stands in the way.
+//! **Kept by what the file holds** ([`FILE_KEY`]: its `audio_hash`, or its
+//! `blake3` when it has none), as `review_decision` is: a decision survives
+//! a move, a rename, a rescan and the file's music folder removed and added
+//! again, because the file is a new row then with the same audio. A row
+//! also points at the file the user looked at (`file_id`), while that row
+//! exists: what a confirmation is applied to, and what tells that the
+//! confirmed file holds other audio now (probable again until confirmed
+//! again). The pointer never holds the file in place: removing its music
+//! folder lets go of it, and a confirmation without its file is applied to
+//! a file with its audio. "Not the same" needs known audio: a file that
+//! hasn't been hashed yet can't be refused ([`Refused::NoAudioKnown`]).
 //!
-//! **The rows of the snapshot follow at once.** Relink decides every row
-//! again when it runs, and a run is queued after every action here and
-//! after its Undo. So that the Review queue is right before that run ends,
-//! each action also writes what relink will make of it into the entry's own
-//! `rekordbox_track` rows ([`apply_to_rows`]): confirmed → trusted, not the
-//! same → unmatched, withdrawn → probable again. Those rows are derived
-//! state (a snapshot, not in the operation log), and the relink run that
-//! follows decides them again from scratch.
+//! **One action, one transaction.** Relink decides every row again when it
+//! runs, and a run is queued after every action here and after its Undo. So
+//! that the Review queue is right before that run ends, each action also
+//! writes what relink will make of it into the entry's own `rekordbox_track`
+//! rows ([`apply_to_rows`]): confirmed → trusted, not the same → unmatched,
+//! withdrawn → probable again. Those rows are derived state (a snapshot, not
+//! in the operation log), written in the operation's own transaction
+//! ([`ops::record_with_derived`]): the decision and the rows land together or
+//! not at all. The relink run that follows decides them again from scratch.
 
 use std::collections::HashMap;
 
@@ -56,12 +63,17 @@ pub fn is_operation(kind: &str) -> bool {
     [CONFIRM_OPERATION, REJECT_OPERATION, WITHDRAW_OPERATION].contains(&kind)
 }
 
+/// What the file `f` holds, as SQL: grouping's name for it
+/// ([`crate::grouping::CONTENT_KEY`]): its `audio_hash`, or its `blake3`
+/// when it has none. What a decision is kept by (`relink.file_key`).
+pub(crate) const FILE_KEY: &str = crate::grouping::CONTENT_KEY;
+
 /// What a `relink` row says, as stored in `verdict`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     /// The entry at this Location is this file: a confirmation.
     Same,
-    /// The entry at this Location is not this file.
+    /// The entry at this Location is not this audio.
     NotSame,
 }
 
@@ -74,18 +86,6 @@ impl Verdict {
     }
 }
 
-/// A "not the same" that still stands, as SQL over a `relink` row `r` and
-/// its file `f` (takes [`hash_version`] as `?1`): unless the file is known
-/// to hold other audio than it held when the user said it. The rules read
-/// the same from [`super::rules::Rejected`].
-fn stands() -> String {
-    format!(
-        "r.verdict = 'not_same'
-         AND NOT (r.audio_hash IS NOT NULL AND length(f.audio_hash) > 0 AND {HASH_CURRENT}
-                  AND f.audio_hash IS NOT r.audio_hash)"
-    )
-}
-
 /// Why nothing was decided. Nothing was changed.
 #[derive(Debug)]
 pub enum Refused {
@@ -93,6 +93,9 @@ pub enum Refused {
     /// a relink run matched it otherwise); or there is no confirmation to
     /// withdraw.
     ItemGone,
+    /// The file hasn't been hashed yet, so there is no audio to say "not the
+    /// same" about.
+    NoAudioKnown,
     /// The database or the operation log failed.
     Ops(OpsError),
 }
@@ -144,28 +147,54 @@ fn waiting(
     .optional()
 }
 
+/// What the file `file` holds ([`FILE_KEY`]), if it has been hashed.
+fn file_key(conn: &Connection, file: i64) -> rusqlite::Result<Option<Vec<u8>>> {
+    Ok(conn
+        .query_row(
+            &format!("SELECT {FILE_KEY} FROM file f WHERE f.id = ?1"),
+            [file],
+            |r| r.get::<_, Option<Vec<u8>>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
 /// Stores what the user said about the entry at `key` and the file of
 /// `about`, as changes of the operation `rec` records. The rows it replaces
-/// go in the same operation: for a confirmation, the Location's earlier
-/// confirmation and a "not the same" about this file; for a "not the same",
-/// whatever was said about this file before.
+/// go in the same operation, and no others: for a confirmation, the
+/// Location's earlier confirmation and a "not the same" about this audio;
+/// for a "not the same", whatever was said about this audio and a
+/// confirmation of this very file. Every other decision about the Location
+/// stays.
 pub(crate) fn store(
     rec: &mut Recorder<'_>,
     key: &str,
     verdict: Verdict,
     about: &Proposal,
 ) -> Result<i64, OpsError> {
+    let held: Option<Vec<u8>> = rec
+        .read_rows(
+            &format!("SELECT {FILE_KEY} FROM file f WHERE f.id = ?1"),
+            [about.file],
+            |r| r.get::<_, Option<Vec<u8>>>(0),
+        )?
+        .pop()
+        .flatten();
     let replaced: Vec<i64> = rec.read_rows(
         match verdict {
+            // (`?3` is the file, which only a "not the same" asks about.)
             Verdict::Same => {
-                "SELECT id FROM relink WHERE location_key = ?1
-                   AND (verdict = 'same' OR file_id = ?2) ORDER BY id"
+                "SELECT id FROM relink WHERE location_key = ?1 AND ?3 IS NOT NULL
+                   AND (verdict = 'same' OR (verdict = 'not_same' AND file_key = ?2))
+                 ORDER BY id"
             }
             Verdict::NotSame => {
-                "SELECT id FROM relink WHERE location_key = ?1 AND file_id = ?2 ORDER BY id"
+                "SELECT id FROM relink WHERE location_key = ?1
+                   AND (file_key = ?2 OR (verdict = 'same' AND file_id = ?3))
+                 ORDER BY id"
             }
         },
-        params![key, about.file],
+        params![key, held, about.file],
         |r| r.get(0),
     )?;
     for id in replaced {
@@ -186,6 +215,7 @@ pub(crate) fn store(
         "relink",
         &[
             ("location_key", Value::Text(key.to_owned())),
+            ("file_key", held.map_or(Value::Null, Value::Blob)),
             ("file_id", Value::Integer(about.file)),
             ("verdict", Value::Text(verdict.as_str().to_owned())),
             ("method", Value::Text(about.method.clone())),
@@ -198,68 +228,82 @@ pub(crate) fn store(
     )
 }
 
+/// Records one decision about the entry at `key` and its rows of the
+/// snapshot, in one transaction.
+fn decide(
+    conn: &mut Connection,
+    kind: &str,
+    key: &str,
+    verdict: Verdict,
+    about: &Proposal,
+) -> Result<Option<i64>, Refused> {
+    let recorded = ops::record_with_derived(
+        conn,
+        kind,
+        &json!({}),
+        |rec| store(rec, key, verdict, about),
+        |conn| apply_to_rows(conn, key, None),
+    )?;
+    Ok(recorded.operation_id)
+}
+
 /// Confirms that the rekordbox entry `entry` is `file`, the file its
-/// probable match names. One operation; the entry's rows are trusted at
-/// once, and the next relink run applies the confirmation like any other
-/// (step 0). Refused if the entry isn't waiting on that file.
+/// probable match names. One operation; the entry's rows are trusted in the
+/// same transaction, and the next relink run applies the confirmation like
+/// any other (step 0). Refused if the entry isn't waiting on that file.
 pub fn confirm_match(conn: &mut Connection, entry: i64, file: i64) -> Result<Option<i64>, Refused> {
     let Some((key, proposal)) = waiting(conn, entry, file)? else {
         return Err(Refused::ItemGone);
     };
-    let recorded = ops::record(conn, CONFIRM_OPERATION, &json!({}), |rec| {
-        store(rec, &key, Verdict::Same, &proposal)
-    })?;
-    apply_to_rows(conn, &key, None)?;
-    Ok(recorded.operation_id)
+    decide(conn, CONFIRM_OPERATION, &key, Verdict::Same, &proposal)
 }
 
 /// Says the rekordbox entry `entry` is not `file`, the file its probable
-/// match names. One operation; the entry's rows lose the match at once, and
-/// relink never makes it again (it may propose another file). Refused if
-/// the entry isn't waiting on that file.
+/// match names. One operation; the entry's rows lose the match in the same
+/// transaction, and relink never matches the entry to that audio again (it
+/// may propose another file). Refused if the entry isn't waiting on that
+/// file, or the file hasn't been hashed yet.
 pub fn reject_match(conn: &mut Connection, entry: i64, file: i64) -> Result<Option<i64>, Refused> {
     let Some((key, proposal)) = waiting(conn, entry, file)? else {
         return Err(Refused::ItemGone);
     };
-    let recorded = ops::record(conn, REJECT_OPERATION, &json!({}), |rec| {
-        store(rec, &key, Verdict::NotSame, &proposal)
-    })?;
-    apply_to_rows(conn, &key, None)?;
-    Ok(recorded.operation_id)
+    if file_key(conn, file)?.is_none() {
+        return Err(Refused::NoAudioKnown);
+    }
+    decide(conn, REJECT_OPERATION, &key, Verdict::NotSame, &proposal)
 }
 
 /// Withdraws the confirmation of the Location of the rekordbox entry
-/// `entry`. One operation; the entry's rows are probable again at once, and
-/// the next relink run decides them from scratch, as if the user had never
-/// confirmed. Refused if that Location has no confirmation.
+/// `entry`. One operation; the entry's rows are probable again in the same
+/// transaction, and the next relink run decides them from scratch, as if the
+/// user had never confirmed. Refused if that Location has no confirmation.
 pub fn withdraw(conn: &mut Connection, entry: i64) -> Result<Option<i64>, Refused> {
-    let confirmed: Option<(String, i64, Proposal)> = conn
+    type Confirmation = (String, i64, Option<i64>, String, Option<f64>);
+    let confirmed: Option<Confirmation> = conn
         .query_row(
             "SELECT r.location_key, r.id, r.file_id, r.method, r.confidence
              FROM rekordbox_track t
              JOIN relink r ON r.location_key = t.location_key AND r.verdict = 'same'
              WHERE t.id = ?1",
             [entry],
-            |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    Proposal {
-                        file: r.get(2)?,
-                        method: r.get(3)?,
-                        confidence: r.get(4)?,
-                    },
-                ))
-            },
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .optional()?;
-    let Some((key, row, was)) = confirmed else {
+    let Some((key, row, file, method, confidence)) = confirmed else {
         return Err(Refused::ItemGone);
     };
-    let recorded = ops::record(conn, WITHDRAW_OPERATION, &json!({}), |rec| {
-        rec.delete("relink", row)
-    })?;
-    apply_to_rows(conn, &key, Some(&was))?;
+    let was = file.map(|file| Proposal {
+        file,
+        method,
+        confidence,
+    });
+    let recorded = ops::record_with_derived(
+        conn,
+        WITHDRAW_OPERATION,
+        &json!({}),
+        |rec| rec.delete("relink", row),
+        |conn| apply_to_rows(conn, &key, was.as_ref()),
+    )?;
     Ok(recorded.operation_id)
 }
 
@@ -268,15 +312,17 @@ pub fn withdraw(conn: &mut Connection, entry: i64) -> Result<Option<i64>, Refuse
 /// It reads only the table, so it is right after an action and after its
 /// Undo alike.
 ///
-/// - **A confirmation whose file is on disk:** the rows are matched to it as
-///   step 0 matches them, trusted, or probable if the file is known to hold
-///   other audio than the user confirmed.
-/// - **Otherwise, row by row:** a row matched to a file the user said is
-///   not the entry's loses the match. A row trusted on `was`'s file, with no
-///   confirmation left, was confirmed and isn't any more: it is probable
-///   again, as it was found. A row with no match takes `was` back as a
-///   probable match (a "not the same" that was undone), if that file is on
-///   disk, nothing was said against it and no other entry holds it.
+/// - **A confirmation whose file is on disk** (the file it points at, or,
+///   when that row is gone, a file holding the audio it was made for): the
+///   rows are matched to it as step 0 matches them, trusted, or probable if
+///   the file is known to hold other audio than the user confirmed.
+/// - **Otherwise, row by row:** a row matched to a file holding audio the
+///   user said is not the entry's loses the match. A row trusted on `was`'s
+///   file, with no confirmation left, was confirmed and isn't any more: it
+///   is probable again, as it was found. A row with no match takes `was`
+///   back as a probable match (a "not the same" that was undone), if that
+///   file is on disk, nothing was said against its audio and no other entry
+///   holds it.
 ///
 /// `was` is the match an action or an undone operation was about, when it
 /// took a decision away.
@@ -293,9 +339,12 @@ pub(crate) fn apply_to_rows(
     let confirmed: Option<Confirmed> = conn
         .query_row(
             &format!(
-                "SELECT r.file_id, r.method, r.audio_hash, {audio_now}, {track_of}
-                 FROM relink r JOIN file f ON f.id = r.file_id
-                 WHERE r.location_key = ?2 AND r.verdict = 'same' AND f.present = 1"
+                "SELECT f.id, r.method, r.audio_hash, {audio_now}, {track_of}
+                 FROM relink r JOIN file f
+                   ON f.id = r.file_id
+                   OR (r.file_id IS NULL AND (f.audio_hash = r.file_key OR f.blake3 = r.file_key))
+                 WHERE r.location_key = ?2 AND r.verdict = 'same' AND f.present = 1
+                 ORDER BY f.id LIMIT 1"
             ),
             params![hash_version(), key],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
@@ -331,13 +380,14 @@ pub(crate) fn apply_to_rows(
         return Ok(());
     }
 
+    // Whether the user said the entry is not the audio `file` holds.
     let mut rejected = conn.prepare_cached(&format!(
-        "SELECT EXISTS (SELECT 1 FROM relink r JOIN file f ON f.id = r.file_id
-                        WHERE r.location_key = ?2 AND r.file_id = ?3 AND {})",
-        stands()
+        "SELECT EXISTS (SELECT 1 FROM relink r, file f
+                        WHERE f.id = ?2 AND r.location_key = ?1 AND r.verdict = 'not_same'
+                          AND r.file_key = {FILE_KEY})"
     ))?;
     let mut is_rejected = |file: i64| -> rusqlite::Result<bool> {
-        rejected.query_row(params![hash_version(), key, file], |r| r.get(0))
+        rejected.query_row(params![key, file], |r| r.get(0))
     };
     let mut free = conn.prepare_cached(&format!(
         "SELECT {audio_now}, {track_of} FROM file f
@@ -394,8 +444,9 @@ pub(crate) fn apply_to_rows(
 /// the Locations it was about follow what the table says again
 /// ([`apply_to_rows`]), so the Review queue is right as the undo returns.
 /// The match the undone operation stored (the confirmation or the "not the
-/// same" it inserted) is what its rows go back to. Returns whether the
-/// operation was about `relink` at all: a relink run is then due.
+/// same" it inserted) is what its rows go back to, while the file it pointed
+/// at is still there. Returns whether the operation was about `relink` at
+/// all: a relink run is then due.
 pub fn after_undo(conn: &Connection, operation: i64) -> rusqlite::Result<bool> {
     // Each `relink` row the operation inserted or deleted, by its fields.
     let mut rows: HashMap<i64, (bool, HashMap<String, Option<String>>)> = HashMap::new();

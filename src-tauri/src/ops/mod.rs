@@ -540,11 +540,46 @@ pub fn record_automatic<T>(
     record_as(conn, kind.as_str(), details, write)
 }
 
+/// [`record`], and then, in the same transaction and only if the
+/// operation recorded something, `derived`: writes to derived state that
+/// follows from the operation (a snapshot another job works out again),
+/// which are not in the log and which Undo doesn't take back. The operation
+/// and those writes land together or not at all. `derived` gets the
+/// operation's transaction: it must write only tables the log never records.
+pub fn record_with_derived<T>(
+    conn: &mut Connection,
+    kind: &str,
+    details: &serde_json::Value,
+    write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+    derived: impl FnOnce(&Connection) -> rusqlite::Result<()>,
+) -> Result<Recorded<T>, OpsError> {
+    if AutomaticKind::of(kind).is_some() {
+        return Err(OpsError::BadKind(kind.to_owned()));
+    }
+    record_then(conn, kind, details, write, Some(derived))
+}
+
 fn record_as<T>(
     conn: &mut Connection,
     kind: &str,
     details: &serde_json::Value,
     write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+) -> Result<Recorded<T>, OpsError> {
+    record_then(
+        conn,
+        kind,
+        details,
+        write,
+        None::<fn(&Connection) -> rusqlite::Result<()>>,
+    )
+}
+
+fn record_then<T>(
+    conn: &mut Connection,
+    kind: &str,
+    details: &serde_json::Value,
+    write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+    derived: Option<impl FnOnce(&Connection) -> rusqlite::Result<()>>,
 ) -> Result<Recorded<T>, OpsError> {
     if !is_kind(kind) {
         return Err(OpsError::BadKind(kind.to_owned()));
@@ -570,6 +605,9 @@ fn record_as<T>(
     let value = write(&mut recorder)?;
     let operation_id = (recorder.written > 0).then_some(recorder.operation_id);
     if let Some(id) = operation_id {
+        if let Some(derived) = derived {
+            derived(&tx)?;
+        }
         if recorder.details_changed {
             let details = serde_json::Value::Object(std::mem::take(&mut recorder.details));
             tx.execute(
@@ -1528,15 +1566,23 @@ fn undo_delete(
 /// - `library_track.source_status` follows the linked file's `present`
 ///   (database triggers).
 /// - `relink.audio_hash` is the audio a file held when the user confirmed a
-///   match or said "not the same". When the file wasn't hashed yet it is
-///   stored empty, and the relink job fills it in once the hash is current
-///   (never over a value that is there): undoing the confirmation must
+///   match, and `relink.file_key` what a confirmation is kept by. When the
+///   file wasn't hashed yet they are stored empty, and the relink job fills
+///   them in once it is (never over a value that is there): undoing the
+///   confirmation must still work after that.
+/// - `relink.file_id` only points at the file the user looked at; removing
+///   that file's music folder lets go of it (the foreign key sets it to
+///   NULL), and the decision stands by what the file held. Undoing it must
 ///   still work after that.
 ///
 /// A test holds every entry to what the "changed since" check skips; a new
 /// entry needs its own case there.
-pub(crate) const DERIVED_FIELDS: &[(&str, &str)] =
-    &[("library_track", "source_status"), ("relink", "audio_hash")];
+pub(crate) const DERIVED_FIELDS: &[(&str, &str)] = &[
+    ("library_track", "source_status"),
+    ("relink", "audio_hash"),
+    ("relink", "file_key"),
+    ("relink", "file_id"),
+];
 
 fn is_derived(entity: &str, field: &str) -> bool {
     DERIVED_FIELDS.contains(&(entity, field))
