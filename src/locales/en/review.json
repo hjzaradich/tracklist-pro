@@ -62,7 +62,8 @@
   },
   "keys": {
     "enter": "Enter: {{action}}",
-    "rows": "Number keys: switch to that row's file"
+    "rows": "Number keys: switch to that row's file",
+    "tracks": "Number keys: choose the track that stays"
   },
   "accepted": {
     "line_one": "Switched {{count, number}} track to the copy on disk",

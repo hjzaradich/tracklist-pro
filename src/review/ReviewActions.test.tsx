@@ -120,6 +120,7 @@ function comparisonOf(
       switch: null,
       copies: [],
       relink: null,
+      sameRecording: null,
     };
   }
   if (it.kind === "versionDoubt" || it.kind === "heldSet" || it.kind === "sameRecording") {

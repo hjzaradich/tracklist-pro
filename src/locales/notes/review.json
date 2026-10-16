@@ -697,5 +697,9 @@
   "error.mergeLinkedVersions": {
     "purpose": "Refusal: two tracks of the item are linked as versions, and versions are never merged.",
     "where": "Review screen, \"Same track twice in your Library\" item, under the action row after Merge."
+  },
+  "keys.tracks": {
+    "purpose": "Says which keys work on a \"Same track twice\" item: a number key chooses the track of that row to stay and opens the merge confirmation.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the keys line in the action row."
   }
 }

@@ -5,6 +5,7 @@ import { errorMessage } from "../api/errors";
 import type { ReviewComparison, SameRecordingOffer, SameRecordingTrack } from "../bindings";
 import { trackLabel } from "./ReviewQueue";
 import { useKeepBoth, useMergeTracks } from "./useReviewActions";
+import { useReviewKeys, type ReviewKey } from "./useReviewKeys";
 import styles from "./ReviewComparison.module.css";
 import screenStyles from "./ReviewScreen.module.css";
 
@@ -72,20 +73,27 @@ function TrackFacts({ comparison, offer }: { comparison: ReviewComparison; offer
  * offered, the filled button, with the line that says why.
  *
  * The item's Library tracks are sent back with each action, so one whose
- * tracks changed under the screen is refused, not answered unseen. No keys
- * yet: Enter and S do nothing on this item, and the number keys that will
- * pick the track that stays come with the Review keyboard handling.
+ * tracks changed under the screen is refused, not answered unseen.
+ *
+ * The keys (owner decision, 2026-10-16): Enter does nothing here (a merge
+ * needs its confirmation), and a number key is a row of the tracks table: it
+ * opens the confirmation with that track chosen to stay. Nothing is merged
+ * until "Merge" there. No key while the tracks are linked versions, and none
+ * while the confirmation is open (it is a dialog: the screen's keys wait).
+ * `onDecided` is called when an action worked, as for the other kinds.
  */
 export function SameRecordingActions({
   comparison,
   offer,
+  onDecided,
 }: {
   comparison: ReviewComparison;
   offer: SameRecordingOffer;
+  onDecided?: () => void;
 }) {
   const { t } = useTranslation("review");
-  const keepBoth = useKeepBoth();
-  const merge = useMergeTracks();
+  const keepBoth = useKeepBoth(onDecided);
+  const merge = useMergeTracks(onDecided);
   const [choosing, setChoosing] = useState(false);
   const [keep, setKeep] = useState<number | null>(offer.keep ?? offer.tracks[0]?.recordingId ?? null);
   const goBack = useRef<HTMLButtonElement>(null);
@@ -100,6 +108,16 @@ export function SameRecordingActions({
   const busy = keepBoth.isPending || merge.isPending;
   const failure = keepBoth.error ?? merge.error;
   const leaving = Math.max(offer.tracks.length - 1, 1);
+
+  // A number key chooses the track of that row and opens the confirmation.
+  useReviewKeys((key: ReviewKey) => {
+    if (key === "enter" || offer.linkedVersions || choosing || busy) return false;
+    const track = offer.tracks[key - 1];
+    if (track === undefined) return false;
+    setKeep(track.recordingId);
+    setChoosing(true);
+    return true;
+  });
 
   return (
     <>
@@ -138,6 +156,9 @@ export function SameRecordingActions({
           >
             {t("action.keepBoth")}
           </button>
+          <p className={styles.keys}>
+            <span>{t("keys.tracks")}</span>
+          </p>
         </div>
       ) : (
         <div

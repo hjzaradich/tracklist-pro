@@ -150,9 +150,10 @@ export function useRejectRelink(onDone?: () => void) {
  * `recordingIds` are the Library tracks the screen showed: the action is
  * refused if the item has other tracks by now.
  */
-export function useKeepBoth() {
-  return useAction<{ anchor: number; recordingIds: number[] }, Acted>(({ anchor, recordingIds }) =>
-    unwrap(commands.reviewKeepBoth(anchor, recordingIds)),
+export function useKeepBoth(onDone?: () => void) {
+  return useAction<{ anchor: number; recordingIds: number[] }, Acted>(
+    ({ anchor, recordingIds }) => unwrap(commands.reviewKeepBoth(anchor, recordingIds)),
+    onDone,
   );
 }
 
@@ -160,8 +161,9 @@ export function useKeepBoth() {
  * Merges a "Same track twice in your Library" item into the track `keep`
  * (1bE-9): the other Library tracks leave the Library. Undoable.
  */
-export function useMergeTracks() {
+export function useMergeTracks(onDone?: () => void) {
   return useAction<{ anchor: number; recordingIds: number[]; keep: number }, Merged>(
     ({ anchor, recordingIds, keep }) => unwrap(commands.reviewMerge(anchor, recordingIds, keep)),
+    onDone,
   );
 }

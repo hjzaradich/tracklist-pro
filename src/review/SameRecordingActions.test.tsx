@@ -91,6 +91,7 @@ function comparison(offer: SameRecordingOffer): ReviewComparison {
     rows: [row(40, 4, "tune.mp3"), row(90, 9, "tune copy.mp3")],
     moreFiles: 0,
     switch: null,
+    copies: [],
     relink: null,
     sameRecording: offer,
   };
@@ -256,5 +257,19 @@ describe("a Same track twice item", () => {
       tx("review:action.keepBoth"),
     ]);
     expect(screen.getByText(tx("review:error.mergeLinkedVersions"))).toBeInTheDocument();
+  });
+
+  it("opens the confirmation with the track of a number key's row chosen; Enter does nothing", async () => {
+    const world = backend();
+    renderScreen();
+    await actions();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(world.calls.filter((c) => c.cmd.startsWith("review_merge") || c.cmd === "review_keep_both")).toHaveLength(0);
+    await userEvent.keyboard("2");
+    const dialog = await screen.findByRole("alertdialog", { name: tx("review:same.choose") });
+    const radios = within(dialog).getAllByRole("radio");
+    expect(radios.map((r) => (r as HTMLInputElement).checked)).toEqual([false, true]);
+    expect(callsOf(world, "review_merge")).toHaveLength(0);
   });
 });
