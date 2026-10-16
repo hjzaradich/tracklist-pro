@@ -358,12 +358,10 @@ fn a_new_track_whose_file_is_missing_is_left_out_with_the_reason_and_the_send_ne
     );
 }
 
-#[test]
-fn a_track_rekordbox_holds_under_another_file_is_flagged_and_arrives_as_a_second_entry() {
-    let (mut world, mut rb) = started_fresh();
-
-    // All music shows the twins as one track. Whichever file "Add to
-    // Library" links, rekordbox has the other one.
+/// The twin "Add to Library" links, and the other one: All music shows the
+/// twins as one track, and whichever file the add links, rekordbox gets
+/// the other one in each test.
+fn add_a_twin(world: &World) -> (LibraryTrack, Song, Song) {
     let row = world
         .all_music()
         .tracks
@@ -379,8 +377,52 @@ fn a_track_rekordbox_holds_under_another_file_is_flagged_and_arrives_as_a_second
     } else {
         (TWINS[1], TWINS[0])
     };
-    world.add_from_all_music(&linked);
+    (world.add_from_all_music(&linked), linked, other)
+}
+
+#[test]
+fn a_track_rekordbox_holds_under_a_byte_identical_file_is_sent_as_that_entry() {
+    // The twins are byte-identical (1bE-11): the Library track is sent as
+    // rekordbox's entry for the other file, with rekordbox's own Location,
+    // so an import adds no second entry and keeps the cues.
+    let (mut world, mut rb) = started_fresh();
+    let (track, _linked, other) = add_a_twin(&world);
+    world.create_crate("Friday", &[track.id]);
     let theirs = rb.has(&world.path_of(&other), &other, 12, "126.00", "5A");
+    world.rekordbox_saves(&rb.export());
+
+    let preflight = world.prepared();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 1));
+    assert_eq!(preflight.other_file.len(), 0);
+    assert!(preflight.can_send && !preflight.needs_confirm);
+
+    let sent = world.write_and_read_back(&preflight, false);
+    assert_eq!(sent.tracks.len(), 1);
+    let entry = rb.at(&world.path_of(&other)).unwrap().clone();
+    assert_eq!(entry.id, theirs);
+    assert_is_rekordboxs_own_entry(&sent.tracks[0], &entry);
+    assert_eq!(
+        sent.tracks[0].location.as_ref().unwrap().match_key(),
+        key_of(&world.path_of(&other))
+    );
+    let before = rb.tracks.len();
+    assert_eq!(rb.import(&sent), 1);
+    assert_eq!(rb.tracks.len(), before);
+}
+
+#[test]
+fn a_track_rekordbox_holds_under_a_file_with_other_tags_is_flagged_and_arrives_as_a_second_entry() {
+    let (mut world, mut rb) = started_fresh();
+    let (_track, linked, other) = add_a_twin(&world);
+    // rekordbox's file holds the same audio with another tag (§5.1): not a
+    // byte-identical copy.
+    let retagged = Song {
+        genre: "Deep House",
+        ..other
+    };
+    world.user_adds(&retagged);
+    world.scan();
+    let theirs = rb.has(&world.path_of(&other), &retagged, 12, "126.00", "5A");
     world.rekordbox_saves(&rb.export());
 
     let preflight = world.prepared();

@@ -131,8 +131,9 @@ fn replaced_entries(
         let (key, id): (String, i64) = row?;
         entries_at.entry(key).or_default().push(id);
     }
-    // Every Library track that could be sent as one of them: one linked to
-    // a file such an entry is matched to, and one whose linked file is gone
+    // Every Library track that could be sent as one of them: one whose
+    // track holds a file such an entry is matched to (its linked file, or a
+    // byte-identical copy of it, 1bE-11), and one whose linked file is gone
     // (it is sent as the entry at that file's own Location).
     let could: Vec<LibraryTrackId> = conn
         .prepare(
@@ -141,6 +142,10 @@ fn replaced_entries(
              WHERE f.present = 0
                 OR f.id IN (SELECT file_id FROM rekordbox_track
                             WHERE location_key IN (SELECT value FROM json_each(?1)))
+                OR lt.recording_id IN (
+                    SELECT rf.recording_id FROM recording_file rf
+                    JOIN rekordbox_track rt ON rt.file_id = rf.file_id
+                    WHERE rt.location_key IN (SELECT value FROM json_each(?1)))
              ORDER BY lt.id",
         )?
         .query_map([&keys], |r| r.get(0).map(LibraryTrackId))?

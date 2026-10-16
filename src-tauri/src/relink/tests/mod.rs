@@ -3,6 +3,7 @@
 //! read, since relink reads only the database.
 
 mod confirmed;
+mod copy_entry;
 mod decide;
 mod evidence;
 mod follow;
@@ -193,6 +194,20 @@ impl Lib {
             })
             .unwrap();
         self.stage_done(file, "hash", i64::from(crate::hash::DEFINITION));
+    }
+
+    /// The hash stage read every byte of the file: `n` stands for its
+    /// `blake3`. Files with the same `n` are byte-identical. (Give them the
+    /// same audio with [`Lib::hashed`] too, which makes the stage current.)
+    pub fn bytes(&self, file: i64, n: u8) {
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE file SET blake3 = ?2 WHERE id = ?1",
+                    params![file, vec![n; 32]],
+                )
+            })
+            .unwrap();
     }
 
     /// [`Lib::audio_hash`], under the name the step-4 tests read better

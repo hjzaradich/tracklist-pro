@@ -1065,3 +1065,62 @@ fn accept_all_with_nothing_clear_records_no_operation() {
     // Nothing shown, nothing done.
     assert_eq!(lib.accept(&[]).skipped, []);
 }
+
+// ---- a byte-identical copy's entry (1bE-11) ---------------------------------
+
+#[test]
+fn an_entry_a_switch_left_behind_is_sent_again_through_a_byte_identical_copy_and_never_also_listed()
+{
+    let (lib, music, mounted) = e_music();
+    let item = item(&lib, music, &mounted, "Kappa", 0, Rekordbox::NoMatch);
+    settle(&lib, &mounted);
+    let row = item.row.unwrap();
+    lib.bytes(item.copy, 7);
+    lib.switch(item.recording, item.copy, SwitchEffect::NewTrack)
+        .unwrap();
+    // Before: listed to remove, and not sent.
+    assert_eq!(lib.sent(item.track), SentAs::New);
+    assert_eq!(
+        lib.to_remove(),
+        [(RemovalReason::Replaced, Some(shown_old("Kappa")))]
+    );
+
+    // A byte-identical copy of the linked file is in the track, and the
+    // user confirms rekordbox's entry on it.
+    let twin = lib.file(music, "Twin/Kappa.flac", Some(200_000));
+    lib.hashed(twin, 2);
+    lib.bytes(twin, 7);
+    lib.in_the_track_of(twin, item.copy);
+    lib.confirm_now(&loc(&old_path("Kappa")), twin, Method::Fingerprint);
+    settle(&lib, &mounted);
+    assert_eq!(lib.matched(row).map(|m| m.0), Some(twin));
+    assert!(!lib.probable(row));
+    assert_eq!(lib.linked_file(item.track), item.copy);
+
+    // After: sent as that entry, rekordbox's own Location, and not listed.
+    assert_eq!(lib.sent(item.track), SentAs::Entry(row));
+    let (out, _read) = lib.send_in_a_crate(item.track);
+    assert!(out.sent[0].in_rekordbox);
+    assert_eq!(out.sent[0].location(), loc(&old_path("Kappa")));
+    assert_eq!(lib.to_remove(), []);
+    // The record stays: it is listed again if the entry goes from the copy.
+    assert_eq!(lib.count("SELECT count(*) FROM replaced_entry"), 1);
+
+    // Undo the confirmation: listed again, sent as new.
+    assert!(
+        matches!(lib.undo_last(), UndoOutcome::Undone { operation } if operation.kind != SWITCH_OPERATION)
+    );
+    settle(&lib, &mounted);
+    assert_eq!(lib.sent(item.track), SentAs::New);
+    assert_eq!(lib.to_remove().len(), 1);
+
+    // Undo the switch: back on the gone file, sent as its entry at that
+    // file's own Location, and the record is gone.
+    assert!(
+        matches!(lib.undo_last(), UndoOutcome::Undone { operation } if operation.kind == SWITCH_OPERATION)
+    );
+    assert_eq!(lib.linked_file(item.track), item.old);
+    assert_eq!(lib.sent(item.track), SentAs::Entry(row));
+    assert_eq!(lib.count("SELECT count(*) FROM replaced_entry"), 0);
+    assert_eq!(lib.to_remove(), []);
+}
