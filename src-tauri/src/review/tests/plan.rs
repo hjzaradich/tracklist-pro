@@ -423,3 +423,62 @@ fn a_library_of_100000_files_is_counted_and_paged_from_the_few_rows_that_wait() 
         "{plan}"
     );
 }
+
+#[test]
+fn a_better_place_gives_its_two_places_as_codes_and_every_code_has_text() {
+    use crate::best_file::{FolderRole, VolumeKind};
+    use crate::review::reasons::{from_rank, PLACE_CODES};
+    use crate::suggest::ReasonParam;
+    let place = |online, role, kind, order| Place {
+        volume_online: online,
+        folder_role: role,
+        volume_kind: kind,
+        folder_order: order,
+    };
+    let (scan, inbox) = (FolderRole::Scan, FolderRole::Inbox);
+    let (internal, external, network) = (
+        VolumeKind::Internal,
+        VolumeKind::External,
+        VolumeKind::Network,
+    );
+    // What separates the places first, in the ranking's order.
+    let cases = [
+        (
+            place(true, inbox, network, 2),
+            place(false, scan, internal, 1),
+            ("connected", "notConnected"),
+        ),
+        (
+            place(true, scan, network, 2),
+            place(true, inbox, internal, 1),
+            ("scanFolder", "inboxFolder"),
+        ),
+        (
+            place(true, scan, internal, 2),
+            place(true, scan, external, 1),
+            ("internalDrive", "externalDrive"),
+        ),
+        (
+            place(true, scan, external, 2),
+            place(true, scan, network, 1),
+            ("externalDrive", "networkDrive"),
+        ),
+        (
+            place(true, scan, internal, 1),
+            place(true, scan, internal, 2),
+            ("addedFirst", "addedLater"),
+        ),
+    ];
+    let text = |code: &str| ReasonParam::Text(code.to_owned());
+    for (best, other, (best_code, other_code)) in cases {
+        let reason = from_rank(&Rank::BetterPlace { best, other });
+        assert_eq!(reason.key(), "review:reason.betterPlace");
+        assert_eq!(reason.params().get("best"), Some(&text(best_code)));
+        assert_eq!(reason.params().get("other"), Some(&text(other_code)));
+    }
+    let missing: Vec<_> = PLACE_CODES
+        .iter()
+        .filter(|code| !locale_has(&format!("review:place.{code}")))
+        .collect();
+    assert!(missing.is_empty(), "no text for {missing:?}");
+}

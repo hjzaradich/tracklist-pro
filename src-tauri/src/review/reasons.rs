@@ -4,7 +4,7 @@
 //! and whose parameters are numbers and format names. The words are in
 //! `src/locales/en/review.json`, never here.
 
-use crate::best_file::{Format, Reason as Rank};
+use crate::best_file::{FolderRole, Format, Place, Reason as Rank, VolumeKind};
 use crate::read::Codec;
 use crate::suggest::Reason;
 
@@ -92,8 +92,56 @@ pub fn from_rank(reason: &Rank) -> Reason {
         Rank::MoreTags { .. } => fact("review:reason.moreTags"),
         Rank::HasArt => fact("review:reason.hasArt"),
         Rank::KnownToRekordbox { .. } => fact("review:reason.knownToRekordbox"),
-        Rank::BetterPlace { .. } => fact("review:reason.betterPlace"),
+        Rank::BetterPlace { best, other } => {
+            let (best, other) = place_codes(best, other);
+            text(
+                text(fact("review:reason.betterPlace"), "best", best),
+                "other",
+                other,
+            )
+        }
         Rank::Tied => fact("review:reason.tied"),
+    }
+}
+
+/// Every code [`place_codes`] can give (`review:place.<code>`).
+pub const PLACE_CODES: [&str; 9] = [
+    "connected",
+    "notConnected",
+    "scanFolder",
+    "inboxFolder",
+    "internalDrive",
+    "externalDrive",
+    "networkDrive",
+    "addedFirst",
+    "addedLater",
+];
+
+/// The two places a "better location" reason sets side by side, each as a
+/// code for the first thing that separates it from the other, in the order
+/// the ranking looks at them: a connected drive, the scan folder over the
+/// Inbox, the kind of drive, the folder added first. The words are in the
+/// locale file (`review:place.<code>`), never here.
+fn place_codes(best: &Place, other: &Place) -> (&'static str, &'static str) {
+    let kind = |kind: VolumeKind| match kind {
+        VolumeKind::Internal => "internalDrive",
+        VolumeKind::External => "externalDrive",
+        VolumeKind::Network => "networkDrive",
+    };
+    if best.volume_online != other.volume_online {
+        let name = |online| if online { "connected" } else { "notConnected" };
+        (name(best.volume_online), name(other.volume_online))
+    } else if best.folder_role != other.folder_role {
+        let name = |role| match role {
+            FolderRole::Scan => "scanFolder",
+            FolderRole::Inbox => "inboxFolder",
+        };
+        (name(best.folder_role), name(other.folder_role))
+    } else if best.volume_kind != other.volume_kind {
+        (kind(best.volume_kind), kind(other.volume_kind))
+    } else {
+        // Only the order the folders were added in is left.
+        ("addedFirst", "addedLater")
     }
 }
 

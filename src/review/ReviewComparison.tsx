@@ -17,6 +17,28 @@ function length(ms: number | null): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+/** A sample rate in kHz: 44100 is "44.1 kHz". */
+function sampleRate(t: TFunction<"review">, hz: number | null): string {
+  return hz === null ? "" : t("cell.sampleRate", { khz: Math.round(hz / 100) / 10 });
+}
+
+/**
+ * The time as an ISO time with its zone. SQLite writes "2026-09-30 10:00:00" in
+ * UTC with no zone, which a bare Date would read as the viewer's local time.
+ */
+export function isoTime(added: string): string {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(added) ? added.replace(" ", "T") + "Z" : added;
+}
+
+/** The day a file was first seen, in the viewer's own format; the text itself if it isn't a date. */
+export function addedOn(language: string, added: string | null): string {
+  if (added === null) return "";
+  const date = new Date(isoTime(added));
+  return Number.isNaN(date.getTime())
+    ? added
+    : new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(date);
+}
+
 /** The quality column: the verdict, and the measured cutoff under it. */
 function Quality({ row }: { row: ReviewFileRow }) {
   const { t } = useTranslation("review");
@@ -47,14 +69,27 @@ function rekordboxCell(
 /**
  * The comparison (1bD-2): the suggestion and why, then one row per file with
  * the same columns, then the actions for the item (`ReviewActions`, 1bE). The
- * "More details" columns (bitrate, sample rate, date added) join the table:
- * the rows already carry them. Each file has a play button (1bE-4) for the
+ * "More details" switch (1bE-1) adds the columns the rows already carry:
+ * bitrate, sample rate and date added. Whether it is on is the screen's
+ * (`details`), so it stays on from one item to the next. Each file has a play button (1bE-4) for the
  * app's one player: switching from one row to another keeps the position
  * and whether it is playing (`player/playerStore.ts`). A rekordbox entry
  * with no file has none.
  */
-export function ReviewComparison({ comparison }: { comparison: Comparison }) {
-  const { t } = useTranslation("review");
+export function ReviewComparison({
+  comparison,
+  details,
+  onDetails,
+  onDecided,
+}: {
+  comparison: Comparison;
+  /** "More details" is on. */
+  details: boolean;
+  onDetails: (on: boolean) => void;
+  /** An action worked: the screen goes on to the next item. */
+  onDecided?: () => void;
+}) {
+  const { t, i18n } = useTranslation("review");
   const { t: tLibrary } = useTranslation("library");
   const { t: tAllMusic } = useTranslation("allMusic");
   const { t: tSuggest } = useTranslation("suggest");
@@ -97,6 +132,14 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
             .join(separator)}
         </p>
       )}
+      <label className={styles.details}>
+        <input
+          type="checkbox"
+          checked={details}
+          onChange={(event) => onDetails(event.target.checked)}
+        />
+        {t("compare.moreDetails")}
+      </label>
       <table className={styles.table} aria-label={t("compare.label")}>
         <thead>
           <tr>
@@ -108,6 +151,13 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
             <th scope="col">{t("col.tags")}</th>
             <th scope="col">{t("col.cover")}</th>
             <th scope="col">{t("col.rekordbox")}</th>
+            {details && (
+              <>
+                <th scope="col">{t("col.bitrate")}</th>
+                <th scope="col">{t("col.sampleRate")}</th>
+                <th scope="col">{t("col.added")}</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -147,11 +197,20 @@ export function ReviewComparison({ comparison }: { comparison: Comparison }) {
               </td>
               <td>{row.source === "file" ? (row.hasArt ? t("cell.yes") : t("cell.no")) : ""}</td>
               <td>{rekordboxCell(t, tAllMusic, row)}</td>
+              {details && (
+                <>
+                  <td className={styles.number}>
+                    {row.bitrateKbps === null ? "" : t("cell.bitrate", { kbps: row.bitrateKbps })}
+                  </td>
+                  <td className={styles.number}>{sampleRate(t, row.sampleRateHz)}</td>
+                  <td className={styles.number}>{addedOn(i18n.language, row.addedAt)}</td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
-      <ReviewActions key={itemKey(comparison.id)} comparison={comparison} />
+      <ReviewActions key={itemKey(comparison.id)} comparison={comparison} onDecided={onDecided} />
       {comparison.moreFiles > 0 && (
         <p className={styles.more}>{t("compare.moreFiles", { count: comparison.moreFiles })}</p>
       )}

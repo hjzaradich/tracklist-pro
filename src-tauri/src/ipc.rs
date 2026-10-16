@@ -95,6 +95,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::review::review_counts,
             crate::review::review_items,
             crate::review::review_item,
+            crate::review::accepted::review_switched_view,
             crate::review::actions::review_dismiss_better_file,
             crate::review::actions::review_keep_anyway,
             crate::review::actions::review_want_better_file,

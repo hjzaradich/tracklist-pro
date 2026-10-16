@@ -14,6 +14,7 @@ import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
+import { useAcceptedStore } from "../review/acceptedStore";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 
 // Undo (1bA-12): one step at a time, newest first, from the top bar, Ctrl+Z
@@ -44,6 +45,14 @@ export function useKeepNextUndoCurrent() {
           (event.action.type === "success" || event.action.type === "error")
         ) {
           void queryClient.invalidateQueries({ queryKey: NEXT_UNDO_QUERY_KEY });
+          // Whatever took an operation back (this button, the top bar, Ctrl+Z),
+          // the line about "Accept all" describes that operation only while
+          // it stands.
+          const outcome =
+            event.action.type === "success" ? (event.action.data as UndoOutcome | undefined) : undefined;
+          if (outcome?.status === "undone") {
+            useAcceptedStore.getState().undone(outcome.operation.id);
+          }
         }
       }),
     [queryClient],

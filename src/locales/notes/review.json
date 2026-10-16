@@ -167,6 +167,10 @@
     "where": "Review screen, comparison on the right, the track column of a relink item's second row.",
     "approved": "rekordbox's entry"
   },
+  "compare.moreDetails": {
+    "purpose": "Switch that adds the bitrate, sample rate and date added columns to the comparison table.",
+    "where": "Review screen, comparison on the right, above the table."
+  },
   "action.label": {
     "purpose": "Accessible name of the group of buttons for the selected item.",
     "where": "Review screen, comparison on the right, under the table (read by screen readers)."
@@ -198,6 +202,54 @@
   "action.notSame": {
     "purpose": "Button that says the file is not rekordbox's entry: the match is taken away and never made again. It can be undone.",
     "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item."
+  },
+  "keys.enter": {
+    "purpose": "Names the key that does the item's suggested action; {{action}} is the label of that button.",
+    "where": "Review screen, comparison on the right, in the row of buttons under the table."
+  },
+  "keys.rows": {
+    "purpose": "Says what the number keys do when an item has more than one copy to switch to: the digit is the row of the table.",
+    "where": "Review screen, comparison on the right, in the row of buttons under the table."
+  },
+  "accepted.line_one": {
+    "purpose": "Says what Accept all did (one track).",
+    "where": "Review screen, line at the top, after Accept all."
+  },
+  "accepted.line_other": {
+    "purpose": "Says what Accept all did (several tracks).",
+    "where": "Review screen, line at the top, after Accept all."
+  },
+  "accepted.view": {
+    "purpose": "Button that shows each track Accept all switched, with its old and new file.",
+    "where": "Review screen, line at the top, after Accept all."
+  },
+  "accepted.hide": {
+    "purpose": "Button that closes the list of what Accept all switched.",
+    "where": "Review screen, line at the top, after Accept all, while the list is shown."
+  },
+  "accepted.undo": {
+    "purpose": "Button that takes back Accept all, in one step.",
+    "where": "Review screen, line at the top, after Accept all."
+  },
+  "accepted.dismiss": {
+    "purpose": "Button that removes the line about Accept all.",
+    "where": "Review screen, line at the top, after Accept all."
+  },
+  "accepted.list": {
+    "purpose": "Names the list of tracks Accept all switched, for screen readers.",
+    "where": "Review screen, line at the top, the list opened with View."
+  },
+  "accepted.col.track": {
+    "purpose": "Column heading: a track Accept all switched.",
+    "where": "Review screen, line at the top, the list opened with View."
+  },
+  "accepted.col.from": {
+    "purpose": "Column heading: the file the track was linked to before.",
+    "where": "Review screen, line at the top, the list opened with View."
+  },
+  "accepted.col.to": {
+    "purpose": "Column heading: the file the track is linked to now.",
+    "where": "Review screen, line at the top, the list opened with View."
   },
   "switch.keepsEntry": {
     "purpose": "Says what switching the linked file means in rekordbox when rekordbox's entry stays the track's (the app trusts the match of that entry to the copy).",
@@ -246,6 +298,18 @@
     "where": "Review screen, comparison on the right, table header.",
     "approved": "rekordbox"
   },
+  "col.bitrate": {
+    "purpose": "Column heading: the file's bitrate. Shown with More details.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "col.sampleRate": {
+    "purpose": "Column heading: the file's sample rate. Shown with More details.",
+    "where": "Review screen, comparison on the right, table header."
+  },
+  "col.added": {
+    "purpose": "Column heading: the day the app first saw the file. Shown with More details.",
+    "where": "Review screen, comparison on the right, table header."
+  },
   "mark.suggested": {
     "purpose": "Marks the file the app suggests.",
     "where": "Review screen, comparison on the right, the file column of the first row.",
@@ -275,6 +339,14 @@
     "purpose": "The highest frequency measured in the file.",
     "where": "Review screen, comparison on the right, the quality column, under the verdict.",
     "approved": "{{khz}} kHz cutoff"
+  },
+  "cell.bitrate": {
+    "purpose": "A file's bitrate.",
+    "where": "Review screen, comparison on the right, bitrate column."
+  },
+  "cell.sampleRate": {
+    "purpose": "A file's sample rate.",
+    "where": "Review screen, comparison on the right, sample rate column."
   },
   "verdict.notChecked": {
     "purpose": "The file has no quality verdict yet.",
@@ -355,11 +427,47 @@
     "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
   },
   "reason.betterPlace": {
-    "purpose": "Reason: the suggested file is in a better place.",
+    "purpose": "Reason: the suggested file is in a better place; {{best}} and {{other}} are where the suggested and the other file are (the place.* parts).",
     "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
   },
   "reason.tied": {
     "purpose": "Reason: nothing separates the files; the older one is suggested.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.connected": {
+    "purpose": "Reason part: where the suggested file is, when the other one's drive is not connected.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.notConnected": {
+    "purpose": "Reason part: where the other file is, when its drive is not connected.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.scanFolder": {
+    "purpose": "Reason part: the file is in a music folder, not in the Inbox.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.inboxFolder": {
+    "purpose": "Reason part: the file is in the Inbox folder.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.internalDrive": {
+    "purpose": "Reason part: the file is on a drive inside the computer.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.externalDrive": {
+    "purpose": "Reason part: the file is on a drive that can be unplugged.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.networkDrive": {
+    "purpose": "Reason part: the file is on a network share.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.addedFirst": {
+    "purpose": "Reason part: the file is in the music folder that was added first.",
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+  },
+  "place.addedLater": {
+    "purpose": "Reason part: the file is in a music folder that was added later.",
     "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
   },
   "relink.filenameOnly": {

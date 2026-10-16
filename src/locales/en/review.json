@@ -43,7 +43,8 @@
     "doubt": "Why it is here:",
     "moreFiles_one": "({{count, number}} other file)",
     "moreFiles_other": "({{count, number}} other files)",
-    "rekordboxEntry": "rekordbox's entry"
+    "rekordboxEntry": "rekordbox's entry",
+    "moreDetails": "More details"
   },
   "action": {
     "label": "Actions",
@@ -54,6 +55,24 @@
     "confirm": "Confirm",
     "confirmAgain": "Confirm again",
     "notSame": "Not the same"
+  },
+  "keys": {
+    "enter": "Enter: {{action}}",
+    "rows": "Number keys: switch to that row's file"
+  },
+  "accepted": {
+    "line_one": "Switched {{count, number}} track to the copy on disk",
+    "line_other": "Switched {{count, number}} tracks to the copy on disk",
+    "view": "View",
+    "hide": "Hide",
+    "undo": "Undo",
+    "dismiss": "Dismiss",
+    "list": "Tracks switched",
+    "col": {
+      "track": "Track",
+      "from": "Old file",
+      "to": "New file"
+    }
   },
   "switch": {
     "keepsEntry": "rekordbox keeps this track and its cues. It will show the file as missing until you relocate it in rekordbox.",
@@ -67,7 +86,10 @@
     "length": "Length",
     "tags": "Tags",
     "cover": "Cover",
-    "rekordbox": "rekordbox"
+    "rekordbox": "rekordbox",
+    "bitrate": "Bitrate",
+    "sampleRate": "Sample rate",
+    "added": "Date added"
   },
   "mark": {
     "suggested": "Suggested",
@@ -77,7 +99,9 @@
     "yes": "Yes",
     "no": "No",
     "tags": "{{filled}} of {{total}} filled",
-    "cutoff": "{{khz}} kHz cutoff"
+    "cutoff": "{{khz}} kHz cutoff",
+    "bitrate": "{{kbps, number}} kbps",
+    "sampleRate": "{{khz}} kHz"
   },
   "verdict": {
     "notChecked": "Not checked",
@@ -100,8 +124,19 @@
     "moreTags": "more tags filled",
     "hasArt": "has cover art",
     "knownToRekordbox": "known to rekordbox",
-    "betterPlace": "better location",
+    "betterPlace": "$t(review:place.{{best}}) (the other is $t(review:place.{{other}}))",
     "tied": "no difference between the files"
+  },
+  "place": {
+    "connected": "on a connected drive",
+    "notConnected": "on a drive that isn't connected",
+    "scanFolder": "in a music folder",
+    "inboxFolder": "in an Inbox folder",
+    "internalDrive": "on an internal drive",
+    "externalDrive": "on an external drive",
+    "networkDrive": "on a network drive",
+    "addedFirst": "in the folder added first",
+    "addedLater": "in a folder added later"
   },
   "relink": {
     "filenameOnly": "same file name, no other file has it",

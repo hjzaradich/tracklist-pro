@@ -216,3 +216,72 @@ fn a_rekordbox_length_that_is_not_a_number_shows_no_length() {
     let c = lib.compare(id(ReviewKind::Relink, row, None)).unwrap();
     assert_eq!(c.rows[1].duration_ms, None);
 }
+
+#[test]
+fn a_clear_best_file_offers_the_switch_to_every_copy_on_disk_for_the_number_keys() {
+    let lib = Lib::new();
+    let t = lib.track("Velo");
+    let gone = lib.file(t, "Velo.mp3", "mp3", false);
+    let copy = lib.file(t, "Velo copy.mp3", "mp3", true);
+    let flac = lib.file(t, "Velo.flac", "flac", true);
+    let lost = lib.file(t, "Velo lost.mp3", "mp3", false);
+    lib.library(t, gone);
+    lib.better(t, copy, "onDisk");
+    let c = lib.compare(id(ReviewKind::ClearBestFile, t, None)).unwrap();
+    let mut offered: Vec<i64> = c.copies.iter().map(|o| o.file_id).collect();
+    offered.sort_unstable();
+    // Both copies on disk; not the linked file, not the other gone file.
+    assert_eq!(offered, vec![copy.min(flac), copy.max(flac)]);
+    assert!(!offered.contains(&gone) && !offered.contains(&lost));
+    assert!(c
+        .copies
+        .iter()
+        .all(|o| o.effect.is_some() && o.refusal.is_none()));
+    // The suggested copy's offer is the item's own.
+    let suggested = c.switch.unwrap();
+    assert_eq!(
+        c.copies.iter().find(|o| o.file_id == copy),
+        Some(&suggested)
+    );
+}
+
+#[test]
+fn only_a_clear_best_file_item_has_copies_to_switch_to() {
+    let lib = Lib::new();
+    let t = lib.track("Velo");
+    let mp3 = lib.file(t, "Velo.mp3", "mp3", true);
+    let flac = lib.file(t, "Velo.flac", "flac", true);
+    lib.library(t, mp3);
+    lib.better(t, flac, "format");
+    let c = lib.compare(id(ReviewKind::BetterFile, t, None)).unwrap();
+    assert!(c.copies.is_empty() && c.switch.is_none());
+}
+
+#[test]
+fn the_view_of_a_switch_names_the_track_and_its_old_and_new_file() {
+    use super::super::accepted::{switched_view, SwitchedRef};
+    let lib = Lib::new();
+    let t = lib.track("Velo");
+    let gone = lib.file(t, "Velo.mp3", "mp3", false);
+    let copy = lib.file(t, "Velo copy.mp3", "mp3", true);
+    lib.library(t, gone);
+    let shown = lib
+        .writer
+        .call(move |c| {
+            switched_view(
+                c,
+                &Mount,
+                &[SwitchedRef {
+                    recording_id: t,
+                    from_file_id: gone,
+                    to_file_id: copy,
+                }],
+            )
+        })
+        .unwrap();
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0].recording_id, t);
+    assert_eq!(shown[0].track.title.as_deref(), Some("Velo"));
+    assert_eq!(shown[0].from_name, "Velo.mp3");
+    assert_eq!(shown[0].to_name, "Velo copy.mp3");
+}

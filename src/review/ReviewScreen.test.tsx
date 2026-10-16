@@ -84,6 +84,7 @@ const DOUBT_COMPARISON: ReviewComparison = {
   ],
   moreFiles: 0,
   switch: null,
+  copies: [],
   relink: null,
 };
 
@@ -100,6 +101,7 @@ const CLEAR_COMPARISON: ReviewComparison = {
   rows: [row(4, "gone copy.mp3"), row(3, "gone.mp3", { linked: true, onDisk: false })],
   moreFiles: 0,
   switch: { fileId: 4, effect: "notInRekordbox", refusal: null },
+  copies: [],
   relink: null,
 };
 
@@ -116,6 +118,7 @@ const QUALITY_COMPARISON: ReviewComparison = {
   rows: [row(5, "flagged.mp3", { linked: true, verdict: "truncated" })],
   moreFiles: 0,
   switch: null,
+  copies: [],
   relink: null,
 };
 
@@ -132,6 +135,7 @@ const HELD_COMPARISON: ReviewComparison = {
   rows: [row(7, "another tune.mp3", { recordingId: 20 })],
   moreFiles: 0,
   switch: null,
+  copies: [],
   relink: null,
 };
 
@@ -161,10 +165,13 @@ const RELINK_COMPARISON: ReviewComparison = {
       driveConnected: false,
       format: null,
       tagsFilled: 0,
+      // rekordbox's entry has no date added.
+      addedAt: null,
     }),
   ],
   moreFiles: 0,
   switch: null,
+  copies: [],
   relink: { fileId: 8, confirmedBefore: false },
 };
 
@@ -463,5 +470,104 @@ describe("the Review queue", () => {
     await waitFor(() => expect(within(needs).getAllByRole("option")).toHaveLength(1));
     expect(within(needs).getByRole("option")).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("region", { name: tx("review:group.clearBestFile") })).toBeNull();
+  });
+});
+
+describe("More details", () => {
+  const moreDetails = () => screen.findByRole("checkbox", { name: tx("review:compare.moreDetails") });
+  const header = (key: string) =>
+    screen.queryByRole("columnheader", { name: tx(`review:col.${key}` as "review:col.bitrate") });
+
+  it("is off at first: no bitrate, sample rate or date added", async () => {
+    backend();
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    expect(await moreDetails()).not.toBeChecked();
+    for (const column of ["bitrate", "sampleRate", "added"]) expect(header(column)).toBeNull();
+    expect(screen.queryByText(tx("review:cell.bitrate", { kbps: 320 }))).toBeNull();
+  });
+
+  it("adds the three columns, filled from the rows", async () => {
+    backend();
+    renderScreen();
+    const table = await screen.findByRole("table", { name: tx("review:compare.label") });
+    await userEvent.click(await moreDetails());
+    for (const column of ["bitrate", "sampleRate", "added"]) expect(header(column)).not.toBeNull();
+    const rows = within(table).getAllByRole("row");
+    const day = new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
+      new Date("2026-09-30T10:00:00.000Z"),
+    );
+    for (const row of rows.slice(1)) {
+      expect(row).toHaveTextContent(tx("review:cell.bitrate", { kbps: 320 }));
+      expect(row).toHaveTextContent(tx("review:cell.sampleRate", { khz: 44.1 }));
+      expect(row).toHaveTextContent(day);
+    }
+    // And off again.
+    await userEvent.click(await moreDetails());
+    expect(header("bitrate")).toBeNull();
+  });
+
+  it("leaves a cell empty where the file has no such detail, rekordbox's entry too", async () => {
+    backend({ pages: { needsCloserLook: [RELINK], clearBestFile: [] } });
+    renderScreen();
+    const table = await screen.findByRole("table", { name: tx("review:compare.label") });
+    await userEvent.click(await moreDetails());
+    const entry = within(table).getAllByRole("row")[2] as HTMLElement;
+    const cells = within(entry).getAllByRole("cell");
+    // The entry has no date added.
+    expect(cells[cells.length - 1]).toBeEmptyDOMElement();
+  });
+
+  it("stays on when another item is selected", async () => {
+    backend();
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    await userEvent.click(await moreDetails());
+    const clear = await screen.findByRole("region", { name: tx("review:group.clearBestFile") });
+    await userEvent.click(await within(clear).findByRole("option"));
+    await waitFor(() =>
+      expect(screen.getByRole("table", { name: tx("review:compare.label") })).toHaveTextContent(
+        "gone copy.mp3",
+      ),
+    );
+    expect(header("bitrate")).not.toBeNull();
+    expect(await moreDetails()).toBeChecked();
+  });
+});
+
+describe("the better location reason", () => {
+  it("names the two places from its parameters", async () => {
+    backend({
+      onItem: () => ({
+        ...DOUBT_COMPARISON,
+        suggestion: {
+          what: 2,
+          reasons: [
+            {
+              key: "review:reason.betterPlace",
+              params: { best: "internalDrive", other: "networkDrive" },
+              source: "fact",
+            },
+          ],
+        },
+      }),
+    });
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    // The reason as the app words it, with the two places filled in. In marker
+    // mode (npm run test:markers) every text is a marker for its key, so the
+    // whole reason is looked up, not the places inside it.
+    const reason = tx("review:reason.betterPlace", { best: "internalDrive", other: "networkDrive" });
+    const shown = screen.getByText(reason);
+    // What is shown is that reason, with nothing left of the nesting.
+    expect(shown.textContent).toBe(reason);
+    expect(shown.textContent).not.toContain("$t(");
+    // The marker of a reason keeps its parameters, so only the app's own words
+    // can be checked for the places.
+    if (!reason.startsWith("[[")) {
+      expect(reason).toContain(tx("review:place.internalDrive"));
+      expect(reason).toContain(tx("review:place.networkDrive"));
+      expect(reason).not.toMatch(/internalDrive|networkDrive/);
+    }
   });
 });

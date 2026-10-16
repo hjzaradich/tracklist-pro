@@ -154,11 +154,19 @@ export const commands = {
 	 */
 	switch: SwitchOffer | null,
 	/**
+	 *  The switch to every copy of a "Linked file gone, copy found" item that
+	 *  is on disk (the suggested one too), for the number keys: a digit
+	 *  switches to the copy in that row. Empty for every other kind.
+	 */
+	copies: SwitchOffer[],
+	/**
 	 *  The match a "Confirm relink" item asks about. `None` for every other
 	 *  kind.
 	 */
 	relink: RelinkOffer | null,
 } | null, IpcError>(__TAURI_INVOKE("review_item", { id })),
+	/**  The names of what "Accept all" switched, for its "View". */
+	reviewSwitchedView: (switched: SwitchedRef[]) => typedError<SwitchedView[], IpcError>(__TAURI_INVOKE("review_switched_view", { switched })),
 	/**  Dismisses a "Better file available" item, for that one better file. */
 	reviewDismissBetterFile: (recordingId: number, fileId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_dismiss_better_file", { recordingId, fileId })),
 	/**  "Keep anyway" for a quality problem. */
@@ -1395,6 +1403,12 @@ export type ReviewComparison = {
 	 */
 	switch: SwitchOffer | null,
 	/**
+	 *  The switch to every copy of a "Linked file gone, copy found" item that
+	 *  is on disk (the suggested one too), for the number keys: a digit
+	 *  switches to the copy in that row. Empty for every other kind.
+	 */
+	copies: SwitchOffer[],
+	/**
 	 *  The match a "Confirm relink" item asks about. `None` for every other
 	 *  kind.
 	 */
@@ -1705,6 +1719,13 @@ export type Switched = {
 	track: SwitchedTrack,
 };
 
+/**  One track "Accept all" switched, as the switch returned it. */
+export type SwitchedRef = {
+	recordingId: number,
+	fromFileId: number,
+	toFileId: number,
+};
+
 /**  One switched Library track. */
 export type SwitchedTrack = {
 	recordingId: number,
@@ -1714,6 +1735,14 @@ export type SwitchedTrack = {
 	/**  The linked file now. */
 	toFileId: number,
 	effect: SwitchEffect,
+};
+
+/**  A switched track with its name and the names of its old and new file. */
+export type SwitchedView = {
+	recordingId: number,
+	track: ReviewTrackName,
+	fromName: string,
+	toName: string,
 };
 
 /**  A Library track, as the preflight's lists name it. */

@@ -53,6 +53,7 @@
 //! The shown title isn't stored, so a title order would mean computing every
 //! title.
 
+pub mod accepted;
 pub mod actions;
 pub mod compare;
 pub mod held;
@@ -284,6 +285,10 @@ pub struct ReviewComparison {
     /// file, and what it means in rekordbox (or why it can't be made).
     /// `None` for every other kind.
     pub switch: Option<actions::SwitchOffer>,
+    /// The switch to every copy of a "Linked file gone, copy found" item that
+    /// is on disk (the suggested one too), for the number keys: a digit
+    /// switches to the copy in that row. Empty for every other kind.
+    pub copies: Vec<actions::SwitchOffer>,
     /// The match a "Confirm relink" item asks about. `None` for every other
     /// kind.
     pub relink: Option<actions::RelinkOffer>,
