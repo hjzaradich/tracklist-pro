@@ -2,12 +2,12 @@
 //! decision 2026-10-13; [`crate::send_values`]): a Library track whose
 //! linked file has no rekordbox entry, while a byte-identical copy of it in
 //! the same track has one that no other Library track is sent as, is sent
-//! as that entry. One entry is never sent for two Library tracks.
+//! as that entry. One entry is never sent for two Library tracks. The
+//! merge case is in `review/tests/same.rs`, through the real merge.
 //! Everything is made up: no file is read.
 
 use super::follow::Drives;
 use super::*;
-use crate::after_send::{manual_removals, RemovalReason};
 use crate::library::LibraryTrackId;
 use crate::send_values::{send_values, CannotSend, Outcome, SentAs};
 
@@ -132,15 +132,6 @@ impl Lib {
                 Ok(LibraryTrackId(c.last_insert_rowid()))
             })
             .unwrap()
-    }
-
-    fn removals(&self) -> Vec<(RemovalReason, Option<String>)> {
-        self.writer
-            .call(|c| manual_removals(c, &Drives))
-            .unwrap()
-            .into_iter()
-            .map(|r| (r.reason, r.path))
-            .collect()
     }
 }
 
@@ -346,66 +337,5 @@ fn two_library_tracks_each_with_a_byte_identical_copy_of_one_file_one_entry_is_s
         assert_eq!(lib.sent(with), SentAs::Entry(row));
         assert_eq!(lib.sent(without), SentAs::New);
         assert_eq!(lib.entries_sent(), ["1"]);
-    }
-}
-
-// ---- a merge and the list of tracks to remove -----------------------------------
-
-#[test]
-fn after_a_merge_the_staying_track_is_sent_as_the_leaving_tracks_entry_never_also_listed() {
-    // Two Library tracks that are one recording: the leaving one is sent
-    // as rekordbox's entry, the staying one (byte-identical file) as new.
-    // A merge (1bE-9) records the leaving track's entry to remove in
-    // rekordbox and moves its files into the staying track; built here as
-    // the merge leaves the tables. The staying track is then sent as that
-    // entry, so it isn't listed. With other bytes, it is listed.
-    for same_bytes in [true, false] {
-        let (lib, music, mounted) = e_music();
-        let staying_file = lib.file(music, "New/Kappa.mp3", Some(200_000));
-        let leaving_file = lib.file(music, "Kappa.mp3", Some(200_000));
-        lib.hashed(staying_file, 1);
-        lib.hashed(leaving_file, 1);
-        lib.bytes(staying_file, 1);
-        lib.bytes(leaving_file, if same_bytes { 1 } else { 2 });
-        let staying_track = lib.merged(&[staying_file]);
-        let leaving_track = lib.merged(&[leaving_file]);
-        let row = lib.track_with(&loc(COPY), Some("200"), &[]);
-        lib.relink(&mounted);
-        let staying = lib.in_library(staying_file);
-        let leaving = lib.in_library(leaving_file);
-        assert_eq!(lib.sent(leaving), SentAs::Entry(row));
-        assert_eq!(lib.sent(staying), SentAs::New);
-
-        lib.writer
-            .call(move |c| {
-                c.execute(
-                    "INSERT INTO replaced_entry (recording_id, location, location_key)
-                     SELECT ?1, json_extract(attributes, '$.Location'), location_key
-                     FROM rekordbox_track WHERE id = ?2",
-                    [leaving_track, row],
-                )?;
-                c.execute("DELETE FROM library_track WHERE id = ?1", [leaving.0])?;
-                c.execute(
-                    "UPDATE recording_file SET recording_id = ?1, role = 'undecided'
-                     WHERE recording_id = ?2",
-                    [staying_track, leaving_track],
-                )
-            })
-            .unwrap();
-        lib.relink(&mounted);
-
-        if same_bytes {
-            assert_eq!(lib.sent(staying), SentAs::Entry(row));
-            assert_eq!(lib.removals(), []);
-        } else {
-            assert_eq!(lib.sent(staying), SentAs::New);
-            assert_eq!(
-                lib.removals(),
-                [(
-                    RemovalReason::Replaced,
-                    Some(r"E:\Music\Kappa.mp3".to_owned())
-                )]
-            );
-        }
     }
 }
