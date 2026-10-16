@@ -143,7 +143,7 @@ pub enum KeepWhy {
 }
 
 /// The track a merge should keep, and why: **the one place that says it**
-/// (foreman's default, 2026-10-16; the owner is asked). The most cues
+/// (owner decision, 2026-10-16). The most cues
 /// first, because the track that stays keeps its own cues and the other's
 /// are lost; then the most plays; then the one holding the best-ranked file;
 /// then the older track. `None` for fewer than two tracks.

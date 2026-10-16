@@ -57,6 +57,10 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.rejectRelink");
     case "withdraw_relink":
       return t("undo.action.withdrawRelink");
+    case "keep_both_library_tracks":
+      return t("undo.action.keepBoth");
+    case "merge_library_tracks":
+      return t("undo.action.mergeTracks");
   }
   return t("undo.action.other");
 }

@@ -1431,7 +1431,7 @@ fn only_a_merge_of_two_library_tracks_records_a_derived_column() {
     for (path, code) in app_sources() {
         for (at, _) in code.match_indices("rec.set(") {
             let mut quoted = code[at..].split('"').skip(1).step_by(2);
-            let (Some(table), Some(field)) = (quoted.next(), quoted.nth(0)) else {
+            let (Some(table), Some(field)) = (quoted.next(), quoted.next()) else {
                 continue;
             };
             // Only a call that names both: table, id, field.

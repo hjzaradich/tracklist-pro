@@ -219,3 +219,22 @@
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 1px;
 }
+
+/* Which track stays in a merge ("Same track twice", 1bE-9): one radio button
+ * per track, one under the other, above the confirmation's buttons. */
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  border: none;
+}
+
+.choiceOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  cursor: pointer;
+}

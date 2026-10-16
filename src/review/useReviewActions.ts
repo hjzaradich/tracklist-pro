@@ -5,10 +5,13 @@ import {
   type AcceptedAll,
   type AcceptItem,
   type Acted,
+  type Merged,
   type SwitchEffect,
   type Switched,
 } from "../bindings";
+import { AFTER_SEND_LISTS_QUERY_KEY } from "../afterSend/useAfterSendLists";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
+import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { useAcceptedStore } from "./acceptedStore";
@@ -23,8 +26,9 @@ import { REVIEW_ACCEPT_ALL_QUERY_KEY, REVIEW_QUERY_KEYS } from "./useReview";
 /**
  * The queue and the comparison, asked for again, with the lists an answer
  * can change: the Library (a switched file), All music and the rekordbox
- * offer (a match that is confirmed can be added), and Missing (an entry
- * whose match was refused has no file again).
+ * offer (a match that is confirmed can be added), Missing (an entry
+ * whose match was refused has no file again), and the crates and the list of
+ * tracks to remove in rekordbox (a merge of two Library tracks).
  */
 function reload(queryClient: QueryClient) {
   return Promise.all(
@@ -34,6 +38,8 @@ function reload(queryClient: QueryClient) {
       ALL_MUSIC_QUERY_KEY,
       REKORDBOX_OFFER_QUERY_KEY,
       MISSING_TRACKS_QUERY_KEY,
+      CRATES_QUERY_KEY,
+      AFTER_SEND_LISTS_QUERY_KEY,
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );
 }
@@ -136,5 +142,26 @@ export function useRejectRelink(onDone?: () => void) {
   return useAction<RelinkMatch, Acted>(
     ({ entryId, fileId }) => unwrap(commands.reviewRejectRelink(entryId, fileId)),
     onDone,
+  );
+}
+
+/**
+ * "Keep both" for a "Same track twice in your Library" item (1bE-9).
+ * `recordingIds` are the Library tracks the screen showed: the action is
+ * refused if the item has other tracks by now.
+ */
+export function useKeepBoth() {
+  return useAction<{ anchor: number; recordingIds: number[] }, Acted>(({ anchor, recordingIds }) =>
+    unwrap(commands.reviewKeepBoth(anchor, recordingIds)),
+  );
+}
+
+/**
+ * Merges a "Same track twice in your Library" item into the track `keep`
+ * (1bE-9): the other Library tracks leave the Library. Undoable.
+ */
+export function useMergeTracks() {
+  return useAction<{ anchor: number; recordingIds: number[]; keep: number }, Merged>(
+    ({ anchor, recordingIds, keep }) => unwrap(commands.reviewMerge(anchor, recordingIds, keep)),
   );
 }

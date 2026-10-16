@@ -63,6 +63,11 @@
 //!   while a read still holds an entry at that `Location` and no Library
 //!   track is sent as it. The track itself is still in the Library.
 //!
+//!   *An entry a merge left behind* (1bE-9): when the user merges two
+//!   Library tracks that are the same recording, the entry the track that
+//!   left was sent as is recorded the same way (reason `merge`) and listed
+//!   on the same terms.
+//!
 //! Both are worked out from the database alone, so nothing here depends on
 //! a send having just happened, and nothing here writes a file or sends
 //! anything. The playlist tree of each read is kept as one setting

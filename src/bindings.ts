@@ -164,6 +164,11 @@ export const commands = {
 	 *  kind.
 	 */
 	relink: RelinkOffer | null,
+	/**
+	 *  The Library tracks a "Same track twice" item offers to keep both of
+	 *  or merge (1bE-9). `None` for every other kind.
+	 */
+	sameRecording: SameRecordingOffer | null,
 } | null, IpcError>(__TAURI_INVOKE("review_item", { id })),
 	/**  The names of what "Accept all" switched, for its "View". */
 	reviewSwitchedView: (switched: SwitchedRef[]) => typedError<SwitchedView[], IpcError>(__TAURI_INVOKE("review_switched_view", { switched })),
@@ -197,6 +202,16 @@ export const commands = {
 	 *  the entry is decided again from scratch. No screen calls it yet.
 	 */
 	reviewWithdrawRelink: (entryId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_withdraw_relink", { entryId })),
+	/**
+	 *  "Keep both" for a "Same track twice" item: `recording_ids` are the
+	 *  Library tracks the screen showed.
+	 */
+	reviewKeepBoth: (anchor: number, recordingIds: number[]) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_keep_both", { anchor, recordingIds })),
+	/**
+	 *  Merges a "Same track twice" item into `keep`: `recording_ids` are the
+	 *  Library tracks the screen showed.
+	 */
+	reviewMerge: (anchor: number, recordingIds: number[], keep: number) => typedError<Merged, IpcError>(__TAURI_INVOKE("review_merge", { anchor, recordingIds, keep })),
 	/**  Every Library track, sorted for the Library list (see [`list`]). */
 	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
 	/**
@@ -316,7 +331,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -526,6 +541,15 @@ export type Crate = {
 /**  A crate's row id. */
 export type CrateId = number;
 
+/**  What rekordbox holds for a Library track: the entry it is sent as. */
+export type EntryFacts = {
+	/**  How many cues (hot cues and memory cues). */
+	cues: number,
+	/**  Stars, 0 to 5. */
+	stars: number,
+	plays: number,
+};
+
 /**
  *  What went wrong, in terms the user can act on. Each kind has one
  *  message in the locale files.
@@ -613,6 +637,8 @@ export type ErrorKind =
  *  track is sent as.
  */
 "reviewSwitchEntryTaken" | 
+/**  Two tracks to merge are linked as versions, and versions never merge. */
+"reviewMergeLinkedVersions" | 
 /**  What the switch means in rekordbox changed since the item was shown. */
 "reviewSwitchChanged";
 
@@ -962,6 +988,15 @@ export type ManualRemoval = {
 	path: string | null,
 	/**  When the user removed it (or switched its file), UTC ISO-8601. */
 	removedAt: string,
+};
+
+/**  What a merge did. */
+export type Merged = {
+	operationId: number | null,
+	/**  The track that stays. */
+	kept: number,
+	/**  The tracks merged into it. */
+	merged: number[],
 };
 
 /**  The missing tracks that were last in one folder. */
@@ -1375,7 +1410,13 @@ export type RemovalReason =
  *  user switched it in Review: this is the entry of the file that is
  *  gone, which the track is no longer sent as (`replaced_entry`).
  */
-"replaced";
+"replaced" | 
+/**
+ *  The Library track it was sent as was merged into another Library
+ *  track that is the same recording (Review, 1bE-9): this entry is the
+ *  one of the track that left (`replaced_entry`, reason `merge`).
+ */
+"merged";
 
 /**  The comparison for one item: its files, the suggested one first. */
 export type ReviewComparison = {
@@ -1413,6 +1454,11 @@ export type ReviewComparison = {
 	 *  kind.
 	 */
 	relink: RelinkOffer | null,
+	/**
+	 *  The Library tracks a "Same track twice" item offers to keep both of
+	 *  or merge (1bE-9). `None` for every other kind.
+	 */
+	sameRecording: SameRecordingOffer | null,
 };
 
 /**  How many items wait, by group. */
@@ -1502,6 +1548,27 @@ export type ReviewTrackName = {
 export type RowSource = "file" | 
 /**  rekordbox's own entry (a relink item): the file it names is gone. */
 "rekordboxEntry";
+
+/**
+ *  What a "Same track twice" item offers: its Library tracks, the one the
+ *  app suggests keeping first.
+ */
+export type SameRecordingOffer = {
+	tracks: SameRecordingTrack[],
+	/**  The track the app suggests keeping in a merge ([`suggest_keep`]). */
+	keep: number | null,
+};
+
+/**  One Library track of a "Same track twice" item. */
+export type SameRecordingTrack = {
+	recordingId: number,
+	libraryTrackId: LibraryTrackId,
+	linkedFileId: number | null,
+	/**  `None`: rekordbox doesn't know the track (it is sent as a new one). */
+	rekordbox: EntryFacts | null,
+	/**  How many crates hold it. */
+	crates: number,
+};
 
 /**  A file the walk added to the index, as the frontend hears it. */
 export type ScannedFile = {

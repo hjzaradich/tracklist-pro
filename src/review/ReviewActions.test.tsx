@@ -91,6 +91,7 @@ function comparisonOf(
       switch: null,
       copies: [],
       relink: { fileId: 8, confirmedBefore },
+      sameRecording: null,
     };
   }
   if (it.kind === "betterFile") {
@@ -107,6 +108,7 @@ function comparisonOf(
       switch: null,
       copies: [],
       relink: null,
+      sameRecording: null,
     };
   }
   if (it.kind === "qualityProblem") {
@@ -132,6 +134,7 @@ function comparisonOf(
       switch: null,
       copies: [],
       relink: null,
+      sameRecording: null,
     };
   }
   return {
@@ -147,6 +150,7 @@ function comparisonOf(
     switch: switchOffer,
     copies,
     relink: null,
+    sameRecording: null,
   };
 }
 

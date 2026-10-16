@@ -613,5 +613,89 @@
   "error.switchChanged": {
     "purpose": "Says the switch was not made because what it means in rekordbox is no longer what the item showed; the item is shown again with the new text.",
     "where": "Review screen, comparison on the right, under the action buttons, after a refused switch."
+  },
+  "action.keepBoth": {
+    "purpose": "Button that keeps both Library tracks of a \"Same track twice\" item: they stay two tracks and the pair is not asked about again. It can be undone.",
+    "where": "Review screen, \"Same track twice in your Library\" item, action row under the table."
+  },
+  "action.merge": {
+    "purpose": "Button that opens the choice of which track stays in a merge of two Library tracks that are the same recording; the one filled button. Nothing changes until the confirmation.",
+    "where": "Review screen, \"Same track twice in your Library\" item, action row under the table."
+  },
+  "action.mergeConfirm": {
+    "purpose": "Confirmation button that merges: the other Library track leaves the Library (undoable). Restates the verb of the question.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, filled button."
+  },
+  "action.goBack": {
+    "purpose": "Second button of the merge confirmation: closes it, nothing changes.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation."
+  },
+  "same.label": {
+    "purpose": "Accessible name of the small table of the item's Library tracks (cues, rating, plays, crates).",
+    "where": "Review screen, \"Same track twice in your Library\" item, table under the file table."
+  },
+  "same.col.cues": {
+    "purpose": "Column heading: how many cues rekordbox holds for the track (hot and memory cues).",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table."
+  },
+  "same.col.rating": {
+    "purpose": "Column heading: the track's rating in rekordbox.",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table."
+  },
+  "same.col.plays": {
+    "purpose": "Column heading: the track's play count in rekordbox.",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table."
+  },
+  "same.col.crates": {
+    "purpose": "Column heading: how many of the app's crates hold the track.",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table."
+  },
+  "same.notInRekordbox": {
+    "purpose": "Says rekordbox doesn't know the track, in place of its cues, rating and plays.",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, cues column."
+  },
+  "same.noRating": {
+    "purpose": "The track has no rating in rekordbox.",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column."
+  },
+  "same.stars_one": {
+    "purpose": "A rating of one star.",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column."
+  },
+  "same.stars_other": {
+    "purpose": "A rating of several stars ({{count}} is 2 to 5).",
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column."
+  },
+  "same.choose": {
+    "purpose": "Question heading the choice of which Library track stays in a merge.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, above the list of tracks."
+  },
+  "same.suggestedTrack": {
+    "purpose": "A track in the merge choice that the app suggests keeping ({{name}} is \"Artist - Title\").",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, one choice."
+  },
+  "same.confirm_one": {
+    "purpose": "Warns what a merge of two Library tracks does: the track that leaves, its files and crates, what is lost in rekordbox, the remove list, and that it can be undone.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choice."
+  },
+  "same.confirm_other": {
+    "purpose": "The same warning when several tracks leave ({{count}} is how many).",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choice."
+  },
+  "keep.moreCues": {
+    "purpose": "Reason: the suggested track to keep has more cues in rekordbox ({{count}}) than the next one ({{other}}).",
+    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line."
+  },
+  "keep.morePlays": {
+    "purpose": "Reason: the suggested track to keep was played more in rekordbox ({{count}} against {{other}}).",
+    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line."
+  },
+  "keep.tied": {
+    "purpose": "Reason: nothing separates the tracks; the older one is suggested.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line."
+  },
+  "error.mergeLinkedVersions": {
+    "purpose": "Refusal: two tracks of the item are linked as versions, and versions are never merged.",
+    "where": "Review screen, \"Same track twice in your Library\" item, under the action row after Merge."
   }
 }

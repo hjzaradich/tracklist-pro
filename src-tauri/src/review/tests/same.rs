@@ -259,7 +259,8 @@ fn the_item_shows_each_tracks_cues_rating_plays_and_crates_and_suggests_keeping_
     );
     let item = t.compare().expect("the item is queued");
     let offer = item.same_recording.expect("a same-recording offer");
-    let facts: Vec<(i64, Option<(u32, u32, u32)>, u32)> = offer
+    type Facts = (i64, Option<(u32, u32, u32)>, u32);
+    let facts: Vec<Facts> = offer
         .tracks
         .iter()
         .map(|t| {
@@ -450,7 +451,7 @@ fn either_track_can_stay_and_the_one_that_leaves_never_gives_the_kept_one_its_an
          WHERE recording_id = {}",
         t.a, t.tb
     ));
-    t.db.writer.call(|c| crate::attach::attach(c)).unwrap();
+    t.db.writer.call(crate::attach::attach).unwrap();
     assert_eq!(
         t.db.count(&format!(
             "SELECT count(*) FROM analysis
@@ -483,7 +484,7 @@ fn a_kept_track_rekordbox_doesnt_know_takes_no_analysis_from_the_track_that_left
     let t = Twice::new();
     t.entry(t.a, 3, 0, 5, 128.0);
     t.merge(&t.both(), t.tb).unwrap();
-    t.db.writer.call(|c| crate::attach::attach(c)).unwrap();
+    t.db.writer.call(crate::attach::attach).unwrap();
     assert_eq!(
         t.db.count("SELECT count(*) FROM analysis WHERE source = 'rekordbox'"),
         0

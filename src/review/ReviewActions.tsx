@@ -17,6 +17,7 @@ import {
   useWantBetterFile,
 } from "./useReviewActions";
 import { useReviewKeys, type ReviewKey } from "./useReviewKeys";
+import { SameRecordingActions } from "./SameRecordingActions";
 import styles from "./ReviewComparison.module.css";
 import screenStyles from "./ReviewScreen.module.css";
 
@@ -52,6 +53,9 @@ type Start = (settled: { onSettled: () => void }) => void;
  *   in rekordbox said first, for a track rekordbox knows.
  * - "Confirm relink": Confirm (Confirm again, for a match confirmed before
  *   whose file holds other audio now) and Not the same.
+ * - "Same track twice in your Library": Merge (which opens the choice of the
+ *   track that stays and its confirmation) and Keep both
+ *   ({@link SameRecordingActions}).
  *
  * The layout is the designer's (docs/design-style.md, "Review screen"): one
  * row of buttons directly under the table; the one filled button (`primary`)
@@ -80,6 +84,26 @@ type Start = (settled: { onSettled: () => void }) => void;
  * item, so a refusal shown for one item doesn't stay under the next.
  */
 export function ReviewActions({
+  comparison,
+  onDecided,
+}: {
+  comparison: ReviewComparison;
+  onDecided?: () => void;
+}) {
+  if (comparison.kind === "sameRecording" && comparison.sameRecording) {
+    return (
+      <SameRecordingActions
+        comparison={comparison}
+        offer={comparison.sameRecording}
+        onDecided={onDecided}
+      />
+    );
+  }
+  return <FileActions comparison={comparison} onDecided={onDecided} />;
+}
+
+/** The actions of every kind but "Same track twice" ({@link SameRecordingActions}). */
+function FileActions({
   comparison,
   onDecided,
 }: {

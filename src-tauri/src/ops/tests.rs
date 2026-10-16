@@ -1762,20 +1762,16 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
                     "UPDATE relink SET confidence = 0.9",
                 ),
                 ("recording_file", "role") => (
-                    vec![
-                        ("recording_id", Value::Integer(1)),
-                        ("file_id", Value::Integer(1)),
-                    ],
+                    // Its id is the file's (file 1, the next row id).
+                    vec![("recording_id", Value::Integer(1))],
                     // The ranking makes the file the track's best.
                     "UPDATE recording_file SET role = 'best'",
                     "INSERT INTO recording DEFAULT VALUES;
                      UPDATE recording_file SET recording_id = 2",
                 ),
                 ("recording_file", "match_confidence") => (
-                    vec![
-                        ("recording_id", Value::Integer(1)),
-                        ("file_id", Value::Integer(1)),
-                    ],
+                    // Its id is the file's (file 1, the next row id).
+                    vec![("recording_id", Value::Integer(1))],
                     "UPDATE recording_file SET match_confidence = 0.5",
                     "INSERT INTO recording DEFAULT VALUES;
                      UPDATE recording_file SET recording_id = 2",

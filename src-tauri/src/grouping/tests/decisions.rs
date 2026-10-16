@@ -114,7 +114,7 @@ fn a_third_copy_of_two_library_tracks_of_other_audio_kept_both_is_not_asked_abou
     db.to_library(a);
     db.to_library(b);
     let velo = track(1, LEN);
-    let c = db.add(file("live/Velo.mp3", "Velo", 3, reencoded(&velo, 2, 7)));
+    let c = db.add(file("other/Velo.mp3", "Velo", 3, reencoded(&velo, 2, 7)));
     db.decide();
     assert_eq!(db.stands(a, b).1, "both_in_library");
     assert_eq!(db.stands(a, c).1, "set_disagrees");

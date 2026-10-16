@@ -53,6 +53,7 @@ const COMPARISON: Comparison = {
   switch: null,
   copies: [],
   relink: null,
+  sameRecording: null,
 };
 
 let element: HTMLAudioElement | null;

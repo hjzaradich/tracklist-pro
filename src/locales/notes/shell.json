@@ -198,5 +198,13 @@
     "purpose": "Says nothing is playing.",
     "where": "Player bar, until playback exists.",
     "approved": "Nothing playing"
+  },
+  "undo.action.keepBoth": {
+    "purpose": "Undo button naming what it takes back: \"Keep both\" for two Library tracks that are the same recording, in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is \"Keep both\"."
+  },
+  "undo.action.mergeTracks": {
+    "purpose": "Undo button naming what it takes back: a merge of Library tracks that are the same recording, in Review (Undo brings the other track back).",
+    "where": "Top bar, Undo button, when the next step to undo is a merge."
   }
 }
