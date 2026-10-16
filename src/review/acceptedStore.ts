@@ -14,6 +14,8 @@ interface AcceptedState {
   record: (result: AcceptedAll) => void;
   /** The user closed the line, or its Undo took the switch back. */
   dismiss: () => void;
+  /** Any Undo took back this operation: if it is the one the line describes, the line goes. */
+  undone: (operationId: number) => void;
 }
 
 /**
@@ -28,4 +30,6 @@ export const useAcceptedStore = create<AcceptedState>((set) => ({
     set({ accepted: { operationId: result.operationId, switched: result.switched } });
   },
   dismiss: () => set({ accepted: null }),
+  undone: (operationId) =>
+    set((state) => (state.accepted?.operationId === operationId ? { accepted: null } : state)),
 }));

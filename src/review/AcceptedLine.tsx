@@ -17,7 +17,7 @@ import styles from "./ReviewScreen.module.css";
  * or the next "Accept all" replaces it. Its Undo is the normal Undo of that
  * one operation: it is offered while that operation is the next to undo (the
  * top bar's Undo names the one that is, otherwise) and takes the line away
- * once it worked.
+ * once it worked, and also when the top bar's Undo or Ctrl+Z took it back.
  */
 export function AcceptedLine() {
   const { t } = useTranslation("review");
@@ -52,12 +52,9 @@ export function AcceptedLine() {
     (undo.data?.status === "refused" && undo.data.operation.id === accepted.operationId
       ? undo.data.reason
       : null);
-  const takeBack = () =>
-    undo.mutate(accepted.operationId, {
-      onSuccess: (outcome) => {
-        if (outcome.status === "undone") dismiss();
-      },
-    });
+  // The line goes when the operation is undone, by this button or any other
+  // Undo (`useKeepNextUndoCurrent` tells the store).
+  const takeBack = () => undo.mutate(accepted.operationId);
 
   return (
     <section className={styles.accepted} aria-labelledby={textId}>

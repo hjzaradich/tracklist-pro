@@ -22,11 +22,18 @@ function sampleRate(t: TFunction<"review">, hz: number | null): string {
   return hz === null ? "" : t("cell.sampleRate", { khz: Math.round(hz / 100) / 10 });
 }
 
+/**
+ * The time as an ISO time with its zone. SQLite writes "2026-09-30 10:00:00" in
+ * UTC with no zone, which a bare Date would read as the viewer's local time.
+ */
+export function isoTime(added: string): string {
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(added) ? added.replace(" ", "T") + "Z" : added;
+}
+
 /** The day a file was first seen, in the viewer's own format; the text itself if it isn't a date. */
-function addedOn(language: string, added: string | null): string {
+export function addedOn(language: string, added: string | null): string {
   if (added === null) return "";
-  // SQLite writes "2026-09-30 10:00:00" (UTC): make it an ISO time.
-  const date = new Date(/^d{4}-d{2}-d{2} /.test(added) ? added.replace(" ", "T") + "Z" : added);
+  const date = new Date(isoTime(added));
   return Number.isNaN(date.getTime())
     ? added
     : new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(date);

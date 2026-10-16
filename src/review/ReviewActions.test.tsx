@@ -1047,9 +1047,10 @@ describe("after a decision", () => {
     await actions();
     const before = callsOf(world, "review_counts").length;
     press("Enter");
+    // The error shows once the action has settled, which includes asking for
+    // the queue again: nothing is pending after this, so the check is direct.
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.itemGone"));
-    await waitFor(() => expect(callsOf(world, "review_counts").length).toBeGreaterThan(before));
-    await settle();
+    expect(callsOf(world, "review_counts").length).toBeGreaterThan(before);
     expect(selectedTitle()).toContain("Old Tune");
     expect(selectedTitle()).not.toContain("Second");
   });
@@ -1161,6 +1162,53 @@ describe("the line after Accept all", () => {
     record({ operationId: 6, switched: [switched(3)], skipped: [] });
     expect(useAcceptedStore.getState().accepted).toMatchObject({ operationId: 6 });
     expect(useAcceptedStore.getState().accepted?.switched).toHaveLength(1);
+  });
+
+  it("goes when the top bar's Undo takes the Accept all back", async () => {
+    const world = backend({ lists: { ...EMPTY, clearBestFile: [GONE, GONE_TOO] }, clear: 2 });
+    renderScreen();
+    await acceptAll(2);
+    await screen.findByRole("region", { name: accepted(2) });
+    // The top bar names the step; it is the Accept all.
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: tx("shell:undo.action.acceptClearBestFiles", { count: 2 }),
+      }),
+    );
+    await waitFor(() => expect(callsOf(world, "undo_last_operation")).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: accepted(2) })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("goes when Ctrl+Z takes the Accept all back", async () => {
+    const world = backend({ lists: { ...EMPTY, clearBestFile: [GONE, GONE_TOO] }, clear: 2 });
+    renderScreen();
+    await acceptAll(2);
+    await screen.findByRole("region", { name: accepted(2) });
+    await screen.findByRole("button", {
+      name: tx("shell:undo.action.acceptClearBestFiles", { count: 2 }),
+    });
+    await userEvent.keyboard("{Control>}z{/Control}");
+    await waitFor(() => expect(callsOf(world, "undo_last_operation")).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: accepted(2) })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("stays when an Undo takes back some other step", async () => {
+    backend({ lists: { ...EMPTY, clearBestFile: [GONE], qualityProblems: [QUALITY] }, clear: 1 });
+    renderScreen();
+    await acceptAll(1);
+    await screen.findByRole("region", { name: accepted(1) });
+    await userEvent.click(
+      (await actions()).getByRole("button", { name: tx("review:action.keepAnyway") }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.keepAnyway") }),
+    );
+    await screen.findByRole("region", { name: tx("review:group.qualityProblems") });
+    expect(screen.getByRole("region", { name: accepted(1) })).toBeInTheDocument();
   });
 
   it("offers no Undo once something else was done since: the top bar's Undo names that", async () => {
