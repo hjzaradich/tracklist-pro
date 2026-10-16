@@ -420,13 +420,35 @@ describe("motion", () => {
     expect(reduced?.[1]).toMatch(/--motion-fast\s*:\s*0ms/);
   });
 
-  it("no stylesheet animates, and every transition runs on the motion token", () => {
+  // The one animation: the playing bars (docs/design-style.md).
+  const BARS = "../player/PlayingBars.module.css";
+
+  it("only the playing bars animate, and every transition runs on the motion token", () => {
     const offenders = Object.entries(styles).flatMap(([path, text]) =>
       [...text.matchAll(/\b(animation[\w-]*|transition[\w-]*)\s*:\s*([^;]+);/g)]
-        .filter((m) => m[1].startsWith("animation") || !m[2].includes("var(--motion-fast)"))
+        .filter((m) =>
+          m[1].startsWith("animation")
+            ? path !== BARS
+            : !m[2].includes("var(--motion-fast)"),
+        )
         .map((m) => `${path}: ${m[0]}`),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it("the playing bars move by transform alone, once, and stand still under reduce motion", () => {
+    const css = styles[BARS];
+    expect(css, "the bars' stylesheet").toBeTruthy();
+    // One keyframes rule, and it changes nothing but transform: no layout.
+    const keyframes = [...css.matchAll(/@keyframes\s+[\w-]+\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g)];
+    expect(keyframes).toHaveLength(1);
+    const props = [...keyframes[0][1].matchAll(/([\w-]+)\s*:/g)].map((m) => m[1]);
+    expect(new Set(props)).toEqual(new Set(["transform"]));
+    // Windows' reduce motion stops it.
+    const reduced = /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^]*?animation:\s*none/.exec(css);
+    expect(reduced).not.toBeNull();
+    // Bars are only drawn while playing (the component hides them otherwise).
+    expect(css).toContain("visibility: hidden");
   });
 
   it("the shared transition moves color only, and only on hover", () => {

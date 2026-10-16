@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { PlayingBars } from "./PlayingBars";
 import { PlayPauseIcon } from "./PlayPauseIcon";
 import { usePlayer, type PlayerFile } from "./playerStore";
 import styles from "./PlayButton.module.css";
@@ -21,16 +22,19 @@ export function PlayButton({ file }: { file: PlayerFile }) {
   // same text is its hover text.
   const label = t(pause ? "pauseNamed" : "playNamed", { name: file.name });
   return (
-    <button
-      type="button"
-      className={styles.button}
-      data-play-for={file.id}
-      aria-label={label}
-      title={label}
-      // Pressing a refused file again asks again.
-      onClick={() => (current && !refused ? toggle() : select(file))}
-    >
-      <PlayPauseIcon playing={pause} />
-    </button>
+    <span className={styles.slot}>
+      <button
+        type="button"
+        className={styles.button}
+        data-play-for={file.id}
+        aria-label={label}
+        title={label}
+        // Pressing a refused file again asks again.
+        onClick={() => (current && !refused ? toggle() : select(file))}
+      >
+        <PlayPauseIcon playing={pause} />
+      </button>
+      <PlayingBars playing={pause} />
+    </span>
   );
 }
