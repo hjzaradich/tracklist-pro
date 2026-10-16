@@ -10,7 +10,7 @@
 
 .empty {
   margin: 0;
-  color: var(--color-text-disabled);
+  color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   text-align: center;
 }

@@ -99,6 +99,11 @@ Hover text does not reach keyboard users, and a touch screen has no hover. So th
 - **Cut-off:** Library and All music keep a row to one line (`table-layout: fixed`, title 28% and artist 18% of the width, a fixed actions column); a long title, artist or path ends in "…". Rows are at the compact row height; a row with a note under its path is taller on purpose.
 - **Motion:** one hover fade (`--motion-fast`), colors only, set on hover so a theme switch stays instant. No stylesheet may animate; tests check it.
 
+## Text that has to be read
+
+`--color-text-disabled` is only for controls that can't be used. Text the user needs to read (an empty state such as "Nothing playing" or "No crates") is `--color-text-muted`. A test holds it.
+
 ## Open questions for the owner
 
-None yet.
+- **Play and Pause: words or icons?** Today they are small bordered words (clear, accessible, nothing to draw). Icons are quicker to scan but need a drawn glyph and an accessible name. Recommendation: keep the words.
+- **Should the file that is playing show it in its row?** Today only the button's word changes. Recommendation: tint the playing row like a selected one, since playing is "active". Needs a styling hook on the row (a request to the foreman, not done).
