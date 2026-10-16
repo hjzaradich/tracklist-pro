@@ -103,7 +103,11 @@ Hover text does not reach keyboard users, and a touch screen has no hover. So th
 
 `--color-text-disabled` is only for controls that can't be used. Text the user needs to read (an empty state such as "Nothing playing" or "No crates") is `--color-text-muted`. A test holds it.
 
+## Audio preview (decided 2026-10-16)
+
+- 2026-10-16 · **Play and Pause are the standard icons** (a triangle, and two bars), not words. Each button keeps its name as its accessible label and hover text (`title`, the same string, no new wording). · Quicker to scan in a long list. · Style (drawing), tests read the name instead of the visible word
+- 2026-10-16 · **A playing track is shown by three small bars that alternate in height** (an equalizer), in the row of the file that is playing and in the player bar. Not built yet: it needs a small decorative element, asked of the foreman. It will be the one animation in the app, and it stops (static bars) when Windows' "reduce motion" is on. The earlier idea of tinting the playing row is dropped unless asked for again.
+
 ## Open questions for the owner
 
-- **Play and Pause: words or icons?** Today they are small bordered words (clear, accessible, nothing to draw). Icons are quicker to scan but need a drawn glyph and an accessible name. Recommendation: keep the words.
-- **Should the file that is playing show it in its row?** Today only the button's word changes. Recommendation: tint the playing row like a selected one, since playing is "active". Needs a styling hook on the row (a request to the foreman, not done).
+None yet.

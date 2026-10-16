@@ -137,8 +137,9 @@ describe("the All music screen", () => {
       tx("allMusic:columns.library"),
     ]);
     expect(within(first).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      // The play button comes first in the title's cell.
-      tx("player:play") + "Synthetic Tune 1",
+      // The play button (an icon, named by its label) comes first in the
+      // title's cell: no words of its own.
+      "Synthetic Tune 1",
       "Made Up Artist 1",
       String.raw`E:\Music\tune 1.mp3`,
       tx("allMusic:add"),
