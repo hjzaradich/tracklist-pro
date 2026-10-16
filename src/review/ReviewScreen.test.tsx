@@ -554,10 +554,20 @@ describe("the better location reason", () => {
     });
     renderScreen();
     await screen.findByRole("table", { name: tx("review:compare.label") });
-    const shown = screen.getByText(tx("review:place.internalDrive"), { exact: false });
-    // Both places come out as their texts, never as the codes.
-    expect(shown).toHaveTextContent(tx("review:place.internalDrive"));
-    expect(shown).toHaveTextContent(tx("review:place.networkDrive"));
-    expect(shown.textContent).not.toMatch(/internalDrive|networkDrive|\$t\(/);
+    // The reason as the app words it, with the two places filled in. In marker
+    // mode (npm run test:markers) every text is a marker for its key, so the
+    // whole reason is looked up, not the places inside it.
+    const reason = tx("review:reason.betterPlace", { best: "internalDrive", other: "networkDrive" });
+    const shown = screen.getByText(reason);
+    // What is shown is that reason, with nothing left of the nesting.
+    expect(shown.textContent).toBe(reason);
+    expect(shown.textContent).not.toContain("$t(");
+    // The marker of a reason keeps its parameters, so only the app's own words
+    // can be checked for the places.
+    if (!reason.startsWith("[[")) {
+      expect(reason).toContain(tx("review:place.internalDrive"));
+      expect(reason).toContain(tx("review:place.networkDrive"));
+      expect(reason).not.toMatch(/internalDrive|networkDrive/);
+    }
   });
 });
