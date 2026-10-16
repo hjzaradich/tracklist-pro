@@ -208,9 +208,9 @@ afterEach(() => {
 });
 
 describe.each([
-  ["a possible version mix-up", DOUBT],
-  ["Unclear duplicates", HELD],
-])("%s", (_name, it_) => {
+  ["versionDoubt", DOUBT],
+  ["heldSet", HELD],
+])("a %s item", (_name, it_) => {
   it("is made one track with Enter, with the tracks the screen showed, and Undo brings it back", async () => {
     const world = backend({ lists: { ...EMPTY, needsCloserLook: [it_] } });
     renderScreen();
