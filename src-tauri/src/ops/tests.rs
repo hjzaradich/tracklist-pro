@@ -272,7 +272,7 @@ fn the_log_refuses_its_own_tables_and_tables_it_cannot_address() {
         // WITHOUT ROWID: `entity_id` can't name one of their rows.
         "setting",
         "service_optin",
-        "relink",
+        "grouping_file",
         // Not a table.
         "crate_ancestor",
         "no_such_table",
@@ -1678,4 +1678,120 @@ fn an_operation_whose_only_step_fails_at_the_log_leaves_no_operation_behind() {
     assert_eq!(count(&conn, "change"), 0);
     assert_eq!(crate_notes(&conn, id).as_deref(), Some("old notes"));
     assert_eq!(undo_last(&mut conn).unwrap(), UndoOutcome::NothingToUndo);
+}
+
+/// A library with one file on disk and one track, on the app's writer.
+fn writer_with_a_file() -> (tempfile::TempDir, Writer) {
+    let (dir, writer) = writer();
+    writer
+        .call(|c| {
+            c.execute_batch(
+                "INSERT INTO volume (identity, kind) VALUES ('serial=NTFS-1A2B3C4D', 'external');
+                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                     VALUES (1, 'Music', 'Music');
+                 INSERT INTO file (music_folder_id, rel_path, rel_path_key)
+                     VALUES (1, 'a.mp3', 'a.mp3');
+                 INSERT INTO recording (title) VALUES ('Made-up Tune');",
+            )
+        })
+        .unwrap();
+    (dir, writer)
+}
+
+#[test]
+fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_since() {
+    // For each derived column: an operation inserts a row, the column moves
+    // on outside the log, and Undo still works; a column that isn't derived
+    // moving on the same way refuses it. A new entry in the list needs its
+    // case here.
+    assert_eq!(
+        DERIVED_FIELDS,
+        [
+            ("library_track", "source_status"),
+            ("relink", "audio_hash"),
+            ("relink", "file_key"),
+            ("relink", "file_id"),
+        ]
+    );
+    for (table, field) in DERIVED_FIELDS {
+        // (the insert, what moves the derived column on, what moves another
+        // column on)
+        let (values, derived_moves, other_moves): (Vec<(&str, Value)>, &str, &str) =
+            match (*table, *field) {
+                ("library_track", "source_status") => (
+                    vec![
+                        ("recording_id", Value::Integer(1)),
+                        ("kind", Value::Text("linked".into())),
+                        ("linked_file_id", Value::Integer(1)),
+                    ],
+                    // The file goes: a trigger marks the track's file missing.
+                    "UPDATE file SET present = 0 WHERE id = 1",
+                    "UPDATE library_track SET last_exported_at = '2026-10-13T10:00:00.000Z'",
+                ),
+                ("relink", "audio_hash") => (
+                    vec![
+                        ("location_key", Value::Text("e:/old/a.mp3".into())),
+                        ("file_id", Value::Integer(1)),
+                        ("method", Value::Text("filename_only".into())),
+                    ],
+                    // The relink job records the audio once the file is hashed.
+                    "UPDATE relink SET audio_hash = x'0A0B' WHERE audio_hash IS NULL",
+                    "UPDATE relink SET confidence = 0.9",
+                ),
+                ("relink", "file_key") => (
+                    vec![
+                        ("location_key", Value::Text("e:/old/a.mp3".into())),
+                        ("file_id", Value::Integer(1)),
+                        ("method", Value::Text("filename_only".into())),
+                    ],
+                    // The relink job records what a confirmation is kept by.
+                    "UPDATE relink SET file_key = x'0A0B' WHERE file_key IS NULL",
+                    "UPDATE relink SET confidence = 0.9",
+                ),
+                ("relink", "file_id") => (
+                    vec![
+                        ("location_key", Value::Text("e:/old/a.mp3".into())),
+                        ("file_key", Value::Blob(vec![1])),
+                        ("file_id", Value::Integer(1)),
+                        ("method", Value::Text("filename_only".into())),
+                    ],
+                    // The file's music folder is removed: the pointer goes.
+                    "DELETE FROM file WHERE id = 1",
+                    "UPDATE relink SET confidence = 0.9",
+                ),
+                other => panic!("no case for the derived column {other:?}"),
+            };
+        for (moves, undone) in [(derived_moves, true), (other_moves, false)] {
+            let (_dir, writer) = writer_with_a_file();
+            let values = values.clone();
+            let table_name = (*table).to_owned();
+            record_via(&writer, "make_row", no_details(), move |rec| {
+                rec.insert(&table_name, &values)
+            })
+            .unwrap();
+            writer.call(move |c| c.execute_batch(moves)).unwrap();
+            let outcome = undo_last_via(&writer).unwrap();
+            let count = format!("SELECT count(*) FROM {table}");
+            let rows: i64 = writer
+                .call(move |c| c.query_row(&count, [], |r| r.get(0)))
+                .unwrap();
+            if undone {
+                assert!(
+                    matches!(outcome, UndoOutcome::Undone { .. }),
+                    "{table}.{field}: {outcome:?}"
+                );
+                assert_eq!(rows, 0, "{table}.{field}");
+            } else {
+                assert!(
+                    matches!(
+                        outcome,
+                        UndoOutcome::Refused { ref conflicts, .. }
+                            if conflicts.iter().all(|c| c.problem == ConflictProblem::ChangedSince)
+                    ),
+                    "{table}: {outcome:?}"
+                );
+                assert_eq!(rows, 1, "{table}");
+            }
+        }
+    }
 }

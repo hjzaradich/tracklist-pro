@@ -367,10 +367,12 @@ mod on_disk {
         let folder = with_files(&writer, &volume);
         writer
             .call(|c| {
-                c.execute(
-                    "INSERT INTO relink (location_key, file_id, method)
-                     VALUES ('file://localhost/E:/Music/a.mp3', 1, 'user')",
-                    [],
+                // A Library track linked to one of its files. (A relink
+                // decision doesn't hold a file in place: 1bE-6.)
+                c.execute_batch(
+                    "INSERT INTO recording (title) VALUES ('Made-up Tune');
+                     INSERT INTO library_track (recording_id, linked_file_id)
+                     VALUES (last_insert_rowid(), 1);",
                 )
             })
             .unwrap();

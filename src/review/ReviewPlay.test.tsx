@@ -51,6 +51,7 @@ const COMPARISON: Comparison = {
   ],
   moreFiles: 0,
   switch: null,
+  relink: null,
 };
 
 let element: HTMLAudioElement | null;

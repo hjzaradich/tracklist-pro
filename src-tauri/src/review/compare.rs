@@ -87,6 +87,9 @@ struct Resolved {
 struct Entry {
     file: i64,
     method: String,
+    /// The user confirmed this entry on this file before (and it is asked
+    /// again: the file holds other audio now).
+    confirmed_before: bool,
     title: Option<String>,
     artist: Option<String>,
     path: Option<String>,
@@ -195,7 +198,13 @@ fn relink(conn: &Connection, row: i64) -> rusqlite::Result<Option<Resolved>> {
                              THEN CAST(json_extract(attributes, '$.TotalTime') AS INTEGER) END,
                         CAST(json_extract(attributes, '$.BitRate') AS INTEGER),
                         CAST(json_extract(attributes, '$.SampleRate') AS INTEGER),
-                        (SELECT recording_id FROM recording_file WHERE file_id = rekordbox_track.file_id)
+                        (SELECT recording_id FROM recording_file WHERE file_id = rekordbox_track.file_id),
+                        EXISTS (SELECT 1 FROM relink r
+                                WHERE r.location_key = rekordbox_track.location_key
+                                  AND r.verdict = 'same'
+                                  AND (r.file_id = rekordbox_track.file_id
+                                       OR r.file_key = (SELECT coalesce(nullif(f.audio_hash, x''), f.blake3)
+                                                        FROM file f WHERE f.id = rekordbox_track.file_id)))
                  {}",
                 relink_from("AND id = ?1")
             ),
@@ -209,6 +218,7 @@ fn relink(conn: &Connection, row: i64) -> rusqlite::Result<Option<Resolved>> {
                     Entry {
                         file: r.get(0)?,
                         method: r.get(1)?,
+                        confirmed_before: r.get(9)?,
                         path: r
                             .get::<_, Option<String>>(2)?
                             .map(|key| key.replace('/', "\\")),
@@ -371,10 +381,16 @@ pub fn comparison(
     };
     let suggestion: Option<(i64, Reason)> = match id.kind {
         ReviewKind::QualityProblem => None,
-        ReviewKind::Relink => item
-            .entry
-            .as_ref()
-            .map(|e| (e.file, from_relink(&e.method))),
+        // A match the user confirmed before is here again for that reason,
+        // however it was found the first time.
+        ReviewKind::Relink => item.entry.as_ref().map(|e| {
+            let found = if e.confirmed_before {
+                "user"
+            } else {
+                e.method.as_str()
+            };
+            (e.file, from_relink(found))
+        }),
         ReviewKind::ClearBestFile | ReviewKind::BetterFile => item.about.and_then(|better| {
             // Why it is ahead of the linked file; else the ranking's reason.
             let linked_file = linked.iter().copied().find(|f| *f != better);
@@ -449,5 +465,9 @@ pub fn comparison(
         rows,
         more_files,
         switch,
+        relink: item.entry.as_ref().map(|e| super::actions::RelinkOffer {
+            file_id: e.file,
+            confirmed_before: e.confirmed_before,
+        }),
     }))
 }

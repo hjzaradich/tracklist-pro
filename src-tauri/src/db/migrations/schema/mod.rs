@@ -19,6 +19,7 @@ mod grouping;
 mod library;
 mod library_upkeep;
 mod partial_hash;
+mod relink_decisions;
 mod review_decisions;
 mod search_index;
 mod sent_playlist;
@@ -237,6 +238,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
         "0027_review_decisions.sql",
         &["replaced_entry", "review_decision"],
     ),
+    // `relink` rebuilt as a rowid table with a verdict, no new tables.
+    ("0028_relink_decisions.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

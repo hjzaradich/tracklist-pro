@@ -197,6 +197,9 @@ pub struct File {
     /// equally right and equally trusted, the linked one is matched
     /// ([`Pick`]).
     pub linked: bool,
+    /// What it holds, as a decision about it is kept by: its `audio_hash`,
+    /// or its `blake3` when it has none (`relink::decide::FILE_KEY`).
+    pub content_key: Option<Vec<u8>>,
 }
 
 /// One of several files that are equally right for a row (exact copies,
@@ -342,6 +345,13 @@ pub struct Confirmed {
     pub audio_hash: Option<Vec<u8>>,
 }
 
+/// Audio the user said is not an entry's (a `not_same` row of `relink`):
+/// what the file held when the user said it.
+#[derive(Debug, Clone)]
+pub struct Rejected {
+    pub audio: Vec<u8>,
+}
+
 /// Everything [`plan`] looks at.
 #[derive(Debug, Clone, Default)]
 pub struct Input {
@@ -351,6 +361,8 @@ pub struct Input {
     pub tracks: Vec<Track>,
     /// By Location key.
     pub confirmed: HashMap<String, Confirmed>,
+    /// What the user said is not the entry's file, by Location key.
+    pub rejected: HashMap<String, Vec<Rejected>>,
 }
 
 /// A row to write: its new match (`None` clears it), the audio it was made
@@ -771,6 +783,22 @@ pub fn plan<E>(
         });
     };
 
+    // "Not the same": the user said the audio a file held is not this
+    // row's. No step from 2 on gives the row a file holding that audio,
+    // wherever it is now (moved, renamed, its folder added again), and a
+    // carried match to one is dropped. A file encoded again holds other
+    // audio: another question. The file still counts wherever files are
+    // counted: this only ever takes a match away.
+    let refused = |i: usize, file: i64| -> bool {
+        let Some(holds) = index.file(file).and_then(|f| f.content_key.as_deref()) else {
+            return false;
+        };
+        input
+            .rejected
+            .get(&tracks[i].key)
+            .is_some_and(|said| said.iter().any(|no| no.audio == holds))
+    };
+
     // Step 0: every confirmed relink is re-applied first, while its file is
     // present. If the file is known to hold other audio than the user
     // confirmed, the confirmation still holds the file, but only as
@@ -822,7 +850,8 @@ pub fn plan<E>(
             && index
                 .file(current.file)
                 .is_some_and(|f| !f.audio_changed(track.evidence.as_deref()))
-            && !confirmed_files.contains(&current.file);
+            && !confirmed_files.contains(&current.file)
+            && !refused(i, current.file);
         if !carried {
             continue;
         }
@@ -918,6 +947,9 @@ pub fn plan<E>(
         let Some(file) = index.pick(fits).map(Pick::any) else {
             continue;
         };
+        if refused(*i, file) {
+            continue;
+        }
         let copy_taken = fits.iter().any(|&f| held_by_other(&claimed, f, *i));
         if fits.iter().all(|&f| alone(&wanted, f, *i)) && !copy_taken {
             set(
@@ -1045,6 +1077,9 @@ pub fn plan<E>(
         let name = &tracks[i].name;
         let (file, agrees) =
             pick.settle(|file| Ok(!name.is_empty() && titles(file)?.contains(name)))?;
+        if refused(i, file) {
+            continue;
+        }
         let confidence = if agrees {
             confidence::UNIQUE_DURATION
         } else {
@@ -1277,6 +1312,9 @@ pub fn plan<E>(
                     && titles(file)?.contains(name)
             })
         })?;
+        if refused(lead.row, file) {
+            continue;
+        }
         let confidence = if trusted {
             lead.found.accepted()
         } else {
@@ -1333,6 +1371,9 @@ pub fn plan<E>(
         let Some(file) = index.pick(&files).map(Pick::any) else {
             continue;
         };
+        if refused(i, file) {
+            continue;
+        }
         if !files.iter().any(|&f| held_by_other(&claimed, f, i)) {
             set(
                 &mut now,

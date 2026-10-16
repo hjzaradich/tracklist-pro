@@ -66,6 +66,12 @@
 //! nothing would list it. A switch that kept the track rekordbox's own
 //! entry can be undone whenever.
 //!
+//! # Relink matches
+//!
+//! A probable match of a rekordbox entry to a file is confirmed or answered
+//! "Not the same" here too (1bE-6): the commands are thin, and what they do
+//! is in [`crate::relink::decide`], beside the rules that read it.
+//!
 //! Nothing here opens, moves or writes a file, and nothing asks the system
 //! where a drive is on the database's writer: the commands take that answer
 //! beforehand ([`crate::relink::Mounted`]).
@@ -145,6 +151,16 @@ impl From<rusqlite::Error> for Refused {
 impl From<DbError> for Refused {
     fn from(e: DbError) -> Self {
         Refused::Ops(OpsError::Db(e))
+    }
+}
+
+impl From<crate::relink::decide::Refused> for Refused {
+    fn from(e: crate::relink::decide::Refused) -> Self {
+        match e {
+            crate::relink::decide::Refused::ItemGone => Refused::ItemGone,
+            crate::relink::decide::Refused::NoAudioKnown => Refused::NoAudioKnown,
+            crate::relink::decide::Refused::Ops(e) => Refused::Ops(e),
+        }
     }
 }
 
@@ -923,6 +939,20 @@ pub fn accept_clear_best_files(
     })
 }
 
+// ---- relink matches ----------------------------------------------------------
+
+/// What a "Confirm relink" item offers to decide: the file its entry is
+/// probably matched to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RelinkOffer {
+    /// The matched file.
+    pub file_id: i64,
+    /// The user confirmed this very match before, and the file holds other
+    /// audio now: it is asked again.
+    pub confirmed_before: bool,
+}
+
 // ---- commands ---------------------------------------------------------------
 
 /// Where the drives are, asked off the database's writer.
@@ -942,6 +972,72 @@ pub(crate) fn ask_for_follow_up_work(writer: &Writer, jobs: &JobQueue) {
     if let Err(e) = crate::search::request(writer, |j| jobs.enqueue(j)) {
         eprintln!("review: couldn't ask for the search index: {e:?}");
     }
+}
+
+/// Asks for a relink run: a confirmation, a "not the same" or their undo
+/// changed what relink carries from run to run, and the run decides every
+/// entry again (it asks for the attach and the roles itself as it ends). A
+/// failure to ask is not the action's.
+pub(crate) fn ask_for_relink(writer: &Writer, jobs: &JobQueue) {
+    if let Err(e) = crate::relink::request(writer, |j| jobs.enqueue(j)) {
+        eprintln!("review: couldn't ask for a relink: {e:?}");
+    }
+}
+
+/// One relink decision on the writer, then the relink run it needs.
+fn decide_relink(
+    writer: &Writer,
+    jobs: &JobQueue,
+    decide: impl FnOnce(&mut Connection) -> Result<Option<i64>, crate::relink::decide::Refused>
+        + Send
+        + 'static,
+) -> Result<Acted, IpcError> {
+    let operation_id = writer.call(move |c| Ok(decide(c).map_err(Refused::from)))??;
+    ask_for_relink(writer, jobs);
+    Ok(Acted { operation_id })
+}
+
+/// Confirms a probable relink match: the rekordbox entry `entry_id` is the
+/// file `file_id`.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn review_confirm_relink(
+    writer: State<'_, Writer>,
+    jobs: State<'_, JobQueue>,
+    entry_id: i64,
+    file_id: i64,
+) -> Result<Acted, IpcError> {
+    decide_relink(&writer, &jobs, move |c| {
+        crate::relink::decide::confirm_match(c, entry_id, file_id)
+    })
+}
+
+/// "Not the same": the rekordbox entry `entry_id` is not the file `file_id`.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn review_reject_relink(
+    writer: State<'_, Writer>,
+    jobs: State<'_, JobQueue>,
+    entry_id: i64,
+    file_id: i64,
+) -> Result<Acted, IpcError> {
+    decide_relink(&writer, &jobs, move |c| {
+        crate::relink::decide::reject_match(c, entry_id, file_id)
+    })
+}
+
+/// Withdraws the confirmation of the rekordbox entry `entry_id`'s Location:
+/// the entry is decided again from scratch. No screen calls it yet.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn review_withdraw_relink(
+    writer: State<'_, Writer>,
+    jobs: State<'_, JobQueue>,
+    entry_id: i64,
+) -> Result<Acted, IpcError> {
+    decide_relink(&writer, &jobs, move |c| {
+        crate::relink::decide::withdraw(c, entry_id)
+    })
 }
 
 /// Dismisses a "Better file available" item, for that one better file.

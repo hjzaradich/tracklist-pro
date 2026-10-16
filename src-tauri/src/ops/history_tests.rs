@@ -24,7 +24,7 @@ use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 8] = [
+pub(super) const LOGGED_TABLES: [&str; 9] = [
     "library_track",
     "library_removal",
     "crate",
@@ -33,6 +33,7 @@ pub(super) const LOGGED_TABLES: [&str; 8] = [
     "conflict",
     "review_decision",
     "replaced_entry",
+    "relink",
 ];
 
 /// How many tracks the random actions pick among. The first
@@ -1358,8 +1359,10 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
             Ok(found)
         })
         .unwrap();
-    // `sync_base` since migration 0018, `conflict` since 0025.
-    assert_eq!(never_reused, ["sync_base", "conflict"]);
+    // `sync_base` since migration 0018, `conflict` since 0025, `relink`
+    // since 0028 (the relink job writes it outside the log, though it only
+    // fills a field in and never inserts).
+    assert_eq!(never_reused, ["sync_base", "conflict", "relink"]);
 
     let sources = app_sources();
     assert!(

@@ -187,6 +187,18 @@
     "purpose": "Button that links the Library track to the suggested copy, because its linked file is gone. It can be undone.",
     "where": "Review screen, comparison on the right, under the table, for a \"File missing, copy found\" item."
   },
+  "action.confirm": {
+    "purpose": "Button that confirms a probable relink match: rekordbox's entry is this file. Its rekordbox data is then attached to the track. It can be undone.",
+    "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item."
+  },
+  "action.confirmAgain": {
+    "purpose": "Button that confirms a relink match the user confirmed before, whose file holds other audio now.",
+    "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item whose reason is \"confirmed before, the audio has changed\"."
+  },
+  "action.notSame": {
+    "purpose": "Button that says the file is not rekordbox's entry: the match is taken away and never made again. It can be undone.",
+    "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item."
+  },
   "switch.keepsEntry": {
     "purpose": "Says what switching the linked file means in rekordbox when rekordbox's entry stays the track's (the app trusts the match of that entry to the copy).",
     "where": "Review screen, comparison on the right, above the Switch file button, for a track rekordbox knows whose entry is matched to the copy."

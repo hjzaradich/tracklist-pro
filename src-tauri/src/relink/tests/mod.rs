@@ -3,6 +3,7 @@
 //! read, since relink reads only the database.
 
 mod confirmed;
+mod decide;
 mod evidence;
 mod follow;
 mod follow_props;
@@ -294,11 +295,25 @@ impl Lib {
     }
 
     /// The user confirmed `location`'s file is `file`, the way the app
-    /// stores it ([`super::confirm`]).
+    /// stores it ([`super::decide::store`], in an operation of its own).
     pub fn confirm_now(&self, location: &str, file: i64, method: super::Method) {
+        use super::decide::{store, Proposal, Verdict, CONFIRM_OPERATION};
         let key = location::decode(location).unwrap().match_key();
+        let about = Proposal {
+            file,
+            method: method.as_str().to_owned(),
+            confidence: Some(0.5),
+        };
         self.writer
-            .call(move |c| super::confirm(c, &key, file, method, Some(0.5)))
+            .call(move |c| {
+                Ok(crate::ops::record(
+                    c,
+                    CONFIRM_OPERATION,
+                    &serde_json::json!({}),
+                    |rec| store(rec, &key, Verdict::Same, &about),
+                ))
+            })
+            .unwrap()
             .unwrap();
     }
 

@@ -51,6 +51,12 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "accept_clear_best_files":
       if (tracks !== null) return t("undo.action.acceptClearBestFiles", { count: tracks });
       break;
+    case "confirm_relink":
+      return t("undo.action.confirmRelink");
+    case "reject_relink":
+      return t("undo.action.rejectRelink");
+    case "withdraw_relink":
+      return t("undo.action.withdrawRelink");
   }
   return t("undo.action.other");
 }

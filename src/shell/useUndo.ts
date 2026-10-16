@@ -13,6 +13,7 @@ import { commands, type NextUndo, type UndoOutcome } from "../bindings";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 
 // Undo (1bA-12): one step at a time, newest first, from the top bar, Ctrl+Z
@@ -63,6 +64,7 @@ function reloadLists(queryClient: QueryClient) {
       CRATES_QUERY_KEY,
       ALL_MUSIC_QUERY_KEY,
       REKORDBOX_OFFER_QUERY_KEY,
+      MISSING_TRACKS_QUERY_KEY,
       ...REVIEW_QUERY_KEYS,
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );
