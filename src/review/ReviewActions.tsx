@@ -1,7 +1,13 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { ErrorKind, ReviewComparison, SwitchEffect, SwitchRefusal } from "../bindings";
+import type {
+  ErrorKind,
+  ReviewComparison,
+  ReviewFileRow,
+  SwitchEffect,
+  SwitchRefusal,
+} from "../bindings";
 import {
   useConfirmRelink,
   useDismissBetterFile,
@@ -10,6 +16,7 @@ import {
   useSwitchLinkedFile,
   useWantBetterFile,
 } from "./useReviewActions";
+import { useReviewKeys, type ReviewKey } from "./useReviewKeys";
 import styles from "./ReviewComparison.module.css";
 import screenStyles from "./ReviewScreen.module.css";
 
@@ -49,17 +56,52 @@ const EFFECT_TEXT: Record<SwitchEffect, "switch.keepsEntry" | "switch.newTrack" 
  * switch means in rekordbox, and why a button is greyed out, are lines under
  * the row.
  *
+ * The keys (1bE-2, ROADMAP 1.12 "Keyboard"): Enter does the item's suggested
+ * action and nothing else, so a habit of pressing it never decides what
+ * wasn't offered as the suggestion: the switch to the suggested copy on
+ * "File missing, copy found", confirming on a relink match. On a quality
+ * problem and on "Better file available" it does nothing, and those keep
+ * their buttons. A number key is a row of the table (1 is the first row, up
+ * to 9) and acts only where there is a choice of file: on "File missing,
+ * copy found" with more than one copy on disk, it switches to the copy in
+ * that row. The `.keys` line says which keys work on the item. "These are the
+ * same track" (a possible version mix-up, "Unclear duplicates") has no
+ * command yet, so no key does it.
+ *
+ * A key press and a click go through the same guard: nothing starts while an
+ * action is under way or once the item is decided, so an action is never made
+ * twice. `onDecided` is called when an action worked (the screen goes on to
+ * the next item); after a refusal nothing is called and the screen stays.
+ *
  * Every action can be undone from the top bar's Undo. Give it a `key` per
  * item, so a refusal shown for one item doesn't stay under the next.
  */
-export function ReviewActions({ comparison }: { comparison: ReviewComparison }) {
+export function ReviewActions({
+  comparison,
+  onDecided,
+}: {
+  comparison: ReviewComparison;
+  onDecided?: () => void;
+}) {
   const { t } = useTranslation("review");
-  const dismiss = useDismissBetterFile();
-  const keep = useKeepAnyway();
-  const want = useWantBetterFile();
-  const switchFile = useSwitchLinkedFile();
-  const confirm = useConfirmRelink();
-  const reject = useRejectRelink();
+  // Set when an action worked; the item is about to leave the queue.
+  const decided = useRef(false);
+  const done = () => {
+    decided.current = true;
+    onDecided?.();
+  };
+  // A fresh read of the item (it was asked for again after an action) is a
+  // new item to decide, even if it has the same id (a dismissed better file
+  // is followed by the next one).
+  useEffect(() => {
+    decided.current = false;
+  }, [comparison]);
+  const dismiss = useDismissBetterFile(done);
+  const keep = useKeepAnyway(done);
+  const want = useWantBetterFile(done);
+  const switchFile = useSwitchLinkedFile(done);
+  const confirm = useConfirmRelink(done);
+  const reject = useRejectRelink(done);
   // A relink item names rekordbox's entry; every other kind names a track.
   const recordingId = comparison.id.a;
   const entryId = comparison.id.a;
@@ -73,9 +115,19 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
   const failure =
     dismiss.error ?? keep.error ?? want.error ?? switchFile.error ?? confirm.error ?? reject.error;
 
+  // Nothing starts while an action is under way or once the item is decided.
+  const run = (start: () => void): boolean => {
+    if (busy || decided.current) return false;
+    start();
+    return true;
+  };
+
   let buttons: ReactNode = null;
   let note: string | null = null;
   let greyedOutBecause: string | null = null;
+  // What Enter does, and what the number keys do (a row of the table, 1 to 9).
+  let enter: { label: string; start: () => void } | null = null;
+  let pick: ((row: ReviewFileRow) => (() => void) | null) | null = null;
   if (comparison.kind === "betterFile" && comparison.suggestion) {
     const fileId = comparison.suggestion.what;
     buttons = (
@@ -83,7 +135,7 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
         type="button"
         className={styles.button}
         disabled={busy}
-        onClick={() => dismiss.mutate({ recordingId, fileId })}
+        onClick={() => run(() => dismiss.mutate({ recordingId, fileId }))}
       >
         {t("action.dismiss")}
       </button>
@@ -95,7 +147,7 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
           type="button"
           className={styles.button}
           disabled={busy}
-          onClick={() => keep.mutate(recordingId)}
+          onClick={() => run(() => keep.mutate(recordingId))}
         >
           {t("action.keepAnyway")}
         </button>
@@ -103,7 +155,7 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
           type="button"
           className={styles.button}
           disabled={busy}
-          onClick={() => want.mutate(recordingId)}
+          onClick={() => run(() => want.mutate(recordingId))}
         >
           {t("action.findBetter")}
         </button>
@@ -115,47 +167,79 @@ export function ReviewActions({ comparison }: { comparison: ReviewComparison }) 
     note = effectText === null ? null : t(effectText);
     greyedOutBecause =
       refusal === null ? null : errorMessage({ kind: REFUSAL_KIND[refusal], params: {} });
+    const start = () => {
+      if (effect !== null) switchFile.mutate({ recordingId, fileId, effect });
+    };
+    if (effect !== null) enter = { label: t("action.switch"), start };
+    // A digit is a row: it switches to that row's file, where the choice is
+    // real (more than one copy on disk) and the switch is allowed.
+    if (comparison.copies.length > 1) {
+      pick = (row) => {
+        const offer = comparison.copies.find((copy) => copy.fileId === row.fileId);
+        if (row.fileId === null || offer === undefined || offer.effect === null) return null;
+        const { fileId: to, effect: shown } = offer;
+        return () => switchFile.mutate({ recordingId, fileId: to, effect: shown });
+      };
+    }
     buttons = (
       <button
         type="button"
         className={styles.primary}
         disabled={busy || effect === null}
-        onClick={() => {
-          if (effect !== null) switchFile.mutate({ recordingId, fileId, effect });
-        }}
+        onClick={() => run(start)}
       >
         {t("action.switch")}
       </button>
     );
   } else if (comparison.kind === "relink" && comparison.relink) {
     const { fileId, confirmedBefore } = comparison.relink;
+    const label = confirmedBefore ? t("action.confirmAgain") : t("action.confirm");
+    const start = () => confirm.mutate({ entryId, fileId });
+    enter = { label, start };
     buttons = (
       <>
-        <button
-          type="button"
-          className={styles.primary}
-          disabled={busy}
-          onClick={() => confirm.mutate({ entryId, fileId })}
-        >
-          {confirmedBefore ? t("action.confirmAgain") : t("action.confirm")}
+        <button type="button" className={styles.primary} disabled={busy} onClick={() => run(start)}>
+          {label}
         </button>
         <button
           type="button"
           className={styles.button}
           disabled={busy}
-          onClick={() => reject.mutate({ entryId, fileId })}
+          onClick={() => run(() => reject.mutate({ entryId, fileId }))}
         >
           {t("action.notSame")}
         </button>
       </>
     );
   }
+
+  // The keys. The handler lives as long as the item is on screen, even when it
+  // has no buttons; it says whether the key means anything here.
+  useReviewKeys((key: ReviewKey) => {
+    if (key === "enter") {
+      if (enter === null) return false;
+      run(enter.start);
+      return true;
+    }
+    const row = comparison.rows[key - 1];
+    const start = row === undefined || pick === null ? null : pick(row);
+    if (start === null) return false;
+    run(start);
+    return true;
+  });
+
   if (buttons === null) return null;
 
   return (
     <>
       <div role="group" aria-label={t("action.label")} className={styles.actions}>
         {buttons}
+        {(enter !== null || pick !== null) && (
+          <p className={styles.keys}>
+            {enter !== null && <span>{t("keys.enter", { action: enter.label })}</span>}
+            {pick !== null && <span>{t("keys.rows")}</span>}
+          </p>
+        )}
       </div>
       {note !== null && (
         <p className={styles.doubt}>

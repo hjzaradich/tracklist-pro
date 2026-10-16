@@ -61,7 +61,7 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
   return t("undo.action.other");
 }
 
-function refusalText(t: TFunction<"shell">, refusal: UndoRefusal): string {
+export function refusalText(t: TFunction<"shell">, refusal: UndoRefusal): string {
   switch (refusal.code) {
     case "sentSince":
       return t("undo.refused.sentSince");

@@ -254,6 +254,25 @@ fn last_component(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_owned()
 }
 
+/// The name each file is shown by (as a comparison row names it), by file id.
+pub(super) fn file_names(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    files: &[i64],
+) -> rusqlite::Result<HashMap<i64, String>> {
+    Ok(details(conn, files)?
+        .into_iter()
+        .map(|(file, detail)| {
+            let name = detail
+                .stored
+                .as_ref()
+                .map(|stored| stored.shown(volumes).name)
+                .unwrap_or_else(|| last_component(&detail.rel_path));
+            (file, name)
+        })
+        .collect())
+}
+
 fn row_of(
     recording: i64,
     loaded: &Loaded,
@@ -451,6 +470,25 @@ pub fn comparison(
         _ => None,
     };
 
+    // The switch to each copy on disk, one plan for all of them.
+    let copies = if id.kind == ReviewKind::ClearBestFile {
+        let wanted: Vec<(i64, i64)> = rows
+            .iter()
+            .filter(|row| row.source == RowSource::File && row.on_disk && !row.linked)
+            .filter_map(|row| row.file_id.map(|file| (id.a, file)))
+            .collect();
+        super::actions::plan(conn, volumes, &wanted)?
+            .iter()
+            .map(|p| super::actions::SwitchOffer {
+                file_id: p.to,
+                effect: p.outcome.ok().map(|e| e.effect),
+                refusal: p.outcome.err(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     Ok(Some(ReviewComparison {
         id,
         kind: id.kind,
@@ -465,6 +503,7 @@ pub fn comparison(
         rows,
         more_files,
         switch,
+        copies,
         relink: item.entry.as_ref().map(|e| super::actions::RelinkOffer {
             file_id: e.file,
             confirmed_before: e.confirmed_before,

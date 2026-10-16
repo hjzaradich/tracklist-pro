@@ -51,6 +51,7 @@ const COMPARISON: Comparison = {
   ],
   moreFiles: 0,
   switch: null,
+  copies: [],
   relink: null,
 };
 
@@ -87,7 +88,7 @@ afterEach(() => {
 function renderReview() {
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <ReviewComparison comparison={COMPARISON} />
+      <ReviewComparison comparison={COMPARISON} details={false} onDetails={() => {}} />
       <PlayerBar />
     </QueryClientProvider>,
   );

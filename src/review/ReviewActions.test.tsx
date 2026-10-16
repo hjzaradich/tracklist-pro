@@ -87,6 +87,7 @@ function comparisonOf(
         row(0, "old tune.mp3", { fileId: null, source: "rekordboxEntry", recordingId: null, onDisk: false }),
       ],
       switch: null,
+      copies: [],
       relink: { fileId: 8, confirmedBefore },
     };
   }
@@ -102,6 +103,7 @@ function comparisonOf(
       },
       rows: [row(12, "better.flac", { format: "flac" }), row(11, "linked.mp3", { linked: true })],
       switch: null,
+      copies: [],
       relink: null,
     };
   }
@@ -112,6 +114,7 @@ function comparisonOf(
       suggestion: null,
       rows: [row(21, "flagged.mp3", { linked: true, verdict: "lowBitrate" })],
       switch: null,
+      copies: [],
       relink: null,
     };
   }
@@ -121,6 +124,7 @@ function comparisonOf(
     suggestion: { what: 32, reasons: [{ key: "review:reason.notOnDisk", params: {}, source: "fact" }] },
     rows: [row(32, "copy.flac"), row(31, "gone.mp3", { linked: true, onDisk: false })],
     switch: switchOffer,
+    copies: [],
     relink: null,
   };
 }

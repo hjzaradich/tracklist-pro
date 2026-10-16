@@ -5,6 +5,7 @@ import { useWaitingOn } from "../activity/useWaitingOn";
 import { errorMessage } from "../api/errors";
 import type { ReviewItemId } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
+import { AcceptedLine } from "./AcceptedLine";
 import { MissingList } from "./MissingList";
 import { ReviewComparison } from "./ReviewComparison";
 import { ReviewQueue, type QueueGroup } from "./ReviewQueue";
@@ -25,11 +26,29 @@ import styles from "./ReviewScreen.module.css";
 const DECIDES_MISSING = ["read_rekordbox", "relink"] as const;
 
 /**
+ * The item after `current` for auto-advance (1bE-2): the next one in the same
+ * group, else the first one of the next group that has any. `null` when there
+ * is none (the screen then shows the first item left, or the empty state).
+ */
+export function itemAfter(groups: QueueGroup[], current: ReviewItemId | null): ReviewItemId | null {
+  if (current === null) return null;
+  const key = itemKey(current);
+  const at = groups.findIndex((g) => g.items.some((item) => itemKey(item.id) === key));
+  if (at < 0) return null;
+  const inGroup = groups[at]!.items;
+  const next = inGroup[inGroup.findIndex((item) => itemKey(item.id) === key) + 1];
+  if (next) return next.id;
+  return groups.slice(at + 1).find((g) => g.items.length > 0)?.items[0]?.id ?? null;
+}
+
+/**
  * Review (1bD): the queue of decisions on the left, grouped, and the
  * comparison of the selected item on the right, then the Missing list as its
  * own section (nothing to compare there: it has no file). The actions for an
  * item are under its comparison (`ReviewActions`), and "Accept all N" is at
- * the "Clearly best file" heading.
+ * the "Clearly best file" heading. After "Accept all", a line at the top says
+ * what it switched (`AcceptedLine`). After a decision the next item loads
+ * (`itemAfter`).
  */
 export function ReviewScreen() {
   const { t } = useTranslation("review");
@@ -76,6 +95,11 @@ export function ReviewScreen() {
     loaded[0]?.id ??
     null;
   const comparison = useReviewItem(selected);
+  // "More details" stays on from one item to the next.
+  const [details, setDetails] = useState(false);
+  // Where to go when the selected item is decided: the next one, worked out
+  // from the queue as it is now.
+  const after = itemAfter(groups, selected);
 
   // An item answered between two reads is gone: ask for the queue again.
   const gone = comparison.data === null && comparison.isSuccess;
@@ -93,6 +117,7 @@ export function ReviewScreen() {
   return (
     <StageScreen stage="review">
       <div className={styles.content}>
+        <AcceptedLine />
         {problem ? (
           <p role="alert" className={styles.error}>
             {errorMessage(problem)}
@@ -115,7 +140,12 @@ export function ReviewScreen() {
                   {errorMessage(comparison.error)}
                 </p>
               ) : comparison.data ? (
-                <ReviewComparison comparison={comparison.data} />
+                <ReviewComparison
+                  comparison={comparison.data}
+                  details={details}
+                  onDetails={setDetails}
+                  onDecided={() => setChosen(after)}
+                />
               ) : selected === null ? (
                 <EmptyState>{t("compare.none")}</EmptyState>
               ) : null}
