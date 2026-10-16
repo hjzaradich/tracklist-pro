@@ -107,6 +107,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::review::actions::review_withdraw_relink,
             crate::review::same::review_keep_both,
             crate::review::same::review_merge,
+            crate::review::split::review_same_track,
+            crate::review::split::review_not_same,
             crate::library::library_tracks,
             crate::library::promote_track,
             crate::library::remove_library_track,

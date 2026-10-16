@@ -98,6 +98,16 @@ struct Entry {
     sample_rate_hz: Option<u32>,
 }
 
+/// The tracks of the item `id` while it is in the queue, as the comparison
+/// shows them: the two of a version doubt, every track of a held set.
+/// `None` once it isn't queued.
+pub(super) fn item_tracks(
+    conn: &Connection,
+    id: ReviewItemId,
+) -> rusqlite::Result<Option<Vec<i64>>> {
+    Ok(resolve(conn, id)?.map(|item| item.tracks))
+}
+
 fn resolve(conn: &Connection, id: ReviewItemId) -> rusqlite::Result<Option<Resolved>> {
     let plain = |tracks: Vec<i64>| Resolved {
         tracks,

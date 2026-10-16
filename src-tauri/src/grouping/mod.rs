@@ -209,13 +209,18 @@ pub(crate) fn decide_due(conn: &rusqlite::Connection) -> rusqlite::Result<bool> 
 /// is current:
 ///
 /// - a pair of the two is stored as a duplicate, and a grouping pass found
-///   them in one track (`merged`); and
+///   them in one track (`merged`);
 /// - grouping is **current** for both: every pair of the file is decided
 ///   under these rules ([`decided_as`]), and it sits in its track with the
 ///   audio it holds (`placed_key` is its `audio_hash`, or its `blake3` when
 ///   it has none). A file that is due (not ready counts as due), that holds
 ///   other audio than it was placed with, or that has no record at all,
-///   isn't.
+///   isn't; and
+/// - the user hasn't said the two are not the same: no "apart" decision
+///   (`grouping_decision`) between the audio the two hold. An "apart" for
+///   two files that share a track doesn't take one out of it (the grouping
+///   never undoes a merge; a split in Review does, 1bE-2), but relink must
+///   not lean on a pair the user denied (found in PR 72's review).
 ///
 /// A file that isn't on disk is asked about like any other: its record is
 /// what was known when it went. Its pair goes when the other file is
@@ -242,10 +247,16 @@ pub fn current_duplicates(conn: &rusqlite::Connection, file: i64) -> rusqlite::R
          WHERE f.id IN (SELECT id FROM mate)
            AND {current}
            AND rf.recording_id = (SELECT recording_id FROM recording_file WHERE file_id = ?1)
+           -- Not two files the user said aren't the same.
+           AND NOT EXISTS (SELECT 1 FROM file o JOIN grouping_decision d
+                           ON d.key_a = min({mine}, {theirs}) AND d.key_b = max({mine}, {theirs})
+                           WHERE o.id = ?1 AND d.decision = 'apart')
            -- Nothing is said about a file that isn't current itself.
            AND EXISTS (SELECT 1 FROM file f JOIN grouping_file g ON g.file_id = f.id
                        WHERE f.id = ?1 AND {current})
-         ORDER BY f.id"
+         ORDER BY f.id",
+        mine = store::CONTENT_KEY.replace("f.", "o."),
+        theirs = store::CONTENT_KEY,
     ))?;
     let mates = stmt.query_map((file, decided_as()), |r| r.get(0))?;
     mates.collect()

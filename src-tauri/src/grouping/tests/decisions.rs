@@ -183,7 +183,30 @@ fn the_same_never_merges_two_library_tracks() {
     db.decide();
     assert_ne!(db.track(a), db.track(b));
     assert_eq!(db.count("SELECT count(*) FROM library_track"), 2);
-    assert_eq!(db.stands(a, b).1, "decided");
+    // Not settled: the two are the "Same track twice in your Library" item,
+    // whose Merge is the user's (1bE-2, 1bE-9).
+    assert_eq!(db.stands(a, b).1, "both_in_library");
+}
+
+#[test]
+fn the_same_for_two_library_tracks_the_rules_sent_to_review_makes_them_the_same_recording() {
+    // A possible version mix-up between two Library tracks, and the user
+    // says they are the same track: never merged by the job, and the pair is
+    // no longer a mix-up but two Library tracks that are the same recording.
+    let db = db();
+    let (a, b) = a_review_pair(&db);
+    db.to_library(a);
+    db.to_library(b);
+    db.decide();
+    assert_eq!(db.stands(a, b), ("review".into(), "open".into()));
+    assert_eq!(db.remember(a, b, Verdict::Same), Ok(()));
+    db.decide();
+    assert_ne!(db.track(a), db.track(b));
+    assert_eq!(db.stands(a, b), ("review".into(), "both_in_library".into()));
+    // "Keep both" afterwards settles it.
+    assert_eq!(db.remember(a, b, Verdict::Apart), Ok(()));
+    db.decide();
+    assert_eq!(db.stands(a, b), ("review".into(), "decided".into()));
 }
 
 #[test]

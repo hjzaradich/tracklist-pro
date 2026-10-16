@@ -984,9 +984,24 @@ pub fn plan(input: &Input<'_>) -> Plan {
     }
 
     // Where each pair stands, and the links the pairs ask for.
+    // "The same" between two Library tracks (Review, 1bE-2): the job never
+    // merges those, so the user's "same" settles nothing there. Their pairs
+    // read as duplicates whatever the rules said, and stand as two Library
+    // tracks that are the same recording (`both_in_library`): the "Same track
+    // twice in your Library" item, with its own Merge and Keep both (1bE-9).
+    let mut same_in_library: HashSet<(usize, usize)> = HashSet::new();
+    for &(x, y) in &work.same {
+        let (ux, uy) = (merged.find(x), merged.find(y));
+        if merged.library[ux] && merged.library[uy] {
+            same_in_library.insert(ordered(ux, uy));
+        }
+    }
     let mut settled: HashSet<(usize, usize)> = HashSet::new();
     for &(x, y) in work.apart.iter().chain(&work.same) {
-        settled.insert(ordered(merged.find(x), merged.find(y)));
+        let units = ordered(merged.find(x), merged.find(y));
+        if !same_in_library.contains(&units) {
+            settled.insert(units);
+        }
     }
     for &(x, y, by_user) in &work.links {
         if by_user {
@@ -1023,17 +1038,24 @@ pub fn plan(input: &Input<'_>) -> Plan {
         };
         let (node_x, node_y) = (work.node_of[x], work.node_of[y]);
         let on_disk = members[x].present && members[y].present;
+        let units = ordered(merged.find(node_x), merged.find(node_y));
+        // Two Library tracks the user called the same: duplicates, whatever
+        // the rules said.
+        let outcome = match same_in_library.contains(&units) {
+            true => Outcome::Duplicate,
+            false => pair.outcome,
+        };
         let state = if dest[x] == dest[y] {
             match pair.outcome {
                 Outcome::Duplicate => State::Merged,
                 _ => State::InOneTrack,
             }
-        } else if pair.outcome == Outcome::Different {
+        } else if outcome == Outcome::Different {
             State::Apart
-        } else if settled.contains(&ordered(merged.find(node_x), merged.find(node_y))) {
+        } else if settled.contains(&units) {
             State::Decided
         } else {
-            match pair.outcome {
+            match outcome {
                 Outcome::Cut | Outcome::Rework => {
                     let key = (dest[x].min(dest[y]), dest[x].max(dest[y]));
                     wanted.entry(key).or_insert(Wanted {

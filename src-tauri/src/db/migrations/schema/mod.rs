@@ -244,6 +244,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // A track merged into another by the user, kept with no files while
     // the merge stands; `replaced_entry` gets a reason.
     ("0029_track_merge.sql", &["track_merge"]),
+    // `track_merge` says which action left the track, no new tables.
+    ("0030_same_track.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

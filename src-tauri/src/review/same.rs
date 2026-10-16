@@ -320,7 +320,7 @@ pub(crate) fn offer_tracks(
 /// A file of each track whose audio is known, the linked file first: what
 /// the decision is remembered by. [`Refused::NoAudioKnown`] if a track has
 /// none.
-fn known_files(conn: &Connection, recordings: &[i64]) -> Result<Vec<i64>, Refused> {
+pub(super) fn known_files(conn: &Connection, recordings: &[i64]) -> Result<Vec<i64>, Refused> {
     let mut files = Vec::new();
     for &recording in recordings {
         let file: Option<i64> = conn
@@ -466,14 +466,7 @@ fn fold(
         |r| r.get(0),
     )?;
     for file in files {
-        rec.set("recording_file", file, "role", "undecided")?;
-        rec.set(
-            "recording_file",
-            file,
-            "match_confidence",
-            Option::<f64>::None,
-        )?;
-        rec.set("recording_file", file, "recording_id", keep.recording)?;
+        move_file(rec, file, keep.recording)?;
     }
     // 5. The track, kept with no files while the merge stands.
     rec.insert(
@@ -483,6 +476,28 @@ fn fold(
             ("into_id", Value::Integer(keep.recording)),
         ],
     )?;
+    Ok(())
+}
+
+/// Moves `file` into the track `to`, as changes of the operation `rec`
+/// records: **the one place an action moves a file between tracks** (a
+/// merge here; "these are the same track" and a split,
+/// [`super::split`]). The file starts over in its new track: its role and
+/// match confidence are the ranking's (derived columns, `ops::DERIVED_FIELDS`),
+/// set first because a track has one best file, and worked out again once
+/// the operation, or its Undo, is made. The caller checks what the grouping's
+/// own move checks (`grouping::store::relocate`: no file a Library track
+/// points at, no move between linked versions; the database's triggers
+/// refuse the second too).
+pub(super) fn move_file(rec: &mut Recorder<'_>, file: i64, to: i64) -> Result<(), OpsError> {
+    rec.set("recording_file", file, "role", "undecided")?;
+    rec.set(
+        "recording_file",
+        file,
+        "match_confidence",
+        Option::<f64>::None,
+    )?;
+    rec.set("recording_file", file, "recording_id", to)?;
     Ok(())
 }
 
@@ -579,7 +594,7 @@ pub(crate) fn linked_versions(conn: &Connection, recordings: &[i64]) -> rusqlite
 /// merged track, as the action returns. Nothing wider: the grouping job
 /// does that ([`ask_for_merge_follow_up`]). Derived state: if it fails, the
 /// action stands and the grouping job does it.
-fn regroup(conn: &mut Connection, recordings: &[i64]) {
+pub(super) fn regroup(conn: &mut Connection, recordings: &[i64]) {
     let files = files_of(conn, recordings);
     let done = files.and_then(|files| crate::grouping::regroup_files(conn, &files));
     if let Err(e) = done {
@@ -588,7 +603,7 @@ fn regroup(conn: &mut Connection, recordings: &[i64]) {
 }
 
 /// The files of `recordings`.
-fn files_of(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<Vec<i64>> {
+pub(super) fn files_of(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<Vec<i64>> {
     let json = serde_json::to_string(recordings).expect("numbers always serialize");
     conn.prepare_cached(
         "SELECT file_id FROM recording_file

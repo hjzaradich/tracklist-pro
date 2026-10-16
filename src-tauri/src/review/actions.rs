@@ -134,6 +134,9 @@ pub enum Refused {
     Changed,
     /// Two tracks to merge are linked as versions: versions never merge.
     LinkedVersions,
+    /// The file to split off holds the very same audio as a file it would
+    /// be split from: such files are always one track (1bE-2).
+    SameAudio,
     /// The database or the operation log failed.
     Ops(OpsError),
 }
@@ -174,6 +177,7 @@ impl From<Refused> for IpcError {
             Refused::Switch(refusal) => IpcError::new(refusal.kind()),
             Refused::Changed => IpcError::new(ErrorKind::ReviewSwitchChanged),
             Refused::LinkedVersions => IpcError::new(ErrorKind::ReviewMergeLinkedVersions),
+            Refused::SameAudio => IpcError::new(ErrorKind::ReviewSameAudio),
             Refused::Ops(e) => IpcError::from(e),
         }
     }

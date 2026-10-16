@@ -5,7 +5,8 @@
 //! file, want a better one, switch a gone linked file, "Accept all"; 1bE-6:
 //! confirm a relink match or say it is not the same) and in [`same`]
 //! (1bE-9: keep two Library tracks that are the same recording, or merge
-//! them); split is another 1bE task.
+//! them), and in [`split`] (1bE-2: "these are the same track", "not the
+//! same" and splitting a file off, on version mix-ups and held sets).
 //!
 //! # What is queued
 //!
@@ -61,6 +62,7 @@ pub mod held;
 mod queue;
 pub mod reasons;
 pub mod same;
+pub mod split;
 
 #[cfg(test)]
 mod tests;
