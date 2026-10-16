@@ -192,6 +192,59 @@ describe("a file that can't be played", () => {
   });
 });
 
+describe("the playing bars", () => {
+  /** The bars beside a file's play button, and in the player bar. */
+  function barsOf(name: string) {
+    const button = screen.getByRole("button", { name });
+    return button.parentElement?.querySelector("[data-playing]") as HTMLElement;
+  }
+  function barsInBar() {
+    const bar = screen.getByRole("region", { name: tx("shell:player.label") });
+    return bar.querySelector("[data-playing]") as HTMLElement;
+  }
+
+  it("show beside the playing file and in the bar, and nowhere else", async () => {
+    const user = userEvent.setup();
+    renderPlayer();
+    // Nothing chosen: every file's bars are there to take room, and hidden.
+    expect(barsOf(tx("player:playNamed", { name: A.name }))).toHaveAttribute("data-playing", "false");
+    expect(barsOf(tx("player:playNamed", { name: B.name }))).toHaveAttribute("data-playing", "false");
+
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    loaded(300);
+    expect(barsOf(tx("player:pauseNamed", { name: A.name }))).toHaveAttribute("data-playing", "true");
+    expect(barsOf(tx("player:playNamed", { name: B.name }))).toHaveAttribute("data-playing", "false");
+    expect(barsInBar()).toHaveAttribute("data-playing", "true");
+  });
+
+  it("go away when the track is paused, and stay away from a file that can't be played", async () => {
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    loaded(300);
+    await user.click(screen.getByRole("button", { name: tx("player:pause") }));
+    expect(barsOf(tx("player:playNamed", { name: A.name }))).toHaveAttribute("data-playing", "false");
+    expect(barsInBar()).toHaveAttribute("data-playing", "false");
+
+    answers[B.id] = "missing";
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: B.name }) }));
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    expect(barsOf(tx("player:playNamed", { name: B.name }))).toHaveAttribute("data-playing", "false");
+    expect(barsInBar()).toHaveAttribute("data-playing", "false");
+  });
+
+  it("are decoration: no text, and hidden from a screen reader", () => {
+    renderPlayer();
+    for (const name of [A.name, B.name]) {
+      const bars = barsOf(tx("player:playNamed", { name }));
+      expect(bars).toHaveAttribute("aria-hidden", "true");
+      expect(bars.textContent).toBe("");
+    }
+  });
+});
+
 describe("time", () => {
   it("is written m:ss, and h:mm:ss from an hour", () => {
     expect(formatTime(0)).toBe("0:00");

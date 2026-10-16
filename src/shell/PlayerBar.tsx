@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { formatTime } from "../player/formatTime";
+import { PlayingBars } from "../player/PlayingBars";
 import { PlayPauseIcon } from "../player/PlayPauseIcon";
 import { usePlayer } from "../player/playerStore";
 import styles from "./PlayerBar.module.css";
@@ -51,6 +52,7 @@ export function PlayerBar({ className = "" }: { className?: string }) {
           >
             <PlayPauseIcon playing={playing} />
           </button>
+          <PlayingBars playing={playing && status === "ready"} />
           <span className={styles.name} title={file.name}>
             {file.name}
           </span>
