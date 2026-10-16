@@ -14,14 +14,20 @@
 //! children; rule 3, case A). `TrackID` is rekordbox's own and is part of
 //! what it knows.
 //!
+//! **A byte-identical copy's entry** (1bE-11, owner decision 2026-10-13): a
+//! Library track whose linked file has no entry by the rules here, while a
+//! byte-identical copy of it in the same track has one that no other
+//! Library track is sent as, is sent as that entry, exactly as a track
+//! rekordbox knows ([`entries_of_copies`] has the exact condition).
+//!
 //! **A track rekordbox doesn't know:** values come from the track's files.
 //! That includes a track whose *linked file* rekordbox doesn't hold but
-//! another file of the same track it does (a duplicate): a send would add
+//! another file of the same track it does (a duplicate that isn't a
+//! byte-identical copy as above, or whose entry is taken): a send would add
 //! the linked file as a second entry (rule 3, case A is "already in
 //! rekordbox at this Location"), so it's treated as new and
 //! [`TrackValues::rekordbox_holds_other_file`] names the other file, for
-//! the send flow to warn about. Nothing is re-pointed here (1bE-6 decides
-//! that).
+//! the send flow to warn about. Nothing is re-pointed here.
 //! - *Tags* ([`tag_fields`] has the mapping): per field the linked file's
 //!   tag if it has a value, else the first value among the track's other
 //!   files that are on disk, in best-file order (role `best` first, then
@@ -248,6 +254,9 @@ struct Loaded {
     files: HashMap<i64, FileInfo>,
     entry_for: HashMap<i64, (i64, i64)>,
     at_location: HashMap<i64, (i64, i64)>,
+    /// Library track id → the entry of a byte-identical copy it is sent as
+    /// ([`entries_of_copies`]).
+    of_copy: HashMap<i64, (i64, i64)>,
     attributes: HashMap<i64, Vec<(String, String)>>,
 }
 
@@ -382,6 +391,60 @@ fn load(
             .copied()
             .chain(rows.values().filter_map(|r| r.linked_file)),
     );
+    let files = load_files(conn, &file_ids, scope)?;
+
+    // 4. The trusted rekordbox entry for each file (the linked file's
+    //    makes a track rekordbox knows; another file's is a sibling), the
+    //    most played if it holds several, then the lowest TrackID.
+    let mut entry_for: HashMap<i64, (i64, i64)> = HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT file_id, id, track_id FROM rekordbox_track
+         WHERE relink_probable = 0 AND file_id IN (SELECT value FROM json_each(?1))
+         ORDER BY file_id, COALESCE(play_count, 0) DESC, track_id",
+    )?;
+    for row in stmt.query_map([&file_ids], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))? {
+        let (file, entry): (i64, (i64, i64)) = row?;
+        entry_for.entry(file).or_insert(entry);
+    }
+
+    // 4b. A linked file that's missing has no match (relink drops a match
+    //     to a gone file), so rekordbox's own entry at the file's own
+    //     Location stands in for it: see `entries_at_missing_files`.
+    let at_location = entries_at_missing_files(conn, volumes, &rows, &files, &entry_for)?;
+
+    // 4c. A linked file with no entry by 4 or 4b: the entry of a
+    //     byte-identical copy in the track, if no other Library track is
+    //     sent as it (1bE-11). See `entries_of_copies`.
+    let of_copy = entries_of_copies(conn, volumes, &rows, &files, &entry_for, &at_location)?;
+
+    let mut loaded = Loaded {
+        rows,
+        by_recording,
+        files,
+        entry_for,
+        at_location,
+        of_copy,
+        attributes: HashMap::new(),
+    };
+    // 4d. A list needs a file's tags only where nothing of rekordbox's
+    //     stands in for them.
+    if matches!(scope, Scope::Names | Scope::Search) {
+        let needed = loaded.files_read_for_tags();
+        load_tags(conn, &mut loaded.files, &needed)?;
+    }
+    if scope != Scope::Decide {
+        loaded.load_attributes(conn, scope)?;
+    }
+    Ok(loaded)
+}
+
+/// The files `file_ids` (a JSON array) with what the values need of them;
+/// their tags only for a send.
+fn load_files(
+    conn: &Connection,
+    file_ids: &str,
+    scope: Scope,
+) -> rusqlite::Result<HashMap<i64, FileInfo>> {
     let tags_column = match scope {
         Scope::Send => "f.raw_tags",
         Scope::Names | Scope::Search | Scope::Decide => "NULL",
@@ -393,7 +456,7 @@ fn load(
          FROM file f {FILE_JOINS}
          WHERE f.id IN (SELECT value FROM json_each(?1))"
     ))?;
-    for row in stmt.query_map([&file_ids], |r| {
+    for row in stmt.query_map([file_ids], |r| {
         let stored = file_from(r, 7)?;
         let id: i64 = r.get(7)?;
         let rel_path: String = r.get(13)?;
@@ -415,44 +478,7 @@ fn load(
         let (id, info) = row?;
         files.insert(id, info);
     }
-
-    // 4. The trusted rekordbox entry for each file (the linked file's
-    //    makes a track rekordbox knows; another file's is a sibling), the
-    //    most played if it holds several, then the lowest TrackID.
-    let mut entry_for: HashMap<i64, (i64, i64)> = HashMap::new();
-    let mut stmt = conn.prepare(
-        "SELECT file_id, id, track_id FROM rekordbox_track
-         WHERE relink_probable = 0 AND file_id IN (SELECT value FROM json_each(?1))
-         ORDER BY file_id, COALESCE(play_count, 0) DESC, track_id",
-    )?;
-    for row in stmt.query_map([&file_ids], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))? {
-        let (file, entry): (i64, (i64, i64)) = row?;
-        entry_for.entry(file).or_insert(entry);
-    }
-
-    // 4b. A linked file that's missing has no match (relink drops a match
-    //     to a gone file), so rekordbox's own entry at the file's own
-    //     Location stands in for it: see `entries_at_missing_files`.
-    let at_location = entries_at_missing_files(conn, volumes, &rows, &files, &entry_for)?;
-
-    let mut loaded = Loaded {
-        rows,
-        by_recording,
-        files,
-        entry_for,
-        at_location,
-        attributes: HashMap::new(),
-    };
-    // 4c. A list needs a file's tags only where nothing of rekordbox's
-    //     stands in for them.
-    if matches!(scope, Scope::Names | Scope::Search) {
-        let needed = loaded.files_read_for_tags();
-        load_tags(conn, &mut loaded.files, &needed)?;
-    }
-    if scope != Scope::Decide {
-        loaded.load_attributes(conn, scope)?;
-    }
-    Ok(loaded)
+    Ok(files)
 }
 
 /// The text after the last `/` or `\`: a file's name without its folder.
@@ -488,16 +514,10 @@ impl Loaded {
     ///    rekordbox wrote them (only `Name` and `Artist` for a list).
     fn load_attributes(&mut self, conn: &Connection, scope: Scope) -> rusqlite::Result<()> {
         let entries = json_ids(
-            &mut self
-                .rows
-                .values()
-                .filter_map(|r| r.linked_file)
-                .filter_map(|f| {
-                    self.entry_for
-                        .get(&f)
-                        .or_else(|| self.at_location.get(&f))
-                        .map(|e| e.0)
-                }),
+            &mut self.rows.values().filter_map(|r| match self.source(r) {
+                Source::Known { entry, .. } => Some(entry),
+                Source::Files { .. } | Source::Cannot(_) => None,
+            }),
         );
         let only = match scope {
             Scope::Send | Scope::Decide => "",
@@ -573,6 +593,16 @@ impl Loaded {
                     file_missing: true,
                 };
             }
+        }
+        // The last way to an entry: a byte-identical copy's (1bE-11).
+        if let Some(&(entry, track_id)) = self.of_copy.get(&row.library_track) {
+            return Source::Known {
+                entry,
+                track_id,
+                file_missing: !file.present,
+            };
+        }
+        if !file.present {
             return Source::Cannot(CannotSend::FileMissing { file_id });
         }
         if file.stored.is_none() {
@@ -737,6 +767,178 @@ struct RowAt {
     /// The file relink matched it to, if any (a probable match always has
     /// one).
     matched: Option<i64>,
+}
+
+/// For each Library track whose linked file has no entry by the rules above
+/// (no trusted match on it; for a gone file, no entry at its own
+/// `Location`), the entry of a byte-identical copy of it, as (row id,
+/// `TrackID`), keyed by the Library track (1bE-11, owner decision
+/// 2026-10-13). It closes 1bE-10's known limit: the old file back on disk
+/// beside the new one, rekordbox's entry on the old one again, the link on
+/// the new one. The entry is used only if
+/// - the copy is a file of the Library track's own track, on disk, other
+///   than the linked file,
+/// - the two are **byte-identical**: the same `blake3`, the hash stage
+///   current for both (for a gone linked file: current when it went). The
+///   same `audio_hash` with other tags isn't enough: rekordbox goes on
+///   playing the copy at its own `Location`, so the files must be the same,
+/// - exactly one `rekordbox_track` row is matched to the copy (whatever the
+///   match), and that match is trusted; of all the copies, exactly one is
+///   such a copy (two copies with an entry each: neither is used),
+/// - no other Library track is sent as that entry: none is linked to the
+///   copy, and none is sent as it from its gone file's own `Location`
+///   ([`entries_at_missing_files`], asked of every Library track with a
+///   gone linked file). A copy is a file of one track, and a track has one
+///   Library track, so no other Library track can claim it by this rule.
+///
+/// Like the rules above it only echoes rekordbox's entry back, `Location`
+/// included: nothing is attached to any file, and no link moves.
+fn entries_of_copies<V: Volumes>(
+    conn: &Connection,
+    volumes: &V,
+    rows: &HashMap<i64, Row>,
+    files: &HashMap<i64, FileInfo>,
+    entry_for: &HashMap<i64, (i64, i64)>,
+    at_location: &HashMap<i64, (i64, i64)>,
+) -> rusqlite::Result<HashMap<i64, (i64, i64)>> {
+    let wanted: Vec<[i64; 3]> = rows
+        .values()
+        .filter_map(|r| {
+            let file = r.linked_file?;
+            if !files.contains_key(&file)
+                || entry_for.contains_key(&file)
+                || at_location.contains_key(&file)
+            {
+                return None;
+            }
+            Some([r.library_track, file, r.recording])
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let wanted = serde_json::to_string(&wanted).expect("numbers always serialize");
+    let linked_current = crate::relink::hash_current_of("f");
+    let copy_current = crate::relink::hash_current_of("c");
+    // Library track -> copy -> the rows matched to it.
+    let mut rows_on: HashMap<i64, HashMap<i64, Vec<MatchedRow>>> = HashMap::new();
+    let mut stmt = conn.prepare(&format!(
+        "SELECT json_extract(w.value, '$[0]'), c.id, rt.id, rt.track_id, rt.relink_probable
+         FROM json_each(?2) w
+         JOIN file f ON f.id = json_extract(w.value, '$[1]')
+         JOIN recording_file rf ON rf.recording_id = json_extract(w.value, '$[2]')
+         JOIN file c ON c.id = rf.file_id
+         JOIN rekordbox_track rt ON rt.file_id = c.id
+         WHERE c.id <> f.id AND c.present = 1
+           AND length(f.blake3) > 0 AND c.blake3 = f.blake3
+           AND {linked_current} AND {copy_current}"
+    ))?;
+    for row in stmt.query_map(
+        rusqlite::params![crate::relink::hash_version(), wanted],
+        |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                (r.get(2)?, r.get(3)?, r.get(4)?),
+            ))
+        },
+    )? {
+        let (track, copy, entry) = row?;
+        rows_on
+            .entry(track)
+            .or_default()
+            .entry(copy)
+            .or_default()
+            .push(entry);
+    }
+    // Library track -> (copy, row id, TrackID): the one copy with one
+    // trusted row.
+    let mut found: HashMap<i64, (i64, i64, i64)> = HashMap::new();
+    for (track, copies) in rows_on {
+        let usable: Vec<(i64, i64, i64)> = copies
+            .into_iter()
+            .filter_map(|(copy, rows)| match rows.as_slice() {
+                [(id, track_id, false)] => Some((copy, *id, *track_id)),
+                _ => None,
+            })
+            .collect();
+        if let [one] = usable.as_slice() {
+            found.insert(track, *one);
+        }
+    }
+    if found.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // The Library tracks linked to those copies: such a track is sent as
+    // the copy's entry itself.
+    let copies = json_ids(&mut found.values().map(|(copy, _, _)| *copy));
+    let mut linked_to: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT linked_file_id, id FROM library_track
+         WHERE linked_file_id IN (SELECT value FROM json_each(?1))",
+    )?;
+    for row in stmt.query_map([&copies], |r| Ok((r.get(0)?, r.get(1)?)))? {
+        let (file, track): (i64, i64) = row?;
+        linked_to.entry(file).or_default().push(track);
+    }
+    // The entries Library tracks with a gone linked file are sent as.
+    let at_gone = entries_of_gone_files(conn, volumes)?;
+    let only = |owners: Option<&Vec<i64>>, track: i64| {
+        owners.is_none_or(|owners| owners.iter().all(|&owner| owner == track))
+    };
+    Ok(found
+        .into_iter()
+        .filter(|&(track, (copy, entry, _))| {
+            only(linked_to.get(&copy), track) && only(at_gone.get(&entry), track)
+        })
+        .map(|(track, (_, entry, track_id))| (track, (entry, track_id)))
+        .collect())
+}
+
+/// A `rekordbox_track` row matched to a file: (row id, `TrackID`, whether
+/// the match is probable).
+type MatchedRow = (i64, i64, bool);
+
+/// Every Library track whose linked file is gone and that is sent as
+/// rekordbox's entry at that file's own `Location`
+/// ([`entries_at_missing_files`]), by the entry's row id: what
+/// [`entries_of_copies`] must not take.
+fn entries_of_gone_files<V: Volumes>(
+    conn: &Connection,
+    volumes: &V,
+) -> rusqlite::Result<HashMap<i64, Vec<i64>>> {
+    let rows: HashMap<i64, Row> = conn
+        .prepare(
+            "SELECT lt.id, lt.recording_id, lt.linked_file_id
+             FROM library_track lt JOIN file f ON f.id = lt.linked_file_id
+             WHERE f.present = 0",
+        )?
+        .query_map([], |r| {
+            Ok(Row {
+                library_track: r.get(0)?,
+                recording: r.get(1)?,
+                linked_file: r.get(2)?,
+                title: None,
+                artist: None,
+            })
+        })?
+        .map(|r| r.map(|r| (r.library_track, r)))
+        .collect::<rusqlite::Result<_>>()?;
+    if rows.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let file_ids = json_ids(&mut rows.values().filter_map(|r| r.linked_file));
+    let files = load_files(conn, &file_ids, Scope::Decide)?;
+    // A gone file has no match (relink drops a match to a gone file).
+    let at = entries_at_missing_files(conn, volumes, &rows, &files, &HashMap::new())?;
+    let mut out: HashMap<i64, Vec<i64>> = HashMap::new();
+    for row in rows.values() {
+        if let Some(&(entry, _)) = row.linked_file.and_then(|f| at.get(&f)) {
+            out.entry(entry).or_default().push(row.library_track);
+        }
+    }
+    Ok(out)
 }
 
 /// Everything the batch loaded, with the volumes paths are placed on.

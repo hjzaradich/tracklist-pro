@@ -344,9 +344,9 @@ const HASH_CURRENT: &str = "EXISTS (SELECT 1 FROM file_stage s
 
 /// [`HASH_CURRENT`] for a `file` row under another alias than `f`: the one
 /// rule for "this hash is what the file holds now", for the code outside
-/// relink that asks it ([`crate::library::follow`]). For a file that's
-/// gone it says the hash was current when it went: the row keeps the size
-/// and mtime it had then. Takes [`hash_version`] as `?1`.
+/// relink that asks it ([`crate::library::follow`], [`crate::send_values`]).
+/// For a file that's gone it says the hash was current when it went: the
+/// row keeps the size and mtime it had then. Takes [`hash_version`] as `?1`.
 pub(crate) fn hash_current_of(alias: &str) -> String {
     format!(
         "EXISTS (SELECT 1 FROM file_stage s

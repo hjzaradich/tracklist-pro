@@ -76,9 +76,11 @@
 //!   Where nothing moves the track keeps its old link and the choice is the
 //!   user's in Review.
 //!
-//! Of several files that qualify: for a track sent as no entry today, a
-//! file rekordbox holds an entry for first (as an add links the file
-//! rekordbox uses); then the track's best file, else the lowest file id.
+//! Of several files that qualify: a file rekordbox holds an entry for first
+//! (as an add links the file rekordbox uses). For a track sent as an entry
+//! today that is the file that entry is matched to: several byte-identical
+//! copies all keep the entry (1bE-11), and the link goes to the one
+//! rekordbox plays. Then the track's best file, else the lowest file id.
 //!
 //! # How it runs
 //!
@@ -240,7 +242,7 @@ pub fn follow_files(conn: &mut Connection, volumes: &impl Volumes) -> Result<Sum
             .get(&lead.library_track)
             .copied()
             .unwrap_or(SentAs::Nothing);
-        let Some(to) = target(conn, lead, was, clear, &after)? else {
+        let Some(to) = target(conn, lead, was, clear, &after, &rows_on)? else {
             summary.held += 1;
             continue;
         };
@@ -265,15 +267,22 @@ fn target(
     was: SentAs,
     clear: &[i64],
     after: &HashMap<(LibraryTrackId, i64), SentAs>,
+    rows_on: &HashMap<i64, Vec<i64>>,
 ) -> rusqlite::Result<Option<i64>> {
     let on = |file: i64| after.get(&(lead.library_track, file)).copied();
     if let SentAs::Entry(entry) = was {
         // Sent as an entry today: only to a file on which it is still sent
-        // as that entry.
+        // as that entry. The file the entry is matched to first (the file
+        // rekordbox plays), as an add links it: of several byte-identical
+        // copies, every one keeps the entry (1bE-11), but the link goes to
+        // rekordbox's own.
+        let keeps = |file: &i64| on(*file) == Some(SentAs::Entry(entry));
+        let holds = |file: &i64| rows_on.get(file).is_some_and(|rows| rows.contains(&entry));
         return Ok(clear
             .iter()
             .copied()
-            .find(|&file| on(file) == Some(SentAs::Entry(entry))));
+            .find(|file| keeps(file) && holds(file))
+            .or_else(|| clear.iter().copied().find(keeps)));
     }
     // Sent as no entry today. A file rekordbox holds an entry for first: it
     // is the only entry matched to it (`clear`), and no other track's.

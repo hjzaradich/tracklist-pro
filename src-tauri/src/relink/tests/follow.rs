@@ -155,7 +155,7 @@ impl Lib {
             .unwrap()[0]
     }
 
-    fn outcome(&self, track: LibraryTrackId) -> Outcome {
+    pub(super) fn outcome(&self, track: LibraryTrackId) -> Outcome {
         self.writer
             .call(move |c| send_values_one(c, &Drives, track))
             .unwrap()
@@ -1035,20 +1035,18 @@ fn a_file_moved_away_and_back_is_followed_back_and_the_track_is_sent_as_the_same
     assert_eq!(lib.job(&scene.mounted), Follows::default());
 }
 
-#[test]
-fn known_limit_when_the_old_file_comes_back_beside_the_new_one_rekordboxs_entry_returns_to_its_path(
-) {
-    // The one sequence in which a followed track stops being sent as its
-    // rekordbox entry, pinned so it can't change unnoticed. The follow
-    // itself changed nothing (the entry was on the new file). Then the old
-    // file is on disk again while the new one still is: relink's first step
-    // matches the entry to the file at its own Location, as it must, and
-    // the link doesn't move back (the linked file is on disk). The track
-    // is then a new track for rekordbox, and the send says so
-    // (`rekordbox_holds_other_file`: "a second rekordbox entry results").
+/// A followed track whose old file is on disk again beside the new one
+/// (1bE-10's known limit): the follow changed nothing (the entry was on the
+/// new file); then relink's first step matches the entry to the file at its
+/// own Location again, as it must, and the link doesn't move back (the
+/// linked file is on disk). `same_bytes`: the two files are byte-identical.
+/// Returns the scene, rekordbox's row and the new file.
+fn old_file_back_beside_the_new_one(same_bytes: bool) -> (Scene, i64, i64) {
     let (scene, row) = known();
     let lib = &scene.lib;
+    lib.bytes(scene.old, 1);
     let new = scene.moved_to("Moved/Renamed.mp3");
+    lib.bytes(new, if same_bytes { 1 } else { 2 });
     assert_eq!(lib.job(&scene.mounted), scene.followed(new));
     assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
 
@@ -1057,6 +1055,40 @@ fn known_limit_when_the_old_file_comes_back_beside_the_new_one_rekordboxs_entry_
     assert_eq!(lib.job(&scene.mounted), Follows::default());
     assert_eq!(lib.matched(row), path(scene.old));
     assert_eq!(lib.linked_file(scene.track), new);
+    (scene, row, new)
+}
+
+#[test]
+fn when_the_old_file_comes_back_beside_a_byte_identical_new_one_the_track_is_still_sent_as_its_entry(
+) {
+    // 1bE-11 closes 1bE-10's known limit: the old file is a byte-identical
+    // copy of the linked one, so the track is sent as rekordbox's entry on
+    // it, with rekordbox's own Location (the old file, on disk), and no
+    // second entry results.
+    let (scene, row, _new) = old_file_back_beside_the_new_one(true);
+    let lib = &scene.lib;
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+    let Outcome::Ready(values) = lib.outcome(scene.track) else {
+        panic!("not sent");
+    };
+    assert!(values.in_rekordbox);
+    assert_eq!(values.rekordbox_holds_other_file, None);
+    assert_eq!(values.get("Location").unwrap().value, loc(OLD));
+
+    // Running the jobs again changes nothing.
+    assert_eq!(lib.job(&scene.mounted), Follows::default());
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+}
+
+#[test]
+fn known_limit_when_rekordbox_wrote_a_tag_into_the_old_file_it_is_no_byte_identical_copy() {
+    // What stays of the limit, pinned so it can't change unnoticed: the
+    // files hold the same audio, but not the same bytes (rekordbox writes
+    // tags into its own files, §5.1). The track is then a new track for
+    // rekordbox, and the send says so (`rekordbox_holds_other_file`: "a
+    // second rekordbox entry results").
+    let (scene, _row, _new) = old_file_back_beside_the_new_one(false);
+    let lib = &scene.lib;
     assert_eq!(lib.sent(scene.track), SentAs::New);
     let Outcome::Ready(values) = lib.outcome(scene.track) else {
         panic!("not sent");
@@ -1065,6 +1097,77 @@ fn known_limit_when_the_old_file_comes_back_beside_the_new_one_rekordboxs_entry_
         values.rekordbox_holds_other_file.map(|s| s.file_id),
         Some(scene.old)
     );
+}
+
+#[test]
+fn of_several_byte_identical_copies_the_follow_links_the_one_rekordboxs_entry_is_on() {
+    // The gone linked file has no entry at its own Location, and two
+    // byte-identical copies are on disk; rekordbox's entry is on the second
+    // (matched by path). Through that copy the track is sent as the entry
+    // today, and on either copy it still would be (1bE-11); the follow
+    // links the file rekordbox plays, as an add does, not the lower id.
+    let scene = unknown();
+    let lib = &scene.lib;
+    lib.bytes(scene.old, 1);
+    lib.gone(scene.old);
+    let moved = scene.copy_at("Moved/N.mp3");
+    let backup = scene.copy_at("Backup/C.mp3");
+    lib.bytes(moved, 1);
+    lib.bytes(backup, 1);
+    let row = lib.track_with(&loc("E:/Music/Backup/C.mp3"), Some("200"), &[]);
+    lib.relink(&scene.mounted);
+    assert_eq!(lib.matched(row), path(backup));
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+    assert!(moved < backup);
+
+    assert_eq!(lib.job(&scene.mounted), scene.followed(backup));
+    assert_eq!(lib.linked_file(scene.track), backup);
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+}
+
+#[test]
+fn when_the_new_file_goes_too_the_track_follows_back_to_the_old_one_on_the_same_entry() {
+    // Sent as the old file's entry through the copy rule while the new file
+    // is on disk; the new file goes, and the link follows back to the old
+    // file, sent as that same entry before and after.
+    let (scene, row, new) = old_file_back_beside_the_new_one(true);
+    let lib = &scene.lib;
+    lib.gone(new);
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+    assert_eq!(
+        lib.job(&scene.mounted),
+        Follows {
+            followed: vec![Followed {
+                library_track: scene.track,
+                from: new,
+                to: scene.old,
+            }],
+            held: 0,
+        }
+    );
+    assert_eq!(lib.sent(scene.track), SentAs::Entry(row));
+}
+
+#[test]
+fn undoing_the_add_after_the_follow_and_the_old_files_return_leaves_nothing_behind() {
+    // The rule writes nothing: undoing the add (which takes the follow
+    // back) deletes the track, nothing is listed to remove in rekordbox,
+    // and adding it again links the file rekordbox uses, its entry's.
+    let (scene, row, _new) = old_file_back_beside_the_new_one(true);
+    let lib = &scene.lib;
+    let UndoOutcome::Undone { operation } = lib.undo() else {
+        panic!("not undone");
+    };
+    assert_eq!(operation.kind, "promote");
+    assert_eq!(lib.library_tracks(), 0);
+    let removals = lib
+        .writer
+        .call(|c| crate::after_send::manual_removals(c, &Drives))
+        .unwrap();
+    assert_eq!(removals, []);
+    let again = lib.add(scene.old);
+    assert_eq!(lib.linked_file(again), scene.old);
+    assert_eq!(lib.sent(again), SentAs::Entry(row));
 }
 
 #[test]

@@ -732,3 +732,70 @@ fn a_merge_beside_100000_files() {
     eprintln!("one merge beside 100,000 files: {merge:?}; a whole grouping pass: {whole:?}");
     assert_eq!(t.db.track(t.b), Some(t.ta));
 }
+
+/// What [`crate::send_values::sent_as`] says the Library track of `track`
+/// is sent as.
+fn sent(t: &Twice, track: i64) -> crate::send_values::SentAs {
+    let lt = crate::library::LibraryTrackId(t.lt(track));
+    t.db.writer
+        .call(move |c| crate::send_values::sent_as(c, &Mount, &[(lt, None)]))
+        .unwrap()[0]
+}
+
+#[test]
+fn a_staying_track_with_no_entry_is_sent_as_the_leaving_tracks_byte_identical_entry_never_also_listed(
+) {
+    // 1bE-11: the staying track's file has no rekordbox entry, the leaving
+    // track's file is a byte-identical copy of it and has one. After the
+    // merge that file is in the staying track, so the staying track is sent
+    // as that entry, and the entry the merge recorded isn't listed to
+    // remove: one entry is never both sent and listed. With other bytes
+    // (another tag), the staying track goes as new and the entry is listed.
+    use crate::send_values::SentAs;
+    for same_bytes in [true, false] {
+        let t = Twice::new();
+        let version = i64::from(crate::hash::DEFINITION);
+        for (file, bytes) in [(t.a, "01"), (t.b, if same_bytes { "01" } else { "02" })] {
+            let blake3 = bytes.repeat(32);
+            t.db.sql(&format!(
+                "UPDATE file SET blake3 = x'{blake3}' WHERE id = {file};
+                 INSERT OR REPLACE INTO file_stage (file_id, stage, version, size, mtime, status)
+                 SELECT id, 'hash', {version}, size, mtime, 'done' FROM file WHERE id = {file};"
+            ));
+        }
+        let entry = t.entry(t.b, 3, 0, 5, 128.0);
+        assert_eq!(sent(&t, t.ta), SentAs::New);
+        assert_eq!(sent(&t, t.tb), SentAs::Entry(entry));
+
+        t.merge(&t.both(), t.ta).unwrap();
+        assert_eq!(
+            t.db.count("SELECT count(*) FROM replaced_entry WHERE reason = 'merge'"),
+            1
+        );
+        let removals =
+            t.db.writer
+                .call(|c| crate::after_send::manual_removals(c, &Mount))
+                .unwrap();
+        if same_bytes {
+            assert_eq!(sent(&t, t.ta), SentAs::Entry(entry));
+            assert_eq!(removals, []);
+        } else {
+            assert_eq!(sent(&t, t.ta), SentAs::New);
+            assert_eq!(removals.len(), 1);
+            assert_eq!(removals[0].reason, crate::after_send::RemovalReason::Merged);
+        }
+
+        // Undo: two tracks again, each sent as before, nothing listed.
+        match t.undo() {
+            UndoOutcome::Undone { operation } => assert_eq!(operation.kind, MERGE_OPERATION),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(sent(&t, t.ta), SentAs::New);
+        assert_eq!(sent(&t, t.tb), SentAs::Entry(entry));
+        let removals =
+            t.db.writer
+                .call(|c| crate::after_send::manual_removals(c, &Mount))
+                .unwrap();
+        assert_eq!(removals, []);
+    }
+}
