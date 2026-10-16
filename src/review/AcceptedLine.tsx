@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
 import { commands, type SwitchedView } from "../bindings";
@@ -26,6 +26,7 @@ export function AcceptedLine() {
   const dismiss = useAcceptedStore((state) => state.dismiss);
   const next = useNextUndo();
   const undo = useUndoOperation();
+  const textId = useId();
   const [viewing, setViewing] = useState<number | null>(null);
   const operationId = accepted?.operationId ?? null;
   const open = operationId !== null && viewing === operationId;
@@ -59,8 +60,8 @@ export function AcceptedLine() {
     });
 
   return (
-    <div className={styles.accepted}>
-      <p role="status" className={styles.acceptedText}>
+    <section className={styles.accepted} aria-labelledby={textId}>
+      <p id={textId} role="status" className={styles.acceptedText}>
         {t("accepted.line", { count: accepted.switched.length })}
       </p>
       <button
@@ -115,6 +116,6 @@ export function AcceptedLine() {
           </tbody>
         </table>
       )}
-    </div>
+    </section>
   );
 }

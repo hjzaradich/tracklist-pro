@@ -53,24 +53,74 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * The locale texts, ready to be looked for in many strings. Made once per set
+ * of texts: a test source has thousands of strings, and checking each against
+ * every text (building a pattern each time, trying every window of every run)
+ * made this check the slowest in the suite, and the one that timed out when the
+ * machine was busy.
+ */
+interface Finder {
+  keys: string[];
+  /** Per text: its runs between placeholders, and the pattern that matches it whole (or `null` if it is too short to count). */
+  wholes: ({ runs: string[]; pattern: RegExp } | null)[];
+  /** Every LONG_RUN-character window of every run, with the first text that has it. */
+  windows: Map<string, number>;
+}
+
+function finderFor(texts: Map<string, string>): Finder {
+  const keys: string[] = [];
+  const wholes: Finder["wholes"] = [];
+  const windows = new Map<string, number>();
+  for (const [key, value] of texts) {
+    if (NOT_COPY.has(key)) continue;
+    const index = keys.length;
+    keys.push(key);
+    const runs = value.split(PLACEHOLDER);
+    wholes.push(
+      value.length >= SHORTEST_WHOLE
+        ? { runs, pattern: new RegExp(`^${runs.map(escapeRegExp).join(".*")}$`, "s") }
+        : null,
+    );
+    for (const run of runs) {
+      for (let at = 0; at + LONG_RUN <= run.length; at += 1) {
+        const window = run.slice(at, at + LONG_RUN);
+        if (!windows.has(window)) windows.set(window, index);
+      }
+    }
+  }
+  return { keys, wholes, windows };
+}
+
+const finders = new WeakMap<Map<string, string>, Finder>();
+
 /** Whether `text` is a whole locale text (placeholders filled with anything) or holds a long run of one. */
 function copiedFrom(text: string, texts: Map<string, string>): string | undefined {
   const trimmed = text.trim();
   if (trimmed === "") return undefined;
-  for (const [key, value] of texts) {
-    if (NOT_COPY.has(key)) continue;
-    const runs = value.split(PLACEHOLDER);
-    if (value.length >= SHORTEST_WHOLE) {
-      const whole = new RegExp(`^${runs.map(escapeRegExp).join(".*")}$`, "s");
-      if (whole.test(trimmed)) return key;
-    }
-    for (const run of runs) {
-      for (let at = 0; at + LONG_RUN <= run.length; at += 1) {
-        if (text.includes(run.slice(at, at + LONG_RUN))) return key;
-      }
+  let finder = finders.get(texts);
+  if (finder === undefined) {
+    finder = finderFor(texts);
+    finders.set(texts, finder);
+  }
+  // The first text, in order, that is a copy: whole, or holding a long run.
+  let first = Infinity;
+  for (let index = 0; index < finder.wholes.length; index += 1) {
+    const whole = finder.wholes[index];
+    if (!whole) continue;
+    const { runs, pattern } = whole;
+    // Cheap checks before the pattern: both ends of the text are fixed runs.
+    if (!trimmed.startsWith(runs[0]!) || !trimmed.endsWith(runs[runs.length - 1]!)) continue;
+    if (pattern.test(trimmed)) {
+      first = index;
+      break;
     }
   }
-  return undefined;
+  for (let at = 0; at + LONG_RUN <= text.length; at += 1) {
+    const found = finder.windows.get(text.slice(at, at + LONG_RUN));
+    if (found !== undefined && found < first) first = found;
+  }
+  return first === Infinity ? undefined : finder.keys[first];
 }
 
 const TITLE_CALLEES = new Set(["it", "test", "describe", "suite"]);
@@ -170,7 +220,11 @@ describe("the tests hold no copy of the app's UI text", () => {
     expect(texts.size).toBeGreaterThan(100);
   });
 
-  it("look a text up with tx() instead of spelling it out", () => {
+  // The check parses every test file, so how long it takes grows with the
+  // suite, and it is slowed most when the full run keeps every worker busy.
+  // It is fast alone (about a second); 60 s is for a loaded machine, not a
+  // budget to grow into.
+  it("look a text up with tx() instead of spelling it out", { timeout: 60_000 }, () => {
     const offenders = Object.entries(sources).flatMap(([path, source]) =>
       copiesIn(source, texts, path).map((copy) => `${path}:${copy}`),
     );

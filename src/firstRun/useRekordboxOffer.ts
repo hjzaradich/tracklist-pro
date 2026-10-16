@@ -4,6 +4,7 @@ import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { unwrap } from "../api/errors";
 import { commands, type AddSummary, type Offer, type PlaylistChoice } from "../bindings";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { REKORDBOX_OFFER_QUERY_KEY, REKORDBOX_PLAYLISTS_QUERY_KEY } from "./queryKeys";
 
 // The offer to add rekordbox tracks to the Library (1aE-2, 1aE-3; ROADMAP
@@ -13,13 +14,20 @@ import { REKORDBOX_OFFER_QUERY_KEY, REKORDBOX_PLAYLISTS_QUERY_KEY } from "./quer
 /** A rekordbox playlist: its folders from below ROOT, then its name. */
 export type PlaylistPath = string[];
 
-/** Everything the offer and what it changes are read from. */
+/**
+ * Everything the offer and what it changes are read from. Review is one: an
+ * add puts tracks in the Library, which can have items in the queue, and its
+ * undo takes them out again.
+ */
 function reloadAfterChange(queryClient: QueryClient) {
-  return Promise.all([
-    queryClient.invalidateQueries({ queryKey: REKORDBOX_OFFER_QUERY_KEY }),
-    queryClient.invalidateQueries({ queryKey: LIBRARY_TRACKS_QUERY_KEY }),
-    queryClient.invalidateQueries({ queryKey: ALL_MUSIC_QUERY_KEY }),
-  ]);
+  return Promise.all(
+    [
+      REKORDBOX_OFFER_QUERY_KEY,
+      LIBRARY_TRACKS_QUERY_KEY,
+      ALL_MUSIC_QUERY_KEY,
+      ...REVIEW_QUERY_KEYS,
+    ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  );
 }
 
 /**

@@ -40,6 +40,9 @@ const EFFECT_TEXT: Record<SwitchEffect, "switch.keepsEntry" | "switch.newTrack" 
   otherEntry: "switch.otherEntry",
 };
 
+/** Starts an action; `onSettled` says it was answered, whatever the answer. */
+type Start = (settled: { onSettled: () => void }) => void;
+
 /**
  * The actions for the selected item (1bE-5, 1bE-6, 1bE-7), under the
  * comparison table. Buttons only. Which ones depends on the item's kind:
@@ -86,6 +89,10 @@ export function ReviewActions({
   const { t } = useTranslation("review");
   // Set when an action worked; the item is about to leave the queue.
   const decided = useRef(false);
+  // Set from the moment an action is started until it is answered. The mutation's
+  // own `isPending` comes a tick later, so a second key press in between would
+  // start the action again.
+  const started = useRef(false);
   const done = () => {
     decided.current = true;
     onDecided?.();
@@ -116,9 +123,10 @@ export function ReviewActions({
     dismiss.error ?? keep.error ?? want.error ?? switchFile.error ?? confirm.error ?? reject.error;
 
   // Nothing starts while an action is under way or once the item is decided.
-  const run = (start: () => void): boolean => {
-    if (busy || decided.current) return false;
-    start();
+  const run = (start: Start): boolean => {
+    if (busy || decided.current || started.current) return false;
+    started.current = true;
+    start({ onSettled: () => (started.current = false) });
     return true;
   };
 
@@ -126,8 +134,8 @@ export function ReviewActions({
   let note: string | null = null;
   let greyedOutBecause: string | null = null;
   // What Enter does, and what the number keys do (a row of the table, 1 to 9).
-  let enter: { label: string; start: () => void } | null = null;
-  let pick: ((row: ReviewFileRow) => (() => void) | null) | null = null;
+  let enter: { label: string; start: Start } | null = null;
+  let pick: ((row: ReviewFileRow) => Start | null) | null = null;
   if (comparison.kind === "betterFile" && comparison.suggestion) {
     const fileId = comparison.suggestion.what;
     buttons = (
@@ -135,7 +143,7 @@ export function ReviewActions({
         type="button"
         className={styles.button}
         disabled={busy}
-        onClick={() => run(() => dismiss.mutate({ recordingId, fileId }))}
+        onClick={() => run((o) => dismiss.mutate({ recordingId, fileId }, o))}
       >
         {t("action.dismiss")}
       </button>
@@ -147,7 +155,7 @@ export function ReviewActions({
           type="button"
           className={styles.button}
           disabled={busy}
-          onClick={() => run(() => keep.mutate(recordingId))}
+          onClick={() => run((o) => keep.mutate(recordingId, o))}
         >
           {t("action.keepAnyway")}
         </button>
@@ -155,7 +163,7 @@ export function ReviewActions({
           type="button"
           className={styles.button}
           disabled={busy}
-          onClick={() => run(() => want.mutate(recordingId))}
+          onClick={() => run((o) => want.mutate(recordingId, o))}
         >
           {t("action.findBetter")}
         </button>
@@ -167,8 +175,8 @@ export function ReviewActions({
     note = effectText === null ? null : t(effectText);
     greyedOutBecause =
       refusal === null ? null : errorMessage({ kind: REFUSAL_KIND[refusal], params: {} });
-    const start = () => {
-      if (effect !== null) switchFile.mutate({ recordingId, fileId, effect });
+    const start: Start = (o) => {
+      if (effect !== null) switchFile.mutate({ recordingId, fileId, effect }, o);
     };
     if (effect !== null) enter = { label: t("action.switch"), start };
     // A digit is a row: it switches to that row's file, where the choice is
@@ -178,7 +186,7 @@ export function ReviewActions({
         const offer = comparison.copies.find((copy) => copy.fileId === row.fileId);
         if (row.fileId === null || offer === undefined || offer.effect === null) return null;
         const { fileId: to, effect: shown } = offer;
-        return () => switchFile.mutate({ recordingId, fileId: to, effect: shown });
+        return (o) => switchFile.mutate({ recordingId, fileId: to, effect: shown }, o);
       };
     }
     buttons = (
@@ -194,7 +202,7 @@ export function ReviewActions({
   } else if (comparison.kind === "relink" && comparison.relink) {
     const { fileId, confirmedBefore } = comparison.relink;
     const label = confirmedBefore ? t("action.confirmAgain") : t("action.confirm");
-    const start = () => confirm.mutate({ entryId, fileId });
+    const start: Start = (o) => confirm.mutate({ entryId, fileId }, o);
     enter = { label, start };
     buttons = (
       <>
@@ -205,7 +213,7 @@ export function ReviewActions({
           type="button"
           className={styles.button}
           disabled={busy}
-          onClick={() => run(() => reject.mutate({ entryId, fileId }))}
+          onClick={() => run((o) => reject.mutate({ entryId, fileId }, o))}
         >
           {t("action.notSame")}
         </button>

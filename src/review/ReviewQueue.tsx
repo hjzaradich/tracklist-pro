@@ -33,8 +33,9 @@ export interface QueueGroup {
  * The queue (1bD-1): one list per non-empty group, each with its heading and
  * how many are left. Each list is one tab stop (the selected item, else the
  * first); Up, Down, Home and End move through it and select as they go. The
- * 1bE keyboard (Enter, number keys, S) joins here. A group's heading carries
- * its "Accept all N" button, when it has one.
+ * 1bE keys (Enter, number keys) are read on the whole screen, by
+ * `ReviewActions`, not here: they act on the comparison. A group's heading
+ * carries its "Accept all N" button, when it has one.
  */
 export function ReviewQueue({
   groups,

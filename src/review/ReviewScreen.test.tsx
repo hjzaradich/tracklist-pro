@@ -165,6 +165,8 @@ const RELINK_COMPARISON: ReviewComparison = {
       driveConnected: false,
       format: null,
       tagsFilled: 0,
+      // rekordbox's entry has no date added.
+      addedAt: null,
     }),
   ],
   moreFiles: 0,
@@ -468,5 +470,94 @@ describe("the Review queue", () => {
     await waitFor(() => expect(within(needs).getAllByRole("option")).toHaveLength(1));
     expect(within(needs).getByRole("option")).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("region", { name: tx("review:group.clearBestFile") })).toBeNull();
+  });
+});
+
+describe("More details", () => {
+  const moreDetails = () => screen.findByRole("checkbox", { name: tx("review:compare.moreDetails") });
+  const header = (key: string) =>
+    screen.queryByRole("columnheader", { name: tx(`review:col.${key}` as "review:col.bitrate") });
+
+  it("is off at first: no bitrate, sample rate or date added", async () => {
+    backend();
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    expect(await moreDetails()).not.toBeChecked();
+    for (const column of ["bitrate", "sampleRate", "added"]) expect(header(column)).toBeNull();
+    expect(screen.queryByText(tx("review:cell.bitrate", { kbps: 320 }))).toBeNull();
+  });
+
+  it("adds the three columns, filled from the rows", async () => {
+    backend();
+    renderScreen();
+    const table = await screen.findByRole("table", { name: tx("review:compare.label") });
+    await userEvent.click(await moreDetails());
+    for (const column of ["bitrate", "sampleRate", "added"]) expect(header(column)).not.toBeNull();
+    const rows = within(table).getAllByRole("row");
+    const day = new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(
+      new Date("2026-09-30T10:00:00.000Z"),
+    );
+    for (const row of rows.slice(1)) {
+      expect(row).toHaveTextContent(tx("review:cell.bitrate", { kbps: 320 }));
+      expect(row).toHaveTextContent(tx("review:cell.sampleRate", { khz: 44.1 }));
+      expect(row).toHaveTextContent(day);
+    }
+    // And off again.
+    await userEvent.click(await moreDetails());
+    expect(header("bitrate")).toBeNull();
+  });
+
+  it("leaves a cell empty where the file has no such detail, rekordbox's entry too", async () => {
+    backend({ pages: { needsCloserLook: [RELINK], clearBestFile: [] } });
+    renderScreen();
+    const table = await screen.findByRole("table", { name: tx("review:compare.label") });
+    await userEvent.click(await moreDetails());
+    const entry = within(table).getAllByRole("row")[2] as HTMLElement;
+    const cells = within(entry).getAllByRole("cell");
+    // The entry has no date added.
+    expect(cells[cells.length - 1]).toBeEmptyDOMElement();
+  });
+
+  it("stays on when another item is selected", async () => {
+    backend();
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    await userEvent.click(await moreDetails());
+    const clear = await screen.findByRole("region", { name: tx("review:group.clearBestFile") });
+    await userEvent.click(await within(clear).findByRole("option"));
+    await waitFor(() =>
+      expect(screen.getByRole("table", { name: tx("review:compare.label") })).toHaveTextContent(
+        "gone copy.mp3",
+      ),
+    );
+    expect(header("bitrate")).not.toBeNull();
+    expect(await moreDetails()).toBeChecked();
+  });
+});
+
+describe("the better location reason", () => {
+  it("names the two places from its parameters", async () => {
+    backend({
+      onItem: () => ({
+        ...DOUBT_COMPARISON,
+        suggestion: {
+          what: 2,
+          reasons: [
+            {
+              key: "review:reason.betterPlace",
+              params: { best: "internalDrive", other: "networkDrive" },
+              source: "fact",
+            },
+          ],
+        },
+      }),
+    });
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    const shown = screen.getByText(tx("review:place.internalDrive"), { exact: false });
+    // Both places come out as their texts, never as the codes.
+    expect(shown).toHaveTextContent(tx("review:place.internalDrive"));
+    expect(shown).toHaveTextContent(tx("review:place.networkDrive"));
+    expect(shown.textContent).not.toMatch(/internalDrive|networkDrive|\$t\(/);
   });
 });

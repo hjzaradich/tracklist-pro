@@ -168,6 +168,8 @@
 }
 
 .keys {
+  /* A line of its own under the buttons. */
+  flex: 1 0 100%;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-3);
