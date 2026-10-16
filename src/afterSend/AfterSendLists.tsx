@@ -48,6 +48,9 @@ function RemovalItem({ removal }: { removal: ManualRemoval }) {
       {removal.reason === "replaced" && (
         <span className={styles.detail}>{t("removals.replaced")}</span>
       )}
+      {removal.reason === "merged" && (
+        <span className={styles.detail}>{t("removals.merged")}</span>
+      )}
       {removal.path !== null && (
         <span className={styles.path} title={t("removals.sentTo")}>
           {removal.path}

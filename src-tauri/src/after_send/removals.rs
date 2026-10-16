@@ -23,6 +23,10 @@ pub enum RemovalReason {
     /// user switched it in Review: this is the entry of the file that is
     /// gone, which the track is no longer sent as (`replaced_entry`).
     Replaced,
+    /// The Library track it was sent as was merged into another Library
+    /// track that is the same recording (Review, 1bE-9): this entry is the
+    /// one of the track that left (`replaced_entry`, reason `merge`).
+    Merged,
 }
 
 /// A track to remove in rekordbox by hand.
@@ -68,8 +72,9 @@ pub fn manual_removals(
     Ok(out)
 }
 
-/// The rekordbox entries a switch of a Library track's linked file left
-/// behind (`replaced_entry`; [`crate::review::actions`]), in the order they
+/// The rekordbox entries a switch of a Library track's linked file or a
+/// merge of two Library tracks left behind (`replaced_entry`;
+/// [`crate::review::actions`], [`crate::review::same`]), in the order they
 /// were replaced: each is listed while the store holds an entry at its
 /// `Location` (any row, as for a removed track: an incomplete read can't say
 /// an entry is gone) and **no Library track is sent as an entry there**. So
@@ -87,10 +92,12 @@ fn replaced_entries(
         location: String,
         key: String,
         at: String,
+        merged: bool,
     }
     let records: Vec<Record> = conn
         .prepare(
-            "SELECT r.recording_id, r.location, r.location_key, r.replaced_at
+            "SELECT r.recording_id, r.location, r.location_key, r.replaced_at,
+                    r.reason = 'merge'
              FROM replaced_entry r
              WHERE EXISTS (SELECT 1 FROM rekordbox_track t WHERE t.location_key = r.location_key)
              ORDER BY r.id",
@@ -101,6 +108,7 @@ fn replaced_entries(
                 location: r.get(1)?,
                 key: r.get(2)?,
                 at: r.get(3)?,
+                merged: r.get(4)?,
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -171,7 +179,11 @@ fn replaced_entries(
                 .map(|p| crate::send_values::file_name(p).to_owned()),
         });
         out.push(ManualRemoval {
-            reason: RemovalReason::Replaced,
+            reason: if record.merged {
+                RemovalReason::Merged
+            } else {
+                RemovalReason::Replaced
+            },
             recording_id: record.recording,
             title: None,
             artist: None,

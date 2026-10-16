@@ -17,6 +17,7 @@
     "trackName": "{{artist}} - {{title}}",
     "unnamed": "Unnamed track",
     "sentTo": "Location sent to rekordbox",
-    "replaced": "(old track, its file was switched in your Library)"
+    "replaced": "(old track, its file was switched in your Library)",
+    "merged": "(old track, merged into another Library track)"
   }
 }

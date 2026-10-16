@@ -53,46 +53,54 @@ pub fn for_recording(conn: &Connection, recording: i64) -> rusqlite::Result<Vec<
                 rt.bpm, rt.tonality, rt.play_count,
                 json_extract(rt.attributes, '$.LastPlayed'),
                 rt.rating, rt.colour, rt.comments, rt.my_tags, rt.tempo,
-                rt.position_marks, rt.playlists
+                rt.position_marks, rt.playlists, {}
          FROM rekordbox_track rt
          LEFT JOIN recording_file rf
                 ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
          WHERE rt.recording_id = ?1 AND rt.relink_probable = 0
-         ORDER BY {}",
+         ORDER BY {} DESC, {}",
+        super::PICKABLE,
+        super::PICKABLE,
         super::PICK_ORDER
     ))?;
     let rows = stmt.query_map([recording], |r| {
         let tonality: Option<String> = r.get(5)?;
         let comments: Option<String> = r.get(10)?;
         let my_tags: String = r.get(11)?;
-        Ok(RekordboxEntry {
-            track_id: r.get(0)?,
-            file_id: r.get(1)?,
-            is_analysis_source: false,
-            relink_method: r.get(2)?,
-            relink_confidence: r.get(3)?,
-            bpm: r.get(4)?,
-            key: tonality.as_deref().and_then(key::to_camelot),
-            tonality,
-            play_count: r.get(6)?,
-            last_played: r.get(7)?,
-            rating: r.get(8)?,
-            colour: r.get(9)?,
-            comment_text: comments
-                .as_deref()
-                .map(|c| my_tags::without_tags(c).to_owned()),
-            comments,
-            // The column is JSON the reader wrote, always an array.
-            my_tags: serde_json::from_str(&my_tags).unwrap_or_default(),
-            tempo: r.get(12)?,
-            position_marks: r.get(13)?,
-            playlists: r.get(14)?,
-        })
+        let pickable: bool = r.get(15)?;
+        Ok((
+            RekordboxEntry {
+                track_id: r.get(0)?,
+                file_id: r.get(1)?,
+                is_analysis_source: false,
+                relink_method: r.get(2)?,
+                relink_confidence: r.get(3)?,
+                bpm: r.get(4)?,
+                key: tonality.as_deref().and_then(key::to_camelot),
+                tonality,
+                play_count: r.get(6)?,
+                last_played: r.get(7)?,
+                rating: r.get(8)?,
+                colour: r.get(9)?,
+                comment_text: comments
+                    .as_deref()
+                    .map(|c| my_tags::without_tags(c).to_owned()),
+                comments,
+                // The column is JSON the reader wrote, always an array.
+                my_tags: serde_json::from_str(&my_tags).unwrap_or_default(),
+                tempo: r.get(12)?,
+                position_marks: r.get(13)?,
+                playlists: r.get(14)?,
+            },
+            pickable,
+        ))
     })?;
-    let mut entries: Vec<RekordboxEntry> = rows.collect::<rusqlite::Result<_>>()?;
-    // The first one is the pick, and it's the pick only if it gives a row.
-    if let Some(first) = entries.first_mut() {
-        first.is_analysis_source = super::bpm_value(first.bpm).is_some() || first.key.is_some();
+    let mut entries: Vec<(RekordboxEntry, bool)> = rows.collect::<rusqlite::Result<_>>()?;
+    // The first one is the pick, and it's the pick only if it may be one
+    // and gives a row.
+    if let Some((first, pickable)) = entries.first_mut() {
+        first.is_analysis_source =
+            *pickable && (super::bpm_value(first.bpm).is_some() || first.key.is_some());
     }
-    Ok(entries)
+    Ok(entries.into_iter().map(|(entry, _)| entry).collect())
 }

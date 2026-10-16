@@ -24,7 +24,7 @@ use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 9] = [
+pub(super) const LOGGED_TABLES: [&str; 11] = [
     "library_track",
     "library_removal",
     "crate",
@@ -34,7 +34,17 @@ pub(super) const LOGGED_TABLES: [&str; 9] = [
     "review_decision",
     "replaced_entry",
     "relink",
+    "grouping_decision",
+    "track_merge",
 ];
+
+/// The tables an action changes through the log only by setting fields of
+/// rows that are there, never by inserting or deleting one: `recording_file`
+/// (a merge of two Library tracks moves files between tracks, 1bE-9). Code
+/// outside the log inserts into them (grouping places files), and that
+/// can't trip an Undo: undoing a set checks the value the field holds,
+/// whatever made the row.
+pub(super) const SET_ONLY_TABLES: [&str; 1] = ["recording_file"];
 
 /// How many tracks the random actions pick among. The first
 /// [`IN_REKORDBOX`] are also in rekordbox, with a trusted match.
@@ -1400,11 +1410,59 @@ fn every_table_the_app_records_changes_to_is_in_the_list_these_tests_check() {
                     continue; // A variable: `library::remove_on` loops over a list.
                 };
                 assert!(
-                    LOGGED_TABLES.contains(&name),
+                    LOGGED_TABLES.contains(&name)
+                        || (call == "rec.set(" && SET_ONLY_TABLES.contains(&name)),
                     "{} records changes to `{name}`; add it to LOGGED_TABLES",
                     path.display()
                 );
             }
         }
     }
+}
+
+#[test]
+fn only_a_merge_of_two_library_tracks_records_a_derived_column() {
+    // Undoing a set of a derived column leaves it as it is (`ops::DERIVED_FIELDS`):
+    // the merge (Review, 1bE-9) moves files, and its Undo ranks them again.
+    // Any other operation that set one would rely on Undo putting it back,
+    // which it doesn't. Inserts and deletes record whole rows; this is
+    // about `rec.set("table", id, "field", …)` naming a derived field.
+    let mut found = Vec::new();
+    for (path, code) in app_sources() {
+        for (at, _) in code.match_indices("rec.set(") {
+            let mut quoted = code[at..].split('"').skip(1).step_by(2);
+            let (Some(table), Some(field)) = (quoted.next(), quoted.next()) else {
+                continue;
+            };
+            // Only a call that names both: table, id, field.
+            let call = &code[at..at + code[at..].find(';').unwrap_or(0)];
+            if !call.contains(&format!("\"{field}\"")) {
+                continue;
+            }
+            if super::DERIVED_FIELDS.contains(&(table, field)) {
+                found.push((
+                    path.file_name().unwrap().to_string_lossy().into_owned(),
+                    table.to_owned(),
+                    field.to_owned(),
+                ));
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    assert_eq!(
+        found,
+        [
+            (
+                "same.rs".to_owned(),
+                "recording_file".to_owned(),
+                "match_confidence".to_owned()
+            ),
+            (
+                "same.rs".to_owned(),
+                "recording_file".to_owned(),
+                "role".to_owned()
+            ),
+        ]
+    );
 }

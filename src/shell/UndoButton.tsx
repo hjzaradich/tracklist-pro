@@ -57,6 +57,10 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.rejectRelink");
     case "withdraw_relink":
       return t("undo.action.withdrawRelink");
+    case "keep_both_library_tracks":
+      return t("undo.action.keepBoth");
+    case "merge_library_tracks":
+      return t("undo.action.mergeTracks");
   }
   return t("undo.action.other");
 }
@@ -73,6 +77,8 @@ export function refusalText(t: TFunction<"shell">, refusal: UndoRefusal): string
       return t("undo.refused.changedSince");
     case "switchSentSince":
       return t("undo.refused.switchSentSince");
+    case "mergeLinkChanged":
+      return t("undo.refused.mergeLinkChanged");
   }
 }
 

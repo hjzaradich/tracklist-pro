@@ -7,6 +7,7 @@ mod compare;
 mod ipc;
 mod plan;
 mod queue;
+mod same;
 
 use std::path::{Path, PathBuf};
 

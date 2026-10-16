@@ -198,5 +198,17 @@
     "purpose": "Says nothing is playing.",
     "where": "Player bar, until playback exists.",
     "approved": "Nothing playing"
+  },
+  "undo.action.keepBoth": {
+    "purpose": "Undo button naming what it takes back: \"Keep both\" for two Library tracks that are the same recording, in Review.",
+    "where": "Top bar, Undo button, when the next step to undo is \"Keep both\"."
+  },
+  "undo.action.mergeTracks": {
+    "purpose": "Undo button naming what it takes back: a merge of Library tracks that are the same recording, in Review (Undo brings the other track back).",
+    "where": "Top bar, Undo button, when the next step to undo is a merge."
+  },
+  "undo.refused.mergeLinkChanged": {
+    "purpose": "Why Undo can't take back a merge of two Library tracks: the track that stayed now plays another file (it followed its file, or was switched), and undoing would put two Library tracks on one file.",
+    "where": "Top bar, Undo button's refusal, when the next step to undo is such a merge."
   }
 }

@@ -680,8 +680,10 @@ fn the_same_never_merges_two_library_tracks() {
 
 #[test]
 fn a_decision_about_one_piece_of_audio_is_between_the_library_tracks_holding_it() {
-    // "Keep both" for two Library tracks with the very same audio. A third
-    // copy outside the Library isn't decided by it.
+    // "Keep both" for two Library tracks with the very same audio. The
+    // decision isn't about a third copy outside the Library: it joins
+    // neither, and its pairs are settled with the set (owner decision,
+    // 2026-10-12, 1bE-9).
     let mut world = World::of([placed(1, 1, 7), placed(2, 2, 7), placed(3, 3, 7)]).pairs([
         pair(1, 2, Outcome::Duplicate),
         pair(1, 3, Outcome::Duplicate),
@@ -692,8 +694,36 @@ fn a_decision_about_one_piece_of_audio_is_between_the_library_tracks_holding_it(
     let p = world.plan();
     assert!(p.moves.is_empty());
     assert_eq!(world.state(&p, 1, 2), State::Decided);
-    assert_ne!(world.state(&p, 1, 3), State::Decided);
-    assert_ne!(world.state(&p, 2, 3), State::Decided);
+    assert_eq!(world.state(&p, 1, 3), State::Decided);
+    assert_eq!(world.state(&p, 2, 3), State::Decided);
+}
+
+#[test]
+fn a_copy_outside_the_library_is_held_until_its_library_tracks_are_kept_both() {
+    // Library tracks 1 and 2 hold other audio than each other; 3 is a copy
+    // outside. Before "Keep both" the copy's pairs wait in Review with the
+    // set; after it they are settled and nothing moves.
+    let mut world = World::of([placed(1, 1, 1), placed(2, 2, 2), placed(3, 3, 3)]).pairs([
+        pair(1, 2, Outcome::Duplicate),
+        pair(1, 3, Outcome::Duplicate),
+        pair(2, 3, Outcome::Duplicate),
+    ]);
+    world.library = [1, 2].into();
+    let p = world.plan();
+    assert_eq!(world.state(&p, 1, 2), State::BothInLibrary);
+    assert_eq!(world.state(&p, 1, 3), State::SetDisagrees);
+    world.remembered = vec![remembered(1, 2, Verdict::Apart)];
+    let p = world.plan();
+    assert!(p.moves.is_empty());
+    for (a, b) in [(1, 2), (1, 3), (2, 3)] {
+        assert_eq!(world.state(&p, a, b), State::Decided, "{a} and {b}");
+    }
+    // A decision about the copy alone settles nothing between the Library
+    // tracks.
+    world.remembered = vec![remembered(1, 3, Verdict::Apart)];
+    let p = world.plan();
+    assert_eq!(world.state(&p, 1, 2), State::BothInLibrary);
+    assert_eq!(world.state(&p, 2, 3), State::SetDisagrees);
 }
 
 // ---- version links --------------------------------------------------------------

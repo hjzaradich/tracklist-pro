@@ -242,6 +242,7 @@ fn every_table_that_points_at_a_track_is_in_the_reference_list() {
         ("library_track", "recording_id"),
         ("recording_file", "recording_id"),
         ("rekordbox_track", "recording_id"),
+        ("track_merge", "recording_id"),
         ("version_link", "recording_a"),
         ("version_link", "recording_b"),
     ]

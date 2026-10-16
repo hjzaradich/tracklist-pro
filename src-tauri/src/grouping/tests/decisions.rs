@@ -3,7 +3,7 @@
 //! move that refuses to merge versions.
 
 use super::support::*;
-use crate::grouping::{remember, CantRemember, Refused, Verdict};
+use crate::grouping::{CantRemember, Refused, Verdict};
 
 const LEN: usize = 900;
 
@@ -15,15 +15,6 @@ fn file<'a>(name: &'a str, title: &'a str, n: u8, items: Vec<u32>) -> NewFile<'a
         hash: Some(hash(n)),
         items: Some(items),
         blake3: None,
-    }
-}
-
-impl Db {
-    /// The one way a decision is written.
-    fn remember(&self, a: i64, b: i64, verdict: Verdict) -> Result<(), CantRemember> {
-        self.writer
-            .call(move |c| remember(c, a, b, verdict))
-            .unwrap()
     }
 }
 
@@ -80,13 +71,60 @@ fn keep_both_for_two_library_tracks_with_identical_audio_is_remembered() {
     db.decide();
     assert_eq!(db.stands(a, b).1, "decided");
     assert_eq!(db.tracks(), 2);
-    // A third copy outside the Library isn't decided by it: it's the same
-    // as both, and joins neither.
+    // A third copy outside the Library is the same as both: it joins
+    // neither, and isn't asked about either (owner decision, 2026-10-12).
     let c = db.file(1, "new/Velo.mp3", Some(hash(1)));
     db.decide();
     assert_eq!(db.tracks(), 3);
-    assert_eq!(db.stands(a, c).1, "set_disagrees");
+    assert_eq!(db.stands(a, c).1, "decided");
+    assert_eq!(db.stands(b, c).1, "decided");
     assert_eq!(db.stands(a, b).1, "decided");
+}
+
+#[test]
+fn keeping_both_of_one_audio_covers_every_library_track_holding_it_and_the_copy() {
+    // Three Library tracks holding one audio, and a copy outside.
+    let db = db();
+    let a = db.file(1, "Velo.mp3", Some(hash(1)));
+    let b = db.file(1, "gigs/Velo.mp3", Some(hash(2)));
+    let d = db.file(2, "old/Velo.mp3", Some(hash(3)));
+    db.group();
+    for file in [a, b, d] {
+        db.to_library(file);
+    }
+    db.set_hash(b, Some(hash(1)));
+    db.set_hash(d, Some(hash(1)));
+    let c = db.file(1, "new/Velo.mp3", Some(hash(1)));
+    db.decide();
+    assert_eq!(db.stands(a, c).1, "set_disagrees");
+    // The one decision covers every pair of audio between a and b, which
+    // is the same audio d holds: a decision between a piece of audio and
+    // itself is between the Library tracks holding it, d included.
+    assert_eq!(db.remember(a, b, Verdict::Apart), Ok(()));
+    db.decide();
+    assert_eq!(db.stands(a, d).1, "decided");
+    assert_eq!(db.stands(a, c).1, "decided");
+    assert_eq!(db.tracks(), 4);
+}
+
+#[test]
+fn a_third_copy_of_two_library_tracks_of_other_audio_kept_both_is_not_asked_about() {
+    let db = db();
+    let (a, b) = two_duplicates(&db);
+    db.to_library(a);
+    db.to_library(b);
+    let velo = track(1, LEN);
+    let c = db.add(file("other/Velo.mp3", "Velo", 3, reencoded(&velo, 2, 7)));
+    db.decide();
+    assert_eq!(db.stands(a, b).1, "both_in_library");
+    assert_eq!(db.stands(a, c).1, "set_disagrees");
+    assert_eq!(db.remember(a, b, Verdict::Apart), Ok(()));
+    db.decide();
+    assert_ne!(db.track(c), db.track(a));
+    assert_ne!(db.track(c), db.track(b));
+    for (x, y) in [(a, b), (a, c), (b, c)] {
+        assert_eq!(db.stands(x, y).1, "decided", "files {x} and {y}");
+    }
 }
 
 #[test]

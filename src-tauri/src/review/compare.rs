@@ -398,8 +398,28 @@ pub fn comparison(
             .find(|r| r.file_id == file)
             .map(|r| from_rank(&r.reason))
     };
+    // A "Same track twice" item: its Library tracks, and which to keep.
+    // Tracks linked as versions are never merged: no track to keep is
+    // suggested, and the item offers "Keep both" only.
+    let same_recording = match id.kind {
+        ReviewKind::SameRecording => {
+            let tracks = super::same::offer_tracks(conn, volumes, id.a)?;
+            let recordings: Vec<i64> = tracks.iter().map(|t| t.recording_id).collect();
+            let linked = super::same::linked_versions(conn, &recordings)?;
+            let keep = match linked {
+                true => None,
+                false => keep_suggestion(&tracks, &ranking, &all, &files),
+            };
+            Some((tracks, keep, linked))
+        }
+        _ => None,
+    };
     let suggestion: Option<(i64, Reason)> = match id.kind {
         ReviewKind::QualityProblem => None,
+        // The linked file of the track to keep, and why that track.
+        ReviewKind::SameRecording => same_recording
+            .as_ref()
+            .and_then(|(_, keep, _)| keep.clone()),
         // A match the user confirmed before is here again for that reason,
         // however it was found the first time.
         ReviewKind::Relink => item.entry.as_ref().map(|e| {
@@ -508,5 +528,76 @@ pub fn comparison(
             file_id: e.file,
             confirmed_before: e.confirmed_before,
         }),
+        same_recording: same_recording.map(|(tracks, keep, linked_versions)| {
+            let keep = keep.and_then(|(file, _)| {
+                tracks
+                    .iter()
+                    .find(|t| t.linked_file_id == Some(file))
+                    .map(|t| t.recording_id)
+            });
+            super::same::SameRecordingOffer {
+                tracks,
+                keep,
+                linked_versions,
+            }
+        }),
     }))
+}
+
+/// The track a merge should keep ([`super::same::suggest_keep`]), as the
+/// file to mark (its linked file) and the reason, against the runner-up.
+fn keep_suggestion(
+    tracks: &[super::same::SameRecordingTrack],
+    ranking: &crate::best_file::Ranking,
+    all: &[FileFacts],
+    files: &[(i64, &Loaded)],
+) -> Option<(i64, Reason)> {
+    use super::same::{suggest_keep, KeepCandidate, KeepWhy};
+    // Each track's best-ranked file, and where it stands.
+    let best_of = |recording: i64| -> Option<(usize, i64)> {
+        ranking.order.iter().enumerate().find_map(|(at, r)| {
+            files
+                .iter()
+                .any(|(track, l)| *track == recording && l.facts.file_id == r.file_id)
+                .then_some((at, r.file_id))
+        })
+    };
+    let candidates: Vec<KeepCandidate> = tracks
+        .iter()
+        .map(|t| KeepCandidate {
+            recording: t.recording_id,
+            cues: t.rekordbox.map_or(0, |e| e.cues),
+            plays: t.rekordbox.map_or(0, |e| e.plays),
+            rank: best_of(t.recording_id).map_or(usize::MAX, |(at, _)| at),
+        })
+        .collect();
+    let (keep, why) = suggest_keep(&candidates)?;
+    let file = tracks
+        .iter()
+        .find(|t| t.recording_id == keep)?
+        .linked_file_id?;
+    let facts_of = |file: i64| all.iter().find(|f| f.file_id == file);
+    let reason = match why {
+        KeepWhy::MoreCues { cues, other } => keep_reason("review:keep.moreCues", cues, other),
+        KeepWhy::MorePlays { plays, other } => keep_reason("review:keep.morePlays", plays, other),
+        KeepWhy::BetterFile { other } => best_of(keep)
+            .zip(best_of(other))
+            .and_then(|((_, a), (_, b))| facts_of(a).zip(facts_of(b)))
+            .and_then(|(a, b)| why_ahead(a, b))
+            .map(|r| from_rank(&r))
+            .unwrap_or_else(|| fact("review:keep.tied")),
+        KeepWhy::Tied => fact("review:keep.tied"),
+    };
+    Some((file, reason))
+}
+
+fn fact(key: &str) -> Reason {
+    Reason::fact(key).unwrap_or_else(|e| panic!("bad reason key {key}: {e}"))
+}
+
+fn keep_reason(key: &str, count: u32, other: u32) -> Reason {
+    fact(key)
+        .with_number("count", f64::from(count))
+        .and_then(|r| r.with_number("other", f64::from(other)))
+        .unwrap_or_else(|e| panic!("bad reason parameter: {e}"))
 }

@@ -1711,6 +1711,8 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
             ("relink", "audio_hash"),
             ("relink", "file_key"),
             ("relink", "file_id"),
+            ("recording_file", "role"),
+            ("recording_file", "match_confidence"),
         ]
     );
     for (table, field) in DERIVED_FIELDS {
@@ -1759,6 +1761,21 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
                     "DELETE FROM file WHERE id = 1",
                     "UPDATE relink SET confidence = 0.9",
                 ),
+                ("recording_file", "role") => (
+                    // Its id is the file's (file 1, the next row id).
+                    vec![("recording_id", Value::Integer(1))],
+                    // The ranking makes the file the track's best.
+                    "UPDATE recording_file SET role = 'best'",
+                    "INSERT INTO recording DEFAULT VALUES;
+                     UPDATE recording_file SET recording_id = 2",
+                ),
+                ("recording_file", "match_confidence") => (
+                    // Its id is the file's (file 1, the next row id).
+                    vec![("recording_id", Value::Integer(1))],
+                    "UPDATE recording_file SET match_confidence = 0.5",
+                    "INSERT INTO recording DEFAULT VALUES;
+                     UPDATE recording_file SET recording_id = 2",
+                ),
                 other => panic!("no case for the derived column {other:?}"),
             };
         for (moves, undone) in [(derived_moves, true), (other_moves, false)] {
@@ -1794,4 +1811,43 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
             }
         }
     }
+}
+
+#[test]
+fn undoing_a_set_of_a_derived_column_leaves_it_to_what_keeps_it_current() {
+    // A file moved to another track starts over there (its role is the
+    // ranking's). Undo moves it back and leaves its role as the ranking
+    // made it since: no "changed since", nothing written back.
+    let (_dir, writer) = writer_with_a_file();
+    writer
+        .call(|c| {
+            c.execute_batch(
+                "INSERT INTO recording DEFAULT VALUES;
+                 INSERT INTO recording_file (recording_id, file_id, role) VALUES (1, 1, 'best');",
+            )
+        })
+        .unwrap();
+    record_via(&writer, "move_file", no_details(), |rec| {
+        rec.set("recording_file", 1, "role", "undecided")?;
+        rec.set("recording_file", 1, "recording_id", 2)
+    })
+    .unwrap();
+    // The ranking, outside the log.
+    writer
+        .call(|c| c.execute_batch("UPDATE recording_file SET role = 'extra'"))
+        .unwrap();
+    assert!(matches!(
+        undo_last_via(&writer).unwrap(),
+        UndoOutcome::Undone { .. }
+    ));
+    let (track, role): (i64, String) = writer
+        .call(|c| {
+            c.query_row(
+                "SELECT recording_id, role FROM recording_file WHERE file_id = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+        })
+        .unwrap();
+    assert_eq!((track, role.as_str()), (1, "extra"));
 }

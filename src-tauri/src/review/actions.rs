@@ -132,6 +132,8 @@ pub enum Refused {
     Switch(SwitchRefusal),
     /// What the switch means in rekordbox is not what the item showed.
     Changed,
+    /// Two tracks to merge are linked as versions: versions never merge.
+    LinkedVersions,
     /// The database or the operation log failed.
     Ops(OpsError),
 }
@@ -171,6 +173,7 @@ impl From<Refused> for IpcError {
             Refused::NoAudioKnown => IpcError::new(ErrorKind::ReviewNoAudioKnown),
             Refused::Switch(refusal) => IpcError::new(refusal.kind()),
             Refused::Changed => IpcError::new(ErrorKind::ReviewSwitchChanged),
+            Refused::LinkedVersions => IpcError::new(ErrorKind::ReviewMergeLinkedVersions),
             Refused::Ops(e) => IpcError::from(e),
         }
     }
@@ -711,7 +714,7 @@ pub struct Switched {
 /// of them (500); beyond that the roles job does it, and the queue is right
 /// when that job ends. The action has committed by now: a failure here is
 /// logged and left to the roles job, which finds the tracks due.
-fn rank_again(conn: &mut Connection, recordings: &[i64]) {
+pub(super) fn rank_again(conn: &mut Connection, recordings: &[i64]) {
     let now = &recordings[..recordings.len().min(crate::file_roles::BATCH)];
     if let Err(e) = crate::file_roles::settle_tracks(conn, now) {
         eprintln!("review: couldn't rank the tracks again: {e}");
@@ -956,7 +959,7 @@ pub struct RelinkOffer {
 // ---- commands ---------------------------------------------------------------
 
 /// Where the drives are, asked off the database's writer.
-fn mounted(reads: &ReadPool) -> Result<Mounted, DbError> {
+pub(super) fn mounted(reads: &ReadPool) -> Result<Mounted, DbError> {
     let known = reads.read(crate::relink::identities)?;
     Ok(Mounted::ask(&known, &system_volumes()))
 }

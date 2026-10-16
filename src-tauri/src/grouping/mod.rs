@@ -32,8 +32,10 @@
 //! - **Two tracks that are both in the Library are never merged**, whatever
 //!   the rules or the audio say (owner decision, ROADMAP 1.4). They stay
 //!   two tracks and the pair is stored as held (`both_in_library`); merging
-//!   them is the user's action (1bE-9). So no Library track, crate entry or
-//!   sync base is ever re-pointed here.
+//!   them is the user's action ([`crate::review::same`], 1bE-9). So no
+//!   Library track, crate entry or sync base is ever re-pointed here. Where
+//!   the user kept every two of a set's Library tracks both, a copy outside
+//!   the Library in that set joins neither and its pairs are `decided`.
 //! - **A file a Library track points at never moves.** A file outside the
 //!   Library may join a Library track as one more of its files.
 //! - **Linked versions never merge**, and a file never moves between two of
@@ -118,6 +120,8 @@ pub use store::{
     Step, Summary, BATCH, MAX_SET_FILES,
 };
 pub use target::GroupTarget;
+
+pub(crate) use store::{regroup_files, sync_rekordbox};
 
 pub(crate) use store::CONTENT_KEY;
 
