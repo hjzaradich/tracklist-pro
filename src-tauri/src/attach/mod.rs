@@ -20,7 +20,8 @@
 //!   the entry matched to the track's best file if there is one, else the
 //!   entry with the highest play count, else the lowest `TrackID` (ties
 //!   at each step fall to the next). The other entries stay in
-//!   `rekordbox_track` for Review (1b).
+//!   `rekordbox_track` for Review (1b). A track another Library track was
+//!   merged into takes it only from the entry it is sent as ([`PICKABLE`]).
 //! - **Running again with nothing changed changes nothing:** a row that
 //!   already holds the values is left alone, `analyzed_at` included.
 //! - Only the database is touched, and only `analysis` rows from
@@ -46,6 +47,18 @@ use crate::tags::key;
 pub(crate) const PICK_ORDER: &str = "COALESCE(rf.role = 'best', 0) DESC,
                           COALESCE(rt.play_count, 0) DESC,
                           rt.track_id";
+
+/// Which of a track's entries may give it its rekordbox row (needs `rt`,
+/// `rekordbox_track`). Every trusted entry, except on a track another
+/// Library track was merged into (Review, 1bE-9) while it is in the
+/// Library: that one keeps its own analysis, so only the entry it is sent
+/// as counts, the one on its linked file, never an entry of the track that
+/// left (foreman's ruling, 2026-10-16: nothing is combined field by field).
+/// With no entry on its linked file it has no rekordbox row, and its files'
+/// own values stand, as for any track rekordbox doesn't know.
+pub(crate) const PICKABLE: &str = "NOT EXISTS (
+        SELECT 1 FROM track_merge m JOIN library_track mlt ON mlt.recording_id = m.into_id
+        WHERE m.into_id = rt.recording_id AND rt.file_id IS NOT mlt.linked_file_id)";
 
 /// What one attach run did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -94,7 +107,7 @@ fn picks(conn: &Connection) -> rusqlite::Result<Vec<Candidate>> {
          FROM rekordbox_track rt
          LEFT JOIN recording_file rf
                 ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
-         WHERE rt.recording_id IS NOT NULL AND rt.relink_probable = 0
+         WHERE rt.recording_id IS NOT NULL AND rt.relink_probable = 0 AND {PICKABLE}
          ORDER BY rt.recording_id, {PICK_ORDER}"
     ))?;
     let mut rows = stmt.query([])?;

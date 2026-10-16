@@ -72,6 +72,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0026_review_queue_indexes"),
     migration!("0027_review_decisions"),
     migration!("0028_relink_decisions"),
+    migration!("0029_track_merge"),
 ];
 
 /// The table that records which migrations a database has had.

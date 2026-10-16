@@ -3,8 +3,9 @@
 //! in the database, a file or rekordbox. What the user decides about an item
 //! is in [`actions`] (1bE-5, 1bE-7: dismiss a better file, keep a flagged
 //! file, want a better one, switch a gone linked file, "Accept all"; 1bE-6:
-//! confirm a relink match or say it is not the same); the other actions
-//! (keep both, merge, split) are the other 1bE tasks.
+//! confirm a relink match or say it is not the same) and in [`same`]
+//! (1bE-9: keep two Library tracks that are the same recording, or merge
+//! them); split is another 1bE task.
 //!
 //! # What is queued
 //!
@@ -59,6 +60,7 @@ pub mod compare;
 pub mod held;
 mod queue;
 pub mod reasons;
+pub mod same;
 
 #[cfg(test)]
 mod tests;
@@ -292,6 +294,9 @@ pub struct ReviewComparison {
     /// The match a "Confirm relink" item asks about. `None` for every other
     /// kind.
     pub relink: Option<actions::RelinkOffer>,
+    /// The Library tracks a "Same track twice" item offers to keep both of
+    /// or merge (1bE-9). `None` for every other kind.
+    pub same_recording: Option<same::SameRecordingOffer>,
 }
 
 /// How many items wait, by group.

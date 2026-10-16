@@ -24,6 +24,7 @@ mod review_decisions;
 mod search_index;
 mod sent_playlist;
 mod sync_base_ids;
+mod track_merge;
 mod tracks;
 mod workspace;
 
@@ -240,6 +241,9 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ),
     // `relink` rebuilt as a rowid table with a verdict, no new tables.
     ("0028_relink_decisions.sql", &[]),
+    // A track merged into another by the user, kept with no files while
+    // the merge stands; `replaced_entry` gets a reason.
+    ("0029_track_merge.sql", &["track_merge"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

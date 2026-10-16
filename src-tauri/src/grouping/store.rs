@@ -25,7 +25,10 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
+
+use crate::ops::{OpsError, Recorder};
 
 use super::plan::{
     plan, Dest, Input, Key, Link, Member, Move, Outcome, Pair, Placed, Plan, Remembered, State,
@@ -104,14 +107,17 @@ impl Summary {
 /// the schema's foreign keys).
 ///
 /// A removal record (`library_removal`) also names a track, but sweeping
-/// handles it on purpose (see [`sweep`]), so it's not in this part.
+/// handles it on purpose (see [`sweep`]), so it's not in this part. A
+/// track the user merged into another (`track_merge`, Review) has no files
+/// while the merge stands and is kept for its Undo.
 const UNREFERENCED: &str =
     "NOT EXISTS (SELECT 1 FROM recording_file WHERE recording_id = recording.id)
      AND NOT EXISTS (SELECT 1 FROM library_track WHERE recording_id = recording.id)
      AND NOT EXISTS (SELECT 1 FROM analysis WHERE recording_id = recording.id)
      AND NOT EXISTS (SELECT 1 FROM version_link
                      WHERE recording_a = recording.id OR recording_b = recording.id)
-     AND NOT EXISTS (SELECT 1 FROM rekordbox_track WHERE recording_id = recording.id)";
+     AND NOT EXISTS (SELECT 1 FROM rekordbox_track WHERE recording_id = recording.id)
+     AND NOT EXISTS (SELECT 1 FROM track_merge WHERE recording_id = recording.id)";
 
 /// The audio file `f` holds, as SQL: its `audio_hash`, or its `blake3` when
 /// it has none (an empty hash says nothing, like none). The one name for a
@@ -632,7 +638,7 @@ fn sync_links(
 /// read of the snapshot clears `recording_id`, and this puts it right
 /// again after placements, moves and both of those. A row with no matched
 /// file has no track either.
-fn sync_rekordbox(conn: &Connection) -> rusqlite::Result<()> {
+pub(crate) fn sync_rekordbox(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE rekordbox_track
          SET recording_id = (SELECT rf.recording_id FROM recording_file rf
@@ -867,77 +873,112 @@ pub enum CantRemember {
 /// - A file with no audio known at all is refused, and files in the two
 ///   tracks with none are left out of the rows.
 ///
-/// Runs on the caller's connection, inside whatever transaction (and
-/// operation) the caller has open. Nothing calls it yet: Review does
-/// (1bE).
+/// Every row is written through the operation `rec` records (a new row is
+/// an insert, a changed decision a set), so the user's Undo takes the
+/// decision back; nothing else writes `grouping_decision`, so its ids are
+/// only ever made through the log. Review's "Keep both" calls it
+/// ([`crate::review::same`]).
 pub fn remember(
-    conn: &Connection,
+    rec: &mut Recorder<'_>,
     a: i64,
     b: i64,
     verdict: Verdict,
-) -> rusqlite::Result<Result<(), CantRemember>> {
+) -> Result<Result<(), CantRemember>, OpsError> {
     if a == b {
         return Ok(Err(CantRemember::SameFile));
     }
-    let content = |file: i64| -> rusqlite::Result<Option<Key>> {
-        let found: Option<Option<Key>> = conn
-            .query_row(
+    let content = |rec: &Recorder<'_>, file: i64| -> Result<Option<Key>, OpsError> {
+        let found: Option<Option<Key>> = rec
+            .read_rows(
                 &format!("SELECT {CONTENT_KEY} FROM file f WHERE f.id = ?1"),
                 [file],
                 |r| r.get(0),
-            )
-            .optional()?;
+            )?
+            .pop();
         Ok(found.flatten().filter(|key| !key.is_empty()))
     };
-    let (Some(key_a), Some(key_b)) = (content(a)?, content(b)?) else {
+    let (Some(key_a), Some(key_b)) = (content(rec, a)?, content(rec, b)?) else {
         return Ok(Err(CantRemember::NoAudioKnown));
     };
-    let track = |file: i64| -> rusqlite::Result<Option<i64>> {
-        conn.query_row(
-            "SELECT recording_id FROM recording_file WHERE file_id = ?1",
-            [file],
-            |r| r.get(0),
-        )
-        .optional()
+    let track = |rec: &Recorder<'_>, file: i64| -> Result<Option<i64>, OpsError> {
+        Ok(rec
+            .read_rows(
+                "SELECT recording_id FROM recording_file WHERE file_id = ?1",
+                [file],
+                |r| r.get(0),
+            )?
+            .pop())
     };
     // Every kind of audio the file's track holds, the file's own included.
-    let held_with = |track: Option<i64>, own: Key| -> rusqlite::Result<Vec<Key>> {
-        let mut held = vec![own];
-        if let Some(track) = track {
-            let mut stmt = conn.prepare_cached(&format!(
-                "SELECT DISTINCT {CONTENT_KEY} FROM recording_file rf
-                 JOIN file f ON f.id = rf.file_id
-                 WHERE rf.recording_id = ?1"
-            ))?;
-            let rows = stmt.query_map([track], |r| r.get::<_, Option<Key>>(0))?;
-            for key in rows {
-                held.extend(key?.filter(|key| !key.is_empty()));
+    let held_with =
+        |rec: &Recorder<'_>, track: Option<i64>, own: Key| -> Result<Vec<Key>, OpsError> {
+            let mut held = vec![own];
+            if let Some(track) = track {
+                let keys = rec.read_rows(
+                    &format!(
+                        "SELECT DISTINCT {CONTENT_KEY} FROM recording_file rf
+                     JOIN file f ON f.id = rf.file_id
+                     WHERE rf.recording_id = ?1"
+                    ),
+                    [track],
+                    |r| r.get::<_, Option<Key>>(0),
+                )?;
+                held.extend(keys.into_iter().flatten().filter(|key| !key.is_empty()));
             }
-        }
-        held.sort_unstable();
-        held.dedup();
-        Ok(held)
-    };
-    let (track_a, track_b) = (track(a)?, track(b)?);
+            held.sort_unstable();
+            held.dedup();
+            Ok(held)
+        };
+    let (track_a, track_b) = (track(rec, a)?, track(rec, b)?);
     let (side_a, side_b) = match track_a.is_some() && track_a == track_b {
         // One track: nothing to keep apart or bring together between two.
         true => (vec![key_a], vec![key_b]),
-        false => (held_with(track_a, key_a)?, held_with(track_b, key_b)?),
+        false => (
+            held_with(rec, track_a, key_a)?,
+            held_with(rec, track_b, key_b)?,
+        ),
     };
-    let mut put = conn.prepare_cached(
-        "INSERT INTO grouping_decision (key_a, key_b, decision) VALUES (?1, ?2, ?3)
-         ON CONFLICT (key_a, key_b) DO UPDATE
-             SET decision = excluded.decision,
-                 decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-             WHERE decision IS NOT excluded.decision",
-    )?;
+    let mut pairs: Vec<(&Key, &Key)> = Vec::new();
     for key_a in &side_a {
         for key_b in &side_b {
-            let (low, high) = match key_a <= key_b {
+            pairs.push(match key_a <= key_b {
                 true => (key_a, key_b),
                 false => (key_b, key_a),
-            };
-            put.execute(params![low, high, verdict.as_str()])?;
+            });
+        }
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    for (low, high) in pairs {
+        let stored: Option<(i64, String)> = rec
+            .read_rows(
+                "SELECT id, decision FROM grouping_decision WHERE key_a = ?1 AND key_b = ?2",
+                params![low, high],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?
+            .pop();
+        match stored {
+            None => {
+                rec.insert(
+                    "grouping_decision",
+                    &[
+                        ("key_a", Value::Blob(low.clone())),
+                        ("key_b", Value::Blob(high.clone())),
+                        ("decision", Value::Text(verdict.as_str().to_owned())),
+                    ],
+                )?;
+            }
+            Some((id, decision)) if decision != verdict.as_str() => {
+                let now: String = rec
+                    .read_rows("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
+                        r.get(0)
+                    })?
+                    .pop()
+                    .unwrap_or_default();
+                rec.set("grouping_decision", id, "decision", verdict.as_str())?;
+                rec.set("grouping_decision", id, "decided_at", now)?;
+            }
+            Some(_) => {}
         }
     }
     Ok(Ok(()))

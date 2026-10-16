@@ -993,6 +993,28 @@ pub fn plan(input: &Input<'_>) -> Plan {
             settled.insert(ordered(merged.find(x), merged.find(y)));
         }
     }
+    // The sets held because two of their tracks are in the Library, where
+    // the user kept every two of those Library tracks apart ("Keep both" in
+    // Review, 1bE-9): a copy outside the Library in such a set joins none of
+    // them and isn't asked about again (owner decision, 2026-10-12).
+    let mut kept_both: HashSet<usize> = HashSet::new();
+    for (&set, (status, set_nodes)) in &by_pairs {
+        if *status != Status::Library {
+            continue;
+        }
+        let mut units: Vec<usize> = set_nodes.iter().map(|&n| merged.find(n)).collect();
+        units.retain(|&u| merged.library[u]);
+        units.sort_unstable();
+        units.dedup();
+        let all_settled = units.iter().enumerate().all(|(i, &x)| {
+            units[i + 1..]
+                .iter()
+                .all(|&y| settled.contains(&ordered(x, y)))
+        });
+        if all_settled {
+            kept_both.insert(set);
+        }
+    }
     let mut wanted: BTreeMap<(Dest, Dest), Wanted> = BTreeMap::new();
     for (at, pair) in input.pairs.iter().enumerate() {
         let (Some(&x), Some(&y)) = (work.index.get(&pair.a), work.index.get(&pair.b)) else {
@@ -1032,6 +1054,7 @@ pub fn plan(input: &Input<'_>) -> Plan {
                     match by_pairs.get(&set).filter(|_| together).map(|s| s.0) {
                         None | Some(Status::Waiting) => State::Waiting,
                         Some(Status::Library) if both_in_library => State::BothInLibrary,
+                        Some(Status::Library) if kept_both.contains(&set) => State::Decided,
                         Some(_) => State::SetDisagrees,
                     }
                 }

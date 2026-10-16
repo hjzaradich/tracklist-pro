@@ -138,6 +138,8 @@ error_kinds! {
     /// rekordbox's entry on the file to switch to is the one another Library
     /// track is sent as.
     ReviewSwitchEntryTaken => "review:error.switchEntryTaken", params: [];
+    /// Two tracks to merge are linked as versions, and versions never merge.
+    ReviewMergeLinkedVersions => "review:error.mergeLinkedVersions", params: [];
     /// What the switch means in rekordbox changed since the item was shown.
     ReviewSwitchChanged => "review:error.switchChanged", params: [];
 }

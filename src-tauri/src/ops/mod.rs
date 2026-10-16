@@ -51,7 +51,9 @@
 //! never in recording or in the unwinding itself: once an undo has
 //! committed, the files of the Library tracks it changed are ranked again
 //! ([`crate::file_roles`]), so what is derived from a link is right as the
-//! undo returns; and one undo is refused by a feature's own rule, the
+//! undo returns (after an undone "Keep both" or merge of two Library tracks
+//! a grouping pass runs first, [`crate::review::same`], so the pair is back
+//! in Review); and one undo is refused by a feature's own rule, the
 //! switch of a linked file that made a track a new one for rekordbox and
 //! was sent since ([`crate::review::actions`]).
 //!
@@ -1247,6 +1249,9 @@ pub fn undo_only(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, O
 pub fn undo_for_user(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, OpsError> {
     let outcome = undo_step(conn, only)?;
     if let UndoOutcome::Undone { operation } = &outcome {
+        // An undone "Keep both" or merge of two Library tracks: the grouping
+        // pass puts the pair back in the queue (derived state, as below).
+        crate::review::same::after_undo(conn, &operation.kind);
         if let Err(e) = rank_again_after(conn, operation.id) {
             eprintln!(
                 "undo of operation {}: couldn't rank its tracks again: {e}",
@@ -1266,7 +1271,8 @@ pub fn undo_for_user(conn: &mut Connection, only: Option<i64>) -> Result<UndoOut
     Ok(outcome)
 }
 
-/// Ranks again the tracks whose Library track `operation` changed, and
+/// Ranks again the tracks whose Library track `operation` changed, the
+/// tracks it moved files between (a merge of two Library tracks), and
 /// those linked to the audio a dismissal it made or took back was about
 /// (which better file a track is offered skips dismissed ones), where they
 /// are due (a database trigger made them so): at most one batch of the roles
@@ -1281,6 +1287,14 @@ fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<(
                  UNION
                  SELECT CAST(coalesce(c.before, c.after) AS INTEGER) FROM change c
                  WHERE c.operation_id = ?1 AND c.entity = 'library_track'
+                   AND c.field = 'recording_id'
+                 UNION
+                 SELECT CAST(c.before AS INTEGER) FROM change c
+                 WHERE c.operation_id = ?1 AND c.entity = 'recording_file'
+                   AND c.field = 'recording_id'
+                 UNION
+                 SELECT CAST(c.after AS INTEGER) FROM change c
+                 WHERE c.operation_id = ?1 AND c.entity = 'recording_file'
                    AND c.field = 'recording_id'
                  UNION
                  SELECT lt.recording_id FROM library_track lt
@@ -1356,6 +1370,13 @@ fn undo_set(
     found: &mut Found,
     taken_to_hold: &HashMap<FieldKey, Option<String>>,
 ) -> Result<(), OpsError> {
+    // A derived column is kept current by whatever it follows, not by the
+    // log: what it held before the operation means nothing now, so Undo
+    // leaves it to that (a moved file's role is the ranking's, worked out
+    // again for the tracks the undo changed).
+    if is_derived(&table.name, &change.field) {
+        return Ok(());
+    }
     let conflicts = &mut found.conflicts;
     let column = table.column(&change.field)?;
     // Nearly always empty: no key is built then.
@@ -1575,6 +1596,18 @@ fn undo_delete(
 ///   NULL), and the decision stands by what the file held. Undoing it must
 ///   still work after that.
 ///
+/// - `recording_file.role` and `recording_file.match_confidence` are the
+///   ranking's (the roles job, [`crate::file_roles`]): a file that changes
+///   track starts over in its new one, and the ranking works it out again.
+///   A merge of two Library tracks (Review, 1bE-9) is the one operation
+///   that writes them, as it moves the leaving track's files.
+///
+/// Undoing a **set** of a derived column leaves the column as it is: no
+/// "changed since" check, nothing written back. The one operation that sets
+/// one (the merge) moves files, and its Undo ranks the tracks it changed
+/// again. No other operation sets a derived column (a test holds the
+/// source to that).
+///
 /// A test holds every entry to what the "changed since" check skips; a new
 /// entry needs its own case there.
 pub(crate) const DERIVED_FIELDS: &[(&str, &str)] = &[
@@ -1582,6 +1615,8 @@ pub(crate) const DERIVED_FIELDS: &[(&str, &str)] = &[
     ("relink", "audio_hash"),
     ("relink", "file_key"),
     ("relink", "file_id"),
+    ("recording_file", "role"),
+    ("recording_file", "match_confidence"),
 ];
 
 fn is_derived(entity: &str, field: &str) -> bool {
@@ -1628,7 +1663,11 @@ pub fn undo_last_operation(
         if crate::relink::decide::is_operation(&operation.kind) {
             crate::review::actions::ask_for_relink(&writer, &jobs);
         }
-        crate::review::actions::ask_for_follow_up_work(&writer, &jobs);
+        if crate::review::same::is_operation(&operation.kind) {
+            crate::review::same::ask_for_merge_follow_up(&writer, &jobs);
+        } else {
+            crate::review::actions::ask_for_follow_up_work(&writer, &jobs);
+        }
     }
     Ok(outcome)
 }

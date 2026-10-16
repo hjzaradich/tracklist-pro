@@ -272,6 +272,7 @@ const REKORDBOX_GENRE: &str =
                        LEFT JOIN recording_file rf
                               ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
                        WHERE rt.recording_id = lt.recording_id AND rt.relink_probable = 0
+                         AND {pickable}
                        ORDER BY {order}
                        LIMIT 1)";
 
@@ -296,7 +297,9 @@ fn genre_source_sql() -> String {
                       {rekordbox_genre} AS rb
                FROM library_track lt) g",
         frames = frame_filter(false),
-        rekordbox_genre = REKORDBOX_GENRE.replace("{order}", crate::attach::PICK_ORDER),
+        rekordbox_genre = REKORDBOX_GENRE
+            .replace("{order}", crate::attach::PICK_ORDER)
+            .replace("{pickable}", crate::attach::PICKABLE),
     )
 }
 
@@ -410,7 +413,9 @@ fn missing_tags_sql() -> String {
                LEFT JOIN recording r ON r.id = lt.recording_id
                LEFT JOIN file f ON f.id = lt.linked_file_id) s",
         frames = frame_filter(true),
-        rekordbox_genre = REKORDBOX_GENRE.replace("{order}", crate::attach::PICK_ORDER),
+        rekordbox_genre = REKORDBOX_GENRE
+            .replace("{order}", crate::attach::PICK_ORDER)
+            .replace("{pickable}", crate::attach::PICKABLE),
     )
 }
 

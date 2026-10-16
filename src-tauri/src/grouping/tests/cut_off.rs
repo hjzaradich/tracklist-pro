@@ -4,7 +4,7 @@
 //! rules, the deciding job.
 
 use super::support::*;
-use crate::grouping::{decide, remember, Verdict, PAGE};
+use crate::grouping::{decide, Verdict, PAGE};
 use crate::quality;
 
 /// About two minutes of made-up audio.
@@ -576,10 +576,7 @@ fn an_apart_decision_outlives_a_truncated_verdict() {
     let db = db();
     let (whole, copy) = db.velo_and_its_cut_off_copy();
     db.decide();
-    let said = db
-        .writer
-        .call(move |c| remember(c, whole, copy, Verdict::Apart))
-        .unwrap();
+    let said = db.remember(whole, copy, Verdict::Apart);
     assert_eq!(said, Ok(()));
     db.read_as_cut_short(copy, true);
     db.settle();

@@ -265,6 +265,28 @@ impl Db {
         track
     }
 
+    /// The one way a decision is written: [`crate::grouping::remember`], as
+    /// one operation of the log (as Review's "Keep both" writes it).
+    pub fn remember(
+        &self,
+        a: i64,
+        b: i64,
+        verdict: crate::grouping::Verdict,
+    ) -> Result<(), crate::grouping::CantRemember> {
+        self.writer
+            .call(move |c| {
+                Ok(crate::ops::record(
+                    c,
+                    "remember_decision",
+                    &serde_json::json!({}),
+                    |rec| crate::grouping::remember(rec, a, b, verdict),
+                ))
+            })
+            .unwrap()
+            .unwrap()
+            .value
+    }
+
     pub fn group(&self) -> Summary {
         self.writer.call(regroup).unwrap()
     }
