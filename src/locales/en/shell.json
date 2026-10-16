@@ -41,7 +41,10 @@
       "withdrawRelink": "Undo (relink confirmation withdrawn)",
       "other": "Undo (last change)",
       "keepBoth": "Undo (both tracks kept)",
-      "mergeTracks": "Undo (tracks merged)"
+      "mergeTracks": "Undo (tracks merged)",
+      "sameTrack": "Undo (made one track)",
+      "notSameTrack": "Undo (marked not the same track)",
+      "splitOffFile": "Undo (file split off)"
     },
     "refused": {
       "sentSince": "Can't undo: tracks have been sent to rekordbox since",

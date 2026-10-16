@@ -5,6 +5,7 @@ import type {
   ErrorKind,
   ReviewComparison,
   ReviewFileRow,
+  ReviewKind,
   SwitchEffect,
   SwitchRefusal,
 } from "../bindings";
@@ -12,7 +13,9 @@ import {
   useConfirmRelink,
   useDismissBetterFile,
   useKeepAnyway,
+  useNotSame,
   useRejectRelink,
+  useSameTrack,
   useSwitchLinkedFile,
   useWantBetterFile,
 } from "./useReviewActions";
@@ -40,6 +43,16 @@ const EFFECT_TEXT: Record<SwitchEffect, "switch.keepsEntry" | "switch.newTrack" 
   newTrack: "switch.newTrack",
   otherEntry: "switch.otherEntry",
 };
+
+/**
+ * Whether items of `kind` take "Same track" (Enter) and S, and have rows to
+ * select: **the one place that says it** on this side (the backend's is
+ * `review::split::decides_tracks`). A possible version mix-up and "Unclear
+ * duplicates" for now; the owner is asked about "Clearly best file".
+ */
+export function decidesTracks(kind: ReviewKind): boolean {
+  return kind === "versionDoubt" || kind === "heldSet";
+}
 
 /** Starts an action; `onSettled` says it was answered, whatever the answer. */
 type Start = (settled: { onSettled: () => void }) => void;
@@ -72,8 +85,12 @@ type Start = (settled: { onSettled: () => void }) => void;
  * to 9) and acts only where there is a choice of file: on "File missing,
  * copy found" with more than one copy on disk, it switches to the copy in
  * that row. The `.keys` line says which keys work on the item. "These are the
- * same track" (a possible version mix-up, "Unclear duplicates") has no
- * command yet, so no key does it.
+ * same track" on a possible version mix-up and on "Unclear duplicates" is the
+ * "Same track" button, and S there is "Not the same" (two files) or "Split
+ * off" (three or more files: the selected row, `selectedFile`; with no row
+ * selected S does nothing and the keys line says to select one). After a
+ * split that leaves the item in the queue (its other question still open)
+ * the screen stays on it.
  *
  * A key press and a click go through the same guard: nothing starts while an
  * action is under way or once the item is decided, so an action is never made
@@ -85,9 +102,12 @@ type Start = (settled: { onSettled: () => void }) => void;
  */
 export function ReviewActions({
   comparison,
+  selectedFile = null,
   onDecided,
 }: {
   comparison: ReviewComparison;
+  /** The file of the selected row, if a row is selected. */
+  selectedFile?: number | null;
   onDecided?: () => void;
 }) {
   if (comparison.kind === "sameRecording" && comparison.sameRecording) {
@@ -99,15 +119,17 @@ export function ReviewActions({
       />
     );
   }
-  return <FileActions comparison={comparison} onDecided={onDecided} />;
+  return <FileActions comparison={comparison} selectedFile={selectedFile} onDecided={onDecided} />;
 }
 
 /** The actions of every kind but "Same track twice" ({@link SameRecordingActions}). */
 function FileActions({
   comparison,
+  selectedFile,
   onDecided,
 }: {
   comparison: ReviewComparison;
+  selectedFile: number | null;
   onDecided?: () => void;
 }) {
   const { t } = useTranslation("review");
@@ -133,6 +155,11 @@ function FileActions({
   const switchFile = useSwitchLinkedFile(done);
   const confirm = useConfirmRelink(done);
   const reject = useRejectRelink(done);
+  const same = useSameTrack(done);
+  // A split that leaves the item in the queue: the screen stays on it.
+  const notSame = useNotSame((answer) => {
+    if (!answer.itemStays) done();
+  });
   // A relink item names rekordbox's entry; every other kind names a track.
   const recordingId = comparison.id.a;
   const entryId = comparison.id.a;
@@ -142,9 +169,18 @@ function FileActions({
     want.isPending ||
     switchFile.isPending ||
     confirm.isPending ||
-    reject.isPending;
+    reject.isPending ||
+    same.isPending ||
+    notSame.isPending;
   const failure =
-    dismiss.error ?? keep.error ?? want.error ?? switchFile.error ?? confirm.error ?? reject.error;
+    dismiss.error ??
+    keep.error ??
+    want.error ??
+    switchFile.error ??
+    confirm.error ??
+    reject.error ??
+    same.error ??
+    notSame.error;
 
   // Nothing starts while an action is under way or once the item is decided.
   const run = (start: Start): boolean => {
@@ -160,6 +196,8 @@ function FileActions({
   // What Enter does, and what the number keys do (a row of the table, 1 to 9).
   let enter: { label: string; start: Start } | null = null;
   let pick: ((row: ReviewFileRow) => Start | null) | null = null;
+  // What S does (null: nothing), and the words for it on the keys line.
+  let s: { label: string; start: Start | null } | null = null;
   if (comparison.kind === "betterFile" && comparison.suggestion) {
     const fileId = comparison.suggestion.what;
     buttons = (
@@ -223,6 +261,38 @@ function FileActions({
         {t("action.switch")}
       </button>
     );
+  } else if (decidesTracks(comparison.kind)) {
+    const id = comparison.id;
+    const recordingIds = comparison.tracks.flatMap((track) =>
+      track.recordingId === null ? [] : [track.recordingId],
+    );
+    const files =
+      comparison.rows.filter((row) => row.source === "file").length + comparison.moreFiles;
+    const two = files === 2;
+    const sameStart: Start = (o) => same.mutate({ id, recordingIds }, o);
+    enter = { label: t("action.sameTrack"), start: sameStart };
+    const sLabel = two ? t("action.notSame") : t("action.splitOff");
+    const fileId = two ? null : selectedFile;
+    s = {
+      label: sLabel,
+      start: two || fileId !== null ? (o) => notSame.mutate({ id, recordingIds, fileId }, o) : null,
+    };
+    const sStart = s.start;
+    buttons = (
+      <>
+        <button type="button" className={styles.primary} disabled={busy} onClick={() => run(sameStart)}>
+          {t("action.sameTrack")}
+        </button>
+        <button
+          type="button"
+          className={styles.button}
+          disabled={busy || sStart === null}
+          onClick={() => sStart !== null && run(sStart)}
+        >
+          {sLabel}
+        </button>
+      </>
+    );
   } else if (comparison.kind === "relink" && comparison.relink) {
     const { fileId, confirmedBefore } = comparison.relink;
     const label = confirmedBefore ? t("action.confirmAgain") : t("action.confirm");
@@ -253,6 +323,11 @@ function FileActions({
       run(enter.start);
       return true;
     }
+    if (key === "s") {
+      if (s === null || s.start === null) return false;
+      run(s.start);
+      return true;
+    }
     const row = comparison.rows[key - 1];
     const start = row === undefined || pick === null ? null : pick(row);
     if (start === null) return false;
@@ -266,10 +341,13 @@ function FileActions({
     <>
       <div role="group" aria-label={t("action.label")} className={styles.actions}>
         {buttons}
-        {(enter !== null || pick !== null) && (
+        {(enter !== null || pick !== null || s !== null) && (
           <p className={styles.keys}>
             {enter !== null && <span>{t("keys.enter", { action: enter.label })}</span>}
             {pick !== null && <span>{t("keys.rows")}</span>}
+            {s !== null && (
+              <span>{s.start === null ? t("keys.selectRow") : t("keys.s", { action: s.label })}</span>
+            )}
           </p>
         )}
       </div>

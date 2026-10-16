@@ -675,7 +675,26 @@ fn the_same_never_merges_two_library_tracks() {
     world.remembered = vec![remembered(1, 2, Verdict::Same)];
     let p = world.plan();
     assert!(p.moves.is_empty());
-    assert_eq!(world.state(&p, 1, 2), State::Decided);
+    // Not settled: two Library tracks the user called the same are the
+    // "Same track twice in your Library" item, whose Merge is theirs (1bE-2).
+    assert_eq!(world.state(&p, 1, 2), State::BothInLibrary);
+}
+
+#[test]
+fn the_same_makes_two_library_tracks_a_pair_the_rules_sent_to_review_the_same_recording() {
+    let mut world =
+        World::of([placed(1, 1, 1), placed(2, 2, 2)]).pairs([pair(1, 2, Outcome::Review)]);
+    world.library = [1, 2].into();
+    assert_eq!(world.state(&world.plan(), 1, 2), State::Open);
+    world.remembered = vec![remembered(1, 2, Verdict::Same)];
+    let p = world.plan();
+    assert!(p.moves.is_empty());
+    assert_eq!(world.state(&p, 1, 2), State::BothInLibrary);
+    // Outside the Library "the same" merges them, and settles the pair.
+    world.library = [1].into();
+    let p = world.plan();
+    assert_eq!(p.moves.len(), 1);
+    assert_eq!(world.state(&p, 1, 2), State::InOneTrack);
 }
 
 #[test]

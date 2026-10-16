@@ -748,11 +748,11 @@ describe("Enter", () => {
     expect(writesOf(world)).toEqual([]);
   });
 
+  // On a version mix-up and on "Unclear duplicates" it is "Same track"
+  // (ReviewSplit.test.tsx).
   it.each([
     ["qualityProblem", { ...EMPTY, qualityProblems: [QUALITY] }],
     ["betterFile", { ...EMPTY, qualityProblems: [BETTER] }],
-    ["versionDoubt", { ...EMPTY, needsCloserLook: [DOUBT_ITEM] }],
-    ["heldSet", { ...EMPTY, needsCloserLook: [HELD_ITEM] }],
   ])("does nothing on a %s item", async (_name, lists) => {
     const world = backend({ lists });
     renderScreen();

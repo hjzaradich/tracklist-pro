@@ -1664,14 +1664,18 @@ fn undo_delete(
 /// - `recording_file.role` and `recording_file.match_confidence` are the
 ///   ranking's (the roles job, [`crate::file_roles`]): a file that changes
 ///   track starts over in its new one, and the ranking works it out again.
-///   A merge of two Library tracks (Review, 1bE-9) is the one operation
-///   that writes them, as it moves the leaving track's files.
+///   Only an action that moves files between tracks writes them, through
+///   the one function that moves a file (`review::same::move_file`): a merge
+///   of two Library tracks (Review, 1bE-9), "these are the same track" and a
+///   split (Review, 1bE-2).
 ///
 /// Undoing a **set** of a derived column leaves the column as it is: no
-/// "changed since" check, nothing written back. The one operation that sets
-/// one (the merge) moves files, and its Undo ranks the tracks it changed
-/// again. No other operation sets a derived column (a test holds the
-/// source to that).
+/// "changed since" check, nothing of the value before written back. The
+/// operations that set one move files, and their Undo ranks the tracks they
+/// changed again; a file the Undo moves back starts over in its track, as
+/// every move does (`starts_over`: role `undecided`, no match confidence).
+/// No other operation sets a derived column (a test holds the source to
+/// that).
 ///
 /// A test holds every entry to what the "changed since" check skips; a new
 /// entry needs its own case there.

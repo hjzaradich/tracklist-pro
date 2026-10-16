@@ -73,7 +73,9 @@ use std::collections::BTreeSet;
 
 use rusqlite::types::Value;
 use rusqlite::Connection;
+use serde::Serialize;
 use serde_json::json;
+use specta::Type;
 use tauri::State;
 
 use super::actions::{rank_again, Acted, Refused};
@@ -292,6 +294,17 @@ pub fn same_track(
 
 // ---- not the same, and a split ----------------------------------------------------
 
+/// What S did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotSame {
+    pub operation_id: Option<i64>,
+    /// The item is still in the queue: a split left the question between its
+    /// other tracks open. The screen then stays on it (foreman's answer,
+    /// 2026-10-16); otherwise it goes on to the next item.
+    pub item_stays: bool,
+}
+
 /// S on the item `id`, whose tracks the screen showed as `shown`: with two
 /// files, "not the same" between them; with three or more, the file `file`
 /// (the selected row) is split off. See the module docs.
@@ -300,16 +313,22 @@ pub fn not_same(
     id: ReviewItemId,
     shown: &[i64],
     file: Option<i64>,
-) -> Result<Acted, Refused> {
+) -> Result<NotSame, Refused> {
     let tracks = still_the_item(conn, id, shown)?;
     let files = files_of(conn, &tracks)?;
-    if files.len() == 2 {
-        return apart(conn, &tracks, files[0], files[1]);
-    }
-    let file = file
-        .filter(|f| files.contains(f))
-        .ok_or(Refused::ItemGone)?;
-    split(conn, &tracks, file)
+    let acted = match files.len() {
+        2 => apart(conn, &tracks, files[0], files[1])?,
+        _ => {
+            let file = file
+                .filter(|f| files.contains(f))
+                .ok_or(Refused::ItemGone)?;
+            split(conn, &tracks, file)?
+        }
+    };
+    Ok(NotSame {
+        operation_id: acted.operation_id,
+        item_stays: item_tracks(conn, id)?.is_some(),
+    })
 }
 
 /// Whether a file of `side` holds the very same audio as a file of
@@ -596,7 +615,7 @@ pub fn review_not_same(
     id: ReviewItemId,
     recording_ids: Vec<i64>,
     file_id: Option<i64>,
-) -> Result<Acted, IpcError> {
+) -> Result<NotSame, IpcError> {
     let acted = writer.call(move |c| Ok(not_same(c, id, &recording_ids, file_id)))??;
     ask_for_merge_follow_up(&writer, &jobs);
     Ok(acted)

@@ -701,5 +701,25 @@
   "keys.tracks": {
     "purpose": "Says which keys work on a \"Same track twice\" item: a number key chooses the track of that row to stay and opens the merge confirmation.",
     "where": "Review screen, \"Same track twice in your Library\" item, the keys line in the action row."
+  },
+  "action.sameTrack": {
+    "purpose": "Button that says the files of the item are one track: they are merged into the Library track (Enter does the same). Proposal.",
+    "where": "Review screen, action row under the comparison, on a possible version mix-up and on Unclear duplicates; the one filled button."
+  },
+  "action.splitOff": {
+    "purpose": "Button that takes the selected row's file out of its track and keeps it apart for good (S does the same). With the Library file's row selected, the other files leave it instead. Greyed out until a row is selected. Proposal.",
+    "where": "Review screen, action row, on a possible version mix-up and on Unclear duplicates with three or more files."
+  },
+  "keys.s": {
+    "purpose": "Says what S does on this item; {{action}} is the button's own name (Not the same, or Split off). Proposal.",
+    "where": "Review screen, the keys line in the action row."
+  },
+  "keys.selectRow": {
+    "purpose": "Says S needs a selected row on an item with three or more files, and what it then does. Proposal.",
+    "where": "Review screen, the keys line in the action row, while no row is selected."
+  },
+  "error.sameAudio": {
+    "purpose": "Why a split was refused: the file holds the very same audio as a file it would leave, and such files are always one track. Proposal.",
+    "where": "Review screen, under the action row, after Split off or S."
   }
 }

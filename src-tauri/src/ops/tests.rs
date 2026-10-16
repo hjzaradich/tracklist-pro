@@ -1816,8 +1816,11 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
 #[test]
 fn undoing_a_set_of_a_derived_column_leaves_it_to_what_keeps_it_current() {
     // A file moved to another track starts over there (its role is the
-    // ranking's). Undo moves it back and leaves its role as the ranking
-    // made it since: no "changed since", nothing written back.
+    // ranking's). Undo moves it back: no "changed since" for the role the
+    // ranking made since, and nothing of the role before is written back.
+    // The file starts over in the track it is back in, as any move does
+    // (1bE-2: it may be its new track's best, and a track has one), and the
+    // ranking works it out again.
     let (_dir, writer) = writer_with_a_file();
     writer
         .call(|c| {
@@ -1849,5 +1852,5 @@ fn undoing_a_set_of_a_derived_column_leaves_it_to_what_keeps_it_current() {
             )
         })
         .unwrap();
-    assert_eq!((track, role.as_str()), (1, "extra"));
+    assert_eq!((track, role.as_str()), (1, "undecided"));
 }

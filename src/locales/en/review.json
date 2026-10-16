@@ -58,12 +58,16 @@
     "keepBoth": "Keep both",
     "merge": "Merge",
     "mergeConfirm": "Merge",
-    "goBack": "Go back"
+    "goBack": "Go back",
+    "sameTrack": "Same track",
+    "splitOff": "Split off"
   },
   "keys": {
     "enter": "Enter: {{action}}",
     "rows": "Number keys: switch to that row's file",
-    "tracks": "Number keys: choose the track that stays"
+    "tracks": "Number keys: choose the track that stays",
+    "s": "S: {{action}}",
+    "selectRow": "S: select a row first, then S splits it off"
   },
   "accepted": {
     "line_one": "Switched {{count, number}} track to the copy on disk",
@@ -184,7 +188,8 @@
     "switchTargetLinked": "Can't switch: another Library track uses that file",
     "switchEntryTaken": "Can't switch: rekordbox's track for that file belongs to another Library track",
     "switchChanged": "This changed while you were looking at it. Read it again before you switch.",
-    "mergeLinkedVersions": "Can't merge: these tracks are linked as versions"
+    "mergeLinkedVersions": "Can't merge: these tracks are linked as versions",
+    "sameAudio": "Can't split: these files hold the very same audio"
   },
   "same": {
     "label": "Library tracks",

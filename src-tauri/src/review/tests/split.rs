@@ -5,7 +5,7 @@
 
 use super::super::actions::{Acted, Refused};
 use super::super::split::{
-    not_same, same_track, NOT_SAME_OPERATION, SAME_TRACK_OPERATION, SPLIT_OPERATION,
+    not_same, same_track, NotSame, NOT_SAME_OPERATION, SAME_TRACK_OPERATION, SPLIT_OPERATION,
 };
 use super::*;
 use crate::grouping::tests::support::{db, hash, reencoded, track, Db, NewFile};
@@ -82,7 +82,7 @@ impl Item {
             .unwrap()
     }
 
-    fn not_same(&self, id: ReviewItemId, file: Option<i64>) -> Result<Acted, Refused> {
+    fn not_same(&self, id: ReviewItemId, file: Option<i64>) -> Result<NotSame, Refused> {
         let shown = self.shown(id);
         self.db
             .writer
@@ -322,7 +322,7 @@ fn s_on_two_files_keeps_them_apart_and_undo_opens_the_item_again() {
     let (item, a, c) = two_files();
     let id = item.doubt();
     let before = item.rows();
-    item.not_same(id, None).unwrap();
+    assert!(!item.not_same(id, None).unwrap().item_stays);
     assert_eq!(item.kind_of_last_operation(), NOT_SAME_OPERATION);
     assert_ne!(item.db.track(a), item.db.track(c));
     assert_eq!(item.db.stands(a, c), ("review".into(), "decided".into()));
@@ -345,7 +345,8 @@ fn s_on_three_files_splits_off_the_selected_file_for_good_and_undo_puts_it_back(
     let before = item.rows();
     assert_eq!(item.current(a), [b], "relink's same-track match, before");
 
-    item.not_same(id, Some(b)).unwrap();
+    let done = item.not_same(id, Some(b)).unwrap();
+    assert!(done.item_stays, "the screen stays on the item");
     assert_eq!(item.kind_of_last_operation(), SPLIT_OPERATION);
     let tb = item.db.track(b).unwrap();
     assert!(tb != ta && tb != tc, "a track of its own");
