@@ -121,7 +121,7 @@ pub use store::{
 };
 pub use target::GroupTarget;
 
-pub(crate) use store::sync_rekordbox;
+pub(crate) use store::{regroup_files, sync_rekordbox};
 
 pub(crate) use store::CONTENT_KEY;
 

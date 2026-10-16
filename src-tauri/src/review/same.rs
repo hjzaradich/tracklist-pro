@@ -35,13 +35,17 @@
 //!    (`track_merge`), so Undo has a track to move the files back into.
 //!
 //! Then, outside the log (derived state): the moved files' rekordbox
-//! entries point at the track that stays, a grouping pass runs (a copy
-//! outside the Library joins the merged track), and the tracks are ranked.
-//! So the queue is right as the action returns.
+//! entries point at the track that stays, a grouping pass over the item's
+//! own files runs (a copy outside the Library joins the merged track), and
+//! the tracks are ranked. So the queue is right as the action returns; the
+//! grouping job does the rest of the library.
 //!
-//! **Undo** puts every row back and runs the grouping pass and the ranking
-//! again ([`after_undo`]): the two tracks and their crates are back and the
-//! pair is an open item again. It works after a send too, as undoing a
+//! **Undo** puts every row back and runs the grouping pass over the item's
+//! files and the ranking again ([`after_undo`]): the two tracks and their
+//! crates are back and the pair is an open item again. It is refused, with
+//! nothing changed, once the track that stayed is linked to another file
+//! ([`merge_link_changed_since`]): it followed its file to one the merge
+//! moved, or was switched. It works after a send too, as undoing a
 //! removal does: a merge writes nothing a send changes, and the next send
 //! sends the track that came back again (foreman's ruling, 2026-10-16).
 //!
@@ -105,6 +109,9 @@ pub struct SameRecordingOffer {
     pub tracks: Vec<SameRecordingTrack>,
     /// The track the app suggests keeping in a merge ([`suggest_keep`]).
     pub keep: Option<i64>,
+    /// Two of the tracks are linked as versions: versions never merge, so
+    /// the item offers "Keep both" only, and says why.
+    pub linked_versions: bool,
 }
 
 // ---- which track to keep ------------------------------------------------------
@@ -350,7 +357,7 @@ pub fn keep_both(conn: &mut Connection, anchor: i64, shown: &[i64]) -> Result<Ac
         }
         Ok(())
     })?;
-    regroup(conn);
+    regroup(conn, &recordings);
     Ok(Acted {
         operation_id: recorded.operation_id,
     })
@@ -503,15 +510,7 @@ pub fn merge(
     if !recordings.contains(&keep) {
         return Err(Refused::ItemGone);
     }
-    let json = serde_json::to_string(&recordings).expect("numbers always serialize");
-    let linked: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM version_link
-                        WHERE recording_a IN (SELECT value FROM json_each(?1))
-                          AND recording_b IN (SELECT value FROM json_each(?1)))",
-        [&json],
-        |r| r.get(0),
-    )?;
-    if linked {
+    if linked_versions(conn, &recordings)? {
         return Err(Refused::LinkedVersions);
     }
     let mut all = tracks(conn, volumes, &recordings)?;
@@ -526,10 +525,14 @@ pub fn merge(
         leaving.push((track, entry));
     }
     let merged: Vec<i64> = leaving.iter().map(|(t, _)| t.recording).collect();
+    // What the staying track is linked to now: its Undo is refused once that
+    // changed ([`merge_link_changed_since`]).
     let details = json!({
         "keep": keep,
         "recordingIds": merged,
         "tracks": merged.len(),
+        "keepLibraryTrack": staying.library_track.0,
+        "keepLinked": staying.linked_file,
     });
     // One writer call: nothing changes between the plan and the writes.
     let recorded = ops::record_with_derived(
@@ -546,7 +549,7 @@ pub fn merge(
         // owns that column; the pass below would do it too).
         crate::grouping::sync_rekordbox,
     )?;
-    regroup(conn);
+    regroup(conn, &recordings);
     rank_again(conn, &[keep]);
     Ok(Merged {
         operation_id: recorded.operation_id,
@@ -557,14 +560,72 @@ pub fn merge(
 
 // ---- after the action, after its undo ----------------------------------------
 
-/// A grouping pass, so the pairs stand where the decision or the merge puts
-/// them (and a copy outside the Library joins a merged track) as the action
-/// returns. Derived state: if it fails, the action stands and the grouping
-/// job does it.
-fn regroup(conn: &mut Connection) {
-    if let Err(e) = crate::grouping::regroup(conn) {
+/// Whether two of `recordings` are linked as versions: versions never
+/// merge, so such an item offers "Keep both" only.
+pub(crate) fn linked_versions(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<bool> {
+    let json = serde_json::to_string(recordings).expect("numbers always serialize");
+    conn.prepare_cached(
+        "SELECT EXISTS (SELECT 1 FROM version_link
+                        WHERE recording_a IN (SELECT value FROM json_each(?1))
+                          AND recording_b IN (SELECT value FROM json_each(?1)))",
+    )?
+    .query_row([&json], |r| r.get(0))
+}
+
+/// A grouping pass over the item's files only
+/// ([`crate::grouping::regroup_files`]: the files of `recordings` and every
+/// file that could join a set with them), so the pairs stand where the
+/// decision or the merge puts them, and a copy outside the Library joins a
+/// merged track, as the action returns. Nothing wider: the grouping job
+/// does that ([`ask_for_merge_follow_up`]). Derived state: if it fails, the
+/// action stands and the grouping job does it.
+fn regroup(conn: &mut Connection, recordings: &[i64]) {
+    let files = files_of(conn, recordings);
+    let done = files.and_then(|files| crate::grouping::regroup_files(conn, &files));
+    if let Err(e) = done {
         eprintln!("review: couldn't run the grouping pass: {e}");
     }
+}
+
+/// The files of `recordings`.
+fn files_of(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<Vec<i64>> {
+    let json = serde_json::to_string(recordings).expect("numbers always serialize");
+    conn.prepare_cached(
+        "SELECT file_id FROM recording_file
+         WHERE recording_id IN (SELECT value FROM json_each(?1)) ORDER BY file_id",
+    )?
+    .query_map([&json], |r| r.get(0))?
+    .collect()
+}
+
+/// Whether the Undo of the merge `operation` must be refused because the
+/// track that stayed is linked to another file since: it followed its file
+/// to one the merge moved, or was switched (foreman's ruling, 2026-10-16).
+/// Taking the merge back then would put the moved files back in the other
+/// track while the staying one plays one of them: two Library tracks on one
+/// file. So: refused when a file the merge moved is the linked file of a
+/// Library track now, or when the staying track's linked file isn't the one
+/// it had at the merge (or its Library track is gone). Asked by the log
+/// before anything is unwound ([`crate::ops`]); `false` for any other
+/// operation.
+pub(crate) fn merge_link_changed_since(
+    conn: &Connection,
+    operation: i64,
+) -> rusqlite::Result<bool> {
+    conn.prepare_cached(&format!(
+        "SELECT EXISTS (
+             SELECT 1 FROM operation o
+             WHERE o.id = ?1 AND o.kind = '{MERGE_OPERATION}'
+               AND (EXISTS (SELECT 1 FROM change c
+                            JOIN library_track lt ON lt.linked_file_id = c.entity_id
+                            WHERE c.operation_id = o.id AND c.entity = 'recording_file'
+                              AND c.field = 'recording_id')
+                    OR NOT EXISTS (SELECT 1 FROM library_track k
+                                   WHERE k.id = json_extract(o.details, '$.keepLibraryTrack')
+                                     AND k.linked_file_id
+                                         IS json_extract(o.details, '$.keepLinked'))))"
+    ))?
+    .query_row([operation], |r| r.get(0))
 }
 
 /// Whether `kind` is one of this module's operations.
@@ -572,19 +633,41 @@ pub fn is_operation(kind: &str) -> bool {
     kind == KEEP_BOTH_OPERATION || kind == MERGE_OPERATION
 }
 
-/// After the Undo of a "Keep both" or a merge: the grouping pass, so the
-/// pair is an open item again as the undo returns (the ranking follows in
+/// After the Undo of a "Keep both" or a merge (`operation`, of `kind`): the
+/// grouping pass over the item's files, so the pair is an open item again
+/// as the undo returns (the ranking follows in
 /// [`crate::ops::undo_for_user`]). Nothing for any other operation.
-pub(crate) fn after_undo(conn: &mut Connection, kind: &str) {
-    if is_operation(kind) {
-        regroup(conn);
+pub(crate) fn after_undo(conn: &mut Connection, operation: i64, kind: &str) {
+    if !is_operation(kind) {
+        return;
+    }
+    let recordings: rusqlite::Result<Vec<i64>> = conn
+        .prepare_cached(
+            "SELECT value FROM operation o, json_each(o.details, '$.recordingIds')
+             WHERE o.id = ?1
+             UNION SELECT json_extract(o.details, '$.keep') FROM operation o
+             WHERE o.id = ?1 AND json_extract(o.details, '$.keep') IS NOT NULL",
+        )
+        .and_then(|mut stmt| {
+            stmt.query_map([operation], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()
+        });
+    match recordings {
+        Ok(recordings) => regroup(conn, &recordings),
+        Err(e) => eprintln!("review: couldn't read what the undone operation was about: {e}"),
     }
 }
 
-/// Asks for what a merge or its undo leaves to the background: the roles,
-/// the search index and the rekordbox analysis (attach).
+/// Asks for what "Keep both", a merge or their undo leave to the
+/// background: a whole grouping pass, the roles, the search index and the
+/// rekordbox analysis (attach).
 pub(crate) fn ask_for_merge_follow_up(writer: &Writer, jobs: &JobQueue) {
     ask_for_follow_up_work(writer, jobs);
+    // The grouping pass for the rest of the library: the action only
+    // settled the item's own files.
+    if let Err(e) = crate::grouping::start(jobs, writer) {
+        eprintln!("review: couldn't ask for the grouping job: {e:?}");
+    }
     if let Err(e) = crate::attach::request(writer, |j| jobs.enqueue(j)) {
         eprintln!("review: couldn't ask for attach: {e:?}");
     }
@@ -598,10 +681,13 @@ pub(crate) fn ask_for_merge_follow_up(writer: &Writer, jobs: &JobQueue) {
 #[specta::specta]
 pub fn review_keep_both(
     writer: State<'_, Writer>,
+    jobs: State<'_, JobQueue>,
     anchor: i64,
     recording_ids: Vec<i64>,
 ) -> Result<Acted, IpcError> {
-    Ok(writer.call(move |c| Ok(keep_both(c, anchor, &recording_ids)))??)
+    let acted = writer.call(move |c| Ok(keep_both(c, anchor, &recording_ids)))??;
+    ask_for_merge_follow_up(&writer, &jobs);
+    Ok(acted)
 }
 
 /// Merges a "Same track twice" item into `keep`: `recording_ids` are the

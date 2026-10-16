@@ -129,8 +129,79 @@ const UNREFERENCED: &str =
 /// `audio_hash` alone ([`Member::key`]).
 pub(crate) const CONTENT_KEY: &str = "coalesce(nullif(f.audio_hash, x''), f.blake3)";
 
-/// Every file with a track, and every present file without one.
-fn members(conn: &Connection) -> rusqlite::Result<Vec<Member>> {
+/// The files and tracks a grouping pass over part of the library looks at
+/// ([`regroup_files`]): a set of files closed under what can join them into
+/// one set (the files of their tracks, their stored duplicate pairs, the
+/// same `audio_hash`), and the tracks of those files. As JSON arrays of
+/// ids, the app's own integers, put in the SQL as they are.
+pub(crate) struct Scope {
+    files: String,
+    tracks: String,
+}
+
+impl Scope {
+    /// `AND {expr} IN (the scope's files)`, or nothing for a whole pass.
+    fn files(scope: Option<&Scope>, expr: &str) -> String {
+        scope.map_or_else(String::new, |s| {
+            format!("AND {expr} IN (SELECT value FROM json_each('{}'))", s.files)
+        })
+    }
+
+    /// `AND {expr} IN (the scope's tracks)`, or nothing for a whole pass.
+    fn tracks(scope: Option<&Scope>, expr: &str) -> String {
+        scope.map_or_else(String::new, |s| {
+            format!(
+                "AND {expr} IN (SELECT value FROM json_each('{}'))",
+                s.tracks
+            )
+        })
+    }
+
+    /// The files a pass over `files` must see, and their tracks: grown from
+    /// `files` until nothing joins.
+    fn of(conn: &Connection, files: &[i64]) -> rusqlite::Result<Scope> {
+        let mut found: std::collections::BTreeSet<i64> = files.iter().copied().collect();
+        loop {
+            let json = serde_json::to_string(&found).expect("numbers always serialize");
+            let mut grown = found.clone();
+            let mut stmt = conn.prepare_cached(
+                "WITH s(id) AS (SELECT value FROM json_each(?1))
+                 SELECT rf2.file_id FROM s JOIN recording_file rf ON rf.file_id = s.id
+                 JOIN recording_file rf2 ON rf2.recording_id = rf.recording_id
+                 UNION SELECT p.file_b FROM s JOIN grouping_pair p ON p.file_a = s.id
+                       WHERE p.outcome = 'duplicate'
+                 UNION SELECT p.file_a FROM s JOIN grouping_pair p ON p.file_b = s.id
+                       WHERE p.outcome = 'duplicate'
+                 UNION SELECT f2.id FROM s JOIN file f ON f.id = s.id
+                       JOIN file f2 ON f2.audio_hash = f.audio_hash
+                       WHERE length(f.audio_hash) > 0",
+            )?;
+            for id in stmt.query_map([&json], |r| r.get::<_, i64>(0))? {
+                grown.insert(id?);
+            }
+            if grown.len() == found.len() {
+                break;
+            }
+            found = grown;
+        }
+        let files = serde_json::to_string(&found).expect("numbers always serialize");
+        let tracks: Vec<i64> = conn
+            .prepare_cached(
+                "SELECT DISTINCT recording_id FROM recording_file
+                 WHERE file_id IN (SELECT value FROM json_each(?1)) ORDER BY 1",
+            )?
+            .query_map([&files], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(Scope {
+            files,
+            tracks: serde_json::to_string(&tracks).expect("numbers always serialize"),
+        })
+    }
+}
+
+/// Every file with a track, and every present file without one (of the
+/// scope's files, if a scope is given).
+fn members(conn: &Connection, scope: Option<&Scope>) -> rusqlite::Result<Vec<Member>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT f.id, rf.recording_id, f.audio_hash, {CONTENT_KEY},
                 EXISTS (SELECT 1 FROM library_track lt
@@ -138,8 +209,9 @@ fn members(conn: &Connection) -> rusqlite::Result<Vec<Member>> {
                 g.file_id IS NOT NULL, g.placed_key, g.decided_as IS ?1, f.present
          FROM file f LEFT JOIN recording_file rf ON rf.file_id = f.id
                      LEFT JOIN grouping_file g ON g.file_id = f.id
-         WHERE f.present = 1 OR rf.file_id IS NOT NULL
-         ORDER BY f.id"
+         WHERE (f.present = 1 OR rf.file_id IS NOT NULL) {}
+         ORDER BY f.id",
+        Scope::files(scope, "f.id")
     ))?;
     let rows = stmt.query_map([super::decided_as()], |r| {
         let key: Option<Vec<u8>> = r.get(2)?;
@@ -183,11 +255,13 @@ struct StoredPair {
     link_first: Option<String>,
 }
 
-fn stored_pairs(conn: &Connection) -> rusqlite::Result<Vec<StoredPair>> {
-    let mut stmt = conn.prepare(
+fn stored_pairs(conn: &Connection, scope: Option<&Scope>) -> rusqlite::Result<Vec<StoredPair>> {
+    let mut stmt = conn.prepare(&format!(
         "SELECT file_a, file_b, outcome, state, link_label, link_source, link_first
-         FROM grouping_pair ORDER BY file_a, file_b",
-    )?;
+         FROM grouping_pair WHERE 1 {} {} ORDER BY file_a, file_b",
+        Scope::files(scope, "file_a"),
+        Scope::files(scope, "file_b")
+    ))?;
     let rows = stmt.query_map([], |r| {
         let (outcome, state): (String, String) = (r.get(2)?, r.get(3)?);
         Ok(StoredPair {
@@ -239,12 +313,14 @@ struct StoredLink {
     settled: bool,
 }
 
-fn version_links(conn: &Connection) -> rusqlite::Result<Vec<StoredLink>> {
-    let mut stmt = conn.prepare(
+fn version_links(conn: &Connection, scope: Option<&Scope>) -> rusqlite::Result<Vec<StoredLink>> {
+    let mut stmt = conn.prepare(&format!(
         "SELECT id, recording_a, recording_b, kind, label, source,
                 source = 'user' OR confirmed = 1
-         FROM version_link ORDER BY id",
-    )?;
+         FROM version_link WHERE 1 {} {} ORDER BY id",
+        Scope::tracks(scope, "recording_a"),
+        Scope::tracks(scope, "recording_b")
+    ))?;
     let rows = stmt.query_map([], |r| {
         Ok(StoredLink {
             id: r.get(0)?,
@@ -259,20 +335,25 @@ fn version_links(conn: &Connection) -> rusqlite::Result<Vec<StoredLink>> {
     rows.collect()
 }
 
-fn library(conn: &Connection) -> rusqlite::Result<HashSet<i64>> {
-    let mut stmt = conn.prepare("SELECT recording_id FROM library_track")?;
+fn library(conn: &Connection, scope: Option<&Scope>) -> rusqlite::Result<HashSet<i64>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT recording_id FROM library_track WHERE 1 {}",
+        Scope::tracks(scope, "recording_id")
+    ))?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     rows.collect()
 }
 
 /// The tracks something other than their files points at: a Library track,
 /// analysis, or a matched rekordbox track.
-fn referenced(conn: &Connection) -> rusqlite::Result<HashSet<i64>> {
-    let mut stmt = conn.prepare(
-        "SELECT recording_id FROM library_track
-         UNION SELECT recording_id FROM analysis
-         UNION SELECT recording_id FROM rekordbox_track WHERE recording_id IS NOT NULL",
-    )?;
+fn referenced(conn: &Connection, scope: Option<&Scope>) -> rusqlite::Result<HashSet<i64>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT recording_id FROM library_track WHERE 1 {in_scope}
+         UNION SELECT recording_id FROM analysis WHERE 1 {in_scope}
+         UNION SELECT recording_id FROM rekordbox_track
+               WHERE recording_id IS NOT NULL {in_scope}",
+        in_scope = Scope::tracks(scope, "recording_id")
+    ))?;
     let rows = stmt.query_map([], |r| r.get(0))?;
     rows.collect()
 }
@@ -288,14 +369,14 @@ struct Loaded {
 }
 
 impl Loaded {
-    fn read(conn: &Connection) -> rusqlite::Result<Loaded> {
+    fn read(conn: &Connection, scope: Option<&Scope>) -> rusqlite::Result<Loaded> {
         Ok(Loaded {
-            members: members(conn)?,
-            pairs: stored_pairs(conn)?,
+            members: members(conn, scope)?,
+            pairs: stored_pairs(conn, scope)?,
             remembered: remembered(conn)?,
-            links: version_links(conn)?,
-            library: library(conn)?,
-            referenced: referenced(conn)?,
+            links: version_links(conn, scope)?,
+            library: library(conn, scope)?,
+            referenced: referenced(conn, scope)?,
         })
     }
 
@@ -423,11 +504,39 @@ pub struct Step {
     pub undecided: Vec<(i64, i64)>,
 }
 
+/// A grouping pass over part of the library: the files `files`, and every
+/// file that could join a set with them ([`Scope`]: the files of their
+/// tracks, their stored duplicate pairs, the same `audio_hash`, grown until
+/// nothing joins). For an action that changed those files' tracks and needs
+/// where they stand right as it returns (Review's merge and "Keep both",
+/// 1bE-9), without planning the whole library on the writer. Inside the
+/// scope it decides what a whole pass decides: a set is planned from all of
+/// its own files and pairs. Pairs to files outside it, and everything else,
+/// are left to the next whole pass (the grouping job). The sweep of tracks
+/// left with nothing and the best file of every track run as in a whole
+/// pass (one query each).
+pub(crate) fn regroup_files(conn: &mut Connection, files: &[i64]) -> rusqlite::Result<Summary> {
+    let scope = Scope::of(conn, files)?;
+    let mut summary = Summary::default();
+    loop {
+        let step = step_in(conn, BATCH, Some(&scope))?;
+        summary.add(step.summary);
+        if !step.more {
+            return Ok(summary);
+        }
+    }
+}
+
 /// [`regroup_step`], with the pairs still to decide.
 pub fn step(conn: &mut Connection, batch: usize) -> rusqlite::Result<Step> {
+    step_in(conn, batch, None)
+}
+
+/// [`step`] over the whole library, or over `scope` only.
+fn step_in(conn: &mut Connection, batch: usize, scope: Option<&Scope>) -> rusqlite::Result<Step> {
     let batch = batch.max(1);
     let tx = conn.transaction()?;
-    let loaded = Loaded::read(&tx)?;
+    let loaded = Loaded::read(&tx, scope)?;
     let mut plan = loaded.plan();
     let mut summary = Summary {
         left_alone: plan.left_alone as u64,

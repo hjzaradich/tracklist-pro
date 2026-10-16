@@ -1557,6 +1557,11 @@ export type SameRecordingOffer = {
 	tracks: SameRecordingTrack[],
 	/**  The track the app suggests keeping in a merge ([`suggest_keep`]). */
 	keep: number | null,
+	/**
+	 *  Two of the tracks are linked as versions: versions never merge, so
+	 *  the item offers "Keep both" only, and says why.
+	 */
+	linkedVersions: boolean,
 };
 
 /**  One Library track of a "Same track twice" item. */
@@ -1867,7 +1872,14 @@ export type UndoRefusal =
  *  the copy's entry is in rekordbox, and taking the switch back would
  *  leave it there with nothing to list it.
  */
-{ code: "switchSentSince" };
+{ code: "switchSentSince" } | 
+/**
+ *  The step merged Library tracks that are the same recording, and the
+ *  track that stayed is linked to another file since (it followed its
+ *  file to one the merge moved, or was switched): undoing the merge would
+ *  leave two Library tracks on one file.
+ */
+{ code: "mergeLinkChanged" };
 
 /**
  *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]

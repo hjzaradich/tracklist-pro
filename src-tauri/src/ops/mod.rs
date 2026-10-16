@@ -734,6 +734,11 @@ pub enum UndoRefusal {
     /// the copy's entry is in rekordbox, and taking the switch back would
     /// leave it there with nothing to list it.
     SwitchSentSince,
+    /// The step merged Library tracks that are the same recording, and the
+    /// track that stayed is linked to another file since (it followed its
+    /// file to one the merge moved, or was switched): undoing the merge would
+    /// leave two Library tracks on one file.
+    MergeLinkChanged,
 }
 
 /// What undoing the newest operation did.
@@ -1171,17 +1176,24 @@ fn unwind(
 
 /// Why a feature's own rule refuses to undo `operation`, whatever its rows
 /// hold: asked before anything is unwound, by [`undo_step`] and by
-/// [`next_undo`] alike. Today one rule: a switch of a linked file that made
-/// the track a new one for rekordbox, sent since
-/// ([`crate::review::actions::sent_as_new_since`]). It is the counterpart of
+/// [`next_undo`] alike. Two rules: a switch of a linked file that made the
+/// track a new one for rekordbox, sent since
+/// ([`crate::review::actions::sent_as_new_since`]); and a merge of Library
+/// tracks whose staying track is linked to another file since
+/// ([`crate::review::same::merge_link_changed_since`]). It is the counterpart of
 /// "sent since" for an add ([`Found::refusal`]), which the rows themselves
 /// show; a switch writes nothing a send changes, so it has to be asked.
 fn refused_by_a_rule(
     tx: &Transaction<'_>,
     operation: &OperationInfo,
 ) -> Result<Option<UndoRefusal>, OpsError> {
-    Ok(crate::review::actions::sent_as_new_since(tx, operation.id)?
-        .then_some(UndoRefusal::SwitchSentSince))
+    if crate::review::actions::sent_as_new_since(tx, operation.id)? {
+        return Ok(Some(UndoRefusal::SwitchSentSince));
+    }
+    Ok(
+        crate::review::same::merge_link_changed_since(tx, operation.id)?
+            .then_some(UndoRefusal::MergeLinkChanged),
+    )
 }
 
 fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, OpsError> {
@@ -1251,7 +1263,7 @@ pub fn undo_for_user(conn: &mut Connection, only: Option<i64>) -> Result<UndoOut
     if let UndoOutcome::Undone { operation } = &outcome {
         // An undone "Keep both" or merge of two Library tracks: the grouping
         // pass puts the pair back in the queue (derived state, as below).
-        crate::review::same::after_undo(conn, &operation.kind);
+        crate::review::same::after_undo(conn, operation.id, &operation.kind);
         if let Err(e) = rank_again_after(conn, operation.id) {
             eprintln!(
                 "undo of operation {}: couldn't rank its tracks again: {e}",

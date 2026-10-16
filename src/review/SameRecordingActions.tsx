@@ -68,6 +68,9 @@ function TrackFacts({ comparison, offer }: { comparison: ReviewComparison; offer
  * merge happens on that confirmation's "Merge", and "Go back" closes it. Both
  * can be undone from the top bar's Undo.
  *
+ * Tracks linked as versions are never merged: then only "Keep both" is
+ * offered, the filled button, with the line that says why.
+ *
  * The item's Library tracks are sent back with each action, so one whose
  * tracks changed under the screen is refused, not answered unseen. No keys
  * yet: Enter and S do nothing on this item, and the number keys that will
@@ -101,7 +104,23 @@ export function SameRecordingActions({
   return (
     <>
       <TrackFacts comparison={comparison} offer={offer} />
-      {!choosing ? (
+      {offer.linkedVersions ? (
+        <>
+          <div role="group" aria-label={t("action.label")} className={styles.actions}>
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={busy}
+              onClick={() => keepBoth.mutate({ anchor, recordingIds })}
+            >
+              {t("action.keepBoth")}
+            </button>
+          </div>
+          <p className={styles.doubt}>
+            {errorMessage({ kind: "reviewMergeLinkedVersions", params: {} })}
+          </p>
+        </>
+      ) : !choosing ? (
         <div role="group" aria-label={t("action.label")} className={styles.actions}>
           <button
             type="button"

@@ -48,7 +48,8 @@
       "sourceGone": "Can't undo: the track is no longer in All music",
       "crateNameTaken": "Can't undo: crate name already used (“{{name}}”)",
       "changedSince": "Can't undo: the Library has changed since",
-      "switchSentSince": "Can't undo: the track has been sent to rekordbox as a new track since"
+      "switchSentSince": "Can't undo: the track has been sent to rekordbox as a new track since",
+      "mergeLinkChanged": "Can't undo: the track that stayed after the merge is linked to another file since"
     }
   },
   "details": {

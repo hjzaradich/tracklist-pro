@@ -399,18 +399,27 @@ pub fn comparison(
             .map(|r| from_rank(&r.reason))
     };
     // A "Same track twice" item: its Library tracks, and which to keep.
+    // Tracks linked as versions are never merged: no track to keep is
+    // suggested, and the item offers "Keep both" only.
     let same_recording = match id.kind {
         ReviewKind::SameRecording => {
             let tracks = super::same::offer_tracks(conn, volumes, id.a)?;
-            let keep = keep_suggestion(&tracks, &ranking, &all, &files);
-            Some((tracks, keep))
+            let recordings: Vec<i64> = tracks.iter().map(|t| t.recording_id).collect();
+            let linked = super::same::linked_versions(conn, &recordings)?;
+            let keep = match linked {
+                true => None,
+                false => keep_suggestion(&tracks, &ranking, &all, &files),
+            };
+            Some((tracks, keep, linked))
         }
         _ => None,
     };
     let suggestion: Option<(i64, Reason)> = match id.kind {
         ReviewKind::QualityProblem => None,
         // The linked file of the track to keep, and why that track.
-        ReviewKind::SameRecording => same_recording.as_ref().and_then(|(_, keep)| keep.clone()),
+        ReviewKind::SameRecording => same_recording
+            .as_ref()
+            .and_then(|(_, keep, _)| keep.clone()),
         // A match the user confirmed before is here again for that reason,
         // however it was found the first time.
         ReviewKind::Relink => item.entry.as_ref().map(|e| {
@@ -519,14 +528,18 @@ pub fn comparison(
             file_id: e.file,
             confirmed_before: e.confirmed_before,
         }),
-        same_recording: same_recording.map(|(tracks, keep)| {
+        same_recording: same_recording.map(|(tracks, keep, linked_versions)| {
             let keep = keep.and_then(|(file, _)| {
                 tracks
                     .iter()
                     .find(|t| t.linked_file_id == Some(file))
                     .map(|t| t.recording_id)
             });
-            super::same::SameRecordingOffer { tracks, keep }
+            super::same::SameRecordingOffer {
+                tracks,
+                keep,
+                linked_versions,
+            }
         }),
     }))
 }

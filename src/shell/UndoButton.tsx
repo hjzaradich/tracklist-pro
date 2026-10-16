@@ -77,6 +77,8 @@ export function refusalText(t: TFunction<"shell">, refusal: UndoRefusal): string
       return t("undo.refused.changedSince");
     case "switchSentSince":
       return t("undo.refused.switchSentSince");
+    case "mergeLinkChanged":
+      return t("undo.refused.mergeLinkChanged");
   }
 }
 

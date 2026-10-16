@@ -600,3 +600,135 @@ fn a_merged_item_is_gone_and_merging_it_again_is_refused() {
     assert!(t.compare().is_none());
     assert!(matches!(t.merge(&t.both(), t.ta), Err(Refused::ItemGone)));
 }
+
+// ---- fix round 1 (review of PR 94) -------------------------------------------
+
+#[test]
+fn the_undo_of_a_merge_is_refused_once_the_staying_track_followed_its_file_to_a_moved_one() {
+    let t = Twice::new();
+    let lt_keep = t.lt(t.ta);
+    t.merge(&t.both(), t.ta).unwrap();
+    // The kept track's file goes, and the automatic follow moves its link to
+    // the same audio: the file the merge moved into its track.
+    t.db.sql(&format!("UPDATE file SET present = 0 WHERE id = {}", t.a));
+    let b = t.b;
+    t.db.writer
+        .call(move |c| {
+            Ok(crate::ops::record_automatic(
+                c,
+                crate::ops::AutomaticKind::FollowFile,
+                &serde_json::json!({}),
+                |rec| rec.set("library_track", lt_keep, "linked_file_id", b),
+            ))
+        })
+        .unwrap()
+        .unwrap();
+    let before = t.rows();
+    match t.undo() {
+        UndoOutcome::Refused { reason, .. } => {
+            assert_eq!(reason, crate::ops::UndoRefusal::MergeLinkChanged)
+        }
+        other => panic!("not refused: {other:?}"),
+    }
+    // Nothing changed, and Undo says so beforehand too.
+    assert_eq!(t.rows(), before);
+    let next =
+        t.db.writer
+            .call(|c| Ok(crate::ops::next_undo(c)))
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        next.refusal,
+        Some(crate::ops::UndoRefusal::MergeLinkChanged)
+    );
+    assert_eq!(
+        t.db.count("SELECT count(*) FROM library_track"),
+        1,
+        "one Library track, on one file"
+    );
+}
+
+#[test]
+fn the_undo_of_a_merge_is_refused_once_the_staying_track_is_linked_to_another_file() {
+    // Any other file: here one of its own, outside the merge.
+    let t = Twice::new();
+    let lt_keep = t.lt(t.ta);
+    let other = t.db.file(1, "own/Velo.mp3", Some(hash(1)));
+    t.db.group();
+    t.merge(&t.both(), t.ta).unwrap();
+    t.db.writer
+        .call(move |c| {
+            Ok(crate::ops::record_automatic(
+                c,
+                crate::ops::AutomaticKind::FollowFile,
+                &serde_json::json!({}),
+                |rec| rec.set("library_track", lt_keep, "linked_file_id", other),
+            ))
+        })
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        t.undo(),
+        UndoOutcome::Refused {
+            reason: crate::ops::UndoRefusal::MergeLinkChanged,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn an_action_settles_only_the_items_own_files_and_leaves_the_rest_to_the_job() {
+    let t = Twice::new();
+    // A file elsewhere that no pass has placed yet.
+    let elsewhere = t.db.file(2, "unrelated.mp3", Some(hash(9)));
+    assert_eq!(t.db.track(elsewhere), None);
+    t.merge(&t.both(), t.ta).unwrap();
+    assert_eq!(t.db.track(elsewhere), None, "a whole pass ran");
+    t.db.group();
+    assert!(t.db.track(elsewhere).is_some());
+}
+
+#[test]
+fn linked_versions_get_keep_both_only_and_no_suggested_track() {
+    let t = Twice::new();
+    t.db.sql(&format!(
+        "INSERT INTO version_link (recording_a, recording_b, kind, source)
+         VALUES ({}, {}, 'cut', 'parser')",
+        t.ta, t.tb
+    ));
+    let item = t.compare().expect("still queued until a pass");
+    let offer = item.same_recording.unwrap();
+    assert!(offer.linked_versions);
+    assert_eq!(offer.keep, None);
+    assert!(item.suggestion.is_none());
+    assert!(t.keep_both(&t.both()).is_ok());
+}
+
+/// How long one merge takes beside 100,000 other files, and a whole pass for
+/// comparison. Ignored: run by hand (`cargo test --lib -- --ignored
+/// a_merge_beside_100000_files`).
+#[test]
+#[ignore]
+fn a_merge_beside_100000_files() {
+    let t = Twice::new();
+    let decided_as = crate::grouping::decided_as();
+    t.db.sql(&format!(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000)
+         INSERT INTO file (music_folder_id, rel_path, rel_path_key, size, mtime, audio_hash)
+         SELECT 1, 'bulk/' || i || '.mp3', 'bulk/' || i || '.mp3', 100, 1000, randomblob(34)
+         FROM n;
+         INSERT INTO recording (id) SELECT id + 10000000 FROM file WHERE rel_path LIKE 'bulk/%';
+         INSERT INTO recording_file (recording_id, file_id, role)
+         SELECT id + 10000000, id, 'best' FROM file WHERE rel_path LIKE 'bulk/%';
+         INSERT INTO grouping_file (file_id, placed_key, decided_as)
+         SELECT id, audio_hash, {decided_as} FROM file WHERE rel_path LIKE 'bulk/%';"
+    ));
+    let started = std::time::Instant::now();
+    t.merge(&t.both(), t.ta).unwrap();
+    let merge = started.elapsed();
+    let started = std::time::Instant::now();
+    t.db.group();
+    let whole = started.elapsed();
+    eprintln!("one merge beside 100,000 files: {merge:?}; a whole grouping pass: {whole:?}");
+    assert_eq!(t.db.track(t.b), Some(t.ta));
+}

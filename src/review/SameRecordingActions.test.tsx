@@ -74,9 +74,10 @@ const OFFER: SameRecordingOffer = {
     },
   ],
   keep: 4,
+  linkedVersions: false,
 };
 
-function comparison(): ReviewComparison {
+function comparison(offer: SameRecordingOffer): ReviewComparison {
   return {
     id: ITEM.id,
     kind: ITEM.kind,
@@ -91,19 +92,20 @@ function comparison(): ReviewComparison {
     moreFiles: 0,
     switch: null,
     relink: null,
-    sameRecording: OFFER,
+    sameRecording: offer,
   };
 }
 
 interface World {
   queued: boolean;
+  offer: SameRecordingOffer;
   refuse: Record<string, { kind: string; params: object }>;
   calls: { cmd: string; args: Record<string, unknown> }[];
   undo: OperationInfo | null;
 }
 
 function backend(start: Partial<World> = {}): World {
-  const world: World = { queued: true, refuse: {}, calls: [], undo: null, ...start };
+  const world: World = { queued: true, offer: OFFER, refuse: {}, calls: [], undo: null, ...start };
   const act = (kind: string) => {
     world.queued = false;
     world.undo = { id: 100, kind, details: { name: null, from: null, tracks: 1 } };
@@ -126,7 +128,7 @@ function backend(start: Partial<World> = {}): World {
         return { group, total: listed.length, items: listed };
       }
       case "review_item":
-        return world.queued ? comparison() : null;
+        return world.queued ? comparison(world.offer) : null;
       case "review_accept_all_items":
         return [];
       case "review_keep_both":
@@ -244,5 +246,15 @@ describe("a Same track twice item", () => {
     const dialog = await screen.findByRole("alertdialog");
     await userEvent.click(within(dialog).getByRole("button", { name: tx("review:action.mergeConfirm") }));
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.mergeLinkedVersions"));
+  });
+
+  it("offers only Keep both for tracks linked as versions, and says why", async () => {
+    backend({ offer: { ...OFFER, keep: null, linkedVersions: true } });
+    renderScreen();
+    const buttons = await actions();
+    expect(buttons.getAllByRole("button").map((b) => b.textContent)).toEqual([
+      tx("review:action.keepBoth"),
+    ]);
+    expect(screen.getByText(tx("review:error.mergeLinkedVersions"))).toBeInTheDocument();
   });
 });
