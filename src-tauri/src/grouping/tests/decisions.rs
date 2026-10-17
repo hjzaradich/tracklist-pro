@@ -257,13 +257,14 @@ fn a_decision_survives_a_file_moved_and_a_music_folder_removed_and_added_again()
     assert_eq!(db.count("SELECT count(*) FROM grouping_decision"), 1);
     // The same two files are found again, elsewhere, as new rows: after
     // another file, and the other way round, so neither has the row id it
-    // had. A third copy of the same track comes with them.
+    // had (and no file takes a deleted file's id, migration 0031). A third
+    // copy of the same track comes with them.
     db.sql("INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'A', 'A')");
     db.sql("UPDATE music_folder SET id = 1 WHERE rel_path = 'A'");
     let other = db.add(file("moved/Velo.m4a", "Velo", 7, reencoded(&velo, 2, 7)));
     let b = db.add(file("moved/Velo.mp3", "Velo", 2, reencoded(&velo, 1, 7)));
     let a = db.add(file("moved/Velo.flac", "Velo", 1, velo.clone()));
-    assert_eq!((other, b, a), (1, 2, 3), "the row ids are used again");
+    assert_eq!((other, b, a), (3, 4, 5), "new rows, with new ids");
     db.decide();
     assert_ne!(db.track(a), db.track(b), "still kept apart");
     assert_eq!(db.stands(a, b), ("duplicate".into(), "decided".into()));
