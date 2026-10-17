@@ -272,7 +272,15 @@ function FileActions({
     const sameStart: Start = (o) => same.mutate({ id, recordingIds }, o);
     enter = { label: t("action.sameTrack"), start: sameStart };
     const sLabel = two ? t("action.notSame") : t("action.splitOff");
-    const fileId = two ? null : selectedFile;
+    // With two files the file sent matters only where they share a track (it
+    // is the one split off): the selected row, else the one that isn't the
+    // suggestion, never the Library file if another is there (the backend
+    // keeps the linked file in its track whatever is sent).
+    const fallback =
+      comparison.rows.find(
+        (row) => row.source === "file" && row.fileId !== comparison.suggestion?.what && !row.linked,
+      ) ?? comparison.rows.find((row) => row.source === "file" && row.fileId !== comparison.suggestion?.what);
+    const fileId = two ? (selectedFile ?? fallback?.fileId ?? null) : selectedFile;
     s = {
       label: sLabel,
       start: two || fileId !== null ? (o) => notSame.mutate({ id, recordingIds, fileId }, o) : null,

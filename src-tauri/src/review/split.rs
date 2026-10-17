@@ -24,6 +24,7 @@
 //! # Not the same (S on an item with two files)
 //!
 //! [`not_same`] remembers "apart" between the two files' tracks. Nothing moves.
+//! Two files that share a track are split instead ([`s_on`]).
 //!
 //! # A split (S with three or more files, on the selected row)
 //!
@@ -56,9 +57,12 @@
 //! the files that stayed holds what it held there, or the track by that id
 //! was made at another time: it may have been swept and its id given to
 //! another, ids being reused, so the files would go back into the wrong
-//! one), or when a file the action moved is a Library track's file now (two
-//! tracks would end up on one file). The track a split made isn't checked:
-//! a file still in a track by that id goes back where the user wants it.
+//! one), when a file the action moved isn't that file any more (another file
+//! has its id, or it holds other audio: the log's own check sees only the
+//! id, and a file reusing it may sit in a track reusing the new track's id),
+//! or when a file the action moved is a Library track's file now (two tracks
+//! would end up on one file). So every file the action moved, and every file
+//! that stayed, is kept in the operation with the audio it held.
 //!
 //! # What is refused, changing nothing
 //!
@@ -172,6 +176,23 @@ fn audio_known(conn: &Connection, file: i64) -> rusqlite::Result<bool> {
     })
 }
 
+/// What each of `files` holds, as the operation's details keep it: the
+/// file and its audio key in hex (empty when it has none). What tells a
+/// file from another file that takes its id later: ids are reused once a
+/// row is gone (a music folder removed, another file scanned).
+fn with_keys(conn: &Connection, files: &[i64]) -> rusqlite::Result<Vec<serde_json::Value>> {
+    let mut out = Vec::new();
+    for &f in files {
+        let key: String = conn
+            .prepare_cached(&format!(
+                "SELECT hex(coalesce({CONTENT_KEY}, x'')) FROM file f WHERE f.id = ?1"
+            ))?
+            .query_row([f], |r| r.get(0))?;
+        out.push(json!({ "file": f, "key": key }));
+    }
+    Ok(out)
+}
+
 /// Two of `tracks` are linked as versions by the user (made or confirmed):
 /// the job's own links give way to "same", the user's never do.
 fn linked_by_user(conn: &Connection, tracks: &[i64]) -> rusqlite::Result<bool> {
@@ -241,10 +262,12 @@ pub fn same_track(
             moving.push((track, files_of(conn, &[track])?));
         }
     }
+    let moved: Vec<i64> = moving.iter().flat_map(|(_, files)| files.clone()).collect();
     let details = json!({
         "recordingIds": tracks,
         "tracks": tracks.len(),
         "into": into,
+        "moved": with_keys(conn, &moved)?,
     });
     let moves = !moving.is_empty();
     let link_ends = tracks.clone();
@@ -305,9 +328,8 @@ pub struct NotSame {
     pub item_stays: bool,
 }
 
-/// S on the item `id`, whose tracks the screen showed as `shown`: with two
-/// files, "not the same" between them; with three or more, the file `file`
-/// (the selected row) is split off. See the module docs.
+/// S on the item `id`, whose tracks the screen showed as `shown` ([`s_on`]).
+/// See the module docs.
 pub fn not_same(
     conn: &mut Connection,
     id: ReviewItemId,
@@ -315,20 +337,37 @@ pub fn not_same(
     file: Option<i64>,
 ) -> Result<NotSame, Refused> {
     let tracks = still_the_item(conn, id, shown)?;
-    let files = files_of(conn, &tracks)?;
-    let acted = match files.len() {
-        2 => apart(conn, &tracks, files[0], files[1])?,
-        _ => {
-            let file = file
-                .filter(|f| files.contains(f))
-                .ok_or(Refused::ItemGone)?;
-            split(conn, &tracks, file)?
-        }
-    };
+    let acted = s_on(conn, &tracks, file)?;
     Ok(NotSame {
         operation_id: acted.operation_id,
         item_stays: item_tracks(conn, id)?.is_some(),
     })
+}
+
+/// What S does to the files of `tracks`:
+///
+/// - two files in two tracks: "not the same" between them;
+/// - two files in one track: the one that leaves becomes a track of its own
+///   (owner decision, 2026-10-12; foreman's ruling, 2026-10-16), the file
+///   `file`: the selected row, or else the file that isn't the suggestion
+///   (the screen sends it). The linked file of a Library track never leaves:
+///   sent, the other one leaves instead. On the kinds S works on today an
+///   item has two tracks or more, so this is for a kind with one track
+///   ([`decides_tracks`]);
+/// - three files or more: the file `file` (the selected row) is split off.
+pub(super) fn s_on(
+    conn: &mut Connection,
+    tracks: &[i64],
+    file: Option<i64>,
+) -> Result<Acted, Refused> {
+    let files = files_of(conn, tracks)?;
+    if files.len() == 2 && track_of(conn, files[0])? != track_of(conn, files[1])? {
+        return apart(conn, tracks, files[0], files[1]);
+    }
+    let file = file
+        .filter(|f| files.contains(f))
+        .ok_or(Refused::ItemGone)?;
+    split(conn, tracks, file)
 }
 
 /// Whether a file of `side` holds the very same audio as a file of
@@ -463,21 +502,13 @@ fn split(conn: &mut Connection, tracks: &[i64], file: i64) -> Result<Acted, Refu
     let from_made: String = conn
         .prepare_cached("SELECT created_at FROM recording WHERE id = ?1")?
         .query_row([from], |r| r.get(0))?;
-    let mut stayed_with = Vec::new();
-    for &f in &stayed {
-        let key: String = conn
-            .prepare_cached(&format!(
-                "SELECT hex(coalesce({CONTENT_KEY}, x'')) FROM file f WHERE f.id = ?1"
-            ))?
-            .query_row([f], |r| r.get(0))?;
-        stayed_with.push(json!({ "file": f, "key": key }));
-    }
+    let stayed_with = with_keys(conn, &stayed)?;
     let mut all_tracks = tracks.to_vec();
     let details = json!({
         "file": file,
         "from": from,
         "fromMade": from_made,
-        "moved": moving,
+        "moved": with_keys(conn, &moving)?,
         "stayed": stayed_with,
         "recordingIds": tracks,
         "tracks": tracks.len(),
@@ -526,7 +557,10 @@ fn split(conn: &mut Connection, tracks: &[i64], file: i64) -> Result<Acted, Refu
 // ---- undo -------------------------------------------------------------------------
 
 /// Whether the Undo of `operation` must be refused (see the module docs):
-/// a file it moved is a Library track's file now; or it split files out of
+/// a file it moved is a Library track's file now, or isn't that file any
+/// more (another file has its id, or it holds other audio: the log's own
+/// check sees only the id, and a file reusing it can sit in the very track
+/// the action moved the file to); or it split files out of
 /// a track that may not be that track any more: none of the files that
 /// stayed there is in it holding what it held then, or the track by that id
 /// was made at another time. Track ids and file ids are reused once their
@@ -544,6 +578,15 @@ pub(crate) fn undo_refused(conn: &Connection, operation: i64) -> rusqlite::Resul
                               ON c.entity_id IN (lt.linked_file_id, lt.source_file_id)
                             WHERE c.operation_id = o.id AND c.entity = 'recording_file'
                               AND c.field = 'recording_id')
+                    -- A file it moved isn't that file any more: its id is
+                    -- another file's, or it holds other audio.
+                    OR EXISTS (
+                        SELECT 1 FROM json_each(o.details, '$.moved') m
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM file f
+                            WHERE f.id = json_extract(m.value, '$.file')
+                              AND hex(coalesce({CONTENT_KEY}, x''))
+                                  = json_extract(m.value, '$.key')))
                     OR (o.kind = '{SPLIT_OPERATION}'
                         AND json_array_length(o.details, '$.moved') > 0
                         AND (NOT EXISTS (

@@ -141,7 +141,7 @@ function backend(start: Partial<World> = {}): World {
       case "review_same_track":
         return { operationId: act(args.id as ReviewItem["id"], "same_track", false) };
       case "review_not_same": {
-        const split = args.fileId !== null;
+        const split = world.files > 2;
         const stays = split && world.stays;
         const kind = split ? "split_off_file" : "not_same_track";
         return { operationId: act(args.id as ReviewItem["id"], kind, stays), itemStays: stays };
@@ -243,7 +243,7 @@ describe.each([
       .toBeInTheDocument();
   });
 
-  it("is not the same on S with two files: no file is named, and the next item loads", async () => {
+  it("is not the same on S with two files, and the next item loads", async () => {
     const world = backend({ lists: { ...EMPTY, needsCloserLook: [it_, NEXT] } });
     renderScreen();
     await actions();
@@ -252,9 +252,24 @@ describe.each([
     expect(callsOf(world, "review_not_same")[0]?.args).toEqual({
       id: it_.id,
       recordingIds: [it_.id.a, it_.id.a + 1],
-      fileId: null,
+      // The file that isn't the Library file: the one split off if the two
+      // shared a track.
+      fileId: it_.id.a * 10 + 2,
     });
     await waitFor(() => expect(selectedTitle()).toContain("Next Tune"));
+  });
+});
+
+describe("S with two files", () => {
+  it("sends the selected row, the one split off if the two share a track", async () => {
+    const world = backend({ lists: { ...EMPTY, needsCloserLook: [DOUBT] } });
+    renderScreen();
+    const rows = await fileRows();
+    await userEvent.click(within(rows[1]!).getByText("take.mp3"));
+    expect(rows[1]).toHaveAttribute("aria-selected", "true");
+    press("s");
+    await waitFor(() => expect(callsOf(world, "review_not_same")).toHaveLength(1));
+    expect(callsOf(world, "review_not_same")[0]?.args).toMatchObject({ fileId: 702 });
   });
 });
 

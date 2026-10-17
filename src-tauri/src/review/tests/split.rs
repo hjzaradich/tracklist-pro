@@ -539,3 +539,182 @@ fn the_new_track_is_rolled_back_with_an_operation_that_recorded_nothing() {
     }
     assert_eq!(item.db.tracks(), tracks + 1, "only the recorded one stays");
 }
+
+// ---- fix round 1 (review of PR 98) --------------------------------------------
+
+#[test]
+fn the_undo_of_a_split_is_refused_once_the_moved_files_id_and_the_new_tracks_id_are_reused() {
+    // The reviewer's case, every id reused by SQLite itself: the file split off
+    // is the newest file and its new track the newest track, so both ids come
+    // back for the next file scanned. The log's own check sees only ids; the
+    // operation keeps what the moved file held.
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    db.decide();
+    let ta = db.to_library(a);
+    let c = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
+    db.decide();
+    let b = db.add(file("Velo.mp3", 2, reencoded(&velo, 1, 7)));
+    db.decide();
+    assert_eq!(db.track(b), Some(ta));
+    let _ = c;
+    let item = Item { db };
+    let id = item.doubt();
+    item.not_same(id, Some(b)).unwrap();
+    let split_to = item.db.track(b).unwrap();
+
+    // `b`'s music folder is removed (its rows go), and the grouping sweeps
+    // the track it leaves empty.
+    item.db.sql(&format!(
+        "DELETE FROM recording_file WHERE file_id = {b}; DELETE FROM file WHERE id = {b};"
+    ));
+    item.db.group();
+    // An unrelated file is scanned: it takes `b`'s id, and a new track takes
+    // the split's track id.
+    let e = item.db.file(1, "Nightdrive.mp3", Some(hash(40)));
+    item.db.group();
+    assert_eq!(e, b, "SQLite gave the new file the old id");
+    assert_eq!(
+        item.db.track(e),
+        Some(split_to),
+        "and its track the old track id"
+    );
+
+    let before = item.rows();
+    match item.undo() {
+        UndoOutcome::Refused { reason, .. } => assert_eq!(reason, UndoRefusal::ChangedSince),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(item.rows(), before, "nothing changed");
+    assert_eq!(
+        item.db.track(e),
+        Some(split_to),
+        "never moved into the Library track"
+    );
+}
+
+#[test]
+fn the_undo_of_the_same_track_is_refused_once_a_moved_file_holds_other_audio() {
+    let (item, _a, c) = two_files();
+    let id = item.doubt();
+    item.same(id).unwrap();
+    // The file is overwritten with other audio (its id is the same file's no
+    // more, as far as a decision goes).
+    item.db.sql(&format!(
+        "UPDATE file SET audio_hash = x'{}' WHERE id = {c}",
+        "41".repeat(34)
+    ));
+    let before = item.rows();
+    match item.undo() {
+        UndoOutcome::Refused { reason, .. } => assert_eq!(reason, UndoRefusal::ChangedSince),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(item.rows(), before);
+}
+
+#[test]
+fn the_linked_files_track_loses_every_other_file_into_one_new_track() {
+    // The linked file's track holds two other files: both leave, together.
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    let b = db.add(file("Velo.mp3", 2, reencoded(&velo, 1, 7)));
+    let b2 = db.add(file("Velo.ogg", 5, reencoded(&velo, 3, 7)));
+    db.decide();
+    let ta = db.to_library(a);
+    assert_eq!((db.track(b), db.track(b2)), (Some(ta), Some(ta)));
+    let c = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
+    db.decide();
+    let item = Item { db };
+    let id = item.doubt();
+    let tc = item.db.track(c).unwrap();
+    let before = item.rows();
+    item.not_same(id, Some(a)).unwrap();
+    assert_eq!(item.db.track(a), Some(ta));
+    let left = item.db.track(b).unwrap();
+    assert!(left != ta && left != tc);
+    assert_eq!(item.db.track(b2), Some(left), "the others leave together");
+    assert_eq!(item.db.stands(b, b2).1, "merged");
+    assert_eq!(item.db.stands(a, b).1, "decided");
+    assert_eq!(item.db.stands(a, b2).1, "decided");
+    item.db.decide();
+    assert_eq!(
+        (item.db.track(b), item.db.track(b2)),
+        (Some(left), Some(left))
+    );
+    assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(item.rows(), before);
+}
+
+#[test]
+fn the_undo_of_a_split_is_refused_when_the_track_it_left_was_made_at_another_time() {
+    // The time half of the check alone: the files that stayed are still
+    // there, holding what they held, but the track by that id is not the one
+    // the split took the file out of.
+    let (item, a, b, _c) = three_files();
+    let id = item.doubt();
+    let ta = item.db.track(a).unwrap();
+    let made: String = item
+        .db
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT created_at FROM recording WHERE id = ?1",
+                [ta],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    item.not_same(id, Some(b)).unwrap();
+    item.db.sql(&format!(
+        "UPDATE recording SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = {ta}"
+    ));
+    match item.undo() {
+        UndoOutcome::Refused { reason, .. } => assert_eq!(reason, UndoRefusal::ChangedSince),
+        other => panic!("{other:?}"),
+    }
+    item.db.sql(&format!(
+        "UPDATE recording SET created_at = '{made}' WHERE id = {ta}"
+    ));
+    assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(item.db.track(b), Some(ta));
+}
+
+#[test]
+fn s_on_two_files_in_one_track_splits_one_off_and_relink_no_longer_matches_them() {
+    // Two files that share a track (a kind with one track, S's next kinds):
+    // the one that leaves becomes a track of its own (foreman's ruling,
+    // 2026-10-16), and relink's same-track match between them stops.
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    let b = db.add(file("Velo.mp3", 2, reencoded(&velo, 1, 7)));
+    db.decide();
+    let ta = db.to_library(a);
+    let item = Item { db };
+    assert_eq!(item.current(a), [b]);
+    let s_on = |file: Option<i64>| {
+        item.db
+            .writer
+            .call(move |c| Ok(super::super::split::s_on(c, &[ta], file)))
+            .unwrap()
+    };
+    // Which one leaves is the screen's to send.
+    assert!(matches!(s_on(None), Err(Refused::ItemGone)));
+    // The linked file never leaves: sent, the other one leaves instead.
+    s_on(Some(a)).unwrap();
+    assert_eq!(item.db.track(a), Some(ta));
+    let tb = item.db.track(b).unwrap();
+    assert_ne!(tb, ta);
+    assert_eq!(item.current(a), Vec::<i64>::new());
+    assert_eq!(item.current(b), Vec::<i64>::new());
+    item.db.decide();
+    assert_eq!(item.db.track(b), Some(tb), "for good");
+    assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(item.db.track(b), Some(ta));
+    assert_eq!(item.current(a), [b]);
+    // The other file sent: it leaves.
+    s_on(Some(b)).unwrap();
+    assert_ne!(item.db.track(b), Some(ta));
+}
