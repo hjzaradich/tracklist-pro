@@ -212,6 +212,16 @@ export const commands = {
 	 *  Library tracks the screen showed.
 	 */
 	reviewMerge: (anchor: number, recordingIds: number[], keep: number) => typedError<Merged, IpcError>(__TAURI_INVOKE("review_merge", { anchor, recordingIds, keep })),
+	/**
+	 *  "These are the same track" for a possible version mix-up or "Unclear
+	 *  duplicates": `recording_ids` are the tracks the screen showed.
+	 */
+	reviewSameTrack: (id: ReviewItemId, recordingIds: number[]) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_same_track", { id, recordingIds })),
+	/**
+	 *  S: "not the same" (two files), or the file `file_id` split off (three or
+	 *  more): `recording_ids` are the tracks the screen showed.
+	 */
+	reviewNotSame: (id: ReviewItemId, recordingIds: number[], fileId: number | null) => typedError<NotSame, IpcError>(__TAURI_INVOKE("review_not_same", { id, recordingIds, fileId })),
 	/**  Every Library track, sorted for the Library list (see [`list`]). */
 	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
 	/**
@@ -331,7 +341,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -640,7 +650,12 @@ export type ErrorKind =
 /**  Two tracks to merge are linked as versions, and versions never merge. */
 "reviewMergeLinkedVersions" | 
 /**  What the switch means in rekordbox changed since the item was shown. */
-"reviewSwitchChanged";
+"reviewSwitchChanged" | 
+/**
+ *  The file to split off holds the very same audio as a file it would be
+ *  split from: such files are always one track.
+ */
+"reviewSameAudio";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -1089,6 +1104,17 @@ export type NextUndo = {
 	 *  (see [`TRIED_AHEAD_UP_TO`]).
 	 */
 	refusal: UndoRefusal | null,
+};
+
+/**  What S did. */
+export type NotSame = {
+	operationId: number | null,
+	/**
+	 *  The item is still in the queue: a split left the question between its
+	 *  other tracks open. The screen then stays on it (foreman's answer,
+	 *  2026-10-16); otherwise it goes on to the next item.
+	 */
+	itemStays: boolean,
 };
 
 /**  What the offer holds now. */

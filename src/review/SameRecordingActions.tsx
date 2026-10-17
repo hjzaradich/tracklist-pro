@@ -111,7 +111,8 @@ export function SameRecordingActions({
 
   // A number key chooses the track of that row and opens the confirmation.
   useReviewKeys((key: ReviewKey) => {
-    if (key === "enter" || offer.linkedVersions || choosing || busy) return false;
+    // Enter and S do nothing on this item (owner decision, 2026-10-16).
+    if (key === "enter" || key === "s" || offer.linkedVersions || choosing || busy) return false;
     const track = offer.tracks[key - 1];
     if (track === undefined) return false;
     setKeep(track.recordingId);

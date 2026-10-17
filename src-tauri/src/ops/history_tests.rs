@@ -1423,7 +1423,9 @@ fn every_table_the_app_records_changes_to_is_in_the_list_these_tests_check() {
 #[test]
 fn only_a_merge_of_two_library_tracks_records_a_derived_column() {
     // Undoing a set of a derived column leaves it as it is (`ops::DERIVED_FIELDS`):
-    // the merge (Review, 1bE-9) moves files, and its Undo ranks them again.
+    // the actions that move files (Review's merge, 1bE-9; "these are the same
+    // track" and a split, 1bE-2) do it through `same::move_file` alone, and
+    // their Undo ranks them again.
     // Any other operation that set one would rely on Undo putting it back,
     // which it doesn't. Inserts and deletes record whole rows; this is
     // about `rec.set("table", id, "field", …)` naming a derived field.

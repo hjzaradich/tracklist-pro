@@ -55,10 +55,14 @@ pub(crate) const PICK_ORDER: &str = "COALESCE(rf.role = 'best', 0) DESC,
 /// as counts, the one on its linked file, never an entry of the track that
 /// left (foreman's ruling, 2026-10-16: nothing is combined field by field).
 /// With no entry on its linked file it has no rekordbox row, and its files'
-/// own values stand, as for any track rekordbox doesn't know.
+/// own values stand, as for any track rekordbox doesn't know. A track
+/// outside the Library the user called the same as it (Review, 1bE-2,
+/// `track_merge` kind `same`) changes nothing here: the two are one track as
+/// if the grouping job had merged them.
 pub(crate) const PICKABLE: &str = "NOT EXISTS (
         SELECT 1 FROM track_merge m JOIN library_track mlt ON mlt.recording_id = m.into_id
-        WHERE m.into_id = rt.recording_id AND rt.file_id IS NOT mlt.linked_file_id)";
+        WHERE m.into_id = rt.recording_id AND m.kind = 'library'
+          AND rt.file_id IS NOT mlt.linked_file_id)";
 
 /// What one attach run did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

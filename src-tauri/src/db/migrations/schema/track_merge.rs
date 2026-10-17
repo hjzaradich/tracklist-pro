@@ -73,3 +73,38 @@ fn the_migration_keeps_every_replaced_entry_as_a_switch() {
     let merges: i64 = one(&conn, "SELECT count(*) FROM track_merge");
     assert_eq!((switches, merges), (1, 0));
 }
+
+#[test]
+fn a_kept_track_says_whether_a_merge_or_the_same_left_it_0030() {
+    let (_dir, conn) = db();
+    accepts(
+        &conn,
+        &format!(
+            "{TWO_TRACKS} INSERT INTO recording (title) VALUES ('Three');
+             INSERT INTO track_merge (recording_id, into_id) VALUES (2, 1);
+             INSERT INTO track_merge (recording_id, into_id, kind) VALUES (3, 1, 'same');"
+        ),
+    );
+    let kinds: String = one(
+        &conn,
+        "SELECT group_concat(kind, ' ') FROM (SELECT kind FROM track_merge ORDER BY id)",
+    );
+    assert_eq!(kinds, "library same");
+    refuses(
+        &conn,
+        "UPDATE track_merge SET kind = 'split' WHERE id = 1",
+        "CHECK",
+    );
+}
+
+#[test]
+fn the_migration_keeps_every_earlier_merge_a_library_merge_0030() {
+    let (_dir, mut conn) = db_at(29);
+    accepts(
+        &conn,
+        &format!("{TWO_TRACKS} INSERT INTO track_merge (recording_id, into_id) VALUES (2, 1);"),
+    );
+    run(&mut conn, &MIGRATIONS[..30]).unwrap();
+    let kind: String = one(&conn, "SELECT kind FROM track_merge");
+    assert_eq!(kind, "library");
+}

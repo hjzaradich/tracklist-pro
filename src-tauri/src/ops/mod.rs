@@ -561,6 +561,27 @@ pub fn record_with_derived<T>(
     record_then(conn, kind, details, write, Some(derived))
 }
 
+/// [`record_with_derived`], with writes to derived state made first, in the
+/// same transaction, before the operation's own: `first` makes what the
+/// recorded writes need and the log never names as a row (the new track a
+/// split in Review moves a file into, made as the grouping job makes tracks,
+/// 1bE-2), and hands it to `write`. If `write` records nothing, `first` is
+/// rolled back with it. `first` must write only tables the log never
+/// records.
+pub fn record_with_derived_first<P, T>(
+    conn: &mut Connection,
+    kind: &str,
+    details: &serde_json::Value,
+    first: impl FnOnce(&Connection) -> rusqlite::Result<P>,
+    write: impl FnOnce(&mut Recorder<'_>, P) -> Result<T, OpsError>,
+    derived: impl FnOnce(&Connection) -> rusqlite::Result<()>,
+) -> Result<Recorded<T>, OpsError> {
+    if AutomaticKind::of(kind).is_some() {
+        return Err(OpsError::BadKind(kind.to_owned()));
+    }
+    record_around(conn, kind, details, first, write, Some(derived))
+}
+
 fn record_as<T>(
     conn: &mut Connection,
     kind: &str,
@@ -581,6 +602,24 @@ fn record_then<T>(
     kind: &str,
     details: &serde_json::Value,
     write: impl FnOnce(&mut Recorder<'_>) -> Result<T, OpsError>,
+    derived: Option<impl FnOnce(&Connection) -> rusqlite::Result<()>>,
+) -> Result<Recorded<T>, OpsError> {
+    record_around(
+        conn,
+        kind,
+        details,
+        |_| Ok(()),
+        |rec, ()| write(rec),
+        derived,
+    )
+}
+
+fn record_around<P, T>(
+    conn: &mut Connection,
+    kind: &str,
+    details: &serde_json::Value,
+    first: impl FnOnce(&Connection) -> rusqlite::Result<P>,
+    write: impl FnOnce(&mut Recorder<'_>, P) -> Result<T, OpsError>,
     derived: Option<impl FnOnce(&Connection) -> rusqlite::Result<()>>,
 ) -> Result<Recorded<T>, OpsError> {
     if !is_kind(kind) {
@@ -604,7 +643,8 @@ fn record_then<T>(
         details_changed: false,
     };
     // An error drops `tx`, which rolls everything back.
-    let value = write(&mut recorder)?;
+    let prepared = first(&tx)?;
+    let value = write(&mut recorder, prepared)?;
     let operation_id = (recorder.written > 0).then_some(recorder.operation_id);
     if let Some(id) = operation_id {
         if let Some(derived) = derived {
@@ -1190,10 +1230,10 @@ fn refused_by_a_rule(
     if crate::review::actions::sent_as_new_since(tx, operation.id)? {
         return Ok(Some(UndoRefusal::SwitchSentSince));
     }
-    Ok(
-        crate::review::same::merge_link_changed_since(tx, operation.id)?
-            .then_some(UndoRefusal::MergeLinkChanged),
-    )
+    if crate::review::same::merge_link_changed_since(tx, operation.id)? {
+        return Ok(Some(UndoRefusal::MergeLinkChanged));
+    }
+    Ok(crate::review::split::undo_refused(tx, operation.id)?.then_some(UndoRefusal::ChangedSince))
 }
 
 fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, OpsError> {
@@ -1264,6 +1304,9 @@ pub fn undo_for_user(conn: &mut Connection, only: Option<i64>) -> Result<UndoOut
         // An undone "Keep both" or merge of two Library tracks: the grouping
         // pass puts the pair back in the queue (derived state, as below).
         crate::review::same::after_undo(conn, operation.id, &operation.kind);
+        // An undone "these are the same track", "not the same" or split:
+        // the same, for the item's files (1bE-2).
+        crate::review::split::after_undo(conn, operation.id, &operation.kind);
         if let Err(e) = rank_again_after(conn, operation.id) {
             eprintln!(
                 "undo of operation {}: couldn't rank its tracks again: {e}",
@@ -1438,6 +1481,16 @@ fn undo_set(
         ));
         return Ok(());
     }
+    // A file moved back to the track it came from starts over there, as any
+    // move does: its role and match confidence are the ranking's (derived),
+    // and a track has one best file, so the role goes first.
+    if starts_over(&table.name, &change.field) {
+        tx.prepare_cached(
+            "UPDATE recording_file SET role = 'undecided', match_confidence = NULL
+             WHERE rowid = ?1",
+        )?
+        .execute([change.entity_id])?;
+    }
     let written = tx
         .prepare_cached(&format!(
             "UPDATE {} SET {} = ?1 WHERE rowid = ?2",
@@ -1611,14 +1664,18 @@ fn undo_delete(
 /// - `recording_file.role` and `recording_file.match_confidence` are the
 ///   ranking's (the roles job, [`crate::file_roles`]): a file that changes
 ///   track starts over in its new one, and the ranking works it out again.
-///   A merge of two Library tracks (Review, 1bE-9) is the one operation
-///   that writes them, as it moves the leaving track's files.
+///   Only an action that moves files between tracks writes them, through
+///   the one function that moves a file (`review::same::move_file`): a merge
+///   of two Library tracks (Review, 1bE-9), "these are the same track" and a
+///   split (Review, 1bE-2).
 ///
 /// Undoing a **set** of a derived column leaves the column as it is: no
-/// "changed since" check, nothing written back. The one operation that sets
-/// one (the merge) moves files, and its Undo ranks the tracks it changed
-/// again. No other operation sets a derived column (a test holds the
-/// source to that).
+/// "changed since" check, nothing of the value before written back. The
+/// operations that set one move files, and their Undo ranks the tracks they
+/// changed again; a file the Undo moves back starts over in its track, as
+/// every move does (`starts_over`: role `undecided`, no match confidence).
+/// No other operation sets a derived column (a test holds the source to
+/// that).
 ///
 /// A test holds every entry to what the "changed since" check skips; a new
 /// entry needs its own case there.
@@ -1633,6 +1690,15 @@ pub(crate) const DERIVED_FIELDS: &[(&str, &str)] = &[
 
 fn is_derived(entity: &str, field: &str) -> bool {
     DERIVED_FIELDS.contains(&(entity, field))
+}
+
+/// A set of this field moves a file to another track, so undoing it moves the
+/// file back, and the file starts over there: its derived role and match
+/// confidence (`DERIVED_FIELDS`) are reset first, as every move resets them
+/// (a split in Review moves a file that may be its new track's best back
+/// into a track that has one, 1bE-2). The ranking then works them out again.
+fn starts_over(entity: &str, field: &str) -> bool {
+    (entity, field) == ("recording_file", "recording_id")
 }
 
 /// Refuses NaN and infinite numbers: SQLite would store NaN as NULL, so the
@@ -1675,7 +1741,9 @@ pub fn undo_last_operation(
         if crate::relink::decide::is_operation(&operation.kind) {
             crate::review::actions::ask_for_relink(&writer, &jobs);
         }
-        if crate::review::same::is_operation(&operation.kind) {
+        if crate::review::same::is_operation(&operation.kind)
+            || crate::review::split::is_operation(&operation.kind)
+        {
             crate::review::same::ask_for_merge_follow_up(&writer, &jobs);
         } else {
             crate::review::actions::ask_for_follow_up_work(&writer, &jobs);

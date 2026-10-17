@@ -8,6 +8,7 @@ mod ipc;
 mod plan;
 mod queue;
 mod same;
+mod split;
 
 use std::path::{Path, PathBuf};
 

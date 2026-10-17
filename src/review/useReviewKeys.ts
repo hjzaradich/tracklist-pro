@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
-/** A key the Review screen answers: Enter, or a digit from 1 to 9. */
-export type ReviewKey = "enter" | number;
+/** A key the Review screen answers: Enter, S, or a digit from 1 to 9. */
+export type ReviewKey = "enter" | "s" | number;
 
 /**
  * Anything that takes the keys for itself: a button (the play buttons sit in
@@ -20,11 +20,13 @@ const OPEN_DIALOG = '[role="dialog"], [role="alertdialog"], dialog[open]';
 function reviewKey(event: KeyboardEvent): ReviewKey | null {
   if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return null;
   if (event.key === "Enter") return "enter";
+  // With Caps Lock on, S comes as "S" with no Shift.
+  if (event.key === "s" || event.key === "S") return "s";
   return /^[1-9]$/.test(event.key) ? Number(event.key) : null;
 }
 
 /**
- * Calls `onKey` for Enter and the digits 1 to 9 (1bE-2, ROADMAP 1.12
+ * Calls `onKey` for Enter, S and the digits 1 to 9 (1bE-2, ROADMAP 1.12
  * "Keyboard"), from anywhere on the screen except a key that belongs to
  * something else: pressed on a button or in a field, with a modifier, while
  * a dialog is open, or already answered by another handler. A held key counts

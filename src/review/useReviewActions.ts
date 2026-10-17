@@ -6,6 +6,8 @@ import {
   type AcceptItem,
   type Acted,
   type Merged,
+  type NotSame,
+  type ReviewItemId,
   type SwitchEffect,
   type Switched,
 } from "../bindings";
@@ -164,6 +166,31 @@ export function useKeepBoth(onDone?: () => void) {
 export function useMergeTracks(onDone?: () => void) {
   return useAction<{ anchor: number; recordingIds: number[]; keep: number }, Merged>(
     ({ anchor, recordingIds, keep }) => unwrap(commands.reviewMerge(anchor, recordingIds, keep)),
+    onDone,
+  );
+}
+
+/**
+ * "Same track" (Enter) for a possible version mix-up or "Unclear duplicates"
+ * (1bE-2): the files are one track. `recordingIds` are the tracks the screen
+ * showed. Undoable.
+ */
+export function useSameTrack(onDone?: () => void) {
+  return useAction<{ id: ReviewItemId; recordingIds: number[] }, Acted>(
+    ({ id, recordingIds }) => unwrap(commands.reviewSameTrack(id, recordingIds)),
+    onDone,
+  );
+}
+
+/**
+ * S (1bE-2): "Not the same" for an item with two files (`fileId` null), or the
+ * file `fileId` split off one with three or more. `onDone` hears whether the
+ * item is still in the queue (a split can leave its other question open).
+ * Undoable.
+ */
+export function useNotSame(onDone?: (done: NotSame) => void) {
+  return useAction<{ id: ReviewItemId; recordingIds: number[]; fileId: number | null }, NotSame>(
+    ({ id, recordingIds, fileId }) => unwrap(commands.reviewNotSame(id, recordingIds, fileId)),
     onDone,
   );
 }

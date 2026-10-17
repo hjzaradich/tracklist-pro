@@ -174,3 +174,26 @@ fn a_file_that_joined_through_a_third_one_is_no_duplicate_of_a_file_it_was_never
     assert_eq!(current(&db, flac), [mp3]);
     assert_eq!(current(&db, aac), [mp3]);
 }
+
+#[test]
+fn an_apart_decision_inside_one_track_stops_the_same_track_match() {
+    // "Not the same" for two files that share a track takes neither out of
+    // it (the grouping never undoes a merge), but relink must not lean on a
+    // pair the user denied (1bE-2; found in PR 72's review).
+    let db = db();
+    let (flac, mp3) = velo_and_its_reencode(&db);
+    assert_eq!(
+        db.remember(flac, mp3, crate::grouping::Verdict::Apart),
+        Ok(())
+    );
+    db.decide();
+    assert_eq!(db.track(flac), db.track(mp3), "the merge stands");
+    assert_eq!(current(&db, flac), NONE);
+    assert_eq!(current(&db, mp3), NONE);
+    // "The same" again: they are current duplicates once more.
+    assert_eq!(
+        db.remember(flac, mp3, crate::grouping::Verdict::Same),
+        Ok(())
+    );
+    assert_eq!(current(&db, flac), [mp3]);
+}

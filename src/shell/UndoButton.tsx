@@ -61,6 +61,12 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.keepBoth");
     case "merge_library_tracks":
       return t("undo.action.mergeTracks");
+    case "same_track":
+      return t("undo.action.sameTrack");
+    case "not_same_track":
+      return t("undo.action.notSameTrack");
+    case "split_off_file":
+      return t("undo.action.splitOffFile");
   }
   return t("undo.action.other");
 }

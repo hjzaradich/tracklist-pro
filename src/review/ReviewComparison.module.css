@@ -238,3 +238,29 @@
   color: var(--color-text);
   cursor: pointer;
 }
+
+/* A file row that can be selected (1bE-2): the selected one is tinted, with
+ * the accent bar, as every selected row is (only selected is tinted, never
+ * playing). Selected beats the stripe and hover. */
+.selectable {
+  cursor: pointer;
+}
+
+.selectable:hover td,
+.selectable:hover th {
+  background: var(--color-surface-hover);
+}
+
+.row[aria-selected="true"] td,
+.row[aria-selected="true"] th {
+  background: var(--color-selected);
+}
+
+.row[aria-selected="true"] th {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.selectable:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}

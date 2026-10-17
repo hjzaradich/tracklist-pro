@@ -142,6 +142,9 @@ error_kinds! {
     ReviewMergeLinkedVersions => "review:error.mergeLinkedVersions", params: [];
     /// What the switch means in rekordbox changed since the item was shown.
     ReviewSwitchChanged => "review:error.switchChanged", params: [];
+    /// The file to split off holds the very same audio as a file it would be
+    /// split from: such files are always one track.
+    ReviewSameAudio => "review:error.sameAudio", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

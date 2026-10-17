@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { type KeyboardEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReviewComparison as Comparison, ReviewFileRow } from "../bindings";
@@ -6,7 +6,7 @@ import { PlayButton } from "../player/PlayButton";
 import { Suggested } from "../suggest/Suggested";
 import { reasonOptions, reasonProblem } from "../suggest/reasons";
 import { trackLabel } from "./ReviewQueue";
-import { ReviewActions } from "./ReviewActions";
+import { decidesTracks, ReviewActions } from "./ReviewActions";
 import { itemKey } from "./useReview";
 import styles from "./ReviewComparison.module.css";
 
@@ -75,6 +75,12 @@ function rekordboxCell(
  * app's one player: switching from one row to another keeps the position
  * and whether it is playing (`player/playerStore.ts`). A rekordbox entry
  * with no file has none.
+ *
+ * On a possible version mix-up and on "Unclear duplicates" a file row can be
+ * selected (1bE-2): a click on it, or Space while it has the focus. S then
+ * splits that file off. No row is selected at first, and the selection
+ * belongs to the item it was made on. Only the selected row is tinted, never
+ * the playing one (docs/design-style.md).
  */
 export function ReviewComparison({
   comparison,
@@ -106,6 +112,17 @@ export function ReviewComparison({
     const track = comparison.tracks.find((tr) => tr.recordingId === row.recordingId);
     return track ? trackLabel(t, track) : "";
   };
+  // The selected row's file, for the item it was selected on.
+  const [picked, setPicked] = useState<{ item: string; file: number } | null>(null);
+  const key = itemKey(comparison.id);
+  const selectable = decidesTracks(comparison.kind);
+  const selectedFile =
+    selectable &&
+    picked !== null &&
+    picked.item === key &&
+    comparison.rows.some((row) => row.fileId === picked.file)
+      ? picked.file
+      : null;
   // Only reasons the locale files can word are shown.
   const doubt = comparison.doubt.filter((reason) => reasonProblem([reason]) === null);
   const separator = tSuggest("separator");
@@ -162,7 +179,22 @@ export function ReviewComparison({
         </thead>
         <tbody>
           {comparison.rows.map((row, n) => (
-            <tr key={row.fileId ?? `entry-${n}`} className={styles.row}>
+            <tr
+              key={row.fileId ?? `entry-${n}`}
+              className={selectable ? `${styles.row} ${styles.selectable}` : styles.row}
+              {...(selectable && row.fileId !== null
+                ? {
+                    "aria-selected": row.fileId === selectedFile,
+                    tabIndex: 0,
+                    onClick: () => setPicked({ item: key, file: row.fileId! }),
+                    onKeyDown: (event: KeyboardEvent) => {
+                      if (event.key !== " " || event.target !== event.currentTarget) return;
+                      event.preventDefault();
+                      setPicked({ item: key, file: row.fileId! });
+                    },
+                  }
+                : {})}
+            >
               <th scope="row" className={styles.file}>
                 {/* The play button and the name share one line, so a row is no taller for it. */}
                 <span className={styles.nameLine}>
@@ -210,7 +242,12 @@ export function ReviewComparison({
           ))}
         </tbody>
       </table>
-      <ReviewActions key={itemKey(comparison.id)} comparison={comparison} onDecided={onDecided} />
+      <ReviewActions
+        key={key}
+        comparison={comparison}
+        selectedFile={selectedFile}
+        onDecided={onDecided}
+      />
       {comparison.moreFiles > 0 && (
         <p className={styles.more}>{t("compare.moreFiles", { count: comparison.moreFiles })}</p>
       )}
