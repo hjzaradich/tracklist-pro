@@ -9,6 +9,7 @@ mod conflict_ids;
 mod file_quality;
 mod file_roles;
 mod file_stage;
+mod file_and_track_ids;
 mod file_verdict;
 mod files;
 mod fingerprint_audio_hash;
@@ -246,6 +247,9 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0029_track_merge.sql", &["track_merge"]),
     // `track_merge` says which action left the track, no new tables.
     ("0030_same_track.sql", &[]),
+    // Rebuilds `file` and `recording` so their ids are never reused, no
+    // tables.
+    ("0031_file_and_track_ids_never_reused.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
