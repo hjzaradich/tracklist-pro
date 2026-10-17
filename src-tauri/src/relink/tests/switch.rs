@@ -1164,7 +1164,11 @@ fn gone_file_newest(twin: bool) -> (Lib, i64, Mounted, Item, Option<i64>) {
 /// The gone file's music folder is removed and another file is scanned;
 /// the new file never has the gone file's id.
 fn old_file_removed_and_another_scanned(lib: &Lib, music: i64, item: &Item) {
-    assert_ne!(lib.linked_file(item.track), item.old, "nothing holds the old file");
+    assert_ne!(
+        lib.linked_file(item.track),
+        item.old,
+        "nothing holds the old file"
+    );
     lib.forget(item.old);
     let other = lib.file(music, "Nightdrive.mp3", Some(100_000));
     assert!(other > item.old, "a new file takes a new id: {other}");

@@ -339,7 +339,11 @@ fn each_table_counts_on_from_its_own_ids_and_the_other_counts_stay() {
         &conn,
         "SELECT * FROM sqlite_sequence WHERE name NOT IN ('file', 'recording')",
     );
-    assert_eq!(others.len(), 3, "sync_base, conflict and relink: {others:?}");
+    assert_eq!(
+        others.len(),
+        3,
+        "sync_base, conflict and relink: {others:?}"
+    );
     migrate(&mut conn);
     assert_eq!(
         listed(

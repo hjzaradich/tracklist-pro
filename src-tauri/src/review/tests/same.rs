@@ -811,7 +811,11 @@ fn a_file_scanned_after_a_moved_files_folder_was_removed_never_takes_its_id_or_m
     let t = Twice::new();
     t.merge(&t.both(), t.ta).unwrap();
     assert_eq!(t.db.track(t.b), Some(t.ta));
-    assert_eq!(t.db.count("SELECT max(id) FROM file"), t.b, "b is the newest file");
+    assert_eq!(
+        t.db.count("SELECT max(id) FROM file"),
+        t.b,
+        "b is the newest file"
+    );
     t.db.writer
         .call(|c| crate::scan::folders::remove(c, crate::scan::folders::MusicFolderId(2)))
         .unwrap()

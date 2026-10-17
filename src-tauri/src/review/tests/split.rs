@@ -584,7 +584,11 @@ fn the_undo_of_a_split_is_refused_once_the_moved_file_is_gone_and_no_new_file_or
         other => panic!("{other:?}"),
     }
     assert_eq!(item.rows(), before, "nothing changed");
-    assert_eq!(item.db.track(e), Some(te), "never moved into the Library track");
+    assert_eq!(
+        item.db.track(e),
+        Some(te),
+        "never moved into the Library track"
+    );
 }
 
 #[test]
@@ -598,7 +602,11 @@ fn the_undo_of_the_same_track_is_refused_once_a_moved_file_is_gone_and_no_new_fi
     let ta = item.db.track(a).unwrap();
     item.same(id).unwrap();
     assert_eq!(item.db.track(c), Some(ta));
-    assert_eq!(item.db.count("SELECT max(id) FROM file"), c, "c is the newest file");
+    assert_eq!(
+        item.db.count("SELECT max(id) FROM file"),
+        c,
+        "c is the newest file"
+    );
     item.db.sql(&format!(
         "DELETE FROM recording_file WHERE file_id = {c}; DELETE FROM file WHERE id = {c};"
     ));

@@ -1484,8 +1484,7 @@ fn every_table_a_logged_table_points_at_never_reuses_ids_or_is_written_through_t
         .call(|c| {
             let mut targets = std::collections::BTreeSet::new();
             for table in LOGGED_TABLES.iter().chain(SET_ONLY_TABLES.iter()) {
-                let mut stmt =
-                    c.prepare("SELECT \"table\" FROM pragma_foreign_key_list(?1)")?;
+                let mut stmt = c.prepare("SELECT \"table\" FROM pragma_foreign_key_list(?1)")?;
                 for target in stmt.query_map([table], |r| r.get::<_, String>(0))? {
                     targets.insert(target?);
                 }
