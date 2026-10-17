@@ -504,6 +504,30 @@ impl Lib {
             .unwrap()
     }
 
+    /// The file's music folder was removed: its row goes, and what points
+    /// at it lets go first, as removing a folder and relinking leave it.
+    pub fn forget(&self, file: i64) {
+        self.writer
+            .call(move |c| {
+                c.execute_batch(&format!(
+                    "DELETE FROM recording_file WHERE file_id = {file};
+                     UPDATE rekordbox_track
+                     SET file_id = NULL, relink_method = NULL, relink_confidence = NULL,
+                         relink_probable = 0
+                     WHERE file_id = {file};
+                     DELETE FROM file WHERE id = {file};"
+                ))
+            })
+            .unwrap();
+    }
+
+    /// The highest file id there is.
+    pub fn newest_file(&self) -> i64 {
+        self.writer
+            .call(|c| c.query_row("SELECT max(id) FROM file", [], |r| r.get(0)))
+            .unwrap()
+    }
+
     /// The walk found the file gone.
     pub fn gone(&self, file: i64) {
         self.writer

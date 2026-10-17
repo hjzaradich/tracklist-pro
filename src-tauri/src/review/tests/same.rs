@@ -799,3 +799,37 @@ fn a_staying_track_with_no_entry_is_sent_as_the_leaving_tracks_byte_identical_en
         assert_eq!(removals, []);
     }
 }
+
+// ---- ids never reused (1bE-ids) ------------------------------------------------
+
+#[test]
+fn a_file_scanned_after_a_moved_files_folder_was_removed_never_takes_its_id_or_moves_on_undo() {
+    // The merge moved `b`, the newest file, into the track that stays. Its
+    // music folder is removed, and an unrelated file with the staying
+    // track's audio is scanned: SQLite gave it `b`'s id before migration
+    // 0031, and the merge's Undo moved it out of the Library track.
+    let t = Twice::new();
+    t.merge(&t.both(), t.ta).unwrap();
+    assert_eq!(t.db.track(t.b), Some(t.ta));
+    assert_eq!(
+        t.db.count("SELECT max(id) FROM file"),
+        t.b,
+        "b is the newest file"
+    );
+    t.db.writer
+        .call(|c| crate::scan::folders::remove(c, crate::scan::folders::MusicFolderId(2)))
+        .unwrap()
+        .unwrap();
+    let e = t.db.file(1, "Nightdrive.mp3", Some(hash(1)));
+    t.db.group();
+    assert!(e > t.b, "a new file takes a new id: {e}");
+    assert_eq!(t.db.track(e), Some(t.ta), "it joins the track that stayed");
+
+    let before = t.rows();
+    assert!(
+        matches!(t.undo(), UndoOutcome::Refused { .. }),
+        "the moved file is gone: the undo is refused"
+    );
+    assert_eq!(t.rows(), before, "nothing changed");
+    assert_eq!(t.db.track(e), Some(t.ta), "the new file stays where it is");
+}

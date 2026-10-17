@@ -60,7 +60,12 @@
 //! Row ids name rows in the log, so a table that code outside the log
 //! inserts into must never reuse an id (`AUTOINCREMENT`; `sync_base`, which
 //! a send writes, and `conflict`, which detecting conflicts writes). A test
-//! scans the source for such inserts.
+//! scans the source for such inserts. The same holds for the ids the log
+//! stores as values: `file` and `recording`, which scans, folder removals
+//! and the grouping job write outside the log, never reuse an id either
+//! (migration 0031), so a recorded file or track id names its own row or
+//! none, and an Undo whose row is gone is refused. A test checks every
+//! table a logged table points at.
 
 mod schema;
 
