@@ -775,3 +775,33 @@ fn after_not_the_same_the_track_can_be_added_as_one_rekordbox_does_not_know() {
     assert_eq!(lib.matched(row), None);
     assert_eq!(lib.sent(added.library_track.id), SentAs::New);
 }
+
+// ---- ids never reused (1bE-ids) ------------------------------------------------
+
+#[test]
+fn undo_of_a_withdrawal_never_puts_the_confirmation_on_a_file_scanned_after_its_own_went() {
+    // The confirmed file is the newest. Once withdrawn, its music folder is
+    // removed and another file is scanned: before migration 0031 that file
+    // took the confirmed file's id, and undoing the withdrawal confirmed the
+    // entry on it.
+    let (lib, _mounted, guess, row) = a_name_guess();
+    lib.confirm_item(row, guess).unwrap();
+    lib.withdraw_item(row).unwrap();
+    assert_eq!(lib.said(), []);
+    assert_eq!(lib.newest_file(), guess);
+    lib.forget(guess);
+    let other = lib.file(1, "Other place/Nightdrive.mp3", None);
+    assert!(other > guess, "a new file takes a new id: {other}");
+
+    let outcome = lib
+        .writer
+        .call(|c| Ok(crate::ops::undo_for_user(c, None)))
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(outcome, UndoOutcome::Refused { .. }),
+        "the confirmed file is gone: {outcome:?}"
+    );
+    assert_eq!(lib.said(), [], "no confirmation on any file");
+    assert_eq!(lib.matched(row), None);
+}

@@ -543,11 +543,12 @@ fn the_new_track_is_rolled_back_with_an_operation_that_recorded_nothing() {
 // ---- fix round 1 (review of PR 98) --------------------------------------------
 
 #[test]
-fn the_undo_of_a_split_is_refused_once_the_moved_files_id_and_the_new_tracks_id_are_reused() {
-    // The reviewer's case, every id reused by SQLite itself: the file split off
-    // is the newest file and its new track the newest track, so both ids come
-    // back for the next file scanned. The log's own check sees only ids; the
-    // operation keeps what the moved file held.
+fn the_undo_of_a_split_is_refused_once_the_moved_file_is_gone_and_no_new_file_or_track_takes_its_ids(
+) {
+    // The reviewer's case: the file split off is the newest file and its new
+    // track the newest track. Before migration 0031 both ids came back for
+    // the next file scanned, and only the operation's own record of what the
+    // moved file held told them apart. Now neither id is ever made again.
     let db = db();
     let velo = track(1, LEN);
     let a = db.add(file("Velo.flac", 1, velo.clone()));
@@ -570,16 +571,12 @@ fn the_undo_of_a_split_is_refused_once_the_moved_files_id_and_the_new_tracks_id_
         "DELETE FROM recording_file WHERE file_id = {b}; DELETE FROM file WHERE id = {b};"
     ));
     item.db.group();
-    // An unrelated file is scanned: it takes `b`'s id, and a new track takes
-    // the split's track id.
+    // An unrelated file is scanned, and the grouping makes it a track.
     let e = item.db.file(1, "Nightdrive.mp3", Some(hash(40)));
     item.db.group();
-    assert_eq!(e, b, "SQLite gave the new file the old id");
-    assert_eq!(
-        item.db.track(e),
-        Some(split_to),
-        "and its track the old track id"
-    );
+    assert!(e > b, "a new file takes a new id: {e}");
+    let te = item.db.track(e).unwrap();
+    assert!(te > split_to, "and its track a new track id: {te}");
 
     let before = item.rows();
     match item.undo() {
@@ -587,11 +584,37 @@ fn the_undo_of_a_split_is_refused_once_the_moved_files_id_and_the_new_tracks_id_
         other => panic!("{other:?}"),
     }
     assert_eq!(item.rows(), before, "nothing changed");
-    assert_eq!(
-        item.db.track(e),
-        Some(split_to),
-        "never moved into the Library track"
+    assert_eq!(item.db.track(e), Some(te), "never moved into the Library track");
+}
+
+#[test]
+fn the_undo_of_the_same_track_is_refused_once_a_moved_file_is_gone_and_no_new_file_takes_its_id() {
+    // The file the decision moved into the Library track is the newest. Its
+    // music folder is removed, and a file with the Library track's audio is
+    // scanned: it joins the Library track, and before migration 0031 it took
+    // the moved file's id, so the Undo would have moved it out.
+    let (item, a, c) = two_files();
+    let id = item.doubt();
+    let ta = item.db.track(a).unwrap();
+    item.same(id).unwrap();
+    assert_eq!(item.db.track(c), Some(ta));
+    assert_eq!(item.db.count("SELECT max(id) FROM file"), c, "c is the newest file");
+    item.db.sql(&format!(
+        "DELETE FROM recording_file WHERE file_id = {c}; DELETE FROM file WHERE id = {c};"
+    ));
+    item.db.group();
+    let e = item.db.file(1, "Nightdrive.flac", Some(hash(1)));
+    item.db.group();
+    assert!(e > c, "a new file takes a new id: {e}");
+    assert_eq!(item.db.track(e), Some(ta), "it joins the Library track");
+
+    let before = item.rows();
+    assert!(
+        matches!(item.undo(), UndoOutcome::Refused { .. }),
+        "the moved file is gone: the undo is refused"
     );
+    assert_eq!(item.rows(), before, "nothing changed");
+    assert_eq!(item.db.track(e), Some(ta), "the new file stays where it is");
 }
 
 #[test]

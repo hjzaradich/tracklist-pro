@@ -553,3 +553,38 @@ fn a_removal_made_before_base_ids_stopped_being_reused_is_still_undone_after_the
     }
     assert_eq!(bases(&conn, 1), before);
 }
+
+// ---- ids never reused (1bE-ids) ------------------------------------------------
+
+#[test]
+fn undoing_a_removal_never_links_the_track_to_a_file_scanned_after_its_own_went() {
+    // The removed track's file is the newest. Out of the Library nothing
+    // holds it, so removing its music folder deletes its row; before
+    // migration 0031 the next file scanned took its id, and undoing the
+    // removal linked the track to that file.
+    let lib = Lib::new();
+    let track = lib.added("a.mp3");
+    let file = lib.linked_file(track).unwrap();
+    lib.remove(track).unwrap();
+    assert_eq!(lib.count("SELECT max(id) FROM file"), file);
+    lib.writer
+        .call(move |c| {
+            c.execute_batch(&format!(
+                "DELETE FROM recording_file WHERE file_id = {file};
+                 DELETE FROM file WHERE id = {file};"
+            ))
+        })
+        .unwrap();
+    let other_track = lib.track(Some("b.mp3"), None);
+    let other = lib.file(other_track, "b.mp3", "best", true);
+    assert!(other > file, "a new file takes a new id: {other}");
+
+    match undo_last_via(&lib.writer).unwrap() {
+        UndoOutcome::Refused { reason, .. } => {
+            assert_eq!(reason, crate::ops::UndoRefusal::SourceGone)
+        }
+        other => panic!("not refused: {other:?}"),
+    }
+    assert_eq!(lib.library_tracks(), 0);
+    assert_eq!(lib.removed().len(), 1, "still removed");
+}

@@ -56,10 +56,11 @@
 //! track a split took files out of may not be that track any more (none of
 //! the files that stayed holds what it held there, or the track by that id
 //! was made at another time: it may have been swept and its id given to
-//! another, ids being reused, so the files would go back into the wrong
-//! one), when a file the action moved isn't that file any more (another file
-//! has its id, or it holds other audio: the log's own check sees only the
-//! id, and a file reusing it may sit in a track reusing the new track's id),
+//! another, as ids were before migration 0031, so the files would go back
+//! into the wrong one), when a file the action moved isn't that file any
+//! more (it holds other audio, or another file has its id: the log's own
+//! check sees only the id; since 0031 no new file or track takes a deleted
+//! one's id, and these checks stay as a second guard),
 //! or when a file the action moved is a Library track's file now (two tracks
 //! would end up on one file). So every file the action moved, and every file
 //! that stayed, is kept in the operation with the audio it held.
@@ -177,9 +178,9 @@ fn audio_known(conn: &Connection, file: i64) -> rusqlite::Result<bool> {
 }
 
 /// What each of `files` holds, as the operation's details keep it: the
-/// file and its audio key in hex (empty when it has none). What tells a
-/// file from another file that takes its id later: ids are reused once a
-/// row is gone (a music folder removed, another file scanned).
+/// file and its audio key in hex (empty when it has none). What tells that
+/// a file holds other audio now, and a second guard against another file
+/// with its id (ids were reused once a row was gone until migration 0031).
 fn with_keys(conn: &Connection, files: &[i64]) -> rusqlite::Result<Vec<serde_json::Value>> {
     let mut out = Vec::new();
     for &f in files {
@@ -563,9 +564,10 @@ fn split(conn: &mut Connection, tracks: &[i64], file: i64) -> Result<Acted, Refu
 /// the action moved the file to); or it split files out of
 /// a track that may not be that track any more: none of the files that
 /// stayed there is in it holding what it held then, or the track by that id
-/// was made at another time. Track ids and file ids are reused once their
-/// rows are gone, so an id alone proves nothing: the track may have been
-/// swept and its id given to another. Asked by the
+/// was made at another time. Track ids and file ids were reused once their
+/// rows were gone until migration 0031, so an id alone proved nothing then:
+/// the track may have been swept and its id given to another; the checks
+/// stay as a second guard. Asked by the
 /// log before anything is unwound ([`crate::ops`]); `false` for any other
 /// operation.
 pub(crate) fn undo_refused(conn: &Connection, operation: i64) -> rusqlite::Result<bool> {

@@ -1124,3 +1124,95 @@ fn an_entry_a_switch_left_behind_is_sent_again_through_a_byte_identical_copy_and
     assert_eq!(lib.count("SELECT count(*) FROM replaced_entry"), 0);
     assert_eq!(lib.to_remove(), []);
 }
+
+// ---- ids never reused (1bE-ids) ------------------------------------------------
+
+/// [`one`] with no rekordbox entry, but the copy made first: the gone file
+/// is the newest, so before migration 0031 the next file scanned after its
+/// row went took its id. With `twin`, another file with the copy's audio is
+/// made before it too, in no track yet. Also returns the music folder and
+/// the twin.
+fn gone_file_newest(twin: bool) -> (Lib, i64, Mounted, Item, Option<i64>) {
+    let (lib, music, mounted) = e_music();
+    let twin = twin.then(|| {
+        let twin = lib.file(music, "Twins/Kappa.flac", Some(200_000));
+        lib.hashed(twin, 2);
+        twin
+    });
+    let copy = lib.file(music, "Copies/Kappa.flac", Some(200_000));
+    lib.hashed(copy, 2);
+    let old = lib.file(music, "Kappa.mp3", Some(200_000));
+    lib.hashed(old, 1);
+    let recording = lib.group(&[old]);
+    let track = lib.add(old);
+    lib.gone(old);
+    lib.title(copy, "Kappa");
+    lib.joins(copy, old);
+    settle(&lib, &mounted);
+    assert_eq!(lib.clear_items(), [recording]);
+    assert_eq!(lib.newest_file(), old);
+    let item = Item {
+        old,
+        copy,
+        recording,
+        track,
+        row: None,
+    };
+    (lib, music, mounted, item, twin)
+}
+
+/// The gone file's music folder is removed and another file is scanned;
+/// the new file never has the gone file's id.
+fn old_file_removed_and_another_scanned(lib: &Lib, music: i64, item: &Item) {
+    assert_ne!(lib.linked_file(item.track), item.old, "nothing holds the old file");
+    lib.forget(item.old);
+    let other = lib.file(music, "Nightdrive.mp3", Some(100_000));
+    assert!(other > item.old, "a new file takes a new id: {other}");
+}
+
+/// Undo is refused, and the track stays on `linked`.
+fn undo_refused(lib: &Lib, item: &Item, linked: i64) {
+    let outcome = lib.undo_last();
+    assert!(
+        matches!(outcome, UndoOutcome::Refused { .. }),
+        "the old file is gone: {outcome:?}"
+    );
+    assert_eq!(lib.linked_file(item.track), linked);
+}
+
+#[test]
+fn undo_of_a_switch_never_links_the_track_to_a_file_scanned_after_the_old_one_went() {
+    let (lib, music, _mounted, item, _) = gone_file_newest(false);
+    lib.switch(item.recording, item.copy, SwitchEffect::NotInRekordbox)
+        .unwrap();
+    old_file_removed_and_another_scanned(&lib, music, &item);
+    undo_refused(&lib, &item, item.copy);
+}
+
+#[test]
+fn undo_of_accept_all_never_links_a_track_to_a_file_scanned_after_the_old_one_went() {
+    let (lib, music, _mounted, item, _) = gone_file_newest(false);
+    let shown = lib.clear_cases();
+    assert_eq!(shown.len(), 1);
+    lib.accept(&shown);
+    assert_eq!(lib.linked_file(item.track), item.copy);
+    old_file_removed_and_another_scanned(&lib, music, &item);
+    undo_refused(&lib, &item, item.copy);
+}
+
+#[test]
+fn undo_of_a_switch_the_track_then_followed_from_never_links_it_to_a_file_scanned_later() {
+    // After the switch the copy goes too, and the track follows it to a
+    // file with its audio: an automatic operation, which the switch's Undo
+    // takes back with it, putting the link back on the old file.
+    let (lib, music, _mounted, item, twin) = gone_file_newest(true);
+    let twin = twin.unwrap();
+    lib.switch(item.recording, item.copy, SwitchEffect::NotInRekordbox)
+        .unwrap();
+    lib.joins(twin, item.copy);
+    lib.gone(item.copy);
+    lib.follow();
+    assert_eq!(lib.linked_file(item.track), twin, "the track followed");
+    old_file_removed_and_another_scanned(&lib, music, &item);
+    undo_refused(&lib, &item, twin);
+}

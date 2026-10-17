@@ -807,7 +807,7 @@ fn a_file_scanned_after_a_moved_files_folder_was_removed_never_takes_its_id_or_m
     // The merge moved `b`, the newest file, into the track that stays. Its
     // music folder is removed, and an unrelated file with the staying
     // track's audio is scanned: SQLite gave it `b`'s id before migration
-    // 0030, and the merge's Undo moved it out of the Library track.
+    // 0031, and the merge's Undo moved it out of the Library track.
     let t = Twice::new();
     t.merge(&t.both(), t.ta).unwrap();
     assert_eq!(t.db.track(t.b), Some(t.ta));

@@ -1468,3 +1468,57 @@ fn only_a_merge_of_two_library_tracks_records_a_derived_column() {
         ]
     );
 }
+
+#[test]
+fn every_table_a_logged_table_points_at_never_reuses_ids_or_is_written_through_the_log() {
+    // The log stores ids as values too: a Library track's linked file, the
+    // track a removal is about, the files a merge moved (`recording_file` is
+    // named by its file's id). Code outside the log deletes `file` rows
+    // (removing a music folder) and makes and sweeps `recording` rows (the
+    // grouping job), so a new row there must never take a recorded id, or
+    // an Undo would act on another file or track (migration 0031). A table
+    // only the log inserts into needs nothing: history is linear for it.
+    let lib = Lib::new();
+    let (targets, autoincrement) = lib
+        .writer
+        .call(|c| {
+            let mut targets = std::collections::BTreeSet::new();
+            for table in LOGGED_TABLES.iter().chain(SET_ONLY_TABLES.iter()) {
+                let mut stmt =
+                    c.prepare("SELECT \"table\" FROM pragma_foreign_key_list(?1)")?;
+                for target in stmt.query_map([table], |r| r.get::<_, String>(0))? {
+                    targets.insert(target?);
+                }
+            }
+            let mut autoincrement = Vec::new();
+            for target in &targets {
+                let sql: String = c.query_row(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [target],
+                    |r| r.get(0),
+                )?;
+                if sql.to_uppercase().contains("AUTOINCREMENT") {
+                    autoincrement.push(target.clone());
+                }
+            }
+            Ok((targets, autoincrement))
+        })
+        .unwrap();
+    for target in &targets {
+        assert!(
+            LOGGED_TABLES.contains(&target.as_str()) || autoincrement.contains(target),
+            "a logged table points at `{target}`, which code outside the log writes and which \
+             reuses ids. Give it AUTOINCREMENT in a migration."
+        );
+    }
+    // What this sees, so it isn't passing by blindness: the two tables the
+    // log points at but never inserts into.
+    let outside: Vec<&String> = targets
+        .iter()
+        .filter(|t| !LOGGED_TABLES.contains(&t.as_str()))
+        .collect();
+    assert_eq!(outside, ["file", "recording"]);
+    // Ids of these tables stored without a foreign key are tracks too
+    // (`replaced_entry.recording_id`, `track_merge.into_id`), covered by
+    // `recording`.
+}
