@@ -52,15 +52,15 @@
     "keepAnyway": "Keep anyway",
     "findBetter": "Find a better file",
     "switch": "Switch file",
-    "confirm": "Confirm",
-    "confirmAgain": "Confirm again",
+    "confirm": "Confirm match",
+    "confirmAgain": "Confirm match again",
     "notSame": "Not the same",
     "rejectMatch": "Reject match",
     "keepBoth": "Keep both",
     "merge": "Merge",
     "mergeConfirm": "Merge",
     "goBack": "Go back",
-    "sameTrack": "Same track",
+    "sameTrack": "Make one track",
     "splitOff": "Split off"
   },
   "keys": {
@@ -68,11 +68,11 @@
     "rows": "Number keys: switch to that row's file",
     "tracks": "Number keys: choose the track that stays",
     "s": "S: {{action}}",
-    "selectRow": "S: select a row first, then S splits it off"
+    "selectRow": "S: select a row first"
   },
   "accepted": {
-    "line_one": "Switched {{count, number}} track to the copy on disk",
-    "line_other": "Switched {{count, number}} tracks to the copy on disk",
+    "line_one": "{{count, number}} track switched to the copy on disk",
+    "line_other": "{{count, number}} tracks switched to the copy on disk",
     "view": "View",
     "hide": "Hide",
     "undo": "Undo",
@@ -85,7 +85,7 @@
     }
   },
   "switch": {
-    "keepsEntry": "rekordbox keeps this track and its cues. It will show the file as missing until you relocate it in rekordbox.",
+    "keepsEntry": "rekordbox keeps this track and its cues. It will show File is missing until you relocate the file in rekordbox.",
     "newTrack": "rekordbox will see a new track, without the cues of the old one. The old track will be listed under Tracks to remove in rekordbox. To keep the cues, relocate the file in rekordbox instead.",
     "otherEntry": "rekordbox already has this file as another track, and your Library track will become that one, with its cues. The old track will be listed under Tracks to remove in rekordbox. To keep the old cues, relocate the file in rekordbox instead."
   },
@@ -181,16 +181,16 @@
     "creditedToRemixer": "credited to the remixer"
   },
   "error": {
-    "itemGone": "This item was already answered",
-    "noAudioKnown": "Can't remember this yet: the file is still being scanned",
-    "switchLinkedOnDisk": "Can't switch: the linked file is on disk again",
-    "switchNotInTrack": "Can't switch: that file is no longer a file of this track",
-    "switchTargetGone": "Can't switch: the copy is gone too",
+    "itemGone": "This item has already been decided",
+    "noAudioKnown": "Can't do this yet: the file is still being scanned",
+    "switchLinkedOnDisk": "Can't switch: the Library file is back on disk",
+    "switchNotInTrack": "Can't switch: that file no longer belongs to this track",
+    "switchTargetGone": "Can't switch: the copy is missing too",
     "switchTargetLinked": "Can't switch: another Library track uses that file",
     "switchEntryTaken": "Can't switch: rekordbox's track for that file belongs to another Library track",
-    "switchChanged": "This changed while you were looking at it. Read it again before you switch.",
-    "mergeLinkedVersions": "Can't merge: these tracks are linked as versions",
-    "sameAudio": "Can't split: these files hold the very same audio"
+    "switchChanged": "Can't switch: this item has changed. Check it again first.",
+    "mergeLinkedVersions": "Can't make one track: these tracks are linked as versions",
+    "sameAudio": "Can't split: these files hold the same audio"
   },
   "same": {
     "label": "Library tracks",
@@ -206,8 +206,8 @@
     "stars_other": "{{count}} stars",
     "choose": "Which track stays?",
     "suggestedTrack": "{{name}} (suggested)",
-    "confirm_one": "The other track leaves your Library. Its files and crates go to the track that stays, and its cues, rating and plays in rekordbox will be lost. It goes on the list of tracks to remove in rekordbox. You can undo this.",
-    "confirm_other": "The other {{count}} tracks leave your Library. Their files and crates go to the track that stays, and their cues, ratings and plays in rekordbox will be lost. They go on the list of tracks to remove in rekordbox. You can undo this."
+    "confirm_one": "The other track's files and crates move to the track that stays, and it leaves your Library. Its cues, rating and plays in rekordbox won't carry over, and it will be listed under Tracks to remove in rekordbox. This action can be undone.",
+    "confirm_other": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues, ratings and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone."
   },
   "keep": {
     "moreCues": "more cues in rekordbox ({{count}} against {{other}})",

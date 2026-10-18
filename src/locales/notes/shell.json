@@ -177,7 +177,8 @@
   },
   "undo.refused.switchSentSince": {
     "purpose": "Says why Undo is greyed out: the step switched a track's linked file to a copy that goes to rekordbox as a new track, and the track has been sent since, so rekordbox holds that new track now.",
-    "where": "Top bar, beside the Undo button, when the next step to undo is such a switch (or an \"Accept all\" holding one)."
+    "where": "Top bar, beside the Undo button, when the next step to undo is such a switch (or an \"Accept all\" holding one).",
+    "approved": "Can't undo: the track has been sent to rekordbox as a new track since"
   },
   "details.label": {
     "purpose": "Accessible name of the Details panel.",
@@ -209,7 +210,8 @@
   },
   "undo.refused.mergeLinkChanged": {
     "purpose": "Why Undo can't take back a merge of two Library tracks: the track that stayed now plays another file (it followed its file, or was switched), and undoing would put two Library tracks on one file.",
-    "where": "Top bar, Undo button's refusal, when the next step to undo is such a merge."
+    "where": "Top bar, Undo button's refusal, when the next step to undo is such a merge.",
+    "approved": "Can't undo: the track that stayed uses a different file since"
   },
   "undo.action.sameTrack": {
     "purpose": "Undo button naming what it takes back: \"Same track\" in Review, which made the files of a version mix-up or of unclear duplicates one track (Undo puts the files back). Proposal.",
