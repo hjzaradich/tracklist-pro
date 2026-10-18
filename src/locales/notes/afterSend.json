@@ -76,10 +76,12 @@
   },
   "removals.replaced": {
     "purpose": "Says why a track is on the list though it is still in the Library: it is rekordbox's old entry for a track whose linked file was switched to another copy in Review.",
-    "where": "After-send lists, removals rows, after the name of such a track."
+    "where": "After-send lists, removals rows, after the name of such a track.",
+    "approved": "(old track, its file was switched in your Library)"
   },
   "removals.merged": {
     "purpose": "Says why a track is on the list: it is rekordbox's entry for a Library track that was merged into another one (the same recording) in Review.",
-    "where": "After-send lists, removals rows, after the name of such a track."
+    "where": "After-send lists, removals rows, after the name of such a track.",
+    "approved": "(old track, merged into another Library track)"
   }
 }

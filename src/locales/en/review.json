@@ -40,7 +40,7 @@
     "label": "Files to compare",
     "none": "Select an item",
     "suggested": "Suggested: {{name}}",
-    "doubt": "Why it is here:",
+    "doubt": "Why it's here:",
     "moreFiles_one": "({{count, number}} other file)",
     "moreFiles_other": "({{count, number}} other files)",
     "rekordboxEntry": "rekordbox's entry",
@@ -52,15 +52,15 @@
     "keepAnyway": "Keep anyway",
     "findBetter": "Find a better file",
     "switch": "Switch file",
-    "confirm": "Confirm",
-    "confirmAgain": "Confirm again",
-    "notSame": "Not the same",
+    "confirm": "Confirm match",
+    "confirmAgain": "Confirm match again",
+    "notSame": "Keep separate",
     "rejectMatch": "Reject match",
     "keepBoth": "Keep both",
     "merge": "Merge",
     "mergeConfirm": "Merge",
     "goBack": "Go back",
-    "sameTrack": "Same track",
+    "sameTrack": "Make one track",
     "splitOff": "Split off"
   },
   "keys": {
@@ -68,11 +68,11 @@
     "rows": "Number keys: switch to that row's file",
     "tracks": "Number keys: choose the track that stays",
     "s": "S: {{action}}",
-    "selectRow": "S: select a row first, then S splits it off"
+    "selectRow": "S: select a row first"
   },
   "accepted": {
-    "line_one": "Switched {{count, number}} track to the copy on disk",
-    "line_other": "Switched {{count, number}} tracks to the copy on disk",
+    "line_one": "{{count, number}} track switched to the copy on disk",
+    "line_other": "{{count, number}} tracks switched to the copy on disk",
     "view": "View",
     "hide": "Hide",
     "undo": "Undo",
@@ -85,7 +85,7 @@
     }
   },
   "switch": {
-    "keepsEntry": "rekordbox keeps this track and its cues. It will show the file as missing until you relocate it in rekordbox.",
+    "keepsEntry": "rekordbox keeps this track and its cues. It will show File is missing until you relocate the file in rekordbox.",
     "newTrack": "rekordbox will see a new track, without the cues of the old one. The old track will be listed under Tracks to remove in rekordbox. To keep the cues, relocate the file in rekordbox instead.",
     "otherEntry": "rekordbox already has this file as another track, and your Library track will become that one, with its cues. The old track will be listed under Tracks to remove in rekordbox. To keep the old cues, relocate the file in rekordbox instead."
   },
@@ -123,19 +123,19 @@
   },
   "reason": {
     "onlyFile": "the only file",
-    "notOnDisk": "on disk (the other file is gone)",
-    "betterVerdict": "better quality check",
-    "playable": "plays in rekordbox",
-    "higherCutoff": "{{bestKhz}} kHz cutoff ({{otherKhz}} kHz)",
-    "higherCutoffMeasured": "measured {{bestKhz}} kHz cutoff (the other isn't measured)",
-    "fewerDecodeErrors": "fewer decode errors ({{best}} against {{other}})",
-    "betterFormat": "{{best}} (the other is {{other}})",
-    "betterBitrate": "{{bestKbps}} kbps (the other is {{otherKbps}} kbps)",
+    "notOnDisk": "on disk (the other file is missing)",
+    "betterVerdict": "better quality check result",
+    "playable": "plays in rekordbox (the other file doesn't)",
+    "higherCutoff": "{{bestKhz}} kHz cutoff (the other file is {{otherKhz}} kHz)",
+    "higherCutoffMeasured": "{{bestKhz}} kHz cutoff (the other file isn't measured)",
+    "fewerDecodeErrors": "fewer audio errors ({{best}}, the other file has {{other}})",
+    "betterFormat": "{{best}} (the other file is {{other}})",
+    "betterBitrate": "{{bestKbps}} kbps (the other file is {{otherKbps}} kbps)",
     "moreTags": "more tags filled",
     "hasArt": "has cover art",
-    "knownToRekordbox": "known to rekordbox",
-    "betterPlace": "$t(review:place.{{best}}) (the other is $t(review:place.{{other}}))",
-    "tied": "no difference between the files"
+    "knownToRekordbox": "rekordbox already has this file",
+    "betterPlace": "$t(review:place.{{best}}) (the other file is $t(review:place.{{other}}))",
+    "tied": "no difference between the files (this one was found first)"
   },
   "place": {
     "connected": "on a connected drive",
@@ -149,29 +149,29 @@
     "addedLater": "in a folder added later"
   },
   "relink": {
-    "filenameOnly": "same file name, no other file has it",
+    "filenameOnly": "the only file with this name",
     "uniqueDuration": "only file of this length nearby",
     "fingerprint": "same audio fingerprint",
     "filenameDuration": "same file name and length",
-    "user": "confirmed before, the audio has changed",
+    "user": "confirmed before (the audio has changed since)",
     "other": "matched another way"
   },
   "doubt": {
     "identicalAudio": "the same audio",
-    "sameAudio": "the same audio, found in full in both",
-    "versionVeto": "the same audio, but the names give different cuts",
-    "sameAudioNamesDisagree": "the same audio, but the names disagree",
-    "audioInsideOther": "the audio of one file sits inside the other",
-    "audioInsideOtherNamesDisagree": "the audio of one file sits inside the other, but the names disagree",
-    "sameTagsPartialAudio": "the same names, but only part of the audio is shared",
-    "partialAudioNamesUnclear": "part of the audio is shared, and the names don't say what the files are",
-    "namesSayCut": "the names give different cuts",
-    "namesSayRework": "the names give different reworks",
-    "mashupContains": "a mashup that contains the other file",
-    "labelWordsDiffer": "the same audio, but the names carry different version words",
-    "fingerprintVeto": "the same names, but the audio shares nothing",
-    "noFingerprint": "the same names, and a file has no fingerprint yet",
-    "notCompared": "the same names, and the audio was never compared",
+    "sameAudio": "the same audio (all of it, in both files)",
+    "versionVeto": "the same audio (but the names say different cuts)",
+    "sameAudioNamesDisagree": "the same audio (but the names disagree)",
+    "audioInsideOther": "one file's audio is inside the other",
+    "audioInsideOtherNamesDisagree": "one file's audio is inside the other (but the names disagree)",
+    "sameTagsPartialAudio": "the same names (but only part of the audio matches)",
+    "partialAudioNamesUnclear": "part of the audio matches (and the names don't say what the files are)",
+    "namesSayCut": "the names say different cuts",
+    "namesSayRework": "the names say different reworks",
+    "mashupContains": "one file is a mashup that contains the other",
+    "labelWordsDiffer": "the same audio (but the names have different version words)",
+    "fingerprintVeto": "the same names (but the audio doesn't match at all)",
+    "noFingerprint": "the same names (one file isn't fingerprinted yet)",
+    "notCompared": "the same names (the audio hasn't been compared yet)",
     "sameTitleDifferentArtists": "the same title by different artists",
     "mashupPart": "one name looks like a mashup part of the other",
     "namesUnclear": "the names don't say what the files are",
@@ -181,16 +181,16 @@
     "creditedToRemixer": "credited to the remixer"
   },
   "error": {
-    "itemGone": "This item was already answered",
-    "noAudioKnown": "Can't remember this yet: the file is still being scanned",
-    "switchLinkedOnDisk": "Can't switch: the linked file is on disk again",
-    "switchNotInTrack": "Can't switch: that file is no longer a file of this track",
-    "switchTargetGone": "Can't switch: the copy is gone too",
+    "itemGone": "This item has already been decided",
+    "noAudioKnown": "Can't do this yet: the file is still being scanned",
+    "switchLinkedOnDisk": "Can't switch: the Library file is back on disk",
+    "switchNotInTrack": "Can't switch: that file no longer belongs to this track",
+    "switchTargetGone": "Can't switch: the copy is missing too",
     "switchTargetLinked": "Can't switch: another Library track uses that file",
     "switchEntryTaken": "Can't switch: rekordbox's track for that file belongs to another Library track",
-    "switchChanged": "This changed while you were looking at it. Read it again before you switch.",
-    "mergeLinkedVersions": "Can't merge: these tracks are linked as versions",
-    "sameAudio": "Can't split: these files hold the very same audio"
+    "switchChanged": "Can't switch: this item has changed. Check it again first.",
+    "mergeLinkedVersions": "Can't make one track: these tracks are linked as versions",
+    "sameAudio": "Can't split: these files hold the same audio"
   },
   "same": {
     "label": "Library tracks",
@@ -206,12 +206,12 @@
     "stars_other": "{{count}} stars",
     "choose": "Which track stays?",
     "suggestedTrack": "{{name}} (suggested)",
-    "confirm_one": "The other track leaves your Library. Its files and crates go to the track that stays, and its cues, rating and plays in rekordbox will be lost. It goes on the list of tracks to remove in rekordbox. You can undo this.",
-    "confirm_other": "The other {{count}} tracks leave your Library. Their files and crates go to the track that stays, and their cues, ratings and plays in rekordbox will be lost. They go on the list of tracks to remove in rekordbox. You can undo this."
+    "confirm_one": "The other track's files and crates move to the track that stays, and it leaves your Library. Its cues, rating and plays in rekordbox won't carry over, and it will be listed under Tracks to remove in rekordbox. This action can be undone.",
+    "confirm_other": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues, ratings and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone."
   },
   "keep": {
-    "moreCues": "more cues in rekordbox ({{count}} against {{other}})",
-    "morePlays": "played more in rekordbox ({{count}} times against {{other}})",
+    "moreCues": "more cues in rekordbox ({{count}}, the other track has {{other}})",
+    "morePlays": "played more in rekordbox ({{count}} plays, the other track has {{other}})",
     "tied": "no difference between the tracks"
   }
 }

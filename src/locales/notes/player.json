@@ -1,38 +1,47 @@
 {
   "play": {
     "purpose": "Button that starts playback.",
-    "where": "Player bar along the bottom, and the play button on a file row (All music, later Review)."
+    "where": "Player bar along the bottom, and the play button on a file row (All music, later Review).",
+    "approved": "Play"
   },
   "pause": {
     "purpose": "Button that pauses playback.",
-    "where": "Player bar along the bottom, and the play button on the file that is playing."
+    "where": "Player bar along the bottom, and the play button on the file that is playing.",
+    "approved": "Pause"
   },
   "playNamed": {
     "purpose": "Screen-reader name of a row's play button; the file's name is data.",
-    "where": "Play button on a file row (screen-reader label)."
+    "where": "Play button on a file row (screen-reader label).",
+    "approved": "Play {{name}}"
   },
   "pauseNamed": {
     "purpose": "Screen-reader name of a row's play button while that file plays.",
-    "where": "Play button on the file that is playing (screen-reader label)."
+    "where": "Play button on the file that is playing (screen-reader label).",
+    "approved": "Pause {{name}}"
   },
   "position": {
     "purpose": "Screen-reader name of the scrub bar.",
-    "where": "Player bar along the bottom (screen-reader label)."
+    "where": "Player bar along the bottom (screen-reader label).",
+    "approved": "Position"
   },
   "refused.missing": {
     "purpose": "Says why a file isn't played: it isn't on disk.",
-    "where": "Player bar, in place of the scrub bar, when the file is gone."
+    "where": "Player bar, in place of the scrub bar, when the file is gone.",
+    "approved": "Can't play: the file is missing"
   },
   "refused.driveNotConnected": {
     "purpose": "Says why a file isn't played: its drive is unplugged.",
-    "where": "Player bar, in place of the scrub bar, when the file's drive isn't connected."
+    "where": "Player bar, in place of the scrub bar, when the file's drive isn't connected.",
+    "approved": "Can't play: the file's drive isn't connected"
   },
   "refused.onlineOnly": {
     "purpose": "Says why a file isn't played: it's a OneDrive file that isn't on this PC, and playing it would download it.",
-    "where": "Player bar, in place of the scrub bar, for an online-only OneDrive file."
+    "where": "Player bar, in place of the scrub bar, for an online-only OneDrive file.",
+    "approved": "Can't play: the file is online only (not downloaded)"
   },
   "refused.cantPlay": {
     "purpose": "Says a file isn't played because it can't be read or decoded as audio.",
-    "where": "Player bar, in place of the scrub bar, for a file the player can't use (unknown, unreadable or not decodable)."
+    "where": "Player bar, in place of the scrub bar, for a file the player can't use (unknown, unreadable or not decodable).",
+    "approved": "Can't play this file"
   }
 }

@@ -116,39 +116,48 @@
   },
   "undo.action.dismissBetterFile": {
     "purpose": "Undo button naming what it takes back: a \"Better file available\" item that was dismissed in Review.",
-    "where": "Top bar, Undo button, when the next step to undo is a dismissed better file."
+    "where": "Top bar, Undo button, when the next step to undo is a dismissed better file.",
+    "approved": "Undo (better file dismissed)"
   },
   "undo.action.keepAnyway": {
     "purpose": "Undo button naming what it takes back: \"Keep anyway\" for a quality problem in Review.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Keep anyway\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Keep anyway\".",
+    "approved": "Undo (file kept anyway)"
   },
   "undo.action.wantBetterFile": {
     "purpose": "Undo button naming what it takes back: \"Find a better file\" for a quality problem in Review.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Find a better file\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Find a better file\".",
+    "approved": "Undo (better file wanted)"
   },
   "undo.action.switchLinkedFile": {
     "purpose": "Undo button naming what it takes back: one Library track's linked file switched to another copy in Review.",
-    "where": "Top bar, Undo button, when the next step to undo is a switched linked file."
+    "where": "Top bar, Undo button, when the next step to undo is a switched linked file.",
+    "approved": "Undo (file switched)"
   },
   "undo.action.acceptClearBestFiles_one": {
     "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (one track).",
-    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\".",
+    "approved": "Undo ({{count, number}} file switched)"
   },
   "undo.action.acceptClearBestFiles_other": {
     "purpose": "Undo button naming what it takes back: \"Accept all\" in Review, which switched linked files in one go (several tracks).",
-    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Accept all\" for \"Clearly best file\".",
+    "approved": "Undo ({{count, number}} files switched)"
   },
   "undo.action.confirmRelink": {
     "purpose": "Undo button naming what it takes back: a relink match confirmed in Review.",
-    "where": "Top bar, Undo button, when the next step to undo is a confirmed relink."
+    "where": "Top bar, Undo button, when the next step to undo is a confirmed relink.",
+    "approved": "Undo (rekordbox match confirmed)"
   },
   "undo.action.rejectRelink": {
     "purpose": "Undo button naming what it takes back: \"Not the same\" said about a relink match in Review.",
-    "where": "Top bar, Undo button, when the next step to undo is a \"Not the same\"."
+    "where": "Top bar, Undo button, when the next step to undo is a \"Not the same\".",
+    "approved": "Undo (rekordbox match rejected)"
   },
   "undo.action.withdrawRelink": {
     "purpose": "Undo button naming what it takes back: a relink confirmation that was withdrawn.",
-    "where": "Top bar, Undo button, when the next step to undo is a withdrawn relink confirmation (no screen withdraws one yet)."
+    "where": "Top bar, Undo button, when the next step to undo is a withdrawn relink confirmation (no screen withdraws one yet).",
+    "approved": "Undo (rekordbox match confirmation withdrawn)"
   },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",
@@ -177,7 +186,8 @@
   },
   "undo.refused.switchSentSince": {
     "purpose": "Says why Undo is greyed out: the step switched a track's linked file to a copy that goes to rekordbox as a new track, and the track has been sent since, so rekordbox holds that new track now.",
-    "where": "Top bar, beside the Undo button, when the next step to undo is such a switch (or an \"Accept all\" holding one)."
+    "where": "Top bar, beside the Undo button, when the next step to undo is such a switch (or an \"Accept all\" holding one).",
+    "approved": "Can't undo: the track has been sent to rekordbox as a new track since"
   },
   "details.label": {
     "purpose": "Accessible name of the Details panel.",
@@ -201,26 +211,32 @@
   },
   "undo.action.keepBoth": {
     "purpose": "Undo button naming what it takes back: \"Keep both\" for two Library tracks that are the same recording, in Review.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Keep both\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Keep both\".",
+    "approved": "Undo (both tracks kept)"
   },
   "undo.action.mergeTracks": {
     "purpose": "Undo button naming what it takes back: a merge of Library tracks that are the same recording, in Review (Undo brings the other track back).",
-    "where": "Top bar, Undo button, when the next step to undo is a merge."
+    "where": "Top bar, Undo button, when the next step to undo is a merge.",
+    "approved": "Undo (tracks merged)"
   },
   "undo.refused.mergeLinkChanged": {
     "purpose": "Why Undo can't take back a merge of two Library tracks: the track that stayed now plays another file (it followed its file, or was switched), and undoing would put two Library tracks on one file.",
-    "where": "Top bar, Undo button's refusal, when the next step to undo is such a merge."
+    "where": "Top bar, Undo button's refusal, when the next step to undo is such a merge.",
+    "approved": "Can't undo: the track that stayed uses a different file since"
   },
   "undo.action.sameTrack": {
     "purpose": "Undo button naming what it takes back: \"Same track\" in Review, which made the files of a version mix-up or of unclear duplicates one track (Undo puts the files back). Proposal.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Same track\"."
+    "where": "Top bar, Undo button, when the next step to undo is \"Same track\".",
+    "approved": "Undo (made one track)"
   },
   "undo.action.notSameTrack": {
     "purpose": "Undo button naming what it takes back: \"Not the same\" in Review, which kept two tracks apart (Undo asks again). Proposal.",
-    "where": "Top bar, Undo button, when the next step to undo is \"Not the same\" on a version mix-up or unclear duplicates."
+    "where": "Top bar, Undo button, when the next step to undo is \"Not the same\" on a version mix-up or unclear duplicates.",
+    "approved": "Undo (kept separate)"
   },
   "undo.action.splitOffFile": {
     "purpose": "Undo button naming what it takes back: Split off in Review (Undo puts the file back in its track). Proposal.",
-    "where": "Top bar, Undo button, when the next step to undo is a split."
+    "where": "Top bar, Undo button, when the next step to undo is a split.",
+    "approved": "Undo (file split off)"
   }
 }

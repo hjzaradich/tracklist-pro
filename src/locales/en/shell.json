@@ -33,17 +33,17 @@
       "dismissBetterFile": "Undo (better file dismissed)",
       "keepAnyway": "Undo (file kept anyway)",
       "wantBetterFile": "Undo (better file wanted)",
-      "switchLinkedFile": "Undo (linked file switched)",
-      "acceptClearBestFiles_one": "Undo ({{count}} linked file switched)",
-      "acceptClearBestFiles_other": "Undo ({{count}} linked files switched)",
-      "confirmRelink": "Undo (relink confirmed)",
-      "rejectRelink": "Undo (relink marked not the same)",
-      "withdrawRelink": "Undo (relink confirmation withdrawn)",
+      "switchLinkedFile": "Undo (file switched)",
+      "acceptClearBestFiles_one": "Undo ({{count, number}} file switched)",
+      "acceptClearBestFiles_other": "Undo ({{count, number}} files switched)",
+      "confirmRelink": "Undo (rekordbox match confirmed)",
+      "rejectRelink": "Undo (rekordbox match rejected)",
+      "withdrawRelink": "Undo (rekordbox match confirmation withdrawn)",
       "other": "Undo (last change)",
       "keepBoth": "Undo (both tracks kept)",
       "mergeTracks": "Undo (tracks merged)",
       "sameTrack": "Undo (made one track)",
-      "notSameTrack": "Undo (marked not the same track)",
+      "notSameTrack": "Undo (kept separate)",
       "splitOffFile": "Undo (file split off)"
     },
     "refused": {
@@ -52,7 +52,7 @@
       "crateNameTaken": "Can't undo: crate name already used (“{{name}}”)",
       "changedSince": "Can't undo: the Library has changed since",
       "switchSentSince": "Can't undo: the track has been sent to rekordbox as a new track since",
-      "mergeLinkChanged": "Can't undo: the track that stayed after the merge is linked to another file since"
+      "mergeLinkChanged": "Can't undo: the track that stayed uses a different file since"
     }
   },
   "details": {
