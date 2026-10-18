@@ -210,6 +210,8 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 
 ## Phase 1c: Round trip and daily use (MVP)
 
+Owner decision (2026-10-17): Phase 1c runs in the order below, every screen before the gig (1cD-2); not split into a gig-ready part first. Each stage still gets its own plan and budget.
+
 ### Stage 1cA: Engines and components
 Started early, on 2026-10-12 (owner decision): 1cA-1, 1cA-2, 1cA-6, 1cA-12, 1cA-13. Moved to Stage 1bE: 1cA-7, 1cA-8.
 - **Lane 1, conflicts:** ✅ 1cA-1 Three-way diff engine per field → ✅ 1cA-2 Conflict records + bulk-resolve operations (PR 76, migration 0025; rules in ROADMAP 1.10 "How the engine applies it"; nothing stores the app's own values yet, so nothing conflicts until 1cB-18/1cB-19)
