@@ -317,7 +317,7 @@ function FileActions({
           disabled={busy}
           onClick={() => run((o) => reject.mutate({ entryId, fileId }, o))}
         >
-          {t("action.notSame")}
+          {t("action.rejectMatch")}
         </button>
       </>
     );
