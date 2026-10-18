@@ -151,7 +151,8 @@
   },
   "compare.doubt": {
     "purpose": "Label of the reasons an item is in the queue.",
-    "where": "Review screen, comparison on the right, above the table, on items that have such reasons."
+    "where": "Review screen, comparison on the right, above the table, on items that have such reasons.",
+    "approved": "Why it's here:"
   },
   "compare.moreFiles_one": {
     "purpose": "Says one more file is not listed.",
@@ -560,91 +561,113 @@
   },
   "doubt.identicalAudio": {
     "purpose": "Why the grouping rules put the items' files in doubt: identicalAudio.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same audio"
   },
   "doubt.sameAudio": {
     "purpose": "Why the grouping rules put the items' files in doubt: sameAudio.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same audio (all of it, in both files)"
   },
   "doubt.versionVeto": {
     "purpose": "Why the grouping rules put the items' files in doubt: versionVeto.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same audio (but the names say different cuts)"
   },
   "doubt.sameAudioNamesDisagree": {
     "purpose": "Why the grouping rules put the items' files in doubt: sameAudioNamesDisagree.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same audio (but the names disagree)"
   },
   "doubt.audioInsideOther": {
     "purpose": "Why the grouping rules put the items' files in doubt: audioInsideOther.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "one file's audio is inside the other"
   },
   "doubt.audioInsideOtherNamesDisagree": {
     "purpose": "Why the grouping rules put the items' files in doubt: audioInsideOtherNamesDisagree.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "one file's audio is inside the other (but the names disagree)"
   },
   "doubt.sameTagsPartialAudio": {
     "purpose": "Why the grouping rules put the items' files in doubt: sameTagsPartialAudio.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same names (but only part of the audio matches)"
   },
   "doubt.partialAudioNamesUnclear": {
     "purpose": "Why the grouping rules put the items' files in doubt: partialAudioNamesUnclear.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "part of the audio matches (and the names don't say what the files are)"
   },
   "doubt.namesSayCut": {
     "purpose": "Why the grouping rules put the items' files in doubt: namesSayCut.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the names say different cuts"
   },
   "doubt.namesSayRework": {
     "purpose": "Why the grouping rules put the items' files in doubt: namesSayRework.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the names say different reworks"
   },
   "doubt.mashupContains": {
     "purpose": "Why the grouping rules put the items' files in doubt: mashupContains.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "one file is a mashup that contains the other"
   },
   "doubt.labelWordsDiffer": {
     "purpose": "Why the grouping rules put the items' files in doubt: labelWordsDiffer.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same audio (but the names have different version words)"
   },
   "doubt.fingerprintVeto": {
     "purpose": "Why the grouping rules put the items' files in doubt: fingerprintVeto.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same names (but the audio doesn't match at all)"
   },
   "doubt.noFingerprint": {
     "purpose": "Why the grouping rules put the items' files in doubt: noFingerprint.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same names (one file isn't fingerprinted yet)"
   },
   "doubt.notCompared": {
     "purpose": "Why the grouping rules put the items' files in doubt: notCompared.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same names (the audio hasn't been compared yet)"
   },
   "doubt.sameTitleDifferentArtists": {
     "purpose": "Why the grouping rules put the items' files in doubt: sameTitleDifferentArtists.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the same title by different artists"
   },
   "doubt.mashupPart": {
     "purpose": "Why the grouping rules put the items' files in doubt: mashupPart.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "one name looks like a mashup part of the other"
   },
   "doubt.namesUnclear": {
     "purpose": "Why the grouping rules put the items' files in doubt: namesUnclear.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the names don't say what the files are"
   },
   "doubt.titlesDiffer": {
     "purpose": "Why the grouping rules put the items' files in doubt: titlesDiffer.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the titles differ"
   },
   "doubt.namesDiffer": {
     "purpose": "Why the grouping rules put the items' files in doubt: namesDiffer.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the names differ"
   },
   "doubt.artistsDiffer": {
     "purpose": "Why the grouping rules put the items' files in doubt: artistsDiffer.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "the artists differ"
   },
   "doubt.creditedToRemixer": {
     "purpose": "Why the grouping rules put the items' files in doubt: creditedToRemixer.",
-    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment)."
+    "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
+    "approved": "credited to the remixer"
   },
   "error.itemGone": {
     "purpose": "Says an action did nothing because the item left the queue in the meantime (answered in another step, or the files changed).",
