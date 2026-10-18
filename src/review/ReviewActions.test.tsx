@@ -547,7 +547,7 @@ describe("a Confirm relink item", () => {
     const buttons = await actions();
     expect(buttons.getAllByRole("button").map((b) => b.textContent)).toEqual([
       tx("review:action.confirm"),
-      tx("review:action.notSame"),
+      tx("review:action.rejectMatch"),
     ]);
   });
 
@@ -576,7 +576,7 @@ describe("a Confirm relink item", () => {
     const world = backend({ lists: relinkOnly() });
     renderScreen();
     const buttons = await actions();
-    await userEvent.click(buttons.getByRole("button", { name: tx("review:action.notSame") }));
+    await userEvent.click(buttons.getByRole("button", { name: tx("review:action.rejectMatch") }));
     expect(callsOf(world, "review_reject_relink")[0]?.args).toEqual({ entryId: 50, fileId: 8 });
     expect(callsOf(world, "review_confirm_relink")).toHaveLength(0);
     expect(await screen.findByText(tx("review:queue.empty"))).toBeInTheDocument();
@@ -595,7 +595,7 @@ describe("a Confirm relink item", () => {
     const buttons = await actions();
     expect(buttons.getAllByRole("button").map((b) => b.textContent)).toEqual([
       tx("review:action.confirmAgain"),
-      tx("review:action.notSame"),
+      tx("review:action.rejectMatch"),
     ]);
     // Why it is asked again is the suggestion's reason.
     expect(screen.getByText(tx("review:relink.user"), { exact: false })).toBeInTheDocument();
@@ -874,7 +874,7 @@ describe("a key press", () => {
     press("Enter", {}, play);
     press("1", {}, play);
     // Any button: the action's own too.
-    press("Enter", {}, buttons.getByRole("button", { name: tx("review:action.notSame") }));
+    press("Enter", {}, buttons.getByRole("button", { name: tx("review:action.rejectMatch") }));
     await settle();
     expect(writesOf(world)).toEqual([]);
   });

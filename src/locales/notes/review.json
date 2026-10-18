@@ -203,6 +203,10 @@
     "purpose": "Button that says the file is not rekordbox's entry: the match is taken away and never made again. It can be undone.",
     "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item."
   },
+  "action.rejectMatch": {
+    "purpose": "Button that says the file is not rekordbox's entry: the match is taken away and never made again. It can be undone.",
+    "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item."
+  },
   "keys.enter": {
     "purpose": "Names the key that does the item's suggested action; {{action}} is the label of that button.",
     "where": "Review screen, comparison on the right, in the row of buttons under the table."
