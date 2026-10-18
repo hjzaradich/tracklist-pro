@@ -123,19 +123,19 @@
   },
   "reason": {
     "onlyFile": "the only file",
-    "notOnDisk": "on disk (the other file is gone)",
-    "betterVerdict": "better quality check",
-    "playable": "plays in rekordbox",
-    "higherCutoff": "{{bestKhz}} kHz cutoff ({{otherKhz}} kHz)",
-    "higherCutoffMeasured": "measured {{bestKhz}} kHz cutoff (the other isn't measured)",
-    "fewerDecodeErrors": "fewer decode errors ({{best}} against {{other}})",
-    "betterFormat": "{{best}} (the other is {{other}})",
-    "betterBitrate": "{{bestKbps}} kbps (the other is {{otherKbps}} kbps)",
+    "notOnDisk": "on disk (the other file is missing)",
+    "betterVerdict": "better quality check result",
+    "playable": "plays in rekordbox (the other file doesn't)",
+    "higherCutoff": "{{bestKhz}} kHz cutoff (the other file is {{otherKhz}} kHz)",
+    "higherCutoffMeasured": "{{bestKhz}} kHz cutoff (the other file isn't measured)",
+    "fewerDecodeErrors": "fewer audio errors ({{best}}, the other file has {{other}})",
+    "betterFormat": "{{best}} (the other file is {{other}})",
+    "betterBitrate": "{{bestKbps}} kbps (the other file is {{otherKbps}} kbps)",
     "moreTags": "more tags filled",
     "hasArt": "has cover art",
-    "knownToRekordbox": "known to rekordbox",
-    "betterPlace": "$t(review:place.{{best}}) (the other is $t(review:place.{{other}}))",
-    "tied": "no difference between the files"
+    "knownToRekordbox": "rekordbox already has this file",
+    "betterPlace": "$t(review:place.{{best}}) (the other file is $t(review:place.{{other}}))",
+    "tied": "no difference between the files (this one was found first)"
   },
   "place": {
     "connected": "on a connected drive",
@@ -149,11 +149,11 @@
     "addedLater": "in a folder added later"
   },
   "relink": {
-    "filenameOnly": "same file name, no other file has it",
+    "filenameOnly": "the only file with this name",
     "uniqueDuration": "only file of this length nearby",
     "fingerprint": "same audio fingerprint",
     "filenameDuration": "same file name and length",
-    "user": "confirmed before, the audio has changed",
+    "user": "confirmed before (the audio has changed since)",
     "other": "matched another way"
   },
   "doubt": {
@@ -210,8 +210,8 @@
     "confirm_other": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues, ratings and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone."
   },
   "keep": {
-    "moreCues": "more cues in rekordbox ({{count}} against {{other}})",
-    "morePlays": "played more in rekordbox ({{count}} times against {{other}})",
+    "moreCues": "more cues in rekordbox ({{count}}, the other track has {{other}})",
+    "morePlays": "played more in rekordbox ({{count}} plays, the other track has {{other}})",
     "tied": "no difference between the tracks"
   }
 }

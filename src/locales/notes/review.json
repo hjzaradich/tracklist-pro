@@ -330,15 +330,18 @@
   },
   "col.bitrate": {
     "purpose": "Column heading: the file's bitrate. Shown with More details.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Bitrate"
   },
   "col.sampleRate": {
     "purpose": "Column heading: the file's sample rate. Shown with More details.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Sample rate"
   },
   "col.added": {
     "purpose": "Column heading: the day the app first saw the file. Shown with More details.",
-    "where": "Review screen, comparison on the right, table header."
+    "where": "Review screen, comparison on the right, table header.",
+    "approved": "Date added"
   },
   "mark.suggested": {
     "purpose": "Marks the file the app suggests.",
@@ -372,11 +375,13 @@
   },
   "cell.bitrate": {
     "purpose": "A file's bitrate.",
-    "where": "Review screen, comparison on the right, bitrate column."
+    "where": "Review screen, comparison on the right, bitrate column.",
+    "approved": "{{kbps, number}} kbps"
   },
   "cell.sampleRate": {
     "purpose": "A file's sample rate.",
-    "where": "Review screen, comparison on the right, sample rate column."
+    "where": "Review screen, comparison on the right, sample rate column.",
+    "approved": "{{khz}} kHz"
   },
   "verdict.notChecked": {
     "purpose": "The file has no quality verdict yet.",
@@ -410,119 +415,148 @@
   },
   "reason.onlyFile": {
     "purpose": "Reason: the track has one file.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "the only file"
   },
   "reason.notOnDisk": {
     "purpose": "Reason: the suggested file is there and the other is gone.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "on disk (the other file is missing)"
   },
   "reason.betterVerdict": {
     "purpose": "Reason: the suggested file's quality verdict is better.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "better quality check result"
   },
   "reason.playable": {
     "purpose": "Reason: the suggested file's format plays in the DJ app and the other's does not.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "plays in rekordbox (the other file doesn't)"
   },
   "reason.higherCutoff": {
     "purpose": "Reason: both measured, the suggested file's cutoff is higher.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "{{bestKhz}} kHz cutoff (the other file is {{otherKhz}} kHz)"
   },
   "reason.higherCutoffMeasured": {
     "purpose": "Reason: only the suggested file has a measured cutoff.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "{{bestKhz}} kHz cutoff (the other file isn't measured)"
   },
   "reason.fewerDecodeErrors": {
     "purpose": "Reason: the suggested file has fewer decode errors.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "fewer audio errors ({{best}}, the other file has {{other}})"
   },
   "reason.betterFormat": {
     "purpose": "Reason: a better format; {{best}} and {{other}} are format names.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "{{best}} (the other file is {{other}})"
   },
   "reason.betterBitrate": {
     "purpose": "Reason: the same format at a higher bitrate.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "{{bestKbps}} kbps (the other file is {{otherKbps}} kbps)"
   },
   "reason.moreTags": {
     "purpose": "Reason: the suggested file has more tags filled in.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "more tags filled"
   },
   "reason.hasArt": {
     "purpose": "Reason: only the suggested file has cover art.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "has cover art"
   },
   "reason.knownToRekordbox": {
     "purpose": "Reason: rekordbox knows the suggested file better.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "rekordbox already has this file"
   },
   "reason.betterPlace": {
     "purpose": "Reason: the suggested file is in a better place; {{best}} and {{other}} are where the suggested and the other file are (the place.* parts).",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "$t(review:place.{{best}}) (the other file is $t(review:place.{{other}}))"
   },
   "reason.tied": {
     "purpose": "Reason: nothing separates the files; the older one is suggested.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "no difference between the files (this one was found first)"
   },
   "place.connected": {
     "purpose": "Reason part: where the suggested file is, when the other one's drive is not connected.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "on a connected drive"
   },
   "place.notConnected": {
     "purpose": "Reason part: where the other file is, when its drive is not connected.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "on a drive that isn't connected"
   },
   "place.scanFolder": {
     "purpose": "Reason part: the file is in a music folder, not in the Inbox.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "in a music folder"
   },
   "place.inboxFolder": {
     "purpose": "Reason part: the file is in the Inbox folder.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "in an Inbox folder"
   },
   "place.internalDrive": {
     "purpose": "Reason part: the file is on a drive inside the computer.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "on an internal drive"
   },
   "place.externalDrive": {
     "purpose": "Reason part: the file is on a drive that can be unplugged.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "on an external drive"
   },
   "place.networkDrive": {
     "purpose": "Reason part: the file is on a network share.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "on a network drive"
   },
   "place.addedFirst": {
     "purpose": "Reason part: the file is in the music folder that was added first.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "in the folder added first"
   },
   "place.addedLater": {
     "purpose": "Reason part: the file is in a music folder that was added later.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "in a folder added later"
   },
   "relink.filenameOnly": {
     "purpose": "Reason for a relink: matched by file name alone.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "the only file with this name"
   },
   "relink.uniqueDuration": {
     "purpose": "Reason for a relink: matched by its length among nearby files.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "only file of this length nearby"
   },
   "relink.fingerprint": {
     "purpose": "Reason for a relink: matched by the audio fingerprint.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "same audio fingerprint"
   },
   "relink.filenameDuration": {
     "purpose": "Reason for a relink: matched by file name and length.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "same file name and length"
   },
   "relink.user": {
     "purpose": "Reason for a relink: a confirmed match whose file now holds other audio.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "confirmed before (the audio has changed since)"
   },
   "relink.other": {
     "purpose": "Reason for a relink: any other rule.",
-    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md)."
+    "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
+    "approved": "matched another way"
   },
   "doubt.identicalAudio": {
     "purpose": "Why the grouping rules put the items' files in doubt: identicalAudio.",
@@ -674,19 +708,23 @@
   },
   "same.label": {
     "purpose": "Accessible name of the small table of the item's Library tracks (cues, rating, plays, crates).",
-    "where": "Review screen, \"Same track twice in your Library\" item, table under the file table."
+    "where": "Review screen, \"Same track twice in your Library\" item, table under the file table.",
+    "approved": "Library tracks"
   },
   "same.col.cues": {
     "purpose": "Column heading: how many cues rekordbox holds for the track (hot and memory cues).",
-    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table."
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table.",
+    "approved": "Cues"
   },
   "same.col.rating": {
     "purpose": "Column heading: the track's rating in rekordbox.",
-    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table."
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table.",
+    "approved": "Rating"
   },
   "same.col.plays": {
     "purpose": "Column heading: the track's play count in rekordbox.",
-    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table."
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table.",
+    "approved": "Plays"
   },
   "same.col.crates": {
     "purpose": "Column heading: how many of the app's crates hold the track.",
@@ -695,19 +733,23 @@
   },
   "same.notInRekordbox": {
     "purpose": "Says rekordbox doesn't know the track, in place of its cues, rating and plays.",
-    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, cues column."
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, cues column.",
+    "approved": "Not in rekordbox"
   },
   "same.noRating": {
     "purpose": "The track has no rating in rekordbox.",
-    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column."
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column.",
+    "approved": "None"
   },
   "same.stars_one": {
     "purpose": "A rating of one star.",
-    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column."
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column.",
+    "approved": "{{count}} star"
   },
   "same.stars_other": {
     "purpose": "A rating of several stars ({{count}} is 2 to 5).",
-    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column."
+    "where": "Review screen, \"Same track twice in your Library\" item, Library tracks table, rating column.",
+    "approved": "{{count}} stars"
   },
   "same.choose": {
     "purpose": "Question heading the choice of which Library track stays in a merge.",
@@ -731,15 +773,18 @@
   },
   "keep.moreCues": {
     "purpose": "Reason: the suggested track to keep has more cues in rekordbox ({{count}}) than the next one ({{other}}).",
-    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line."
+    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line.",
+    "approved": "more cues in rekordbox ({{count}}, the other track has {{other}})"
   },
   "keep.morePlays": {
     "purpose": "Reason: the suggested track to keep was played more in rekordbox ({{count}} against {{other}}).",
-    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line."
+    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line.",
+    "approved": "played more in rekordbox ({{count}} plays, the other track has {{other}})"
   },
   "keep.tied": {
     "purpose": "Reason: nothing separates the tracks; the older one is suggested.",
-    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line."
+    "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line.",
+    "approved": "no difference between the tracks"
   },
   "error.mergeLinkedVersions": {
     "purpose": "Refusal: two tracks of the item are linked as versions, and versions are never merged.",
