@@ -209,12 +209,14 @@
     "approved": "Confirm match again"
   },
   "action.notSame": {
-    "purpose": "Button that says the file is not rekordbox's entry: the match is taken away and never made again. It can be undone.",
-    "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item."
+    "purpose": "Button that says the two tracks are not the same: they are kept as separate tracks and never put together again. It can be undone.",
+    "where": "Review screen, action row under the comparison, on a possible version mix-up and on Unclear duplicates with two files (with three or more, the S button is Split off).",
+    "approved": "Keep separate"
   },
   "action.rejectMatch": {
     "purpose": "Button that says the file is not rekordbox's entry: the match is taken away and never made again. It can be undone.",
-    "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item."
+    "where": "Review screen, comparison on the right, under the table, for a \"rekordbox match uncertain\" item.",
+    "approved": "Reject match"
   },
   "keys.enter": {
     "purpose": "Names the key that does the item's suggested action; {{action}} is the label of that button.",
