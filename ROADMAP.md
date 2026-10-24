@@ -69,7 +69,7 @@ A free, open-source (GPL-3.0) library manager for DJs who use **rekordbox 7** on
 | Density | Compact (~28px rows) | A comfortable option exists. Tabular numerals for BPM, time and key. |
 | Starting point | "Start from rekordbox" (main) or "Start fresh" | 1.3. |
 | Naming | DJs' words, one word per concept | §1.2. |
-| rekordbox database (`master.db`) | **Not read; not planned** | It's encrypted. XML plus `.m3u8` history and gig-stick `export.pdb` cover what the app needs. |
+| rekordbox database (`master.db`) | **Read only by an optional reader, off by default (2.7); never written** | The XML export stays the main path and covers what the MVP needs. The reader saves the export step. It needs a key the user supplies. |
 | Gig USBs / OneLibrary | `export.pdb` read only; never written | OneLibrary `exportLibrary.db` is encrypted, so it isn't read either (not planned). |
 | Performance setups | All | Laptop and USB history are both covered. |
 | Plays vs sessions | Separate | Plays are imported per source; a session combines sources (B2B). |
@@ -203,7 +203,7 @@ In the UI, **All music** shows the tracks layer and **Library** shows Library tr
 | **1a** | Prove the loop | Scan music folders, read rekordbox with relink, start a Library of linked tracks, send to rekordbox, and prove it with a real cycle on an installed build (the gig test comes at the end of Phase 1, in 1c). The gate tests T1 and T3 (§7) come first. The MVP never writes an audio file. |
 | **1b** | Order out of the mess | Fingerprint grouping, version awareness, quality verdicts, best file, Review. |
 | **1c** | Round trip and daily use: **the MVP** | Conflict review, track browser and keyboard layer, Overview, crates, 100k performance pass. (Going public moved up to Stage 1aP, 2026-09-30.) |
-| **2** | Getting tracks in | Managed copies and upgrades, Inbox, identification and tag cleanup, wishlists, store links, auto tick-off. |
+| **2** | Getting tracks in | Managed copies and upgrades, Inbox, identification and tag cleanup, wishlists, store links, auto tick-off, reading rekordbox's library directly (optional). |
 | **3** | Set prep | Tags, genre taxonomy, smart crates, "what's next", playlists with an energy arc, play history, local estimates, local ML. |
 | **4** | Public v1 (Windows) | Portability bundle, onboarding polish, diagnostics, docs. |
 | Later | Backlog | See the backlog below. |
@@ -596,6 +596,15 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **Durability:** a copy survives its original disappearing ("original file missing").
 - **Identity:** Library copies are identified by audio hash.
 - **Complexity:** M. **Reuse:** `plan.rs`, `execute.rs`, `vet.rs`, `policy.rs`, plus the Phase 2 ports (0.2).
+
+#### 2.7 Read rekordbox's library directly (optional)
+- **What:** an optional reader for rekordbox's own library database (`master.db`), so the app can read rekordbox's current values without the user exporting XML first. What it reads feeds the same place an XML read does, so matching, conflicts and the send work unchanged. Sends stay XML (1.9).
+- **Optional, off by default** (§1.1, CLAUDE.md "Optional features"). Turning it on asks for the database key, which the user supplies. The app never ships, fetches, shows or hard-codes a key.
+- **Read-only.** The app never writes to rekordbox's database. It reads a copy taken into its own data folder, so a running rekordbox is never disturbed.
+- **One removable module.** It joins the core only where an XML read enters, so it can be switched off or taken out as a single feature. With it off, or when a read fails, the XML path works exactly as before.
+- **Beyond the XML:** what else it reads is decided when the feature is broken down. Candidates: My Tags (3.1) and play history (3.6).
+- **Not covered:** OneLibrary's `exportLibrary.db` on gig USBs isn't read.
+- **Complexity:** M. **Reuse:** none; new.
 
 ---
 

@@ -18,7 +18,7 @@ What it deliberately is not (ROADMAP §1 principles; CLAUDE.md "Must / never"):
 |---|---|
 | Moves, renames, retags or deletes a file outside its own folders | The write guard (section 5) |
 | Writes an audio file (in Phase 1) | No code path does; managed copies are *planned*, Phase 2 |
-| Writes to rekordbox's database, gig USBs or OneLibrary, or reads its encrypted databases | Only the XML export is read; only one XML file is written |
+| Writes to rekordbox's database, gig USBs or OneLibrary, or reads OneLibrary's encrypted database | Today only the XML export is read; only one XML file is written. A read-only `master.db` reader is *planned*, Phase 2, optional and off by default (ROADMAP 2.7) |
 | Syncs with one click | A send is a guided checklist; rekordbox's import is the user's |
 | Makes a network request the user didn't opt into; sends telemetry | The network gate (section 5). Today no feature makes any request |
 | Trusts a file's size or modified time as proof it's unchanged | Files are identified by a hash of their audio frames |

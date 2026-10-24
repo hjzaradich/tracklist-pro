@@ -23,7 +23,7 @@ A GPL-3.0 desktop app (Tauri 2 + Rust + React/TS) that builds a DJ's Library and
 - **XML sends:** every attribute of every sent track, filled with rekordbox's current value from a fresh read. **Never omit or default** a field, except the analysis fields in ROADMAP 1.9 rule 3. Follow all eight rules in 1.9.
 - **Always** read → merge conflicts → send in one step. **Never** silently overwrite a field edited on both sides; it becomes a conflict.
 - **Always** parse `Location` by hand (raw `#`) and match tracks by Location, never by TrackID.
-- **Never** read rekordbox's encrypted databases (`master.db`, OneLibrary), and never quote, link to or bundle their keys. Gig-USB `export.pdb` files aren't encrypted and may be read.
+- **Never** read OneLibrary's encrypted database (`exportLibrary.db`). rekordbox's `master.db` is read only by its optional reader (ROADMAP 2.7): read-only, off by default, one removable module, with the key supplied by the user. **Never** quote, link to, fetch, hard-code or bundle any database key, anywhere (code, docs, tests, fixtures, commit messages). Gig-USB `export.pdb` files aren't encrypted and may be read.
 
 **Data model**
 - A track is not a file. Duplicates merge; **versions never merge**, they're only linked (`version_link`), and nothing is inherited across a link.
