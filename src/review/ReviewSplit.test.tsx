@@ -70,11 +70,15 @@ interface World {
   /** Whether a split leaves the item in the queue. */
   stays: boolean;
   refuse: Record<string, { kind: string; params: object }>;
+  /** The item's reasons say the names give different versions (B-4). */
+  namesSay: boolean;
+  /** After a refusal, every read of the lists hangs: it never answers. */
+  slowReload: boolean;
   calls: { cmd: string; args: Record<string, unknown> }[];
   undo: { operation: OperationInfo; restore: () => void } | null;
 }
 
-function comparisonOf(it: ReviewItem, files: number): ReviewComparison {
+function comparisonOf(it: ReviewItem, files: number, namesSay = false): ReviewComparison {
   const a = it.id.a;
   const rows = [row(a * 10 + 1, a, "linked.flac", true), row(a * 10 + 2, a + 1, "take.mp3")];
   if (files > 2) rows.splice(1, 0, row(a * 10 + 3, a, "linked copy.mp3"));
@@ -84,6 +88,7 @@ function comparisonOf(it: ReviewItem, files: number): ReviewComparison {
     group: "needsCloserLook",
     tracks: it.tracks,
     doubt: [],
+    namesSayVersions: namesSay && it.kind === "versionDoubt",
     suggestion: null,
     rows,
     moreFiles: 0,
@@ -100,11 +105,14 @@ function backend(start: Partial<World> = {}): World {
     files: 2,
     stays: false,
     refuse: {},
+    namesSay: false,
+    slowReload: false,
     calls: [],
     undo: null,
     ...start,
   };
   let nextOperation = 100;
+  let reloadHangs = false;
   const find = (id: ReviewItem["id"]) =>
     world.lists.needsCloserLook.find((i) => i.id.kind === id.kind && i.id.a === id.a);
   /** Takes the item out of the queue (unless it stays), as one undoable step. */
@@ -122,7 +130,12 @@ function backend(start: Partial<World> = {}): World {
     const args = (payload ?? {}) as Record<string, unknown>;
     world.calls.push({ cmd, args });
     const refused = world.refuse[cmd];
-    if (refused) throw refused;
+    if (refused) {
+      if (world.slowReload) reloadHangs = true;
+      throw refused;
+    }
+    // A reload that never ends: a refusal must not wait for it.
+    if (reloadHangs && cmd !== "next_undo_operation") return new Promise(() => {});
     switch (cmd) {
       case "missing_tracks":
         return { total: 0, groups: [] };
@@ -136,7 +149,7 @@ function backend(start: Partial<World> = {}): World {
       }
       case "review_item": {
         const found = find(args.id as ReviewItem["id"]);
-        return found ? comparisonOf(found, world.files) : null;
+        return found ? comparisonOf(found, world.files, world.namesSay) : null;
       }
       case "review_same_track":
         return { operationId: act(args.id as ReviewItem["id"], "same_track", false) };
@@ -348,6 +361,130 @@ describe("with three files or more", () => {
     press("s");
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.sameAudio"));
     expect(selectedTitle()).toContain("Doubtful Tune");
+  });
+});
+
+describe("a refusal (DOGFOOD B-5)", () => {
+  // Every list is read again after an answer, and here that read never
+  // ends: the reason must show without waiting for it.
+  it("of Same track shows its reason at once, and the screen stays", async () => {
+    backend({
+      lists: { ...EMPTY, needsCloserLook: [DOUBT, NEXT] },
+      refuse: { review_same_track: { kind: "reviewMergeLinkedVersions", params: {} } },
+      slowReload: true,
+    });
+    renderScreen();
+    await actions();
+    press("Enter");
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.mergeLinkedVersions"));
+    expect(selectedTitle()).toContain("Doubtful Tune");
+  });
+
+  it("of Not the same shows its reason at once, and the screen stays", async () => {
+    backend({
+      lists: { ...EMPTY, needsCloserLook: [DOUBT, NEXT] },
+      refuse: { review_not_same: { kind: "reviewSameAudio", params: {} } },
+      slowReload: true,
+    });
+    renderScreen();
+    await userEvent.click((await actions()).getByRole("button", { name: tx("review:action.notSame") }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.sameAudio"));
+    expect(selectedTitle()).toContain("Doubtful Tune");
+  });
+
+  it("of Split off shows its reason at once, and the button works again", async () => {
+    const world = backend({
+      lists: { ...EMPTY, needsCloserLook: [DOUBT, NEXT] },
+      files: 3,
+      refuse: { review_not_same: { kind: "reviewItemGone", params: {} } },
+      slowReload: true,
+    });
+    renderScreen();
+    const rows = await fileRows();
+    await userEvent.click(within(rows[1]!).getByText("linked copy.mp3"));
+    const split = (await actions()).getByRole("button", { name: tx("review:action.splitOff") });
+    await userEvent.click(split);
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.itemGone"));
+    expect(selectedTitle()).toContain("Doubtful Tune");
+    // Nothing is under way any more: a second press asks again.
+    expect(split).toBeEnabled();
+    await userEvent.click(split);
+    await waitFor(() => expect(callsOf(world, "review_not_same")).toHaveLength(2));
+  });
+});
+
+describe("the filled button follows the evidence (DOGFOOD B-4)", () => {
+  it("is Not the same, and Enter does it, on a mix-up of two files the names say are versions", async () => {
+    const world = backend({ lists: { ...EMPTY, needsCloserLook: [DOUBT, NEXT] }, namesSay: true });
+    renderScreen();
+    const buttons = await actions();
+    const same = buttons.getByRole("button", { name: tx("review:action.sameTrack") });
+    const notSame = buttons.getByRole("button", { name: tx("review:action.notSame") });
+    expect(notSame.className).toMatch(/primary/);
+    expect(same.className).not.toMatch(/primary/);
+    expect(buttons.getByText(tx("review:keys.enter", { action: tx("review:action.notSame") })))
+      .toBeInTheDocument();
+    press("Enter");
+    await waitFor(() => expect(callsOf(world, "review_not_same")).toHaveLength(1));
+    expect(callsOf(world, "review_same_track")).toEqual([]);
+    expect(callsOf(world, "review_not_same")[0]?.args).toMatchObject({ id: DOUBT.id, recordingIds: [70, 71] });
+    await waitFor(() => expect(selectedTitle()).toContain("Next Tune"));
+  });
+
+  it("is none with three files until a row is selected, then Split off, and Enter does it", async () => {
+    const world = backend({ lists: { ...EMPTY, needsCloserLook: [DOUBT] }, files: 3, namesSay: true });
+    renderScreen();
+    let buttons = await actions();
+    for (const name of [tx("review:action.sameTrack"), tx("review:action.splitOff")]) {
+      expect(buttons.getByRole("button", { name }).className).not.toMatch(/primary/);
+    }
+    expect(buttons.getByText(tx("review:keys.selectRow"))).toBeInTheDocument();
+    expect(buttons.queryByText(tx("review:keys.enter", { action: tx("review:action.sameTrack") })))
+      .not.toBeInTheDocument();
+    press("Enter");
+    await settle();
+    expect(writesOf(world)).toEqual([]);
+
+    const rows = await fileRows();
+    await userEvent.click(within(rows[1]!).getByText("linked copy.mp3"));
+    buttons = await actions();
+    expect(buttons.getByRole("button", { name: tx("review:action.splitOff") }).className).toMatch(/primary/);
+    expect(buttons.getByRole("button", { name: tx("review:action.sameTrack") }).className).not.toMatch(
+      /primary/,
+    );
+    expect(buttons.getByText(tx("review:keys.enter", { action: tx("review:action.splitOff") })))
+      .toBeInTheDocument();
+    press("Enter");
+    await waitFor(() => expect(callsOf(world, "review_not_same")).toHaveLength(1));
+    expect(callsOf(world, "review_not_same")[0]?.args).toMatchObject({ fileId: 703 });
+    expect(callsOf(world, "review_same_track")).toEqual([]);
+  });
+
+  it("stays Same track on every other version mix-up, with three files and a row selected too", async () => {
+    const world = backend({ lists: { ...EMPTY, needsCloserLook: [DOUBT] }, files: 3 });
+    renderScreen();
+    const rows = await fileRows();
+    await userEvent.click(within(rows[1]!).getByText("linked copy.mp3"));
+    const buttons = await actions();
+    expect(buttons.getByRole("button", { name: tx("review:action.sameTrack") }).className).toMatch(/primary/);
+    expect(buttons.getByRole("button", { name: tx("review:action.splitOff") }).className).not.toMatch(
+      /primary/,
+    );
+    press("Enter");
+    await waitFor(() => expect(callsOf(world, "review_same_track")).toHaveLength(1));
+    expect(callsOf(world, "review_not_same")).toEqual([]);
+  });
+
+  it("stays Same track on Unclear duplicates whatever the names say", async () => {
+    const world = backend({ lists: { ...EMPTY, needsCloserLook: [HELD] }, namesSay: true });
+    renderScreen();
+    const buttons = await actions();
+    expect(buttons.getByRole("button", { name: tx("review:action.sameTrack") }).className).toMatch(/primary/);
+    expect(buttons.getByRole("button", { name: tx("review:action.notSame") }).className).not.toMatch(
+      /primary/,
+    );
+    press("Enter");
+    await waitFor(() => expect(callsOf(world, "review_same_track")).toHaveLength(1));
   });
 });
 

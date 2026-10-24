@@ -84,6 +84,7 @@ function comparison(offer: SameRecordingOffer): ReviewComparison {
     group: "needsCloserLook",
     tracks: ITEM.tracks,
     doubt: [],
+    namesSayVersions: false,
     suggestion: {
       what: 40,
       reasons: [{ key: "review:keep.moreCues", params: { count: 2, other: 0 }, source: "fact" }],

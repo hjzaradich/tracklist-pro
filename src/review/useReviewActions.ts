@@ -52,13 +52,23 @@ function reload(queryClient: QueryClient) {
  * (1bE-2). It is a hook option, not a callback of one `mutate` call, because
  * the queue changes while the answer is awaited and the component that made
  * the call may be gone by then; a hook option still runs.
+ *
+ * A refusal shows at once (DOGFOOD B-5): the lists are asked for again, but
+ * not awaited first. The mutation's error is set only once `onSettled` is
+ * done, and reading every list again (the Missing list looks at the disk)
+ * can take long enough that a refused action looked like nothing happened.
+ * After an action that worked, the reload is awaited: the action stays under
+ * way until the screen shows what it did.
  */
 function useAction<Args, Done>(run: (args: Args) => Promise<Done>, onDone?: (done: Done) => void) {
   const queryClient = useQueryClient();
   return useMutation<Done, Error, Args>({
     mutationFn: run,
     onSuccess: (done) => onDone?.(done),
-    onSettled: () => reload(queryClient),
+    onSettled: (_done, error) => {
+      const reloaded = reload(queryClient);
+      return error === null ? reloaded : undefined;
+    },
   });
 }
 
