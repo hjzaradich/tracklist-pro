@@ -51,6 +51,24 @@ Found by a read-through of the Phase 1a flow and by reviews on 2026-10-02, and l
 | C1-12 | 3.2 to 7, files changed on disk | rekordbox rewrote 8 audio files in place (same size, 1 FLAC, 1 M4A, 6 MP3: the tracks the user added to rekordbox by hand, plus one the app had sent as new) when the user set cues or played them, between 11:26 and 11:34 and once at 01:40 the next night; the app did not write them (the write guard allows only the app data folder, and the times match the user's rekordbox actions). The app's rescan saw 7 of them and kept each on its own track: no new track, no duplicate, none missing, the same 5,899 tracks. For the 8th, not yet rescanned, every text frame the app stored equals the file's now. | (note: the checkpoint rule "nothing changed outside the app's data folder" has to be read as "nothing changed by the app") | Note |
 | C1-13 | 10, database size | After the cycle the database file was 85 MB and the write-ahead log file beside it 365 MB (about 9,900 files, 5,899 tracks). Nothing limits the log's size or shrinks it while the app runs. | A log file that is folded back into the database and stays small. | Fixed in 1aG |
 
+## Phase 1b check (2026-10-18 to 2026-10-20)
+
+The owner's check of the Review screen on an installed build (0.1.2), with the Library from cycle 1 (165 Library tracks, 5,899 files). Marks set at the Phase 1b checkpoint on 2026-10-24. Three Review kinds had no items in this Library ("rekordbox match uncertain", "File missing, copy found", "Same track twice in your Library"), so they, "Accept all" and Undo of a merge are proven by the automated tests only; they come up again in cycle 2.
+
+| # | Where | What happened | What was expected | Mark |
+|---|---|---|---|---|
+| B-1 | Review, possible version mix-up | "Split off" on a three-file item resolved the whole item, and nothing said so beforehand. By design when nothing is left to ask. Undo restored it. | Knowing before the click what Split off will do. | Later (copy) |
+| B-2 | Review, groups | The group name "Clearly best file" read as if Review were only for unclear cases. | A name that says the app is sure but still asks before switching. | Later (copy) |
+| B-3 | Review, "Unclear duplicates" | Two sets in which every file but one has the very same audio, the Suggested file being rekordbox's. The reason line says the audio is the same but not why the app asks instead of deciding. | The reason line says what holds the set. | Before 1c |
+| B-4 | Review, possible version mix-up | On a pair whose own reason says the names point to different reworks by different artists, "Same track" was the filled button (Enter). Nothing was merged. | The filled button follows the evidence: "Keep separate" on such pairs (owner decision 2026-10-24). | Before 1c |
+| B-5 | Review, possible version mix-up | (a) "Split off" on one of two identical copies did nothing visible: refused, with no reason shown. (b) Most items held two copies of one version and two of a remix; no action kept the copies together and the versions apart. | (a) The refusal shows its reason. (b) Split off takes the selected file's identical copies with it (owner decision 2026-10-24). | Before 1c |
+| B-6 | Review, layout | The Missing block pushed the queue down to about four visible items; three nested scrollbars; the comparison's title column so narrow that the actions fell out of view. | The queue, the comparison and its actions visible at once. | Before 1c (design) |
+| B-7 | Review, quality problem | After dismissing "Better file available", a "Quality problem" item appeared for the same track (by design); its text doesn't mention the better copy, though its table shows it. | | Note |
+| B-8 | All music, add to Library | A file deleted from disk before the next scan could still be added to the Library; it became a missing track. Nothing was lost. | A warning when the file is already gone. | Later |
+| B-9 | Uninstaller | The uninstaller offers a checkbox that deletes the app's data, which would delete the Library. | A line about it in `docs/installing.md`. | Later |
+| B-10 | Moved files | A moved identical copy and a moved copy the owner had re-saved or converted (which one is to be confirmed) were both followed by their Library tracks on their own after "Scan again"; nothing came to Review (cycle-1 K6 fixed). | A converted copy holds different audio, so it should come to Review instead (ROADMAP 1.8, "A Library track follows its file"). | Note (open: a finding if it was converted) |
+| B-11 | Preview | MP3, FLAC, AIFF and ALAC all played in the app window, with no delay; jumping and switching files worked. | | Note |
+
 ## Cycle 2 (practice gig; moved to the end of Phase 1, TASKS 1cD-2)
 
 | # | Step | What happened | What was expected | Mark |
