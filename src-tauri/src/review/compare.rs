@@ -17,7 +17,7 @@ use super::held;
 use super::queue::{
     better_from, name_of, names, quality_from, relink_from, version_doubt_from, DOUBT_PAIR,
 };
-use super::reasons::{from_grouping, from_rank, from_relink};
+use super::reasons::{from_grouping, from_holding, from_rank, from_relink};
 use super::{
     RekordboxUse, ReviewComparison, ReviewFileRow, ReviewItemId, ReviewKind, ReviewTrackName,
     RowSource, MAX_FILES, PENDING_PAIRS,
@@ -519,16 +519,31 @@ pub fn comparison(
         Vec::new()
     };
 
+    // Why the item is here. A held set says what holds it; with nothing
+    // stored to name, it shows the reasons of one of its own duplicate pairs.
+    let holding = match id.kind {
+        ReviewKind::HeldSet => held::holding(conn, &item.tracks)?,
+        _ => None,
+    };
+    let doubt = match &holding {
+        Some(holding) => {
+            let names = file_names(conn, volumes, &holding.named_files())?;
+            let name_of = |file: i64| names.get(&file).cloned().unwrap_or_default();
+            vec![from_holding(holding, name_of)]
+        }
+        None => item
+            .reasons
+            .as_deref()
+            .map(from_grouping)
+            .unwrap_or_default(),
+    };
+
     Ok(Some(ReviewComparison {
         id,
         kind: id.kind,
         group: id.kind.group(),
         tracks,
-        doubt: item
-            .reasons
-            .as_deref()
-            .map(from_grouping)
-            .unwrap_or_default(),
+        doubt,
         suggestion,
         rows,
         more_files,

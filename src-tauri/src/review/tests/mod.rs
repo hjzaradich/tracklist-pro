@@ -4,6 +4,7 @@
 
 mod actions;
 mod compare;
+mod held_reason;
 mod ipc;
 mod plan;
 mod queue;

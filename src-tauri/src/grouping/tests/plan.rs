@@ -394,6 +394,35 @@ fn files_with_the_very_same_audio_stay_together_when_their_set_is_held() {
 }
 
 #[test]
+fn one_file_whose_pair_goes_to_review_holds_a_set_of_files_that_hold_the_same_audio() {
+    // 1, 2 and 3 hold the very same audio; 4 holds other audio. 4 is a
+    // duplicate of 1 and 3, but its pair with 2 goes to review (its names
+    // say another version of what 2 is called). The three identical files
+    // are one track, and that one pair holds the duplicate pairs of 4 with
+    // the other two: Review's "Unclear duplicates" (1bF-3; DOGFOOD B-3).
+    let mut world = World::of([
+        placed(1, 1, 7),
+        placed(2, 2, 7),
+        placed(3, 3, 7),
+        placed(4, 4, 8),
+    ])
+    .pairs([
+        pair(1, 4, Outcome::Duplicate),
+        pair(2, 4, Outcome::Review),
+        pair(3, 4, Outcome::Duplicate),
+    ]);
+    world.library = [1].into();
+    let p = world.plan();
+    // The files that are the same audio are one track whatever else holds.
+    assert_eq!(world.dest(&p, 2), Dest::Recording(1));
+    assert_eq!(world.dest(&p, 3), Dest::Recording(1));
+    assert_eq!(world.dest(&p, 4), Dest::Recording(4), "4 joins nothing");
+    assert_eq!(world.state(&p, 1, 4), State::SetDisagrees);
+    assert_eq!(world.state(&p, 3, 4), State::SetDisagrees);
+    assert_eq!(world.state(&p, 2, 4), State::Open);
+}
+
+#[test]
 fn a_set_with_more_files_than_the_cap_is_held_as_if_it_disagreed() {
     let files = [placed(1, 1, 1), placed(2, 2, 2), placed(3, 3, 3)];
     let all = [
