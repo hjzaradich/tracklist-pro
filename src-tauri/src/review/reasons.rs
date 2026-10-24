@@ -13,6 +13,11 @@ use crate::suggest::Reason;
 /// fragments).
 pub const MAX_DOUBTS: usize = 3;
 
+/// How many of a pair's reasons the sentence that says what holds a set
+/// carries: the sentence is a fragment of its own, so with these it is
+/// three (copy-style).
+pub const MAX_HELD_DOUBTS: usize = 2;
+
 /// A key that is known to be well formed.
 fn fact(key: &str) -> Reason {
     Reason::fact(key).unwrap_or_else(|e| panic!("bad reason key {key}: {e}"))
@@ -233,7 +238,7 @@ pub const WORDED_DOUBTS: [&str; 22] = [
 /// What holds a held duplicate set (`review:held.<code>`), worded with the
 /// names of the files it names, as the comparison's rows show them
 /// (`name_of`). A pair's own reasons are the ones a possible version
-/// mix-up shows for it (`review:doubt.<code>`, at most [`MAX_DOUBTS`]),
+/// mix-up shows for it (`review:doubt.<code>`, at most [`MAX_HELD_DOUBTS`]),
 /// put into the sentence by their codes.
 pub fn from_holding(holding: &Holding, name_of: impl Fn(i64) -> String) -> Reason {
     let two = |key: &str, files: &[i64; 2]| {
@@ -257,11 +262,10 @@ pub fn from_holding(holding: &Holding, name_of: impl Fn(i64) -> String) -> Reaso
             let key = match codes.len() {
                 0 => "review:held.pair",
                 1 => "review:held.pairOne",
-                2 => "review:held.pairTwo",
-                _ => "review:held.pairThree",
+                _ => "review:held.pairTwo",
             };
             let mut reason = two(key, files);
-            for (name, code) in ["first", "second", "third"].into_iter().zip(&codes) {
+            for (name, code) in ["first", "second"].into_iter().zip(&codes) {
                 reason = text(reason, name, code);
             }
             reason
@@ -270,7 +274,7 @@ pub fn from_holding(holding: &Holding, name_of: impl Fn(i64) -> String) -> Reaso
 }
 
 /// The codes of a stored pair's reasons that have words, the deciding one
-/// first, at most [`MAX_DOUBTS`].
+/// first, at most [`MAX_HELD_DOUBTS`].
 fn pair_codes(stored: &str) -> Vec<String> {
     let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(stored)
     else {
@@ -281,7 +285,7 @@ fn pair_codes(stored: &str) -> Vec<String> {
         .filter_map(|item| item.get("code")?.as_str())
         .filter(|code| WORDED_DOUBTS.contains(code))
         .map(str::to_owned)
-        .take(MAX_DOUBTS)
+        .take(MAX_HELD_DOUBTS)
         .collect()
 }
 
@@ -331,7 +335,6 @@ mod tests {
             pair("[]"),
             pair(r#"[{"code":"sameAudio"}]"#),
             pair(r#"[{"code":"sameAudio"},{"code":"namesDiffer"}]"#),
-            pair(r#"[{"code":"sameAudio"},{"code":"namesDiffer"},{"code":"titlesDiffer"}]"#),
         ] {
             let reason = from_holding(&holding, name);
             let key = reason.key().strip_prefix("review:held.").unwrap();

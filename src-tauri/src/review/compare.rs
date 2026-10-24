@@ -456,6 +456,13 @@ pub fn comparison(
     };
     let suggestion = suggestion.and_then(|(file, reason)| Suggestion::new(file, vec![reason]).ok());
 
+    // What holds a held set, if anything stored says. The files its reason
+    // names are always in the table, so the reason can be checked against it.
+    let holding = match id.kind {
+        ReviewKind::HeldSet => held::holding(conn, &item.tracks)?,
+        _ => None,
+    };
+
     // Rows: the suggested file first, then the ranking's order.
     let first = suggestion.as_ref().map(|s| *s.what());
     let mut order: Vec<i64> = first.into_iter().collect();
@@ -477,6 +484,9 @@ pub fn comparison(
         rows.push(entry_row(entry));
     }
     let more_files = rows.len().saturating_sub(MAX_FILES) as u32;
+    if let Some(holding) = &holding {
+        show_named(&mut rows, &holding.named_files());
+    }
     rows.truncate(MAX_FILES);
 
     // The tracks' names.
@@ -521,10 +531,6 @@ pub fn comparison(
 
     // Why the item is here. A held set says what holds it; with nothing
     // stored to name, it shows the reasons of one of its own duplicate pairs.
-    let holding = match id.kind {
-        ReviewKind::HeldSet => held::holding(conn, &item.tracks)?,
-        _ => None,
-    };
     let doubt = match &holding {
         Some(holding) => {
             let names = file_names(conn, volumes, &holding.named_files())?;
@@ -567,6 +573,33 @@ pub fn comparison(
             }
         }),
     }))
+}
+
+/// Moves the rows of `named` files that would fall outside the first
+/// [`MAX_FILES`] rows into them, in place of the last rows that are not
+/// named, so the table shows every file a held set's reason names. The rows
+/// that make way move to the end, among the files the table does not list.
+fn show_named(rows: &mut Vec<ReviewFileRow>, named: &[i64]) {
+    let is_named = |row: &ReviewFileRow| row.file_id.is_some_and(|f| named.contains(&f));
+    if rows.len() <= MAX_FILES {
+        return;
+    }
+    let mut late: Vec<ReviewFileRow> = Vec::new();
+    let mut at = MAX_FILES;
+    while at < rows.len() {
+        match is_named(&rows[at]) {
+            true => late.push(rows.remove(at)),
+            false => at += 1,
+        }
+    }
+    for row in late {
+        // The last row of the table that is not named makes way.
+        let Some(out) = rows[..MAX_FILES].iter().rposition(|r| !is_named(r)) else {
+            break;
+        };
+        let bumped = std::mem::replace(&mut rows[out], row);
+        rows.push(bumped);
+    }
 }
 
 /// The track a merge should keep ([`super::same::suggest_keep`]), as the

@@ -674,15 +674,11 @@
     "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
   },
   "held.pairOne": {
-    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the one reason the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
+    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the reason the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
     "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
   },
   "held.pairTwo": {
-    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the two reasons the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
-  },
-  "held.pairThree": {
-    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the three reasons the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
+    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the first two reasons the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
     "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
   },
   "held.library": {

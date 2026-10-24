@@ -156,19 +156,33 @@ fn every_kind_of_pair_that_disagrees_holds_a_set_and_a_settled_one_does_not() {
 }
 
 #[test]
-fn a_pair_with_a_file_that_is_not_on_disk_or_that_holds_the_same_audio_is_not_named() {
+fn a_pair_with_a_file_that_is_not_on_disk_is_not_named() {
     let lib = Lib::new();
     let (t1, f1) = lib.simple("Velo");
     let (_, f2) = lib.simple("Velo b");
+    // A third track is in the set through a file that is on disk and a
+    // duplicate pair; its other file is gone, and the pair with that one
+    // goes to review. The job ignores a file that is not on disk.
     let t3 = lib.track("Velo c");
-    let gone = lib.file(t3, "Velo c.mp3", "mp3", false);
+    let there = lib.file(t3, "Velo c.mp3", "mp3", true);
+    let gone = lib.file(t3, "Velo c gone.mp3", "mp3", false);
     lib.library(t1, f1);
     lib.pair(f1, f2, "duplicate", "set_disagrees");
-    pair_with(&lib, f2, gone, "review", "open", REWORK);
+    lib.pair(f2, there, "duplicate", "set_disagrees");
+    pair_with(&lib, f1, gone, "review", "open", REWORK);
     let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
+    assert_eq!(c.tracks.len(), 3);
     old_reason(&c);
 
-    // Nor does one between files that hold the very same audio.
+    // The same pair with the file back on disk is named.
+    lib.exec("UPDATE file SET present = 1");
+    let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
+    assert_eq!(held_reason(&c).key(), "review:held.pairTwo");
+    assert_eq!(text(held_reason(&c), "other"), row_name(&c, gone));
+}
+
+#[test]
+fn a_pair_between_files_that_hold_the_same_audio_is_not_named() {
     let lib = Lib::new();
     let (t1, f1) = lib.simple("Velo");
     let (_, f2) = lib.simple("Velo b");
@@ -183,8 +197,47 @@ fn a_pair_with_a_file_that_is_not_on_disk_or_that_holds_the_same_audio_is_not_na
     old_reason(&c);
 }
 
+/// The planner skips a pair only for the same `audio_hash`; files with none
+/// and the same `blake3` are still compared, so their pair is named.
 #[test]
-fn a_pair_gives_at_most_three_reasons_and_only_those_with_words() {
+fn a_pair_between_files_with_no_audio_hash_and_the_same_blake3_is_named() {
+    let lib = Lib::new();
+    let (t1, f1) = lib.simple("Velo");
+    let (_, f2) = lib.simple("Velo b");
+    let (_, f3) = lib.simple("Velo c");
+    lib.library(t1, f1);
+    lib.exec(&format!(
+        "UPDATE file SET blake3 = zeroblob(32) WHERE id IN ({f1}, {f3})"
+    ));
+    lib.pair(f1, f2, "duplicate", "set_disagrees");
+    lib.pair(f2, f3, "duplicate", "set_disagrees");
+    pair_with(&lib, f1, f3, "review", "open", REWORK);
+    let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
+    assert_eq!(held_reason(&c).key(), "review:held.pairTwo");
+}
+
+/// With several pairs that hold the set, the one with the lowest file ids.
+#[test]
+fn when_several_pairs_hold_a_set_the_one_with_the_lowest_files_is_named() {
+    let lib = Lib::new();
+    let (t1, f1) = lib.simple("Velo");
+    let (_, f2) = lib.simple("Velo b");
+    let (_, f3) = lib.simple("Velo c");
+    let (_, f4) = lib.simple("Velo d");
+    lib.library(t1, f1);
+    lib.pair(f1, f2, "duplicate", "set_disagrees");
+    lib.pair(f2, f3, "duplicate", "set_disagrees");
+    lib.pair(f3, f4, "duplicate", "set_disagrees");
+    pair_with(&lib, f2, f4, "review", "open", REWORK);
+    pair_with(&lib, f1, f3, "review", "open", REWORK);
+    let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
+    let reason = held_reason(&c);
+    assert_eq!(text(reason, "file"), row_name(&c, f1));
+    assert_eq!(text(reason, "other"), row_name(&c, f3));
+}
+
+#[test]
+fn a_pair_gives_at_most_two_reasons_and_only_those_with_words() {
     let lib = Lib::new();
     let (t1, f1) = lib.simple("Velo");
     let (_, f2) = lib.simple("Velo b");
@@ -192,24 +245,27 @@ fn a_pair_gives_at_most_three_reasons_and_only_those_with_words() {
     lib.library(t1, f1);
     lib.pair(f1, f2, "duplicate", "set_disagrees");
     lib.pair(f2, f3, "duplicate", "set_disagrees");
-    // The first has no words in the locale files: it is left out.
+    // The first has no words in the locale files: it is left out. With the
+    // sentence itself, two reasons are the three fragments copy-style allows.
     pair_with(
         &lib,
         f1,
         f3,
         "review",
         "open",
-        r#"[{"code":"truncatedCopy"},{"code":"sameAudio"},{"code":"namesDiffer"},{"code":"titlesDiffer"},{"code":"artistsDiffer"}]"#,
+        r#"[{"code":"truncatedCopy"},{"code":"sameAudio"},{"code":"namesDiffer"},{"code":"titlesDiffer"}]"#,
     );
     let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
     let reason = held_reason(&c);
-    assert_eq!(reason.key(), "review:held.pairThree");
+    assert_eq!(reason.key(), "review:held.pairTwo");
     assert_eq!(text(reason, "first"), "sameAudio");
     assert_eq!(text(reason, "second"), "namesDiffer");
-    assert_eq!(text(reason, "third"), "titlesDiffer");
+    assert!(reason.params().get("third").is_none());
 
     // With none, the sentence still names the two files.
-    lib.exec(r#"UPDATE grouping_pair SET reasons = '[{"code":"truncatedCopy"}]' WHERE outcome = 'review'"#);
+    lib.exec(
+        r#"UPDATE grouping_pair SET reasons = '[{"code":"truncatedCopy"}]' WHERE outcome = 'review'"#,
+    );
     let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
     assert_eq!(held_reason(&c).key(), "review:held.pair");
 }
@@ -344,4 +400,57 @@ fn a_set_held_in_several_ways_names_one_in_a_fixed_order() {
     // Two Library tracks come before both.
     lib.library(t2, f2);
     assert!(matches!(holding(&lib), Some(Holding::TwoInLibrary { .. })));
+}
+
+/// A set of `n` files of different audio, alternately in each of two tracks, with
+/// one duplicate pair between them, as the job would hold it.
+fn set_of(lib: &Lib, n: usize) -> (i64, Vec<i64>) {
+    let t1 = lib.track("Velo");
+    let t2 = lib.track("Velo b");
+    let mut files = Vec::new();
+    for at in 0..n {
+        let track = if at % 2 == 0 { t1 } else { t2 };
+        files.push(lib.file(track, &format!("f{at:03}.mp3"), "mp3", true));
+    }
+    lib.library(t1, files[0]);
+    lib.pair(files[0], files[1], "duplicate", "set_disagrees");
+    (t1, files)
+}
+
+/// The job compares sets of up to 50 files; one file more and it holds the
+/// set, so only then does the reason say so.
+#[test]
+fn a_set_of_exactly_fifty_files_is_not_too_many() {
+    let lib = Lib::new();
+    let (t1, _) = set_of(&lib, 50);
+    let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
+    old_reason(&c);
+
+    let lib = Lib::new();
+    let (t1, _) = set_of(&lib, 51);
+    let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
+    assert_eq!(held_reason(&c).key(), "review:held.tooMany");
+    assert_eq!(
+        held_reason(&c).params().get("files"),
+        Some(&ReasonParam::Number(51.0))
+    );
+}
+
+/// The table lists 50 files; the two a reason names are in it even when
+/// they rank after the 50th.
+#[test]
+fn the_files_a_reason_names_are_always_in_the_table() {
+    let lib = Lib::new();
+    let (t1, files) = set_of(&lib, 60);
+    // The pair that disagrees is between two of the last files.
+    pair_with(&lib, files[58], files[59], "review", "open", REWORK);
+    let c = lib.compare(id(ReviewKind::HeldSet, t1, None)).unwrap();
+    assert_eq!(c.rows.len(), 50);
+    assert_eq!(c.more_files, 10);
+    let reason = held_reason(&c);
+    assert_eq!(reason.key(), "review:held.pairTwo");
+    assert_eq!(text(reason, "file"), row_name(&c, files[58]));
+    assert_eq!(text(reason, "other"), row_name(&c, files[59]));
+    // The suggested file is still the first row.
+    assert_eq!(c.suggestion.as_ref().map(|s| *s.what()), c.rows[0].file_id);
 }

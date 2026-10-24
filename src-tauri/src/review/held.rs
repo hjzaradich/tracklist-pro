@@ -226,7 +226,11 @@ pub fn holding(conn: &Connection, tracks: &[i64]) -> rusqlite::Result<Option<Hol
     // A pair that is not a duplicate, between two files on disk that hold
     // different audio, in two tracks of the set: the states a stored pair
     // that nobody has settled can be in (`open`, `linked` for a cut or a
-    // rework, `apart`).
+    // rework, `apart`). "The same audio" here is the planner's own test in
+    // `grouping::plan` (`by_pairs`): the same `audio_hash` (`Member::key`),
+    // not the content key, which falls back to `blake3`. Two files with no
+    // `audio_hash` and the same `blake3` are not skipped there, so a pair of
+    // them is named here too.
     let pair: Option<(i64, i64, String)> = conn
         .prepare_cached(
             "SELECT p.file_a, p.file_b, p.reasons
