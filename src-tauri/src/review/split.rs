@@ -46,10 +46,10 @@
 //! own in the item moves nowhere: only the decisions are made.
 //!
 //! A split is refused ([`Refused::SameAudio`]) when it would leave nothing
-//! behind (the copies are every file of the item), and when the copies
-//! can't be one track: they are the linked files of two Library tracks
-//! (never made one here), or two tracks hold nothing but copies (one would
-//! be left with no file). A user's version link between a track the copies
+//! behind (the copies are every file of the item), and when two tracks hold
+//! nothing but copies (one would be left with no file); and
+//! ([`Refused::CopiesInTwoLibraryTracks`]) when the copies are the linked
+//! files of two Library tracks (never made one here). A user's version link between a track the copies
 //! leave and the one they join refuses it too ([`Refused::LinkedVersions`]);
 //! the job's own links give way.
 //!
@@ -85,10 +85,11 @@
 //! [`Refused::ItemGone`] when the item isn't the one the screen showed;
 //! [`Refused::NoAudioKnown`] when a file to decide about isn't hashed yet;
 //! [`Refused::SameAudio`] when a split's copies are every file of the item
-//! or can't be one track (above), and when two files left on two sides would
-//! hold the very same audio ("Not the same" on two copies; files with the
+//! or two tracks hold nothing but copies (above), and when two files left
+//! on two sides would hold the very same audio ("Not the same" on two copies; files with the
 //! very same audio are always one track, ROADMAP 1.4, so it couldn't stick);
-//! and [`Refused::LinkedVersions`] above. The screen shows each with its
+//! and [`Refused::CopiesInTwoLibraryTracks`] and
+//! [`Refused::LinkedVersions`] above. The screen shows each with its
 //! reason.
 
 use std::collections::BTreeSet;
@@ -130,21 +131,19 @@ pub fn decides_tracks(kind: ReviewKind) -> bool {
 /// [`ReviewComparison::names_say_versions`](super::ReviewComparison).
 pub const NAMES_SAY_VERSIONS: [&str; 2] = ["namesSayCut", "namesSayRework"];
 
-/// Whether an item of `kind` whose grouping reasons are `reasons` (the
-/// stored JSON array) is a possible version mix-up the names say is two
-/// versions ([`NAMES_SAY_VERSIONS`]). Every reason counts, not only the
-/// ones the screen shows.
-pub fn names_say_versions(kind: ReviewKind, reasons: Option<&str>) -> bool {
-    if kind != ReviewKind::VersionDoubt {
-        return false;
-    }
-    let Some(Ok(serde_json::Value::Array(items))) = reasons.map(serde_json::from_str) else {
-        return false;
-    };
-    items
-        .iter()
-        .filter_map(|item| item.get("code")?.as_str())
-        .any(|code| NAMES_SAY_VERSIONS.contains(&code))
+/// Whether an item of `kind` that shows the grouping reasons `doubt` (the
+/// comparison's, as [`super::reasons::from_grouping`] gives them) is a
+/// possible version mix-up the names say is two versions
+/// ([`NAMES_SAY_VERSIONS`]). Only the reasons the screen shows count, so
+/// the filled button never rests on evidence the user can't see (foreman's
+/// ruling, 2026-10-24).
+pub fn names_say_versions(kind: ReviewKind, doubt: &[crate::suggest::Reason]) -> bool {
+    kind == ReviewKind::VersionDoubt
+        && doubt.iter().any(|reason| {
+            NAMES_SAY_VERSIONS
+                .iter()
+                .any(|code| reason.key().strip_prefix("review:doubt.") == Some(code))
+        })
 }
 
 /// Whether `kind` is one of this module's operations.
@@ -507,8 +506,9 @@ struct Moves {
 }
 
 /// Where the copies of a split go (see the module docs), or
-/// [`Refused::SameAudio`] when they can't be one track without making two
-/// Library tracks one or leaving a track with no file.
+/// [`Refused::CopiesInTwoLibraryTracks`] when they can't be one track
+/// without making two Library tracks one, [`Refused::SameAudio`] when that
+/// would leave a track with no file.
 fn moves_for(conn: &Connection, tracks: &[i64], copies: &[i64]) -> Result<Moves, Refused> {
     let mut copy_tracks = BTreeSet::new();
     let mut pinned_tracks = BTreeSet::new();
@@ -542,7 +542,7 @@ fn moves_for(conn: &Connection, tracks: &[i64], copies: &[i64]) -> Result<Moves,
             _ => return Err(Refused::SameAudio),
         },
         // Two Library tracks are never made one here.
-        _ => return Err(Refused::SameAudio),
+        _ => return Err(Refused::CopiesInTwoLibraryTracks),
     };
     let Some(home) = home else {
         return Ok(Moves {

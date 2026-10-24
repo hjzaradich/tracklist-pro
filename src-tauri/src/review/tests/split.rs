@@ -1065,7 +1065,10 @@ fn the_linked_files_of_two_library_tracks_are_never_made_one_by_a_split() {
         .writer
         .call(move |c| Ok(super::super::split::s_on(c, &[ta, tb], Some(a))))
         .unwrap();
-    assert!(matches!(refused, Err(Refused::SameAudio)), "{refused:?}");
+    assert!(
+        matches!(refused, Err(Refused::CopiesInTwoLibraryTracks)),
+        "{refused:?}"
+    );
     assert_eq!(item.rows(), before);
 }
 
@@ -1130,31 +1133,41 @@ fn names_say_versions_reads_the_reasons_of_a_version_mix_up_only() {
             .code(),
         ]
     );
+    use super::super::reasons::from_grouping;
+    // What the comparison shows (at most three reasons, words only), as it
+    // gets them.
+    let say = |kind: ReviewKind, json: &str| names_say_versions(kind, &from_grouping(json));
     let doubt = ReviewKind::VersionDoubt;
-    let say = |json: &str| names_say_versions(doubt, Some(json));
     assert!(say(
+        doubt,
         r#"[{"code":"partialAudioNamesUnclear"},{"code":"namesSayRework","only_a":[],"only_b":[]}]"#
     ));
     assert!(say(
+        doubt,
         r#"[{"code":"audioInsideOtherNamesDisagree"},{"code":"namesSayCut"},{"code":"artistsDiffer"}]"#
     ));
-    // A code past the three the screen shows still counts.
-    assert!(say(
+    // Only what the screen shows counts: a code past the three it shows
+    // doesn't (foreman's ruling, 2026-10-24).
+    assert!(!say(
+        doubt,
         r#"[{"code":"a"},{"code":"b"},{"code":"c"},{"code":"namesSayCut"}]"#
     ));
+    assert!(say(
+        doubt,
+        r#"[{"code":"a"},{"code":"b"},{"code":"namesSayCut"}]"#
+    ));
     assert!(!say(
+        doubt,
         r#"[{"code":"partialAudioNamesUnclear"},{"code":"namesUnclear"}]"#
     ));
     assert!(!say(
+        doubt,
         r#"[{"code":"sameAudioNamesDisagree"},{"code":"titlesDiffer"}]"#
     ));
-    assert!(!say("not json"));
-    assert!(!names_say_versions(doubt, None));
+    assert!(!say(doubt, "not json"));
+    assert!(!names_say_versions(doubt, &[]));
     // "Unclear duplicates" never changes.
-    assert!(!names_say_versions(
-        ReviewKind::HeldSet,
-        Some(r#"[{"code":"namesSayRework"}]"#)
-    ));
+    assert!(!say(ReviewKind::HeldSet, r#"[{"code":"namesSayRework"}]"#));
 }
 
 #[test]
@@ -1202,4 +1215,109 @@ fn the_comparison_says_when_the_names_say_another_rework() {
         .unwrap()
         .unwrap();
     assert!(!shown.names_say_versions, "{:?}", shown.doubt);
+}
+
+// ---- fix round 1 (review of PR 106) --------------------------------------------
+
+#[test]
+fn the_undo_of_a_split_whose_copies_left_two_tracks_is_refused_once_the_second_changed() {
+    // Two copies, each in a track that keeps another file: the split takes
+    // files out of two tracks. Undo checks each one, the second too.
+    for change in ["made", "audio"] {
+        let (item, a, mp3s, c) = linked_with_copies(2);
+        let (m1, m2) = (mp3s[0], mp3s[1]);
+        let (ta, tc) = (item.db.track(a).unwrap(), item.db.track(c).unwrap());
+        // `m2` sits in a track of its own with another file, `x` (the
+        // grouping hasn't put the copies together yet).
+        let x = item.db.file(1, "Nightdrive.mp3", Some(hash(40)));
+        item.db.group();
+        item.db.sql(&format!(
+            "INSERT INTO recording DEFAULT VALUES;
+             UPDATE recording_file SET recording_id = last_insert_rowid()
+             WHERE file_id IN ({m2}, {x});"
+        ));
+        let tx = item.db.track(x).unwrap();
+        assert_eq!(item.db.track(m2), Some(tx));
+        let s_on = |tracks: Vec<i64>, file: i64| {
+            item.db
+                .writer
+                .call(move |c| Ok(super::super::split::s_on(c, &tracks, Some(file))))
+                .unwrap()
+        };
+        s_on(vec![ta, tx, tc], m1).unwrap();
+        let left = item.db.track(m1).unwrap();
+        assert!(left != ta && left != tx && left != tc);
+        assert_eq!(
+            item.db.track(m2),
+            Some(left),
+            "together, out of both tracks"
+        );
+        assert_eq!((item.db.track(a), item.db.track(x)), (Some(ta), Some(tx)));
+        let sources = item.db.count(&format!(
+            "SELECT json_array_length(details, '$.sources') FROM operation
+             WHERE kind = '{SPLIT_OPERATION}'"
+        ));
+        assert_eq!(sources, 2);
+        let first = item.db.count(&format!(
+            "SELECT json_extract(details, '$.from') FROM operation
+             WHERE kind = '{SPLIT_OPERATION}'"
+        ));
+        assert_eq!(first, ta, "the second track is only in `sources`");
+
+        // The second track changes: it was made at another time (it may be
+        // another track by that id), or the file that stayed in it holds
+        // other audio now.
+        let made: String = item
+            .db
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT created_at FROM recording WHERE id = ?1",
+                    [tx],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        let (break_it, mend_it) = match change {
+            "made" => (
+                format!(
+                    "UPDATE recording SET created_at = '2000-01-01T00:00:00.000Z' WHERE id = {tx}"
+                ),
+                format!("UPDATE recording SET created_at = '{made}' WHERE id = {tx}"),
+            ),
+            _ => (
+                format!(
+                    "UPDATE file SET audio_hash = x'{}' WHERE id = {x}",
+                    "41".repeat(34)
+                ),
+                format!(
+                    "UPDATE file SET audio_hash = x'{}' WHERE id = {x}",
+                    "28".repeat(34)
+                ),
+            ),
+        };
+        item.db.sql(&break_it);
+        let before = item.rows();
+        match item.undo() {
+            UndoOutcome::Refused { reason, .. } => {
+                assert_eq!(reason, UndoRefusal::ChangedSince, "{change}")
+            }
+            other => panic!("{change}: {other:?}"),
+        }
+        assert_eq!(item.rows(), before, "{change}: nothing changed");
+        // Put back as it was, the Undo goes through.
+        item.db.sql(&mend_it);
+        assert!(
+            matches!(item.undo(), UndoOutcome::Undone { .. }),
+            "{change}"
+        );
+        // The moved files are back and the decisions gone (the grouping
+        // pass after the Undo then puts the two copies together again).
+        assert_eq!(item.db.track(m1), Some(ta), "{change}");
+        assert_eq!(
+            item.db.count("SELECT count(*) FROM grouping_decision"),
+            0,
+            "{change}"
+        );
+    }
 }

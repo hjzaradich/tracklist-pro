@@ -279,8 +279,8 @@ pub struct ReviewComparison {
     /// Why the item is in the queue, from the grouping's own reasons (a
     /// version doubt, a held set): at most three, the deciding one first.
     pub doubt: Vec<Reason>,
-    /// A possible version mix-up whose own reasons say the names give
-    /// different versions (other cuts or reworks,
+    /// A possible version mix-up whose own reasons, the ones in `doubt`,
+    /// say the names give different versions (other cuts or reworks,
     /// [`split::NAMES_SAY_VERSIONS`]): its filled button is "Not the same"
     /// or "Split off", not "Same track" (DOGFOOD B-4). `false` for every
     /// other item.

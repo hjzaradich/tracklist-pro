@@ -871,5 +871,9 @@
     "purpose": "Why a split was refused: the file holds the very same audio as a file it would leave, and such files are always one track. Proposal.",
     "where": "Review screen, under the action row, after Split off or S.",
     "approved": "Can't split: these files hold the same audio"
+  },
+  "error.splitTwoLibraryTracks": {
+    "purpose": "Why a split was refused: the selected file's identical copies, which go along with it, are the linked files of two Library tracks, and a split never makes two Library tracks one. Proposal (1bF-2).",
+    "where": "Review screen, under the action row, after Split off or S."
   }
 }

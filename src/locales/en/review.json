@@ -199,7 +199,8 @@
     "switchEntryTaken": "Can't switch: rekordbox's track for that file belongs to another Library track",
     "switchChanged": "Can't switch: this item has changed. Check it again first.",
     "mergeLinkedVersions": "Can't make one track: these tracks are linked as versions",
-    "sameAudio": "Can't split: these files hold the same audio"
+    "sameAudio": "Can't split: these files hold the same audio",
+    "splitTwoLibraryTracks": "Can't split: copies of this file belong to two Library tracks"
   },
   "same": {
     "label": "Library tracks",

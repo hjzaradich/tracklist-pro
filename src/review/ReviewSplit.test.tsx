@@ -392,6 +392,19 @@ describe("a refusal (DOGFOOD B-5)", () => {
     expect(selectedTitle()).toContain("Doubtful Tune");
   });
 
+  it("of Split off for copies in two Library tracks says so", async () => {
+    backend({
+      lists: { ...EMPTY, needsCloserLook: [DOUBT] },
+      files: 3,
+      refuse: { review_not_same: { kind: "reviewSplitTwoLibraryTracks", params: {} } },
+    });
+    renderScreen();
+    const rows = await fileRows();
+    await userEvent.click(within(rows[1]!).getByText("linked copy.mp3"));
+    press("s");
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("review:error.splitTwoLibraryTracks"));
+  });
+
   it("of Split off shows its reason at once, and the button works again", async () => {
     const world = backend({
       lists: { ...EMPTY, needsCloserLook: [DOUBT, NEXT] },
