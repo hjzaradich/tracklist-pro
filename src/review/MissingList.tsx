@@ -30,11 +30,20 @@ export function MissingList({
   const { t } = useTranslation("review");
   const titleId = useId();
   const folderIdPrefix = useId();
+  // One line (the heading and how many tracks) until it is opened. It is
+  // open when there is nothing missing (its one line says so) or when
+  // something went wrong, so the message isn't hidden.
+  const empty = list?.groups.length === 0;
   return (
-    <section className={styles.section} aria-labelledby={titleId}>
-      <h2 id={titleId} className={styles.title}>
-        {t("missing.title")}
-      </h2>
+    <details className={styles.section} aria-labelledby={titleId} open={empty || problem !== undefined}>
+      <summary className={styles.summary}>
+        <h2 id={titleId} className={styles.title}>
+          {t("missing.title")}
+        </h2>
+        {list !== undefined && list.total > 0 && (
+          <span className={styles.count}>{t("missing.tracksCount", { count: list.total })}</span>
+        )}
+      </summary>
       {problem !== undefined && (
         <p role="alert" className={styles.problem}>
           {problem}
@@ -84,6 +93,6 @@ export function MissingList({
           </div>
         );
       })}
-    </section>
+    </details>
   );
 }

@@ -85,6 +85,17 @@ One line each: the date, what was decided, and why, so the next change holds to 
 - 2026-10-13 · **"Suggested" and "Linked" are words in neutral bordered labels** ("Suggested" bold and filled, "Linked" an outline). The accent is not used for them. · Never colour alone, and amber means selected or active. · Style
 - 2026-10-13 · **Actions: one row directly under the comparison table, acting on the suggested file.** The one filled accent button is "keep the suggested file", the rest are quiet, a small line under them (`.keys`) shows the keys (Enter, number keys, S). A file-specific action goes in a quiet cell at the end of its row (`.rowAction`). · The loudest thing is the thing to do next. · Style, with Foreman for the buttons themselves (1bE)
 
+## Review fits the window (1bF-4, DOGFOOD B-6)
+
+Owner-approved on 2026-10-24, after a real Library showed three nested scrollbars, a queue of about four visible items and a comparison whose actions fell out of view. The rules, at about 1270x820:
+
+- **No page scroll.** Every region scrolls on its own, once, and the screen itself never does.
+- **Three regions:** the queue (left, a fixed 15-16rem, compact items), the comparison (right) and, when opened, Missing. The comparison's table scrolls inside it (its header stays put); its heading, suggestion and doubt stay above it, and **the actions stay docked under it**, always in view.
+- **Missing is one line** (its heading and how many tracks) until it is opened. Open, it takes at most 45% of the screen and scrolls inside. It opens by itself when nothing is missing or when something went wrong, so a message is never hidden.
+- **The Track column keeps its room** (never under 8rem), the facts columns are secondary text (12px), and the quality verdict may wrap: the other columns give way before the track and the file.
+- **The stage gutter is 16px** (it was 24px), which every screen shares.
+- **Below 1100px** the queue goes on top, shorter (at most 14rem or 30% of the height), and the comparison takes the full width.
+
 ## The one exception to "class names only"
 
 A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").

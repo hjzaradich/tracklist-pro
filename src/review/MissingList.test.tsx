@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MissingGroup, MissingList as Missing } from "../bindings";
@@ -28,6 +28,11 @@ function list(groups: MissingGroup[]): Missing {
 
 afterEach(cleanup);
 
+/** The line with a folder's name, its count and its button (the summary line also counts). */
+function folderRow(folder: string): HTMLElement {
+  return screen.getByText(folder).parentElement as HTMLElement;
+}
+
 describe("the Missing list", () => {
   it("names what's absent when no track is missing", () => {
     render(<MissingList list={list([])} />);
@@ -43,7 +48,7 @@ describe("the Missing list", () => {
   it("shows each folder with its track count and the tracks' last known paths", () => {
     render(<MissingList list={list([group(String.raw`D:\Old`)])} />);
     expect(screen.getByText(String.raw`D:\Old`)).toBeInTheDocument();
-    expect(screen.getByText(tx("review:missing.tracksCount", { count: 1 }))).toBeInTheDocument();
+    expect(within(folderRow(String.raw`D:\Old`)).getByText(tx("review:missing.tracksCount", { count: 1 }))).toBeInTheDocument();
     expect(screen.getByText(tx("review:missing.trackName", { artist: "Artist", title: "Song" }))).toBeInTheDocument();
     expect(screen.getByText(String.raw`D:\Old\song.mp3`)).toBeInTheDocument();
   });
@@ -77,7 +82,7 @@ describe("the Missing list", () => {
       })),
     });
     render(<MissingList list={list([many])} />);
-    expect(screen.getByText(tx("review:missing.tracksCount", { count: 3 }))).toBeInTheDocument();
+    expect(within(folderRow(String.raw`D:\Old`)).getByText(tx("review:missing.tracksCount", { count: 3 }))).toBeInTheDocument();
   });
 
   it("shows only the heading while the list loads", () => {
@@ -100,5 +105,22 @@ describe("the Missing list", () => {
       />,
     );
     expect(screen.getByRole("button", { name: tx("review:missing.addFolder") })).toBeDisabled();
+  });
+
+  it("is one line, the heading and how many tracks, until it is opened", () => {
+    const { container } = render(<MissingList list={list([group(String.raw`D:\Old`), group(String.raw`D:\Older`)])} />);
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    const summary = details.querySelector("summary") as HTMLElement;
+    expect(within(summary).getByRole("heading", { name: tx("review:missing.title") })).toBeInTheDocument();
+    expect(within(summary).getByText(tx("review:missing.tracksCount", { count: 2 }))).toBeInTheDocument();
+  });
+
+  it("is open when nothing is missing, and when something went wrong", () => {
+    const { container, rerender } = render(<MissingList list={list([])} />);
+    expect((container.querySelector("details") as HTMLDetailsElement).open).toBe(true);
+    rerender(<MissingList list={list([group(String.raw`D:\Old`)])} problem="It failed" />);
+    expect((container.querySelector("details") as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByRole("alert")).toHaveTextContent("It failed");
   });
 });
