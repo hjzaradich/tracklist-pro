@@ -66,7 +66,7 @@ The owner's check of the Review screen on an installed build (0.1.2), with the L
 | B-7 | Review, quality problem | After dismissing "Better file available", a "Quality problem" item appeared for the same track (by design); its text doesn't mention the better copy, though its table shows it. | | Note |
 | B-8 | All music, add to Library | A file deleted from disk before the next scan could still be added to the Library; it became a missing track. Nothing was lost. | A warning when the file is already gone. | Later |
 | B-9 | Uninstaller | The uninstaller offers a checkbox that deletes the app's data, which would delete the Library. | A line about it in `docs/installing.md`. | Later |
-| B-10 | Moved files | A moved identical copy and a moved copy the owner had re-saved or converted (which one is to be confirmed) were both followed by their Library tracks on their own after "Scan again"; nothing came to Review (cycle-1 K6 fixed). | A converted copy holds different audio, so it should come to Review instead (ROADMAP 1.8, "A Library track follows its file"). | Note (open: a finding if it was converted) |
+| B-10 | Moved files | A moved identical copy and a moved copy the owner had re-saved (same audio, new tags) were both followed by their Library tracks on their own after "Scan again"; nothing came to Review (cycle-1 K6 fixed). | | Note |
 | B-11 | Preview | MP3, FLAC, AIFF and ALAC all played in the app window, with no delay; jumping and switching files worked. | | Note |
 
 ## Cycle 2 (practice gig; moved to the end of Phase 1, TASKS 1cD-2)
