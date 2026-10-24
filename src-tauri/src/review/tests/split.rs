@@ -419,27 +419,33 @@ fn s_on_three_files_needs_a_file_of_the_item() {
 }
 
 #[test]
-fn a_file_with_the_very_same_audio_as_the_track_it_would_leave_is_not_split_off() {
-    // Files with the very same audio are always one track: the split
-    // couldn't stick.
+fn a_copy_of_the_linked_file_takes_it_along_and_its_track_is_kept_apart() {
+    // Files with the very same audio are always one track: the copy of the
+    // linked file goes with it (owner decision, 2026-10-24). The linked file
+    // never leaves its track, so nothing moves: the track is kept apart from
+    // the other take, and the item is answered.
     let db = db();
     let velo = track(1, LEN);
     let a = db.add(file("Velo.flac", 1, velo.clone()));
     let b = db.add(file("copies/Velo.flac", 1, velo.clone()));
     db.decide();
     assert_eq!(db.track(a), db.track(b));
-    db.to_library(a);
+    let ta = db.to_library(a);
     let c = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
     db.decide();
     let item = Item { db };
     let id = item.doubt();
+    let tc = item.db.track(c).unwrap();
     let before = item.rows();
-    assert!(matches!(
-        item.not_same(id, Some(b)),
-        Err(Refused::SameAudio)
-    ));
+    assert!(!item.not_same(id, Some(b)).unwrap().item_stays);
+    assert_eq!(item.kind_of_last_operation(), SPLIT_OPERATION);
+    assert_eq!((item.db.track(a), item.db.track(b)), (Some(ta), Some(ta)));
+    assert_eq!(item.db.track(c), Some(tc));
+    assert_eq!(item.db.stands(a, c).1, "decided");
+    assert!(!item.queued(id));
+    assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
     assert_eq!(item.rows(), before);
-    let _ = c;
+    assert!(item.queued(id));
 }
 
 #[test]
@@ -748,4 +754,449 @@ fn s_on_two_files_in_one_track_splits_one_off_and_relink_no_longer_matches_them(
     // The other file sent: it leaves.
     s_on(Some(b)).unwrap();
     assert_ne!(item.db.track(b), Some(ta));
+}
+
+// ---- the copies go along (owner decisions, 2026-10-24; DOGFOOD B-5) -----------------
+
+/// `name` holding the audio `n`, with the fingerprint `items`: the helper
+/// `file` with another name.
+fn copy<'a>(name: &'a str, n: u8, items: &[u32]) -> NewFile<'a> {
+    file(name, n, items.to_vec())
+}
+
+/// A Library track holding a FLAC (`a`, the linked file) and `copies`
+/// identical MP3 re-encodes of it (one audio, `hash(2)`), and outside the
+/// Library another take (`c`): a possible version mix-up. Returns the item,
+/// `a`, the MP3s and `c`.
+fn linked_with_copies(copies: usize) -> (Item, i64, Vec<i64>, i64) {
+    const NAMES: [&str; 3] = ["Velo.mp3", "copies/Velo.mp3", "more/Velo.mp3"];
+    let db = db();
+    let velo = track(1, LEN);
+    let mp3 = reencoded(&velo, 1, 7);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    let mp3s: Vec<i64> = NAMES[..copies]
+        .iter()
+        .map(|name| db.add(copy(name, 2, &mp3)))
+        .collect();
+    db.decide();
+    let ta = db.to_library(a);
+    for &m in &mp3s {
+        assert_eq!(db.track(m), Some(ta));
+    }
+    let c = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
+    db.decide();
+    assert_eq!(db.stands(a, c).1, "open");
+    (Item { db }, a, mp3s, c)
+}
+
+#[test]
+fn two_copies_and_two_copies_end_as_two_tracks_kept_apart_and_undo_takes_it_back() {
+    // The typical item: two identical copies of a version (in the Library)
+    // and two of another take. Split off on any one of the four: the two of
+    // each stay together, as their own tracks, apart, and the item is
+    // answered.
+    for pick in 0..4 {
+        let db = db();
+        let velo = track(1, LEN);
+        let take = other_take(&velo, 9);
+        let a1 = db.add(file("Velo.flac", 1, velo.clone()));
+        let a2 = db.add(file("copies/Velo.flac", 1, velo.clone()));
+        let b1 = db.add(file("Velo (other take).flac", 3, take.clone()));
+        let b2 = db.add(file("copies/Velo (other take).flac", 3, take.clone()));
+        db.decide();
+        let ta = db.to_library(a1);
+        db.decide();
+        let tb = db.track(b1).unwrap();
+        assert_eq!((db.track(a2), db.track(b2)), (Some(ta), Some(tb)));
+        let item = Item { db };
+        let id = item.doubt();
+        let before = item.rows();
+        let tracks = item.db.tracks();
+
+        let picked = [a1, a2, b1, b2][pick];
+        let done = item.not_same(id, Some(picked)).unwrap();
+        assert!(!done.item_stays, "the item is answered");
+        assert_eq!(item.kind_of_last_operation(), SPLIT_OPERATION);
+        assert_eq!(
+            [a1, a2, b1, b2].map(|f| item.db.track(f)),
+            [Some(ta), Some(ta), Some(tb), Some(tb)],
+            "each two together, as they were"
+        );
+        assert_eq!(item.db.tracks(), tracks, "no track made");
+        assert_eq!(item.db.stands(a1, b1), ("review".into(), "decided".into()));
+        assert!(!item.queued(id));
+        // For good: the grouping job never asks again.
+        item.db.decide();
+        assert!(!item.queued(id));
+        assert_eq!(item.db.track(b2), Some(tb));
+
+        assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
+        assert_eq!(item.rows(), before, "the decision comes back exactly");
+        assert!(item.queued(id), "the item is open again");
+    }
+}
+
+#[test]
+fn copies_that_share_a_track_with_other_files_leave_it_together_and_undo_puts_them_back() {
+    // Two identical MP3s in the Library track beside its FLAC: Split off on
+    // one takes the other along, into one new track.
+    let (item, a, mp3s, c) = linked_with_copies(2);
+    let (m1, m2) = (mp3s[0], mp3s[1]);
+    let id = item.doubt();
+    let (ta, tc) = (item.db.track(a).unwrap(), item.db.track(c).unwrap());
+    let tracks = item.db.tracks();
+    let before = item.rows();
+
+    let done = item.not_same(id, Some(m2)).unwrap();
+    assert!(done.item_stays, "the mix-up with the other take is still open");
+    let left = item.db.track(m1).unwrap();
+    assert!(left != ta && left != tc, "a track of their own");
+    assert_eq!(item.db.track(m2), Some(left), "together");
+    assert_eq!(item.db.track(a), Some(ta));
+    assert_eq!(item.db.track(c), Some(tc));
+    assert_eq!(item.db.tracks(), tracks + 1);
+    assert_eq!(item.db.stands(m1, m2).1, "merged");
+    assert_eq!(item.db.stands(a, m1).1, "decided");
+    assert_eq!(item.db.stands(a, m2).1, "decided");
+    assert_eq!(
+        item.current(a),
+        Vec::<i64>::new(),
+        "relink no longer matches them"
+    );
+    assert!(item.queued(id));
+    item.db.decide();
+    item.db.decide();
+    assert_eq!(
+        (item.db.track(m1), item.db.track(m2)),
+        (Some(left), Some(left))
+    );
+
+    let undone = item.undo();
+    assert!(matches!(undone, UndoOutcome::Undone { .. }), "{undone:?}");
+    assert_eq!(
+        item.rows(),
+        before,
+        "the moves and the decisions come back exactly, in one step"
+    );
+    assert_eq!(item.db.tracks(), tracks, "the track it made is gone");
+    item.db.decide();
+    assert_eq!((item.db.track(m1), item.db.track(m2)), (Some(ta), Some(ta)));
+    assert_eq!(item.db.stands(a, m1).1, "merged");
+}
+
+#[test]
+fn three_copies_and_one_other_file() {
+    // Three identical MP3s beside the linked FLAC: all three leave together.
+    let (item, a, mp3s, _c) = linked_with_copies(3);
+    let id = item.doubt();
+    let ta = item.db.track(a).unwrap();
+    let before = item.rows();
+    item.not_same(id, Some(mp3s[1])).unwrap();
+    let left = item.db.track(mp3s[0]).unwrap();
+    assert_ne!(left, ta);
+    assert_eq!(
+        [0, 1, 2].map(|n| item.db.track(mp3s[n])),
+        [Some(left); 3],
+        "the three together"
+    );
+    assert_eq!(item.db.track(a), Some(ta));
+    assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(item.rows(), before);
+
+    // Three identical copies in a track of their own, and one other take:
+    // Split off on any copy, or on the take, keeps the three together and
+    // answers the item; nothing moves.
+    for pick in 0..4 {
+        let db = db();
+        let velo = track(1, LEN);
+        let a = db.add(file("Velo.flac", 1, velo.clone()));
+        let b = db.add(file("copies/Velo.flac", 1, velo.clone()));
+        let c = db.add(file("more/Velo.flac", 1, velo.clone()));
+        db.decide();
+        let ta = db.to_library(a);
+        let d = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
+        db.decide();
+        let td = db.track(d).unwrap();
+        let item = Item { db };
+        let id = item.doubt();
+        let before = item.rows();
+        assert!(
+            !item
+                .not_same(id, Some([a, b, c, d][pick]))
+                .unwrap()
+                .item_stays
+        );
+        assert_eq!(
+            [a, b, c, d].map(|f| item.db.track(f)),
+            [Some(ta), Some(ta), Some(ta), Some(td)]
+        );
+        assert_eq!(item.db.stands(a, d).1, "decided");
+        assert!(!item.queued(id));
+        assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
+        assert_eq!(item.rows(), before);
+        assert!(item.queued(id));
+    }
+}
+
+#[test]
+fn the_copies_are_found_by_audio_never_by_name_or_size() {
+    // Every file here has the same size. Beside the linked FLAC: an MP3
+    // (`m`), its identical copy under another name (`renamed`), and another
+    // re-encode under the very same file name as `m` (`namesake`, other
+    // audio). Split off `m`: the renamed copy goes along, the namesake stays.
+    let db = db();
+    let velo = track(1, LEN);
+    let mp3 = reencoded(&velo, 1, 7);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    let m = db.add(copy("Velo.mp3", 2, &mp3));
+    let renamed = db.add(copy("elsewhere/Something else.mp3", 2, &mp3));
+    let namesake = db.add(copy("other/Velo.mp3", 4, &reencoded(&velo, 5, 7)));
+    db.decide();
+    let ta = db.to_library(a);
+    let _c = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
+    db.decide();
+    for f in [m, renamed, namesake] {
+        assert_eq!(db.track(f), Some(ta));
+    }
+    assert_eq!(
+        db.count("SELECT count(DISTINCT size) FROM file"),
+        1,
+        "the same size, every one"
+    );
+    let item = Item { db };
+    let id = item.doubt();
+    item.not_same(id, Some(m)).unwrap();
+    let left = item.db.track(m).unwrap();
+    assert_ne!(left, ta);
+    assert_eq!(
+        item.db.track(renamed),
+        Some(left),
+        "the same audio goes along"
+    );
+    assert_eq!(item.db.track(namesake), Some(ta), "the same name stays");
+    assert_eq!(item.db.track(a), Some(ta));
+}
+
+#[test]
+fn a_split_is_refused_when_the_copies_are_every_file() {
+    // Nothing would be left behind: refused, with its reason, and nothing
+    // changes (two files of one track, S's next kinds).
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    let b = db.add(file("copies/Velo.flac", 1, velo.clone()));
+    db.decide();
+    let ta = db.to_library(a);
+    assert_eq!(db.track(b), Some(ta));
+    let item = Item { db };
+    let before = item.rows();
+    for picked in [a, b] {
+        let refused = item
+            .db
+            .writer
+            .call(move |c| Ok(super::super::split::s_on(c, &[ta], Some(picked))))
+            .unwrap();
+        assert!(matches!(refused, Err(Refused::SameAudio)), "{refused:?}");
+    }
+    assert_eq!(item.rows(), before);
+    assert_eq!(item.db.count("SELECT count(*) FROM operation"), 0);
+}
+
+#[test]
+fn copies_in_another_track_join_the_one_that_holds_nothing_but_copies() {
+    // The grouping hasn't put two copies together yet (one sits in a track
+    // of its own): Split off on the other gathers them in that track, and
+    // Undo moves it back exactly.
+    let (item, a, mp3s, c) = linked_with_copies(2);
+    let (m1, m2) = (mp3s[0], mp3s[1]);
+    let (ta, tc) = (item.db.track(a).unwrap(), item.db.track(c).unwrap());
+    item.db.sql(&format!(
+        "INSERT INTO recording DEFAULT VALUES;
+         UPDATE recording_file SET recording_id = last_insert_rowid() WHERE file_id = {m2};"
+    ));
+    let tm = item.db.track(m2).unwrap();
+    assert!(tm != ta && tm != tc);
+    let before = item.rows();
+    let s_on = |tracks: Vec<i64>, file: i64| {
+        item.db
+            .writer
+            .call(move |c| Ok(super::super::split::s_on(c, &tracks, Some(file))))
+            .unwrap()
+    };
+    s_on(vec![ta, tm, tc], m1).unwrap();
+    assert_eq!((item.db.track(m1), item.db.track(m2)), (Some(tm), Some(tm)));
+    assert_eq!(item.db.track(a), Some(ta));
+    assert_eq!(item.db.stands(a, m1).1, "decided");
+    let decisions = "SELECT count(*) FROM grouping_decision";
+    assert!(item.db.count(decisions) > 0);
+    assert!(matches!(item.undo(), UndoOutcome::Undone { .. }));
+    // The file it moved is back, and the decisions are gone; the grouping
+    // pass that follows the Undo then puts the two copies in one track, as
+    // it does with every two files of one audio.
+    assert_eq!(item.db.track(m1), Some(ta));
+    assert_eq!(item.db.count(decisions), 0);
+    assert!(before.contains(&format!("file {m1} {ta}")));
+    assert_eq!(item.db.track(m2), Some(ta));
+}
+
+#[test]
+fn the_linked_files_of_two_library_tracks_are_never_made_one_by_a_split() {
+    // Two Library tracks whose linked files hold the same audio, and another
+    // file beside one of them: the copies can't be one track. Refused.
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    let m = db.add(copy("Velo.mp3", 2, &reencoded(&velo, 1, 7)));
+    let b = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
+    db.decide();
+    let ta = db.to_library(a);
+    let tb = db.to_library(b);
+    assert_eq!(db.track(m), Some(ta));
+    db.set_hash(b, Some(hash(1)));
+    db.decide();
+    assert_ne!(db.track(a), db.track(b));
+    let item = Item { db };
+    let before = item.rows();
+    let refused = item
+        .db
+        .writer
+        .call(move |c| Ok(super::super::split::s_on(c, &[ta, tb], Some(a))))
+        .unwrap();
+    assert!(matches!(refused, Err(Refused::SameAudio)), "{refused:?}");
+    assert_eq!(item.rows(), before);
+}
+
+#[test]
+fn copies_split_off_stay_apart_through_a_rescan_a_retag_and_their_folder_added_again() {
+    let (item, a, mp3s, c) = linked_with_copies(2);
+    let (m1, m2) = (mp3s[0], mp3s[1]);
+    let id = item.doubt();
+    let ta = item.db.track(a).unwrap();
+    item.not_same(id, Some(m1)).unwrap();
+    let left = item.db.track(m1).unwrap();
+
+    // A rescan finds one copy gone and back, and the other retagged: both
+    // are due again, and the grouping job keeps them where the split put
+    // them.
+    item.db.set_present(m1, false);
+    item.db.decide();
+    item.db.set_present(m1, true);
+    item.db.retag(m2, Some("Velo"), Some("Someone Else"));
+    item.db.decide();
+    item.db.decide();
+    assert_eq!(
+        (item.db.track(m1), item.db.track(m2)),
+        (Some(left), Some(left))
+    );
+    assert_eq!(item.db.track(a), Some(ta));
+    assert_eq!(item.db.stands(a, m1).1, "decided");
+
+    // A copy's folder removed and added again: another row, another id, the
+    // same audio. The decision is kept by audio, so it joins its copy, apart
+    // from the Library track.
+    item.db.sql(&format!(
+        "DELETE FROM recording_file WHERE file_id = {m2}; DELETE FROM file WHERE id = {m2};"
+    ));
+    let mp3 = reencoded(&track(1, LEN), 1, 7);
+    let again = item.db.add(copy("again/Velo.mp3", 2, &mp3));
+    assert!(again > m2);
+    item.db.decide();
+    item.db.decide();
+    assert_eq!(item.db.track(again), Some(left));
+    assert_eq!(item.db.track(a), Some(ta));
+    assert_ne!(item.db.track(c), Some(left));
+}
+
+#[test]
+fn names_say_versions_reads_the_reasons_of_a_version_mix_up_only() {
+    use super::super::split::{names_say_versions, NAMES_SAY_VERSIONS};
+    use crate::grouping::rules::Reason;
+    // The codes are the rules' own.
+    assert_eq!(
+        NAMES_SAY_VERSIONS,
+        [
+            Reason::NamesSayCut {
+                only_a: vec![],
+                only_b: vec![]
+            }
+            .code(),
+            Reason::NamesSayRework {
+                only_a: vec![],
+                only_b: vec![]
+            }
+            .code(),
+        ]
+    );
+    let doubt = ReviewKind::VersionDoubt;
+    let say = |json: &str| names_say_versions(doubt, Some(json));
+    assert!(say(
+        r#"[{"code":"partialAudioNamesUnclear"},{"code":"namesSayRework","only_a":[],"only_b":[]}]"#
+    ));
+    assert!(say(
+        r#"[{"code":"audioInsideOtherNamesDisagree"},{"code":"namesSayCut"},{"code":"artistsDiffer"}]"#
+    ));
+    // A code past the three the screen shows still counts.
+    assert!(say(
+        r#"[{"code":"a"},{"code":"b"},{"code":"c"},{"code":"namesSayCut"}]"#
+    ));
+    assert!(!say(
+        r#"[{"code":"partialAudioNamesUnclear"},{"code":"namesUnclear"}]"#
+    ));
+    assert!(!say(
+        r#"[{"code":"sameAudioNamesDisagree"},{"code":"titlesDiffer"}]"#
+    ));
+    assert!(!say("not json"));
+    assert!(!names_say_versions(doubt, None));
+    // "Unclear duplicates" never changes.
+    assert!(!names_say_versions(
+        ReviewKind::HeldSet,
+        Some(r#"[{"code":"namesSayRework"}]"#)
+    ));
+}
+
+#[test]
+fn the_comparison_says_when_the_names_say_another_rework() {
+    // A remix, credited to another artist than the Library track's and not
+    // to its remixer, that shares part of its audio with the Library track:
+    // the names say different reworks (DOGFOOD B-4).
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    db.decide();
+    db.to_library(a);
+    let c = db.add(NewFile {
+        name: "Velo (Mara Quell Remix).flac",
+        title: Some("Velo (Mara Quell Remix)"),
+        artist: Some("Pell Orrin"),
+        hash: Some(hash(3)),
+        items: Some(other_take(&velo, 9)),
+        blake3: None,
+    });
+    db.decide();
+    assert_eq!(
+        db.stands(a, c),
+        ("review".into(), "open".into()),
+        "{}",
+        db.reasons(a, c)
+    );
+    let item = Item { db };
+    let id = item.doubt();
+    let shown = item
+        .db
+        .writer
+        .call(move |c| comparison(c, &Mount, id))
+        .unwrap()
+        .unwrap();
+    assert!(shown.names_say_versions, "{:?}", shown.doubt);
+
+    // The other take of `two_files`: its names don't say.
+    let (item, _a, _c) = two_files();
+    let id = item.doubt();
+    let shown = item
+        .db
+        .writer
+        .call(move |c| comparison(c, &Mount, id))
+        .unwrap()
+        .unwrap();
+    assert!(!shown.names_say_versions, "{:?}", shown.doubt);
 }
