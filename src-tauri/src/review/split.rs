@@ -676,8 +676,12 @@ fn split(conn: &mut Connection, tracks: &[i64], file: i64) -> Result<Acted, Refu
             .into_iter()
             .filter(|f| !moving.contains(f))
             .collect();
-        debug_assert!(!stayed.is_empty(), "a track a split takes files from keeps one");
-        sources.push(json!({ "from": from, "fromMade": made, "stayed": with_keys(conn, &stayed)? }));
+        debug_assert!(
+            !stayed.is_empty(),
+            "a track a split takes files from keeps one"
+        );
+        sources
+            .push(json!({ "from": from, "fromMade": made, "stayed": with_keys(conn, &stayed)? }));
     }
     // `from`, `fromMade` and `stayed` are the first of the `sources`, as a
     // split kept them before the copies went along (`undo_refused` reads

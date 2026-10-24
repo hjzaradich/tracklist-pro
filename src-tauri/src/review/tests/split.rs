@@ -848,7 +848,10 @@ fn copies_that_share_a_track_with_other_files_leave_it_together_and_undo_puts_th
     let before = item.rows();
 
     let done = item.not_same(id, Some(m2)).unwrap();
-    assert!(done.item_stays, "the mix-up with the other take is still open");
+    assert!(
+        done.item_stays,
+        "the mix-up with the other take is still open"
+    );
     let left = item.db.track(m1).unwrap();
     assert!(left != ta && left != tc, "a track of their own");
     assert_eq!(item.db.track(m2), Some(left), "together");
