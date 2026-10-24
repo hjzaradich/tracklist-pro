@@ -205,6 +205,7 @@ Added 2026-09-30 and run right after 1aC: the owner won't pay for CI, and public
 
 ### Stage 1bF: Phase 1b check 👤
 - **Lane 1:** 1bF-1 **Checkpoint:** 1b success criteria (§6)
+- **Owner decisions at the check (2026-10-24), for the fixes before 1c:** (A) on a possible version mix-up whose own reason says the names point to different versions, the filled button (Enter) is "Keep separate", not "Same track": the filled button follows the evidence; (B) "Split off" takes the selected file together with its files of the very same audio, so on an item with two copies of one version and two of another, one Split off keeps the copies together and the versions apart. Also before 1c: a refused Split off shows its reason (today it does nothing visible); an "Unclear duplicates" item says why it is held; the Review layout (the Designer).
 
 ---
 
