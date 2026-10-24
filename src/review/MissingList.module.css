@@ -1,8 +1,32 @@
+/*
+ * One line under the panes until it is opened (DOGFOOD B-6). Open, it takes
+ * at most 45% of the screen and scrolls inside, so the queue and the
+ * comparison above it stay in view.
+ */
 .section {
+  flex: none;
+  max-height: 45%;
+  overflow: auto;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.section[open] {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-top: var(--space-4);
+}
+
+.summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.summary:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
 }
 
 .title {

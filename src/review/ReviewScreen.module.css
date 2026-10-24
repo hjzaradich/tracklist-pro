@@ -1,21 +1,28 @@
-/* The stage body centres its content; Review fills it instead. */
+/*
+ * Review fits the window (DOGFOOD B-6): no page scroll. The queue and the
+ * comparison each scroll on their own, Missing is one line until it is
+ * opened, and the actions stay in view under the comparison's table.
+ */
 .content {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
   align-self: stretch;
   justify-self: stretch;
+  height: 100%;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
-/* The queue on the left at a comfortable fixed width, the comparison (7-8
- * columns) on the right with everything else, each scrolling on its own. */
+/* The queue on the left at a fixed width, the comparison (7-8 columns) on
+ * the right with everything else. */
 .panes {
   display: grid;
-  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr);
+  flex: 1 1 auto;
+  grid-template-columns: minmax(15rem, 16rem) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: var(--space-4);
-  min-height: 16rem;
+  min-height: 0;
 }
 
 /* On a narrow window the queue goes on top, shorter, and the comparison
@@ -23,6 +30,7 @@
 @media (max-width: 1100px) {
   .panes {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
 }
 
@@ -35,8 +43,11 @@
   min-height: 0;
 }
 
+/* The comparison fills the pane; its table scrolls inside it, and this only
+ * scrolls when the window is too short for everything else. */
 .right {
   min-width: 0;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -56,6 +67,10 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
+  /* The list under "View" scrolls here, never pushing the panes out. */
+  flex: none;
+  max-height: 40%;
+  overflow: auto;
 }
 
 .acceptedText {

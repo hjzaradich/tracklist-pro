@@ -157,11 +157,16 @@ export function ReviewComparison({
         />
         {t("compare.moreDetails")}
       </label>
+      <div className={styles.tableScroll}>
       <table className={styles.table} aria-label={t("compare.label")}>
         <thead>
           <tr>
             <th scope="col">{tLibrary("columns.file")}</th>
-            {many && <th scope="col">{t("col.track")}</th>}
+            {many && (
+              <th scope="col" className={styles.trackCol}>
+                {t("col.track")}
+              </th>
+            )}
             <th scope="col">{t("col.format")}</th>
             <th scope="col">{t("col.quality")}</th>
             <th scope="col">{t("col.length")}</th>
@@ -218,13 +223,13 @@ export function ReviewComparison({
                   )}
                 </span>
               </th>
-              {many && <td>{trackOf(row)}</td>}
+              {many && <td className={styles.trackCell}>{trackOf(row)}</td>}
               <td>{row.format?.toUpperCase() ?? ""}</td>
               <td className={styles.quality}>
                 <Quality row={row} />
               </td>
               <td className={styles.number}>{length(row.durationMs)}</td>
-              <td className={styles.number}>
+              <td className={styles.tags}>
                 {row.source === "file" ? t("cell.tags", { filled: row.tagsFilled, total: row.tagsTotal }) : ""}
               </td>
               <td>{row.source === "file" ? (row.hasArt ? t("cell.yes") : t("cell.no")) : ""}</td>
@@ -242,12 +247,16 @@ export function ReviewComparison({
           ))}
         </tbody>
       </table>
-      <ReviewActions
-        key={key}
-        comparison={comparison}
-        selectedFile={selectedFile}
-        onDecided={onDecided}
-      />
+      </div>
+      {/* The actions stay in view under the table, whatever its height. */}
+      <div className={styles.dock}>
+        <ReviewActions
+          key={key}
+          comparison={comparison}
+          selectedFile={selectedFile}
+          onDecided={onDecided}
+        />
+      </div>
       {comparison.moreFiles > 0 && (
         <p className={styles.more}>{t("compare.moreFiles", { count: comparison.moreFiles })}</p>
       )}

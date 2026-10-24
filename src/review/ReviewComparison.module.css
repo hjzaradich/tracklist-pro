@@ -1,8 +1,34 @@
+/*
+ * The comparison fills its pane (DOGFOOD B-6): the heading, the suggestion
+ * and the doubt above, the table scrolling in the middle (`.tableScroll`),
+ * and the actions docked under it (`.dock`), so they never fall out of view.
+ */
 .comparison {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   min-width: 0;
+  min-height: 100%;
+  height: 100%;
+}
+
+.comparison > * {
+  flex: none;
+}
+
+/* Only the table scrolls (both ways, if it must): its header stays put. */
+.comparison > .tableScroll {
+  flex: 1 1 auto;
+  min-height: 3.5rem;
+  overflow: auto;
+}
+
+.dock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
 }
 
 .heading {
@@ -42,6 +68,10 @@
 }
 
 .table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-bg);
   padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text-muted);
@@ -53,6 +83,20 @@
   padding: var(--space-1) var(--space-2);
   vertical-align: top;
   color: var(--color-text);
+  /* The columns that only hold a fact are secondary detail. */
+  font-size: var(--font-size-sm);
+}
+
+/* A row's file and the track it belongs to are what is read first, so the
+ * track column keeps room (its title never wraps a word to a line) and the
+ * other columns give way before it. */
+.table td.trackCell,
+.table td.quality {
+  font-size: var(--font-size-md);
+}
+
+.table th.trackCol {
+  min-width: 8rem;
 }
 
 .row:nth-child(even) td {
@@ -132,8 +176,15 @@
   color: var(--color-warning);
 }
 
+/* The verdict may wrap: the quality column gives way before the track. */
 .quality {
-  white-space: nowrap;
+  min-width: 6rem;
+}
+
+/* "8 of 10 filled": figures line up, and the words may wrap. */
+.tags {
+  min-width: 4.5rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .detail {
