@@ -13,6 +13,7 @@ import type {
   ReviewGroup,
   ReviewItem,
   ReviewItemId,
+  Reason,
 } from "../bindings";
 import "../i18n";
 import { tx } from "../test/tx";
@@ -574,5 +575,67 @@ describe("the better location reason", () => {
       expect(reason).toContain(tx("review:place.networkDrive"));
       expect(reason).not.toMatch(/internalDrive|networkDrive/);
     }
+  });
+});
+
+describe("the reason an Unclear duplicates item is held", () => {
+  /** The held set, with the reason the backend gives for it. */
+  function held(reason: Reason) {
+    backend({
+      onItem: () => ({
+        ...DOUBT_COMPARISON,
+        id: HELD.id,
+        kind: "heldSet",
+        tracks: HELD.tracks,
+        doubt: [reason],
+      }),
+    });
+  }
+
+  it("names the two files that disagree and the pair's own reasons", async () => {
+    held({
+      key: "review:held.pairTwo",
+      params: {
+        file: "tune copy.mp3",
+        other: "tune vip.mp3",
+        first: "sameAudioNamesDisagree",
+        second: "namesSayRework",
+      },
+      source: "fact",
+    });
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    const shown = tx("review:held.pairTwo", {
+      file: "tune copy.mp3",
+      other: "tune vip.mp3",
+      first: "sameAudioNamesDisagree",
+      second: "namesSayRework",
+    });
+    // The label, then the reason as one line.
+    const line = screen.getByText(shown, { exact: false });
+    expect(line.textContent).toContain(shown);
+    expect(line.textContent).not.toContain("$t(");
+    // In marker mode (npm run test:markers) the reason is one marker for its
+    // key; only the app's own words can be checked for the parts inside it.
+    if (!shown.startsWith("[[")) {
+      expect(shown).toContain("tune copy.mp3");
+      expect(shown).toContain("tune vip.mp3");
+      // The words are those a possible version mix-up uses for the same codes.
+      expect(shown).toContain(tx("review:doubt.sameAudioNamesDisagree"));
+      expect(shown).toContain(tx("review:doubt.namesSayRework"));
+    }
+  });
+
+  it("says how many files there are when there are too many to compare", async () => {
+    held({
+      key: "review:held.tooMany",
+      params: { files: 60, most: 50 },
+      source: "fact",
+    });
+    renderScreen();
+    await screen.findByRole("table", { name: tx("review:compare.label") });
+    expect(
+      screen.getByText(tx("review:held.tooMany", { files: 60, most: 50 }), { exact: false }),
+    ).toBeInTheDocument();
   });
 });

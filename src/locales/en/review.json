@@ -180,6 +180,16 @@
     "artistsDiffer": "the artists differ",
     "creditedToRemixer": "credited to the remixer"
   },
+  "held": {
+    "pair": "{{file}} and {{other}} disagree",
+    "pairOne": "{{file}} and {{other}} disagree: $t(review:doubt.{{first}})",
+    "pairTwo": "{{file}} and {{other}} disagree: $t(review:doubt.{{first}}), $t(review:doubt.{{second}})",
+    "pairThree": "{{file}} and {{other}} disagree: $t(review:doubt.{{first}}), $t(review:doubt.{{second}}), $t(review:doubt.{{third}})",
+    "library": "{{file}} and {{other}} are both in your Library",
+    "keptSeparate": "{{file}} and {{other}} were kept separate",
+    "linked": "{{file}} and {{other}} are linked as versions",
+    "tooMany": "{{files, number}} files with different audio (up to {{most, number}} are compared)"
+  },
   "error": {
     "itemGone": "This item has already been decided",
     "noAudioKnown": "Can't do this yet: the file is still being scanned",

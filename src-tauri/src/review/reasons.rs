@@ -4,6 +4,7 @@
 //! and whose parameters are numbers and format names. The words are in
 //! `src/locales/en/review.json`, never here.
 
+use super::held::Holding;
 use crate::best_file::{FolderRole, Format, Place, Reason as Rank, VolumeKind};
 use crate::read::Codec;
 use crate::suggest::Reason;
@@ -197,4 +198,156 @@ pub fn from_grouping(stored: &str) -> Vec<Reason> {
         .filter_map(|code| Reason::fact(&format!("review:doubt.{code}")).ok())
         .take(MAX_DOUBTS)
         .collect()
+}
+
+/// The codes of the grouping rules' reasons that the locale files have words
+/// for (`review:doubt.<code>`). A held set's reason words a pair's reasons
+/// inside one sentence, so a code with no words can't be left out of it by
+/// the screen the way a line of its own is: it is left out here. A test
+/// holds this list to the locale file.
+pub const WORDED_DOUBTS: [&str; 22] = [
+    "identicalAudio",
+    "sameAudio",
+    "versionVeto",
+    "sameAudioNamesDisagree",
+    "audioInsideOther",
+    "audioInsideOtherNamesDisagree",
+    "sameTagsPartialAudio",
+    "partialAudioNamesUnclear",
+    "namesSayCut",
+    "namesSayRework",
+    "mashupContains",
+    "labelWordsDiffer",
+    "fingerprintVeto",
+    "noFingerprint",
+    "notCompared",
+    "sameTitleDifferentArtists",
+    "mashupPart",
+    "namesUnclear",
+    "titlesDiffer",
+    "namesDiffer",
+    "artistsDiffer",
+    "creditedToRemixer",
+];
+
+/// What holds a held duplicate set (`review:held.<code>`), worded with the
+/// names of the files it names, as the comparison's rows show them
+/// (`name_of`). A pair's own reasons are the ones a possible version
+/// mix-up shows for it (`review:doubt.<code>`, at most [`MAX_DOUBTS`]),
+/// put into the sentence by their codes.
+pub fn from_holding(holding: &Holding, name_of: impl Fn(i64) -> String) -> Reason {
+    let two = |key: &str, files: &[i64; 2]| {
+        text(
+            text(fact(key), "file", &name_of(files[0])),
+            "other",
+            &name_of(files[1]),
+        )
+    };
+    match holding {
+        Holding::TwoInLibrary { files } => two("review:held.library", files),
+        Holding::KeptSeparate { files } => two("review:held.keptSeparate", files),
+        Holding::LinkedVersions { files } => two("review:held.linked", files),
+        Holding::TooManyFiles { files, most } => number(
+            number(fact("review:held.tooMany"), "files", f64::from(*files)),
+            "most",
+            f64::from(*most),
+        ),
+        Holding::Pair { files, reasons } => {
+            let codes = pair_codes(reasons);
+            let key = match codes.len() {
+                0 => "review:held.pair",
+                1 => "review:held.pairOne",
+                2 => "review:held.pairTwo",
+                _ => "review:held.pairThree",
+            };
+            let mut reason = two(key, files);
+            for (name, code) in ["first", "second", "third"].into_iter().zip(&codes) {
+                reason = text(reason, name, code);
+            }
+            reason
+        }
+    }
+}
+
+/// The codes of a stored pair's reasons that have words, the deciding one
+/// first, at most [`MAX_DOUBTS`].
+fn pair_codes(stored: &str) -> Vec<String> {
+    let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(stored)
+    else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| item.get("code")?.as_str())
+        .filter(|code| WORDED_DOUBTS.contains(code))
+        .map(str::to_owned)
+        .take(MAX_DOUBTS)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The English locale file of the review screen.
+    fn locale() -> serde_json::Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/locales/en/review.json");
+        let text = std::fs::read_to_string(path).unwrap();
+        serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn the_worded_doubts_are_the_ones_the_locale_file_has_words_for() {
+        let locale = locale();
+        let mut in_locale: Vec<&str> = locale["doubt"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        in_locale.sort_unstable();
+        let mut listed = WORDED_DOUBTS.to_vec();
+        listed.sort_unstable();
+        assert_eq!(listed, in_locale);
+    }
+
+    #[test]
+    fn every_sentence_that_says_what_holds_a_set_has_words() {
+        let locale = locale();
+        let held = locale["held"].as_object().unwrap();
+        let name = |file: i64| format!("file {file}");
+        let pair = |reasons: &str| Holding::Pair {
+            files: [1, 2],
+            reasons: reasons.to_owned(),
+        };
+        for holding in [
+            Holding::TwoInLibrary { files: [1, 2] },
+            Holding::KeptSeparate { files: [1, 2] },
+            Holding::LinkedVersions { files: [1, 2] },
+            Holding::TooManyFiles {
+                files: 60,
+                most: 50,
+            },
+            pair("[]"),
+            pair(r#"[{"code":"sameAudio"}]"#),
+            pair(r#"[{"code":"sameAudio"},{"code":"namesDiffer"}]"#),
+            pair(r#"[{"code":"sameAudio"},{"code":"namesDiffer"},{"code":"titlesDiffer"}]"#),
+        ] {
+            let reason = from_holding(&holding, name);
+            let key = reason.key().strip_prefix("review:held.").unwrap();
+            let text = held[key].as_str().unwrap();
+            // The sentence uses exactly the parameters the reason carries.
+            let mut used: Vec<&str> = text
+                .split("{{")
+                .skip(1)
+                .map(|rest| rest.split(['}', ',']).next().unwrap().trim())
+                .collect();
+            used.sort_unstable();
+            used.dedup();
+            let given: Vec<&str> = reason.params().keys().map(String::as_str).collect();
+            let mut given_sorted = given.clone();
+            given_sorted.sort_unstable();
+            assert_eq!(used, given_sorted, "{key}");
+        }
+    }
 }
