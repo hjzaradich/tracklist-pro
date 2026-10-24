@@ -550,6 +550,7 @@ pub fn comparison(
         group: id.kind.group(),
         tracks,
         doubt,
+        names_say_versions: super::split::names_say_versions(id.kind, item.reasons.as_deref()),
         suggestion,
         rows,
         more_files,

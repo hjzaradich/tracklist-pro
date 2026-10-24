@@ -140,6 +140,14 @@ export const commands = {
 	 */
 	doubt: Reason[],
 	/**
+	 *  A possible version mix-up whose own reasons say the names give
+	 *  different versions (other cuts or reworks,
+	 *  [`split::NAMES_SAY_VERSIONS`]): its filled button is "Not the same"
+	 *  or "Split off", not "Same track" (DOGFOOD B-4). `false` for every
+	 *  other item.
+	 */
+	namesSayVersions: boolean,
+	/**
 	 *  The file the app suggests (`what` is its id) and why. `None` when
 	 *  there is nothing to suggest (a quality problem with no better copy).
 	 */
@@ -1455,6 +1463,14 @@ export type ReviewComparison = {
 	 *  version doubt, a held set): at most three, the deciding one first.
 	 */
 	doubt: Reason[],
+	/**
+	 *  A possible version mix-up whose own reasons say the names give
+	 *  different versions (other cuts or reworks,
+	 *  [`split::NAMES_SAY_VERSIONS`]): its filled button is "Not the same"
+	 *  or "Split off", not "Same track" (DOGFOOD B-4). `false` for every
+	 *  other item.
+	 */
+	namesSayVersions: boolean,
 	/**
 	 *  The file the app suggests (`what` is its id) and why. `None` when
 	 *  there is nothing to suggest (a quality problem with no better copy).

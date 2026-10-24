@@ -29,14 +29,29 @@
 //! # A split (S with three or more files, on the selected row)
 //!
 //! The file of the selected row becomes a track of its own for good (owner
-//! decisions, 2026-10-12): it moves into a new track, and "apart" is
-//! remembered between it and every other track of the item, the track it left
-//! included, so the grouping never merges it back. The **linked file of a
-//! Library track can't be split off**: when it is the selected row, the other
-//! files of its track leave instead, together as one new track, and "apart" is
-//! remembered between the linked file's track and every other track of the
-//! item (foreman's answer, 2026-10-16). A file that already has a track of its
+//! decisions, 2026-10-12), **together with its copies**: every file of the
+//! item that holds the very same audio (an equal `audio_hash`, never a name
+//! or a size; owner decision, 2026-10-24). Files with the very same audio are
+//! always one track (ROADMAP 1.4), so they leave together. "Apart" is
+//! remembered between their track and every other track of the item, the
+//! track they left included, so the grouping never merges them back.
+//!
+//! Where the copies end up ([`moves_for`]): they move into a new track; a
+//! track that holds nothing but copies is theirs already, and the others
+//! join it (nothing moves when they are one track of their own). The
+//! **linked file of a Library track can't be split off**: when it is one of
+//! the copies, its track is theirs, the copies elsewhere join it, and the
+//! other files of its track leave instead, together as one new track
+//! (foreman's answer, 2026-10-16). A file that already has a track of its
 //! own in the item moves nowhere: only the decisions are made.
+//!
+//! A split is refused ([`Refused::SameAudio`]) when it would leave nothing
+//! behind (the copies are every file of the item), and when the copies
+//! can't be one track: they are the linked files of two Library tracks
+//! (never made one here), or two tracks hold nothing but copies (one would
+//! be left with no file). A user's version link between a track the copies
+//! leave and the one they join refuses it too ([`Refused::LinkedVersions`]);
+//! the job's own links give way.
 //!
 //! The new track is made the way the grouping job makes tracks, outside the
 //! log ([`crate::ops::record_with_derived_first`], in the operation's own
@@ -52,7 +67,7 @@
 //! is swept. When the grouping job ran in between: the decisions keep the
 //! files where the action put them, so nothing it did stands in the way. A
 //! file that changed track since is "changed since" (the log's own check).
-//! And Undo is refused, with nothing changed ([`undo_refused`]), when the
+//! And Undo is refused, with nothing changed ([`undo_refused`]), when a
 //! track a split took files out of may not be that track any more (none of
 //! the files that stayed holds what it held there, or the track by that id
 //! was made at another time: it may have been swept and its id given to
@@ -69,10 +84,12 @@
 //!
 //! [`Refused::ItemGone`] when the item isn't the one the screen showed;
 //! [`Refused::NoAudioKnown`] when a file to decide about isn't hashed yet;
-//! [`Refused::SameAudio`] when the file split off holds the very same audio
-//! as a file on the other side (files with the very same audio are always one
-//! track, ROADMAP 1.4, so the split couldn't stick); and
-//! [`Refused::LinkedVersions`] above.
+//! [`Refused::SameAudio`] when a split's copies are every file of the item
+//! or can't be one track (above), and when two files left on two sides would
+//! hold the very same audio ("Not the same" on two copies; files with the
+//! very same audio are always one track, ROADMAP 1.4, so it couldn't stick);
+//! and [`Refused::LinkedVersions`] above. The screen shows each with its
+//! reason.
 
 use std::collections::BTreeSet;
 
@@ -103,6 +120,31 @@ pub const SPLIT_OPERATION: &str = "split_off_file";
 /// duplicates" for now; the owner is asked about "Clearly best file".
 pub fn decides_tracks(kind: ReviewKind) -> bool {
     matches!(kind, ReviewKind::VersionDoubt | ReviewKind::HeldSet)
+}
+
+/// The grouping reasons that say the names give different versions of a
+/// track: other cuts, or other reworks (`grouping::rules::Reason` codes).
+/// On a possible version mix-up whose reasons hold one of them, the filled
+/// button is "Not the same" (two files) or, once a row is selected, "Split
+/// off" (owner decision, 2026-10-24; DOGFOOD B-4): the screen reads
+/// [`ReviewComparison::names_say_versions`](super::ReviewComparison).
+pub const NAMES_SAY_VERSIONS: [&str; 2] = ["namesSayCut", "namesSayRework"];
+
+/// Whether an item of `kind` whose grouping reasons are `reasons` (the
+/// stored JSON array) is a possible version mix-up the names say is two
+/// versions ([`NAMES_SAY_VERSIONS`]). Every reason counts, not only the
+/// ones the screen shows.
+pub fn names_say_versions(kind: ReviewKind, reasons: Option<&str>) -> bool {
+    if kind != ReviewKind::VersionDoubt {
+        return false;
+    }
+    let Some(Ok(serde_json::Value::Array(items))) = reasons.map(serde_json::from_str) else {
+        return false;
+    };
+    items
+        .iter()
+        .filter_map(|item| item.get("code")?.as_str())
+        .any(|code| NAMES_SAY_VERSIONS.contains(&code))
 }
 
 /// Whether `kind` is one of this module's operations.
@@ -355,7 +397,8 @@ pub fn not_same(
 ///   sent, the other one leaves instead. On the kinds S works on today an
 ///   item has two tracks or more, so this is for a kind with one track
 ///   ([`decides_tracks`]);
-/// - three files or more: the file `file` (the selected row) is split off.
+/// - three files or more: the file `file` (the selected row) is split off,
+///   with its copies.
 pub(super) fn s_on(
     conn: &mut Connection,
     tracks: &[i64],
@@ -435,94 +478,236 @@ fn known_among(conn: &Connection, files: &[i64]) -> rusqlite::Result<Option<i64>
     Ok(found)
 }
 
-/// Splits `file`, one of its files, off the item `tracks`.
-fn split(conn: &mut Connection, tracks: &[i64], file: i64) -> Result<Acted, Refused> {
-    let from = track_of(conn, file)?;
-    let in_track = files_of(conn, &[from])?;
-    let linked = pinned(conn, file)?;
-    // What leaves the track: the file, or, for a Library track's linked
-    // file, every other file of its track (that no Library track points at).
-    let mut moving = Vec::new();
-    if linked {
-        for &other in in_track.iter().filter(|&&f| f != file) {
-            if !pinned(conn, other)? {
-                moving.push(other);
+/// The files of `files` that hold the very same audio as `file`, `file`
+/// included: an equal `audio_hash`, never a name or a size (owner decision,
+/// 2026-10-24). A file with no `audio_hash` has no copies.
+fn copies_of(conn: &Connection, file: i64, files: &[i64]) -> rusqlite::Result<Vec<i64>> {
+    let Some(mine) = audio_hash(conn, file)? else {
+        return Ok(vec![file]);
+    };
+    let mut copies = Vec::new();
+    for &other in files {
+        if other == file || audio_hash(conn, other)?.as_ref() == Some(&mine) {
+            copies.push(other);
+        }
+    }
+    Ok(copies)
+}
+
+/// Where a split puts the selected file and its copies, and what moves.
+struct Moves {
+    /// The track the copies end in: one of the item's, or `None` for a new
+    /// track.
+    home: Option<i64>,
+    /// The copies outside `home` that move into it.
+    to_home: Vec<i64>,
+    /// The files that move into the new track: the copies (no `home`), or
+    /// the other files of a `home` that keeps a Library track's file.
+    to_new: Vec<i64>,
+}
+
+/// Where the copies of a split go (see the module docs), or
+/// [`Refused::SameAudio`] when they can't be one track without making two
+/// Library tracks one or leaving a track with no file.
+fn moves_for(conn: &Connection, tracks: &[i64], copies: &[i64]) -> Result<Moves, Refused> {
+    let mut copy_tracks = BTreeSet::new();
+    let mut pinned_tracks = BTreeSet::new();
+    for &copy in copies {
+        let track = track_of(conn, copy)?;
+        copy_tracks.insert(track);
+        if pinned(conn, copy)? {
+            pinned_tracks.insert(track);
+        }
+    }
+    // The tracks that hold nothing but copies: such a track can't give its
+    // files away (it would be left with none), so it can only be the home.
+    let mut wholly = Vec::new();
+    for &track in tracks.iter().filter(|t| copy_tracks.contains(t)) {
+        if files_of(conn, &[track])?.iter().all(|f| copies.contains(f)) {
+            wholly.push(track);
+        }
+    }
+    let home = match pinned_tracks.len() {
+        // A Library track's file never moves: its track is the home.
+        1 => {
+            let home = *pinned_tracks.first().expect("one track");
+            if wholly.iter().any(|&t| t != home) {
+                return Err(Refused::SameAudio);
+            }
+            Some(home)
+        }
+        0 => match wholly.as_slice() {
+            [] => None,
+            [one] => Some(*one),
+            _ => return Err(Refused::SameAudio),
+        },
+        // Two Library tracks are never made one here.
+        _ => return Err(Refused::SameAudio),
+    };
+    let Some(home) = home else {
+        return Ok(Moves {
+            home: None,
+            to_home: Vec::new(),
+            to_new: copies.to_vec(),
+        });
+    };
+    let mut to_home = Vec::new();
+    for &copy in copies {
+        if track_of(conn, copy)? != home {
+            to_home.push(copy);
+        }
+    }
+    // The other files of a home that keeps a Library track's file leave it,
+    // together, as one new track (but a file a Library track points at).
+    let mut to_new = Vec::new();
+    if !pinned_tracks.is_empty() {
+        for other in files_of(conn, &[home])? {
+            if !copies.contains(&other) && !pinned(conn, other)? {
+                to_new.push(other);
             }
         }
-    } else if in_track.len() > 1 {
-        moving.push(file);
     }
-    let stayed: Vec<i64> = in_track
-        .iter()
-        .copied()
-        .filter(|f| !moving.contains(f))
-        .collect();
-    // The side split off: the file, or the linked file's track as it will be.
-    let side: Vec<i64> = match linked {
-        true => stayed.clone(),
-        false => vec![file],
-    };
-    let side_in_library = match linked || moving.is_empty() {
-        true => in_library(conn, from)?,
-        // A new track, outside the Library.
-        false => false,
-    };
-    // Every other track of the item as it will be, by its files.
-    let mut others: Vec<Vec<i64>> = Vec::new();
-    match linked {
-        true if !moving.is_empty() => others.push(moving.clone()),
-        false if !moving.is_empty() => others.push(stayed.clone()),
-        _ => {}
-    }
-    for &track in tracks.iter().filter(|&&t| t != from) {
-        others.push(files_of(conn, &[track])?);
-    }
-    // What each side's decision is kept by: the file itself, and a file of
-    // each other track whose audio is known.
+    Ok(Moves {
+        home: Some(home),
+        to_home,
+        to_new,
+    })
+}
+
+/// Splits `file`, one of its files, off the item `tracks`, together with
+/// every file of the item that holds the very same audio (see the module
+/// docs).
+fn split(conn: &mut Connection, tracks: &[i64], file: i64) -> Result<Acted, Refused> {
     if !audio_known(conn, file)? {
         return Err(Refused::NoAudioKnown);
     }
-    let mut other_known = Vec::new();
-    for group in &others {
-        other_known.push(known_among(conn, group)?.ok_or(Refused::NoAudioKnown)?);
+    let all = files_of(conn, tracks)?;
+    let copies = copies_of(conn, file, &all)?;
+    // Nothing would be left behind: every file of the item is that audio.
+    if copies.len() == all.len() {
+        return Err(Refused::SameAudio);
     }
-    // Files with the very same audio are always one track.
-    let mut other_files: Vec<(i64, bool)> = Vec::new();
-    for group in &others {
-        for &f in group {
-            let in_lib = !moving.contains(&f) && in_library(conn, track_of(conn, f)?)?;
-            other_files.push((f, in_lib));
+    let Moves {
+        home,
+        to_home,
+        to_new,
+    } = moves_for(conn, tracks, &copies)?;
+    let moving: Vec<i64> = to_home.iter().chain(&to_new).copied().collect();
+    // The tracks copies move into the home from: a version link between one
+    // and the home would hold the move back. The job's own links give way
+    // (derived; the grouping makes them again after an Undo); the user's
+    // never do: versions never merge.
+    let mut joining: Vec<i64> = Vec::new();
+    for &copy in &to_home {
+        let track = track_of(conn, copy)?;
+        if !joining.contains(&track) {
+            joining.push(track);
         }
     }
+    if let Some(home) = home {
+        for &track in &joining {
+            if linked_by_user(conn, &[home, track])? {
+                return Err(Refused::LinkedVersions);
+            }
+        }
+    }
+
+    // Every track as it will be, by its files: the copies' side, and every
+    // other track of the item that keeps a file (the new track included).
+    let side: Vec<i64> = match home {
+        Some(home) => files_of(conn, &[home])?
+            .into_iter()
+            .filter(|f| !to_new.contains(f))
+            .chain(to_home.iter().copied())
+            .collect(),
+        None => to_new.clone(),
+    };
+    let side_in_library = match home {
+        Some(home) => in_library(conn, home)?,
+        // A new track, outside the Library.
+        None => false,
+    };
+    let mut others: Vec<(Vec<i64>, bool)> = Vec::new();
+    if home.is_some() && !to_new.is_empty() {
+        others.push((to_new.clone(), false));
+    }
+    for &track in tracks.iter().filter(|&&t| Some(t) != home) {
+        let left: Vec<i64> = files_of(conn, &[track])?
+            .into_iter()
+            .filter(|f| !moving.contains(f))
+            .collect();
+        if !left.is_empty() {
+            others.push((left, in_library(conn, track)?));
+        }
+    }
+    // What each side's decision is kept by: the file itself, and a file of
+    // each other track whose audio is known.
+    let mut other_known = Vec::new();
+    for (group, _) in &others {
+        other_known.push(known_among(conn, group)?.ok_or(Refused::NoAudioKnown)?);
+    }
+    // Files with the very same audio are always one track: the copies are
+    // all on one side now, and no other file may hold the side's audio.
+    let other_files: Vec<(i64, bool)> = others
+        .iter()
+        .flat_map(|(group, in_lib)| group.iter().map(move |&f| (f, *in_lib)))
+        .collect();
     if same_audio(conn, &side, side_in_library, &other_files)? {
         return Err(Refused::SameAudio);
     }
 
-    // What tells the track the files left from any track that takes its id
-    // later: when it was made, and the files that stayed with what they hold.
-    let from_made: String = conn
-        .prepare_cached("SELECT created_at FROM recording WHERE id = ?1")?
-        .query_row([from], |r| r.get(0))?;
-    let stayed_with = with_keys(conn, &stayed)?;
-    let mut all_tracks = tracks.to_vec();
+    // Every track a file leaves, and what tells it from any track that
+    // takes its id later: when it was made, and the files that stayed with
+    // what they hold. Each keeps a file: a track that would be left with
+    // none is the home, or the split is refused ([`moves_for`]).
+    let mut left_from: Vec<i64> = Vec::new();
+    for &moved in &moving {
+        let from = track_of(conn, moved)?;
+        if !left_from.contains(&from) {
+            left_from.push(from);
+        }
+    }
+    let mut sources = Vec::new();
+    for &from in &left_from {
+        let made: String = conn
+            .prepare_cached("SELECT created_at FROM recording WHERE id = ?1")?
+            .query_row([from], |r| r.get(0))?;
+        let stayed: Vec<i64> = files_of(conn, &[from])?
+            .into_iter()
+            .filter(|f| !moving.contains(f))
+            .collect();
+        debug_assert!(!stayed.is_empty(), "a track a split takes files from keeps one");
+        sources.push(json!({ "from": from, "fromMade": made, "stayed": with_keys(conn, &stayed)? }));
+    }
+    // `from`, `fromMade` and `stayed` are the first of the `sources`, as a
+    // split kept them before the copies went along (`undo_refused` reads
+    // both). With nothing moved, `from` is the file's track.
+    let first = sources.first().cloned();
     let details = json!({
         "file": file,
-        "from": from,
-        "fromMade": from_made,
+        "copies": copies,
+        "from": first.as_ref().map_or(json!(track_of(conn, file)?), |s| s["from"].clone()),
+        "fromMade": first.as_ref().map(|s| s["fromMade"].clone()),
+        "stayed": first.as_ref().map_or(json!([]), |s| s["stayed"].clone()),
+        "sources": sources,
         "moved": with_keys(conn, &moving)?,
-        "stayed": stayed_with,
         "recordingIds": tracks,
         "tracks": tracks.len(),
     });
-    let new_track = !moving.is_empty();
-    let to_move = moving.clone();
+    let mut all_tracks = tracks.to_vec();
     let recorded = ops::record_with_derived_first(
         conn,
         SPLIT_OPERATION,
         &details,
-        // The track the files leave for, made as the grouping makes tracks.
+        // The job's own links that would hold the copies back, and the
+        // track the files leave for, made as the grouping makes tracks.
         |c| -> rusqlite::Result<Option<i64>> {
-            if !new_track {
+            if let Some(home) = home {
+                for &track in &joining {
+                    drop_job_links(c, &[home, track])?;
+                }
+            }
+            if to_new.is_empty() {
                 return Ok(None);
             }
             c.prepare_cached("INSERT INTO recording DEFAULT VALUES")?
@@ -530,8 +715,13 @@ fn split(conn: &mut Connection, tracks: &[i64], file: i64) -> Result<Acted, Refu
             Ok(Some(c.last_insert_rowid()))
         },
         |rec, into| {
+            if let Some(home) = home {
+                for &copy in &to_home {
+                    move_file(rec, copy, home)?;
+                }
+            }
             if let Some(into) = into {
-                for &moved in &to_move {
+                for &moved in &to_new {
                     move_file(rec, moved, into)?;
                 }
                 rec.detail("into", into);
@@ -602,7 +792,24 @@ pub(crate) fn undo_refused(conn: &Connection, operation: i64) -> rusqlite::Resul
                                  JOIN file f ON f.id = rf.file_id
                                  WHERE rf.recording_id = json_extract(o.details, '$.from')
                                    AND hex(coalesce({CONTENT_KEY}, x''))
-                                       = json_extract(s.value, '$.key'))))))"
+                                       = json_extract(s.value, '$.key'))))
+                    -- The same for every track a split took files out of
+                    -- (its copies can come from more than one).
+                    OR (o.kind = '{SPLIT_OPERATION}'
+                        AND EXISTS (
+                            SELECT 1 FROM json_each(o.details, '$.sources') src
+                            WHERE NOT EXISTS (
+                                      SELECT 1 FROM recording r
+                                      WHERE r.id = json_extract(src.value, '$.from')
+                                        AND r.created_at = json_extract(src.value, '$.fromMade'))
+                               OR NOT EXISTS (
+                                      SELECT 1 FROM json_each(src.value, '$.stayed') s
+                                      JOIN recording_file rf
+                                        ON rf.file_id = json_extract(s.value, '$.file')
+                                      JOIN file f ON f.id = rf.file_id
+                                      WHERE rf.recording_id = json_extract(src.value, '$.from')
+                                        AND hex(coalesce({CONTENT_KEY}, x''))
+                                            = json_extract(s.value, '$.key'))))))"
     ))?
     .query_row([operation], |r| r.get(0))
 }
