@@ -669,6 +669,34 @@
     "where": "Review screen, comparison on the right, under \"Why it is here\" (a fragment).",
     "approved": "credited to the remixer"
   },
+  "held.pair": {
+    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, and the rules gave no reason that has words. Proposal.",
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
+  },
+  "held.pairOne": {
+    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the reason the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
+  },
+  "held.pairTwo": {
+    "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the first two reasons the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
+  },
+  "held.library": {
+    "purpose": "Why an Unclear duplicates item is held: two of its tracks are in the Library, and two Library tracks are never merged without a decision. Names the Library file of each. Proposal.",
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment)."
+  },
+  "held.keptSeparate": {
+    "purpose": "Why an Unclear duplicates item is held: the user said two of its tracks aren't the same. Names a file of each. Proposal.",
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment)."
+  },
+  "held.linked": {
+    "purpose": "Why an Unclear duplicates item is held: two of its tracks are linked as versions, which are never merged. Names a file of each. Proposal.",
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment)."
+  },
+  "held.tooMany": {
+    "purpose": "Why an Unclear duplicates item is held: it has more files, with different audio among them, than the app compares. Proposal.",
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment with the number of files first)."
+  },
   "error.itemGone": {
     "purpose": "Says an action did nothing because the item left the queue in the meantime (answered in another step, or the files changed).",
     "where": "Review screen, comparison on the right, under the action buttons, after a refused action.",
