@@ -1,6 +1,6 @@
 [package]
 name = "tracklist-pro"
-version = "0.1.2"
+version = "0.1.3"
 description = "Builds a DJ's Library and keeps it in step with rekordbox"
 license = "GPL-3.0-or-later"
 edition = "2021"
