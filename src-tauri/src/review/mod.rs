@@ -279,6 +279,12 @@ pub struct ReviewComparison {
     /// Why the item is in the queue, from the grouping's own reasons (a
     /// version doubt, a held set): at most three, the deciding one first.
     pub doubt: Vec<Reason>,
+    /// A possible version mix-up whose own reasons, the ones in `doubt`,
+    /// say the names give different versions (other cuts or reworks,
+    /// [`split::NAMES_SAY_VERSIONS`]): its filled button is "Not the same"
+    /// or "Split off", not "Same track" (DOGFOOD B-4). `false` for every
+    /// other item.
+    pub names_say_versions: bool,
     /// The file the app suggests (`what` is its id) and why. `None` when
     /// there is nothing to suggest (a quality problem with no better copy).
     pub suggestion: Option<Suggestion<i64>>,

@@ -69,6 +69,7 @@ const DOUBT_COMPARISON: ReviewComparison = {
   group: "needsCloserLook",
   tracks: DOUBT.tracks,
   doubt: [{ key: "review:doubt.sameAudioNamesDisagree", params: {}, source: "fact" }],
+  namesSayVersions: false,
   suggestion: {
     what: 2,
     reasons: [
@@ -96,6 +97,7 @@ const CLEAR_COMPARISON: ReviewComparison = {
   group: "clearBestFile",
   tracks: CLEAR.tracks,
   doubt: [],
+  namesSayVersions: false,
   suggestion: {
     what: 4,
     reasons: [{ key: "review:reason.notOnDisk", params: {}, source: "fact" }],
@@ -117,6 +119,7 @@ const QUALITY_COMPARISON: ReviewComparison = {
   group: "qualityProblems",
   tracks: QUALITY.tracks,
   doubt: [],
+  namesSayVersions: false,
   suggestion: null,
   rows: [row(5, "flagged.mp3", { linked: true, verdict: "truncated" })],
   moreFiles: 0,
@@ -132,6 +135,7 @@ const HELD_COMPARISON: ReviewComparison = {
   group: "needsCloserLook",
   tracks: HELD.tracks,
   doubt: [],
+  namesSayVersions: false,
   suggestion: {
     what: 7,
     reasons: [{ key: "review:reason.onlyFile", params: {}, source: "fact" }],
@@ -155,6 +159,7 @@ const RELINK_COMPARISON: ReviewComparison = {
     { recordingId: 60, title: "New Tune", artist: "Made Up Artist" },
   ],
   doubt: [],
+  namesSayVersions: false,
   suggestion: {
     what: 8,
     reasons: [{ key: "review:relink.filenameOnly", params: {}, source: "fact" }],

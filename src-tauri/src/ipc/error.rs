@@ -145,6 +145,9 @@ error_kinds! {
     /// The file to split off holds the very same audio as a file it would be
     /// split from: such files are always one track.
     ReviewSameAudio => "review:error.sameAudio", params: [];
+    /// The copies a split would take along are the files of two Library
+    /// tracks, which are never made one track by a split.
+    ReviewSplitTwoLibraryTracks => "review:error.splitTwoLibraryTracks", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

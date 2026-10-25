@@ -42,6 +42,7 @@ const COMPARISON: Comparison = {
   group: "needsCloserLook",
   tracks: [{ recordingId: 10, title: "Synthetic Tune", artist: "Made Up Artist" }],
   doubt: [],
+  namesSayVersions: false,
   suggestion: null,
   rows: [
     row(21, "tune.flac"),

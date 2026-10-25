@@ -69,7 +69,7 @@ function comparisonOf(
   confirmedBefore: boolean,
   copies: SwitchOffer[],
 ): ReviewComparison {
-  const base = { id: it.id, kind: it.kind, tracks: it.tracks, doubt: [], moreFiles: 0 };
+  const base = { id: it.id, kind: it.kind, tracks: it.tracks, doubt: [], namesSayVersions: false, moreFiles: 0 };
   if (it.kind === "relink") {
     return {
       ...base,

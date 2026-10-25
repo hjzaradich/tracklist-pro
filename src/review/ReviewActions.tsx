@@ -88,9 +88,14 @@ type Start = (settled: { onSettled: () => void }) => void;
  * same track" on a possible version mix-up and on "Unclear duplicates" is the
  * "Same track" button, and S there is "Not the same" (two files) or "Split
  * off" (three or more files: the selected row, `selectedFile`; with no row
- * selected S does nothing and the keys line says to select one). After a
+ * selected S does nothing and the keys line says to select one). Split off
+ * takes the selected file's identical copies along (the backend finds them).
+ * On a possible version mix-up whose reasons say the names give different
+ * versions (`namesSayVersions`), the filled button, and Enter, is "Not the
+ * same", or "Split off" once a row is selected (none before). After a
  * split that leaves the item in the queue (its other question still open)
- * the screen stays on it.
+ * the screen stays on it. A refusal shows its reason under the buttons at
+ * once.
  *
  * A key press and a click go through the same guard: nothing starts while an
  * action is under way or once the item is decided, so an action is never made
@@ -270,7 +275,6 @@ function FileActions({
       comparison.rows.filter((row) => row.source === "file").length + comparison.moreFiles;
     const two = files === 2;
     const sameStart: Start = (o) => same.mutate({ id, recordingIds }, o);
-    enter = { label: t("action.sameTrack"), start: sameStart };
     const sLabel = two ? t("action.notSame") : t("action.splitOff");
     // With two files the file sent matters only where they share a track (it
     // is the one split off): the selected row, else the one that isn't the
@@ -286,14 +290,31 @@ function FileActions({
       start: two || fileId !== null ? (o) => notSame.mutate({ id, recordingIds, fileId }, o) : null,
     };
     const sStart = s.start;
+    // The filled button follows the evidence (owner decision, 2026-10-24;
+    // DOGFOOD B-4): where a version mix-up's own reasons say the names give
+    // different versions, it is "Not the same" (two files) or, once a row
+    // is selected, "Split off", and none is filled until then. Everywhere
+    // else it is "Same track". Enter always does the filled button.
+    const filled: "same" | "s" | null = !comparison.namesSayVersions
+      ? "same"
+      : sStart !== null
+        ? "s"
+        : null;
+    if (filled === "same") enter = { label: t("action.sameTrack"), start: sameStart };
+    if (filled === "s" && sStart !== null) enter = { label: sLabel, start: sStart };
     buttons = (
       <>
-        <button type="button" className={styles.primary} disabled={busy} onClick={() => run(sameStart)}>
+        <button
+          type="button"
+          className={filled === "same" ? styles.primary : styles.button}
+          disabled={busy}
+          onClick={() => run(sameStart)}
+        >
           {t("action.sameTrack")}
         </button>
         <button
           type="button"
-          className={styles.button}
+          className={filled === "s" ? styles.primary : styles.button}
           disabled={busy || sStart === null}
           onClick={() => sStart !== null && run(sStart)}
         >

@@ -549,6 +549,7 @@ pub fn comparison(
         kind: id.kind,
         group: id.kind.group(),
         tracks,
+        names_say_versions: super::split::names_say_versions(id.kind, &doubt),
         doubt,
         suggestion,
         rows,
