@@ -70,7 +70,7 @@ pub(super) fn better_from(on_disk: bool, extra: &str) -> String {
     };
     format!(
         "FROM better_file bf
-         JOIN library_track lt ON lt.recording_id = bf.recording_id
+         CROSS JOIN library_track lt ON lt.recording_id = bf.recording_id
          JOIN file bfile ON bfile.id = bf.file_id
          LEFT JOIN file lf ON lf.id = lt.linked_file_id
          WHERE {step} {extra}"
@@ -96,6 +96,20 @@ pub(super) fn quality_from(extra: &str) -> String {
                              AND d.linked_key = {})
            {extra}",
         content_key("f")
+    )
+}
+
+/// The tracks of the "Quality problems" group, as a `SELECT` of their ids:
+/// the quality problems ([`quality_from`]) and the "Better file available"
+/// items whose linked file is still there ([`better_from`]). The one SQL
+/// text the track table's "Quality problem" chip reads, so the chip and the
+/// group can't mean different things; a test holds the chip to the group's
+/// items.
+pub(crate) fn quality_problem_recordings() -> String {
+    format!(
+        "SELECT lt.recording_id {} UNION SELECT lt.recording_id {}",
+        quality_from(""),
+        better_from(false, "")
     )
 }
 

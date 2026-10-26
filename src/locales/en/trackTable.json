@@ -17,5 +17,40 @@
   "rating_one": "{{count}} star",
   "rating_other": "{{count}} stars",
   "updating": "Updating the list",
-  "noMatch": "No tracks match"
+  "noMatch": "No tracks match",
+  "filters": {
+    "label": "Filters",
+    "add": "Add filter",
+    "menu": "Filter by",
+    "formats": "Format",
+    "none": "No more filters",
+    "remove": "Remove filter: {{filter}}",
+    "missing": "Missing",
+    "inRekordbox": "In rekordbox",
+    "notInRekordbox": "Not in rekordbox",
+    "format": "Format: {{format}}",
+    "qualityProblem": "Quality problem",
+    "inCrate": "In a crate",
+    "inNoCrate": "In no crate",
+    "inLibrary": "In Library",
+    "notInLibrary": "Not in Library"
+  },
+  "format": {
+    "mp3": "MP3",
+    "wav": "WAV",
+    "rf64": "RF64",
+    "aiff": "AIFF",
+    "aifc": "AIFC",
+    "flac": "FLAC",
+    "mp4": "MP4",
+    "adts": "AAC",
+    "ogg_vorbis": "Ogg Vorbis",
+    "ogg_opus": "Opus",
+    "ogg": "Ogg",
+    "asf": "WMA",
+    "wavpack": "WavPack",
+    "musepack": "Musepack",
+    "ape": "APE",
+    "unknown": "Unknown"
+  }
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { SortColumn, TableRow, TableSort, TableSource } from "../bindings";
+import type { SortColumn, TableFilter, TableRow, TableSort, TableSource } from "../bindings";
+import { FilterChips } from "./FilterChips";
 import { TrackTable } from "./TrackTable";
 import styles from "./TrackTableView.module.css";
 import { useColumns, type TableScreen } from "./columns";
@@ -26,8 +27,8 @@ export function nextSort(current: TableSort | null, column: SortColumn): TableSo
 }
 
 /**
- * A screen's track table (1cA-3): a line saying how many tracks there
- * are, and the table, fed a window of rows at a time
+ * A screen's track table (1cA-3, 1cA-4): its filter chips, a line saying
+ * how many tracks there are, and the table, fed a window of rows at a time
  * by the backend. The Library, All music and a crate differ only in what
  * they pass: where the tracks come from, their search text, their row
  * actions and what they say when there is nothing to list.
@@ -54,32 +55,33 @@ export function TrackTableView({
   search?: string;
   /** The line over the table: how many tracks there are. */
   count: (total: number) => string;
-  /** What to say when the screen has no tracks at all (nothing searched). */
+  /** What to say when the screen has no tracks at all (nothing searched or filtered). */
   empty: ReactNode;
   actions?: (row: TableRow) => ReactNode;
   actionsWidth?: number;
   onSelectionChange?: (row: TableRow | null) => void;
-  /** The tracks listed became other ones: another search (not a sort). */
+  /** The tracks listed became other ones: another search, or a filter added or taken off (not a sort). */
   onNarrowed?: () => void;
 }) {
   const { t } = useTranslation("trackTable");
   const [sort, setSort] = useState<TableSort | null>(null);
+  const [filters, setFilters] = useState<TableFilter[]>([]);
   const columns = useColumns(screen);
 
   const query: RowsQuery = useMemo(
-    () => ({ source, search: search.trim() === "" ? null : search, sort }),
-    [source, search, sort],
+    () => ({ source, search: search.trim() === "" ? null : search, filters, sort }),
+    [source, search, filters, sort],
   );
   const rows = useTrackRows(keyPrefix, query);
   const shownSort = sort ?? DEFAULT_SORT[screen];
-  const narrowedBy = JSON.stringify([query.search]);
+  const narrowedBy = JSON.stringify([query.search, query.filters]);
   const seenNarrowing = useRef(narrowedBy);
   useEffect(() => {
     if (seenNarrowing.current === narrowedBy) return;
     seenNarrowing.current = narrowedBy;
     onNarrowed?.();
   }, [narrowedBy, onNarrowed]);
-  const narrowed = query.search !== null;
+  const narrowed = filters.length > 0 || query.search !== null;
 
   if (rows.error != null) {
     return (
@@ -97,6 +99,13 @@ export function TrackTableView({
   return (
     <div className={styles.view}>
       <div className={styles.top}>
+        <FilterChips
+          screen={screen}
+          source={source}
+          keyPrefix={keyPrefix}
+          filters={filters}
+          onChange={setFilters}
+        />
         <p className={styles.count}>
           <span>{count(rows.total)}</span>
           {rows.behind && <span className={styles.updating}>{t("updating")}</span>}

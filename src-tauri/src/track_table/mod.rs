@@ -1,16 +1,16 @@
-//! The track table's data (1cA-3; ROADMAP 1.11 "The track table"):
+//! The track table's data (1cA-3, 1cA-4; ROADMAP 1.11 "The track table"):
 //! one query behind the Library, All music and a crate's tracks. The
 //! frontend asks for a window of rows (`offset`, `limit`) of a source, in an
-//! order, through a search, and gets the rows of that window
+//! order, through filters and a search, and gets the rows of that window
 //! and, when it asks, how many rows there are in all. Nothing is ever
 //! loaded for the whole library: at 100,000 tracks a window is one indexed
 //! query and a fixed number of small ones for its rows.
 //!
 //! - **Sources:** the Library, All music (every track that has a file) and
 //!   one crate (in the order the tracks were added, unless sorted).
-//! - **The order** reads `track_row`, the derived table the index job
-//!   keeps (`search::table_row`): SQL sorts, never Rust. A blank value
-//!   always sorts last, whichever way the column is sorted, and ties fall
+//! - **The order and the filters** read `track_row`, the derived table the
+//!   index job keeps (`search::table_row`): SQL sorts and filters, never
+//!   Rust. A blank value always sorts last, whichever way the column is sorted, and ties fall
 //!   back to the column's own tie-break (the title, for text a list is
 //!   sorted by; then the track's id), so the order is the same every time
 //!   and a window never repeats or skips a row. With no sort, the Library
@@ -24,15 +24,18 @@
 //!   which reads its own entries, are not in an index's order; they sort
 //!   their (few) rows, at about 50 to 120 ms for a few thousand.
 //! - **Search** is the full-text index's (`search::match_expression`): the
-//!   rows are those of the tracks the text finds.
+//!   rows are those of the tracks the text finds, narrowed by the filters.
 //! - **What a row shows** is worked out again for the rows of the window
 //!   only, by the code the lists use (`search::fields_of`: rekordbox's
 //!   values for a Library track it knows, the file's tags otherwise), so a
 //!   row is never wrong for the index being a moment behind; only its place
 //!   in the order can be. `behind` says whether it is.
+//! - **Filters** (`TableFilter`) all apply together, except the format
+//!   filters, which are alternatives: any of the formats named.
 //!
 //! Read-only: only the database is read, and no audio file is opened.
 
+mod filters;
 #[cfg(test)]
 mod tests;
 
@@ -54,6 +57,8 @@ use crate::library::{
 use crate::paths::Volumes;
 use crate::scan::system_volumes;
 use crate::search::{self, flag, time_ms};
+
+pub use filters::TableFilter;
 
 /// The most rows one window holds.
 pub const MAX_WINDOW: u32 = 500;
@@ -121,6 +126,7 @@ pub struct TableQuery {
     pub source: TableSource,
     /// Search text (`search::match_expression`); blank filters nothing.
     pub search: Option<String>,
+    pub filters: Vec<TableFilter>,
     /// `None` is the source's own order.
     pub sort: Option<TableSort>,
     /// The first row of the window, counting from 0.
@@ -263,7 +269,7 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
 
 /// The SQL of a query: where its rows come from, how they are filtered and
 /// in what order.
-fn build(query: &TableQuery) -> Built {
+fn build(query: &TableQuery, quality: Option<&str>) -> Built {
     let mut params: Vec<Value> = Vec::new();
     let mut conditions: Vec<String> = Vec::new();
     let from = match &query.source {
@@ -300,6 +306,7 @@ fn build(query: &TableQuery) -> Built {
     // its own entries: neither is in the order of a sort index, so there is
     // nothing for a backward scan to read.
     let indexed = !searched && !matches!(query.source, TableSource::Crate { .. });
+    conditions.extend(filters::conditions(&query.filters, quality, &mut params));
     Built {
         from_where: format!("FROM {from} WHERE {}", conditions.join(" AND ")),
         order_by,
@@ -350,7 +357,12 @@ fn count_rows(conn: &Connection, from_where: &str, params: &[Value]) -> rusqlite
 
 /// The ids of the tracks in the window, in order, and the count when asked.
 fn window_ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
-    let built = build(query);
+    // Review's quality problems are worked out once for the count and the window.
+    let quality = match query.filters.contains(&TableFilter::QualityProblem) {
+        true => Some(filters::quality_problems(conn)?),
+        false => None,
+    };
+    let built = build(query, quality.as_deref());
     let total = match query.with_total {
         true => Some(count_rows(conn, &built.from_where, &built.params)?),
         false => None,
@@ -631,4 +643,48 @@ pub async fn track_table_page(
         }
     }
     Ok(page(found, query.offset, &volumes, &FragileDirs::system()))
+}
+
+/// The file formats (`file.sniffed_format`, e.g. `flac`) the source's tracks
+/// are in, for the Format filter: the formats the filter can offer.
+pub fn formats(conn: &Connection, source: &TableSource) -> rusqlite::Result<Option<Vec<String>>> {
+    let query = TableQuery {
+        source: source.clone(),
+        search: None,
+        filters: Vec::new(),
+        sort: None,
+        offset: 0,
+        limit: 0,
+        with_total: false,
+    };
+    if let TableSource::Crate { id } = source {
+        if !crate_exists(conn, *id)? {
+            return Ok(None);
+        }
+    }
+    let built = build(&query, None);
+    let sql = format!(
+        "SELECT DISTINCT tr.format {} AND tr.format IS NOT NULL ORDER BY 1",
+        built.from_where
+    );
+    let formats = conn
+        .prepare_cached(&sql)?
+        .query_map(rusqlite::params_from_iter(built.params.iter()), |r| {
+            r.get(0)
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Some(formats))
+}
+
+/// The formats the Format filter can offer for a source.
+#[tauri::command]
+#[specta::specta]
+pub async fn track_table_formats(
+    reads: State<'_, ReadPool>,
+    source: TableSource,
+) -> Result<Vec<String>, IpcError> {
+    match reads.read(|conn| formats(conn, &source))? {
+        Some(formats) => Ok(formats),
+        None => Err(CratesError::NotFound.into()),
+    }
 }

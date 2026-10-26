@@ -76,6 +76,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0030_same_track"),
     migration!("0031_file_and_track_ids_never_reused"),
     migration!("0032_track_row"),
+    migration!("0033_track_row_no_verdict_triggers"),
 ];
 
 /// The table that records which migrations a database has had.

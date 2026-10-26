@@ -4,9 +4,9 @@
 
 mod folders;
 mod order;
+mod quality;
 
 use super::*;
-use crate::search::flag;
 use crate::search::tests::support::{Lib, Mount};
 
 fn dirs() -> FragileDirs {
@@ -20,6 +20,7 @@ fn query(source: TableSource) -> TableQuery {
     TableQuery {
         source,
         search: None,
+        filters: Vec::new(),
         sort: None,
         offset: 0,
         limit: 100,
@@ -30,6 +31,13 @@ fn query(source: TableSource) -> TableQuery {
 fn sorted(source: TableSource, column: SortColumn, descending: bool) -> TableQuery {
     TableQuery {
         sort: Some(TableSort { column, descending }),
+        ..query(source)
+    }
+}
+
+fn filtered(source: TableSource, filters: Vec<TableFilter>) -> TableQuery {
+    TableQuery {
+        filters,
         ..query(source)
     }
 }
@@ -515,9 +523,120 @@ fn a_window_is_at_most_the_most_a_window_holds_and_a_window_past_the_end_is_empt
     assert_eq!(none.total, Some(6));
 }
 
-// The flags the rows keep for the filters (1cA-4).
+// Filters.
 
-/// The tracks (ids, sorted) whose row has `bit` set, once the index is current.
+fn filter_ids(f: &Fixture, source: TableSource, filters: Vec<TableFilter>) -> Vec<i64> {
+    let mut found = ids(&run(&f.lib, filtered(source, filters)));
+    found.sort_unstable();
+    found
+}
+
+#[test]
+fn missing_finds_the_tracks_whose_file_is_gone() {
+    let f = fixture();
+    let [_, _, _, _, _, r6] = f.recs;
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::Missing]),
+        [r6]
+    );
+    // In the Library it follows the scan's mark.
+    f.lib.library(r6, f.files[5]);
+    f.lib.insert(
+        "UPDATE library_track SET source_status = 'missing' WHERE recording_id = ?1",
+        (r6,),
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::Missing]),
+        [r6]
+    );
+    // A Library track with no file link counts as missing, too.
+    f.lib.library(f.recs[4], f.files[4]);
+    f.lib.insert(
+        "UPDATE library_track SET linked_file_id = NULL, source_status = 'missing'
+         WHERE recording_id = ?1",
+        (f.recs[4],),
+    );
+    let missing = filter_ids(&f, TableSource::Library, vec![TableFilter::Missing]);
+    assert_eq!(missing, [f.recs[4], r6]);
+}
+
+#[test]
+fn in_rekordbox_means_a_trusted_match_and_not_in_rekordbox_is_the_rest() {
+    let f = fixture();
+    let [r1, r2, r3, r4, r5, r6] = f.recs;
+    f.lib.rekordbox_entry(f.files[0], &[]);
+    // A probable match isn't the track being in rekordbox.
+    f.lib.insert(
+        "INSERT INTO rekordbox_track
+             (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+         VALUES ('{\"TrackID\":\"9\",\"Location\":\"file://localhost/E:/Music/other.mp3\"}',
+                 'E:/MUSIC/OTHER.MP3', '2026-09-30T10:00:00.000Z', ?1, 'path', 1)",
+        (f.files[2],),
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::InRekordbox]),
+        [r1]
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::NotInRekordbox]),
+        [r2, r3, r4, r5, r6]
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::NotInRekordbox]),
+        [r2, r4]
+    );
+    // Both at once is nothing, and says so.
+    let page = run(
+        &f.lib,
+        filtered(
+            TableSource::AllMusic,
+            vec![TableFilter::InRekordbox, TableFilter::NotInRekordbox],
+        ),
+    );
+    assert_eq!((page.rows.len(), page.total), (0, Some(0)));
+}
+
+#[test]
+fn format_filters_are_alternatives_and_the_formats_offered_are_the_ones_present() {
+    let f = fixture();
+    let [r1, r2, r3, r4, r5, r6] = f.recs;
+    let format = |name: &str| TableFilter::Format {
+        format: name.to_owned(),
+    };
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![format("flac")]),
+        [r2]
+    );
+    assert_eq!(
+        filter_ids(
+            &f,
+            TableSource::AllMusic,
+            vec![format("flac"), format("wav")]
+        ),
+        [r2, r5]
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![format("mp3")]),
+        [r1, r3, r4, r6]
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![format("mp3")]),
+        [r1, r4]
+    );
+    assert!(filter_ids(&f, TableSource::AllMusic, vec![format("ogg")]).is_empty());
+    let offered = |source: TableSource| {
+        f.lib
+            .writer
+            .call(move |c| formats(c, &source))
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(offered(TableSource::AllMusic), ["flac", "mp3", "wav"]);
+    assert_eq!(offered(TableSource::Library), ["flac", "mp3"]);
+}
+
+/// The ids of the tracks whose row has `bit` in its flags, once the index is
+/// current.
 fn with_flag(f: &Fixture, bit: i64) -> Vec<i64> {
     f.lib.settle();
     f.lib
@@ -530,21 +649,17 @@ fn with_flag(f: &Fixture, bit: i64) -> Vec<i64> {
         .unwrap()
 }
 
-/// A stored quality verdict for `file`.
-fn verdict(lib: &Lib, file: i64, verdict: Option<&'static str>) {
-    lib.insert(
-        "INSERT OR REPLACE INTO file_verdict (file_id, rules_version, inputs, verdict)
-         VALUES (?1, 1, '[]', ?2)",
-        (file, verdict),
-    );
-}
-
 #[test]
 fn a_row_keeps_what_the_library_and_all_music_are_made_of() {
     let f = fixture();
     let [r1, r2, r3, r4, r5, r6] = f.recs;
     assert_eq!(with_flag(&f, flag::IN_LIBRARY), [r1, r2, r4]);
     assert_eq!(with_flag(&f, flag::HAS_FILE), [r1, r2, r3, r4, r5, r6]);
+    // A Library track whose file link is gone is in the Library, not in All music.
+    f.lib
+        .insert("DELETE FROM recording_file WHERE recording_id = ?1", (r4,));
+    assert_eq!(with_flag(&f, flag::IN_LIBRARY), [r1, r2, r4]);
+    assert_eq!(with_flag(&f, flag::HAS_FILE), [r1, r2, r3, r5, r6]);
     // A format is the shown file's.
     let formats: Vec<Option<String>> = f
         .lib
@@ -555,65 +670,59 @@ fn a_row_keeps_what_the_library_and_all_music_are_made_of() {
                 .collect()
         })
         .unwrap();
-    let formats: Vec<_> = formats.into_iter().map(Option::unwrap).collect();
-    assert_eq!(formats, ["mp3", "flac", "mp3", "mp3", "wav", "mp3"]);
+    assert_eq!(
+        formats,
+        [
+            Some("mp3".to_owned()),
+            Some("flac".to_owned()),
+            Some("mp3".to_owned()),
+            // The Library track keeps its linked file, whose format it shows.
+            Some("mp3".to_owned()),
+            Some("wav".to_owned()),
+            Some("mp3".to_owned())
+        ]
+    );
 }
 
 #[test]
-fn the_flags_follow_the_changes_they_depend_on() {
+fn the_filters_follow_the_changes_they_depend_on() {
     let f = fixture();
-    let [r1, r2, r3, r4, r5, r6] = f.recs;
+    let [r1, r2, r3, r4, r5, _] = f.recs;
     // Settle once so every change below is one the triggers must catch.
     f.lib.settle();
-    // Missing: a file coming back, another going, and the scan's mark on a
-    // Library track.
-    assert_eq!(with_flag(&f, flag::MISSING), [r6]);
+    // A file coming back, and another going.
     f.lib
         .insert("UPDATE file SET present = 1 WHERE id = ?1", (f.files[5],));
     f.lib
         .insert("UPDATE file SET present = 0 WHERE id = ?1", (f.files[0],));
-    assert_eq!(with_flag(&f, flag::MISSING), [r1]);
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::Missing]),
+        [r1]
+    );
+    // The scan marking a Library track missing.
     f.lib
         .insert("UPDATE file SET present = 1 WHERE id = ?1", (f.files[0],));
     f.lib.insert(
         "UPDATE library_track SET source_status = 'missing' WHERE recording_id = ?1",
         (r4,),
     );
-    assert_eq!(with_flag(&f, flag::MISSING), [r4]);
-    // And the scan finding it again.
-    f.lib.insert(
-        "UPDATE library_track SET source_status = 'ok' WHERE recording_id = ?1",
-        (r4,),
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::Missing]),
+        [r4]
     );
-    assert!(with_flag(&f, flag::MISSING).is_empty());
-    // Quality: a stored verdict that flags the file, and one that doesn't.
-    verdict(&f.lib, f.files[0], Some("ok"));
-    verdict(&f.lib, f.files[1], Some("low_bitrate"));
-    verdict(&f.lib, f.files[2], Some("broken"));
-    verdict(&f.lib, f.files[3], None);
-    assert_eq!(with_flag(&f, flag::QUALITY_PROBLEM), [r2, r3]);
-    verdict(&f.lib, f.files[1], Some("ok"));
-    assert_eq!(with_flag(&f, flag::QUALITY_PROBLEM), [r3]);
-    f.lib
-        .insert("DELETE FROM file_verdict WHERE file_id = ?1", (f.files[2],));
-    assert!(with_flag(&f, flag::QUALITY_PROBLEM).is_empty());
     // A format worked out again.
     f.lib.insert(
         "UPDATE file SET sniffed_format = 'flac' WHERE id = ?1",
         (f.files[0],),
     );
-    f.lib.settle();
-    let flac: Vec<i64> = f
-        .lib
-        .writer
-        .call(|c| {
-            c.prepare("SELECT recording_id FROM track_row WHERE format = 'flac' ORDER BY 1")?
-                .query_map([], |r| r.get(0))?
-                .collect()
-        })
-        .unwrap();
-    assert_eq!(flac, [r1, r2]);
-    // Crates: a track joining one, moving to another, and leaving with its crate.
+    let flac = TableFilter::Format {
+        format: "flac".to_owned(),
+    };
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![flac.clone()]),
+        [r1, r2]
+    );
+    // Crates: a track joining one, moving to another, and leaving.
     f.lib.insert(
         "INSERT INTO crate (name, kind) VALUES ('One', 'static')",
         (),
@@ -627,66 +736,167 @@ fn the_flags_follow_the_changes_they_depend_on() {
          SELECT 1, id, 'member' FROM library_track WHERE recording_id = ?1",
         (r2,),
     );
-    assert_eq!(with_flag(&f, flag::IN_CRATE), [r2]);
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::InCrate]),
+        [r2]
+    );
     f.lib.insert("UPDATE crate_entry SET crate_id = 2", ());
-    assert_eq!(with_flag(&f, flag::IN_CRATE), [r2]);
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::InCrate]),
+        [r2]
+    );
+    // A crate going takes its entries with it.
     f.lib.insert("DELETE FROM crate WHERE id = 2", ());
-    assert!(with_flag(&f, flag::IN_CRATE).is_empty());
+    assert!(filter_ids(&f, TableSource::Library, vec![TableFilter::InCrate]).is_empty());
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::InNoCrate]),
+        [r1, r2, r4]
+    );
     // rekordbox: a read adds an entry; a relink moves it; a read drops it.
     f.lib.rekordbox_entry(f.files[4], &[]);
-    assert_eq!(with_flag(&f, flag::IN_REKORDBOX), [r5]);
+    f.lib.settle();
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::InRekordbox]),
+        [r5]
+    );
     f.lib
         .insert("UPDATE rekordbox_track SET file_id = ?1", (f.files[2],));
-    assert_eq!(with_flag(&f, flag::IN_REKORDBOX), [r3]);
-    // A probable match isn't the track being in rekordbox.
-    f.lib
-        .insert("UPDATE rekordbox_track SET relink_probable = 1", ());
-    assert!(with_flag(&f, flag::IN_REKORDBOX).is_empty());
-    f.lib
-        .insert("UPDATE rekordbox_track SET relink_probable = 0", ());
-    assert_eq!(with_flag(&f, flag::IN_REKORDBOX), [r3]);
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::InRekordbox]),
+        [r3]
+    );
     f.lib.insert("DELETE FROM rekordbox_track", ());
-    assert!(with_flag(&f, flag::IN_REKORDBOX).is_empty());
+    assert!(filter_ids(&f, TableSource::AllMusic, vec![TableFilter::InRekordbox]).is_empty());
+}
+
+#[test]
+fn in_a_crate_and_in_no_crate_split_the_library() {
+    let f = fixture();
+    let [r1, r2, _, r4, ..] = f.recs;
+    f.lib.insert(
+        "INSERT INTO crate (name, kind) VALUES ('One', 'static')",
+        (),
+    );
+    f.lib.insert(
+        "INSERT INTO crate (name, kind) VALUES ('Two', 'static')",
+        (),
+    );
+    // The first track is in both crates: it counts once.
+    for (crate_id, recording) in [(1_i64, r1), (2, r1), (2, r2)] {
+        f.lib.insert(
+            "INSERT INTO crate_entry (crate_id, library_track_id, kind)
+             SELECT ?1, id, 'member' FROM library_track WHERE recording_id = ?2",
+            (crate_id, recording),
+        );
+    }
+    let in_crate = filter_ids(&f, TableSource::Library, vec![TableFilter::InCrate]);
+    assert_eq!(in_crate, [r1, r2]);
+    let page = run(
+        &f.lib,
+        filtered(TableSource::Library, vec![TableFilter::InCrate]),
+    );
+    assert_eq!(page.total, Some(2));
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::InNoCrate]),
+        [r4]
+    );
+    // Inside a crate, "in a crate" is every row.
+    let source = TableSource::Crate { id: CrateId(2) };
+    assert_eq!(filter_ids(&f, source, vec![TableFilter::InCrate]), [r1, r2]);
+}
+
+#[test]
+fn in_the_library_and_not_in_the_library_split_all_music() {
+    let f = fixture();
+    let [r1, r2, r3, r4, r5, r6] = f.recs;
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::InLibrary]),
+        [r1, r2, r4]
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::NotInLibrary]),
+        [r3, r5, r6]
+    );
+}
+
+#[test]
+fn filters_combine_and_a_repeated_filter_counts_once() {
+    let f = fixture();
+    let page = run(
+        &f.lib,
+        filtered(
+            TableSource::AllMusic,
+            vec![
+                TableFilter::InLibrary,
+                TableFilter::NotInRekordbox,
+                TableFilter::Format {
+                    format: "mp3".to_owned(),
+                },
+                TableFilter::InLibrary,
+            ],
+        ),
+    );
+    assert_eq!(ids(&page), [f.recs[3], f.recs[0]]);
+    assert_eq!(page.total, Some(2));
 }
 
 // Search.
 
 #[test]
-fn search_narrows_the_rows_of_every_source() {
+fn search_and_filters_narrow_the_same_rows() {
     let f = fixture();
     let [r1, r2, r3, r4, ..] = f.recs;
-    let search = |text: &str, source: TableSource| {
+    let search = |text: &str, filters: Vec<TableFilter>, source: TableSource| {
         let mut found = ids(&run(
             &f.lib,
             TableQuery {
                 search: Some(text.to_owned()),
-                ..query(source)
+                ..filtered(source, filters)
             },
         ));
         found.sort_unstable();
         found
     };
     // Capitals and accents don't matter, and a word matches from its start.
-    assert_eq!(search("alph", TableSource::AllMusic), [r2, r3]);
-    assert_eq!(search("CAFE", TableSource::AllMusic), [r4]);
+    assert_eq!(search("alph", vec![], TableSource::AllMusic), [r2, r3]);
+    assert_eq!(search("CAFE", vec![], TableSource::AllMusic), [r4]);
     // The artist, the genre and the file's name are searched too.
-    assert_eq!(search("moss", TableSource::AllMusic), [r1, r4]);
-    assert_eq!(search("techno", TableSource::AllMusic), [r2]);
-    assert_eq!(search("delta", TableSource::AllMusic), [r1]);
-    // The Library only has its own.
-    assert_eq!(search("alph", TableSource::Library), [r2]);
+    assert_eq!(search("moss", vec![], TableSource::AllMusic), [r1, r4]);
+    assert_eq!(search("techno", vec![], TableSource::AllMusic), [r2]);
+    assert_eq!(search("delta", vec![], TableSource::AllMusic), [r1]);
+    // With filters.
+    assert_eq!(
+        search("alph", vec![TableFilter::InLibrary], TableSource::AllMusic),
+        [r2]
+    );
+    assert_eq!(
+        search(
+            "alph",
+            vec![TableFilter::NotInLibrary],
+            TableSource::AllMusic
+        ),
+        [r3]
+    );
+    assert_eq!(search("alph", vec![], TableSource::Library), [r2]);
+    assert!(search(
+        "alph",
+        vec![TableFilter::Format {
+            format: "wav".to_owned()
+        }],
+        TableSource::AllMusic
+    )
+    .is_empty());
     // Text with no word to look for filters nothing.
-    assert_eq!(search("  \" ", TableSource::AllMusic).len(), 6);
-    // The total counts what is left, and a sort keeps to it.
+    assert_eq!(search("  \" ", vec![], TableSource::AllMusic).len(), 6);
+    // And the total counts what is left.
     let page = run(
         &f.lib,
         TableQuery {
             search: Some("moss".to_owned()),
-            ..sorted(TableSource::AllMusic, SortColumn::Bpm, true)
+            ..filtered(TableSource::AllMusic, vec![TableFilter::InLibrary])
         },
     );
     assert_eq!(page.total, Some(2));
-    assert_eq!(ids(&page), [r1, r4]);
 }
 
 #[test]
@@ -860,6 +1070,7 @@ mod over_ipc {
             json!({ "query": {
                 "source": { "kind": "library" },
                 "search": null,
+                "filters": [],
                 "sort": null,
                 "offset": 0,
                 "limit": 50,
@@ -928,11 +1139,19 @@ mod over_ipc {
             json!({ "query": {
                 "source": { "kind": "crate", "id": 99 },
                 "search": null,
+                "filters": [],
                 "sort": null,
                 "offset": 0,
                 "limit": 50,
                 "withTotal": true,
             }}),
+        )
+        .unwrap_err();
+        assert_eq!(refused["kind"], json!("crateNotFound"));
+        let refused = invoke(
+            &app,
+            "track_table_formats",
+            json!({ "source": { "kind": "crate", "id": 99 } }),
         )
         .unwrap_err();
         assert_eq!(refused["kind"], json!("crateNotFound"));

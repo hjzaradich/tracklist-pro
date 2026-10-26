@@ -7,15 +7,11 @@ use super::*;
 use crate::crates::{create_folder_on, create_in, delete_on, move_on};
 
 fn in_crate(f: &Fixture) -> Vec<i64> {
-    with_flag(f, flag::IN_CRATE)
+    filter_ids(f, TableSource::Library, vec![TableFilter::InCrate])
 }
 
-/// The Library tracks in no crate.
 fn in_no_crate(f: &Fixture) -> Vec<i64> {
-    let in_a_crate = in_crate(f);
-    let mut library = with_flag(f, flag::IN_LIBRARY);
-    library.retain(|id| !in_a_crate.contains(id));
-    library
+    filter_ids(f, TableSource::Library, vec![TableFilter::InNoCrate])
 }
 
 fn crate_id(

@@ -154,13 +154,6 @@ fn a_change_of_bpm_key_or_length_notes_the_track_as_due() {
 #[test]
 fn a_change_the_filters_depend_on_notes_the_track_as_due() {
     for (change, expected) in [
-        // The quality verdict.
-        (
-            "INSERT INTO file_verdict (file_id, rules_version, inputs, verdict) VALUES (1, 1, '[]', 'ok')",
-            vec![1],
-        ),
-        ("UPDATE file_verdict SET verdict = 'ok' WHERE file_id = 2", vec![2]),
-        ("DELETE FROM file_verdict WHERE file_id = 2", vec![2]),
         // The scan's mark on a Library track.
         (
             "UPDATE library_track SET source_status = 'missing' WHERE id = 1",
@@ -173,11 +166,11 @@ fn a_change_the_filters_depend_on_notes_the_track_as_due() {
         ),
         ("DELETE FROM crate_entry", vec![1]),
         // An entry pointed at another Library track: both tracks change.
+        ("UPDATE crate_entry SET library_track_id = 2", vec![1, 2]),
         (
-            "UPDATE crate_entry SET library_track_id = 2",
-            vec![1, 2],
+            "UPDATE crate_entry SET kind = 'member', crate_id = 2",
+            vec![],
         ),
-        ("UPDATE crate_entry SET kind = 'member', crate_id = 2", vec![]),
         ("UPDATE crate_entry SET library_track_id = 1", vec![]),
         // A crate going takes its entries, and notes the track.
         ("DELETE FROM crate WHERE id = 1", vec![1]),
@@ -195,9 +188,24 @@ fn a_change_that_leaves_bpm_key_format_and_the_rest_alone_notes_nothing() {
         "UPDATE analysis SET bpm = bpm, key = key WHERE recording_id = 1",
         "UPDATE analysis SET confidence = 0.5 WHERE recording_id = 1",
         "UPDATE file SET duration_ms = duration_ms, sniffed_format = sniffed_format",
-        "UPDATE file_verdict SET verdict = verdict, assessed_at = assessed_at",
         "UPDATE library_track SET source_status = source_status",
         "UPDATE crate_entry SET kind = kind, added_at = added_at",
+    ] {
+        accepts(&conn, change);
+        assert_eq!(due(&conn), Vec::<i64>::new(), "{change}");
+    }
+}
+
+#[test]
+fn a_quality_verdict_a_decision_or_a_better_file_notes_nothing_because_the_filter_reads_reviews_definition(
+) {
+    let (_dir, conn) = with_tracks();
+    for change in [
+        "INSERT INTO file_verdict (file_id, rules_version, inputs, verdict) VALUES (1, 1, '[]', 'ok')",
+        "UPDATE file_verdict SET verdict = 'ok', rules_version = 2 WHERE file_id = 2",
+        "DELETE FROM file_verdict WHERE file_id = 2",
+        "INSERT INTO better_file (recording_id, file_id, step) VALUES (1, 2, 'format')",
+        "INSERT INTO review_decision (kind, linked_key) VALUES ('keep_anyway', x'0102')",
     ] {
         accepts(&conn, change);
         assert_eq!(due(&conn), Vec::<i64>::new(), "{change}");

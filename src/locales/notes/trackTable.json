@@ -66,5 +66,129 @@
   "noMatch": {
     "purpose": "Says no track fits the search and the filters. Same wording as All music's (allMusic:noMatch).",
     "where": "Track table, in place of the rows."
+  },
+  "filters.label": {
+    "purpose": "Accessible name of the row of filters above the table.",
+    "where": "Above the track table (screen readers only)."
+  },
+  "filters.add": {
+    "purpose": "Button that opens the list of filters that can be added.",
+    "where": "Above the track table, after the filter chips."
+  },
+  "filters.menu": {
+    "purpose": "Accessible name of the list of filters that can be added.",
+    "where": "The menu opened by Add filter (screen readers only)."
+  },
+  "filters.formats": {
+    "purpose": "Heading over the file formats the table can be filtered to.",
+    "where": "The menu opened by Add filter, over the formats."
+  },
+  "filters.none": {
+    "purpose": "Says every filter on offer is already in use.",
+    "where": "The menu opened by Add filter, when nothing is left to add."
+  },
+  "filters.remove": {
+    "purpose": "Accessible name of the × on a filter chip, naming the filter.",
+    "where": "Above the track table, each filter chip's × ({{filter}} is the chip's text)."
+  },
+  "filters.missing": {
+    "purpose": "Filter: tracks whose file isn't on disk.",
+    "where": "Filter chip and its menu entry."
+  },
+  "filters.inRekordbox": {
+    "purpose": "Filter: tracks rekordbox has. rekordbox is written as rekordbox shows it.",
+    "where": "Filter chip and its menu entry."
+  },
+  "filters.notInRekordbox": {
+    "purpose": "Filter: tracks rekordbox doesn't have.",
+    "where": "Filter chip and its menu entry."
+  },
+  "filters.format": {
+    "purpose": "Filter: tracks whose file is in one format.",
+    "where": "Filter chip ({{format}} is the format's name, e.g. FLAC)."
+  },
+  "filters.qualityProblem": {
+    "purpose": "Filter: the tracks Review lists under Quality problems (a Library track whose linked file is flagged with no better copy and no answer, or one with a better file available).",
+    "where": "Filter chip and its menu entry."
+  },
+  "filters.inCrate": {
+    "purpose": "Filter: tracks that are in at least one crate.",
+    "where": "Filter chip and its menu entry, Library."
+  },
+  "filters.inNoCrate": {
+    "purpose": "Filter: tracks that are in no crate.",
+    "where": "Filter chip and its menu entry, Library."
+  },
+  "filters.inLibrary": {
+    "purpose": "Filter: tracks in the Library. Same wording as allMusic:inLibrary.",
+    "where": "Filter chip and its menu entry, All music."
+  },
+  "filters.notInLibrary": {
+    "purpose": "Filter: tracks not in the Library.",
+    "where": "Filter chip and its menu entry, All music."
+  },
+  "format.mp3": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.wav": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.rf64": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.aiff": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.aifc": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.flac": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.mp4": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.adts": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.ogg_vorbis": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.ogg_opus": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.ogg": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.asf": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.wavpack": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.musepack": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.ape": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "format.unknown": {
+    "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
+    "where": "Filter chip and the Add filter menu, the formats."
   }
 }

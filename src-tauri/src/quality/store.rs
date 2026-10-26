@@ -80,7 +80,9 @@ pub(crate) const CHUNK: usize = 500;
 /// `file.quality_verdict` enters as the read stage's verdict only, as
 /// [`read_verdict_of`] maps it. Every `file_quality` column is here except
 /// `measured_at` ([`KEY_IGNORES`]).
-pub(crate) const INPUTS: &str = "json_array(
+///
+/// Public for the track table's scale test, which makes verdicts current.
+pub const INPUTS: &str = "json_array(
         quote(f.audio_hash), quote(f.codec), quote(f.bitrate), quote(f.sample_rate),
         quote(CASE WHEN f.quality_verdict IN ('truncated', 'broken')
                    THEN f.quality_verdict END),
