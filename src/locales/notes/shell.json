@@ -34,6 +34,18 @@
     "where": "Sidebar, Crates section, under the Crates link.",
     "approved": "No crates"
   },
+  "sidebar.treeLabel": {
+    "purpose": "Names the tree of crates and folders for screen readers.",
+    "where": "Sidebar, under the Crates link (not shown)."
+  },
+  "sidebar.expand": {
+    "purpose": "Names the button that opens a folder in the tree for screen readers.",
+    "where": "Sidebar, arrow beside a closed folder (not shown)."
+  },
+  "sidebar.collapse": {
+    "purpose": "Names the button that closes a folder in the tree for screen readers.",
+    "where": "Sidebar, arrow beside an open folder (not shown)."
+  },
   "search.label": {
     "purpose": "Name of the search box.",
     "where": "Top bar, search slot (accessible name of the box and its group).",
@@ -93,6 +105,22 @@
     "purpose": "Undo button naming what it takes back: a crate that was deleted.",
     "where": "Top bar, Undo button, when the next step to undo is a crate delete.",
     "approved": "Undo (crate “{{name}}” deleted)"
+  },
+  "undo.action.createFolder": {
+    "purpose": "Undo button naming what it takes back: a folder that was created.",
+    "where": "Top bar, Undo button, when the next step to undo is a new folder."
+  },
+  "undo.action.renameFolder": {
+    "purpose": "Undo button naming what it takes back: a folder rename, with the old and new names.",
+    "where": "Top bar, Undo button, when the next step to undo is a folder rename."
+  },
+  "undo.action.deleteFolder": {
+    "purpose": "Undo button naming what it takes back: a folder deleted with what was in it.",
+    "where": "Top bar, Undo button, when the next step to undo is a folder delete."
+  },
+  "undo.action.moveCrate": {
+    "purpose": "Undo button naming what it takes back: a crate or folder that was moved.",
+    "where": "Top bar, Undo button, when the next step to undo is a move."
   },
   "undo.action.addToCrate_one": {
     "purpose": "Undo button naming what it takes back: one track added to a crate.",

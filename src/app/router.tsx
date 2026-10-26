@@ -3,6 +3,7 @@ import {
   createRoute,
   createRouter,
   redirect,
+  useNavigate,
   type RouterHistory,
 } from "@tanstack/react-router";
 import { AfterSendScreen } from "../afterSend/AfterSendScreen";
@@ -53,10 +54,35 @@ const libraryRoute = createRoute({
   component: LibraryScreen,
 });
 
+/**
+ * `/crates?crate=ID` chooses a crate or folder, for the screen and the
+ * sidebar's tree alike. An id that isn't a whole number above zero is no
+ * choice at all, and one that names nothing (a crate since deleted) shows
+ * nothing chosen: neither is an error.
+ */
+export function validateCratesSearch(search: Record<string, unknown>): { crate?: number } {
+  const id = search.crate;
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? { crate: id } : {};
+}
+
+function CratesRoute() {
+  const { crate } = cratesRoute.useSearch();
+  const navigate = useNavigate();
+  return (
+    <CratesScreen
+      chosen={crate ?? null}
+      onChoose={(id) =>
+        void navigate({ to: "/crates", search: id === null ? {} : { crate: id }, replace: true })
+      }
+    />
+  );
+}
+
 const cratesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/crates",
-  component: CratesScreen,
+  validateSearch: validateCratesSearch,
+  component: CratesRoute,
 });
 
 // Not a stage and not in the sidebar: the after-send lists on their own (1aF-2).

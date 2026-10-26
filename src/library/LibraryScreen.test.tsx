@@ -479,7 +479,13 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     if (cmd === "library_tracks") return [track(1), track(2)];
     if (cmd === "list_crates") {
-      return crates.map((c) => ({ id: c.id, name: c.name, trackCount: c.trackIds.length }));
+      return crates.map((c) => ({
+        id: c.id,
+        parentId: null,
+        kind: "static",
+        name: c.name,
+        trackCount: c.trackIds.length,
+      }));
     }
     calls.push({ cmd, args });
     if (cmd === "add_tracks_to_crate") {
@@ -586,7 +592,9 @@ describe("adding a track to a crate", () => {
   it("shows why an add was refused", async () => {
     mockIPC((cmd) => {
       if (cmd === "library_tracks") return [track(1)];
-      if (cmd === "list_crates") return [{ id: 1, name: "Warm up", trackCount: 0 }];
+      if (cmd === "list_crates") {
+        return [{ id: 1, parentId: null, kind: "static", name: "Warm up", trackCount: 0 }];
+      }
       if (cmd === "add_tracks_to_crate") throw { kind: "crateNotFound", params: {} };
       throw new Error(`unexpected command ${cmd}`);
     });

@@ -108,6 +108,7 @@ Hover text does not reach keyboard users, and a touch screen has no hover. So th
 - **Stripes and selected:** three steps, each a clear step stronger than the last: a stripe (faintest), hover, selected (strongest). A test holds the order in both themes, and that text stays readable on each.
 - **Selected** is the warm tint `--color-selected` on the sidebar's active stage and the chosen crate, with the accent bar or border kept.
 - **Cut-off:** Library and All music keep a row to one line (`table-layout: fixed`, title 28% and artist 18% of the width, a fixed actions column); a long title, artist or path ends in "…". Rows are at the compact row height; a row with a note under its path is taller on purpose.
+- **Crate tree (1cA-11):** the sidebar lists folders and crates under the Crates stage, each level indented by `--space-3`, a small arrow button (open/close) before each folder and the same row height, tint and accent bar as a stage for the chosen one. A folder that holds the chosen crate stays open. On the Crates screen the same tree has folder names in bold and track counts on crates only. The rekordbox path sits under the chosen name in muted small text.
 - **Motion:** one hover fade (`--motion-fast`), colors only, set on hover so a theme switch stays instant. The only animation is the playing bars (`PlayingBars.module.css`): one keyframes rule that changes `transform` alone, switched off under "reduce motion". Tests check both.
 
 ## Text that has to be read
