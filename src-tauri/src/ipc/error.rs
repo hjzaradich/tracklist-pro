@@ -122,6 +122,13 @@ error_kinds! {
     CrateNameTaken => "crates:error.nameTaken", params: ["name"];
     /// The name has a character that can't be sent to rekordbox.
     CrateNameUnsendable => "crates:error.nameUnsendable", params: [];
+    /// There's no folder with that id (the crate refusals above, for a folder).
+    FolderNotFound => "crates:error.folderNotFound", params: [];
+    /// The folder's name is empty.
+    FolderNameEmpty => "crates:error.folderNameEmpty", params: [];
+    /// Another crate or folder in the folder already has the name; `name` is
+    /// that one's.
+    FolderNameTaken => "crates:error.folderNameTaken", params: ["name"];
     /// A crate or folder was to go where there is no folder.
     CrateNotAFolder => "crates:error.notAFolder", params: [];
     /// A folder was to go inside itself or one of its own subfolders.

@@ -324,5 +324,17 @@
   "error.tooDeep": {
     "purpose": "Says the folders would be nested deeper than a send to rekordbox can write.",
     "where": "Crates screen, new-folder and move forms."
+  },
+  "error.folderNotFound": {
+    "purpose": "Says the folder doesn't exist.",
+    "where": "Any folder action on a folder that is gone."
+  },
+  "error.folderNameEmpty": {
+    "purpose": "Says the folder's name was empty.",
+    "where": "Crates screen, new-folder and rename forms, for a folder."
+  },
+  "error.folderNameTaken": {
+    "purpose": "Says another crate or folder in the same folder already has the name.",
+    "where": "Crates screen, new-folder, rename and move forms, for a folder."
   }
 }

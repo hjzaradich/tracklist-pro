@@ -119,13 +119,20 @@ pub struct Changed {
 pub enum CratesError {
     /// There's no such crate.
     NotFound,
+    /// There's no such folder (what [`CratesError::NotFound`] says when the
+    /// item acted on is a folder).
+    FolderNotFound,
     /// A Library track to add doesn't exist.
     TrackNotFound,
     /// The name is empty once trimmed.
     NameEmpty,
-    /// Another top-level crate has this name. `existing` is that crate's
+    /// [`CratesError::NameEmpty`] for a folder.
+    FolderNameEmpty,
+    /// Another crate or folder in the same folder has this name. `existing` is that crate's
     /// name as stored, which may differ in letter case.
     NameTaken { existing: String },
+    /// [`CratesError::NameTaken`] for a folder.
+    FolderNameTaken { existing: String },
     /// The name holds a character XML can't carry, so a send couldn't write
     /// it.
     NameUnsendable,
@@ -137,6 +144,28 @@ pub enum CratesError {
     TooDeep,
     /// The database or the operation log failed.
     Ops(OpsError),
+}
+
+impl CratesError {
+    /// The refusal as it is worded when the item acted on is `kind`: a
+    /// folder's own words for a missing item, an empty name and a taken name.
+    /// Any other refusal, and any other kind, is left as it is.
+    fn for_kind(self, kind: Option<CrateKind>) -> Self {
+        if kind != Some(CrateKind::Folder) {
+            return self;
+        }
+        match self {
+            CratesError::NotFound => CratesError::FolderNotFound,
+            CratesError::NameEmpty => CratesError::FolderNameEmpty,
+            CratesError::NameTaken { existing } => CratesError::FolderNameTaken { existing },
+            other => other,
+        }
+    }
+}
+
+/// A command's answer, worded for the kind of item it acted on.
+fn worded<T>(done: Done<T>, kind: Option<CrateKind>) -> Done<T> {
+    done.map_err(|refusal| refusal.for_kind(kind))
 }
 
 impl From<OpsError> for CratesError {
@@ -161,10 +190,16 @@ impl From<CratesError> for IpcError {
     fn from(e: CratesError) -> Self {
         match e {
             CratesError::NotFound => IpcError::new(ErrorKind::CrateNotFound),
+            CratesError::FolderNotFound => IpcError::new(ErrorKind::FolderNotFound),
             CratesError::TrackNotFound => IpcError::new(ErrorKind::LibraryTrackNotFound),
             CratesError::NameEmpty => IpcError::new(ErrorKind::CrateNameEmpty),
+            CratesError::FolderNameEmpty => IpcError::new(ErrorKind::FolderNameEmpty),
             CratesError::NameTaken { existing } => IpcError::with(
                 ErrorKind::CrateNameTaken,
+                [("name", ErrorParam::from(existing))],
+            ),
+            CratesError::FolderNameTaken { existing } => IpcError::with(
+                ErrorKind::FolderNameTaken,
                 [("name", ErrorParam::from(existing))],
             ),
             CratesError::NameUnsendable => IpcError::new(ErrorKind::CrateNameUnsendable),
@@ -213,9 +248,11 @@ fn checked_name(siblings: &[(i64, String)], name: &str) -> Done<String> {
     }
 }
 
-/// The ids and names of the crates and folders in `parent` (`None`: the
-/// top of the tree), other than `except`: the names a send compares as
-/// siblings.
+/// The ids and names of everything in `parent` (`None`: the top of the
+/// tree), other than `except`: the names a send compares as siblings.
+/// Smart crates (Phase 3) count too, as they do for the unique index on
+/// `(parent_id, name)` and for [`name_clash`], so a name this accepts is a
+/// name the database accepts.
 fn siblings(
     rec: &ops::Recorder<'_>,
     parent: Option<i64>,
@@ -223,7 +260,7 @@ fn siblings(
 ) -> Result<Vec<(i64, String)>, OpsError> {
     rec.read_rows(
         "SELECT id, name FROM crate
-         WHERE parent_id IS ?1 AND id <> ?2 AND kind IN ('folder', 'static') ORDER BY id",
+         WHERE parent_id IS ?1 AND id <> ?2 ORDER BY id",
         (parent, except.unwrap_or(0)),
         |r| Ok((r.get(0)?, r.get(1)?)),
     )
@@ -448,7 +485,7 @@ fn make_on(
             Ok(Ok(CrateId(id)))
         },
     )
-    .map(|recorded| recorded.value)
+    .map(|recorded| worded(recorded.value, Some(kind)))
 }
 
 /// Renames a crate or folder and returns the operation it recorded.
@@ -462,7 +499,8 @@ pub fn rename_on(
     name: &str,
 ) -> Result<Done<Option<i64>>, OpsError> {
     let name = name.trim().to_owned();
-    let operation = match kind_of(conn, id)? {
+    let kind = kind_of(conn, id)?;
+    let operation = match kind {
         Some(CrateKind::Folder) => RENAME_FOLDER_OPERATION,
         _ => RENAME_OPERATION,
     };
@@ -483,7 +521,7 @@ pub fn rename_on(
             Ok(Ok(()))
         },
     )
-    .map(|recorded| recorded.value.map(|()| recorded.operation_id))
+    .map(|recorded| worded(recorded.value, kind).map(|()| recorded.operation_id))
 }
 
 /// Deletes a crate, or a folder with everything in it, and the entries
@@ -545,6 +583,7 @@ pub fn move_on(
     id: CrateId,
     folder: Option<CrateId>,
 ) -> Result<Done<Option<i64>>, OpsError> {
+    let kind = kind_of(conn, id)?;
     ops::record(
         conn,
         MOVE_OPERATION,
@@ -585,7 +624,7 @@ pub fn move_on(
             Ok(Ok(()))
         },
     )
-    .map(|recorded| recorded.value.map(|()| recorded.operation_id))
+    .map(|recorded| worded(recorded.value, kind).map(|()| recorded.operation_id))
 }
 
 /// What deleting folder `id` would delete below it, or `None` if there is

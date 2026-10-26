@@ -832,6 +832,26 @@ mod ipc {
         assert_eq!(not_a_folder["kind"], json!("crateNotFound"));
 
         // Refusals reach the frontend as kinds.
+        let folder_taken = invoke(
+            &app,
+            "create_crate_folder",
+            json!({ "name": "SETS", "parent": null }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            folder_taken,
+            json!({ "kind": "folderNameTaken", "params": { "name": "Sets" } })
+        );
+        let folder_empty = invoke(
+            &app,
+            "create_crate_folder",
+            json!({ "name": " ", "parent": null }),
+        )
+        .unwrap_err();
+        assert_eq!(folder_empty["kind"], json!("folderNameEmpty"));
+        let folder_gone =
+            invoke(&app, "move_crate", json!({ "id": folder, "folder": 999 })).unwrap_err();
+        assert_eq!(folder_gone["kind"], json!("folderNotFound"));
         let cycle =
             invoke(&app, "move_crate", json!({ "id": folder, "folder": inner })).unwrap_err();
         assert_eq!(cycle["kind"], json!("crateMoveIntoItself"));

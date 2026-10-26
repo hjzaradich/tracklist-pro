@@ -76,9 +76,12 @@ function backend(
       case "create_crate_folder": {
         const name = String(args.name).trim();
         const parent = (args.parent ?? null) as number | null;
-        if (name === "") return refuse("crateNameEmpty");
+        const folder = cmd === "create_crate_folder";
+        if (name === "") return refuse(folder ? "folderNameEmpty" : "crateNameEmpty");
         const existing = named(name, parent);
-        if (existing) return refuse("crateNameTaken", { name: existing.crate.name });
+        if (existing) {
+          return refuse(folder ? "folderNameTaken" : "crateNameTaken", { name: existing.crate.name });
+        }
         before = crates;
         lastOperation = 9;
         const id = nextId++;
@@ -95,7 +98,10 @@ function backend(
         }
         if (node.crate.parentId === folder) return null;
         const clash = named(node.crate.name, folder);
-        if (clash) return refuse("crateNameTaken", { name: clash.crate.name });
+        if (clash) {
+          const kind = node.crate.kind === "folder" ? "folderNameTaken" : "crateNameTaken";
+          return refuse(kind, { name: clash.crate.name });
+        }
         before = crates;
         lastOperation = 6;
         crates = crates.map((c) =>
@@ -120,7 +126,8 @@ function backend(
         if (target?.crate.name === name) return null;
         const existing = named(name, target?.crate.parentId ?? null);
         if (existing && existing !== target) {
-          return refuse("crateNameTaken", { name: existing.crate.name });
+          const kind = target?.crate.kind === "folder" ? "folderNameTaken" : "crateNameTaken";
+          return refuse(kind, { name: existing.crate.name });
         }
         before = crates;
         crates = crates.map((c) =>
@@ -921,5 +928,47 @@ describe("moving to a folder", () => {
       tx("crates:error.nameTaken", { name: "loose" }),
     );
     expect(screen.getByLabelText(tx("crates:move.label", { name: "Loose" }))).toBeInTheDocument();
+  });
+});
+
+describe("a refusal is worded for a folder when the item is a folder", () => {
+  it("says a folder's name is taken, empty or used, and a crate's in a crate's words", async () => {
+    backend([...residency(), folderWith(6, "Archive")]);
+    renderScreen();
+    // A new folder with a taken name.
+    await userEvent.click(await button("crates:newFolder.button"));
+    await userEvent.type(await screen.findByLabelText(tx("crates:newFolder.label")), "ARCHIVE");
+    await userEvent.click(await button("crates:newFolder.confirm"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      tx("crates:error.folderNameTaken", { name: "Archive" }),
+    );
+    // A new folder with no name.
+    await userEvent.clear(screen.getByLabelText(tx("crates:newFolder.label")));
+    await userEvent.click(await button("crates:newFolder.confirm"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:error.folderNameEmpty"));
+    await userEvent.click(await button("crates:newFolder.cancel"));
+
+    // Renaming a folder to a name its folder has.
+    await userEvent.click(await screen.findByRole("button", { name: "Archive" }));
+    await userEvent.click(await button("crates:rename.button"));
+    const input = await screen.findByLabelText(tx("crates:rename.label"));
+    await userEvent.clear(input);
+    await userEvent.type(input, "friday residency");
+    await confirmRename();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      tx("crates:error.folderNameTaken", { name: "Friday residency" }),
+    );
+    await userEvent.click(await button("crates:rename.cancel"));
+
+    // A crate keeps the crate words.
+    await userEvent.click(screen.getByRole("button", { name: /Loose/ }));
+    await userEvent.click(await button("crates:rename.button"));
+    const crateInput = await screen.findByLabelText(tx("crates:rename.label"));
+    await userEvent.clear(crateInput);
+    await userEvent.type(crateInput, "archive");
+    await confirmRename();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      tx("crates:error.nameTaken", { name: "Archive" }),
+    );
   });
 });

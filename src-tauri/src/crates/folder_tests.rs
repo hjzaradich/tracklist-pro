@@ -75,9 +75,9 @@ impl Lib {
 
 fn why<T: std::fmt::Debug>(refused: Done<T>) -> &'static str {
     match refused {
-        Err(CratesError::NotFound) => "not found",
-        Err(CratesError::NameEmpty) => "empty",
-        Err(CratesError::NameTaken { .. }) => "taken",
+        Err(CratesError::NotFound | CratesError::FolderNotFound) => "not found",
+        Err(CratesError::NameEmpty | CratesError::FolderNameEmpty) => "empty",
+        Err(CratesError::NameTaken { .. } | CratesError::FolderNameTaken { .. }) => "taken",
         Err(CratesError::NameUnsendable) => "unsendable",
         Err(CratesError::NotAFolder) => "not a folder",
         Err(CratesError::MoveIntoItself) => "into itself",
@@ -604,4 +604,193 @@ fn the_tree_a_send_writes_follows_folders_moves_and_deletes() {
         ..SendInput::default()
     })
     .is_ok());
+}
+
+// ---- wording of refusals, smart crates, order in a send ------------------------------
+
+/// A refusal as `why` names it, but telling a folder's wording from a crate's.
+fn worded_as<T: std::fmt::Debug>(refused: Done<T>) -> &'static str {
+    match refused {
+        Err(CratesError::NotFound) => "crate not found",
+        Err(CratesError::FolderNotFound) => "folder not found",
+        Err(CratesError::NameEmpty) => "crate name empty",
+        Err(CratesError::FolderNameEmpty) => "folder name empty",
+        Err(CratesError::NameTaken { .. }) => "crate name taken",
+        Err(CratesError::FolderNameTaken { .. }) => "folder name taken",
+        other => panic!("not one of the worded refusals: {other:?}"),
+    }
+}
+
+#[test]
+fn a_refusal_is_worded_for_the_kind_of_item_acted_on() {
+    let lib = Lib::new();
+    let sets = lib.folder_ok(None, "Sets");
+    let crate_ = lib.crate_in_ok(Some(sets), "Warmup");
+    let folder = lib.folder_ok(Some(sets), "Late");
+    let other = lib.folder_ok(None, "Other");
+    let twin = lib.crate_in_ok(Some(other), "warmup");
+    let twin_folder = lib.folder_ok(Some(other), "LATE");
+
+    // Making.
+    assert_eq!(
+        worded_as(lib.folder(Some(sets), "late")),
+        "folder name taken"
+    );
+    assert_eq!(
+        worded_as(lib.crate_in(Some(sets), "WARMUP")),
+        "crate name taken"
+    );
+    assert_eq!(worded_as(lib.folder(None, " ")), "folder name empty");
+    assert_eq!(worded_as(lib.crate_in(None, " ")), "crate name empty");
+    assert_eq!(
+        worded_as(lib.folder(Some(CrateId(999)), "X")),
+        "folder not found"
+    );
+    assert_eq!(
+        worded_as(lib.crate_in(Some(CrateId(999)), "X")),
+        "crate not found"
+    );
+    // Renaming.
+    assert_eq!(worded_as(lib.rename(folder, "")), "folder name empty");
+    assert_eq!(worded_as(lib.rename(crate_, "")), "crate name empty");
+    assert_eq!(worded_as(lib.rename(folder, "warmup")), "folder name taken");
+    assert_eq!(worded_as(lib.rename(crate_, "late")), "crate name taken");
+    assert_eq!(worded_as(lib.rename(CrateId(999), "X")), "crate not found");
+    // Moving: the word follows what is moved.
+    assert_eq!(
+        worded_as(lib.move_to(twin_folder, Some(sets))),
+        "folder name taken"
+    );
+    assert_eq!(worded_as(lib.move_to(twin, Some(sets))), "crate name taken");
+    assert_eq!(
+        worded_as(lib.move_to(folder, Some(CrateId(999)))),
+        "folder not found"
+    );
+    assert_eq!(
+        worded_as(lib.move_to(crate_, Some(CrateId(999)))),
+        "crate not found"
+    );
+    assert_eq!(
+        worded_as(lib.move_to(CrateId(999), None)),
+        "crate not found"
+    );
+}
+
+/// A smart crate (Phase 3), made through the log like everything else.
+fn smart(lib: &Lib, parent: Option<i64>, name: &'static str) {
+    lib.writer
+        .call(move |c| {
+            Ok(ops::record(
+                c,
+                "test_smart",
+                &serde_json::json!({}),
+                |rec| {
+                    rec.insert(
+                        "crate",
+                        &[
+                            ("parent_id", parent.into()),
+                            ("kind", "smart".to_owned().into()),
+                            ("name", name.to_owned().into()),
+                            ("rules", "{}".to_owned().into()),
+                        ],
+                    )
+                },
+            ))
+        })
+        .unwrap()
+        .unwrap();
+}
+
+#[test]
+fn a_smart_crate_counts_as_a_sibling_so_a_name_the_app_takes_is_one_the_database_takes() {
+    let lib = Lib::new();
+    let sets = lib.folder_ok(None, "Sets");
+    smart(&lib, None, "Hot");
+    smart(&lib, Some(sets.0), "Fresh");
+    // The same rule as for any sibling: letter case and trailing space too.
+    assert_eq!(worded_as(lib.crate_in(None, "hot ")), "crate name taken");
+    assert_eq!(worded_as(lib.folder(None, "HOT")), "folder name taken");
+    assert_eq!(
+        worded_as(lib.crate_in(Some(sets), "fresh")),
+        "crate name taken"
+    );
+    let moving = lib.made("Fresh");
+    assert_eq!(
+        worded_as(lib.move_to(moving, Some(sets))),
+        "crate name taken"
+    );
+    let other = lib.made("Other");
+    assert_eq!(worded_as(lib.rename(other, "HOT")), "crate name taken");
+    // A name free in a different folder is fine, and a smart crate is not
+    // listed as a static crate or folder.
+    lib.crate_in_ok(Some(sets), "Hot");
+    assert!(lib
+        .writer
+        .call(|c| list(c))
+        .unwrap()
+        .iter()
+        .all(|c| c.name != "Fresh" || c.parent_id.is_none()));
+}
+
+/// The names in a send's tree, folders marked with a slash, in the order sent.
+fn outline(nodes: &[Node], prefix: &str, out: &mut Vec<String>) {
+    for node in nodes {
+        match node {
+            Node::Folder { name, children } => {
+                out.push(format!("{prefix}{name}/"));
+                outline(children, &format!("{prefix}{name}/"), out);
+            }
+            Node::Playlist { name, .. } => out.push(format!("{prefix}{name}")),
+        }
+    }
+}
+
+#[test]
+fn a_send_writes_siblings_in_their_position_order_not_the_order_of_their_ids() {
+    let lib = Lib::new();
+    // `tree` leaves positions that disagree with the ids: in "Friday
+    // residency", Closing (made last) comes first, then Late, then Warmup
+    // (made first).
+    tree(&lib);
+    let sent = lib.writer.call(|c| crate_tree(c)).unwrap();
+    let mut out = Vec::new();
+    outline(&sent, "", &mut out);
+    assert_eq!(
+        out,
+        [
+            "Before",
+            "Friday residency/",
+            "Friday residency/Closing",
+            "Friday residency/Late/",
+            "Friday residency/Late/Peak time",
+            "Friday residency/Late/Deeper/",
+            "Friday residency/Late/Deeper/Deepest",
+            "Friday residency/Late/Empty folder/",
+            "Friday residency/Warmup",
+            "After",
+        ]
+    );
+    // And the order the app lists is the order sent.
+    let listed = lib.paths();
+    assert_eq!(listed, out);
+
+    // A move puts the node last in its new folder, and the send follows.
+    let friday = lib
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT id FROM crate WHERE name = 'Friday residency'",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    let before = lib.made("Aaa");
+    lib.move_to(before, Some(CrateId(friday))).unwrap();
+    let mut moved = Vec::new();
+    outline(&lib.writer.call(|c| crate_tree(c)).unwrap(), "", &mut moved);
+    assert_eq!(
+        moved.iter().position(|l| l == "Friday residency/Aaa"),
+        Some(moved.len() - 2)
+    );
 }

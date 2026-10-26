@@ -97,6 +97,9 @@
     "nameUnsendable": "Name has a character that can't be sent to rekordbox. Remove it and try again.",
     "notAFolder": "That isn't a folder",
     "moveIntoItself": "A folder can't go inside itself or one of its own folders",
-    "tooDeep": "Folders can't be nested this deep"
+    "tooDeep": "Folders can't be nested this deep",
+    "folderNotFound": "Folder not found",
+    "folderNameEmpty": "Folder needs a name",
+    "folderNameTaken": "Folder name already used (“{{name}}”)"
   }
 }
