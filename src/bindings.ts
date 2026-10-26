@@ -1944,7 +1944,7 @@ export type TableFilter =
 { kind: "notInRekordbox" } | 
 /**  The file is in this format (`file.sniffed_format`, e.g. `flac`). */
 { kind: "format"; format: string } | 
-/**  The file has a quality finding (anything but a clean verdict). */
+/**  The track is one of Review's "Quality problems" (see the module doc). */
 { kind: "qualityProblem" } | 
 /**  The track is in at least one crate. */
 { kind: "inCrate" } | 
