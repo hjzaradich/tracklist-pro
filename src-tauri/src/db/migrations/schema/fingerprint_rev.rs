@@ -110,7 +110,7 @@ fn a_file_inserted_with_a_fingerprint_is_stamped_and_one_without_is_not() {
 #[test]
 fn a_file_that_takes_a_deleted_files_id_does_not_get_the_stamp_the_deleted_one_had() {
     // A removed music folder's files held the highest ids, and the next
-    // files took them again until 0030; since then a new file never takes
+    // files took them again until 0031; since then a new file never takes
     // a deleted file's id, but a row can still be put back under one.
     let (_dir, conn) = with_two_fingerprinted_files();
     accepts(&conn, "UPDATE file SET fingerprint = x'0102' WHERE id = 3");
