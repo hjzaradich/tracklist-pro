@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -17,13 +17,17 @@ const ROW = 28;
 /** The queries the backend was asked, in order. */
 let asked: TableQuery[] = [];
 let formats: string[] = [];
+let formatsFail = false;
 let behind = false;
 
 /** Answers with `total` made-up rows (made on demand: a list of 100,000 costs nothing). */
 function serve(total: number, rowAt: (index: number) => TableRow = (i) => tableRow(i, { title: `Tune ${i}` })) {
   mockIPC((cmd, args) => {
     if (cmd === "key_notation") return "camelot";
-    if (cmd === "track_table_formats") return formats;
+    if (cmd === "track_table_formats") {
+      if (formatsFail) throw { kind: "database", params: {} };
+      return formats;
+    }
     if (cmd !== "track_table_page") throw new Error(`unexpected command ${cmd}`);
     const query = queryOf(args);
     asked.push(query);
@@ -37,6 +41,7 @@ function serve(total: number, rowAt: (index: number) => TableRow = (i) => tableR
 beforeEach(() => {
   asked = [];
   formats = [];
+  formatsFail = false;
   behind = false;
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(ROW * 11);
 });
@@ -403,6 +408,74 @@ describe("filter chips", () => {
     expect(screen.getByRole("button", { name: tx("trackTable:filters.missing") })).toHaveFocus();
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "missing" }]));
-    await act(async () => {});
+  });
+
+  it("moves the focus to the next chip's ×, else the previous one's, else Add filter, when a chip is taken off", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    await addFilter(tx("trackTable:filters.missing"));
+    await addFilter(tx("trackTable:filters.qualityProblem"));
+    await addFilter(tx("trackTable:filters.inRekordbox"));
+    const remove = (filter: string) =>
+      screen.getByRole("button", { name: tx("trackTable:filters.remove", { filter: tx(`trackTable:filters.${filter}`) }) });
+    // The middle one goes: the focus lands on the one after it.
+    await userEvent.click(remove("qualityProblem"));
+    await waitFor(() => expect(remove("inRekordbox")).toHaveFocus());
+    // The last one goes: the focus lands on the one before it.
+    await userEvent.click(remove("inRekordbox"));
+    await waitFor(() => expect(remove("missing")).toHaveFocus());
+    // The only one goes: the focus lands on Add filter.
+    await userEvent.click(remove("missing"));
+    await waitFor(() => expect(screen.getByRole("button", { name: tx("trackTable:filters.add") })).toHaveFocus());
+  });
+
+  it("moves the focus to the next chip's × when the first of several is taken off by the keyboard", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    await addFilter(tx("trackTable:filters.missing"));
+    await addFilter(tx("trackTable:filters.qualityProblem"));
+    const first = screen.getByRole("button", {
+      name: tx("trackTable:filters.remove", { filter: tx("trackTable:filters.missing") }),
+    });
+    first.focus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: tx("trackTable:filters.remove", { filter: tx("trackTable:filters.qualityProblem") }),
+        }),
+      ).toHaveFocus(),
+    );
+  });
+
+  it("closes the list when the focus moves out of it, by Tab", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    const menu = screen.getByRole("group", { name: tx("trackTable:filters.menu") });
+    const choices = within(menu).getAllByRole("button").length;
+    // Through the choices the list stays open...
+    for (let i = 0; i < choices; i += 1) await userEvent.tab();
+    expect(screen.getByRole("group", { name: tx("trackTable:filters.menu") })).toBeInTheDocument();
+    // ...and one more leaves it.
+    await userEvent.tab();
+    expect(screen.queryByRole("group", { name: tx("trackTable:filters.menu") })).toBeNull();
+    expect(screen.getByRole("button", { name: tx("trackTable:filters.add") })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("says the formats could not be read, and does not say there are no more filters, when that request fails", async () => {
+    formatsFail = true;
+    serve(5);
+    renderView();
+    await grid();
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    const menu = screen.getByRole("group", { name: tx("trackTable:filters.menu") });
+    expect(await within(menu).findByRole("alert")).toHaveTextContent(tx("errors:database"));
+    expect(within(menu).queryByText(tx("trackTable:filters.none"))).toBeNull();
+    // The other filters can still be chosen.
+    expect(within(menu).getByRole("button", { name: tx("trackTable:filters.missing") })).toBeInTheDocument();
   });
 });

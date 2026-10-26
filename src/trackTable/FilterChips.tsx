@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { unwrap } from "../api/errors";
+import { errorMessage, unwrap } from "../api/errors";
 import { commands, type TableFilter, type TableSource } from "../bindings";
 import type { TableScreen } from "./columns";
 import {
@@ -25,6 +25,10 @@ const PLAIN = new Set<TableFilter["kind"]>([
   "inLibrary",
   "notInLibrary",
 ]);
+
+/** What a chip is called in the list of chips. */
+const chipKey = (filter: TableFilter) =>
+  filter.kind === "format" ? `format:${filter.format}` : filter.kind;
 
 /**
  * The filter chips above the track table (1cA-4): the filters in use, each
@@ -54,6 +58,9 @@ export function FilterChips({
   const menuId = useId();
   const addButton = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  const removeButtons = useRef(new Map<string, HTMLButtonElement>());
+  // Where the focus goes once the chip that was taken off is gone.
+  const focusAfterRemoval = useRef<string | null>(null);
 
   const offered = FILTERS_BY_SCREEN[screen];
   const formats = useQuery({
@@ -71,6 +78,22 @@ export function FilterChips({
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
   }, [open]);
+
+  useEffect(() => {
+    const key = focusAfterRemoval.current;
+    if (key === null) return;
+    focusAfterRemoval.current = null;
+    (removeButtons.current.get(key) ?? addButton.current)?.focus();
+  }, [filters]);
+
+  // Taking a chip off with its ×: the focus goes to the next chip's ×, else
+  // the previous one's, else Add filter, never to the top of the page.
+  const remove = (filter: TableFilter) => {
+    const at = filters.findIndex((f) => sameFilter(f, filter));
+    const neighbour = filters[at + 1] ?? filters[at - 1];
+    focusAfterRemoval.current = neighbour === undefined ? "" : chipKey(neighbour);
+    onChange(removeFilter(filters, filter));
+  };
 
   const plain: TableFilter[] = offered
     .filter((kind) => PLAIN.has(kind))
@@ -93,17 +116,18 @@ export function FilterChips({
           {filters.map((filter) => {
             const label = filterLabel(filter, t);
             return (
-              <li
-                key={filter.kind === "format" ? `format:${filter.format}` : filter.kind}
-                className={styles.chip}
-              >
+              <li key={chipKey(filter)} className={styles.chip}>
                 <span>{label}</span>
                 <button
+                  ref={(button) => {
+                    if (button) removeButtons.current.set(chipKey(filter), button);
+                    else removeButtons.current.delete(chipKey(filter));
+                  }}
                   type="button"
                   className={styles.remove}
                   aria-label={t("filters.remove", { filter: label })}
                   title={t("filters.remove", { filter: label })}
-                  onClick={() => onChange(removeFilter(filters, filter))}
+                  onClick={() => remove(filter)}
                 >
                   <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true" focusable="false">
                     <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.5" fill="none" />
@@ -116,6 +140,12 @@ export function FilterChips({
       )}
       <div
         className={styles.add}
+        onBlur={(event) => {
+          // Tabbing out of the list (or the button) closes it; a click
+          // elsewhere is the document listener's.
+          const next = event.relatedTarget;
+          if (open && next instanceof Node && !event.currentTarget.contains(next)) setOpen(false);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape" && open) {
             event.stopPropagation();
@@ -161,7 +191,12 @@ export function FilterChips({
                 ))}
               </>
             )}
-            {plain.length === 0 && formatChoices.length === 0 && !formats.isLoading && (
+            {formats.isError && (
+              <p role="alert" className={styles.heading}>
+                {errorMessage(formats.error)}
+              </p>
+            )}
+            {plain.length === 0 && formatChoices.length === 0 && !formats.isLoading && !formats.isError && (
               <p className={styles.heading}>{t("filters.none")}</p>
             )}
           </div>

@@ -65,8 +65,11 @@ export function removeFilter(filters: readonly TableFilter[], filter: TableFilte
   return filters.filter((f) => !sameFilter(f, filter));
 }
 
-/** The formats the app names (`trackTable:format.*`). */
-const NAMED_FORMATS = new Set([
+/**
+ * The formats the app names (`trackTable:format.*`): the names of the
+ * backend's `SniffedFormat`. A test holds this list to the locale's keys.
+ */
+export const NAMED_FORMATS = [
   "mp3",
   "wav",
   "rf64",
@@ -83,13 +86,17 @@ const NAMED_FORMATS = new Set([
   "musepack",
   "ape",
   "unknown",
-]);
+] as const;
+
+type NamedFormat = (typeof NAMED_FORMATS)[number];
+
+function isNamedFormat(format: string): format is NamedFormat {
+  return (NAMED_FORMATS as readonly string[]).includes(format);
+}
 
 /** A file format's name, e.g. `FLAC`; a format this build doesn't name shows as it is stored. */
 export function formatName(format: string, t: TFunction<"trackTable">): string {
-  return NAMED_FORMATS.has(format)
-    ? t(`format.${format as "mp3"}`)
-    : format.toUpperCase();
+  return isNamedFormat(format) ? t(`format.${format}`) : format.toUpperCase();
 }
 
 /** A chip's text. */

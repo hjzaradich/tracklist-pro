@@ -31,8 +31,9 @@
 .remove {
   display: inline-grid;
   place-items: center;
-  width: 1.25rem;
-  height: 1.25rem;
+  /* At least 24 by 24 CSS pixels, the smallest target WCAG 2.2 allows. */
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);

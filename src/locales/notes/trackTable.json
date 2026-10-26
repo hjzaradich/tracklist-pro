@@ -108,7 +108,7 @@
     "where": "Filter chip ({{format}} is the format's name, e.g. FLAC)."
   },
   "filters.qualityProblem": {
-    "purpose": "Filter: tracks whose file has a quality finding.",
+    "purpose": "Filter: the tracks Review lists under Quality problems (a Library track whose linked file is flagged with no better copy and no answer, or one with a better file available).",
     "where": "Filter chip and its menu entry."
   },
   "filters.inCrate": {
