@@ -400,12 +400,10 @@ fn undoing_a_folder_delete_is_refused_when_a_name_it_brings_back_is_taken() {
     let lib = Lib::new();
     let sets = lib.folder_ok(None, "Sets");
     lib.crate_in_ok(Some(sets), "Warmup");
+    let other = lib.folder_ok(None, "Other");
     lib.delete(sets).unwrap();
-    // Made outside the log (the log's own history can't do this).
-    lib.run(
-        "INSERT INTO crate (kind, name, position) VALUES ('folder', 'SETS', 0)",
-        (),
-    );
+    // Renamed outside the log (the log's own history can't do this).
+    lib.run("UPDATE crate SET name = 'SETS' WHERE id = ?1", (other.0,));
     let before = lib.state();
     assert!(matches!(
         undo_last_via(&lib.writer).unwrap(),
@@ -529,18 +527,13 @@ fn a_move_is_refused_when_the_folder_has_that_name_by_the_senders_rule() {
 #[test]
 fn a_move_that_would_nest_deeper_than_a_send_can_write_is_refused() {
     let lib = Lib::new();
-    // As many folders as a send writes, one inside the other, made straight
-    // in the table. (The writer counts the `Crates` folder as the first level.)
-    let mut parent: Option<i64> = None;
-    let mut deepest = 0;
+    // As many folders as a send writes, one inside the other. (The writer
+    // counts the `Crates` folder as the first level.)
+    let mut parent: Option<CrateId> = None;
     for level in 0..MAX_DEPTH - 1 {
-        deepest = lib.run(
-            "INSERT INTO crate (parent_id, kind, name) VALUES (?1, 'folder', ?2)",
-            (parent, format!("L{level}")),
-        );
-        parent = Some(deepest);
+        parent = Some(lib.folder_ok(parent, &format!("L{level}")));
     }
-    let deepest = CrateId(deepest);
+    let deepest = parent.unwrap();
     assert_eq!(why(lib.folder(Some(deepest), "One too many")), "too deep");
     // A crate fits in the deepest folder; a folder with a folder in it
     // doesn't fit anywhere near.
@@ -564,12 +557,10 @@ fn a_move_undoes_only_while_the_names_fit() {
     let lib = Lib::new();
     let sets = lib.folder_ok(None, "Sets");
     let loose = lib.made("Warmup");
+    let other = lib.made("Other");
     lib.move_to(loose, Some(sets)).unwrap();
     // Someone else (outside the log) takes the name at the top.
-    lib.run(
-        "INSERT INTO crate (kind, name, position) VALUES ('static', 'WARMUP', 9)",
-        (),
-    );
+    lib.run("UPDATE crate SET name = 'WARMUP' WHERE id = ?1", (other.0,));
     let before = lib.state();
     assert!(matches!(
         undo_last_via(&lib.writer).unwrap(),
