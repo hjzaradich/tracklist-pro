@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -16,12 +16,14 @@ const ROW = 28;
 
 /** The queries the backend was asked, in order. */
 let asked: TableQuery[] = [];
+let formats: string[] = [];
 let behind = false;
 
 /** Answers with `total` made-up rows (made on demand: a list of 100,000 costs nothing). */
 function serve(total: number, rowAt: (index: number) => TableRow = (i) => tableRow(i, { title: `Tune ${i}` })) {
   mockIPC((cmd, args) => {
     if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_formats") return formats;
     if (cmd !== "track_table_page") throw new Error(`unexpected command ${cmd}`);
     const query = queryOf(args);
     asked.push(query);
@@ -34,6 +36,7 @@ function serve(total: number, rowAt: (index: number) => TableRow = (i) => tableR
 
 beforeEach(() => {
   asked = [];
+  formats = [];
   behind = false;
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(ROW * 11);
 });
@@ -80,6 +83,7 @@ describe("asking for rows", () => {
     expect(asked[0]).toEqual({
       source: { kind: "library" },
       search: null,
+      filters: [],
       sort: null,
       offset: 0,
       limit: WINDOW,
@@ -152,14 +156,27 @@ describe("when there is nothing to list", () => {
     renderView();
     expect(await screen.findByText("Nothing at all")).toBeInTheDocument();
     expect(screen.queryByRole("grid")).toBeNull();
+    expect(screen.queryByRole("button", { name: tx("trackTable:filters.add") })).toBeNull();
   });
 
-  it("says no track matches when a search leaves none", async () => {
+  it("says no track matches when a search or a filter leaves none, and keeps the filters to take off", async () => {
     serve(0);
     renderView("library", { search: "zzz" });
     expect(await screen.findByText(tx("trackTable:noMatch"))).toBeInTheDocument();
     expect(screen.queryByText("Nothing at all")).toBeNull();
-    expect(screen.queryByRole("grid")).toBeNull();
+    expect(screen.getByRole("button", { name: tx("trackTable:filters.add") })).toBeInTheDocument();
+  });
+
+  it("keeps the chips when the filters leave no track, so they can be taken off", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    await addFilter(tx("trackTable:filters.missing"));
+    serve(0);
+    await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:filters.add") }));
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.qualityProblem") }));
+    expect(await screen.findByText(tx("trackTable:noMatch"))).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
 });
 
@@ -244,28 +261,148 @@ describe("sorting", () => {
   });
 });
 
-describe("telling the screen the tracks listed changed", () => {
-  it("does so for another search, but not for a sort", async () => {
+/** Opens the Add filter list and chooses `name`. */
+async function addFilter(name: string) {
+  await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:filters.add") }));
+  await userEvent.click(await screen.findByRole("button", { name }));
+}
+
+const chips = () => within(screen.getByRole("list", { name: tx("trackTable:filters.label") })).getAllByRole("listitem");
+
+describe("filter chips", () => {
+  it("shows no chips to begin with", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    expect(screen.queryByRole("list", { name: tx("trackTable:filters.label") })).toBeNull();
+  });
+
+  it("adds a chip and asks for the rows again with the filter", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    await addFilter(tx("trackTable:filters.missing"));
+    expect(chips().map((c) => c.textContent)).toEqual([tx("trackTable:filters.missing")]);
+    await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "missing" }]));
+    expect(lastQuery().offset).toBe(0);
+    // The list closes once a filter is chosen, and the focus goes back to its button.
+    expect(screen.queryByRole("group", { name: tx("trackTable:filters.menu") })).toBeNull();
+    expect(screen.getByRole("button", { name: tx("trackTable:filters.add") })).toHaveFocus();
+  });
+
+  it("takes a chip off with its ×, which names the filter", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    await addFilter(tx("trackTable:filters.missing"));
+    await addFilter(tx("trackTable:filters.qualityProblem"));
+    await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "missing" }, { kind: "qualityProblem" }]));
+    await userEvent.click(
+      screen.getByRole("button", { name: tx("trackTable:filters.remove", { filter: tx("trackTable:filters.missing") }) }),
+    );
+    await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "qualityProblem" }]));
+    expect(chips().map((c) => c.textContent)).toEqual([tx("trackTable:filters.qualityProblem")]);
+    await userEvent.click(
+      screen.getByRole("button", { name: tx("trackTable:filters.remove", { filter: tx("trackTable:filters.qualityProblem") }) }),
+    );
+    await waitFor(() => expect(lastQuery().filters).toEqual([]));
+    expect(screen.queryByRole("list", { name: tx("trackTable:filters.label") })).toBeNull();
+  });
+
+  it("takes the opposite filter off when one is added, and offers a filter only once", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    await addFilter(tx("trackTable:filters.inRekordbox"));
+    await addFilter(tx("trackTable:filters.notInRekordbox"));
+    await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "notInRekordbox" }]));
+    expect(chips().map((c) => c.textContent)).toEqual([tx("trackTable:filters.notInRekordbox")]);
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    const menu = screen.getByRole("group", { name: tx("trackTable:filters.menu") });
+    expect(within(menu).queryByRole("button", { name: tx("trackTable:filters.notInRekordbox") })).toBeNull();
+  });
+
+  it("offers a format once the formats on the screen are known, and the chip names it", async () => {
+    formats = ["flac", "mp3", "someday"];
+    serve(5);
+    renderView();
+    await grid();
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    const menu = await screen.findByRole("group", { name: tx("trackTable:filters.menu") });
+    expect(await within(menu).findByText(tx("trackTable:filters.formats"))).toBeInTheDocument();
+    await userEvent.click(within(menu).getByRole("button", { name: tx("trackTable:format.flac") }));
+    expect(chips().map((c) => c.textContent)).toEqual([
+      tx("trackTable:filters.format", { format: tx("trackTable:format.flac") }),
+    ]);
+    await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "format", format: "flac" }]));
+    // A second format is another chip, and a format this build doesn't name still shows.
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    await userEvent.click(await screen.findByRole("button", { name: "SOMEDAY" }));
+    await waitFor(() =>
+      expect(lastQuery().filters).toEqual([
+        { kind: "format", format: "flac" },
+        { kind: "format", format: "someday" },
+      ]),
+    );
+    expect(chips()).toHaveLength(2);
+  });
+
+  it.each([
+    ["library", ["missing", "inRekordbox", "notInRekordbox", "qualityProblem", "inCrate", "inNoCrate"]],
+    ["allMusic", ["missing", "inRekordbox", "notInRekordbox", "qualityProblem", "inLibrary", "notInLibrary"]],
+    ["crate", ["missing", "inRekordbox", "notInRekordbox", "qualityProblem"]],
+  ] as const)("offers the filters that make sense on the %s screen", async (screenName, kinds) => {
+    serve(5);
+    renderView(screenName);
+    await grid();
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    const menu = screen.getByRole("group", { name: tx("trackTable:filters.menu") });
+    expect(within(menu).getAllByRole("button").map((b) => b.textContent)).toEqual(
+      kinds.map((kind) => tx(`trackTable:filters.${kind}`)),
+    );
+  });
+
+  it("closes the list on Escape, back on its button, and on a click elsewhere", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    const add = screen.getByRole("button", { name: tx("trackTable:filters.add") });
+    await userEvent.click(add);
+    expect(add).toHaveAttribute("aria-expanded", "true");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("group", { name: tx("trackTable:filters.menu") })).toBeNull();
+    expect(add).toHaveFocus();
+    expect(add).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(add);
+    expect(screen.getByRole("group", { name: tx("trackTable:filters.menu") })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("group", { name: tx("trackTable:filters.menu") })).toBeNull();
+  });
+
+  it("tells the screen when the tracks listed change, but not for a sort", async () => {
     serve(5);
     const onNarrowed = vi.fn();
-    const view = renderView("allMusic", { onNarrowed });
+    renderView("library", { onNarrowed });
     await grid();
+    expect(onNarrowed).not.toHaveBeenCalled();
     await userEvent.click(await heading("bpm"));
     await waitFor(() => expect(lastQuery().sort?.column).toBe("bpm"));
     expect(onNarrowed).not.toHaveBeenCalled();
-    view.rerender(
-      <QueryClientProvider client={createQueryClient()}>
-        <TrackTableView
-          screen="allMusic"
-          source={{ kind: "allMusic" }}
-          keyPrefix={["test", "allMusic"]}
-          search="alpha"
-          count={(total) => `rows: ${total}`}
-          empty={<p>Nothing at all</p>}
-          onNarrowed={onNarrowed}
-        />
-      </QueryClientProvider>,
-    );
+    await addFilter(tx("trackTable:filters.missing"));
     await waitFor(() => expect(onNarrowed).toHaveBeenCalledTimes(1));
+  });
+
+  it("is all keyboard: Tab reaches Add filter, Enter opens it, Enter on a filter adds it", async () => {
+    serve(5);
+    renderView();
+    await grid();
+    const add = screen.getByRole("button", { name: tx("trackTable:filters.add") });
+    add.focus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.tab();
+    expect(screen.getByRole("button", { name: tx("trackTable:filters.missing") })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "missing" }]));
+    await act(async () => {});
   });
 });

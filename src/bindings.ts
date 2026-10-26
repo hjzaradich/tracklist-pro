@@ -363,6 +363,8 @@ export const commands = {
 	 *  index is behind"); the job ending reloads the lists.
 	 */
 	trackTablePage: (query: TableQuery) => typedError<TablePage, IpcError>(__TAURI_INVOKE("track_table_page", { query })),
+	/**  The formats the Format filter can offer for a source. */
+	trackTableFormats: (source: TableSource) => typedError<string[], IpcError>(__TAURI_INVOKE("track_table_formats", { source })),
 };
 
 /** Events */
@@ -1925,6 +1927,34 @@ export type SwitchedView = {
 	toName: string,
 };
 
+/**  One filter chip. */
+export type TableFilter = 
+/**
+ *  The file is not on disk: a Library track marked missing by the scan,
+ *  or a track whose file is gone. (A file on an unplugged drive counts
+ *  as on disk, as everywhere.)
+ */
+{ kind: "missing" } | 
+/**
+ *  rekordbox has the track: one of its files is the trusted match of a
+ *  rekordbox entry.
+ */
+{ kind: "inRekordbox" } | 
+/**  rekordbox doesn't have the track. */
+{ kind: "notInRekordbox" } | 
+/**  The file is in this format (`file.sniffed_format`, e.g. `flac`). */
+{ kind: "format"; format: string } | 
+/**  The file has a quality finding (anything but a clean verdict). */
+{ kind: "qualityProblem" } | 
+/**  The track is in at least one crate. */
+{ kind: "inCrate" } | 
+/**  The track is in no crate. */
+{ kind: "inNoCrate" } | 
+/**  The track is in the Library. */
+{ kind: "inLibrary" } | 
+/**  The track is not in the Library. */
+{ kind: "notInLibrary" };
+
 /**  A window of rows. */
 export type TablePage = {
 	/**  How many rows the query has in all; only when asked for. */
@@ -1943,6 +1973,7 @@ export type TableQuery = {
 	source: TableSource,
 	/**  Search text (`search::match_expression`); blank filters nothing. */
 	search: string | null,
+	filters: TableFilter[],
 	/**  `None` is the source's own order. */
 	sort: TableSort | null,
 	/**  The first row of the window, counting from 0. */

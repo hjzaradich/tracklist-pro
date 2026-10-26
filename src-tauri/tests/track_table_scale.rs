@@ -1,7 +1,7 @@
-//! 1cA-3: what the track table's backend query costs on a made-up library of
-//! 100,000 tracks: the first page, every sort, a search, a scroll to the
-//! middle, and the time to build the table's rows (they are written by the
-//! index job, beside the search index's).
+//! 1cA-3, 1cA-4: what the track table's backend query costs on a made-up
+//! library of 100,000 tracks: the first page, a sort, a filter, a search with
+//! a filter, a scroll to the middle, and the time to build the table's rows
+//! (they are written by the index job, beside the search index's).
 //!
 //! The library is made up in code (no audio, no real music, made-up words).
 //! Of every 100 tracks:
@@ -33,7 +33,7 @@ use tracklist_pro_lib::fragile::FragileDirs;
 use tracklist_pro_lib::paths::Volumes;
 use tracklist_pro_lib::search::{pending, settle};
 use tracklist_pro_lib::track_table::{
-    page, read, SortColumn, TablePage, TableQuery, TableSort, TableSource,
+    page, read, SortColumn, TableFilter, TablePage, TableQuery, TableSort, TableSource,
 };
 use tracklist_pro_lib::volume::{Volume, VolumeId};
 use tracklist_pro_lib::write_guard::WriteGuard;
@@ -290,6 +290,7 @@ fn query(source: TableSource) -> TableQuery {
     TableQuery {
         source,
         search: None,
+        filters: Vec::new(),
         sort: None,
         offset: 0,
         limit: 200,
@@ -300,6 +301,13 @@ fn query(source: TableSource) -> TableQuery {
 fn sorted(source: TableSource, column: SortColumn, descending: bool) -> TableQuery {
     TableQuery {
         sort: Some(TableSort { column, descending }),
+        ..query(source)
+    }
+}
+
+fn filtered(source: TableSource, filter: TableFilter) -> TableQuery {
+    TableQuery {
+        filters: vec![filter],
         ..query(source)
     }
 }
@@ -503,6 +511,34 @@ fn run(tracks: u64, check: bool) {
             ),
         ),
     ];
+    for (what, filter) in [
+        ("missing", TableFilter::Missing),
+        ("in rekordbox", TableFilter::InRekordbox),
+        ("not in rekordbox", TableFilter::NotInRekordbox),
+        (
+            "format FLAC",
+            TableFilter::Format {
+                format: "flac".to_owned(),
+            },
+        ),
+        ("quality problem", TableFilter::QualityProblem),
+        ("not in Library", TableFilter::NotInLibrary),
+    ] {
+        probes.push((
+            Box::leak(format!("All music, filter {what}").into_boxed_str()),
+            filtered(TableSource::AllMusic, filter),
+        ));
+    }
+    for (what, filter) in [
+        ("in a crate", TableFilter::InCrate),
+        ("in no crate", TableFilter::InNoCrate),
+        ("missing", TableFilter::Missing),
+    ] {
+        probes.push((
+            Box::leak(format!("Library, filter {what}").into_boxed_str()),
+            filtered(TableSource::Library, filter),
+        ));
+    }
     let top = word(0);
     probes.push((
         "All music, search a letter",
@@ -512,9 +548,12 @@ fn run(tracks: u64, check: bool) {
         },
     ));
     probes.push((
-        "All music, search a letter, sort by BPM",
+        "All music, search a letter, filter FLAC, sort by BPM",
         TableQuery {
             search: Some(top[..1].to_owned()),
+            filters: vec![TableFilter::Format {
+                format: "flac".to_owned(),
+            }],
             ..sorted(TableSource::AllMusic, SortColumn::Bpm, true)
         },
     ));
@@ -573,6 +612,18 @@ fn run(tracks: u64, check: bool) {
             ..sorted(TableSource::AllMusic, SortColumn::Bpm, false)
         });
         assert!(last.rows.iter().all(|r| r.bpm.is_none()));
+        // A filter and a search narrow the same rows.
+        let flac = db.page(filtered(
+            TableSource::AllMusic,
+            TableFilter::Format {
+                format: "flac".to_owned(),
+            },
+        ));
+        assert!(flac.total.unwrap() > 0);
+        assert!(flac
+            .rows
+            .iter()
+            .all(|r| r.file.as_ref().is_some_and(|f| f.name.ends_with(".flac"))));
         assert!(!db.writer.call(|c| pending(c)).unwrap());
     }
 }

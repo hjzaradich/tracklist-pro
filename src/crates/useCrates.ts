@@ -6,6 +6,7 @@ import {
   type Crate,
   type FolderContents,
 } from "../bindings";
+import { LIBRARY_TABLE_QUERY_KEY } from "../library/useLibraryTracks";
 
 /** Every crate query starts with this, so one invalidation reaches them all. */
 export const CRATES_QUERY_KEY = ["crates"] as const;
@@ -16,6 +17,9 @@ const LIST_KEY = [...CRATES_QUERY_KEY, "list"] as const;
  * a Library track going or coming back (its entries go and come with it).
  */
 export function invalidateCrates(queryClient: QueryClient): Promise<void> {
+  // The Library's table can be filtered to the tracks that are, or aren't,
+  // in a crate.
+  void queryClient.invalidateQueries({ queryKey: LIBRARY_TABLE_QUERY_KEY });
   return queryClient.invalidateQueries({ queryKey: CRATES_QUERY_KEY });
 }
 
