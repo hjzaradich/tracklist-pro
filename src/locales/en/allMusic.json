@@ -1,14 +1,8 @@
 {
   "empty": "No tracks in All music",
-  "noMatch": "No tracks match",
   "search": "Search All music",
-  "showing": "Showing {{shown, number}} of {{total, number}} tracks",
-  "columns": {
-    "title": "Title",
-    "artist": "Artist",
-    "file": "File",
-    "library": "Library"
-  },
+  "trackCount_one": "{{count, number}} track",
+  "trackCount_other": "{{count, number}} tracks",
   "add": "Add to Library",
   "inLibrary": "In Library",
   "matchNotConfirmed": "rekordbox match uncertain",

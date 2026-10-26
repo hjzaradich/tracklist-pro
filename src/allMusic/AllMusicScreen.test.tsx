@@ -6,12 +6,13 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import { useActivityStore } from "../activity/activityStore";
-import type { AllMusicTrack, JobUpdate } from "../bindings";
+import type { AllMusicTrack, JobUpdate, TableRow } from "../bindings";
 import { usePlayer } from "../player/playerStore";
 import { useReloadListsWhenJobsEnd } from "../shell/useReloadListsWhenJobsEnd";
 import "../i18n";
 import { AllMusicScreen } from "./AllMusicScreen";
 import type { Schedule } from "./useDebounced";
+import { pageOf, queryOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 
 /** Typing has "stopped" at once: the search is asked for on every change. */
@@ -32,6 +33,19 @@ function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
   };
 }
 
+/** The row of the track table for a track of All music. */
+function allRow(track: AllMusicTrack): TableRow {
+  return tableRow(track.recordingId, {
+    recordingId: track.recordingId,
+    libraryTrackId: null,
+    title: track.title,
+    artist: track.artist,
+    file: track.file,
+    inLibrary: track.inLibrary,
+    matchNotConfirmed: track.matchNotConfirmed,
+  });
+}
+
 /**
  * Stands in for the Rust side: All music holds `tracks`; a search keeps the
  * titles holding it; adding a track puts it in the Library, or is refused.
@@ -39,7 +53,6 @@ function track(id: number, fields: Partial<AllMusicTrack> = {}): AllMusicTrack {
 function fakeBackend(
   tracks: AllMusicTrack[],
   options: {
-    total?: number;
     refuse?: unknown;
     lowBitrate?: Record<number, number>;
     /** Called with the file id of each preview check. */
@@ -55,13 +68,16 @@ function fakeBackend(
   };
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
-    if (cmd === "all_music_tracks") {
-      const search = (a.search as string | null) ?? "";
-      backend.searches.push(search);
+    if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") {
+      const query = queryOf(args);
+      const search = query.search ?? "";
+      // One note per search: its first window.
+      if (query.offset === 0) backend.searches.push(search);
       const matching = backend.tracks.filter((t) =>
         (t.title ?? "").toLowerCase().includes(search.toLowerCase()),
       );
-      return { total: options.total ?? matching.length, tracks: matching };
+      return pageOf(matching.map(allRow), query);
     }
     if (cmd === "promote_track") {
       if (options.refuse) throw options.refuse;
@@ -106,9 +122,9 @@ function renderScreen(schedule: Schedule = AT_ONCE) {
   );
 }
 
-/** The list's body rows, once loaded. */
+/** The table's body rows, once loaded. */
 async function rows() {
-  const table = await screen.findByRole("table");
+  const table = await screen.findByRole("grid");
   return within(table).getAllByRole("row").slice(1);
 }
 
@@ -123,29 +139,37 @@ describe("the All music screen", () => {
     fakeBackend([]);
     renderScreen();
     expect(await screen.findByText(tx("allMusic:empty"))).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
   });
 
   it("lists each track's title, artist and file, with Add to Library", async () => {
     fakeBackend([track(1), track(2, { title: null, artist: null })]);
     renderScreen();
     const [first, second] = await rows();
+    // The Library's columns and, for All music, the file's name and folder.
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
-      tx("allMusic:columns.title"),
-      tx("allMusic:columns.artist"),
-      tx("allMusic:columns.file"),
-      tx("allMusic:columns.library"),
+      tx("trackTable:columns.title"),
+      tx("trackTable:columns.artist"),
+      tx("trackTable:columns.bpm"),
+      tx("trackTable:columns.key"),
+      tx("trackTable:columns.time"),
+      tx("trackTable:columns.genre"),
+      tx("trackTable:columns.rating"),
+      tx("trackTable:columns.dateAdded"),
+      tx("trackTable:columns.file"),
+      tx("trackTable:columns.folder"),
+      tx("trackTable:columns.actions"),
     ]);
-    expect(within(first).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      // The play button (an icon, named by its label) comes first in the
-      // title's cell: no words of its own.
-      "Synthetic Tune 1",
-      "Made Up Artist 1",
-      String.raw`E:\Music\tune 1.mp3`,
-      tx("allMusic:add"),
-    ]);
+    const cells = within(first).getAllByRole("gridcell");
+    // The play button (an icon, named by its label) comes first in the
+    // title's cell: no words of its own.
+    expect(cells[0]).toHaveTextContent("Synthetic Tune 1");
+    expect(cells[1]).toHaveTextContent("Made Up Artist 1");
+    expect(cells[8]).toHaveTextContent("tune 1.mp3");
+    expect(cells[9]).toHaveTextContent(String.raw`E:\Music`);
+    expect(cells[10]).toHaveTextContent(tx("allMusic:add"));
     // No title: the file's name stands in.
-    expect(within(second).getAllByRole("cell")[0]).toHaveTextContent("tune 2.mp3");
+    expect(within(second).getAllByRole("gridcell")[0]).toHaveTextContent("tune 2.mp3");
   });
 
   it("has a play button on each track with a file, which gives the player that file", async () => {
@@ -207,7 +231,7 @@ describe("the All music screen", () => {
     expect(backend.searches.at(-1)).toBe("Tune 2");
 
     await userEvent.type(screen.getByRole("searchbox"), " zzz");
-    expect(await screen.findByText(tx("allMusic:noMatch"))).toBeInTheDocument();
+    expect(await screen.findByText(tx("trackTable:noMatch"))).toBeInTheDocument();
   });
 
   it("asks for a search once typing has stopped, not on every keystroke", async () => {
@@ -240,11 +264,13 @@ describe("the All music screen", () => {
     expect(backend.searches).toEqual(["", "Tune 2"]);
   });
 
-  it("says how many tracks match when the list holds only some of them", async () => {
-    fakeBackend([track(1), track(2)], { total: 1234 });
+  it("says how many tracks there are, and how many a search leaves", async () => {
+    fakeBackend([track(1), track(2)]);
     renderScreen();
     await rows();
-    expect(screen.getByText(tx("allMusic:showing", { shown: 2, total: 1234 }))).toBeInTheDocument();
+    expect(screen.getByText(tx("allMusic:trackCount", { count: 2 }))).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("searchbox", { name: tx("allMusic:search") }), "Tune 2");
+    expect(await screen.findByText(tx("allMusic:trackCount", { count: 1 }))).toBeInTheDocument();
   });
 });
 
@@ -272,7 +298,7 @@ describe("All music while a scan is still filling it", () => {
     useActivityStore.getState().applySnapshot({ seq: 7, jobs: [job("scan", "running")] });
     renderScreen();
     await userEvent.type(screen.getByRole("searchbox"), "tune");
-    expect(await screen.findByText(tx("allMusic:noMatch"))).toBeInTheDocument();
+    expect(await screen.findByText(tx("trackTable:noMatch"))).toBeInTheDocument();
   });
 
   it("loads the tracks when the background task ends, without leaving the screen", async () => {
@@ -321,35 +347,36 @@ describe("a track whose rekordbox match isn't confirmed", () => {
   });
 });
 
-describe("the All music list's cut-off text", () => {
+describe("the All music table's cut-off text", () => {
   const longTitle =
     "A made-up title that keeps going far past any column width (Extended Club Mix With The Long Intro)";
   const longArtist = "A Made Up Ensemble Of Many Collaborators feat. Another Very Long Guest Artist";
-  const longPath = "E:\\Music\\Made Up Folder\\" + longTitle + ".mp3";
+  const longFolder = String.raw`E:\Music\Made Up Folder\A folder with a name that keeps going far past any column`;
 
   it("a cut-off title cell carries its full text", async () => {
     fakeBackend([
       track(1, {
         title: longTitle,
         artist: longArtist,
-        file: { id: 1, path: longPath, name: "x.mp3", present: true, driveConnected: true },
+        file: { id: 1, path: longFolder + String.raw`\x.mp3`, name: "x.mp3", present: true, driveConnected: true },
       }),
     ]);
     renderScreen();
     const [row] = await rows();
-    const [title, artist, file] = within(row).getAllByRole("cell");
-    expect(title).toHaveAttribute("title", longTitle);
-    expect(artist).toHaveAttribute("title", longArtist);
-    expect(file).toHaveAttribute("title", longPath);
+    const cells = within(row).getAllByRole("gridcell");
+    expect(within(cells[0]).getByText(longTitle)).toHaveAttribute("title", longTitle);
+    expect(cells[1]).toHaveAttribute("title", longArtist);
+    expect(cells[8]).toHaveAttribute("title", "x.mp3");
+    expect(cells[9]).toHaveAttribute("title", longFolder);
   });
 
   it("a title that is the file's name carries that name", async () => {
     fakeBackend([track(1, { title: null, artist: null })]);
     renderScreen();
     const [row] = await rows();
-    const [title, artist] = within(row).getAllByRole("cell");
-    expect(title).toHaveAttribute("title", "tune 1.mp3");
-    expect(artist).not.toHaveAttribute("title");
+    const cells = within(row).getAllByRole("gridcell");
+    expect(within(cells[0]).getByText("tune 1.mp3")).toHaveAttribute("title", "tune 1.mp3");
+    expect(cells[1]).not.toHaveAttribute("title");
   });
 });
 

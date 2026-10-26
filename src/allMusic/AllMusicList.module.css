@@ -25,81 +25,8 @@
   outline-offset: 1px;
 }
 
-.showing {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-.scroll {
-  min-height: 0;
-  overflow: auto;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  text-align: left;
-}
-
-/* Title and artist take a share of the width, the library column a fixed
- * one, and the file path what's left. */
-.table th:nth-child(1) {
-  width: 28%;
-}
-
-.table th:nth-child(2) {
-  width: 18%;
-}
-
-.table th:nth-child(4) {
-  width: 14rem;
-}
-
-.table th {
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
-.table td {
-  height: var(--row-height);
-  padding: var(--space-1) var(--space-2);
-  vertical-align: middle;
-  color: var(--color-text);
-}
-
-/* Every other row, so the eye stays on one row of a long list. Before the
- * hover rule, so hover wins. */
-.row:nth-child(even) td {
-  background: var(--color-row-stripe);
-}
-
-.row:hover td {
-  background: var(--color-surface-hover);
-}
-
-/* A long title, artist or path is cut off with "…" so a row stays one line.
- * The full text is the cell's title (hover). */
-.title,
-.artist,
-.path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.table td.path,
 .inLibrary {
   color: var(--color-text-muted);
-}
-
-.library {
-  overflow-wrap: anywhere;
 }
 
 .add {
@@ -124,9 +51,4 @@
 .error {
   margin: 0;
   color: var(--color-danger);
-}
-
-/* The play button sits before the title, in the title's own cell. */
-.play {
-  margin-right: var(--space-2);
 }

@@ -1,0 +1,21 @@
+{
+  "label": "Tracks",
+  "columns": {
+    "title": "Title",
+    "artist": "Artist",
+    "bpm": "BPM",
+    "key": "Key",
+    "time": "Time",
+    "genre": "Genre",
+    "rating": "Rating",
+    "dateAdded": "Date added",
+    "file": "File",
+    "folder": "Folder",
+    "actions": "Actions"
+  },
+  "sortBy": "Sort by {{column}}",
+  "rating_one": "{{count}} star",
+  "rating_other": "{{count}} stars",
+  "updating": "Updating the list",
+  "noMatch": "No tracks match"
+}

@@ -354,6 +354,15 @@ export const commands = {
 	listCrates: () => typedError<Crate[], IpcError>(__TAURI_INVOKE("list_crates")),
 	/**  A crate's tracks, in the order they were added. */
 	crateTracks: (id: CrateId) => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("crate_tracks", { id })),
+	/**
+	 *  A window of the track table: the rows of a source, searched, filtered
+	 *  and sorted, with how many there are in all when asked.
+	 * 
+	 *  When the index is behind (`behind`), the screen asks for the index job, as
+	 *  the search module intends ("a screen asks for it when `pending` says the
+	 *  index is behind"); the job ending reloads the lists.
+	 */
+	trackTablePage: (query: TableQuery) => typedError<TablePage, IpcError>(__TAURI_INVOKE("track_table_page", { query })),
 };
 
 /** Events */
@@ -1798,6 +1807,9 @@ export type SnapshotSummary = {
 	complete: boolean,
 };
 
+/**  A column the table can be sorted by. */
+export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre" | "rating" | "dateAdded" | "file" | "folder";
+
 /**  Whether a stale entry is a folder or a playlist. */
 export type StaleKind = "folder" | "playlist";
 
@@ -1912,6 +1924,100 @@ export type SwitchedView = {
 	fromName: string,
 	toName: string,
 };
+
+/**  A window of rows. */
+export type TablePage = {
+	/**  How many rows the query has in all; only when asked for. */
+	total: number | null,
+	offset: number,
+	rows: TableRow[],
+	/**
+	 *  The index job hasn't caught up with some change: a track may be
+	 *  missing from the rows or out of place.
+	 */
+	behind: boolean,
+};
+
+/**  What the table is asked for. */
+export type TableQuery = {
+	source: TableSource,
+	/**  Search text (`search::match_expression`); blank filters nothing. */
+	search: string | null,
+	/**  `None` is the source's own order. */
+	sort: TableSort | null,
+	/**  The first row of the window, counting from 0. */
+	offset: number,
+	/**  How many rows, at most [`MAX_WINDOW`]. */
+	limit: number,
+	/**
+	 *  Also count the rows: the count costs about as much as a window, so
+	 *  the first window asks for it and the others don't.
+	 */
+	withTotal: boolean,
+};
+
+/**  A row of the table. */
+export type TableRow = {
+	/**  The track's id, as "Add to Library" takes it. */
+	recordingId: number,
+	/**  Its Library track, if it is in the Library. */
+	libraryTrackId: LibraryTrackId | null,
+	/**
+	 *  The title shown: rekordbox's for a Library track it knows, else the
+	 *  file's tag, else `None` (the file's name stands in for it).
+	 */
+	title: string | null,
+	artist: string | null,
+	bpm: number | null,
+	/**
+	 *  The key as Camelot (`8A`); the screen shows it in the user's
+	 *  notation.
+	 */
+	key: string | null,
+	/**  The length in milliseconds. */
+	timeMs: number | null,
+	genre: string | null,
+	/**  Stars, 0 to 5, for a Library track rekordbox knows. */
+	rating: number | null,
+	/**
+	 *  When it joined the Library, else when the scan first found it (UTC
+	 *  ISO-8601).
+	 */
+	addedAt: string | null,
+	/**
+	 *  The file the row plays: the Library track's linked file, else the
+	 *  file adding the track to the Library would link.
+	 */
+	file: LinkedFile | null,
+	inLibrary: boolean,
+	/**
+	 *  One of its files is the probable match of a rekordbox track and the
+	 *  match can't be confirmed yet, so it can't be added to the Library.
+	 */
+	matchNotConfirmed: boolean,
+	/**  Why the linked file's location is fragile (Library tracks only). */
+	fragile: FragileReason | null,
+	/**  The linked file is gone (Library tracks only). */
+	sourceMissing: boolean,
+	/**  How many conflicts with rekordbox are still open for it. */
+	openConflicts: number,
+	betterFile: BetterFile | null,
+};
+
+/**  The order the table is sorted in. */
+export type TableSort = {
+	column: SortColumn,
+	descending: boolean,
+};
+
+/**  Which tracks the table lists. */
+export type TableSource = 
+/**  The Library tracks. */
+{ kind: "library" } | 
+/**  Every track that has a file. */
+{ kind: "allMusic" } | 
+/**  The Library tracks in one crate, in the order they were added. */
+{ kind: "crate"; id: CrateId };
 
 /**  A Library track, as the preflight's lists name it. */
 export type TrackLabel = {

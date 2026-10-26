@@ -7,6 +7,7 @@ import { createQueryClient } from "../app/queryClient";
 import type { LibraryTrack } from "../bindings";
 import "../i18n";
 import { LibraryScreen } from "./LibraryScreen";
+import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 
 function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
@@ -46,11 +47,12 @@ const goneFile = {
 
 /** Stands in for the Rust side: the Library holds `tracks`, or can't be read. */
 function library(tracks: LibraryTrack[] | "broken") {
-  mockIPC((cmd) => {
+  mockIPC((cmd, args) => {
     if (cmd === "list_crates") return [];
-    if (cmd !== "library_tracks") throw new Error(`unexpected command ${cmd}`);
+    if (cmd === "key_notation") return "camelot";
+    if (cmd !== "track_table_page") throw new Error(`unexpected command ${cmd}`);
     if (tracks === "broken") throw { kind: "database", params: {} };
-    return tracks;
+    return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
   });
 }
 
@@ -62,9 +64,9 @@ function renderScreen() {
   );
 }
 
-/** The list's body rows, once loaded. */
+/** The table's body rows, once loaded. */
 async function rows() {
-  const table = await screen.findByRole("table");
+  const table = await screen.findByRole("grid");
   return within(table).getAllByRole("row").slice(1);
 }
 
@@ -85,35 +87,40 @@ describe("the Library screen", () => {
     library([]);
     renderScreen();
     expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
   });
 
   it("lists each Library track's title, artist and file, in the order the backend gave", async () => {
     library([track(2), track(1)]);
     renderScreen();
     const [first, second] = await rows();
+    // The columns the owner chose for the Library; the file's name and folder are All music's.
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
-      tx("library:columns.title"),
-      tx("library:columns.artist"),
-      tx("library:columns.file"),
-      tx("library:columns.actions"),
+      tx("trackTable:columns.title"),
+      tx("trackTable:columns.artist"),
+      tx("trackTable:columns.bpm"),
+      tx("trackTable:columns.key"),
+      tx("trackTable:columns.time"),
+      tx("trackTable:columns.genre"),
+      tx("trackTable:columns.rating"),
+      tx("trackTable:columns.dateAdded"),
+      tx("trackTable:columns.actions"),
     ]);
-    expect(
-      within(first)
-        .getAllByRole("cell")
-        .map((cell) => cell.textContent),
-    ).toEqual(["Synthetic Tune 2", "Made Up Artist 2", String.raw`E:\Music\tune 2.mp3`, `${noCrates}${tx("library:remove.button")}`]);
+    const cells = within(first).getAllByRole("gridcell");
+    expect(cells[0]).toHaveTextContent("Synthetic Tune 2");
+    expect(cells[1]).toHaveTextContent("Made Up Artist 2");
+    expect(cells.at(-1)).toHaveTextContent(`${noCrates}${tx("library:remove.button")}`);
     expect(second).toHaveTextContent("Synthetic Tune 1");
     expect(screen.queryByText(tx("library:empty"))).toBeNull();
     // Nothing to say about a track whose file is there.
-    expect(first).not.toHaveAttribute("aria-describedby");
+    expect(first).not.toHaveTextContent(tx("library:fileMissing"));
   });
 
   it("says how many tracks the Library holds, above the list", async () => {
     library([track(1), track(2), track(3)]);
     renderScreen();
     const count = await screen.findByText(tx("library:trackCount", { count: 3 }));
-    const table = screen.getByRole("table");
+    const table = screen.getByRole("grid");
     expect(count.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -134,11 +141,9 @@ describe("the Library screen", () => {
     library([track(1, { title: null, artist: null })]);
     renderScreen();
     const [row] = await rows();
-    expect(
-      within(row)
-        .getAllByRole("cell")
-        .map((cell) => cell.textContent),
-    ).toEqual(["tune 1.mp3", "", String.raw`E:\Music\tune 1.mp3`, `${noCrates}${tx("library:remove.button")}`]);
+    const cells = within(row).getAllByRole("gridcell");
+    expect(cells[0]).toHaveTextContent("tune 1.mp3");
+    expect(cells[1]).toHaveTextContent("");
   });
 
   it("says so next to a track whose file is missing", async () => {
@@ -146,11 +151,8 @@ describe("the Library screen", () => {
     library([track(1), gone]);
     renderScreen();
     const [here, missing] = await rows();
-    expect(missing).toHaveAccessibleDescription(tx("library:fileMissing"));
-    expect(missing).toHaveTextContent(String.raw`E:\Music\gone.mp3`);
-    expect(missing).toHaveAttribute("data-file-present", "false");
+    expect(missing).toHaveTextContent(tx("library:fileMissing"));
     expect(here).not.toHaveTextContent(tx("library:fileMissing"));
-    expect(here).toHaveAttribute("data-file-present", "true");
   });
 
   it.each(["downloads", "temp", "external", "network"] as const)(
@@ -159,7 +161,7 @@ describe("the Library screen", () => {
       library([track(1, { fragile: reason })]);
       renderScreen();
       const [row] = await rows();
-      expect(row).toHaveAccessibleDescription(tx(`library:fragile.${reason}`));
+      expect(row).toHaveTextContent(tx(`library:fragile.${reason}`));
     },
   );
 
@@ -167,7 +169,11 @@ describe("the Library screen", () => {
     library([track(1)]);
     renderScreen();
     const [row] = await rows();
-    expect(row).not.toHaveAttribute("aria-describedby");
+    for (const reason of ["downloads", "temp", "external", "network"]) {
+      expect(row).not.toHaveTextContent(tx(`library:fragile.${reason}`));
+    }
+    expect(row).not.toHaveTextContent(tx("library:fileMissing"));
+    expect(row).not.toHaveTextContent(tx("library:driveNotConnected"));
   });
 
   it("shows both notes when the file is missing and was somewhere fragile", async () => {
@@ -198,7 +204,7 @@ describe("the Library screen", () => {
     ]);
     renderScreen();
     const [row] = await rows();
-    expect(row).toHaveAccessibleDescription(tx("library:driveNotConnected"));
+    expect(row).toHaveTextContent(tx("library:driveNotConnected"));
     expect(row).not.toHaveTextContent(tx("library:fileMissing"));
   });
 
@@ -238,7 +244,8 @@ function removable(initial: LibraryTrack[]) {
   mockIPC((cmd, args) => {
     calls.push(cmd);
     if (cmd === "list_crates") return [];
-    if (cmd === "library_tracks") return tracks;
+    if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
     if (cmd === "remove_library_track") {
       last = tracks.find((t) => t.id === (args as { id: number }).id) ?? null;
       tracks = tracks.filter((t) => t !== last);
@@ -357,9 +364,10 @@ describe("removing a track from the Library", () => {
 
   it("says so, and keeps the track out, when undo is refused", async () => {
     let tracks = [track(1)];
-    mockIPC((cmd) => {
+    mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
-      if (cmd === "library_tracks") return tracks;
+      if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -392,9 +400,10 @@ describe("removing a track from the Library", () => {
     let finish: (v: unknown) => void = () => {};
     const pending = new Promise((resolve) => (finish = resolve));
     let tracks = [track(1)];
-    mockIPC((cmd) => {
+    mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
-      if (cmd === "library_tracks") return tracks;
+      if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -440,9 +449,10 @@ describe("removing a track from the Library", () => {
 
   it("greys out Undo, with no message, when there turns out to be nothing to undo", async () => {
     let tracks = [track(1)];
-    mockIPC((cmd) => {
+    mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
-      if (cmd === "library_tracks") return tracks;
+      if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -477,7 +487,10 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
   let last: { id: number; added: number[] } | null = null;
   mockIPC((cmd, rawArgs) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
-    if (cmd === "library_tracks") return [track(1), track(2)];
+    if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") {
+      return pageOf([track(1), track(2)].map(rowOfLibraryTrack), queryOf(args));
+    }
     if (cmd === "list_crates") {
       return crates.map((c) => ({
         id: c.id,
@@ -590,8 +603,9 @@ describe("adding a track to a crate", () => {
   });
 
   it("shows why an add was refused", async () => {
-    mockIPC((cmd) => {
-      if (cmd === "library_tracks") return [track(1)];
+    mockIPC((cmd, args) => {
+      if (cmd === "key_notation") return "camelot";
+      if (cmd === "track_table_page") return pageOf([rowOfLibraryTrack(track(1))], queryOf(args));
       if (cmd === "list_crates") {
         return [{ id: 1, parentId: null, kind: "static", name: "Warm up", trackCount: 0 }];
       }
@@ -613,7 +627,8 @@ describe("the Undo offered after a removal, before it knows which action it is f
     const undone: unknown[] = [];
     mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
-      if (cmd === "library_tracks") return tracks;
+      if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];
         return null;
@@ -669,34 +684,26 @@ describe("the Undo offered after a removal, before it knows which action it is f
   });
 });
 
-describe("the Library list's cut-off text", () => {
+describe("the Library table's cut-off text", () => {
   const longTitle =
     "A made-up title that keeps going far past any column width (Extended Club Mix With The Long Intro)";
   const longArtist = "A Made Up Ensemble Of Many Collaborators feat. Another Very Long Guest Artist";
-  const longPath = "E:\\Music\\Made Up Folder\\" + longTitle + ".mp3";
 
   it("a cut-off title cell carries its full text", async () => {
-    library([
-      track(1, {
-        title: longTitle,
-        artist: longArtist,
-        file: { id: 1, path: longPath, name: "x.mp3", present: true, driveConnected: true },
-      }),
-    ]);
+    library([track(1, { title: longTitle, artist: longArtist })]);
     renderScreen();
     const [row] = await rows();
-    const [title, artist, file] = within(row).getAllByRole("cell");
-    expect(title).toHaveAttribute("title", longTitle);
+    const [title, artist] = within(row).getAllByRole("gridcell");
+    expect(within(title).getByText(longTitle)).toHaveAttribute("title", longTitle);
     expect(artist).toHaveAttribute("title", longArtist);
-    expect(within(file).getByText(longPath)).toHaveAttribute("title", longPath);
   });
 
   it("a title that is the file's name carries that name", async () => {
     library([track(1, { title: null, artist: null })]);
     renderScreen();
     const [row] = await rows();
-    const [title, artist] = within(row).getAllByRole("cell");
-    expect(title).toHaveAttribute("title", "tune 1.mp3");
+    const [title, artist] = within(row).getAllByRole("gridcell");
+    expect(within(title).getByText("tune 1.mp3")).toHaveAttribute("title", "tune 1.mp3");
     // No artist: nothing to say on hover.
     expect(artist).not.toHaveAttribute("title");
   });

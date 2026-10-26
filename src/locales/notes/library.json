@@ -14,25 +14,10 @@
     "where": "Library screen, above the track list.",
     "approved": "{{count, number}} tracks"
   },
-  "columns.title": {
-    "purpose": "Column heading for a track's title.",
-    "where": "Library table header.",
-    "approved": "Title"
-  },
-  "columns.artist": {
-    "purpose": "Column heading for a track's artist.",
-    "where": "Library table header.",
-    "approved": "Artist"
-  },
   "columns.file": {
     "purpose": "Column heading for a track's file.",
     "where": "Library table header.",
     "approved": "File"
-  },
-  "columns.actions": {
-    "purpose": "Accessible name of the actions column (visually hidden).",
-    "where": "Library table header, last column (screen readers only).",
-    "approved": "Actions"
   },
   "fileMissing": {
     "purpose": "Note that a track's file isn't on disk.",

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useWaitingOn } from "../activity/useWaitingOn";
 import { errorMessage } from "../api/errors";
+import type { TableRow } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
-import { AllMusicList } from "./AllMusicList";
+import { shownName } from "../trackTable/columns";
+import { TrackTableView } from "../trackTable/TrackTableView";
 import styles from "./AllMusicList.module.css";
 import { LowBitrateWarning } from "./LowBitrateWarning";
-import { useAddToLibrary, useAllMusic } from "./useAllMusic";
+import { ALL_MUSIC_TABLE_QUERY_KEY, useAddToLibrary } from "./useAllMusic";
 import { after, useDebounced, type Schedule } from "./useDebounced";
 
 /** How long the search waits for typing to stop before it asks the backend. */
@@ -15,20 +17,20 @@ const AFTER_TYPING = after(SEARCH_DELAY_MS);
 /** The background work that puts tracks in All music. */
 const FILLS_ALL_MUSIC = ["scan", "read", "hash", "group"] as const;
 
+const ALL_MUSIC_SOURCE = { kind: "allMusic" } as const;
+
 /**
- * All music, minimal (1aE-4): the tracks the scan found, with a search and
- * "Add to Library" per track. It's how a Library started fresh gets its
- * tracks. The full track browser is Phase 1c.
+ * All music (1aE-4): the tracks the scan found, in the track table (1cA-3)
+ * with a search, filters and "Add to Library" per track. It's how a Library
+ * started fresh gets its tracks.
  *
  * The search asks the backend once typing has stopped (`schedule`; tests
- * pass their own), not on every keystroke: each search reads the whole
- * collection.
+ * pass their own), not on every keystroke.
  */
 export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedule }) {
   const { t } = useTranslation("allMusic");
   const [typed, setTyped] = useState("");
   const search = useDebounced(typed, schedule);
-  const list = useAllMusic(search);
   const add = useAddToLibrary();
   // The add the backend asked the user to confirm (1bE-8), until they choose.
   const [warned, setWarned] = useState<{ recordingId: number; title: string; kbps: number } | null>(
@@ -45,30 +47,23 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
     document.querySelector<HTMLElement>(`[data-add-for="${refocus.current}"]`)?.focus();
     refocus.current = null;
   }, [warned]);
-  // The track left the list while the question was open: nothing to ask about.
-  const stillListed =
-    warned === null ||
-    list.data === undefined ||
-    list.data.tracks.some((track) => track.recordingId === warned.recordingId);
-  if (!stillListed) setWarned(null);
-  const addTrack = (recordingId: number) =>
+  const addTrack = (row: TableRow) =>
     add.mutate(
-      { recordingId, confirmLowBitrate: false },
+      { recordingId: row.recordingId, confirmLowBitrate: false },
       {
         onSuccess: (outcome) => {
           if (outcome.outcome !== "needsConfirmation") return;
-          const track = list.data?.tracks.find((candidate) => candidate.recordingId === recordingId);
           setWarned({
-            recordingId,
-            title: track?.title ?? track?.file?.name ?? "",
+            recordingId: row.recordingId,
+            title: shownName(row),
             kbps: outcome.warning.kbps,
           });
         },
       },
     );
-  const failure = list.error ?? add.error;
   // Tracks exist once a scan has read, checked and grouped its files.
   const waiting = useWaitingOn(FILLS_ALL_MUSIC);
+  const adding = add.isPending ? add.variables.recordingId : warned?.recordingId;
 
   return (
     <StageScreen stage="allMusic">
@@ -81,9 +76,9 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
         />
-        {failure && (
+        {add.error && (
           <p role="alert" className={styles.error}>
-            {errorMessage(failure)}
+            {errorMessage(add.error)}
           </p>
         )}
         {warned !== null && (
@@ -97,24 +92,41 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
             onCancel={cancelWarning}
           />
         )}
-        {list.data === undefined ? null : list.data.tracks.length === 0 ? (
-          <EmptyState>{search.trim() === "" ? (waiting ?? t("empty")) : t("noMatch")}</EmptyState>
-        ) : (
-          <>
-            {list.data.total > list.data.tracks.length && (
-              <p className={styles.showing}>
-                {t("showing", { shown: list.data.tracks.length, total: list.data.total })}
-              </p>
-            )}
-            <div className={styles.scroll}>
-              <AllMusicList
-                tracks={list.data.tracks}
-                adding={add.isPending ? add.variables.recordingId : warned?.recordingId}
-                onAdd={addTrack}
-              />
-            </div>
-          </>
-        )}
+        <TrackTableView
+          screen="allMusic"
+          source={ALL_MUSIC_SOURCE}
+          keyPrefix={ALL_MUSIC_TABLE_QUERY_KEY}
+          search={search}
+          count={(total) => t("trackCount", { count: total })}
+          empty={<EmptyState>{waiting ?? t("empty")}</EmptyState>}
+          // The track left the list while the question was open: nothing to
+          // ask about.
+          onNarrowed={() => setWarned(null)}
+          actionsWidth={220}
+          actions={(row) =>
+            row.inLibrary ? (
+              <span className={styles.inLibrary}>{t("inLibrary")}</span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={styles.add}
+                  data-add-for={row.recordingId}
+                  disabled={adding !== undefined || row.matchNotConfirmed}
+                  aria-describedby={row.matchNotConfirmed ? `why-${row.recordingId}` : undefined}
+                  onClick={() => addTrack(row)}
+                >
+                  {t("add")}
+                </button>
+                {row.matchNotConfirmed && (
+                  <span id={`why-${row.recordingId}`} className={styles.inLibrary}>
+                    {t("matchNotConfirmed")}
+                  </span>
+                )}
+              </>
+            )
+          }
+        />
       </div>
     </StageScreen>
   );

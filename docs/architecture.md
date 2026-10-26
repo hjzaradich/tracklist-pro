@@ -83,7 +83,8 @@ What it deliberately is not (ROADMAP §1 principles; CLAUDE.md "Must / never"):
 | `attach` | rekordbox's BPM and key → `analysis` rows | Use a probable match |
 | `library` | Library tracks: add (`promote`), remove, list; `library::follow` moves a link to the same audio when the linked file is gone (the second step of the relink job) | Re-point a link in any other case (another encode, a better file, a file that is still on disk); change which rekordbox entry a track is sent as; touch a file |
 | `start` | The offer to add rekordbox's tracks, whole or by playlist | Add anything automatically |
-| `all_music` | The list of every track with a file | — |
+| `all_music` | The list of every track with a file (the old simple list; the screens use `track_table`) | — |
+| `track_table` | One window of rows at a time for the Library, All music and a crate, sorted, searched and filtered in SQL over `track_row` (`track_table_page`) | Load a whole list into the page; open a file |
 | `missing` | rekordbox entries with no file, grouped by folder | Open a file or wake a network path |
 | `fragile` | Warnings for files in Downloads, temp, external or network drives | — |
 | `crates` | Top-level static crates and their entries | Accept a name the XML writer would refuse |
@@ -163,7 +164,7 @@ The canonical tag columns on `recording` (title, artist, …) exist but nothing 
 
 ### Starting a Library
 - **From rekordbox:** `start::rekordbox_offer` counts tracks with a trusted match that aren't in the Library. `start::add_rekordbox_tracks` adds them (all, or by chosen playlists) as one operation, so one undo removes the batch.
-- **Fresh:** `all_music::all_music_tracks` lists tracks; `library::promote_track` adds one.
+- **Fresh:** `track_table::track_table_page` lists All music's tracks; `library::promote_track` adds one.
 - Either way `library` picks the linked file: the file rekordbox uses (trusted match), else the track's best file. It refuses if that file isn't on disk. Only database rows change.
 - `library::remove_library_track` deletes the track with its crate entries and sync bases, and adds a `library_removal` row, in one undoable operation.
 - `library::follow::follow_files` runs after every relink (same job, its own transactions): a Library track whose linked file is gone follows it to the same audio, but only where the track is still sent as the same rekordbox entry afterwards (`send_values::sent_as`). Another encode never follows; it shows as "better file" (`better_file`, step `onDisk`) for Review.

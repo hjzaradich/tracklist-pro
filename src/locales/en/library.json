@@ -3,10 +3,7 @@
   "trackCount_one": "{{count, number}} track",
   "trackCount_other": "{{count, number}} tracks",
   "columns": {
-    "title": "Title",
-    "artist": "Artist",
-    "file": "File",
-    "actions": "Actions"
+    "file": "File"
   },
   "fileMissing": "File missing",
   "driveNotConnected": "Drive not connected",

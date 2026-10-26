@@ -8,6 +8,7 @@ import { createQueryClient } from "../app/queryClient";
 import type { LibraryTrack, OperationDetails, OperationInfo, UndoRefusal } from "../bindings";
 import "../i18n";
 import { LibraryScreen } from "../library/LibraryScreen";
+import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { UndoButton } from "./UndoButton";
 
@@ -376,7 +377,8 @@ function libraryUnderTheBar(initial: LibraryTrack[], earlier: Step[] = []) {
   let nextId = 10;
   const backend = history(earlier, (cmd, args) => {
     if (cmd === "list_crates") return [];
-    if (cmd === "library_tracks") return tracks;
+    if (cmd === "key_notation") return "camelot";
+    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
     if (cmd === "remove_library_track") {
       const removed = tracks.find((t) => t.id === args.id);
       if (removed === undefined) throw { kind: "libraryTrackNotFound", params: {} };
@@ -401,7 +403,7 @@ function libraryUnderTheBar(initial: LibraryTrack[], earlier: Step[] = []) {
 }
 
 async function rows() {
-  const table = await screen.findByRole("table");
+  const table = await screen.findByRole("grid");
   return within(table).getAllByRole("row").slice(1);
 }
 

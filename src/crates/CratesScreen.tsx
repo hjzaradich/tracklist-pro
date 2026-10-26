@@ -1,17 +1,18 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Crate, FolderContents, LibraryTrack } from "../bindings";
-import { LibraryTrackList } from "../library/LibraryTrackList";
+import type { Crate, FolderContents } from "../bindings";
+import { libraryRow, type LibraryRow } from "../library/libraryRow";
 import { shownTitle } from "../library/RemoveFromLibrary";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { useUndoAfterAction } from "../shell/useUndo";
+import { TrackTableView } from "../trackTable/TrackTableView";
 import { ConfirmDelete, MoveForm, NameForm } from "./CrateForms";
 import styles from "./CratesScreen.module.css";
 import { buildTree, PATH_SEPARATOR, pathOf, type TreeNode } from "./tree";
 import {
+  CRATES_QUERY_KEY,
   useCrates,
-  useCrateTracks,
   useCreateCrate,
   useCreateFolder,
   useDeleteCrate,
@@ -82,7 +83,6 @@ export function CratesScreen({
     setAskedAbout(current?.id ?? null);
     setAsking(null);
   }
-  const tracks = useCrateTracks(current?.kind === "static" ? current.id : null);
   const contents = useFolderContents(
     asking === "delete" && current?.kind === "folder" ? current.id : null,
   );
@@ -242,8 +242,6 @@ export function CratesScreen({
                 <CrateView
                   crate={current}
                   all={list}
-                  tracks={tracks.data}
-                  tracksError={tracks.isError ? errorMessage(tracks.error) : null}
                   asking={asking}
                   renaming={rename.isPending}
                   deleting={remove.isPending}
@@ -343,8 +341,6 @@ function TreeRows({
 function CrateView({
   crate,
   all,
-  tracks,
-  tracksError,
   asking,
   renaming,
   deleting,
@@ -359,8 +355,6 @@ function CrateView({
 }: {
   crate: Crate;
   all: Crate[];
-  tracks: LibraryTrack[] | undefined;
-  tracksError: string | null;
   asking: Asking;
   renaming: boolean;
   deleting: boolean;
@@ -371,7 +365,7 @@ function CrateView({
   onRename: (name: string) => void;
   onMove: (folder: number | null) => void;
   onDelete: () => void;
-  onRemoveTrack: (track: LibraryTrack) => void;
+  onRemoveTrack: (track: LibraryRow) => void;
 }) {
   const { t } = useTranslation("crates");
   const folder = crate.kind === "folder";
@@ -444,28 +438,32 @@ function CrateView({
         <EmptyState>
           {all.some((c) => c.parentId === crate.id) ? t("folder.select") : t("folder.empty")}
         </EmptyState>
-      ) : tracksError !== null ? (
-        <p role="alert" className={styles.error}>
-          {tracksError}
-        </p>
-      ) : tracks === undefined ? null : tracks.length === 0 ? (
-        <EmptyState>{t("noTracks")}</EmptyState>
       ) : (
-        <div className={styles.scroll}>
-          <LibraryTrackList
-            tracks={tracks}
-            actions={(track) => (
-              <button
-                type="button"
-                className={styles.button}
-                aria-label={t("removeTrack.buttonFor", { title: shownTitle(track) })}
-                onClick={() => onRemoveTrack(track)}
-              >
-                {t("removeTrack.button")}
-              </button>
-            )}
-          />
-        </div>
+        {/* Another crate starts with its own sort and filters. */}
+        <TrackTableView
+          key={crate.id}
+          screen="crate"
+          source={{ kind: "crate", id: crate.id }}
+          keyPrefix={[...CRATES_QUERY_KEY, "table", crate.id]}
+          count={(total) => t("trackCount", { count: total })}
+          empty={<EmptyState>{t("noTracks")}</EmptyState>}
+          actionsWidth={120}
+          actions={(row) => {
+            const track = libraryRow(row);
+            return (
+              track && (
+                <button
+                  type="button"
+                  className={styles.button}
+                  aria-label={t("removeTrack.buttonFor", { title: shownTitle(track) })}
+                  onClick={() => onRemoveTrack(track)}
+                >
+                  {t("removeTrack.button")}
+                </button>
+              )
+            );
+          }}
+        />
       )}
     </>
   );

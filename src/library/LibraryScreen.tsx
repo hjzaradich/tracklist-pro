@@ -1,31 +1,33 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Crate, LibraryTrack } from "../bindings";
+import type { Crate } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
-import { LibraryTrackList } from "./LibraryTrackList";
+import { TrackTableView } from "../trackTable/TrackTableView";
 import styles from "./LibraryTrackList.module.css";
 import { useAddToCrate, useCrates } from "../crates/useCrates";
 import { AddedToCrate, AddToCrate } from "./AddToCrate";
 import { ConfirmRemove, RemoveButton } from "./RemoveFromLibrary";
 import { useUndoAfterAction } from "../shell/useUndo";
-import { useLibraryTracks } from "./useLibraryTracks";
+import { libraryRow, type LibraryRow } from "./libraryRow";
+import { LIBRARY_TABLE_QUERY_KEY } from "./useLibraryTracks";
 import { useRemoveLibraryTrack } from "./useRemoveLibraryTrack";
 
 /** What the strip above the list says about the last removal. */
 type Removal = "removed" | "undone" | "nothingToUndo" | "undoRefused";
 
+const LIBRARY_SOURCE = { kind: "library" } as const;
+
 /**
- * The Library: the tracks the user added to play with (1aD-6). Starting a
- * Library and adding tracks arrive in 1aE. A track is removed after a
- * confirmation, and the removal can be undone (1aE-6).
+ * The Library: the tracks the user added to play with (1aD-6), in the track
+ * table (1cA-3). Starting a Library and adding tracks arrive in 1aE. A track
+ * is removed after a confirmation, and the removal can be undone (1aE-6).
  */
 export function LibraryScreen() {
   const { t } = useTranslation("library");
-  const tracks = useLibraryTracks();
   const remove = useRemoveLibraryTrack();
   const { arm, offered, ready, undo } = useUndoAfterAction();
-  const [pending, setPending] = useState<LibraryTrack | null>(null);
+  const [pending, setPending] = useState<LibraryRow | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const crates = useCrates();
   const addToCrate = useAddToCrate();
@@ -36,7 +38,7 @@ export function LibraryScreen() {
     operationId: number | null;
   } | null>(null);
 
-  const add = (track: LibraryTrack, crate: Crate) => {
+  const add = (track: LibraryRow, crate: Crate) => {
     setRemoval(null);
     undo.reset();
     remove.reset();
@@ -124,40 +126,39 @@ export function LibraryScreen() {
         {added !== null && !addToCrate.isError && (
           <AddedToCrate key={added.key} crate={added.crate} operationId={added.operationId} />
         )}
-        {tracks.isError ? (
-          <p role="alert" className={styles.error}>
-            {errorMessage(tracks.error)}
-          </p>
-        ) : tracks.data === undefined ? null : tracks.data.length === 0 ? (
-          <div className={styles.centered}>
-            <EmptyState>{t("empty")}</EmptyState>
-          </div>
-        ) : (
-          <>
-            {/* How many tracks the Library holds: the list itself is too
-                long to count. */}
-            <p className={styles.notes}>{t("trackCount", { count: tracks.data.length })}</p>
-            <div className={styles.scroll}>
-              <LibraryTrackList
-                tracks={tracks.data}
-                actions={(track) => (
-                  <>
-                    <AddToCrate track={track} crates={crates.data ?? []} onChoose={add} />
-                    <RemoveButton
-                      track={track}
-                      onRemove={(chosen) => {
-                        setRemoval(null);
-                        setAdded(null);
-                        undo.reset();
-                        setPending(chosen);
-                      }}
-                    />
-                  </>
-                )}
-              />
+        <TrackTableView
+          screen="library"
+          source={LIBRARY_SOURCE}
+          keyPrefix={LIBRARY_TABLE_QUERY_KEY}
+          // How many tracks the Library holds: the list itself is too long
+          // to count.
+          count={(total) => t("trackCount", { count: total })}
+          empty={
+            <div className={styles.centered}>
+              <EmptyState>{t("empty")}</EmptyState>
             </div>
-          </>
-        )}
+          }
+          actionsWidth={232}
+          actions={(row) => {
+            const track = libraryRow(row);
+            return (
+              track && (
+                <>
+                  <AddToCrate track={track} crates={crates.data ?? []} onChoose={add} />
+                  <RemoveButton
+                    track={track}
+                    onRemove={(chosen) => {
+                      setRemoval(null);
+                      setAdded(null);
+                      undo.reset();
+                      setPending(chosen);
+                    }}
+                  />
+                </>
+              )
+            );
+          }}
+        />
       </div>
     </StageScreen>
   );

@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Crate, LibraryTrack } from "../bindings";
+import type { Crate } from "../bindings";
 import { crateChoices } from "../crates/tree";
 import { useUndoAfterAction } from "../shell/useUndo";
+import type { LibraryRow } from "./libraryRow";
 import { shownTitle } from "./RemoveFromLibrary";
 import styles from "./LibraryTrackList.module.css";
 
@@ -20,9 +21,9 @@ export function AddToCrate({
   crates,
   onChoose,
 }: {
-  track: LibraryTrack;
+  track: LibraryRow;
   crates: Crate[];
-  onChoose: (track: LibraryTrack, crate: Crate) => void;
+  onChoose: (track: LibraryRow, crate: Crate) => void;
 }) {
   const { t } = useTranslation("crates");
   const choices = crateChoices(crates);

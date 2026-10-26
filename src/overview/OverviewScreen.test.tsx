@@ -83,7 +83,8 @@ function fakeBackend(state: {
       }
       if (cmd === "music_folders") return [];
       if (cmd === "read_online_only_files") return false;
-      if (cmd === "all_music_tracks") return { total: 0, tracks: [] };
+      if (cmd === "key_notation") return "camelot";
+      if (cmd === "track_table_page") return { total: 0, offset: 0, rows: [], behind: false };
       if (cmd === "rekordbox_xml_source") {
         return {
           path: null,
