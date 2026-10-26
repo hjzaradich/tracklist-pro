@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import type { LibraryTrack } from "../bindings";
+import type { LibraryRow } from "./libraryRow";
 import styles from "./LibraryTrackList.module.css";
 
 /** What the Library list calls a track: its title, or its file's name. */
-export function shownTitle(track: LibraryTrack): string {
+export function shownTitle(track: Pick<LibraryRow, "title" | "file">): string {
   return track.title ?? track.file?.name ?? "";
 }
 
@@ -17,7 +17,7 @@ export function ConfirmRemove({
   onConfirm,
   onCancel,
 }: {
-  track: LibraryTrack;
+  track: LibraryRow;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -67,8 +67,8 @@ export function RemoveButton({
   track,
   onRemove,
 }: {
-  track: LibraryTrack;
-  onRemove: (track: LibraryTrack) => void;
+  track: LibraryRow;
+  onRemove: (track: LibraryRow) => void;
 }) {
   const { t } = useTranslation("library");
   return (

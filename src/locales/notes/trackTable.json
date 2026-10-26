@@ -1,0 +1,70 @@
+{
+  "label": {
+    "purpose": "Accessible name of the track table.",
+    "where": "Library, All music and crate screens, the track table (screen readers only)."
+  },
+  "columns.title": {
+    "purpose": "Column heading for a track's title.",
+    "where": "Track table header."
+  },
+  "columns.artist": {
+    "purpose": "Column heading for a track's artist.",
+    "where": "Track table header."
+  },
+  "columns.bpm": {
+    "purpose": "Column heading for a track's tempo.",
+    "where": "Track table header."
+  },
+  "columns.key": {
+    "purpose": "Column heading for a track's musical key.",
+    "where": "Track table header."
+  },
+  "columns.time": {
+    "purpose": "Column heading for a track's length.",
+    "where": "Track table header."
+  },
+  "columns.genre": {
+    "purpose": "Column heading for a track's genre.",
+    "where": "Track table header."
+  },
+  "columns.rating": {
+    "purpose": "Column heading for a track's star rating.",
+    "where": "Track table header."
+  },
+  "columns.dateAdded": {
+    "purpose": "Column heading for when a track was added: to the Library, or in All music for a track not in the Library, when it was first found.",
+    "where": "Track table header."
+  },
+  "columns.file": {
+    "purpose": "Column heading for a track's file name.",
+    "where": "Track table header, All music."
+  },
+  "columns.folder": {
+    "purpose": "Column heading for the folder a track's file is in.",
+    "where": "Track table header, All music."
+  },
+  "columns.actions": {
+    "purpose": "Accessible name of the actions column (visually hidden).",
+    "where": "Track table header, last column (screen readers only)."
+  },
+  "sortBy": {
+    "purpose": "Hover text and accessible name of a column heading that sorts the table.",
+    "where": "Track table header buttons ({{column}} is the column's name)."
+  },
+  "rating_one": {
+    "purpose": "A star rating, for screen readers and hover text, when it is one star.",
+    "where": "Track table, Rating column."
+  },
+  "rating_other": {
+    "purpose": "A star rating, for screen readers and hover text, when it is several stars.",
+    "where": "Track table, Rating column."
+  },
+  "updating": {
+    "purpose": "Says the table may be out of date for a moment, because the background work that sorts and filters it hasn't caught up with a change.",
+    "where": "Above the track table, only while that work is running."
+  },
+  "noMatch": {
+    "purpose": "Says no track fits the search and the filters. Same wording as All music's (allMusic:noMatch).",
+    "where": "Track table, in place of the rows."
+  }
+}

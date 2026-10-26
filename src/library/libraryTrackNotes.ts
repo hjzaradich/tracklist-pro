@@ -1,6 +1,9 @@
 import type { TFunction } from "i18next";
 import type { FragileReason, LibraryTrack } from "../bindings";
 
+/** What a track's notes are worked out from: a Library track, or a row of the track table. */
+export type Noted = Pick<LibraryTrack, "sourceMissing" | "file" | "fragile">;
+
 /**
  * One thing worth saying about a Library track, before it's put into
  * words. New kinds of note join this union, {@link trackNotes} and
@@ -12,7 +15,7 @@ export type TrackNote =
   | { kind: "fragile"; reason: FragileReason };
 
 /** What to say about a Library track, most important first. Usually nothing. */
-export function trackNotes(track: LibraryTrack): TrackNote[] {
+export function trackNotes(track: Noted): TrackNote[] {
   const notes: TrackNote[] = [];
   // The scan keeps `sourceMissing` current; a file on an unplugged drive
   // stays present, so it's never "missing", only on a drive that isn't there.

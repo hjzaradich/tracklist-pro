@@ -523,7 +523,8 @@ impl Loaded {
             Scope::Send | Scope::Decide => "",
             Scope::Names => "AND j.key IN ('Name', 'Artist')",
             Scope::Search => {
-                "AND j.key IN ('Name', 'Artist', 'Album', 'Remixer', 'Label', 'Genre', 'Comments')"
+                "AND j.key IN ('Name', 'Artist', 'Album', 'Remixer', 'Label', 'Genre', 'Comments',
+                               'TotalTime', 'Rating')"
             }
         };
         let mut stmt = conn.prepare(&format!(

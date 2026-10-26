@@ -42,6 +42,7 @@ pub mod sniff;
 pub mod start;
 pub mod suggest;
 pub mod tags;
+pub mod track_table;
 pub mod versions;
 pub mod volume;
 pub mod write_guard;

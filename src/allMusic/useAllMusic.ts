@@ -1,21 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "../api/errors";
-import { commands, type AllMusicList } from "../bindings";
+import { commands } from "../bindings";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 
 /** Invalidate this after anything adds or removes a Library track. */
 export const ALL_MUSIC_QUERY_KEY = ["allMusic"] as const;
 
-/** The tracks in All music matching `search` (all when it's blank), up to the backend's limit. */
-export function useAllMusic(search: string) {
-  return useQuery({
-    queryKey: [...ALL_MUSIC_QUERY_KEY, search],
-    queryFn: (): Promise<AllMusicList> => unwrap(commands.allMusicTracks(search)),
-    // The list stays up while the next search loads.
-    placeholderData: (previous) => previous,
-  });
-}
+/**
+ * All music's track table (1cA-3) keeps its windows of rows under this key,
+ * which starts with {@link ALL_MUSIC_QUERY_KEY}, so whatever invalidates All
+ * music fetches the windows on screen again.
+ */
+export const ALL_MUSIC_TABLE_QUERY_KEY = [...ALL_MUSIC_QUERY_KEY, "table"] as const;
 
 /** What an "Add to Library" asks for: the track, and whether the user already confirmed the low-bitrate warning. */
 export type AddRequest = { recordingId: number; confirmLowBitrate: boolean };

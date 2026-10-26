@@ -92,11 +92,21 @@ fn picked_tags(tags: &[(i64, Vec<tag_fields::TagValue>)], wanted: &[&str]) -> Ve
 
 const NAMES: [&str; 2] = ["Name", "Artist"];
 
-/// What the search index holds of a track besides its files' names: the
-/// attributes a list's title and artist come from, and five more. Title and
-/// artist come first, so `SEARCH_ATTRIBUTES[..2] == NAMES`.
-pub const SEARCH_ATTRIBUTES: [&str; 7] = [
-    "Name", "Artist", "Album", "Remixer", "Label", "Genre", "Comments",
+/// What the search index and the track table hold of a track besides its
+/// files' names: the attributes a list's title and artist come from, five
+/// more for the search, and two for the table (rekordbox's length and
+/// rating; no tag gives either, so a track rekordbox doesn't know has
+/// none). Title and artist come first, so `SEARCH_ATTRIBUTES[..2] == NAMES`.
+pub const SEARCH_ATTRIBUTES: [&str; 9] = [
+    "Name",
+    "Artist",
+    "Album",
+    "Remixer",
+    "Label",
+    "Genre",
+    "Comments",
+    "TotalTime",
+    "Rating",
 ];
 
 impl Loaded {
@@ -235,6 +245,19 @@ fn found(conn: &Connection, ids: &[i64], wanted: &[&str]) -> rusqlite::Result<Ha
     Ok(out)
 }
 
+/// A rekordbox `Rating` as stars: one of its six values, or none.
+fn stars_of(rating: &str) -> Option<u8> {
+    match rating.trim() {
+        "0" => Some(0),
+        "51" => Some(1),
+        "102" => Some(2),
+        "153" => Some(3),
+        "204" => Some(4),
+        "255" => Some(5),
+        _ => None,
+    }
+}
+
 /// The title and artist to show for each recording in `ids`, from its own
 /// tags (best file first), in one query. For All music's tracks that aren't
 /// in the Library.
@@ -266,6 +289,11 @@ pub struct ShownFields {
     pub label: String,
     pub genre: String,
     pub comment: String,
+    /// rekordbox's `TotalTime` in seconds, for a Library track it knows.
+    pub total_time_s: Option<u32>,
+    /// rekordbox's `Rating` in stars (0 to 5), for a Library track it knows
+    /// whose rating is one of its six values.
+    pub stars: Option<u8>,
     /// The title is the file's name, because the track has none of its own:
     /// the rule's last resort ([`compose`]), known from where the title
     /// came from, never from how it looks.
@@ -284,6 +312,8 @@ impl ShownFields {
             label: at(4),
             genre: at(5),
             comment: at(6),
+            total_time_s: picked[7].as_deref().and_then(|t| t.trim().parse().ok()),
+            stars: picked[8].as_deref().and_then(stars_of),
         }
     }
 }

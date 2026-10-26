@@ -1,10 +1,3 @@
-/* The stage body centres its content; the list fills it instead. */
-.scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
 /* Strips about a removal, then the list, one above the other. */
 .content {
   display: flex;
@@ -18,95 +11,6 @@
   display: grid;
   flex: 1;
   place-items: center;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  text-align: left;
-}
-
-/* Title and artist take a share of the width, the actions a fixed one, and
- * the file path what's left. */
-.table th:nth-child(1) {
-  width: 28%;
-}
-
-.table th:nth-child(2) {
-  width: 18%;
-}
-
-.table th:nth-child(4) {
-  width: 14rem;
-}
-
-.table th {
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-}
-
-.table td {
-  height: var(--row-height);
-  padding: var(--space-1) var(--space-2);
-  vertical-align: middle;
-  color: var(--color-text);
-}
-
-/* Controls inside a row are as tall as the row's text, so a row stays at
- * the compact row height. */
-.table .select,
-.table .button {
-  padding-block: 0;
-}
-
-/* Every other row, so the eye stays on one row of a long list. Before the
- * hover rule, so hover wins. */
-.row:nth-child(even) td {
-  background: var(--color-row-stripe);
-}
-
-.row:hover td {
-  background: var(--color-surface-hover);
-}
-
-/* A long title, artist or path is cut off with "…" so a row stays one line.
- * The full text is the cell's title (hover). */
-.title,
-.artist,
-.path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.path {
-  display: block;
-}
-
-.file .path {
-  color: var(--color-text-muted);
-}
-
-.notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-.note {
-  color: var(--color-warning);
-}
-
-/* A row's actions sit side by side, whatever they are. */
-.actionsCell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
 }
 
 .select {
@@ -196,14 +100,4 @@
 .confirmDetail {
   margin: 0;
   color: var(--color-text-muted);
-}
-
-/* Read by screen readers, not shown. */
-.hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }

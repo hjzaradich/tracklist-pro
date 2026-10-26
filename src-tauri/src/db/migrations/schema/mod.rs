@@ -26,6 +26,7 @@ mod search_index;
 mod sent_playlist;
 mod sync_base_ids;
 mod track_merge;
+mod track_row;
 mod tracks;
 mod workspace;
 
@@ -250,6 +251,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // Rebuilds `file` and `recording` so their ids are never reused, no
     // tables.
     ("0031_file_and_track_ids_never_reused.sql", &[]),
+    // What the track table sorts and filters by (derived state).
+    ("0032_track_row.sql", &["track_row"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

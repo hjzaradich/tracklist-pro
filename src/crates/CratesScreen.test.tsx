@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type { Crate, LibraryTrack } from "../bindings";
 import "../i18n";
+import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { CratesScreen } from "./CratesScreen";
 
@@ -70,8 +71,15 @@ function backend(
     switch (cmd) {
       case "list_crates":
         return crates.map((c) => ({ ...c.crate, trackCount: c.tracks.length }));
-      case "crate_tracks":
-        return crates.find((c) => c.crate.id === args.id)?.tracks ?? refuse("crateNotFound");
+      case "key_notation":
+        return "camelot";
+      case "track_table_page": {
+        const query = queryOf(args);
+        const source = query.source;
+        const found = crates.find((c) => source.kind === "crate" && c.crate.id === source.id);
+        if (found === undefined) return refuse("crateNotFound");
+        return pageOf(found.tracks.map(rowOfLibraryTrack), query);
+      }
       case "create_crate":
       case "create_crate_folder": {
         const name = String(args.name).trim();
@@ -241,25 +249,29 @@ describe("the Crates screen", () => {
     backend([crateWith(1, "Warm up", [track(1)])]);
     renderScreen();
     expect(await screen.findByText(tx("crates:select"))).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
   });
 
   it("shows the chosen crate's tracks in the Library list's columns, in the order the backend gave", async () => {
     backend([crateWith(1, "Warm up", [track(2), track(1)]), crateWith(2, "Other", [track(3)])]);
     renderScreen();
     await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
-    const table = await screen.findByRole("table");
+    const table = await screen.findByRole("grid");
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Warm up");
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
-      tx("library:columns.title"),
-      tx("library:columns.artist"),
-      tx("library:columns.file"),
-      tx("library:columns.actions"),
+      tx("trackTable:columns.title"),
+      tx("trackTable:columns.artist"),
+      tx("trackTable:columns.bpm"),
+      tx("trackTable:columns.key"),
+      tx("trackTable:columns.time"),
+      tx("trackTable:columns.genre"),
+      tx("trackTable:columns.rating"),
+      tx("trackTable:columns.dateAdded"),
+      tx("trackTable:columns.actions"),
     ]);
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows[0]).toHaveTextContent("Synthetic Tune 2");
     expect(rows[0]).toHaveTextContent("Made Up Artist 2");
-    expect(rows[0]).toHaveTextContent(String.raw`E:\Music\tune 2.mp3`);
     expect(rows[1]).toHaveTextContent("Synthetic Tune 1");
     expect(rows).toHaveLength(2);
   });
@@ -269,7 +281,7 @@ describe("the Crates screen", () => {
     renderScreen();
     await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
     expect(await screen.findByText(tx("crates:noTracks"))).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
   });
 
   it("takes a track out of the crate with its Remove, and only that track", async () => {
@@ -283,7 +295,7 @@ describe("the Crates screen", () => {
     );
     expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:done.removed"));
     await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(2));
-    expect(screen.getByRole("table")).not.toHaveTextContent("Synthetic Tune 1");
+    expect(screen.getByRole("grid")).not.toHaveTextContent("Synthetic Tune 1");
     expect(calls.filter((c) => c.cmd === "remove_tracks_from_crate")).toEqual([
       { cmd: "remove_tracks_from_crate", args: { id: 1, tracks: [1] } },
     ]);
@@ -423,7 +435,7 @@ describe("undo", () => {
     await userEvent.click(await button("crates:new.confirm"));
     const undo = await readyUndo();
     // The backend refuses the undo.
-    mockIPC((cmd) => {
+    mockIPC((cmd, args) => {
       if (cmd === "undo_last_operation") {
         return {
           status: "refused",
@@ -435,7 +447,8 @@ describe("undo", () => {
       if (cmd === "list_crates") {
         return [{ id: 100, parentId: null, kind: "static", name: "Warm up", trackCount: 0 }];
       }
-      if (cmd === "crate_tracks") return [];
+      if (cmd === "key_notation") return "camelot";
+      if (cmd === "track_table_page") return pageOf([], queryOf(args));
       throw new Error(`unexpected command ${cmd}`);
     });
     await userEvent.click(undo);
@@ -561,7 +574,8 @@ describe("the Undo offered after creating or deleting a crate, before it knows w
     mockIPC((cmd, args) => {
       const a = (args ?? {}) as Record<string, unknown>;
       if (cmd === "list_crates") return crates;
-      if (cmd === "crate_tracks") return [];
+      if (cmd === "key_notation") return "camelot";
+      if (cmd === "track_table_page") return pageOf([], queryOf(args));
       if (cmd === "create_crate") {
         crates = [
           ...crates,

@@ -1,0 +1,193 @@
+/* The track table (docs/design-style.md): compact rows, tabular figures for
+ * the numbers, only the selected row tinted. The rows are drawn one by one at
+ * their place, so the table is as long as the list however few are drawn. */
+.table {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+/* The scroll area holds the header (stuck to its top) and the rows, so the
+ * two scroll sideways together. */
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.viewport:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-width: var(--tt-min-width);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.headRow,
+.row {
+  display: grid;
+  grid-template-columns: var(--tt-columns);
+  align-items: center;
+  height: var(--tt-row);
+}
+
+.headCell {
+  display: flex;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.sortButton {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  height: var(--tt-row);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sortButton:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.sortButton:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.headText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.caret {
+  flex: none;
+}
+
+.rows {
+  position: relative;
+  min-width: var(--tt-min-width);
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  color: var(--color-text);
+}
+
+/* Every other row, so the eye stays on one row of a long list. Stripe, then
+ * hover, then selected: each a clear step stronger than the one before. */
+.stripe {
+  background: var(--color-row-stripe);
+}
+
+.row:hover {
+  background: var(--color-surface-hover);
+}
+
+.selected,
+.selected:hover {
+  background: var(--color-selected);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.cell {
+  min-width: 0;
+  padding: 0 var(--space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A cell that holds more than text: the title's play button, text and notes. */
+.rich {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.headCell.numeric .sortButton {
+  justify-content: flex-end;
+}
+
+.play {
+  flex: none;
+}
+
+/* A long title is cut off with "…"; the notes keep their room. */
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+  max-width: 50%;
+  font-size: var(--font-size-sm);
+}
+
+.note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-warning);
+}
+
+/* A row's buttons sit side by side, whatever they are. */
+.actionsCell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow: visible;
+}
+
+/* Controls inside a row are as tall as the row's text, so a row stays at the
+ * compact row height. */
+.actionsCell button,
+.actionsCell select {
+  padding-block: 0;
+}
+
+/* Read by screen readers, not shown. */
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

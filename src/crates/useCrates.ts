@@ -5,13 +5,11 @@ import {
   type Changed,
   type Crate,
   type FolderContents,
-  type LibraryTrack,
 } from "../bindings";
 
 /** Every crate query starts with this, so one invalidation reaches them all. */
 export const CRATES_QUERY_KEY = ["crates"] as const;
 const LIST_KEY = [...CRATES_QUERY_KEY, "list"] as const;
-const tracksKey = (id: number) => [...CRATES_QUERY_KEY, "tracks", id] as const;
 
 /**
  * Call after anything that can change what a crate holds: a crate change, or
@@ -35,15 +33,6 @@ export function useFolderContents(id: number | null) {
     // Never shown from an earlier look: a count the confirmation shows is
     // the count right now.
     gcTime: 0,
-  });
-}
-
-/** A crate's tracks, in the order they were added. */
-export function useCrateTracks(id: number | null) {
-  return useQuery({
-    queryKey: tracksKey(id ?? -1),
-    queryFn: (): Promise<LibraryTrack[]> => unwrap(commands.crateTracks(id ?? -1)),
-    enabled: id !== null,
   });
 }
 

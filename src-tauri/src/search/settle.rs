@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use rusqlite::{params, Connection};
 
+use super::table_row::{self, Facts};
 use super::MAX_COMMENT_CHARS;
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
@@ -34,16 +35,35 @@ fn json(ids: &[i64]) -> String {
     serde_json::to_string(ids).expect("numbers always serialize")
 }
 
+/// A hash of the eight texts a track's search row holds, to tell a row
+/// that would be written again as it is (the search table keeps no text to
+/// read back). Every text is length-prefixed, so none can run into the next.
+fn text_hash(texts: &[&str; 8]) -> i64 {
+    let mut hasher = blake3::Hasher::new();
+    for text in texts {
+        hasher.update(&(text.len() as u64).to_le_bytes());
+        hasher.update(text.as_bytes());
+    }
+    let hash = hasher.finalize();
+    i64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("eight bytes"))
+}
+
 /// A row of the index, before it is written.
 struct Row {
     fields: ShownFields,
     file_names: String,
+    /// What the track table sorts and filters by.
+    facts: Facts,
+    /// The track has a file.
+    has_file: bool,
 }
 
 /// Works out and writes the rows of up to `limit` due tracks, in one
-/// transaction, and returns how many tracks that was. A track's old row is
-/// deleted and its new one written in the same transaction that removes it
-/// from `search_due`, so a crash never leaves a track with neither.
+/// transaction, and returns how many tracks that was. A track's new rows are
+/// written in the same transaction that removes it from `search_due`, so a
+/// crash never leaves a track with neither. A row that comes out the same as
+/// the stored one is not written (neither is its search row), so a track
+/// that was marked for nothing costs a read.
 ///
 /// `-1` in `search_due` stands for every Library track (a rekordbox read):
 /// it is replaced by them first.
@@ -59,6 +79,8 @@ pub fn settle_page(
              SELECT recording_id FROM library_track",
             [],
         )?;
+        // Which tracks rekordbox has is the table's, for every track.
+        table_row::refresh_rekordbox_flags(&tx)?;
     }
     // Nothing writes any other id that isn't a track's.
     tx.execute(
@@ -75,9 +97,15 @@ pub fn settle_page(
     }
     let rows = rows_for(&tx, volumes, &page)?;
     for id in &page {
-        tx.prepare_cached("DELETE FROM search_track WHERE rowid = ?1")?
-            .execute([id])?;
-        let Some(row) = rows.get(id) else { continue };
+        let Some(row) = rows.get(id) else {
+            // No row to write (the track is gone, or has neither a file nor
+            // a Library track): whatever it had goes.
+            tx.prepare_cached("DELETE FROM search_track WHERE rowid = ?1")?
+                .execute([id])?;
+            tx.prepare_cached("DELETE FROM track_row WHERE recording_id = ?1")?
+                .execute([id])?;
+            continue;
+        };
         let f = &row.fields;
         let comment: String = f.comment.chars().take(MAX_COMMENT_CHARS).collect();
         // A title that is the file's name is indexed like a file name.
@@ -85,21 +113,38 @@ pub fn settle_page(
             true => file_name_text(&f.title),
             false => f.title.clone(),
         };
+        let text = [
+            title.as_str(),
+            &f.artist,
+            &f.album,
+            &f.remixer,
+            &f.label,
+            &f.genre,
+            &comment,
+            &row.file_names,
+        ];
+        // Only what changed is written: most of the tracks a rekordbox read
+        // marks come out the same as they were.
+        let written = table_row::write(
+            &tx,
+            *id,
+            &row.fields,
+            &row.facts,
+            row.has_file,
+            text_hash(&text),
+        )?;
+        if written != (table_row::Written::Changed { text: true }) {
+            continue;
+        }
+        tx.prepare_cached("DELETE FROM search_track WHERE rowid = ?1")?
+            .execute([id])?;
         tx.prepare_cached(
             "INSERT INTO search_track
                  (rowid, title, artist, album, remixer, label, genre, comment, file_name)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )?
         .execute(params![
-            id,
-            title,
-            f.artist,
-            f.album,
-            f.remixer,
-            f.label,
-            f.genre,
-            comment,
-            row.file_names
+            id, text[0], text[1], text[2], text[3], text[4], text[5], text[6], text[7]
         ])?;
     }
     tx.execute(
@@ -150,6 +195,40 @@ fn rows_for(
         .copied()
         .filter(|id| names.contains_key(id) || library.contains_key(id))
         .collect();
+    let mut fields = fields_of(conn, volumes, &wanted, &library)?;
+    let mut facts = table_row::facts_for(conn, &wanted)?;
+    let mut rows = HashMap::new();
+    for id in wanted {
+        // A track the lists can't name yet (no row) is skipped; it is due
+        // again the moment something about it changes.
+        let (Some(fields), Some(facts)) = (fields.remove(&id), facts.remove(&id)) else {
+            continue;
+        };
+        let has_file = names.contains_key(&id);
+        let file_names = names.remove(&id).unwrap_or_default().join("\u{1f}");
+        rows.insert(
+            id,
+            Row {
+                fields,
+                file_names,
+                facts,
+                has_file,
+            },
+        );
+    }
+    Ok(rows)
+}
+
+/// What the lists show of each of the tracks `wanted`, given which of them
+/// are Library tracks: a Library track's from [`shown_fields`], another
+/// track's from its own tags. The one place the index, the track table's
+/// rows and the rows on screen get their text.
+pub(crate) fn fields_of(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    wanted: &[i64],
+    library: &HashMap<i64, LibraryTrackId>,
+) -> rusqlite::Result<HashMap<i64, ShownFields>> {
     let in_library: Vec<LibraryTrackId> = wanted
         .iter()
         .filter_map(|id| library.get(id).copied())
@@ -161,19 +240,17 @@ fn rows_for(
         .collect();
     let mut library_fields = shown_fields(conn, volumes, &in_library)?;
     let mut other_fields = shown_recording_fields(conn, &elsewhere)?;
-    let mut rows = HashMap::new();
-    for id in wanted {
+    let mut out = HashMap::new();
+    for &id in wanted {
         let fields = match library.get(&id) {
             Some(lt) => library_fields.remove(lt),
             None => other_fields.remove(&id),
         };
-        // A track the lists can't name yet (no row) is skipped; it is due
-        // again the moment something about it changes.
-        let Some(fields) = fields else { continue };
-        let file_names = names.remove(&id).unwrap_or_default().join("\u{1f}");
-        rows.insert(id, Row { fields, file_names });
+        if let Some(fields) = fields {
+            out.insert(id, fields);
+        }
     }
-    Ok(rows)
+    Ok(out)
 }
 
 /// Settles every track that is due, `page` tracks per transaction, and
@@ -188,6 +265,27 @@ pub fn settle(
         settled += settle_page(conn, volumes, page)?;
     }
     Ok(settled)
+}
+
+/// Settles the tracks that are due now, when there are only a few of them
+/// (at most `limit`, and the mark for every Library track isn't among them):
+/// for an action that has just changed a track or two, so the lists read
+/// right after it show the change. A longer list is left to the index job.
+/// Returns how many tracks it settled.
+pub fn settle_if_small(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+    limit: usize,
+) -> rusqlite::Result<usize> {
+    let (due, everything): (i64, bool) = conn.query_row(
+        "SELECT count(*), coalesce(max(recording_id = -1), 0) FROM search_due",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if due == 0 || everything || due as usize > limit {
+        return Ok(0);
+    }
+    settle(conn, volumes, limit)
 }
 
 /// Throws every row away and works them all out again: the index is derived
@@ -208,6 +306,7 @@ pub(super) fn forget_everything(conn: &mut Connection) -> rusqlite::Result<()> {
         "INSERT INTO search_track (search_track) VALUES ('delete-all')",
         [],
     )?;
+    tx.execute("DELETE FROM track_row", [])?;
     tx.execute("DELETE FROM search_due", [])?;
     tx.execute(
         "INSERT INTO search_due (recording_id) SELECT id FROM recording",

@@ -27,6 +27,9 @@
 //! - **Derived data:** [`rebuild`] drops every row and works them all out
 //!   again; a test pins that it gives the very index the incremental path
 //!   does.
+//! - **The track table's rows** (`track_row`, `table_row`) are written by
+//!   the same job in the same transaction, from the same text: what the
+//!   table sorts and filters by (ROADMAP 1.11 "The track table").
 //!
 //! Limits, on purpose:
 //! - A query has at most [`MAX_TERMS`] words of at most [`MAX_TERM_CHARS`]
@@ -43,13 +46,17 @@
 mod job;
 pub(crate) mod query;
 mod settle;
+mod table_row;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use job::{index_job, indexer, indexer_with, request};
 pub use query::{find, match_expression, pending, Found, HiddenFile, Why};
-pub use settle::{file_name_text, rebuild, settle, settle_page};
+pub(crate) use settle::fields_of;
+pub use settle::{file_name_text, rebuild, settle, settle_if_small, settle_page};
+pub(crate) use table_row::BPM_AND_KEY;
+pub use table_row::{camelot_order, flag, time_ms};
 
 /// The most words of a query that count.
 pub const MAX_TERMS: usize = 12;

@@ -133,6 +133,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::crates::remove_tracks_from_crate,
             crate::crates::list_crates,
             crate::crates::crate_tracks,
+            crate::track_table::track_table_page,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

@@ -196,12 +196,14 @@ fn the_index_built_a_change_at_a_time_is_the_index_built_from_nothing() {
 fn a_database_that_has_tracks_when_the_index_arrives_gets_a_row_for_each() {
     // Everything is due after an upgrade (the migration marks it): here the
     // index is emptied behind the triggers' back, as it is before the job's
-    // first run, and the job's step alone brings it back.
+    // first run (and `track_row` is a new table, so empty), and the job's
+    // step alone brings it back.
     let lib = Lib::new();
     let (a, _) = lib.track(Some("First"), None, "a.mp3");
     let (b, _) = lib.track(Some("Second"), None, "b.mp3");
     lib.settle();
     lib.exec("INSERT INTO search_track (search_track) VALUES ('delete-all')");
+    lib.exec("DELETE FROM track_row");
     lib.exec("INSERT INTO search_due (recording_id) SELECT id FROM recording");
     assert_eq!(lib.finds("first"), vec![a]);
     assert_eq!(lib.finds("second"), vec![b]);
