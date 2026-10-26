@@ -132,7 +132,7 @@ fn in_rekordbox_sql(track: &str) -> String {
 /// The facts of the tracks `ids`, in one query.
 pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Facts>> {
     let json = serde_json::to_string(ids).expect("numbers always serialize");
-    let mut stmt = conn.prepare(&format!(
+    let mut stmt = conn.prepare_cached(&format!(
         "SELECT r.id, lt.id IS NOT NULL, lt.added_at, r.created_at,
                 f.id, f.rel_path, f.duration_ms, mf.rel_path,
                 {BPM_AND_KEY},

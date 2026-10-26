@@ -312,7 +312,7 @@ fn rows_for(
 
     // BPM, key and when it was added, for every track.
     let mut facts: HashMap<i64, Extras> = HashMap::new();
-    let mut stmt = conn.prepare(&format!(
+    let mut stmt = conn.prepare_cached(&format!(
         "SELECT r.id, {}, COALESCE(lt.added_at, r.created_at)
          FROM recording r
          LEFT JOIN library_track lt ON lt.recording_id = r.id
@@ -330,7 +330,7 @@ fn rows_for(
     // the Library would link (a trusted rekordbox match, `linked_file_for`),
     // else its best file, else its lowest file id. Two queries for them all.
     let mut shown_file: HashMap<i64, i64> = HashMap::new();
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT rf.recording_id, rf.file_id FROM recording_file rf
          WHERE rf.recording_id IN (SELECT value FROM json_each(?1))
          ORDER BY rf.recording_id, (rf.role = 'best') DESC, rf.file_id",
@@ -339,7 +339,7 @@ fn rows_for(
         let (recording, file): (i64, i64) = row?;
         shown_file.entry(recording).or_insert(file);
     }
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT recording_id, file_id FROM (
              SELECT rf.recording_id, f.id AS file_id,
                     row_number() OVER (
@@ -367,7 +367,7 @@ fn rows_for(
         .expect("numbers always serialize");
     let mut places: HashMap<i64, StoredFile> = HashMap::new();
     let mut durations: HashMap<i64, i64> = HashMap::new();
-    let mut stmt = conn.prepare(&format!(
+    let mut stmt = conn.prepare_cached(&format!(
         "SELECT {FILE_COLUMNS}, f.duration_ms FROM file f {FILE_JOINS}
          WHERE f.id IN (SELECT value FROM json_each(?1))"
     ))?;
@@ -386,7 +386,7 @@ fn rows_for(
     // The tracks outside the Library whose match to a rekordbox track can't
     // be confirmed yet (`library::match_not_confirmed`, for all at once).
     let mut unconfirmed: HashSet<i64> = HashSet::new();
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT DISTINCT rf.recording_id
          FROM rekordbox_track rt JOIN recording_file rf ON rf.file_id = rt.file_id
          WHERE rf.recording_id IN (SELECT value FROM json_each(?1)) AND rt.relink_probable = 1
