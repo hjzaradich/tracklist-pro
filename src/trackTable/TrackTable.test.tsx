@@ -102,6 +102,23 @@ describe("the track table draws only the rows on screen", () => {
     expect(to - from).toBeLessThan(40);
   });
 
+  it("draws every row that any part of the viewport shows, wherever it is scrolled to", () => {
+    const total = 1_000;
+    renderTable({ total });
+    const grid = screen.getByRole("grid");
+    // The header takes one row of the viewport; the rest is room for rows.
+    const room = VIEWPORT - ROW;
+    for (const scrollTop of [0, 13, 500 * ROW, 500 * ROW + 1, 500 * ROW + 27, (total - 10) * ROW]) {
+      grid.scrollTop = scrollTop;
+      fireEvent.scroll(grid);
+      const indexes = new Set(drawn().map(indexOf));
+      for (let i = 0; i < total; i += 1) {
+        const shown = i * ROW < scrollTop + room && (i + 1) * ROW > scrollTop;
+        if (shown) expect(indexes, `row ${i} at scrollTop ${scrollTop}`).toContain(i);
+      }
+    }
+  });
+
   it("puts each row where it belongs in the list", () => {
     renderTable({ total: 100_000 });
     for (const row of drawn()) {
