@@ -598,6 +598,52 @@ fn the_undo_of_a_split_is_refused_once_the_moved_file_is_gone_and_no_new_file_or
 }
 
 #[test]
+fn the_undo_of_a_split_is_refused_once_an_unrelated_file_is_put_back_under_the_moved_files_id() {
+    // Ids are never made again, but a row can still be put back under one
+    // (a restored backup, a test fixture): the audio key the operation kept
+    // for the moved file is what tells it from the file that was split off.
+    let db = db();
+    let velo = track(1, LEN);
+    let a = db.add(file("Velo.flac", 1, velo.clone()));
+    db.decide();
+    let ta = db.to_library(a);
+    let _c = db.add(file("Velo (other take).flac", 3, other_take(&velo, 9)));
+    db.decide();
+    let b = db.add(file("Velo.mp3", 2, reencoded(&velo, 1, 7)));
+    db.decide();
+    assert_eq!(db.track(b), Some(ta));
+    let item = Item { db };
+    let id = item.doubt();
+    item.not_same(id, Some(b)).unwrap();
+    let split_to = item.db.track(b).unwrap();
+
+    item.db.sql(&format!(
+        "DELETE FROM recording_file WHERE file_id = {b}; DELETE FROM file WHERE id = {b};"
+    ));
+    item.db.group();
+    // An unrelated file comes back under the old id, in the old track.
+    item.db.sql(&format!(
+        "INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, size, mtime, audio_hash)
+             VALUES ({b}, 1, 'Nightdrive.mp3', 'Nightdrive.mp3', 100, 1000, x'{}');
+         INSERT INTO recording (id) SELECT {split_to}
+             WHERE NOT EXISTS (SELECT 1 FROM recording WHERE id = {split_to});
+         INSERT INTO recording_file (recording_id, file_id) VALUES ({split_to}, {b});",
+        "41".repeat(34)
+    ));
+    let before = item.rows();
+    match item.undo() {
+        UndoOutcome::Refused { reason, .. } => assert_eq!(reason, UndoRefusal::ChangedSince),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(item.rows(), before, "nothing changed");
+    assert_eq!(
+        item.db.track(b),
+        Some(split_to),
+        "never moved into the Library track"
+    );
+}
+
+#[test]
 fn the_undo_of_the_same_track_is_refused_once_a_moved_file_is_gone_and_no_new_file_takes_its_id() {
     // The file the decision moved into the Library track is the newest. Its
     // music folder is removed, and a file with the Library track's audio is

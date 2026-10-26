@@ -642,6 +642,12 @@ mod tests {
     #[test]
     fn exiting_the_app_folds_the_databases_log_into_the_database_and_empties_it() {
         let (_data, app, _webview) = started_app();
+        // Startup's own thread is still asking the stages what is due, on
+        // the read pool: a read it holds when the exit checkpoint runs
+        // makes the checkpoint give up (by design), and the log stays. Wait
+        // for it. The jobs it queued are waited for by the exit itself
+        // (`JobQueue::shutdown` joins the workers before the checkpoint).
+        app.state::<jobs::startup::StartupAsks>().finished();
         let writer = app.state::<db::Writer>().inner().clone();
         writer
             .call(|c| {

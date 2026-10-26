@@ -161,6 +161,31 @@ fn each_change_that_can_alter_a_tracks_row_notes_that_track_as_due() {
 }
 
 #[test]
+fn a_library_track_gaining_or_losing_its_linked_file_notes_that_track_as_due() {
+    // `linked_file_id` going to or from NULL: `<>` would say "unknown" for
+    // both, so only `IS NOT` sees the change.
+    let (_dir, conn) = with_tracks();
+    accepts(
+        &conn,
+        "INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
+         VALUES (2, 'linked', NULL, 'missing')",
+    );
+    nothing_due(&conn);
+    accepts(
+        &conn,
+        "UPDATE library_track SET linked_file_id = 2 WHERE recording_id = 2",
+    );
+    assert_eq!(due(&conn), vec![2], "NULL to a file");
+    nothing_due(&conn);
+    accepts(
+        &conn,
+        "UPDATE library_track SET linked_file_id = NULL, source_status = 'missing'
+         WHERE recording_id = 2",
+    );
+    assert_eq!(due(&conn), vec![2], "a file to NULL");
+}
+
+#[test]
 fn a_change_that_leaves_the_text_alone_notes_nothing() {
     let (_dir, conn) = with_tracks();
     for change in [
