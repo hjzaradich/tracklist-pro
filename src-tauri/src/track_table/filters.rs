@@ -46,37 +46,68 @@ pub enum TableFilter {
     NotInLibrary,
 }
 
+/// The ids of the tracks Review lists as quality problems, as the JSON array
+/// [`conditions`] takes. The SQL is Review's own and costs a few tens of
+/// milliseconds per thousand flagged files, so a query evaluates it once for
+/// its count and its window together.
+pub(super) fn quality_problems(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
+    let ids: Vec<i64> = conn
+        .prepare_cached(&crate::review::quality_problem_recordings())?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(serde_json::to_string(&ids).expect("numbers always serialize"))
+}
+
 /// The conditions of `filters`, as SQL on `tr` (a `track_row`), pushing the
 /// values they need onto `params` as numbered parameters. Each reads
-/// `track_row.flags` or `format`, which every index holds.
-pub(super) fn conditions(filters: &[TableFilter], params: &mut Vec<Value>) -> Vec<String> {
+/// `track_row.flags` or `format`, which every index holds, except the
+/// quality problems, which are Review's definition: `quality` is
+/// [`quality_problems`] when the caller has worked it out already, else the
+/// definition itself is put into the query.
+pub(super) fn conditions(
+    filters: &[TableFilter],
+    quality: Option<&str>,
+    params: &mut Vec<Value>,
+) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut formats: Vec<&str> = Vec::new();
     let has = |bit: i64| format!("(tr.flags & {bit}) <> 0");
     let lacks = |bit: i64| format!("(tr.flags & {bit}) = 0");
+    // A repeated filter counts once.
+    let mut once: Vec<&TableFilter> = Vec::new();
     for filter in filters {
+        if !once.contains(&filter) {
+            once.push(filter);
+        }
+    }
+    for filter in once {
         let sql = match filter {
             TableFilter::Missing => has(flag::MISSING),
             TableFilter::InRekordbox => has(flag::IN_REKORDBOX),
             TableFilter::NotInRekordbox => lacks(flag::IN_REKORDBOX),
             TableFilter::Format { format } => {
-                if !formats.contains(&format.as_str()) {
-                    formats.push(format);
-                }
+                formats.push(format);
                 continue;
             }
-            TableFilter::QualityProblem => format!(
-                "tr.recording_id IN ({})",
-                crate::review::quality_problem_recordings()
-            ),
+            TableFilter::QualityProblem => match quality {
+                Some(ids) => {
+                    params.push(Value::Text(ids.to_owned()));
+                    format!(
+                        "tr.recording_id IN (SELECT value FROM json_each(?{}))",
+                        params.len()
+                    )
+                }
+                None => format!(
+                    "tr.recording_id IN ({})",
+                    crate::review::quality_problem_recordings()
+                ),
+            },
             TableFilter::InCrate => has(flag::IN_CRATE),
             TableFilter::InNoCrate => lacks(flag::IN_CRATE),
             TableFilter::InLibrary => has(flag::IN_LIBRARY),
             TableFilter::NotInLibrary => lacks(flag::IN_LIBRARY),
         };
-        if !out.contains(&sql) {
-            out.push(sql);
-        }
+        out.push(sql);
     }
     if !formats.is_empty() {
         let mut marks = Vec::new();

@@ -269,7 +269,7 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
 
 /// The SQL of a query: where its rows come from, how they are filtered and
 /// in what order.
-fn build(query: &TableQuery) -> Built {
+fn build(query: &TableQuery, quality: Option<&str>) -> Built {
     let mut params: Vec<Value> = Vec::new();
     let mut conditions: Vec<String> = Vec::new();
     let from = match &query.source {
@@ -306,7 +306,7 @@ fn build(query: &TableQuery) -> Built {
     // its own entries: neither is in the order of a sort index, so there is
     // nothing for a backward scan to read.
     let indexed = !searched && !matches!(query.source, TableSource::Crate { .. });
-    conditions.extend(filters::conditions(&query.filters, &mut params));
+    conditions.extend(filters::conditions(&query.filters, quality, &mut params));
     Built {
         from_where: format!("FROM {from} WHERE {}", conditions.join(" AND ")),
         order_by,
@@ -357,7 +357,12 @@ fn count_rows(conn: &Connection, from_where: &str, params: &[Value]) -> rusqlite
 
 /// The ids of the tracks in the window, in order, and the count when asked.
 fn window_ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
-    let built = build(query);
+    // Review's quality problems are worked out once for the count and the window.
+    let quality = match query.filters.contains(&TableFilter::QualityProblem) {
+        true => Some(filters::quality_problems(conn)?),
+        false => None,
+    };
+    let built = build(query, quality.as_deref());
     let total = match query.with_total {
         true => Some(count_rows(conn, &built.from_where, &built.params)?),
         false => None,
@@ -657,7 +662,7 @@ pub fn formats(conn: &Connection, source: &TableSource) -> rusqlite::Result<Opti
             return Ok(None);
         }
     }
-    let built = build(&query);
+    let built = build(&query, None);
     let sql = format!(
         "SELECT DISTINCT tr.format {} AND tr.format IS NOT NULL ORDER BY 1",
         built.from_where

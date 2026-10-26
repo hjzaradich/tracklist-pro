@@ -10,7 +10,7 @@ fn plain_window(lib: &Lib, q: &TableQuery) -> Vec<i64> {
     let q = q.clone();
     lib.writer
         .call(move |c| {
-            let built = build(&q);
+            let built = build(&q, None);
             select_ids(
                 c,
                 &built.from_where,
@@ -145,7 +145,7 @@ fn every_sort_either_way_round_is_read_from_its_index_with_nothing_to_sort() {
                 let plans = lib
                     .writer
                     .call(move |c| {
-                        let built = build(&q);
+                        let built = build(&q, None);
                         let statements = match &built.backwards {
                             None => vec![(built.from_where.clone(), built.order_by.clone())],
                             Some(b) => vec![

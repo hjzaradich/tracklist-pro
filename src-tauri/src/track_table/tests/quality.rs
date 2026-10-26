@@ -282,3 +282,63 @@ fn the_chip_is_the_set_of_tracks_review_lists_as_quality_problems_on_a_mixed_lib
     lib.insert("UPDATE file SET present = 1", ());
     assert_eq!(chip(&lib, TableSource::Library), review_group(&lib));
 }
+
+#[test]
+fn the_chip_works_with_other_filters_a_search_a_sort_and_a_repeat_of_itself() {
+    let lib = Lib::new();
+    let a = case(&lib, "alpha one.mp3", Some("broken"));
+    let b = case(&lib, "alpha two.mp3", Some("low_bitrate"));
+    case(&lib, "beta.mp3", Some("broken"));
+    lib.insert(
+        "UPDATE file SET sniffed_format = 'flac' WHERE id = ?1",
+        (a.file,),
+    );
+    lib.insert(
+        "UPDATE file SET sniffed_format = 'mp3' WHERE id != ?1",
+        (a.file,),
+    );
+    lib.insert(
+        "INSERT INTO analysis (recording_id, source, bpm) VALUES (?1, 'rekordbox', 120)",
+        (a.track,),
+    );
+    lib.insert(
+        "INSERT INTO analysis (recording_id, source, bpm) VALUES (?1, 'rekordbox', 100)",
+        (b.track,),
+    );
+    let ask = |filters: Vec<TableFilter>, search: Option<&str>, descending: bool| {
+        let page = run(
+            &lib,
+            TableQuery {
+                filters,
+                search: search.map(str::to_owned),
+                ..sorted(TableSource::AllMusic, SortColumn::Bpm, descending)
+            },
+        );
+        (ids(&page), page.total)
+    };
+    let quality = || TableFilter::QualityProblem;
+    // A repeat of the chip is the chip.
+    assert_eq!(ask(vec![quality(), quality()], None, false).1, Some(3));
+    // With a search, a format, and either way round.
+    assert_eq!(
+        ask(vec![quality()], Some("alpha"), false),
+        (vec![b.track, a.track], Some(2))
+    );
+    assert_eq!(
+        ask(vec![quality()], Some("alpha"), true),
+        (vec![a.track, b.track], Some(2))
+    );
+    assert_eq!(
+        ask(
+            vec![
+                quality(),
+                TableFilter::Format {
+                    format: "flac".to_owned()
+                }
+            ],
+            Some("alpha"),
+            false
+        ),
+        (vec![a.track], Some(1))
+    );
+}
