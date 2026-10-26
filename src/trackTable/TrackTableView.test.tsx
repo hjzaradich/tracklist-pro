@@ -163,6 +163,26 @@ describe("when there is nothing to list", () => {
   });
 });
 
+describe("while the index is still being written", () => {
+  it("says the list is being updated, not that there are no tracks, when it has no rows yet", async () => {
+    behind = true;
+    serve(0);
+    renderView();
+    expect(await screen.findByText(tx("trackTable:updating"))).toBeInTheDocument();
+    expect(screen.queryByText("Nothing at all")).toBeNull();
+    expect(screen.queryByText(tx("trackTable:noMatch"))).toBeNull();
+    expect(screen.queryByRole("grid")).toBeNull();
+  });
+
+  it("does not say no track matches a search while the index is behind", async () => {
+    behind = true;
+    serve(0);
+    renderView("allMusic", { search: "zzz" });
+    expect(await screen.findByText(tx("trackTable:updating"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("trackTable:noMatch"))).toBeNull();
+  });
+});
+
 describe("sorting", () => {
   it("shows the Library's own order, title then artist, as an ascending title", async () => {
     serve(5);

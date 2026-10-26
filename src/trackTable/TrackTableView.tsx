@@ -90,7 +90,9 @@ export function TrackTableView({
   }
   // Nothing to show until the first window says how many there are.
   if (rows.total === undefined) return null;
-  if (rows.total === 0 && !narrowed) return <>{empty}</>;
+  // While the index job is still writing the rows (after an upgrade, say),
+  // zero rows means "not ready", never "no tracks": say so, not the empty state.
+  if (rows.total === 0 && !narrowed && !rows.behind) return <>{empty}</>;
 
   return (
     <div className={styles.view}>
@@ -101,7 +103,7 @@ export function TrackTableView({
         </p>
       </div>
       {rows.total === 0 ? (
-        <p className={styles.noMatch}>{t("noMatch")}</p>
+        rows.behind ? null : <p className={styles.noMatch}>{t("noMatch")}</p>
       ) : (
         <TrackTable
           label={t("label")}
