@@ -2,6 +2,8 @@
 //! volume, folders, files, titles and artists in a migrated database in a
 //! temp dir.
 
+mod order;
+
 use super::*;
 use crate::search::flag;
 use crate::search::tests::support::{Lib, Mount};
@@ -345,39 +347,40 @@ fn a_missing_file_and_a_probable_match_are_on_the_row() {
 // Sorting.
 
 #[test]
-fn every_column_sorts_both_ways_and_reversing_reverses_the_non_blank_rows() {
+fn every_column_sorts_both_ways_and_descending_is_ascending_backwards_with_the_blanks_last() {
     let f = fixture();
     let all = TableSource::AllMusic;
     let order = |column: SortColumn, descending: bool| {
         ids(&run(&f.lib, sorted(all.clone(), column, descending)))
     };
     let [r1, r2, r3, r4, r5, r6] = f.recs;
-    // BPM: 90.5, 124 (two: ties by title, artist), 128, and the blanks last.
+    // BPM: 90.5, 124 (two: ties by id), 128, and the blanks last. Backwards,
+    // the tied tracks and the blanks come in the reverse of their order.
     assert_eq!(order(SortColumn::Bpm, false), [r4, r1, r3, r2, r5, r6]);
-    assert_eq!(order(SortColumn::Bpm, true), [r2, r1, r3, r4, r5, r6]);
+    assert_eq!(order(SortColumn::Bpm, true), [r2, r3, r1, r4, r6, r5]);
     // Key: around the Camelot wheel (1B, 8A, 10A, 12A), blanks last.
     assert_eq!(order(SortColumn::Key, false), [r3, r1, r4, r2, r5, r6]);
-    assert_eq!(order(SortColumn::Key, true), [r2, r4, r1, r3, r5, r6]);
+    assert_eq!(order(SortColumn::Key, true), [r2, r4, r1, r3, r6, r5]);
     // Time: only three tracks have one.
     assert_eq!(order(SortColumn::Time, false), [r2, r4, r1, r3, r5, r6]);
-    assert_eq!(order(SortColumn::Time, true), [r1, r4, r2, r3, r5, r6]);
+    assert_eq!(order(SortColumn::Time, true), [r1, r4, r2, r6, r5, r3]);
     // Title: the file's name stands in for a missing one; no blanks.
     assert_eq!(order(SortColumn::Title, false), [r3, r2, r4, r1, r6, r5]);
-    assert_eq!(order(SortColumn::Title, true), [r5, r6, r1, r4, r3, r2]);
+    assert_eq!(order(SortColumn::Title, true), [r5, r6, r1, r4, r2, r3]);
     // Artist: capitals don't matter; the track with none is last.
     assert_eq!(order(SortColumn::Artist, false), [r3, r4, r1, r2, r6, r5]);
-    assert_eq!(order(SortColumn::Artist, true), [r2, r6, r4, r1, r3, r5]);
+    assert_eq!(order(SortColumn::Artist, true), [r6, r2, r1, r4, r3, r5]);
     // Genre: case folded ("house" and "House" are one genre), blanks last.
     assert_eq!(order(SortColumn::Genre, false), [r3, r1, r2, r4, r6, r5]);
-    assert_eq!(order(SortColumn::Genre, true), [r2, r3, r1, r4, r6, r5]);
+    assert_eq!(order(SortColumn::Genre, true), [r2, r1, r3, r5, r6, r4]);
     // File: by the file's name.
     assert_eq!(order(SortColumn::File, false), [r3, r2, r4, r1, r6, r5]);
     // Folder: the music folder, then the folder inside it.
-    assert_eq!(order(SortColumn::Folder, true), [r1, r2, r3, r4, r5, r6]);
+    assert_eq!(order(SortColumn::Folder, true), [r1, r6, r5, r4, r3, r2]);
 }
 
 #[test]
-fn the_ties_of_a_sort_fall_back_to_the_columns_tie_break_whichever_way_it_goes() {
+fn the_ties_of_a_sort_fall_back_to_the_columns_tie_break_and_descending_reverses_them() {
     let lib = Lib::new();
     // Five tracks with the same BPM and genre, some with the same title.
     let mut recs = Vec::new();
@@ -392,31 +395,26 @@ fn the_ties_of_a_sort_fall_back_to_the_columns_tie_break_whichever_way_it_goes()
         analysis(&lib, rec, 120.0, "8A");
         recs.push(rec);
     }
-    for descending in [false, true] {
-        // The same BPM: the ties are the track's id, whichever way it goes.
-        let page = run(
-            &lib,
-            sorted(TableSource::AllMusic, SortColumn::Bpm, descending),
-        );
-        assert_eq!(ids(&page), recs, "bpm, descending: {descending}");
-        // The same genre: the title first (and the id after it).
-        let page = run(
-            &lib,
-            sorted(TableSource::AllMusic, SortColumn::Genre, descending),
-        );
-        assert_eq!(
-            ids(&page),
-            [recs[3], recs[0], recs[1], recs[2]],
-            "genre, descending: {descending}"
-        );
-    }
+    // The same BPM: the ties are the track's id, backwards when descending.
+    let page = run(&lib, sorted(TableSource::AllMusic, SortColumn::Bpm, false));
+    assert_eq!(ids(&page), recs);
+    let page = run(&lib, sorted(TableSource::AllMusic, SortColumn::Bpm, true));
+    assert_eq!(ids(&page), [recs[3], recs[2], recs[1], recs[0]]);
+    // The same genre: the title first, then the id; both reversed.
+    let page = run(
+        &lib,
+        sorted(TableSource::AllMusic, SortColumn::Genre, false),
+    );
+    assert_eq!(ids(&page), [recs[3], recs[0], recs[1], recs[2]]);
+    let page = run(&lib, sorted(TableSource::AllMusic, SortColumn::Genre, true));
+    assert_eq!(ids(&page), [recs[2], recs[1], recs[0], recs[3]]);
     // The default order ties on the artist, then the id.
     let page = run(&lib, query(TableSource::AllMusic));
     assert_eq!(ids(&page), [recs[3], recs[1], recs[2], recs[0]]);
 }
 
 #[test]
-fn blank_values_sort_last_both_ways_and_stay_in_the_same_order() {
+fn blank_values_sort_last_both_ways_and_descending_reads_them_backwards_too() {
     let lib = Lib::new();
     let mut recs = Vec::new();
     for (n, bpm) in [Some(100.0), None, Some(110.0), None]
@@ -437,7 +435,7 @@ fn blank_values_sort_last_both_ways_and_stay_in_the_same_order() {
     let up = run(&lib, sorted(TableSource::AllMusic, SortColumn::Bpm, false));
     assert_eq!(ids(&up), [recs[0], recs[2], recs[1], recs[3]]);
     let down = run(&lib, sorted(TableSource::AllMusic, SortColumn::Bpm, true));
-    assert_eq!(ids(&down), [recs[2], recs[0], recs[1], recs[3]]);
+    assert_eq!(ids(&down), [recs[2], recs[0], recs[3], recs[1]]);
 }
 
 // Windows.

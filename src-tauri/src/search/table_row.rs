@@ -28,7 +28,7 @@
 
 use std::collections::HashMap;
 
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::library::sort_key;
 use crate::review::FLAGGED;
@@ -203,37 +203,118 @@ pub(super) fn refresh_rekordbox_flags(tx: &Transaction<'_>) -> rusqlite::Result<
     )
 }
 
-/// Writes the row of track `id`.
+/// The values of a `track_row` row, to compare the row the job has worked
+/// out with the one already stored.
+#[derive(Debug, PartialEq)]
+struct Values {
+    flags: i64,
+    format: Option<String>,
+    file_id: Option<i64>,
+    title_key: String,
+    artist_key: Option<String>,
+    genre_key: Option<String>,
+    file_key: Option<String>,
+    folder_key: Option<String>,
+    bpm: Option<f64>,
+    key_order: Option<i64>,
+    time_ms: Option<i64>,
+    rating: Option<i64>,
+    added_at: Option<String>,
+    text_hash: i64,
+}
+
+/// What [`write`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Written {
+    /// The stored row was the same: nothing was written.
+    Unchanged,
+    /// The row changed or was new. `text` says whether what the search
+    /// index holds for the track changed (or was never written) too.
+    Changed { text: bool },
+}
+
+/// Writes the row of track `id`, but only if it differs from the stored
+/// one: a rekordbox read marks every Library track due, and most of them
+/// come out the same, which costs a read each instead of a write to the
+/// row and to all the indexes. `text_hash` stands for the text the search
+/// index holds (see [`Written`]).
 pub(super) fn write(
     tx: &Transaction<'_>,
     id: i64,
     fields: &ShownFields,
     facts: &Facts,
     has_file: bool,
-) -> rusqlite::Result<()> {
+    text_hash: i64,
+) -> rusqlite::Result<Written> {
     let key_of = |text: &str| filled(text).map(sort_key);
-    let flags = facts.flags | if has_file { flag::HAS_FILE } else { 0 };
+    let new = Values {
+        flags: facts.flags | if has_file { flag::HAS_FILE } else { 0 },
+        format: facts.format.clone(),
+        file_id: facts.file_id,
+        title_key: sort_key(&fields.title),
+        artist_key: key_of(&fields.artist),
+        genre_key: key_of(&fields.genre),
+        file_key: facts.file_name.as_deref().and_then(key_of),
+        folder_key: facts.folder.as_deref().and_then(key_of),
+        bpm: facts.bpm,
+        key_order: facts.key.as_deref().and_then(camelot_order),
+        time_ms: time_ms(fields.total_time_s, facts.duration_ms),
+        rating: fields.stars.map(i64::from),
+        added_at: facts.added_at.clone(),
+        text_hash,
+    };
+    let stored = tx
+        .prepare_cached(
+            "SELECT flags, format, file_id, title_key, artist_key, genre_key, file_key,
+                    folder_key, bpm, key_order, time_ms, rating, added_at, text_hash
+             FROM track_row WHERE recording_id = ?1",
+        )?
+        .query_row([id], |r| {
+            Ok(Values {
+                flags: r.get(0)?,
+                format: r.get(1)?,
+                file_id: r.get(2)?,
+                title_key: r.get(3)?,
+                artist_key: r.get(4)?,
+                genre_key: r.get(5)?,
+                file_key: r.get(6)?,
+                folder_key: r.get(7)?,
+                bpm: r.get(8)?,
+                key_order: r.get(9)?,
+                time_ms: r.get(10)?,
+                rating: r.get(11)?,
+                added_at: r.get(12)?,
+                text_hash: r.get(13)?,
+            })
+        })
+        .optional()?;
+    if stored.as_ref() == Some(&new) {
+        return Ok(Written::Unchanged);
+    }
     tx.prepare_cached(
-        "INSERT INTO track_row
+        "INSERT OR REPLACE INTO track_row
              (recording_id, flags, format, file_id, title_key, artist_key, genre_key,
-              file_key, folder_key, bpm, key_order, time_ms, rating, added_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+              file_key, folder_key, bpm, key_order, time_ms, rating, added_at, text_hash)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )?
     .execute(params![
         id,
-        flags,
-        facts.format,
-        facts.file_id,
-        sort_key(&fields.title),
-        key_of(&fields.artist),
-        key_of(&fields.genre),
-        facts.file_name.as_deref().and_then(key_of),
-        facts.folder.as_deref().and_then(key_of),
-        facts.bpm,
-        facts.key.as_deref().and_then(camelot_order),
-        time_ms(fields.total_time_s, facts.duration_ms),
-        fields.stars,
-        facts.added_at,
+        new.flags,
+        new.format,
+        new.file_id,
+        new.title_key,
+        new.artist_key,
+        new.genre_key,
+        new.file_key,
+        new.folder_key,
+        new.bpm,
+        new.key_order,
+        new.time_ms,
+        new.rating,
+        new.added_at,
+        new.text_hash,
     ])?;
-    Ok(())
+    Ok(Written::Changed {
+        text: stored.is_none_or(|old| old.text_hash != new.text_hash),
+    })
 }

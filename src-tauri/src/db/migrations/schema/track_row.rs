@@ -20,8 +20,8 @@ fn due(conn: &rusqlite::Connection) -> Vec<i64> {
         .unwrap()
 }
 
-/// Two tracks with a file each, a Library track for the first, a crate with
-/// that track in it and a stored verdict for the second file; nothing due.
+/// Two tracks with a file each, a Library track for each, two crates, the
+/// first track in the first crate, and a stored verdict for the second file; nothing due.
 fn with_tracks() -> (tempfile::TempDir, rusqlite::Connection) {
     let (dir, conn) = db();
     accepts(
@@ -36,6 +36,8 @@ fn with_tracks() -> (tempfile::TempDir, rusqlite::Connection) {
          INSERT INTO recording_file (recording_id, file_id, role) VALUES (2, 2, 'best');
          INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
              VALUES (1, 'linked', 1, 'ok');
+         INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
+             VALUES (2, 'linked', 2, 'ok');
          INSERT INTO crate (name, kind) VALUES ('One', 'static');
          INSERT INTO crate (name, kind) VALUES ('Two', 'static');
          INSERT INTO crate_entry (crate_id, library_track_id, kind) VALUES (1, 1, 'member');
@@ -90,7 +92,7 @@ fn a_row_holds_a_title_key_and_whole_flags_and_one_row_to_a_track() {
 }
 
 #[test]
-fn every_sort_has_an_index_each_way_that_holds_the_flags_and_the_format() {
+fn every_sort_has_an_index_that_holds_the_flags_and_the_format_and_a_descending_sort_has_none() {
     let (_dir, conn) = db();
     let names: Vec<String> = conn
         .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'track_row' AND name LIKE 'track_row_%' ORDER BY 1")
@@ -102,21 +104,19 @@ fn every_sort_has_an_index_each_way_that_holds_the_flags_and_the_format() {
     for column in [
         "title", "artist", "genre", "bpm", "key", "time", "rating", "added", "file", "folder",
     ] {
-        for name in [
-            format!("track_row_{column}"),
-            format!("track_row_{column}_desc"),
-        ] {
-            assert!(names.contains(&name), "{name} in {names:?}");
-            let sql: String = one(
-                &conn,
-                &format!("SELECT sql FROM sqlite_master WHERE name = '{name}'"),
-            );
-            assert!(sql.ends_with("recording_id, flags, format)"), "{sql}");
-        }
+        let name = format!("track_row_{column}");
+        assert!(names.contains(&name), "{name} in {names:?}");
+        let sql: String = one(
+            &conn,
+            &format!("SELECT sql FROM sqlite_master WHERE name = '{name}'"),
+        );
+        assert!(sql.ends_with("recording_id, flags, format)"), "{sql}");
+        // A descending sort reads this index backwards.
+        assert!(!sql.contains("DESC"), "{sql}");
     }
     // And one narrow index to count a filter's rows by.
     assert!(names.contains(&"track_row_flags".to_owned()));
-    assert_eq!(names.len(), 21);
+    assert_eq!(names.len(), 11, "{names:?}");
 }
 
 #[test]
@@ -172,6 +172,11 @@ fn a_change_the_filters_depend_on_notes_the_track_as_due() {
             vec![1],
         ),
         ("DELETE FROM crate_entry", vec![1]),
+        // An entry pointed at another Library track: both tracks change.
+        (
+            "UPDATE crate_entry SET library_track_id = 2",
+            vec![1, 2],
+        ),
         ("UPDATE crate_entry SET kind = 'member', crate_id = 2", vec![]),
         ("UPDATE crate_entry SET library_track_id = 1", vec![]),
         // A crate going takes its entries, and notes the track.

@@ -332,6 +332,32 @@ fn run(tracks: u64, check: bool) {
         settled as f64 / built.as_secs_f64()
     );
 
+    // The size of the database, with the table's rows and its indexes
+    // (the write-ahead log folded into the file first).
+    db.writer
+        .call(|c| c.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())))
+        .unwrap();
+    let size = std::fs::metadata(db._dir.path().join(DB_FILE_NAME))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    println!("database: {:.1} MB", size as f64 / 1_048_576.0);
+
+    // A rekordbox read that changed nothing marks every Library track due;
+    // the rows come out as they were and none is written.
+    db.writer
+        .call(|c| {
+            c.execute(
+                "INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1)",
+                [],
+            )
+        })
+        .unwrap();
+    let (again, reread) = timed(|| db.writer.call(|c| settle(c, &NoDrives, 500)).unwrap());
+    println!(
+        "a rekordbox read that changed nothing: {again} tracks looked at in {}",
+        secs(reread)
+    );
+
     let middle = u32::try_from(tracks / 2).unwrap();
     let mut probes: Vec<(&str, TableQuery)> = vec![
         ("Library, first page", query(TableSource::Library)),
@@ -399,6 +425,70 @@ fn run(tracks: u64, check: bool) {
                 with_total: false,
                 ..sorted(TableSource::AllMusic, SortColumn::Genre, true)
             },
+        ),
+        (
+            "All music, sort by BPM, descending, scroll to the middle",
+            TableQuery {
+                offset: middle,
+                with_total: false,
+                ..sorted(TableSource::AllMusic, SortColumn::Bpm, true)
+            },
+        ),
+        (
+            "All music, sort by BPM, descending, scroll to the end (the blank rows)",
+            TableQuery {
+                offset: u32::try_from(tracks).unwrap() - 100,
+                with_total: false,
+                ..sorted(TableSource::AllMusic, SortColumn::Bpm, true)
+            },
+        ),
+        (
+            "All music, sort by BPM, scroll to the end (the blank rows)",
+            TableQuery {
+                offset: u32::try_from(tracks).unwrap() - 100,
+                with_total: false,
+                ..sorted(TableSource::AllMusic, SortColumn::Bpm, false)
+            },
+        ),
+        (
+            "All music, sort by title, scroll to the end",
+            TableQuery {
+                offset: u32::try_from(tracks).unwrap() - 100,
+                with_total: false,
+                ..sorted(TableSource::AllMusic, SortColumn::Title, false)
+            },
+        ),
+        (
+            "All music, sort by title, descending, scroll to the end",
+            TableQuery {
+                offset: u32::try_from(tracks).unwrap() - 100,
+                with_total: false,
+                ..sorted(TableSource::AllMusic, SortColumn::Title, true)
+            },
+        ),
+        (
+            "All music, sort by time, descending",
+            sorted(TableSource::AllMusic, SortColumn::Time, true),
+        ),
+        (
+            "All music, sort by artist, descending",
+            sorted(TableSource::AllMusic, SortColumn::Artist, true),
+        ),
+        (
+            "All music, sort by key, descending",
+            sorted(TableSource::AllMusic, SortColumn::Key, true),
+        ),
+        (
+            "All music, sort by genre, descending",
+            sorted(TableSource::AllMusic, SortColumn::Genre, true),
+        ),
+        (
+            "All music, sort by file, descending",
+            sorted(TableSource::AllMusic, SortColumn::File, true),
+        ),
+        (
+            "All music, sort by folder, descending",
+            sorted(TableSource::AllMusic, SortColumn::Folder, true),
         ),
         (
             "Crate 3, first page",

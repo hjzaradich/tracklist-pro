@@ -9,14 +9,20 @@
 //! - **Sources:** the Library, All music (every track that has a file) and
 //!   one crate (in the order the tracks were added, unless sorted).
 //! - **The order** reads `track_row`, the derived table the index job
-//!   keeps (`search::table_row`): SQL sorts, never Rust, and every sort is
-//!   read from an index alone. A
-//!   blank value always sorts last, whichever way the column is sorted, and
-//!   ties fall back to the column's own tie-break (the title, for text a
-//!   list is sorted by; then the track's id), so the order is the same
-//!   every time and a window never repeats or skips a row. With no sort,
-//!   the Library and All music keep the Library list's order (title,
-//!   artist, id).
+//!   keeps (`search::table_row`): SQL sorts, never Rust. A blank value
+//!   always sorts last, whichever way the column is sorted, and ties fall
+//!   back to the column's own tie-break (the title, for text a list is
+//!   sorted by; then the track's id), so the order is the same every time
+//!   and a window never repeats or skips a row. With no sort, the Library
+//!   and All music keep the Library list's order (title, artist, id).
+//!   There is an index for each ascending sort only; **descending is the
+//!   ascending order read backwards** (so tied tracks come in the reverse
+//!   of their ascending order), with the blank values moved to the end:
+//!   the rows with a value backwards, then the blank rows backwards
+//!   ([`Backwards`]), each a scan of the index with nothing to sort. A
+//!   search, which finds its rows through the full-text index, and a crate,
+//!   which reads its own entries, are not in an index's order; they sort
+//!   their (few) rows, at about 50 to 120 ms for a few thousand.
 //! - **Search** is the full-text index's (`search::match_expression`): the
 //!   rows are those of the tracks the text finds.
 //! - **What a row shows** is worked out again for the rows of the window
@@ -83,19 +89,19 @@ pub enum SortColumn {
 impl SortColumn {
     /// The `track_row` column the order is by, whether it can be blank
     /// (blanks sort last), and what ties fall back to. Each of these is one
-    /// of the table's indexes, in both directions (migration 0032).
-    fn column(self) -> (&'static str, bool, &'static str) {
+    /// of the table's indexes (migration 0032).
+    fn column(self) -> (&'static str, bool, &'static [&'static str]) {
         match self {
-            SortColumn::Title => ("title_key", false, "tr.artist_key, tr.recording_id"),
-            SortColumn::Artist => ("artist_key", true, "tr.title_key, tr.recording_id"),
-            SortColumn::Genre => ("genre_key", true, "tr.title_key, tr.recording_id"),
-            SortColumn::Bpm => ("bpm", true, "tr.recording_id"),
-            SortColumn::Key => ("key_order", true, "tr.recording_id"),
-            SortColumn::Time => ("time_ms", true, "tr.recording_id"),
-            SortColumn::Rating => ("rating", true, "tr.recording_id"),
-            SortColumn::DateAdded => ("added_at", true, "tr.recording_id"),
-            SortColumn::File => ("file_key", true, "tr.recording_id"),
-            SortColumn::Folder => ("folder_key", true, "tr.recording_id"),
+            SortColumn::Title => ("title_key", false, &["artist_key", "recording_id"]),
+            SortColumn::Artist => ("artist_key", true, &["title_key", "recording_id"]),
+            SortColumn::Genre => ("genre_key", true, &["title_key", "recording_id"]),
+            SortColumn::Bpm => ("bpm", true, &["recording_id"]),
+            SortColumn::Key => ("key_order", true, &["recording_id"]),
+            SortColumn::Time => ("time_ms", true, &["recording_id"]),
+            SortColumn::Rating => ("rating", true, &["recording_id"]),
+            SortColumn::DateAdded => ("added_at", true, &["recording_id"]),
+            SortColumn::File => ("file_key", true, &["recording_id"]),
+            SortColumn::Folder => ("folder_key", true, &["recording_id"]),
         }
     }
 }
@@ -193,25 +199,66 @@ pub struct StoredRow {
 struct Built {
     from_where: String,
     order_by: String,
+    /// How to read a descending sort of a column that can be blank straight
+    /// from its ascending index; see [`Backwards`].
+    backwards: Option<Backwards>,
     params: Vec<Value>,
+}
+
+/// A descending sort is the ascending order read backwards, with the blank
+/// values moved to the end (so the ties of a descending sort are those of
+/// the ascending one, reversed). The table has an index for the ascending
+/// sorts only, which reads backwards just as well, but not across the
+/// "is blank" part of its key: that would put the blanks first. So the
+/// window is read in two ranges, the rows with a value and then the blank
+/// ones, each a backward scan of the index, with no sorting at all.
+struct Backwards {
+    /// Extra conditions for the rows that have a value.
+    filled: String,
+    /// Extra conditions for the blank rows.
+    blank: String,
+    /// The order of both ranges.
+    filled_order: String,
+    blank_order: String,
 }
 
 /// The ORDER BY of `sort` for `source`. A blank sorts last whichever way the
 /// column goes, and the ties fall back to the column's own tie-break, so the
-/// order is total and the same every time.
-fn order_by(source: &TableSource, sort: Option<TableSort>) -> String {
+/// order is total and the same every time. Descending is ascending read
+/// backwards (blanks still last), ties included.
+///
+/// Also returns, when the sort can be served by a backward scan of an index
+/// ([`Backwards`]), the two ranges that do it. They give the same order as
+/// the plain `ORDER BY`, which a search or a crate (where no index serves
+/// the order) uses.
+fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Backwards>) {
     let Some(TableSort { column, descending }) = sort else {
-        return match source {
-            TableSource::Crate { .. } => "ce.added_at, ce.library_track_id".to_owned(),
-            _ => "tr.title_key, tr.artist_key, tr.recording_id".to_owned(),
-        };
+        return (
+            match source {
+                TableSource::Crate { .. } => "ce.added_at, ce.library_track_id".to_owned(),
+                _ => "tr.title_key, tr.artist_key, tr.recording_id".to_owned(),
+            },
+            None,
+        );
     };
     let (name, nullable, ties) = column.column();
     let direction = if descending { " DESC" } else { "" };
-    match nullable {
-        true => format!("(tr.{name} IS NULL), tr.{name}{direction}, {ties}"),
-        false => format!("tr.{name}{direction}, {ties}"),
-    }
+    let tie_order = ties
+        .iter()
+        .map(|tie| format!("tr.{tie}{direction}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ordered = match nullable {
+        true => format!("(tr.{name} IS NULL), tr.{name}{direction}, {tie_order}"),
+        false => format!("tr.{name}{direction}, {tie_order}"),
+    };
+    let backwards = (descending && nullable).then(|| Backwards {
+        filled: format!("(tr.{name} IS NULL) = 0 AND tr.{name} IS NOT NULL"),
+        blank: format!("(tr.{name} IS NULL) = 1 AND tr.{name} IS NULL"),
+        filled_order: format!("tr.{name} DESC, {tie_order}"),
+        blank_order: tie_order,
+    });
+    (ordered, backwards)
 }
 
 /// The SQL of a query: where its rows come from, how they are filtered and
@@ -239,16 +286,24 @@ fn build(query: &TableQuery) -> Built {
              JOIN track_row tr ON tr.recording_id = lt.recording_id"
         }
     };
+    let mut searched = false;
     if let Some(expression) = query.search.as_deref().and_then(search::match_expression) {
+        searched = true;
         params.push(Value::Text(expression));
         conditions.push(format!(
             "tr.recording_id IN (SELECT rowid FROM search_track WHERE search_track MATCH ?{})",
             params.len()
         ));
     }
+    let (order_by, backwards) = order_by(&query.source, query.sort);
+    // A search is read by rowid from the index of words, and a crate from
+    // its own entries: neither is in the order of a sort index, so there is
+    // nothing for a backward scan to read.
+    let indexed = !searched && !matches!(query.source, TableSource::Crate { .. });
     Built {
         from_where: format!("FROM {from} WHERE {}", conditions.join(" AND ")),
-        order_by: order_by(&query.source, query.sort),
+        order_by,
+        backwards: backwards.filter(|_| indexed),
         params,
     }
 }
@@ -263,35 +318,87 @@ fn crate_exists(conn: &Connection, id: CrateId) -> rusqlite::Result<bool> {
     )
 }
 
+/// The ids a `SELECT` of `from_where` gives, in `order_by`, from `offset`.
+fn select_ids(
+    conn: &Connection,
+    from_where: &str,
+    order_by: &str,
+    params: &[Value],
+    limit: u32,
+    offset: u32,
+) -> rusqlite::Result<Vec<i64>> {
+    let mut params = params.to_vec();
+    params.push(Value::Integer(i64::from(limit)));
+    params.push(Value::Integer(i64::from(offset)));
+    let sql = format!(
+        "SELECT tr.recording_id {from_where} ORDER BY {order_by} LIMIT ?{} OFFSET ?{}",
+        params.len() - 1,
+        params.len()
+    );
+    conn.prepare_cached(&sql)?
+        .query_map(rusqlite::params_from_iter(params.iter()), |r| r.get(0))?
+        .collect()
+}
+
+/// How many rows `from_where` has.
+fn count_rows(conn: &Connection, from_where: &str, params: &[Value]) -> rusqlite::Result<u32> {
+    let n: i64 = conn
+        .prepare_cached(&format!("SELECT count(*) {from_where}"))?
+        .query_row(rusqlite::params_from_iter(params.iter()), |r| r.get(0))?;
+    Ok(u32::try_from(n).unwrap_or(u32::MAX))
+}
+
 /// The ids of the tracks in the window, in order, and the count when asked.
 fn window_ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
     let built = build(query);
     let total = match query.with_total {
-        true => {
-            let n: i64 = conn
-                .prepare_cached(&format!("SELECT count(*) {}", built.from_where))?
-                .query_row(rusqlite::params_from_iter(built.params.iter()), |r| {
-                    r.get(0)
-                })?;
-            Some(u32::try_from(n).unwrap_or(u32::MAX))
-        }
+        true => Some(count_rows(conn, &built.from_where, &built.params)?),
         false => None,
     };
     let limit = query.limit.min(MAX_WINDOW);
-    let mut params = built.params.clone();
-    params.push(Value::Integer(i64::from(limit)));
-    params.push(Value::Integer(i64::from(query.offset)));
-    let sql = format!(
-        "SELECT tr.recording_id {} ORDER BY {} LIMIT ?{} OFFSET ?{}",
-        built.from_where,
-        built.order_by,
-        params.len() - 1,
-        params.len()
-    );
-    let ids = conn
-        .prepare_cached(&sql)?
-        .query_map(rusqlite::params_from_iter(params.iter()), |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
+    let offset = query.offset;
+    let ids = match &built.backwards {
+        None => select_ids(
+            conn,
+            &built.from_where,
+            &built.order_by,
+            &built.params,
+            limit,
+            offset,
+        )?,
+        Some(b) => {
+            // The rows with a value, backwards...
+            let filled_where = format!("{} AND {}", built.from_where, b.filled);
+            let mut ids = select_ids(
+                conn,
+                &filled_where,
+                &b.filled_order,
+                &built.params,
+                limit,
+                offset,
+            )?;
+            // ...and, if the window runs past them, the blank ones. Where
+            // the blank rows start is known unless the window began beyond
+            // the end of the rows with a value.
+            if ids.len() < limit as usize {
+                let with_value = match (ids.is_empty(), offset) {
+                    (true, 0) => 0,
+                    (true, _) => count_rows(conn, &filled_where, &built.params)?,
+                    (false, _) => offset + ids.len() as u32,
+                };
+                let blank_where = format!("{} AND {}", built.from_where, b.blank);
+                ids.extend(select_ids(
+                    conn,
+                    &blank_where,
+                    &b.blank_order,
+                    &built.params,
+                    limit - ids.len() as u32,
+                    offset.saturating_sub(with_value),
+                )?);
+            }
+            ids
+        }
+    };
     Ok((ids, total))
 }
 

@@ -46,34 +46,33 @@ CREATE TABLE track_row (
     -- Stars, 0 to 5; none for a track rekordbox does not know.
     rating       INTEGER,
     -- When it joined the Library, else when the scan first found it.
-    added_at     TEXT
+    added_at     TEXT,
+    -- A hash of what the track's `search_track` row holds. That table keeps
+    -- no text to read back, so this is how the job tells that the row it has
+    -- worked out is the one already stored, and writes neither.
+    text_hash    INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
--- One index per column and direction, each holding the flags and the format
--- after the id, so a page, a filtered page and a count are read from the
--- index alone. A blank sorts last both ways, so the sort is on "is blank"
--- first; ties fall back to the track's id (and, for the text a DJ sorts a
--- list by, to the title first), the same whichever way the column goes.
+-- One index per column, each holding the flags and the format after the id,
+-- so a page, a filtered page and a count are read from the index alone. A
+-- blank sorts last both ways, so the sort is on "is blank" first; ties fall
+-- back to the track's id (and, for the text a DJ sorts a list by, to the
+-- title first). There is no index for a descending sort: it is this index
+-- read backwards, so a descending order is the ascending one reversed, ties
+-- included (blanks still last: the non-blank rows backwards, then the blank
+-- ones backwards; `track_table::window_ids`). A second index per column
+-- would double the time to build the rows (about 5 s per index per 100,000
+-- tracks) and the size of the table for the same speed.
 CREATE INDEX track_row_title ON track_row (title_key, artist_key, recording_id, flags, format);
-CREATE INDEX track_row_title_desc ON track_row (title_key DESC, artist_key, recording_id, flags, format);
 CREATE INDEX track_row_artist ON track_row ((artist_key IS NULL), artist_key, title_key, recording_id, flags, format);
-CREATE INDEX track_row_artist_desc ON track_row ((artist_key IS NULL), artist_key DESC, title_key, recording_id, flags, format);
 CREATE INDEX track_row_genre ON track_row ((genre_key IS NULL), genre_key, title_key, recording_id, flags, format);
-CREATE INDEX track_row_genre_desc ON track_row ((genre_key IS NULL), genre_key DESC, title_key, recording_id, flags, format);
 CREATE INDEX track_row_bpm ON track_row ((bpm IS NULL), bpm, recording_id, flags, format);
-CREATE INDEX track_row_bpm_desc ON track_row ((bpm IS NULL), bpm DESC, recording_id, flags, format);
 CREATE INDEX track_row_key ON track_row ((key_order IS NULL), key_order, recording_id, flags, format);
-CREATE INDEX track_row_key_desc ON track_row ((key_order IS NULL), key_order DESC, recording_id, flags, format);
 CREATE INDEX track_row_time ON track_row ((time_ms IS NULL), time_ms, recording_id, flags, format);
-CREATE INDEX track_row_time_desc ON track_row ((time_ms IS NULL), time_ms DESC, recording_id, flags, format);
 CREATE INDEX track_row_rating ON track_row ((rating IS NULL), rating, recording_id, flags, format);
-CREATE INDEX track_row_rating_desc ON track_row ((rating IS NULL), rating DESC, recording_id, flags, format);
 CREATE INDEX track_row_added ON track_row ((added_at IS NULL), added_at, recording_id, flags, format);
-CREATE INDEX track_row_added_desc ON track_row ((added_at IS NULL), added_at DESC, recording_id, flags, format);
 CREATE INDEX track_row_file ON track_row ((file_key IS NULL), file_key, recording_id, flags, format);
-CREATE INDEX track_row_file_desc ON track_row ((file_key IS NULL), file_key DESC, recording_id, flags, format);
 CREATE INDEX track_row_folder ON track_row ((folder_key IS NULL), folder_key, recording_id, flags, format);
-CREATE INDEX track_row_folder_desc ON track_row ((folder_key IS NULL), folder_key DESC, recording_id, flags, format);
 
 -- A count of the rows a filter leaves reads this narrow index instead of a
 -- wide sort index.

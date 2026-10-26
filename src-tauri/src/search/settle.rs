@@ -35,6 +35,19 @@ fn json(ids: &[i64]) -> String {
     serde_json::to_string(ids).expect("numbers always serialize")
 }
 
+/// A hash of the eight texts a track's search row holds, to tell a row
+/// that would be written again as it is (the search table keeps no text to
+/// read back). Every text is length-prefixed, so none can run into the next.
+fn text_hash(texts: &[&str; 8]) -> i64 {
+    let mut hasher = blake3::Hasher::new();
+    for text in texts {
+        hasher.update(&(text.len() as u64).to_le_bytes());
+        hasher.update(text.as_bytes());
+    }
+    let hash = hasher.finalize();
+    i64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("eight bytes"))
+}
+
 /// A row of the index, before it is written.
 struct Row {
     fields: ShownFields,
@@ -46,9 +59,11 @@ struct Row {
 }
 
 /// Works out and writes the rows of up to `limit` due tracks, in one
-/// transaction, and returns how many tracks that was. A track's old row is
-/// deleted and its new one written in the same transaction that removes it
-/// from `search_due`, so a crash never leaves a track with neither.
+/// transaction, and returns how many tracks that was. A track's new rows are
+/// written in the same transaction that removes it from `search_due`, so a
+/// crash never leaves a track with neither. A row that comes out the same as
+/// the stored one is not written (neither is its search row), so a track
+/// that was marked for nothing costs a read.
 ///
 /// `-1` in `search_due` stands for every Library track (a rekordbox read):
 /// it is replaced by them first.
@@ -82,12 +97,15 @@ pub fn settle_page(
     }
     let rows = rows_for(&tx, volumes, &page)?;
     for id in &page {
-        tx.prepare_cached("DELETE FROM search_track WHERE rowid = ?1")?
-            .execute([id])?;
-        tx.prepare_cached("DELETE FROM track_row WHERE recording_id = ?1")?
-            .execute([id])?;
-        let Some(row) = rows.get(id) else { continue };
-        table_row::write(&tx, *id, &row.fields, &row.facts, row.has_file)?;
+        let Some(row) = rows.get(id) else {
+            // No row to write (the track is gone, or has neither a file nor
+            // a Library track): whatever it had goes.
+            tx.prepare_cached("DELETE FROM search_track WHERE rowid = ?1")?
+                .execute([id])?;
+            tx.prepare_cached("DELETE FROM track_row WHERE recording_id = ?1")?
+                .execute([id])?;
+            continue;
+        };
         let f = &row.fields;
         let comment: String = f.comment.chars().take(MAX_COMMENT_CHARS).collect();
         // A title that is the file's name is indexed like a file name.
@@ -95,21 +113,38 @@ pub fn settle_page(
             true => file_name_text(&f.title),
             false => f.title.clone(),
         };
+        let text = [
+            title.as_str(),
+            &f.artist,
+            &f.album,
+            &f.remixer,
+            &f.label,
+            &f.genre,
+            &comment,
+            &row.file_names,
+        ];
+        // Only what changed is written: most of the tracks a rekordbox read
+        // marks come out the same as they were.
+        let written = table_row::write(
+            &tx,
+            *id,
+            &row.fields,
+            &row.facts,
+            row.has_file,
+            text_hash(&text),
+        )?;
+        if written != (table_row::Written::Changed { text: true }) {
+            continue;
+        }
+        tx.prepare_cached("DELETE FROM search_track WHERE rowid = ?1")?
+            .execute([id])?;
         tx.prepare_cached(
             "INSERT INTO search_track
                  (rowid, title, artist, album, remixer, label, genre, comment, file_name)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )?
         .execute(params![
-            id,
-            title,
-            f.artist,
-            f.album,
-            f.remixer,
-            f.label,
-            f.genre,
-            comment,
-            row.file_names
+            id, text[0], text[1], text[2], text[3], text[4], text[5], text[6], text[7]
         ])?;
     }
     tx.execute(
