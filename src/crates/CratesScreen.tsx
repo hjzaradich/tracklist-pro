@@ -434,12 +434,12 @@ function CrateView({
           onCancel={() => onAsk(null)}
         />
       )}
+      {/* A crate's table starts afresh (its own sort and filters) for another crate. */}
       {folder ? (
         <EmptyState>
           {all.some((c) => c.parentId === crate.id) ? t("folder.select") : t("folder.empty")}
         </EmptyState>
       ) : (
-        {/* Another crate starts with its own sort and filters. */}
         <TrackTableView
           key={crate.id}
           screen="crate"
