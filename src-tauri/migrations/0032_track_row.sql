@@ -20,14 +20,16 @@
 -- `flags` packs what the filters ask, so an index holds them and a filter
 -- never leaves the index:
 --      1  in the Library            2  has a file (it is in All music)
---      4  its file is missing       8  its file has a quality finding
---     16  rekordbox has it         32  it is in a crate
+--      4  its file is missing      16  rekordbox has it
+--     32  it is in a crate        (8 is not used: the quality filter reads
+--         Review's definition when the query runs, which a flag could not
+--         follow: a new rules version makes every verdict stale at once)
 -- `format` is the shown file's `sniffed_format`.
 --
 -- The index job (`search_due`) writes the rows, in the same transaction as
 -- the search index's. The triggers below add what the search index did not
--- need: a change of BPM, key, length, format, quality verdict, crate or the
--- Library's missing mark.
+-- need: a change of BPM, key, length, format, crate or the Library's
+-- missing mark.
 CREATE TABLE track_row (
     recording_id INTEGER NOT NULL PRIMARY KEY,
     flags        INTEGER NOT NULL DEFAULT 0,
@@ -115,35 +117,6 @@ BEGIN
     INSERT INTO search_due (recording_id)
     SELECT recording_id FROM recording_file
     WHERE file_id = new.id
-      AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = recording_file.recording_id);
-END;
-
--- A file's stored quality verdict was made, changed or dropped.
-CREATE TRIGGER search_verdict_added
-AFTER INSERT ON file_verdict
-BEGIN
-    INSERT INTO search_due (recording_id)
-    SELECT recording_id FROM recording_file
-    WHERE file_id = new.file_id
-      AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = recording_file.recording_id);
-END;
-
-CREATE TRIGGER search_verdict_changed
-AFTER UPDATE OF verdict ON file_verdict
-WHEN old.verdict IS NOT new.verdict
-BEGIN
-    INSERT INTO search_due (recording_id)
-    SELECT recording_id FROM recording_file
-    WHERE file_id = new.file_id
-      AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = recording_file.recording_id);
-END;
-
-CREATE TRIGGER search_verdict_removed
-AFTER DELETE ON file_verdict
-BEGIN
-    INSERT INTO search_due (recording_id)
-    SELECT recording_id FROM recording_file
-    WHERE file_id = old.file_id
       AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = recording_file.recording_id);
 END;
 

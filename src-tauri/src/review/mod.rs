@@ -78,6 +78,7 @@ use crate::scan::system_volumes;
 use crate::suggest::{Reason, Suggestion};
 
 pub use compare::comparison;
+pub(crate) use queue::quality_problem_recordings;
 pub use queue::{counts, items};
 
 /// The grouping pairs that wait for the user. The text of migration 0026's

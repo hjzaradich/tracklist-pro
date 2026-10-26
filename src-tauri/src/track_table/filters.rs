@@ -6,7 +6,12 @@
 //!
 //! "The file" of a row is the file it shows (`track_row.file_id`): the
 //! Library track's linked file, else the track's best file. A quality
-//! problem is a stored verdict (`file_verdict`) that flags that file.
+//! problem is what Review's "Quality problems" group holds, by the SQL text
+//! Review itself reads (`review::quality_problem_recordings`), worked out
+//! when the query runs: a Library track whose linked file is on disk and
+//! flagged by a current verdict, cut off or broken, with no better copy and
+//! no "Keep anyway" or "Find a better file" for that audio, or one with a
+//! "Better file available" item whose linked file is still there.
 
 use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
@@ -29,7 +34,7 @@ pub enum TableFilter {
     NotInRekordbox,
     /// The file is in this format (`file.sniffed_format`, e.g. `flac`).
     Format { format: String },
-    /// The file has a quality finding (anything but a clean verdict).
+    /// The track is one of Review's "Quality problems" (see the module doc).
     QualityProblem,
     /// The track is in at least one crate.
     InCrate,
@@ -60,7 +65,10 @@ pub(super) fn conditions(filters: &[TableFilter], params: &mut Vec<Value>) -> Ve
                 }
                 continue;
             }
-            TableFilter::QualityProblem => has(flag::QUALITY_PROBLEM),
+            TableFilter::QualityProblem => format!(
+                "tr.recording_id IN ({})",
+                crate::review::quality_problem_recordings()
+            ),
             TableFilter::InCrate => has(flag::IN_CRATE),
             TableFilter::InNoCrate => lacks(flag::IN_CRATE),
             TableFilter::InLibrary => has(flag::IN_LIBRARY),

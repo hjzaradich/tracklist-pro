@@ -9,14 +9,17 @@
 //! - **The file a track shows** is its Library track's linked file, else its
 //!   best file, else its lowest file id. Its name and folder are the sort
 //!   keys of the File and Folder columns, its length the length of a track
-//!   rekordbox doesn't know, and the filters (missing, format, quality)
-//!   read it.
+//!   rekordbox doesn't know, and the filters (missing, format) read it.
 //! - **The filters' flags** ([`flag`]) are worked out here too, and kept in
 //!   every index, so a filtered page is read from an index alone. What they
 //!   follow is noted by the triggers of migration 0032; a rekordbox read or
 //!   a relink changes which tracks rekordbox has in a way no trigger can
 //!   name, so the `-1` mark refreshes that flag of every row at once
-//!   ([`refresh_rekordbox_flags`]).
+//!   ([`refresh_rekordbox_flags`]). There is no flag for "quality problem":
+//!   that is Review's definition (a verdict that is current, no decision, no
+//!   better copy ...), which can change without any row changing (a new
+//!   rules version makes every verdict stale at once), so the filter reads
+//!   it when the query runs (`review::quality_problem_recordings`).
 //! - **BPM and key** are `recording_display`'s, the analysis the app keeps
 //!   (rekordbox's for a track rekordbox knows). The key is stored as its
 //!   position on the Camelot wheel ([`camelot_order`]), so the table sorts
@@ -31,7 +34,6 @@ use std::collections::HashMap;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::library::sort_key;
-use crate::review::FLAGGED;
 use crate::send_values::{file_name, ShownFields};
 
 /// The bits of `track_row.flags`.
@@ -43,9 +45,6 @@ pub mod flag {
     /// The file it shows is not on disk (or the scan marked its Library
     /// track missing, or it has no file at all).
     pub const MISSING: i64 = 4;
-    /// The file it shows has a quality finding (a stored verdict that flags
-    /// it, `review::FLAGGED`).
-    pub const QUALITY_PROBLEM: i64 = 8;
     /// rekordbox has the track: one of its files is the trusted match of an
     /// entry.
     pub const IN_REKORDBOX: i64 = 16;
@@ -138,7 +137,6 @@ pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Hash
                 {BPM_AND_KEY},
                 f.sniffed_format,
                 f.id IS NULL OR f.present = 0 OR coalesce(lt.source_status = 'missing', 0),
-                EXISTS (SELECT 1 FROM file_verdict v WHERE v.file_id = f.id AND v.{FLAGGED}),
                 {in_rekordbox},
                 coalesce(EXISTS (SELECT 1 FROM crate_entry ce
                                  WHERE ce.library_track_id = lt.id AND ce.kind = 'member'), 0)
@@ -162,9 +160,8 @@ pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Hash
         };
         let flags = bit(1, flag::IN_LIBRARY)?
             | bit(11, flag::MISSING)?
-            | bit(12, flag::QUALITY_PROBLEM)?
-            | bit(13, flag::IN_REKORDBOX)?
-            | bit(14, flag::IN_CRATE)?;
+            | bit(12, flag::IN_REKORDBOX)?
+            | bit(13, flag::IN_CRATE)?;
         Ok((
             r.get::<_, i64>(0)?,
             Facts {

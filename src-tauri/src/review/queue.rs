@@ -99,6 +99,20 @@ pub(super) fn quality_from(extra: &str) -> String {
     )
 }
 
+/// The tracks of the "Quality problems" group, as a `SELECT` of their ids:
+/// the quality problems ([`quality_from`]) and the "Better file available"
+/// items whose linked file is still there ([`better_from`]). The one SQL
+/// text the track table's "Quality problem" chip reads, so the chip and the
+/// group can't mean different things; a test holds the chip to the group's
+/// items.
+pub(crate) fn quality_problem_recordings() -> String {
+    format!(
+        "SELECT lt.recording_id {} UNION SELECT lt.recording_id {}",
+        quality_from(""),
+        better_from(false, "")
+    )
+}
+
 // ---- counts ---------------------------------------------------------------
 
 fn count(conn: &Connection, sql: &str, params: impl Params) -> rusqlite::Result<u32> {

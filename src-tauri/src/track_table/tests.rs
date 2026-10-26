@@ -4,6 +4,7 @@
 
 mod folders;
 mod order;
+mod quality;
 
 use super::*;
 use crate::search::tests::support::{Lib, Mount};
@@ -634,47 +635,59 @@ fn format_filters_are_alternatives_and_the_formats_offered_are_the_ones_present(
     assert_eq!(offered(TableSource::Library), ["flac", "mp3"]);
 }
 
-/// A stored quality verdict for `file`.
-fn verdict(lib: &Lib, file: i64, verdict: Option<&'static str>) {
-    lib.insert(
-        "INSERT OR REPLACE INTO file_verdict (file_id, rules_version, inputs, verdict)
-         VALUES (?1, 1, '[]', ?2)",
-        (file, verdict),
-    );
+/// The ids of the tracks whose row has `bit` in its flags, once the index is
+/// current.
+fn with_flag(f: &Fixture, bit: i64) -> Vec<i64> {
+    f.lib.settle();
+    f.lib
+        .writer
+        .call(move |c| {
+            c.prepare("SELECT recording_id FROM track_row WHERE flags & ?1 <> 0 ORDER BY 1")?
+                .query_map([bit], |r| r.get(0))?
+                .collect()
+        })
+        .unwrap()
 }
 
 #[test]
-fn quality_problem_finds_a_file_with_a_finding_but_not_a_clean_or_unjudged_one() {
+fn a_row_keeps_what_the_library_and_all_music_are_made_of() {
     let f = fixture();
-    let [_, r2, r3, ..] = f.recs;
-    verdict(&f.lib, f.files[0], Some("ok"));
-    verdict(&f.lib, f.files[1], Some("low_bitrate"));
-    verdict(&f.lib, f.files[2], Some("broken"));
-    // A file assessed with nothing to say, and one never assessed.
-    verdict(&f.lib, f.files[3], None);
-    assert_eq!(
-        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::QualityProblem]),
-        [r2, r3]
-    );
-    assert_eq!(
-        filter_ids(&f, TableSource::Library, vec![TableFilter::QualityProblem]),
-        [r2]
-    );
-    // The filter follows a new verdict, with no help from anything else.
-    verdict(&f.lib, f.files[1], Some("ok"));
-    assert_eq!(
-        filter_ids(&f, TableSource::AllMusic, vec![TableFilter::QualityProblem]),
-        [r3]
-    );
+    let [r1, r2, r3, r4, r5, r6] = f.recs;
+    assert_eq!(with_flag(&f, flag::IN_LIBRARY), [r1, r2, r4]);
+    assert_eq!(with_flag(&f, flag::HAS_FILE), [r1, r2, r3, r4, r5, r6]);
+    // A Library track whose file link is gone is in the Library, not in All music.
     f.lib
-        .insert("DELETE FROM file_verdict WHERE file_id = ?1", (f.files[2],));
-    assert!(filter_ids(&f, TableSource::AllMusic, vec![TableFilter::QualityProblem]).is_empty());
+        .insert("DELETE FROM recording_file WHERE recording_id = ?1", (r4,));
+    assert_eq!(with_flag(&f, flag::IN_LIBRARY), [r1, r2, r4]);
+    assert_eq!(with_flag(&f, flag::HAS_FILE), [r1, r2, r3, r5, r6]);
+    // A format is the shown file's.
+    let formats: Vec<Option<String>> = f
+        .lib
+        .writer
+        .call(|c| {
+            c.prepare("SELECT format FROM track_row ORDER BY recording_id")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .unwrap();
+    assert_eq!(
+        formats,
+        [
+            Some("mp3".to_owned()),
+            Some("flac".to_owned()),
+            Some("mp3".to_owned()),
+            // The Library track keeps its linked file, whose format it shows.
+            Some("mp3".to_owned()),
+            Some("wav".to_owned()),
+            Some("mp3".to_owned())
+        ]
+    );
 }
 
 #[test]
 fn the_filters_follow_the_changes_they_depend_on() {
     let f = fixture();
-    let [r1, r2, r3, r4, r5, r6] = f.recs;
+    let [r1, r2, r3, r4, r5, _] = f.recs;
     // Settle once so every change below is one the triggers must catch.
     f.lib.settle();
     // A file coming back, and another going.
@@ -754,7 +767,6 @@ fn the_filters_follow_the_changes_they_depend_on() {
     );
     f.lib.insert("DELETE FROM rekordbox_track", ());
     assert!(filter_ids(&f, TableSource::AllMusic, vec![TableFilter::InRekordbox]).is_empty());
-    let _ = r6;
 }
 
 #[test]
@@ -810,7 +822,6 @@ fn in_the_library_and_not_in_the_library_split_all_music() {
 #[test]
 fn filters_combine_and_a_repeated_filter_counts_once() {
     let f = fixture();
-    let [r1, _, _, r4, ..] = f.recs;
     let page = run(
         &f.lib,
         filtered(
@@ -827,7 +838,6 @@ fn filters_combine_and_a_repeated_filter_counts_once() {
     );
     assert_eq!(ids(&page), [f.recs[3], f.recs[0]]);
     assert_eq!(page.total, Some(2));
-    let _ = (r1, r4);
 }
 
 // Search.

@@ -10,8 +10,12 @@
 //!   33,000 of them) and, for 20 of the 33, a place in one of ten crates;
 //! - 50 have a BPM and a key (rekordbox's analysis), 90 a genre tag and 95 a
 //!   length;
-//! - 3 have a file that is gone, 2 a quality finding; the formats are MP3
-//!   (60), FLAC (25), WAV (10) and AIFF (5).
+//! - 3 have a file that is gone; the formats are MP3 (60), FLAC (25), WAV
+//!   (10) and AIFF (5);
+//! - 2 have a quality finding in a file outside the Library (no Review item);
+//!   of the Library's, 1 has a current finding (a Review "quality problem")
+//!   and 1 the same with a "Keep anyway" answer (none), and 1 has a "Better
+//!   file available" item (a Review "quality problem" too).
 //!
 //! The measurement is an ignored test; run it alone, in a release build:
 //!
@@ -161,8 +165,14 @@ impl Db {
                     let mut recording = tx.prepare("INSERT INTO recording DEFAULT VALUES")?;
                     let mut file = tx.prepare(
                         "INSERT INTO file (music_folder_id, rel_path, rel_path_key, raw_tags,
-                                           sniffed_format, duration_ms, present)
-                         VALUES (1, ?1, ?1, ?2, ?3, ?4, ?5)",
+                                           sniffed_format, duration_ms, present, audio_hash)
+                         VALUES (1, ?1, ?1, ?2, ?3, ?4, ?5, ?6)",
+                    )?;
+                    let mut decision = tx.prepare(
+                        "INSERT INTO review_decision (kind, linked_key) VALUES ('keep_anyway', ?1)",
+                    )?;
+                    let mut better = tx.prepare(
+                        "INSERT INTO better_file (recording_id, file_id, step) VALUES (?1, ?2, 'format')",
                     )?;
                     let mut verdict = tx.prepare(
                         "INSERT INTO file_verdict (file_id, rules_version, inputs, verdict)
@@ -210,10 +220,17 @@ impl Db {
                         let duration = (rng.below(100) < 95).then(|| 120_000 + rng.below(400_000) as i64);
                         recording.execute([])?;
                         let recording_id = tx.last_insert_rowid();
-                        file.execute(rusqlite::params![name, raw, format, duration, !gone])?;
+                        let hash = (n % 100 == 11).then(|| n.to_le_bytes().to_vec());
+                        file.execute(rusqlite::params![name, raw, format, duration, !gone, hash])?;
                         let file_id = tx.last_insert_rowid();
-                        if n % 100 == 50 || n % 100 == 51 {
+                        if [10, 11, 50, 51].contains(&(n % 100)) {
                             verdict.execute(rusqlite::params![file_id, "low_bitrate"])?;
+                        }
+                        if let Some(hash) = &hash {
+                            decision.execute([hash])?;
+                        }
+                        if n % 100 == 20 {
+                            better.execute(rusqlite::params![recording_id, file_id])?;
                         }
                         link.execute(rusqlite::params![recording_id, file_id])?;
                         if rng.below(100) < 50 {
@@ -252,6 +269,18 @@ impl Db {
                         }
                     }
                 }
+                // The verdicts are current, as the quality job leaves them.
+                tx.execute(
+                    &format!(
+                        "UPDATE file_verdict SET rules_version = {},
+                             inputs = (SELECT {} FROM file f
+                                       LEFT JOIN file_quality q ON q.file_id = f.id
+                                       WHERE f.id = file_verdict.file_id)",
+                        tracklist_pro_lib::quality::RULES_VERSION,
+                        tracklist_pro_lib::quality::store::INPUTS
+                    ),
+                    [],
+                )?;
                 tx.commit()?;
                 Ok(())
             })
@@ -533,12 +562,29 @@ fn run(tracks: u64, check: bool) {
         ("in a crate", TableFilter::InCrate),
         ("in no crate", TableFilter::InNoCrate),
         ("missing", TableFilter::Missing),
+        ("quality problem", TableFilter::QualityProblem),
     ] {
         probes.push((
             Box::leak(format!("Library, filter {what}").into_boxed_str()),
             filtered(TableSource::Library, filter),
         ));
     }
+    probes.push((
+        "Library, filter quality problem, sort by BPM, descending",
+        TableQuery {
+            filters: vec![TableFilter::QualityProblem],
+            ..sorted(TableSource::Library, SortColumn::Bpm, true)
+        },
+    ));
+    probes.push((
+        "All music, filter quality problem, sort by title, scroll to the end",
+        TableQuery {
+            filters: vec![TableFilter::QualityProblem],
+            offset: u32::try_from(tracks / 100 * 2).unwrap().saturating_sub(100),
+            with_total: false,
+            ..sorted(TableSource::AllMusic, SortColumn::Title, true)
+        },
+    ));
     let top = word(0);
     probes.push((
         "All music, search a letter",
@@ -625,6 +671,17 @@ fn run(tracks: u64, check: bool) {
             .iter()
             .all(|r| r.file.as_ref().is_some_and(|f| f.name.ends_with(".flac"))));
         assert!(!db.writer.call(|c| pending(c)).unwrap());
+        // The Quality problem chip is Review's "Quality problems" group.
+        let problems = db.page(filtered(TableSource::AllMusic, TableFilter::QualityProblem));
+        let review = db
+            .writer
+            .call(|c| tracklist_pro_lib::review::counts(c))
+            .unwrap();
+        assert_eq!(problems.total, Some(review.quality_problems));
+        assert_eq!(
+            problems.total,
+            Some(u32::try_from(tracks / 100 * 2).unwrap())
+        );
     }
 }
 
