@@ -70,7 +70,7 @@ pub(super) fn better_from(on_disk: bool, extra: &str) -> String {
     };
     format!(
         "FROM better_file bf
-         JOIN library_track lt ON lt.recording_id = bf.recording_id
+         CROSS JOIN library_track lt ON lt.recording_id = bf.recording_id
          JOIN file bfile ON bfile.id = bf.file_id
          LEFT JOIN file lf ON lf.id = lt.linked_file_id
          WHERE {step} {extra}"
