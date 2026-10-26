@@ -89,15 +89,15 @@ fn as_it_was() -> (tempfile::TempDir, Connection) {
     (dir, conn)
 }
 
-/// A database with every migration, with one music folder.
+/// A database with this migration (and none after it), with one music folder.
 fn as_it_is() -> (tempfile::TempDir, Connection) {
-    let (dir, conn) = db_at(MIGRATIONS.len());
+    let (dir, conn) = db_at(before() + 1);
     accepts(&conn, FOLDER);
     (dir, conn)
 }
 
 fn migrate(conn: &mut Connection) {
-    assert!(run(conn, MIGRATIONS).unwrap() >= 1);
+    assert_eq!(run(conn, &MIGRATIONS[..=before()]).unwrap(), 1);
     conn.pragma_update(None, "foreign_keys", true).unwrap();
 }
 
@@ -416,7 +416,7 @@ fn every_row_of_every_table_is_exactly_as_it_was() {
 #[test]
 fn every_index_trigger_and_view_is_back_and_only_the_two_tables_say_autoincrement() {
     let (_old_dir, old) = db_at(before());
-    let (_new_dir, new) = db_at(MIGRATIONS.len());
+    let (_new_dir, new) = db_at(before() + 1);
     let table_sql = |conn: &Connection, table: &str| -> String {
         one(
             conn,

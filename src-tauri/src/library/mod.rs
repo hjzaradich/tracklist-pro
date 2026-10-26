@@ -895,6 +895,21 @@ pub fn stored_one(conn: &Connection, id: LibraryTrackId) -> rusqlite::Result<Opt
         .next())
 }
 
+/// The Library tracks made from the tracks `recordings`, in the order of
+/// their ids. Their title and artist are the stored ones: the track table
+/// works out what it shows itself.
+pub(crate) fn stored_for_recordings(
+    conn: &Connection,
+    recordings: &[i64],
+) -> rusqlite::Result<Vec<StoredTrack>> {
+    let ids = serde_json::to_string(recordings).expect("numbers always serialize");
+    stored_where(
+        conn,
+        "WHERE lt.recording_id IN (SELECT value FROM json_each(?1))",
+        [ids],
+    )
+}
+
 /// Text as it's compared for sorting: accents and other combining marks
 /// dropped, compatibility forms folded (NFKD), then lowercased, so an
 /// accented letter sorts with its base letter. Not locale-aware: other
@@ -995,6 +1010,7 @@ pub async fn promote_track(
     };
     let outcome = promote(&writer, &system_volumes(), recording_id, confirmed)?;
     if matches!(&outcome, PromoteOutcome::Done(p) if p.added) {
+        settle_now(&writer, &jobs);
         // Its "better file" is worked out in the background. A failure to
         // ask is not the add's: the next job to end asks again.
         if let Err(e) = crate::file_roles::request(&writer, |j| jobs.enqueue(j)) {
@@ -1010,9 +1026,27 @@ pub async fn promote_track(
 #[specta::specta]
 pub async fn remove_library_track(
     writer: State<'_, Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
     id: LibraryTrackId,
 ) -> Result<(), IpcError> {
-    Ok(remove(&writer, id)?)
+    remove(&writer, id)?;
+    settle_now(&writer, &jobs);
+    Ok(())
+}
+
+/// Works out the track table's row of the track an add or a removal has just
+/// changed, so the lists read right after it show the change and don't wait
+/// for the index job. A failure is not the change's: the job does it later.
+fn settle_now(writer: &Writer, jobs: &crate::jobs::JobQueue) {
+    let volumes = system_volumes();
+    let settled = writer.call(move |conn| crate::search::settle_if_small(conn, &volumes, 50));
+    if let Err(e) = settled {
+        eprintln!("library: couldn't update the track table's rows: {e:?}");
+    }
+    // Anything left over (a long list was due) is the index job's.
+    if let Err(e) = crate::search::request(writer, |job| jobs.enqueue(job)) {
+        eprintln!("library: couldn't ask for the index: {e:?}");
+    }
 }
 
 #[cfg(test)]
