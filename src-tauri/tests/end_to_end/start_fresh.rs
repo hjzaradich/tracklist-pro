@@ -149,6 +149,57 @@ fn new_tracks_arrive_with_their_tag_values_a_new_track_id_and_their_crate() {
     );
 }
 
+/// 1cA-9/10: crates in nested folders reach rekordbox as the same tree,
+/// after a rename, a move and a delete on the way, in the order the app
+/// lists them.
+#[test]
+fn crates_in_nested_folders_are_sent_as_the_same_tree_after_moves_and_deletes() {
+    let (world, _rb) = started_fresh();
+    let added = fresh_library_with_a_crate(&world);
+    let (a, b) = (added.new[0].id, added.new[1].id);
+
+    let residency = world.create_folder("Friday residency", None);
+    let late = world.create_folder("Late", Some(residency));
+    world.create_crate_in(residency, "Warmup", &[a, added.known.id]);
+    let peak = world.create_crate_in(late, "Peak time", &[b]);
+    let scratch = world.create_folder("Scratch", None);
+    world.create_crate_in(scratch, "Never sent", &[a]);
+    // The crate `Friday` moves in beside Warmup, Peak time up a level, and
+    // the folder holding a throwaway crate goes with its crate.
+    world.move_crate(added.friday, Some(residency));
+    world.move_crate(peak, Some(residency));
+    world.delete_crate(scratch);
+    world.rename_crate(late, "Later");
+
+    let preflight = world.prepared();
+    let sent = world.write_and_read_back(&preflight, false);
+    assert_eq!(children(&sent, &["Crates"]), ["Friday residency"]);
+    assert_eq!(
+        children(&sent, &["Crates", "Friday residency"]),
+        ["Later", "Warmup", "Friday", "Peak time"]
+    );
+    assert_eq!(
+        children(&sent, &["Crates", "Friday residency", "Later"]),
+        [] as [&str; 0]
+    );
+    let keys = |songs: &[Song]| -> Vec<String> {
+        songs.iter().map(|s| key_of(&world.path_of(s))).collect()
+    };
+    assert_eq!(
+        entries(&sent, &["Crates", "Friday residency", "Warmup"]),
+        keys(&[NEW[0], IN_CRATE])
+    );
+    assert_eq!(
+        entries(&sent, &["Crates", "Friday residency", "Friday"]),
+        keys(&[NEW[0], IN_CRATE, NEW[1]])
+    );
+    assert_eq!(
+        entries(&sent, &["Crates", "Friday residency", "Peak time"]),
+        keys(&[NEW[1]])
+    );
+    assert_eq!(children(&sent, &["Playlists"]), [] as [&str; 0]);
+}
+
 #[test]
 fn sending_a_fresh_library_again_duplicates_nothing() {
     let (mut world, mut rb) = started_fresh();

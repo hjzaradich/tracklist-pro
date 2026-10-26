@@ -122,6 +122,12 @@ error_kinds! {
     CrateNameTaken => "crates:error.nameTaken", params: ["name"];
     /// The name has a character that can't be sent to rekordbox.
     CrateNameUnsendable => "crates:error.nameUnsendable", params: [];
+    /// A crate or folder was to go where there is no folder.
+    CrateNotAFolder => "crates:error.notAFolder", params: [];
+    /// A folder was to go inside itself or one of its own subfolders.
+    CrateMoveIntoItself => "crates:error.moveIntoItself", params: [];
+    /// The folders would nest deeper than a send can write.
+    CrateTooDeep => "crates:error.tooDeep", params: [];
     /// The Review item was answered already, or isn't in the queue any more.
     ReviewItemGone => "review:error.itemGone", params: [];
     /// A decision is remembered by what a file holds, and the file hasn't

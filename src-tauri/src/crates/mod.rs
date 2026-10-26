@@ -1,20 +1,29 @@
-//! Crates: hand-made groups of Library tracks (1aG-7; ROADMAP 1.14, §2
-//! `crate` and `crate_entry`). Only the basics exist since 1aG: a crate is
-//! static and at the top level. Folders, notes, summaries and smart crates
-//! come in Phase 1c and 3.
+//! Crates: hand-made groups of Library tracks, and the folders they live in
+//! (1aG-7 and 1cA-9/10; ROADMAP 1.14, §2 `crate` and `crate_entry`). A
+//! crate is static; a folder holds crates and folders, never tracks; the
+//! tree is as deep as the XML writer allows. Notes, summaries and smart
+//! crates come later.
 //!
 //! - **Every change is one recorded operation** ([`crate::ops`]), so
 //!   `undo_last_operation` puts the earlier state back exactly, the entries'
 //!   rows and `added_at` included. Deleting a crate deletes its entries
 //!   first and explicitly: the log doesn't record rows a foreign key
 //!   cascades to.
-//! - **A name is trimmed**, can't be empty and can't equal another top-level
-//!   crate's, compared exactly as the XML writer compares siblings
+//! - **A name is trimmed**, can't be empty and can't equal another crate's
+//!   or folder's in the same folder (the same name in different folders is
+//!   fine), compared exactly as the XML writer compares siblings
 //!   ([`sibling_key`]: NFC, letter case and trailing whitespace ignored). A
 //!   name with a character XML can't carry is refused too, using the
 //!   writer's own check. The point: a crate the app lets the user make is
 //!   never the reason a send is refused (ROADMAP 1.9, "Crates and
 //!   Playlists are always both written").
+//! - **Deleting a folder deletes what is in it**, crates, entries and
+//!   folders, deepest first and one row at a time (the log doesn't record
+//!   rows a foreign key cascades to), so one undo puts back every row,
+//!   position and entry as it was. Library tracks are never touched.
+//! - **Moving** puts a crate or folder last in another folder, or at the
+//!   top. A folder can't go into itself or its own subfolder, and nothing
+//!   goes deeper than the writer allows, so a move never makes a send fail.
 //! - **A track is in a crate once.** Adding one that's there is skipped, not
 //!   an error.
 //! - **A crate's tracks come in the order they were added** (`added_at`,
@@ -36,13 +45,17 @@ use crate::ipc::{ErrorKind, ErrorParam, IpcError};
 use crate::library::{self, LibraryTrack, LibraryTrackId, StoredTrack};
 use crate::ops::{self, OpsError};
 use crate::paths::Volumes;
-use crate::rekordbox_write::{build, sibling_key, BuildError, Node, SendInput};
+use crate::rekordbox_write::{build, sibling_key, BuildError, Node, SendInput, MAX_DEPTH};
 use crate::scan::system_volumes;
 
 /// The operation kinds, as the operation log stores them.
 pub const CREATE_OPERATION: &str = "create_crate";
+pub const CREATE_FOLDER_OPERATION: &str = "create_crate_folder";
 pub const RENAME_OPERATION: &str = "rename_crate";
+pub const RENAME_FOLDER_OPERATION: &str = "rename_crate_folder";
 pub const DELETE_OPERATION: &str = "delete_crate";
+pub const DELETE_FOLDER_OPERATION: &str = "delete_crate_folder";
+pub const MOVE_OPERATION: &str = "move_crate";
 pub const ADD_OPERATION: &str = "add_to_crate";
 pub const REMOVE_OPERATION: &str = "remove_from_crate";
 
@@ -53,13 +66,37 @@ pub const REMOVE_OPERATION: &str = "remove_from_crate";
 #[serde(transparent)]
 pub struct CrateId(pub i64);
 
-/// A crate, as the Crates screen lists it.
+/// What a row of the crate tree is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CrateKind {
+    /// Holds crates and folders, never tracks.
+    Folder,
+    /// A hand-made crate of Library tracks.
+    Static,
+}
+
+/// A crate or a folder, as the Crates screen and the sidebar list it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Crate {
     pub id: CrateId,
+    /// The folder it is in; `None` at the top of the tree.
+    pub parent_id: Option<CrateId>,
+    pub kind: CrateKind,
     pub name: String,
+    /// The tracks in a crate; 0 for a folder.
     pub track_count: u32,
+}
+
+/// What deleting a folder would delete, below the folder itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderContents {
+    pub crates: u32,
+    pub folders: u32,
+    /// Different Library tracks in those crates. They stay in the Library.
+    pub tracks: u32,
 }
 
 /// What adding tracks to a crate, or removing them, did.
@@ -92,6 +129,12 @@ pub enum CratesError {
     /// The name holds a character XML can't carry, so a send couldn't write
     /// it.
     NameUnsendable,
+    /// The place to put a crate or folder isn't a folder.
+    NotAFolder,
+    /// A folder can't go inside itself or one of its own subfolders.
+    MoveIntoItself,
+    /// The folders would nest deeper than a send can write.
+    TooDeep,
     /// The database or the operation log failed.
     Ops(OpsError),
 }
@@ -125,6 +168,9 @@ impl From<CratesError> for IpcError {
                 [("name", ErrorParam::from(existing))],
             ),
             CratesError::NameUnsendable => IpcError::new(ErrorKind::CrateNameUnsendable),
+            CratesError::NotAFolder => IpcError::new(ErrorKind::CrateNotAFolder),
+            CratesError::MoveIntoItself => IpcError::new(ErrorKind::CrateMoveIntoItself),
+            CratesError::TooDeep => IpcError::new(ErrorKind::CrateTooDeep),
             CratesError::Ops(e) => IpcError::from(e),
         }
     }
@@ -134,7 +180,8 @@ impl From<CratesError> for IpcError {
 type Done<T> = Result<T, CratesError>;
 
 /// The name as it will be stored, if a send can carry it next to
-/// `siblings` (the other top-level crates' ids and names).
+/// `siblings` (the other crates' and folders' ids and names in the same
+/// folder).
 ///
 /// Trimmed; refused if empty, if it equals a sibling's by the writer's
 /// rule, or if the writer can't write it. The last check is the writer's
@@ -166,25 +213,148 @@ fn checked_name(siblings: &[(i64, String)], name: &str) -> Done<String> {
     }
 }
 
-/// The ids and names of the top-level crates and folders, other than
-/// `except`: the names a send compares as siblings.
-fn top_level(rec: &ops::Recorder<'_>, except: Option<i64>) -> Result<Vec<(i64, String)>, OpsError> {
+/// The ids and names of the crates and folders in `parent` (`None`: the
+/// top of the tree), other than `except`: the names a send compares as
+/// siblings.
+fn siblings(
+    rec: &ops::Recorder<'_>,
+    parent: Option<i64>,
+    except: Option<i64>,
+) -> Result<Vec<(i64, String)>, OpsError> {
     rec.read_rows(
-        "SELECT id, name FROM crate WHERE parent_id IS NULL AND id <> ?1 ORDER BY id",
-        [except.unwrap_or(0)],
+        "SELECT id, name FROM crate
+         WHERE parent_id IS ?1 AND id <> ?2 AND kind IN ('folder', 'static') ORDER BY id",
+        (parent, except.unwrap_or(0)),
         |r| Ok((r.get(0)?, r.get(1)?)),
     )
 }
 
-/// A static crate's name, or `None` if `id` isn't a static crate.
-fn static_name(rec: &ops::Recorder<'_>, id: CrateId) -> Result<Option<String>, OpsError> {
+/// A crate or folder as the commands need it.
+struct Found {
+    kind: CrateKind,
+    parent: Option<i64>,
+    name: String,
+}
+
+fn kind_from(stored: &str) -> CrateKind {
+    if stored == "folder" {
+        CrateKind::Folder
+    } else {
+        CrateKind::Static
+    }
+}
+
+/// The crate or folder `id`, or `None` if there is none (a smart crate
+/// counts as none: nothing here handles it).
+fn found(rec: &ops::Recorder<'_>, id: CrateId) -> Result<Option<Found>, OpsError> {
     Ok(rec
         .read_rows(
-            "SELECT name FROM crate WHERE id = ?1 AND kind = 'static'",
+            "SELECT kind, parent_id, name FROM crate
+             WHERE id = ?1 AND kind IN ('folder', 'static')",
             [id.0],
-            |r| r.get(0),
+            |r| {
+                Ok(Found {
+                    kind: kind_from(&r.get::<_, String>(0)?),
+                    parent: r.get(1)?,
+                    name: r.get(2)?,
+                })
+            },
         )?
         .pop())
+}
+
+/// A static crate's name, or `None` if `id` isn't a static crate.
+fn static_name(rec: &ops::Recorder<'_>, id: CrateId) -> Result<Option<String>, OpsError> {
+    Ok(found(rec, id)?
+        .filter(|f| f.kind == CrateKind::Static)
+        .map(|f| f.name))
+}
+
+/// The kind of crate `id` is, read before the operation is named.
+fn kind_of(conn: &Connection, id: CrateId) -> rusqlite::Result<Option<CrateKind>> {
+    let mut stmt = conn
+        .prepare_cached("SELECT kind FROM crate WHERE id = ?1 AND kind IN ('folder', 'static')")?;
+    let mut rows = stmt.query([id.0])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(kind_from(&row.get::<_, String>(0)?))),
+        None => Ok(None),
+    }
+}
+
+/// The most folders one inside the other that a send writes: the writer
+/// counts the `Crates` folder as the first level of a path.
+const MAX_FOLDER_DEPTH: usize = MAX_DEPTH - 1;
+
+/// How many folders deep `folder` sits: 0 for the top of the tree, 1 for a
+/// folder at the top, and so on.
+fn depth_of(rec: &ops::Recorder<'_>, folder: i64) -> Result<usize, OpsError> {
+    let above: i64 = rec
+        .read_rows(
+            "SELECT count(*) FROM crate_ancestor WHERE crate_id = ?1",
+            [folder],
+            |r| r.get(0),
+        )?
+        .pop()
+        .unwrap_or(0);
+    Ok(above as usize + 1)
+}
+
+/// How many levels of folders `id` and what is below it make: 0 for a
+/// crate, 1 for a folder with no folder in it, and so on.
+fn levels_of(rec: &ops::Recorder<'_>, id: i64) -> Result<usize, OpsError> {
+    let levels: i64 = rec
+        .read_rows(
+            "WITH RECURSIVE down (id, level) AS (
+                 SELECT id, 1 FROM crate WHERE id = ?1 AND kind = 'folder'
+                 UNION ALL
+                 SELECT c.id, down.level + 1 FROM crate c JOIN down ON c.parent_id = down.id
+                 WHERE c.kind = 'folder'
+             )
+             SELECT ifnull(max(level), 0) FROM down",
+            [id],
+            |r| r.get(0),
+        )?
+        .pop()
+        .unwrap_or(0);
+    Ok(levels as usize)
+}
+
+/// Checks that `parent` can hold a new or moved node `levels` folder
+/// levels tall ([`levels_of`]): it is a folder, and the deepest folder ends
+/// up no deeper than the writer writes. Answers the parent's id.
+fn room_in(
+    rec: &ops::Recorder<'_>,
+    parent: Option<CrateId>,
+    levels: usize,
+) -> Result<Done<Option<i64>>, OpsError> {
+    let Some(parent) = parent else {
+        return Ok(if levels > MAX_FOLDER_DEPTH {
+            Err(CratesError::TooDeep)
+        } else {
+            Ok(None)
+        });
+    };
+    match found(rec, parent)? {
+        None => return Ok(Err(CratesError::NotFound)),
+        Some(f) if f.kind != CrateKind::Folder => return Ok(Err(CratesError::NotAFolder)),
+        Some(_) => {}
+    }
+    if depth_of(rec, parent.0)? + levels > MAX_FOLDER_DEPTH {
+        return Ok(Err(CratesError::TooDeep));
+    }
+    Ok(Ok(Some(parent.0)))
+}
+
+/// The position after the last of the nodes in `parent`.
+fn next_position(rec: &ops::Recorder<'_>, parent: Option<i64>) -> Result<i64, OpsError> {
+    Ok(rec
+        .read_rows(
+            "SELECT ifnull(max(position) + 1, 0) FROM crate WHERE parent_id IS ?1",
+            [parent],
+            |r| r.get(0),
+        )?
+        .pop()
+        .unwrap_or(0))
 }
 
 /// The first of the crates `ids` whose name equals a sibling's by the
@@ -214,31 +384,63 @@ pub fn name_clash(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Option<(i6
     Ok(None)
 }
 
-/// Makes a crate: static, at the top level, last among its siblings.
+/// Makes a static crate at the top of the tree, last among its siblings.
 /// Recorded as one operation.
 pub fn create_on(conn: &mut Connection, name: &str) -> Result<Done<CrateId>, OpsError> {
+    make_on(conn, CrateKind::Static, None, name)
+}
+
+/// Makes a static crate in `parent` (`None`: the top), last among its
+/// siblings. Recorded as one operation.
+pub fn create_in(
+    conn: &mut Connection,
+    parent: Option<CrateId>,
+    name: &str,
+) -> Result<Done<CrateId>, OpsError> {
+    make_on(conn, CrateKind::Static, parent, name)
+}
+
+/// Makes an empty folder in `parent` (`None`: the top), last among its
+/// siblings. Recorded as one operation.
+pub fn create_folder_on(
+    conn: &mut Connection,
+    parent: Option<CrateId>,
+    name: &str,
+) -> Result<Done<CrateId>, OpsError> {
+    make_on(conn, CrateKind::Folder, parent, name)
+}
+
+fn make_on(
+    conn: &mut Connection,
+    kind: CrateKind,
+    parent: Option<CrateId>,
+    name: &str,
+) -> Result<Done<CrateId>, OpsError> {
     let name = name.trim().to_owned();
+    let (operation, stored_kind) = match kind {
+        CrateKind::Static => (CREATE_OPERATION, "static"),
+        CrateKind::Folder => (CREATE_FOLDER_OPERATION, "folder"),
+    };
     ops::record(
         conn,
-        CREATE_OPERATION,
-        &serde_json::json!({ "name": name }),
+        operation,
+        &serde_json::json!({ "name": name, "parentId": parent.map(|p| p.0) }),
         |rec| {
-            let name = match checked_name(&top_level(rec, None)?, &name) {
+            let levels = usize::from(kind == CrateKind::Folder);
+            let parent = match room_in(rec, parent, levels)? {
+                Ok(parent) => parent,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            let name = match checked_name(&siblings(rec, parent, None)?, &name) {
                 Ok(name) => name,
                 Err(refusal) => return Ok(Err(refusal)),
             };
-            let position: i64 = rec
-                .read_rows(
-                    "SELECT ifnull(max(position) + 1, 0) FROM crate WHERE parent_id IS NULL",
-                    [],
-                    |r| r.get(0),
-                )?
-                .pop()
-                .unwrap_or(0);
+            let position = next_position(rec, parent)?;
             let id = rec.insert(
                 "crate",
                 &[
-                    ("kind", "static".to_owned().into()),
+                    ("parent_id", parent.into()),
+                    ("kind", stored_kind.to_owned().into()),
                     ("name", name.into()),
                     ("position", position.into()),
                 ],
@@ -249,29 +451,34 @@ pub fn create_on(conn: &mut Connection, name: &str) -> Result<Done<CrateId>, Ops
     .map(|recorded| recorded.value)
 }
 
-/// Renames a crate and returns the operation it recorded. Renaming it to
-/// what it's called already changes nothing and records nothing (`None`). A
-/// new name that differs only in letter case or trailing space is fine:
-/// it's the same crate.
+/// Renames a crate or folder and returns the operation it recorded.
+/// Renaming it to what it's called already changes nothing and records
+/// nothing (`None`). A new name that differs only in letter case or trailing
+/// space is fine: it's the same crate. The name must differ from the others
+/// in the same folder.
 pub fn rename_on(
     conn: &mut Connection,
     id: CrateId,
     name: &str,
 ) -> Result<Done<Option<i64>>, OpsError> {
     let name = name.trim().to_owned();
+    let operation = match kind_of(conn, id)? {
+        Some(CrateKind::Folder) => RENAME_FOLDER_OPERATION,
+        _ => RENAME_OPERATION,
+    };
     ops::record(
         conn,
-        RENAME_OPERATION,
+        operation,
         &serde_json::json!({ "crateId": id.0, "name": name }),
         |rec| {
-            let Some(from) = static_name(rec, id)? else {
+            let Some(from) = found(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
             };
-            let name = match checked_name(&top_level(rec, Some(id.0))?, &name) {
+            let name = match checked_name(&siblings(rec, from.parent, Some(id.0))?, &name) {
                 Ok(name) => name,
                 Err(refusal) => return Ok(Err(refusal)),
             };
-            rec.detail("from", from);
+            rec.detail("from", from.name);
             rec.set("crate", id.0, "name", name)?;
             Ok(Ok(()))
         },
@@ -279,33 +486,139 @@ pub fn rename_on(
     .map(|recorded| recorded.value.map(|()| recorded.operation_id))
 }
 
-/// Deletes a crate and its entries (the Library tracks stay). Recorded as
-/// one operation; undo brings back the crate and every entry as they were.
+/// Deletes a crate, or a folder with everything in it, and the entries
+/// (the Library tracks stay). Recorded as one operation; undo brings back
+/// every crate, folder and entry as it was, with its position.
 pub fn delete_on(conn: &mut Connection, id: CrateId) -> Result<Done<()>, OpsError> {
+    let operation = match kind_of(conn, id)? {
+        Some(CrateKind::Folder) => DELETE_FOLDER_OPERATION,
+        _ => DELETE_OPERATION,
+    };
     ops::record(
         conn,
-        DELETE_OPERATION,
+        operation,
         &serde_json::json!({ "crateId": id.0 }),
         |rec| {
-            let Some(name) = static_name(rec, id)? else {
+            let Some(top) = found(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
             };
-            rec.detail("name", name);
-            // The entries first, one by one: the log doesn't record rows a
-            // foreign key deletes along with the crate.
-            let entries: Vec<i64> = rec.read_rows(
-                "SELECT id FROM crate_entry WHERE crate_id = ?1 ORDER BY id",
+            rec.detail("name", top.name);
+            // Everything below, deepest first, so a row goes before the
+            // folder it is in (`parent_id` is RESTRICT). Undo puts them back
+            // in the opposite order: folders before what is in them.
+            let doomed: Vec<i64> = rec.read_rows(
+                "WITH RECURSIVE down (id, level) AS (
+                     SELECT id, 0 FROM crate WHERE id = ?1
+                     UNION ALL
+                     SELECT c.id, down.level + 1 FROM crate c JOIN down ON c.parent_id = down.id
+                 )
+                 SELECT id FROM down ORDER BY level DESC, id DESC",
                 [id.0],
                 |r| r.get(0),
             )?;
-            for entry in entries {
-                rec.delete("crate_entry", entry)?;
+            for node in doomed {
+                // The entries first, one by one: the log doesn't record rows
+                // a foreign key deletes along with the crate.
+                let entries: Vec<i64> = rec.read_rows(
+                    "SELECT id FROM crate_entry WHERE crate_id = ?1 ORDER BY id",
+                    [node],
+                    |r| r.get(0),
+                )?;
+                for entry in entries {
+                    rec.delete("crate_entry", entry)?;
+                }
+                rec.delete("crate", node)?;
             }
-            rec.delete("crate", id.0)?;
             Ok(Ok(()))
         },
     )
     .map(|recorded| recorded.value)
+}
+
+/// Moves a crate or folder, with everything in it, into the folder
+/// `folder` (`None`: to the top), last among what is there. Moving it
+/// where it is already changes nothing and records nothing (`None`).
+/// Refused: into itself or a folder inside it, into a crate, a name the
+/// folder has already, or deeper than a send can write.
+pub fn move_on(
+    conn: &mut Connection,
+    id: CrateId,
+    folder: Option<CrateId>,
+) -> Result<Done<Option<i64>>, OpsError> {
+    ops::record(
+        conn,
+        MOVE_OPERATION,
+        &serde_json::json!({ "crateId": id.0, "folderId": folder.map(|f| f.0) }),
+        |rec| {
+            let Some(node) = found(rec, id)? else {
+                return Ok(Err(CratesError::NotFound));
+            };
+            if let Some(target) = folder {
+                let inside: bool = rec
+                    .read_rows(
+                        "SELECT ?1 = ?2 OR EXISTS (SELECT 1 FROM crate_ancestor
+                                                   WHERE crate_id = ?2 AND ancestor_id = ?1)",
+                        (id.0, target.0),
+                        |r| r.get(0),
+                    )?
+                    .pop()
+                    .unwrap_or(false);
+                if inside {
+                    return Ok(Err(CratesError::MoveIntoItself));
+                }
+            }
+            let levels = levels_of(rec, id.0)?;
+            let parent = match room_in(rec, folder, levels)? {
+                Ok(parent) => parent,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            if parent == node.parent {
+                return Ok(Ok(()));
+            }
+            if let Err(refusal) = checked_name(&siblings(rec, parent, Some(id.0))?, &node.name) {
+                return Ok(Err(refusal));
+            }
+            let position = next_position(rec, parent)?;
+            rec.detail("name", node.name);
+            rec.set("crate", id.0, "parent_id", parent)?;
+            rec.set("crate", id.0, "position", position)?;
+            Ok(Ok(()))
+        },
+    )
+    .map(|recorded| recorded.value.map(|()| recorded.operation_id))
+}
+
+/// What deleting folder `id` would delete below it, or `None` if there is
+/// no such folder.
+pub fn folder_contents(conn: &Connection, id: CrateId) -> rusqlite::Result<Option<FolderContents>> {
+    let (all, folders, crates, tracks) = conn.query_row(
+        "WITH RECURSIVE down (id) AS (
+             SELECT id FROM crate WHERE id = ?1 AND kind = 'folder'
+             UNION ALL
+             SELECT c.id FROM crate c JOIN down ON c.parent_id = down.id
+         )
+         SELECT
+             (SELECT count(*) FROM down),
+             (SELECT count(*) FROM crate WHERE id IN (SELECT id FROM down) AND id <> ?1
+                                           AND kind = 'folder'),
+             (SELECT count(*) FROM crate WHERE id IN (SELECT id FROM down) AND kind <> 'folder'),
+             (SELECT count(DISTINCT library_track_id) FROM crate_entry
+              WHERE crate_id IN (SELECT id FROM down))",
+        [id.0],
+        |r| {
+            Ok((
+                r.get::<_, u32>(0)?,
+                r.get::<_, u32>(1)?,
+                r.get::<_, u32>(2)?,
+                r.get::<_, u32>(3)?,
+            ))
+        },
+    )?;
+    Ok((all > 0).then_some(FolderContents {
+        crates,
+        folders,
+        tracks,
+    }))
 }
 
 /// Adds Library tracks to a crate. A track already in it is skipped (and a
@@ -419,19 +732,24 @@ fn with_operation(recorded: ops::Recorded<Done<Changed>>) -> Done<Changed> {
     })
 }
 
-/// Every crate with its track count, in the order a send writes them.
+/// Every folder and crate with its track count. Each folder's own are in
+/// the order a send writes them (`position`, then id); the caller builds the
+/// tree from `parent_id`.
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Crate>> {
     let mut stmt = conn.prepare(
-        "SELECT c.id, c.name,
+        "SELECT c.id, c.parent_id, c.kind, c.name,
                 (SELECT count(*) FROM crate_entry e
                  WHERE e.crate_id = c.id AND e.kind = 'member')
-         FROM crate c WHERE c.kind = 'static' ORDER BY c.position, c.id",
+         FROM crate c WHERE c.kind IN ('folder', 'static')
+         ORDER BY ifnull(c.parent_id, 0), c.position, c.id",
     )?;
     let rows = stmt.query_map([], |r| {
         Ok(Crate {
             id: CrateId(r.get(0)?),
-            name: r.get(1)?,
-            track_count: r.get(2)?,
+            parent_id: r.get::<_, Option<i64>>(1)?.map(CrateId),
+            kind: kind_from(&r.get::<_, String>(2)?),
+            name: r.get(3)?,
+            track_count: r.get(4)?,
         })
     })?;
     rows.collect()
@@ -477,15 +795,55 @@ pub fn ordered_tracks(
 
 // `async` runs the writes off the main thread, like the Library's commands.
 
-/// Makes a crate. The name is trimmed.
+/// Makes a crate, in `parent` or at the top. The name is trimmed.
 #[tauri::command]
 #[specta::specta]
-pub async fn create_crate(writer: State<'_, Writer>, name: String) -> Result<CrateId, IpcError> {
-    Ok(writer.call(move |conn| Ok(create_on(conn, &name)))???)
+pub async fn create_crate(
+    writer: State<'_, Writer>,
+    name: String,
+    parent: Option<CrateId>,
+) -> Result<CrateId, IpcError> {
+    Ok(writer.call(move |conn| Ok(create_in(conn, parent, &name)))???)
 }
 
-/// Renames a crate. Answers the operation recorded, or none when the name
-/// is the one it has.
+/// Makes an empty folder, in `parent` or at the top. The name is trimmed.
+#[tauri::command]
+#[specta::specta]
+pub async fn create_crate_folder(
+    writer: State<'_, Writer>,
+    name: String,
+    parent: Option<CrateId>,
+) -> Result<CrateId, IpcError> {
+    Ok(writer.call(move |conn| Ok(create_folder_on(conn, parent, &name)))???)
+}
+
+/// Moves a crate or folder into a folder, or to the top (`folder` none).
+/// Answers the operation recorded, or none when it is there already.
+#[tauri::command]
+#[specta::specta]
+pub async fn move_crate(
+    writer: State<'_, Writer>,
+    id: CrateId,
+    folder: Option<CrateId>,
+) -> Result<Option<i64>, IpcError> {
+    Ok(writer.call(move |conn| Ok(move_on(conn, id, folder)))???)
+}
+
+/// What deleting a folder would delete: the crates and folders in it and
+/// the different tracks in those crates.
+#[tauri::command]
+#[specta::specta]
+pub async fn crate_folder_contents(
+    reads: State<'_, ReadPool>,
+    id: CrateId,
+) -> Result<FolderContents, IpcError> {
+    reads
+        .read(|conn| folder_contents(conn, id))?
+        .ok_or_else(|| CratesError::NotFound.into())
+}
+
+/// Renames a crate or folder. Answers the operation recorded, or none when
+/// the name is the one it has.
 #[tauri::command]
 #[specta::specta]
 pub async fn rename_crate(
@@ -496,7 +854,8 @@ pub async fn rename_crate(
     Ok(writer.call(move |conn| Ok(rename_on(conn, id, &name)))???)
 }
 
-/// Deletes a crate. Its Library tracks stay in the Library.
+/// Deletes a crate, or a folder with everything in it. The Library tracks
+/// stay in the Library.
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_crate(writer: State<'_, Writer>, id: CrateId) -> Result<(), IpcError> {
@@ -525,7 +884,7 @@ pub async fn remove_tracks_from_crate(
     Ok(writer.call(move |conn| Ok(remove_on(conn, id, &tracks)))???)
 }
 
-/// Every crate with its track count.
+/// Every folder and crate with its track count.
 #[tauri::command]
 #[specta::specta]
 pub async fn list_crates(reads: State<'_, ReadPool>) -> Result<Vec<Crate>, IpcError> {

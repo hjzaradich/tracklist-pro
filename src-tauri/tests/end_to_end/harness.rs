@@ -551,6 +551,37 @@ impl World {
         id
     }
 
+    /// "New folder", at the top or inside `parent`.
+    pub fn create_folder(&self, name: &str, parent: Option<CrateId>) -> CrateId {
+        self.call(
+            "create_crate_folder",
+            json!({ "name": name, "parent": parent }),
+        )
+    }
+
+    /// "New crate" inside `parent`, then its tracks added in one go.
+    pub fn create_crate_in(
+        &self,
+        parent: CrateId,
+        name: &str,
+        tracks: &[LibraryTrackId],
+    ) -> CrateId {
+        let id: CrateId = self.call("create_crate", json!({ "name": name, "parent": parent }));
+        let added: Value = self.call("add_tracks_to_crate", json!({ "id": id, "tracks": tracks }));
+        assert_eq!(added["changed"], tracks.len(), "{added}");
+        id
+    }
+
+    /// "Move to folder": into `folder`, or to the top.
+    pub fn move_crate(&self, id: CrateId, folder: Option<CrateId>) {
+        let _: Value = self.call("move_crate", json!({ "id": id, "folder": folder }));
+    }
+
+    /// Deleting a crate or a folder with what is in it.
+    pub fn delete_crate(&self, id: CrateId) {
+        let _: Value = self.call("delete_crate", json!({ "id": id }));
+    }
+
     pub fn rename_crate(&self, id: CrateId, name: &str) {
         let _: Value = self.call("rename_crate", json!({ "id": id, "name": name }));
     }

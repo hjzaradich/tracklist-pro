@@ -322,20 +322,35 @@ export const commands = {
 	 *  now. Reads only.
 	 */
 	afterSendLists: () => typedError<AfterSendLists, IpcError>(__TAURI_INVOKE("after_send_lists")),
-	/**  Makes a crate. The name is trimmed. */
-	createCrate: (name: string) => typedError<CrateId, IpcError>(__TAURI_INVOKE("create_crate", { name })),
+	/**  Makes a crate, in `parent` or at the top. The name is trimmed. */
+	createCrate: (name: string, parent: number | null) => typedError<CrateId, IpcError>(__TAURI_INVOKE("create_crate", { name, parent })),
+	/**  Makes an empty folder, in `parent` or at the top. The name is trimmed. */
+	createCrateFolder: (name: string, parent: number | null) => typedError<CrateId, IpcError>(__TAURI_INVOKE("create_crate_folder", { name, parent })),
 	/**
-	 *  Renames a crate. Answers the operation recorded, or none when the name
-	 *  is the one it has.
+	 *  Moves a crate or folder into a folder, or to the top (`folder` none).
+	 *  Answers the operation recorded, or none when it is there already.
+	 */
+	moveCrate: (id: CrateId, folder: number | null) => typedError<number | null, IpcError>(__TAURI_INVOKE("move_crate", { id, folder })),
+	/**
+	 *  What deleting a folder would delete: the crates and folders in it and
+	 *  the different tracks in those crates.
+	 */
+	crateFolderContents: (id: CrateId) => typedError<FolderContents, IpcError>(__TAURI_INVOKE("crate_folder_contents", { id })),
+	/**
+	 *  Renames a crate or folder. Answers the operation recorded, or none when
+	 *  the name is the one it has.
 	 */
 	renameCrate: (id: CrateId, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("rename_crate", { id, name })),
-	/**  Deletes a crate. Its Library tracks stay in the Library. */
+	/**
+	 *  Deletes a crate, or a folder with everything in it. The Library tracks
+	 *  stay in the Library.
+	 */
 	deleteCrate: (id: CrateId) => typedError<null, IpcError>(__TAURI_INVOKE("delete_crate", { id })),
 	/**  Adds Library tracks to a crate. A track that's in it already is skipped. */
 	addTracksToCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("add_tracks_to_crate", { id, tracks })),
 	/**  Takes tracks out of a crate. They stay in the Library. */
 	removeTracksFromCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("remove_tracks_from_crate", { id, tracks })),
-	/**  Every crate with its track count. */
+	/**  Every folder and crate with its track count. */
 	listCrates: () => typedError<Crate[], IpcError>(__TAURI_INVOKE("list_crates")),
 	/**  A crate's tracks, in the order they were added. */
 	crateTracks: (id: CrateId) => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("crate_tracks", { id })),
@@ -349,7 +364,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotFound":"crates:error.notFound","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -549,15 +564,26 @@ export type Counting = {
 	quality: boolean,
 };
 
-/**  A crate, as the Crates screen lists it. */
+/**  A crate or a folder, as the Crates screen and the sidebar list it. */
 export type Crate = {
 	id: CrateId,
+	/**  The folder it is in; `None` at the top of the tree. */
+	parentId: CrateId | null,
+	kind: CrateKind,
 	name: string,
+	/**  The tracks in a crate; 0 for a folder. */
 	trackCount: number,
 };
 
 /**  A crate's row id. */
 export type CrateId = number;
+
+/**  What a row of the crate tree is. */
+export type CrateKind = 
+/**  Holds crates and folders, never tracks. */
+"folder" | 
+/**  A hand-made crate of Library tracks. */
+"static";
 
 /**  What rekordbox holds for a Library track: the entry it is sent as. */
 export type EntryFacts = {
@@ -635,6 +661,12 @@ export type ErrorKind =
 "crateNameTaken" | 
 /**  The name has a character that can't be sent to rekordbox. */
 "crateNameUnsendable" | 
+/**  A crate or folder was to go where there is no folder. */
+"crateNotAFolder" | 
+/**  A folder was to go inside itself or one of its own subfolders. */
+"crateMoveIntoItself" | 
+/**  The folders would nest deeper than a send can write. */
+"crateTooDeep" | 
 /**  The Review item was answered already, or isn't in the queue any more. */
 "reviewItemGone" | 
 /**
@@ -714,6 +746,14 @@ export type FailureReason =
 "damaged" | 
 /**  Well-formed XML, but not a rekordbox collection export. */
 "notAnExport";
+
+/**  What deleting a folder would delete, below the folder itself. */
+export type FolderContents = {
+	crates: number,
+	folders: number,
+	/**  Different Library tracks in those crates. They stay in the Library. */
+	tracks: number,
+};
 
 /**
  *  Why a file's location is fragile. The Library shows each with its

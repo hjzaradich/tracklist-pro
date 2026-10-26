@@ -12,6 +12,9 @@ use crate::rekordbox_write::record_send;
 use crate::send::crate_tree;
 use crate::volume::{Volume, VolumeId};
 
+#[path = "folder_tests.rs"]
+mod folders;
+
 /// Library tracks have no files here, so no drive is ever looked up.
 struct NoVolumes;
 
@@ -744,7 +747,7 @@ mod ipc {
         let listed = invoke(&app, "list_crates", json!({})).unwrap();
         assert_eq!(
             listed,
-            json!([{ "id": id, "name": "Warm up", "trackCount": 1 }])
+            json!([{ "id": id, "parentId": null, "kind": "static", "name": "Warm up", "trackCount": 1 }])
         );
         let tracks = invoke(&app, "crate_tracks", json!({ "id": id })).unwrap();
         assert_eq!(tracks[0]["title"], json!("Tune"));
