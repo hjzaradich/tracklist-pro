@@ -7,7 +7,7 @@
 //!   [`crate::rekordbox_write::record_send`]), that a read has shown in
 //!   rekordbox under the top-level `Crates` and `Playlists` folders, that the
 //!   latest read still has, and that the app's own tree no longer has
-//!   (renamed or deleted in the app). Something the user made in rekordbox
+//!   (renamed, moved or deleted in the app). Something the user made in rekordbox
 //!   is never listed, even inside those two folders, and nothing outside
 //!   them is. Names are compared the way the send writer compares them
 //!   (NFC, letter case and trailing whitespace ignored).

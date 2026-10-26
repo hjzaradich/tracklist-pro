@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate, LibraryTrack } from "../bindings";
+import { crateChoices } from "../crates/tree";
 import { useUndoAfterAction } from "../shell/useUndo";
 import { shownTitle } from "./RemoveFromLibrary";
 import styles from "./LibraryTrackList.module.css";
@@ -9,7 +10,10 @@ import styles from "./LibraryTrackList.module.css";
 /**
  * Adds a Library track to a crate that already exists (1aG-8). Choosing a
  * crate adds the track at once; the list goes back to its first line, ready
- * for the next track. With no crates there is nothing to choose, and it says so.
+ * for the next track. Crates in folders are named by where they are
+ * ("Friday residency › Warmup"); folders themselves can't be chosen, as they
+ * hold no tracks. With no crates there is nothing to choose, and it says so.
+ * `crates` is the whole list from the backend, folders included.
  */
 export function AddToCrate({
   track,
@@ -21,21 +25,22 @@ export function AddToCrate({
   onChoose: (track: LibraryTrack, crate: Crate) => void;
 }) {
   const { t } = useTranslation("crates");
+  const choices = crateChoices(crates);
   return (
     <select
       className={styles.select}
       aria-label={t("addTrack.labelFor", { title: shownTitle(track) })}
-      disabled={crates.length === 0}
+      disabled={choices.length === 0}
       value=""
       onChange={(event) => {
-        const crate = crates.find((c) => String(c.id) === event.target.value);
-        if (crate !== undefined) onChoose(track, crate);
+        const chosen = choices.find((c) => String(c.crate.id) === event.target.value);
+        if (chosen !== undefined) onChoose(track, chosen.crate);
       }}
     >
-      <option value="">{crates.length === 0 ? t("addTrack.none") : t("addTrack.label")}</option>
-      {crates.map((crate) => (
+      <option value="">{choices.length === 0 ? t("addTrack.none") : t("addTrack.label")}</option>
+      {choices.map(({ crate, label }) => (
         <option key={crate.id} value={crate.id}>
-          {crate.name}
+          {label}
         </option>
       ))}
     </select>

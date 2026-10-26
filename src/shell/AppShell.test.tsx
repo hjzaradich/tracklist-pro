@@ -36,7 +36,13 @@ function currentStages() {
 
 /** Stands in for the Rust side as far as the sidebar goes: the crates. */
 function crates(names: string[]) {
-  const list: Crate[] = names.map((name, n) => ({ id: n + 1, name, trackCount: 0 }));
+  const list: Crate[] = names.map((name, n) => ({
+    id: n + 1,
+    parentId: null,
+    kind: "static",
+    name,
+    trackCount: 0,
+  }));
   mockIPC(
     (cmd) => {
       if (cmd === "list_crates") return list;

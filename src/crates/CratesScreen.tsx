@@ -1,48 +1,91 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Crate, LibraryTrack } from "../bindings";
+import type { Crate, FolderContents, LibraryTrack } from "../bindings";
 import { LibraryTrackList } from "../library/LibraryTrackList";
 import { shownTitle } from "../library/RemoveFromLibrary";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { useUndoAfterAction } from "../shell/useUndo";
+import { ConfirmDelete, MoveForm, NameForm } from "./CrateForms";
 import styles from "./CratesScreen.module.css";
+import { buildTree, PATH_SEPARATOR, pathOf, type TreeNode } from "./tree";
 import {
   useCrates,
   useCrateTracks,
   useCreateCrate,
+  useCreateFolder,
   useDeleteCrate,
+  useFolderContents,
+  useMoveCrate,
   useRemoveFromCrate,
   useRenameCrate,
 } from "./useCrates";
 
 /** What the strip above the screen says about the last change. */
-type Done = "created" | "renamed" | "deleted" | "removed";
-
-/** What the screen is asking for, if anything. */
-type Asking = "new" | "rename" | "delete" | null;
+type Done =
+  | "created"
+  | "createdFolder"
+  | "renamed"
+  | "renamedFolder"
+  | "deleted"
+  | "deletedFolder"
+  | "moved"
+  | "removed";
 
 /**
- * The Crates screen (1aG-8): the crates with their track counts, and the
- * chosen crate's tracks. Folders, notes, summaries and drag and drop wait
- * for Phase 1c (ROADMAP 1.14). Every change can be undone.
+ * What the screen is asking for, if anything. The first four make something
+ * new: at the top of the tree, or inside the chosen folder.
  */
-export function CratesScreen() {
+type Asking =
+  | "new"
+  | "newFolder"
+  | "newInside"
+  | "newFolderInside"
+  | "rename"
+  | "move"
+  | "delete"
+  | null;
+
+/**
+ * The Crates screen (1aG-8, 1cA-11): the tree of folders and crates, and the
+ * chosen crate's tracks. Which one is chosen is the page's address
+ * (`/crates?crate=ID`), so the sidebar's tree can choose too; an id that
+ * isn't there is no choice. Notes, summaries and drag and drop wait for
+ * Phase 1c (ROADMAP 1.14). Every change can be undone.
+ */
+export function CratesScreen({
+  chosen,
+  onChoose,
+}: {
+  chosen: number | null;
+  onChoose: (id: number | null) => void;
+}) {
   const { t } = useTranslation("crates");
   const crates = useCrates();
-  const [chosen, choose] = useState<number | null>(null);
   const [asking, setAsking] = useState<Asking>(null);
   const [done, setDone] = useState<Done | null>(null);
   const create = useCreateCrate();
+  const createFolder = useCreateFolder();
   const rename = useRenameCrate();
   const remove = useDeleteCrate();
+  const move = useMoveCrate();
   const take = useRemoveFromCrate();
   const { arm, offered, ready, undo } = useUndoAfterAction();
 
   const list = crates.data ?? [];
-  // The crate the right side shows: the chosen one, if it still exists.
+  // The crate or folder the right side shows: the chosen one, if it exists.
   const current = list.find((crate) => crate.id === chosen) ?? null;
-  const tracks = useCrateTracks(current?.id ?? null);
+  // A question about one crate or folder is dropped when another is chosen,
+  // whether from this list or from the sidebar's tree.
+  const [askedAbout, setAskedAbout] = useState<number | null>(null);
+  if ((current?.id ?? null) !== askedAbout) {
+    setAskedAbout(current?.id ?? null);
+    setAsking(null);
+  }
+  const tracks = useCrateTracks(current?.kind === "static" ? current.id : null);
+  const contents = useFolderContents(
+    asking === "delete" && current?.kind === "folder" ? current.id : null,
+  );
 
   // `operation`: the one the change recorded, when its command says.
   const finished = (what: Done, operation?: number) => {
@@ -55,12 +98,20 @@ export function CratesScreen() {
   // error on screen is always the newest one.
   const clearErrors = () => {
     create.reset();
+    createFolder.reset();
     rename.reset();
     remove.reset();
+    move.reset();
     take.reset();
     undo.reset();
   };
-  const failure = [create, rename, remove, take, undo].find((m) => m.isError);
+  const failure = [create, createFolder, rename, remove, move, take, undo].find((m) => m.isError);
+  const ask = (what: Asking) => {
+    clearErrors();
+    setAsking(what);
+  };
+  // Where a new crate or folder goes.
+  const parent = (inside: boolean) => (inside && current?.kind === "folder" ? current.id : null);
 
   return (
     <StageScreen stage="crates">
@@ -107,63 +158,80 @@ export function CratesScreen() {
           <div className={styles.columns}>
             <div className={styles.side}>
               <div className={styles.actions}>
-                <button
-                  type="button"
-                  className={styles.button}
-                  onClick={() => {
-                    clearErrors();
-                    setAsking("new");
-                  }}
-                >
+                <button type="button" className={styles.button} onClick={() => ask("new")}>
                   {t("new.button")}
                 </button>
+                <button type="button" className={styles.button} onClick={() => ask("newFolder")}>
+                  {t("newFolder.button")}
+                </button>
               </div>
-              {asking === "new" && (
+              {(asking === "new" || asking === "newInside") && (
                 <NameForm
-                  key="new"
-                  label={t("new.label")}
+                  key={asking}
+                  label={
+                    asking === "newInside"
+                      ? t("newInside.label", { name: current?.name ?? "" })
+                      : t("new.label")
+                  }
                   confirm={t("new.confirm")}
                   cancel={t("new.cancel")}
                   initial=""
                   pending={create.isPending}
                   onSubmit={(name) => {
                     clearErrors();
-                    create.mutate(name, {
-                      onSuccess: (id) => {
-                        choose(id);
-                        finished("created");
+                    create.mutate(
+                      { name, parent: parent(asking === "newInside") },
+                      {
+                        onSuccess: (id) => {
+                          onChoose(id);
+                          finished("created");
+                        },
                       },
-                    });
+                    );
                   }}
-                  onCancel={() => {
+                  onCancel={() => ask(null)}
+                />
+              )}
+              {(asking === "newFolder" || asking === "newFolderInside") && (
+                <NameForm
+                  key={asking}
+                  label={
+                    asking === "newFolderInside"
+                      ? t("newFolderInside.label", { name: current?.name ?? "" })
+                      : t("newFolder.label")
+                  }
+                  confirm={t("newFolder.confirm")}
+                  cancel={t("newFolder.cancel")}
+                  initial=""
+                  pending={createFolder.isPending}
+                  onSubmit={(name) => {
                     clearErrors();
-                    setAsking(null);
+                    createFolder.mutate(
+                      { name, parent: parent(asking === "newFolderInside") },
+                      {
+                        onSuccess: (id) => {
+                          onChoose(id);
+                          finished("createdFolder");
+                        },
+                      },
+                    );
                   }}
+                  onCancel={() => ask(null)}
                 />
               )}
               {list.length === 0 ? (
                 <EmptyState>{t("empty")}</EmptyState>
               ) : (
                 <ul className={styles.list} aria-label={t("list.label")}>
-                  {list.map((crate) => (
-                    <li key={crate.id}>
-                      <button
-                        type="button"
-                        className={styles.crate}
-                        aria-pressed={crate.id === current?.id}
-                        onClick={() => {
-                          clearErrors();
-                          setAsking(null);
-                          choose(crate.id);
-                        }}
-                      >
-                        <span className={styles.name}>{crate.name}</span>
-                        <span className={styles.count}>
-                          {t("trackCount", { count: crate.trackCount })}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
+                  <TreeRows
+                    nodes={buildTree(list)}
+                    chosen={current?.id ?? null}
+                    onChoose={(id) => {
+                      clearErrors();
+                      setAsking(null);
+                      onChoose(id);
+                    }}
+                  />
                 </ul>
               )}
             </div>
@@ -173,15 +241,16 @@ export function CratesScreen() {
               ) : (
                 <CrateView
                   crate={current}
+                  all={list}
                   tracks={tracks.data}
                   tracksError={tracks.isError ? errorMessage(tracks.error) : null}
                   asking={asking}
                   renaming={rename.isPending}
                   deleting={remove.isPending}
-                  onAsk={(what) => {
-                    clearErrors();
-                    setAsking(what);
-                  }}
+                  moving={move.isPending}
+                  contents={contents.data}
+                  contentsError={contents.error}
+                  onAsk={ask}
                   onRename={(name) => {
                     clearErrors();
                     rename.mutate(
@@ -190,7 +259,20 @@ export function CratesScreen() {
                         // Nothing is recorded when the name is the one it has,
                         // and Undo would then take back an earlier operation.
                         onSuccess: (operation) =>
-                          operation === null ? setAsking(null) : finished("renamed", operation),
+                          operation === null
+                            ? setAsking(null)
+                            : finished(current.kind === "folder" ? "renamedFolder" : "renamed", operation),
+                      },
+                    );
+                  }}
+                  onMove={(folder) => {
+                    clearErrors();
+                    move.mutate(
+                      { id: current.id, folder },
+                      {
+                        // Moved to where it is: nothing is recorded.
+                        onSuccess: (operation) =>
+                          operation === null ? setAsking(null) : finished("moved", operation),
                       },
                     );
                   }}
@@ -198,8 +280,8 @@ export function CratesScreen() {
                     clearErrors();
                     remove.mutate(current.id, {
                       onSuccess: () => {
-                        choose(null);
-                        finished("deleted");
+                        onChoose(null);
+                        finished(current.kind === "folder" ? "deletedFolder" : "deleted");
                       },
                     });
                   }}
@@ -225,35 +307,98 @@ export function CratesScreen() {
   );
 }
 
+/** The tree's rows: a folder, then what is in it, nested one level in. */
+function TreeRows({
+  nodes,
+  chosen,
+  onChoose,
+}: {
+  nodes: TreeNode[];
+  chosen: number | null;
+  onChoose: (id: number) => void;
+}) {
+  const { t } = useTranslation("crates");
+  return nodes.map(({ crate, children }) => (
+    <li key={crate.id}>
+      <button
+        type="button"
+        className={`${styles.crate} ${crate.kind === "folder" ? styles.folder : ""}`}
+        aria-pressed={crate.id === chosen}
+        onClick={() => onChoose(crate.id)}
+      >
+        <span className={styles.name}>{crate.name}</span>
+        {crate.kind === "static" && (
+          <span className={styles.count}>{t("trackCount", { count: crate.trackCount })}</span>
+        )}
+      </button>
+      {children.length > 0 && (
+        <ul className={`${styles.list} ${styles.nested}`}>
+          <TreeRows nodes={children} chosen={chosen} onChoose={onChoose} />
+        </ul>
+      )}
+    </li>
+  ));
+}
+
 function CrateView({
   crate,
+  all,
   tracks,
   tracksError,
   asking,
   renaming,
   deleting,
+  moving,
+  contents,
+  contentsError,
   onAsk,
   onRename,
+  onMove,
   onDelete,
   onRemoveTrack,
 }: {
   crate: Crate;
+  all: Crate[];
   tracks: LibraryTrack[] | undefined;
   tracksError: string | null;
   asking: Asking;
   renaming: boolean;
   deleting: boolean;
+  moving: boolean;
+  contents: FolderContents | undefined;
+  contentsError: unknown;
   onAsk: (what: Asking) => void;
   onRename: (name: string) => void;
+  onMove: (folder: number | null) => void;
   onDelete: () => void;
   onRemoveTrack: (track: LibraryTrack) => void;
 }) {
   const { t } = useTranslation("crates");
+  const folder = crate.kind === "folder";
   return (
     <>
       <div className={styles.header}>
-        <h2 className={styles.crateName}>{crate.name}</h2>
+        <div className={styles.titles}>
+          <h2 className={styles.crateName}>{crate.name}</h2>
+          {/* Where rekordbox will show it after a send (ROADMAP 1.9 and 1.14). */}
+          <p className={styles.path} aria-label={t("path.label")}>
+            {[t("path.root"), ...pathOf(all, crate.id)].join(PATH_SEPARATOR)}
+          </p>
+        </div>
         <div className={styles.actions}>
+          {folder && (
+            <>
+              <button type="button" className={styles.button} onClick={() => onAsk("newInside")}>
+                {t("newInside.button")}
+              </button>
+              <button type="button" className={styles.button} onClick={() => onAsk("newFolderInside")}>
+                {t("newFolderInside.button")}
+              </button>
+            </>
+          )}
+          <button type="button" className={styles.button} onClick={() => onAsk("move")}>
+            {t("move.button")}
+          </button>
           <button type="button" className={styles.button} onClick={() => onAsk("rename")}>
             {t("rename.button")}
           </button>
@@ -274,16 +419,32 @@ function CrateView({
           onCancel={() => onAsk(null)}
         />
       )}
+      {asking === "move" && (
+        <MoveForm
+          key={`move-${crate.id}`}
+          crate={crate}
+          all={all}
+          pending={moving}
+          onSubmit={onMove}
+          onCancel={() => onAsk(null)}
+        />
+      )}
       {asking === "delete" && (
         <ConfirmDelete
           key={`delete-${crate.id}`}
           crate={crate}
+          contents={contents}
+          contentsError={contentsError}
           pending={deleting}
           onConfirm={onDelete}
           onCancel={() => onAsk(null)}
         />
       )}
-      {tracksError !== null ? (
+      {folder ? (
+        <EmptyState>
+          {all.some((c) => c.parentId === crate.id) ? t("folder.select") : t("folder.empty")}
+        </EmptyState>
+      ) : tracksError !== null ? (
         <p role="alert" className={styles.error}>
           {tracksError}
         </p>
@@ -307,106 +468,5 @@ function CrateView({
         </div>
       )}
     </>
-  );
-}
-
-/** One line to type a crate's name in. Enter confirms, Escape goes back. */
-function NameForm({
-  label,
-  confirm,
-  cancel,
-  initial,
-  pending,
-  onSubmit,
-  onCancel,
-}: {
-  label: string;
-  confirm: string;
-  cancel: string;
-  initial: string;
-  pending: boolean;
-  onSubmit: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(initial);
-  const input = useRef<HTMLInputElement>(null);
-  const id = useId();
-  useEffect(() => input.current?.focus(), []);
-  return (
-    <form
-      className={styles.form}
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit(name);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onCancel();
-      }}
-    >
-      <label htmlFor={id} className={styles.label}>
-        {label}
-      </label>
-      <input
-        ref={input}
-        id={id}
-        className={styles.input}
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <div className={styles.actions}>
-        <button type="submit" className={styles.primary} disabled={pending}>
-          {confirm}
-        </button>
-        <button type="button" className={styles.button} onClick={onCancel}>
-          {cancel}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/** Asks before a crate is deleted. Nothing happens until the user confirms. */
-function ConfirmDelete({
-  crate,
-  pending,
-  onConfirm,
-  onCancel,
-}: {
-  crate: Crate;
-  pending: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const { t } = useTranslation("crates");
-  // The dialog takes focus, on the safe choice.
-  const cancel = useRef<HTMLButtonElement>(null);
-  useEffect(() => cancel.current?.focus(), []);
-  const titleId = useId();
-  const detailId = useId();
-  return (
-    <div
-      role="alertdialog"
-      aria-labelledby={titleId}
-      aria-describedby={detailId}
-      className={styles.confirm}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onCancel();
-      }}
-    >
-      <p id={titleId} className={styles.confirmTitle}>
-        {t("delete.title", { name: crate.name })}
-      </p>
-      <p id={detailId} className={styles.confirmDetail}>
-        {t("delete.detail")}
-      </p>
-      <div className={styles.actions}>
-        <button type="button" className={styles.primary} disabled={pending} onClick={onConfirm}>
-          {t("delete.confirm")}
-        </button>
-        <button ref={cancel} type="button" className={styles.button} onClick={onCancel}>
-          {t("delete.cancel")}
-        </button>
-      </div>
-    </div>
   );
 }

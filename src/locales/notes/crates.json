@@ -34,6 +34,22 @@
     "where": "Crates screen, right side, while no crate is chosen.",
     "approved": "Select a crate"
   },
+  "folder.empty": {
+    "purpose": "Says the chosen folder holds nothing yet.",
+    "where": "Crates screen, right side, in place of the track list."
+  },
+  "folder.select": {
+    "purpose": "Tells the user a folder shows no tracks itself; its crates do.",
+    "where": "Crates screen, right side, for a chosen folder that holds something."
+  },
+  "path.label": {
+    "purpose": "Names the line that gives the crate's place in rekordbox for screen readers.",
+    "where": "Crates screen, header of the chosen crate or folder (not shown)."
+  },
+  "path.root": {
+    "purpose": "The top folder every crate and folder is sent under in rekordbox.",
+    "where": "Crates screen, first part of the path under the chosen crate's name."
+  },
   "new.button": {
     "purpose": "Starts making a crate.",
     "where": "Crates screen, above the crate list.",
@@ -53,6 +69,38 @@
     "purpose": "Closes the new-crate form without making a crate.",
     "where": "Crates screen, the new-crate form.",
     "approved": "Go back"
+  },
+  "newFolder.button": {
+    "purpose": "Starts making a folder for crates.",
+    "where": "Crates screen, above the crate list."
+  },
+  "newFolder.label": {
+    "purpose": "Names the field for the new folder's name.",
+    "where": "Crates screen, the new-folder form."
+  },
+  "newFolder.confirm": {
+    "purpose": "Makes the folder with the typed name.",
+    "where": "Crates screen, the new-folder form."
+  },
+  "newFolder.cancel": {
+    "purpose": "Closes the new-folder form without making a folder.",
+    "where": "Crates screen, the new-folder form."
+  },
+  "newInside.button": {
+    "purpose": "Starts making a crate inside the chosen folder.",
+    "where": "Crates screen, header of the chosen folder."
+  },
+  "newInside.label": {
+    "purpose": "Names the field for the new crate's name and says which folder it goes in.",
+    "where": "Crates screen, the new-crate form opened from a folder."
+  },
+  "newFolderInside.button": {
+    "purpose": "Starts making a folder inside the chosen folder.",
+    "where": "Crates screen, header of the chosen folder."
+  },
+  "newFolderInside.label": {
+    "purpose": "Names the field for the new folder's name and says which folder it goes in.",
+    "where": "Crates screen, the new-folder form opened from a folder."
   },
   "rename.button": {
     "purpose": "Starts renaming the chosen crate.",
@@ -74,6 +122,26 @@
     "where": "Crates screen, the rename form.",
     "approved": "Go back"
   },
+  "move.button": {
+    "purpose": "Starts moving the chosen crate or folder into another folder or to the top.",
+    "where": "Crates screen, header of the chosen crate or folder."
+  },
+  "move.label": {
+    "purpose": "Names the choice of where the crate or folder goes.",
+    "where": "Crates screen, the move form."
+  },
+  "move.top": {
+    "purpose": "Choice that puts the crate or folder at the top of the tree, outside any folder.",
+    "where": "Crates screen, the move form."
+  },
+  "move.confirm": {
+    "purpose": "Moves the crate or folder to the chosen place.",
+    "where": "Crates screen, the move form."
+  },
+  "move.cancel": {
+    "purpose": "Closes the move form without moving anything.",
+    "where": "Crates screen, the move form."
+  },
   "delete.button": {
     "purpose": "Starts deleting the chosen crate.",
     "where": "Crates screen, header of the chosen crate.",
@@ -88,6 +156,46 @@
     "purpose": "Says the delete can be undone.",
     "where": "Crates screen, delete confirmation.",
     "approved": "This action can be undone"
+  },
+  "delete.folderTitle": {
+    "purpose": "Asks whether to delete the chosen folder and everything in it.",
+    "where": "Crates screen, delete confirmation for a folder."
+  },
+  "delete.counting": {
+    "purpose": "Says the confirmation is still counting what the folder holds.",
+    "where": "Crates screen, delete confirmation for a folder, for a moment."
+  },
+  "delete.holds": {
+    "purpose": "Introduces what else goes with the folder.",
+    "where": "Crates screen, delete confirmation for a folder that holds something."
+  },
+  "delete.holdsNothing": {
+    "purpose": "Says the folder holds no crates or folders.",
+    "where": "Crates screen, delete confirmation for an empty folder."
+  },
+  "delete.crates_one": {
+    "purpose": "Says how many crates go with the folder.",
+    "where": "Crates screen, delete confirmation for a folder, in the list."
+  },
+  "delete.crates_other": {
+    "purpose": "Says how many crates go with the folder.",
+    "where": "Crates screen, delete confirmation for a folder, in the list."
+  },
+  "delete.folders_one": {
+    "purpose": "Says how many folders inside it go with the folder.",
+    "where": "Crates screen, delete confirmation for a folder, in the list."
+  },
+  "delete.folders_other": {
+    "purpose": "Says how many folders inside it go with the folder.",
+    "where": "Crates screen, delete confirmation for a folder, in the list."
+  },
+  "delete.tracks_one": {
+    "purpose": "Says how many different tracks those crates hold, and that the track is not deleted.",
+    "where": "Crates screen, delete confirmation for a folder, in the list."
+  },
+  "delete.tracks_other": {
+    "purpose": "Says how many different tracks those crates hold, and that the tracks are not deleted.",
+    "where": "Crates screen, delete confirmation for a folder, in the list."
   },
   "delete.confirm": {
     "purpose": "Deletes the crate.",
@@ -149,6 +257,22 @@
     "where": "Crates screen, status strip with Undo.",
     "approved": "Crate deleted"
   },
+  "done.createdFolder": {
+    "purpose": "Says the folder was made.",
+    "where": "Crates screen, status strip with Undo."
+  },
+  "done.renamedFolder": {
+    "purpose": "Says the folder was renamed.",
+    "where": "Crates screen, status strip with Undo."
+  },
+  "done.deletedFolder": {
+    "purpose": "Says the folder and what was in it were deleted.",
+    "where": "Crates screen, status strip with Undo."
+  },
+  "done.moved": {
+    "purpose": "Says the crate or folder was moved.",
+    "where": "Crates screen, status strip with Undo."
+  },
   "done.removed": {
     "purpose": "Says the track was taken out of the crate.",
     "where": "Crates screen, status strip with Undo.",
@@ -188,5 +312,29 @@
     "purpose": "Says the name has a character rekordbox can't take.",
     "where": "Crates screen, new-crate and rename forms.",
     "approved": "Name has a character that can't be sent to rekordbox. Remove it and try again."
+  },
+  "error.notAFolder": {
+    "purpose": "Says the place chosen for a crate or folder is a crate, not a folder.",
+    "where": "Crates screen, new-crate, new-folder and move forms."
+  },
+  "error.moveIntoItself": {
+    "purpose": "Says why a folder can't be moved there.",
+    "where": "Crates screen, move form."
+  },
+  "error.tooDeep": {
+    "purpose": "Says the folders would be nested deeper than a send to rekordbox can write.",
+    "where": "Crates screen, new-folder and move forms."
+  },
+  "error.folderNotFound": {
+    "purpose": "Says the folder doesn't exist.",
+    "where": "Any folder action on a folder that is gone."
+  },
+  "error.folderNameEmpty": {
+    "purpose": "Says the folder's name was empty.",
+    "where": "Crates screen, new-folder and rename forms, for a folder."
+  },
+  "error.folderNameTaken": {
+    "purpose": "Says another crate or folder in the same folder already has the name.",
+    "where": "Crates screen, new-folder, rename and move forms, for a folder."
   }
 }

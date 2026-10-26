@@ -12,6 +12,9 @@ use crate::rekordbox_write::record_send;
 use crate::send::crate_tree;
 use crate::volume::{Volume, VolumeId};
 
+#[path = "folder_tests.rs"]
+mod folders;
+
 /// Library tracks have no files here, so no drive is ever looked up.
 struct NoVolumes;
 
@@ -744,7 +747,7 @@ mod ipc {
         let listed = invoke(&app, "list_crates", json!({})).unwrap();
         assert_eq!(
             listed,
-            json!([{ "id": id, "name": "Warm up", "trackCount": 1 }])
+            json!([{ "id": id, "parentId": null, "kind": "static", "name": "Warm up", "trackCount": 1 }])
         );
         let tracks = invoke(&app, "crate_tracks", json!({ "id": id })).unwrap();
         assert_eq!(tracks[0]["title"], json!("Tune"));
@@ -773,7 +776,125 @@ mod ipc {
         assert_eq!(undone["status"], json!("undone"));
         assert_eq!(
             invoke(&app, "list_crates", json!({})).unwrap(),
-            json!([{ "id": id, "name": "Warm up 2", "trackCount": 0 }])
+            json!([{ "id": id, "parentId": null, "kind": "static", "name": "Warm up 2", "trackCount": 0 }])
+        );
+    }
+
+    #[test]
+    fn the_frontend_makes_folders_moves_and_deletes_them_and_hears_the_refusals() {
+        let (_data, app) = app();
+        let folder = invoke(
+            &app,
+            "create_crate_folder",
+            json!({ "name": " Sets ", "parent": null }),
+        )
+        .unwrap();
+        let inner = invoke(
+            &app,
+            "create_crate_folder",
+            json!({ "name": "Late", "parent": folder }),
+        )
+        .unwrap();
+        let crate_ = invoke(
+            &app,
+            "create_crate",
+            json!({ "name": "Peak", "parent": inner }),
+        )
+        .unwrap();
+        let loose = invoke(
+            &app,
+            "create_crate",
+            json!({ "name": "Loose", "parent": null }),
+        )
+        .unwrap();
+
+        let listed = invoke(&app, "list_crates", json!({})).unwrap();
+        let shape: Vec<_> = listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| (c["name"].clone(), c["kind"].clone(), c["parentId"].clone()))
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                (json!("Sets"), json!("folder"), json!(null)),
+                (json!("Loose"), json!("static"), json!(null)),
+                (json!("Late"), json!("folder"), folder.clone()),
+                (json!("Peak"), json!("static"), inner.clone()),
+            ]
+        );
+
+        let held = invoke(&app, "crate_folder_contents", json!({ "id": folder })).unwrap();
+        assert_eq!(held, json!({ "crates": 1, "folders": 1, "tracks": 0 }));
+        let not_a_folder =
+            invoke(&app, "crate_folder_contents", json!({ "id": loose })).unwrap_err();
+        assert_eq!(not_a_folder["kind"], json!("crateNotFound"));
+
+        // Refusals reach the frontend as kinds.
+        let folder_taken = invoke(
+            &app,
+            "create_crate_folder",
+            json!({ "name": "SETS", "parent": null }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            folder_taken,
+            json!({ "kind": "folderNameTaken", "params": { "name": "Sets" } })
+        );
+        let folder_empty = invoke(
+            &app,
+            "create_crate_folder",
+            json!({ "name": " ", "parent": null }),
+        )
+        .unwrap_err();
+        assert_eq!(folder_empty["kind"], json!("folderNameEmpty"));
+        let folder_gone =
+            invoke(&app, "move_crate", json!({ "id": folder, "folder": 999 })).unwrap_err();
+        assert_eq!(folder_gone["kind"], json!("folderNotFound"));
+        let cycle =
+            invoke(&app, "move_crate", json!({ "id": folder, "folder": inner })).unwrap_err();
+        assert_eq!(cycle["kind"], json!("crateMoveIntoItself"));
+        let into_crate =
+            invoke(&app, "move_crate", json!({ "id": loose, "folder": crate_ })).unwrap_err();
+        assert_eq!(into_crate["kind"], json!("crateNotAFolder"));
+        let taken = invoke(
+            &app,
+            "create_crate",
+            json!({ "name": "PEAK", "parent": inner }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            taken,
+            json!({ "kind": "crateNameTaken", "params": { "name": "Peak" } })
+        );
+
+        // A move answers its operation, and nothing when it changes nothing.
+        let moved = invoke(&app, "move_crate", json!({ "id": loose, "folder": folder })).unwrap();
+        assert!(moved.is_number());
+        let again = invoke(&app, "move_crate", json!({ "id": loose, "folder": folder })).unwrap();
+        assert_eq!(again, json!(null));
+        let undone = invoke(&app, "undo_last_operation", json!({})).unwrap();
+        assert_eq!(undone["status"], json!("undone"));
+        assert_eq!(undone["operation"]["kind"], json!("move_crate"));
+
+        // Deleting the folder takes what is in it; one undo brings it all back.
+        invoke(&app, "delete_crate", json!({ "id": folder })).unwrap();
+        assert_eq!(
+            invoke(&app, "list_crates", json!({}))
+                .unwrap()
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+        let undone = invoke(&app, "undo_last_operation", json!({})).unwrap();
+        assert_eq!(undone["operation"]["kind"], json!("delete_crate_folder"));
+        assert_eq!(
+            invoke(&app, "list_crates", json!({}))
+                .unwrap()
+                .as_array()
+                .map(Vec::len),
+            Some(4)
         );
     }
 

@@ -75,7 +75,7 @@ pub const PLAYLISTS_FOLDER: &str = "Playlists";
 
 /// How deep folders may nest below `Crates` or `Playlists`. The reader
 /// refuses a file nested far deeper; no real tree comes near either.
-const MAX_DEPTH: usize = 64;
+pub(crate) const MAX_DEPTH: usize = 64;
 
 /// Everything one send is made from.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

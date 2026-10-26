@@ -8,11 +8,33 @@
   "trackCount_other": "{{count, number}} tracks",
   "noTracks": "No tracks in this crate",
   "select": "Select a crate",
+  "folder": {
+    "empty": "This folder is empty",
+    "select": "Select a crate in this folder to see its tracks"
+  },
+  "path": {
+    "label": "Where rekordbox shows it",
+    "root": "Crates"
+  },
   "new": {
     "button": "Create crate",
     "label": "Crate name",
     "confirm": "Create",
     "cancel": "Go back"
+  },
+  "newFolder": {
+    "button": "Create folder",
+    "label": "Folder name",
+    "confirm": "Create",
+    "cancel": "Go back"
+  },
+  "newInside": {
+    "button": "Create crate inside",
+    "label": "Crate name (inside “{{name}}”)"
+  },
+  "newFolderInside": {
+    "button": "Create folder inside",
+    "label": "Folder name (inside “{{name}}”)"
   },
   "rename": {
     "button": "Rename",
@@ -20,10 +42,27 @@
     "confirm": "Rename",
     "cancel": "Go back"
   },
+  "move": {
+    "button": "Move to folder",
+    "label": "Move “{{name}}” to",
+    "top": "Top level",
+    "confirm": "Move",
+    "cancel": "Go back"
+  },
   "delete": {
     "button": "Delete",
     "title": "Delete “{{name}}”?",
     "detail": "This action can be undone",
+    "folderTitle": "Delete the folder “{{name}}”?",
+    "counting": "Counting what is in it…",
+    "holds": "This also deletes:",
+    "holdsNothing": "The folder is empty",
+    "crates_one": "{{count, number}} crate",
+    "crates_other": "{{count, number}} crates",
+    "folders_one": "{{count, number}} folder",
+    "folders_other": "{{count, number}} folders",
+    "tracks_one": "{{count, number}} different track in those crates (it stays in the Library)",
+    "tracks_other": "{{count, number}} different tracks in those crates (they stay in the Library)",
     "confirm": "Delete",
     "cancel": "Go back"
   },
@@ -42,6 +81,10 @@
     "created": "Crate created",
     "renamed": "Crate renamed",
     "deleted": "Crate deleted",
+    "createdFolder": "Folder created",
+    "renamedFolder": "Folder renamed",
+    "deletedFolder": "Folder deleted",
+    "moved": "Moved",
     "removed": "Removed from crate"
   },
   "undo": "Undo",
@@ -51,6 +94,12 @@
     "notFound": "Crate not found",
     "nameEmpty": "Crate needs a name",
     "nameTaken": "Crate name already used (“{{name}}”)",
-    "nameUnsendable": "Name has a character that can't be sent to rekordbox. Remove it and try again."
+    "nameUnsendable": "Name has a character that can't be sent to rekordbox. Remove it and try again.",
+    "notAFolder": "That isn't a folder",
+    "moveIntoItself": "A folder can't go inside itself or one of its own folders",
+    "tooDeep": "Folders can't be nested this deep",
+    "folderNotFound": "Folder not found",
+    "folderNameEmpty": "Folder needs a name",
+    "folderNameTaken": "Folder name already used (“{{name}}”)"
   }
 }

@@ -30,6 +30,18 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "delete_crate":
       if (name !== null) return t("undo.action.deleteCrate", { name });
       break;
+    case "create_crate_folder":
+      if (name !== null) return t("undo.action.createFolder", { name });
+      break;
+    case "rename_crate_folder":
+      if (name !== null && from !== null) return t("undo.action.renameFolder", { from, name });
+      break;
+    case "delete_crate_folder":
+      if (name !== null) return t("undo.action.deleteFolder", { name });
+      break;
+    case "move_crate":
+      if (name !== null) return t("undo.action.moveCrate", { name });
+      break;
     case "add_to_crate":
       if (name !== null && tracks !== null) {
         return t("undo.action.addToCrate", { count: tracks, name });
