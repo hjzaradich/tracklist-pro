@@ -253,6 +253,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0031_file_and_track_ids_never_reused.sql", &[]),
     // What the track table sorts and filters by (derived state).
     ("0032_track_row.sql", &["track_row"]),
+    // Drops the quality-verdict triggers of 0032, no new tables.
+    ("0033_track_row_no_verdict_triggers.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
