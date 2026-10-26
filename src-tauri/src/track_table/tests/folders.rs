@@ -60,11 +60,13 @@ fn deleting_a_folder_with_its_crates_and_undoing_it_keeps_in_a_crate_right() {
         .writer
         .call(move |c| Ok(move_on(c, inside, None)))
         .unwrap()
+        .unwrap()
         .unwrap();
     assert_eq!(in_crate(&f), [r1, r2, r4]);
     f.lib
         .writer
         .call(move |c| Ok(move_on(c, inside, Some(folder))))
+        .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(in_crate(&f), [r1, r2, r4]);
@@ -73,6 +75,7 @@ fn deleting_a_folder_with_its_crates_and_undoing_it_keeps_in_a_crate_right() {
     f.lib
         .writer
         .call(move |c| Ok(delete_on(c, folder)))
+        .unwrap()
         .unwrap()
         .unwrap();
     assert_eq!(in_crate(&f), [r2, r4]);
