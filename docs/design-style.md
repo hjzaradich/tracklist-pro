@@ -96,6 +96,16 @@ Owner-approved on 2026-10-24, after a real Library showed three nested scrollbar
 - **The stage gutter is 16px** (it was 24px), which every screen shares.
 - **Below 1100px** the queue goes on top, shorter (at most 14rem or 30% of the height), and the comparison takes the full width.
 
+## The track table, its controls and the crate tree (1cA style pass)
+
+- **Controls above the table are as tall as a row** (28px, `--row-height`), and never under 24px, the smallest target WCAG 2.2 allows: "Add filter", "Columns" and a filter chip. The chip's × stays 24px.
+- **A wide table never widens the screen.** It scrolls sideways inside itself; the stage's one column is `minmax(0, 1fr)`. (Before this, the count and the Columns button sat past the window's right edge.)
+- **The sorted column's heading reads at full strength**, the others muted; the caret says the direction.
+- **A row's title never gives way to its notes:** the title keeps at least 5rem, the notes (file missing, in Downloads) shrink first.
+- **The Columns panel has no filled button.** A change applies the moment it is made, so "Done" only closes the panel and is quiet. The filled accent button is for the action a screen leads to (Keep the suggested file, Send), not for dismissing a panel. If the panel ever needs a confirm (Apply), that one would be filled.
+- **One selected item in the sidebar.** With a crate chosen in the tree, the crate carries the tint and the bar; the Crates stage above it keeps its place without them. The tree indents 16px a level.
+- **Empty states are centred** where the table would be, like the other empty states.
+
 ## The one exception to "class names only"
 
 A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").

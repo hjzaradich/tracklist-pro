@@ -19,6 +19,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+  min-height: var(--row-height);
   padding: 0 var(--space-1) 0 var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
@@ -59,6 +60,9 @@
 }
 
 .addButton {
+  /* As tall as a table row, and never under 24px, the smallest target WCAG
+   * 2.2 allows. */
+  min-height: var(--row-height);
   padding: 0 var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
