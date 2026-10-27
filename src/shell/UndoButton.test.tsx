@@ -378,6 +378,7 @@ function libraryUnderTheBar(initial: LibraryTrack[], earlier: Step[] = []) {
   const backend = history(earlier, (cmd, args) => {
     if (cmd === "list_crates") return [];
     if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
     if (cmd === "remove_library_track") {
       const removed = tracks.find((t) => t.id === args.id);

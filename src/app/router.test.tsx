@@ -21,6 +21,7 @@ describe("stage routes", () => {
       if (cmd === "library_tracks") return [];
       if (cmd === "list_crates") return [];
       if (cmd === "key_notation") return "camelot";
+      if (cmd === "table_columns") return null;
       if (cmd === "track_table_page") return { total: 0, offset: 0, rows: [], behind: false };
       if (cmd === "music_folders") return [];
       if (cmd === "missing_tracks") return { total: 0, groups: [] };

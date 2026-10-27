@@ -71,6 +71,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             app_info,
             crate::settings::key_notation,
             crate::settings::set_key_notation,
+            crate::ui_setting::table_columns,
+            crate::ui_setting::set_table_columns,
             crate::jobs::commands::activity,
             crate::jobs::commands::cancel_job,
             crate::ops::undo_last_operation,
@@ -135,6 +137,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::crates::crate_tracks,
             crate::track_table::track_table_page,
             crate::track_table::track_table_formats,
+            crate::track_table::track_table_position,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

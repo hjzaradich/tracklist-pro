@@ -1,7 +1,9 @@
-//! 1cA-3, 1cA-4: what the track table's backend query costs on a made-up
-//! library of 100,000 tracks: the first page, a sort, a filter, a search with
-//! a filter, a scroll to the middle, and the time to build the table's rows
-//! (they are written by the index job, beside the search index's).
+//! 1cA-3, 1cA-4, 1cA-5: what the track table's backend query costs on a
+//! made-up library of 100,000 tracks: the first page, a sort, a filter, a
+//! search with a filter, a scroll to the middle, where a track is deep in a
+//! sorted list (the table keeps a selected track in view when the sort
+//! changes), and the time to build the table's rows (they are written by the
+//! index job, beside the search index's).
 //!
 //! The library is made up in code (no audio, no real music, made-up words).
 //! Of every 100 tracks:
@@ -37,7 +39,8 @@ use tracklist_pro_lib::fragile::FragileDirs;
 use tracklist_pro_lib::paths::Volumes;
 use tracklist_pro_lib::search::{pending, settle};
 use tracklist_pro_lib::track_table::{
-    page, read, SortColumn, TableFilter, TablePage, TableQuery, TableSort, TableSource,
+    page, position, read, SortColumn, TableFilter, TablePage, TablePositionQuery, TableQuery,
+    TableSort, TableSource,
 };
 use tracklist_pro_lib::volume::{Volume, VolumeId};
 use tracklist_pro_lib::write_guard::WriteGuard;
@@ -301,6 +304,23 @@ impl Db {
     }
 }
 
+impl Db {
+    /// Where the track is in the rows of `q` (its sort, search and filters).
+    fn position(&self, q: &TableQuery, recording_id: i64) -> Option<u32> {
+        let asked = TablePositionQuery {
+            source: q.source.clone(),
+            search: q.search.clone(),
+            filters: q.filters.clone(),
+            sort: q.sort,
+            recording_id,
+        };
+        self.writer
+            .call(move |c| position(c, &asked))
+            .unwrap()
+            .expect("the crate exists")
+    }
+}
+
 fn timed<T>(work: impl FnOnce() -> T) -> (T, Duration) {
     let start = Instant::now();
     let out = work();
@@ -352,6 +372,27 @@ fn measure(db: &Db, q: &TableQuery, runs: usize) -> (TablePage, Duration) {
     }
     times.sort();
     (last.unwrap(), times[times.len() / 2])
+}
+
+/// The median of `runs` runs of finding, from its id, the track at row `at`
+/// of `q`'s rows, with the index the last run found.
+fn measure_position(db: &Db, q: &TableQuery, at: u32, runs: usize) -> (Option<u32>, Duration) {
+    let one = db.page(TableQuery {
+        offset: at,
+        limit: 1,
+        with_total: false,
+        ..q.clone()
+    });
+    let id = one.rows[0].recording_id;
+    let mut times = Vec::new();
+    let mut found = None;
+    for _ in 0..runs {
+        let (index, took) = timed(|| db.position(q, id));
+        times.push(took);
+        found = index;
+    }
+    times.sort();
+    (found, times[times.len() / 2])
 }
 
 /// Everything the measurement and the smoke test do. `check` is true for
@@ -626,6 +667,93 @@ fn run(tracks: u64, check: bool) {
         }
     }
     println!("slowest query: {}", ms(slowest));
+
+    // Where a track is, deep in a list: the table asks for it when a sort or
+    // a filter changes with a track selected. It reads the ids in the list's
+    // order up to the track.
+    let last = u32::try_from(tracks).unwrap() - 1;
+    let flac = TableFilter::Format {
+        format: "flac".to_owned(),
+    };
+    let flac_count = db
+        .page(filtered(TableSource::AllMusic, flac.clone()))
+        .total
+        .unwrap();
+    let deep: Vec<(&str, TableQuery, u32)> = vec![
+        (
+            "All music, title, the middle",
+            query(TableSource::AllMusic),
+            middle,
+        ),
+        (
+            "All music, title, the last",
+            query(TableSource::AllMusic),
+            last,
+        ),
+        (
+            "All music, title, descending, the last",
+            sorted(TableSource::AllMusic, SortColumn::Title, true),
+            last,
+        ),
+        (
+            "All music, BPM, the middle",
+            sorted(TableSource::AllMusic, SortColumn::Bpm, false),
+            middle,
+        ),
+        (
+            "All music, BPM, descending, the middle",
+            sorted(TableSource::AllMusic, SortColumn::Bpm, true),
+            middle,
+        ),
+        (
+            "All music, BPM, descending, the last (among the blanks)",
+            sorted(TableSource::AllMusic, SortColumn::Bpm, true),
+            last,
+        ),
+        (
+            "All music, genre, descending, the last",
+            sorted(TableSource::AllMusic, SortColumn::Genre, true),
+            last,
+        ),
+        (
+            "All music, file, the last",
+            sorted(TableSource::AllMusic, SortColumn::File, false),
+            last,
+        ),
+        (
+            "Library, artist, descending, the last",
+            sorted(TableSource::Library, SortColumn::Artist, true),
+            u32::try_from(tracks / 100 * 33).unwrap() - 1,
+        ),
+        (
+            "Crate 3, title, the last",
+            sorted(
+                TableSource::Crate { id: CrateId(3) },
+                SortColumn::Title,
+                false,
+            ),
+            u32::try_from(tracks / 100 * 2).unwrap() - 1,
+        ),
+        (
+            "All music, FLAC only, BPM, descending, the last",
+            TableQuery {
+                filters: vec![flac],
+                ..sorted(TableSource::AllMusic, SortColumn::Bpm, true)
+            },
+            flac_count - 1,
+        ),
+    ];
+    let mut slowest_position = Duration::ZERO;
+    for (what, q, at) in &deep {
+        let (found, took) = measure_position(&db, q, *at, if check { 1 } else { 5 });
+        println!(
+            "position, {what}: row {at} found at {found:?} in {}",
+            ms(took)
+        );
+        assert_eq!(found, Some(*at), "{what}");
+        slowest_position = slowest_position.max(took);
+    }
+    println!("slowest position: {}", ms(slowest_position));
 
     if check {
         let all = db.page(query(TableSource::AllMusic));

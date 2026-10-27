@@ -69,6 +69,7 @@ function fakeBackend(
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") {
       const query = queryOf(args);
       const search = query.search ?? "";

@@ -71,6 +71,8 @@ function backend(
     switch (cmd) {
       case "list_crates":
         return crates.map((c) => ({ ...c.crate, trackCount: c.tracks.length }));
+      case "table_columns":
+        return null;
       case "key_notation":
         return "camelot";
       case "track_table_page": {
@@ -448,6 +450,7 @@ describe("undo", () => {
         return [{ id: 100, parentId: null, kind: "static", name: "Warm up", trackCount: 0 }];
       }
       if (cmd === "key_notation") return "camelot";
+      if (cmd === "table_columns") return null;
       if (cmd === "track_table_page") return pageOf([], queryOf(args));
       throw new Error(`unexpected command ${cmd}`);
     });
@@ -575,6 +578,7 @@ describe("the Undo offered after creating or deleting a crate, before it knows w
       const a = (args ?? {}) as Record<string, unknown>;
       if (cmd === "list_crates") return crates;
       if (cmd === "key_notation") return "camelot";
+      if (cmd === "table_columns") return null;
       if (cmd === "track_table_page") return pageOf([], queryOf(args));
       if (cmd === "create_crate") {
         crates = [
