@@ -507,10 +507,11 @@ fn a_real_title_keeps_a_dotted_tail_and_only_a_file_name_standing_in_for_a_title
 }
 
 #[test]
-fn a_track_whose_best_file_is_hidden_is_not_shown_by_an_unhidden_extra_copy() {
-    // An extra copy is hidden by being an extra, whatever its own state,
-    // so a track whose best file the user hid has no shown file: the lists
-    // have no file to show the track through.
+fn a_track_whose_best_file_is_hidden_is_still_in_the_results_through_a_file_that_is_not_hidden() {
+    // One rule with the Overview's count and the track table (`crate::hidden`):
+    // a track is in All music while one of its files has no `hidden_reason`,
+    // an extra copy included. So its hidden best file is not counted by
+    // "N hidden files match": the track is in the results already.
     let lib = Lib::new();
     let (track, best) = lib.track(Some("Hidden best"), None, "best.flac");
     let extra = lib.file(track, "best (copy).mp3", "extra");
@@ -527,7 +528,7 @@ fn a_track_whose_best_file_is_hidden_is_not_shown_by_an_unhidden_extra_copy() {
         .collect();
     assert_eq!(
         flags,
-        vec![(best, Why::UserHid, false), (extra, Why::ExtraFile, false)]
+        vec![(best, Why::UserHid, true), (extra, Why::ExtraFile, true)]
     );
 }
 

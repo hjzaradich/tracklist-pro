@@ -266,5 +266,9 @@
     "purpose": "Undo button naming what it takes back: Split off in Review (Undo puts the file back in its track). Proposal.",
     "where": "Top bar, Undo button, when the next step to undo is a split.",
     "approved": "Undo (file split off)"
+  },
+  "undo.action.showFileAgain": {
+    "purpose": "Undo button naming what it takes back: \"Show again\" on a hidden file in All music (Undo hides the file again). Proposal.",
+    "where": "Top bar, Undo button, when the next step to undo is a \"Show again\"."
   }
 }

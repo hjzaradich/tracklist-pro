@@ -70,6 +70,8 @@ function fakeBackend(
     const a = (args ?? {}) as Record<string, unknown>;
     if (cmd === "key_notation") return "camelot";
     if (cmd === "table_columns") return null;
+    // No hidden file matches any search here (the hidden files have their own tests).
+    if (cmd === "hidden_files_matching") return { count: 0, behind: false };
     if (cmd === "track_table_page") {
       const query = queryOf(args);
       const search = query.search ?? "";

@@ -3,11 +3,14 @@
 use std::collections::HashMap;
 
 use rusqlite::Connection;
+use serde::Serialize;
+use specta::Type;
 
 use super::{MAX_TERMS, MAX_TERM_CHARS};
 
 /// Why a file is hidden (ROADMAP 1.11).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub enum Why {
     /// The user hid it.
     UserHid,
@@ -17,14 +20,26 @@ pub enum Why {
     ExtraFile,
 }
 
+impl Why {
+    /// The reason for a file with this `hidden_reason`: `None` is an extra
+    /// copy, hidden by being one.
+    pub(crate) fn of(hidden_reason: Option<&str>) -> Why {
+        match hidden_reason {
+            Some("user") => Why::UserHid,
+            Some(_) => Why::ClearedInbox,
+            None => Why::ExtraFile,
+        }
+    }
+}
+
 /// A hidden file of a track that matches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HiddenFile {
     pub file_id: i64,
     pub recording_id: i64,
     pub why: Why,
-    /// The track has a file that isn't hidden, so the track is in the
-    /// results already. Owner decision, 2026-10-12: "N hidden files match"
+    /// The track has a file with no `hidden_reason` (an extra copy counts,
+    /// as in the Overview's count), so the track is in the results already. Owner decision, 2026-10-12: "N hidden files match"
     /// counts only the hidden files for which this is `false`.
     pub track_has_shown_file: bool,
 }
@@ -146,14 +161,8 @@ pub(crate) fn hidden_files(
         if tracks.binary_search(&recording_id).is_err() {
             continue;
         }
-        let why = match reason.as_deref() {
-            Some("user") => Why::UserHid,
-            Some(_) => Why::ClearedInbox,
-            None => {
-                debug_assert_eq!(role, "extra");
-                Why::ExtraFile
-            }
-        };
+        debug_assert!(reason.is_some() || role == "extra");
+        let why = Why::of(reason.as_deref());
         let track_has_shown_file = match shown.get(&recording_id) {
             Some(&known) => known,
             None => {
@@ -176,12 +185,10 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<(i64, i64, String, Option<Stri
     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
 }
 
-/// Whether the track has a file that isn't hidden.
+/// Whether the track has a file that isn't hidden: it is in All music, so
+/// in the results already. The rule the Overview's count and the track
+/// table use ([`crate::hidden::has_shown_file!`]).
 fn has_shown_file(conn: &Connection, recording_id: i64) -> rusqlite::Result<bool> {
-    conn.prepare_cached(
-        "SELECT EXISTS (
-             SELECT 1 FROM recording_file rf JOIN file f ON f.id = rf.file_id
-             WHERE rf.recording_id = ?1 AND rf.role <> 'extra' AND f.hidden_reason IS NULL)",
-    )?
-    .query_row([recording_id], |r| r.get(0))
+    conn.prepare_cached(concat!("SELECT ", crate::hidden::has_shown_file!("?1")))?
+        .query_row([recording_id], |r| r.get(0))
 }

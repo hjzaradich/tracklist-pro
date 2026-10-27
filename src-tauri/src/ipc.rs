@@ -138,6 +138,9 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::track_table::track_table_page,
             crate::track_table::track_table_formats,
             crate::track_table::track_table_position,
+            crate::hidden::hidden_files_page,
+            crate::hidden::show_file_again,
+            crate::hidden::hidden_files_matching,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

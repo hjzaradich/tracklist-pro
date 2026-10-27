@@ -15,6 +15,7 @@ pub mod fingerprint;
 pub mod fragile;
 pub mod grouping;
 pub mod hash;
+pub mod hidden;
 pub mod ipc;
 pub mod jobs;
 pub mod library;

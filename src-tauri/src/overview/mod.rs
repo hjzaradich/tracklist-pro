@@ -195,9 +195,10 @@ fn library_sql() -> String {
 
 /// Tracks with a file that isn't hidden. A track is counted once however
 /// many files it has.
-const ALL_MUSIC: &str = "SELECT count(*) FROM recording r
-     WHERE EXISTS (SELECT 1 FROM recording_file rf JOIN file f ON f.id = rf.file_id
-                   WHERE rf.recording_id = r.id AND f.hidden_reason IS NULL)";
+const ALL_MUSIC: &str = concat!(
+    "SELECT count(*) FROM recording r WHERE ",
+    crate::hidden::has_shown_file!("r.id")
+);
 
 /// The start of this week as stored timestamps are written.
 fn week_start() -> String {

@@ -1,0 +1,66 @@
+{
+  "filter": {
+    "purpose": "Button that switches All music to the Hidden filter: the files the app isn't showing, each with its reason.",
+    "where": "All music screen, beside the search box."
+  },
+  "label": {
+    "purpose": "Accessible name of the hidden files table.",
+    "where": "All music, Hidden filter, the table (screen readers only)."
+  },
+  "count_one": {
+    "purpose": "How many hidden files are listed, when it is one. Same pattern as the track counts.",
+    "where": "All music, Hidden filter, above the table."
+  },
+  "count_other": {
+    "purpose": "How many hidden files are listed (all of them, or those the search leaves).",
+    "where": "All music, Hidden filter, above the table."
+  },
+  "empty": {
+    "purpose": "Says nothing is hidden.",
+    "where": "All music, Hidden filter, when no file is hidden and nothing is searched."
+  },
+  "noMatch": {
+    "purpose": "Says the search finds no hidden file.",
+    "where": "All music, Hidden filter, when a search leaves no hidden file."
+  },
+  "columns.reason": {
+    "purpose": "Column heading for why a file is hidden.",
+    "where": "All music, Hidden filter, table header."
+  },
+  "reason.userHid": {
+    "purpose": "Reason for a file the user hid. Nothing in the app hides a file yet.",
+    "where": "All music, Hidden filter, Reason column."
+  },
+  "reason.clearedInbox": {
+    "purpose": "Reason for a file that was cleared from the Inbox. The Inbox arrives in Phase 2; no file has this reason yet.",
+    "where": "All music, Hidden filter, Reason column."
+  },
+  "reason.extraFile": {
+    "purpose": "Reason for an extra copy of a track when no best file is known to name: another file of the track was chosen as its best (ROADMAP 1.7).",
+    "where": "All music, Hidden filter, Reason column."
+  },
+  "reason.extraFileNamed": {
+    "purpose": "Reason for an extra copy of a track: names the track and the file that was chosen as its best (ROADMAP 1.7).",
+    "where": "All music, Hidden filter, Reason column."
+  },
+  "showAgain": {
+    "purpose": "Button that shows a file the user hid in the lists again. Undo hides it again. Wording from ROADMAP 1.11.",
+    "where": "All music, Hidden filter, last column, on a file the user hid."
+  },
+  "showMore": {
+    "purpose": "Button that lists the next hidden files. Same wording as Review's (review:more).",
+    "where": "All music, Hidden filter, under the table, when more files wait."
+  },
+  "matches_one": {
+    "purpose": "Says one hidden file matches the search and its track is not in the results (ROADMAP 1.11, owner decision 2026-10-12). Followed by a dot and the Show them link.",
+    "where": "All music, under the search box, when a search matches a hidden file."
+  },
+  "matches_other": {
+    "purpose": "Says how many hidden files match the search and their tracks are not in the results (ROADMAP 1.11, owner decision 2026-10-12). Followed by a dot and the Show them link.",
+    "where": "All music, under the search box, when a search matches hidden files."
+  },
+  "showThem": {
+    "purpose": "Link that opens the Hidden filter with the same search. Wording from ROADMAP 1.11.",
+    "where": "All music, under the search box, after the count of hidden files that match."
+  }
+}

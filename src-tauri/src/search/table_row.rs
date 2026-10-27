@@ -40,7 +40,9 @@ use crate::send_values::{file_name, ShownFields};
 pub mod flag {
     /// The track is in the Library.
     pub const IN_LIBRARY: i64 = 1;
-    /// The track has a file: it is in All music.
+    /// The track has a file. It is in All music when one of its files isn't
+    /// hidden: the table adds that rule when it runs (`crate::hidden`), so
+    /// hiding or showing a file changes no row here.
     pub const HAS_FILE: i64 = 2;
     /// The file it shows is not on disk (or the scan marked its Library
     /// track missing, or it has no file at all).
