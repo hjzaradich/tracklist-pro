@@ -1,0 +1,145 @@
+/* The "Columns" button above the track table and the small panel it opens:
+ * quiet controls, one filled button (Done). Colors only through tokens. */
+.root {
+  position: relative;
+}
+
+.opener,
+.small,
+.quiet {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.opener {
+  padding: 0 var(--space-2);
+}
+
+.small {
+  display: inline-grid;
+  place-items: center;
+  /* At least 24 by 24 CSS pixels, the smallest target WCAG 2.2 allows. */
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 var(--space-1);
+}
+
+.quiet {
+  padding: var(--space-1) var(--space-2);
+}
+
+.opener:hover,
+.small:hover:not(:disabled),
+.quiet:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.small:disabled,
+.quiet:disabled {
+  border-color: var(--color-border);
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.opener:focus-visible,
+.small:focus-visible,
+.quiet:focus-visible,
+.done:focus-visible,
+.panel:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 20rem;
+  max-width: calc(100vw - 2 * var(--space-4));
+  max-height: 70vh;
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  overflow-y: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.help,
+.empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.heading {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row-height);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+}
+
+.note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.buttons {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.done {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.done:hover {
+  border-color: var(--color-accent-hover);
+  background: var(--color-accent-hover);
+}

@@ -67,6 +67,70 @@
     "purpose": "Says no track fits the search and the filters. Same wording as All music's (allMusic:noMatch).",
     "where": "Track table, in place of the rows."
   },
+  "editor.open": {
+    "purpose": "Button above the track table that opens the column editor.",
+    "where": "Above the track table, beside the filter chips and the track count."
+  },
+  "editor.title": {
+    "purpose": "Accessible name of the column editor panel.",
+    "where": "Column editor panel (screen readers only)."
+  },
+  "editor.help": {
+    "purpose": "Opening line of the column editor, on the Library and All music: what the panel does.",
+    "where": "Top of the column editor panel."
+  },
+  "editor.helpCrate": {
+    "purpose": "Opening line of the column editor on a crate: says the choice is shared by every crate.",
+    "where": "Top of the column editor panel, on the crate screen."
+  },
+  "editor.shown": {
+    "purpose": "Heading of the list of columns the table shows, in order.",
+    "where": "Column editor panel."
+  },
+  "editor.hidden": {
+    "purpose": "Heading of the list of columns the table does not show.",
+    "where": "Column editor panel."
+  },
+  "editor.noneHidden": {
+    "purpose": "Says there is no hidden column to add back.",
+    "where": "Column editor panel, under Not shown."
+  },
+  "editor.alwaysShown": {
+    "purpose": "Says why Title has no working Hide button.",
+    "where": "Column editor panel, beside Title in the Shown list."
+  },
+  "editor.moveUp": {
+    "purpose": "Accessible name and hover text of the arrow that moves a shown column one place left.",
+    "where": "Column editor panel, each shown column."
+  },
+  "editor.moveDown": {
+    "purpose": "Accessible name and hover text of the arrow that moves a shown column one place right.",
+    "where": "Column editor panel, each shown column."
+  },
+  "editor.hide": {
+    "purpose": "Accessible name of the Hide button of a shown column.",
+    "where": "Column editor panel, each shown column."
+  },
+  "editor.hideShort": {
+    "purpose": "Button that takes a column out of the table.",
+    "where": "Column editor panel, each shown column."
+  },
+  "editor.show": {
+    "purpose": "Accessible name of the Show button of a hidden column.",
+    "where": "Column editor panel, each column under Not shown."
+  },
+  "editor.showShort": {
+    "purpose": "Button that adds a hidden column to the end of the table.",
+    "where": "Column editor panel, each column under Not shown."
+  },
+  "editor.reset": {
+    "purpose": "Button that puts back the columns this screen shows at first. Greyed out when they already are.",
+    "where": "Column editor panel, bottom left."
+  },
+  "editor.done": {
+    "purpose": "Button that closes the column editor. The choice is already saved.",
+    "where": "Column editor panel, bottom right; the one filled button."
+  },
   "filters.label": {
     "purpose": "Accessible name of the row of filters above the table.",
     "where": "Above the track table (screen readers only)."

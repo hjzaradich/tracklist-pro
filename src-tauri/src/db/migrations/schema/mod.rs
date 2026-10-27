@@ -255,6 +255,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0032_track_row.sql", &["track_row"]),
     // Drops the quality-verdict triggers of 0032, no new tables.
     ("0033_track_row_no_verdict_triggers.sql", &[]),
+    // How the app looks: the track tables' columns.
+    ("0034_ui_setting.sql", &["ui_setting"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

@@ -272,6 +272,7 @@ fn the_log_refuses_its_own_tables_and_tables_it_cannot_address() {
         // WITHOUT ROWID: `entity_id` can't name one of their rows.
         "setting",
         "service_optin",
+        "ui_setting",
         "grouping_file",
         // Not a table.
         "crate_ancestor",
