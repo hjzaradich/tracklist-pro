@@ -410,7 +410,7 @@ describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
 
   const changes: [string, string, Parameters<typeof backend>[0], () => Promise<void>][] = [
     [
-      "making a crate",
+      "make-crate",
       "crates:done.created",
       [],
       async () => {
@@ -420,7 +420,7 @@ describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
       },
     ],
     [
-      "making a folder",
+      "make-folder",
       "crates:done.createdFolder",
       [],
       async () => {
@@ -430,7 +430,7 @@ describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
       },
     ],
     [
-      "renaming a crate",
+      "rename-crate",
       "crates:done.renamed",
       [crateWith(1, "Warm up", [track(1)])],
       async () => {
@@ -443,7 +443,7 @@ describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
       },
     ],
     [
-      "deleting a crate",
+      "delete-crate",
       "crates:done.deleted",
       [crateWith(1, "Warm up", [track(1)])],
       async () => {
@@ -457,7 +457,7 @@ describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
       },
     ],
     [
-      "moving a crate",
+      "move-crate",
       "crates:done.moved",
       [crateWith(1, "Loose", []), folderWith(2, "Archive")],
       async () => {
@@ -471,7 +471,7 @@ describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
       },
     ],
     [
-      "taking a track out of a crate",
+      "remove-track",
       "crates:done.removed",
       [crateWith(1, "Warm up", [track(1), track(2)])],
       async () => {

@@ -419,7 +419,7 @@ async function removeFirstTrack() {
   );
 }
 
-describe("the top bar's Undo and the Undo offered right after an action", () => {
+describe("the top bar's Undo under the Library screen", () => {
   it("the top bar's Undo puts a removed track back in the list without a restart", async () => {
     const backend = libraryUnderTheBar([track(1), track(2)]);
     await removeFirstTrack();
@@ -430,50 +430,19 @@ describe("the top bar's Undo and the Undo offered right after an action", () => 
     expect(backend.undone).toEqual([10]);
   });
 
-  it("once the top bar has undone the action, the Undo offered after it is gone", async () => {
+  it("is the only Undo after a removal (owner decision, 2026-10-27): the screen says what happened and offers none, and the top bar moves on to the step before once it has been used", async () => {
     const backend = libraryUnderTheBar([track(1), track(2)], [{ operation: CRATE }]);
     await removeFirstTrack();
-    const offered = await screen.findByRole("button", { name: tx("library:remove.undo") });
-    expect(offered).toBeEnabled();
+    const line = await screen.findByRole("status");
+    expect(line).toHaveTextContent(tx("library:remove.done"));
+    expect(within(line).queryByRole("button")).toBeNull();
+    const topBar = await undoButton(tx("shell:undo.action.removeFromLibrary"));
+    expect(topBar).toBeEnabled();
 
-    await userEvent.click(await undoButton(tx("shell:undo.action.removeFromLibrary")));
-    // The top bar moves on to the step before; the after-action Undo, which
-    // was for the removal, is no longer offered for it.
-    expect(await undoButton(LABEL.crate())).toBeEnabled();
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: tx("library:remove.undo") })).toBeNull(),
-    );
-    expect(backend.undone).toEqual([10]);
-  });
-
-  it("after the Undo offered after an action is used, the top bar names the step before", async () => {
-    const backend = libraryUnderTheBar([track(1), track(2)], [{ operation: CRATE }]);
-    await removeFirstTrack();
-    await undoButton(tx("shell:undo.action.removeFromLibrary"));
-
-    await userEvent.click(await screen.findByRole("button", { name: tx("library:remove.undo") }));
-    expect(await screen.findByText(tx("library:remove.undone"))).toBeInTheDocument();
+    await userEvent.click(topBar);
     expect(await undoButton(LABEL.crate())).toBeEnabled();
     await waitFor(async () => expect(await rows()).toHaveLength(2));
     // It undid the removal and nothing older.
     expect(backend.undone).toEqual([10]);
-  });
-
-  it("the Undo offered after an action never takes back a different, newer action", async () => {
-    const backend = libraryUnderTheBar([track(1), track(2)]);
-    await removeFirstTrack();
-    const offered = await screen.findByRole("button", { name: tx("library:remove.undo") });
-    // It is for operation 10. Something else is done before it's pressed,
-    // and the press lands before the screen has heard.
-    await waitFor(() => expect(backend.steps.at(-1)?.operation.id).toBe(10));
-    await undoButton(tx("shell:undo.action.removeFromLibrary"));
-    backend.steps.push({ operation: operation(11, "create_crate", { name: "Later" }) });
-    await userEvent.click(offered);
-    // Nothing is undone, and the offer goes away: it was for the removal.
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: tx("library:remove.undo") })).toBeNull(),
-    );
-    expect(await undoButton(tx("shell:undo.action.createCrate", { name: "Later" }))).toBeEnabled();
-    expect(backend.undone).toEqual([]);
   });
 });
