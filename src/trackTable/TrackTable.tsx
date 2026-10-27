@@ -41,10 +41,20 @@ export interface TrackTableProps {
   /** The actions column's width in pixels. */
   actionsWidth?: number;
   /**
-   * Changes when the rows are another list (a sort, a filter, a search or
-   * another crate): the table goes back to the top and nothing is selected.
+   * Changes when the rows are another order or another list (a sort, a
+   * filter, a search or another crate): the table goes back to the top. A
+   * selected track stays selected, and the table scrolls to it, when
+   * `positionOf` finds it in the new rows; otherwise nothing is selected.
    */
   resetKey: string;
+  /**
+   * Where the track with this id is in the rows now (their index), or
+   * `null` if it isn't one of them. Without it a new `resetKey` always
+   * clears the selection.
+   */
+  positionOf?: (recordingId: number) => Promise<number | null>;
+  /** The rows of the current `resetKey` have arrived, so an index can be scrolled to. Default: yes. */
+  settled?: boolean;
   /** The selected row changed (or went); `null` for none. */
   onSelectionChange?: (row: TableRow | null) => void;
 }
@@ -84,6 +94,8 @@ export function TrackTable({
   actions,
   actionsWidth = 200,
   resetKey,
+  positionOf,
+  settled = true,
   onSelectionChange,
 }: TrackTableProps) {
   const { t, i18n } = useTranslation("trackTable");
@@ -95,18 +107,50 @@ export function TrackTable({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [active, setActive] = useState<number | null>(null);
+  // The selected row's track, so another order can find it again. Known
+  // once its row has arrived.
+  const [activeId, setActiveId] = useState<number | null>(null);
+  // The track being looked for in the rows of `resetKey`, and where the
+  // backend said it is (`index` is `null` for nowhere).
+  const [looking, setLooking] = useState<{ id: number; key: string } | null>(null);
+  const [found, setFound] = useState<{ key: string; index: number | null } | null>(null);
+  // Where to scroll to once a track is found again.
+  const [reveal, setReveal] = useState<{ top: number } | null>(null);
 
-  // Another list: back to the top, nothing selected. (Adjusting state while
+  // Another order or list: back to the top, and the selected track, if
+  // there is one, is looked for in the new rows. (Adjusting state while
   // rendering, as React's guide for state that follows a prop.)
   const [seen, setSeen] = useState(resetKey);
   if (seen !== resetKey) {
     setSeen(resetKey);
+    const carried = activeId ?? looking?.id ?? null;
     setActive(null);
+    setActiveId(null);
+    setFound(null);
+    setLooking(positionOf && carried !== null ? { id: carried, key: resetKey } : null);
     setScrollTop(0);
   }
   useLayoutEffect(() => {
     if (viewport.current) viewport.current.scrollTop = 0;
   }, [resetKey]);
+
+  // Ask where the track is now. The latest `positionOf` is the one for the
+  // latest rows.
+  const positionRef = useRef(positionOf);
+  useEffect(() => {
+    positionRef.current = positionOf;
+  });
+  useEffect(() => {
+    if (looking === null) return;
+    let current = true;
+    const answer = (index: number | null) => {
+      if (current) setFound({ key: looking.key, index });
+    };
+    positionRef.current?.(looking.id).then(answer, () => answer(null));
+    return () => {
+      current = false;
+    };
+  }, [looking]);
 
   // The viewport's height, and when it changes.
   useLayoutEffect(() => {
@@ -141,6 +185,37 @@ export function TrackTable({
 
   // The selected row, to tell the screen when it changes.
   const activeRow = active === null ? undefined : getRow(active);
+
+  // The selected row's track is known once its row has arrived. (Not in the
+  // render that changes `resetKey`: its rows are the new list's.)
+  if (seen === resetKey && active !== null && activeId === null && activeRow) {
+    setActiveId(activeRow.recordingId);
+  }
+
+  // The track looked for has been found, and the rows it is in have arrived:
+  // select it and put it in the middle of the screen. Not found: nothing is
+  // selected, and the table stays at the top.
+  if (
+    looking !== null &&
+    found !== null &&
+    seen === resetKey &&
+    found.key === looking.key &&
+    found.key === resetKey &&
+    settled
+  ) {
+    setLooking(null);
+    setFound(null);
+    if (found.index !== null && found.index < total) {
+      const top = Math.max(0, found.index * rowHeight - Math.floor((room - rowHeight) / 2));
+      setActive(found.index);
+      setActiveId(looking.id);
+      setScrollTop(top);
+      setReveal({ top });
+    }
+  }
+  useLayoutEffect(() => {
+    if (reveal && viewport.current) viewport.current.scrollTop = reveal.top;
+  }, [reveal]);
   useEffect(() => {
     onSelectionChange?.(activeRow ?? null);
   }, [activeRow, onSelectionChange]);
@@ -149,6 +224,10 @@ export function TrackTable({
     (index: number) => {
       const clamped = Math.min(Math.max(0, index), Math.max(0, total - 1));
       setActive(clamped);
+      setActiveId(getRow(clamped)?.recordingId ?? null);
+      // Choosing a row is the answer to looking for one.
+      setLooking(null);
+      setFound(null);
       // Keep it in view.
       const element = viewport.current;
       if (!element) return;
@@ -161,7 +240,7 @@ export function TrackTable({
         setScrollTop(next);
       }
     },
-    [total, rowHeight, room],
+    [total, rowHeight, room, getRow],
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

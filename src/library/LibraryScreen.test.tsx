@@ -50,6 +50,7 @@ function library(tracks: LibraryTrack[] | "broken") {
   mockIPC((cmd, args) => {
     if (cmd === "list_crates") return [];
     if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd !== "track_table_page") throw new Error(`unexpected command ${cmd}`);
     if (tracks === "broken") throw { kind: "database", params: {} };
     return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
@@ -245,6 +246,7 @@ function removable(initial: LibraryTrack[]) {
     calls.push(cmd);
     if (cmd === "list_crates") return [];
     if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
     if (cmd === "remove_library_track") {
       last = tracks.find((t) => t.id === (args as { id: number }).id) ?? null;
@@ -367,6 +369,7 @@ describe("removing a track from the Library", () => {
     mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
       if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];
@@ -403,6 +406,7 @@ describe("removing a track from the Library", () => {
     mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
       if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];
@@ -452,6 +456,7 @@ describe("removing a track from the Library", () => {
     mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
       if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];
@@ -488,6 +493,7 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
   mockIPC((cmd, rawArgs) => {
     const args = (rawArgs ?? {}) as Record<string, unknown>;
     if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") {
       return pageOf([track(1), track(2)].map(rowOfLibraryTrack), queryOf(args));
     }
@@ -605,6 +611,7 @@ describe("adding a track to a crate", () => {
   it("shows why an add was refused", async () => {
     mockIPC((cmd, args) => {
       if (cmd === "key_notation") return "camelot";
+      if (cmd === "table_columns") return null;
       if (cmd === "track_table_page") return pageOf([rowOfLibraryTrack(track(1))], queryOf(args));
       if (cmd === "list_crates") {
         return [{ id: 1, parentId: null, kind: "static", name: "Warm up", trackCount: 0 }];
@@ -628,6 +635,7 @@ describe("the Undo offered after a removal, before it knows which action it is f
     mockIPC((cmd, args) => {
       if (cmd === "list_crates") return [];
       if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") return null;
     if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
       if (cmd === "remove_library_track") {
         tracks = [];

@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { SortColumn, TableRow } from "../bindings";
+import type { SortColumn, TableRow, TableScreen } from "../bindings";
 import { formatKey, type KeyNotation } from "../keys/keyNotation";
 import { describeNote, trackNotes } from "../library/libraryTrackNotes";
 import { PlayButton } from "../player/PlayButton";
@@ -14,8 +14,9 @@ import styles from "./TrackTable.module.css";
  * The list of columns is data, not markup: {@link COLUMNS} says what each
  * column is, and {@link DEFAULT_COLUMNS} which columns each screen shows, in
  * order. The table is given a list of {@link ColumnId}s and draws exactly
- * those, so the column editor (1cA-5) only has to hand it another list (and,
- * later, widths).
+ * those, so the column editor (1cA-5, `ColumnEditor`) only hands it another
+ * list (and, later, widths). A screen's list is its default until the user
+ * chooses (`useTableColumns`).
  *
  * Left out for now, because the app has no data for them yet: Album, Year,
  * Energy, Comment, Label, Play count, Last played, Colour and the other
@@ -203,8 +204,8 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   },
 };
 
-/** The screens that show the table. */
-export type TableScreen = "library" | "allMusic" | "crate";
+/** The screens that show the table (the backend keeps a column choice for each). */
+export type { TableScreen };
 
 const LIBRARY_COLUMNS: readonly ColumnId[] = [
   "title",
@@ -226,8 +227,3 @@ export const DEFAULT_COLUMNS: Readonly<Record<TableScreen, readonly ColumnId[]>>
   allMusic: [...LIBRARY_COLUMNS, "file", "folder"],
   crate: LIBRARY_COLUMNS,
 };
-
-/** The columns a screen shows now. The column editor (1cA-5) will make this a setting. */
-export function useColumns(screen: TableScreen): readonly ColumnId[] {
-  return DEFAULT_COLUMNS[screen];
-}

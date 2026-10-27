@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -425,5 +425,140 @@ describe("the keyboard", () => {
     await userEvent.keyboard("{Control>}{ArrowDown}{/Control}");
     await userEvent.keyboard("a");
     expect(selected()).toEqual([]);
+  });
+});
+
+describe("when the order or the list changes with a track selected", () => {
+  const TOTAL = 1000;
+  const selected = () => drawn().filter((r) => r.getAttribute("aria-selected") === "true").map(indexOf);
+  /** The list turned upside down: what was at index i is at TOTAL - 1 - i. */
+  const reversed = (index: number): TableRow => rowAt(TOTAL - 1 - index);
+  /** Where a track is after the list is turned upside down (the row's id is its list position + 100). */
+  const reversedPosition = async (recordingId: number): Promise<number | null> => TOTAL - 1 - (recordingId - 100);
+
+  function tree(props: Partial<React.ComponentProps<typeof TrackTable>>) {
+    return (
+      <QueryClientProvider client={createQueryClient()}>
+        <TrackTable
+          label="Under test"
+          columns={ALL}
+          total={TOTAL}
+          getRow={rowAt}
+          onRangeChange={() => {}}
+          sort={null}
+          onSort={() => {}}
+          resetKey="a"
+          {...props}
+        />
+      </QueryClientProvider>
+    );
+  }
+
+  it("keeps the track selected and scrolls to it in the new order", async () => {
+    const positionOf = vi.fn(reversedPosition);
+    const { rerender } = render(tree({ positionOf }));
+    await userEvent.click(drawn()[3]);
+    rerender(tree({ positionOf, resetKey: "b", getRow: reversed }));
+    await waitFor(() => expect(selected()).toEqual([TOTAL - 1 - 3]));
+    expect(positionOf).toHaveBeenCalledTimes(1);
+    expect(positionOf).toHaveBeenCalledWith(103);
+    const grid = screen.getByRole("grid");
+    expect(grid.scrollTop).toBeGreaterThan(0);
+    // The selected row is on screen, and says which track it is.
+    expect(drawn().find((r) => r.getAttribute("aria-selected") === "true")).toHaveTextContent("Tune 3");
+  });
+
+  it("keeps a track selected with the keyboard in the same way", async () => {
+    const positionOf = vi.fn(reversedPosition);
+    const { rerender } = render(tree({ positionOf }));
+    screen.getByRole("grid").focus();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    expect(selected()).toEqual([1]);
+    rerender(tree({ positionOf, resetKey: "b", getRow: reversed }));
+    await waitFor(() => expect(selected()).toEqual([TOTAL - 2]));
+  });
+
+  it("starts at the top with nothing selected when no track was selected, and asks for nothing", async () => {
+    const positionOf = vi.fn(reversedPosition);
+    const { rerender } = render(tree({ positionOf }));
+    const grid = screen.getByRole("grid");
+    grid.scrollTop = 500 * ROW;
+    fireEvent.scroll(grid);
+    rerender(tree({ positionOf, resetKey: "b", getRow: reversed }));
+    expect(grid.scrollTop).toBe(0);
+    expect(selected()).toEqual([]);
+    expect(positionOf).not.toHaveBeenCalled();
+  });
+
+  it("selects nothing and stays at the top when the track is not in the new list", async () => {
+    const positionOf = vi.fn(async () => null);
+    const { rerender } = render(tree({ positionOf }));
+    await userEvent.click(drawn()[3]);
+    rerender(tree({ positionOf, resetKey: "b" }));
+    await waitFor(() => expect(positionOf).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(selected()).toEqual([]);
+    expect(screen.getByRole("grid").scrollTop).toBe(0);
+  });
+
+  it("selects nothing when the backend cannot say where the track is", async () => {
+    const positionOf = vi.fn(async () => {
+      throw new Error("no");
+    });
+    const { rerender } = render(tree({ positionOf }));
+    await userEvent.click(drawn()[3]);
+    rerender(tree({ positionOf, resetKey: "b" }));
+    await waitFor(() => expect(positionOf).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(selected()).toEqual([]);
+  });
+
+  it("clears the selection, as before, when it is given no way to find the track", async () => {
+    const { rerender } = render(tree({}));
+    await userEvent.click(drawn()[3]);
+    expect(selected()).toEqual([3]);
+    rerender(tree({ resetKey: "b" }));
+    expect(selected()).toEqual([]);
+  });
+
+  it("waits for the new rows before scrolling to the track", async () => {
+    const positionOf = vi.fn(reversedPosition);
+    const { rerender } = render(tree({ positionOf }));
+    await userEvent.click(drawn()[3]);
+    rerender(tree({ positionOf, resetKey: "b", getRow: reversed, settled: false }));
+    await waitFor(() => expect(positionOf).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(selected()).toEqual([]);
+    rerender(tree({ positionOf, resetKey: "b", getRow: reversed, settled: true }));
+    await waitFor(() => expect(selected()).toEqual([TOTAL - 4]));
+  });
+
+  it("follows the track through two changes in a row, and ignores the answer to the first", async () => {
+    let answerFirst: (index: number) => void = () => {};
+    const positionOf = vi
+      .fn<(id: number) => Promise<number | null>>()
+      .mockImplementationOnce(() => new Promise((resolve) => (answerFirst = resolve)))
+      .mockImplementation(async () => 700);
+    const { rerender } = render(tree({ positionOf }));
+    await userEvent.click(drawn()[3]);
+    rerender(tree({ positionOf, resetKey: "b" }));
+    rerender(tree({ positionOf, resetKey: "c" }));
+    await waitFor(() => expect(selected()).toEqual([700]));
+    answerFirst(5);
+    await Promise.resolve();
+    expect(selected()).toEqual([700]);
+    expect(positionOf).toHaveBeenLastCalledWith(103);
+  });
+
+  it("lets a click on another row win over a track still being looked for", async () => {
+    let answer: (index: number) => void = () => {};
+    const positionOf = vi.fn(() => new Promise<number | null>((resolve) => (answer = resolve)));
+    const { rerender } = render(tree({ positionOf }));
+    await userEvent.click(drawn()[3]);
+    rerender(tree({ positionOf, resetKey: "b" }));
+    await userEvent.click(drawn()[6]);
+    answer(500);
+    await Promise.resolve();
+    expect(selected()).toEqual([6]);
   });
 });

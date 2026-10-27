@@ -1,11 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { errorMessage } from "../api/errors";
-import type { SortColumn, TableFilter, TableRow, TableSort, TableSource } from "../bindings";
+import { errorMessage, unwrap } from "../api/errors";
+import {
+  commands,
+  type SortColumn,
+  type TableFilter,
+  type TableRow,
+  type TableSort,
+  type TableSource,
+} from "../bindings";
+import { ColumnEditor } from "./ColumnEditor";
 import { FilterChips } from "./FilterChips";
 import { TrackTable } from "./TrackTable";
 import styles from "./TrackTableView.module.css";
-import { useColumns, type TableScreen } from "./columns";
+import type { TableScreen } from "./columns";
+import { useTableColumns } from "./useTableColumns";
 import { useTrackRows, type RowsQuery } from "./useTrackRows";
 
 /**
@@ -66,7 +75,7 @@ export function TrackTableView({
   const { t } = useTranslation("trackTable");
   const [sort, setSort] = useState<TableSort | null>(null);
   const [filters, setFilters] = useState<TableFilter[]>([]);
-  const columns = useColumns(screen);
+  const choice = useTableColumns(screen);
 
   const query: RowsQuery = useMemo(
     () => ({ source, search: search.trim() === "" ? null : search, filters, sort }),
@@ -83,6 +92,11 @@ export function TrackTableView({
   }, [narrowedBy, onNarrowed]);
   const narrowed = filters.length > 0 || query.search !== null;
 
+  // Position of a track in the rows, for the table to keep it selected when
+  // the order or the filters change: the same source, search, filters and sort.
+  const positionOf = (recordingId: number) =>
+    unwrap(commands.trackTablePosition({ ...query, recordingId }));
+
   if (rows.error != null) {
     return (
       <p role="alert" className={styles.error}>
@@ -91,7 +105,7 @@ export function TrackTableView({
     );
   }
   // Nothing to show until the first window says how many there are.
-  if (rows.total === undefined) return null;
+  if (rows.total === undefined || !choice.ready) return null;
   // While the index job is still writing the rows (after an upgrade, say),
   // zero rows means "not ready", never "no tracks": say so, not the empty state.
   if (rows.total === 0 && !narrowed && !rows.behind) return <>{empty}</>;
@@ -106,17 +120,25 @@ export function TrackTableView({
           filters={filters}
           onChange={setFilters}
         />
-        <p className={styles.count}>
-          <span>{count(rows.total)}</span>
-          {rows.behind && <span className={styles.updating}>{t("updating")}</span>}
-        </p>
+        <div className={styles.end}>
+          <p className={styles.count}>
+            <span>{count(rows.total)}</span>
+            {rows.behind && <span className={styles.updating}>{t("updating")}</span>}
+          </p>
+          <ColumnEditor
+            screen={screen}
+            columns={choice.columns}
+            onChange={choice.change}
+            onReset={choice.reset}
+          />
+        </div>
       </div>
       {rows.total === 0 ? (
         rows.behind ? null : <p className={styles.noMatch}>{t("noMatch")}</p>
       ) : (
         <TrackTable
           label={t("label")}
-          columns={columns}
+          columns={choice.columns}
           total={rows.total}
           getRow={rows.getRow}
           onRangeChange={rows.setRange}
@@ -125,6 +147,8 @@ export function TrackTableView({
           actions={actions}
           actionsWidth={actionsWidth}
           resetKey={JSON.stringify(query)}
+          positionOf={positionOf}
+          settled={!rows.loading}
           onSelectionChange={onSelectionChange}
         />
       )}

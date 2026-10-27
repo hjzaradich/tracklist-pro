@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
-import type { TableQuery, TableRow } from "../bindings";
+import type { TableColumns, TablePositionQuery, TableQuery, TableRow } from "../bindings";
 import "../i18n";
 import { pageOf, queryOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
@@ -19,11 +19,36 @@ let asked: TableQuery[] = [];
 let formats: string[] = [];
 let formatsFail = false;
 let behind = false;
+/** The column choices stored, by screen (none stored is no entry), and what was saved. */
+let storedColumns: Record<string, TableColumns | null> = {};
+let saved: { screen: string; columns: TableColumns | null }[] = [];
+let columnsFail = false;
+/** The positions asked for, and the answer: where a track is in a query's rows (null: not in them). */
+let positionsAsked: TablePositionQuery[] = [];
+let positionIn: (query: TablePositionQuery) => number | null = () => null;
 
 /** Answers with `total` made-up rows (made on demand: a list of 100,000 costs nothing). */
-function serve(total: number, rowAt: (index: number) => TableRow = (i) => tableRow(i, { title: `Tune ${i}` })) {
+function serve(
+  total: number,
+  rowAt: (index: number, query: TableQuery) => TableRow = (i) => tableRow(i, { title: `Tune ${i}` }),
+) {
   mockIPC((cmd, args) => {
     if (cmd === "key_notation") return "camelot";
+    if (cmd === "table_columns") {
+      if (columnsFail) throw { kind: "database", params: {} };
+      return storedColumns[(args as { screen: string }).screen] ?? null;
+    }
+    if (cmd === "set_table_columns") {
+      const { screen, columns } = args as { screen: string; columns: TableColumns | null };
+      saved.push({ screen, columns });
+      storedColumns[screen] = columns;
+      return null;
+    }
+    if (cmd === "track_table_position") {
+      const query = (args as { query: TablePositionQuery }).query;
+      positionsAsked.push(query);
+      return positionIn(query);
+    }
     if (cmd === "track_table_formats") {
       if (formatsFail) throw { kind: "database", params: {} };
       return formats;
@@ -32,7 +57,7 @@ function serve(total: number, rowAt: (index: number) => TableRow = (i) => tableR
     const query = queryOf(args);
     asked.push(query);
     const rows = Array.from({ length: Math.max(0, Math.min(query.limit, total - query.offset)) }, (_, i) =>
-      rowAt(query.offset + i),
+      rowAt(query.offset + i, query),
     );
     return { ...pageOf([], query), total: query.withTotal ? total : null, rows, behind };
   });
@@ -43,6 +68,11 @@ beforeEach(() => {
   formats = [];
   formatsFail = false;
   behind = false;
+  storedColumns = {};
+  saved = [];
+  columnsFail = false;
+  positionsAsked = [];
+  positionIn = () => null;
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(ROW * 11);
 });
 
@@ -477,5 +507,202 @@ describe("filter chips", () => {
     expect(within(menu).queryByText(tx("trackTable:filters.none"))).toBeNull();
     // The other filters can still be chosen.
     expect(within(menu).getByRole("button", { name: tx("trackTable:filters.missing") })).toBeInTheDocument();
+  });
+});
+
+describe("sorting keeps the selected track", () => {
+  const TOTAL = 2000;
+  const desc = (query: TableQuery | TablePositionQuery) => query.sort?.descending === true;
+  /** The list is in id order, and turned upside down when the sort is descending. */
+  const upsideDown = (index: number, query: TableQuery) =>
+    tableRow(desc(query) ? TOTAL - 1 - index : index, { title: `Tune ${desc(query) ? TOTAL - 1 - index : index}` });
+  const where = (query: TablePositionQuery) => {
+    const n = query.recordingId - 100;
+    return desc(query) ? TOTAL - 1 - n : n;
+  };
+  const selected = () =>
+    within(screen.getByRole("grid"))
+      .getAllByRole("row")
+      .filter((r) => r.getAttribute("aria-selected") === "true");
+
+  it("keeps the track selected, and scrolls to it, when the list is sorted the other way", async () => {
+    serve(TOTAL, upsideDown);
+    positionIn = where;
+    renderView("allMusic");
+    const table = await grid();
+    await userEvent.click(drawn()[5]);
+    await userEvent.click(await heading("title"));
+    // The selected row is the same track (its window arrives a moment after the scroll).
+    expect(await screen.findByText("Tune 5")).toBeInTheDocument();
+    expect(selected()).toHaveLength(1);
+    expect(selected()[0]).toHaveTextContent("Tune 5");
+    expect(indexOf(selected()[0])).toBe(TOTAL - 1 - 5);
+    expect(table.scrollTop).toBeGreaterThan(1000 * ROW);
+    // It asked for that track's place in the same list the rows come from.
+    expect(positionsAsked).toHaveLength(1);
+    expect(positionsAsked[0]).toEqual({
+      source: { kind: "allMusic" },
+      search: null,
+      filters: [],
+      sort: { column: "title", descending: true },
+      recordingId: 105,
+    });
+    // And back again.
+    await userEvent.click(await heading("title"));
+    await waitFor(() => expect(indexOf(selected()[0])).toBe(5));
+    expect(table.scrollTop).toBeLessThan(ROW * 20);
+  });
+
+  it("starts at the top, and asks for no position, when nothing is selected", async () => {
+    serve(TOTAL, upsideDown);
+    positionIn = where;
+    renderView("allMusic");
+    const table = await grid();
+    table.scrollTop = 1000 * ROW;
+    fireEvent.scroll(table);
+    expect(await screen.findByText("Tune 1000")).toBeInTheDocument();
+    await userEvent.click(await heading("artist"));
+    await waitFor(() => expect(table.scrollTop).toBe(0));
+    expect(selected()).toHaveLength(0);
+    expect(positionsAsked).toHaveLength(0);
+  });
+
+  it("keeps a track selected through a filter that still lists it, and clears the selection when it does not", async () => {
+    serve(TOTAL, upsideDown);
+    positionIn = (query) => (query.filters.length === 1 ? 7 : query.filters.length === 2 ? null : where(query));
+    renderView("allMusic");
+    await grid();
+    await userEvent.click(drawn()[2]);
+    await addFilter(tx("trackTable:filters.inLibrary"));
+    await waitFor(() => expect(selected()).toHaveLength(1));
+    expect(indexOf(selected()[0])).toBe(7);
+    await addFilter(tx("trackTable:filters.missing"));
+    await waitFor(() => expect(positionsAsked).toHaveLength(2));
+    await waitFor(() => expect(lastQuery().filters).toHaveLength(2));
+    expect(selected()).toHaveLength(0);
+  });
+
+  it("clears the selection when the position cannot be read", async () => {
+    serve(TOTAL, upsideDown);
+    positionIn = () => {
+      throw { kind: "database", params: {} };
+    };
+    renderView("allMusic");
+    await grid();
+    await userEvent.click(drawn()[2]);
+    await userEvent.click(await heading("artist"));
+    await waitFor(() => expect(positionsAsked).toHaveLength(1));
+    await waitFor(() => expect(lastQuery().sort?.column).toBe("artist"));
+    expect(selected()).toHaveLength(0);
+  });
+});
+
+describe("the column editor", () => {
+  const headings = () => screen.getAllByRole("columnheader").map((h) => h.textContent);
+  const names = (ids: string[]) => ids.map((id) => tx(`trackTable:columns.${id}`));
+  const editor = async () => {
+    await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:editor.open") }));
+    return screen.getByRole("dialog", { name: tx("trackTable:editor.title") });
+  };
+  const everyColumn = ["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded", "file", "folder"];
+  const named = (key: string, column: string) => tx(`trackTable:editor.${key}`, { column: tx(`trackTable:columns.${column}`) });
+
+  it("shows each screen's default columns until a choice is made", async () => {
+    serve(5);
+    const library = renderView("library");
+    await grid();
+    expect(headings()).toEqual(names(["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded"]));
+    library.unmount();
+    renderView("allMusic");
+    await grid();
+    expect(headings()).toEqual(names(everyColumn));
+  });
+
+  it("draws the columns that were chosen for the screen, in that order, and ignores an id it does not know", async () => {
+    storedColumns.library = { shown: ["bpm", "tempo_curve", "title", "artist"], known: [...everyColumn, "tempo_curve"] };
+    serve(5);
+    renderView("library");
+    await grid();
+    expect(headings()).toEqual(names(["bpm", "title", "artist"]));
+  });
+
+  it("falls back to the default columns when the choice cannot be read", async () => {
+    columnsFail = true;
+    serve(5);
+    renderView("library");
+    await grid();
+    expect(headings()).toHaveLength(8);
+  });
+
+  it("hides a column at once and keeps the choice for the screen", async () => {
+    serve(5);
+    renderView("library");
+    await grid();
+    const dialog = await editor();
+    await userEvent.click(within(dialog).getByRole("button", { name: named("hide", "genre") }));
+    expect(headings()).toEqual(names(["title", "artist", "bpm", "key", "time", "rating", "dateAdded"]));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]).toEqual({
+      screen: "library",
+      columns: { shown: ["title", "artist", "bpm", "key", "time", "rating", "dateAdded"], known: everyColumn },
+    });
+  });
+
+  it("remembers the choice the next time the screen is shown, and not for another screen", async () => {
+    serve(5);
+    const first = renderView("library");
+    await grid();
+    const dialog = await editor();
+    await userEvent.click(within(dialog).getByRole("button", { name: named("moveUp", "bpm") }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    first.unmount();
+    const again = renderView("library");
+    await grid();
+    expect(headings().slice(0, 3)).toEqual(names(["title", "bpm", "artist"]));
+    again.unmount();
+    renderView("allMusic");
+    await grid();
+    expect(headings().slice(0, 3)).toEqual(names(["title", "artist", "bpm"]));
+  });
+
+  it("is one choice for every crate", async () => {
+    serve(5);
+    const first = renderView("crate");
+    await grid();
+    const dialog = await editor();
+    await userEvent.click(within(dialog).getByRole("button", { name: named("hide", "key") }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0].screen).toBe("crate");
+    first.unmount();
+    // Another crate (the screen gives each its own view).
+    renderView("crate", { source: { kind: "crate", id: 8 } });
+    await grid();
+    expect(headings()).not.toContain(tx("trackTable:columns.key"));
+    expect(headings()).toHaveLength(7);
+  });
+
+  it("goes back to the default and forgets the choice", async () => {
+    storedColumns.library = { shown: ["title", "bpm"], known: everyColumn };
+    serve(5);
+    renderView("library");
+    await grid();
+    expect(headings()).toHaveLength(2);
+    const dialog = await editor();
+    await userEvent.click(within(dialog).getByRole("button", { name: tx("trackTable:editor.reset") }));
+    await waitFor(() => expect(headings()).toHaveLength(8));
+    await waitFor(() => expect(saved).toEqual([{ screen: "library", columns: null }]));
+  });
+
+  it("keeps the selection and the scroll when a column is hidden", async () => {
+    serve(2000);
+    renderView("library");
+    const table = await grid();
+    table.scrollTop = 100 * ROW;
+    fireEvent.scroll(table);
+    await userEvent.click((await screen.findAllByRole("row")).find((r) => indexOf(r) === 105)!);
+    const dialog = await editor();
+    await userEvent.click(within(dialog).getByRole("button", { name: named("hide", "genre") }));
+    expect(table.scrollTop).toBe(100 * ROW);
+    expect(screen.getAllByRole("row").filter((r) => r.getAttribute("aria-selected") === "true")).toHaveLength(1);
   });
 });

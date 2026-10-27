@@ -645,6 +645,99 @@ pub async fn track_table_page(
     Ok(page(found, query.offset, &volumes, &FragileDirs::system()))
 }
 
+/// Where one track is in a query's rows (1cA-5): the same source, search,
+/// filters and sort as a [`TableQuery`], and the track to find.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TablePositionQuery {
+    pub source: TableSource,
+    pub search: Option<String>,
+    pub filters: Vec<TableFilter>,
+    pub sort: Option<TableSort>,
+    /// The track to find (`TableRow::recording_id`).
+    pub recording_id: i64,
+}
+
+/// The row index (counting from 0) of the track in the rows the query
+/// lists, or `None` if it isn't one of them; the outer `None` is a crate
+/// that doesn't exist.
+///
+/// The query is [`build`]'s, the one a window is read with: the same
+/// `FROM`, `WHERE` (search and filters) and `ORDER BY`, with ties and blanks
+/// ordered as they are there, so this index and a window's rows can't
+/// disagree. The ids are read in that order and counted up to the track,
+/// which is a scan of the index for a sort (nothing to sort) and stops at
+/// the track; it is not a window, so no row is worked out.
+pub fn position(
+    conn: &Connection,
+    asked: &TablePositionQuery,
+) -> rusqlite::Result<Option<Option<u32>>> {
+    if let TableSource::Crate { id } = &asked.source {
+        if !crate_exists(conn, *id)? {
+            return Ok(None);
+        }
+    }
+    let query = TableQuery {
+        source: asked.source.clone(),
+        search: asked.search.clone(),
+        filters: asked.filters.clone(),
+        sort: asked.sort,
+        offset: 0,
+        limit: 0,
+        with_total: false,
+    };
+    let quality = match query.filters.contains(&TableFilter::QualityProblem) {
+        true => Some(filters::quality_problems(conn)?),
+        false => None,
+    };
+    let built = build(&query, quality.as_deref());
+    // The rows in order: one range, or, for a descending sort of a column
+    // that can be blank, the rows with a value and then the blank ones, as a
+    // window reads them.
+    let ranges = match &built.backwards {
+        None => vec![(built.from_where.clone(), built.order_by.clone())],
+        Some(b) => vec![
+            (
+                format!("{} AND {}", built.from_where, b.filled),
+                b.filled_order.clone(),
+            ),
+            (
+                format!("{} AND {}", built.from_where, b.blank),
+                b.blank_order.clone(),
+            ),
+        ],
+    };
+    let mut before: u32 = 0;
+    for (from_where, order) in ranges {
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT tr.recording_id {from_where} ORDER BY {order}"
+        ))?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(built.params.iter()))?;
+        while let Some(row) = rows.next()? {
+            if row.get::<_, i64>(0)? == asked.recording_id {
+                return Ok(Some(Some(before)));
+            }
+            before += 1;
+        }
+    }
+    Ok(Some(None))
+}
+
+/// Where a track is in the rows a query lists, for the table to keep it
+/// selected, and in view, when the order or the filters change; `None` if
+/// the track isn't one of them.
+#[tauri::command]
+#[specta::specta]
+pub async fn track_table_position(
+    reads: State<'_, ReadPool>,
+    query: TablePositionQuery,
+) -> Result<Option<u32>, IpcError> {
+    match reads.read(|conn| position(conn, &query))? {
+        Some(found) => Ok(found),
+        None => Err(CratesError::NotFound.into()),
+    }
+}
+
 /// The file formats (`file.sniffed_format`, e.g. `flac`) the source's tracks
 /// are in, for the Format filter: the formats the filter can offer.
 pub fn formats(conn: &Connection, source: &TableSource) -> rusqlite::Result<Option<Vec<String>>> {

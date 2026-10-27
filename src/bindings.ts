@@ -16,6 +16,34 @@ export const commands = {
 	keyNotation: () => typedError<KeyNotation, IpcError>(__TAURI_INVOKE("key_notation")),
 	/**  Sets the key notation for the whole app. */
 	setKeyNotation: (notation: KeyNotation) => typedError<null, IpcError>(__TAURI_INVOKE("set_key_notation", { notation })),
+	/**
+	 *  The columns the user chose for a screen's track table; `None` until they
+	 *  choose.
+	 */
+	tableColumns: (screen: TableScreen) => typedError<{
+	/**  The ids of the columns shown, in order. */
+	shown: string[],
+	/**
+	 *  The ids of every column the app had when this was saved. A column
+	 *  added by a later version isn't in it, so it can be told from one the
+	 *  user chose to hide: it appears only if it is a default column.
+	 */
+	known: string[],
+} | null, IpcError>(__TAURI_INVOKE("table_columns", { screen })),
+	/**
+	 *  Sets the columns a screen's track table shows, or (`None`) goes back to
+	 *  the screen's default. Not an operation: it can't be undone.
+	 */
+	setTableColumns: (screen: TableScreen, columns: {
+	/**  The ids of the columns shown, in order. */
+	shown: string[],
+	/**
+	 *  The ids of every column the app had when this was saved. A column
+	 *  added by a later version isn't in it, so it can be told from one the
+	 *  user chose to hide: it appears only if it is a default column.
+	 */
+	known: string[],
+} | null) => typedError<null, IpcError>(__TAURI_INVOKE("set_table_columns", { screen, columns })),
 	/**  Every queued and running job, for the Activity status to start from. */
 	activity: () => typedError<ActivitySnapshot, IpcError>(__TAURI_INVOKE("activity")),
 	/**  Cancels a queued or running job. */
@@ -365,6 +393,12 @@ export const commands = {
 	trackTablePage: (query: TableQuery) => typedError<TablePage, IpcError>(__TAURI_INVOKE("track_table_page", { query })),
 	/**  The formats the Format filter can offer for a source. */
 	trackTableFormats: (source: TableSource) => typedError<string[], IpcError>(__TAURI_INVOKE("track_table_formats", { source })),
+	/**
+	 *  Where a track is in the rows a query lists, for the table to keep it
+	 *  selected, and in view, when the order or the filters change; `None` if
+	 *  the track isn't one of them.
+	 */
+	trackTablePosition: (query: TablePositionQuery) => typedError<number | null, IpcError>(__TAURI_INVOKE("track_table_position", { query })),
 };
 
 /** Events */
@@ -1927,6 +1961,18 @@ export type SwitchedView = {
 	toName: string,
 };
 
+/**  The columns a screen shows, as the user left them. */
+export type TableColumns = {
+	/**  The ids of the columns shown, in order. */
+	shown: string[],
+	/**
+	 *  The ids of every column the app had when this was saved. A column
+	 *  added by a later version isn't in it, so it can be told from one the
+	 *  user chose to hide: it appears only if it is a default column.
+	 */
+	known: string[],
+};
+
 /**  One filter chip. */
 export type TableFilter = 
 /**
@@ -1966,6 +2012,19 @@ export type TablePage = {
 	 *  missing from the rows or out of place.
 	 */
 	behind: boolean,
+};
+
+/**
+ *  Where one track is in a query's rows (1cA-5): the same source, search,
+ *  filters and sort as a [`TableQuery`], and the track to find.
+ */
+export type TablePositionQuery = {
+	source: TableSource,
+	search: string | null,
+	filters: TableFilter[],
+	sort: TableSort | null,
+	/**  The track to find (`TableRow::recording_id`). */
+	recordingId: number,
 };
 
 /**  What the table is asked for. */
@@ -2034,6 +2093,12 @@ export type TableRow = {
 	openConflicts: number,
 	betterFile: BetterFile | null,
 };
+
+/**
+ *  The screens that show the track table. A crate is one screen: every crate
+ *  shows the same columns.
+ */
+export type TableScreen = "library" | "allMusic" | "crate";
 
 /**  The order the table is sorted in. */
 export type TableSort = {

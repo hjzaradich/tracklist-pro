@@ -4,6 +4,7 @@
 
 mod folders;
 mod order;
+mod position;
 mod quality;
 
 use super::*;
