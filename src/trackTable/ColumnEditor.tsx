@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ALWAYS_SHOWN,
@@ -23,8 +23,10 @@ type Focus = { column: ColumnId; button: "up" | "down" | "hide" | "show" };
  * back the screen's own columns. The Title can't be hidden.
  *
  * Everything is a button, so the keyboard reaches all of it; there is no
- * dragging. Escape or a click outside closes the panel, and the focus goes
- * back to the "Columns" button.
+ * dragging. While the panel is open the focus stays inside it: Tab from the
+ * last button goes to the first, and Shift+Tab the other way. Escape (with
+ * the focus in the panel or on the "Columns" button) or a click outside
+ * closes the panel, and the focus goes back to the "Columns" button.
  */
 export function ColumnEditor({
   screen,
@@ -83,6 +85,31 @@ export function ColumnEditor({
     opener.current?.focus();
   };
 
+  // The focus stays inside the panel while it is open: past the last button
+  // it goes round to the first, and back from the first (or the panel
+  // itself, where it starts) to the last.
+  const keepFocusInside = (event: KeyboardEvent) => {
+    if (event.key !== "Tab" || panel.current === null) return;
+    const inside = Array.from(panel.current.querySelectorAll<HTMLButtonElement>("button")).filter(
+      (button) => !button.disabled,
+    );
+    const first = inside[0];
+    const last = inside.at(-1);
+    if (first === undefined || last === undefined) {
+      event.preventDefault();
+      panel.current.focus();
+      return;
+    }
+    const here = document.activeElement;
+    if (event.shiftKey && (here === first || here === panel.current)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && here === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   const change = (next: readonly ColumnId[], to: Focus) => {
     focus.current = to;
     onChange(next);
@@ -92,7 +119,17 @@ export function ColumnEditor({
   const name = (id: ColumnId) => t(`columns.${id}`);
 
   return (
-    <div className={styles.root} ref={root}>
+    <div
+      className={styles.root}
+      ref={root}
+      onKeyDown={(event) => {
+        // On the root, so Escape works from the "Columns" button too.
+        if (open && event.key === "Escape") {
+          event.stopPropagation();
+          close();
+        }
+      }}
+    >
       <button
         ref={opener}
         type="button"
@@ -112,12 +149,7 @@ export function ColumnEditor({
           aria-label={t("editor.title")}
           tabIndex={-1}
           className={styles.panel}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.stopPropagation();
-              close();
-            }
-          }}
+          onKeyDown={keepFocusInside}
         >
           <p className={styles.help}>
             {t(screen === "crate" ? "editor.helpCrate" : "editor.help")}

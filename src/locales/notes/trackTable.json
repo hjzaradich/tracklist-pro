@@ -100,11 +100,11 @@
     "where": "Column editor panel, beside Title in the Shown list."
   },
   "editor.moveUp": {
-    "purpose": "Accessible name and hover text of the arrow that moves a shown column one place left.",
+    "purpose": "Accessible name and hover text of the arrow that moves a shown column one place up.",
     "where": "Column editor panel, each shown column."
   },
   "editor.moveDown": {
-    "purpose": "Accessible name and hover text of the arrow that moves a shown column one place right.",
+    "purpose": "Accessible name and hover text of the arrow that moves a shown column one place down.",
     "where": "Column editor panel, each shown column."
   },
   "editor.hide": {
