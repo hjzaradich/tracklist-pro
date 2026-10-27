@@ -9,9 +9,10 @@
 //!   finds a track's entry exists once. A row kept from an older read
 //!   (§5.3) is told by its `read_at`, as `send_values` tells it.
 //! - **the base:** `sync_base`, what the last send wrote.
-//! - **the app's:** [`AppValues`], given by the caller. Nothing stores the
-//!   app's own values yet, so it is empty today and every field of a track
-//!   rekordbox knows follows rekordbox (table row 4).
+//! - **the app's:** [`AppValues`]: the store of the app's own values
+//!   ([`super::app_values`], table `app_value`) for [`detect_from_store`],
+//!   or given by the caller to [`load_sides`] and [`detect_for`]. A field
+//!   without one follows rekordbox (table row 4).
 //!
 //! # Keeping `conflict` in step
 //!
@@ -220,7 +221,7 @@ pub fn open_conflicts(conn: &Connection, filter: &Filter) -> rusqlite::Result<Ve
     .collect()
 }
 
-fn json_ids(ids: &[LibraryTrackId]) -> String {
+pub(super) fn json_ids(ids: &[LibraryTrackId]) -> String {
     serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
         .expect("numbers always serialize")
 }
@@ -240,8 +241,9 @@ pub struct AppValue {
 /// The app's own values, per Library track: the fields the app means to
 /// change (ROADMAP 1.9 rule 1). A field that isn't here follows rekordbox.
 ///
-/// Nothing stores these yet. Whatever does (the edit store) hands them in
-/// through this type; an empty one is today's app.
+/// The engine's input. The store ([`super::app_values`]) hands its rows in
+/// through this type ([`super::app_values::read`]); a test may build one by
+/// hand.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AppValues {
     by_track: HashMap<i64, Vec<AppValue>>,
@@ -568,19 +570,48 @@ pub(super) fn detect_reviewing_what_was_not_taken_up(
 pub const TRACKS_AT_A_TIME: usize = 1_000;
 
 /// [`detect`] for the Library tracks `ids`, reading their sides itself:
-/// their send values, [`load_sides`], then [`detect`], a thousand tracks at
-/// a time, all in one transaction, so no read of rekordbox's export can
-/// land in between.
+/// their send values, the app's own values from the store
+/// ([`super::app_values`]), [`load_sides`], then [`detect`], a thousand
+/// tracks at a time, all in one transaction, so no read of rekordbox's
+/// export and no edit can land in between.
+pub fn detect_from_store(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<Detected> {
+    detect_chunks(conn, volumes, ids, None)
+}
+
+/// [`detect_from_store`], with the app's own values given instead of read
+/// from the store.
 pub fn detect_for(
     conn: &mut Connection,
     volumes: &impl Volumes,
     ids: &[LibraryTrackId],
     app: &AppValues,
 ) -> rusqlite::Result<Detected> {
+    detect_chunks(conn, volumes, ids, Some(app))
+}
+
+/// [`detect_from_store`] when `app` is `None`, [`detect_for`] otherwise.
+fn detect_chunks(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+    app: Option<&AppValues>,
+) -> rusqlite::Result<Detected> {
     let tx = conn.transaction()?;
     let mut detected = Detected::default();
     for some in ids.chunks(TRACKS_AT_A_TIME) {
         let sent = send_values(&tx, volumes, some)?;
+        let stored;
+        let app = match app {
+            Some(app) => app,
+            None => {
+                stored = super::app_values::read(&tx, some)?;
+                &stored
+            }
+        };
         let sides = load_sides(&tx, &sent, app)?;
         detected.extend(detect_in(&tx, &sides, NOT_TAKEN_UP)?);
     }

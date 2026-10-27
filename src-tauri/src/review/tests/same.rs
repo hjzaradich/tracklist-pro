@@ -572,6 +572,39 @@ fn a_merge_can_be_undone_after_a_send() {
 }
 
 #[test]
+fn a_merge_deletes_the_app_values_of_the_track_that_leaves_and_undo_puts_them_back() {
+    // The track that stays keeps its own; nothing is combined (1cB-18).
+    let t = Twice::new();
+    t.entry(t.a, 1, 0, 1, 120.0);
+    t.entry(t.b, 1, 0, 1, 120.0);
+    let (lt_keep, lt_leave) = (t.lt(t.ta), t.lt(t.tb));
+    t.db.sql(&format!(
+        "INSERT INTO app_value (library_track_id, field, value, replaced)
+             VALUES ({lt_keep}, 'Genre', 'House', 'Disco'), ({lt_leave}, 'Genre', 'Techno', NULL),
+                    ({lt_leave}, 'Rating', '255', '0');"
+    ));
+    let values = || {
+        t.db.writer
+            .call(|c| {
+                c.prepare(
+                    "SELECT id || ' ' || library_track_id || ' ' || field || ' ' || value
+                     FROM app_value ORDER BY id",
+                )?
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()
+            })
+            .unwrap()
+    };
+    let before = values();
+
+    t.merge(&t.both(), t.ta).unwrap();
+
+    assert_eq!(values(), [format!("1 {lt_keep} Genre House")]);
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(values(), before);
+}
+
+#[test]
 fn a_merge_is_refused_for_a_changed_item_a_track_not_in_it_or_linked_versions() {
     let t = Twice::new();
     let before = t.rows();

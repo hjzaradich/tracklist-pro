@@ -7,6 +7,8 @@
 //! - `sides`: reading the three sides from the database.
 //! - `detect`: keeping the `conflict` table in step, and what never
 //!   changes.
+//! - `own_values`: the store of the app's own values, its Undo, and the
+//!   engine reading it.
 //! - `resolve`: settling one conflict or many, and undoing it.
 //! - `never_lost`: any sequence of edits, reads, sends, resolves and undos
 //!   keeps every value, judged by an account of the sides the test keeps
@@ -29,6 +31,7 @@ use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 mod compare;
 mod detect;
 mod never_lost;
+mod own_values;
 mod resolve;
 mod sides;
 mod table;

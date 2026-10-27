@@ -5,6 +5,7 @@
 //! Every test uses a fresh database in a temp dir, never the real one.
 
 mod analysis_never_conflicts;
+mod app_value;
 mod conflict_ids;
 mod file_and_track_ids;
 mod file_quality;
@@ -257,6 +258,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0033_track_row_no_verdict_triggers.sql", &[]),
     // How the app looks: the track tables' columns.
     ("0034_ui_setting.sql", &["ui_setting"]),
+    // The app's own value per field of a Library track (1cB-18).
+    ("0035_app_value.sql", &["app_value"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
