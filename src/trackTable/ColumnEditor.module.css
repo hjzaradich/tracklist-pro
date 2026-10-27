@@ -1,5 +1,7 @@
 /* The "Columns" button above the track table and the small panel it opens:
- * quiet controls, one filled button (Done). Colors only through tokens. */
+ * quiet controls only. A change applies the moment it is made, so "Done" only
+ * closes the panel and is quiet too (the filled accent is for the action a
+ * screen leads to, docs/design-style.md). Colors only through tokens. */
 .root {
   position: relative;
 }
@@ -18,6 +20,9 @@
 }
 
 .opener {
+  /* As tall as a table row, and never under 24px, the smallest target WCAG
+   * 2.2 allows. */
+  min-height: var(--row-height);
   padding: 0 var(--space-2);
 }
 
@@ -131,15 +136,14 @@
 
 .done {
   padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
+  background: transparent;
+  color: var(--color-text);
   font: inherit;
   cursor: pointer;
 }
 
 .done:hover {
-  border-color: var(--color-accent-hover);
-  background: var(--color-accent-hover);
+  background: var(--color-surface-hover);
 }

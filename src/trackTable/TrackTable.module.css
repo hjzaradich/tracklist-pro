@@ -5,6 +5,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -48,6 +49,11 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   font-weight: 600;
+}
+
+/* The column the list is sorted by reads at full strength. */
+.headCell[aria-sort] {
+  color: var(--color-text);
 }
 
 .sortButton {
@@ -143,9 +149,9 @@
   flex: none;
 }
 
-/* A long title is cut off with "…"; the notes keep their room. */
+/* A long title is cut off with "…"; the notes beside it give way first. */
 .text {
-  flex: 1;
+  flex: 1 1 5rem;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -154,8 +160,11 @@
 
 .notes {
   display: flex;
-  flex: none;
+  /* Shrinks a hundred times faster than the title: the notes give way
+   * first, the title only when there is nothing left of them. */
+  flex: 0 100 auto;
   gap: var(--space-2);
+  min-width: 0;
   max-width: 50%;
   font-size: var(--font-size-sm);
 }

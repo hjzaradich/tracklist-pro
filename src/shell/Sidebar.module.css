@@ -61,6 +61,17 @@
   background: var(--color-accent);
 }
 
+/* With a crate chosen in the tree, the crate is the one that is selected: the
+ * Crates stage above it keeps its place without the tint and the bar, so
+ * there is one selected item, not two. */
+.section:has(.tree .link[aria-current="page"]) > .link[aria-current="page"] {
+  background: transparent;
+}
+
+.section:has(.tree .link[aria-current="page"]) > .link[aria-current="page"]::before {
+  display: none;
+}
+
 .label {
   flex: 1;
   min-width: 0;
@@ -99,7 +110,7 @@
 }
 
 .nested {
-  padding-left: var(--space-3);
+  padding-left: var(--space-4);
 }
 
 .treeRow {

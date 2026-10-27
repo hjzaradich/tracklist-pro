@@ -22,6 +22,9 @@
 .body {
   display: grid;
   flex: 1;
+  /* The one column is the width of the screen and no wider: a wide table
+   * scrolls inside itself, it never widens the screen. */
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   min-height: 0;
   padding: var(--space-4);
