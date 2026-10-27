@@ -16,7 +16,7 @@
 
 .side {
   display: flex;
-  flex: 0 0 16rem;
+  flex: 0 0 14rem;
   flex-direction: column;
   gap: var(--space-2);
   min-height: 0;

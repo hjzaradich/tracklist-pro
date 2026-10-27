@@ -100,8 +100,9 @@ Owner-approved on 2026-10-24, after a real Library showed three nested scrollbar
 
 - **Controls above the table are as tall as a row** (28px, `--row-height`), and never under 24px, the smallest target WCAG 2.2 allows: "Add filter", "Columns" and a filter chip. The chip's × stays 24px.
 - **A wide table never widens the screen.** It scrolls sideways inside itself; the stage's one column is `minmax(0, 1fr)`. (Before this, the count and the Columns button sat past the window's right edge.)
+- **The default columns fit without sideways scrolling at a 1270px window with the sidebar open** (a test holds it). The widths are minimums; Title and Artist then take the room that is left (3 : 2, Genre 1, File and Folder 1 each), and the numbers stay narrow: Title 132, Artist 90, BPM 54, Key 46, Time 50, Genre 60, Rating 76, Date added 90, File 60, Folder 60. With each screen's actions column that is 830px for the Library, 938px for All music and 718px for a crate, whose pane is narrower (760px: the crate list beside it is 14rem).
 - **The sorted column's heading reads at full strength**, the others muted; the caret says the direction.
-- **A row's title never gives way to its notes:** the title keeps at least 5rem, the notes (file missing, in Downloads) shrink first.
+- **A row's title is read before its notes:** the notes (file missing, in Downloads) shrink first, the title only when nothing is left of them.
 - **The Columns panel has no filled button.** A change applies the moment it is made, so "Done" only closes the panel and is quiet. The filled accent button is for the action a screen leads to (Keep the suggested file, Send), not for dismissing a panel. If the panel ever needs a confirm (Apply), that one would be filled.
 - **One selected item in the sidebar.** With a crate chosen in the tree, the crate carries the tint and the bar; the Crates stage above it keeps its place without them. The tree indents 16px a level.
 - **Empty states are centred** where the table would be, like the other empty states.

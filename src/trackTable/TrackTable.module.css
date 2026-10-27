@@ -149,10 +149,10 @@
   flex: none;
 }
 
-/* A long title is cut off with "…"; the notes keep their room. */
+/* A long title is cut off with "…"; the notes beside it give way first. */
 .text {
-  flex: 1 0 5rem;
-  min-width: 5rem;
+  flex: 1 1 5rem;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -160,7 +160,9 @@
 
 .notes {
   display: flex;
-  flex: 0 1 auto;
+  /* Shrinks a hundred times faster than the title: the notes give way
+   * first, the title only when there is nothing left of them. */
+  flex: 0 100 auto;
   gap: var(--space-2);
   min-width: 0;
   max-width: 50%;
