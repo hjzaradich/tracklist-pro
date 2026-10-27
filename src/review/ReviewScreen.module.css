@@ -56,7 +56,7 @@
   color: var(--color-danger);
 }
 
-/* The line after "Accept all" (1bE-3): what it did, then View, Undo and
+/* The line after "Accept all" (1bE-3): what it did, then View and
  * Dismiss on the same row, and the list from View under them. */
 .accepted {
   display: flex;

@@ -114,24 +114,9 @@
     "where": "Overview screen, rekordbox tracks panel, summary after adding, when above zero.",
     "approved": "{{count, number}} not added (rekordbox match uncertain)"
   },
-  "summary.undo": {
-    "purpose": "Button that undoes the add.",
-    "where": "Overview screen, rekordbox tracks panel, summary after adding.",
-    "approved": "Undo"
-  },
   "summary.done": {
     "purpose": "Button that closes the summary.",
     "where": "Overview screen, rekordbox tracks panel, summary after adding.",
     "approved": "Done"
-  },
-  "summary.undone": {
-    "purpose": "Says the add was undone.",
-    "where": "Overview screen, rekordbox tracks panel, after an undo.",
-    "approved": "Add undone"
-  },
-  "summary.cantUndo": {
-    "purpose": "Says the undo wasn't possible because the Library changed.",
-    "where": "Overview screen, rekordbox tracks panel, alert after an undo is refused.",
-    "approved": "Can't undo: the Library has changed since"
   }
 }

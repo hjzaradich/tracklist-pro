@@ -5,7 +5,6 @@ import type { Crate, FolderContents } from "../bindings";
 import { libraryRow, type LibraryRow } from "../library/libraryRow";
 import { shownTitle } from "../library/RemoveFromLibrary";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
-import { useUndoAfterAction } from "../shell/useUndo";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import { ConfirmDelete, MoveForm, NameForm } from "./CrateForms";
 import styles from "./CratesScreen.module.css";
@@ -52,7 +51,8 @@ type Asking =
  * chosen crate's tracks. Which one is chosen is the page's address
  * (`/crates?crate=ID`), so the sidebar's tree can choose too; an id that
  * isn't there is no choice. Notes, summaries and drag and drop wait for
- * Phase 1c (ROADMAP 1.14). Every change can be undone.
+ * Phase 1c (ROADMAP 1.14). Every change can be undone, from the top bar or
+ * with Ctrl+Z; this screen offers no Undo of its own (owner decision, 2026-10-27).
  */
 export function CratesScreen({
   chosen,
@@ -71,7 +71,6 @@ export function CratesScreen({
   const remove = useDeleteCrate();
   const move = useMoveCrate();
   const take = useRemoveFromCrate();
-  const { arm, offered, ready, undo } = useUndoAfterAction();
 
   const list = crates.data ?? [];
   // The crate or folder the right side shows: the chosen one, if it exists.
@@ -87,10 +86,7 @@ export function CratesScreen({
     asking === "delete" && current?.kind === "folder" ? current.id : null,
   );
 
-  // `operation`: the one the change recorded, when its command says.
-  const finished = (what: Done, operation?: number) => {
-    undo.reset();
-    arm(operation);
+  const finished = (what: Done) => {
     setDone(what);
     setAsking(null);
   };
@@ -103,9 +99,8 @@ export function CratesScreen({
     remove.reset();
     move.reset();
     take.reset();
-    undo.reset();
   };
-  const failure = [create, createFolder, rename, remove, move, take, undo].find((m) => m.isError);
+  const failure = [create, createFolder, rename, remove, move, take].find((m) => m.isError);
   const ask = (what: Asking) => {
     clearErrors();
     setAsking(what);
@@ -119,30 +114,6 @@ export function CratesScreen({
         {done !== null && (
           <p role="status" className={styles.status}>
             {t(`done.${done}`)}
-            {/* Gone once the change isn't the next step to undo any more. */}
-            {offered && (
-              <button
-                type="button"
-                className={styles.button}
-                disabled={!ready || undo.isPending}
-                onClick={() => {
-                  clearErrors();
-                  undo.mutate(undefined, { onSuccess: () => setDone(null) });
-                }}
-              >
-                {t("undo")}
-              </button>
-            )}
-          </p>
-        )}
-        {done === null && undo.data?.status === "undone" && (
-          <p role="status" className={styles.status}>
-            {t("undone")}
-          </p>
-        )}
-        {undo.data !== undefined && undo.data.status !== "undone" && (
-          <p role="alert" className={styles.error}>
-            {t("undoRefused")}
           </p>
         )}
         {failure !== undefined && (
@@ -254,12 +225,12 @@ export function CratesScreen({
                     rename.mutate(
                       { id: current.id, name },
                       {
-                        // Nothing is recorded when the name is the one it has,
-                        // and Undo would then take back an earlier operation.
+                        // Nothing is recorded when the name is the one it has:
+                        // nothing changed, so there is nothing to say.
                         onSuccess: (operation) =>
                           operation === null
                             ? setAsking(null)
-                            : finished(current.kind === "folder" ? "renamedFolder" : "renamed", operation),
+                            : finished(current.kind === "folder" ? "renamedFolder" : "renamed"),
                       },
                     );
                   }}
@@ -270,7 +241,7 @@ export function CratesScreen({
                       {
                         // Moved to where it is: nothing is recorded.
                         onSuccess: (operation) =>
-                          operation === null ? setAsking(null) : finished("moved", operation),
+                          operation === null ? setAsking(null) : finished("moved"),
                       },
                     );
                   }}
@@ -290,7 +261,7 @@ export function CratesScreen({
                       {
                         // A track that was gone already records nothing.
                         onSuccess: (result) => {
-                          if (result.operationId !== null) finished("removed", result.operationId);
+                          if (result.operationId !== null) finished("removed");
                         },
                       },
                     );

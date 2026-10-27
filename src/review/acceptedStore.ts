@@ -12,7 +12,7 @@ interface AcceptedState {
   accepted: Accepted | null;
   /** The next "Accept all" replaces the line; one that switched nothing leaves it as it is. */
   record: (result: AcceptedAll) => void;
-  /** The user closed the line, or its Undo took the switch back. */
+  /** The user closed the line. */
   dismiss: () => void;
   /** Any Undo took back this operation: if it is the one the line describes, the line goes. */
   undone: (operationId: number) => void;

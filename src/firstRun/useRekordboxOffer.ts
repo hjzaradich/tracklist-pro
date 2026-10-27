@@ -9,7 +9,7 @@ import { REKORDBOX_OFFER_QUERY_KEY, REKORDBOX_PLAYLISTS_QUERY_KEY } from "./quer
 
 // The offer to add rekordbox tracks to the Library (1aE-2, 1aE-3; ROADMAP
 // 1.3). The app only ever asks how many could be added; they're added when
-// the user says so, as one operation that one undo removes.
+// the user says so, as one operation that one undo (the top bar's) removes.
 
 /** A rekordbox playlist: its folders from below ROOT, then its name. */
 export type PlaylistPath = string[];
@@ -69,15 +69,6 @@ export function useAddRekordboxTracks() {
   return useMutation({
     mutationFn: (playlists: PlaylistPath[] | null): Promise<AddSummary> =>
       unwrap(commands.addRekordboxTracks(playlists)),
-    onSettled: () => reloadAfterChange(queryClient),
-  });
-}
-
-/** Undoes an add, unless something else was done since. */
-export function useUndoAddRekordboxTracks() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (operationId: number) => unwrap(commands.undoAddRekordboxTracks(operationId)),
     onSettled: () => reloadAfterChange(queryClient),
   });
 }

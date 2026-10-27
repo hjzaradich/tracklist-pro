@@ -25,9 +25,6 @@
     "waitingInMissing_other": "{{count, number}} waiting in Missing (no file found)",
     "waitingForConfirmation_one": "{{count, number}} not added (rekordbox match uncertain)",
     "waitingForConfirmation_other": "{{count, number}} not added (rekordbox match uncertain)",
-    "undo": "Undo",
-    "done": "Done",
-    "undone": "Add undone",
-    "cantUndo": "Can't undo: the Library has changed since"
+    "done": "Done"
   }
 }

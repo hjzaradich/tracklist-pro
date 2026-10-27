@@ -87,9 +87,6 @@
     "moved": "Moved",
     "removed": "Removed from crate"
   },
-  "undo": "Undo",
-  "undone": "Undone",
-  "undoRefused": "Can't undo: the Library has changed since",
   "error": {
     "notFound": "Crate not found",
     "nameEmpty": "Crate needs a name",

@@ -189,7 +189,7 @@ The canonical tag columns on `recording` (title, artist, …) exist but nothing 
 1. Every user-facing change runs through `ops::record`: a `Recorder` makes each write and its `change` rows in the same transaction.
 2. The recorder refuses a delete that would cascade to rows it didn't record.
 3. `ops::undo_last_operation` reverses the newest operation that isn't undone yet, but first checks every field still holds what the operation left. If anything changed since, it changes nothing and reports the reason. Called again, it reverses the one before: undo is multi-step, newest first, with no redo, and it never skips a refused step.
-4. `ops::next_undo_operation` says what Undo would take back now (kind and details), and why it would be refused. It tries the undo in a transaction that is always rolled back, for operations of up to 2,000 change rows; a larger one is only named. The top bar's Undo button and Ctrl+Z use both commands.
+4. `ops::next_undo_operation` says what Undo would take back now (kind and details), and why it would be refused. It tries the undo in a transaction that is always rolled back, for operations of up to 2,000 change rows; a larger one is only named. The top bar's Undo button and Ctrl+Z use both commands, and are the only way to undo: no screen offers an Undo of its own after an action (owner decision, 2026-10-27).
 5. Scans, reads, relink, attach and sends are not operations. A logged table they insert into never reuses row ids (`sync_base`, `AUTOINCREMENT`), and a source-scan test fails on any other such insert.
 
 ## 5. The safety architecture

@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import {
-  isCancelledError,
   type QueryClient,
   useMutation,
   useQuery,
@@ -17,9 +16,10 @@ import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { useAcceptedStore } from "../review/acceptedStore";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 
-// Undo (1bA-12): one step at a time, newest first, from the top bar, Ctrl+Z
-// or the Undo offered right after an action. All three ask the Rust side,
-// which keeps the history; nothing about it is remembered here.
+// Undo (1bA-12): one step at a time, newest first, from the top bar or
+// Ctrl+Z, and only there (owner decision, 2026-10-27): no screen offers an
+// Undo of its own after an action. Both ask the Rust side, which keeps the
+// history; nothing about it is remembered here.
 
 export const NEXT_UNDO_QUERY_KEY = ["nextUndo"] as const;
 
@@ -45,9 +45,8 @@ export function useKeepNextUndoCurrent() {
           (event.action.type === "success" || event.action.type === "error")
         ) {
           void queryClient.invalidateQueries({ queryKey: NEXT_UNDO_QUERY_KEY });
-          // Whatever took an operation back (this button, the top bar, Ctrl+Z),
-          // the line about "Accept all" describes that operation only while
-          // it stands.
+          // Whatever took an operation back (the top bar, Ctrl+Z), the line
+          // about "Accept all" describes that operation only while it stands.
           const outcome =
             event.action.type === "success" ? (event.action.data as UndoOutcome | undefined) : undefined;
           if (outcome?.status === "undone") {
@@ -89,57 +88,6 @@ export function useUndoOperation() {
     mutationFn: (operationId) => unwrap(commands.undoLastOperation(operationId)),
     onSettled: () => reloadLists(queryClient),
   });
-}
-
-/**
- * The Undo offered right after an action. Call `arm()` when the action has
- * finished, with the operation it recorded if the command said: `undo` takes
- * back only that one. Without it, `arm` asks which operation is then the
- * next to undo; until that's known `ready` is false and the caller keeps its
- * Undo greyed out (for good if the ask fails: the top bar's Undo is still
- * there), so a press can never take back whatever happens to be newest.
- * `offered` turns false once that operation isn't
- * the next to undo any more (the top bar's Undo or Ctrl+Z took it back, or
- * something else was done), so this Undo never takes back a different action.
- */
-export function useUndoAfterAction() {
-  const queryClient = useQueryClient();
-  const next = useNextUndo();
-  const [armed, setArmed] = useState<number | null>(null);
-  const undo = useMutation<UndoOutcome>({
-    mutationFn: () =>
-      // Never the newest operation, whatever it is: only the one armed.
-      armed === null
-        ? Promise.resolve<UndoOutcome>({ status: "nothingToUndo" })
-        : unwrap(commands.undoLastOperation(armed)),
-    onSettled: () => reloadLists(queryClient),
-  });
-  // Whether the next step to undo has been asked for since arming. Only
-  // an answer from after the action can say its operation isn't next any more.
-  const [checked, setChecked] = useState(false);
-  const arming = useRef(0);
-  const arm = (operationId?: number | null) => {
-    const known = typeof operationId === "number" ? operationId : null;
-    const mine = ++arming.current;
-    setArmed(known);
-    setChecked(false);
-    // The shell asks the same question when the action settles, which can
-    // cancel this ask; then it's asked again.
-    const ask = (): Promise<void> =>
-      queryClient
-        .fetchQuery({ queryKey: NEXT_UNDO_QUERY_KEY, queryFn: askNextUndo, staleTime: 0 })
-        .then(
-          (found) => {
-            if (mine !== arming.current) return;
-            if (known === null) setArmed(found.operation?.id ?? null);
-            setChecked(true);
-          },
-          (error: unknown) => (isCancelledError(error) ? ask() : undefined),
-        );
-    void ask();
-  };
-  const offered = !checked || next.data === undefined || next.data.operation?.id === armed;
-  return { arm, offered, ready: armed !== null, undo };
 }
 
 /** Whether typing happens in `target`, where Ctrl+Z belongs to the text. */
