@@ -36,7 +36,9 @@ impl Lib {
                     "SELECT id, library_track_id, field, value, replaced FROM app_value
                      ORDER BY id",
                 )?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+                .query_map([], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                })?
                 .collect()
             })
             .unwrap()
@@ -57,18 +59,21 @@ impl Lib {
     }
 
     /// A new read of rekordbox's export in which this track's entry holds
-    /// `value` for `field`.
-    fn rekordbox_now(&self, id: LibraryTrackId, field: &str, value: &str) {
-        let (field, value) = (format!("$.{field}"), value.to_owned());
-        self.writer
+    /// these attributes.
+    fn rekordbox_now(&self, id: LibraryTrackId, attributes: &[(&str, &str)]) {
+        let file: i64 = self
+            .writer
             .call(move |c| {
-                c.execute(
-                    "UPDATE rekordbox_track SET attributes = json_set(attributes, ?2, ?3)
-                     WHERE file_id = (SELECT linked_file_id FROM library_track WHERE id = ?1)",
-                    (id.0, field, value),
-                )
+                let file = c.query_row(
+                    "SELECT linked_file_id FROM library_track WHERE id = ?1",
+                    [id.0],
+                    |r| r.get(0),
+                )?;
+                c.execute("DELETE FROM rekordbox_track WHERE file_id = ?1", [file])?;
+                Ok(file)
             })
             .unwrap();
+        self.entry(file, THIS_READ, false, attributes);
     }
 }
 
@@ -102,7 +107,10 @@ fn a_value_set_and_cleared_round_trips_through_the_store() {
     assert_eq!(set.value, Some(own("Genre", "Deep House", Some("House"))));
     let rows = lib.app_rows();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0], row(rows[0].0, id, "Genre", "Deep House", Some("House")));
+    assert_eq!(
+        rows[0],
+        row(rows[0].0, id, "Genre", "Deep House", Some("House"))
+    );
     assert_eq!(
         lib.stored(&[id]).of(id),
         [own("Genre", "Deep House", Some("House"))]
@@ -144,7 +152,7 @@ fn editing_a_field_again_keeps_the_value_the_first_edit_replaced() {
     lib.set(id, "Genre", "Deep House").unwrap();
     let first = lib.app_rows();
     // rekordbox moves on; the app's value replaced House all the same.
-    lib.rekordbox_now(id, "Genre", "Tech House");
+    lib.rekordbox_now(id, &[("Genre", "Tech House")]);
 
     let again = lib.set(id, "Genre", "Afro House").unwrap();
 
@@ -204,11 +212,16 @@ fn what_an_edit_replaced_is_empty_for_an_attribute_rekordbox_lacks_and_unknown_w
 fn analysis_fields_track_id_and_location_are_never_the_apps() {
     let lib = Lib::new();
     let id = lib.known(&[("AverageBpm", "124.00"), ("Tonality", "Am")]);
-    let never = ANALYSIS_FIELDS.into_iter().chain(["TrackID", "Location", ""]);
+    let never = ANALYSIS_FIELDS
+        .into_iter()
+        .chain(["TrackID", "Location", ""]);
     for field in never {
         assert!(!app_values::editable(field), "{field}");
         assert!(
-            matches!(lib.set(id, field, "1"), Err(AppValueError::NotEditable { .. })),
+            matches!(
+                lib.set(id, field, "1"),
+                Err(AppValueError::NotEditable { .. })
+            ),
             "{field}"
         );
         assert!(
@@ -227,7 +240,10 @@ fn a_value_not_of_the_fields_kind_or_an_unknown_track_is_refused() {
     let id = lib.known(&[("Rating", "0")]);
     for (field, value) in [("Rating", "lots"), ("Rating", "100"), ("Colour", "red")] {
         assert!(
-            matches!(lib.set(id, field, value), Err(AppValueError::BadValue { .. })),
+            matches!(
+                lib.set(id, field, value),
+                Err(AppValueError::BadValue { .. })
+            ),
             "{field} {value}"
         );
     }
@@ -341,7 +357,7 @@ fn a_stored_edit_rekordbox_also_changed_is_a_conflict() {
     let id = lib.known(&[("Genre", "House")]);
     lib.sent(id, &[("Genre", "House")]);
     lib.set(id, "Genre", "Deep House").unwrap();
-    lib.rekordbox_now(id, "Genre", "Tech House");
+    lib.rekordbox_now(id, &[("Genre", "Tech House")]);
 
     let detected = lib.detect_stored(&[id]);
 
@@ -376,11 +392,14 @@ fn a_stored_edit_never_sent_goes_out_while_rekordbox_shows_what_it_replaced() {
     lib.set(id, "Genre", "Deep House").unwrap();
 
     let detected = lib.detect_stored(&[id]);
-    assert_eq!(detected.fields[0].decision.reason, Reason::NeverSentOnlyAppChanged);
+    assert_eq!(
+        detected.fields[0].decision.reason,
+        Reason::NeverSentOnlyAppChanged
+    );
     assert_eq!(lib.rows(), []);
 
     // Once rekordbox shows something else, neither side is proved unchanged.
-    lib.rekordbox_now(id, "Genre", "Tech House");
+    lib.rekordbox_now(id, &[("Genre", "Tech House")]);
     lib.detect_stored(&[id]);
     assert_eq!(
         values(&lib.only_open()),

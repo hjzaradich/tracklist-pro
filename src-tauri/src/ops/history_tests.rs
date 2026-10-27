@@ -1374,7 +1374,10 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // since it was made (0035: the send and the merge before it are to change
     // it outside the log), `relink` since 0028 (the relink job writes it
     // outside the log, though it only fills a field in and never inserts).
-    assert_eq!(never_reused, ["sync_base", "conflict", "app_value", "relink"]);
+    assert_eq!(
+        never_reused,
+        ["sync_base", "conflict", "app_value", "relink"]
+    );
 
     let sources = app_sources();
     assert!(

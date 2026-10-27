@@ -47,7 +47,10 @@ fn the_table_arrives_with_migration_0035() {
 #[test]
 fn the_database_refuses_an_app_value_on_an_analysis_field_track_id_or_location() {
     let (_dir, conn) = with_library_tracks();
-    for field in ANALYSIS_FIELDS.into_iter().chain(["TrackID", "Location", ""]) {
+    for field in ANALYSIS_FIELDS
+        .into_iter()
+        .chain(["TrackID", "Location", ""])
+    {
         refuses(&conn, &own(1, field), "CHECK");
     }
     accepts(&conn, &own(1, "Rating"));
@@ -71,7 +74,11 @@ fn one_value_per_track_and_field_held_to_its_library_track() {
     accepts(&conn, &own(2, "Genre"));
     refuses(&conn, &own(1, "Genre"), "UNIQUE");
     refuses(&conn, &own(99, "Genre"), "FOREIGN KEY");
-    refuses(&conn, "DELETE FROM library_track WHERE id = 1", "FOREIGN KEY");
+    refuses(
+        &conn,
+        "DELETE FROM library_track WHERE id = 1",
+        "FOREIGN KEY",
+    );
     refuses(
         &conn,
         "INSERT INTO app_value (library_track_id, field, value) VALUES (1, 'Name', NULL)",

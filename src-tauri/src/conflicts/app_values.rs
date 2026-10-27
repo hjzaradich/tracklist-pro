@@ -119,7 +119,11 @@ impl From<rusqlite::Error> for AppValueError {
 /// analysis field (rekordbox's, 1.9 rule 3), not `TrackID` (not a field)
 /// and not `Location` (where the linked file is).
 pub fn editable(field: &str) -> bool {
-    !field.is_empty() && !matches!(kind_of(field), Kind::Analysis | Kind::TrackId | Kind::Location)
+    !field.is_empty()
+        && !matches!(
+            kind_of(field),
+            Kind::Analysis | Kind::TrackId | Kind::Location
+        )
 }
 
 /// What rekordbox shows for one field of a track: `None` when that isn't
