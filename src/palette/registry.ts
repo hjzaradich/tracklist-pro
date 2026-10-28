@@ -30,10 +30,9 @@ export const usePaletteRegistry = create<Registry>((set) => ({
   sources: {},
   set: (source, actions) => set((state) => ({ sources: { ...state.sources, [source]: actions } })),
   clear: (source) =>
-    set((state) => {
-      const { [source]: _gone, ...rest } = state.sources;
-      return { sources: rest };
-    }),
+    set((state) => ({
+      sources: Object.fromEntries(Object.entries(state.sources).filter(([name]) => name !== source)),
+    })),
 }));
 
 /**
