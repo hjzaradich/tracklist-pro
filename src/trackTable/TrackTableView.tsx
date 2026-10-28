@@ -128,6 +128,7 @@ export function TrackTableView({
           <ColumnEditor
             screen={screen}
             columns={choice.columns}
+            resized={Object.keys(choice.widths).length > 0}
             onChange={choice.change}
             onReset={choice.reset}
           />
@@ -139,6 +140,9 @@ export function TrackTableView({
         <TrackTable
           label={t("label")}
           columns={choice.columns}
+          widths={choice.widths}
+          onReorder={choice.change}
+          onResize={choice.resize}
           total={rows.total}
           getRow={rows.getRow}
           onRangeChange={rows.setRange}

@@ -46,8 +46,10 @@ export interface ColumnDef {
   id: ColumnId;
   /** What the backend sorts by when this heading is clicked. */
   sort: SortColumn;
-  /** The width in pixels a column has, and the least it shrinks to. */
+  /** The width in pixels a column starts with, and the least it shrinks to while nobody has resized it. */
   width: number;
+  /** The least a column can be dragged to (1cB-21): its heading is still readable. */
+  min: number;
   /** The share of the width left over that the column takes, if any. */
   grow?: number;
   /** Numbers: right-aligned, in tabular figures. */
@@ -135,6 +137,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "title",
     sort: "title",
     width: 132,
+    min: 80,
     grow: 3,
     text: shownName,
     cell: (row) => <TitleCell row={row} />,
@@ -143,6 +146,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "artist",
     sort: "artist",
     width: 90,
+    min: 64,
     grow: 2,
     text: (row) => row.artist ?? "",
   },
@@ -150,6 +154,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "bpm",
     sort: "bpm",
     width: 54,
+    min: 44,
     numeric: true,
     text: (row) => formatBpm(row.bpm),
   },
@@ -157,6 +162,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "key",
     sort: "key",
     width: 46,
+    min: 40,
     numeric: true,
     text: (row, ctx) => formatKey(row.key, ctx.keyNotation) ?? "",
   },
@@ -164,6 +170,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "time",
     sort: "time",
     width: 50,
+    min: 44,
     numeric: true,
     text: (row) => formatLength(row.timeMs),
   },
@@ -171,6 +178,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "genre",
     sort: "genre",
     width: 60,
+    min: 48,
     grow: 1,
     text: (row) => row.genre ?? "",
   },
@@ -178,6 +186,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "rating",
     sort: "rating",
     width: 76,
+    min: 64,
     text: (row, ctx) => (row.rating ? ctx.t("rating", { count: row.rating }) : ""),
     cell: (row, ctx) => (row.rating ? <RatingCell stars={row.rating} t={ctx.t} /> : null),
   },
@@ -185,6 +194,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "dateAdded",
     sort: "dateAdded",
     width: 90,
+    min: 72,
     numeric: true,
     text: (row, ctx) => formatDate(row.addedAt, ctx.language),
   },
@@ -192,6 +202,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "file",
     sort: "file",
     width: 60,
+    min: 48,
     grow: 1,
     text: (row) => row.file?.name ?? "",
   },
@@ -199,6 +210,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     id: "folder",
     sort: "folder",
     width: 60,
+    min: 48,
     grow: 1,
     text: (row) => (row.file ? folderOf(row.file.path, row.file.name) : ""),
   },

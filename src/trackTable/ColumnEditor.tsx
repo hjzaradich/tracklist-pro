@@ -20,10 +20,11 @@ type Focus = { column: ColumnId; button: "up" | "down" | "hide" | "show" };
  * in order, and the ones that are not. Each shown column has Move up, Move
  * down and Hide; each hidden one has Show. The table follows every change
  * at once, so there is nothing to confirm, and "Reset to default" brings
- * back the screen's own columns. The Title can't be hidden.
+ * back the screen's own columns, order and widths. The Title can't be
+ * hidden. (The headings can also be dragged to reorder and resized, 1cB-21;
+ * this panel is how the keyboard reaches the order.)
  *
- * Everything is a button, so the keyboard reaches all of it; there is no
- * dragging. While the panel is open the focus stays inside it: Tab from the
+ * Everything here is a button, so the keyboard reaches all of it. While the panel is open the focus stays inside it: Tab from the
  * last button goes to the first, and Shift+Tab the other way. Escape (with
  * the focus in the panel or on the "Columns" button) or a click outside
  * closes the panel, and the focus goes back to the "Columns" button.
@@ -31,12 +32,15 @@ type Focus = { column: ColumnId; button: "up" | "down" | "hide" | "show" };
 export function ColumnEditor({
   screen,
   columns,
+  resized = false,
   onChange,
   onReset,
 }: {
   screen: TableScreen;
   /** The columns shown, in order. */
   columns: readonly ColumnId[];
+  /** Some column has a width the user dragged it to: "Reset to default" has widths to put back. */
+  resized?: boolean;
   onChange: (columns: readonly ColumnId[]) => void;
   onReset: () => void;
 }) {
@@ -229,7 +233,7 @@ export function ColumnEditor({
             <button
               type="button"
               className={styles.quiet}
-              disabled={isDefault(screen, columns)}
+              disabled={isDefault(screen, columns) && !resized}
               onClick={() => {
                 onReset();
                 panel.current?.focus();
