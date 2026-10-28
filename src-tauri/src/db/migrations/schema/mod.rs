@@ -32,6 +32,7 @@ mod sync_base_ids;
 mod track_merge;
 mod track_row;
 mod tracks;
+mod user_energy;
 mod workspace;
 
 use rusqlite::{Connection, ErrorCode};
@@ -271,6 +272,9 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // `crate_entry` ids are never reused, and what a send changed in each
     // playlist (a `sent_playlist` column), no new tables (1cB-3).
     ("0038_crate_membership_merge.sql", &[]),
+    // `analysis` ids are never reused, so the user's energy can be logged, no
+    // new tables (1cB-8).
+    ("0039_user_energy.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

@@ -364,6 +364,15 @@ fn count_rows(conn: &Connection, from_where: &str, params: &[Value]) -> rusqlite
 
 /// The ids of the tracks in the window, in order, and the count when asked.
 fn window_ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
+    window_ids_up_to(conn, query, MAX_WINDOW)
+}
+
+/// [`window_ids`] with the window at most `most` rows.
+fn window_ids_up_to(
+    conn: &Connection,
+    query: &TableQuery,
+    most: u32,
+) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
     // Review's quality problems are worked out once for the count and the window.
     let quality = match query.filters.contains(&TableFilter::QualityProblem) {
         true => Some(filters::quality_problems(conn)?),
@@ -374,7 +383,7 @@ fn window_ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<(Vec<i6
         true => Some(count_rows(conn, &built.from_where, &built.params)?),
         false => None,
     };
-    let limit = query.limit.min(MAX_WINDOW);
+    let limit = query.limit.min(most);
     let offset = query.offset;
     let ids = match &built.backwards {
         None => select_ids(
@@ -599,6 +608,29 @@ pub fn read(
     }))
 }
 
+/// The most ids one request for ids holds (see [`ids`]).
+pub const MAX_IDS: u32 = 1_000_000;
+
+/// The ids of the tracks (`recording` ids, as `TableRow::recording_id` has
+/// them) in rows `offset` to `offset + limit` of a query, in the order the
+/// table lists them, or `None` if the crate asked for doesn't exist. It is
+/// the window's own query, so the ids and the rows can't disagree, but it
+/// works out no row: the table asks for it to select a range or all of its
+/// tracks (Shift+click, Ctrl+A; 1cB-8), which it can't do from the windows
+/// it holds. Holds [`MAX_IDS`] at most.
+pub fn ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<Option<Vec<i64>>> {
+    if let TableSource::Crate { id } = &query.source {
+        if !crate_exists(conn, *id)? {
+            return Ok(None);
+        }
+    }
+    let query = TableQuery {
+        with_total: false,
+        ..query.clone()
+    };
+    Ok(Some(window_ids_up_to(conn, &query, MAX_IDS)?.0))
+}
+
 /// The page for the frontend: each file's path made readable and the
 /// fragile locations judged against `dirs`.
 pub fn page(read: Read, offset: u32, volumes: &impl Volumes, dirs: &FragileDirs) -> TablePage {
@@ -650,6 +682,20 @@ pub async fn track_table_page(
         }
     }
     Ok(page(found, query.offset, &volumes, &FragileDirs::system()))
+}
+
+/// The ids of the tracks in a range of a query's rows, to select them
+/// (1cB-8). `with_total` is ignored.
+#[tauri::command]
+#[specta::specta]
+pub async fn track_table_ids(
+    reads: State<'_, ReadPool>,
+    query: TableQuery,
+) -> Result<Vec<i64>, IpcError> {
+    match reads.read(|conn| ids(conn, &query))? {
+        Some(found) => Ok(found),
+        None => Err(CratesError::NotFound.into()),
+    }
 }
 
 /// Where one track is in a query's rows (1cA-5): the same source, search,

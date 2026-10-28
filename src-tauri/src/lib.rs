@@ -10,6 +10,7 @@ pub mod best_file;
 pub mod conflict_review;
 pub mod conflicts;
 pub mod crates;
+pub mod energy;
 pub mod db;
 pub mod file_roles;
 pub mod fingerprint;

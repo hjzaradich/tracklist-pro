@@ -4,6 +4,7 @@
 
 mod folders;
 mod hidden;
+mod ids;
 mod order;
 mod position;
 mod quality;

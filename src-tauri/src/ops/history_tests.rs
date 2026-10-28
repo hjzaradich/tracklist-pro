@@ -24,7 +24,7 @@ use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 14] = [
+pub(super) const LOGGED_TABLES: [&str; 15] = [
     "library_track",
     "library_removal",
     "crate",
@@ -39,6 +39,7 @@ pub(super) const LOGGED_TABLES: [&str; 14] = [
     "grouping_decision",
     "track_merge",
     "file_choice",
+    "analysis",
 ];
 
 /// The tables an action changes through the log only by setting fields of
@@ -1394,7 +1395,8 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
             "sent_entry",
             "conflict",
             "app_value",
-            "relink"
+            "relink",
+            "analysis"
         ]
     );
 
@@ -1421,7 +1423,10 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // conflicts, a send, and the merge before it taking a crate entry in),
     // so it isn't passing by blindness.
     seen.sort_unstable();
-    assert_eq!(seen, ["conflict", "crate_entry", "sent_entry", "sync_base"]);
+    assert_eq!(
+        seen,
+        ["analysis", "conflict", "crate_entry", "sent_entry", "sync_base"]
+    );
 }
 
 #[test]
