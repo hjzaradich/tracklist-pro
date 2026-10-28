@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { SortColumn, TableSort } from "../bindings";
 import { clampWidth, WIDEST, type ColumnWidths } from "./columnChoice";
@@ -75,6 +75,14 @@ export function ColumnHeadings({
   const ignoreClick = useRef(false);
   const [drag, setDrag] = useState<{ id: ColumnId; to: number } | null>(null);
 
+  /** The click that follows the end of a drag, however it ended, is not a sort. */
+  const ignoreNextClick = () => {
+    ignoreClick.current = true;
+    setTimeout(() => {
+      ignoreClick.current = false;
+    }, 0);
+  };
+
   /** The heading's width on screen, else the one it has by choice or default. */
   const widthOf = (id: ColumnId): number => {
     const shown = cells.current.get(id)?.getBoundingClientRect().width ?? 0;
@@ -116,6 +124,7 @@ export function ColumnHeadings({
 
   const startMove = (event: PointerEvent<HTMLButtonElement>, id: ColumnId) => {
     if (event.button !== 0 || onReorder === undefined) return;
+    ignoreClick.current = false;
     moving.current = {
       id,
       pointerId: event.pointerId,
@@ -141,16 +150,17 @@ export function ColumnHeadings({
 
   const finishMove = (event: PointerEvent<HTMLButtonElement>) => {
     const press = moving.current;
-    if (press === null || event.pointerId !== press.pointerId) return;
+    if (press === null) {
+      // The drag was given up: this release, and the click after it, are not a sort.
+      if (ignoreClick.current) ignoreNextClick();
+      return;
+    }
+    if (event.pointerId !== press.pointerId) return;
     const was = press.dragging;
     const to = placeFor(press.id, event.clientX);
     endMove(press);
     if (!was) return;
-    // The click that follows is the end of the drag, not a sort.
-    ignoreClick.current = true;
-    setTimeout(() => {
-      ignoreClick.current = false;
-    }, 0);
+    ignoreNextClick();
     if (to !== columns.indexOf(press.id)) onReorder?.(press.id, to);
   };
 
@@ -158,6 +168,34 @@ export function ColumnHeadings({
     const press = moving.current;
     if (press !== null && event.pointerId === press.pointerId) endMove(press);
   };
+
+  // Escape gives a drag up, wherever the focus is (a browser may not focus a
+  // button that is pressed). The release that follows does nothing, and the
+  // click it sends is not a sort.
+  const giveUp = useRef<() => void>(() => {});
+  useEffect(() => {
+    giveUp.current = () => {
+      const press = moving.current;
+      if (press?.dragging) {
+        endMove(press);
+        // Held until the release, which may come much later.
+        ignoreClick.current = true;
+      }
+      const size = sizing.current;
+      if (size) {
+        if (size.frame !== null) cancelAnimationFrame(size.frame);
+        sizing.current = null;
+        onPreview?.(null);
+      }
+    };
+  });
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") giveUp.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // Sizing a column -------------------------------------------------------
 
@@ -261,12 +299,6 @@ export function ColumnHeadings({
               onPointerMove={moveMove}
               onPointerUp={finishMove}
               onPointerCancel={cancelMove}
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && moving.current?.dragging) {
-                  event.stopPropagation();
-                  endMove(moving.current);
-                }
-              }}
             >
               <span className={styles.headText}>{name}</span>
               {sorted && <SortCaret descending={sort.descending} />}

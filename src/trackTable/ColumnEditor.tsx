@@ -24,10 +24,11 @@ type Focus = { column: ColumnId; button: "up" | "down" | "hide" | "show" };
  * hidden. (The headings can also be dragged to reorder and resized, 1cB-21;
  * this panel is how the keyboard reaches the order.)
  *
- * Everything here is a button, so the keyboard reaches all of it. While the panel is open the focus stays inside it: Tab from the
- * last button goes to the first, and Shift+Tab the other way. Escape (with
- * the focus in the panel or on the "Columns" button) or a click outside
- * closes the panel, and the focus goes back to the "Columns" button.
+ * Everything here is a button, so the keyboard reaches all of it. While the
+ * panel is open the focus stays inside it: Tab from the last button goes to
+ * the first, and Shift+Tab the other way. Escape (with the focus in the
+ * panel or on the "Columns" button) or a click outside closes the panel, and
+ * the focus goes back to the "Columns" button.
  */
 export function ColumnEditor({
   screen,

@@ -124,15 +124,48 @@ describe("dragging a heading", () => {
     expect(cell.style.transform).toBe("");
   });
 
-  it("is given up with Escape: nothing moves", () => {
-    const { onReorder } = renderTable();
+  it("is given up with Escape: nothing moves, and the click that ends it does not sort", () => {
+    const { onReorder, onSort } = renderTable();
     place();
     const artist = heading("artist");
     fireEvent.pointerDown(artist, { clientX: 150, button: 0, pointerId: 1 });
     fireEvent.pointerMove(artist, { clientX: 290, pointerId: 1 });
     fireEvent.keyDown(artist, { key: "Escape" });
     fireEvent.pointerUp(artist, { clientX: 290, pointerId: 1 });
+    fireEvent.click(artist);
     expect(onReorder).not.toHaveBeenCalled();
+    expect(onSort).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("columnheader")[1].style.transform).toBe("");
+  });
+
+  it("is given up with Escape even if the button is let go much later", async () => {
+    const { onSort } = renderTable();
+    place();
+    const artist = heading("artist");
+    fireEvent.pointerDown(artist, { clientX: 150, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(artist, { clientX: 290, pointerId: 1 });
+    fireEvent.keyDown(artist, { key: "Escape" });
+    await new Promise((done) => setTimeout(done, 5));
+    fireEvent.pointerUp(artist, { clientX: 290, pointerId: 1 });
+    fireEvent.click(artist);
+    expect(onSort).not.toHaveBeenCalled();
+    // The next click is a click again.
+    await new Promise((done) => setTimeout(done, 5));
+    await userEvent.click(artist);
+    expect(onSort).toHaveBeenCalledExactlyOnceWith("artist");
+  });
+
+  it("is given up with Escape wherever the focus is", () => {
+    const { onReorder, onSort } = renderTable();
+    place();
+    const artist = heading("artist");
+    fireEvent.pointerDown(artist, { clientX: 150, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(artist, { clientX: 290, pointerId: 1 });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.pointerUp(artist, { clientX: 290, pointerId: 1 });
+    fireEvent.click(artist);
+    expect(onReorder).not.toHaveBeenCalled();
+    expect(onSort).not.toHaveBeenCalled();
   });
 
   it("cannot be dragged when the table was not given a way to save the order", () => {
@@ -234,6 +267,19 @@ describe("dragging the line after a heading", () => {
     fireEvent.pointerMove(bpm, { clientX: 330, pointerId: 1 });
     await waitFor(() => expect(template()).not.toBe(before));
     fireEvent.pointerCancel(bpm, { pointerId: 1 });
+    expect(template()).toBe(before);
+    expect(onResize).not.toHaveBeenCalled();
+  });
+
+  it("is given up with Escape: the width goes back and nothing is saved", async () => {
+    const { onResize } = renderTable();
+    const before = template();
+    const bpm = line("bpm");
+    fireEvent.pointerDown(bpm, { clientX: 300, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(bpm, { clientX: 330, pointerId: 1 });
+    await waitFor(() => expect(template()).not.toBe(before));
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.pointerUp(bpm, { clientX: 330, pointerId: 1 });
     expect(template()).toBe(before);
     expect(onResize).not.toHaveBeenCalled();
   });
