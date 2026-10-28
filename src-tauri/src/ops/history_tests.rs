@@ -24,7 +24,7 @@ use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 13] = [
+pub(super) const LOGGED_TABLES: [&str; 14] = [
     "library_track",
     "library_removal",
     "crate",
