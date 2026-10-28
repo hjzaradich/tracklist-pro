@@ -1,8 +1,8 @@
 {
   "empty": "Your Library at a glance, and what to do next.",
   "header": {
-    "library_one": "{{count, number}} track in your Library",
-    "library_other": "{{count, number}} tracks in your Library",
+    "library_one": "Library: {{count, number}} track",
+    "library_other": "Library: {{count, number}} tracks",
     "lastSent": "Last sent {{when}}",
     "neverSent": "Not sent yet",
     "unreadable": "Can't send: the Library couldn't be read",

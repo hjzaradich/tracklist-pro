@@ -12,6 +12,7 @@ import { commands, type NextUndo, type UndoOutcome } from "../bindings";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { useAcceptedStore } from "../review/acceptedStore";
 import { TRACK_TAG_SOURCES_QUERY_KEY } from "./useTrackTagSources";
@@ -78,6 +79,7 @@ function reloadLists(queryClient: QueryClient) {
       REKORDBOX_OFFER_QUERY_KEY,
       MISSING_TRACKS_QUERY_KEY,
       TRACK_TAG_SOURCES_QUERY_KEY,
+      OVERVIEW_QUERY_KEY,
       ...REVIEW_QUERY_KEYS,
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );

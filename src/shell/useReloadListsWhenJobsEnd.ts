@@ -5,6 +5,7 @@ import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
+import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
 import { MUSIC_FOLDERS_QUERY_KEY } from "../scan/useMusicFolders";
 import { TRACK_TAG_SOURCES_QUERY_KEY } from "./useTrackTagSources";
 
@@ -29,5 +30,9 @@ export function useReloadListsWhenJobsEnd() {
     ]) {
       void queryClient.invalidateQueries({ queryKey });
     }
+    // The Overview's numbers take long to work out on a big Library: a job
+    // ending while they're on their way doesn't start them over (the numbers
+    // are asked again every few seconds while jobs are counting).
+    void queryClient.invalidateQueries({ queryKey: OVERVIEW_QUERY_KEY }, { cancelRefetch: false });
   });
 }
