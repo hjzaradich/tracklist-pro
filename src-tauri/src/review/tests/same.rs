@@ -4,9 +4,10 @@
 //! files given the very same audio after both were added to the Library.
 
 use super::super::actions::{Acted, Refused};
+use super::super::merge_fields::{MergeChoice, MergeField};
 use super::super::same::{
-    keep_both, merge, suggest_keep, KeepCandidate, KeepWhy, Merged, KEEP_BOTH_OPERATION,
-    MERGE_OPERATION,
+    keep_both, merge, merge_choosing, merge_questions, suggest_keep, KeepCandidate, KeepWhy,
+    Merged, KEEP_BOTH_OPERATION, MERGE_OPERATION,
 };
 use super::*;
 use crate::grouping::tests::support::{db, hash, Db};
@@ -573,7 +574,8 @@ fn a_merge_can_be_undone_after_a_send() {
 
 #[test]
 fn a_merge_deletes_the_app_values_of_the_track_that_leaves_and_undo_puts_them_back() {
-    // The track that stays keeps its own; nothing is combined (1cB-18).
+    // The leaving track's values are deleted with it; the one value only it
+    // has (a rating the staying track has none of) carries over (1cB-20).
     let t = Twice::new();
     t.entry(t.a, 1, 0, 1, 120.0);
     t.entry(t.b, 1, 0, 1, 120.0);
@@ -599,7 +601,13 @@ fn a_merge_deletes_the_app_values_of_the_track_that_leaves_and_undo_puts_them_ba
 
     t.merge(&t.both(), t.ta).unwrap();
 
-    assert_eq!(values(), [format!("1 {lt_keep} Genre House")]);
+    assert_eq!(
+        values(),
+        [
+            format!("1 {lt_keep} Genre House"),
+            format!("4 {lt_keep} Rating 255")
+        ]
+    );
     assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
     assert_eq!(values(), before);
 }
@@ -900,4 +908,252 @@ fn a_file_scanned_after_a_moved_files_folder_was_removed_never_takes_its_id_or_m
     );
     assert_eq!(t.rows(), before, "nothing changed");
     assert_eq!(t.db.track(e), Some(t.ta), "the new file stays where it is");
+}
+
+// ---- merging asks field by field (1cB-20) ---------------------------------------
+
+impl Twice {
+    /// The app's own value of a field for a track, as the user set it
+    /// (`replaced`: rekordbox showed nothing for it).
+    fn own_value(&self, track: i64, field: &str, value: &str) {
+        let lt = self.lt(track);
+        self.db.sql(&format!(
+            "INSERT INTO app_value (library_track_id, field, value, replaced)
+             VALUES ({lt}, '{field}', '{value}', '')"
+        ));
+    }
+
+    /// An attribute of a track's rekordbox entry.
+    fn attribute(&self, entry: i64, name: &str, value: &str) {
+        self.db.sql(&format!(
+            "UPDATE rekordbox_track SET attributes = json_set(attributes, '$.{name}', '{value}')
+             WHERE id = {entry}"
+        ));
+    }
+
+    /// The app's own values, as text, with their ids and what they replaced.
+    fn own_values(&self) -> Vec<String> {
+        self.db
+            .writer
+            .call(|c| {
+                c.prepare(
+                    "SELECT id || ' ' || library_track_id || ' ' || field || ' ' || value
+                            || ' ' || coalesce(replaced, '-')
+                     FROM app_value ORDER BY id",
+                )?
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect()
+            })
+            .unwrap()
+    }
+
+    /// What a merge into `keep` asks.
+    fn questions(&self, keep: i64) -> Vec<MergeField> {
+        let (anchor, shown) = (self.anchor(), self.both());
+        self.db
+            .writer
+            .call(move |c| Ok(merge_questions(c, &Mount, anchor, &shown, keep)))
+            .unwrap()
+            .unwrap()
+    }
+
+    fn merge_choosing(&self, keep: i64, choices: Vec<MergeChoice>) -> Result<Merged, Refused> {
+        let (anchor, shown) = (self.anchor(), self.both());
+        self.db
+            .writer
+            .call(move |c| Ok(merge_choosing(c, &Mount, anchor, &shown, keep, &choices)))
+            .unwrap()
+    }
+
+    fn operations(&self) -> i64 {
+        self.db.count("SELECT count(*) FROM operation")
+    }
+
+    /// Whether the app's own values include `field` = `value` for `track`.
+    fn owns(&self, track: i64, field: &str, value: &str) -> bool {
+        let lt = self.lt(track);
+        let wanted = format!(" {lt} {field} {value} ");
+        self.own_values()
+            .iter()
+            .any(|v| format!("{v} ").contains(&wanted))
+    }
+}
+
+fn pick(field: &str, from: i64, value: &str) -> MergeChoice {
+    MergeChoice {
+        field: field.to_owned(),
+        from,
+        value: value.to_owned(),
+    }
+}
+
+/// Two tracks that differ in every way the merge cares about. Track `a`
+/// (rating 4 stars) and `b` (rating 2) both have an entry in rekordbox; the
+/// user set a genre on each (different), a label on `b` only, a comment in
+/// rekordbox on `b` only; their colors agree; their albums differ in
+/// rekordbox, which is nobody's choice. Returns the fixture.
+fn differing() -> Twice {
+    let t = Twice::new();
+    let (ea, eb) = (
+        t.entry(t.a, 2, 204, 5, 120.0),
+        t.entry(t.b, 1, 102, 1, 120.0),
+    );
+    t.own_value(t.ta, "Genre", "Techno");
+    t.own_value(t.tb, "Genre", "House");
+    t.own_value(t.tb, "Label", "Made Up Records");
+    t.attribute(eb, "Comments", "Warm / Peak");
+    t.attribute(ea, "Colour", "0xFF0000");
+    t.attribute(eb, "Colour", "0xFF0000");
+    t.attribute(ea, "Album", "First");
+    t.attribute(eb, "Album", "Second");
+    t
+}
+
+#[test]
+fn merge_rows_appear_only_for_fields_that_differ_and_hold_a_user_value() {
+    let t = differing();
+    let asked = t.questions(t.ta);
+    // The genres differ (both the user's) and so do the ratings (rekordbox's
+    // rating is the user's). Not the colors (alike), not the label or the
+    // comment (one track has them), not the album (rekordbox's, nobody's).
+    let names: Vec<&str> = asked.iter().map(|f| f.field.as_str()).collect();
+    assert_eq!(names, ["Genre", "Rating"]);
+    let rating = &asked[1];
+    assert_eq!(rating.kind, crate::conflict_review::ValueKind::Rating);
+    assert_eq!(
+        rating
+            .values
+            .iter()
+            .map(|v| (v.recording_id, v.value.as_deref()))
+            .collect::<Vec<_>>(),
+        [(t.ta, Some("204")), (t.tb, Some("102"))]
+    );
+}
+
+#[test]
+fn a_field_without_a_user_value_on_either_track_is_never_asked() {
+    let t = Twice::new();
+    let (ea, eb) = (t.entry(t.a, 0, 0, 0, 120.0), t.entry(t.b, 0, 0, 0, 120.0));
+    t.attribute(ea, "Genre", "Disco");
+    t.attribute(eb, "Genre", "Funk");
+    t.attribute(ea, "Year", "1999");
+    t.attribute(eb, "Year", "2001");
+    assert!(t.questions(t.ta).is_empty());
+}
+
+#[test]
+fn the_default_of_each_row_is_the_staying_tracks_value() {
+    let t = differing();
+    for keep in [t.ta, t.tb] {
+        let asked = t.questions(keep);
+        assert_eq!(asked.len(), 2);
+        for field in asked {
+            assert_eq!(field.chosen, keep, "{}", field.field);
+            assert_eq!(field.values[0].recording_id, keep);
+        }
+    }
+    // Merging without a choice keeps the staying track's genre.
+    t.merge(&t.both(), t.tb).unwrap();
+    assert!(t.owns(t.tb, "Genre", "House"), "{:?}", t.own_values());
+}
+
+#[test]
+fn a_value_only_one_track_has_carries_over_without_asking() {
+    let t = differing();
+    t.merge(&t.both(), t.ta).unwrap();
+    let own = t.own_values();
+    // The label (the app's own value) and the comment (rekordbox's, My Tags
+    // among it) of the track that left are now the staying track's own; the
+    // rating and the genre stay what the staying track had.
+    assert!(t.owns(t.ta, "Label", "Made Up Records"), "{own:?}");
+    assert!(t.owns(t.ta, "Comments", "Warm / Peak"), "{own:?}");
+    assert!(t.owns(t.ta, "Genre", "Techno"), "{own:?}");
+    assert!(!own.iter().any(|v| v.contains("Rating")), "{own:?}");
+}
+
+#[test]
+fn the_chosen_values_land_in_the_app_values_and_the_next_send_carries_them() {
+    let t = differing();
+    t.merge_choosing(
+        t.ta,
+        vec![pick("Rating", t.tb, "102"), pick("Genre", t.tb, "House")],
+    )
+    .unwrap();
+    // The rating replaced rekordbox's value for the staying track.
+    assert!(t.owns(t.ta, "Genre", "House"), "{:?}", t.own_values());
+    assert!(t.owns(t.ta, "Rating", "102 204"), "{:?}", t.own_values());
+
+    // The merge before the next send chooses them, by the 1.10 rules.
+    let lt = crate::library::LibraryTrackId(t.lt(t.ta));
+    let merged = t
+        .db
+        .writer
+        .call(move |c| crate::conflicts::merge_before_send(c, &Mount, &[lt]))
+        .unwrap();
+    let chosen = &merged.chosen[&lt];
+    for (field, value) in [
+        ("Rating", "102"),
+        ("Genre", "House"),
+        ("Label", "Made Up Records"),
+        ("Comments", "Warm / Peak"),
+    ] {
+        assert!(
+            chosen.contains(&(field.to_owned(), value.to_owned())),
+            "{field}: {chosen:?}"
+        );
+    }
+    assert!(merged.open.is_empty(), "{:?}", merged.open);
+}
+
+#[test]
+fn a_merge_with_choices_is_one_operation_and_undo_restores_both_tracks_and_their_values() {
+    let t = differing();
+    let (lt_keep, lt_leave) = (t.lt(t.ta), t.lt(t.tb));
+    t.db.sql(&format!(
+        "INSERT INTO sync_base (library_track_id, field, value)
+             VALUES ({lt_keep}, 'Rating', '153'), ({lt_leave}, 'Rating', '102'),
+                    ({lt_leave}, 'Genre', 'House');"
+    ));
+    let (rows, own, operations) = (t.rows(), t.own_values(), t.operations());
+
+    t.merge_choosing(
+        t.ta,
+        vec![pick("Rating", t.tb, "102"), pick("Genre", t.tb, "House")],
+    )
+    .unwrap();
+
+    assert_eq!(
+        t.operations(),
+        operations + 1,
+        "one operation, values and all"
+    );
+    assert_ne!(t.own_values(), own);
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(t.rows(), rows);
+    assert_eq!(t.own_values(), own);
+    assert_eq!(
+        t.queue(),
+        vec![(ReviewKind::SameRecording, t.anchor(), None)]
+    );
+}
+
+#[test]
+fn a_choice_the_screen_did_not_show_refuses_the_merge_and_changes_nothing() {
+    let t = differing();
+    let (rows, own, operations) = (t.rows(), t.own_values(), t.operations());
+    // A value the track doesn't hold, a field that wasn't asked, a track
+    // that isn't in the item.
+    for choice in [
+        pick("Rating", t.tb, "255"),
+        pick("Label", t.tb, "Made Up Records"),
+        pick("Rating", t.tb + 50, "102"),
+    ] {
+        assert!(matches!(
+            t.merge_choosing(t.ta, vec![choice]),
+            Err(Refused::ItemGone)
+        ));
+    }
+    assert_eq!(t.rows(), rows);
+    assert_eq!(t.own_values(), own);
+    assert_eq!(t.operations(), operations);
 }

@@ -97,8 +97,8 @@ fn conflicts_are_listed_by_field_with_how_many_and_the_kind_of_value() {
     assert_eq!(
         invoke(&app, "review_conflict_fields", json!({})),
         Ok(json!([
-            { "field": "Genre", "kind": "text", "count": 1 },
-            { "field": "Rating", "kind": "rating", "count": 3 },
+            { "field": "Genre", "kind": "text", "count": 1, "crateName": null },
+            { "field": "Rating", "kind": "rating", "count": 3, "crateName": null },
         ]))
     );
 }
@@ -456,4 +456,94 @@ fn a_page_never_holds_more_than_the_most_a_caller_may_ask_for() {
         page["items"].as_array().unwrap().len(),
         super::MAX_PAGE as usize
     );
+}
+
+// ---- crate membership (1cB-20, PR 119's follow-ups) ---------------------------
+
+/// The field of a membership conflict for the crate `name` inside the folder
+/// `Gigs`, as the engine writes it.
+fn membership_field(name: &str) -> String {
+    use crate::rekordbox_write::{sibling_key, CRATES_FOLDER};
+    crate::conflicts::membership::field_of(&[
+        sibling_key(CRATES_FOLDER),
+        sibling_key("Gigs"),
+        sibling_key(name),
+    ])
+}
+
+#[test]
+fn a_crate_membership_conflict_is_named_by_its_crate_and_is_never_given_by_hand() {
+    let (_data, app) = library();
+    // A name with a space, quotes and an accent: nothing may depend on it.
+    let name = "Peak \"time\" café";
+    let field = membership_field(name);
+    let sql_field = field.clone();
+    app.state::<Writer>()
+        .call(move |c| {
+            c.execute("INSERT INTO crate (kind, name) VALUES ('folder', 'Gigs')", [])?;
+            c.execute(
+                "INSERT INTO crate (parent_id, kind, name) VALUES (1, 'static', ?1)",
+                [name],
+            )?;
+            c.execute(
+                "INSERT INTO conflict (library_track_id, field, app_value, rekordbox_value,
+                                       base_value)
+                 VALUES (1, ?1, 'in', 'out', NULL)",
+                [&sql_field],
+            )
+        })
+        .unwrap();
+
+    let fields = invoke(&app, "review_conflict_fields", json!({})).unwrap();
+    assert!(
+        fields.as_array().unwrap().contains(&json!({
+            "field": field,
+            "kind": "membership",
+            "count": 1,
+            "crateName": format!("Gigs / {name}"),
+        })),
+        "{fields}"
+    );
+    let id = id_of(&page(&app, &field), 0);
+    let refused = invoke(
+        &app,
+        "review_resolve_conflict",
+        json!({ "id": id, "choice": { "choice": "edit", "value": "in" } }),
+    )
+    .unwrap_err();
+    assert_eq!(refused["kind"], json!("conflictBadValue"));
+    assert_eq!(page(&app, &field)["total"], json!(1));
+    // Keeping a side is fine.
+    let settled = invoke(
+        &app,
+        "review_resolve_conflict",
+        json!({ "id": id, "choice": { "choice": "keepRekordbox" } }),
+    )
+    .unwrap();
+    assert_eq!(settled["value"], json!("out"));
+}
+
+#[test]
+fn a_membership_conflict_whose_crate_is_gone_is_named_by_the_last_name_of_its_key() {
+    let (_data, app) = library();
+    let field = membership_field("Old Peak");
+    let sql_field = field.clone();
+    app.state::<Writer>()
+        .call(move |c| {
+            c.execute(
+                "INSERT INTO conflict (library_track_id, field, app_value, rekordbox_value,
+                                       base_value)
+                 VALUES (1, ?1, 'out', 'in', NULL)",
+                [&sql_field],
+            )
+        })
+        .unwrap();
+    let fields = invoke(&app, "review_conflict_fields", json!({})).unwrap();
+    let named = fields
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["field"] == json!(field))
+        .unwrap();
+    assert_eq!(named["crateName"], json!(crate::rekordbox_write::sibling_key("Old Peak")));
 }

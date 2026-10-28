@@ -59,6 +59,7 @@ pub mod accepted;
 pub mod actions;
 pub mod compare;
 pub mod held;
+pub mod merge_fields;
 mod queue;
 pub mod reasons;
 pub mod same;

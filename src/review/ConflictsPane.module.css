@@ -58,3 +58,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A value you can pick, with its radio (a merge asking which value stays). */
+.pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* A table that is wider than its place scrolls sideways, not the page. */
+.scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}

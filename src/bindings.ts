@@ -257,7 +257,8 @@ export const commands = {
 	 *  Merges a "Same track twice" item into `keep`: `recording_ids` are the
 	 *  Library tracks the screen showed.
 	 */
-	reviewMerge: (anchor: number, recordingIds: number[], keep: number) => typedError<Merged, IpcError>(__TAURI_INVOKE("review_merge", { anchor, recordingIds, keep })),
+	reviewMerge: (anchor: number, recordingIds: number[], keep: number, choices: MergeChoice[]) => typedError<Merged, IpcError>(__TAURI_INVOKE("review_merge", { anchor, recordingIds, keep, choices })),
+	reviewMergeQuestions: (anchor: number, recordingIds: number[], keep: number) => typedError<MergeField[], IpcError>(__TAURI_INVOKE("review_merge_questions", { anchor, recordingIds, keep })),
 	/**
 	 *  "These are the same track" for a possible version mix-up or "Unclear
 	 *  duplicates": `recording_ids` are the tracks the screen showed.
@@ -642,6 +643,7 @@ export type ConflictField = {
 	kind: ValueKind,
 	/**  How many open conflicts the field has. */
 	count: number,
+	crateName: string | null,
 };
 
 /**  A `conflict` row's id. */
@@ -1313,6 +1315,12 @@ export type ManualRemoval = {
 	/**  When the user removed it (or switched its file), UTC ISO-8601. */
 	removedAt: string,
 };
+
+export type FieldValue = { recordingId: number, value: string | null };
+
+export type MergeChoice = { field: string, from: number, value: string };
+
+export type MergeField = { field: string, kind: ValueKind, values: FieldValue[], chosen: number };
 
 /**  What a merge did. */
 export type Merged = {
@@ -2488,7 +2496,9 @@ export type ValueKind = "location" |
 /**  `2026-09-28`. */
 "date" | 
 /**  Whole numbers. */
-"number" | "text";
+"number" | "text" |
+/**  A crate membership (`playlist:...`): `in` or `out`, shown in words. */
+"membership";
 
 /**  Where a value comes from. */
 export type ValueOrigin = 

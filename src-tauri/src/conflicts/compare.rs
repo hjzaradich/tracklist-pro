@@ -142,6 +142,12 @@ pub fn same(field: &str, a: Option<&str>, b: Option<&str>) -> bool {
     key(field, a) == key(field, b)
 }
 
+/// Whether `value` of `field` says "no value": nothing, blank text, no
+/// color, no date, a 0 where rekordbox writes 0 for none, and no stars.
+pub fn is_blank(field: &str, value: &str) -> bool {
+    matches!(key(field, Some(value)), Key::None | Key::Stars(0))
+}
+
 /// Whether `value` is one the user may give `field` by hand: it parses as
 /// the field's kind (an empty value clears the field), a `Rating` is one of
 /// rekordbox's six, and the field is one that is merged at all.

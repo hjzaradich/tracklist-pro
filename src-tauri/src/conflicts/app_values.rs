@@ -257,43 +257,58 @@ pub fn set(
         // rekordbox's side, read in the operation's own transaction. Reads
         // only.
         |c| showing(c, volumes, track, field),
-        |rec, rekordbox| {
-            let own = own_row(rec, track, field)?;
-            if let Some(rekordbox) = &rekordbox {
-                if same(field, Some(value), Some(rekordbox)) {
-                    if let Some((id, _)) = own {
-                        rec.delete("app_value", id)?;
-                    }
-                    return Ok(None);
-                }
-            }
-            let replaced = match own {
-                Some((id, replaced)) => {
-                    rec.set("app_value", id, "value", value)?;
-                    replaced
-                }
-                None => {
-                    rec.insert(
-                        "app_value",
-                        &[
-                            ("library_track_id", Value::Integer(track.0)),
-                            ("field", Value::Text(field.to_owned())),
-                            ("value", Value::Text(value.to_owned())),
-                            ("replaced", rekordbox.clone().into()),
-                        ],
-                    )?;
-                    rekordbox
-                }
-            };
-            Ok(Some(AppValue {
-                field: field.to_owned(),
-                value: value.to_owned(),
-                replaced,
-            }))
-        },
+        |rec, rekordbox| set_in(rec, track, field, value, rekordbox),
         |_| Ok(()),
     )?;
     Ok(recorded)
+}
+
+/// [`set`]'s writes, as changes of the operation `rec` records, for a
+/// caller that is part of a bigger operation (the merge of two Library
+/// tracks, which takes the value the user chose from the other track). The
+/// caller checked the field and the value ([`editable`], [`fits`]).
+/// `rekordbox` is what rekordbox shows for the field now (`None`: no trusted
+/// entry). Returns the app's own value afterwards, `None` when `value` is
+/// rekordbox's and the field follows it.
+pub(crate) fn set_in(
+    rec: &mut Recorder<'_>,
+    track: LibraryTrackId,
+    field: &str,
+    value: &str,
+    rekordbox: Option<String>,
+) -> Result<Option<AppValue>, OpsError> {
+    let own = own_row(rec, track, field)?;
+    if let Some(rekordbox) = &rekordbox {
+        if same(field, Some(value), Some(rekordbox)) {
+            if let Some((id, _)) = own {
+                rec.delete("app_value", id)?;
+            }
+            return Ok(None);
+        }
+    }
+    let replaced = match own {
+        Some((id, replaced)) => {
+            rec.set("app_value", id, "value", value)?;
+            replaced
+        }
+        None => {
+            rec.insert(
+                "app_value",
+                &[
+                    ("library_track_id", Value::Integer(track.0)),
+                    ("field", Value::Text(field.to_owned())),
+                    ("value", Value::Text(value.to_owned())),
+                    ("replaced", rekordbox.clone().into()),
+                ],
+            )?;
+            rekordbox
+        }
+    };
+    Ok(Some(AppValue {
+        field: field.to_owned(),
+        value: value.to_owned(),
+        replaced,
+    }))
 }
 
 /// Clears the app's own value of `field` for a Library track, as one

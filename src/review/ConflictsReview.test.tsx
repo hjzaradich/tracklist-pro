@@ -48,7 +48,14 @@ function backend(
     refuse,
     reviewItems = 0,
     hangRows = false,
-  }: { refuse?: object; reviewItems?: number; hangRows?: boolean } = {},
+    crates = {},
+  }: {
+    refuse?: object;
+    reviewItems?: number;
+    hangRows?: boolean;
+    /** The crate name of each crate-membership field. */
+    crates?: Record<string, string>;
+  } = {},
 ) {
   const open = [...initial];
   const calls: Calls[] = [];
@@ -72,7 +79,7 @@ function backend(
         const fields = [...new Set(open.map((row) => row.field))];
         return fields.map((field) => {
           const rows = open.filter((row) => row.field === field);
-          return { field, kind: rows[0]!.kind, count: rows.length };
+          return { field, kind: rows[0]!.kind, count: rows.length, crateName: crates[field] ?? null };
         });
       }
       case "review_conflicts": {
@@ -552,5 +559,65 @@ describe("the keyboard", () => {
     await userEvent.keyboard("{Home}");
     expect(options[0]).toHaveFocus();
     expect(options[0]).toHaveAttribute("aria-selected", "true");
+  });
+});
+
+describe("a crate membership conflict", () => {
+  // A crate named with a space, quotes and an accent, inside a folder: the
+  // field is a playlist path as JSON, nothing a screen can show or use as an id.
+  const NAME = 'Peak "time" café';
+  const FIELD = JSON.stringify(["crates", "gigs", "peak \"time\" café"]);
+  const MEMBERSHIP = `playlist:${FIELD}`;
+  const CRATE = `Gigs / ${NAME}`;
+  const ROWS = [
+    conflict(7, MEMBERSHIP, "membership", "Synthetic Tune", { app: "in", rekordbox: "out", base: "in" }),
+    conflict(8, MEMBERSHIP, "membership", "Second Tune", { app: "out", rekordbox: "in", base: null }),
+  ];
+
+  it("is named by its crate, in the group and above its conflicts, never by its field name", async () => {
+    backend([...ROWS, ...GENRES], { crates: { [MEMBERSHIP]: CRATE } });
+    renderScreen();
+    const group = await screen.findByRole("region", { name: tx("conflicts:group") });
+    const label = tx("conflicts:membership.field", { name: CRATE });
+    const options = await within(group).findAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual([
+      expect.stringContaining(tx("conflicts:field.Genre")),
+      expect.stringContaining(label),
+    ]);
+    expect(group).not.toHaveTextContent("playlist:");
+    await userEvent.click(within(group).getByText(label));
+    const line = await lineOf("Synthetic Tune");
+    // The values are said in words: the app's In, rekordbox's Not in, the last send's In.
+    const cells = within(line).getAllByRole("cell");
+    expect(cells[1]).toHaveTextContent(tx("conflicts:membership.in"));
+    expect(cells[2]).toHaveTextContent(tx("conflicts:membership.out"));
+    expect(cells[3]).toHaveTextContent(tx("conflicts:membership.in"));
+    expect(await lineOf("Second Tune")).toHaveTextContent(tx("conflicts:neverSent"));
+  });
+
+  it("offers keeping the app's or rekordbox's, never Edit, and settles with them", async () => {
+    const { calls } = backend(ROWS, { crates: { [MEMBERSHIP]: CRATE } });
+    renderScreen();
+    const line = await lineOf("Synthetic Tune");
+    expect(within(line).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      tx("conflicts:action.keepApp"),
+      tx("conflicts:action.keepRekordbox"),
+    ]);
+    expect(within(line).queryByRole("button", { name: tx("conflicts:action.edit") })).toBeNull();
+    await userEvent.click(within(line).getByRole("button", { name: tx("conflicts:action.keepRekordbox") }));
+    await waitFor(() => expect(settlements(calls)).toHaveLength(1));
+    expect(settlements(calls)[0]?.args).toEqual({ id: 7, choice: { choice: "keepRekordbox" } });
+  });
+
+  it("labels its pane by an id that is safe whatever the crate is called", async () => {
+    backend(ROWS, { crates: { [MEMBERSHIP]: CRATE } });
+    renderScreen();
+    await lineOf("Synthetic Tune");
+    // The pane is found by its name, which only an id that resolves can give.
+    const label = tx("conflicts:membership.field", { name: CRATE });
+    const pane = await screen.findByRole("region", { name: (name) => name.startsWith(label) });
+    const id = pane.getAttribute("aria-labelledby") ?? "";
+    expect(id).not.toMatch(/[\s"'\\]/);
+    expect(document.getElementById(id)).toHaveTextContent(CRATE);
   });
 });

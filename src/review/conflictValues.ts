@@ -74,6 +74,7 @@ export function canGive(kind: ValueKind, value: string): boolean {
     case "number":
       return value === "" || /^\d+$/.test(value);
     case "location":
+    case "membership":
       return false;
     case "text":
       return true;

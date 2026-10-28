@@ -217,7 +217,15 @@
     "choose": "Which track stays?",
     "suggestedTrack": "{{name}} (suggested)",
     "confirm_one": "The other track's files and crates move to the track that stays, and it leaves your Library. Its cues, rating and plays in rekordbox won't carry over, and it will be listed under Tracks to remove in rekordbox. This action can be undone.",
-    "confirm_other": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues, ratings and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone."
+    "confirm_other": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues, ratings and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone.",
+    "confirmValues_one": "The other track's files and crates move to the track that stays, and it leaves your Library. Its cues and plays in rekordbox won't carry over, and it will be listed under Tracks to remove in rekordbox. This action can be undone.",
+    "confirmValues_other": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone.",
+    "values": {
+      "heading": "Pick the value to keep",
+      "field": "Field",
+      "stays": "Stays",
+      "use": "Use {{field}} from {{name}}"
+    }
   },
   "keep": {
     "moreCues": "more cues in rekordbox ({{count}}, the other track has {{other}})",

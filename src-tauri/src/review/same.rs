@@ -16,9 +16,14 @@
 //! # Merge
 //!
 //! [`merge`] folds every other Library track of the item into the one the
-//! user chose. The track that stays keeps its own cues, grid, My Tags,
-//! rating and play count: nothing is combined field by field (owner
-//! decision, 2026-10-12). For each track that leaves, in one operation:
+//! user chose. The track that stays keeps its own cues, grid and play count
+//! (the entry it is sent as stays). Where the tracks hold different values
+//! of a field and one is the user's (their edits, rekordbox's rating, color
+//! and comments), the user is asked field by field, and the staying track's
+//! value is chosen by default; a value only one track has carries over
+//! (1cB-20, owner decision 2026-10-28, [`super::merge_fields`]). The values
+//! taken become the staying track's own. For each track that leaves, in one
+//! operation:
 //!
 //! 1. The rekordbox entry it is sent as today ([`sent_as`]), or for a track
 //!    a send wrote that no read has shown yet, the `Location` it was sent
@@ -64,6 +69,8 @@ use tauri::State;
 
 use super::actions::{ask_for_follow_up_work, mounted, rank_again, Acted, Refused};
 use super::held;
+use super::merge_fields::{self, Member, MergeChoice, MergeField};
+use crate::conflicts::app_values;
 use crate::db::{ReadPool, Writer};
 use crate::grouping::{remember, Verdict, CONTENT_KEY};
 use crate::ipc::IpcError;
@@ -503,19 +510,8 @@ pub(super) fn move_file(rec: &mut Recorder<'_>, file: i64, to: i64) -> Result<()
     Ok(())
 }
 
-/// Merges the "Same track twice" item named by `anchor` (whose Library
-/// tracks the screen showed as `shown`) into the track `keep`, one of them,
-/// as one operation: the confirmed, undoable action CLAUDE.md asks of
-/// deleting a Library track. See the module docs for what it writes.
-///
-/// Refused, changing nothing, when the item isn't the one the screen showed
-/// or `keep` isn't one of its Library tracks ([`Refused::ItemGone`]), and
-/// when two of its tracks are linked as versions (versions never merge;
-/// [`Refused::LinkedVersions`]).
-///
-/// `volumes` says where each drive is, for what each track is sent as; no
-/// file is opened. On the database's writer, hand in an answer taken
-/// beforehand ([`crate::relink::Mounted`]).
+/// [`merge_choosing`] with no choice made: every field takes its default,
+/// the staying track's value ([`super::merge_fields`]).
 pub fn merge(
     conn: &mut Connection,
     volumes: &impl Volumes,
@@ -523,6 +519,18 @@ pub fn merge(
     shown: &[i64],
     keep: i64,
 ) -> Result<Merged, Refused> {
+    merge_choosing(conn, volumes, anchor, shown, keep, &[])
+}
+
+/// The Library tracks of the item to merge into `keep`, the staying one
+/// first, as the item still is.
+fn members(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    anchor: i64,
+    shown: &[i64],
+    keep: i64,
+) -> Result<(Vec<Track>, Vec<Member>), Refused> {
     let recordings = still_the_item(conn, anchor, shown)?;
     if !recordings.contains(&keep) {
         return Err(Refused::ItemGone);
@@ -536,6 +544,63 @@ pub fn merge(
         .position(|t| t.recording == keep)
         .ok_or(Refused::ItemGone)?;
     let staying = all.remove(at);
+    all.insert(0, staying);
+    let members = all
+        .iter()
+        .map(|t| Member {
+            recording: t.recording,
+            library_track: t.library_track,
+        })
+        .collect();
+    Ok((all, members))
+}
+
+/// What a merge into `keep` asks the user (1cB-20): one row per field where
+/// the item's tracks hold different values and at least one is the user's
+/// ([`super::merge_fields`]). Refused as [`merge`] is when the item isn't the
+/// one the screen showed.
+pub fn merge_questions(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    anchor: i64,
+    shown: &[i64],
+    keep: i64,
+) -> Result<Vec<MergeField>, Refused> {
+    let (_, members) = members(conn, volumes, anchor, shown, keep)?;
+    Ok(merge_fields::plan(conn, volumes, &members)?.fields())
+}
+
+/// Merges the "Same track twice" item named by `anchor` (whose Library
+/// tracks the screen showed as `shown`) into the track `keep`, one of them,
+/// as one operation: the confirmed, undoable action CLAUDE.md asks of
+/// deleting a Library track. See the module docs for what it writes.
+///
+/// `choices` are the values the user picked where the tracks differ
+/// ([`merge_questions`]); a field not named takes the staying track's value.
+/// The values the staying track takes become its own values, in the same
+/// operation, so Undo restores both tracks and their values exactly.
+///
+/// Refused, changing nothing, when the item isn't the one the screen showed
+/// or `keep` isn't one of its Library tracks ([`Refused::ItemGone`]), when a
+/// choice isn't of a question the screen showed (also
+/// [`Refused::ItemGone`]), and when two of its tracks are linked as versions
+/// (versions never merge; [`Refused::LinkedVersions`]).
+///
+/// `volumes` says where each drive is, for what each track is sent as; no
+/// file is opened. On the database's writer, hand in an answer taken
+/// beforehand ([`crate::relink::Mounted`]).
+pub fn merge_choosing(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+    anchor: i64,
+    shown: &[i64],
+    keep: i64,
+    choices: &[MergeChoice],
+) -> Result<Merged, Refused> {
+    let (mut all, members) = members(conn, volumes, anchor, shown, keep)?;
+    let recordings: Vec<i64> = all.iter().map(|t| t.recording).collect();
+    let writes = merge_fields::plan(conn, volumes, &members)?.writes(choices)?;
+    let staying = all.remove(0);
     let mut leaving = Vec::with_capacity(all.len());
     for track in all {
         let entry = left_behind(conn, &track)?;
@@ -550,6 +615,7 @@ pub fn merge(
         "tracks": merged.len(),
         "keepLibraryTrack": staying.library_track.0,
         "keepLinked": staying.linked_file,
+        "valuesTaken": writes.len(),
     });
     // One writer call: nothing changes between the plan and the writes.
     let recorded = ops::record_with_derived(
@@ -559,6 +625,17 @@ pub fn merge(
         |rec| {
             for (track, entry) in leaving {
                 fold(rec, &staying, &track, entry)?;
+            }
+            // The values the user chose from the tracks that leave: the
+            // staying track's own from now on (the engine's store, 1.10).
+            for write in &writes {
+                app_values::set_in(
+                    rec,
+                    staying.library_track,
+                    &write.field,
+                    &write.value,
+                    write.rekordbox.clone(),
+                )?;
             }
             Ok(())
         },
@@ -707,8 +784,25 @@ pub fn review_keep_both(
     Ok(acted)
 }
 
+/// The fields a merge of a "Same track twice" item into `keep` asks about
+/// (1cB-20): `recording_ids` are the Library tracks the screen showed.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn review_merge_questions(
+    reads: State<'_, ReadPool>,
+    anchor: i64,
+    recording_ids: Vec<i64>,
+    keep: i64,
+) -> Result<Vec<MergeField>, IpcError> {
+    let mounted = mounted(&reads)?;
+    reads
+        .read(|c| Ok(merge_questions(c, &mounted, anchor, &recording_ids, keep)))?
+        .map_err(IpcError::from)
+}
+
 /// Merges a "Same track twice" item into `keep`: `recording_ids` are the
-/// Library tracks the screen showed.
+/// Library tracks the screen showed, `choices` the values picked where the
+/// tracks differ.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn review_merge(
@@ -718,9 +812,19 @@ pub fn review_merge(
     anchor: i64,
     recording_ids: Vec<i64>,
     keep: i64,
+    choices: Vec<MergeChoice>,
 ) -> Result<Merged, IpcError> {
     let mounted = mounted(&reads)?;
-    let merged = writer.call(move |c| Ok(merge(c, &mounted, anchor, &recording_ids, keep)))??;
+    let merged = writer.call(move |c| {
+        Ok(merge_choosing(
+            c,
+            &mounted,
+            anchor,
+            &recording_ids,
+            keep,
+            &choices,
+        ))
+    })??;
     ask_for_merge_follow_up(&writer, &jobs);
     Ok(merged)
 }

@@ -116,6 +116,7 @@ export function ReviewScreen() {
         loaded[0]?.id ??
         null);
   const shownField = pickedField ?? (selected === null ? (fields[0]?.field ?? null) : null);
+  const shownInfo = fields.find((f) => f.field === shownField) ?? null;
   const comparison = useReviewItem(selected);
   // "More details" stays on from one item to the next.
   const [details, setDetails] = useState(false);
@@ -167,8 +168,8 @@ export function ReviewScreen() {
               </ReviewQueue>
             </div>
             <div className={styles.right}>
-              {shownField !== null ? (
-                <ConflictsPane key={shownField} field={shownField} />
+              {shownInfo !== null ? (
+                <ConflictsPane key={shownInfo.field} info={shownInfo} />
               ) : comparison.isError ? (
                 <p role="alert" className={styles.error}>
                   {errorMessage(comparison.error)}

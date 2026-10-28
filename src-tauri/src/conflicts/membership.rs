@@ -204,6 +204,49 @@ pub fn crate_of(conn: &Connection, field: &str) -> rusqlite::Result<Option<Crate
     Ok(crate_paths(&rows).get(&key).copied().map(CrateId))
 }
 
+/// How the Conflicts screen names the crate each of `fields` (membership
+/// fields) is about: its name, inside the names of the folders it is in,
+/// joined with `" / "`, as the user sees them in the sidebar. A field whose
+/// crate the app no longer has (or that isn't a membership) is named by the
+/// last name of its key, as the writer compares siblings; one that doesn't
+/// read at all isn't in the answer.
+pub fn crate_labels(
+    conn: &Connection,
+    fields: &[String],
+) -> rusqlite::Result<HashMap<String, String>> {
+    let rows: Vec<(i64, Option<i64>, String, String)> = conn
+        .prepare(CRATE_ROWS)?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let paths = crate_paths(&rows);
+    let by_id: HashMap<i64, &(i64, Option<i64>, String, String)> =
+        rows.iter().map(|row| (row.0, row)).collect();
+    let mut labels = HashMap::new();
+    for field in fields {
+        let Some(key) = key_of(field) else {
+            continue;
+        };
+        let label = match paths.get(&key) {
+            Some(&id) => {
+                let mut names = Vec::new();
+                let mut at = Some(id);
+                while let Some(row) = at.and_then(|id| by_id.get(&id)) {
+                    names.push(row.3.as_str());
+                    at = row.1;
+                    if names.len() > rekordbox_write::MAX_DEPTH {
+                        break;
+                    }
+                }
+                names.reverse();
+                names.join(" / ")
+            }
+            None => key.last().cloned().unwrap_or_default(),
+        };
+        labels.insert(field.clone(), label);
+    }
+    Ok(labels)
+}
+
 /// A playlist the app sent, as its record says.
 struct SentPlaylist {
     /// The last send that wrote it; `None` before migration 0036 (no base).

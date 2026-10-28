@@ -18,6 +18,8 @@ export const REVIEW_ACCEPT_ALL_QUERY_KEY = ["reviewAcceptAllCount"] as const;
 export const CONFLICT_FIELDS_QUERY_KEY = ["conflictFields"] as const;
 /** The open conflicts of one field, a page at a time. */
 export const CONFLICTS_QUERY_KEY = ["conflicts"] as const;
+/** The values a merge of two Library tracks asks about (1cB-20). */
+export const REVIEW_MERGE_QUESTIONS_QUERY_KEY = ["reviewMergeQuestions"] as const;
 /** Everything Review shows: invalidate these after an action, an undo, and when a job ends. */
 export const REVIEW_QUERY_KEYS = [
   REVIEW_COUNTS_QUERY_KEY,
@@ -26,6 +28,7 @@ export const REVIEW_QUERY_KEYS = [
   REVIEW_ACCEPT_ALL_QUERY_KEY,
   CONFLICT_FIELDS_QUERY_KEY,
   CONFLICTS_QUERY_KEY,
+  REVIEW_MERGE_QUESTIONS_QUERY_KEY,
 ] as const;
 
 /** How many items a group loads at a time. */

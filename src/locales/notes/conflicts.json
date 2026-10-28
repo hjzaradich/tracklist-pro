@@ -99,6 +99,18 @@
     "purpose": "Column heading for the buttons of each conflict (not drawn, read by screen readers).",
     "where": "Review screen, Conflicts pane, table heading."
   },
+  "membership.field": {
+    "purpose": "Names a crate-membership conflict by its crate ({{name}} is the crate's name, inside the names of its folders): the field's name in the Conflicts group and above its conflicts.",
+    "where": "Review screen, Conflicts group and the pane of that crate."
+  },
+  "membership.in": {
+    "purpose": "Says the crate holds the track (a side's value of a crate-membership conflict).",
+    "where": "Review screen, Conflicts pane, App, rekordbox and Last sent columns of a crate."
+  },
+  "membership.out": {
+    "purpose": "Says the crate does not hold the track (a side's value of a crate-membership conflict).",
+    "where": "Review screen, Conflicts pane, App, rekordbox and Last sent columns of a crate."
+  },
   "neverSent": {
     "purpose": "Says the field was never sent, so there is no earlier value.",
     "where": "Review screen, Conflicts pane, Last sent column."

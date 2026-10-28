@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Choice, ConflictRow, ValueKind } from "../bindings";
+import type { Choice, ConflictField, ConflictRow, ValueKind } from "../bindings";
 import {
   canGive,
   colourOf,
@@ -13,7 +13,7 @@ import {
   starsOf,
   startingValue,
 } from "./conflictValues";
-import { fieldLabel } from "./ConflictsGroup";
+import { conflictLabel } from "./ConflictsGroup";
 import { trackLabel } from "./ReviewQueue";
 import { useConflicts, useResolveConflict, useResolveConflicts } from "./useConflicts";
 import styles from "./ReviewComparison.module.css";
@@ -48,6 +48,9 @@ export function ConflictValue({
         </span>
       );
     }
+  }
+  if (kind === "membership" && (value === "in" || value === "out")) {
+    return <>{t(value === "in" ? "membership.in" : "membership.out")}</>;
   }
   const text = value ?? "";
   if (isNone(field, text)) return <span className={conflictStyles.muted}>{t("noValue")}</span>;
@@ -159,8 +162,9 @@ function ConflictLine({
   const [draft, setDraft] = useState<string | null>(null);
   const name = trackLabel(review, { recordingId: null, title: row.track.title, artist: row.track.artist });
   const fits = draft !== null && canGive(row.kind, draft);
-  // The app holds no value of its own for a file location: nothing to give.
-  const editable = row.kind !== "location";
+  // The app holds no value of its own for a file location, and a crate
+  // either holds the track or it doesn't: nothing to give by hand.
+  const editable = row.kind !== "location" && row.kind !== "membership";
   // Under a title or artist in dispute the name is one of the two values, so
   // the file's name says which track this is.
   const showFile = NAMED_BY_THE_FIELD.includes(row.field) && row.track.fileName !== null;
@@ -240,7 +244,8 @@ function ConflictLine({
  * the app's value, rekordbox's, and what the field was at the last send (or
  * that it was never sent). Each row has "Keep app's", "Keep rekordbox's" and
  * "Edit" (a value given by hand, in a field of the field's kind; not for a
- * file location); under the table two buttons settle every conflict of the
+ * file location or a crate membership, which are only kept one way or the
+ * other); under the table two buttons settle every conflict of the
  * field in one go, refused if the number of conflicts is no longer the one the
  * button shows. There is no suggestion, so no button is the filled one, and
  * Enter and the other Review keys do nothing here: each conflict is a choice
@@ -248,8 +253,11 @@ function ConflictLine({
  * settling back, a bulk one as a whole. After a conflict is settled the focus
  * goes to the next row, so a keyboard user can go on.
  */
-export function ConflictsPane({ field }: { field: string }) {
+export function ConflictsPane({ info }: { info: ConflictField }) {
   const { t } = useTranslation("conflicts");
+  const field = info.field;
+  // Not made of the field's name: a crate's playlist path holds any character.
+  const headingId = useId();
   // "Show more" is the one wording every Review list uses.
   const { t: review } = useTranslation("review");
   const list = useConflicts(field);
@@ -287,9 +295,9 @@ export function ConflictsPane({ field }: { field: string }) {
   }
 
   return (
-    <section className={styles.comparison} aria-labelledby={`conflicts-${field}`}>
-      <h2 id={`conflicts-${field}`} className={styles.heading}>
-        {fieldLabel(t, field)}{" "}
+    <section className={styles.comparison} aria-labelledby={headingId}>
+      <h2 id={headingId} className={styles.heading}>
+        {conflictLabel(t, info)}{" "}
         {loaded && <span className={conflictStyles.muted}>{t("fieldCount", { count: total })}</span>}
       </h2>
       {failure && (
