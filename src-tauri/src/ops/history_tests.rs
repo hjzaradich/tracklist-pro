@@ -24,7 +24,7 @@ use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 13] = [
+pub(super) const LOGGED_TABLES: [&str; 14] = [
     "library_track",
     "library_removal",
     "crate",
@@ -38,6 +38,7 @@ pub(super) const LOGGED_TABLES: [&str; 13] = [
     "relink",
     "grouping_decision",
     "track_merge",
+    "file_choice",
 ];
 
 /// The tables an action changes through the log only by setting fields of

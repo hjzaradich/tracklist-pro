@@ -21,12 +21,10 @@
 //!   "Show again", [`show_again`]) or `inbox_cleared` (a cleared Inbox file;
 //!   Phase 2 adds "Put back in Inbox", nothing writes this reason yet);
 //! - an extra copy of a track (`recording_file.role = 'extra'`), whose reason
-//!   names the track and the file that was chosen as its best. Its way back
-//!   would be "Use this file instead", which has to reopen a settled
-//!   best-file choice in Review. Review has no such path (the best file is
-//!   the ranking's, ROADMAP 1.7, and the Library link only moves when its
-//!   file is gone), so it needs a design decision and is not built:
-//!   [`WayBack`] has no variant for it yet.
+//!   names the track and the file that was chosen as its best (by the ranking,
+//!   or by the user). Its way back is "Use this file instead" (`choose`,
+//!   1cB-22), for a track outside the Library; a Library track's extra file
+//!   has the reason and no button.
 //!
 //! Nothing in the app hides a file yet: [`show_again`] is the way back, built
 //! and tested against a file whose reason a test sets.
@@ -50,8 +48,13 @@ use crate::search::{self, Why};
 use crate::send_values::file_name;
 use crate::track_table::{SortColumn, TableSort};
 
+mod choose;
+#[cfg(test)]
+mod choose_tests;
 #[cfg(test)]
 mod tests;
+
+pub use choose::{use_this_file, Chosen, USE_THIS_FILE_OPERATION};
 
 /// SQL for "the track `$track` (a SQL expression for its id) has a file the
 /// app shows": a file with no `hidden_reason`. The one place that says what
@@ -88,18 +91,20 @@ pub const SHOW_AGAIN_OPERATION: &str = "show_file_again";
 pub enum WayBack {
     /// Clears the file's `hidden_reason` ("Show again").
     ShowAgain,
+    /// Makes the file the one its track shows ("Use this file instead",
+    /// `hidden::choose`).
+    UseThisFile,
 }
 
 impl WayBack {
-    /// The way back for a file hidden for `why`, if one is built.
-    pub fn of(why: Why) -> Option<WayBack> {
+    /// The way back for a file hidden for `why`, if one is built. `choosable`
+    /// is whether an extra file can be chosen (`choose::Candidate::refusal`).
+    pub fn of(why: Why, choosable: bool) -> Option<WayBack> {
         match why {
             Why::UserHid => Some(WayBack::ShowAgain),
             // Phase 2: "Put back in Inbox" (the Inbox doesn't exist yet).
             Why::ClearedInbox => None,
-            // "Use this file instead" needs a decision on how a user's
-            // pick sits with the ranking (see the module docs).
-            Why::ExtraFile => None,
+            Why::ExtraFile => choosable.then_some(WayBack::UseThisFile),
         }
     }
 }
@@ -120,6 +125,11 @@ pub struct HiddenRow {
     pub file: String,
     /// For an extra copy, the name of the file chosen as the track's best.
     pub best_file: Option<String>,
+    /// For an extra copy: that best file is the one the user chose.
+    pub best_file_chosen: bool,
+    /// For an extra copy: its track is in the Library, so it can't be
+    /// switched to this file (1cB-22).
+    pub track_in_library: bool,
 }
 
 /// What the Hidden filter is asked for: a window, like the track table's.
@@ -249,10 +259,20 @@ pub fn page(
         best.insert(recording, file_name(&path).to_owned());
     }
 
+    // What decides whether an extra copy can be chosen.
+    let extras: Vec<i64> = listed
+        .iter()
+        .filter(|l| Why::of(l.2.as_deref()) == Why::ExtraFile)
+        .map(|l| l.0)
+        .collect();
+    let candidates = choose::candidates(conn, &extras)?;
+
     let rows = listed
         .into_iter()
         .map(|(file_id, recording_id, reason, path)| {
             let why = Why::of(reason.as_deref());
+            let candidate = candidates.get(&file_id);
+            let choosable = candidate.is_some_and(|c| c.refusal().is_none());
             let shown = recording_id.and_then(|id| fields.get(&id));
             let best_file = recording_id.and_then(|id| best.get(&id).cloned());
             let blank = |text: &str| (!text.trim().is_empty()).then(|| text.to_owned());
@@ -260,7 +280,7 @@ pub fn page(
                 file_id,
                 recording_id,
                 why,
-                way_back: WayBack::of(why),
+                way_back: WayBack::of(why, choosable),
                 track: shown
                     .and_then(|s| blank(&s.title))
                     .or_else(|| best_file.clone())
@@ -268,6 +288,8 @@ pub fn page(
                 artist: shown.and_then(|s| blank(&s.artist)),
                 file: file_name(&path).to_owned(),
                 best_file: best_file.filter(|_| why == Why::ExtraFile),
+                best_file_chosen: candidate.is_some_and(|c| c.shown_is_chosen),
+                track_in_library: candidate.is_some_and(|c| c.in_library),
             }
         })
         .collect();
@@ -333,6 +355,13 @@ pub fn show_again(conn: &mut Connection, file: i64) -> Result<ShownAgain, ops::O
 #[specta::specta]
 pub fn show_file_again(writer: State<'_, Writer>, file_id: i64) -> Result<ShownAgain, IpcError> {
     Ok(writer.call(move |conn| Ok(show_again(conn, file_id)))??)
+}
+
+/// "Use this file instead" for an extra file of a track outside the Library.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn use_this_file_instead(writer: State<'_, Writer>, file_id: i64) -> Result<Chosen, IpcError> {
+    Ok(writer.call(move |conn| Ok(use_this_file(conn, file_id)))??)
 }
 
 /// How many hidden files a search matches that its results don't show

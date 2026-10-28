@@ -33,7 +33,8 @@
 }
 
 /* The Hidden switch: as quiet as a filter chip; pressed, its border and text
- * take the accent (nothing is tinted: only the selected row is). */
+ * take the accent and the text is underlined, so colour is not the only cue
+ * (nothing is tinted: only the selected row is). */
 .toggle {
   min-height: var(--row-height);
   padding: 0 var(--space-2);
@@ -52,6 +53,8 @@
 .toggle[aria-pressed="true"] {
   border-color: var(--color-accent);
   color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .inLibrary {

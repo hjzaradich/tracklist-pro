@@ -414,6 +414,10 @@
     "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",
     "approved": "the only file"
   },
+  "reason.chosen": {
+    "purpose": "Why a file is its track's best file when the user chose it with \"Use this file instead\" (ROADMAP 1.11, 1cB-22); the ranking's reason for its first step. A fragment, per docs/copy-style.md. Proposal.",
+    "where": "Review, comparison, the reason line of the best file."
+  },
   "reason.notOnDisk": {
     "purpose": "Reason: the suggested file is there and the other is gone.",
     "where": "Review screen, comparison on the right, the reason under \"Suggested\" (a fragment, per docs/copy-style.md).",

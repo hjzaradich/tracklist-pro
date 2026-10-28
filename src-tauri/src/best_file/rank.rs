@@ -50,6 +50,7 @@ pub const LOSSY_ORDER: [Codec; 5] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Step {
+    Chosen,
     OnDisk,
     Verdict,
     Playable,
@@ -70,6 +71,8 @@ pub enum Step {
 pub enum Reason {
     /// The track has one file; nothing to compare it to.
     OnlyFile,
+    /// The user chose this file.
+    Chosen,
     /// The other file is gone and this one is there.
     NotOnDisk,
     /// A better verdict (`None`: not checked).
@@ -109,6 +112,7 @@ impl Reason {
     pub fn step(&self) -> Option<Step> {
         Some(match self {
             Reason::OnlyFile => return None,
+            Reason::Chosen => Step::Chosen,
             Reason::NotOnDisk => Step::OnDisk,
             Reason::BetterVerdict { .. } => Step::Verdict,
             Reason::Playable => Step::Playable,
@@ -204,6 +208,7 @@ fn compare(a: &FileFacts, b: &FileFacts) -> Ordering {
 /// one place the order of the steps is written.
 fn first_difference(a: &FileFacts, b: &FileFacts) -> Option<(Step, Ordering)> {
     let steps = [
+        (Step::Chosen, a.chosen.cmp(&b.chosen)),
         (Step::OnDisk, a.on_disk.cmp(&b.on_disk)),
         (Step::Verdict, tier(a).cmp(&tier(b))),
         (Step::Playable, a.plays_in_dj_app.cmp(&b.plays_in_dj_app)),
@@ -224,6 +229,7 @@ fn first_difference(a: &FileFacts, b: &FileFacts) -> Option<(Step, Ordering)> {
 
 fn reason(step: Step, best: &FileFacts, other: &FileFacts) -> Reason {
     match step {
+        Step::Chosen => Reason::Chosen,
         Step::OnDisk => Reason::NotOnDisk,
         Step::Verdict => Reason::BetterVerdict {
             best: best.quality.verdict,

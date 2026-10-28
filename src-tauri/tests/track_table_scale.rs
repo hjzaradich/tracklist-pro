@@ -271,6 +271,21 @@ impl Db {
                             }
                         }
                     }
+                    // Tracks whose only file the user hid: All music leaves them out
+                    // (ROADMAP 1.11, the one rule), by a condition worked out when
+                    // the query runs. About one in 2,000, so the condition has
+                    // something to do at 100,000 tracks.
+                    let mut hidden_file = tx.prepare(
+                        "INSERT INTO file (music_folder_id, rel_path, rel_path_key, present, hidden_reason)
+                         VALUES (1, ?1, ?1, 1, 'user')",
+                    )?;
+                    for h in 0..hidden_only(tracks) {
+                        recording.execute([])?;
+                        let recording_id = tx.last_insert_rowid();
+                        hidden_file.execute([format!("Hidden/hidden {h}.mp3")])?;
+                        let file_id = tx.last_insert_rowid();
+                        link.execute(rusqlite::params![recording_id, file_id])?;
+                    }
                 }
                 // The verdicts are current, as the quality job leaves them.
                 tx.execute(
@@ -319,6 +334,11 @@ impl Db {
             .unwrap()
             .expect("the crate exists")
     }
+}
+
+/// How many tracks have only a hidden file.
+fn hidden_only(tracks: u64) -> u64 {
+    (tracks / 2_000).max(3)
 }
 
 fn timed<T>(work: impl FnOnce() -> T) -> (T, Duration) {
@@ -758,6 +778,20 @@ fn run(tracks: u64, check: bool) {
     if check {
         let all = db.page(query(TableSource::AllMusic));
         assert_eq!(all.total, Some(u32::try_from(tracks).unwrap()));
+        // The tracks with only a hidden file are in no list of All music, and
+        // the Library, which they are not in, is unchanged.
+        let hidden: Vec<i64> = db
+            .writer
+            .call(|c| {
+                c.prepare(
+                    "SELECT rf.recording_id FROM recording_file rf JOIN file f ON f.id = rf.file_id
+                     WHERE f.hidden_reason IS NOT NULL",
+                )?
+                .query_map([], |r| r.get(0))?
+                .collect()
+            })
+            .unwrap();
+        assert_eq!(hidden.len() as u64, hidden_only(tracks));
         let library = db.page(query(TableSource::Library));
         assert_eq!(
             library.total,
@@ -777,6 +811,7 @@ fn run(tracks: u64, check: bool) {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(stitched.len(), tracks as usize);
+        assert!(stitched.iter().all(|id| !hidden.contains(id)));
         assert_eq!(seen.len(), tracks as usize);
         // The rows without a BPM come last.
         let first = db.page(sorted(TableSource::AllMusic, SortColumn::Bpm, false));

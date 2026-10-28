@@ -69,6 +69,7 @@ fn khz(hz: u32) -> f64 {
 pub fn from_rank(reason: &Rank) -> Reason {
     match reason {
         Rank::OnlyFile => fact("review:reason.onlyFile"),
+        Rank::Chosen => fact("review:reason.chosen"),
         Rank::NotOnDisk => fact("review:reason.notOnDisk"),
         Rank::BetterVerdict { .. } => fact("review:reason.betterVerdict"),
         Rank::Playable => fact("review:reason.playable"),

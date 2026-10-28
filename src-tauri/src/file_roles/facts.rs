@@ -5,11 +5,12 @@
 //! whether a drive is plugged in is not read ([`Place::volume_online`] is
 //! always `true` here), so the roles are the same with the drive in or out.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rusqlite::Connection;
 use serde_json::Value;
 
+use super::choice::{content_key, Choices, Held};
 use crate::best_file::{
     Art, FileFacts, FolderRole, Format, Place, Quality, RekordboxLink, VolumeKind,
 };
@@ -81,7 +82,8 @@ fn read(
                                       WHERE rt.file_id = f.id AND rt.relink_probable = 0) THEN 2
                          WHEN EXISTS (SELECT 1 FROM rekordbox_track rt
                                       WHERE rt.file_id = f.id AND rt.relink_probable = 1) THEN 1
-                         ELSE 0 END
+                         ELSE 0 END,
+                    f.audio_hash, f.blake3
              {tail}",
             version = crate::quality::VERSION
         ))?;
@@ -100,6 +102,8 @@ fn read(
                 volume_kind: r.get(10)?,
                 cutoff_hz: r.get(11)?,
                 rekordbox: r.get(12)?,
+                audio_hash: r.get(13)?,
+                blake3: r.get(14)?,
             })
         })?;
         for row in mapped {
@@ -108,7 +112,7 @@ fn read(
     }
     let file_ids: Vec<i64> = rows.iter().map(|r| r.file).collect();
     let verdicts = crate::quality::stored_verdicts(conn, &file_ids)?;
-    let mut by_recording: BTreeMap<i64, Vec<Loaded>> = BTreeMap::new();
+    let mut by_recording: BTreeMap<i64, Vec<(Loaded, Held)>> = BTreeMap::new();
     for row in rows {
         let assessment = verdicts.get(&row.file);
         let quality = match assessment {
@@ -138,6 +142,7 @@ fn read(
                 1 => RekordboxLink::Probable,
                 _ => RekordboxLink::Unknown,
             },
+            chosen: false,
             place: Place {
                 // Not whether the drive is plugged in now: that would move
                 // the best file whenever a drive is, which the roles must
@@ -155,12 +160,59 @@ fn read(
                 folder_order: row.folder,
             },
         };
-        by_recording.entry(row.recording).or_default().push(Loaded {
+        let held = Held {
+            on_disk: row.present,
+            key: content_key(row.audio_hash, row.blake3.as_ref()),
+            blake3: row.blake3,
+        };
+        let loaded = Loaded {
             facts,
             role: row.role,
-        });
+        };
+        by_recording
+            .entry(row.recording)
+            .or_default()
+            .push((loaded, held));
     }
-    Ok(by_recording)
+    // What the user chose (`file_choice`) is decisive: a track's files that
+    // a choice covers are marked, so the ranking puts them first.
+    // A track in the Library has no choice: the feature is for tracks outside
+    // it (owner decision, 2026-10-28), so the ranking, and Review's rules
+    // that read it, work as if there were none. The row stays and applies
+    // again if the track leaves the Library.
+    let choices = Choices::load(conn)?;
+    let in_library = if choices.is_empty() {
+        HashSet::new()
+    } else {
+        library_tracks(conn, by_recording.keys().copied())?
+    };
+    Ok(by_recording
+        .into_iter()
+        .map(|(recording, files)| {
+            let (mut loaded, held): (Vec<Loaded>, Vec<Held>) = files.into_iter().unzip();
+            if !in_library.contains(&recording) {
+                for (file, chosen) in loaded.iter_mut().zip(choices.chosen(&held)) {
+                    file.facts.chosen = chosen;
+                }
+            }
+            (recording, loaded)
+        })
+        .collect())
+}
+
+/// Which of `recordings` are in the Library.
+fn library_tracks(
+    conn: &Connection,
+    recordings: impl Iterator<Item = i64>,
+) -> rusqlite::Result<HashSet<i64>> {
+    let wanted =
+        serde_json::to_string(&recordings.collect::<Vec<_>>()).unwrap_or_else(|_| "[]".into());
+    conn.prepare_cached(
+        "SELECT DISTINCT recording_id FROM library_track
+         WHERE recording_id IN (SELECT value FROM json_each(?1))",
+    )?
+    .query_map([wanted], |r| r.get(0))?
+    .collect()
 }
 
 struct Row {
@@ -177,6 +229,8 @@ struct Row {
     volume_kind: String,
     cutoff_hz: Option<i64>,
     rekordbox: i64,
+    audio_hash: Option<Vec<u8>>,
+    blake3: Option<Vec<u8>>,
 }
 
 /// The descriptive tags a file's `raw_tags` give. Album artist and ISRC

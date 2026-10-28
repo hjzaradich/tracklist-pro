@@ -1363,6 +1363,9 @@ fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<(
                  WHERE c.operation_id = ?1 AND c.entity = 'recording_file'
                    AND c.field = 'recording_id'
                  UNION
+                 SELECT CAST(json_extract(o.details, '$.recordingId') AS INTEGER)
+                 FROM operation o WHERE o.id = ?1 AND o.kind = '{}'
+                 UNION
                  SELECT lt.recording_id FROM library_track lt
                  JOIN file f ON f.id = lt.linked_file_id
                  WHERE lower(hex({})) IN (
@@ -1370,6 +1373,7 @@ fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<(
                      WHERE c.operation_id = ?1 AND c.entity = 'review_decision'
                        AND c.field = 'linked_key'))
              ORDER BY recording_id LIMIT ?2",
+            crate::hidden::USE_THIS_FILE_OPERATION,
             crate::grouping::CONTENT_KEY
         ))?
         .query_map(params![operation, crate::file_roles::BATCH as i64], |r| {
@@ -1679,6 +1683,10 @@ fn undo_delete(
 ///   the one function that moves a file (`review::same::move_file`): a merge
 ///   of two Library tracks (Review, 1bE-9), "these are the same track" and a
 ///   split (Review, 1bE-2).
+/// - `file_choice.blake3` is the bytes of the chosen file (1cB-22): a retag
+///   of the file moves the choice to its new bytes (a database trigger,
+///   migration 0037), so the choice keeps naming that file. Undoing the
+///   choice must still work after that.
 ///
 /// Undoing a **set** of a derived column leaves the column as it is: no
 /// "changed since" check, nothing of the value before written back. The
@@ -1697,6 +1705,7 @@ pub(crate) const DERIVED_FIELDS: &[(&str, &str)] = &[
     ("relink", "file_id"),
     ("recording_file", "role"),
     ("recording_file", "match_confidence"),
+    ("file_choice", "blake3"),
 ];
 
 fn is_derived(entity: &str, field: &str) -> bool {

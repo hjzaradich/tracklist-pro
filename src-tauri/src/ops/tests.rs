@@ -1714,6 +1714,7 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
             ("relink", "file_id"),
             ("recording_file", "role"),
             ("recording_file", "match_confidence"),
+            ("file_choice", "blake3"),
         ]
     );
     for (table, field) in DERIVED_FIELDS {
@@ -1776,6 +1777,16 @@ fn undo_skips_exactly_the_declared_derived_columns_when_it_asks_what_changed_sin
                     "UPDATE recording_file SET match_confidence = 0.5",
                     "INSERT INTO recording DEFAULT VALUES;
                      UPDATE recording_file SET recording_id = 2",
+                ),
+                ("file_choice", "blake3") => (
+                    vec![
+                        ("content_key", Value::Blob(vec![1, 2])),
+                        ("blake3", Value::Blob(vec![7; 32])),
+                    ],
+                    // The chosen file is retagged: its bytes change, and the
+                    // choice follows them.
+                    "UPDATE file_choice SET blake3 = zeroblob(32)",
+                    "UPDATE file_choice SET chosen_at = '2026-10-13T10:00:00.000Z'",
                 ),
                 other => panic!("no case for the derived column {other:?}"),
             };
