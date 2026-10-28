@@ -263,7 +263,9 @@ pub fn forget_taken_up(conn: &Connection, read_at: &str) -> rusqlite::Result<()>
          WHERE b.replaced IS NOT NULL
          ORDER BY b.library_track_id, b.id",
     )?;
-    let mut tracks: Vec<(i64, String, Vec<(String, String)>)> = Vec::new();
+    // Per track: the Location sent, and each recorded field with its base.
+    type Sent = (i64, String, Vec<(String, String)>);
+    let mut tracks: Vec<Sent> = Vec::new();
     for row in stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))? {
         let (track, field, base, location): (i64, String, String, String) = row?;
         match tracks.last_mut() {
