@@ -24,6 +24,7 @@ mod partial_hash;
 mod relink_decisions;
 mod review_decisions;
 mod search_index;
+mod send_records;
 mod sent_playlist;
 mod sync_base_ids;
 mod track_merge;
@@ -260,6 +261,9 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0034_ui_setting.sql", &["ui_setting"]),
     // The app's own value per field of a Library track (1cB-18).
     ("0035_app_value.sql", &["app_value"]),
+    // What each send replaced (a `sync_base` column), each track's playlist
+    // entries, and a number per send (1cB-19).
+    ("0036_send_records.sql", &["send", "sent_entry"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

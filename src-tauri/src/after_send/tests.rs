@@ -490,6 +490,7 @@ impl Lib {
             .map(|(path, folder)| SentPath {
                 path: path.iter().map(|n| (*n).to_owned()).collect(),
                 folder: *folder,
+                entries: Vec::new(),
             })
             .collect();
         self.writer

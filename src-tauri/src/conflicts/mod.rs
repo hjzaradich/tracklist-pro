@@ -54,8 +54,11 @@
 //!   user's edits, kept by [`app_values`].
 //! - **Rows 7 and 12** need [`Sides::replaced`]: the value rekordbox showed
 //!   that the app's present value replaced. `None` means it isn't known,
-//!   and then these rows never match. [`app_values`] records it with each
-//!   edit. Row 7 is a send that was never
+//!   and then these rows never match. For a field never sent it's what the
+//!   edit replaced ([`app_values`] records it with each edit); for a field
+//!   sent before, what that send replaced, as the send recorded it
+//!   ([`crate::rekordbox_write::record_send`], forgotten once a read shows
+//!   the send taken up). Row 7 is a send that was never
 //!   imported (or answered "No" in rekordbox): the base says the app's
 //!   value went out, but rekordbox still shows what it showed before.
 //!   Without `replaced` that reads as "rekordbox changed it back" (row 8)
@@ -99,8 +102,9 @@
 //! A value that doesn't parse as its kind is compared as exact text, so two
 //! unreadable values are only equal when they're identical. `Comments` is
 //! one text field, My Tags block included. Playlist membership isn't a
-//! field yet (nothing records what a send put in a playlist); [`decide`]
-//! takes any field name, so it can become one.
+//! field yet. Its base is recorded per track and sent playlist
+//! ([`crate::rekordbox_write::sent_entries`]), and [`decide`] takes any
+//! field name, so it can become one.
 
 pub mod app_values;
 mod compare;

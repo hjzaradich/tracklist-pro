@@ -447,8 +447,9 @@ fn fold(
             )?;
         }
     }
-    // 3. Its sync bases, conflicts, the app's own values and Library track.
-    for table in ["sync_base", "conflict", "app_value"] {
+    // 3. Its sync bases, sent playlist entries, conflicts, the app's own
+    //    values and Library track.
+    for table in ["sync_base", "sent_entry", "conflict", "app_value"] {
         let rows: Vec<i64> = rec.read_rows(
             &format!("SELECT id FROM {table} WHERE library_track_id = ?1 ORDER BY id"),
             [leaving.library_track.0],

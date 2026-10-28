@@ -255,8 +255,9 @@ impl RekordboxTree {
 
 /// Brings the recorded sends in step with a read. A recorded path the read
 /// holds is marked seen; one it lacks, that an earlier read had shown, is
-/// forgotten (the user deleted it). A path never seen stays: that send may
-/// not have been imported yet. Call it inside the read's own transaction.
+/// forgotten (the user deleted it), and a playlist's sent entries with it.
+/// A path never seen stays: that send may not have been imported yet. Call
+/// it inside the read's own transaction.
 fn settle_recorded(conn: &Connection, tree: &RekordboxTree) -> rusqlite::Result<()> {
     let present = tree.keyed_paths();
     let rows: Vec<(i64, String, String, bool)> = conn
@@ -275,6 +276,11 @@ fn settle_recorded(conn: &Connection, tree: &RekordboxTree) -> rusqlite::Result<
             conn.execute("UPDATE sent_playlist SET seen = 1 WHERE id = ?1", [id])?;
         } else if !here && seen {
             conn.execute("DELETE FROM sent_playlist WHERE id = ?1", [id])?;
+            // Its tracks' entries were the base of a playlist that's gone
+            // (`sent_entry`, 1cB-19).
+            if kind == StaleKind::Playlist {
+                conn.execute("DELETE FROM sent_entry WHERE path_key = ?1", [&path_key])?;
+            }
         }
     }
     Ok(())

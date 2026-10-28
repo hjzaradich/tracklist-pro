@@ -24,12 +24,13 @@ use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 12] = [
+pub(super) const LOGGED_TABLES: [&str; 13] = [
     "library_track",
     "library_removal",
     "crate",
     "crate_entry",
     "sync_base",
+    "sent_entry",
     "conflict",
     "app_value",
     "review_decision",
@@ -1379,11 +1380,12 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
         .unwrap();
     // `sync_base` since migration 0018, `conflict` since 0025, `app_value`
     // since it was made (0035: the send and the merge before it are to change
-    // it outside the log), `relink` since 0028 (the relink job writes it
+    // it outside the log), `sent_entry` since it was made (0036: a send
+    // writes it), `relink` since 0028 (the relink job writes it
     // outside the log, though it only fills a field in and never inserts).
     assert_eq!(
         never_reused,
-        ["sync_base", "conflict", "app_value", "relink"]
+        ["sync_base", "sent_entry", "conflict", "app_value", "relink"]
     );
 
     let sources = app_sources();
@@ -1408,7 +1410,7 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // The scan does see the inserts made outside the log (detecting
     // conflicts, and a send), so it isn't passing by blindness.
     seen.sort_unstable();
-    assert_eq!(seen, ["conflict", "sync_base"]);
+    assert_eq!(seen, ["conflict", "sent_entry", "sync_base"]);
 }
 
 #[test]

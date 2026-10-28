@@ -198,7 +198,9 @@ fn playlist_paths(xml: &RekordboxXml) -> HashMap<usize, Vec<Vec<String>>> {
 /// the previous snapshot stays as it was. For an incomplete export, rows
 /// from earlier reads whose Location it doesn't hold at all (stored or not)
 /// are kept, unless this read gives their `TrackID` to a track (then the
-/// kept row goes; the ids are only valid within one read).
+/// kept row goes; the ids are only valid within one read). A send the new
+/// rows show taken up has what it replaced forgotten, in the same
+/// transaction ([`crate::rekordbox_write::forget_taken_up`]).
 ///
 /// `before_commit` runs inside the transaction after the rows are in, with
 /// the rows' `read_at`, so a caller can record the read alongside them.
@@ -244,6 +246,9 @@ pub fn replace_snapshot(
         not_stored: count(rows.not_stored),
         complete: rows.complete,
     };
+    // A send this read shows taken up: what it replaced is forgotten
+    // (ROADMAP 1.10). Only this read's rows count, never kept ones.
+    crate::rekordbox_write::forget_taken_up(&tx, &read_at)?;
     before_commit(&tx, &summary, &read_at)?;
     tx.commit()?;
     Ok(summary)

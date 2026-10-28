@@ -44,7 +44,10 @@ fn the_three_sides_are_rekordboxs_entry_the_last_send_and_the_apps_own_values() 
         ],
     );
     let mut app = AppValues::default();
+    // What the send replaced, as it recorded it.
+    lib.run("UPDATE sync_base SET replaced = 'Minimal' WHERE field = 'Genre'");
     app.set(id, own("Genre", "Deep House", Some("House")));
+    app.set(id, own("Rating", "204", Some("153")));
 
     let track = one(&lib, id, &app);
 
@@ -57,7 +60,8 @@ fn the_three_sides_are_rekordboxs_entry_the_last_send_and_the_apps_own_values() 
             app: Some("Deep House".into()),
             rekordbox: Some("Tech House".into()),
             base: Some("House".into()),
-            replaced: Some("House".into()),
+            // For a field sent before, what the send replaced, not the edit.
+            replaced: Some("Minimal".into()),
         }
     );
     // A field the app holds no value of its own for.
@@ -65,10 +69,16 @@ fn the_three_sides_are_rekordboxs_entry_the_last_send_and_the_apps_own_values() 
         named(&track, "Name"),
         &field("Name", None, Some("Paper Harbor"), Some("Paper Harbor"))
     );
-    // Never sent: no base.
+    // Never sent: no base, and what the edit replaced.
     assert_eq!(
         named(&track, "Rating"),
-        &field("Rating", None, Some("153"), None)
+        &FieldSides {
+            field: "Rating".into(),
+            app: Some("204".into()),
+            rekordbox: Some("153".into()),
+            base: None,
+            replaced: Some("153".into()),
+        }
     );
     // Each side's own spelling, untouched.
     let location = named(&track, "Location");
