@@ -452,3 +452,53 @@ fn a_file_with_no_audio_hash_is_kept_by_its_whole_file_hash() {
     assert_eq!(best_of(&lib, track), a);
     assert_eq!(choices(&lib).len(), 1);
 }
+
+#[test]
+fn the_details_panel_reads_the_tags_of_the_file_a_choice_made_the_table_show() {
+    let (lib, track, a, b) = two_files();
+    lib.tag(a, &[("Name", "Best Title")]);
+    lib.tag(b, &[("Name", "Chosen Title")]);
+    choose(&lib, b).unwrap();
+    lib.settle();
+
+    // The file and path the table shows for the track, as the panel gets
+    // them with the selected row.
+    let q = TableQuery {
+        source: TableSource::AllMusic,
+        search: None,
+        filters: Vec::new(),
+        sort: None,
+        offset: 0,
+        limit: 100,
+        with_total: true,
+    };
+    let shown = lib
+        .writer
+        .call(move |c| {
+            let found = crate::track_table::read(c, &Mount, &q)?.expect("All music exists");
+            let dirs = crate::fragile::FragileDirs {
+                downloads: None,
+                temp: Vec::new(),
+            };
+            let page = crate::track_table::page(found, 0, &Mount, &dirs);
+            Ok(page.rows[0].file.clone().expect("a file"))
+        })
+        .unwrap();
+    assert_eq!(shown.id, b, "the choice is the file the table shows");
+
+    let sources = lib
+        .writer
+        .call(move |c| crate::send_values::tag_sources(c, &Mount, track, Some(shown.id)))
+        .unwrap();
+    let title = sources
+        .fields
+        .iter()
+        .find(|f| f.field == crate::send_values::TagField::Title)
+        .expect("a title");
+    let first = title.shown.as_ref().expect("a value");
+    assert_eq!(first.value, "Chosen Title");
+    assert_eq!(first.file.as_ref().map(|f| f.id), Some(b));
+    // The file it replaced is listed, naming its file.
+    assert_eq!(title.others.len(), 1);
+    assert_eq!(title.others[0].file.as_ref().map(|f| f.id), Some(a));
+}

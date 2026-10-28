@@ -34,6 +34,15 @@ impl Lib {
         self.writer.call(move |c| Ok(withdraw(c, row))).unwrap()
     }
 
+    /// The entry whose confirmation the Details panel offers to withdraw for
+    /// the track `recording` (1cB-17).
+    fn withdrawable(&self, recording: i64) -> Option<i64> {
+        self.writer
+            .call(move |c| crate::send_values::tag_sources(c, &Drives, recording, None))
+            .unwrap()
+            .confirmed_entry
+    }
+
     /// The user said `location`'s entry is not `file`, stored the way the
     /// app stores it, without an item to say it on.
     fn said_not_the_same(&self, location: &str, file: i64, method: Method) {
@@ -717,6 +726,69 @@ fn withdrawing_a_confirmation_returns_the_entry_to_recomputation() {
     assert!(!lib.probable(row));
     lib.relink(&mounted);
     assert_eq!(lib.matched(row), confirmed(guess));
+}
+
+#[test]
+fn a_library_track_offers_its_confirmation_to_withdraw_and_undo_brings_it_back() {
+    let (lib, mounted, guess, row) = a_name_guess();
+    let recording = lib.group(&[guess]);
+    lib.relink(&mounted);
+    lib.confirm_item(row, guess).unwrap();
+    promote_with(
+        &lib.writer,
+        &Drives,
+        &NO_DIRS,
+        recording,
+        Confirmed::default(),
+    )
+    .unwrap();
+    lib.relink(&mounted);
+    assert_eq!(lib.withdrawable(recording), Some(row));
+
+    // One operation; the entry is probable again and the track no longer
+    // knows it, so there is nothing left to withdraw.
+    let before = lib.operation_kinds().len();
+    lib.withdraw_item(row).unwrap();
+    assert_eq!(lib.operation_kinds().len(), before + 1);
+    assert_eq!(lib.withdrawable(recording), None);
+    assert!(matches!(lib.withdraw_item(row), Err(Refused::ItemGone)));
+    assert_eq!(
+        lib.operation_kinds().len(),
+        before + 1,
+        "a refusal records nothing"
+    );
+
+    // Undo restores the confirmation exactly.
+    assert_eq!(lib.undo_decision(), WITHDRAW_OPERATION);
+    assert_eq!(lib.withdrawable(recording), Some(row));
+    assert_eq!(lib.matched(row), confirmed(guess));
+}
+
+#[test]
+fn a_library_track_whose_entry_was_never_confirmed_has_nothing_to_withdraw() {
+    let (lib, music, mounted) = e_music();
+    let own = lib.file(music, "Alpha.mp3", Some(200_000));
+    let row = lib.track(&loc("E:/Music/Alpha.mp3"), Some("200"));
+    let recording = lib.group(&[own]);
+    lib.relink(&mounted);
+    promote_with(
+        &lib.writer,
+        &Drives,
+        &NO_DIRS,
+        recording,
+        Confirmed::default(),
+    )
+    .unwrap();
+    assert_eq!(lib.matched(row), path(own));
+    assert_eq!(lib.withdrawable(recording), None);
+    assert!(matches!(lib.withdraw_item(row), Err(Refused::ItemGone)));
+    assert_eq!(
+        lib.operation_kinds()
+            .iter()
+            .filter(|k| *k == WITHDRAW_OPERATION)
+            .count(),
+        0
+    );
 }
 
 // ---- the add to the Library ---------------------------------------------------------------

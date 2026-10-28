@@ -245,7 +245,7 @@ export const commands = {
 	reviewRejectRelink: (entryId: number, fileId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_reject_relink", { entryId, fileId })),
 	/**
 	 *  Withdraws the confirmation of the rekordbox entry `entry_id`'s Location:
-	 *  the entry is decided again from scratch. No screen calls it yet.
+	 *  the entry is decided again from scratch. The Details panel calls it (1cB-17).
 	 */
 	reviewWithdrawRelink: (entryId: number) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_withdraw_relink", { entryId })),
 	/**
@@ -427,6 +427,15 @@ export const commands = {
 	 *  the track isn't one of them.
 	 */
 	trackTablePosition: (query: TablePositionQuery) => typedError<number | null, IpcError>(__TAURI_INVOKE("track_table_position", { query })),
+	/**
+	 *  What the Details panel lists for the track `recording_id`: each tag field
+	 *  with its value and where it comes from, and the confirmation of its
+	 *  rekordbox entry, if one can be withdrawn. A track that doesn't exist has
+	 *  no fields. `shown_file` is the file of the selected row (the one whose
+	 *  path the panel shows): for a track outside the Library its tags come
+	 *  first.
+	 */
+	trackTagSources: (recordingId: number, shownFile: number | null) => typedError<TagSources, IpcError>(__TAURI_INVOKE("track_tag_sources", { recordingId, shownFile })),
 	/**  A window of the hidden files (the Hidden filter in All music). */
 	hiddenFilesPage: (query: HiddenQuery) => typedError<HiddenPage, IpcError>(__TAURI_INVOKE("hidden_files_page", { query })),
 	/**  "Show again" for a file the user hid. */
@@ -918,6 +927,24 @@ export type FailureReason =
 /**  Well-formed XML, but not a rekordbox collection export. */
 "notAnExport";
 
+/**
+ *  One field: the value the track shows and the other values the track's
+ *  sources hold for it.
+ */
+export type FieldSources = {
+	field: TagField,
+	/**
+	 *  The value the track shows. `None` when rekordbox knows the track and
+	 *  leaves the field blank (a file's tag doesn't stand in for it).
+	 */
+	shown: SourcedValue | null,
+	/**
+	 *  Values that differ from the one shown, each naming its file, in the
+	 *  order the files are asked.
+	 */
+	others: SourcedValue[],
+};
+
 /**  What deleting a folder would delete, below the folder itself. */
 export type FolderContents = {
 	crates: number,
@@ -1375,6 +1402,13 @@ export type MusicFolderRole =
 "scan" | 
 /**  Watched for new arrivals (Phase 2, ROADMAP 2.1). */
 "inbox";
+
+/**  A file, by name. */
+export type NamedFile = {
+	id: number,
+	/**  The name without its folder, e.g. `a.mp3`. */
+	name: string,
+};
 
 /**  What Undo would do now. */
 export type NextUndo = {
@@ -2050,6 +2084,14 @@ export type SnapshotSummary = {
 /**  A column the table can be sorted by. */
 export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre" | "rating" | "dateAdded" | "file" | "folder";
 
+/**  A value and the place it comes from. */
+export type SourcedValue = {
+	value: string,
+	origin: ValueOrigin,
+	/**  The file the value is the tag of; `None` for rekordbox's. */
+	file: NamedFile | null,
+};
+
 /**  Whether a stale entry is a folder or a playlist. */
 export type StaleKind = "folder" | "playlist";
 
@@ -2333,6 +2375,26 @@ export type TableSource =
 /**  The Library tracks in one crate, in the order they were added. */
 { kind: "crate"; id: CrateId };
 
+/**  A tag field the panel lists, in the order it lists them. */
+export type TagField = "title" | "artist" | "album" | "genre" | "composer" | "remixer" | "label" | "year" | "comment";
+
+/**  What the Details panel lists for one track. */
+export type TagSources = {
+	/**
+	 *  The track is a Library track rekordbox knows: its values are
+	 *  rekordbox's.
+	 */
+	inRekordbox: boolean,
+	/**  The fields that have a value somewhere, in the panel's order. */
+	fields: FieldSources[],
+	/**
+	 *  The `rekordbox_track` row (`entry_id` of `review_withdraw_relink`)
+	 *  whose match to the track's linked file the user confirmed, if there
+	 *  is one to withdraw.
+	 */
+	confirmedEntry: number | null,
+};
+
 /**  A Library track, as the preflight's lists name it. */
 export type TrackLabel = {
 	libraryTrack: LibraryTrackId,
@@ -2414,6 +2476,13 @@ export type ValueKind = "location" |
 "date" | 
 /**  Whole numbers. */
 "number" | "text";
+
+/**  Where a value comes from. */
+export type ValueOrigin = 
+/**  rekordbox's entry for the track. */
+"rekordboxEntry" | 
+/**  A tag in one of the track's files (named in [`SourcedValue::file`]). */
+"file";
 
 /**
  *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]

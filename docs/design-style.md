@@ -111,7 +111,7 @@ Owner-approved on 2026-10-24, after a real Library showed three nested scrollbar
 
 A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").
 
-Hover text does not reach keyboard users, and a touch screen has no hover. So the full text must also live in the Details panel when that panel is built (today it is a placeholder; showing a track's title and path there is a new feature, logged by the foreman for the Phase 1a checkpoint). Until then the full title is only on hover.
+Hover text does not reach keyboard users, and a touch screen has no hover. So the full text also lives in the Details panel (built in 1cB-17): the selected track's full title and the full path of its file, wrapped and never cut off, as plain text to select and copy.
 
 ## How the decisions look in the styles
 

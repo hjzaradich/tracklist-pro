@@ -5,6 +5,9 @@
 //! changes), and the time to build the table's rows (they are written by the
 //! index job, beside the search index's).
 //!
+//! The Details panel's tag sources for one selected track (1cB-17) are
+//! checked here too: the number of SELECTs they prepare, not a time.
+//!
 //! The library is made up in code (no audio, no real music, made-up words).
 //! Of every 100 tracks:
 //!
@@ -31,13 +34,18 @@
 //! checking what comes out rather than how long it took.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 
 use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::db::{Writer, DB_FILE_NAME};
 use tracklist_pro_lib::fragile::FragileDirs;
 use tracklist_pro_lib::paths::Volumes;
 use tracklist_pro_lib::search::{pending, settle};
+use tracklist_pro_lib::send_values::{tag_sources, TagSources};
 use tracklist_pro_lib::track_table::{
     page, position, read, SortColumn, TableFilter, TablePage, TablePositionQuery, TableQuery,
     TableSort, TableSource,
@@ -320,6 +328,32 @@ impl Db {
 }
 
 impl Db {
+    /// What the Details panel lists for the track, how many SELECTs that
+    /// prepared and how long it took.
+    fn tag_sources_cost(&self, recording: i64) -> (TagSources, usize, Duration) {
+        self.writer
+            .call(move |c| {
+                let count = Arc::new(AtomicUsize::new(0));
+                let seen = Arc::clone(&count);
+                c.authorizer(Some(move |ctx: AuthContext<'_>| {
+                    if matches!(ctx.action, AuthAction::Select) {
+                        seen.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Authorization::Allow
+                }))?;
+                let (found, took) = timed(|| tag_sources(c, &NoDrives, recording, None));
+                c.authorizer(None::<fn(AuthContext<'_>) -> Authorization>)?;
+                Ok((found?, count.load(Ordering::SeqCst), took))
+            })
+            .unwrap()
+    }
+}
+
+/// The most SELECTs the tag sources of one selected track may prepare: a
+/// fixed number of lookups by key, never one per field, file or track.
+const MOST_SELECTS_FOR_ONE_TRACK: usize = 20;
+
+impl Db {
     /// Where the track is in the rows of `q` (its sort, search and filters).
     fn position(&self, q: &TableQuery, recording_id: i64) -> Option<u32> {
         let asked = TablePositionQuery {
@@ -455,6 +489,40 @@ fn run(tracks: u64, check: bool) {
         "a rekordbox read that changed nothing: {again} tracks looked at in {}",
         secs(reread)
     );
+
+    // The Details panel's tag sources (1cB-17) for one selected track: a
+    // fixed handful of SELECTs however big the library is, counted as they
+    // are prepared (a time is no gate), for a Library track rekordbox knows
+    // and for a track outside the Library.
+    for (what, sql) in [
+        (
+            "a Library track rekordbox knows",
+            "SELECT lt.recording_id FROM library_track lt
+             JOIN rekordbox_track rt ON rt.file_id = lt.linked_file_id
+             ORDER BY lt.id LIMIT 1 OFFSET ?1",
+        ),
+        (
+            "a track outside the Library",
+            "SELECT r.id FROM recording r
+             WHERE NOT EXISTS (SELECT 1 FROM library_track lt WHERE lt.recording_id = r.id)
+             ORDER BY r.id LIMIT 1 OFFSET ?1",
+        ),
+    ] {
+        let at = i64::try_from(tracks / 4).unwrap();
+        let recording: i64 = db
+            .writer
+            .call(move |c| c.query_row(sql, [at], |r| r.get(0)))
+            .unwrap();
+        let (found, selects, took) = db.tag_sources_cost(recording);
+        println!("tag sources of {what}: {selects} SELECTs in {}", ms(took));
+        assert!(
+            selects <= MOST_SELECTS_FOR_ONE_TRACK,
+            "{what}: {selects} SELECTs for one selected track"
+        );
+        if what.starts_with("a Library") {
+            assert!(found.in_rekordbox, "{what} is rekordbox's");
+        }
+    }
 
     let middle = u32::try_from(tracks / 2).unwrap();
     let mut probes: Vec<(&str, TableQuery)> = vec![

@@ -14,6 +14,7 @@ import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { useAcceptedStore } from "../review/acceptedStore";
+import { TRACK_TAG_SOURCES_QUERY_KEY } from "./useTrackTagSources";
 import { useUndoneCount } from "./undoneStore";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 
@@ -76,6 +77,7 @@ function reloadLists(queryClient: QueryClient) {
       ALL_MUSIC_QUERY_KEY,
       REKORDBOX_OFFER_QUERY_KEY,
       MISSING_TRACKS_QUERY_KEY,
+      TRACK_TAG_SOURCES_QUERY_KEY,
       ...REVIEW_QUERY_KEYS,
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );

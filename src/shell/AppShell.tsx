@@ -3,6 +3,7 @@ import { CommandPalette } from "../palette/CommandPalette";
 import { useScannedFilesSync } from "../scan/useScannedFilesSync";
 import { DetailsPanel } from "./DetailsPanel";
 import { PlayerBar } from "./PlayerBar";
+import { useTableOnScreen } from "./selectedTrack";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { useReloadListsWhenJobsEnd } from "./useReloadListsWhenJobsEnd";
@@ -19,10 +20,13 @@ import styles from "./AppShell.module.css";
 export function AppShell({ zones = ZONES }: { zones?: Zones }) {
   useScannedFilesSync();
   useReloadListsWhenJobsEnd();
+  // The panel shows the selected row of a track table: it is drawn beside one.
+  const tableOnScreen = useTableOnScreen();
+  const details = zones.details && tableOnScreen;
   return (
     <div
       className={styles.shell}
-      data-details={zones.details ? "on" : "off"}
+      data-details={details ? "on" : "off"}
       data-player={zones.player ? "on" : "off"}
     >
       <TopBar className={styles.top} search={zones.search} />
@@ -30,7 +34,7 @@ export function AppShell({ zones = ZONES }: { zones?: Zones }) {
       <main className={styles.center}>
         <Outlet />
       </main>
-      {zones.details && <DetailsPanel className={styles.details} />}
+      {details && <DetailsPanel className={styles.details} />}
       {zones.player && <PlayerBar className={styles.player} />}
       <CommandPalette />
     </div>

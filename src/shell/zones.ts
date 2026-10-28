@@ -6,7 +6,8 @@
  * feature is built:
  *
  * - `search`: the top bar's search and command palette (1.11, Ctrl+K);
- * - `details`: the Details panel on the right (the selected track);
+ * - `details`: the Details panel on the right (the selected track), drawn
+ *   since 1cB-17, beside a track table only (`useTableOnScreen`);
  * - `player`: the preview player along the bottom (1.11), drawn since the
  *   preview engine (1cA-7).
  */
@@ -16,4 +17,4 @@ export interface Zones {
   player: boolean;
 }
 
-export const ZONES: Zones = { search: false, details: false, player: true };
+export const ZONES: Zones = { search: false, details: true, player: true };

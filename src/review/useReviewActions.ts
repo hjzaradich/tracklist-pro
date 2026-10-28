@@ -17,6 +17,7 @@ import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { useAcceptedStore } from "./acceptedStore";
+import { TRACK_TAG_SOURCES_QUERY_KEY } from "../shell/useTrackTagSources";
 import { MISSING_TRACKS_QUERY_KEY } from "./useMissingTracks";
 import { REVIEW_ACCEPT_ALL_QUERY_KEY, REVIEW_QUERY_KEYS } from "./useReview";
 
@@ -42,6 +43,7 @@ function reload(queryClient: QueryClient) {
       MISSING_TRACKS_QUERY_KEY,
       CRATES_QUERY_KEY,
       AFTER_SEND_LISTS_QUERY_KEY,
+      TRACK_TAG_SOURCES_QUERY_KEY,
     ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
   );
 }
@@ -153,6 +155,18 @@ export function useConfirmRelink(onDone?: () => void) {
 export function useRejectRelink(onDone?: () => void) {
   return useAction<RelinkMatch, Acted>(
     ({ entryId, fileId }) => unwrap(commands.reviewRejectRelink(entryId, fileId)),
+    onDone,
+  );
+}
+
+/**
+ * Withdraws the user's confirmation of a rekordbox entry (the Details panel,
+ * 1cB-17): the entry is decided again from scratch. One undoable step, from
+ * the top bar.
+ */
+export function useWithdrawRelink(onDone?: () => void) {
+  return useAction<number, Acted>(
+    (entryId) => unwrap(commands.reviewWithdrawRelink(entryId)),
     onDone,
   );
 }

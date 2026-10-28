@@ -16,8 +16,9 @@
 //!   file or audio goes with it; every other decision about the Location
 //!   stays.
 //! - **Withdraw** ([`withdraw`]) deletes the confirmation of a Location: the
-//!   entry is decided again from scratch by the next relink run. No screen
-//!   offers it yet (the Details panel will); it is also what Undo of a
+//!   entry is decided again from scratch by the next relink run. The Details
+//!   panel offers it for a Library track whose entry was confirmed to its
+//!   file (1cB-17; `send_values::sources`); it is also what Undo of a
 //!   confirmation amounts to.
 //!
 //! **Kept by what the file holds** ([`FILE_KEY`]: its `audio_hash`, or its

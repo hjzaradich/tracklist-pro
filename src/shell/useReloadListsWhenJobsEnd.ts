@@ -6,6 +6,7 @@ import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { MUSIC_FOLDERS_QUERY_KEY } from "../scan/useMusicFolders";
+import { TRACK_TAG_SOURCES_QUERY_KEY } from "./useTrackTagSources";
 
 /**
  * Asks again for the lists background work feeds, whenever a task ends: a
@@ -23,6 +24,7 @@ export function useReloadListsWhenJobsEnd() {
       LIBRARY_TRACKS_QUERY_KEY,
       CRATES_QUERY_KEY,
       MUSIC_FOLDERS_QUERY_KEY,
+      TRACK_TAG_SOURCES_QUERY_KEY,
       ...REVIEW_QUERY_KEYS,
     ]) {
       void queryClient.invalidateQueries({ queryKey });

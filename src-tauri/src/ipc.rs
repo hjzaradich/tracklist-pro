@@ -142,6 +142,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::track_table::track_table_page,
             crate::track_table::track_table_formats,
             crate::track_table::track_table_position,
+            crate::send_values::sources::track_tag_sources,
             crate::hidden::hidden_files_page,
             crate::hidden::show_file_again,
             crate::hidden::use_this_file_instead,

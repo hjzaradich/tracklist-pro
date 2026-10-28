@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { useUndoOperation } from "./useUndo";
+import { TRACK_TAG_SOURCES_QUERY_KEY } from "./useTrackTagSources";
 
 afterEach(() => {
   cleanup();
@@ -32,5 +33,18 @@ describe("Undo", () => {
     expect(stale(queryClient)).toEqual(REVIEW_QUERY_KEYS.map(() => false));
     act(() => result.current.mutate(9));
     await waitFor(() => expect(stale(queryClient)).toEqual(REVIEW_QUERY_KEYS.map(() => true)));
+  });
+
+  // Undoing a withdrawal brings the confirmation back; a split or a switch
+  // changes which files a track has: the Details panel's tags are read again.
+  it("asks the Details panel for its tag sources again, after an undo", async () => {
+    mockIPC(() => ({ status: "nothingToUndo" }));
+    const queryClient = createQueryClient();
+    const key = [...TRACK_TAG_SOURCES_QUERY_KEY, 5, 6];
+    queryClient.setQueryData(key, { inRekordbox: false, fields: [], confirmedEntry: null });
+    const { result } = renderHook(() => useUndoOperation(), { wrapper: inClient(queryClient) });
+    expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false);
+    act(() => result.current.mutate(9));
+    await waitFor(() => expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true));
   });
 });

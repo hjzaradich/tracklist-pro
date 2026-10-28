@@ -1,7 +1,7 @@
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -12,6 +12,7 @@ import { DetailsPanel } from "./DetailsPanel";
 import { PlayerBar } from "./PlayerBar";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { useSelectedTrack } from "./selectedTrack";
 import { ZONES } from "./zones";
 import { tx } from "../test/tx";
 
@@ -87,7 +88,7 @@ describe("layout shell", () => {
     expect(player.parentElement).toHaveAttribute("data-player", "on");
   });
 
-  it("shows no search or Details panel, whose features don't exist yet", async () => {
+  it("shows no search, and no Details panel beside a screen with no track table", async () => {
     crates([]);
     renderApp("/overview");
     await screen.findByRole("banner");
@@ -100,9 +101,22 @@ describe("layout shell", () => {
     expect(screen.queryByText(tx("shell:details.empty"))).toBeNull();
   });
 
+  it("draws the Details panel beside a track table, and not otherwise", async () => {
+    crates([]);
+    renderApp("/overview");
+    await screen.findByRole("banner");
+    expect(screen.queryByRole("complementary", { name: tx("shell:details.label") })).toBeNull();
+    act(() => useSelectedTrack.getState().tableMounted());
+    expect(screen.getByRole("complementary", { name: tx("shell:details.label") })).toHaveTextContent(
+      tx("shell:details.empty"),
+    );
+    act(() => useSelectedTrack.getState().tableUnmounted());
+    expect(screen.queryByRole("complementary", { name: tx("shell:details.label") })).toBeNull();
+  });
+
   it("keeps the zones that aren't drawn ready for the day their features exist", async () => {
     // One switch each (shell/zones.ts): only the player is drawn by default.
-    expect(ZONES).toEqual({ search: false, details: false, player: true });
+    expect(ZONES).toEqual({ search: false, details: true, player: true });
 
     mockIPC(
       (cmd) => {
