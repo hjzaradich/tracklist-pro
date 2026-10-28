@@ -262,7 +262,7 @@ test("each job gets more time on the busy self-hosted runner, and the same time 
   // Minutes: [GitHub's runners (unchanged), self-hosted].
   const minutes = {
     changes: [10, 20],
-    windows: [45, 120],
+    windows: [75, 120],
     "fixture-gen": [30, 60],
     "rb-kit": [10, 20],
     checks: [15, 30],
