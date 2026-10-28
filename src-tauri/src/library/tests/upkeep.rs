@@ -539,7 +539,15 @@ fn a_removal_made_before_base_ids_stopped_being_reused_is_still_undone_after_the
     let before = bases(&conn, 1);
     assert_eq!(before.len(), 2);
     // The user removes the track: its bases, the highest ids, are deleted.
+    // Today's removal also deletes the app's own values (0035), a table this
+    // old schema hasn't got: an empty stand-in, gone before the upgrade,
+    // leaves the old removal's rows as they were.
+    conn.execute_batch(
+        "CREATE TABLE app_value (id INTEGER PRIMARY KEY, library_track_id INTEGER) STRICT",
+    )
+    .unwrap();
     assert!(remove_on(&mut conn, LibraryTrackId(1)).unwrap());
+    conn.execute_batch("DROP TABLE app_value").unwrap();
 
     // The app is updated, and the next send makes bases for another track.
     run(&mut conn, MIGRATIONS).unwrap();

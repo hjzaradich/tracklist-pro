@@ -28,7 +28,8 @@
 //! 2. Its crate entries go to the track that stays, each with its own kind;
 //!    where a crate holds both, the staying track's own entry wins and the
 //!    other is deleted.
-//! 3. Its sync bases and conflicts are deleted, and its Library track.
+//! 3. Its sync bases, conflicts and the app's own values are deleted, and
+//!    its Library track.
 //! 4. Its files move into the track that stays, starting over there (their
 //!    role is the ranking's, worked out again at once).
 //! 5. Its track is kept, with no files, while the merge stands
@@ -446,8 +447,8 @@ fn fold(
             )?;
         }
     }
-    // 3. Its sync bases, conflicts and Library track.
-    for table in ["sync_base", "conflict"] {
+    // 3. Its sync bases, conflicts, the app's own values and Library track.
+    for table in ["sync_base", "conflict", "app_value"] {
         let rows: Vec<i64> = rec.read_rows(
             &format!("SELECT id FROM {table} WHERE library_track_id = ?1 ORDER BY id"),
             [leaving.library_track.0],

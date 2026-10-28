@@ -50,11 +50,12 @@
 //!   the only copy of rekordbox's value.
 //! - **Row 4.** [`Sides::app`] is `None` when the app holds no value of its
 //!   own for the field: it sends rekordbox's current value (1.9 rule 1,
-//!   "unless the app means to change it"). That is every field of every
-//!   known track until the app stores edits.
+//!   "unless the app means to change it"). The app's own values are the
+//!   user's edits, kept by [`app_values`].
 //! - **Rows 7 and 12** need [`Sides::replaced`]: the value rekordbox showed
 //!   that the app's present value replaced. `None` means it isn't known,
-//!   and then these rows never match. Row 7 is a send that was never
+//!   and then these rows never match. [`app_values`] records it with each
+//!   edit. Row 7 is a send that was never
 //!   imported (or answered "No" in rekordbox): the base says the app's
 //!   value went out, but rekordbox still shows what it showed before.
 //!   Without `replaced` that reads as "rekordbox changed it back" (row 8)
@@ -101,6 +102,7 @@
 //! field yet (nothing records what a send put in a playlist); [`decide`]
 //! takes any field name, so it can become one.
 
+pub mod app_values;
 mod compare;
 pub mod resolve;
 pub mod store;
@@ -117,8 +119,9 @@ pub use resolve::{
     RESOLVE_ALL_OPERATION, RESOLVE_OPERATION,
 };
 pub use store::{
-    detect, detect_for, load_sides, open_conflicts, AppValue, AppValues, Conflict, ConflictId,
-    Detected, FieldOutcome, FieldSides, Filter, Outcome, RekordboxEntry, Status, TrackSides,
+    detect, detect_for, detect_from_store, load_sides, open_conflicts, AppValue, AppValues,
+    Conflict, ConflictId, Detected, FieldOutcome, FieldSides, Filter, Outcome, RekordboxEntry,
+    Status, TrackSides,
 };
 
 /// rekordbox's side of one field.

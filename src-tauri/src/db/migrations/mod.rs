@@ -78,6 +78,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0032_track_row"),
     migration!("0033_track_row_no_verdict_triggers"),
     migration!("0034_ui_setting"),
+    migration!("0035_app_value"),
 ];
 
 /// The table that records which migrations a database has had.
