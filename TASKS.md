@@ -243,7 +243,7 @@ Started early, on 2026-10-12 (owner decision): 1cA-1, 1cA-2, 1cA-6, 1cA-12, 1cA-
 - **Lane 9, crate view:** 1cB-15 Notes line + summary line (BPM, energy, keys, genres) → 1cB-16 "Sort by fit" with reasons in the Fit column
 
 ### Stage 1cC: Integration and performance
-- **Lane 1 👤 + Claude:** ✅ 1cC-1 Decide how energy reaches rekordbox (§7; owner decision 2026-10-28: not sent by default; an opt-in setting sends it as the star rating; mapping, first switch-on and read-back still to settle) → 1cC-2 The opt-in setting and the XML writer to match
+- **Lane 1 👤 + Claude:** ✅ 1cC-1 Decide how energy reaches rekordbox (§7; owner decision 2026-10-28: not sent by default; an opt-in setting sends it as the star rating; mapping, first switch-on and read-back settled the same day, ROADMAP §7) → 1cC-2 The opt-in setting and the XML writer to match
 - **Lane 2:** 1cC-3 Crates sent under the `Crates` folder with their trees
 - **Lane 3:** 1cC-4 "Every number is a door": filtered views with an explanatory chip
 - **Lane 4:** 1cC-5 Launch behavior: reopen where you left off, or open on Overview when there's news
