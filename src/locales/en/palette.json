@@ -1,0 +1,14 @@
+{
+  "title": "Commands",
+  "input": {
+    "label": "Command",
+    "placeholder": "Type a command"
+  },
+  "list": {
+    "label": "Commands"
+  },
+  "empty": "No matching commands",
+  "goTo": "Go to {{name}}",
+  "searchAllMusic": "Search All music",
+  "theme": "Theme: {{name}}"
+}

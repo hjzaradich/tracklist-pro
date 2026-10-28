@@ -1,0 +1,34 @@
+{
+  "title": {
+    "purpose": "Names the command palette for screen readers.",
+    "where": "Command palette (Ctrl K), dialog (not shown)."
+  },
+  "input.label": {
+    "purpose": "Names the palette's text box for screen readers.",
+    "where": "Command palette, text box (not shown)."
+  },
+  "input.placeholder": {
+    "purpose": "Hint inside the palette's text box.",
+    "where": "Command palette, text box, while empty."
+  },
+  "list.label": {
+    "purpose": "Names the palette's list of commands for screen readers.",
+    "where": "Command palette, list (not shown)."
+  },
+  "empty": {
+    "purpose": "Says no command matches what was typed.",
+    "where": "Command palette, under the text box, when the list is empty."
+  },
+  "goTo": {
+    "purpose": "A command that opens a screen; {{name}} is the screen's name.",
+    "where": "Command palette, one row per screen (Go to Library)."
+  },
+  "searchAllMusic": {
+    "purpose": "A command that opens All music with the cursor in its search box.",
+    "where": "Command palette, list."
+  },
+  "theme": {
+    "purpose": "A command that switches the theme; {{name}} is the theme (Dark or Light). Listed only for the theme not in use.",
+    "where": "Command palette, list."
+  }
+}

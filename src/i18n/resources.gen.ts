@@ -16,6 +16,7 @@ export interface EnglishResources {
   "musicFolderWatch": typeof import("../locales/en/musicFolderWatch.json");
   "musicFolders": typeof import("../locales/en/musicFolders.json");
   "overview": typeof import("../locales/en/overview.json");
+  "palette": typeof import("../locales/en/palette.json");
   "player": typeof import("../locales/en/player.json");
   "rekordbox": typeof import("../locales/en/rekordbox.json");
   "rekordboxOffer": typeof import("../locales/en/rekordboxOffer.json");
