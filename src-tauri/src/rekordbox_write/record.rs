@@ -67,7 +67,12 @@
 //!
 //! The folders and playlists the send wrote are kept too, in the same
 //! transaction (`sent_playlist`, ROADMAP 1.9 rule 6): the path of each, so
-//! a later read can tell what the app itself put in rekordbox.
+//! a later read can tell what the app itself put in rekordbox. For a
+//! crate's playlist, with it, the tracks whose membership the send changed
+//! in rekordbox's playlist of that path (`sent_playlist.replaced`, 1cB-3,
+//! [`super::SentPath::replaced`]): the membership counterpart of
+//! `sync_base.replaced`, forgotten the same way once a read shows the send
+//! taken up ([`forget_taken_up`]).
 //!
 //! A send isn't an operation in the undo log. Its new `sync_base` and
 //! `sent_entry` rows never take the row id of a deleted one (migrations
@@ -316,7 +321,8 @@ fn record_entries(
 /// and forgets nothing (§5.3); nor does a `Location` with no row of this
 /// read, or two. Runs inside the read's transaction, after its rows are in.
 /// Not an operation: the records are derived from sends and reads, like
-/// the sends that write them.
+/// the sends that write them. The records of crate membership are
+/// forgotten the same way (`forget_membership`).
 pub fn forget_taken_up(conn: &Connection, read_at: &str) -> rusqlite::Result<()> {
     // Every track with a record, its records, and the Location it was sent to.
     // Every send records `Location` (rule 1), so the join finds every track.

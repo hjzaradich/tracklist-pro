@@ -194,7 +194,9 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
                 .collect();
             preflight.loses_entries = loses_entries(&out, &crates, &membership.outside_library);
             // Fields of the tracks sent that wait in Review → Conflicts:
-            // they go with rekordbox's value until the user decides.
+            // they go with rekordbox's value until the user decides. A crate
+            // membership waits whether or not its track is sent (one the
+            // send leaves out of a playlist may be in no crate sent).
             let sent: Vec<LibraryTrackId> = out.sent.iter().map(|s| s.library_track).collect();
             open = open_at_send::open_fields(conn, &sent)?;
             preflight.conflicts_waiting = count(open.len());
