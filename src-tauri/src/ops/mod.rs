@@ -764,7 +764,8 @@ pub enum ConflictProblem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum UndoRefusal {
-    /// A track the step added has been sent to rekordbox since.
+    /// A track the step added has been sent to rekordbox since, or a field
+    /// whose conflict the step settled.
     SentSince,
     /// The step would put a Library track back, but the track or the file
     /// it was linked to is no longer in the database (its music folder was
@@ -1221,11 +1222,13 @@ fn unwind(
 
 /// Why a feature's own rule refuses to undo `operation`, whatever its rows
 /// hold: asked before anything is unwound, by [`undo_step`] and by
-/// [`next_undo`] alike. Two rules: a switch of a linked file that made the
+/// [`next_undo`] alike. Three rules: a switch of a linked file that made the
 /// track a new one for rekordbox, sent since
-/// ([`crate::review::actions::sent_as_new_since`]); and a merge of Library
+/// ([`crate::review::actions::sent_as_new_since`]); a merge of Library
 /// tracks whose staying track is linked to another file since
-/// ([`crate::review::same::merge_link_changed_since`]). It is the counterpart of
+/// ([`crate::review::same::merge_link_changed_since`]); and a settled
+/// conflict whose field a send carried since
+/// ([`crate::conflicts::resolve::sent_since`]). It is the counterpart of
 /// "sent since" for an add ([`Found::refusal`]), which the rows themselves
 /// show; a switch writes nothing a send changes, so it has to be asked.
 fn refused_by_a_rule(
@@ -1237,6 +1240,9 @@ fn refused_by_a_rule(
     }
     if crate::review::same::merge_link_changed_since(tx, operation.id)? {
         return Ok(Some(UndoRefusal::MergeLinkChanged));
+    }
+    if crate::conflicts::resolve::sent_since(tx, operation.id)? {
+        return Ok(Some(UndoRefusal::SentSince));
     }
     Ok(crate::review::split::undo_refused(tx, operation.id)?.then_some(UndoRefusal::ChangedSince))
 }

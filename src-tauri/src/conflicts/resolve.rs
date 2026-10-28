@@ -28,7 +28,11 @@
 //!
 //! Undo is refused, changing nothing, if the settled row is gone or
 //! changed, or if the field has a newer open conflict (a side moved after
-//! the resolve): there can be one open conflict per field.
+//! the resolve): there can be one open conflict per field. It is refused
+//! too once a send carried the field since ([`sent_since`]): that send
+//! moved the base to the value chosen, so the conflict put back would no
+//! longer be one, and the next send would take the app's value for "only
+//! the app changed" without asking.
 
 use std::fmt;
 
@@ -214,6 +218,26 @@ pub fn resolve_all_with(
         operation_id: recorded.operation_id,
         value: recorded.value?,
     })
+}
+
+/// Whether the resolve `operation` settled a conflict on a field that a
+/// send has carried since: the field's base was recorded at or after the
+/// resolve (by the clock, as a send's own record; a tie counts as sent).
+/// Undo of such a resolve is refused ([`crate::ops`]). A field with an
+/// open conflict keeps its base through a send, but then the resolve's
+/// Undo is refused anyway (a newer open conflict).
+pub(crate) fn sent_since(conn: &Connection, operation: i64) -> rusqlite::Result<bool> {
+    conn.prepare_cached(&format!(
+        "SELECT EXISTS (
+             SELECT 1 FROM operation o
+             JOIN change ch ON ch.operation_id = o.id
+                           AND ch.entity = 'conflict' AND ch.action = 'insert'
+             JOIN conflict c ON c.id = ch.entity_id
+             JOIN sync_base b ON b.library_track_id = c.library_track_id AND b.field = c.field
+             WHERE o.id = ?1 AND o.kind IN ('{RESOLVE_OPERATION}', '{RESOLVE_ALL_OPERATION}')
+               AND b.synced_at >= o.created_at)"
+    ))?
+    .query_row([operation], |r| r.get(0))
 }
 
 /// The open conflicts `filter` matches (only `id`, when given), oldest

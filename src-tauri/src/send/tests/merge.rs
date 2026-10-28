@@ -412,6 +412,48 @@ fn a_value_given_by_hand_is_sent_and_it_stays() {
     assert_eq!(w.open_conflicts(), []);
 }
 
+#[test]
+fn undo_of_a_resolve_is_refused_once_a_send_carried_the_value_chosen() {
+    for choice in [
+        Choice::KeepApp,
+        Choice::KeepRekordbox,
+        Choice::Edit("Disco".into()),
+    ] {
+        let (w, velo) = velo_edited_on_both_sides();
+        w.resolve(choice.clone());
+        w.send();
+        let own = w.own(velo, "Genre");
+
+        match ops::undo_last_via(&w.writer).unwrap() {
+            UndoOutcome::Refused { reason, .. } => {
+                assert_eq!(reason, UndoRefusal::SentSince, "{choice:?}");
+            }
+            other => panic!("{choice:?}: expected the undo to be refused, got {other:?}"),
+        }
+        assert_eq!(w.open_conflicts(), [], "{choice:?}");
+        assert_eq!(w.own(velo, "Genre"), own, "{choice:?}");
+    }
+}
+
+#[test]
+fn undo_of_a_resolve_before_the_next_send_reopens_the_conflict_and_the_app_value_waits_again() {
+    let (w, velo) = velo_edited_on_both_sides();
+    let open = w.open_conflicts();
+    w.resolve(Choice::KeepRekordbox);
+
+    match ops::undo_last_via(&w.writer).unwrap() {
+        UndoOutcome::Undone { .. } => {}
+        other => panic!("expected the undo, got {other:?}"),
+    }
+    assert_eq!(w.open_conflicts(), open);
+    assert_eq!(w.own(velo, "Genre").as_deref(), Some("Deep House"));
+
+    let preflight = w.send();
+    assert_eq!(preflight.conflicts_waiting, 1);
+    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("House"));
+}
+
 // ---- A read that can't be trusted decides nothing -----------------------------
 
 #[test]
