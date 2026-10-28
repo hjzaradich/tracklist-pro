@@ -7,6 +7,7 @@
 mod analysis_never_conflicts;
 mod app_value;
 mod conflict_ids;
+mod crate_membership;
 mod file_and_track_ids;
 mod file_choice;
 mod file_quality;
@@ -267,6 +268,9 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0036_send_records.sql", &["send", "sent_entry"]),
     // The file the user chose to show for a track outside the Library (1cB-22).
     ("0037_file_choice.sql", &["file_choice"]),
+    // `crate_entry` ids are never reused, and what a send changed in each
+    // playlist (a `sent_playlist` column), no new tables (1cB-3).
+    ("0039_crate_membership_merge.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
