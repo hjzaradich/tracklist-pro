@@ -254,11 +254,16 @@ export const commands = {
 	 */
 	reviewKeepBoth: (anchor: number, recordingIds: number[]) => typedError<Acted, IpcError>(__TAURI_INVOKE("review_keep_both", { anchor, recordingIds })),
 	/**
+	 *  The fields a merge of a "Same track twice" item into `keep` asks about
+	 *  (1cB-20): `recording_ids` are the Library tracks the screen showed.
+	 */
+	reviewMergeQuestions: (anchor: number, recordingIds: number[], keep: number) => typedError<MergeField[], IpcError>(__TAURI_INVOKE("review_merge_questions", { anchor, recordingIds, keep })),
+	/**
 	 *  Merges a "Same track twice" item into `keep`: `recording_ids` are the
-	 *  Library tracks the screen showed.
+	 *  Library tracks the screen showed, `choices` the values picked where the
+	 *  tracks differ.
 	 */
 	reviewMerge: (anchor: number, recordingIds: number[], keep: number, choices: MergeChoice[]) => typedError<Merged, IpcError>(__TAURI_INVOKE("review_merge", { anchor, recordingIds, keep, choices })),
-	reviewMergeQuestions: (anchor: number, recordingIds: number[], keep: number) => typedError<MergeField[], IpcError>(__TAURI_INVOKE("review_merge_questions", { anchor, recordingIds, keep })),
 	/**
 	 *  "These are the same track" for a possible version mix-up or "Unclear
 	 *  duplicates": `recording_ids` are the tracks the screen showed.
@@ -277,7 +282,9 @@ export const commands = {
 	 *  Settles one open conflict: keep the app's value, keep rekordbox's, or a
 	 *  value given by hand. Refused, with nothing changed, if the conflict isn't
 	 *  open any more or the value doesn't fit the field. A file location is
-	 *  never given by hand: the app holds no value of its own for it.
+	 *  never given by hand: the app holds no value of its own for it. Nor is a
+	 *  crate membership: the crate holds the track or it doesn't, so the choices
+	 *  are the app's and rekordbox's.
 	 */
 	reviewResolveConflict: (id: ConflictId, choice: Choice) => typedError<Settled, IpcError>(__TAURI_INVOKE("review_resolve_conflict", { id, choice })),
 	/**
@@ -643,6 +650,11 @@ export type ConflictField = {
 	kind: ValueKind,
 	/**  How many open conflicts the field has. */
 	count: number,
+	/**
+	 *  For a crate membership: the crate's name inside its folders' names,
+	 *  joined with " / " (`conflicts::membership::crate_labels`); `None`
+	 *  for any other field.
+	 */
 	crateName: string | null,
 };
 
@@ -945,6 +957,13 @@ export type FieldSources = {
 	 *  order the files are asked.
 	 */
 	others: SourcedValue[],
+};
+
+/**  One track's value of a field. */
+export type FieldValue = {
+	recordingId: number,
+	/**  `None`: the track has no value for the field. */
+	value: string | null,
 };
 
 /**  What deleting a folder would delete, below the folder itself. */
@@ -1316,11 +1335,27 @@ export type ManualRemoval = {
 	removedAt: string,
 };
 
-export type FieldValue = { recordingId: number, value: string | null };
+/**
+ *  The value the user chose for one field: the track it comes from, and the
+ *  text the screen showed (the merge is refused if it isn't the track's
+ *  value any more).
+ */
+export type MergeChoice = {
+	field: string,
+	from: number,
+	value: string,
+};
 
-export type MergeChoice = { field: string, from: number, value: string };
-
-export type MergeField = { field: string, kind: ValueKind, values: FieldValue[], chosen: number };
+/**  A field the merge asks about. */
+export type MergeField = {
+	/**  The rekordbox XML attribute name, e.g. `Rating`. */
+	field: string,
+	kind: ValueKind,
+	/**  Every track of the item, the one that stays first. */
+	values: FieldValue[],
+	/**  The track whose value is chosen by default. */
+	chosen: number,
+};
 
 /**  What a merge did. */
 export type Merged = {
@@ -2496,7 +2531,7 @@ export type ValueKind = "location" |
 /**  `2026-09-28`. */
 "date" | 
 /**  Whole numbers. */
-"number" | "text" |
+"number" | "text" | 
 /**  A crate membership (`playlist:...`): `in` or `out`, shown in words. */
 "membership";
 
