@@ -227,12 +227,12 @@ fn choose(attributes: &mut Vec<(String, String)>, chosen: &[(String, String)]) {
         }
         match attributes.iter_mut().find(|(name, _)| name == field) {
             Some((_, there)) => {
-                if !conflicts::same(field, Some(there), Some(value)) {
+                if !conflicts::same(field, Some(there.as_str()), Some(value.as_str())) {
                     value.clone_into(there);
                 }
             }
             None => {
-                if !conflicts::same(field, None, Some(value)) {
+                if !conflicts::same(field, None, Some(value.as_str())) {
                     attributes.push((field.clone(), value.clone()));
                 }
             }

@@ -437,6 +437,8 @@ fn a_row_kept_from_an_older_read_takes_nothing_in_and_opens_nothing() {
     let preflight = w.prepare().unwrap();
 
     assert!(preflight.refusal.is_some(), "an incomplete export is refused");
+    // velo is still rekordbox's, by the row kept from the earlier read.
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 1));
     assert_eq!(w.own(velo, "Genre").as_deref(), Some("Deep House"));
     assert_eq!(w.conflicts(), Vec::<String>::new());
     assert_eq!(w.bases(velo), bases);
