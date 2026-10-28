@@ -25,7 +25,8 @@
 # runners, never the owner's PC. Each job's runs-on repeats the same switch
 # (runner-tools.test.mjs keeps them equal), and so does its timeout-minutes:
 # the owner's PC is often busy with parallel lanes, and its first build is
-# cold, so each job gets more time there (the Windows build 120 minutes).
+# cold, so each job gets more time there (the Windows build 120 minutes; on
+# GitHub's runners it gets 75, because its backend tests alone take 25-40).
 # On the self-hosted runner, steps use the owner's installed tools and never
 # change them: no toolchain installs, no rust-cache (the work folder keeps
 # the build output), no npm cache; the first step of each job checks the
@@ -139,7 +140,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'windows-latest' }}
-    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 120 || 45 }}
+    timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 120 || 75 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
