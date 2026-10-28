@@ -8,7 +8,7 @@ use std::cell::Cell;
 use std::fmt;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -126,7 +126,14 @@ struct Inner {
     path: GuardedPath,
     jobs: Option<mpsc::Sender<Job>>,
     thread: Option<JoinHandle<()>>,
+    /// Set by [`Writer::close`]: the writer thread, seeing it after a job,
+    /// closes the connection and ends, dropping the sender so `close` can
+    /// tell.
+    closing: Closing,
 }
+
+/// See [`Inner::closing`].
+type Closing = Arc<Mutex<Option<mpsc::Sender<()>>>>;
 
 impl Writer {
     /// Opens (or creates) the database at `path`, puts it in WAL mode,
@@ -159,15 +166,20 @@ impl Writer {
             eprintln!("database: the log couldn't be emptied at startup: {e}");
         }
         let (jobs, queue) = mpsc::channel::<Job>();
+        let closing = Closing::default();
         let thread = thread::Builder::new()
             .name("db-writer".into())
-            .spawn(move || run(conn, queue))
+            .spawn({
+                let closing = closing.clone();
+                move || run(conn, queue, &closing)
+            })
             .map_err(DbError::Spawn)?;
         Ok(Writer {
             inner: Arc::new(Inner {
                 path: path.clone(),
                 jobs: Some(jobs),
                 thread: Some(thread),
+                closing,
             }),
         })
     }
@@ -190,6 +202,36 @@ impl Writer {
     /// queue has nothing left to do, and when the app closes.
     pub fn checkpoint(&self) -> Result<Checkpoint, DbError> {
         self.call(|conn| checkpoint(conn))
+    }
+
+    /// Closes the connection and stops the writer thread, and returns once
+    /// the connection is closed, so that the database's files are free (a
+    /// test that removes the data folder needs that: Windows won't delete a
+    /// file a connection holds open). Every handle shares the one
+    /// connection, so it is closed for all of them; any later
+    /// [`Writer::call`] returns [`DbError::WriterGone`]. The app never
+    /// calls this: its process just ends. Does nothing when called from the
+    /// writer's own thread, which would wait for itself.
+    #[doc(hidden)]
+    pub fn close(&self) {
+        let Some(jobs) = self.inner.jobs.as_ref() else {
+            return;
+        };
+        if self.inner.on_writer_thread() {
+            return;
+        }
+        let (gone, closed) = mpsc::channel::<()>();
+        *self
+            .inner
+            .closing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(gone);
+        // A job that does nothing, so the thread wakes and looks.
+        let wake: Job = Box::new(|_| {});
+        if jobs.send(wake).is_ok() {
+            // `gone` is dropped when the thread has dropped the connection.
+            let _ = closed.recv();
+        }
     }
 
     /// Runs `job` on the writer connection and waits for its result.
@@ -284,10 +326,20 @@ pub(crate) fn on_a_writer_thread() -> bool {
 
 /// The writer thread: runs jobs until every handle is dropped, then closes
 /// the connection.
-fn run(mut conn: Connection, queue: mpsc::Receiver<Job>) {
+fn run(mut conn: Connection, queue: mpsc::Receiver<Job>, closing: &Closing) {
     ON_A_WRITER_THREAD.with(|w| w.set(true));
     for job in queue {
         job(&mut conn);
+        let closed = closing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(closed) = closed {
+            // The connection first, then the word that it is gone.
+            drop(conn);
+            drop(closed);
+            return;
+        }
     }
 }
 
@@ -724,6 +776,26 @@ mod tests {
             log_bytes(&writer)
         );
         assert_eq!(rows(&writer), 41);
+    }
+
+    #[test]
+    fn closing_the_writer_frees_the_database_files_for_every_handle() {
+        let (dir, writer) = open_temp();
+        let other = writer.clone();
+        writer
+            .call(|c| c.execute_batch("CREATE TABLE t (x INTEGER)"))
+            .unwrap();
+        let reads = crate::db::ReadPool::open(writer.guarded_path()).unwrap();
+        reads.close();
+        writer.close();
+        // Every handle shares the connection that was closed.
+        assert!(matches!(other.call(|_| Ok(())), Err(DbError::WriterGone)));
+        // Both handles are still alive, but nothing holds a file open: on
+        // Windows the folder can only be removed if that is so.
+        std::fs::remove_dir_all(dir.path()).unwrap();
+        // Closing again, or closing a closed writer's clone, is harmless.
+        writer.close();
+        other.close();
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -8,6 +8,7 @@ import type { LibraryTrack } from "../bindings";
 import "../i18n";
 import { LibraryScreen } from "./LibraryScreen";
 import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
+import { expectOnlyTheTopBarUndo, TopBarUndo } from "../test/topBarUndo";
 import { tx } from "../test/tx";
 
 function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
@@ -57,9 +58,11 @@ function library(tracks: LibraryTrack[] | "broken") {
   });
 }
 
-function renderScreen() {
+/** `topBar`: the top bar's Undo beside the screen, for the tests of where Undo is. */
+function renderScreen(topBar = false) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
+      {topBar && <TopBarUndo />}
       <LibraryScreen />
     </QueryClientProvider>,
   );
@@ -69,13 +72,6 @@ function renderScreen() {
 async function rows() {
   const table = await screen.findByRole("grid");
   return within(table).getAllByRole("row").slice(1);
-}
-
-/** The Undo offered after an action, once it knows which action it is for. */
-async function readyUndo(key: string) {
-  const undo = await screen.findByRole("button", { name: tx(key) });
-  await waitFor(() => expect(undo).toBeEnabled());
-  return undo;
 }
 
 afterEach(() => {
@@ -235,8 +231,9 @@ describe("the Library screen", () => {
 });
 
 /**
- * A Library that removes and restores tracks like the Rust side: `calls`
- * records every command, and the file on disk is never part of it.
+ * A Library that removes tracks like the Rust side, and names the removal as
+ * the next step to undo (for the top bar's Undo): `calls` records every
+ * command, and the file on disk is never part of it.
  */
 function removable(initial: LibraryTrack[]) {
   let tracks = initial;
@@ -261,7 +258,8 @@ function removable(initial: LibraryTrack[]) {
     if (cmd === "undo_last_operation") {
       if (last === null) return { status: "nothingToUndo" };
       tracks = [...tracks, last].sort((a, b) => a.id - b.id);
-      return { status: "undone", operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } } };
+      last = null;
+      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
     }
     throw new Error(`unexpected command ${cmd}`);
   });
@@ -301,31 +299,45 @@ describe("removing a track from the Library", () => {
     expect(calls.filter((c) => c === "remove_library_track")).toHaveLength(1);
   });
 
-  it("puts the track back when the user undoes the removal", async () => {
+  it("says the track was removed and offers no Undo there, only the top bar's", async () => {
     removable([track(1), track(2)]);
-    renderScreen();
+    renderScreen(true);
     const [first] = await rows();
     await userEvent.click(within(first).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
-    await userEvent.click(await readyUndo("library:remove.undo"));
-
-    expect(await screen.findByText(tx("library:remove.undone"))).toBeInTheDocument();
-    await waitFor(async () => expect(await rows()).toHaveLength(2));
-    expect(screen.queryByRole("button", { name: tx("library:remove.undo") })).toBeNull();
+    const line = await screen.findByRole("status");
+    expect(line).toHaveTextContent(tx("library:remove.done"));
+    expect(within(line).queryByRole("button")).toBeNull();
+    await expectOnlyTheTopBarUndo();
   });
 
-  it("offers undo even when the last track was removed and the list is empty", async () => {
+  it("drops the line when the top bar's Undo takes the removal back", async () => {
+    removable([track(1), track(2)]);
+    renderScreen(true);
+    const [first] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("library:remove.done"));
+    await userEvent.click(await expectOnlyTheTopBarUndo());
+    await waitFor(async () => expect(await rows()).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByText(tx("library:remove.done"))).toBeNull());
+  });
+
+  it("says so, with only the top bar's Undo, when the last track was removed and the list is empty", async () => {
     removable([track(1)]);
-    renderScreen();
+    renderScreen(true);
     const [only] = await rows();
     await userEvent.click(within(only).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
     await userEvent.click(
       within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
     );
     expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: tx("library:remove.undo") })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(tx("library:remove.done"));
+    await expectOnlyTheTopBarUndo();
   });
 
   it("names the track on each row's Remove button", async () => {
@@ -364,72 +376,6 @@ describe("removing a track from the Library", () => {
     expect(noConflicts).not.toHaveTextContent(tx("library:remove.conflicts", { count: 0 }));
   });
 
-  it("says so, and keeps the track out, when undo is refused", async () => {
-    let tracks = [track(1)];
-    mockIPC((cmd, args) => {
-      if (cmd === "list_crates") return [];
-      if (cmd === "key_notation") return "camelot";
-    if (cmd === "table_columns") return null;
-    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
-      if (cmd === "remove_library_track") {
-        tracks = [];
-        return null;
-      }
-      if (cmd === "next_undo_operation") {
-        return { operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } }, refusal: null };
-      }
-      if (cmd === "undo_last_operation") {
-        return {
-          status: "refused",
-          operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } },
-          reason: { code: "changedSince" },
-          conflicts: [],
-        };
-      }
-      throw new Error(`unexpected command ${cmd}`);
-    });
-    renderScreen();
-    const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
-    await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
-    );
-    await userEvent.click(await readyUndo("library:remove.undo"));
-    expect(await screen.findByRole("alert")).toHaveTextContent(tx("library:remove.undoRefused"));
-    expect(await screen.findByText(tx("library:empty"))).toBeInTheDocument();
-  });
-
-  it("disables Undo while the undo is running", async () => {
-    let finish: (v: unknown) => void = () => {};
-    const pending = new Promise((resolve) => (finish = resolve));
-    let tracks = [track(1)];
-    mockIPC((cmd, args) => {
-      if (cmd === "list_crates") return [];
-      if (cmd === "key_notation") return "camelot";
-    if (cmd === "table_columns") return null;
-    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
-      if (cmd === "remove_library_track") {
-        tracks = [];
-        return null;
-      }
-      if (cmd === "next_undo_operation") {
-        return { operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } }, refusal: null };
-      }
-      if (cmd === "undo_last_operation") return pending;
-      throw new Error(`unexpected command ${cmd}`);
-    });
-    renderScreen();
-    const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
-    await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
-    );
-    const undo = await readyUndo("library:remove.undo");
-    await userEvent.click(undo);
-    await waitFor(() => expect(undo).toBeDisabled());
-    finish({ status: "nothingToUndo" });
-  });
-
   it("cancels the dialog on Escape without removing anything", async () => {
     const calls = removable([track(1)]);
     renderScreen();
@@ -451,41 +397,13 @@ describe("removing a track from the Library", () => {
     );
   });
 
-  it("greys out Undo, with no message, when there turns out to be nothing to undo", async () => {
-    let tracks = [track(1)];
-    mockIPC((cmd, args) => {
-      if (cmd === "list_crates") return [];
-      if (cmd === "key_notation") return "camelot";
-    if (cmd === "table_columns") return null;
-    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
-      if (cmd === "remove_library_track") {
-        tracks = [];
-        return null;
-      }
-      if (cmd === "next_undo_operation") {
-        return { operation: { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } }, refusal: null };
-      }
-      if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
-      throw new Error(`unexpected command ${cmd}`);
-    });
-    renderScreen();
-    const [row] = await rows();
-    await userEvent.click(within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
-    await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
-    );
-    const undo = await readyUndo("library:remove.undo");
-    await userEvent.click(undo);
-    await waitFor(() => expect(screen.getByRole("button", { name: tx("library:remove.undo") })).toBeDisabled());
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByText(tx("library:remove.undoRefused"))).toBeNull();
-  });
 });
 
 /**
  * A Library with crates to add to, like the Rust side: `calls` records the
  * crate commands with their arguments. A track already in the crate is
- * skipped; an undo takes the last add back out.
+ * skipped; an add that changed something is the next step to undo (for the
+ * top bar's Undo).
  */
 function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]) {
   const calls: { cmd: string; args: Record<string, unknown> }[] = [];
@@ -522,11 +440,15 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
       };
     }
     if (cmd === "undo_last_operation") {
-      if (last === null) return { status: "nothingToUndo" };
-      const target = crates.find((c) => c.id === last?.id);
-      if (target) target.trackIds = target.trackIds.filter((id) => !last?.added.includes(id));
       last = null;
-      return { status: "undone", operation: { id: 1, kind: "add_to_crate", details: { name: null, from: null, tracks: null } } };
+      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
+    }
+    if (cmd === "next_undo_operation") {
+      const operation =
+        last === null || last.added.length === 0
+          ? null
+          : { id: 1, kind: "add_to_crate", details: { name: "Warm up", from: null, tracks: last.added.length } };
+      return { operation, refusal: null };
     }
     throw new Error(`unexpected command ${cmd}`);
   });
@@ -583,7 +505,7 @@ describe("adding a track to a crate", () => {
     expect(choice).toHaveValue("");
   });
 
-  it("says a track is already in the crate, with nothing to undo", async () => {
+  it("says a track is already in the crate", async () => {
     crateBackend([{ id: 1, name: "Warm up", trackIds: [1] }]);
     renderScreen();
     const choice = await addChoice("Synthetic Tune 1");
@@ -593,19 +515,32 @@ describe("adding a track to a crate", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       tx("crates:addTrack.alreadyIn", { crate: "Warm up" }),
     );
-    expect(screen.queryByRole("button", { name: tx("crates:undo") })).toBeNull();
   });
 
-  it("takes the track back out when the user undoes the add", async () => {
-    const calls = crateBackend([{ id: 1, name: "Warm up", trackIds: [] }]);
-    renderScreen();
+  it("says the track was added and offers no Undo there, only the top bar's", async () => {
+    crateBackend([{ id: 1, name: "Warm up", trackIds: [] }]);
+    renderScreen(true);
     const choice = await addChoice("Synthetic Tune 1");
     await waitFor(() => expect(choice).toBeEnabled());
     await userEvent.selectOptions(choice, "Warm up");
-    await userEvent.click(await readyUndo("crates:undo"));
 
-    expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:undone"));
-    expect(calls.map((c) => c.cmd)).toContain("undo_last_operation");
+    const line = await screen.findByRole("status");
+    expect(line).toHaveTextContent(tx("crates:addTrack.added", { crate: "Warm up" }));
+    expect(within(line).queryByRole("button")).toBeNull();
+    await expectOnlyTheTopBarUndo();
+  });
+
+  it("drops the line when the top bar's Undo takes the add back", async () => {
+    crateBackend([{ id: 1, name: "Warm up", trackIds: [] }]);
+    renderScreen(true);
+    const choice = await addChoice("Synthetic Tune 1");
+    await waitFor(() => expect(choice).toBeEnabled());
+    await userEvent.selectOptions(choice, "Warm up");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      tx("crates:addTrack.added", { crate: "Warm up" }),
+    );
+    await userEvent.click(await expectOnlyTheTopBarUndo());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
   });
 
   it("shows why an add was refused", async () => {
@@ -624,71 +559,6 @@ describe("adding a track to a crate", () => {
     await waitFor(() => expect(choice).toBeEnabled());
     await userEvent.selectOptions(choice, "Warm up");
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:error.notFound"));
-  });
-});
-
-describe("the Undo offered after a removal, before it knows which action it is for", () => {
-  /** Removes the one track; `next` answers the ask for the next step to undo. */
-  async function removeWith(next: () => unknown) {
-    let tracks = [track(1)];
-    const undone: unknown[] = [];
-    mockIPC((cmd, args) => {
-      if (cmd === "list_crates") return [];
-      if (cmd === "key_notation") return "camelot";
-    if (cmd === "table_columns") return null;
-    if (cmd === "track_table_page") return pageOf(tracks.map(rowOfLibraryTrack), queryOf(args));
-      if (cmd === "remove_library_track") {
-        tracks = [];
-        return null;
-      }
-      if (cmd === "next_undo_operation") return next();
-      if (cmd === "undo_last_operation") {
-        undone.push((args as { operationId: number | null }).operationId);
-        return { status: "nothingToUndo" };
-      }
-      throw new Error(`unexpected command ${cmd}`);
-    });
-    renderScreen();
-    const [row] = await rows();
-    await userEvent.click(
-      within(row).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }),
-    );
-    await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
-    );
-    return undone;
-  }
-
-  it("is greyed out until the answer is in, then undoes exactly that action", async () => {
-    let answer: (value: unknown) => void = () => {};
-    const undone = await removeWith(() => new Promise((resolve) => (answer = resolve)));
-    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
-    expect(undo).toBeDisabled();
-    // A press now does nothing: it can't take back whatever is newest.
-    await userEvent.click(undo);
-    expect(undone).toEqual([]);
-
-    answer({
-      operation: { id: 42, kind: "remove_from_library", details: { name: null, from: null, tracks: null } },
-      refusal: null,
-    });
-    await waitFor(() => expect(undo).toBeEnabled());
-    await userEvent.click(undo);
-    await waitFor(() => expect(undone).toEqual([42]));
-  });
-
-  it("stays greyed out when the answer can't be had", async () => {
-    let asked = 0;
-    const undone = await removeWith(() => {
-      asked += 1;
-      throw { kind: "database", params: {} };
-    });
-    const undo = await screen.findByRole("button", { name: tx("library:remove.undo") });
-    await waitFor(() => expect(asked).toBeGreaterThan(0));
-    await act(async () => {});
-    expect(undo).toBeDisabled();
-    await userEvent.click(undo);
-    expect(undone).toEqual([]);
   });
 });
 

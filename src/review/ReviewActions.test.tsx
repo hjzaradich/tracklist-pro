@@ -1070,15 +1070,22 @@ describe("the line after Accept all", () => {
       await screen.findByRole("button", { name: tx("review:queue.acceptAll", { count }) }),
     );
 
-  it("says how many tracks were switched, with View, Undo and Dismiss", async () => {
+  it("says how many tracks were switched, with View and Dismiss, and no Undo of its own", async () => {
     backend({ lists: { ...EMPTY, clearBestFile: [GONE, GONE_TOO] }, clear: 2 });
     renderScreen();
     expect(screen.queryByRole("region", { name: accepted(2) })).not.toBeInTheDocument();
     await acceptAll(2);
     const line = within(await screen.findByRole("region", { name: accepted(2) }));
     expect(line.getByRole("button", { name: tx("review:accepted.view") })).toBeInTheDocument();
-    expect(await line.findByRole("button", { name: tx("review:accepted.undo") })).toBeInTheDocument();
     expect(line.getByRole("button", { name: tx("review:accepted.dismiss") })).toBeInTheDocument();
+    // Undo is in the top bar only (owner decision, 2026-10-27): the line has
+    // View and Dismiss and nothing else, while the top bar names the step.
+    expect(line.getAllByRole("button")).toHaveLength(2);
+    expect(
+      await screen.findByRole("button", {
+        name: tx("shell:undo.action.acceptClearBestFiles", { count: 2 }),
+      }),
+    ).toBeInTheDocument();
     // The queue is empty now; the line is still there.
     expect(await screen.findByText(tx("review:queue.empty"))).toBeInTheDocument();
   });
@@ -1117,26 +1124,6 @@ describe("the line after Accept all", () => {
     // Hide closes it.
     await userEvent.click(line.getByRole("button", { name: tx("review:accepted.hide") }));
     expect(line.queryByRole("table")).not.toBeInTheDocument();
-  });
-
-  it("is undone with its own Undo: one step, the queue is right, and the line goes", async () => {
-    const world = backend({ lists: { ...EMPTY, clearBestFile: [GONE, GONE_TOO] }, clear: 2 });
-    renderScreen();
-    await acceptAll(2);
-    const line = within(await screen.findByRole("region", { name: accepted(2) }));
-    const operationId = world.undo!.operation.id;
-    const before = callsOf(world, "review_counts").length;
-    await userEvent.click(await line.findByRole("button", { name: tx("review:accepted.undo") }));
-    // The normal Undo of that one operation.
-    await waitFor(() => expect(callsOf(world, "undo_last_operation")).toHaveLength(1));
-    expect(callsOf(world, "undo_last_operation")[0]?.args).toEqual({ operationId });
-    // Both items are back, and Review asked for the queue again.
-    const clear = await screen.findByRole("region", { name: tx("review:group.clearBestFile") });
-    await waitFor(() => expect(within(clear).getAllByRole("option")).toHaveLength(2));
-    expect(callsOf(world, "review_counts").length).toBeGreaterThan(before);
-    await waitFor(() =>
-      expect(screen.queryByRole("region", { name: accepted(2) })).not.toBeInTheDocument(),
-    );
   });
 
   it("stays until it is dismissed, also after leaving Review and coming back", async () => {
@@ -1214,29 +1201,6 @@ describe("the line after Accept all", () => {
     );
     await screen.findByRole("region", { name: tx("review:group.qualityProblems") });
     expect(screen.getByRole("region", { name: accepted(1) })).toBeInTheDocument();
-  });
-
-  it("offers no Undo once something else was done since: the top bar's Undo names that", async () => {
-    backend({
-      lists: { ...EMPTY, clearBestFile: [GONE], qualityProblems: [QUALITY] },
-      clear: 1,
-    });
-    renderScreen();
-    await acceptAll(1);
-    const line = within(await screen.findByRole("region", { name: accepted(1) }));
-    expect(
-      await line.findByRole("button", { name: tx("review:accepted.undo") }),
-    ).toBeInTheDocument();
-    await userEvent.click(
-      (await actions()).getByRole("button", { name: tx("review:action.keepAnyway") }),
-    );
-    await waitFor(() =>
-      expect(
-        line.queryByRole("button", { name: tx("review:accepted.undo") }),
-      ).not.toBeInTheDocument(),
-    );
-    // The line is still there, and so are View and Dismiss.
-    expect(line.getByRole("button", { name: tx("review:accepted.view") })).toBeInTheDocument();
   });
 });
 

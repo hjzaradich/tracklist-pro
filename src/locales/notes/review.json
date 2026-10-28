@@ -249,11 +249,6 @@
     "where": "Review screen, line at the top, after Accept all, while the list is shown.",
     "approved": "Hide"
   },
-  "accepted.undo": {
-    "purpose": "Button that takes back Accept all, in one step.",
-    "where": "Review screen, line at the top, after Accept all.",
-    "approved": "Undo"
-  },
   "accepted.dismiss": {
     "purpose": "Button that removes the line about Accept all.",
     "where": "Review screen, line at the top, after Accept all.",

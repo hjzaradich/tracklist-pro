@@ -16,10 +16,7 @@
     "detail": "This action can be undone",
     "confirm": "Remove",
     "cancel": "Go back",
-    "done": "Removed from your Library",
-    "undo": "Undo",
-    "undone": "Put back in your Library",
-    "undoRefused": "Can't undo: the Library has changed since"
+    "done": "Removed from your Library"
   },
   "fragile": {
     "downloads": "In Downloads: will be lost if Downloads is cleared",

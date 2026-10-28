@@ -84,9 +84,10 @@ impl Volumes for TempVolume {
 /// A sandbox: the app data folder (the database) and a "drive" holding
 /// the music, side by side in one temp dir.
 struct Sandbox {
-    root: tempfile::TempDir,
     writer: Writer,
     volume: TempVolume,
+    // Last: fields drop in order, so the database closes before its folder goes.
+    root: tempfile::TempDir,
 }
 
 impl Sandbox {

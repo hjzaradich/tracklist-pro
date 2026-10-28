@@ -5,10 +5,11 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
-import type { AddSummary, JobUpdate, Offer, PlaylistChoice, UndoOutcome } from "../bindings";
+import type { AddSummary, JobUpdate, Offer, PlaylistChoice } from "../bindings";
 import "../i18n";
 import { RekordboxOffer } from "./RekordboxOffer";
 import type { PlaylistPath } from "./useRekordboxOffer";
+import { expectOnlyTheTopBarUndo, TopBarUndo } from "../test/topBarUndo";
 import { tx } from "../test/tx";
 
 function offer(toAdd: number, fields: Partial<Offer> = {}): Offer {
@@ -30,7 +31,6 @@ function fakeBackend(options: {
   inPlaylists?: (chosen: PlaylistPath[]) => Offer;
   playlists?: PlaylistChoice[];
   summary?: AddSummary;
-  undo?: UndoOutcome;
   /** Commands that fail, as the database being unreadable. */
   broken?: string[];
   /** Commands that don't answer until `release()` is called. */
@@ -40,6 +40,8 @@ function fakeBackend(options: {
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
+  // The add is the next step to undo, for the top bar's Undo, once it has run.
+  let added = false;
   const backend = {
     whole: options.whole,
     release,
@@ -59,8 +61,16 @@ function fakeBackend(options: {
         return options.inPlaylists?.(chosen) ?? offer(0);
       }
       if (cmd === "rekordbox_playlists") return options.playlists ?? [];
-      if (cmd === "add_rekordbox_tracks") return options.summary;
-      if (cmd === "undo_add_rekordbox_tracks") return options.undo;
+      if (cmd === "add_rekordbox_tracks") {
+        added = true;
+        return options.summary;
+      }
+      if (cmd === "next_undo_operation") {
+        const operation = added
+          ? { id: 9, kind: "add_rekordbox_tracks", details: { name: null, from: null, tracks: 3 } }
+          : null;
+        return { operation, refusal: null };
+      }
       throw new Error(`unexpected command ${cmd}`);
     },
     { shouldMockEvents: true },
@@ -68,9 +78,11 @@ function fakeBackend(options: {
   return backend;
 }
 
-function renderOffer(firstRun = false) {
+/** `topBar`: the top bar's Undo beside the offer, for the test of where Undo is. */
+function renderOffer(firstRun = false, topBar = false) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
+      {topBar && <TopBarUndo />}
       <RekordboxOffer firstRun={firstRun} />
     </QueryClientProvider>,
   );
@@ -142,26 +154,8 @@ describe("the offer to add rekordbox tracks", () => {
     expect(add).toBeDisabled();
 
     backend.release();
-    expect(await screen.findByRole("button", { name: tx("rekordboxOffer:summary.undo") })).toBeEnabled();
+    await screen.findByRole("list");
     expect(backend.count("add_rekordbox_tracks")).toBe(1);
-  });
-
-  it("marks the undo button busy while the undo runs", async () => {
-    const backend = fakeBackend({
-      whole: offer(3),
-      summary: SUMMARY,
-      undo: { status: "undone", operation: { id: 9, kind: "add_rekordbox_tracks", details: { name: null, from: null, tracks: 3 } } },
-      held: ["undo_add_rekordbox_tracks"],
-    });
-    renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: tx("rekordboxOffer:add") }));
-    const undo = await screen.findByRole("button", { name: tx("rekordboxOffer:summary.undo") });
-    await userEvent.click(undo);
-    await waitFor(() => expect(undo).toHaveAttribute("aria-busy", "true"));
-    expect(undo).toBeDisabled();
-
-    backend.release();
-    expect(await screen.findByText(tx("rekordboxOffer:summary.undone"))).toBeInTheDocument();
   });
 
   it("is titled Start from rekordbox on the first run", async () => {
@@ -202,30 +196,16 @@ describe("the offer to add rekordbox tracks", () => {
     ]);
   });
 
-  it("undoes the whole add with one undo, by its operation", async () => {
-    const backend = fakeBackend({
-      whole: offer(3),
-      summary: SUMMARY,
-      undo: { status: "undone", operation: { id: 9, kind: "add_rekordbox_tracks", details: { name: null, from: null, tracks: 3 } } },
-    });
-    renderOffer();
+  it("offers no Undo in the summary, only the top bar's, which takes the whole add back", async () => {
+    fakeBackend({ whole: offer(3), summary: SUMMARY });
+    renderOffer(false, true);
     await userEvent.click(await screen.findByRole("button", { name: tx("rekordboxOffer:add") }));
-    await userEvent.click(await screen.findByRole("button", { name: tx("rekordboxOffer:summary.undo") }));
-
-    expect(await screen.findByText(tx("rekordboxOffer:summary.undone"))).toBeInTheDocument();
-    expect(backend.last("undo_add_rekordbox_tracks")).toEqual({ operationId: 9 });
-    expect(backend.count("undo_add_rekordbox_tracks")).toBe(1);
-    expect(screen.queryByRole("button", { name: tx("rekordboxOffer:summary.undo") })).toBeNull();
-  });
-
-  it("says so when the add can't be undone any more", async () => {
-    fakeBackend({ whole: offer(3), summary: SUMMARY, undo: { status: "nothingToUndo" } });
-    renderOffer();
-    await userEvent.click(await screen.findByRole("button", { name: tx("rekordboxOffer:add") }));
-    await userEvent.click(await screen.findByRole("button", { name: tx("rekordboxOffer:summary.undo") }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      tx("rekordboxOffer:summary.cantUndo"),
-    );
+    const summary = within(await screen.findByRole("region", { name: tx("rekordboxOffer:title") }));
+    // Done is the only button in the summary.
+    expect(summary.getAllByRole("button")).toHaveLength(1);
+    expect(summary.getByRole("button", { name: tx("rekordboxOffer:summary.done") })).toBeInTheDocument();
+    const topBarUndo = await expectOnlyTheTopBarUndo();
+    expect(topBarUndo).toHaveTextContent(tx("shell:undo.action.addFromRekordbox", { count: 3 }));
   });
 
   it("goes back to the offer when the summary is closed", async () => {

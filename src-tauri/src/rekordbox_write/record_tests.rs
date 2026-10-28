@@ -5,8 +5,9 @@ use crate::db::{DbError, Writer};
 use crate::ops::{self, UndoOutcome};
 
 struct Lib {
-    _dir: tempfile::TempDir,
     writer: Writer,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Lib {

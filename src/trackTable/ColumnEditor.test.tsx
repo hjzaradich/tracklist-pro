@@ -166,6 +166,61 @@ describe("the column editor", () => {
     expect(shownNow()).not.toContain("rating");
   });
 
+  it("closes with Escape from the Columns button too, and gives the focus back to it", async () => {
+    render(<Editor />);
+    await open();
+    const opener = screen.getByRole("button", { name: tx("trackTable:editor.open") });
+    // Back to the Columns button with the panel still open (as a mouse
+    // click on it leaves the focus).
+    opener.focus();
+    expect(panel()).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
+  it("leaves Escape alone while the panel is closed", async () => {
+    const heard = vi.fn();
+    render(
+      <div onKeyDown={(event) => heard(event.key)}>
+        <Editor />
+      </div>,
+    );
+    screen.getByRole("button", { name: tx("trackTable:editor.open") }).focus();
+    await userEvent.keyboard("{Escape}");
+    expect(heard).toHaveBeenCalledWith("Escape");
+  });
+
+  it("keeps the focus inside the panel: Tab from the last button goes to the first, and Shift+Tab back", async () => {
+    render(
+      <>
+        <Editor />
+        <button type="button">Outside</button>
+      </>,
+    );
+    await open();
+    const buttons = within(panel()).getAllByRole("button").filter((b) => !(b as HTMLButtonElement).disabled);
+    const first = buttons[0]!;
+    const last = buttons.at(-1)!;
+    // Done is the last button.
+    expect(last).toHaveAccessibleName(tx("trackTable:editor.done"));
+    last.focus();
+    await userEvent.tab();
+    expect(first).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(last).toHaveFocus();
+    // From the panel itself, where the focus starts, Shift+Tab goes to the last.
+    panel().focus();
+    await userEvent.tab({ shift: true });
+    expect(last).toHaveFocus();
+    // Tab walks the buttons in between as usual.
+    first.focus();
+    await userEvent.tab();
+    expect(first).not.toHaveFocus();
+    expect(panel()).toContainElement(document.activeElement as HTMLElement);
+    expect(screen.getByRole("button", { name: "Outside" })).not.toHaveFocus();
+  });
+
   it("closes when the user clicks somewhere else", async () => {
     render(
       <>

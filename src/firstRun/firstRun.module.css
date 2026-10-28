@@ -136,7 +136,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* An add or undo under way. */
+/* An add under way. */
 .button[aria-busy="true"],
 .primary[aria-busy="true"] {
   cursor: progress;

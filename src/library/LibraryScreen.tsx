@@ -3,44 +3,47 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
+import { useWhenUndone } from "../shell/undoneStore";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import styles from "./LibraryTrackList.module.css";
 import { useAddToCrate, useCrates } from "../crates/useCrates";
 import { AddedToCrate, AddToCrate } from "./AddToCrate";
 import { ConfirmRemove, RemoveButton } from "./RemoveFromLibrary";
-import { useUndoAfterAction } from "../shell/useUndo";
 import { libraryRow, type LibraryRow } from "./libraryRow";
 import { LIBRARY_TABLE_QUERY_KEY } from "./useLibraryTracks";
 import { useRemoveLibraryTrack } from "./useRemoveLibraryTrack";
-
-/** What the strip above the list says about the last removal. */
-type Removal = "removed" | "undone" | "nothingToUndo" | "undoRefused";
 
 const LIBRARY_SOURCE = { kind: "library" } as const;
 
 /**
  * The Library: the tracks the user added to play with (1aD-6), in the track
  * table (1cA-3). Starting a Library and adding tracks arrive in 1aE. A track
- * is removed after a confirmation, and the removal can be undone (1aE-6).
+ * is removed after a confirmation, and the removal can be undone (1aE-6) from
+ * the top bar or with Ctrl+Z; this screen offers no Undo of its own (owner
+ * decision, 2026-10-27).
  */
 export function LibraryScreen() {
   const { t } = useTranslation("library");
   const remove = useRemoveLibraryTrack();
-  const { arm, offered, ready, undo } = useUndoAfterAction();
   const [pending, setPending] = useState<LibraryRow | null>(null);
-  const [removal, setRemoval] = useState<Removal | null>(null);
+  const [removed, setRemoved] = useState(false);
   const crates = useCrates();
   const addToCrate = useAddToCrate();
-  // What the last "Add to crate" did; `key` starts its Undo afresh.
+  // What the last "Add to crate" did; a new `key` announces the line anew.
   const [added, setAdded] = useState<{
     key: number;
     crate: string;
-    operationId: number | null;
+    changed: boolean;
   } | null>(null);
 
+  // Undone from the top bar: what the lines say no longer stands.
+  useWhenUndone(() => {
+    setRemoved(false);
+    setAdded(null);
+  });
+
   const add = (track: LibraryRow, crate: Crate) => {
-    setRemoval(null);
-    undo.reset();
+    setRemoved(false);
     remove.reset();
     addToCrate.mutate(
       { id: crate.id, tracks: [track.id] },
@@ -49,7 +52,7 @@ export function LibraryScreen() {
           setAdded((previous) => ({
             key: (previous?.key ?? 0) + 1,
             crate: crate.name,
-            operationId: result.operationId,
+            changed: result.operationId !== null,
           })),
       },
     );
@@ -57,29 +60,14 @@ export function LibraryScreen() {
 
   const confirm = () => {
     if (pending === null) return;
-    undo.reset();
     addToCrate.reset();
     remove.mutate(pending.id, {
-      onSuccess: () => {
-        arm();
-        setRemoval("removed");
-      },
+      onSuccess: () => setRemoved(true),
     });
     setPending(null);
-    setRemoval(null);
+    setRemoved(false);
     setAdded(null);
   };
-  const undoRemoval = () =>
-    undo.mutate(undefined, {
-      onSuccess: (outcome) =>
-        setRemoval(
-          outcome.status === "undone"
-            ? "undone"
-            : outcome.status === "nothingToUndo"
-              ? "nothingToUndo"
-              : "undoRefused",
-        ),
-    });
 
   return (
     <StageScreen stage="library">
@@ -92,30 +80,9 @@ export function LibraryScreen() {
             {errorMessage(remove.error)}
           </p>
         )}
-        {(removal === "removed" || removal === "nothingToUndo") && (
+        {removed && (
           <p role="status" className={styles.status}>
             {t("remove.done")}
-            {/* Gone once the removal isn't the next step to undo any more. */}
-            {offered && (
-              <button
-                type="button"
-                className={styles.button}
-                disabled={!ready || undo.isPending || removal === "nothingToUndo"}
-                onClick={undoRemoval}
-              >
-                {t("remove.undo")}
-              </button>
-            )}
-          </p>
-        )}
-        {removal === "undone" && (
-          <p role="status" className={styles.status}>
-            {t("remove.undone")}
-          </p>
-        )}
-        {(removal === "undoRefused" || undo.isError) && (
-          <p role="alert" className={styles.error}>
-            {undo.isError ? errorMessage(undo.error) : t("remove.undoRefused")}
           </p>
         )}
         {addToCrate.isError && (
@@ -124,7 +91,7 @@ export function LibraryScreen() {
           </p>
         )}
         {added !== null && !addToCrate.isError && (
-          <AddedToCrate key={added.key} crate={added.crate} operationId={added.operationId} />
+          <AddedToCrate key={added.key} crate={added.crate} changed={added.changed} />
         )}
         <TrackTableView
           screen="library"
@@ -148,9 +115,8 @@ export function LibraryScreen() {
                   <RemoveButton
                     track={track}
                     onRemove={(chosen) => {
-                      setRemoval(null);
+                      setRemoved(false);
                       setAdded(null);
-                      undo.reset();
                       setPending(chosen);
                     }}
                   />

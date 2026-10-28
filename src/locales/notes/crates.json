@@ -244,54 +244,39 @@
   },
   "done.created": {
     "purpose": "Says the crate was made.",
-    "where": "Crates screen, status strip with Undo.",
+    "where": "Crates screen, status strip.",
     "approved": "Crate created"
   },
   "done.renamed": {
     "purpose": "Says the crate was renamed.",
-    "where": "Crates screen, status strip with Undo.",
+    "where": "Crates screen, status strip.",
     "approved": "Crate renamed"
   },
   "done.deleted": {
     "purpose": "Says the crate was deleted.",
-    "where": "Crates screen, status strip with Undo.",
+    "where": "Crates screen, status strip.",
     "approved": "Crate deleted"
   },
   "done.createdFolder": {
     "purpose": "Says the folder was made.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip."
   },
   "done.renamedFolder": {
     "purpose": "Says the folder was renamed.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip."
   },
   "done.deletedFolder": {
     "purpose": "Says the folder and what was in it were deleted.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip."
   },
   "done.moved": {
     "purpose": "Says the crate or folder was moved.",
-    "where": "Crates screen, status strip with Undo."
+    "where": "Crates screen, status strip."
   },
   "done.removed": {
     "purpose": "Says the track was taken out of the crate.",
-    "where": "Crates screen, status strip with Undo.",
+    "where": "Crates screen, status strip.",
     "approved": "Removed from crate"
-  },
-  "undo": {
-    "purpose": "Undoes the last change.",
-    "where": "Crates and Library screens, status strip after a crate change.",
-    "approved": "Undo"
-  },
-  "undone": {
-    "purpose": "Says the last change was undone.",
-    "where": "Crates and Library screens, status strip after an undo.",
-    "approved": "Undone"
-  },
-  "undoRefused": {
-    "purpose": "Says the undo was refused because the Library changed since.",
-    "where": "Crates and Library screens, after an undo that was refused.",
-    "approved": "Can't undo: the Library has changed since"
   },
   "error.notFound": {
     "purpose": "Says the crate doesn't exist.",

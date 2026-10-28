@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import { createQueryClient } from "../app/queryClient";
 import type { Crate, LibraryTrack } from "../bindings";
 import "../i18n";
 import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
+import { expectOnlyTheTopBarUndo, TopBarUndo } from "../test/topBarUndo";
 import { tx } from "../test/tx";
 import { CratesScreen } from "./CratesScreen";
 
@@ -35,8 +36,8 @@ function track(id: number): LibraryTrack {
 
 /**
  * Stands in for the Rust side: crates and what's in them, the commands the
- * screen calls (recorded in `calls` with their arguments), and a one-step
- * undo that puts the crates back as they were.
+ * screen calls (recorded in `calls` with their arguments), and the next step
+ * to undo once something has changed (for the top bar's Undo).
  */
 function backend(
   initial: { crate: Crate; tracks: LibraryTrack[] }[],
@@ -167,16 +168,14 @@ function backend(
         lastOperation = 8;
         return { changed: wanted.length, skipped: 0, operationId: 8 };
       }
+      case "undo_last_operation":
+        before = null;
+        return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
       case "next_undo_operation":
         return {
           operation: before === null ? null : { id: lastOperation, kind: "x", details: { name: null, from: null, tracks: null } },
           refusal: null,
         };
-      case "undo_last_operation":
-        if (before === null) return { status: "nothingToUndo" };
-        crates = before;
-        before = null;
-        return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
       default:
         throw new Error(`unexpected command ${cmd}`);
     }
@@ -198,9 +197,11 @@ function Page({ chosen = null }: { chosen?: number | null }) {
   return <CratesScreen chosen={id} onChoose={setId} />;
 }
 
-function renderScreen(chosen: number | null = null) {
+/** `topBar`: the top bar's Undo beside the screen, for the tests of where Undo is. */
+function renderScreen(chosen: number | null = null, topBar = false) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
+      {topBar && <TopBarUndo />}
       <Page chosen={chosen} />
     </QueryClientProvider>,
   );
@@ -212,13 +213,6 @@ afterEach(() => {
 });
 
 const button = (key: string) => screen.findByRole("button", { name: tx(key) });
-
-/** The Undo offered after a change, once it knows which change it is for. */
-async function readyUndo() {
-  const undo = await button("crates:undo");
-  await waitFor(() => expect(undo).toBeEnabled());
-  return undo;
-}
 
 describe("the Crates screen", () => {
   it("names what's absent when there are no crates, and offers a new one", async () => {
@@ -303,19 +297,6 @@ describe("the Crates screen", () => {
     ]);
   });
 
-  it("puts a removed track back when the user undoes it", async () => {
-    backend([crateWith(1, "Warm up", [track(1), track(2)])]);
-    renderScreen();
-    await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: tx("crates:removeTrack.buttonFor", { title: "Synthetic Tune 1" }),
-      }),
-    );
-    await userEvent.click(await readyUndo());
-    expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:undone"));
-    await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(3));
-  });
 });
 
 describe("making a crate", () => {
@@ -356,15 +337,6 @@ describe("making a crate", () => {
     expect(calls.map((c) => c.cmd)).not.toContain("create_crate");
   });
 
-  it("puts the crate away again when the user undoes it", async () => {
-    backend([]);
-    renderScreen();
-    await userEvent.click(await button("crates:new.button"));
-    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Warm up");
-    await userEvent.click(await button("crates:new.confirm"));
-    await userEvent.click(await readyUndo());
-    expect(await screen.findByText(tx("crates:empty"))).toBeInTheDocument();
-  });
 });
 
 describe("renaming a crate", () => {
@@ -406,7 +378,7 @@ describe("deleting a crate", () => {
     expect(calls.map((c) => c.cmd)).not.toContain("delete_crate");
   });
 
-  it("deletes the crate once confirmed, and brings it back on undo", async () => {
+  it("deletes the crate once confirmed", async () => {
     const calls = backend([crateWith(1, "Warm up", [track(1)]), crateWith(2, "Other", [])]);
     renderScreen();
     await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
@@ -422,42 +394,6 @@ describe("deleting a crate", () => {
     expect(calls.filter((c) => c.cmd === "delete_crate")).toEqual([
       { cmd: "delete_crate", args: { id: 1 } },
     ]);
-
-    await userEvent.click(await readyUndo());
-    expect(await screen.findByRole("button", { name: /Warm up/ })).toBeInTheDocument();
-  });
-});
-
-describe("undo", () => {
-  it("says so, and changes nothing, when the Library has changed since", async () => {
-    backend([]);
-    renderScreen();
-    await userEvent.click(await button("crates:new.button"));
-    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Warm up");
-    await userEvent.click(await button("crates:new.confirm"));
-    const undo = await readyUndo();
-    // The backend refuses the undo.
-    mockIPC((cmd, args) => {
-      if (cmd === "undo_last_operation") {
-        return {
-          status: "refused",
-          operation: { id: 1, kind: "create_crate", details: { name: null, from: null, tracks: null } },
-          reason: { code: "changedSince" },
-          conflicts: [],
-        };
-      }
-      if (cmd === "list_crates") {
-        return [{ id: 100, parentId: null, kind: "static", name: "Warm up", trackCount: 0 }];
-      }
-      if (cmd === "key_notation") return "camelot";
-      if (cmd === "table_columns") return null;
-      if (cmd === "track_table_page") return pageOf([], queryOf(args));
-      throw new Error(`unexpected command ${cmd}`);
-    });
-    await userEvent.click(undo);
-    expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:undoRefused"));
-    // The crate is still there.
-    expect(await screen.findByRole("heading", { level: 2 })).toHaveTextContent("Warm up");
   });
 });
 
@@ -471,8 +407,116 @@ async function confirmRename() {
   );
 }
 
+describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
+  const choose = (name: RegExp) => async () =>
+    userEvent.click(await screen.findByRole("button", { name }));
+
+  const changes: [string, string, Parameters<typeof backend>[0], () => Promise<void>][] = [
+    [
+      "make-crate",
+      "crates:done.created",
+      [],
+      async () => {
+        await userEvent.click(await button("crates:new.button"));
+        await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Peak time");
+        await userEvent.click(await button("crates:new.confirm"));
+      },
+    ],
+    [
+      "make-folder",
+      "crates:done.createdFolder",
+      [],
+      async () => {
+        await userEvent.click(await button("crates:newFolder.button"));
+        await userEvent.type(await screen.findByLabelText(tx("crates:newFolder.label")), "Sets");
+        await userEvent.click(await button("crates:newFolder.confirm"));
+      },
+    ],
+    [
+      "rename-crate",
+      "crates:done.renamed",
+      [crateWith(1, "Warm up", [track(1)])],
+      async () => {
+        await choose(/Warm up/)();
+        await userEvent.click(await button("crates:rename.button"));
+        const input = await screen.findByLabelText(tx("crates:rename.label"));
+        await userEvent.clear(input);
+        await userEvent.type(input, "Warm up 2");
+        await confirmRename();
+      },
+    ],
+    [
+      "delete-crate",
+      "crates:done.deleted",
+      [crateWith(1, "Warm up", [track(1)])],
+      async () => {
+        await choose(/Warm up/)();
+        await userEvent.click(await button("crates:delete.button"));
+        await userEvent.click(
+          within(await screen.findByRole("alertdialog")).getByRole("button", {
+            name: tx("crates:delete.confirm"),
+          }),
+        );
+      },
+    ],
+    [
+      "move-crate",
+      "crates:done.moved",
+      [crateWith(1, "Loose", []), folderWith(2, "Archive")],
+      async () => {
+        await choose(/Loose/)();
+        await userEvent.click(await button("crates:move.button"));
+        await userEvent.selectOptions(
+          await screen.findByLabelText(tx("crates:move.label", { name: "Loose" })),
+          "Archive",
+        );
+        await userEvent.click(await button("crates:move.confirm"));
+      },
+    ],
+    [
+      "remove-track",
+      "crates:done.removed",
+      [crateWith(1, "Warm up", [track(1), track(2)])],
+      async () => {
+        await choose(/Warm up/)();
+        await userEvent.click(
+          await screen.findByRole("button", {
+            name: tx("crates:removeTrack.buttonFor", { title: "Synthetic Tune 1" }),
+          }),
+        );
+      },
+    ],
+  ];
+
+  it.each(changes)(
+    "%s says what happened and offers no Undo there, only the top bar's",
+    async (_what, done, crates, change) => {
+      backend(crates);
+      renderScreen(null, true);
+      await change();
+      const line = await screen.findByRole("status");
+      expect(line).toHaveTextContent(tx(done));
+      expect(within(line).queryByRole("button")).toBeNull();
+      await expectOnlyTheTopBarUndo();
+    },
+  );
+});
+
+describe("an Undo from the top bar", () => {
+  it("drops the line about the change it took back", async () => {
+    backend([]);
+    renderScreen(null, true);
+    await userEvent.click(await button("crates:new.button"));
+    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Peak time");
+    await userEvent.click(await button("crates:new.confirm"));
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:done.created"));
+    await userEvent.click(await expectOnlyTheTopBarUndo());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+});
+
 describe("a change that records nothing", () => {
-  it("offers no Undo after renaming a crate to the name it has, since Undo would take back something else", async () => {
+  it("says nothing after renaming a crate to the name it has", async () => {
     const calls = backend([crateWith(1, "Warm up", [track(1)])]);
     renderScreen();
     await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
@@ -482,10 +526,9 @@ describe("a change that records nothing", () => {
     await waitFor(() => expect(screen.queryByLabelText(tx("crates:rename.label"))).toBeNull());
     expect(calls.filter((c) => c.cmd === "rename_crate")).toHaveLength(1);
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.queryByRole("button", { name: tx("crates:undo") })).toBeNull();
   });
 
-  it("offers no Undo after removing a track that was gone already", async () => {
+  it("says nothing after removing a track that was gone already", async () => {
     const calls = backend([crateWith(1, "Warm up", [track(1), track(2)])], { gone: [1] });
     renderScreen();
     await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
@@ -499,7 +542,6 @@ describe("a change that records nothing", () => {
       expect(calls.filter((c) => c.cmd === "remove_tracks_from_crate")).toHaveLength(1),
     );
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.queryByRole("button", { name: tx("crates:undo") })).toBeNull();
   });
 
   it("leaves an earlier change's strip as it was", async () => {
@@ -563,103 +605,6 @@ describe("errors", () => {
     // And a new attempt clears that one too.
     await userEvent.click(await button("crates:rename.button"));
     expect(screen.queryByRole("alert")).toBeNull();
-  });
-});
-
-describe("the Undo offered after creating or deleting a crate, before it knows which change it is for", () => {
-  /**
-   * A backend with one crate, whose answer to "what is the next step to
-   * undo" is `next`. Records the operation each undo was asked for.
-   */
-  function askingBackend(next: () => unknown) {
-    let crates = [{ id: 1, parentId: null, kind: "static", name: "Warm up", trackCount: 0 }];
-    const undone: unknown[] = [];
-    mockIPC((cmd, args) => {
-      const a = (args ?? {}) as Record<string, unknown>;
-      if (cmd === "list_crates") return crates;
-      if (cmd === "key_notation") return "camelot";
-      if (cmd === "table_columns") return null;
-      if (cmd === "track_table_page") return pageOf([], queryOf(args));
-      if (cmd === "create_crate") {
-        crates = [
-          ...crates,
-          { id: 2, parentId: null, kind: "static", name: String(a.name), trackCount: 0 },
-        ];
-        return 2;
-      }
-      if (cmd === "delete_crate") {
-        crates = crates.filter((c) => c.id !== a.id);
-        return null;
-      }
-      if (cmd === "next_undo_operation") return next();
-      if (cmd === "undo_last_operation") {
-        undone.push(a.operationId);
-        return { status: "nothingToUndo" };
-      }
-      throw new Error(`unexpected command ${cmd}`);
-    });
-    return undone;
-  }
-
-  async function createCrate() {
-    renderScreen();
-    await userEvent.click(await button("crates:new.button"));
-    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Peak time");
-    await userEvent.click(await button("crates:new.confirm"));
-  }
-
-  async function deleteCrate() {
-    renderScreen();
-    await userEvent.click(await screen.findByRole("button", { name: /Warm up/ }));
-    await userEvent.click(await button("crates:delete.button"));
-    await userEvent.click(
-      within(await screen.findByRole("alertdialog")).getByRole("button", {
-        name: tx("crates:delete.confirm"),
-      }),
-    );
-  }
-
-  it.each([
-    ["creating", createCrate, "create_crate"],
-    ["deleting", deleteCrate, "delete_crate"],
-  ] as const)(
-    "after %s a crate it is greyed out until the answer is in, then undoes exactly that change",
-    async (_what, change, kind) => {
-      let answer: (value: unknown) => void = () => {};
-      const undone = askingBackend(() => new Promise((resolve) => (answer = resolve)));
-      await change();
-      const undo = await button("crates:undo");
-      expect(undo).toBeDisabled();
-      // A press now does nothing: it can't take back whatever is newest.
-      await userEvent.click(undo);
-      expect(undone).toEqual([]);
-
-      answer({
-        operation: { id: 42, kind, details: { name: null, from: null, tracks: null } },
-        refusal: null,
-      });
-      await waitFor(() => expect(undo).toBeEnabled());
-      await userEvent.click(undo);
-      await waitFor(() => expect(undone).toEqual([42]));
-    },
-  );
-
-  it.each([
-    ["creating", createCrate],
-    ["deleting", deleteCrate],
-  ] as const)("after %s a crate it stays greyed out when the answer can't be had", async (_what, change) => {
-    let asked = 0;
-    const undone = askingBackend(() => {
-      asked += 1;
-      throw { kind: "database", params: {} };
-    });
-    await change();
-    const undo = await button("crates:undo");
-    await waitFor(() => expect(asked).toBeGreaterThan(0));
-    await act(async () => {});
-    expect(undo).toBeDisabled();
-    await userEvent.click(undo);
-    expect(undone).toEqual([]);
   });
 });
 
@@ -748,7 +693,7 @@ describe("folders in the tree", () => {
 });
 
 describe("making a folder", () => {
-  it("makes a folder at the top and shows it chosen, with Undo", async () => {
+  it("makes a folder at the top and shows it chosen", async () => {
     const calls = backend([crateWith(1, "Loose", [])]);
     renderScreen();
     await userEvent.click(await button("crates:newFolder.button"));
@@ -759,8 +704,6 @@ describe("making a folder", () => {
     expect(calls.filter((c) => c.cmd === "create_crate_folder")).toEqual([
       { cmd: "create_crate_folder", args: { name: "Sets", parent: null } },
     ]);
-    await userEvent.click(await readyUndo());
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Sets" })).toBeNull());
   });
 
   it("makes a crate and a folder inside the chosen folder", async () => {
@@ -836,7 +779,7 @@ describe("deleting a folder", () => {
     expect(dialog).not.toHaveTextContent(tx("crates:delete.holds"));
   });
 
-  it("deletes the folder with what is in it as one step, and undoes it in one step", async () => {
+  it("deletes the folder with what is in it as one step", async () => {
     const calls = backend(residency());
     renderScreen();
     const dialog = await askToDelete("Friday residency");
@@ -852,10 +795,6 @@ describe("deleting a folder", () => {
     expect(calls.filter((c) => c.cmd === "delete_crate")).toEqual([
       { cmd: "delete_crate", args: { id: 1 } },
     ]);
-
-    await userEvent.click(await readyUndo());
-    expect(await screen.findByRole("button", { name: /Peak time/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Warmup/ })).toBeInTheDocument();
   });
 });
 
@@ -887,7 +826,7 @@ describe("moving to a folder", () => {
     expect(forCrate).toHaveValue("3");
   });
 
-  it("moves a crate into a folder, and Undo puts it back", async () => {
+  it("moves a crate into a folder", async () => {
     const calls = backend([...residency(), folderWith(6, "Archive")]);
     renderScreen();
     const choice = await openMove(/Loose/, "Loose");
@@ -901,13 +840,6 @@ describe("moving to a folder", () => {
     await waitFor(() =>
       expect(screen.getByLabelText(tx("crates:path.label"))).toHaveTextContent(
         `${tx("crates:path.root")} › Archive › Loose`,
-      ),
-    );
-
-    await userEvent.click(await readyUndo());
-    await waitFor(() =>
-      expect(screen.getByLabelText(tx("crates:path.label"))).toHaveTextContent(
-        `${tx("crates:path.root")} › Loose`,
       ),
     );
   });
@@ -924,7 +856,7 @@ describe("moving to a folder", () => {
     ]);
   });
 
-  it("offers no Undo when the crate is where it was put already", async () => {
+  it("says nothing when the crate is where it was put already", async () => {
     const calls = backend(residency());
     renderScreen();
     await openMove(/Loose/, "Loose");

@@ -7,9 +7,10 @@ use std::path::Path;
 /// A sandbox with the guard's root at `<sandbox>/data` and a sibling
 /// folder `<sandbox>/outside` holding one file, `keep.txt`.
 struct Sandbox {
-    _dir: tempfile::TempDir,
     base: PathBuf,
     guard: WriteGuard,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Sandbox {

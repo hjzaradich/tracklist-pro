@@ -47,8 +47,9 @@ impl Volumes for Mount {
 
 /// A database with one volume and one music folder, `Music` (id 1).
 pub(crate) struct Lib {
-    _dir: tempfile::TempDir,
     pub writer: Writer,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Lib {

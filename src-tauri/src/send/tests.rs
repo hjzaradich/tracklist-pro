@@ -83,7 +83,6 @@ fn export_text(tracks: &[Rb], entries: usize) -> String {
 /// A sandbox: the app data folder at `<sandbox>/data` (the guard's root,
 /// holding the database) and rekordbox's export in `<sandbox>/documents`.
 struct World {
-    _dir: tempfile::TempDir,
     base: PathBuf,
     guard: WriteGuard,
     writer: Writer,
@@ -91,6 +90,8 @@ struct World {
     export: PathBuf,
     /// The export's modified time, moved on by every save.
     saved: std::cell::Cell<u64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl World {

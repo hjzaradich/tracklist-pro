@@ -85,9 +85,10 @@ impl DiskProbe for Disk {
 }
 
 struct Lib {
-    _dir: tempfile::TempDir,
     writer: Writer,
     next: std::cell::Cell<i64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Lib {

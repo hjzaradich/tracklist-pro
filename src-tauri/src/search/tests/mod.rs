@@ -5,3 +5,4 @@ mod job;
 mod query;
 mod settle;
 pub(crate) mod support;
+mod table_row;

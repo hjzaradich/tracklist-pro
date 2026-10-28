@@ -74,21 +74,6 @@
     "where": "Library screen, status strip above the list after a removal.",
     "approved": "Removed from your Library"
   },
-  "remove.undo": {
-    "purpose": "Button that undoes the removal.",
-    "where": "Library screen, status strip after a removal.",
-    "approved": "Undo"
-  },
-  "remove.undone": {
-    "purpose": "Says the removal was undone.",
-    "where": "Library screen, status strip after an undo.",
-    "approved": "Put back in your Library"
-  },
-  "remove.undoRefused": {
-    "purpose": "Says the undo wasn't possible because the Library changed.",
-    "where": "Library screen, alert after an undo is refused.",
-    "approved": "Can't undo: the Library has changed since"
-  },
   "fragile.downloads": {
     "purpose": "Warns that a file in Downloads may be lost.",
     "where": "Library table, note under the file path for a file in a Downloads folder.",

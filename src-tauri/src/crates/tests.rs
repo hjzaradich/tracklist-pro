@@ -32,8 +32,9 @@ impl Volumes for NoVolumes {
 }
 
 struct Lib {
-    _dir: tempfile::TempDir,
     writer: Writer,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 /// Every row of a query, as text, for comparing whole states.

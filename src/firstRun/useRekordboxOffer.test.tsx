@@ -5,10 +5,11 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
-import { useAddRekordboxTracks, useUndoAddRekordboxTracks } from "./useRekordboxOffer";
+import { useAddRekordboxTracks } from "./useRekordboxOffer";
 
-// The add of rekordbox tracks and its undo change the Library, so they change
-// what Review holds: a track added can have an item, and undoing takes it away.
+// The add of rekordbox tracks changes the Library, so it changes what Review
+// holds: a track added can have an item. (Undo's own reload is tested with
+// the top bar's Undo.)
 
 afterEach(() => {
   cleanup();
@@ -38,16 +39,6 @@ describe("the add of rekordbox tracks", () => {
     const { result } = renderHook(() => useAddRekordboxTracks(), { wrapper: inClient(queryClient) });
     expect(stale(queryClient)).toEqual(REVIEW_QUERY_KEYS.map(() => false));
     act(() => result.current.mutate(null));
-    await waitFor(() => expect(stale(queryClient)).toEqual(REVIEW_QUERY_KEYS.map(() => true)));
-  });
-
-  it("asks Review for its queue again, after the undo of the add", async () => {
-    mockIPC(() => ({ status: "nothingToUndo" }));
-    const queryClient = reviewHasBeenRead();
-    const { result } = renderHook(() => useUndoAddRekordboxTracks(), {
-      wrapper: inClient(queryClient),
-    });
-    act(() => result.current.mutate(9));
     await waitFor(() => expect(stale(queryClient)).toEqual(REVIEW_QUERY_KEYS.map(() => true)));
   });
 });

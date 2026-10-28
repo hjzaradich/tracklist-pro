@@ -73,10 +73,14 @@ fn the_index_job_works_out_every_track_that_is_due_and_leaves_the_queue_idle() {
 #[test]
 fn nothing_is_queued_when_nothing_is_due_and_never_a_second_job_while_one_waits() {
     let lib = Lib::new();
+    // No worker takes what is queued: the queue is started and stopped
+    // before anything is asked for (`workers(0)` would still start one, as
+    // a queue always has at least one), so a queued job stays queued.
     let queue = JobQueue::builder(lib.writer.clone())
-        .workers(0)
+        .workers(1)
         .start()
         .unwrap();
+    queue.shutdown();
     request_now(&lib, &queue);
     assert!(index_jobs(&lib.writer).is_empty());
 
@@ -86,7 +90,7 @@ fn nothing_is_queued_when_nothing_is_due_and_never_a_second_job_while_one_waits(
     let waiting = index_jobs(&lib.writer);
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].priority, Priority::BACKGROUND);
-    queue.shutdown();
+    assert_eq!(waiting[0].status, JobStatus::Queued);
 }
 
 #[test]

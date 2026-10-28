@@ -101,10 +101,11 @@ pub(super) const EARLIER_READ: &str = "2026-10-05T09:00:00.000Z";
 
 /// A migrated database in a temp dir, opened as the app opens it.
 pub(super) struct Lib {
-    _dir: tempfile::TempDir,
     pub writer: Writer,
     next_track_id: Cell<i64>,
     next_file: Cell<i64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Lib {
