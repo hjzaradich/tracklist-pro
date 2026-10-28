@@ -71,5 +71,29 @@
     "musepack": "Musepack",
     "ape": "APE",
     "unknown": "Unknown"
-  }
+  },
+  "selected": "({{selected, number}} selected)",
+  "keys": {
+    "next": "Next track",
+    "previous": "Previous track",
+    "extendNext": "Add next track to selection",
+    "extendPrevious": "Add previous track to selection",
+    "selectAll": "Select all tracks",
+    "clearSelection": "Clear selection",
+    "energy": "Set energy to {{energy}}",
+    "playPause": "Play or pause",
+    "tag": "Tag",
+    "shortcut": {
+      "next": "J",
+      "previous": "K",
+      "extendNext": "Shift J",
+      "extendPrevious": "Shift K",
+      "selectAll": "Ctrl A",
+      "clearSelection": "Esc",
+      "playPause": "Space",
+      "tag": "T"
+    }
+  },
+  "energySet_one": "Energy {{energy}} set on {{count, number}} track",
+  "energySet_other": "Energy {{energy}} set on {{count, number}} tracks"
 }

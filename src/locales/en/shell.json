@@ -55,7 +55,9 @@
       "showFileAgain": "Undo (file shown again)",
       "useThisFile": "Undo (file chosen)",
       "resolveConflict": "Undo (conflict resolved)",
-      "resolveConflicts": "Undo (conflicts resolved)"
+      "resolveConflicts": "Undo (conflicts resolved)",
+      "setEnergy_one": "Undo (energy set on {{count, number}} track)",
+      "setEnergy_other": "Undo (energy set on {{count, number}} tracks)"
     },
     "refused": {
       "sentSince": "Can't undo: tracks have been sent to rekordbox since",

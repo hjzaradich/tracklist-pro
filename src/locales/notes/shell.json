@@ -370,5 +370,13 @@
   "undo.action.resolveConflicts": {
     "purpose": "Undo button naming what it takes back: every conflict of a field resolved at once in Review (Undo opens them all again). Proposal.",
     "where": "Top bar, Undo button, when the next step to undo is a bulk resolve of a field's conflicts."
+  },
+  "undo.action.setEnergy_one": {
+    "purpose": "Undo button naming what it takes back: an energy given to one track.",
+    "where": "Top bar, Undo button, when the next step to undo is giving a track an energy."
+  },
+  "undo.action.setEnergy_other": {
+    "purpose": "Undo button naming what it takes back: an energy given to several tracks at once.",
+    "where": "Top bar, Undo button, when the next step to undo is giving tracks an energy."
   }
 }

@@ -18,6 +18,7 @@ import { useAcceptedStore } from "../review/acceptedStore";
 import { TRACK_TAG_SOURCES_QUERY_KEY } from "./useTrackTagSources";
 import { useUndoneCount } from "./undoneStore";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
+import { dialogIsOpen, isTextField } from "../keys/typing";
 
 // Undo (1bA-12): one step at a time, newest first, from the top bar or
 // Ctrl+Z, and only there (owner decision, 2026-10-27): no screen offers an
@@ -97,29 +98,6 @@ export function useUndoOperation() {
   });
 }
 
-/** Whether typing happens in `target`, where Ctrl+Z belongs to the text. */
-function isTextField(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target instanceof HTMLTextAreaElement) return true;
-  if (target instanceof HTMLInputElement) {
-    return ![
-      "button",
-      "checkbox",
-      "color",
-      "file",
-      "image",
-      "radio",
-      "range",
-      "reset",
-      "submit",
-    ].includes(target.type);
-  }
-  return target.closest('[contenteditable]:not([contenteditable="false"])') !== null;
-}
-
-/** A dialog that is waiting for an answer: it has the keyboard. */
-const OPEN_DIALOG = '[role="alertdialog"], [role="dialog"], dialog[open]';
-
 /**
  * Calls `onUndo` on Ctrl+Z, except while the focus is in a text field (there
  * Ctrl+Z undoes typing, as everywhere else) and while a dialog is open. A
@@ -134,7 +112,7 @@ export function useUndoShortcut(onUndo: () => void) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
       if (event.key.toLowerCase() !== "z" || isTextField(event.target)) return;
-      if (document.querySelector(OPEN_DIALOG) !== null) return;
+      if (dialogIsOpen()) return;
       event.preventDefault();
       if (!event.repeat) latest.current();
     };

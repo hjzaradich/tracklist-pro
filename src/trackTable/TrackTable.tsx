@@ -16,6 +16,7 @@ import { ColumnHeadings } from "./ColumnHeadings";
 import { moveColumnTo, tableLayout, type ColumnWidths } from "./columnChoice";
 import { COLUMNS, type CellContext, type ColumnDef, type ColumnId } from "./columns";
 import styles from "./TrackTable.module.css";
+import { useTrackKeys } from "./useTrackKeys";
 
 /** Rows drawn above and below the ones on screen, so a quick scroll never shows a gap. */
 const OVERSCAN = 6;
@@ -69,8 +70,24 @@ export interface TrackTableProps {
   positionOf?: (recordingId: number) => Promise<number | null>;
   /** The rows of the current `resetKey` have arrived, so an index can be scrolled to. Default: yes. */
   settled?: boolean;
-  /** The selected row changed (or went); `null` for none. */
+  /** The focused row changed (or went); `null` for none. */
   onSelectionChange?: (row: TableRow | null) => void;
+  /**
+   * How many tracks are selected, or which row is focused, changed (1cB-8);
+   * `focus` is the focused row's index.
+   */
+  onSelectedChange?: (selection: { count: number; focus: number | null }) => void;
+  /**
+   * The ids (`TableRow.recordingId`) of the rows from `first` to `last` of the
+   * current rows, for a range or all of them that the windows held don't
+   * cover. Without it only the rows held can be selected.
+   */
+  idsInRange?: (first: number, last: number) => Promise<readonly number[]>;
+  /**
+   * The energy keys (1 to 0, 1cB-8) gave these tracks this energy. Without it
+   * the keys are unavailable.
+   */
+  onSetEnergy?: (recordingIds: readonly number[], energy: number) => void;
 }
 
 const NO_WIDTHS: ColumnWidths = {};
@@ -92,10 +109,15 @@ function readRowHeight(): number {
  *
  * - **Sorting** is the backend's: a click on a heading calls `onSort`, and
  *   the screen asks for the rows again in the new order.
- * - **One row is selected** (tinted, with the accent bar), by click or by
- *   keyboard. The table is one tab stop: Up and Down, Page Up and Page
- *   Down, Home and End move the selection; buttons inside a row are tab
- *   stops of their own.
+ * - **Selecting** (1cB-8): a click selects one row (tinted, with the accent
+ *   bar), Shift+click the rows from the last click to this one, Ctrl+click
+ *   adds or takes away one, Ctrl+A all of them and Escape none. Only
+ *   selected rows are tinted; the focused row of a bigger selection has a
+ *   ring. The table is one tab stop: Up and Down, Page Up and Page Down,
+ *   Home and End move the focus and select that row (with Shift, the rows
+ *   between too); buttons inside a row are tab stops of their own. The
+ *   hotkeys J, K and 1 to 0 work from anywhere on the screen
+ *   ({@link useTrackKeys}).
  * - **Playing** is shown by the play button's bars alone; the row isn't
  *   tinted for it.
  */
@@ -116,6 +138,9 @@ export function TrackTable({
   positionOf,
   settled = true,
   onSelectionChange,
+  onSelectedChange,
+  idsInRange,
+  onSetEnergy,
 }: TrackTableProps) {
   const { t, i18n } = useTranslation("trackTable");
   const keyNotation = useKeyNotation();
@@ -126,6 +151,18 @@ export function TrackTable({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [active, setActive] = useState<number | null>(null);
+  // Several tracks, or none, selected: their ids. `null` is the usual case,
+  // the focused row alone. Where a Shift range starts: an index.
+  const [picked, setPicked] = useState<ReadonlySet<number> | null>(null);
+  const [anchor, setAnchor] = useState<number | null>(null);
+  // Goes up with every change of the selection, and `listNow` is the list
+  // the table is showing, so the ids of a range that arrive late are dropped
+  // if the selection moved on or the list changed.
+  const changes = useRef(0);
+  const listNow = useRef(resetKey);
+  useEffect(() => {
+    listNow.current = resetKey;
+  });
   // The selected row's track, so another order can find it again. Known
   // once its row has arrived.
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -145,6 +182,8 @@ export function TrackTable({
     const carried = activeId ?? looking?.id ?? null;
     setActive(null);
     setActiveId(null);
+    setPicked(null);
+    setAnchor(null);
     setFound(null);
     setLooking(positionOf && carried !== null ? { id: carried, key: resetKey } : null);
     setScrollTop(0);
@@ -239,7 +278,8 @@ export function TrackTable({
     onSelectionChange?.(activeRow ?? null);
   }, [activeRow, onSelectionChange]);
 
-  const select = useCallback(
+  // Moves the focus to a row and keeps it in view; the selection is the caller's.
+  const focus = useCallback(
     (index: number) => {
       const clamped = Math.min(Math.max(0, index), Math.max(0, total - 1));
       setActive(clamped);
@@ -261,6 +301,85 @@ export function TrackTable({
     },
     [total, rowHeight, room, getRow],
   );
+
+  // Selects only the row at `index` (a click, or a move without Shift).
+  const select = (index: number) => {
+    changes.current += 1;
+    setPicked(null);
+    setAnchor(Math.min(Math.max(0, index), Math.max(0, total - 1)));
+    focus(index);
+  };
+
+  // The ids of rows `first` to `last`: at once when the windows hold them,
+  // else from the backend.
+  const rangeIds = (first: number, last: number): number[] | Promise<readonly number[]> => {
+    const held: number[] = [];
+    let missing = false;
+    for (let i = first; i <= last; i++) {
+      const row = getRow(i);
+      if (row === undefined) missing = true;
+      else held.push(row.recordingId);
+    }
+    return missing && idsInRange ? idsInRange(first, last) : held;
+  };
+  const chooseRange = (first: number, last: number) => {
+    const token = ++changes.current;
+    const list = resetKey;
+    const ids = rangeIds(first, last);
+    if (Array.isArray(ids)) setPicked(new Set(ids));
+    else
+      void (ids as Promise<readonly number[]>).then(
+        (found) => {
+          if (token === changes.current && list === listNow.current) setPicked(new Set(found));
+        },
+        () => {},
+      );
+  };
+  // Shift: the rows from the anchor to `index`, which gets the focus.
+  const extendTo = (index: number) => {
+    const to = Math.min(Math.max(0, index), Math.max(0, total - 1));
+    const from = anchor ?? active ?? to;
+    if (anchor === null) setAnchor(from);
+    focus(to);
+    chooseRange(Math.min(from, to), Math.max(from, to));
+  };
+  // Ctrl: one row in or out of the selection.
+  const toggle = (index: number) => {
+    const row = getRow(index);
+    if (row === undefined) return;
+    const next = new Set(picked ?? (activeId === null ? [] : [activeId]));
+    if (!next.delete(row.recordingId)) next.add(row.recordingId);
+    changes.current += 1;
+    setPicked(next);
+    setAnchor(index);
+    focus(index);
+  };
+  const selectAll = () => {
+    if (total > 0) chooseRange(0, total - 1);
+  };
+  const clear = () => {
+    changes.current += 1;
+    setPicked(new Set());
+  };
+  // J and K: a row from the one focused (from the top of the screen when none is).
+  const move = (step: 1 | -1, extend: boolean) => {
+    if (total === 0) return;
+    const from = active ?? (step === 1 ? first - 1 : first + 1);
+    if (extend) extendTo(from + step);
+    else select(from + step);
+  };
+
+  const selectedCount = picked !== null ? picked.size : active !== null ? 1 : 0;
+  useEffect(() => {
+    onSelectedChange?.({ count: selectedCount, focus: active });
+  }, [selectedCount, active, onSelectedChange]);
+  const setEnergy = onSetEnergy
+    ? (energy: number) => {
+        const ids = picked !== null ? [...picked] : activeId === null ? [] : [activeId];
+        if (ids.length > 0) onSetEnergy(ids, energy);
+      }
+    : undefined;
+  useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy });
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Keys pressed on a button inside a row are the button's.
@@ -292,7 +411,8 @@ export function TrackTable({
         return;
     }
     event.preventDefault();
-    select(target);
+    if (event.shiftKey) extendTo(target);
+    else select(target);
   };
 
   const grid = tableLayout(columns, widths, actions ? actionsWidth : undefined);
@@ -317,23 +437,33 @@ export function TrackTable({
   const rows: ReactNode[] = [];
   for (let index = from; index <= to; index++) {
     const row = getRow(index);
+    const selected = picked !== null ? row !== undefined && picked.has(row.recordingId) : active === index;
     rows.push(
       <div
         key={index}
         id={`${id}-row-${index}`}
         role="row"
         aria-rowindex={index + 2}
-        aria-selected={active === index}
+        aria-selected={selected}
         aria-busy={row === undefined || undefined}
         className={[
           styles.row,
           index % 2 === 1 ? styles.stripe : "",
-          active === index ? styles.selected : "",
+          selected ? styles.selected : "",
+          picked !== null && active === index ? styles.focused : "",
         ]
           .filter(Boolean)
           .join(" ")}
         style={{ transform: `translateY(${index * rowHeight}px)` }}
-        onClick={() => select(index)}
+        onClick={(event) => {
+          if (event.shiftKey) extendTo(index);
+          else if (event.ctrlKey || event.metaKey) toggle(index);
+          else select(index);
+        }}
+        // A Shift+click selects rows, not the text between them.
+        onMouseDown={(event) => {
+          if (event.shiftKey) event.preventDefault();
+        }}
       >
         {defs.map((def) => (
           <Cell key={def.id} def={def} row={row} context={context} />
@@ -356,6 +486,7 @@ export function TrackTable({
         aria-label={label}
         aria-rowcount={total + 1}
         aria-colcount={defs.length + (actions ? 1 : 0)}
+        aria-multiselectable
         aria-activedescendant={activeIndexRendered ? `${id}-row-${active}` : undefined}
         tabIndex={0}
         onKeyDown={onKeyDown}

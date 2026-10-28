@@ -258,5 +258,85 @@
   "format.unknown": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
     "where": "Filter chip and the Add filter menu, the formats."
+  },
+  "selected": {
+    "purpose": "Says how many tracks are selected, when more than one is.",
+    "where": "Above the track table, after the number of tracks."
+  },
+  "keys.next": {
+    "purpose": "A command that moves to the next track in the list (the J key).",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.previous": {
+    "purpose": "A command that moves to the previous track in the list (the K key).",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.extendNext": {
+    "purpose": "A command that moves to the next track and selects every track between (Shift and J).",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.extendPrevious": {
+    "purpose": "A command that moves to the previous track and selects every track between (Shift and K).",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.selectAll": {
+    "purpose": "A command that selects every track in the list, including those not on screen.",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.clearSelection": {
+    "purpose": "A command that leaves no track selected. Listed only while a track is selected.",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.energy": {
+    "purpose": "A command that gives every selected track an energy from 1 to 10 (keys 1 to 9 and 0 for 10); {{energy}} is the number. Listed only while a track is selected.",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.playPause": {
+    "purpose": "A command that plays or pauses the preview (the Space key). Listed only while a file is loaded in the player.",
+    "where": "Command palette, list; Library, All music and crate screens."
+  },
+  "keys.tag": {
+    "purpose": "A command that tags the selected tracks (the T key). Not listed until tags exist (Phase 3).",
+    "where": "Command palette, list (not yet shown)."
+  },
+  "keys.shortcut.next": {
+    "purpose": "The key shown beside the command that moves to the next track.",
+    "where": "Command palette, beside the command."
+  },
+  "keys.shortcut.previous": {
+    "purpose": "The key shown beside the command that moves to the previous track.",
+    "where": "Command palette, beside the command."
+  },
+  "keys.shortcut.extendNext": {
+    "purpose": "The keys shown beside the command that extends the selection down.",
+    "where": "Command palette, beside the command."
+  },
+  "keys.shortcut.extendPrevious": {
+    "purpose": "The keys shown beside the command that extends the selection up.",
+    "where": "Command palette, beside the command."
+  },
+  "keys.shortcut.selectAll": {
+    "purpose": "The keys shown beside the command that selects every track.",
+    "where": "Command palette, beside the command."
+  },
+  "keys.shortcut.clearSelection": {
+    "purpose": "The key shown beside the command that clears the selection.",
+    "where": "Command palette, beside the command."
+  },
+  "keys.shortcut.playPause": {
+    "purpose": "The key shown beside the command that plays or pauses.",
+    "where": "Command palette, beside the command."
+  },
+  "keys.shortcut.tag": {
+    "purpose": "The key shown beside the command that tags.",
+    "where": "Command palette, beside the command (not yet shown)."
+  },
+  "energySet_one": {
+    "purpose": "Says what an energy key did, for one track; {{energy}} is the number given.",
+    "where": "Above the track table, after the keys 1 to 0 gave a track an energy."
+  },
+  "energySet_other": {
+    "purpose": "Says what an energy key did, for several tracks; {{energy}} is the number given.",
+    "where": "Above the track table, after the keys 1 to 0 gave tracks an energy."
   }
 }
