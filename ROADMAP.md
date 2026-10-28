@@ -53,7 +53,7 @@ A free, open-source (GPL-3.0) library manager for DJs who use **rekordbox 7** on
 | Files outside the Library | Strictly read-only | Enforced in code (§5.6). |
 | Library tracks | **MVP: linked only.** Managed copies arrive in Phase 2 (2.6) | Adding a track links it to its existing file, so rekordbox gets no new entry and the MVP never writes an audio file. From Phase 2, a managed copy is made on request, for Inbox files, or on an accepted upgrade. Tracks rekordbox already knows stay linked by default. |
 | Library format (Phase 2) | One Library folder, configurable format | MP3 320 by default. AIFF or the original lossless are settings. |
-| Energy | 1–10 | Compatible with Mixed In Key's `Energy N`. How it reaches rekordbox is still open (§7). |
+| Energy | 1–10 | Compatible with Mixed In Key's `Energy N`. Not sent to rekordbox by default; an opt-in setting sends it as the star rating (owner decision, 2026-10-28; §7, 1cC-2). |
 | Network | Offline by default, opt-in per service | Model downloads and update checks count as services. Every request goes through the network gate (0.1). |
 | Telemetry | None, ever | The diagnostics bundle (4.3) is the only source of bug-report detail. |
 | Optional features | Each one is off until the user turns it on; the app works with any mix of them on or off | Wishlists (2.3–2.5), metadata lookup (2.2), the audio model (3.8), and reach goals such as a second DJ app. Light features ship in the installer and are only switched on. Heavy ones are a separate download on request: the audio model is never bundled (owner decision, 2026-10-02). No core screen, send or suggestion may need an optional feature. |
@@ -854,7 +854,7 @@ Read each service's terms before wiring it up, and recheck them when the project
   - **T6: does rekordbox clear a stick's history after importing it?** Needed for 3.6 de-duplication.
 
 **Design, still open**
-- **How energy reaches rekordbox.** Options include a Mixed In Key-style `Energy N` prefix in Comments or a file tag, one My Tag per energy level, a rating or color mapping, or not sending it. It affects 1.9 and MIK interop, so decide it before 1.9 is finalized (1c). Owner input (2026-09-30): no Mixed In Key and no energy ratings so far, so there's no existing habit or tag format to keep.
+- **How energy reaches rekordbox** (owner decision, 2026-10-28): the MVP doesn't send energy by default. An opt-in setting sends it as rekordbox's star rating instead (built in 1cC-2). Still to settle before 1cC-2: how the 1–10 scale maps onto 0–5 stars, what turning it on does to star ratings already in rekordbox, and how a star change made in rekordbox is read back while it's on. Owner input (2026-09-30): no Mixed In Key and no energy ratings so far, so there's no existing habit or tag format to keep.
 - **The UI word for linked vs copy** (Phase 2, after T2).
 - **Phase 1 details:** the best-file ranking weights; the rule for choosing between files that disagree on a tag; which fields appear in conflict review by default.
 - **Phase 2:** the default naming template.
