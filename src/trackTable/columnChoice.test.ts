@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_COLUMNS,
+  WIDEST,
+  clampWidth,
   hiddenColumns,
   hideColumn,
   isDefault,
   moveColumn,
+  moveColumnTo,
   resolveColumns,
+  resolveWidths,
   showColumn,
   storedFrom,
+  tableLayout,
 } from "./columnChoice";
 import { COLUMNS, DEFAULT_COLUMNS, type ColumnId } from "./columns";
 
@@ -110,6 +115,79 @@ describe("changing the columns", () => {
   });
 
   it("stores the columns shown and every column there is, so a later column can be told from a hidden one", () => {
-    expect(storedFrom(["title", "bpm"])).toEqual({ shown: ["title", "bpm"], known: [...ALL_COLUMNS] });
+    expect(storedFrom(["title", "bpm"])).toEqual({ shown: ["title", "bpm"], known: [...ALL_COLUMNS], widths: {} });
+  });
+});
+
+describe("moving a column to a place", () => {
+  const shown: ColumnId[] = ["title", "artist", "bpm", "key"];
+
+  it("puts it at that place among the others", () => {
+    expect(moveColumnTo(shown, "bpm", 1)).toEqual(["title", "bpm", "artist", "key"]);
+    expect(moveColumnTo(shown, "title", 3)).toEqual(["artist", "bpm", "key", "title"]);
+    expect(moveColumnTo(shown, "key", 0)).toEqual(["key", "title", "artist", "bpm"]);
+  });
+
+  it("leaves the order alone when it is dropped where it is, or is not shown", () => {
+    expect(moveColumnTo(shown, "artist", 1)).toEqual(shown);
+    expect(moveColumnTo(shown, "genre", 0)).toEqual(shown);
+  });
+
+  it("keeps a place that is out of range inside the list", () => {
+    expect(moveColumnTo(shown, "title", 99)).toEqual(["artist", "bpm", "key", "title"]);
+    expect(moveColumnTo(shown, "key", -4)).toEqual(["key", "title", "artist", "bpm"]);
+  });
+});
+
+describe("the widths of the columns", () => {
+  it("are kept with the columns when a choice is stored", () => {
+    expect(storedFrom(["title", "bpm"], { bpm: 120 })).toEqual({
+      shown: ["title", "bpm"],
+      known: [...ALL_COLUMNS],
+      widths: { bpm: 120 },
+    });
+  });
+
+  it("are none for a choice saved before widths existed, or no choice", () => {
+    expect(resolveWidths({ shown: ["title"], known: [...ALL_COLUMNS] })).toEqual({});
+    expect(resolveWidths(null)).toEqual({});
+    expect(resolveWidths(undefined)).toEqual({});
+  });
+
+  it("never go below a column's minimum or above the widest", () => {
+    for (const id of ALL_COLUMNS) {
+      expect(clampWidth(id, 1)).toBe(COLUMNS[id].min);
+      expect(clampWidth(id, 1_000_000)).toBe(WIDEST);
+      expect(COLUMNS[id].min).toBeLessThanOrEqual(COLUMNS[id].width);
+    }
+    expect(clampWidth("title", 200.4)).toBe(200);
+  });
+
+  it("drop an id that is not a column and a width that is not a number", () => {
+    const stored = {
+      shown: ["title"],
+      known: [...ALL_COLUMNS],
+      widths: { title: 300, tempo_curve: 80, toString: 90, bpm: Number.NaN },
+    };
+    expect(resolveWidths(stored)).toEqual({ title: 300 });
+  });
+
+  it("make the grid: a dragged column is exactly that wide, the others start where they did", () => {
+    expect(tableLayout(["title", "artist", "bpm"], { artist: 200 })).toEqual({
+      template: "minmax(132px, 3fr) 200px 54px",
+      minWidth: 132 + 200 + 54,
+    });
+    expect(tableLayout(["bpm", "genre"], {}, 100)).toEqual({
+      template: "54px minmax(60px, 1fr) 100px",
+      minWidth: 54 + 60 + 100,
+    });
+  });
+
+  it("leave the default layouts as the Designer fixed them", () => {
+    const total = (screen: keyof typeof DEFAULT_COLUMNS, actions: number) =>
+      tableLayout(DEFAULT_COLUMNS[screen], {}, actions).minWidth;
+    expect(total("library", 232)).toBe(830);
+    expect(total("allMusic", 220)).toBe(938);
+    expect(total("crate", 120)).toBe(718);
   });
 });

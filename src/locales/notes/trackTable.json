@@ -51,6 +51,10 @@
     "purpose": "Hover text and accessible name of a column heading that sorts the table.",
     "where": "Track table header buttons ({{column}} is the column's name)."
   },
+  "resize": {
+    "purpose": "Hover text and accessible name of the line after a column heading, which is dragged (or moved with the arrow keys) to change the column's width.",
+    "where": "Track table header, the right edge of each heading ({{column}} is the column's name)."
+  },
   "rating_one": {
     "purpose": "A star rating, for screen readers and hover text, when it is one star.",
     "where": "Track table, Rating column."
@@ -124,7 +128,7 @@
     "where": "Column editor panel, each column under Not shown."
   },
   "editor.reset": {
-    "purpose": "Button that puts back the columns this screen shows at first. Greyed out when they already are.",
+    "purpose": "Button that puts back the columns this screen shows at first, in their first order and widths. Greyed out when they already are.",
     "where": "Column editor panel, bottom left."
   },
   "editor.done": {

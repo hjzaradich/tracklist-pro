@@ -1,6 +1,8 @@
 //! The columns each track table shows are remembered per screen, and are no
 //! part of the Library (1cA-5).
 
+use std::collections::BTreeMap;
+
 use serde_json::{json, Value};
 
 use super::*;
@@ -20,6 +22,7 @@ fn columns(shown: &[&str], known: &[&str]) -> TableColumns {
     TableColumns {
         shown: shown.iter().map(|s| s.to_string()).collect(),
         known: known.iter().map(|s| s.to_string()).collect(),
+        widths: BTreeMap::new(),
     }
 }
 
@@ -183,6 +186,7 @@ fn blank_repeated_and_runaway_ids_are_tidied_away_when_stored() {
             long,
         ],
         known: many,
+        widths: BTreeMap::new(),
     };
     writer
         .call(move |c| write_table_columns(c, TableScreen::AllMusic, Some(&messy)))
@@ -193,6 +197,49 @@ fn blank_repeated_and_runaway_ids_are_tidied_away_when_stored() {
         .unwrap();
     assert_eq!(stored.shown, ["title", "artist"]);
     assert_eq!(stored.known.len(), MOST_COLUMNS);
+}
+
+#[test]
+fn widths_are_kept_with_the_columns_and_tidied_when_stored() {
+    let (_dir, writer, reads) = db();
+    let mut sized = columns(&["title", "artist"], &["title", "artist"]);
+    sized.widths = BTreeMap::from([
+        ("title".to_string(), 320),
+        ("artist".to_string(), 0),
+        ("".to_string(), 90),
+        ("genre".to_string(), WIDEST + 500),
+    ]);
+    writer
+        .call(move |c| write_table_columns(c, TableScreen::Library, Some(&sized)))
+        .unwrap();
+    let stored = reads
+        .read(|c| read_table_columns(c, TableScreen::Library))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.widths,
+        BTreeMap::from([("genre".to_string(), WIDEST), ("title".to_string(), 320)])
+    );
+}
+
+#[test]
+fn a_value_saved_before_widths_existed_still_reads_with_no_widths() {
+    let (_dir, writer, reads) = db();
+    writer
+        .call(|c| {
+            c.execute(
+                "INSERT INTO ui_setting (key, value)
+                 VALUES ('table_columns.library', ?1)",
+                [r#"{"shown":["title","bpm"],"known":["title","bpm"]}"#],
+            )
+        })
+        .unwrap();
+    let stored = reads
+        .read(|c| read_table_columns(c, TableScreen::Library))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.shown, ["title", "bpm"]);
+    assert!(stored.widths.is_empty());
 }
 
 #[test]
@@ -234,7 +281,11 @@ fn the_frontend_reads_and_sets_a_screens_columns_and_goes_back_to_the_default() 
         invoke(&app, "table_columns", json!({ "screen": "allMusic" })),
         Ok(Value::Null)
     );
-    let chosen = json!({ "shown": ["title", "file"], "known": ["title", "file", "folder"] });
+    let chosen = json!({
+        "shown": ["title", "file"],
+        "known": ["title", "file", "folder"],
+        "widths": { "file": 300 }
+    });
     assert_eq!(
         invoke(
             &app,

@@ -106,7 +106,8 @@ fn starting_fresh_keeps_the_column_choices() {
         ("allMusic", vec!["title", "artist", "file"]),
         ("crate", vec!["title", "genre"]),
     ];
-    let stored = |shown: &[&str]| json!({ "shown": shown, "known": shown });
+    // The widths dragged to (1cB-21) are part of the choice and are kept too.
+    let stored = |shown: &[&str]| json!({ "shown": shown, "known": shown, "widths": { "title": 300, "bpm": 80 } });
     for (screen, shown) in &choices {
         let _: Value = world.call(
             "set_table_columns",

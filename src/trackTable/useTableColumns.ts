@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { unwrap } from "../api/errors";
 import { commands, type TableColumns } from "../bindings";
-import { resolveColumns, storedFrom } from "./columnChoice";
+import { resolveColumns, resolveWidths, storedFrom, type ColumnWidths } from "./columnChoice";
 import type { ColumnId, TableScreen } from "./columns";
 
 // The columns a screen shows are the user's choice, kept in the backend's
@@ -14,11 +14,15 @@ const queryKey = (screen: TableScreen) => ["setting", "table_columns", screen] a
 export interface TableColumnsChoice {
   /** The columns to draw, in order: the user's choice, else the screen's default. */
   columns: readonly ColumnId[];
+  /** The widths the user dragged columns to (1cB-21); a column without one has its own. */
+  widths: ColumnWidths;
   /** The choice has been read (or couldn't be): drawing before that would flash the default. */
   ready: boolean;
-  /** Show these columns from now on. */
+  /** Show these columns from now on (their widths stay). */
   change: (columns: readonly ColumnId[]) => void;
-  /** Go back to the screen's default columns. */
+  /** Keep these widths from now on (the columns stay). */
+  resize: (widths: ColumnWidths) => void;
+  /** Go back to the screen's default columns and widths. */
   reset: () => void;
 }
 
@@ -36,6 +40,7 @@ export function useTableColumns(screen: TableScreen): TableColumnsChoice {
     queryFn: () => unwrap(commands.tableColumns(screen)),
   });
   const columns = useMemo(() => resolveColumns(screen, choice.data), [screen, choice.data]);
+  const widths = useMemo(() => resolveWidths(choice.data), [choice.data]);
 
   const save = useMutation({
     mutationFn: (next: TableColumns | null) => unwrap(commands.setTableColumns(screen, next)),
@@ -46,8 +51,10 @@ export function useTableColumns(screen: TableScreen): TableColumnsChoice {
 
   return {
     columns,
+    widths,
     ready: !choice.isPending,
-    change: (next) => save.mutate(storedFrom(next)),
+    change: (next) => save.mutate(storedFrom(next, widths)),
+    resize: (next) => save.mutate(storedFrom(columns, next)),
     reset: () => save.mutate(null),
   };
 }

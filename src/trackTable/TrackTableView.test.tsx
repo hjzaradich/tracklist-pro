@@ -8,6 +8,7 @@ import type { TableColumns, TablePositionQuery, TableQuery, TableRow } from "../
 import "../i18n";
 import { pageOf, queryOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
+import type { StoredChoice } from "./columnChoice";
 import type { TableScreen } from "./columns";
 import { TrackTableView } from "./TrackTableView";
 import { WINDOW } from "./useTrackRows";
@@ -20,7 +21,7 @@ let formats: string[] = [];
 let formatsFail = false;
 let behind = false;
 /** The column choices stored, by screen (none stored is no entry), and what was saved. */
-let storedColumns: Record<string, TableColumns | null> = {};
+let storedColumns: Record<string, StoredChoice | null> = {};
 let saved: { screen: string; columns: TableColumns | null }[] = [];
 let columnsFail = false;
 /** The positions asked for, and the answer: where a track is in a query's rows (null: not in them). */
@@ -644,7 +645,7 @@ describe("the column editor", () => {
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0]).toEqual({
       screen: "library",
-      columns: { shown: ["title", "artist", "bpm", "key", "time", "rating", "dateAdded"], known: everyColumn },
+      columns: { shown: ["title", "artist", "bpm", "key", "time", "rating", "dateAdded"], known: everyColumn, widths: {} },
     });
   });
 
@@ -704,5 +705,186 @@ describe("the column editor", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: named("hide", "genre") }));
     expect(table.scrollTop).toBe(100 * ROW);
     expect(screen.getAllByRole("row").filter((r) => r.getAttribute("aria-selected") === "true")).toHaveLength(1);
+  });
+});
+
+describe("dragging the headings (1cB-21)", () => {
+  const WIDE = 100;
+  /** Puts the headings side by side, as a browser would (jsdom has no layout). */
+  const place = () =>
+    screen.getAllByRole("columnheader").forEach((cell, at) => {
+      cell.getBoundingClientRect = () =>
+        ({
+          left: at * WIDE,
+          right: (at + 1) * WIDE,
+          width: WIDE,
+          top: 0,
+          bottom: 28,
+          height: 28,
+          x: at * WIDE,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect;
+    });
+  const drag = (element: HTMLElement, from: number, to: number) => {
+    fireEvent.pointerDown(element, { clientX: from, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(element, { clientX: to, pointerId: 1 });
+    fireEvent.pointerUp(element, { clientX: to, pointerId: 1 });
+  };
+  const line = (column: string) =>
+    screen.getByRole("separator", {
+      name: tx("trackTable:resize", { column: tx(`trackTable:columns.${column}`) }),
+    });
+  const template = () => screen.getByRole("grid").parentElement!.style.getPropertyValue("--tt-columns");
+  const headings = () => screen.getAllByRole("columnheader").map((h) => h.textContent);
+  const names = (ids: string[]) => ids.map((id) => tx(`trackTable:columns.${id}`));
+  const library = ["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded"];
+  const everyColumn = [...library, "file", "folder"];
+  const defaultTemplate =
+    "minmax(132px, 3fr) minmax(90px, 2fr) 54px 46px 50px minmax(60px, 1fr) 76px 90px";
+  const openEditor = async () => {
+    await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:editor.open") }));
+    return screen.getByRole("dialog", { name: tx("trackTable:editor.title") });
+  };
+
+  it("reorders the columns when a heading is dragged, and saves the order for the screen", async () => {
+    serve(5);
+    renderView("library");
+    await grid();
+    place();
+    // BPM (200..300) dropped before the middle of Artist (100..200).
+    drag(await heading("bpm"), 250, 120);
+    await waitFor(() => expect(headings().slice(0, 3)).toEqual(names(["title", "bpm", "artist"])));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]).toEqual({
+      screen: "library",
+      columns: { shown: ["title", "bpm", "artist", ...library.slice(3)], known: everyColumn, widths: {} },
+    });
+  });
+
+  it("is the order the Columns panel edits: one order for both", async () => {
+    serve(5);
+    renderView("library");
+    await grid();
+    place();
+    drag(await heading("bpm"), 250, 120);
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const dialog = await openEditor();
+    const shown = within(within(dialog).getByRole("list", { name: tx("trackTable:editor.shown") })).getAllByRole(
+      "listitem",
+    );
+    expect(shown.slice(0, 3).map((item) => item.getAttribute("data-column"))).toEqual(["title", "bpm", "artist"]);
+  });
+
+  it("sorts by a click on a heading, and a drag of a heading does not sort", async () => {
+    serve(5);
+    renderView("library");
+    await grid();
+    place();
+    await userEvent.click(await heading("bpm"));
+    await waitFor(() => expect(lastQuery().sort).toEqual({ column: "bpm", descending: false }));
+    const before = asked.length;
+    const key = await heading("key");
+    drag(key, 350, 120);
+    fireEvent.click(key);
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(asked).toHaveLength(before);
+    expect(lastQuery().sort).toEqual({ column: "bpm", descending: false });
+  });
+
+  it("resizes a column when the line after its heading is dragged, and saves the width with the columns", async () => {
+    serve(5);
+    renderView("library");
+    await grid();
+    drag(line("bpm"), 300, 340);
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]).toEqual({
+      screen: "library",
+      columns: { shown: library, known: everyColumn, widths: { bpm: 94 } },
+    });
+    expect(template()).toContain("minmax(90px, 2fr) 94px 46px");
+  });
+
+  it("remembers the widths the next time the screen is shown, and not for another screen", async () => {
+    serve(5);
+    const first = renderView("library");
+    await grid();
+    drag(line("artist"), 200, 260);
+    await waitFor(() => expect(saved).toHaveLength(1));
+    first.unmount();
+    const again = renderView("library");
+    await grid();
+    expect(template()).toContain(" 150px ");
+    again.unmount();
+    renderView("allMusic");
+    await grid();
+    expect(template()).not.toContain("150px");
+  });
+
+  it("keeps the widths when a column is hidden, and the columns when a width changes", async () => {
+    storedColumns.library = { shown: library, known: everyColumn, widths: { genre: 140 } };
+    serve(5);
+    renderView("library");
+    await grid();
+    const dialog = await openEditor();
+    await userEvent.click(
+      within(dialog).getByRole("button", {
+        name: tx("trackTable:editor.hide", { column: tx("trackTable:columns.key") }),
+      }),
+    );
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0].columns?.widths).toEqual({ genre: 140 });
+    expect(saved[0].columns?.shown).not.toContain("key");
+    drag(line("genre"), 500, 510);
+    await waitFor(() => expect(saved).toHaveLength(2));
+    expect(saved[1].columns).toEqual({
+      shown: library.filter((id) => id !== "key"),
+      known: everyColumn,
+      widths: { genre: 150 },
+    });
+  });
+
+  it("goes back to the default order and widths with Reset to default", async () => {
+    storedColumns.library = { shown: ["title", "bpm", "artist"], known: everyColumn, widths: { bpm: 200 } };
+    serve(5);
+    renderView("library");
+    await grid();
+    expect(template()).toContain("200px");
+    const dialog = await openEditor();
+    await userEvent.click(within(dialog).getByRole("button", { name: tx("trackTable:editor.reset") }));
+    await waitFor(() => expect(saved).toEqual([{ screen: "library", columns: null }]));
+    await waitFor(() => expect(headings()).toEqual(names(library)));
+    expect(template()).toContain(defaultTemplate);
+  });
+
+  it("has something to reset when only a width was changed", async () => {
+    storedColumns.library = { shown: library, known: everyColumn, widths: { bpm: 200 } };
+    serve(5);
+    renderView("library");
+    await grid();
+    const dialog = await openEditor();
+    expect(within(dialog).getByRole("button", { name: tx("trackTable:editor.reset") })).toBeEnabled();
+  });
+
+  it("still loads a choice saved before widths existed, with every column at its own width", async () => {
+    storedColumns.library = { shown: ["title", "bpm", "artist"], known: everyColumn };
+    serve(5);
+    renderView("library");
+    await grid();
+    expect(headings()).toEqual(names(["title", "bpm", "artist"]));
+    expect(template()).toContain("minmax(132px, 3fr) 54px minmax(90px, 2fr)");
+  });
+
+  it("brings a stored width back inside what its column allows, and ignores one for an id it does not know", async () => {
+    storedColumns.library = {
+      shown: library,
+      known: everyColumn,
+      widths: { bpm: 3, artist: 99_999, tempo_curve: 80 },
+    };
+    serve(5);
+    renderView("library");
+    await grid();
+    expect(template()).toContain(" 1200px 44px ");
+    expect(template()).not.toContain("80px");
   });
 });

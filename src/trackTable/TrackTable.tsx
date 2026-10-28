@@ -12,6 +12,8 @@ import {
 import { useTranslation } from "react-i18next";
 import type { SortColumn, TableRow, TableSort } from "../bindings";
 import { useKeyNotation } from "../keys/useKeyNotation";
+import { ColumnHeadings } from "./ColumnHeadings";
+import { moveColumnTo, tableLayout, type ColumnWidths } from "./columnChoice";
 import { COLUMNS, type CellContext, type ColumnDef, type ColumnId } from "./columns";
 import styles from "./TrackTable.module.css";
 
@@ -26,6 +28,18 @@ export interface TrackTableProps {
   label: string;
   /** The columns, in order. The list is data: the column editor (1cA-5) hands in another. */
   columns: readonly ColumnId[];
+  /** The widths the user dragged columns to (1cB-21); a column without one has its own. */
+  widths?: ColumnWidths;
+  /**
+   * A heading was dragged to another place: the columns in their new order.
+   * Without it the headings can't be dragged.
+   */
+  onReorder?: (columns: readonly ColumnId[]) => void;
+  /**
+   * The line after a heading was dragged (or its arrow keys pressed): all the
+   * widths, with the new one. Without it the columns can't be resized.
+   */
+  onResize?: (widths: ColumnWidths) => void;
   /** How many rows there are in all. */
   total: number;
   /** The row at an index, once its window has arrived. */
@@ -59,6 +73,8 @@ export interface TrackTableProps {
   onSelectionChange?: (row: TableRow | null) => void;
 }
 
+const NO_WIDTHS: ColumnWidths = {};
+
 /** The row height the theme sets, in pixels. */
 function readRowHeight(): number {
   const value = Number.parseFloat(
@@ -86,6 +102,9 @@ function readRowHeight(): number {
 export function TrackTable({
   label,
   columns,
+  widths = NO_WIDTHS,
+  onReorder,
+  onResize,
   total,
   getRow,
   onRangeChange,
@@ -276,16 +295,23 @@ export function TrackTable({
     select(target);
   };
 
-  const templateColumns = [
-    ...defs.map((def) => (def.grow ? `minmax(${def.width}px, ${def.grow}fr)` : `${def.width}px`)),
-    ...(actions ? [`${actionsWidth}px`] : []),
-  ].join(" ");
-  const minWidth = defs.reduce((sum, def) => sum + def.width, actions ? actionsWidth : 0);
+  const grid = tableLayout(columns, widths, actions ? actionsWidth : undefined);
   const cssVars = {
-    "--tt-columns": templateColumns,
-    "--tt-min-width": `${minWidth}px`,
+    "--tt-columns": grid.template,
+    "--tt-min-width": `${grid.minWidth}px`,
     "--tt-row": `${rowHeight}px`,
   } as CSSProperties;
+
+  // A width being dragged is set on the table itself, without drawing the
+  // rows again; the saved width takes over when the drag ends.
+  const table = useRef<HTMLDivElement>(null);
+  const preview = (over: { id: ColumnId; width: number } | null) => {
+    const shown = over
+      ? tableLayout(columns, { ...widths, [over.id]: over.width }, actions ? actionsWidth : undefined)
+      : grid;
+    table.current?.style.setProperty("--tt-columns", shown.template);
+    table.current?.style.setProperty("--tt-min-width", `${shown.minWidth}px`);
+  };
 
   const activeIndexRendered = active !== null && active >= from && active <= to;
   const rows: ReactNode[] = [];
@@ -322,7 +348,7 @@ export function TrackTable({
   }
 
   return (
-    <div className={styles.table} style={cssVars}>
+    <div ref={table} className={styles.table} style={cssVars}>
       <div
         ref={viewport}
         className={styles.viewport}
@@ -336,35 +362,16 @@ export function TrackTable({
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       >
         <div role="rowgroup" className={styles.header}>
-          <div role="row" aria-rowindex={1} className={styles.headRow}>
-            {defs.map((def) => {
-              const sorted = sort?.column === def.sort;
-              const name = t(`columns.${def.id}`);
-              return (
-                <div
-                  key={def.id}
-                  role="columnheader"
-                  aria-sort={sorted ? (sort.descending ? "descending" : "ascending") : undefined}
-                  className={`${styles.headCell} ${def.numeric ? styles.numeric : ""}`}
-                >
-                  <button
-                    type="button"
-                    className={styles.sortButton}
-                    title={t("sortBy", { column: name })}
-                    onClick={() => onSort(def.sort)}
-                  >
-                    <span className={styles.headText}>{name}</span>
-                    {sorted && <SortCaret descending={sort.descending} />}
-                  </button>
-                </div>
-              );
-            })}
-            {actions && (
-              <div role="columnheader" className={styles.headCell}>
-                <span className={styles.hidden}>{t("columns.actions")}</span>
-              </div>
-            )}
-          </div>
+          <ColumnHeadings
+            columns={columns}
+            widths={widths}
+            sort={sort}
+            onSort={onSort}
+            onReorder={onReorder && ((id, to) => onReorder(moveColumnTo(columns, id, to)))}
+            onResize={onResize && ((id, width) => onResize({ ...widths, [id]: width }))}
+            onPreview={preview}
+            actionsHeading={actions ? t("columns.actions") : undefined}
+          />
         </div>
         <div role="rowgroup" className={styles.rows} style={{ height: total * rowHeight }}>
           {rows}
@@ -398,21 +405,5 @@ function Cell({
     >
       {def.cell ? def.cell(row, context) : text}
     </div>
-  );
-}
-
-/** The arrow beside the sorted heading. Decorative: `aria-sort` says it. */
-function SortCaret({ descending }: { descending: boolean }) {
-  return (
-    <svg
-      className={styles.caret}
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d={descending ? "M1 3l4 4 4-4z" : "M1 7l4-4 4 4z"} fill="currentColor" />
-    </svg>
   );
 }

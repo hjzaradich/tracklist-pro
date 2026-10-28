@@ -14,6 +14,7 @@
     "actions": "Actions"
   },
   "sortBy": "Sort by {{column}}",
+  "resize": "Resize {{column}}",
   "rating_one": "{{count}} star",
   "rating_other": "{{count}} stars",
   "updating": "Updating the list",

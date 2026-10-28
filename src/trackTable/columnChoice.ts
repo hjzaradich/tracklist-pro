@@ -15,6 +15,11 @@ import { COLUMNS, DEFAULT_COLUMNS, type ColumnId, type TableScreen } from "./col
  *   was not hidden by the user, unless it is one of the screen's default
  *   columns: that appears;
  * - the title can't be hidden.
+ *
+ * A choice also keeps the widths the user dragged columns to (1cB-21): a
+ * width for a column that is no longer one is dropped, and one outside what
+ * a column allows is brought back inside. A choice saved before widths
+ * existed has none.
  */
 
 /** Every column, in the order the editor lists the hidden ones. */
@@ -31,6 +36,15 @@ export const ALL_COLUMNS: readonly ColumnId[] = [
   "folder",
 ];
 
+/** The widest a column can be dragged to, in pixels. */
+export const WIDEST = 1200;
+
+/** The widths the user dragged columns to, in pixels; a column without one has its own. */
+export type ColumnWidths = Partial<Record<ColumnId, number>>;
+
+/** A stored choice; one saved before widths existed has none. */
+export type StoredChoice = Pick<TableColumns, "shown" | "known"> & Partial<Pick<TableColumns, "widths">>;
+
 /** The column that can never be hidden. */
 export const ALWAYS_SHOWN: ColumnId = "title";
 
@@ -44,7 +58,7 @@ function isColumn(id: string): id is ColumnId {
  */
 export function resolveColumns(
   screen: TableScreen,
-  stored: TableColumns | null | undefined,
+  stored: StoredChoice | null | undefined,
 ): readonly ColumnId[] {
   const defaults = DEFAULT_COLUMNS[screen];
   if (stored === null || stored === undefined) return defaults;
@@ -72,9 +86,26 @@ export function resolveColumns(
   return shown;
 }
 
-/** What to store for a choice: the columns shown, and every column there is now. */
-export function storedFrom(shown: readonly ColumnId[]): TableColumns {
-  return { shown: [...shown], known: [...ALL_COLUMNS] };
+/** `px` as a width `id` can have: whole pixels, no less than its least and no more than `WIDEST`. */
+export function clampWidth(id: ColumnId, px: number): number {
+  return Math.round(Math.min(WIDEST, Math.max(COLUMNS[id].min, px)));
+}
+
+/** The widths of a stored choice, made good against this version's columns. */
+export function resolveWidths(stored: StoredChoice | null | undefined): ColumnWidths {
+  const widths: ColumnWidths = {};
+  for (const [id, px] of Object.entries(stored?.widths ?? {})) {
+    if (isColumn(id) && Number.isFinite(px)) widths[id] = clampWidth(id, px);
+  }
+  return widths;
+}
+
+/**
+ * What to store for a choice: the columns shown, every column there is now,
+ * and the widths dragged to.
+ */
+export function storedFrom(shown: readonly ColumnId[], widths: ColumnWidths = {}): TableColumns {
+  return { shown: [...shown], known: [...ALL_COLUMNS], widths: { ...widths } };
 }
 
 /** The columns not shown, in the editor's order. */
@@ -92,6 +123,17 @@ export function moveColumn(shown: readonly ColumnId[], id: ColumnId, by: -1 | 1)
   return next;
 }
 
+/**
+ * `shown` with `id` moved to place `to`, counted in the list without it (0
+ * is first, `length - 1` is last). Unchanged if `id` isn't shown.
+ */
+export function moveColumnTo(shown: readonly ColumnId[], id: ColumnId, to: number): ColumnId[] {
+  const rest = shown.filter((other) => other !== id);
+  if (rest.length === shown.length) return [...shown];
+  rest.splice(Math.min(Math.max(0, to), rest.length), 0, id);
+  return rest;
+}
+
 /** `shown` without `id`. The title stays. */
 export function hideColumn(shown: readonly ColumnId[], id: ColumnId): ColumnId[] {
   return id === ALWAYS_SHOWN ? [...shown] : shown.filter((other) => other !== id);
@@ -106,4 +148,32 @@ export function showColumn(shown: readonly ColumnId[], id: ColumnId): ColumnId[]
 export function isDefault(screen: TableScreen, shown: readonly ColumnId[]): boolean {
   const defaults = DEFAULT_COLUMNS[screen];
   return defaults.length === shown.length && defaults.every((id, at) => shown[at] === id);
+}
+
+/**
+ * The grid the table's rows and heading row share (1cB-21): a column the
+ * user dragged to a width is exactly that wide; the others start at their
+ * width and the growing ones share what is left. `minWidth` is the width the
+ * table needs before it scrolls sideways.
+ */
+export function tableLayout(
+  columns: readonly ColumnId[],
+  widths: ColumnWidths,
+  actionsWidth?: number,
+): { template: string; minWidth: number } {
+  const parts: string[] = [];
+  let minWidth = actionsWidth ?? 0;
+  for (const id of columns) {
+    const def = COLUMNS[id];
+    const own = widths[id];
+    if (own !== undefined) {
+      parts.push(`${own}px`);
+      minWidth += own;
+    } else {
+      parts.push(def.grow ? `minmax(${def.width}px, ${def.grow}fr)` : `${def.width}px`);
+      minWidth += def.width;
+    }
+  }
+  if (actionsWidth !== undefined) parts.push(`${actionsWidth}px`);
+  return { template: parts.join(" "), minWidth };
 }
