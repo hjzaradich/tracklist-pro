@@ -8,7 +8,7 @@ import { create } from "zustand";
 // the same way: an action with a `shortcut` is shown with it.
 
 export interface PaletteAction {
-  /** Unique among all actions. */
+  /** Unique among all actions: a second action with a taken id is not listed. */
   id: string;
   /** What the palette lists and matches. */
   label: string;
@@ -36,15 +36,24 @@ export const usePaletteRegistry = create<Registry>((set) => ({
 }));
 
 /**
- * Every action that can run now, by source name and then in the order the
- * source gave them, so the list doesn't depend on which component mounted
- * first. (The app's own come before Undo: the first row is never a change.)
+ * Every action that can run now, by source name (alphabetical) and then in
+ * the order the source gave them, so the list doesn't depend on which
+ * component mounted first. The source named "app" comes before "undo", so
+ * the first row is never a change; a new source picks its name for the place
+ * it wants. When two actions share an id the first listed wins and the other
+ * is left out, so a row, its DOM id and its highlight are never doubled.
+ * (An action that can't run still holds its id.)
  */
 export function listedActions(sources: Registry["sources"]): PaletteAction[] {
+  const taken = new Set<string>();
   return Object.keys(sources)
     .sort()
     .flatMap((source) => sources[source] ?? [])
-    .filter((action) => action.available !== false);
+    .filter((action) => {
+      if (taken.has(action.id)) return false;
+      taken.add(action.id);
+      return action.available !== false;
+    });
 }
 
 /**

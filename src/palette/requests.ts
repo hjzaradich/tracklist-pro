@@ -28,7 +28,9 @@ export function useAnswerRequest(request: Request, answer: () => void) {
     latest.current = answer;
   });
   useEffect(() => {
-    if (!asked) return;
+    // Read again here, so a request already answered (a second run of this
+    // effect under StrictMode) isn't answered twice.
+    if (!asked || !useRequests.getState().asked[request]) return;
     useRequests.getState().answered(request);
     latest.current();
   }, [asked, request]);

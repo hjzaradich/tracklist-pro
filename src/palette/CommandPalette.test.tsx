@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
+import { type ReviewKey, useReviewKeys } from "../review/useReviewKeys";
 import type { LibraryTrack, OperationInfo, TableQuery } from "../bindings";
 import { pageOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
@@ -231,17 +232,87 @@ describe("the command palette", () => {
 
   it("blocks the other shortcuts while it is open", async () => {
     const backend = fakeBackend();
+    const reviewKeys: ReviewKey[] = [];
+    function ReviewKeysProbe() {
+      useReviewKeys((key) => {
+        reviewKeys.push(key);
+        return true;
+      });
+      return null;
+    }
+    render(<ReviewKeysProbe />);
     renderApp("/overview");
     const topBarUndo = await screen.findByRole("button", { name: tx("shell:undo.action.addToLibrary") });
     await waitFor(() => expect(topBarUndo).toBeEnabled());
     await openPalette();
 
-    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
-    expect(backend.undone).toEqual([]);
+    // fireEvent returns false when a handler took the key (preventDefault),
+    // and Undo takes it at once when it runs, so this is exact and needs no waiting.
+    expect(fireEvent.keyDown(document.body, { key: "z", ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: "1" })).toBe(true);
+    expect(reviewKeys).toEqual([]);
 
     await userEvent.keyboard("{Escape}");
-    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(fireEvent.keyDown(document.body, { key: "1" })).toBe(false);
+    expect(reviewKeys).toEqual([1]);
+    expect(fireEvent.keyDown(document.body, { key: "z", ctrlKey: true })).toBe(false);
     await waitFor(() => expect(backend.undone).toEqual([OPERATION.id]));
+  });
+
+  it("keeps the focus in the box when the empty message is clicked, so Escape still closes it", async () => {
+    fakeBackend();
+    renderApp("/overview");
+    await screen.findByRole("link", { name: tx("shell:stages.review") });
+    const box = await openPalette();
+    await userEvent.keyboard("zzzz");
+    await userEvent.click(screen.getByText(tx("palette:empty")));
+    expect(box).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: tx("palette:title") })).toBeNull();
+  });
+
+  it("closes on a click outside, on a second Ctrl+K, and keeps the focus in the box on Tab", async () => {
+    fakeBackend();
+    renderApp("/overview");
+    await screen.findByRole("link", { name: tx("shell:stages.review") });
+    const box = await openPalette();
+    await userEvent.tab();
+    expect(box).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(box).toHaveFocus();
+
+    await userEvent.keyboard("{Control>}k{/Control}");
+    expect(screen.queryByRole("dialog", { name: tx("palette:title") })).toBeNull();
+
+    await openPalette();
+    // The backdrop covers the window, so that is what a click outside lands on.
+    await userEvent.click(screen.getByRole("dialog", { name: tx("palette:title") }).parentElement!);
+    expect(screen.queryByRole("dialog", { name: tx("palette:title") })).toBeNull();
+  });
+
+  it("jumps to the first and last row with Home and End", async () => {
+    fakeBackend();
+    renderApp("/overview");
+    await screen.findByRole("link", { name: tx("shell:stages.review") });
+    await openPalette();
+    const options = screen.getAllByRole("option");
+    const selected = () => screen.getAllByRole("option").filter((o) => o.getAttribute("aria-selected") === "true");
+
+    await userEvent.keyboard("{End}");
+    expect(selected()).toEqual([options.at(-1)]);
+    await userEvent.keyboard("{Home}");
+    expect(selected()).toEqual([options[0]]);
+  });
+
+  it("switches the theme through the theme store, as the theme switch does", async () => {
+    fakeBackend();
+    renderApp("/overview");
+    await screen.findByRole("link", { name: tx("shell:stages.review") });
+    await openPalette();
+    await userEvent.keyboard(tx("palette:theme", { name: tx("theme:light") }));
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(useThemeStore.getState().theme).toBe("light"));
   });
 
   it("does not open over a question waiting for an answer", async () => {
@@ -299,5 +370,30 @@ describe("the command palette", () => {
     await openPalette();
     await userEvent.keyboard("synthetic ex");
     expect(optionNames()).toEqual([]);
+  });
+
+  it("lists an action once when two sources register the same id, the first source's", async () => {
+    fakeBackend();
+    renderApp("/overview");
+    await screen.findByRole("link", { name: tx("shell:stages.review") });
+    const ran: string[] = [];
+    function Source({ source, tag }: { source: string; tag: string }) {
+      useRegisterActions(source, [
+        { id: "twice", label: "Synthetic Twice " + tag, run: () => ran.push(tag) },
+      ]);
+      return null;
+    }
+    render(
+      <>
+        <Source source="b-later" tag="second" />
+        <Source source="a-first" tag="first" />
+      </>,
+    );
+
+    await openPalette();
+    await userEvent.keyboard("synthetic twice");
+    expect(optionNames()).toEqual(["Synthetic Twice first"]);
+    await userEvent.keyboard("{Enter}");
+    expect(ran).toEqual(["first"]);
   });
 });

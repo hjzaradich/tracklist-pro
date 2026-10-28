@@ -65,7 +65,6 @@
 .option[aria-selected="true"] {
   background: var(--color-selected);
   box-shadow: inset 3px 0 0 var(--color-accent);
-  font-weight: 600;
 }
 
 .label {

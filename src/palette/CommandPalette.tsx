@@ -107,7 +107,8 @@ export function CommandPalette() {
         setChosen(shown.at(-1)?.id ?? null);
         break;
       case "Enter":
-        if (highlighted !== null) runAction(highlighted);
+        // A held Enter runs once: the repeats would land on the restored focus.
+        if (highlighted !== null && !event.repeat) runAction(highlighted);
         break;
       case "Escape":
         setOpen(false);
@@ -133,7 +134,12 @@ export function CommandPalette() {
         aria-modal="true"
         aria-label={t("title")}
         className={styles.panel}
-        onMouseDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => {
+          event.stopPropagation();
+          // A click on the panel (the "No matching commands" line, a gap)
+          // must not take the focus out of the box, where the keys are heard.
+          if (event.target !== input.current) event.preventDefault();
+        }}
         onKeyDown={onKeyDown}
       >
         <input
