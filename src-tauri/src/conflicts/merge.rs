@@ -15,6 +15,11 @@
 //! | a row kept from an older read (`Wait`) | rekordbox's value (such a send is refused anyway) | |
 //! | every other field, analysis fields included | rekordbox's value, verbatim (rule 1) | |
 //!
+//! Crate membership is merged in the same transaction, once every track's
+//! fields are ([`membership`]): a playlist change made in rekordbox is taken
+//! into the crate, and the send writes each crate's playlist as the merge
+//! says ([`Merged::membership`]).
+//!
 //! Detection opens, updates and withdraws conflicts as it always does
 //! ([`super::store`]). Taking rekordbox's value in deletes the `app_value`
 //! row **outside the operation log**, like the rest of detection: it's
@@ -31,6 +36,7 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
+use super::membership::{self, Memberships};
 use super::store::{detect_in, load_sides, Outcome, TRACKS_AT_A_TIME};
 use super::{app_values, open_at_send, NOT_TAKEN_UP};
 use crate::library::LibraryTrackId;
@@ -48,12 +54,14 @@ pub struct Merged {
     /// value the send carries. A field that isn't here carries its own
     /// send value.
     pub chosen: HashMap<LibraryTrackId, Vec<(String, String)>>,
-    /// Per track, the fields with an open conflict: they wait in Review →
-    /// Conflicts ([`super::open_at_send`]).
+    /// Per track, the fields with an open conflict, crate memberships
+    /// included: they wait in Review → Conflicts ([`super::open_at_send`]).
     pub open: HashMap<LibraryTrackId, Vec<String>>,
     /// The fields whose rekordbox value was taken in: their app value was
     /// deleted.
     pub taken_in: Vec<(LibraryTrackId, String)>,
+    /// What the merge of crate membership decided ([`membership`]).
+    pub membership: Memberships,
 }
 
 /// Merges the three sides of the Library tracks `ids` before a send, by
@@ -108,6 +116,10 @@ pub fn merge_before_send(
         }
         merged.values.extend(values);
     }
+    // Crate membership, once every track's entry is known.
+    let values = std::mem::take(&mut merged.values);
+    membership::merge(&tx, &values, &mut merged)?;
+    merged.values = values;
     tx.commit()?;
     Ok(merged)
 }

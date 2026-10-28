@@ -319,9 +319,12 @@ impl TrackSides {
     }
 }
 
-/// Whether a field is one that is merged at all (table row 1).
+/// Whether a field is a `TRACK` attribute that is merged at all (table row
+/// 1). A crate membership is merged too, but not from a track's attributes
+/// ([`super::membership`]).
 fn merged(field: &str) -> bool {
     !matches!(kind_of(field), Kind::Analysis | Kind::TrackId)
+        && !super::membership::is_membership(field)
 }
 
 /// The sides of every track in `sent` that can be sent: rekordbox's from
@@ -329,7 +332,8 @@ fn merged(field: &str) -> bool {
 /// `sync_base`, the app's from `app`. A fixed number of queries however
 /// many tracks. Every field any side names is there, and every field with
 /// an open conflict, so [`detect`] decides each open conflict again.
-/// Analysis fields and `TrackID` are left out: they're never merged.
+/// Analysis fields and `TrackID` are left out: they're never merged; so are
+/// crate memberships, which [`super::membership`] merges.
 ///
 /// `sent` must be the tracks' send values from the same read of the
 /// database (the same transaction, or nothing written in between).
@@ -422,7 +426,9 @@ pub fn load_sides(
             }
         }
         for field in open.remove(&id.0).unwrap_or_default() {
-            slot(&mut fields, &field);
+            if merged(&field) {
+                slot(&mut fields, &field);
+            }
         }
         tracks.push(TrackSides {
             library_track: id,

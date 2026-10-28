@@ -10,7 +10,7 @@ use std::fmt::Write;
 /// The first character of `value` that XML 1.0 can't carry at all, not
 /// even as a character reference: the C0 controls other than tab, line
 /// feed and carriage return, and U+FFFE / U+FFFF.
-pub(super) fn uncarriable(value: &str) -> Option<char> {
+pub(crate) fn uncarriable(value: &str) -> Option<char> {
     value.chars().find(|&c| {
         matches!(c, '\u{0}'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}' | '\u{FFFE}' | '\u{FFFF}')
     })

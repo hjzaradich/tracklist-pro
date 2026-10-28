@@ -259,6 +259,36 @@ fn a_value_not_of_the_fields_kind_or_an_unknown_track_is_refused() {
     assert_eq!(lib.operations(), []);
 }
 
+#[test]
+fn a_name_rekordbox_never_writes_on_a_track_or_text_xml_cannot_carry_is_refused() {
+    // pr-115-review nits 2 and 3: the Conflicts screen's edit is a field
+    // edit, and a send would leave a track with such a value out.
+    let lib = Lib::new();
+    let id = lib.known(&[("Genre", "House")]);
+    for field in ["Genre ", "genre", "MyTag", "Inizio", "playlist:[\"crates\",\"peak\"]"] {
+        assert!(
+            matches!(
+                lib.set(id, field, "x"),
+                Err(AppValueError::NotEditable { .. })
+            ),
+            "{field}"
+        );
+    }
+    for value in ["Deep\u{1}House", "\u{FFFF}", "a\u{B}b"] {
+        assert!(
+            matches!(
+                lib.set(id, "Genre", value),
+                Err(AppValueError::BadValue { .. })
+            ),
+            "{value:?}"
+        );
+    }
+    // Tab, line feed and carriage return are carried, as references.
+    assert!(lib.set(id, "Comments", "a\tb\nc\r").unwrap().value.is_some());
+    assert!(lib.set(id, "Mix", "Extended").unwrap().value.is_some());
+    assert_eq!(lib.operations().len(), 2);
+}
+
 // ---- Undo --------------------------------------------------------------------
 
 #[test]

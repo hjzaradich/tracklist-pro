@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use rusqlite::Connection;
 
+use crate::conflicts::membership::Memberships;
 use crate::library::LibraryTrackId;
-use crate::rekordbox_write::Node;
+use crate::rekordbox_write::{sibling_key, Node, CRATES_FOLDER};
 
 /// The crate tree, for the `Crates` folder of a send: folders and
 /// hand-made crates, siblings in their stored order, a crate's tracks in
@@ -77,4 +78,35 @@ pub fn crate_tree(conn: &Connection) -> rusqlite::Result<Vec<Node>> {
             .collect()
     }
     Ok(nodes(0, &mut children, &mut entries))
+}
+
+/// The crate tree as the send writes it after the merge of crate membership
+/// (ROADMAP 1.10; 1cB-3): each crate's playlist without the tracks the
+/// merge leaves out of it, and with the ones it adds, after the crate's own
+/// ([`Memberships`]: an open conflict sends rekordbox's membership).
+pub fn as_merged(nodes: &mut [Node], merged: &Memberships) {
+    fn walk(nodes: &mut [Node], path: &mut Vec<String>, merged: &Memberships) {
+        for node in nodes {
+            match node {
+                Node::Folder { name, children } => {
+                    path.push(sibling_key(name));
+                    walk(children, path, merged);
+                    path.pop();
+                }
+                Node::Playlist { name, entries } => {
+                    path.push(sibling_key(name));
+                    if let Some(dropped) = merged.dropped.get(path.as_slice()) {
+                        entries.retain(|track| !dropped.contains(track));
+                    }
+                    for track in merged.added.get(path.as_slice()).into_iter().flatten() {
+                        if !entries.contains(track) {
+                            entries.push(*track);
+                        }
+                    }
+                    path.pop();
+                }
+            }
+        }
+    }
+    walk(nodes, &mut vec![sibling_key(CRATES_FOLDER)], merged);
 }

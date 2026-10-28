@@ -29,7 +29,10 @@
 //! - The value is stored as given, never normalized: `007` stays `007`.
 //!   It must be a value of the field's kind ([`super::fits`]).
 //! - Analysis fields, `TrackID` and `Location` are refused ([`editable`]),
-//!   and the database refuses them too (migration 0035).
+//!   and the database refuses them too (migration 0035). So is any name
+//!   that isn't one of rekordbox's `TRACK` attributes ([`TRACK_ATTRIBUTES`]),
+//!   and a value holding a character XML 1.0 can't carry (the send would
+//!   leave the track out).
 //!
 //! # After a send
 //!
@@ -67,7 +70,7 @@ use serde_json::json;
 
 use super::resolve::Resolved;
 use super::store::{json_ids, load_sides, AppValue, AppValues, RekordboxEntry, Status};
-use super::{fits, kind_of, same, Kind};
+use super::{fits, kind_of, membership, same, Kind};
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError, Recorded, Recorder};
 use crate::paths::Volumes;
@@ -87,9 +90,11 @@ pub enum AppValueError {
     /// There's no such Library track.
     NoTrack(LibraryTrackId),
     /// The app never holds a value of its own for this field: an analysis
-    /// field, `TrackID` or `Location`.
+    /// field, `TrackID`, `Location`, or a name that isn't one of rekordbox's
+    /// `TRACK` attributes.
     NotEditable { field: String },
-    /// The value isn't one of the field's kind.
+    /// The value isn't one of the field's kind, or holds a character XML
+    /// can't carry.
     BadValue { field: String, value: String },
 }
 
@@ -121,6 +126,39 @@ impl From<rusqlite::Error> for AppValueError {
         AppValueError::Ops(e.into())
     }
 }
+
+/// The attributes rekordbox writes on a `TRACK` (§5.3): the only names a
+/// field edit may give.
+pub const TRACK_ATTRIBUTES: [&str; 28] = [
+    "TrackID",
+    "Name",
+    "Artist",
+    "Composer",
+    "Album",
+    "Grouping",
+    "Genre",
+    "Kind",
+    "Size",
+    "TotalTime",
+    "DiscNumber",
+    "TrackNumber",
+    "Year",
+    "AverageBpm",
+    "DateModified",
+    "DateAdded",
+    "BitRate",
+    "SampleRate",
+    "Comments",
+    "PlayCount",
+    "LastPlayed",
+    "Rating",
+    "Location",
+    "Remixer",
+    "Tonality",
+    "Label",
+    "Mix",
+    "Colour",
+];
 
 /// Whether the app may hold a value of its own for `field`: not an
 /// analysis field (rekordbox's, 1.9 rule 3), not `TrackID` (not a field)
@@ -200,7 +238,12 @@ pub fn set(
     value: &str,
 ) -> Result<Recorded<Option<AppValue>>, AppValueError> {
     check(conn, track, field)?;
-    if !fits(field, value) {
+    if !TRACK_ATTRIBUTES.contains(&field) {
+        return Err(AppValueError::NotEditable {
+            field: field.to_owned(),
+        });
+    }
+    if !fits(field, value) || crate::rekordbox_write::uncarriable(value).is_some() {
         return Err(AppValueError::BadValue {
             field: field.to_owned(),
             value: value.to_owned(),
@@ -295,8 +338,12 @@ pub(super) fn take_in(
 /// ([`editable`]) is left alone, as is a value already stored.
 ///
 /// A value newly stored records as what it replaced the rekordbox value
-/// the conflict showed; an edit already stored keeps its own.
+/// the conflict showed; an edit already stored keeps its own. A crate
+/// membership changes the crate instead ([`membership::adopt`]).
 pub fn adopt(rec: &mut Recorder<'_>, resolved: &Resolved) -> Result<(), OpsError> {
+    if membership::is_membership(&resolved.field) {
+        return membership::adopt(rec, resolved);
+    }
     if !editable(&resolved.field) {
         return Ok(());
     }

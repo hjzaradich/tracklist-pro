@@ -15,7 +15,8 @@ use crate::paths::Volumes;
 use crate::rekordbox::location::{decode, Location, PathStyle};
 use crate::rekordbox::source::stored_source;
 use crate::rekordbox_write::{
-    self, BuildError, Node, Outgoing, Reason, SentTrack, CRATES_FOLDER, PLAYLISTS_FOLDER,
+    self, sibling_key, BuildError, Node, Outgoing, Reason, SentTrack, CRATES_FOLDER,
+    PLAYLISTS_FOLDER,
 };
 use crate::relink::rules::path_key;
 use crate::send_values::CannotSend;
@@ -73,11 +74,18 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
     };
     let tracks = library::stored(conn, volumes)?;
     let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
-    let crates = tree::crate_tree(conn)?;
     let merged = conflicts::merge_before_send(conn, volumes, &ids)?;
+    // The tree after the merge: it may have taken playlist changes made in
+    // rekordbox into crates (1.10).
+    let mut crates = tree::crate_tree(conn)?;
+    tree::as_merged(&mut crates, &merged.membership);
+    let membership = merged.membership.clone();
     // Playlists arrive in Phase 3; the folder is still written (rule 6).
     let input = rekordbox_write::gather_merged(conn, merged, crates.clone(), Vec::new())?;
-    let built = rekordbox_write::build(&input);
+    let mut built = rekordbox_write::build(&input);
+    if let Ok(out) = &mut built {
+        out.note_replaced(&membership.rekordbox);
+    }
     let conn: &Connection = conn;
 
     let labels: HashMap<LibraryTrackId, &StoredTrack> = tracks.iter().map(|t| (t.id, t)).collect();
@@ -184,7 +192,7 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
                 })
                 .map(|sent| label(sent.library_track))
                 .collect();
-            preflight.loses_entries = loses_entries(&out, &crates);
+            preflight.loses_entries = loses_entries(&out, &crates, &membership.outside_library);
             // Fields of the tracks sent that wait in Review → Conflicts:
             // they go with rekordbox's value until the user decides.
             let sent: Vec<LibraryTrackId> = out.sent.iter().map(|s| s.library_track).collect();
@@ -412,45 +420,70 @@ fn left_out_reason(reason: &Reason) -> (LeftOutReason, Option<String>) {
 }
 
 /// Every crate and playlist that's written with fewer entries than it
-/// has, in tree order.
-fn loses_entries(out: &Outgoing, crates: &[Node]) -> Vec<LosesEntries> {
+/// has, in tree order. A crate's playlist in rekordbox loses entries too
+/// when it holds tracks no Library track is sent as (`outside`, by key path;
+/// 1.10, `conflicts::membership`): they count among those left out, and
+/// among its entries.
+fn loses_entries(
+    out: &Outgoing,
+    crates: &[Node],
+    outside: &HashMap<Vec<String>, u32>,
+) -> Vec<LosesEntries> {
     let mut lost: HashMap<&[String], u32> = HashMap::new();
     for entry in out.left_out.iter().flat_map(|left| &left.entries) {
         *lost.entry(entry.path.as_slice()).or_default() += 1;
     }
-    let mut found = Vec::new();
-    let mut walk = |top: &str, kind: TreeKind, nodes: &[Node]| {
-        fn visit(
-            nodes: &[Node],
-            path: &mut Vec<String>,
-            kind: TreeKind,
-            lost: &HashMap<&[String], u32>,
-            found: &mut Vec<LosesEntries>,
-        ) {
-            for node in nodes {
-                match node {
-                    Node::Folder { name, children } => {
-                        path.push(name.clone());
-                        visit(children, path, kind, lost, found);
-                    }
-                    Node::Playlist { name, entries } => {
-                        path.push(name.clone());
-                        if let Some(&lost) = lost.get(path.as_slice()) {
-                            found.push(LosesEntries {
-                                kind,
-                                path: path[1..].to_vec(),
-                                lost,
-                                entries: u32::try_from(entries.len()).unwrap_or(u32::MAX),
-                            });
-                        }
+    struct Counts<'a> {
+        lost: HashMap<&'a [String], u32>,
+        outside: &'a HashMap<Vec<String>, u32>,
+    }
+    fn visit(
+        nodes: &[Node],
+        path: &mut Vec<String>,
+        kind: TreeKind,
+        counts: &Counts<'_>,
+        found: &mut Vec<LosesEntries>,
+    ) {
+        for node in nodes {
+            match node {
+                Node::Folder { name, children } => {
+                    path.push(name.clone());
+                    visit(children, path, kind, counts, found);
+                }
+                Node::Playlist { name, entries } => {
+                    path.push(name.clone());
+                    let key: Vec<String> = path.iter().map(|n| sibling_key(n)).collect();
+                    let left_out = counts.lost.get(path.as_slice()).copied().unwrap_or(0);
+                    let outside = counts.outside.get(&key).copied().unwrap_or(0);
+                    if left_out + outside > 0 {
+                        let entries = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+                        found.push(LosesEntries {
+                            kind,
+                            path: path[1..].to_vec(),
+                            lost: left_out.saturating_add(outside),
+                            entries: entries.saturating_add(outside),
+                        });
                     }
                 }
-                path.pop();
             }
+            path.pop();
         }
-        visit(nodes, &mut vec![top.to_owned()], kind, &lost, &mut found);
-    };
-    walk(CRATES_FOLDER, TreeKind::Crate, crates);
-    walk(PLAYLISTS_FOLDER, TreeKind::Playlist, &[]);
+    }
+    let counts = Counts { lost, outside };
+    let mut found = Vec::new();
+    visit(
+        crates,
+        &mut vec![CRATES_FOLDER.to_owned()],
+        TreeKind::Crate,
+        &counts,
+        &mut found,
+    );
+    visit(
+        &[],
+        &mut vec![PLAYLISTS_FOLDER.to_owned()],
+        TreeKind::Playlist,
+        &counts,
+        &mut found,
+    );
     found
 }

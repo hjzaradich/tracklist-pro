@@ -68,6 +68,7 @@ use crate::write_guard::{GuardError, WriteGuard};
 pub use crate::send_values::ANALYSIS_ATTRIBUTES;
 pub use location::LocationProblem;
 pub use record::{forget_taken_up, record_send, sent_entries, SentEntry};
+pub(crate) use xml::uncarriable;
 
 /// The top-level folder the crate tree is written under.
 pub const CRATES_FOLDER: &str = "Crates";
@@ -369,6 +370,11 @@ pub struct SentPath {
     /// The Library tracks the playlist's entries name, in order, as
     /// written (a track may repeat); none for a folder.
     pub entries: Vec<LibraryTrackId>,
+    /// For a crate's playlist, the Library tracks whose membership this
+    /// send changes in rekordbox's playlist at that path, as the newest read
+    /// shows it ([`Outgoing::note_replaced`]); `None` when that isn't known.
+    /// Recorded as `sent_playlist.replaced`.
+    pub replaced: Option<Vec<LibraryTrackId>>,
 }
 
 impl SentPath {
@@ -404,6 +410,7 @@ fn collect_paths(
             path: path.clone(),
             folder: matches!(node, xml::NodeElement::Folder { .. }),
             entries,
+            replaced: None,
         });
         if let xml::NodeElement::Folder { children, .. } = node {
             collect_paths(children, tracks, path, out);
@@ -413,6 +420,22 @@ fn collect_paths(
 }
 
 impl Outgoing {
+    /// Notes on each crate playlist written what it changes in rekordbox
+    /// ([`SentPath::replaced`]): `rekordbox` holds, per playlist key path
+    /// (`Crates` first, [`sibling_key`]), the Library tracks rekordbox's
+    /// newest read has in it. A playlist that isn't there gets none.
+    pub fn note_replaced(&mut self, rekordbox: &HashMap<Vec<String>, HashSet<LibraryTrackId>>) {
+        for path in self.paths.iter_mut().filter(|p| !p.folder) {
+            path.replaced = rekordbox.get(&path.key()).map(|had| {
+                let written: HashSet<LibraryTrackId> = path.entries.iter().copied().collect();
+                let mut changed: Vec<LibraryTrackId> =
+                    had.symmetric_difference(&written).copied().collect();
+                changed.sort_unstable();
+                changed
+            });
+        }
+    }
+
     /// The file's bytes (UTF-8).
     pub fn xml(&self) -> &[u8] {
         &self.xml

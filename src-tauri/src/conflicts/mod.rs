@@ -104,13 +104,13 @@
 //!
 //! A value that doesn't parse as its kind is compared as exact text, so two
 //! unreadable values are only equal when they're identical. `Comments` is
-//! one text field, My Tags block included. Playlist membership isn't a
-//! field yet. Its base is recorded per track and sent playlist
-//! ([`crate::rekordbox_write::sent_entries`]), and [`decide`] takes any
-//! field name, so it can become one.
+//! one text field, My Tags block included. Playlist membership is decided
+//! by the same table, one field per crate and track with the values `in`
+//! and `out` ([`membership`]).
 
 pub mod app_values;
 mod compare;
+pub mod membership;
 pub mod merge;
 pub mod open_at_send;
 pub mod resolve;

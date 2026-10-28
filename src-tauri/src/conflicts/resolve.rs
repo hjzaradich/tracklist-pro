@@ -44,7 +44,9 @@ use specta::Type;
 use super::store::{
     conflict_from, Conflict, ConflictId, Filter, Status, CONFLICT_COLUMNS, OPEN_WHERE,
 };
+use super::membership::{self, is_membership};
 use super::{app_values, fits, same};
+use crate::rekordbox_write::uncarriable;
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError, Recorded, Recorder};
 
@@ -59,8 +61,10 @@ pub const RESOLVE_ALL_OPERATION: &str = "resolve_conflicts";
 pub enum Choice {
     KeepApp,
     KeepRekordbox,
-    /// A value given by hand. It must fit the field ([`fits`]). One that is
-    /// the same value as a side's is recorded as keeping that side.
+    /// A value given by hand. It must fit the field ([`fits`]) and hold no
+    /// character XML can't carry; for a crate membership it is
+    /// [`membership::IN`] or [`membership::OUT`]. One that is the same value
+    /// as a side's is recorded as keeping that side.
     Edit(String),
 }
 
@@ -223,6 +227,7 @@ pub fn resolve_all_with(
 /// Whether the resolve `operation` settled a conflict on a field that a
 /// send has carried since: the field's base was recorded at or after the
 /// resolve (by the clock, as a send's own record; a tie counts as sent).
+/// For a crate membership, that a send wrote its playlist since.
 /// Undo of such a resolve is refused ([`crate::ops`]). A field with an
 /// open conflict keeps its base through a send, but then the resolve's
 /// Undo is refused anyway (a newer open conflict).
@@ -235,7 +240,17 @@ pub(crate) fn sent_since(conn: &Connection, operation: i64) -> rusqlite::Result<
              JOIN conflict c ON c.id = ch.entity_id
              JOIN sync_base b ON b.library_track_id = c.library_track_id AND b.field = c.field
              WHERE o.id = ?1 AND o.kind IN ('{RESOLVE_OPERATION}', '{RESOLVE_ALL_OPERATION}')
-               AND b.synced_at >= o.created_at)"
+               AND b.synced_at >= o.created_at)
+         OR EXISTS (
+             SELECT 1 FROM operation o
+             JOIN change ch ON ch.operation_id = o.id
+                           AND ch.entity = 'conflict' AND ch.action = 'insert'
+             JOIN conflict c ON c.id = ch.entity_id
+             JOIN sent_playlist p ON p.kind = 'playlist'
+                                 AND c.field = '{prefix}' || p.path_key
+             WHERE o.id = ?1 AND o.kind IN ('{RESOLVE_OPERATION}', '{RESOLVE_ALL_OPERATION}')
+               AND p.sent_at >= o.created_at)",
+        prefix = membership::FIELD_PREFIX
     ))?
     .query_row([operation], |r| r.get(0))
 }
@@ -283,7 +298,12 @@ fn settle(open: &Conflict, choice: &Choice) -> Result<Settled, ResolveError> {
         Choice::KeepApp => kept(Status::KeptApp, app),
         Choice::KeepRekordbox => kept(Status::KeptRekordbox, rekordbox),
         Choice::Edit(value) => {
-            if !fits(&open.field, value) {
+            let fitting = if is_membership(&open.field) {
+                value == membership::IN || value == membership::OUT
+            } else {
+                fits(&open.field, value) && uncarriable(value).is_none()
+            };
+            if !fitting {
                 return Err(ResolveError::BadValue {
                     field: open.field.clone(),
                     value: value.clone(),
