@@ -17,6 +17,7 @@ use crate::rekordbox::RekordboxXml;
 use crate::rekordbox_write::{BuildError, SentTrack};
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
+mod changed_after_export;
 mod membership;
 mod merge;
 

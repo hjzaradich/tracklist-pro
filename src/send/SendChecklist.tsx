@@ -295,6 +295,21 @@ function Review({
           {t("review.conflictsWaiting", { count: preflight.conflictsWaiting })}
         </p>
       )}
+      {preflight.changedAfterExport.length > 0 && (
+        // A warning only: rekordbox may hold edits this export doesn't
+        // (ROADMAP 1.10, "Second channel"). It asks for no confirm.
+        <>
+          <p className={styles.warning}>
+            {t("review.changedAfterExport", { count: preflight.changedAfterExport.length })}
+          </p>
+          <details>
+            <summary className={styles.summary}>{t("review.changedAfterExportList")}</summary>
+            <Rows rows={preflight.changedAfterExport}>
+              {(track) => <li key={track.libraryTrack}>{name(track)}</li>}
+            </Rows>
+          </details>
+        </>
+      )}
       {preflight.leftOut.length > 0 && (
         <>
           <p className={styles.warning}>

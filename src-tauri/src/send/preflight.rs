@@ -1,7 +1,7 @@
 //! The preflight: a send built in memory and described, no file written.
 //! The merge before it (1cB-3) is its only write to the database.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::Connection;
 
@@ -119,6 +119,7 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
         no_kind: Vec::new(),
         loses_entries: Vec::new(),
         conflicts_waiting: 0,
+        changed_after_export: Vec::new(),
         refusal: None,
         nothing_to_send: false,
         can_send: false,
@@ -219,6 +220,14 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
     preflight.needs_confirm =
         !preflight.loses_entries.is_empty() || preflight.export.not_stored > 0;
     preflight.token = token(&preflight, outgoing.as_ref());
+    // A warning only, after the token: it changes nothing about the go
+    // (1.10, "Second channel").
+    if let Some(out) = &outgoing {
+        preflight.changed_after_export = changed_after_export(conn, read.modified_ms, &out.sent)?
+            .into_iter()
+            .map(label)
+            .collect();
+    }
     // A refused send sends nothing anywhere.
     let sent_elsewhere = match outgoing {
         Some(_) => elsewhere,
@@ -312,6 +321,53 @@ fn nothing_is_at(path: &str) -> bool {
         return false;
     };
     matches!(std::fs::metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// The tracks among `sent` that rekordbox has, whose file changed after
+/// the export saved at `export_modified_ms` (1.10, "Second channel"), in
+/// send order. rekordbox writes a DJ's edits into the file (§5.1), so such
+/// a track may hold an edit made in rekordbox after the export, which a
+/// send of the export's values would overwrite.
+///
+/// The sign is the file's modified time as the last scan recorded it
+/// (`file.mtime`), later than the export's millisecond. It is checked for
+/// the track's linked file and for the file rekordbox's entry is matched
+/// to (they differ when the track is sent as a copy's entry). The app
+/// never writes an audio file, so nothing it does moves the sign. Reads
+/// two columns per track and asks the disk nothing: a change no scan has
+/// seen yet isn't counted. A new track isn't counted either: its values
+/// come from its own file, not from the export.
+///
+/// Nothing here feeds the send: the file's tags are never read for it.
+pub(super) fn changed_after_export(
+    conn: &Connection,
+    export_modified_ms: i64,
+    sent: &[SentTrack],
+) -> rusqlite::Result<Vec<LibraryTrackId>> {
+    // The first nanosecond after the export's millisecond.
+    let after = export_modified_ms
+        .saturating_add(1)
+        .saturating_mul(1_000_000);
+    let changed = |sql: &str| -> rusqlite::Result<HashSet<i64>> {
+        conn.prepare(sql)?.query_map([after], |r| r.get(0))?.collect()
+    };
+    let linked = changed(
+        "SELECT l.id FROM library_track l JOIN file f ON f.id = l.linked_file_id
+         WHERE f.mtime >= ?1",
+    )?;
+    let entries = changed(
+        "SELECT r.track_id FROM rekordbox_track r JOIN file f ON f.id = r.file_id
+         WHERE r.relink_probable = 0 AND f.mtime >= ?1",
+    )?;
+    Ok(sent
+        .iter()
+        .filter(|s| {
+            s.in_rekordbox
+                && (linked.contains(&s.library_track.0)
+                    || i64::try_from(s.track_id).is_ok_and(|id| entries.contains(&id)))
+        })
+        .map(|s| s.library_track)
+        .collect())
 }
 
 /// Whether an export saved at `export_modified_ms` is older than the last
