@@ -197,6 +197,9 @@ struct SentPlaylist {
     sent_ms: i64,
 }
 
+/// An open membership conflict: its id, rekordbox's value and its base.
+type OpenConflict = (i64, Option<String>, Option<String>);
+
 /// One pair's sides, kept for what the send does about its outcome.
 struct Pair {
     crate_id: i64,
@@ -324,7 +327,7 @@ pub(super) fn merge(
         }
     }
     let tree: HashSet<KeyPath> = crate::after_send::load_tree(tx)?
-        .map(|tree| playlist_keys(&tree.crates, &[crates_key.clone()]))
+        .map(|tree| playlist_keys(&tree.crates, std::slice::from_ref(&crates_key)))
         .unwrap_or_default();
     let export_ms = crate::rekordbox::source::stored_source(tx)?
         .last_read
@@ -342,10 +345,13 @@ pub(super) fn merge(
 
     let mut bases: HashMap<KeyPath, HashSet<i64>> = HashMap::new();
     for entry in rekordbox_write::sent_entries(tx, &ids)? {
-        bases.entry(entry.key).or_default().insert(entry.library_track.0);
+        bases
+            .entry(entry.key)
+            .or_default()
+            .insert(entry.library_track.0);
     }
     // Open membership conflicts: their base, and rekordbox's value.
-    let mut open: HashMap<(i64, String), (i64, Option<String>, Option<String>)> = HashMap::new();
+    let mut open: HashMap<(i64, String), OpenConflict> = HashMap::new();
     for row in tx
         .prepare(
             "SELECT id, library_track_id, field, rekordbox_value, base_value FROM conflict

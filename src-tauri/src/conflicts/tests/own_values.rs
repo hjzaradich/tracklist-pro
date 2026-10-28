@@ -265,7 +265,13 @@ fn a_name_rekordbox_never_writes_on_a_track_or_text_xml_cannot_carry_is_refused(
     // edit, and a send would leave a track with such a value out.
     let lib = Lib::new();
     let id = lib.known(&[("Genre", "House")]);
-    for field in ["Genre ", "genre", "MyTag", "Inizio", "playlist:[\"crates\",\"peak\"]"] {
+    for field in [
+        "Genre ",
+        "genre",
+        "MyTag",
+        "Inizio",
+        "playlist:[\"crates\",\"peak\"]",
+    ] {
         assert!(
             matches!(
                 lib.set(id, field, "x"),
@@ -284,7 +290,11 @@ fn a_name_rekordbox_never_writes_on_a_track_or_text_xml_cannot_carry_is_refused(
         );
     }
     // Tab, line feed and carriage return are carried, as references.
-    assert!(lib.set(id, "Comments", "a\tb\nc\r").unwrap().value.is_some());
+    assert!(lib
+        .set(id, "Comments", "a\tb\nc\r")
+        .unwrap()
+        .value
+        .is_some());
     assert!(lib.set(id, "Mix", "Extended").unwrap().value.is_some());
     assert_eq!(lib.operations().len(), 2);
 }

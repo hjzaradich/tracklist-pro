@@ -27,7 +27,10 @@ fn export_of(tracks: &[u32], entries: usize, crates: &[(&str, &[u32])]) -> Strin
     let playlists: String = crates
         .iter()
         .map(|(name, ids)| {
-            let keys: String = ids.iter().map(|id| format!(r#"<TRACK Key="{id}"/>"#)).collect();
+            let keys: String = ids
+                .iter()
+                .map(|id| format!(r#"<TRACK Key="{id}"/>"#))
+                .collect();
             format!(
                 r#"<NODE Name="{name}" Type="1" KeyType="0" Entries="{}">{keys}</NODE>"#,
                 ids.len()
@@ -113,10 +116,10 @@ impl World {
         let ids = self
             .writer
             .call(|c| {
-                let ids: Vec<LibraryTrackId> =
-                    c.prepare("SELECT id FROM library_track")?
-                        .query_map([], |r| Ok(LibraryTrackId(r.get(0)?)))?
-                        .collect::<rusqlite::Result<_>>()?;
+                let ids: Vec<LibraryTrackId> = c
+                    .prepare("SELECT id FROM library_track")?
+                    .query_map([], |r| Ok(LibraryTrackId(r.get(0)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
                 crate::rekordbox_write::sent_entries(c, &ids)
             })
             .unwrap();
@@ -161,8 +164,10 @@ fn peak_sent_and_imported() -> (World, [LibraryTrackId; 3], i64) {
 #[test]
 fn only_the_apps_adds_and_removals_are_written_and_become_the_base() {
     let (w, [a, b, c], peak) = peak_sent_and_imported();
-    w.crate_op(move |conn| crates::remove_on(conn, CrateId(peak), &[b])).unwrap();
-    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c])).unwrap();
+    w.crate_op(move |conn| crates::remove_on(conn, CrateId(peak), &[b]))
+        .unwrap();
+    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c]))
+        .unwrap();
 
     w.send_through();
 
@@ -193,7 +198,8 @@ fn a_track_the_dj_adds_or_removes_in_rekordbox_is_taken_into_the_crate_outside_t
 #[test]
 fn a_send_never_imported_is_sent_again_not_taken_back_and_forgotten_once_imported() {
     let (w, [a, b, c], peak) = peak_sent_and_imported();
-    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c])).unwrap();
+    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c]))
+        .unwrap();
     w.send_through();
     let replaced = || {
         w.rows(
@@ -228,8 +234,10 @@ fn peak_with_no_base_and_both_sides_different() -> (World, [LibraryTrackId; 3], 
         })
         .unwrap();
     let c = ids[2];
-    w.crate_op(move |conn| crates::remove_on(conn, CrateId(peak), &[ids[1]])).unwrap();
-    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c])).unwrap();
+    w.crate_op(move |conn| crates::remove_on(conn, CrateId(peak), &[ids[1]]))
+        .unwrap();
+    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c]))
+        .unwrap();
     (w, ids, peak)
 }
 
@@ -280,7 +288,11 @@ fn a_settled_membership_sets_the_crate_and_goes_out_and_its_undo_is_refused_once
     // A membership is "in" or "out", nothing else.
     assert!(matches!(
         w.writer
-            .call(move |conn| Ok(conflicts::resolve(conn, on_c, &Choice::Edit("maybe".into()))))
+            .call(move |conn| Ok(conflicts::resolve(
+                conn,
+                on_c,
+                &Choice::Edit("maybe".into())
+            )))
             .unwrap(),
         Err(conflicts::ResolveError::BadValue { .. })
     ));
@@ -372,11 +384,16 @@ fn a_crate_renamed_or_deleted_in_the_app_compares_nothing_and_its_open_conflicts
     assert_eq!(w.holds(peak), [a.0, c.0]);
     assert_eq!(w.written("Prime"), ["a.mp3", "c.mp3"]);
 
-    w.crate_op(move |conn| crates::delete_on(conn, CrateId(peak))).unwrap();
+    w.crate_op(move |conn| crates::delete_on(conn, CrateId(peak)))
+        .unwrap();
     w.rekordbox_shows(&[("Prime", &[1, 3]), ("Peak", &[1, 2, 3])]);
     // Nothing is left to send; the merge still ran, and took nothing in.
     assert!(w.prepare().unwrap().nothing_to_send);
-    assert_eq!(w.rows("SELECT count(*) FROM crate_entry", (), |r| r.get::<_, i64>(0)), [0]);
+    assert_eq!(
+        w.rows("SELECT count(*) FROM crate_entry", (), |r| r
+            .get::<_, i64>(0)),
+        [0]
+    );
 }
 
 #[test]
@@ -402,7 +419,8 @@ fn rekordbox_entries_no_library_track_is_sent_as_are_counted_lost_and_need_the_c
 #[test]
 fn undo_of_a_crate_change_rekordbox_overtook_is_refused_and_changes_nothing() {
     let (w, [a, b, c], peak) = peak_sent_and_imported();
-    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c])).unwrap();
+    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c]))
+        .unwrap();
     w.send_through();
     // Imported, then the DJ takes c out again in rekordbox.
     w.rekordbox_shows(&[("Peak", &[1, 2, 3])]);
@@ -440,7 +458,11 @@ fn a_membership_settled_between_the_gos_merge_and_its_record_refuses_the_send() 
         w.go_with(sender, &preflight.token, preflight.needs_confirm),
         Some(SendFailure::LibraryChanged)
     );
-    assert_eq!(fs::read(w.send_file()).unwrap(), file, "the last file is back");
+    assert_eq!(
+        fs::read(w.send_file()).unwrap(),
+        file,
+        "the last file is back"
+    );
     // The next send carries the membership chosen.
     w.send_through();
     assert_eq!(w.written("Peak"), ["a.mp3", "c.mp3", "b.mp3"]);

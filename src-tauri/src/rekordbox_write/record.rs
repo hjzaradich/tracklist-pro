@@ -441,7 +441,10 @@ fn forget_membership(conn: &Connection, read_at: &str) -> rusqlite::Result<()> {
             }
         }
         if taken_up {
-            conn.execute("UPDATE sent_playlist SET replaced = NULL WHERE id = ?1", [id])?;
+            conn.execute(
+                "UPDATE sent_playlist SET replaced = NULL WHERE id = ?1",
+                [id],
+            )?;
         }
     }
     Ok(())

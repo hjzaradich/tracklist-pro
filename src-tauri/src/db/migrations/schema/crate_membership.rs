@@ -54,21 +54,30 @@ fn a_crate_entry_keeps_its_id_and_a_new_one_never_takes_one_the_table_or_the_log
         "INSERT INTO crate_entry (crate_id, library_track_id) VALUES (1, 3)",
         "UNIQUE",
     );
-    accepts(&conn, "INSERT INTO crate (kind, name) VALUES ('folder', 'Fri')");
+    accepts(
+        &conn,
+        "INSERT INTO crate (kind, name) VALUES ('folder', 'Fri')",
+    );
     refuses(
         &conn,
         "INSERT INTO crate_entry (crate_id, library_track_id) VALUES (2, 1)",
         "a folder holds no tracks",
     );
     assert_eq!(
-        one::<i64>(&conn, "SELECT count(*) FROM search_due WHERE recording_id = 3"),
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM search_due WHERE recording_id = 3"
+        ),
         1
     );
     let sql: String = one(
         &conn,
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'crate_entry'",
     );
-    assert!(sql.contains("AUTOINCREMENT") && sql.contains("STRICT"), "{sql}");
+    assert!(
+        sql.contains("AUTOINCREMENT") && sql.contains("STRICT"),
+        "{sql}"
+    );
 }
 
 #[test]

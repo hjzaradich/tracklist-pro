@@ -41,14 +41,14 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use super::membership::{self, is_membership};
 use super::store::{
     conflict_from, Conflict, ConflictId, Filter, Status, CONFLICT_COLUMNS, OPEN_WHERE,
 };
-use super::membership::{self, is_membership};
 use super::{app_values, fits, same};
-use crate::rekordbox_write::uncarriable;
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError, Recorded, Recorder};
+use crate::rekordbox_write::uncarriable;
 
 /// The operation kind of [`resolve`].
 pub const RESOLVE_OPERATION: &str = "resolve_conflict";

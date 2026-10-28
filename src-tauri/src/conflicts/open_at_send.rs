@@ -59,9 +59,10 @@ pub fn open_fields(
                 OR substr(field, 1, length(?2)) = ?2)
          ORDER BY library_track_id, field",
     )?
-    .query_map(params![json_ids(tracks), super::membership::FIELD_PREFIX], |r| {
-        Ok((LibraryTrackId(r.get(0)?), r.get(1)?))
-    })?
+    .query_map(
+        params![json_ids(tracks), super::membership::FIELD_PREFIX],
+        |r| Ok((LibraryTrackId(r.get(0)?), r.get(1)?)),
+    )?
     .collect()
 }
 
