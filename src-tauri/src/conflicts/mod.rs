@@ -76,8 +76,11 @@
 //! stands answers its field whatever the verdict ([`store`]), so a value
 //! chosen is never overwritten while no side has moved.
 //!
-//! [`Verdict::handling`] is the one place that says the rest. `NotTakenUp` is
-//! handled as "send the app's value again": nothing is taken in and no
+//! [`Verdict::handling`] is the one place that says the rest. Every send
+//! applies it to every field first ([`merge`], 1cB-3); a field with an open
+//! conflict at that moment is [`open_at_send`]'s.
+//!
+//! `NotTakenUp` is handled as "send the app's value again": nothing is taken in and no
 //! conflict is recorded. To make it a conflict instead (the owner's call),
 //! change [`NOT_TAKEN_UP`] to [`Handling::Review`]; nothing else needs to
 //! change ([`store::detect`] then records it without a base, because the

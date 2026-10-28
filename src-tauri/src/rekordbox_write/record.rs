@@ -34,7 +34,7 @@
 //! taken up, so that a later change back in rekordbox is rekordbox's own.
 //! Every read runs it ([`crate::rekordbox::store::replace_snapshot`]).
 //!
-//! Known limits (for 1cB-3, which makes them reachable):
+//! Known limits (reachable since the merge before every send, 1cB-3):
 //!
 //! - NULL means "not known" for three reasons the engine can't tell apart:
 //!   nothing replaced, forgotten, and not recordable (a trusted entry the
