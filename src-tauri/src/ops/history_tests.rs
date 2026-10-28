@@ -47,6 +47,12 @@ pub(super) const LOGGED_TABLES: [&str; 12] = [
 /// whatever made the row.
 pub(super) const SET_ONLY_TABLES: [&str; 1] = ["recording_file"];
 
+/// `file`, whose `hidden_reason` "Show again" sets through the log (1cB-5).
+/// Only a field of a row that is there is set; the app inserts files outside
+/// the log (the scan), and file ids are never reused (migration 0031), so
+/// that can't trip an Undo. Not a table the log points at as a logged one.
+pub(super) const SET_ONLY_FILE_TABLES: [&str; 1] = ["file"];
+
 /// How many tracks the random actions pick among. The first
 /// [`IN_REKORDBOX`] are also in rekordbox, with a trusted match.
 const TRACKS: usize = 6;
@@ -1416,7 +1422,9 @@ fn every_table_the_app_records_changes_to_is_in_the_list_these_tests_check() {
                 };
                 assert!(
                     LOGGED_TABLES.contains(&name)
-                        || (call == "rec.set(" && SET_ONLY_TABLES.contains(&name)),
+                        || (call == "rec.set("
+                            && (SET_ONLY_TABLES.contains(&name)
+                                || SET_ONLY_FILE_TABLES.contains(&name))),
                     "{} records changes to `{name}`; add it to LOGGED_TABLES",
                     path.display()
                 );
