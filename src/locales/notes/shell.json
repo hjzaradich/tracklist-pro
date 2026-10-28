@@ -224,8 +224,96 @@
   },
   "details.empty": {
     "purpose": "Says no track is selected.",
-    "where": "Details panel, until selecting a track exists.",
+    "where": "Details panel, while no track is selected.",
     "approved": "Select a track"
+  },
+  "details.file": {
+    "purpose": "Labels the full path of the selected track's file.",
+    "where": "Details panel, above the track's path."
+  },
+  "details.tags": {
+    "purpose": "Heading over the list of the track's tag fields.",
+    "where": "Details panel, above the tag list."
+  },
+  "details.moreDetails": {
+    "purpose": "Switch that shows the other values a field has in other places.",
+    "where": "Details panel, above the tag list; the same wording as Review's switch."
+  },
+  "details.loadingTags": {
+    "purpose": "Says the tag list is being read.",
+    "where": "Details panel, while a track's tag sources load."
+  },
+  "details.field.title": {
+    "purpose": "Names the title field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.artist": {
+    "purpose": "Names the artist field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.album": {
+    "purpose": "Names the album field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.genre": {
+    "purpose": "Names the genre field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.composer": {
+    "purpose": "Names the composer field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.remixer": {
+    "purpose": "Names the remixer field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.label": {
+    "purpose": "Names the record label field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.year": {
+    "purpose": "Names the year field.",
+    "where": "Details panel, tag list."
+  },
+  "details.field.comment": {
+    "purpose": "Names the comment field.",
+    "where": "Details panel, tag list."
+  },
+  "details.source.rekordbox": {
+    "purpose": "Says a value is rekordbox's.",
+    "where": "Details panel, under a field's value, for a Library track rekordbox knows."
+  },
+  "details.source.file": {
+    "purpose": "Says a value is the tag of a named file.",
+    "where": "Details panel, under a field's value (or an other value), naming the file."
+  },
+  "details.source.blankInRekordbox": {
+    "purpose": "Says rekordbox has no value for the field; the files' values are listed below.",
+    "where": "Details panel, in place of a value, for a track rekordbox knows."
+  },
+  "details.source.other_one": {
+    "purpose": "Says one other value exists for the field.",
+    "where": "Details panel, after a field's source, while More details is off."
+  },
+  "details.source.other_other": {
+    "purpose": "Says several other values exist for the field.",
+    "where": "Details panel, after a field's source, while More details is off."
+  },
+  "details.withdraw.confirmed": {
+    "purpose": "Says the user confirmed the track's file as rekordbox's.",
+    "where": "Details panel, a Library track whose rekordbox entry was confirmed to its file."
+  },
+  "details.withdraw.action": {
+    "purpose": "Takes back the confirmation (one undoable step).",
+    "where": "Details panel, quiet text button beside the confirmed line."
+  },
+  "details.withdraw.hint": {
+    "purpose": "Says what withdrawing does.",
+    "where": "Details panel, under the withdraw button."
+  },
+  "details.withdraw.done": {
+    "purpose": "Says the confirmation was withdrawn.",
+    "where": "Details panel, status line after a withdrawal."
   },
   "player.label": {
     "purpose": "Accessible name of the player.",

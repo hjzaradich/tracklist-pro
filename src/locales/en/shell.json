@@ -68,7 +68,35 @@
   },
   "details": {
     "label": "Details",
-    "empty": "Select a track"
+    "empty": "Select a track",
+    "file": "File",
+    "tags": "Tags",
+    "moreDetails": "More details",
+    "loadingTags": "Reading tags",
+    "field": {
+      "title": "Title",
+      "artist": "Artist",
+      "album": "Album",
+      "genre": "Genre",
+      "composer": "Composer",
+      "remixer": "Remixer",
+      "label": "Label",
+      "year": "Year",
+      "comment": "Comment"
+    },
+    "source": {
+      "rekordbox": "rekordbox",
+      "file": "Tag in {{file}}",
+      "blankInRekordbox": "Blank in rekordbox",
+      "other_one": "(1 other value)",
+      "other_other": "({{count}} other values)"
+    },
+    "withdraw": {
+      "confirmed": "Confirmed as the file rekordbox has",
+      "action": "Withdraw confirmation",
+      "hint": "rekordbox's entry is matched to a file again.",
+      "done": "Confirmation withdrawn"
+    }
   },
   "player": {
     "label": "Player",

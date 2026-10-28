@@ -1,11 +1,15 @@
 .details {
-  display: grid;
-  place-items: center;
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-4);
   border-left: 1px solid var(--color-border);
   background: var(--color-surface);
+}
+
+/* Nothing selected: the one line sits in the middle. */
+.idle {
+  display: grid;
+  place-items: center;
 }
 
 .empty {

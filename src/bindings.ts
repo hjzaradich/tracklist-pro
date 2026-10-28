@@ -2463,7 +2463,7 @@ export type UndoRefusal =
 /**  Where a value comes from. */
 export type ValueOrigin = 
 /**  rekordbox's entry for the track. */
-"rekordbox" | 
+"rekordboxEntry" | 
 /**  A tag in one of the track's files (named in [`SourcedValue::file`]). */
 "file";
 

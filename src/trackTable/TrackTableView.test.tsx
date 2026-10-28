@@ -10,6 +10,7 @@ import { pageOf, queryOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import type { StoredChoice } from "./columnChoice";
 import type { TableScreen } from "./columns";
+import { useSelectedTrack } from "../shell/selectedTrack";
 import { TrackTableView } from "./TrackTableView";
 import { WINDOW } from "./useTrackRows";
 
@@ -595,6 +596,20 @@ describe("sorting keeps the selected track", () => {
     await waitFor(() => expect(positionsAsked).toHaveLength(1));
     await waitFor(() => expect(lastQuery().sort?.column).toBe("artist"));
     expect(selected()).toHaveLength(0);
+  });
+});
+
+describe("the Details panel's track", () => {
+  it("is the selected row, which goes when the table does", async () => {
+    serve(50);
+    const { unmount } = renderView("library");
+    await grid();
+    expect(useSelectedTrack.getState().tables).toBe(1);
+    expect(useSelectedTrack.getState().row).toBeNull();
+    await userEvent.click(drawn()[2]);
+    await waitFor(() => expect(useSelectedTrack.getState().row?.title).toBe("Tune 2"));
+    unmount();
+    expect(useSelectedTrack.getState()).toMatchObject({ row: null, tables: 0 });
   });
 });
 

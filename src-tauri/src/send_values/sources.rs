@@ -76,7 +76,7 @@ impl TagField {
 #[serde(rename_all = "camelCase")]
 pub enum ValueOrigin {
     /// rekordbox's entry for the track.
-    Rekordbox,
+    RekordboxEntry,
     /// A tag in one of the track's files (named in [`SourcedValue::file`]).
     File,
 }
@@ -165,7 +165,7 @@ fn fields_from(
                     .and_then(|(_, value)| text(value));
                 let shown = value.map(|value| SourcedValue {
                     value: value.to_owned(),
-                    origin: ValueOrigin::Rekordbox,
+                    origin: ValueOrigin::RekordboxEntry,
                     file: None,
                 });
                 (shown, from_files)

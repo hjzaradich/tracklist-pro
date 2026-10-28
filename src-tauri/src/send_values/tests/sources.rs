@@ -53,7 +53,7 @@ fn a_track_rekordbox_knows_shows_rekordbox_s_value_and_lists_nothing_when_the_fi
     assert!(sources.in_rekordbox);
     let title = field(&sources, TagField::Title);
     let shown = title.shown.as_ref().unwrap();
-    assert_eq!(shown.origin, ValueOrigin::Rekordbox);
+    assert_eq!(shown.origin, ValueOrigin::RekordboxEntry);
     assert_eq!(plain(shown), ("Same Title", None));
     assert!(title.others.is_empty());
     assert!(field(&sources, TagField::Artist).others.is_empty());

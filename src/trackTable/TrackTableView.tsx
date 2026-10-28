@@ -9,6 +9,7 @@ import {
   type TableSort,
   type TableSource,
 } from "../bindings";
+import { useReportSelection } from "../shell/selectedTrack";
 import { ColumnEditor } from "./ColumnEditor";
 import { FilterChips } from "./FilterChips";
 import { TrackTable } from "./TrackTable";
@@ -76,6 +77,7 @@ export function TrackTableView({
   const [sort, setSort] = useState<TableSort | null>(null);
   const [filters, setFilters] = useState<TableFilter[]>([]);
   const choice = useTableColumns(screen);
+  const reportSelection = useReportSelection(onSelectionChange);
 
   const query: RowsQuery = useMemo(
     () => ({ source, search: search.trim() === "" ? null : search, filters, sort }),
@@ -153,7 +155,7 @@ export function TrackTableView({
           resetKey={JSON.stringify(query)}
           positionOf={positionOf}
           settled={!rows.loading}
-          onSelectionChange={onSelectionChange}
+          onSelectionChange={reportSelection}
         />
       )}
     </div>
