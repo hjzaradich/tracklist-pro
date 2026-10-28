@@ -59,6 +59,7 @@ fn a_fresh_library_has_an_empty_queue_over_ipc() {
             "needsCloserLook": 0,
             "clearBestFile": 0,
             "qualityProblems": 0,
+            "conflicts": 0,
             "total": 0
         }))
     );

@@ -6,10 +6,13 @@ import { errorMessage } from "../api/errors";
 import type { ReviewItemId } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { AcceptedLine } from "./AcceptedLine";
+import { ConflictsGroup, sortedFields } from "./ConflictsGroup";
+import { ConflictsPane } from "./ConflictsPane";
 import { MissingList } from "./MissingList";
 import { ReviewComparison } from "./ReviewComparison";
 import { ReviewQueue, type QueueGroup } from "./ReviewQueue";
 import { useAddMissingFolder } from "./useAddMissingFolder";
+import { useConflictFields } from "./useConflicts";
 import { useMissingTracks } from "./useMissingTracks";
 import {
   GROUPS,
@@ -49,9 +52,19 @@ export function itemAfter(groups: QueueGroup[], current: ReviewItemId | null): R
  * the "Clearly best file" heading. After "Accept all", a line at the top says
  * what it switched (`AcceptedLine`). After a decision the next item loads
  * (`itemAfter`).
+ *
+ * Conflicts (1cB-1, ROADMAP 1.10) are a group of the queue after the others,
+ * one line per field that has open conflicts (`ConflictsGroup`); choosing a
+ * field shows its conflicts side by side where the comparison goes
+ * (`ConflictsPane`). A conflict is not a Review item (it has no id of its
+ * own in the queue, no files and no suggestion), so the group is drawn beside
+ * the item groups and selects a field, not an item. Nothing shows while no
+ * field has a conflict. Open conflicts count in `counts.total` (one each), so
+ * the empty state is the same test as for every other group.
  */
 export function ReviewScreen() {
   const { t } = useTranslation("review");
+  const { t: conflicts } = useTranslation("conflicts");
   const queryClient = useQueryClient();
   const counts = useReviewCounts();
   const needs = useReviewItems("needsCloserLook", (counts.data?.needsCloserLook ?? 0) > 0);
@@ -62,6 +75,8 @@ export function ReviewScreen() {
   // exactly those items.
   const acceptItems = useAcceptAllItems((counts.data?.clearBestFile ?? 0) > 0);
   const accept = useAcceptAll();
+  const conflictFields = useConflictFields();
+  const fields = sortedFields(conflicts, conflictFields.data ?? []);
 
   const groups: QueueGroup[] = GROUPS.flatMap((group) => {
     const count = counts.data?.[group] ?? 0;
@@ -90,10 +105,17 @@ export function ReviewScreen() {
   // The selected item, if it is still loaded; else the first one.
   const [chosen, setChosen] = useState<ReviewItemId | null>(null);
   const loaded = groups.flatMap((g) => g.items);
+  // A chosen field of conflicts takes the pane; when it is settled and gone
+  // the screen goes on to the first item, else the first field left.
+  const [chosenField, setChosenField] = useState<string | null>(null);
+  const pickedField = fields.find((f) => f.field === chosenField)?.field ?? null;
   const selected: ReviewItemId | null =
-    loaded.find((item) => chosen !== null && itemKey(item.id) === itemKey(chosen))?.id ??
-    loaded[0]?.id ??
-    null;
+    pickedField !== null
+      ? null
+      : (loaded.find((item) => chosen !== null && itemKey(item.id) === itemKey(chosen))?.id ??
+        loaded[0]?.id ??
+        null);
+  const shownField = pickedField ?? (selected === null ? (fields[0]?.field ?? null) : null);
   const comparison = useReviewItem(selected);
   // "More details" stays on from one item to the next.
   const [details, setDetails] = useState(false);
@@ -112,7 +134,8 @@ export function ReviewScreen() {
   const add = useAddMissingFolder();
   const failure = missing.error ?? add.error;
   const waiting = useWaitingOn(DECIDES_MISSING);
-  const problem = counts.error ?? needs.error ?? clear.error ?? quality.error;
+  const problem =
+    counts.error ?? needs.error ?? clear.error ?? quality.error ?? conflictFields.error;
 
   return (
     <StageScreen stage="review">
@@ -132,10 +155,21 @@ export function ReviewScreen() {
                   {errorMessage(accept.error)}
                 </p>
               )}
-              <ReviewQueue groups={groups} selected={selected} onSelect={setChosen} />
+              <ReviewQueue
+                groups={groups}
+                selected={selected}
+                onSelect={(id) => {
+                  setChosen(id);
+                  setChosenField(null);
+                }}
+              >
+                <ConflictsGroup fields={fields} selected={shownField} onSelect={setChosenField} />
+              </ReviewQueue>
             </div>
             <div className={styles.right}>
-              {comparison.isError ? (
+              {shownField !== null ? (
+                <ConflictsPane key={shownField} field={shownField} />
+              ) : comparison.isError ? (
                 <p role="alert" className={styles.error}>
                   {errorMessage(comparison.error)}
                 </p>

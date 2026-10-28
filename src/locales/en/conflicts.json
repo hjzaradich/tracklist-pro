@@ -1,0 +1,54 @@
+{
+  "group": "Conflicts",
+  "fieldCount_one": "{{count, number}} conflict",
+  "fieldCount_other": "{{count, number}} conflicts",
+  "field": {
+    "Name": "Title",
+    "Artist": "Artist",
+    "Composer": "Composer",
+    "Album": "Album",
+    "Genre": "Genre",
+    "Comments": "Comment",
+    "Remixer": "Remixer",
+    "Label": "Label",
+    "Year": "Year",
+    "DiscNumber": "Disc number",
+    "TrackNumber": "Track number",
+    "PlayCount": "Play count",
+    "Rating": "Rating",
+    "Colour": "Color",
+    "DateAdded": "Date added",
+    "Location": "File location"
+  },
+  "label": "Conflicts",
+  "col": {
+    "track": "Track",
+    "app": "App",
+    "rekordbox": "rekordbox",
+    "base": "Last sent",
+    "actions": "Actions"
+  },
+  "neverSent": "Never sent",
+  "noValue": "No value",
+  "noRating": "No rating",
+  "stars_one": "{{count}} star",
+  "stars_other": "{{count}} stars",
+  "action": {
+    "keepApp": "Keep app's",
+    "keepRekordbox": "Keep rekordbox's",
+    "edit": "Edit",
+    "save": "Save",
+    "goBack": "Go back",
+    "keepAppAll": "Keep app's for all {{count, number}}",
+    "keepRekordboxAll": "Keep rekordbox's for all {{count, number}}"
+  },
+  "edit": {
+    "label": "New value",
+    "noColor": "No color"
+  },
+  "error": {
+    "gone": "Already resolved",
+    "badValue": "That value does not fit this field. Enter a value of the same kind.",
+    "changed": "Conflicts changed. Check the list and try again."
+  }
+}

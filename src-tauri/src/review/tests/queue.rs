@@ -15,6 +15,7 @@ fn an_empty_library_has_an_empty_queue() {
             needs_closer_look: 0,
             clear_best_file: 0,
             quality_problems: 0,
+            conflicts: 0,
             total: 0
         }
     );

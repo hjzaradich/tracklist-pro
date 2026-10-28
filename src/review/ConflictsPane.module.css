@@ -1,0 +1,60 @@
+/*
+ * The Conflicts pane (1cB-1, 1cB-2). It reuses the comparison's table, rows
+ * and buttons (ReviewComparison.module.css); this holds only what is its own.
+ */
+.muted {
+  color: var(--color-text-muted);
+}
+
+/* A value too long for its cell ends in "..."; the full text is its title. */
+.cut {
+  display: block;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The colour's code is written beside its swatch: never colour alone. */
+.colour {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.swatch {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* The buttons of a row, or the field and the buttons of a row being edited. */
+.buttons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* Read by screen readers, not drawn. */
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The file's name under a title or artist in dispute. */
+.file {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

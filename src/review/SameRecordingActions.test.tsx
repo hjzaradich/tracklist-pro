@@ -120,6 +120,8 @@ function backend(start: Partial<World> = {}): World {
     if (refused) throw refused;
     const items = world.queued ? [ITEM] : [];
     switch (cmd) {
+      case "review_conflict_fields":
+        return [];
       case "missing_tracks":
         return { total: 0, groups: [] };
       case "review_counts":

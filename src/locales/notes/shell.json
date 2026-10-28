@@ -274,5 +274,13 @@
   "undo.action.useThisFile": {
     "purpose": "Undo button naming what it takes back: \"Use this file instead\" on an extra copy in the Hidden filter (Undo brings back the file the ranking chose). Proposal.",
     "where": "Top bar, Undo button, when the next step to undo is a \"Use this file instead\"."
+  },
+  "undo.action.resolveConflict": {
+    "purpose": "Undo button naming what it takes back: one conflict resolved in Review (Undo opens it again). Proposal.",
+    "where": "Top bar, Undo button, when the next step to undo is one conflict resolved."
+  },
+  "undo.action.resolveConflicts": {
+    "purpose": "Undo button naming what it takes back: every conflict of a field resolved at once in Review (Undo opens them all again). Proposal.",
+    "where": "Top bar, Undo button, when the next step to undo is a bulk resolve of a field's conflicts."
   }
 }
