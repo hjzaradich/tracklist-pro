@@ -122,7 +122,7 @@
   },
   "reason": {
     "onlyFile": "the only file",
-    "chosen": "you chose this file",
+    "chosen": "your choice",
     "notOnDisk": "on disk (the other file is missing)",
     "betterVerdict": "better quality check result",
     "playable": "plays in rekordbox (the other file doesn't)",

@@ -1,6 +1,8 @@
 //! "Use this file instead" (1cB-22). Everything is synthetic: made-up files
 //! with made-up hashes in a migrated database in a temp dir.
 
+use rusqlite::OptionalExtension;
+
 use super::choose::Refused;
 use super::*;
 use crate::best_file::Reason;
@@ -349,4 +351,104 @@ fn a_file_that_cannot_be_chosen_is_refused() {
 
     assert_eq!(choices(&lib), Vec::new());
     assert_eq!(best_of(&lib, track), a);
+}
+
+fn better_file(lib: &Lib, track: i64) -> Option<(i64, String)> {
+    lib.writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT file_id, step FROM better_file WHERE recording_id = ?1",
+                [track],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_choice_has_no_say_for_a_track_in_the_library_and_holds_again_when_it_leaves() {
+    let (lib, track, a, b) = two_files();
+    choose(&lib, b).unwrap();
+    assert_eq!(best_of(&lib, track), b);
+
+    // The track joins the Library linked to the other file: the choice rests,
+    // and the ranking is as if there were none.
+    let library_track = lib.library(track, a);
+    rank(&lib);
+    assert_eq!(best_of(&lib, track), a);
+    assert_eq!(better_file(&lib, track), None);
+    assert_eq!(choices(&lib).len(), 1);
+
+    // The linked file goes: Review's "copy found" offer is made as before,
+    // though the copy is the file that was chosen.
+    lib.insert("UPDATE file SET present = 0 WHERE id = ?1", (a,));
+    rank(&lib);
+    assert_eq!(better_file(&lib, track), Some((b, "onDisk".to_owned())));
+    lib.insert("UPDATE file SET present = 1 WHERE id = ?1", (a,));
+    rank(&lib);
+
+    // The track leaves the Library: the choice applies again.
+    lib.insert("DELETE FROM library_track WHERE id = ?1", (library_track,));
+    rank(&lib);
+    assert_eq!(best_of(&lib, track), b);
+}
+
+#[test]
+fn a_retag_of_the_chosen_file_does_not_undo_the_choice_even_when_another_copy_shares_its_audio() {
+    let (lib, track, a, b) = two_files();
+    // The same audio with other tags: other bytes.
+    hashes(&lib, b, 1, 2);
+    rank(&lib);
+    choose(&lib, b).unwrap();
+    assert_eq!(best_of(&lib, track), b);
+
+    // Another program retags the chosen copy; the scan hashes it again.
+    lib.insert(
+        "UPDATE file SET raw_tags = '{}', blake3 = ?1 WHERE id = ?2",
+        (vec![9u8; 32], b),
+    );
+    rank(&lib);
+    assert_eq!(best_of(&lib, track), b);
+    // The choice follows the bytes, and its Undo still works.
+    assert_eq!(choices(&lib)[0].2, vec![9u8; 32]);
+    undo(&lib);
+    assert_eq!(choices(&lib), Vec::new());
+    assert_eq!(best_of(&lib, track), a);
+}
+
+#[test]
+fn a_file_with_no_audio_hash_is_kept_by_its_whole_file_hash() {
+    let (lib, track, a, b) = two_files();
+    lib.insert(
+        "UPDATE file SET audio_hash = NULL, blake3 = ?1 WHERE id = ?2",
+        (vec![5u8; 32], b),
+    );
+    rank(&lib);
+    assert_eq!(listed(&lib)[0].way_back, Some(WayBack::UseThisFile));
+
+    choose(&lib, b).unwrap();
+    assert_eq!(best_of(&lib, track), b);
+    assert_eq!(choices(&lib)[0].1, vec![5u8; 32]);
+
+    // A ranking run and a move keep it.
+    lib.exec("INSERT OR IGNORE INTO best_file_due (recording_id) SELECT id FROM recording");
+    rank(&lib);
+    assert_eq!(best_of(&lib, track), b);
+    lib.exec(
+        "INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'Other', 'Other');
+         UPDATE file SET music_folder_id = 2 WHERE id = 2",
+    );
+    rank(&lib);
+    assert_eq!(best_of(&lib, track), b);
+
+    // Its bytes are its key: changed bytes are another key, the choice
+    // covers nothing, and the ranking decides again.
+    lib.insert(
+        "UPDATE file SET blake3 = ?1 WHERE id = ?2",
+        (vec![6u8; 32], b),
+    );
+    rank(&lib);
+    assert_eq!(best_of(&lib, track), a);
+    assert_eq!(choices(&lib).len(), 1);
 }

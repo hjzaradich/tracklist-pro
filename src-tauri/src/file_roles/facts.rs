@@ -5,7 +5,7 @@
 //! whether a drive is plugged in is not read ([`Place::volume_online`] is
 //! always `true` here), so the roles are the same with the drive in or out.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rusqlite::Connection;
 use serde_json::Value;
@@ -176,17 +176,43 @@ fn read(
     }
     // What the user chose (`file_choice`) is decisive: a track's files that
     // a choice covers are marked, so the ranking puts them first.
+    // A track in the Library has no choice: the feature is for tracks outside
+    // it (owner decision, 2026-10-28), so the ranking, and Review's rules
+    // that read it, work as if there were none. The row stays and applies
+    // again if the track leaves the Library.
     let choices = Choices::load(conn)?;
+    let in_library = if choices.is_empty() {
+        HashSet::new()
+    } else {
+        library_tracks(conn, by_recording.keys().copied())?
+    };
     Ok(by_recording
         .into_iter()
         .map(|(recording, files)| {
             let (mut loaded, held): (Vec<Loaded>, Vec<Held>) = files.into_iter().unzip();
-            for (file, chosen) in loaded.iter_mut().zip(choices.chosen(&held)) {
-                file.facts.chosen = chosen;
+            if !in_library.contains(&recording) {
+                for (file, chosen) in loaded.iter_mut().zip(choices.chosen(&held)) {
+                    file.facts.chosen = chosen;
+                }
             }
             (recording, loaded)
         })
         .collect())
+}
+
+/// Which of `recordings` are in the Library.
+fn library_tracks(
+    conn: &Connection,
+    recordings: impl Iterator<Item = i64>,
+) -> rusqlite::Result<HashSet<i64>> {
+    let wanted =
+        serde_json::to_string(&recordings.collect::<Vec<_>>()).unwrap_or_else(|_| "[]".into());
+    conn.prepare_cached(
+        "SELECT DISTINCT recording_id FROM library_track
+         WHERE recording_id IN (SELECT value FROM json_each(?1))",
+    )?
+    .query_map([wanted], |r| r.get(0))?
+    .collect()
 }
 
 struct Row {

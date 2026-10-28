@@ -63,3 +63,21 @@ BEGIN
     SELECT recording_id FROM recording_file WHERE file_id = new.id
     ON CONFLICT DO NOTHING;
 END;
+
+-- A chosen file that is retagged keeps its choice: its bytes change and its
+-- audio doesn't, and the choice names the bytes to tell it from another
+-- copy of the same audio. So the bytes follow the file, as the file is
+-- hashed again. Only for a choice kept by `audio_hash` (a file with none is
+-- kept by its `blake3`, which a retag changes: that choice is lost with it,
+-- as `review_decision`'s is). This is done outside the operation log, so
+-- `file_choice.blake3` is a derived column (`ops::DERIVED_FIELDS`): the
+-- Undo of the choice doesn't count it as "changed since". An update that
+-- would make two choices the same is left out (`OR IGNORE`).
+CREATE TRIGGER file_choice_follows_a_retag
+AFTER UPDATE OF blake3 ON file
+WHEN old.blake3 IS NOT NULL AND new.blake3 IS NOT NULL AND old.blake3 <> new.blake3
+ AND length(coalesce(old.audio_hash, x'')) > 0
+BEGIN
+    UPDATE OR IGNORE file_choice SET blake3 = new.blake3
+    WHERE blake3 = old.blake3 AND content_key = old.audio_hash;
+END;

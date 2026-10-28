@@ -80,7 +80,7 @@
     "where": "All music, Hidden filter, above the table, after a refused \"Use this file instead\"."
   },
   "error.changed": {
-    "purpose": "Says \"Use this file instead\" was refused because the file is no longer an extra copy on disk, or holds the same bytes as the file shown. Proposal.",
+    "purpose": "Says \"Use this file instead\" was refused because the file is no longer an extra copy on disk (or holds the same bytes as the file shown). The button is not offered then, so this shows only if the list was out of date. Proposal.",
     "where": "All music, Hidden filter, above the table, after a refused \"Use this file instead\"."
   }
 }

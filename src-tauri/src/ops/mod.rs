@@ -1683,6 +1683,10 @@ fn undo_delete(
 ///   the one function that moves a file (`review::same::move_file`): a merge
 ///   of two Library tracks (Review, 1bE-9), "these are the same track" and a
 ///   split (Review, 1bE-2).
+/// - `file_choice.blake3` is the bytes of the chosen file (1cB-22): a retag
+///   of the file moves the choice to its new bytes (a database trigger,
+///   migration 0037), so the choice keeps naming that file. Undoing the
+///   choice must still work after that.
 ///
 /// Undoing a **set** of a derived column leaves the column as it is: no
 /// "changed since" check, nothing of the value before written back. The
@@ -1701,6 +1705,7 @@ pub(crate) const DERIVED_FIELDS: &[(&str, &str)] = &[
     ("relink", "file_id"),
     ("recording_file", "role"),
     ("recording_file", "match_confidence"),
+    ("file_choice", "blake3"),
 ];
 
 fn is_derived(entity: &str, field: &str) -> bool {

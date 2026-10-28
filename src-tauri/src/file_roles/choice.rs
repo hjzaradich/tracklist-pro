@@ -16,6 +16,17 @@
 //! - otherwise every candidate is chosen (the file was retagged, or the
 //!   choice kept no whole-file hash), and the ranking tells them apart.
 //!
+//! A track in the Library has no choice at all (owner decision, 2026-10-28:
+//! this is for tracks outside it): [`super::facts`] marks nothing for it,
+//! so the ranking and Review's rules work as if there were none. The row
+//! stays, and applies again if the track leaves the Library.
+//!
+//! A retag of a chosen file moves the choice to the file's new bytes (a
+//! trigger, migration 0037), so the choice keeps naming that file even when
+//! another copy of the track holds the same audio. The "every candidate"
+//! case above is what is left when no file has the bytes any more (the file
+//! was replaced by another one, or hashed for the first time).
+//!
 //! A file that is not on disk is never chosen: **when the chosen file is
 //! gone, the ranking decides again**, and the choice stays, so it takes
 //! effect again if the file comes back (or a file with the same audio is
@@ -58,6 +69,11 @@ impl Choices {
             by_key.entry(key).or_default().push(blake3);
         }
         Ok(Choices(by_key))
+    }
+
+    /// Whether there is no choice at all.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Which of one track's `files` the choices cover.

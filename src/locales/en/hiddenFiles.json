@@ -13,7 +13,7 @@
     "clearedInbox": "Cleared from the Inbox",
     "extraFile": "Another file is the best one for “{{track}}”",
     "extraFileNamed": "“{{best}}” is the best file for “{{track}}”",
-    "extraFileChosen": "“{{best}}” is the file chosen for “{{track}}” (your choice)",
+    "extraFileChosen": "“{{best}}” is the file chosen for “{{track}}”",
     "extraFileInLibrary": "“{{best}}” is the best file for “{{track}}” (in your Library)"
   },
   "showAgain": "Show again",
@@ -24,6 +24,6 @@
   "showThem": "Show them",
   "error": {
     "inLibrary": "Can't use this file: the track is in your Library",
-    "changed": "Can't use this file: it has changed since the list was shown"
+    "changed": "Can't use this file: it is no longer an extra copy on disk"
   }
 }

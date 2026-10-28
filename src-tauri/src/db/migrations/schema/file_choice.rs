@@ -104,3 +104,35 @@ fn a_changed_whole_file_hash_makes_its_track_due_only_while_a_choice_exists() {
     accepts(&conn, "UPDATE file SET blake3 = randomblob(32)");
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM best_file_due"), 1);
 }
+
+#[test]
+fn a_chosen_file_that_is_hashed_again_takes_its_choice_along_only_when_its_audio_is_the_key() {
+    let (_dir, conn) = db();
+    accepts(&conn, TRACK_WITH_A_FILE);
+    accepts(
+        &conn,
+        "UPDATE file SET blake3 = zeroblob(32);
+         INSERT INTO file_choice (content_key, blake3) VALUES (x'0102', zeroblob(32))",
+    );
+    accepts(&conn, "UPDATE file SET blake3 = randomblob(32)");
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM file_choice c JOIN file f ON f.blake3 = c.blake3"
+        ),
+        1
+    );
+    // A choice for other audio stays as it was.
+    accepts(
+        &conn,
+        "INSERT INTO file_choice (content_key, blake3) VALUES (x'FF', zeroblob(32))",
+    );
+    accepts(&conn, "UPDATE file SET blake3 = randomblob(32)");
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM file_choice WHERE content_key = x'FF' AND blake3 = zeroblob(32)"
+        ),
+        1
+    );
+}
