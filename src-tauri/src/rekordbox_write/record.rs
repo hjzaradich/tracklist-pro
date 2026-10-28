@@ -29,6 +29,21 @@
 //! taken up, so that a later change back in rekordbox is rekordbox's own.
 //! Every read runs it ([`crate::rekordbox::store::replace_snapshot`]).
 //!
+//! Known limits (for 1cB-3, which makes them reachable):
+//!
+//! - NULL means "not known" for three reasons the engine can't tell apart:
+//!   nothing replaced, forgotten, and not recordable (a trusted entry the
+//!   send knew of, but no single row of the newest read at the `Location`
+//!   sent: one that doesn't decode, two rows there, or a read landing
+//!   between the review and the record). In the last case a send never
+//!   imported reads as rekordbox's change (row 8).
+//! - A record an Undo of a removal or merge puts back can be one a read
+//!   would have forgotten while the track was out of the Library: if the
+//!   DJ set the field back in rekordbox meanwhile, the next detection
+//!   reads it as a send not taken up (row 7).
+//! - Forgetting finds a track's entry by its `Location` base, which every
+//!   send records (rule 1); a send that didn't would never forget.
+//!
 //! # Playlist entries (`sent_entry`, 1cB-19)
 //!
 //! For every playlist the send wrote, which Library tracks it put in it
@@ -37,6 +52,10 @@
 //! wrote it: a send replaces the rows of each playlist it writes, and
 //! leaves those of a playlist it doesn't write as they were. [`sent_entries`]
 //! reads them.
+//! Each row carries the send that put it there (`send`, numbering every
+//! send recorded) and counts only while that send is the last one that
+//! wrote its playlist (`sent_playlist.send_id`). A playlist's rows go
+//! when a read forgets the playlist (`after_send`, rule 6).
 //!
 //! The folders and playlists the send wrote are kept too, in the same
 //! transaction (`sent_playlist`, ROADMAP 1.9 rule 6): the path of each, so
@@ -137,6 +156,9 @@ pub fn record_send(
     // The newest read: what rekordbox shows as the send is recorded.
     let newest: Option<String> =
         tx.query_row("SELECT max(read_at) FROM rekordbox_track", [], |r| r.get(0))?;
+    // This send's number (`send`): what its playlists and entries carry.
+    tx.execute("INSERT INTO send (sent_at) VALUES (?1)", [&now])?;
+    let send = tx.last_insert_rowid();
     {
         let mut mark = tx.prepare(
             "UPDATE library_track SET last_sent_location = ?2, last_exported_at = ?3
@@ -160,10 +182,11 @@ pub fn record_send(
         // path already there is updated, never duplicated, and keeps its
         // `seen` mark. Done first: a track that fails below rolls them back too.
         let mut path = tx.prepare(
-            "INSERT INTO sent_playlist (path, path_key, kind, sent_at)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO sent_playlist (path, path_key, kind, sent_at, send_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (path_key, kind)
-             DO UPDATE SET path = excluded.path, sent_at = excluded.sent_at",
+             DO UPDATE SET path = excluded.path, sent_at = excluded.sent_at,
+                           send_id = excluded.send_id",
         )?;
         for sent_path in paths {
             path.execute(params![
@@ -175,6 +198,7 @@ pub fn record_send(
                     "playlist"
                 },
                 now,
+                send,
             ])?;
         }
         for track in sent {
@@ -204,24 +228,31 @@ pub fn record_send(
             let fields = serde_json::to_string(&fields).expect("strings always serialize");
             drop_unsent.execute(params![id, fields])?;
         }
-        record_entries(&tx, paths, &now)?;
+        record_entries(&tx, paths, send, &now)?;
     }
     tx.commit()
 }
 
 /// Each playlist's `sent_entry` rows become exactly the tracks this send
-/// put in it. A playlist this send didn't write keeps its rows.
-fn record_entries(conn: &Connection, paths: &[SentPath], now: &str) -> rusqlite::Result<()> {
+/// put in it, each marked with the send. A playlist this send didn't write
+/// keeps its rows.
+fn record_entries(
+    conn: &Connection,
+    paths: &[SentPath],
+    send: i64,
+    now: &str,
+) -> rusqlite::Result<()> {
     let mut drop_left = conn.prepare(
         "DELETE FROM sent_entry
          WHERE path_key = ?1 AND library_track_id NOT IN (SELECT value FROM json_each(?2))",
     )?;
     // A track put in again keeps its row.
     let mut entry = conn.prepare(
-        "INSERT INTO sent_entry (library_track_id, path, path_key, sent_at)
-         VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO sent_entry (library_track_id, path, path_key, send_id, sent_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT (library_track_id, path_key)
-         DO UPDATE SET path = excluded.path, sent_at = excluded.sent_at",
+         DO UPDATE SET path = excluded.path, send_id = excluded.send_id,
+                       sent_at = excluded.sent_at",
     )?;
     for playlist in paths.iter().filter(|p| !p.folder) {
         let path = serde_json::to_string(&playlist.path).expect("strings always serialize");
@@ -236,7 +267,7 @@ fn record_entries(conn: &Connection, paths: &[SentPath], now: &str) -> rusqlite:
         let ids = serde_json::to_string(&tracks).expect("numbers always serialize");
         drop_left.execute(params![key, ids])?;
         for track in tracks {
-            entry.execute(params![track, path, key, now])?;
+            entry.execute(params![track, path, key, send, now])?;
         }
     }
     Ok(())
@@ -256,6 +287,7 @@ fn record_entries(conn: &Connection, paths: &[SentPath], now: &str) -> rusqlite:
 /// the sends that write them.
 pub fn forget_taken_up(conn: &Connection, read_at: &str) -> rusqlite::Result<()> {
     // Every track with a record, its records, and the Location it was sent to.
+    // Every send records `Location` (rule 1), so the join finds every track.
     let mut stmt = conn.prepare(
         "SELECT b.library_track_id, b.field, b.value, l.value
          FROM sync_base b
@@ -311,10 +343,12 @@ pub struct SentEntry {
 /// the last send that wrote it. Ordered by track, then by the normalized
 /// path. A track no send put in a playlist has none.
 ///
-/// A row an Undo put back (of a removal or a merge) whose playlist a later
-/// send wrote again isn't that send's, so it isn't one: that send left the
-/// track out of the playlist. Such a row goes the next time the playlist
-/// is written.
+/// A row counts only while the send that put it there is the last one that
+/// wrote its playlist (by the send's number, never by the clock). So a row
+/// an Undo put back (of a removal or a merge) whose playlist a later send
+/// wrote again isn't one: that send left the track out. Such a row goes the
+/// next time the playlist is written. A playlist's rows go when a read
+/// forgets the playlist (`sent_playlist`, rule 6).
 pub fn sent_entries(
     conn: &Connection,
     tracks: &[LibraryTrackId],
@@ -330,9 +364,9 @@ pub fn sent_entries(
         .prepare(
             "SELECT e.library_track_id, e.path, e.path_key FROM sent_entry e
              WHERE e.library_track_id IN (SELECT value FROM json_each(?1))
-               AND NOT EXISTS (SELECT 1 FROM sent_playlist p
-                               WHERE p.path_key = e.path_key AND p.kind = 'playlist'
-                                 AND p.sent_at > e.sent_at)
+               AND EXISTS (SELECT 1 FROM sent_playlist p
+                           WHERE p.path_key = e.path_key AND p.kind = 'playlist'
+                             AND p.send_id = e.send_id)
              ORDER BY e.library_track_id, e.path_key",
         )?
         .query_map([ids], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?

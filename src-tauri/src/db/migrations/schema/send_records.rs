@@ -17,8 +17,8 @@ fn with_library_tracks() -> (tempfile::TempDir, Connection) {
 
 fn entry(track: i64, path: &str, key: &str) -> String {
     format!(
-        "INSERT INTO sent_entry (library_track_id, path, path_key, sent_at)
-         VALUES ({track}, '{path}', '{key}', '2026-10-27T00:00:00.000Z')"
+        "INSERT INTO sent_entry (library_track_id, path, path_key, send_id, sent_at)
+         VALUES ({track}, '{path}', '{key}', 1, '2026-10-27T00:00:00.000Z')"
     )
 }
 
@@ -70,6 +70,28 @@ fn a_base_from_before_0036_has_no_record_of_what_it_replaced() {
     // never used twice.
     assert!(sql.contains("STRICT"), "{sql}");
     assert!(sql.contains("AUTOINCREMENT"), "{sql}");
+    // Sends are numbered by ids that only grow; a path written before has
+    // no send of its own.
+    let sql: String = one(
+        &conn,
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'send'",
+    );
+    assert!(
+        sql.contains("STRICT") && sql.contains("AUTOINCREMENT"),
+        "{sql}"
+    );
+    assert!(columns(&conn, "sent_playlist").contains(&"send_id".to_owned()));
+}
+
+#[test]
+fn a_send_number_is_never_used_twice() {
+    let (_dir, conn) = db();
+    let sent = "INSERT INTO send (sent_at) VALUES ('2026-10-27T00:00:00.000Z')";
+    let first = insert(&conn, sent);
+    let second = insert(&conn, sent);
+    accepts(&conn, "DELETE FROM send");
+    let third = insert(&conn, sent);
+    assert!(third > second && second > first, "{first} {second} {third}");
 }
 
 #[test]

@@ -613,10 +613,10 @@ fn a_merge_deletes_the_sent_playlist_entries_of_the_track_that_leaves_and_undo_p
     t.entry(t.b, 1, 0, 1, 120.0);
     let (lt_keep, lt_leave) = (t.lt(t.ta), t.lt(t.tb));
     t.db.sql(&format!(
-        r#"INSERT INTO sent_entry (library_track_id, path, path_key, sent_at)
-             VALUES ({lt_keep}, '["Crates","Peak"]', '["crates","peak"]', 'then'),
-                    ({lt_leave}, '["Crates","Peak"]', '["crates","peak"]', 'then'),
-                    ({lt_leave}, '["Crates","Old"]', '["crates","old"]', 'then');"#
+        r#"INSERT INTO sent_entry (library_track_id, path, path_key, send_id, sent_at)
+             VALUES ({lt_keep}, '["Crates","Peak"]', '["crates","peak"]', 1, 'then'),
+                    ({lt_leave}, '["Crates","Peak"]', '["crates","peak"]', 1, 'then'),
+                    ({lt_leave}, '["Crates","Old"]', '["crates","old"]', 1, 'then');"#
     ));
     let entries = || {
         t.db.writer

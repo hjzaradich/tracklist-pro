@@ -866,11 +866,19 @@ fn the_next_send_replaces_the_entries_of_each_playlist_it_writes_and_keeps_the_r
             (c, names(&["Crates", "PEAK "])),
         ]
     );
-    // A track put in again keeps its row.
-    assert!(lib
-        .entry_rows()
-        .iter()
-        .any(|(id, track, _)| (*id, *track) == (b_in_peak, b.0)));
+    // The table itself holds exactly these: `a`'s row in `Peak` is gone,
+    // and a track put in again keeps its row.
+    let rows = lib.entry_rows();
+    let rows: Vec<(i64, &str)> = rows.iter().map(|(_, t, p)| (*t, p.as_str())).collect();
+    assert_eq!(
+        rows,
+        [
+            (b.0, r#"["Crates","PEAK "]"#),
+            (a.0, r#"["Crates","Old"]"#),
+            (c.0, r#"["Crates","PEAK "]"#),
+        ]
+    );
+    assert_eq!(lib.entry_rows()[0].0, b_in_peak);
 
     // Sent again, the same: nothing new.
     let rows = lib.entry_rows();
@@ -909,16 +917,6 @@ fn removing_a_track_takes_its_send_records_and_undo_puts_them_back_after_a_later
         vec![playlist("Peak", &[a, b]), playlist("Old", &[a])],
         vec![],
     );
-    // Dated before the next send, which may land in the same millisecond
-    // in a test.
-    lib.writer
-        .call(|c| {
-            c.execute_batch(
-                "UPDATE sent_entry SET sent_at = '2026-10-01T00:00:00.000Z';
-                 UPDATE sent_playlist SET sent_at = '2026-10-01T00:00:00.000Z';",
-            )
-        })
-        .unwrap();
     assert_eq!(lib.replaced(a, "Genre"), Some("House".into()));
     let a_rows = |rows: Vec<(i64, i64, String)>| -> Vec<(i64, i64, String)> {
         rows.into_iter().filter(|(_, t, _)| *t == a.0).collect()
@@ -937,6 +935,16 @@ fn removing_a_track_takes_its_send_records_and_undo_puts_them_back_after_a_later
     // A later send writes `Peak` without the removed track.
     lib.send_tree(vec![new_b()], vec![playlist("Peak", &[b])], vec![]);
     let b_after = lib.entries(&[b]);
+    // Both sends at one moment, as the clock may say: which rows count is
+    // told by the sends, never by the time.
+    lib.writer
+        .call(|c| {
+            c.execute_batch(
+                "UPDATE sent_entry SET sent_at = '2026-10-01T00:00:00.000Z';
+                 UPDATE sent_playlist SET sent_at = '2026-10-01T00:00:00.000Z';",
+            )
+        })
+        .unwrap();
 
     match ops::undo_last_via(&lib.writer).unwrap() {
         UndoOutcome::Undone { operation } => {
@@ -956,4 +964,86 @@ fn removing_a_track_takes_its_send_records_and_undo_puts_them_back_after_a_later
     // `Peak` was written since without it, so only `Old` still counts.
     assert_eq!(lib.entries(&[a]), [(a, names(&["Crates", "Old"]))]);
     assert_eq!(lib.entries(&[b]), b_after);
+}
+
+/// An export with no tracks whose `Crates` folder holds these playlists.
+fn export_with_crates(names: &[&str]) -> String {
+    let nodes: String = names
+        .iter()
+        .map(|n| format!(r#"<NODE Type="1" Name="{n}" KeyType="0" Entries="0"/>"#))
+        .collect();
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.2.19" Company="AlphaTheta"/>
+  <COLLECTION Entries="0"></COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="2">
+      <NODE Type="0" Name="Crates" Count="{}">{nodes}</NODE>
+      <NODE Type="0" Name="Playlists" Count="0"/>
+    </NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>
+"#,
+        names.len()
+    )
+}
+
+#[test]
+fn a_playlists_entries_go_when_a_read_forgets_the_playlist() {
+    let lib = Lib::new();
+    let a = lib.library_track();
+    let new_a = || vec![new(a, &[("Name", "A"), ("Location", r"C:\New\a.mp3")])];
+    let read = |names: &[&str]| {
+        use crate::rekordbox::store::{replace_snapshot, SnapshotRows};
+        let xml = export_with_crates(names);
+        let parsed = crate::rekordbox::RekordboxXml::parse(xml.as_bytes()).unwrap();
+        let rows = SnapshotRows::from_xml(&parsed);
+        let tree = crate::after_send::RekordboxTree::from_xml(&parsed);
+        lib.writer
+            .call(move |c| {
+                replace_snapshot(c, &rows, |tx, _, _| crate::after_send::save_tree(tx, &tree))
+            })
+            .unwrap();
+    };
+    lib.send_tree(
+        new_a(),
+        vec![playlist("Peak", &[a]), playlist("Old", &[a])],
+        vec![],
+    );
+    read(&["Peak", "Old"]);
+
+    // The crate is renamed in the app: the next send writes `New`, never
+    // `Old` again. rekordbox still has `Old`, so its base stands.
+    lib.send_tree(
+        new_a(),
+        vec![playlist("Peak", &[a]), playlist("New", &[a])],
+        vec![],
+    );
+    assert_eq!(
+        lib.entries(&[a]),
+        [
+            (a, names(&["Crates", "New"])),
+            (a, names(&["Crates", "Old"])),
+            (a, names(&["Crates", "Peak"])),
+        ]
+    );
+
+    // The DJ deletes `Old` in rekordbox (rule 6): the read forgets it, and
+    // its entries go from the table.
+    read(&["Peak", "New"]);
+    assert_eq!(
+        lib.entries(&[a]),
+        [
+            (a, names(&["Crates", "New"])),
+            (a, names(&["Crates", "Peak"])),
+        ]
+    );
+    assert!(
+        lib.entry_rows()
+            .iter()
+            .all(|(_, _, path)| !path.contains("Old")),
+        "{:?}",
+        lib.entry_rows()
+    );
 }
