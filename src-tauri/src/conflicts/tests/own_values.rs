@@ -537,6 +537,38 @@ fn a_bulk_resolve_takes_every_value_chosen_into_the_store_in_one_step() {
     assert_eq!(lib.app_rows(), before);
 }
 
+#[test]
+fn undo_of_a_resolve_is_refused_once_its_field_was_sent_since_a_tie_counting_as_sent() {
+    for (when, refused) in [("later", true), ("the same", true), ("earlier", false)] {
+        let lib = Lib::new();
+        let id = edited_on_both_sides(&lib);
+        lib.resolve(lib.only_open().id, Choice::KeepRekordbox)
+            .unwrap();
+        let resolved_at: String = lib
+            .writer
+            .call(|c| c.query_row("SELECT max(created_at) FROM operation", [], |r| r.get(0)))
+            .unwrap();
+        let synced_at = match when {
+            "later" => "2999-01-01T00:00:00.000Z".to_owned(),
+            "the same" => resolved_at,
+            _ => "2000-01-01T00:00:00.000Z".to_owned(),
+        };
+        lib.run(&format!(
+            "UPDATE sync_base SET synced_at = '{synced_at}' WHERE library_track_id = {}",
+            id.0
+        ));
+
+        match lib.undo() {
+            UndoOutcome::Refused { reason, .. } => {
+                assert!(refused, "{when}");
+                assert_eq!(reason, UndoRefusal::SentSince, "{when}");
+            }
+            UndoOutcome::Undone { .. } => assert!(!refused, "{when}"),
+            other => panic!("{when}: {other:?}"),
+        }
+    }
+}
+
 // ---- Taking rekordbox's value in (1cB-3) -------------------------------------
 
 #[test]

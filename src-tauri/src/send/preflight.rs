@@ -9,7 +9,7 @@ use super::{
     tree, ExportRead, LeftOut, LeftOutReason, LosesEntries, OtherFile, Preflight, Refusal,
     RefusalReason, TrackLabel, TreeKind,
 };
-use crate::conflicts;
+use crate::conflicts::{self, open_at_send};
 use crate::library::{self, LibraryTrackId, StoredTrack};
 use crate::paths::Volumes;
 use crate::rekordbox::location::{decode, Location, PathStyle};
@@ -32,6 +32,10 @@ pub struct Reviewed {
     /// ([`no_file_at_location`]). Nothing in the preflight or its token
     /// depends on them.
     pub sent_elsewhere: Vec<SentElsewhere>,
+    /// The fields of the tracks sent with an open conflict, as the merge
+    /// left them ([`open_at_send::open_fields`]). The go records the send
+    /// only while they are still these.
+    pub open: Vec<(LibraryTrackId, String)>,
 }
 
 /// A track rekordbox has, sent with rekordbox's own `Location` although
@@ -50,8 +54,11 @@ pub struct SentElsewhere {
 ///
 /// The merge ([`conflicts::merge_before_send`]) is the only write: it
 /// opens, updates and withdraws conflicts and takes rekordbox's values in,
-/// as detection does. Run again on sides that haven't moved, it writes
-/// nothing, so the go builds the very send that was reviewed.
+/// as detection does. Those writes stay whether or not the user goes:
+/// preparing a send is a read and a merge (1.10), so it takes in what
+/// rekordbox's newer values overtook. Run again on sides that haven't
+/// moved, it writes nothing, so the go builds the very send that was
+/// reviewed.
 ///
 /// Call it in one writer job, so everything comes from the same moment.
 ///
@@ -68,7 +75,6 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
     let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
     let crates = tree::crate_tree(conn)?;
     let merged = conflicts::merge_before_send(conn, volumes, &ids)?;
-    let open = merged.open.clone();
     // Playlists arrive in Phase 3; the folder is still written (rule 6).
     let input = rekordbox_write::gather_merged(conn, merged, crates.clone(), Vec::new())?;
     let built = rekordbox_write::build(&input);
@@ -112,6 +118,7 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
         needs_confirm: false,
     };
     let mut elsewhere = Vec::new();
+    let mut open = Vec::new();
     let outgoing = match built {
         Err(e) => {
             preflight.refusal = Some(refusal(&e));
@@ -180,13 +187,9 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
             preflight.loses_entries = loses_entries(&out, &crates);
             // Fields of the tracks sent that wait in Review → Conflicts:
             // they go with rekordbox's value until the user decides.
-            preflight.conflicts_waiting = count(
-                out.sent
-                    .iter()
-                    .filter_map(|sent| open.get(&sent.library_track))
-                    .map(Vec::len)
-                    .sum(),
-            );
+            let sent: Vec<LibraryTrackId> = out.sent.iter().map(|s| s.library_track).collect();
+            open = open_at_send::open_fields(conn, &sent)?;
+            preflight.conflicts_waiting = count(open.len());
             Some(out)
         }
     };
@@ -215,6 +218,7 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
         preflight,
         outgoing,
         sent_elsewhere,
+        open,
     }))
 }
 

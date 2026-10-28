@@ -26,12 +26,35 @@ use std::collections::HashSet;
 
 use rusqlite::Connection;
 
+use super::store::json_ids;
+use crate::library::LibraryTrackId;
+
 /// The value a send carries for a field with an open conflict, given the
 /// app's own value: `None` is "no value of the app's", so the send carries
 /// what it carries for a field the app doesn't change (rekordbox's value,
 /// or the file's for a track rekordbox doesn't have).
 pub(crate) fn value_sent(_app: &str) -> Option<String> {
     None
+}
+
+/// The fields of these Library tracks with an open conflict, by track then
+/// field. The review counts them, and the go records its send only while
+/// they are the ones its merge saw: a resolve or an Undo landing between
+/// the merge and the record would otherwise record a base the file
+/// doesn't match ([`crate::send`]).
+pub fn open_fields(
+    conn: &Connection,
+    tracks: &[LibraryTrackId],
+) -> rusqlite::Result<Vec<(LibraryTrackId, String)>> {
+    conn.prepare_cached(
+        "SELECT library_track_id, field FROM conflict
+         WHERE status = 'open' AND library_track_id IN (SELECT value FROM json_each(?1))
+         ORDER BY library_track_id, field",
+    )?
+    .query_map([json_ids(tracks)], |r| {
+        Ok((LibraryTrackId(r.get(0)?), r.get(1)?))
+    })?
+    .collect()
 }
 
 /// The fields of Library track `track` whose base a send doesn't move:

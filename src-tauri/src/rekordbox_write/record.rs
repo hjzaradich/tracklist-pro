@@ -13,9 +13,12 @@
 //! base for one has no use, even when Phase 2 sends them (rule 3, case B).
 //!
 //! A field with an open conflict as the send is recorded keeps the base it
-//! had, or stays without one (1cB-3, [`open_at_send`]): the send carried
-//! rekordbox's value for it, and the conflict must still be open after the
-//! next read rather than read as "only the app changed".
+//! had, or stays without one (1cB-3, [`open_at_send`]), whether or not the
+//! send wrote the attribute (rekordbox's entry may lack it): the send
+//! carried rekordbox's value for it, and the conflict must still be open
+//! after the next read rather than read as "only the app changed". The go
+//! records only when the open conflicts of the tracks sent are the ones its
+//! merge saw ([`open_at_send::open_fields`]).
 //!
 //! # What a base replaced (`sync_base.replaced`, 1cB-19)
 //!
@@ -226,8 +229,9 @@ pub fn record_send(
                 .filter(|(field, _)| !is_analysis(field))
                 .collect();
             // A field with an open conflict keeps its base, or stays
-            // without one ([`open_at_send`]): the conflict must still be
-            // open after the next read.
+            // without one ([`open_at_send`]), whether or not it was written
+            // (rekordbox's entry may lack the attribute): the conflict must
+            // still be open after the next read.
             let kept = open_at_send::bases_kept(&tx, id)?;
             for (field, value) in fields.iter().filter(|(field, _)| !kept.contains(*field)) {
                 let replaced = showing
@@ -235,7 +239,11 @@ pub fn record_send(
                     .and_then(|showing| replaced(field, value, showing));
                 base.execute(params![id, field, value, now, replaced])?;
             }
-            let fields: Vec<&str> = fields.iter().map(|(field, _)| *field).collect();
+            let fields: Vec<&str> = fields
+                .iter()
+                .map(|(field, _)| *field)
+                .chain(kept.iter().map(String::as_str))
+                .collect();
             let fields = serde_json::to_string(&fields).expect("strings always serialize");
             drop_unsent.execute(params![id, fields])?;
         }

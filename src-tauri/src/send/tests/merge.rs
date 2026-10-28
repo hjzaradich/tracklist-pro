@@ -157,6 +157,17 @@ impl World {
             .unwrap()
     }
 
+    /// Dates the track's bases well before any step a test takes, so an
+    /// Undo of a later resolve never depends on the clock having moved on
+    /// (a resolve's Undo is refused once its field was sent since).
+    fn sent_long_ago(&self, track: LibraryTrackId) {
+        self.insert(
+            "UPDATE sync_base SET synced_at = '2026-01-01T00:00:00.000Z'
+             WHERE library_track_id = ?1",
+            (track.0,),
+        );
+    }
+
     /// Settles the one open conflict.
     fn resolve(&self, choice: Choice) {
         let open = self.open_conflicts();
@@ -473,6 +484,7 @@ fn undo_of_a_resolve_is_refused_once_a_send_carried_the_value_chosen() {
 fn undo_of_a_resolve_before_the_next_send_reopens_the_conflict_and_the_app_value_waits_again() {
     let (w, velo) = velo_edited_on_both_sides();
     let open = w.open_conflicts();
+    w.sent_long_ago(velo);
     w.resolve(Choice::KeepRekordbox);
 
     match ops::undo_last_via(&w.writer).unwrap() {
@@ -482,6 +494,109 @@ fn undo_of_a_resolve_before_the_next_send_reopens_the_conflict_and_the_app_value
     assert_eq!(w.open_conflicts(), open);
     assert_eq!(w.own(velo, "Genre").as_deref(), Some("Deep House"));
 
+    let preflight = w.send();
+    assert_eq!(preflight.conflicts_waiting, 1);
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("House"));
+}
+
+#[test]
+fn a_field_whose_attribute_rekordbox_dropped_keeps_its_conflict_and_its_base_through_sends() {
+    let (w, velo) = velo_sent_once();
+    // The app colours the track red; sent and imported.
+    w.edit(velo, "Colour", "0xFF0000");
+    w.send();
+    w.rekordbox_now(&[("Colour", "0xFF0000")]);
+    w.send();
+    assert_eq!(w.base(velo, "Colour").as_deref(), Some("0xFF0000"));
+    // Then green in the app, while the DJ removes the colour in rekordbox:
+    // its entry has no Colour attribute any more.
+    w.edit(velo, "Colour", "0x00FF00");
+    w.rekordbox_now(&[]);
+
+    let preflight = w.send();
+
+    assert_eq!(preflight.conflicts_waiting, 1);
+    assert_eq!(
+        sides_of(&w.open_conflicts()[0]),
+        (Some("0x00FF00"), Some(""), Some("0xFF0000"))
+    );
+    assert_eq!(w.sent_value("velo.mp3", "Colour"), None);
+    assert_eq!(w.base(velo, "Colour").as_deref(), Some("0xFF0000"));
+
+    // The next read shows rekordbox as it was: the conflict still waits,
+    // and the app's colour still doesn't go out.
+    let preflight = w.send();
+    assert_eq!(preflight.conflicts_waiting, 1);
+    assert_eq!(w.open_conflicts().len(), 1);
+    assert_eq!(w.sent_value("velo.mp3", "Colour"), None);
+    assert_eq!(w.base(velo, "Colour").as_deref(), Some("0xFF0000"));
+}
+
+// ---- Something settled or reopened during the go ------------------------------
+
+#[test]
+fn a_resolve_landing_between_the_gos_merge_and_its_record_refuses_the_send() {
+    let (w, velo) = velo_edited_on_both_sides();
+    let file = fs::read(w.send_file()).unwrap();
+    let id = w.open_conflicts()[0].id;
+    let preflight = w.prepare().unwrap();
+    let writer = w.writer.clone();
+    let sender = w.sender().before_write(move || {
+        writer
+            .call(move |c| Ok(conflicts::resolve(c, id, &Choice::KeepApp)))
+            .unwrap()
+            .unwrap();
+    });
+
+    assert_eq!(
+        w.go_with(sender, &preflight.token, false),
+        Some(SendFailure::LibraryChanged)
+    );
+
+    assert_eq!(
+        fs::read(w.send_file()).unwrap(),
+        file,
+        "the last file is back"
+    );
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("House"));
+    // The next send carries the value chosen.
+    w.send();
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Deep House")
+    );
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("Deep House"));
+}
+
+#[test]
+fn an_undo_landing_between_the_gos_merge_and_its_record_refuses_the_send() {
+    let (w, velo) = velo_edited_on_both_sides();
+    w.sent_long_ago(velo);
+    w.resolve(Choice::KeepApp);
+    let file = fs::read(w.send_file()).unwrap();
+    let preflight = w.prepare().unwrap();
+    let writer = w.writer.clone();
+    let sender = w.sender().before_write(move || {
+        let undone = ops::undo_last_via(&writer).unwrap();
+        assert!(matches!(undone, UndoOutcome::Undone { .. }), "{undone:?}");
+    });
+
+    assert_eq!(
+        w.go_with(sender, &preflight.token, false),
+        Some(SendFailure::LibraryChanged)
+    );
+
+    assert_eq!(
+        fs::read(w.send_file()).unwrap(),
+        file,
+        "the last file is back"
+    );
+    assert_eq!(w.base(velo, "Genre").as_deref(), Some("House"));
+    // The conflict is open again: the next send carries rekordbox's value.
     let preflight = w.send();
     assert_eq!(preflight.conflicts_waiting, 1);
     assert_eq!(
