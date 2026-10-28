@@ -8,7 +8,7 @@
 
 use std::fs;
 
-use serde_json::json;
+use serde_json::{json, Value};
 use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::library::LibraryTrack;
 use tracklist_pro_lib::rekordbox;
@@ -93,6 +93,42 @@ fn assert_is_a_new_track(world: &World, sent: &rekordbox::Track, song: &Song, rb
         );
     }
     assert!(sent.tempos.is_empty() && sent.cues.is_empty());
+}
+
+/// 1cA-5: the columns each screen shows are the user's choice, kept in
+/// `ui_setting` and not in the Library, so starting fresh (an empty Library
+/// over the scanned folder) and what follows it leave them as they were.
+#[test]
+fn starting_fresh_keeps_the_column_choices() {
+    let mut world = World::new(&songs());
+    let choices = [
+        ("library", vec!["title", "bpm"]),
+        ("allMusic", vec!["title", "artist", "file"]),
+        ("crate", vec!["title", "genre"]),
+    ];
+    let stored = |shown: &[&str]| json!({ "shown": shown, "known": shown });
+    for (screen, shown) in &choices {
+        let _: Value = world.call(
+            "set_table_columns",
+            json!({ "screen": screen, "columns": stored(shown) }),
+        );
+    }
+    assert_eq!(world.count("SELECT count(*) FROM ui_setting"), 3);
+
+    // The fresh start, and the first things done after it: tracks added, a
+    // crate made, a send written.
+    let rb = collection(&world);
+    world.rekordbox_saves(&rb.export());
+    world.add_music_folder_and_scan();
+    assert_eq!(world.library(), []);
+    fresh_library_with_a_crate(&world);
+    world.send();
+
+    assert_eq!(world.count("SELECT count(*) FROM ui_setting"), 3);
+    for (screen, shown) in &choices {
+        let kept: Option<Value> = world.call("table_columns", json!({ "screen": screen }));
+        assert_eq!(kept, Some(stored(shown)), "{screen}");
+    }
 }
 
 #[test]
