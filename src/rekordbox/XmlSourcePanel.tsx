@@ -75,7 +75,7 @@ export function XmlSourcePanel() {
           <span>{t("newer", { name: source.newerExport.name })}</span>
           <button
             type="button"
-            className={styles.primary}
+            className={styles.button}
             onClick={() => startRead(source.newerExport?.path ?? null)}
           >
             {t("readNewer")}

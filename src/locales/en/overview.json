@@ -1,3 +1,37 @@
 {
-  "empty": "Your Library at a glance, and what to do next."
+  "empty": "Your Library at a glance, and what to do next.",
+  "header": {
+    "library_one": "{{count, number}} track in your Library",
+    "library_other": "{{count, number}} tracks in your Library",
+    "lastSent": "Last sent {{when}}",
+    "neverSent": "Not sent yet",
+    "unreadable": "Can't send: the Library couldn't be read",
+    "lastCheck": "{{what}} (export read {{when}})"
+  },
+  "todo": {
+    "title": "What to do next",
+    "review": "{{count, number}} in Review ({{group}})",
+    "lowQuality_one": "{{count, number}} track from a low-quality file",
+    "lowQuality_other": "{{count, number}} tracks from low-quality files",
+    "missingTags_one": "{{count, number}} track with missing tags",
+    "missingTags_other": "{{count, number}} tracks with missing tags",
+    "missingArt_one": "{{count, number}} track with missing art",
+    "missingArt_other": "{{count, number}} tracks with missing art",
+    "notAnalyzed_one": "{{count, number}} track rekordbox hasn't analyzed",
+    "notAnalyzed_other": "{{count, number}} tracks rekordbox hasn't analyzed",
+    "inNoCrate_one": "{{count, number}} track in no crate",
+    "inNoCrate_other": "{{count, number}} tracks in no crate",
+    "lineCounting": "(still counting)",
+    "counting": "Still counting",
+    "empty": "Nothing to fix"
+  },
+  "progress": {
+    "line": "This week: {{added}}, {{decisions}}",
+    "added_zero": "No tracks added",
+    "added_one": "{{count, number}} track added",
+    "added_other": "{{count, number}} tracks added",
+    "decisions_zero": "No decisions made",
+    "decisions_one": "{{count, number}} decision made",
+    "decisions_other": "{{count, number}} decisions made"
+  }
 }

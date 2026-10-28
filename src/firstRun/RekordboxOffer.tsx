@@ -126,7 +126,8 @@ export function RekordboxOffer({ firstRun = false }: { firstRun?: boolean }) {
       <div className={styles.actions}>
         <button
           type="button"
-          className={styles.primary}
+          // Once the Library has tracks, Send is the Overview's one filled button.
+          className={firstRun ? styles.primary : styles.button}
           disabled={add.isPending || count === undefined || count === 0}
           aria-busy={add.isPending}
           onClick={() => add.mutate(chosen, { onSuccess: setSummary })}

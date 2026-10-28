@@ -9,15 +9,22 @@ import { StartFresh } from "../firstRun/StartFresh";
 import { useLibraryTracks } from "../library/useLibraryTracks";
 import { useAnswerRequest } from "../palette/requests";
 import { XmlSourcePanel } from "../rekordbox/XmlSourcePanel";
+import { useReviewCounts } from "../review/useReview";
 import { SendChecklist } from "../send/SendChecklist";
-import sendStyles from "../send/SendChecklist.module.css";
+import { useSendState } from "../send/useSend";
 import { StageScreen } from "../shell/StageScreen";
+import { OverviewHeader } from "./OverviewHeader";
+import { ProgressLine } from "./ProgressLine";
+import { TodoList } from "./TodoList";
+import { useOverview } from "./useOverview";
 
 /**
- * The Overview. Until its own features arrive (1c), it holds where
- * rekordbox's collection comes from (1aB-11) and the offer to add rekordbox
- * tracks to the Library, shown after any read while there's something to
- * add (1aE-2).
+ * The Overview. Its top half (1cB-11, ROADMAP 1.13) is the header with the
+ * Send button, what's waiting for the DJ, and the progress line. Below it
+ * come where rekordbox's collection comes from (1aB-11) and the offer to add
+ * rekordbox tracks to the Library, shown after any read while there's
+ * something to add (1aE-2). The four numbers, the charts and the strip for
+ * what's outside the Library (1cB-12) go between the two.
  *
  * While the Library is empty it's also the first-run flow (1aE-1 to 1aE-4):
  * pick music folders, then start from rekordbox (the same offer) or start
@@ -25,14 +32,19 @@ import { StageScreen } from "../shell/StageScreen";
  * it: nothing records how the Library was started.
  *
  * Once the Library holds tracks, "Send to rekordbox" opens the guided send
- * in the Overview's place (1aF-1), and the Music folders panel moves below
- * the rest, so folders can still be added, watched and scanned again.
+ * in the Overview's place (1aF-1; it never sends by itself), and the Music
+ * folders panel moves below the rest, so folders can still be added,
+ * watched and scanned again.
  */
 export function OverviewScreen() {
   const { t: tFirstRun } = useTranslation("firstRun");
   const library = useLibraryTracks();
-  const { t: tSend } = useTranslation("send");
   const firstRun = library.data?.length === 0;
+  const tracks = library.data?.length;
+  // The numbers wait for a Library with tracks; the command is slow on a big one.
+  const overview = useOverview(tracks);
+  const review = useReviewCounts();
+  const { data: sendState } = useSendState(null);
   const [sending, setSending] = useState(false);
   // The command palette's "Send to rekordbox" (1cB-7) opens the same guided send.
   useAnswerRequest("send", () => {
@@ -60,16 +72,29 @@ export function OverviewScreen() {
             {errorMessage(library.error)}
           </p>
         ) : (
-          // Once the Library has tracks there's no heading: the Overview's
-          // own summary (1.13) isn't built, and a line promising it would
-          // be a feature that does nothing.
+          // Once the Library has tracks, the header (with Send) leads instead.
           firstRun && <h2 className={styles.heading}>{tFirstRun("title")}</h2>
         )}
-        {library.data !== undefined && !firstRun && (
-          <button type="button" className={sendStyles.primary} onClick={() => setSending(true)}>
-            {tSend("open")}
-          </button>
+        {!firstRun && (library.data !== undefined || library.isError) && (
+          <OverviewHeader
+            libraryTracks={tracks}
+            overview={overview.data}
+            send={sendState}
+            onSend={() => setSending(true)}
+          />
         )}
+        {!firstRun && library.data !== undefined && (
+          <>
+            <TodoList
+              overview={overview.data}
+              overviewError={overview.error}
+              review={review.data}
+              reviewError={review.error}
+            />
+            {overview.data && <ProgressLine overview={overview.data} />}
+          </>
+        )}
+        {/* 1cB-12 goes here: the four numbers, the energy and genre bars and the "Outside your Library" strip. */}
         {firstRun && <MusicFoldersStep />}
         <XmlSourcePanel />
         {library.data !== undefined && <RekordboxOffer firstRun={firstRun} />}
