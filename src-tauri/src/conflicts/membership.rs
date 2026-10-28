@@ -48,7 +48,12 @@
 //!   an older read (§5.3): the crate goes out as the app has it.
 //!
 //! An open conflict on a playlist that is no longer compared (its crate or
-//! its record is gone) is withdrawn: there's nothing left to merge it into.
+//! its record is gone) is withdrawn: there's nothing left to merge it into,
+//! and it holds no value that lives nowhere else.
+//!
+//! Two playlists of rekordbox's in one folder whose names differ only in
+//! letter case or trailing whitespace are one key path here, their tracks
+//! together: whether rekordbox keeps them apart is unverified (§5.2).
 //!
 //! # What the send does about a pair
 //!
@@ -73,11 +78,21 @@
 //! nothing else is undone wrongly. Settling a membership conflict changes
 //! the crate in the resolve's own operation ([`adopt`]).
 //!
-//! **Tracks outside the Library:** an entry of rekordbox's playlist that no
-//! Library track is sent as (a track not in the Library, a streaming entry)
-//! can't be taken into a crate, and the import replaces the playlist, so
-//! the review lists the crate as losing those entries
-//! ([`Memberships::outside_library`]) and the send needs the confirm.
+//! **Tracks outside the Library:** an entry of rekordbox's playlist at a
+//! crate's path that no Library track is sent as (a track not in the
+//! Library, a streaming entry) can't be taken into a crate, and the import
+//! replaces the playlist, so the review lists the crate as losing those
+//! entries ([`Memberships::outside_library`]) and the send needs the
+//! confirm. That holds for a playlist the DJ made with a crate's name too:
+//! counting isn't comparing.
+//!
+//! **A settled membership conflict stops answering after the next send.**
+//! Its own base is always none (two values: a base equal to a side is never
+//! recorded, [`super::store`]), and once a send has written the playlist the
+//! pair has a base from `sent_entry`, so the decision no longer stands and
+//! the table decides again. By then the crate holds the membership chosen
+//! ([`adopt`]) and the playlist was written with it, so the table's answer
+//! is the same.
 //!
 //! The order of a playlist's tracks isn't compared: a track taken in goes
 //! last, and the send writes the crate's order.
@@ -138,12 +153,14 @@ pub struct Memberships {
     pub added: HashMap<KeyPath, Vec<LibraryTrackId>>,
     /// Per playlist, tracks the crate holds that the send leaves out.
     pub dropped: HashMap<KeyPath, HashSet<LibraryTrackId>>,
-    /// Per playlist rekordbox's newest read has under `Crates` (and that an
-    /// older export doesn't stand for), the Library tracks it holds: what a
-    /// send replaces there (`sent_playlist.replaced`).
+    /// Per playlist rekordbox's newest read has under `Crates`, the Library
+    /// tracks it holds: what a send replaces there (`sent_playlist.replaced`).
+    /// Every playlist of the read, an older export's included: such a send
+    /// goes only on "nothing was imported since" (1.9).
     pub rekordbox: HashMap<KeyPath, HashSet<LibraryTrackId>>,
-    /// Per compared playlist, its entries in rekordbox that no Library
-    /// track is sent as: the import drops them.
+    /// Per crate's playlist in rekordbox's read (compared or not), its
+    /// entries that no Library track is sent as: the import replaces the
+    /// playlist and drops them.
     pub outside_library: HashMap<KeyPath, u32>,
     /// The pairs taken in from rekordbox (the crate changed).
     pub taken_in: Vec<(LibraryTrackId, String)>,
@@ -332,14 +349,26 @@ pub(super) fn merge(
     let export_ms = crate::rekordbox::source::stored_source(tx)?
         .last_read
         .map_or(i64::MIN, |read| read.modified_ms);
+    // What rekordbox's playlists hold, for the record of what a send
+    // replaces: every playlist of the read, whatever its age (a send from
+    // an older export goes only on "nothing was imported since", and then
+    // the export is what rekordbox has, 1.9). For deciding, an export older
+    // than the send that wrote a playlist stands for nothing (`current`).
+    let mut current: HashSet<KeyPath> = HashSet::new();
     for key in &tree {
-        // An export older than the send that wrote it stands for nothing.
+        let held = in_rekordbox.get(key).into_iter().flatten();
+        merged
+            .membership
+            .rekordbox
+            .insert(key.clone(), held.map(|&t| LibraryTrackId(t)).collect());
         if sent.get(key).is_none_or(|s| export_ms >= s.sent_ms) {
-            let held = in_rekordbox.get(key).into_iter().flatten();
-            merged
-                .membership
-                .rekordbox
-                .insert(key.clone(), held.map(|&t| LibraryTrackId(t)).collect());
+            current.insert(key.clone());
+        }
+        // A crate's playlist loses the entries no Library track is sent as,
+        // compared or not: the import replaces it (§5.2). Counting isn't
+        // comparing (rule 6).
+        if let (true, Some(&n)) = (crates.contains_key(key), outside.get(key)) {
+            merged.membership.outside_library.insert(key.clone(), n);
         }
     }
 
@@ -376,15 +405,10 @@ pub(super) fn merge(
         let record = &sent[key];
         let field = field_of(key);
         compared.insert(field.clone());
-        let held = merged.membership.rekordbox.contains_key(key);
+        let held = current.contains(key);
         let rekordbox = in_rekordbox.get(key);
         let base = bases.get(key);
         let app = members.get(&crate_id);
-        if held {
-            if let Some(&n) = outside.get(key) {
-                merged.membership.outside_library.insert(key.clone(), n);
-            }
-        }
         let mut tracks: BTreeSet<i64> = BTreeSet::new();
         tracks.extend(app.into_iter().flatten());
         tracks.extend(base.into_iter().flatten());
@@ -508,7 +532,10 @@ pub(super) fn merge(
 }
 
 /// The key path of every playlist below `nodes`, under `path`.
-fn playlist_keys(nodes: &[crate::after_send::TreeNode], path: &[String]) -> HashSet<KeyPath> {
+pub(crate) fn playlist_keys(
+    nodes: &[crate::after_send::TreeNode],
+    path: &[String],
+) -> HashSet<KeyPath> {
     let mut out = HashSet::new();
     for node in nodes {
         let mut here = path.to_vec();

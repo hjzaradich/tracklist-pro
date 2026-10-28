@@ -343,10 +343,22 @@ fn a_playlist_the_dj_made_in_rekordbox_is_never_compared_or_taken_in() {
     let ids = ["a.mp3", "b.mp3", "c.mp3"].map(|f| w.library_track(f, f, true).0);
     // Warmup is the DJ's own; the app's crate of that name was never sent.
     let warmup = w.crate_of("Warmup", &ids[..1]);
-    w.rekordbox_shows(&[("Warmup", &[1, 2, 3])]);
+    // It holds x.mp3 too, which isn't in the Library: the import drops it,
+    // so the review counts it and the send needs the confirm.
+    w.rekordbox_shows(&[("Warmup", &[1, 2, 3, 9])]);
 
-    w.send_through();
+    let preflight = w.send_through();
 
+    assert_eq!(
+        preflight.loses_entries,
+        [LosesEntries {
+            kind: TreeKind::Crate,
+            path: vec!["Warmup".to_owned()],
+            lost: 1,
+            entries: 2,
+        }]
+    );
+    assert!(preflight.needs_confirm);
     assert_eq!(w.holds(warmup), [ids[0].0]);
     assert_eq!(w.written("Warmup"), ["a.mp3"]);
     assert_eq!(w.open_ones(), []);
@@ -466,4 +478,85 @@ fn a_membership_settled_between_the_gos_merge_and_its_record_refuses_the_send() 
     // The next send carries the membership chosen.
     w.send_through();
     assert_eq!(w.written("Peak"), ["a.mp3", "c.mp3", "b.mp3"]);
+}
+
+impl World {
+    /// `sent_playlist.replaced` of every playlist recorded.
+    fn replaced_records(&self) -> Vec<Option<String>> {
+        self.rows(
+            "SELECT replaced FROM sent_playlist WHERE kind = 'playlist' ORDER BY id",
+            (),
+            |r| r.get(0),
+        )
+    }
+}
+
+#[test]
+fn a_playlist_a_send_emptied_is_seen_taken_up_and_the_djs_re_add_is_taken_in() {
+    let w = World::new();
+    let ids = ["a.mp3", "b.mp3", "c.mp3"].map(|f| w.library_track(f, f, true).0);
+    let a = ids[0];
+    let peak = w.crate_of("Peak", &[a]);
+    w.rekordbox_shows(&[]);
+    w.send_through();
+    w.rekordbox_shows(&[("Peak", &[1])]);
+    // The app empties Peak, and the send writes it empty.
+    w.crate_op(move |conn| crates::remove_on(conn, CrateId(peak), &[a]))
+        .unwrap();
+    w.send_through();
+    assert_eq!(w.replaced_records(), [Some(format!("[{}]", a.0))]);
+
+    // Imported: rekordbox's Peak is empty, and the read sees it so.
+    w.rekordbox_shows(&[("Peak", &[])]);
+    w.prepare().unwrap();
+    assert_eq!(w.replaced_records(), [None]);
+
+    // The DJ puts a back in rekordbox: that's the DJ's change.
+    w.rekordbox_shows(&[("Peak", &[1])]);
+    w.send_through();
+    assert_eq!(w.holds(peak), [a.0]);
+    assert_eq!(w.written("Peak"), ["a.mp3"]);
+}
+
+#[test]
+fn a_send_from_an_older_export_answered_not_imported_records_what_it_replaced() {
+    let (w, [a, b, c], peak) = peak_sent_and_imported();
+    // A second send from that fresh export, nothing changed.
+    w.send_through();
+    w.crate_op(move |conn| crates::add_on(conn, CrateId(peak), &[c]))
+        .unwrap();
+    // The same export, now older than the last send: the user says nothing
+    // was imported since, and the send goes.
+    w.export_saved_at(Duration::from_secs(1_000_000_000));
+    let preflight = w.prepare().unwrap();
+    assert!(preflight.export_older_than_last_send);
+    assert_eq!(w.go_answering(preflight.needs_confirm, Some(false)), None);
+    assert_eq!(w.written("Peak"), ["a.mp3", "b.mp3", "c.mp3"]);
+    assert_eq!(w.replaced_records(), [Some(format!("[{}]", c.0))]);
+
+    // Not imported; a fresh export still shows Peak without c.
+    w.rekordbox_shows(&[("Peak", &[1, 2])]);
+    w.send_through();
+    assert_eq!(w.holds(peak), [a.0, b.0, c.0]);
+    assert_eq!(w.written("Peak"), ["a.mp3", "b.mp3", "c.mp3"]);
+}
+
+#[test]
+fn undo_of_a_removal_rekordbox_overtook_is_refused_and_brings_nothing_back_twice() {
+    let (w, [a, b, _], peak) = peak_sent_and_imported();
+    w.crate_op(move |conn| crates::remove_on(conn, CrateId(peak), &[b]))
+        .unwrap();
+    w.send_through();
+    // Imported and read, then the DJ puts b back in rekordbox.
+    w.rekordbox_shows(&[("Peak", &[1])]);
+    w.prepare().unwrap();
+    w.rekordbox_shows(&[("Peak", &[1, 2])]);
+    w.send_through();
+    assert_eq!(w.holds(peak), [a.0, b.0]);
+
+    match ops::undo_last_via(&w.writer).unwrap() {
+        UndoOutcome::Refused { reason, .. } => assert_eq!(reason, UndoRefusal::ChangedSince),
+        other => panic!("expected the undo to be refused, got {other:?}"),
+    }
+    assert_eq!(w.holds(peak), [a.0, b.0]);
 }

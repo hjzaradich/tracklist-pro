@@ -386,8 +386,8 @@ fn playlists_of(conn: &Connection, row: i64) -> rusqlite::Result<HashSet<Vec<Str
 /// shows that send taken up. A track the send changed shows it when its
 /// entry at the `Location` it was sent to (the one row of this read there)
 /// is in the playlist as the send put it, or out of it as the send left it
-/// while some row of this read is in the playlist (so the playlist is
-/// there). An import replaces a whole playlist, so then the playlist's whole
+/// while the playlist is there (some row of this read is in it, or this
+/// read's tree has it, empty). An import replaces a whole playlist, so then the playlist's whole
 /// record goes. A row kept from an older read shows nothing.
 fn forget_membership(conn: &Connection, read_at: &str) -> rusqlite::Result<()> {
     let records: Vec<(i64, String, String)> = conn
@@ -407,6 +407,14 @@ fn forget_membership(conn: &Connection, read_at: &str) -> rusqlite::Result<()> {
     {
         let paths: Vec<Vec<String>> = serde_json::from_str(&json?).unwrap_or_default();
         present.extend(paths.iter().map(|path| keyed(path)));
+    }
+    // A playlist the import left empty is in no row: this read's tree has
+    // it (saved before this runs, `replace_snapshot`).
+    if let Some(tree) = crate::after_send::load_tree(conn)? {
+        present.extend(crate::conflicts::membership::playlist_keys(
+            &tree.crates,
+            &[super::sibling_key(super::CRATES_FOLDER)],
+        ));
     }
     let mut was_put_in = conn.prepare(
         "SELECT EXISTS (SELECT 1 FROM sent_entry e
