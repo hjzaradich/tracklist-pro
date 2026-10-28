@@ -403,6 +403,8 @@ export const commands = {
 	hiddenFilesPage: (query: HiddenQuery) => typedError<HiddenPage, IpcError>(__TAURI_INVOKE("hidden_files_page", { query })),
 	/**  "Show again" for a file the user hid. */
 	showFileAgain: (fileId: number) => typedError<ShownAgain, IpcError>(__TAURI_INVOKE("show_file_again", { fileId })),
+	/**  "Use this file instead" for an extra file of a track outside the Library. */
+	useThisFileInstead: (fileId: number) => typedError<Chosen, IpcError>(__TAURI_INVOKE("use_this_file_instead", { fileId })),
 	/**  How many hidden files `text` matches that the results don't show. */
 	hiddenFilesMatching: (text: string) => typedError<HiddenMatches, IpcError>(__TAURI_INVOKE("hidden_files_matching", { text })),
 };
@@ -415,7 +417,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -577,6 +579,12 @@ export type Changed = {
 	 *  offered only for a recorded operation: with none, undo would take
 	 *  back an earlier, unrelated one.
 	 */
+	operationId: number | null,
+};
+
+/**  What "Use this file instead" did. */
+export type Chosen = {
+	/**  The operation to offer Undo for. */
 	operationId: number | null,
 };
 
@@ -760,7 +768,17 @@ export type ErrorKind =
  *  The copies a split would take along are the files of two Library
  *  tracks, which are never made one track by a split.
  */
-"reviewSplitTwoLibraryTracks";
+"reviewSplitTwoLibraryTracks" | 
+/**
+ *  "Use this file instead" was asked for a file of a track in the Library,
+ *  whose linked file is pinned.
+ */
+"hiddenChoiceInLibrary" | 
+/**
+ *  "Use this file instead" was asked for a file that is no longer an extra
+ *  copy on disk, or that holds the very same bytes as the file shown.
+ */
+"hiddenChoiceChanged";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -880,6 +898,13 @@ export type HiddenRow = {
 	file: string,
 	/**  For an extra copy, the name of the file chosen as the track's best. */
 	bestFile: string | null,
+	/**  For an extra copy: that best file is the one the user chose. */
+	bestFileChosen: boolean,
+	/**
+	 *  For an extra copy: its track is in the Library, so it can't be
+	 *  switched to this file (1cB-22).
+	 */
+	trackInLibrary: boolean,
 };
 
 /**
@@ -2266,7 +2291,12 @@ export type VolumesChanged = null;
 /**  What a row can be offered to bring the file back. */
 export type WayBack = 
 /**  Clears the file's `hidden_reason` ("Show again"). */
-"showAgain";
+"showAgain" | 
+/**
+ *  Makes the file the one its track shows ("Use this file instead",
+ *  [`choose`]).
+ */
+"useThisFile";
 
 /**  Why a file is hidden (ROADMAP 1.11). */
 export type Why = 

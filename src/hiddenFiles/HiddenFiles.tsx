@@ -5,7 +5,7 @@ import { errorMessage } from "../api/errors";
 import type { HiddenRow, SortColumn, TableSort } from "../bindings";
 import { nextSort } from "../trackTable/TrackTableView";
 import styles from "./HiddenFiles.module.css";
-import { useHiddenFiles, useShowAgain } from "./useHiddenFiles";
+import { useHiddenFiles, useShowAgain, useUseThisFile } from "./useHiddenFiles";
 
 /** The columns the list can be sorted by. */
 const SORTABLE = ["title", "artist", "file"] as const satisfies readonly SortColumn[];
@@ -17,9 +17,9 @@ const SORTABLE = ["title", "artist", "file"] as const satisfies readonly SortCol
  * backend like the track table.
  *
  * - "Show again" is for a file the user hid. Undo (top bar) hides it again.
- * - An extra copy says which file was chosen as its track's best. Its way
- *   back ("Use this file instead", ROADMAP 1.11) has to reopen the choice in
- *   Review, which can't reopen a settled choice yet: not offered.
+ * - An extra copy says which file is its track's best. "Use this file
+ *   instead" (1cB-22) makes it the track's file; Undo (top bar) takes that
+ *   back. A Library track's extra copy has the reason and no button.
  * - A cleared Inbox file's way back, "Put back in Inbox", arrives with the
  *   Inbox (Phase 2).
  */
@@ -29,6 +29,9 @@ export function HiddenFiles({ search }: { search: string }) {
   const [sort, setSort] = useState<TableSort | null>(null);
   const list = useHiddenFiles(search, sort);
   const showAgain = useShowAgain();
+  const useThis = useUseThisFile();
+  const actionError = showAgain.error ?? useThis.error;
+  const busy = showAgain.isPending || useThis.isPending;
 
   if (list.error != null) {
     return (
@@ -37,9 +40,10 @@ export function HiddenFiles({ search }: { search: string }) {
       </p>
     );
   }
-  if (list.total === undefined) return null;
+  if (list.total === undefined || (list.total === 0 && list.behind)) {
+    return <p className={styles.empty}>{tt("updating")}</p>;
+  }
   if (list.total === 0) {
-    if (list.behind) return null;
     return <p className={styles.empty}>{search.trim() === "" ? t("empty") : t("noMatch")}</p>;
   }
 
@@ -49,9 +53,9 @@ export function HiddenFiles({ search }: { search: string }) {
         <span>{t("count", { count: list.total })}</span>
         {list.behind && <span>{tt("updating")}</span>}
       </p>
-      {showAgain.error != null && (
+      {actionError != null && (
         <p role="alert" className={styles.error}>
-          {errorMessage(showAgain.error)}
+          {errorMessage(actionError)}
         </p>
       )}
       <div className={styles.scroll}>
@@ -95,10 +99,20 @@ export function HiddenFiles({ search }: { search: string }) {
                     <button
                       type="button"
                       className={styles.action}
-                      disabled={showAgain.isPending}
+                      disabled={busy}
                       onClick={() => showAgain.mutate(row.fileId)}
                     >
                       {t("showAgain")}
+                    </button>
+                  )}
+                  {row.wayBack === "useThisFile" && (
+                    <button
+                      type="button"
+                      className={styles.action}
+                      disabled={busy}
+                      onClick={() => useThis.mutate(row.fileId)}
+                    >
+                      {t("useThisFile")}
                     </button>
                   )}
                 </td>
@@ -129,8 +143,12 @@ function reasonOf(row: HiddenRow, t: TFunction<"hiddenFiles">): string {
     case "clearedInbox":
       return t("reason.clearedInbox");
     case "extraFile":
-      return row.bestFile === null
-        ? t("reason.extraFile", { track: row.track })
+      if (row.bestFile === null) return t("reason.extraFile", { track: row.track });
+      if (row.trackInLibrary) {
+        return t("reason.extraFileInLibrary", { track: row.track, best: row.bestFile });
+      }
+      return row.bestFileChosen
+        ? t("reason.extraFileChosen", { track: row.track, best: row.bestFile })
         : t("reason.extraFileNamed", { track: row.track, best: row.bestFile });
   }
 }

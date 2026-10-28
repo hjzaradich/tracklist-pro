@@ -161,6 +161,12 @@ error_kinds! {
     /// The copies a split would take along are the files of two Library
     /// tracks, which are never made one track by a split.
     ReviewSplitTwoLibraryTracks => "review:error.splitTwoLibraryTracks", params: [];
+    /// "Use this file instead" was asked for a file of a track in the Library,
+    /// whose linked file is pinned.
+    HiddenChoiceInLibrary => "hiddenFiles:error.inLibrary", params: [];
+    /// "Use this file instead" was asked for a file that is no longer an extra
+    /// copy on disk, or that holds the very same bytes as the file shown.
+    HiddenChoiceChanged => "hiddenFiles:error.changed", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

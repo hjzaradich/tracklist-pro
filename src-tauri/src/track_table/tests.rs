@@ -3,6 +3,7 @@
 //! temp dir.
 
 mod folders;
+mod hidden;
 mod order;
 mod position;
 mod quality;

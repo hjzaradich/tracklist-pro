@@ -1363,6 +1363,9 @@ fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<(
                  WHERE c.operation_id = ?1 AND c.entity = 'recording_file'
                    AND c.field = 'recording_id'
                  UNION
+                 SELECT CAST(json_extract(o.details, '$.recordingId') AS INTEGER)
+                 FROM operation o WHERE o.id = ?1 AND o.kind = '{}'
+                 UNION
                  SELECT lt.recording_id FROM library_track lt
                  JOIN file f ON f.id = lt.linked_file_id
                  WHERE lower(hex({})) IN (
@@ -1370,6 +1373,7 @@ fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<(
                      WHERE c.operation_id = ?1 AND c.entity = 'review_decision'
                        AND c.field = 'linked_key'))
              ORDER BY recording_id LIMIT ?2",
+            crate::hidden::USE_THIS_FILE_OPERATION,
             crate::grouping::CONTENT_KEY
         ))?
         .query_map(params![operation, crate::file_roles::BATCH as i64], |r| {
