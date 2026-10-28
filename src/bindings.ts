@@ -29,6 +29,11 @@ export const commands = {
 	 *  user chose to hide: it appears only if it is a default column.
 	 */
 	known: string[],
+	/**
+	 *  The widths the user dragged columns to (1cB-21), in pixels, by column
+	 *  id. A column with no entry has its default width.
+	 */
+	widths: { [key in string]: number },
 } | null, IpcError>(__TAURI_INVOKE("table_columns", { screen })),
 	/**
 	 *  Sets the columns a screen's track table shows, or (`None`) goes back to
@@ -43,6 +48,11 @@ export const commands = {
 	 *  user chose to hide: it appears only if it is a default column.
 	 */
 	known: string[],
+	/**
+	 *  The widths the user dragged columns to (1cB-21), in pixels, by column
+	 *  id. A column with no entry has its default width.
+	 */
+	widths: { [key in string]: number },
 } | null) => typedError<null, IpcError>(__TAURI_INVOKE("set_table_columns", { screen, columns })),
 	/**  Every queued and running job, for the Activity status to start from. */
 	activity: () => typedError<ActivitySnapshot, IpcError>(__TAURI_INVOKE("activity")),
@@ -2068,6 +2078,11 @@ export type TableColumns = {
 	 *  user chose to hide: it appears only if it is a default column.
 	 */
 	known: string[],
+	/**
+	 *  The widths the user dragged columns to (1cB-21), in pixels, by column
+	 *  id. A column with no entry has its default width.
+	 */
+	widths: { [key in string]: number },
 };
 
 /**  One filter chip. */

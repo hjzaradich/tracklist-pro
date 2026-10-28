@@ -10,7 +10,11 @@
 //!
 //! The backend stores column ids as text and does not know them: the
 //! frontend owns the list of columns, drops an id it no longer knows and
-//! decides where a new column goes (`src/trackTable/columnChoice.ts`).
+//! decides where a new column goes (`src/trackTable/columnChoice.ts`). The
+//! widths a user dragged columns to (1cB-21) are kept in the same value, in
+//! pixels by column id; a value saved without them reads as having none.
+
+use std::collections::BTreeMap;
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -24,6 +28,9 @@ use crate::ipc::IpcError;
 /// has a handful of columns; these only stop a runaway value.
 const MOST_COLUMNS: usize = 64;
 const LONGEST_ID: usize = 40;
+/// The widest a column is kept at, in pixels (1cB-21). The frontend owns the
+/// minimums; this only stops a runaway value.
+const WIDEST: u32 = 4000;
 
 /// The screens that show the track table. A crate is one screen: every crate
 /// shows the same columns.
@@ -55,6 +62,19 @@ pub struct TableColumns {
     /// added by a later version isn't in it, so it can be told from one the
     /// user chose to hide: it appears only if it is a default column.
     pub known: Vec<String>,
+    /// The widths the user dragged columns to (1cB-21), in pixels, by column
+    /// id. A column with no entry has its default width.
+    pub widths: BTreeMap<String, u32>,
+}
+
+/// What is read back from the stored JSON: a value saved before widths
+/// existed has none, which reads as "no widths", not as "no choice".
+#[derive(Deserialize)]
+struct Stored {
+    shown: Vec<String>,
+    known: Vec<String>,
+    #[serde(default)]
+    widths: BTreeMap<String, u32>,
 }
 
 impl TableColumns {
@@ -73,6 +93,15 @@ impl TableColumns {
         TableColumns {
             shown: tidy(&self.shown),
             known: tidy(&self.known),
+            widths: self
+                .widths
+                .iter()
+                .filter(|(id, width)| {
+                    !id.is_empty() && id.chars().count() <= LONGEST_ID && **width > 0
+                })
+                .take(MOST_COLUMNS)
+                .map(|(id, width)| (id.clone(), (*width).min(WIDEST)))
+                .collect(),
         }
     }
 }
@@ -90,7 +119,13 @@ pub fn read_table_columns(
             |row| row.get(0),
         )
         .optional()?;
-    Ok(stored.and_then(|value| serde_json::from_str::<TableColumns>(&value).ok()))
+    Ok(stored
+        .and_then(|value| serde_json::from_str::<Stored>(&value).ok())
+        .map(|stored| TableColumns {
+            shown: stored.shown,
+            known: stored.known,
+            widths: stored.widths,
+        }))
 }
 
 /// Stores the columns for `screen`, or forgets the choice (`None`) so the
