@@ -1597,6 +1597,18 @@ export type Preflight = {
 	 *  the user decides ([`crate::conflicts::open_at_send`]).
 	 */
 	conflictsWaiting: number,
+	/**
+	 *  Tracks rekordbox has, sent with rekordbox's values from this export,
+	 *  whose file changed after the export was saved: rekordbox writes a
+	 *  DJ's edits into the file, so rekordbox may hold an edit this export
+	 *  doesn't, and a Yes on import would overwrite it (1.10, "Second
+	 *  channel"). A warning only: the user is asked to export again, and the
+	 *  send goes all the same if they choose. A file tag is never taken as
+	 *  rekordbox's value. Told by the modified time the last scan recorded
+	 *  (`preflight::changed_after_export`); the token doesn't cover it, so
+	 *  a scan between the review and the go changes nothing about the go.
+	 */
+	changedAfterExport: TrackLabel[],
 	/**  Set when the send can't go at all. */
 	refusal: Refusal | null,
 	/**

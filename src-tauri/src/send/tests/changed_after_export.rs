@@ -19,10 +19,7 @@ impl World {
     /// The scan recorded this modified time for `file`, in nanoseconds
     /// since the Unix epoch.
     fn file_modified(&self, file: i64, mtime_ns: i64) {
-        self.insert(
-            "UPDATE file SET mtime = ?1 WHERE id = ?2",
-            (mtime_ns, file),
-        );
+        self.insert("UPDATE file SET mtime = ?1 WHERE id = ?2", (mtime_ns, file));
     }
 
     fn linked_file(&self, track: LibraryTrackId) -> i64 {
@@ -37,7 +34,7 @@ impl World {
             .unwrap()
     }
 
-    fn rows(&self, table: &'static str) -> i64 {
+    fn count_of(&self, table: &'static str) -> i64 {
         self.writer
             .call(move |c| c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0)))
             .unwrap()
@@ -179,10 +176,7 @@ fn a_file_tag_is_never_taken_as_rekordboxs_value_and_the_warning_changes_nothing
     // read a new title and a new modified time.
     let tags = json!({ "id3v2": [{"key": "TIT2", "value": {"type": "text", "text": "Retitled in the file"}}] })
         .to_string();
-    w.insert(
-        "UPDATE file SET raw_tags = ?1 WHERE id = ?2",
-        (tags, file),
-    );
+    w.insert("UPDATE file SET raw_tags = ?1 WHERE id = ?2", (tags, file));
     w.file_modified(file, (w.export_ms() + 30_000) * MS);
 
     let preflight = w.prepare().unwrap();
@@ -191,7 +185,7 @@ fn a_file_tag_is_never_taken_as_rekordboxs_value_and_the_warning_changes_nothing
     // rekordbox's value went out, not the file's; the merge opened no
     // conflict and took nothing in as the app's own value.
     assert_eq!(w.sent_titles(), ["Known in rekordbox"]);
-    assert_eq!((w.rows("conflict"), w.rows("app_value")), (0, 0));
+    assert_eq!((w.count_of("conflict"), w.count_of("app_value")), (0, 0));
     let warned = fs::read(w.send_file()).unwrap();
 
     // The same export saved again, after the file changed: no warning, and
@@ -201,7 +195,7 @@ fn a_file_tag_is_never_taken_as_rekordboxs_value_and_the_warning_changes_nothing
     assert!(listed(&preflight).is_empty());
     assert_eq!(w.go(false), None);
     assert_eq!(fs::read(w.send_file()).unwrap(), warned);
-    assert_eq!((w.rows("conflict"), w.rows("app_value")), (0, 0));
+    assert_eq!((w.count_of("conflict"), w.count_of("app_value")), (0, 0));
 }
 
 /// Builds a Library of `count` tracks, every one in rekordbox and every
@@ -224,9 +218,9 @@ fn counting_over_100000_tracks_is_cheap() {
                         CASE WHEN i % 10 = 0 THEN ({export} + 1) * {MS} ELSE ({export} - 1000) * {MS} END
                  FROM n;
                  INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
-                 SELECT id, 'linked', id, 'ok' FROM file;
+                 SELECT id, 'linked', id, 'ok' FROM file ORDER BY id;
                  INSERT INTO rekordbox_track (attributes, location_key, file_id, relink_method, read_at)
-                 SELECT json_object('TrackID', CAST(id AS TEXT)), 'e:/music/' || rel_path_key, id,
+                 SELECT json_object('TrackID', CAST(id AS TEXT), 'Location', 'file://localhost/E:/Music/' || rel_path), 'e:/music/' || rel_path_key, id,
                         'path', '2100-01-01T00:00:00.000Z'
                  FROM file;"
             ))
@@ -247,6 +241,10 @@ fn counting_over_100000_tracks_is_cheap() {
         .writer
         .call(move |c| changed_after_export(c, export, &sent))
         .unwrap();
-    println!("counted {} of {count} tracks in {:?}", found.len(), started.elapsed());
+    println!(
+        "counted {} of {count} tracks in {:?}",
+        found.len(),
+        started.elapsed()
+    );
     assert_eq!(i64::try_from(found.len()).unwrap(), count / 10);
 }

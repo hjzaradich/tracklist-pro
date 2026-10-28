@@ -349,7 +349,9 @@ pub(super) fn changed_after_export(
         .saturating_add(1)
         .saturating_mul(1_000_000);
     let changed = |sql: &str| -> rusqlite::Result<HashSet<i64>> {
-        conn.prepare(sql)?.query_map([after], |r| r.get(0))?.collect()
+        conn.prepare(sql)?
+            .query_map([after], |r| r.get(0))?
+            .collect()
     };
     let linked = changed(
         "SELECT l.id FROM library_track l JOIN file f ON f.id = l.linked_file_id
