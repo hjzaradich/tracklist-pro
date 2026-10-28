@@ -20,10 +20,10 @@
 //! Each settling is one operation in the log (`conflicts::resolve`,
 //! `conflicts::resolve_all`), so the top bar's Undo takes it back.
 //!
-//! **For 1cB-3:** the settling goes through [`settle_one`] and [`settle_all`],
-//! the two places that call the engine. Where a resolve must also update the
-//! app's own values, they are the only calls to change to `resolve_with` and
-//! `resolve_all_with`.
+//! The settling goes through [`settle_one`] and [`settle_all`], the two places
+//! that call the engine. The engine's `resolve` and `resolve_all` also adopt
+//! the value chosen into the app's own values (and a crate membership into the
+//! crate) inside the same operation, so one Undo takes it all back.
 
 use std::collections::HashMap;
 
@@ -363,12 +363,12 @@ pub async fn review_resolve_conflicts(
     side: Side,
     expected: u32,
 ) -> Result<u32, IpcError> {
-    Ok(writer.call(move |conn| {
+    writer.call(move |conn| {
         // The writer runs one job at a time, so no other write comes between
         // the count and the settling.
         if open_in(conn, &field)? != expected {
             return Ok(Err(IpcError::new(ErrorKind::ConflictsChanged)));
         }
         Ok(settle_all(conn, &field, side).map_err(IpcError::from))
-    })??)
+    })?
 }
