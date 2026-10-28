@@ -102,6 +102,24 @@ impl Twice {
     /// A trusted rekordbox entry on `file`, with `cues` cues, `rating` as
     /// rekordbox writes it, `plays` and a BPM.
     fn entry(&self, file: i64, cues: usize, rating: u32, plays: u32, bpm: f64) -> i64 {
+        self.entry_with(file, cues, rating, plays, bpm, &[])
+    }
+
+    /// [`Twice::entry`] with more attributes (a snapshot is read-only, so
+    /// they are given when the entry is made).
+    fn entry_with(
+        &self,
+        file: i64,
+        cues: usize,
+        rating: u32,
+        plays: u32,
+        bpm: f64,
+        extra: &[(&str, &str)],
+    ) -> i64 {
+        let more: String = extra
+            .iter()
+            .map(|(name, value)| format!(", '{name}', '{value}'"))
+            .collect();
         let track = self.db.track(file).unwrap();
         let n = self.db.count("SELECT count(*) FROM rekordbox_track") + 1;
         let marks = serde_json::to_string(&vec![serde_json::json!({"Num": "-1"}); cues]).unwrap();
@@ -112,7 +130,7 @@ impl Twice {
              VALUES (json_object('TrackID', '{n}', 'Name', 'Velo', 'Artist', 'Someone',
                                  'Location', 'file://localhost/E:/Old/{n}.mp3',
                                  'Rating', '{rating}', 'PlayCount', '{plays}',
-                                 'AverageBpm', '{bpm}'),
+                                 'AverageBpm', '{bpm}'{more}),
                      'E:/Old/{n}.mp3', '2026-10-01T10:00:00.000Z', {file}, {track}, 'path', 0,
                      '{marks}')"
         ));
@@ -923,14 +941,6 @@ impl Twice {
         ));
     }
 
-    /// An attribute of a track's rekordbox entry.
-    fn attribute(&self, entry: i64, name: &str, value: &str) {
-        self.db.sql(&format!(
-            "UPDATE rekordbox_track SET attributes = json_set(attributes, '$.{name}', '{value}')
-             WHERE id = {entry}"
-        ));
-    }
-
     /// The app's own values, as text, with their ids and what they replaced.
     fn own_values(&self) -> Vec<String> {
         self.db
@@ -994,18 +1004,29 @@ fn pick(field: &str, from: i64, value: &str) -> MergeChoice {
 /// rekordbox, which is nobody's choice. Returns the fixture.
 fn differing() -> Twice {
     let t = Twice::new();
-    let (ea, eb) = (
-        t.entry(t.a, 2, 204, 5, 120.0),
-        t.entry(t.b, 1, 102, 1, 120.0),
+    t.entry_with(
+        t.a,
+        2,
+        204,
+        5,
+        120.0,
+        &[("Colour", "0xFF0000"), ("Album", "First")],
+    );
+    t.entry_with(
+        t.b,
+        1,
+        102,
+        1,
+        120.0,
+        &[
+            ("Colour", "0xFF0000"),
+            ("Album", "Second"),
+            ("Comments", "Warm / Peak"),
+        ],
     );
     t.own_value(t.ta, "Genre", "Techno");
     t.own_value(t.tb, "Genre", "House");
     t.own_value(t.tb, "Label", "Made Up Records");
-    t.attribute(eb, "Comments", "Warm / Peak");
-    t.attribute(ea, "Colour", "0xFF0000");
-    t.attribute(eb, "Colour", "0xFF0000");
-    t.attribute(ea, "Album", "First");
-    t.attribute(eb, "Album", "Second");
     t
 }
 
@@ -1033,11 +1054,8 @@ fn merge_rows_appear_only_for_fields_that_differ_and_hold_a_user_value() {
 #[test]
 fn a_field_without_a_user_value_on_either_track_is_never_asked() {
     let t = Twice::new();
-    let (ea, eb) = (t.entry(t.a, 0, 0, 0, 120.0), t.entry(t.b, 0, 0, 0, 120.0));
-    t.attribute(ea, "Genre", "Disco");
-    t.attribute(eb, "Genre", "Funk");
-    t.attribute(ea, "Year", "1999");
-    t.attribute(eb, "Year", "2001");
+    t.entry_with(t.a, 0, 0, 0, 120.0, &[("Genre", "Disco"), ("Year", "1999")]);
+    t.entry_with(t.b, 0, 0, 0, 120.0, &[("Genre", "Funk"), ("Year", "2001")]);
     assert!(t.questions(t.ta).is_empty());
 }
 
