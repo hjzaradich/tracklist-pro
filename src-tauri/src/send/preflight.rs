@@ -1,4 +1,5 @@
-//! The preflight: a send built in memory and described, nothing written.
+//! The preflight: a send built in memory and described, no file written.
+//! The merge before it (1cB-3) is its only write to the database.
 
 use std::collections::HashMap;
 

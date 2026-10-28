@@ -178,7 +178,7 @@ pub struct ExportRead {
     pub not_stored: u32,
 }
 
-/// What a send would do, worked out without writing anything.
+/// What a send would do, worked out without writing a file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Preflight {
