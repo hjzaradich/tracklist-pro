@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { unwrap } from "../api/errors";
 import { commands, type HiddenPage, type TableSort } from "../bindings";
@@ -23,6 +29,8 @@ export function useHiddenFiles(search: string, sort: TableSort | null) {
   const query = useInfiniteQuery({
     queryKey: [...HIDDEN_FILES_QUERY_KEY, "page", searchOf(search), sort],
     initialPageParam: 0,
+    // A new sort or search keeps the rows on screen until the new ones are in.
+    placeholderData: keepPreviousData,
     queryFn: ({ pageParam }): Promise<HiddenPage> =>
       unwrap(
         commands.hiddenFilesPage({
@@ -56,6 +64,19 @@ export function useShowAgain() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (fileId: number) => unwrap(commands.showFileAgain(fileId)),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ALL_MUSIC_QUERY_KEY }),
+  });
+}
+
+/**
+ * "Use this file instead" (1cB-22): the file becomes the one its track shows;
+ * Undo (top bar) takes it back. The lists reload, because the track's file
+ * changes in the table and in the Hidden filter.
+ */
+export function useUseThisFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (fileId: number) => unwrap(commands.useThisFileInstead(fileId)),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ALL_MUSIC_QUERY_KEY }),
   });
 }

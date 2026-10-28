@@ -33,7 +33,8 @@
 }
 
 /* The Hidden switch: as quiet as a filter chip; pressed, its border and text
- * take the accent (nothing is tinted: only the selected row is). */
+ * take the accent and a check mark and a heavier weight say so too, so colour
+ * is not the only cue (nothing is tinted: only the selected row is). */
 .toggle {
   min-height: var(--row-height);
   padding: 0 var(--space-2);
@@ -52,6 +53,11 @@
 .toggle[aria-pressed="true"] {
   border-color: var(--color-accent);
   color: var(--color-accent);
+  font-weight: 600;
+}
+
+.toggle[aria-pressed="true"]::before {
+  content: "✓ ";
 }
 
 .inLibrary {

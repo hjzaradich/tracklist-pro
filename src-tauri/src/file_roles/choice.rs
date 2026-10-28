@@ -36,8 +36,13 @@ pub(crate) struct Held {
 
 /// The key a file's choices are kept under: its `audio_hash`, else its
 /// `blake3`.
-pub(crate) fn content_key(audio_hash: Option<Vec<u8>>, blake3: Option<&Vec<u8>>) -> Option<Vec<u8>> {
-    audio_hash.filter(|h| !h.is_empty()).or_else(|| blake3.cloned())
+pub(crate) fn content_key(
+    audio_hash: Option<Vec<u8>>,
+    blake3: Option<&Vec<u8>>,
+) -> Option<Vec<u8>> {
+    audio_hash
+        .filter(|h| !h.is_empty())
+        .or_else(|| blake3.cloned())
 }
 
 /// Every choice, by the key it is kept under: the `blake3` each kept (empty
@@ -77,7 +82,11 @@ impl Choices {
                     .copied()
                     .filter(|&i| !blake3.is_empty() && files[i].blake3.as_ref() == Some(blake3));
                 let exact: Vec<usize> = exact.collect();
-                for &i in if exact.is_empty() { &candidates } else { &exact } {
+                for &i in if exact.is_empty() {
+                    &candidates
+                } else {
+                    &exact
+                } {
                     chosen[i] = true;
                 }
             }

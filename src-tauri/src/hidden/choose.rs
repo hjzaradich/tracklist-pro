@@ -134,10 +134,7 @@ impl Candidate {
 }
 
 /// The candidates among `files` (a file that is in no track is not one).
-pub(super) fn candidates(
-    conn: &Connection,
-    files: &[i64],
-) -> SqlResult<HashMap<i64, Candidate>> {
+pub(super) fn candidates(conn: &Connection, files: &[i64]) -> SqlResult<HashMap<i64, Candidate>> {
     let wanted = serde_json::to_string(files).expect("numbers always serialize");
     let key = CONTENT_KEY;
     let shown_key = CONTENT_KEY.replace("f.", "bf.");

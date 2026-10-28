@@ -81,6 +81,8 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.splitOffFile");
     case "show_file_again":
       return t("undo.action.showFileAgain");
+    case "use_this_file":
+      return t("undo.action.useThisFile");
   }
   return t("undo.action.other");
 }

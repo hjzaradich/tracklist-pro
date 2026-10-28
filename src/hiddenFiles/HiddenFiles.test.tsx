@@ -27,6 +27,8 @@ function hiddenRow(id: number, fields: Partial<HiddenRow> = {}): HiddenRow {
     artist: `Made Up Artist ${id}`,
     file: `tune ${id}.mp3`,
     bestFile: null,
+    bestFileChosen: false,
+    trackInLibrary: false,
     ...fields,
   };
 }
@@ -42,6 +44,10 @@ function fakeBackend(hidden: HiddenRow[], matching = 0) {
     hidden,
     pages: [] as HiddenQuery[],
     shown: [] as number[],
+    chosen: [] as number[],
+    failWith: null as { kind: string; params: Record<string, never> } | null,
+    pending: false,
+    behind: false,
     counted: [] as string[],
   };
   mockIPC(
@@ -59,16 +65,23 @@ function fakeBackend(hidden: HiddenRow[], matching = 0) {
       if (cmd === "hidden_files_page") {
         const query = a.query as HiddenQuery;
         backend.pages.push(query);
+        if (backend.pending) return new Promise(() => {});
         const search = (query.search ?? "").toLowerCase();
         const kept = backend.hidden.filter((r) => r.track.toLowerCase().includes(search));
         return {
           total: query.withTotal ? kept.length : null,
           offset: query.offset,
           rows: kept.slice(query.offset, query.offset + query.limit),
-          behind: false,
+          behind: backend.behind,
         };
       }
+      if (cmd === "use_this_file_instead") {
+        if (backend.failWith) throw backend.failWith;
+        backend.chosen.push(a.fileId as number);
+        return { operationId: 7 };
+      }
       if (cmd === "show_file_again") {
+        if (backend.failWith) throw backend.failWith;
         const id = a.fileId as number;
         backend.shown.push(id);
         backend.hidden = backend.hidden.filter((r) => r.fileId !== id);
@@ -181,6 +194,115 @@ describe("the Hidden filter in All music", () => {
       [200, false],
     ]);
     expect(screen.queryByRole("button", { name: tx("hiddenFiles:showMore") })).toBeNull();
+  });
+
+  it("offers Use this file instead on an extra copy outside the Library, and only there", async () => {
+    const backend = fakeBackend([
+      hiddenRow(1, {
+        why: "extraFile",
+        wayBack: "useThisFile",
+        track: "Synthetic Tune 1",
+        file: "tune 1 (copy).mp3",
+        bestFile: "tune 1.flac",
+      }),
+      hiddenRow(2, {
+        why: "extraFile",
+        wayBack: "useThisFile",
+        track: "Synthetic Tune 2",
+        file: "tune 2.flac",
+        bestFile: "tune 2 (copy).mp3",
+        bestFileChosen: true,
+      }),
+      hiddenRow(3, {
+        why: "extraFile",
+        wayBack: null,
+        track: "Synthetic Tune 3",
+        file: "tune 3 (copy).mp3",
+        bestFile: "tune 3.flac",
+        trackInLibrary: true,
+      }),
+    ]);
+    renderScreen();
+    await userEvent.click(await hiddenSwitch());
+    const table = await screen.findByRole("table", { name: tx("hiddenFiles:label") });
+    const [outside, chosen, inLibrary] = within(table).getAllByRole("row").slice(1);
+
+    expect(outside).toHaveTextContent(
+      tx("hiddenFiles:reason.extraFileNamed", { track: "Synthetic Tune 1", best: "tune 1.flac" }),
+    );
+    expect(chosen).toHaveTextContent(
+      tx("hiddenFiles:reason.extraFileChosen", {
+        track: "Synthetic Tune 2",
+        best: "tune 2 (copy).mp3",
+      }),
+    );
+    // A Library track's extra copy has the reason and no button.
+    expect(inLibrary).toHaveTextContent(
+      tx("hiddenFiles:reason.extraFileInLibrary", { track: "Synthetic Tune 3", best: "tune 3.flac" }),
+    );
+    expect(within(inLibrary!).queryByRole("button")).toBeNull();
+
+    await userEvent.click(
+      within(outside!).getByRole("button", { name: tx("hiddenFiles:useThisFile") }),
+    );
+    await waitFor(() => expect(backend.chosen).toEqual([1]));
+  });
+
+  it("says why Use this file instead was refused", async () => {
+    const backend = fakeBackend([
+      hiddenRow(1, { why: "extraFile", wayBack: "useThisFile", bestFile: "tune 1.flac" }),
+    ]);
+    backend.failWith = { kind: "hiddenChoiceInLibrary", params: {} };
+    renderScreen();
+    await userEvent.click(await hiddenSwitch());
+    await userEvent.click(await screen.findByRole("button", { name: tx("hiddenFiles:useThisFile") }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("hiddenFiles:error.inLibrary"));
+  });
+
+  it("says why Show again failed, and keeps the file listed", async () => {
+    const backend = fakeBackend([hiddenRow(1)]);
+    backend.failWith = { kind: "busy", params: {} };
+    renderScreen();
+    await userEvent.click(await hiddenSwitch());
+    await userEvent.click(await screen.findByRole("button", { name: tx("hiddenFiles:showAgain") }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("errors:busy"));
+    expect(screen.getByText("tune 1.mp3")).toBeInTheDocument();
+  });
+
+  it("sorts by a column heading, and reverses it on a second click", async () => {
+    const backend = fakeBackend([hiddenRow(1), hiddenRow(2)]);
+    renderScreen();
+    await userEvent.click(await hiddenSwitch());
+    const table = await screen.findByRole("table", { name: tx("hiddenFiles:label") });
+    const artist = within(table).getByRole("columnheader", { name: tx("trackTable:columns.artist") });
+    expect(artist).not.toHaveAttribute("aria-sort");
+
+    await userEvent.click(within(artist).getByRole("button"));
+    await waitFor(() => expect(artist).toHaveAttribute("aria-sort", "ascending"));
+    expect(backend.pages.at(-1)?.sort).toEqual({ column: "artist", descending: false });
+
+    await userEvent.click(within(artist).getByRole("button"));
+    await waitFor(() => expect(artist).toHaveAttribute("aria-sort", "descending"));
+    expect(backend.pages.at(-1)?.sort).toEqual({ column: "artist", descending: true });
+  });
+
+  it("says the list is updating while it loads and while the index is behind", async () => {
+    const loading = fakeBackend([hiddenRow(1)]);
+    loading.pending = true;
+    renderScreen();
+    await userEvent.click(await hiddenSwitch());
+    expect(await screen.findByText(tx("trackTable:updating"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("hiddenFiles:empty"))).toBeNull();
+    cleanup();
+    clearMocks();
+
+    // Nothing listed yet, because the index hasn't caught up: not "No hidden files".
+    const behind = fakeBackend([]);
+    behind.behind = true;
+    renderScreen();
+    await userEvent.click(await hiddenSwitch());
+    expect(await screen.findByText(tx("trackTable:updating"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("hiddenFiles:empty"))).toBeNull();
   });
 });
 

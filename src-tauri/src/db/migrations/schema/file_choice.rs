@@ -60,7 +60,10 @@ fn a_choice_needs_a_key_and_a_whole_file_hash_that_is_empty_or_32_bytes() {
 #[test]
 fn the_same_choice_is_stored_once() {
     let (_dir, conn) = db();
-    accepts(&conn, "INSERT INTO file_choice (content_key) VALUES (x'01')");
+    accepts(
+        &conn,
+        "INSERT INTO file_choice (content_key) VALUES (x'01')",
+    );
     refuses(
         &conn,
         "INSERT INTO file_choice (content_key) VALUES (x'01')",
@@ -72,13 +75,19 @@ fn the_same_choice_is_stored_once() {
 fn making_or_taking_back_a_choice_makes_the_tracks_with_that_audio_due() {
     let (_dir, conn) = db();
     accepts(&conn, TRACK_WITH_A_FILE);
-    accepts(&conn, "INSERT INTO file_choice (content_key) VALUES (x'0102')");
+    accepts(
+        &conn,
+        "INSERT INTO file_choice (content_key) VALUES (x'0102')",
+    );
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM best_file_due"), 1);
     accepts(&conn, "DELETE FROM best_file_due; DELETE FROM file_choice");
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM best_file_due"), 1);
     // Audio no file holds makes nothing due.
     accepts(&conn, "DELETE FROM best_file_due");
-    accepts(&conn, "INSERT INTO file_choice (content_key) VALUES (x'FF')");
+    accepts(
+        &conn,
+        "INSERT INTO file_choice (content_key) VALUES (x'FF')",
+    );
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM best_file_due"), 0);
 }
 

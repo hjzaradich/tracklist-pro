@@ -2294,7 +2294,7 @@ export type WayBack =
 "showAgain" | 
 /**
  *  Makes the file the one its track shows ("Use this file instead",
- *  [`choose`]).
+ *  `hidden::choose`).
  */
 "useThisFile";
 

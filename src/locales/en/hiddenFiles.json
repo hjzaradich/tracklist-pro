@@ -9,14 +9,21 @@
     "reason": "Reason"
   },
   "reason": {
-    "userHid": "You hid this file.",
-    "clearedInbox": "Cleared from the Inbox.",
-    "extraFile": "Another file was chosen as the best one for “{{track}}”.",
-    "extraFileNamed": "“{{best}}” was chosen as the best file for “{{track}}”."
+    "userHid": "Hidden (your choice)",
+    "clearedInbox": "Cleared from the Inbox",
+    "extraFile": "Another file is the best one for “{{track}}”",
+    "extraFileNamed": "“{{best}}” is the best file for “{{track}}”",
+    "extraFileChosen": "“{{best}}” is the file chosen for “{{track}}” (your choice)",
+    "extraFileInLibrary": "“{{best}}” is the best file for “{{track}}” (in your Library)"
   },
   "showAgain": "Show again",
+  "useThisFile": "Use this file instead",
   "showMore": "Show more",
   "matches_one": "{{count, number}} hidden file matches",
   "matches_other": "{{count, number}} hidden files match",
-  "showThem": "Show them"
+  "showThem": "Show them",
+  "error": {
+    "inLibrary": "Can't use this file: the track is in your Library",
+    "changed": "Can't use this file: it has changed since the list was shown"
+  }
 }

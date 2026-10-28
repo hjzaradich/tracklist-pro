@@ -270,5 +270,9 @@
   "undo.action.showFileAgain": {
     "purpose": "Undo button naming what it takes back: \"Show again\" on a hidden file in All music (Undo hides the file again). Proposal.",
     "where": "Top bar, Undo button, when the next step to undo is a \"Show again\"."
+  },
+  "undo.action.useThisFile": {
+    "purpose": "Undo button naming what it takes back: \"Use this file instead\" on an extra copy in the Hidden filter (Undo brings back the file the ranking chose). Proposal.",
+    "where": "Top bar, Undo button, when the next step to undo is a \"Use this file instead\"."
   }
 }

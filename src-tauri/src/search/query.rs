@@ -39,8 +39,9 @@ pub struct HiddenFile {
     pub recording_id: i64,
     pub why: Why,
     /// The track has a file with no `hidden_reason` (an extra copy counts,
-    /// as in the Overview's count), so the track is in the results already. Owner decision, 2026-10-12: "N hidden files match"
-    /// counts only the hidden files for which this is `false`.
+    /// as in the Overview's count), so the track is in the results already.
+    /// Owner decision, 2026-10-12: "N hidden files match" counts only the
+    /// hidden files for which this is `false`.
     pub track_has_shown_file: bool,
 }
 

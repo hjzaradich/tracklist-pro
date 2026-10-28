@@ -28,24 +28,36 @@
     "where": "All music, Hidden filter, table header."
   },
   "reason.userHid": {
-    "purpose": "Reason for a file the user hid. Nothing in the app hides a file yet.",
+    "purpose": "Reason for a file the user hid. Nothing in the app hides a file yet. Reworded to the copy style (no opening \"You\", no final period). Proposal.",
     "where": "All music, Hidden filter, Reason column."
   },
   "reason.clearedInbox": {
-    "purpose": "Reason for a file that was cleared from the Inbox. The Inbox arrives in Phase 2; no file has this reason yet.",
+    "purpose": "Reason for a file that was cleared from the Inbox. The Inbox arrives in Phase 2; no file has this reason yet. Reworded to the copy style (no final period). Proposal.",
     "where": "All music, Hidden filter, Reason column."
   },
   "reason.extraFile": {
-    "purpose": "Reason for an extra copy of a track when no best file is known to name: another file of the track was chosen as its best (ROADMAP 1.7).",
+    "purpose": "Reason for an extra copy of a track when no best file is known to name: another file of the track is its best (ROADMAP 1.7). Reworded to the copy style (no final period). Proposal.",
     "where": "All music, Hidden filter, Reason column."
   },
   "reason.extraFileNamed": {
-    "purpose": "Reason for an extra copy of a track: names the track and the file that was chosen as its best (ROADMAP 1.7).",
+    "purpose": "Reason for an extra copy of a track: names the track and the file that is its best, by the ranking (ROADMAP 1.7). Reworded to the copy style (no final period). Proposal.",
+    "where": "All music, Hidden filter, Reason column."
+  },
+  "reason.extraFileChosen": {
+    "purpose": "Reason for an extra copy of a track outside the Library whose shown file is the one the user chose with \"Use this file instead\" (ROADMAP 1.11, 1cB-22). Names the track and the chosen file. Proposal.",
+    "where": "All music, Hidden filter, Reason column."
+  },
+  "reason.extraFileInLibrary": {
+    "purpose": "Reason for an extra copy of a track that is in the Library: names the track and its best file, and says why there is no \"Use this file instead\" (the linked file is pinned; 1cB-22, owner decision 2026-10-28). Proposal.",
     "where": "All music, Hidden filter, Reason column."
   },
   "showAgain": {
     "purpose": "Button that shows a file the user hid in the lists again. Undo hides it again. Wording from ROADMAP 1.11.",
     "where": "All music, Hidden filter, last column, on a file the user hid."
+  },
+  "useThisFile": {
+    "purpose": "Button that makes an extra copy the file its track shows, for a track outside the Library. Undo (top bar) takes it back. Wording from ROADMAP 1.11 (1cB-22).",
+    "where": "All music, Hidden filter, last column, on an extra copy of a track outside the Library."
   },
   "showMore": {
     "purpose": "Button that lists the next hidden files. Same wording as Review's (review:more).",
@@ -62,5 +74,13 @@
   "showThem": {
     "purpose": "Link that opens the Hidden filter with the same search. Wording from ROADMAP 1.11.",
     "where": "All music, under the search box, after the count of hidden files that match."
+  },
+  "error.inLibrary": {
+    "purpose": "Says \"Use this file instead\" was refused because the track is in the Library (its linked file is pinned). The button is not offered for such a track, so this shows only if the track was added meanwhile. Proposal.",
+    "where": "All music, Hidden filter, above the table, after a refused \"Use this file instead\"."
+  },
+  "error.changed": {
+    "purpose": "Says \"Use this file instead\" was refused because the file is no longer an extra copy on disk, or holds the same bytes as the file shown. Proposal.",
+    "where": "All music, Hidden filter, above the table, after a refused \"Use this file instead\"."
   }
 }
