@@ -126,7 +126,7 @@ fn key_of(field: &str) -> Option<KeyPath> {
 }
 
 fn value(member: bool) -> String {
-    if member { IN } else { OUT }.to_owned()
+    (if member { IN } else { OUT }).to_owned()
 }
 
 /// What the merge decided about crate membership, for the send to apply.
@@ -301,9 +301,12 @@ pub(super) fn merge(
             "SELECT track_id, playlists FROM rekordbox_track
              WHERE read_at = (SELECT max(read_at) FROM rekordbox_track) AND playlists <> '[]'",
         )?
-        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+        .query_map([], |r| {
+            Ok((r.get::<_, Option<i64>>(0)?, r.get::<_, String>(1)?))
+        })?
     {
         let (track_id, playlists) = row?;
+        let track_id = track_id.unwrap_or(-1);
         let Ok(playlists) = serde_json::from_str::<Vec<Vec<String>>>(&playlists) else {
             continue;
         };
@@ -525,7 +528,7 @@ pub(super) fn adopt(rec: &mut Recorder<'_>, resolved: &Resolved) -> Result<(), O
     let Some(key) = key_of(&resolved.field) else {
         return Ok(());
     };
-    let rows = rec.read_rows(CRATE_ROWS, (), |r| {
+    let rows: Vec<(i64, Option<i64>, String, String)> = rec.read_rows(CRATE_ROWS, (), |r| {
         Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
     })?;
     let Some(&crate_id) = crate_paths(&rows).get(&key) else {
