@@ -6,6 +6,7 @@ import type { TableRow } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { HiddenFiles } from "../hiddenFiles/HiddenFiles";
 import { HiddenMatches } from "../hiddenFiles/HiddenMatches";
+import { useAnswerRequest } from "../palette/requests";
 import { shownName } from "../trackTable/columns";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import styles from "./AllMusicList.module.css";
@@ -40,6 +41,9 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
   const [typed, setTyped] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const search = useDebounced(typed, schedule);
+  // The command palette's "Search All music" (1cB-7) puts the cursor here.
+  const searchBox = useRef<HTMLInputElement>(null);
+  useAnswerRequest("searchAllMusic", () => searchBox.current?.focus());
   const add = useAddToLibrary();
   // The add the backend asked the user to confirm (1bE-8), until they choose.
   const [warned, setWarned] = useState<{ recordingId: number; title: string; kbps: number } | null>(
@@ -79,6 +83,7 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
       <div className={styles.screen}>
         <div className={styles.bar}>
           <input
+            ref={searchBox}
             type="search"
             className={styles.search}
             aria-label={t("search")}

@@ -1,4 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
+import { CommandPalette } from "../palette/CommandPalette";
 import { useScannedFilesSync } from "../scan/useScannedFilesSync";
 import { DetailsPanel } from "./DetailsPanel";
 import { PlayerBar } from "./PlayerBar";
@@ -11,7 +12,8 @@ import styles from "./AppShell.module.css";
 /**
  * The app's frame (ROADMAP 1.1, Layout): top bar, sidebar, the current
  * stage's screen in the center, and, once their features exist, the Details
- * panel on the right and the player along the bottom. A zone that isn't
+ * panel on the right and the player along the bottom, and over them all the
+ * command palette (Ctrl+K, 1cB-7). A zone that isn't
  * drawn (`zones`, by default {@link ZONES}) leaves its space to the center.
  */
 export function AppShell({ zones = ZONES }: { zones?: Zones }) {
@@ -30,6 +32,7 @@ export function AppShell({ zones = ZONES }: { zones?: Zones }) {
       </main>
       {zones.details && <DetailsPanel className={styles.details} />}
       {zones.player && <PlayerBar className={styles.player} />}
+      <CommandPalette />
     </div>
   );
 }

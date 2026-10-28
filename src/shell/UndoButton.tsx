@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { OperationInfo, UndoRefusal } from "../bindings";
+import { useRegisterActions } from "../palette/registry";
 import styles from "./TopBar.module.css";
 import { useKeepNextUndoCurrent, useNextUndo, useUndoOperation, useUndoShortcut } from "./useUndo";
 
@@ -109,7 +110,8 @@ export function refusalText(t: TFunction<"shell">, refusal: UndoRefusal): string
  * and names it. Pressing it again takes back the one before, and so on.
  * Greyed out when there is nothing to undo, and when the next step can't be
  * undone: then the reason is shown beside it, and the steps before it stay
- * out of reach. Ctrl+Z does the same, except in a text field.
+ * out of reach. Ctrl+Z does the same, except in a text field, and so does
+ * the command palette (1cB-7).
  */
 export function UndoButton() {
   const { t } = useTranslation("shell");
@@ -129,6 +131,9 @@ export function UndoButton() {
     if (available) undo.mutate(operation.id);
   };
   useUndoShortcut(run);
+  // The command palette lists this step and runs this same handler (1cB-7).
+  const label = operation === null ? t("undo.button") : undoLabel(t, operation);
+  useRegisterActions("undo", [{ id: "undo", label, shortcut: t("undo.shortcut"), available, run }]);
 
   return (
     <div className={styles.undo}>
@@ -138,7 +143,7 @@ export function UndoButton() {
         disabled={!available}
         onClick={run}
       >
-        {operation === null ? t("undo.button") : undoLabel(t, operation)}
+        {label}
       </button>
       <kbd className={styles.undoShortcut}>{t("undo.shortcut")}</kbd>
       {operation !== null && refusal !== null && (

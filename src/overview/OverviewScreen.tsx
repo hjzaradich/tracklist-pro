@@ -7,6 +7,7 @@ import { MusicFoldersStep } from "../firstRun/MusicFoldersStep";
 import { RekordboxOffer } from "../firstRun/RekordboxOffer";
 import { StartFresh } from "../firstRun/StartFresh";
 import { useLibraryTracks } from "../library/useLibraryTracks";
+import { useAnswerRequest } from "../palette/requests";
 import { XmlSourcePanel } from "../rekordbox/XmlSourcePanel";
 import { SendChecklist } from "../send/SendChecklist";
 import sendStyles from "../send/SendChecklist.module.css";
@@ -33,6 +34,10 @@ export function OverviewScreen() {
   const { t: tSend } = useTranslation("send");
   const firstRun = library.data?.length === 0;
   const [sending, setSending] = useState(false);
+  // The command palette's "Send to rekordbox" (1cB-7) opens the same guided send.
+  useAnswerRequest("send", () => {
+    if (library.data?.length !== 0) setSending(true);
+  });
 
   if (sending) {
     return (
