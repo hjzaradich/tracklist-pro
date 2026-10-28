@@ -134,6 +134,7 @@ describe("the top bar's Undo", () => {
   it.each([
     [operation(1, "promote"), "shell:undo.action.addToLibrary", {}],
     [operation(1, "remove_from_library"), "shell:undo.action.removeFromLibrary", {}],
+    [operation(1, "show_file_again"), "shell:undo.action.showFileAgain", {}],
     [operation(1, "add_rekordbox_tracks", { tracks: 1 }), "shell:undo.action.addFromRekordbox", { count: 1 }],
     [operation(1, "add_rekordbox_tracks", { tracks: 240 }), "shell:undo.action.addFromRekordbox", { count: 240 }],
     [operation(1, "create_crate", { name: "House" }), "shell:undo.action.createCrate", { name: "House" }],

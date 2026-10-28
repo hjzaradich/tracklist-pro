@@ -1,7 +1,7 @@
 //! Full-text search over the tracks (1cA-6; ROADMAP 1.11 "What search
-//! covers"). The search box itself is a later screen task (1cB-6); this
-//! is the index, how it is kept current, and the query function both lists
-//! filter by.
+//! covers"). This is the index, how it is kept current, and the query
+//! function both lists filter by. (The search box is All music's; under it,
+//! "N hidden files match" is [`crate::hidden`]'s, 1cB-6.)
 //!
 //! - **What is searched** (owner decision, 2026-10-12): title, artist,
 //!   album, remixer, label, genre, comment and file name. Capitals and

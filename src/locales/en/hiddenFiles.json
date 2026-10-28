@@ -1,0 +1,22 @@
+{
+  "filter": "Hidden",
+  "label": "Hidden files",
+  "count_one": "{{count, number}} hidden file",
+  "count_other": "{{count, number}} hidden files",
+  "empty": "No hidden files",
+  "noMatch": "No hidden files match",
+  "columns": {
+    "reason": "Reason"
+  },
+  "reason": {
+    "userHid": "You hid this file.",
+    "clearedInbox": "Cleared from the Inbox.",
+    "extraFile": "Another file was chosen as the best one for “{{track}}”.",
+    "extraFileNamed": "“{{best}}” was chosen as the best file for “{{track}}”."
+  },
+  "showAgain": "Show again",
+  "showMore": "Show more",
+  "matches_one": "{{count, number}} hidden file matches",
+  "matches_other": "{{count, number}} hidden files match",
+  "showThem": "Show them"
+}

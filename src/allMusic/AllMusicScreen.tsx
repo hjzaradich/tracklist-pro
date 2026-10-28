@@ -4,6 +4,8 @@ import { useWaitingOn } from "../activity/useWaitingOn";
 import { errorMessage } from "../api/errors";
 import type { TableRow } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
+import { HiddenFiles } from "../hiddenFiles/HiddenFiles";
+import { HiddenMatches } from "../hiddenFiles/HiddenMatches";
 import { shownName } from "../trackTable/columns";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import styles from "./AllMusicList.module.css";
@@ -26,10 +28,17 @@ const ALL_MUSIC_SOURCE = { kind: "allMusic" } as const;
  *
  * The search asks the backend once typing has stopped (`schedule`; tests
  * pass their own), not on every keystroke.
+ *
+ * "Hidden" switches the table to the Hidden filter (1cB-5): the files the
+ * app isn't showing, with their reasons. A search that matches hidden files
+ * whose tracks aren't in the results says so under the box, with "Show them"
+ * (1cB-6), which opens the Hidden filter with the same search.
  */
 export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedule }) {
   const { t } = useTranslation("allMusic");
+  const { t: th } = useTranslation("hiddenFiles");
   const [typed, setTyped] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
   const search = useDebounced(typed, schedule);
   const add = useAddToLibrary();
   // The add the backend asked the user to confirm (1bE-8), until they choose.
@@ -68,14 +77,25 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
   return (
     <StageScreen stage="allMusic">
       <div className={styles.screen}>
-        <input
-          type="search"
-          className={styles.search}
-          aria-label={t("search")}
-          placeholder={t("search")}
-          value={typed}
-          onChange={(event) => setTyped(event.target.value)}
-        />
+        <div className={styles.bar}>
+          <input
+            type="search"
+            className={styles.search}
+            aria-label={t("search")}
+            placeholder={t("search")}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+          />
+          <button
+            type="button"
+            className={styles.toggle}
+            aria-pressed={showHidden}
+            onClick={() => setShowHidden((now) => !now)}
+          >
+            {th("filter")}
+          </button>
+        </div>
+        {!showHidden && <HiddenMatches search={search} onShow={() => setShowHidden(true)} />}
         {add.error && (
           <p role="alert" className={styles.error}>
             {errorMessage(add.error)}
@@ -92,41 +112,45 @@ export function AllMusicScreen({ schedule = AFTER_TYPING }: { schedule?: Schedul
             onCancel={cancelWarning}
           />
         )}
-        <TrackTableView
-          screen="allMusic"
-          source={ALL_MUSIC_SOURCE}
-          keyPrefix={ALL_MUSIC_TABLE_QUERY_KEY}
-          search={search}
-          count={(total) => t("trackCount", { count: total })}
-          empty={<EmptyState>{waiting ?? t("empty")}</EmptyState>}
-          // The track left the list while the question was open: nothing to
-          // ask about.
-          onNarrowed={() => setWarned(null)}
-          actionsWidth={220}
-          actions={(row) =>
-            row.inLibrary ? (
-              <span className={styles.inLibrary}>{t("inLibrary")}</span>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className={styles.add}
-                  data-add-for={row.recordingId}
-                  disabled={adding !== undefined || row.matchNotConfirmed}
-                  aria-describedby={row.matchNotConfirmed ? `why-${row.recordingId}` : undefined}
-                  onClick={() => addTrack(row)}
-                >
-                  {t("add")}
-                </button>
-                {row.matchNotConfirmed && (
-                  <span id={`why-${row.recordingId}`} className={styles.inLibrary}>
-                    {t("matchNotConfirmed")}
-                  </span>
-                )}
-              </>
-            )
-          }
-        />
+        {showHidden ? (
+          <HiddenFiles search={search} />
+        ) : (
+          <TrackTableView
+            screen="allMusic"
+            source={ALL_MUSIC_SOURCE}
+            keyPrefix={ALL_MUSIC_TABLE_QUERY_KEY}
+            search={search}
+            count={(total) => t("trackCount", { count: total })}
+            empty={<EmptyState>{waiting ?? t("empty")}</EmptyState>}
+            // The track left the list while the question was open: nothing to
+            // ask about.
+            onNarrowed={() => setWarned(null)}
+            actionsWidth={220}
+            actions={(row) =>
+              row.inLibrary ? (
+                <span className={styles.inLibrary}>{t("inLibrary")}</span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={styles.add}
+                    data-add-for={row.recordingId}
+                    disabled={adding !== undefined || row.matchNotConfirmed}
+                    aria-describedby={row.matchNotConfirmed ? `why-${row.recordingId}` : undefined}
+                    onClick={() => addTrack(row)}
+                  >
+                    {t("add")}
+                  </button>
+                  {row.matchNotConfirmed && (
+                    <span id={`why-${row.recordingId}`} className={styles.inLibrary}>
+                      {t("matchNotConfirmed")}
+                    </span>
+                  )}
+                </>
+              )
+            }
+          />
+        )}
       </div>
     </StageScreen>
   );

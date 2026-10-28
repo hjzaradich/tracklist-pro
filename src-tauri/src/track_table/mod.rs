@@ -6,7 +6,8 @@
 //! loaded for the whole library: at 100,000 tracks a window is one indexed
 //! query and a fixed number of small ones for its rows.
 //!
-//! - **Sources:** the Library, All music (every track that has a file) and
+//! - **Sources:** the Library, All music (every track that has a file that
+//!   isn't hidden, `crate::hidden`) and
 //!   one crate (in the order the tracks were added, unless sorted).
 //! - **The order and the filters** read `track_row`, the derived table the
 //!   index job keeps (`search::table_row`): SQL sorts and filters, never
@@ -279,6 +280,12 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
         }
         TableSource::AllMusic => {
             conditions.push(format!("(tr.flags & {}) <> 0", flag::HAS_FILE));
+            // A track whose files are all hidden is not in All music: the
+            // rule the Overview's count reads too (`crate::hidden`).
+            conditions.push(format!(
+                "tr.recording_id NOT IN ({})",
+                crate::hidden::TRACKS_WITH_ONLY_HIDDEN_FILES
+            ));
             "track_row tr"
         }
         TableSource::Crate { id } => {

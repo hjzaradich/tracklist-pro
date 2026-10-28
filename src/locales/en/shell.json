@@ -51,7 +51,8 @@
       "mergeTracks": "Undo (tracks merged)",
       "sameTrack": "Undo (made one track)",
       "notSameTrack": "Undo (kept separate)",
-      "splitOffFile": "Undo (file split off)"
+      "splitOffFile": "Undo (file split off)",
+      "showFileAgain": "Undo (file shown again)"
     },
     "refused": {
       "sentSince": "Can't undo: tracks have been sent to rekordbox since",

@@ -124,16 +124,19 @@ fn filled(text: Option<String>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty())
 }
 
-/// Every track that has a file.
+/// Every track that has a file that isn't hidden (the rule of
+/// [`crate::hidden`], which the Overview and the track table read too).
 fn candidates(conn: &Connection) -> rusqlite::Result<Vec<Candidate>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(concat!(
         "SELECT r.id, r.title, r.artist, f.id, f.rel_path,
                 (SELECT min(lt.id) FROM library_track lt WHERE lt.recording_id = r.id)
          FROM recording r
          JOIN recording_file rf ON rf.recording_id = r.id
          JOIN file f ON f.id = rf.file_id
-         ORDER BY r.id, (rf.role = 'best') DESC, f.id",
-    )?;
+         WHERE ",
+        crate::hidden::has_shown_file!("r.id"),
+        " ORDER BY r.id, (rf.role = 'best') DESC, f.id"
+    ))?;
     let mut rows = stmt.query([])?;
     let mut tracks: Vec<Candidate> = Vec::new();
     while let Some(row) = rows.next()? {

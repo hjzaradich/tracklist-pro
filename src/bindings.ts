@@ -399,6 +399,12 @@ export const commands = {
 	 *  the track isn't one of them.
 	 */
 	trackTablePosition: (query: TablePositionQuery) => typedError<number | null, IpcError>(__TAURI_INVOKE("track_table_position", { query })),
+	/**  A window of the hidden files (the Hidden filter in All music). */
+	hiddenFilesPage: (query: HiddenQuery) => typedError<HiddenPage, IpcError>(__TAURI_INVOKE("hidden_files_page", { query })),
+	/**  "Show again" for a file the user hid. */
+	showFileAgain: (fileId: number) => typedError<ShownAgain, IpcError>(__TAURI_INVOKE("show_file_again", { fileId })),
+	/**  How many hidden files `text` matches that the results don't show. */
+	hiddenFilesMatching: (text: string) => typedError<HiddenMatches, IpcError>(__TAURI_INVOKE("hidden_files_matching", { text })),
 };
 
 /** Events */
@@ -823,6 +829,57 @@ export type GenreCount = {
 	 */
 	name: string,
 	tracks: number,
+};
+
+/**
+ *  How many hidden files a search matches that its results don't show
+ *  already (ROADMAP 1.11, owner decision 2026-10-12): the hidden files of
+ *  matching tracks that have no shown file, so are not in the results.
+ */
+export type HiddenMatches = {
+	count: number,
+	/**  The index is behind, so the count may be off for a moment. */
+	behind: boolean,
+};
+
+/**  A window of hidden files. */
+export type HiddenPage = {
+	total: number | null,
+	offset: number,
+	rows: HiddenRow[],
+	/**  The index job hasn't caught up with some change. */
+	behind: boolean,
+};
+
+/**  What the Hidden filter is asked for: a window, like the track table's. */
+export type HiddenQuery = {
+	/**
+	 *  Search text (`search::match_expression`); blank filters nothing. A
+	 *  file is listed when its track matches.
+	 */
+	search: string | null,
+	/**  Title, Artist or File; any other column, or none, is the title. */
+	sort: TableSort | null,
+	offset: number,
+	/**  At most [`crate::track_table::MAX_WINDOW`]. */
+	limit: number,
+	withTotal: boolean,
+};
+
+/**  One file the app isn't showing. */
+export type HiddenRow = {
+	fileId: number,
+	/**  Its track; `None` for a hidden file the grouping hasn't placed yet. */
+	recordingId: number | null,
+	why: Why,
+	wayBack: WayBack | null,
+	/**  The track as the lists name it: its title, else a file's name. */
+	track: string,
+	artist: string | null,
+	/**  This file's name, without its folder. */
+	file: string,
+	/**  For an extra copy, the name of the file chosen as the track's best. */
+	bestFile: string | null,
 };
 
 /**
@@ -1808,6 +1865,15 @@ export type Sent = {
 	knownTracks: number,
 };
 
+/**  What "Show again" did. */
+export type ShownAgain = {
+	/**
+	 *  The operation to offer Undo for. `None` if the file wasn't hidden by
+	 *  the user (shown already, or gone): nothing changed.
+	 */
+	operationId: number | null,
+};
+
 /**  Why "Accept all" left an item as it is. */
 export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetLinked" | "entryOfAnotherTrack" | 
 /**
@@ -2187,6 +2253,20 @@ export type Verdict = "ok" | "lowBitrate" | "suspectTranscode" | "truncated" | "
 
 /**  Drives came or went: the music folders' `online` may have changed. */
 export type VolumesChanged = null;
+
+/**  What a row can be offered to bring the file back. */
+export type WayBack = 
+/**  Clears the file's `hidden_reason` ("Show again"). */
+"showAgain";
+
+/**  Why a file is hidden (ROADMAP 1.11). */
+export type Why = 
+/**  The user hid it. */
+"userHid" | 
+/**  It was in the Inbox and the Inbox was cleared. */
+"clearedInbox" | 
+/**  An extra copy of a track whose best file is another file. */
+"extraFile";
 
 /**  Everything the XML source screen shows. */
 export type XmlSource = {

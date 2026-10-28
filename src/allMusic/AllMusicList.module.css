@@ -8,8 +8,14 @@
   min-height: 0;
 }
 
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .search {
-  align-self: flex-start;
   width: min(320px, 100%);
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border-strong);
@@ -20,9 +26,32 @@
 }
 
 .search:focus-visible,
+.toggle:focus-visible,
 .add:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 1px;
+}
+
+/* The Hidden switch: as quiet as a filter chip; pressed, its border and text
+ * take the accent (nothing is tinted: only the selected row is). */
+.toggle {
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: var(--color-surface-hover);
+}
+
+.toggle[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .inLibrary {

@@ -1,0 +1,131 @@
+/* The Hidden filter: a quiet table under the count, like the track table's
+ * (docs/design-style.md): compact rows, nothing tinted, no filled button. */
+.view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+
+.count,
+.matches {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.table th[aria-sort] {
+  color: var(--color-text);
+}
+
+.table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.reason {
+  color: var(--color-text-muted);
+}
+
+.actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.sortButton,
+.link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.link {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.sortButton:focus-visible,
+.link:focus-visible,
+.action:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.action {
+  align-self: flex-start;
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.action:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-6) var(--space-2);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
