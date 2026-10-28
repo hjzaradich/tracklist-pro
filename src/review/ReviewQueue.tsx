@@ -1,4 +1,4 @@
-import { useId, type KeyboardEvent } from "react";
+import { useId, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReviewGroup, ReviewItem, ReviewItemId, ReviewTrackName } from "../bindings";
@@ -9,6 +9,28 @@ import styles from "./ReviewQueue.module.css";
 export function trackLabel(t: TFunction<"review">, track: ReviewTrackName): string {
   const title = track.title ?? t("item.untitled");
   return track.artist === null ? title : t("item.trackName", { artist: track.artist, title });
+}
+
+/**
+ * Up, Down, Home and End in a queue list: focuses the option they reach and
+ * tells `onMoved` its place. Shared by every group's list, the Conflicts
+ * group's included.
+ */
+export function moveInList(event: KeyboardEvent<HTMLUListElement>, onMoved: (to: number) => void) {
+  const keys: Record<string, (at: number, last: number) => number> = {
+    ArrowDown: (at, last) => Math.min(at + 1, last),
+    ArrowUp: (at) => Math.max(at - 1, 0),
+    Home: () => 0,
+    End: (_, last) => last,
+  };
+  const step = keys[event.key];
+  if (!step) return;
+  const options = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="option"]'));
+  const at = options.indexOf(document.activeElement as HTMLElement);
+  const to = step(Math.max(at, 0), options.length - 1);
+  event.preventDefault();
+  options[to]?.focus();
+  onMoved(to);
 }
 
 /** What the queue shows of one group. */
@@ -41,16 +63,20 @@ export function ReviewQueue({
   groups,
   selected,
   onSelect,
+  children,
 }: {
   groups: QueueGroup[];
   selected: ReviewItemId | null;
   onSelect: (id: ReviewItemId) => void;
+  /** Groups of another kind of item, drawn after these (the Conflicts group). */
+  children?: ReactNode;
 }) {
   return (
     <div className={styles.queue}>
       {groups.map((group) => (
         <GroupList key={group.group} group={group} selected={selected} onSelect={onSelect} />
       ))}
+      {children}
     </div>
   );
 }
@@ -70,21 +96,10 @@ function GroupList({
   const inGroup = group.items.some((item) => itemKey(item.id) === selectedKey);
 
   function move(event: KeyboardEvent<HTMLUListElement>) {
-    const keys: Record<string, (at: number, last: number) => number> = {
-      ArrowDown: (at, last) => Math.min(at + 1, last),
-      ArrowUp: (at) => Math.max(at - 1, 0),
-      Home: () => 0,
-      End: (_, last) => last,
-    };
-    const step = keys[event.key];
-    if (!step) return;
-    const options = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="option"]'));
-    const at = options.indexOf(document.activeElement as HTMLElement);
-    const to = step(Math.max(at, 0), options.length - 1);
-    event.preventDefault();
-    options[to]?.focus();
-    const item = group.items[to];
-    if (item) onSelect(item.id);
+    moveInList(event, (to) => {
+      const item = group.items[to];
+      if (item) onSelect(item.id);
+    });
   }
 
   return (

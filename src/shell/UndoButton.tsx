@@ -83,6 +83,10 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.showFileAgain");
     case "use_this_file":
       return t("undo.action.useThisFile");
+    case "resolve_conflict":
+      return t("undo.action.resolveConflict");
+    case "resolve_conflicts":
+      return t("undo.action.resolveConflicts");
   }
   return t("undo.action.other");
 }

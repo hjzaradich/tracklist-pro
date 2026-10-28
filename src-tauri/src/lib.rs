@@ -7,6 +7,7 @@ pub mod all_music;
 pub mod attach;
 pub mod audio_preview;
 pub mod best_file;
+pub mod conflict_review;
 pub mod conflicts;
 pub mod crates;
 pub mod db;

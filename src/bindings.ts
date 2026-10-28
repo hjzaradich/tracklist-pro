@@ -268,6 +268,24 @@ export const commands = {
 	 *  more): `recording_ids` are the tracks the screen showed.
 	 */
 	reviewNotSame: (id: ReviewItemId, recordingIds: number[], fileId: number | null) => typedError<NotSame, IpcError>(__TAURI_INVOKE("review_not_same", { id, recordingIds, fileId })),
+	/**  The fields that have open conflicts, with how many each has. */
+	reviewConflictFields: () => typedError<ConflictField[], IpcError>(__TAURI_INVOKE("review_conflict_fields")),
+	/**  A page of one field's open conflicts, the oldest first. */
+	reviewConflicts: (field: string, offset: number, limit: number) => typedError<ConflictPage, IpcError>(__TAURI_INVOKE("review_conflicts", { field, offset, limit })),
+	/**
+	 *  Settles one open conflict: keep the app's value, keep rekordbox's, or a
+	 *  value given by hand. Refused, with nothing changed, if the conflict isn't
+	 *  open any more or the value doesn't fit the field. A file location is
+	 *  never given by hand: the app holds no value of its own for it.
+	 */
+	reviewResolveConflict: (id: ConflictId, choice: Choice) => typedError<Settled, IpcError>(__TAURI_INVOKE("review_resolve_conflict", { id, choice })),
+	/**
+	 *  Keeps one side for every open conflict of a field ("keep rekordbox's for
+	 *  all ratings"). One operation, so one Undo reopens them all. `expected` is
+	 *  how many the screen showed: if there are more or fewer now, nothing is
+	 *  settled and the screen asks again. Answers how many were settled.
+	 */
+	reviewResolveConflicts: (field: string, side: Side, expected: number) => typedError<number, IpcError>(__TAURI_INVOKE("review_resolve_conflicts", { field, side, expected })),
 	/**  Every Library track, sorted for the Library list (see [`list`]). */
 	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
 	/**
@@ -427,7 +445,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -592,10 +610,40 @@ export type Changed = {
 	operationId: number | null,
 };
 
+/**  How the user settles a conflict. */
+export type Choice = { choice: "keepApp" } | { choice: "keepRekordbox" } | 
+/**
+ *  A value given by hand. It must fit the field ([`fits`]) and hold no
+ *  character XML can't carry; for a crate membership it is
+ *  [`membership::IN`] or [`membership::OUT`]. One that is the same value
+ *  as a side's is recorded as keeping that side.
+ */
+{ choice: "edit"; value: string };
+
 /**  What "Use this file instead" did. */
 export type Chosen = {
 	/**  The operation to offer Undo for. */
 	operationId: number | null,
+};
+
+/**  A field with open conflicts. */
+export type ConflictField = {
+	/**  The rekordbox XML attribute name, e.g. `Rating`. */
+	field: string,
+	kind: ValueKind,
+	/**  How many open conflicts the field has. */
+	count: number,
+};
+
+/**  A `conflict` row's id. */
+export type ConflictId = number;
+
+/**  A page of one field's open conflicts. */
+export type ConflictPage = {
+	field: string,
+	/**  How many open conflicts the field has in all. */
+	total: number,
+	items: ConflictRow[],
 };
 
 export type ConflictProblem = 
@@ -616,6 +664,32 @@ export type ConflictProblem =
  *  one point at it.
  */
 "blocked";
+
+/**  One open conflict, with its three values. */
+export type ConflictRow = {
+	id: ConflictId,
+	track: ConflictTrack,
+	field: string,
+	kind: ValueKind,
+	/**  The app's value; `None` when the app holds no value. */
+	app: string | null,
+	/**
+	 *  rekordbox's value; `None` or empty when its entry has no such
+	 *  attribute.
+	 */
+	rekordbox: string | null,
+	/**  What was last sent; `None` when the field was never sent. */
+	base: string | null,
+};
+
+/**  A track named as Review names tracks. */
+export type ConflictTrack = {
+	libraryTrack: LibraryTrackId,
+	title: string | null,
+	artist: string | null,
+	/**  The name of the track's linked file, if it has one. */
+	fileName: string | null,
+};
 
 /**  Which numbers can still change because background work is running. */
 export type Counting = {
@@ -788,7 +862,16 @@ export type ErrorKind =
  *  "Use this file instead" was asked for a file that is no longer an extra
  *  copy on disk, or that holds the very same bytes as the file shown.
  */
-"hiddenChoiceChanged";
+"hiddenChoiceChanged" | 
+/**  The conflict was settled or withdrawn already, so it isn't open. */
+"conflictGone" | 
+/**  The value given by hand isn't a value of the conflict's field. */
+"conflictBadValue" | 
+/**
+ *  The number of open conflicts a bulk resolve was asked about is not the
+ *  number there is now.
+ */
+"conflictsChanged";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -1705,8 +1788,10 @@ export type ReviewCounts = {
 	needsCloserLook: number,
 	clearBestFile: number,
 	qualityProblems: number,
+	/**  Open conflicts (1cB-1): one each, however the screen groups them. */
+	conflicts: number,
 	/**
-	 *  How many need a decision in all: the three above added up. What the
+	 *  How many need a decision in all: the four above added up. What the
 	 *  Overview and the sidebar can show.
 	 */
 	total: number,
@@ -1906,6 +1991,15 @@ export type Sent = {
 	knownTracks: number,
 };
 
+/**  The settled conflict, as the screen needs to know it. */
+export type Settled = {
+	libraryTrack: LibraryTrackId,
+	field: string,
+	status: Status,
+	/**  The value that is now the field's. */
+	value: string,
+};
+
 /**  What "Show again" did. */
 export type ShownAgain = {
 	/**
@@ -1914,6 +2008,9 @@ export type ShownAgain = {
 	 */
 	operationId: number | null,
 };
+
+/**  What a bulk settling keeps. */
+export type Side = "app" | "rekordbox";
 
 /**  Why "Accept all" left an item as it is. */
 export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetLinked" | "entryOfAnotherTrack" | 
@@ -1969,6 +2066,15 @@ export type StalePlaylist = {
 	 */
 	empty: boolean,
 };
+
+/**  Where a conflict stands. Stored in `conflict.status`. */
+export type Status = "open" | 
+/**  Settled: the app's value was kept. */
+"keptApp" | 
+/**  Settled: rekordbox's value was kept. */
+"keptRekordbox" | 
+/**  Settled with a value given by hand (`resolved_value`). */
+"edited";
 
 /**
  *  Something the app suggests (`what`), with the reasons it's suggested.
@@ -2293,6 +2399,21 @@ export type UndoRefusal =
  *  leave two Library tracks on one file.
  */
 { code: "mergeLinkChanged" };
+
+/**
+ *  How a field's values are read and shown (and what a value given by hand
+ *  looks like). The engine's own `Kind`, without its two never-listed
+ *  members (an analysis field and `TrackID` never conflict).
+ */
+export type ValueKind = "location" | 
+/**  rekordbox's six values, shown as stars. */
+"rating" | 
+/**  `0xRRGGBB`. */
+"colour" | 
+/**  `2026-09-28`. */
+"date" | 
+/**  Whole numbers. */
+"number" | "text";
 
 /**
  *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]

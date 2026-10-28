@@ -14,12 +14,18 @@ export const REVIEW_ITEMS_QUERY_KEY = ["reviewItems"] as const;
 export const REVIEW_ITEM_QUERY_KEY = ["reviewItem"] as const;
 /** The items "Accept all" would switch (see useReviewActions). */
 export const REVIEW_ACCEPT_ALL_QUERY_KEY = ["reviewAcceptAllCount"] as const;
+/** The fields that have open conflicts (1cB-1). */
+export const CONFLICT_FIELDS_QUERY_KEY = ["conflictFields"] as const;
+/** The open conflicts of one field, a page at a time. */
+export const CONFLICTS_QUERY_KEY = ["conflicts"] as const;
 /** Everything Review shows: invalidate these after an action, an undo, and when a job ends. */
 export const REVIEW_QUERY_KEYS = [
   REVIEW_COUNTS_QUERY_KEY,
   REVIEW_ITEMS_QUERY_KEY,
   REVIEW_ITEM_QUERY_KEY,
   REVIEW_ACCEPT_ALL_QUERY_KEY,
+  CONFLICT_FIELDS_QUERY_KEY,
+  CONFLICTS_QUERY_KEY,
 ] as const;
 
 /** How many items a group loads at a time. */

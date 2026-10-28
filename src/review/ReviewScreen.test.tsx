@@ -212,7 +212,12 @@ function backend({
   pages,
   totals = {},
   onItem,
-}: Backend & { onItem?: (id: ReviewItemId) => ReviewComparison | null | undefined } = {}) {
+  conflictFields = [],
+}: Backend & {
+  onItem?: (id: ReviewItemId) => ReviewComparison | null | undefined;
+  /** Fields with one open conflict each. */
+  conflictFields?: string[];
+} = {}) {
   const lists: Record<ReviewGroup, ReviewItem[]> = {
     needsCloserLook: [DOUBT, HELD],
     clearBestFile: [CLEAR],
@@ -222,6 +227,27 @@ function backend({
   const calls: { cmd: string; args: unknown }[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args });
+    if (cmd === "review_conflict_fields") {
+      return conflictFields.map((field) => ({ field, kind: "text", count: 1 }));
+    }
+    if (cmd === "review_conflicts") {
+      const { field } = args as { field: string };
+      return {
+        field,
+        total: 1,
+        items: [
+          {
+            id: 1,
+            track: { libraryTrack: 1, title: "Conflicted Tune", artist: "Made Up Artist", fileName: null },
+            field,
+            kind: "text",
+            app: "House",
+            rekordbox: "Techno",
+            base: null,
+          },
+        ],
+      };
+    }
     if (cmd === "missing_tracks") return { total: 0, groups: [] };
     if (cmd === "review_counts") {
       if (counts === "broken") throw { kind: "database", params: {} };
@@ -231,7 +257,14 @@ function backend({
         lists.clearBestFile.length,
         lists.qualityProblems.length,
       ];
-      return { needsCloserLook: a, clearBestFile: b, qualityProblems: c, total: a + b + c };
+      const conflicts = conflictFields.length;
+      return {
+        needsCloserLook: a,
+        clearBestFile: b,
+        qualityProblems: c,
+        conflicts,
+        total: a + b + c + conflicts,
+      };
     }
     if (cmd === "review_items") {
       const { group, offset, limit } = args as { group: ReviewGroup; offset: number; limit: number };
@@ -298,6 +331,31 @@ describe("the Review queue", () => {
     renderScreen();
     await screen.findByRole("region", { name: tx("review:group.needsCloserLook") });
     expect(screen.queryByRole("region", { name: tx("review:group.qualityProblems") })).toBeNull();
+    // Conflicts too: no heading for a group that has none.
+    expect(screen.queryByRole("region", { name: tx("conflicts:group") })).toBeNull();
+  });
+
+  it("does nothing on Enter, S or a number while a field of conflicts is chosen, however many items wait", async () => {
+    const { calls } = backend({ conflictFields: ["Genre"] });
+    renderScreen();
+    const group = await screen.findByRole("region", { name: tx("conflicts:group") });
+    await userEvent.click(within(group).getByRole("option"));
+    expect(await screen.findByRole("table", { name: tx("conflicts:label") })).toBeInTheDocument();
+    // The items are still in the queue, and none is selected.
+    expect(screen.getAllByRole("option", { selected: true })).toHaveLength(1);
+    await userEvent.keyboard("{Enter}s1");
+    const reads = ["review_counts", "review_items", "review_item", "review_accept_all_items"];
+    expect(
+      calls.filter((c) => c.cmd.startsWith("review_") && !c.cmd.startsWith("review_conflict") && !reads.includes(c.cmd)),
+    ).toEqual([]);
+  });
+
+  it("counts open conflicts among the items left, and shows the screen when only conflicts wait", async () => {
+    backend({ pages: { needsCloserLook: [], clearBestFile: [] }, conflictFields: ["Genre", "Rating"] });
+    renderScreen();
+    const group = await screen.findByRole("region", { name: tx("conflicts:group") });
+    expect(within(group).getByText(tx("review:queue.left", { count: 2 }))).toBeInTheDocument();
+    expect(screen.queryByText(tx("review:queue.empty"))).toBeNull();
   });
 
   it("names an item's tracks and what kind of decision it is", async () => {
@@ -373,7 +431,7 @@ describe("the Review queue", () => {
   it("loads the next page of a group on request", async () => {
     const many = Array.from({ length: 150 }, (_, n) => item("versionDoubt", 100 + n * 2, [`Tune ${n}`, `Tune ${n} b`]));
     const { calls } = backend({
-      counts: { needsCloserLook: 150, clearBestFile: 0, qualityProblems: 0, total: 150 },
+      counts: { needsCloserLook: 150, clearBestFile: 0, qualityProblems: 0, conflicts: 0, total: 150 },
       pages: { needsCloserLook: many, clearBestFile: [] },
       onItem: () => DOUBT_COMPARISON,
     });
@@ -388,7 +446,7 @@ describe("the Review queue", () => {
   });
 
   it("says what's absent when nothing waits, and still shows the Missing list", async () => {
-    backend({ counts: { needsCloserLook: 0, clearBestFile: 0, qualityProblems: 0, total: 0 } });
+    backend({ counts: { needsCloserLook: 0, clearBestFile: 0, qualityProblems: 0, conflicts: 0, total: 0 } });
     renderScreen();
     expect(await screen.findByText(tx("review:queue.empty"))).toBeInTheDocument();
     expect(await screen.findByText(tx("review:missing.empty"))).toBeInTheDocument();
@@ -403,7 +461,7 @@ describe("the Review queue", () => {
 
   it("shows no suggestion for an item that has none, only the file's verdict", async () => {
     backend({
-      counts: { needsCloserLook: 0, clearBestFile: 0, qualityProblems: 1, total: 1 },
+      counts: { needsCloserLook: 0, clearBestFile: 0, qualityProblems: 1, conflicts: 0, total: 1 },
       pages: { needsCloserLook: [], clearBestFile: [], qualityProblems: [QUALITY] },
     });
     renderScreen();

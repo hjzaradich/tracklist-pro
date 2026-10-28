@@ -183,7 +183,9 @@ pub struct ReviewCounts {
     pub needs_closer_look: u32,
     pub clear_best_file: u32,
     pub quality_problems: u32,
-    /// How many need a decision in all: the three above added up. What the
+    /// Open conflicts (1cB-1): one each, however the screen groups them.
+    pub conflicts: u32,
+    /// How many need a decision in all: the four above added up. What the
     /// Overview and the sidebar can show.
     pub total: u32,
 }

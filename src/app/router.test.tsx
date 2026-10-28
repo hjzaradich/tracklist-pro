@@ -25,6 +25,7 @@ describe("stage routes", () => {
       if (cmd === "track_table_page") return { total: 0, offset: 0, rows: [], behind: false };
       if (cmd === "music_folders") return [];
       if (cmd === "missing_tracks") return { total: 0, groups: [] };
+      if (cmd === "review_conflict_fields") return [];
       if (cmd === "review_counts") {
         return { needsCloserLook: 0, clearBestFile: 0, qualityProblems: 0, total: 0 };
       }

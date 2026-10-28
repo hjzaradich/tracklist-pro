@@ -185,11 +185,14 @@ pub fn counts(conn: &Connection) -> rusqlite::Result<ReviewCounts> {
         of(ReviewGroup::ClearBestFile),
         of(ReviewGroup::QualityProblems),
     );
+    // Each open conflict is a decision the app can't make alone (1.12).
+    let conflicts = crate::conflict_review::open_count(conn)?;
     Ok(ReviewCounts {
         needs_closer_look,
         clear_best_file,
         quality_problems,
-        total: needs_closer_look + clear_best_file + quality_problems,
+        conflicts,
+        total: needs_closer_look + clear_best_file + quality_problems + conflicts,
     })
 }
 

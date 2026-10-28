@@ -6,6 +6,7 @@ export interface EnglishResources {
   "afterSend": typeof import("../locales/en/afterSend.json");
   "allMusic": typeof import("../locales/en/allMusic.json");
   "common": typeof import("../locales/en/common.json");
+  "conflicts": typeof import("../locales/en/conflicts.json");
   "crates": typeof import("../locales/en/crates.json");
   "errors": typeof import("../locales/en/errors.json");
   "firstRun": typeof import("../locales/en/firstRun.json");

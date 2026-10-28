@@ -167,6 +167,13 @@ error_kinds! {
     /// "Use this file instead" was asked for a file that is no longer an extra
     /// copy on disk, or that holds the very same bytes as the file shown.
     HiddenChoiceChanged => "hiddenFiles:error.changed", params: [];
+    /// The conflict was settled or withdrawn already, so it isn't open.
+    ConflictGone => "conflicts:error.gone", params: [];
+    /// The value given by hand isn't a value of the conflict's field.
+    ConflictBadValue => "conflicts:error.badValue", params: [];
+    /// The number of open conflicts a bulk resolve was asked about is not the
+    /// number there is now.
+    ConflictsChanged => "conflicts:error.changed", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

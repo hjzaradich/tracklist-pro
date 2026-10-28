@@ -203,6 +203,8 @@ function backend(start: Partial<World> = {}): World {
     const refused = world.refuse[cmd];
     if (refused) throw refused;
     switch (cmd) {
+      case "review_conflict_fields":
+        return [];
       case "missing_tracks":
         return { total: 0, groups: [] };
       case "review_counts": {
@@ -678,7 +680,13 @@ const EMPTY = { needsCloserLook: [], clearBestFile: [], qualityProblems: [] };
 
 /** The commands that change something: any `review_` call that is not a read. */
 function writesOf(world: World) {
-  const reads = ["review_counts", "review_items", "review_item", "review_accept_all_items"];
+  const reads = [
+    "review_counts",
+    "review_items",
+    "review_item",
+    "review_accept_all_items",
+    "review_conflict_fields",
+  ];
   return world.calls.filter((c) => c.cmd.startsWith("review_") && !reads.includes(c.cmd));
 }
 
