@@ -112,7 +112,12 @@ pub fn set_energy_on(
                      LEFT JOIN analysis a ON a.recording_id = r.id AND a.source = 'user'
                      WHERE r.id IN (SELECT value FROM json_each(?1))",
                     [wanted.as_str()],
-                    |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))),
+                    |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            (r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?),
+                        ))
+                    },
                 )?
                 .into_iter()
                 .collect();
