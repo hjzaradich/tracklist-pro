@@ -33,6 +33,7 @@ mod detect;
 mod never_lost;
 mod own_values;
 mod resolve;
+mod send_record;
 mod sides;
 mod table;
 

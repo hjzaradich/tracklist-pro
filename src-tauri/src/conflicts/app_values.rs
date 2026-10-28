@@ -31,29 +31,23 @@
 //! - Analysis fields, `TrackID` and `Location` are refused ([`editable`]),
 //!   and the database refuses them too (migration 0035).
 //!
-//! # After a send (the seam for 1cB-19)
+//! # After a send
 //!
 //! A send doesn't touch this table: the app's value stays its own, sent or
 //! not, so a send that is never imported can't make it look like rekordbox
-//! changed the field back. Until the send records what it replaced (1cB-19,
-//! in `sync_base`), the engine takes the replaced value from here for every
-//! field, including one sent since; this is right for an edit sent once and
-//! not taken up (row 7), and nothing calls the engine for a send yet.
-//! 1cB-19 must:
+//! changed the field back. `replaced` here counts only while the field was
+//! never sent. Once it was, the engine ([`super::load_sides`]) takes what
+//! the send replaced from the send's own record (`sync_base.replaced`,
+//! 1cB-19), which a read forgets once it shows the send taken up, so a
+//! later change back in rekordbox reads as rekordbox's change, not as a
+//! send not taken up.
 //!
-//! 1. record per sent field the value that send replaced (rekordbox's in
-//!    the read it was made from), and have [`super::load_sides`] take
-//!    `replaced` from that record for a field with a base, and from here
-//!    only for a field never sent;
-//! 2. forget that record once a read shows rekordbox holding the base (the
-//!    send was taken up), so a later change back in rekordbox reads as
-//!    rekordbox's change, not as a send not taken up;
-//! 3. with 1cB-3, delete the app's own value of a field whose rekordbox
-//!    value is taken in (only rekordbox changed): otherwise, once the base
-//!    is rekordbox's, the old app value reads as "only the app changed" and
-//!    goes out over rekordbox's edit. Those writes are outside the log, so
-//!    `app_value` ids are never reused (migration 0035), and Undo of the
-//!    edit is refused afterwards as "changed since".
+//! Left for 1cB-3: delete the app's own value of a field whose rekordbox
+//! value is taken in (only rekordbox changed). Otherwise, once the base is
+//! rekordbox's, the old app value reads as "only the app changed" and goes
+//! out over rekordbox's edit. Those writes are outside the log, so
+//! `app_value` ids are never reused (migration 0035), and Undo of the edit
+//! is refused afterwards as "changed since".
 
 use rusqlite::types::Value;
 use rusqlite::Connection;

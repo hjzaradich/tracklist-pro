@@ -457,9 +457,9 @@ fn rows_of(rec: &Recorder<'_>, table: &str, id: LibraryTrackId) -> Result<Vec<i6
 }
 
 /// Removes one Library track, as one operation: its crate entries, sync
-/// bases, conflicts and the app's own values go with it (they'd otherwise
-/// block the delete), and a removal record is made. Undo puts every row
-/// back exactly.
+/// bases, sent playlist entries, conflicts and the app's own values go with
+/// it (they'd otherwise block the delete), and a removal record is made.
+/// Undo puts every row back exactly.
 fn remove_on(conn: &mut Connection, id: LibraryTrackId) -> Result<bool, OpsError> {
     ops::record(
         conn,
@@ -477,7 +477,13 @@ fn remove_on(conn: &mut Connection, id: LibraryTrackId) -> Result<bool, OpsError
             let Some((recording, location, exported_at)) = row else {
                 return Ok(false);
             };
-            for table in ["crate_entry", "sync_base", "conflict", "app_value"] {
+            for table in [
+                "crate_entry",
+                "sync_base",
+                "sent_entry",
+                "conflict",
+                "app_value",
+            ] {
                 for rowid in rows_of(rec, table, id)? {
                     rec.delete(table, rowid)?;
                 }

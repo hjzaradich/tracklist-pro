@@ -535,19 +535,31 @@ fn a_removal_made_before_base_ids_stopped_being_reused_is_still_undone_after_the
         .map(Result::unwrap)
         .collect()
     };
-    record_send(&mut conn, &[sent(1, "a")], &[]).unwrap();
+    // What that version's send recorded: today's send also writes columns
+    // and tables this old schema hasn't got (0036).
+    conn.execute_batch(
+        r"INSERT INTO sync_base (library_track_id, field, value)
+              VALUES (1, 'Name', 'a'), (1, 'Location', 'file://localhost/C:/New/a.mp3');
+          UPDATE library_track SET last_sent_location = 'file://localhost/C:/New/a.mp3',
+                                   last_exported_at = '2026-10-01T00:00:00.000Z'
+          WHERE id = 1;",
+    )
+    .unwrap();
     let before = bases(&conn, 1);
     assert_eq!(before.len(), 2);
     // The user removes the track: its bases, the highest ids, are deleted.
-    // Today's removal also deletes the app's own values (0035), a table this
-    // old schema hasn't got: an empty stand-in, gone before the upgrade,
-    // leaves the old removal's rows as they were.
+    // Today's removal also deletes the app's own values (0035) and the sent
+    // playlist entries (0036), tables this old schema hasn't got: empty
+    // stand-ins, gone before the upgrade, leave the old removal's rows as
+    // they were.
     conn.execute_batch(
-        "CREATE TABLE app_value (id INTEGER PRIMARY KEY, library_track_id INTEGER) STRICT",
+        "CREATE TABLE app_value (id INTEGER PRIMARY KEY, library_track_id INTEGER) STRICT;
+         CREATE TABLE sent_entry (id INTEGER PRIMARY KEY, library_track_id INTEGER) STRICT;",
     )
     .unwrap();
     assert!(remove_on(&mut conn, LibraryTrackId(1)).unwrap());
-    conn.execute_batch("DROP TABLE app_value").unwrap();
+    conn.execute_batch("DROP TABLE app_value; DROP TABLE sent_entry")
+        .unwrap();
 
     // The app is updated, and the next send makes bases for another track.
     run(&mut conn, MIGRATIONS).unwrap();

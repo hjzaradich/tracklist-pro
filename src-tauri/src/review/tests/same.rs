@@ -605,6 +605,41 @@ fn a_merge_deletes_the_app_values_of_the_track_that_leaves_and_undo_puts_them_ba
 }
 
 #[test]
+fn a_merge_deletes_the_sent_playlist_entries_of_the_track_that_leaves_and_undo_puts_them_back() {
+    // Like its sync bases: the entries were the leaving track's rekordbox
+    // entry's, and the track that stays keeps its own (1cB-19).
+    let t = Twice::new();
+    t.entry(t.a, 1, 0, 1, 120.0);
+    t.entry(t.b, 1, 0, 1, 120.0);
+    let (lt_keep, lt_leave) = (t.lt(t.ta), t.lt(t.tb));
+    t.db.sql(&format!(
+        r#"INSERT INTO sent_entry (library_track_id, path, path_key, sent_at)
+             VALUES ({lt_keep}, '["Crates","Peak"]', '["crates","peak"]', 'then'),
+                    ({lt_leave}, '["Crates","Peak"]', '["crates","peak"]', 'then'),
+                    ({lt_leave}, '["Crates","Old"]', '["crates","old"]', 'then');"#
+    ));
+    let entries = || {
+        t.db.writer
+            .call(|c| {
+                c.prepare(
+                    "SELECT id || ' ' || library_track_id || ' ' || path_key
+                     FROM sent_entry ORDER BY id",
+                )?
+                .query_map([], |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()
+            })
+            .unwrap()
+    };
+    let before = entries();
+
+    t.merge(&t.both(), t.ta).unwrap();
+
+    assert_eq!(entries(), [format!(r#"1 {lt_keep} ["crates","peak"]"#)]);
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(entries(), before);
+}
+
+#[test]
 fn a_merge_is_refused_for_a_changed_item_a_track_not_in_it_or_linked_versions() {
     let t = Twice::new();
     let before = t.rows();

@@ -535,6 +535,7 @@ fn sent_path(path: &[&str], folder: bool) -> SentPath {
     SentPath {
         path: path.iter().map(|n| (*n).to_owned()).collect(),
         folder,
+        entries: Vec::new(),
     }
 }
 
@@ -650,4 +651,309 @@ fn a_built_send_lists_every_folder_and_playlist_it_wrote_empty_ones_too() {
         ]
     );
     assert_eq!(out.paths()[2].key(), ["crates", "hollow"]);
+}
+
+// ---- What each base replaced, and each track's playlist entries (1cB-19) ----
+
+impl Lib {
+    /// A read of an export, as the read job stores it.
+    fn read_export(&self, xml: String) {
+        use crate::rekordbox::store::{replace_snapshot, SnapshotRows};
+        let parsed = crate::rekordbox::RekordboxXml::parse(xml.as_bytes()).unwrap();
+        let rows = SnapshotRows::from_xml(&parsed);
+        self.writer
+            .call(move |c| replace_snapshot(c, &rows, |_, _, _| Ok(())))
+            .unwrap();
+    }
+
+    /// Builds a send of these tracks and trees, and records it.
+    fn send_tree(&self, tracks: Vec<TrackInput>, crates: Vec<Node>, playlists: Vec<Node>) {
+        let out = build(&SendInput {
+            tracks,
+            crates,
+            playlists,
+            ..SendInput::default()
+        })
+        .unwrap();
+        self.record_with_paths(&out.sent, out.paths()).unwrap();
+    }
+
+    /// What the base of a track's field replaced.
+    fn replaced(&self, track: LibraryTrackId, field: &'static str) -> Option<String> {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT replaced FROM sync_base WHERE library_track_id = ?1 AND field = ?2",
+                    rusqlite::params![track.0, field],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
+    /// The playlists sends put these tracks in, through the reader.
+    fn entries(&self, tracks: &[LibraryTrackId]) -> Vec<(LibraryTrackId, Vec<String>)> {
+        let tracks = tracks.to_vec();
+        self.writer
+            .call(move |c| sent_entries(c, &tracks))
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.library_track, e.path))
+            .collect()
+    }
+
+    /// Every `sent_entry` row: id, track, path.
+    fn entry_rows(&self) -> Vec<(i64, i64, String)> {
+        self.writer
+            .call(|c| {
+                c.prepare("SELECT id, library_track_id, path FROM sent_entry ORDER BY id")?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect()
+            })
+            .unwrap()
+    }
+}
+
+fn playlist(name: &str, entries: &[LibraryTrackId]) -> Node {
+    Node::Playlist {
+        name: name.into(),
+        entries: entries.to_vec(),
+    }
+}
+
+fn names(path: &[&str]) -> Vec<String> {
+    path.iter().map(|n| (*n).to_owned()).collect()
+}
+
+/// An export holding one track at `C:/Kit/a.mp3`, with this Genre.
+fn export_with_genre(genre: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.2.19" Company="AlphaTheta"/>
+  <COLLECTION Entries="1">
+    <TRACK TrackID="5" Name="Synthetic" Genre="{genre}" Location="file://localhost/C:/Kit/a.mp3"/>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT"></NODE>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>
+"#
+    )
+}
+
+/// The track in [`export_with_genre`], sent with this Genre.
+fn known_a(id: LibraryTrackId, genre: &str) -> TrackInput {
+    known(
+        id,
+        &[
+            ("TrackID", "5"),
+            ("Name", "Synthetic"),
+            ("Genre", genre),
+            ("Location", "file://localhost/C:/Kit/a.mp3"),
+        ],
+    )
+}
+
+#[test]
+fn a_read_forgets_what_a_send_replaced_once_it_shows_the_send_taken_up() {
+    let lib = Lib::new();
+    let a = lib.library_track();
+    lib.read_export(export_with_genre("House"));
+
+    // The send changes Genre (as the merge before a send is to).
+    lib.record(&sent(vec![known_a(a, "Deep House")])).unwrap();
+    assert_eq!(lib.replaced(a, "Genre"), Some("House".into()));
+    assert_eq!(lib.replaced(a, "Name"), None);
+
+    // Not imported: a read still shows House, and the record stays.
+    lib.read_export(export_with_genre("House"));
+    assert_eq!(lib.replaced(a, "Genre"), Some("House".into()));
+
+    // Imported: the next read shows Deep House, and the record goes.
+    lib.read_export(export_with_genre("Deep House"));
+    assert_eq!(lib.replaced(a, "Genre"), None);
+}
+
+#[test]
+fn each_playlist_a_send_wrote_records_once_each_track_it_put_in_it() {
+    let lib = Lib::new();
+    let (a, b, gone) = (
+        lib.library_track(),
+        lib.library_track(),
+        lib.library_track(),
+    );
+    let out = build(&SendInput {
+        tracks: vec![
+            new(a, &[("Name", "A"), ("Location", r"C:\New\a.mp3")]),
+            new(b, &[("Name", "B"), ("Location", r"C:\New\b.mp3")]),
+        ],
+        crates: vec![
+            Node::Folder {
+                name: "Sets".into(),
+                // `gone` isn't sent: its entry isn't written.
+                children: vec![playlist("Warm up", &[a, b, a, gone])],
+            },
+            playlist("Peak", &[b]),
+        ],
+        playlists: vec![playlist("Set", &[a])],
+        ..SendInput::default()
+    })
+    .unwrap();
+    assert_eq!(out.paths()[1].path, ["Crates", "Sets", "Warm up"]);
+    assert_eq!(out.paths()[1].entries, [a, b, a]);
+    assert_eq!(out.paths()[0].entries, []);
+
+    lib.record_with_paths(&out.sent, out.paths()).unwrap();
+
+    assert_eq!(
+        lib.entries(&[a, b, gone]),
+        [
+            (a, names(&["Crates", "Sets", "Warm up"])),
+            (a, names(&["Playlists", "Set"])),
+            (b, names(&["Crates", "Peak"])),
+            (b, names(&["Crates", "Sets", "Warm up"])),
+        ]
+    );
+    assert_eq!(lib.entry_rows().len(), 4, "one row per track and playlist");
+    let keys: Vec<Vec<String>> = lib
+        .writer
+        .call(move |c| sent_entries(c, &[b]))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.key)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            names(&["crates", "peak"]),
+            names(&["crates", "sets", "warm up"])
+        ]
+    );
+    assert_eq!(lib.entries(&[gone]), []);
+}
+
+#[test]
+fn the_next_send_replaces_the_entries_of_each_playlist_it_writes_and_keeps_the_rest() {
+    let lib = Lib::new();
+    let (a, b, c) = (
+        lib.library_track(),
+        lib.library_track(),
+        lib.library_track(),
+    );
+    let tracks = || {
+        vec![
+            new(a, &[("Name", "A"), ("Location", r"C:\New\a.mp3")]),
+            new(b, &[("Name", "B"), ("Location", r"C:\New\b.mp3")]),
+            new(c, &[("Name", "C"), ("Location", r"C:\New\c.mp3")]),
+        ]
+    };
+    lib.send_tree(
+        tracks(),
+        vec![playlist("Peak", &[a, b]), playlist("Old", &[a])],
+        vec![],
+    );
+    let b_in_peak = lib.entry_rows()[1].0;
+
+    // `Old` isn't written this time; `Peak` is, spelled another way.
+    lib.send_tree(tracks(), vec![playlist("PEAK ", &[b, c])], vec![]);
+
+    assert_eq!(
+        lib.entries(&[a, b, c]),
+        [
+            (a, names(&["Crates", "Old"])),
+            (b, names(&["Crates", "PEAK "])),
+            (c, names(&["Crates", "PEAK "])),
+        ]
+    );
+    // A track put in again keeps its row.
+    assert!(lib
+        .entry_rows()
+        .iter()
+        .any(|(id, track, _)| (*id, *track) == (b_in_peak, b.0)));
+
+    // Sent again, the same: nothing new.
+    let rows = lib.entry_rows();
+    lib.send_tree(tracks(), vec![playlist("PEAK ", &[b, c])], vec![]);
+    assert_eq!(lib.entry_rows(), rows);
+}
+
+#[test]
+fn a_failed_record_send_records_no_entries() {
+    let lib = Lib::new();
+    let a = lib.library_track();
+    let ghost = LibraryTrackId(999);
+    let out = build(&SendInput {
+        tracks: vec![
+            new(a, &[("Name", "Real"), ("Location", r"C:\New\a.mp3")]),
+            new(ghost, &[("Name", "Ghost"), ("Location", r"C:\New\g.mp3")]),
+        ],
+        crates: vec![playlist("A", &[a, ghost])],
+        ..SendInput::default()
+    })
+    .unwrap();
+    assert!(lib.record_with_paths(&out.sent, out.paths()).is_err());
+    assert_eq!(lib.entry_rows(), []);
+    assert_eq!(lib.base(a), []);
+}
+
+#[test]
+fn removing_a_track_takes_its_send_records_and_undo_puts_them_back_after_a_later_send() {
+    let lib = Lib::new();
+    let a = lib.library_track();
+    let b = lib.library_track();
+    lib.read_export(export_with_genre("House"));
+    let new_b = || new(b, &[("Name", "B"), ("Location", r"C:\New\b.mp3")]);
+    lib.send_tree(
+        vec![known_a(a, "Deep House"), new_b()],
+        vec![playlist("Peak", &[a, b]), playlist("Old", &[a])],
+        vec![],
+    );
+    // Dated before the next send, which may land in the same millisecond
+    // in a test.
+    lib.writer
+        .call(|c| {
+            c.execute_batch(
+                "UPDATE sent_entry SET sent_at = '2026-10-01T00:00:00.000Z';
+                 UPDATE sent_playlist SET sent_at = '2026-10-01T00:00:00.000Z';",
+            )
+        })
+        .unwrap();
+    assert_eq!(lib.replaced(a, "Genre"), Some("House".into()));
+    let a_rows = |rows: Vec<(i64, i64, String)>| -> Vec<(i64, i64, String)> {
+        rows.into_iter().filter(|(_, t, _)| *t == a.0).collect()
+    };
+    let before = (
+        lib.base(a),
+        lib.replaced(a, "Genre"),
+        a_rows(lib.entry_rows()),
+    );
+    assert_eq!(before.2.len(), 2);
+
+    crate::library::remove(&lib.writer, a).unwrap();
+    assert_eq!(lib.base(a), []);
+    assert_eq!(a_rows(lib.entry_rows()), []);
+
+    // A later send writes `Peak` without the removed track.
+    lib.send_tree(vec![new_b()], vec![playlist("Peak", &[b])], vec![]);
+    let b_after = lib.entries(&[b]);
+
+    match ops::undo_last_via(&lib.writer).unwrap() {
+        UndoOutcome::Undone { operation } => {
+            assert_eq!(operation.kind, crate::library::REMOVE_OPERATION);
+        }
+        other => panic!("expected the removal to be undone, got {other:?}"),
+    }
+    // Every row is back as it was, what the base replaced included.
+    assert_eq!(
+        (
+            lib.base(a),
+            lib.replaced(a, "Genre"),
+            a_rows(lib.entry_rows())
+        ),
+        before
+    );
+    // `Peak` was written since without it, so only `Old` still counts.
+    assert_eq!(lib.entries(&[a]), [(a, names(&["Crates", "Old"]))]);
+    assert_eq!(lib.entries(&[b]), b_after);
 }

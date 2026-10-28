@@ -10,7 +10,7 @@ use crate::ops::UndoRefusal;
 type Row = (i64, i64, String, String, Option<String>);
 
 impl Lib {
-    fn set(
+    pub(super) fn set(
         &self,
         id: LibraryTrackId,
         field: &str,
@@ -51,7 +51,7 @@ impl Lib {
             .unwrap()
     }
 
-    fn detect_stored(&self, ids: &[LibraryTrackId]) -> Detected {
+    pub(super) fn detect_stored(&self, ids: &[LibraryTrackId]) -> Detected {
         let ids = ids.to_vec();
         self.writer
             .call(move |c| detect_from_store(c, &Mount, &ids))
@@ -374,8 +374,10 @@ fn a_stored_edit_whose_send_was_never_imported_stands() {
     let lib = Lib::new();
     let id = lib.known(&[("Genre", "House")]);
     lib.set(id, "Genre", "Deep House").unwrap();
-    // Sent, but rekordbox still shows House: the XML wasn't imported.
+    // Sent over House, and rekordbox still shows House: the XML wasn't
+    // imported. A field sent counts what the send replaced (1cB-19).
     lib.sent(id, &[("Genre", "Deep House")]);
+    lib.run("UPDATE sync_base SET replaced = 'House'");
 
     let detected = lib.detect_stored(&[id]);
 

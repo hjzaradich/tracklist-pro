@@ -8,7 +8,9 @@
 //!   as read. [`load_sides`] takes them from the caller, so the join that
 //!   finds a track's entry exists once. A row kept from an older read
 //!   (§5.3) is told by its `read_at`, as `send_values` tells it.
-//! - **the base:** `sync_base`, what the last send wrote.
+//! - **the base:** `sync_base`, what the last send wrote, and with it what
+//!   that send replaced in rekordbox (`sync_base.replaced`,
+//!   [`crate::rekordbox_write::record_send`]).
 //! - **the app's:** [`AppValues`]: the store of the app's own values
 //!   ([`super::app_values`], table `app_value`) for [`detect_from_store`],
 //!   or given by the caller to [`load_sides`] and [`detect_for`]. A field
@@ -287,7 +289,9 @@ pub struct FieldSides {
     pub rekordbox: Option<String>,
     /// The value last sent; `None` when the field was never sent.
     pub base: Option<String>,
-    /// What the app's value replaced ([`Sides::replaced`]).
+    /// What the app's value replaced ([`Sides::replaced`]): for a field sent
+    /// before, the send's record of what it replaced (`sync_base.replaced`);
+    /// for one never sent, what the edit replaced ([`AppValue::replaced`]).
     pub replaced: Option<String>,
 }
 
@@ -321,11 +325,11 @@ fn merged(field: &str) -> bool {
 }
 
 /// The sides of every track in `sent` that can be sent: rekordbox's from
-/// the send values themselves, the base from `sync_base`, the app's from
-/// `app`. A fixed number of queries however many tracks. Every field any
-/// side names is there, and every field with an open conflict, so
-/// [`detect`] decides each open conflict again. Analysis fields and
-/// `TrackID` are left out: they're never merged.
+/// the send values themselves, the base and what it replaced from
+/// `sync_base`, the app's from `app`. A fixed number of queries however
+/// many tracks. Every field any side names is there, and every field with
+/// an open conflict, so [`detect`] decides each open conflict again.
+/// Analysis fields and `TrackID` are left out: they're never merged.
 ///
 /// `sent` must be the tracks' send values from the same read of the
 /// database (the same transaction, or nothing written in between).
@@ -343,14 +347,18 @@ pub fn load_sides(
         .collect();
     let ids = json_ids(&ready.iter().map(|(id, _)| *id).collect::<Vec<_>>());
 
-    let mut bases: HashMap<i64, Vec<(String, String)>> = HashMap::new();
+    // Per field: the base, and what the send that wrote it replaced.
+    type Base = (String, String, Option<String>);
+    let mut bases: HashMap<i64, Vec<Base>> = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT library_track_id, field, value FROM sync_base
+        "SELECT library_track_id, field, value, replaced FROM sync_base
          WHERE library_track_id IN (SELECT value FROM json_each(?1))
          ORDER BY library_track_id, field",
     )?;
-    for row in stmt.query_map([&ids], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))? {
-        let (track, base): (i64, (String, String)) = row?;
+    for row in stmt.query_map([&ids], |r| {
+        Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))
+    })? {
+        let (track, base): (i64, Base) = row?;
         bases.entry(track).or_default().push(base);
     }
 
@@ -396,15 +404,22 @@ pub fn load_sides(
                 slot(&mut fields, &value.attribute).rekordbox = Some(value.value.clone());
             }
         }
-        for (field, value) in bases.remove(&id.0).unwrap_or_default() {
+        for (field, value, replaced) in bases.remove(&id.0).unwrap_or_default() {
             if merged(&field) {
-                slot(&mut fields, &field).base = Some(value);
+                let field = slot(&mut fields, &field);
+                field.base = Some(value);
+                field.replaced = replaced;
             }
         }
         for own in app.of(id).iter().filter(|own| merged(&own.field)) {
             let field = slot(&mut fields, &own.field);
             field.app = Some(own.value.clone());
-            field.replaced.clone_from(&own.replaced);
+            // What the edit replaced counts only for a field never sent:
+            // once sent, it's what the send replaced, from the send's
+            // record (forgotten once a read showed the send taken up).
+            if field.base.is_none() {
+                field.replaced.clone_from(&own.replaced);
+            }
         }
         for field in open.remove(&id.0).unwrap_or_default() {
             slot(&mut fields, &field);

@@ -1322,9 +1322,10 @@ fn with_no_values_of_the_apps_own_nothing_conflicts_whatever_rekordbox_changed()
 #[test]
 fn an_edit_whose_send_was_never_imported_is_not_reverted() {
     let lib = Lib::new();
-    // rekordbox still shows House; Deep House was sent.
+    // rekordbox still shows House; Deep House was sent over it.
     let id = lib.known(&[("Genre", "House")]);
     lib.sent(id, &[("Genre", "Deep House")]);
+    lib.run("UPDATE sync_base SET replaced = 'House'");
     let mut app = AppValues::default();
     app.set(id, own("Genre", "Deep House", Some("House")));
 

@@ -66,7 +66,7 @@ use crate::write_guard::{GuardError, WriteGuard};
 
 pub use crate::send_values::ANALYSIS_ATTRIBUTES;
 pub use location::LocationProblem;
-pub use record::record_send;
+pub use record::{forget_taken_up, record_send, sent_entries, SentEntry};
 
 /// The top-level folder the crate tree is written under.
 pub const CRATES_FOLDER: &str = "Crates";
@@ -298,6 +298,9 @@ pub struct SentPath {
     pub path: Vec<String>,
     /// A folder (else a playlist).
     pub folder: bool,
+    /// The Library tracks the playlist's entries name, in order, as
+    /// written (a track may repeat); none for a folder.
+    pub entries: Vec<LibraryTrackId>,
 }
 
 impl SentPath {
@@ -308,18 +311,34 @@ impl SentPath {
     }
 }
 
-/// Every folder and playlist below `nodes`, depth first, under `path`.
-fn collect_paths(nodes: &[xml::NodeElement], path: &mut Vec<String>, out: &mut Vec<SentPath>) {
+/// Every folder and playlist below `nodes`, depth first, under `path`,
+/// each playlist with the Library tracks its entries name (`tracks`: by
+/// `TrackID` in this file).
+fn collect_paths(
+    nodes: &[xml::NodeElement],
+    tracks: &HashMap<u64, LibraryTrackId>,
+    path: &mut Vec<String>,
+    out: &mut Vec<SentPath>,
+) {
     for node in nodes {
         let (xml::NodeElement::Folder { name, .. } | xml::NodeElement::Playlist { name, .. }) =
             node;
         path.push(name.clone());
+        let entries = match node {
+            xml::NodeElement::Folder { .. } => Vec::new(),
+            // Every key is a written track's (`Entries::elements`).
+            xml::NodeElement::Playlist { keys, .. } => keys
+                .iter()
+                .filter_map(|key| tracks.get(key).copied())
+                .collect(),
+        };
         out.push(SentPath {
             path: path.clone(),
             folder: matches!(node, xml::NodeElement::Folder { .. }),
+            entries,
         });
         if let xml::NodeElement::Folder { children, .. } = node {
-            collect_paths(children, path, out);
+            collect_paths(children, tracks, path, out);
         }
         path.pop();
     }
@@ -696,9 +715,11 @@ pub fn build(input: &SendInput) -> Result<Outgoing, BuildError> {
     let text = xml::render(&elements, &top);
     drop(elements);
     let mut paths = Vec::new();
+    let by_track_id: HashMap<u64, LibraryTrackId> =
+        written.iter().map(|(track, id)| (*id, *track)).collect();
     for top in &top {
         if let xml::NodeElement::Folder { name, children } = top {
-            collect_paths(children, &mut vec![name.clone()], &mut paths);
+            collect_paths(children, &by_track_id, &mut vec![name.clone()], &mut paths);
         }
     }
     checked(
