@@ -1398,7 +1398,7 @@ export type PlaylistChoice = {
 	tracks: number,
 };
 
-/**  What a send would do, worked out without writing anything. */
+/**  What a send would do, worked out without writing a file. */
 export type Preflight = {
 	/**  Names this preflight; the write must be given it back. */
 	token: string,
@@ -1439,6 +1439,12 @@ export type Preflight = {
 	 *  ([`Preflight::needs_confirm`] says when it's needed).
 	 */
 	losesEntries: LosesEntries[],
+	/**
+	 *  Fields of the tracks sent with an open conflict: they wait in Review
+	 *  → Conflicts, and the send carries rekordbox's value for each until
+	 *  the user decides ([`crate::conflicts::open_at_send`]).
+	 */
+	conflictsWaiting: number,
 	/**  Set when the send can't go at all. */
 	refusal: Refusal | null,
 	/**
@@ -2218,7 +2224,10 @@ export type UndoOutcome =
 
 /**  Why a step can't be undone, as the UI says it. A code, never text. */
 export type UndoRefusal = 
-/**  A track the step added has been sent to rekordbox since. */
+/**
+ *  A track the step added has been sent to rekordbox since, or a field
+ *  whose conflict the step settled.
+ */
 { code: "sentSince" } | 
 /**
  *  The step would put a Library track back, but the track or the file

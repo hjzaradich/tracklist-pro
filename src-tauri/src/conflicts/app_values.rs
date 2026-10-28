@@ -42,21 +42,34 @@
 //! later change back in rekordbox reads as rekordbox's change, not as a
 //! send not taken up.
 //!
-//! Left for 1cB-3: delete the app's own value of a field whose rekordbox
-//! value is taken in (only rekordbox changed). Otherwise, once the base is
-//! rekordbox's, the old app value reads as "only the app changed" and goes
-//! out over rekordbox's edit. Those writes are outside the log, so
-//! `app_value` ids are never reused (migration 0035), and Undo of the edit
-//! is refused afterwards as "changed since".
+//! # Outside the log: taking rekordbox's value in
+//!
+//! The merge before a send ([`super::merge`], 1cB-3) deletes the app's own
+//! value of a field whose rekordbox value it takes in (only rekordbox
+//! changed, [`take_in`]). Otherwise, once the base is rekordbox's value,
+//! the old app value would read as "only the app changed" and go out over
+//! rekordbox's edit. That delete is derived from the three sides, like the
+//! rest of detection, so it's outside the log: `app_value` ids are never
+//! reused (migration 0035), and Undo of the edit is refused afterwards as
+//! "changed since".
+//!
+//! # Settling a conflict
+//!
+//! A resolve updates the store in its own operation ([`adopt`], through
+//! [`super::resolve`]): keeping rekordbox's value clears the app's own,
+//! keeping the app's or giving a value by hand sets it. So the next send
+//! carries the value chosen, and the one turned down never goes out again,
+//! once the decision no longer answers the field (a side moved).
 
 use rusqlite::types::Value;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::store::{json_ids, load_sides, AppValue, AppValues, RekordboxEntry};
+use super::resolve::Resolved;
+use super::store::{json_ids, load_sides, AppValue, AppValues, RekordboxEntry, Status};
 use super::{fits, kind_of, same, Kind};
 use crate::library::LibraryTrackId;
-use crate::ops::{self, OpsError, Recorded};
+use crate::ops::{self, OpsError, Recorded, Recorder};
 use crate::paths::Volumes;
 use crate::send_values::send_values;
 use std::fmt;
@@ -258,6 +271,64 @@ pub fn clear(
         Ok(true)
     })?;
     Ok(recorded)
+}
+
+/// Takes rekordbox's value in for one field: deletes the app's own value,
+/// **outside the operation log** (module docs). Only the merge before a
+/// send calls it, inside its own transaction.
+pub(super) fn take_in(
+    conn: &Connection,
+    track: LibraryTrackId,
+    field: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM app_value WHERE library_track_id = ?1 AND field = ?2",
+        (track.0, field),
+    )?;
+    Ok(())
+}
+
+/// What a settled conflict makes of the store, inside the resolve's own
+/// operation (so one Undo takes both back): keeping rekordbox's value
+/// clears the app's own; keeping the app's, or a value given by hand, makes
+/// it the app's own. A field the app never holds a value of its own for
+/// ([`editable`]) is left alone, as is a value already stored.
+///
+/// A value newly stored records as what it replaced the rekordbox value
+/// the conflict showed; an edit already stored keeps its own.
+pub fn adopt(rec: &mut Recorder<'_>, resolved: &Resolved) -> Result<(), OpsError> {
+    if !editable(&resolved.field) {
+        return Ok(());
+    }
+    let own = own_row(rec, resolved.library_track, &resolved.field)?;
+    match (resolved.status, own) {
+        (Status::KeptRekordbox, Some((id, _))) => rec.delete("app_value", id),
+        (Status::KeptRekordbox | Status::Open, _) => Ok(()),
+        // Nothing is logged when it's the value stored.
+        (Status::KeptApp | Status::Edited, Some((id, _))) => rec
+            .set("app_value", id, "value", resolved.value.as_str())
+            .map(|_| ()),
+        (Status::KeptApp | Status::Edited, None) => {
+            let replaced: Option<String> = rec
+                .read_rows(
+                    "SELECT rekordbox_value FROM conflict WHERE id = ?1",
+                    [resolved.conflict.0],
+                    |r| r.get(0),
+                )?
+                .pop()
+                .flatten();
+            rec.insert(
+                "app_value",
+                &[
+                    ("library_track_id", Value::Integer(resolved.library_track.0)),
+                    ("field", Value::Text(resolved.field.clone())),
+                    ("value", Value::Text(resolved.value.clone())),
+                    ("replaced", replaced.into()),
+                ],
+            )?;
+            Ok(())
+        }
+    }
 }
 
 /// The app's own values of these Library tracks, as the engine takes them,

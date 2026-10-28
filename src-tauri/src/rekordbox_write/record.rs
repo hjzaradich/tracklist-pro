@@ -12,6 +12,14 @@
 //! the app never edits them, and they can never conflict (1.10), so a
 //! base for one has no use, even when Phase 2 sends them (rule 3, case B).
 //!
+//! A field with an open conflict as the send is recorded keeps the base it
+//! had, or stays without one (1cB-3, [`open_at_send`]), whether or not the
+//! send wrote the attribute (rekordbox's entry may lack it): the send
+//! carried rekordbox's value for it, and the conflict must still be open
+//! after the next read rather than read as "only the app changed". The go
+//! records only when the open conflicts of the tracks sent are the ones its
+//! merge saw ([`open_at_send::open_fields`]).
+//!
 //! # What a base replaced (`sync_base.replaced`, 1cB-19)
 //!
 //! With each base goes the value it replaced in rekordbox: what rekordbox's
@@ -29,7 +37,7 @@
 //! taken up, so that a later change back in rekordbox is rekordbox's own.
 //! Every read runs it ([`crate::rekordbox::store::replace_snapshot`]).
 //!
-//! Known limits (for 1cB-3, which makes them reachable):
+//! Known limits (reachable since the merge before every send, 1cB-3):
 //!
 //! - NULL means "not known" for three reasons the engine can't tell apart:
 //!   nothing replaced, forgotten, and not recordable (a trusted entry the
@@ -74,7 +82,7 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{params, Connection};
 
 use super::{SentPath, SentTrack, ANALYSIS_ATTRIBUTES};
-use crate::conflicts::same;
+use crate::conflicts::{open_at_send, same};
 use crate::library::LibraryTrackId;
 use crate::rekordbox::location::decode;
 
@@ -132,7 +140,9 @@ fn replaced(field: &str, base: &str, showing: &HashMap<String, String>) -> Optio
 /// Records one send: for each track in `sent`, its `sync_base` becomes
 /// exactly the fields sent (a field sent before and not this time is
 /// dropped; no value is kept twice), each with what it replaced in
-/// rekordbox (module docs), and the track's `last_sent_location` and
+/// rekordbox (module docs), except that a field with an open conflict keeps
+/// the base it had, or none ([`open_at_send::bases_kept`]); and the
+/// track's `last_sent_location` and
 /// `last_exported_at` are set. Each playlist in `paths` gets exactly its
 /// entries' tracks as its `sent_entry` rows. All of it or none: any
 /// failure, a track that isn't in the Library included, leaves the
@@ -218,13 +228,22 @@ pub fn record_send(
                 .fields()
                 .filter(|(field, _)| !is_analysis(field))
                 .collect();
-            for (field, value) in &fields {
+            // A field with an open conflict keeps its base, or stays
+            // without one ([`open_at_send`]), whether or not it was written
+            // (rekordbox's entry may lack the attribute): the conflict must
+            // still be open after the next read.
+            let kept = open_at_send::bases_kept(&tx, id)?;
+            for (field, value) in fields.iter().filter(|(field, _)| !kept.contains(*field)) {
                 let replaced = showing
                     .as_ref()
                     .and_then(|showing| replaced(field, value, showing));
                 base.execute(params![id, field, value, now, replaced])?;
             }
-            let fields: Vec<&str> = fields.iter().map(|(field, _)| *field).collect();
+            let fields: Vec<&str> = fields
+                .iter()
+                .map(|(field, _)| *field)
+                .chain(kept.iter().map(String::as_str))
+                .collect();
             let fields = serde_json::to_string(&fields).expect("strings always serialize");
             drop_unsent.execute(params![id, fields])?;
         }

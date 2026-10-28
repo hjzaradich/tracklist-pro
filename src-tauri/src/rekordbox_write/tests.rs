@@ -1519,3 +1519,66 @@ fn a_known_track_with_a_missing_file_that_no_crate_or_playlist_names_is_not_sent
     assert_eq!(out.not_needed, [id(2)]);
     assert_eq!(out.left_out, []);
 }
+
+// ---- the merge's choices (1cB-3) -------------------------------------------
+
+#[test]
+fn the_merges_values_replace_a_tracks_own_in_place_or_follow_them() {
+    let mut attributes = attrs(&[
+        ("TrackID", "40"),
+        ("Name", "Velo"),
+        ("Genre", "House"),
+        ("Location", "file://localhost/C:/Kit/velo.mp3"),
+    ]);
+    choose(
+        &mut attributes,
+        &attrs(&[("Genre", "Deep House"), ("Comments", "warm-up")]),
+    );
+    assert_eq!(
+        attributes,
+        attrs(&[
+            ("TrackID", "40"),
+            ("Name", "Velo"),
+            ("Genre", "Deep House"),
+            ("Location", "file://localhost/C:/Kit/velo.mp3"),
+            ("Comments", "warm-up"),
+        ])
+    );
+}
+
+#[test]
+fn a_value_the_track_already_has_by_its_kind_leaves_rekordboxs_text_and_no_value_adds_nothing() {
+    let theirs = attrs(&[("TrackNumber", "7"), ("Rating", "204"), ("Name", "Velo")]);
+    let mut attributes = theirs.clone();
+    choose(
+        &mut attributes,
+        &attrs(&[
+            ("TrackNumber", "007"),
+            ("Rating", "204"),
+            ("Comments", ""),
+            ("Colour", ""),
+        ]),
+    );
+    assert_eq!(attributes, theirs);
+}
+
+#[test]
+fn the_merge_never_changes_track_id_location_or_an_analysis_field() {
+    let theirs = attrs(&[
+        ("TrackID", "40"),
+        ("Location", "file://localhost/C:/Kit/velo.mp3"),
+    ]);
+    let mut attributes = theirs.clone();
+    choose(
+        &mut attributes,
+        &attrs(&[
+            ("TrackID", "41"),
+            ("Location", "file://localhost/C:/Kit/other.mp3"),
+            ("AverageBpm", "130.00"),
+            ("Tonality", "Fm"),
+            ("TEMPO", "1"),
+            ("POSITION_MARK", "1"),
+        ]),
+    );
+    assert_eq!(attributes, theirs);
+}

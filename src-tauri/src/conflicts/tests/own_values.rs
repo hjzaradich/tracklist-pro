@@ -422,3 +422,177 @@ fn a_field_without_a_stored_value_follows_rekordbox() {
     assert_eq!(detected, Detected::default());
     assert_eq!(lib.rows(), []);
 }
+
+// ---- A resolve takes the value chosen into the store (1cB-3) -----------------
+
+/// A track sent with Genre House, edited to Deep House in the app and to
+/// Tech House in rekordbox since: an open conflict.
+fn edited_on_both_sides(lib: &Lib) -> LibraryTrackId {
+    let id = lib.known(&[("Genre", "House")]);
+    lib.sent(id, &[("Genre", "House")]);
+    lib.set(id, "Genre", "Deep House").unwrap();
+    lib.rekordbox_now(id, &[("Genre", "Tech House")]);
+    lib.detect_stored(&[id]);
+    id
+}
+
+#[test]
+fn keeping_rekordboxs_value_clears_the_apps_own_and_undo_puts_it_back() {
+    let lib = Lib::new();
+    let id = edited_on_both_sides(&lib);
+    let open = lib.only_open();
+    let before = lib.app_rows();
+
+    lib.resolve(open.id, Choice::KeepRekordbox).unwrap();
+
+    assert_eq!(lib.app_rows(), []);
+    // The field follows rekordbox again: nothing of the app's goes out.
+    assert_eq!(lib.detect_stored(&[id]).fields, []);
+    assert_eq!(lib.operations().len(), 2, "the edit, then the resolve");
+    assert_eq!(lib.undone(), RESOLVE_OPERATION);
+    assert_eq!(lib.app_rows(), before);
+    assert_eq!(lib.only_open().id, open.id);
+}
+
+#[test]
+fn keeping_the_apps_value_leaves_its_own_and_logs_nothing_more() {
+    let lib = Lib::new();
+    let id = edited_on_both_sides(&lib);
+    let open = lib.only_open();
+    let before = lib.app_rows();
+
+    lib.resolve(open.id, Choice::KeepApp).unwrap();
+
+    assert_eq!(lib.app_rows(), before);
+    let detected = lib.detect_stored(&[id]);
+    assert_eq!(detected.fields.len(), 1, "{detected:?}");
+    assert!(matches!(
+        &detected.fields[0].outcome,
+        Outcome::Decided { value, .. } if value == "Deep House"
+    ));
+}
+
+#[test]
+fn a_value_given_by_hand_becomes_the_apps_own_keeping_what_the_edit_replaced() {
+    let lib = Lib::new();
+    let id = edited_on_both_sides(&lib);
+    let open = lib.only_open();
+    let edit_id = lib.app_rows()[0].0;
+
+    lib.resolve(open.id, Choice::Edit("Disco".into())).unwrap();
+
+    assert_eq!(
+        lib.app_rows(),
+        [row(edit_id, id, "Genre", "Disco", Some("House"))]
+    );
+    assert_eq!(lib.undone(), RESOLVE_OPERATION);
+    assert_eq!(
+        lib.app_rows(),
+        [row(edit_id, id, "Genre", "Deep House", Some("House"))]
+    );
+}
+
+#[test]
+fn a_value_chosen_for_a_field_the_store_has_none_of_is_stored_over_rekordboxs() {
+    // A conflict the store holds no value for (the app's value came from
+    // elsewhere): keeping the app's stores it, with rekordbox's value as
+    // the one it replaced.
+    let lib = Lib::new();
+    let id = lib.known(&[("Genre", "Tech House")]);
+    lib.detect(&[track(
+        id,
+        vec![apart("Genre", "Deep House", "Tech House", "House")],
+    )]);
+    let open = lib.only_open();
+
+    lib.resolve(open.id, Choice::KeepApp).unwrap();
+
+    let rows = lib.app_rows();
+    assert_eq!(
+        rows,
+        [row(
+            rows[0].0,
+            id,
+            "Genre",
+            "Deep House",
+            Some("Tech House")
+        )]
+    );
+}
+
+#[test]
+fn a_bulk_resolve_takes_every_value_chosen_into_the_store_in_one_step() {
+    let lib = Lib::new();
+    let one = edited_on_both_sides(&lib);
+    let two = edited_on_both_sides(&lib);
+    let before = lib.app_rows();
+    assert_eq!(before.len(), 2);
+
+    lib.resolve_all(&Filter::default(), Choice::KeepRekordbox)
+        .unwrap();
+
+    assert_eq!(lib.app_rows(), []);
+    assert_eq!(lib.detect_stored(&[one, two]).fields, []);
+    assert_eq!(lib.undone(), RESOLVE_ALL_OPERATION);
+    assert_eq!(lib.app_rows(), before);
+}
+
+#[test]
+fn undo_of_a_resolve_is_refused_once_its_field_was_sent_since_a_tie_counting_as_sent() {
+    for (when, refused) in [("later", true), ("the same", true), ("earlier", false)] {
+        let lib = Lib::new();
+        let id = edited_on_both_sides(&lib);
+        lib.resolve(lib.only_open().id, Choice::KeepRekordbox)
+            .unwrap();
+        let resolved_at: String = lib
+            .writer
+            .call(|c| c.query_row("SELECT max(created_at) FROM operation", [], |r| r.get(0)))
+            .unwrap();
+        let synced_at = match when {
+            "later" => "2999-01-01T00:00:00.000Z".to_owned(),
+            "the same" => resolved_at,
+            _ => "2000-01-01T00:00:00.000Z".to_owned(),
+        };
+        lib.run(&format!(
+            "UPDATE sync_base SET synced_at = '{synced_at}' WHERE library_track_id = {}",
+            id.0
+        ));
+
+        match lib.undo() {
+            UndoOutcome::Refused { reason, .. } => {
+                assert!(refused, "{when}");
+                assert_eq!(reason, UndoRefusal::SentSince, "{when}");
+            }
+            UndoOutcome::Undone { .. } => assert!(!refused, "{when}"),
+            other => panic!("{when}: {other:?}"),
+        }
+    }
+}
+
+// ---- Taking rekordbox's value in (1cB-3) -------------------------------------
+
+#[test]
+fn undo_of_an_edit_is_refused_once_the_merge_took_rekordboxs_value_in() {
+    let lib = Lib::new();
+    let id = lib.known(&[("Genre", "House")]);
+    lib.set(id, "Genre", "Deep House").unwrap();
+    // Sent, imported, then changed in rekordbox: only rekordbox changed.
+    lib.sent(id, &[("Genre", "Deep House")]);
+    lib.rekordbox_now(id, &[("Genre", "Tech House")]);
+
+    let merged = lib
+        .writer
+        .call(move |c| merge_before_send(c, &Mount, &[id]))
+        .unwrap();
+    assert_eq!(merged.taken_in, [(id, "Genre".to_owned())]);
+    assert_eq!(merged.chosen, std::collections::HashMap::new());
+    assert_eq!(lib.app_rows(), []);
+    let operations = lib.operations();
+
+    match lib.undo() {
+        UndoOutcome::Refused { reason, .. } => assert_eq!(reason, UndoRefusal::ChangedSince),
+        other => panic!("expected the undo to be refused, got {other:?}"),
+    }
+    assert_eq!(lib.app_rows(), []);
+    assert_eq!(lib.operations(), operations, "nothing undone or logged");
+}

@@ -11,7 +11,9 @@ use tauri::{AppHandle, Manager, Runtime};
 use super::file::{send_path, write_and_record, WriteError};
 use super::preflight::{may_send_from_this_export, no_file_at_location, review, Reviewed};
 use super::{SendFailure, SendFlow, SendStep, Sent};
+use crate::conflicts::open_at_send;
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
+use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
 use crate::rekordbox::source::XmlReader;
 use crate::rekordbox_write::{record_send, SentPath, SentTrack};
@@ -81,6 +83,9 @@ pub struct Sender<V> {
     /// Called between matching the tracks and building the preflight.
     #[cfg(test)]
     after_relink: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Called at the go, between building the send again and writing it.
+    #[cfg(test)]
+    before_write: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl<V: Volumes + 'static> Sender<V> {
@@ -94,7 +99,17 @@ impl<V: Volumes + 'static> Sender<V> {
             after_read: None,
             #[cfg(test)]
             after_relink: None,
+            #[cfg(test)]
+            before_write: None,
         }
+    }
+
+    /// Calls `hook` at the go, between building the send again and writing
+    /// it.
+    #[cfg(test)]
+    pub(crate) fn before_write(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.before_write = Some(Arc::new(hook));
+        self
     }
 
     /// Calls `hook` between matching the tracks and building the
@@ -349,26 +364,53 @@ impl<V: Volumes + 'static> Sender<V> {
         if job.is_cancelled() {
             return Err(Stop::cancelled());
         }
+        #[cfg(test)]
+        if let Some(hook) = &self.before_write {
+            hook();
+        }
 
         let outgoing = Arc::new(outgoing);
+        let open_seen = now.open;
         let dest = send_path(self.flow.guard());
         let at = write_and_record(self.flow.guard(), &dest, &outgoing, || {
             let record = self.record.clone();
             let outgoing = outgoing.clone();
-            job.writer().call(move |c| {
-                // The time first: nothing may fail once the send is
-                // recorded.
-                let at: String =
-                    c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
-                        r.get(0)
-                    })?;
-                record(c, &outgoing.sent, outgoing.paths())?;
-                Ok(at)
-            })
+            job.writer()
+                .call(move |c| {
+                    // The conflicts the merge chose from must be the ones
+                    // now: a resolve or an Undo landing since would make the
+                    // record keep or move a base the file doesn't match.
+                    let sent: Vec<LibraryTrackId> =
+                        outgoing.sent.iter().map(|s| s.library_track).collect();
+                    if open_at_send::open_fields(c, &sent)? != open_seen {
+                        return Ok(None);
+                    }
+                    // The time first: nothing may fail once the send is
+                    // recorded.
+                    let at: String =
+                        c.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
+                            r.get(0)
+                        })?;
+                    record(c, &outgoing.sent, outgoing.paths())?;
+                    Ok(Some(at))
+                })
+                .map_err(RecordError::Db)?
+                .ok_or(RecordError::ConflictsChanged)
         })
         .map_err(|e| match e {
             WriteError::Write(e) => Stop::new(SendFailure::CantWrite, e),
-            WriteError::Record { error, .. } => Stop::new(SendFailure::CantRecord, error),
+            WriteError::Record {
+                error: RecordError::ConflictsChanged,
+                ..
+            } => Stop::new(
+                SendFailure::LibraryChanged,
+                "a conflict was settled or reopened during the send",
+            )
+            .dropping_preflight(),
+            WriteError::Record {
+                error: RecordError::Db(error),
+                ..
+            } => Stop::new(SendFailure::CantRecord, error),
         })?;
         // One preflight, one send: the next send starts with a new read.
         self.flow.end(SendStep::Write, |steps| {
@@ -382,6 +424,15 @@ impl<V: Volumes + 'static> Sender<V> {
         let _ = job.progress(1.0);
         Ok(())
     }
+}
+
+/// Why the go's record step didn't record.
+enum RecordError {
+    /// The database refused.
+    Db(crate::db::DbError),
+    /// The open conflicts of the tracks sent aren't the ones the send's
+    /// merge saw: nothing was recorded, and the file is put back.
+    ConflictsChanged,
 }
 
 /// The export's modified time now, as the read records it (milliseconds

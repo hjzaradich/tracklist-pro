@@ -59,6 +59,7 @@ use crate::rekordbox::attrs::digits;
 use rusqlite::Connection;
 use unicode_normalization::UnicodeNormalization;
 
+use crate::conflicts::{self, Merged};
 use crate::paths::Volumes;
 use crate::rekordbox::{self, RekordboxXml};
 use crate::send_values::{self, CannotSend, Outcome, SendValues, SiblingEntry};
@@ -170,6 +171,73 @@ pub fn gather(
         playlists,
         highest_rekordbox_track_id: highest.and_then(|id| u64::try_from(id).ok()).unwrap_or(0),
     })
+}
+
+/// [`gather`] after the merge before a send ([`crate::conflicts::merge`],
+/// ROADMAP 1.9 rule 2): each track's values are the ones the merge read,
+/// with the values it chose in place of the track's own ([`choose`]). Call
+/// it right after the merge, on the same connection, so the values and the
+/// highest `TrackID` come from the same read.
+pub fn gather_merged(
+    conn: &Connection,
+    merged: Merged,
+    crates: Vec<Node>,
+    playlists: Vec<Node>,
+) -> rusqlite::Result<SendInput> {
+    let highest: Option<i64> =
+        conn.query_row("SELECT max(track_id) FROM rekordbox_track", [], |r| {
+            r.get(0)
+        })?;
+    let Merged {
+        values, mut chosen, ..
+    } = merged;
+    Ok(SendInput {
+        tracks: values
+            .into_iter()
+            .map(|values| {
+                let mut input = TrackInput::from(values);
+                if let (Values::Ready { attributes, .. }, Some(chosen)) =
+                    (&mut input.values, chosen.remove(&input.library_track))
+                {
+                    choose(attributes, &chosen);
+                }
+                input
+            })
+            .collect(),
+        crates,
+        playlists,
+        highest_rekordbox_track_id: highest.and_then(|id| u64::try_from(id).ok()).unwrap_or(0),
+    })
+}
+
+/// Puts the values the merge chose in a track's attributes: each replaces
+/// the attribute of its name, or is added after the others when the track
+/// has none. A value equal to the one there by the field's kind
+/// ([`crate::conflicts::same`]) leaves that text exactly as it is (rule 1),
+/// and a value that is no value for its kind adds nothing. `TrackID`,
+/// `Location` and the analysis fields are never the merge's to choose, and
+/// are left as they are.
+fn choose(attributes: &mut Vec<(String, String)>, chosen: &[(String, String)]) {
+    for (field, value) in chosen {
+        if matches!(
+            conflicts::kind_of(field),
+            conflicts::Kind::Analysis | conflicts::Kind::TrackId | conflicts::Kind::Location
+        ) {
+            continue;
+        }
+        match attributes.iter_mut().find(|(name, _)| name == field) {
+            Some((_, there)) => {
+                if !conflicts::same(field, Some(there.as_str()), Some(value.as_str())) {
+                    value.clone_into(there);
+                }
+            }
+            None => {
+                if !conflicts::same(field, None, Some(value.as_str())) {
+                    attributes.push((field.clone(), value.clone()));
+                }
+            }
+        }
+    }
 }
 
 /// A folder, crate or playlist to write.

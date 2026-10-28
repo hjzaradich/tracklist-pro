@@ -76,8 +76,11 @@
 //! stands answers its field whatever the verdict ([`store`]), so a value
 //! chosen is never overwritten while no side has moved.
 //!
-//! [`Verdict::handling`] is the one place that says the rest. `NotTakenUp` is
-//! handled as "send the app's value again": nothing is taken in and no
+//! [`Verdict::handling`] is the one place that says the rest. Every send
+//! applies it to every field first ([`merge`], 1cB-3); a field with an open
+//! conflict at that moment is [`open_at_send`]'s.
+//!
+//! `NotTakenUp` is handled as "send the app's value again": nothing is taken in and no
 //! conflict is recorded. To make it a conflict instead (the owner's call),
 //! change [`NOT_TAKEN_UP`] to [`Handling::Review`]; nothing else needs to
 //! change ([`store::detect`] then records it without a base, because the
@@ -108,6 +111,8 @@
 
 pub mod app_values;
 mod compare;
+pub mod merge;
+pub mod open_at_send;
 pub mod resolve;
 pub mod store;
 
@@ -118,6 +123,7 @@ use serde::Serialize;
 use specta::Type;
 
 pub use compare::{fits, kind_of, same, Kind, ANALYSIS_FIELDS};
+pub use merge::{merge_before_send, Merged};
 pub use resolve::{
     resolve, resolve_all, resolve_all_with, resolve_with, Choice, ResolveError, Resolved,
     RESOLVE_ALL_OPERATION, RESOLVE_OPERATION,

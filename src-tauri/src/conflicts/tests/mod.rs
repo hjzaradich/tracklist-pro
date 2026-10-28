@@ -304,12 +304,16 @@ impl Lib {
             .unwrap()
     }
 
-    /// Records bases for a track, as a send that wrote these fields does.
+    /// Records bases for a track, as a send that wrote these fields does,
+    /// at a fixed time before any operation a test makes (a resolve's Undo
+    /// is refused once its field was sent since, by the clock).
     pub fn sent(&self, track: LibraryTrackId, fields: &[(&str, &str)]) {
         for (field, value) in fields {
             self.insert(
-                "INSERT INTO sync_base (library_track_id, field, value) VALUES (?1, ?2, ?3)
-                 ON CONFLICT (library_track_id, field) DO UPDATE SET value = excluded.value",
+                "INSERT INTO sync_base (library_track_id, field, value, synced_at)
+                 VALUES (?1, ?2, ?3, '2026-10-01T00:00:00.000Z')
+                 ON CONFLICT (library_track_id, field)
+                 DO UPDATE SET value = excluded.value, synced_at = excluded.synced_at",
                 (track.0, (*field).to_owned(), (*value).to_owned()),
             );
         }

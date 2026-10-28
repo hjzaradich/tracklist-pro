@@ -209,6 +209,14 @@
     "where": "Send checklist, step 2, under a track in the other-file list.",
     "approved": "rekordbox file ({{path}})"
   },
+  "review.conflictsWaiting_one": {
+    "purpose": "Says one field of a track being sent has an open conflict (edited in the app and in rekordbox). Until the user settles it in Review > Conflicts, the send carries rekordbox's value for it, so nothing in rekordbox is lost, and the app's value waits.",
+    "where": "Send checklist, step 2, a line under the counts of tracks."
+  },
+  "review.conflictsWaiting_other": {
+    "purpose": "The same line for several fields.",
+    "where": "Send checklist, step 2, a line under the counts of tracks."
+  },
   "review.losesEntries": {
     "purpose": "Warns that sending replaces rekordbox playlists that will lose tracks.",
     "where": "Send checklist, step 2, warning above the list of crates sent with tracks left out.",

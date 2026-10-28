@@ -15,16 +15,24 @@
 //! puts the open row back under its old id. Ids are never reused (migration
 //! 0025).
 //!
-//! **Nothing here touches the three sides.** Settling records the decision;
+//! **The app's side takes the value chosen.** Settling records the decision;
 //! [`super::detect`] then answers the field with the value chosen
-//! ([`super::Outcome::Decided`]) for as long as the decision stands. A
-//! store of the app's own values must take the value chosen in the same
-//! operation, so one Undo takes that back too: [`resolve_with`] and
-//! [`resolve_all_with`] hand it the recorder for exactly that.
+//! ([`super::Outcome::Decided`]) for as long as the decision stands. In the
+//! same operation, so one Undo takes both back, [`resolve`] and
+//! [`resolve_all`] update the store of the app's own values
+//! ([`super::app_values::adopt`]): keeping rekordbox's clears the app's
+//! own, keeping the app's or a value by hand sets it. Without that, once a
+//! send moved the base, the value turned down would read as "only the app
+//! changed" and go out again (1cB-3). [`resolve_with`] and
+//! [`resolve_all_with`] take another hook in its place.
 //!
 //! Undo is refused, changing nothing, if the settled row is gone or
 //! changed, or if the field has a newer open conflict (a side moved after
-//! the resolve): there can be one open conflict per field.
+//! the resolve): there can be one open conflict per field. It is refused
+//! too once a send carried the field since ([`sent_since`]): that send
+//! moved the base to the value chosen, so the conflict put back would no
+//! longer be one, and the next send would take the app's value for "only
+//! the app changed" without asking.
 
 use std::fmt;
 
@@ -36,7 +44,7 @@ use specta::Type;
 use super::store::{
     conflict_from, Conflict, ConflictId, Filter, Status, CONFLICT_COLUMNS, OPEN_WHERE,
 };
-use super::{fits, same};
+use super::{app_values, fits, same};
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError, Recorded, Recorder};
 
@@ -117,18 +125,19 @@ impl From<OpsError> for ResolveError {
     }
 }
 
-/// Settles one open conflict, as one operation.
+/// Settles one open conflict, as one operation, and the store of the
+/// app's own values takes the value chosen ([`app_values::adopt`]).
 pub fn resolve(
     conn: &mut Connection,
     id: ConflictId,
     choice: &Choice,
 ) -> Result<Recorded<Resolved>, ResolveError> {
-    resolve_with(conn, id, choice, |_, _| Ok(()))
+    resolve_with(conn, id, choice, app_values::adopt)
 }
 
 /// [`resolve`], with `adopt` run inside the same operation once the
-/// conflict is settled: what a store of the app's own values writes there
-/// (taking the value chosen) is undone with the resolve.
+/// conflict is settled, in place of [`app_values::adopt`]: what it writes
+/// there is undone with the resolve.
 pub fn resolve_with(
     conn: &mut Connection,
     id: ConflictId,
@@ -159,7 +168,8 @@ pub fn resolve_with(
 /// Settles every open conflict `filter` matches the same way, as one
 /// operation: "take rekordbox for all ratings" is `field: Some("Rating")`
 /// with [`Choice::KeepRekordbox`]. With nothing to settle, nothing is
-/// logged.
+/// logged. The store of the app's own values takes each value chosen
+/// ([`app_values::adopt`]).
 ///
 /// With [`Choice::Edit`] every matched conflict gets that value; if it
 /// doesn't fit one of their fields, none is settled.
@@ -168,11 +178,12 @@ pub fn resolve_all(
     filter: &Filter,
     choice: &Choice,
 ) -> Result<Recorded<Vec<Resolved>>, ResolveError> {
-    resolve_all_with(conn, filter, choice, |_, _| Ok(()))
+    resolve_all_with(conn, filter, choice, app_values::adopt)
 }
 
 /// [`resolve_all`], with `adopt` run inside the same operation after each
-/// conflict is settled (see [`resolve_with`]).
+/// conflict is settled, in place of [`app_values::adopt`] (see
+/// [`resolve_with`]).
 pub fn resolve_all_with(
     conn: &mut Connection,
     filter: &Filter,
@@ -207,6 +218,26 @@ pub fn resolve_all_with(
         operation_id: recorded.operation_id,
         value: recorded.value?,
     })
+}
+
+/// Whether the resolve `operation` settled a conflict on a field that a
+/// send has carried since: the field's base was recorded at or after the
+/// resolve (by the clock, as a send's own record; a tie counts as sent).
+/// Undo of such a resolve is refused ([`crate::ops`]). A field with an
+/// open conflict keeps its base through a send, but then the resolve's
+/// Undo is refused anyway (a newer open conflict).
+pub(crate) fn sent_since(conn: &Connection, operation: i64) -> rusqlite::Result<bool> {
+    conn.prepare_cached(&format!(
+        "SELECT EXISTS (
+             SELECT 1 FROM operation o
+             JOIN change ch ON ch.operation_id = o.id
+                           AND ch.entity = 'conflict' AND ch.action = 'insert'
+             JOIN conflict c ON c.id = ch.entity_id
+             JOIN sync_base b ON b.library_track_id = c.library_track_id AND b.field = c.field
+             WHERE o.id = ?1 AND o.kind IN ('{RESOLVE_OPERATION}', '{RESOLVE_ALL_OPERATION}')
+               AND b.synced_at >= o.created_at)"
+    ))?
+    .query_row([operation], |r| r.get(0))
 }
 
 /// The open conflicts `filter` matches (only `id`, when given), oldest
