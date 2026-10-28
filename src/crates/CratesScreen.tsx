@@ -5,6 +5,7 @@ import type { Crate, FolderContents } from "../bindings";
 import { libraryRow, type LibraryRow } from "../library/libraryRow";
 import { shownTitle } from "../library/RemoveFromLibrary";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
+import { useWhenUndone } from "../shell/undoneStore";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import { ConfirmDelete, MoveForm, NameForm } from "./CrateForms";
 import styles from "./CratesScreen.module.css";
@@ -85,6 +86,9 @@ export function CratesScreen({
   const contents = useFolderContents(
     asking === "delete" && current?.kind === "folder" ? current.id : null,
   );
+
+  // Undone from the top bar: the line describes a change that no longer stands.
+  useWhenUndone(() => setDone(null));
 
   const finished = (what: Done) => {
     setDone(what);

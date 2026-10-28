@@ -116,8 +116,9 @@ fn set_offline(path: &Path, offline: bool) {
 struct Lib {
     volume: TempVolume,
     music: PathBuf,
-    _db: tempfile::TempDir,
     writer: Writer,
+    // After the writer: fields drop in order, so the database closes before its folder goes.
+    _db: tempfile::TempDir,
     /// Every file the walk opened for the unchanged check, in every run.
     reads: Arc<Mutex<Vec<PathBuf>>>,
     /// What to do before each directory entry the walk looks at, if set.

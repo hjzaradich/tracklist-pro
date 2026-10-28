@@ -14,6 +14,7 @@ import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { useAcceptedStore } from "../review/acceptedStore";
+import { useUndoneCount } from "./undoneStore";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 
 // Undo (1bA-12): one step at a time, newest first, from the top bar or
@@ -51,6 +52,8 @@ export function useKeepNextUndoCurrent() {
             event.action.type === "success" ? (event.action.data as UndoOutcome | undefined) : undefined;
           if (outcome?.status === "undone") {
             useAcceptedStore.getState().undone(outcome.operation.id);
+            // The lines of the other screens ("Removed…", "Added…") go too.
+            useUndoneCount.getState().undone();
           }
         }
       }),

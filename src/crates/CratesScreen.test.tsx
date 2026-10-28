@@ -168,6 +168,9 @@ function backend(
         lastOperation = 8;
         return { changed: wanted.length, skipped: 0, operationId: 8 };
       }
+      case "undo_last_operation":
+        before = null;
+        return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
       case "next_undo_operation":
         return {
           operation: before === null ? null : { id: lastOperation, kind: "x", details: { name: null, from: null, tracks: null } },
@@ -497,6 +500,19 @@ describe("Undo is in the top bar only (owner decision, 2026-10-27)", () => {
       await expectOnlyTheTopBarUndo();
     },
   );
+});
+
+describe("an Undo from the top bar", () => {
+  it("drops the line about the change it took back", async () => {
+    backend([]);
+    renderScreen(null, true);
+    await userEvent.click(await button("crates:new.button"));
+    await userEvent.type(await screen.findByLabelText(tx("crates:new.label")), "Peak time");
+    await userEvent.click(await button("crates:new.confirm"));
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("crates:done.created"));
+    await userEvent.click(await expectOnlyTheTopBarUndo());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
 });
 
 describe("a change that records nothing", () => {

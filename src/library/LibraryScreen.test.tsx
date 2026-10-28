@@ -255,6 +255,12 @@ function removable(initial: LibraryTrack[]) {
         last === null ? null : { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } };
       return { operation, refusal: null };
     }
+    if (cmd === "undo_last_operation") {
+      if (last === null) return { status: "nothingToUndo" };
+      tracks = [...tracks, last].sort((a, b) => a.id - b.id);
+      last = null;
+      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
+    }
     throw new Error(`unexpected command ${cmd}`);
   });
   return calls;
@@ -305,6 +311,20 @@ describe("removing a track from the Library", () => {
     expect(line).toHaveTextContent(tx("library:remove.done"));
     expect(within(line).queryByRole("button")).toBeNull();
     await expectOnlyTheTopBarUndo();
+  });
+
+  it("drops the line when the top bar's Undo takes the removal back", async () => {
+    removable([track(1), track(2)]);
+    renderScreen(true);
+    const [first] = await rows();
+    await userEvent.click(within(first).getByRole("button", { name: tx("library:remove.buttonFor", { title: "Synthetic Tune 1" }) }));
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: tx("library:remove.confirm") }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("library:remove.done"));
+    await userEvent.click(await expectOnlyTheTopBarUndo());
+    await waitFor(async () => expect(await rows()).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByText(tx("library:remove.done"))).toBeNull());
   });
 
   it("says so, with only the top bar's Undo, when the last track was removed and the list is empty", async () => {
@@ -419,6 +439,10 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
         operationId: fresh.length > 0 ? 1 : null,
       };
     }
+    if (cmd === "undo_last_operation") {
+      last = null;
+      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
+    }
     if (cmd === "next_undo_operation") {
       const operation =
         last === null || last.added.length === 0
@@ -504,6 +528,19 @@ describe("adding a track to a crate", () => {
     expect(line).toHaveTextContent(tx("crates:addTrack.added", { crate: "Warm up" }));
     expect(within(line).queryByRole("button")).toBeNull();
     await expectOnlyTheTopBarUndo();
+  });
+
+  it("drops the line when the top bar's Undo takes the add back", async () => {
+    crateBackend([{ id: 1, name: "Warm up", trackIds: [] }]);
+    renderScreen(true);
+    const choice = await addChoice("Synthetic Tune 1");
+    await waitFor(() => expect(choice).toBeEnabled());
+    await userEvent.selectOptions(choice, "Warm up");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      tx("crates:addTrack.added", { crate: "Warm up" }),
+    );
+    await userEvent.click(await expectOnlyTheTopBarUndo());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
   });
 
   it("shows why an add was refused", async () => {

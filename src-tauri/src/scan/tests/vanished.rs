@@ -281,11 +281,12 @@ fn a_different_drive_swapped_in_on_the_same_mount_mid_walk_is_not_indexed_as_the
 
 /// A flat music folder holding `names`, walked once in full.
 struct Walked {
-    _drive: tempfile::TempDir,
-    _data: tempfile::TempDir,
     volume: TempVolume,
     music: PathBuf,
     writer: Writer,
+    // Last: fields drop in order, so the database closes before its folder goes.
+    _data: tempfile::TempDir,
+    _drive: tempfile::TempDir,
 }
 
 fn walked_once(names: &[&str]) -> Walked {

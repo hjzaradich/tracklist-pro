@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
+import { useWhenUndone } from "../shell/undoneStore";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import styles from "./LibraryTrackList.module.css";
 import { useAddToCrate, useCrates } from "../crates/useCrates";
@@ -34,6 +35,12 @@ export function LibraryScreen() {
     crate: string;
     changed: boolean;
   } | null>(null);
+
+  // Undone from the top bar: what the lines say no longer stands.
+  useWhenUndone(() => {
+    setRemoved(false);
+    setAdded(null);
+  });
 
   const add = (track: LibraryRow, crate: Crate) => {
     setRemoved(false);
