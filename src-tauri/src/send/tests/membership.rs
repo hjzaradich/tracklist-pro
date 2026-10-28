@@ -416,3 +416,31 @@ fn undo_of_a_crate_change_rekordbox_overtook_is_refused_and_changes_nothing() {
     }
     assert_eq!(w.holds(peak), [a.0, b.0]);
 }
+
+#[test]
+fn a_membership_settled_between_the_gos_merge_and_its_record_refuses_the_send() {
+    // c's membership conflict: rekordbox's Peak lacks c, so the send leaves
+    // c out of every crate it writes, and c isn't sent at all.
+    let (w, _, _) = peak_with_no_base_and_both_sides_different();
+    w.send_through();
+    let file = fs::read(w.send_file()).unwrap();
+    let on_c = w.open_ones()[1].id;
+    w.rekordbox_shows(&[("Peak", &[1, 2])]);
+    let preflight = w.prepare().unwrap();
+    let writer = w.writer.clone();
+    let sender = w.sender().before_write(move || {
+        writer
+            .call(move |c| Ok(conflicts::resolve(c, on_c, &Choice::KeepApp)))
+            .unwrap()
+            .unwrap();
+    });
+
+    assert_eq!(
+        w.go_with(sender, &preflight.token, preflight.needs_confirm),
+        Some(SendFailure::LibraryChanged)
+    );
+    assert_eq!(fs::read(w.send_file()).unwrap(), file, "the last file is back");
+    // The next send carries the membership chosen.
+    w.send_through();
+    assert_eq!(w.written("Peak"), ["a.mp3", "b.mp3", "c.mp3"]);
+}
