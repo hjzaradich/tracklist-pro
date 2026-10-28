@@ -17,6 +17,8 @@ use crate::rekordbox::RekordboxXml;
 use crate::rekordbox_write::{BuildError, SentTrack};
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
+mod merge;
+
 fn volume_id() -> VolumeId {
     identity(IdentitySignals {
         kind: VolumeKind::External,

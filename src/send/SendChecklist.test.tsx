@@ -33,6 +33,7 @@ function preflight(fields: Partial<Preflight> = {}): Preflight {
     otherFile: [],
     noKind: [],
     losesEntries: [],
+    conflictsWaiting: 0,
     refusal: null,
     nothingToSend: false,
     canSend: true,
@@ -348,6 +349,27 @@ describe("the send checklist", () => {
     );
     for (const count of [0, 1, 2]) {
       expect(screen.queryByText(tx("send:review.noFileAtLocation", { count }))).toBeNull();
+    }
+  });
+
+  it("says how many fields wait in Conflicts, and lets the send go", async () => {
+    fakeBackend({ preflight: preflight({ conflictsWaiting: 2 }) });
+    renderChecklist();
+    const review = step(tx("send:review.title"));
+    expect(
+      await review.findByText(tx("send:review.conflictsWaiting", { count: 2 })),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled();
+  });
+
+  it("says nothing about Conflicts when no field waits there", async () => {
+    fakeBackend({ preflight: preflight() });
+    renderChecklist();
+    const review = step(tx("send:review.title"));
+    expect(await review.findByText(tx("send:review.new", { count: 3 }))).toBeInTheDocument();
+    for (const count of [0, 1]) {
+      expect(review.queryByText(tx("send:review.conflictsWaiting", { count }))).toBeNull();
     }
   });
 

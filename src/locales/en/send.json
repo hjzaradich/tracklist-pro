@@ -49,6 +49,8 @@
     "losesEntries": "Crates sent with tracks left out (rekordbox's playlist of the same name will lose them)",
     "losesEntriesRow_one": "{{name}} ({{count, number}} of {{entries, number}} left out)",
     "losesEntriesRow_other": "{{name}} ({{count, number}} of {{entries, number}} left out)",
+    "conflictsWaiting_one": "{{count, number}} field waits in Conflicts (sent with rekordbox's value until you decide)",
+    "conflictsWaiting_other": "{{count, number}} fields wait in Conflicts (sent with rekordbox's values until you decide)",
     "notStored_one": "{{count, number}} track in the export couldn't be read. If it's in your Library it's sent as new, and answering Yes in rekordbox will overwrite rekordbox's entry.",
     "notStored_other": "{{count, number}} tracks in the export couldn't be read. Any in your Library are sent as new, and answering Yes in rekordbox will overwrite rekordbox's entries.",
     "importedSince": {

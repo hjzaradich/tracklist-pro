@@ -290,6 +290,11 @@ function Review({
           <p>{t("review.known", { count: preflight.knownTracks })}</p>
         </>
       )}
+      {preflight.conflictsWaiting > 0 && !refusal && (
+        <p className={styles.warning}>
+          {t("review.conflictsWaiting", { count: preflight.conflictsWaiting })}
+        </p>
+      )}
       {preflight.leftOut.length > 0 && (
         <>
           <p className={styles.warning}>
