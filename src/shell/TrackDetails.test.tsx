@@ -11,6 +11,7 @@ import { tx } from "../test/tx";
 import { DetailsPanel } from "./DetailsPanel";
 import { useSelectedTrack } from "./selectedTrack";
 import { useUndoneCount } from "./undoneStore";
+import { useUndoOperation } from "./useUndo";
 
 const rekordbox = (value: string): SourcedValue => ({ value, origin: "rekordboxEntry", file: null });
 const inFile = (value: string, name: string): SourcedValue => ({
@@ -32,14 +33,20 @@ const sources = (fields: FieldSources[], confirmedEntry: number | null = null): 
 /** What the backend answers, and the withdrawals asked for. */
 let answer: TagSources;
 let withdrawn: number[] = [];
+let asked: { recordingId: number; shownFile: number | null }[] = [];
 let refuse = false;
 
 beforeEach(() => {
   withdrawn = [];
+  asked = [];
   refuse = false;
   answer = sources([]);
   mockIPC((cmd, args) => {
-    if (cmd === "track_tag_sources") return answer;
+    if (cmd === "track_tag_sources") {
+      asked.push(args as { recordingId: number; shownFile: number | null });
+      return answer;
+    }
+    if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
     if (cmd === "review_withdraw_relink") {
       withdrawn.push((args as { entryId: number }).entryId);
       if (refuse) throw { kind: "reviewItemGone", params: {} };
@@ -179,6 +186,38 @@ describe("the Details panel", () => {
     expect(await screen.findByRole("status")).toBeInTheDocument();
     useUndoneCount.getState().undone();
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+
+  it("shows the Withdraw action again once an Undo took the withdrawal back", async () => {
+    const user = userEvent.setup();
+    const confirmed = sources([field("title", rekordbox("Synthetic Tune"))], 12);
+    answer = confirmed;
+    function Undoer() {
+      const undo = useUndoOperation();
+      return <button onClick={() => undo.mutate(41)}>undo-now</button>;
+    }
+    useSelectedTrack.setState({ row: tableRow(1) });
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <DetailsPanel />
+        <Undoer />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: tx("shell:details.withdraw.action") }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: tx("shell:details.withdraw.action") })).toBeNull(),
+    );
+    // The Undo gives the confirmation back; the panel reads it again.
+    answer = confirmed;
+    await user.click(screen.getByRole("button", { name: "undo-now" }));
+    expect(await screen.findByRole("button", { name: tx("shell:details.withdraw.action") })).toBeEnabled();
+  });
+
+  it("reads the tags of the file whose path it shows", async () => {
+    answer = sources([field("title", inFile("Tune", "tune 1.mp3"))]);
+    renderPanel(tableRow(1));
+    await waitFor(() => fieldNamed("title"));
+    expect(asked).toEqual([{ recordingId: 101, shownFile: 1 }]);
   });
 
   it("shows the reason when the withdrawal is refused", async () => {

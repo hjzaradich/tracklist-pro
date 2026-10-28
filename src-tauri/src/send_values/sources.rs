@@ -19,6 +19,14 @@
 //!
 //! A file that agrees with the value shown is not listed: the panel is a
 //! summary, not a table of every file. Nothing is written here.
+//!
+//! **Which files are asked.** The file the track shows comes first and is
+//! always read, as the lists do (a Library track's linked file, even gone;
+//! for another track the file the table shows, `shown_file`, so the path
+//! and the tags describe the same file, a `file_choice` pick included).
+//! The track's other files count only while they are on disk and not hidden
+//! (`file.hidden_reason`), the same for a Library track and for any other.
+//! rekordbox's `Year` 0 is no year, as everywhere else.
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
@@ -162,7 +170,9 @@ fn fields_from(
                 let value = entry
                     .iter()
                     .find(|(name, _)| name == attribute)
-                    .and_then(|(_, value)| text(value));
+                    .and_then(|(_, value)| text(value))
+                    // rekordbox writes 0 for a track with no year.
+                    .filter(|value| field != TagField::Year || value.trim() != "0");
                 let shown = value.map(|value| SourcedValue {
                     value: value.to_owned(),
                     origin: ValueOrigin::RekordboxEntry,
@@ -194,11 +204,14 @@ fn fields_from(
     out
 }
 
-/// The sources of the tag fields of the track `recording`.
+/// The sources of the tag fields of the track `recording`. `shown_file` is
+/// the file the track table shows for a track outside the Library (the
+/// panel's path is that file's); a Library track shows its linked file.
 pub fn tag_sources(
     conn: &Connection,
     volumes: &impl Volumes,
     recording: i64,
+    shown_file: Option<i64>,
 ) -> rusqlite::Result<TagSources> {
     let library: Option<i64> = conn
         .query_row(
@@ -209,7 +222,7 @@ pub fn tag_sources(
         .optional()?;
     match library {
         Some(id) => of_library_track(conn, volumes, LibraryTrackId(id)),
-        None => of_files(conn, recording),
+        None => of_files(conn, recording, shown_file),
     }
 }
 
@@ -228,8 +241,18 @@ fn of_library_track(
         Source::Known { entry, .. } => Some(entry),
         Source::Files { .. } | Source::Cannot(_) => None,
     };
+    // The linked file first, always; the others while they aren't hidden
+    // (`tag_order` leaves out those that are gone).
+    let order = loaded.tag_order(row);
+    let hidden = hidden_among(conn, &order)?;
+    let order: Vec<i64> = order
+        .into_iter()
+        .enumerate()
+        .filter(|(at, file)| *at == 0 || !hidden.contains(file))
+        .map(|(_, file)| file)
+        .collect();
     let files: Vec<(NamedFile, Vec<tag_fields::TagValue>)> =
-        read_tags(&loaded.files, &loaded.tag_order(row), &TAG_ATTRIBUTES)
+        read_tags(&loaded.files, &order, &TAG_ATTRIBUTES)
             .into_iter()
             .map(|(file, values)| {
                 let name = loaded.files[&file].name.clone();
@@ -261,18 +284,39 @@ fn confirmed_entry(conn: &Connection, loaded: &Loaded, row: &Row) -> rusqlite::R
     Ok(confirmed.then_some(entry))
 }
 
-/// A track outside the Library: its own files' tags, best file first.
-fn of_files(conn: &Connection, recording: i64) -> rusqlite::Result<TagSources> {
+/// Which of `files` are hidden (`file.hidden_reason`).
+fn hidden_among(
+    conn: &Connection,
+    files: &[i64],
+) -> rusqlite::Result<std::collections::HashSet<i64>> {
+    conn.prepare(
+        "SELECT id FROM file
+         WHERE hidden_reason IS NOT NULL AND id IN (SELECT value FROM json_each(?1))",
+    )?
+    .query_map([json_ids(&mut files.iter().copied())], |r| r.get(0))?
+    .collect()
+}
+
+/// A track outside the Library: its own files' tags. The file the table
+/// shows (`shown_file`, if it is one of the track's files) comes first, then
+/// the others, best first, while they are on disk and not hidden.
+fn of_files(
+    conn: &Connection,
+    recording: i64,
+    shown_file: Option<i64>,
+) -> rusqlite::Result<TagSources> {
     let mut stmt = conn.prepare(
-        "SELECT f.id, f.rel_path, f.raw_tags
+        "SELECT f.id, f.rel_path, f.raw_tags, f.present, f.hidden_reason IS NOT NULL
          FROM recording_file rf JOIN file f ON f.id = rf.file_id
          WHERE rf.recording_id = ?1
          ORDER BY (rf.role = 'best') DESC, f.id",
     )?;
-    let files: Vec<(NamedFile, Vec<tag_fields::TagValue>)> = stmt
+    type Found = (NamedFile, Vec<tag_fields::TagValue>, bool);
+    let mut files: Vec<Found> = stmt
         .query_map([recording], |r| {
             let rel_path: String = r.get(1)?;
             let raw_tags: Option<String> = r.get(2)?;
+            let usable = r.get::<_, bool>(3)? && !r.get::<_, bool>(4)?;
             Ok((
                 NamedFile {
                     id: r.get(0)?,
@@ -281,9 +325,20 @@ fn of_files(conn: &Connection, recording: i64) -> rusqlite::Result<TagSources> {
                 raw_tags
                     .map(|raw| tag_fields::read_only(&raw, &TAG_ATTRIBUTES))
                     .unwrap_or_default(),
+                usable,
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
+    if let Some(at) = shown_file.and_then(|id| files.iter().position(|f| f.0.id == id)) {
+        let shown = files.remove(at);
+        files.insert(0, shown);
+    }
+    let files: Vec<(NamedFile, Vec<tag_fields::TagValue>)> = files
+        .into_iter()
+        .enumerate()
+        .filter(|(at, (_, _, usable))| *at == 0 || *usable)
+        .map(|(_, (file, values, _))| (file, values))
+        .collect();
     Ok(TagSources {
         in_rekordbox: false,
         fields: fields_from(None, &files),
@@ -294,13 +349,16 @@ fn of_files(conn: &Connection, recording: i64) -> rusqlite::Result<TagSources> {
 /// What the Details panel lists for the track `recording_id`: each tag field
 /// with its value and where it comes from, and the confirmation of its
 /// rekordbox entry, if one can be withdrawn. A track that doesn't exist has
-/// no fields.
+/// no fields. `shown_file` is the file of the selected row (the one whose
+/// path the panel shows): for a track outside the Library its tags come
+/// first.
 #[tauri::command]
 #[specta::specta]
 pub async fn track_tag_sources(
     reads: tauri::State<'_, crate::db::ReadPool>,
     recording_id: i64,
+    shown_file: Option<i64>,
 ) -> Result<TagSources, crate::ipc::IpcError> {
     let volumes = crate::scan::system_volumes();
-    Ok(reads.read(|conn| tag_sources(conn, &volumes, recording_id))?)
+    Ok(reads.read(|conn| tag_sources(conn, &volumes, recording_id, shown_file))?)
 }

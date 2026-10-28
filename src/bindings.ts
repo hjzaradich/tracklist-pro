@@ -431,9 +431,11 @@ export const commands = {
 	 *  What the Details panel lists for the track `recording_id`: each tag field
 	 *  with its value and where it comes from, and the confirmation of its
 	 *  rekordbox entry, if one can be withdrawn. A track that doesn't exist has
-	 *  no fields.
+	 *  no fields. `shown_file` is the file of the selected row (the one whose
+	 *  path the panel shows): for a track outside the Library its tags come
+	 *  first.
 	 */
-	trackTagSources: (recordingId: number) => typedError<TagSources, IpcError>(__TAURI_INVOKE("track_tag_sources", { recordingId })),
+	trackTagSources: (recordingId: number, shownFile: number | null) => typedError<TagSources, IpcError>(__TAURI_INVOKE("track_tag_sources", { recordingId, shownFile })),
 	/**  A window of the hidden files (the Hidden filter in All music). */
 	hiddenFilesPage: (query: HiddenQuery) => typedError<HiddenPage, IpcError>(__TAURI_INVOKE("hidden_files_page", { query })),
 	/**  "Show again" for a file the user hid. */
@@ -2460,13 +2462,6 @@ export type UndoRefusal =
  */
 { code: "mergeLinkChanged" };
 
-/**  Where a value comes from. */
-export type ValueOrigin = 
-/**  rekordbox's entry for the track. */
-"rekordboxEntry" | 
-/**  A tag in one of the track's files (named in [`SourcedValue::file`]). */
-"file";
-
 /**
  *  How a field's values are read and shown (and what a value given by hand
  *  looks like). The engine's own `Kind`, without its two never-listed
@@ -2481,6 +2476,13 @@ export type ValueKind = "location" |
 "date" | 
 /**  Whole numbers. */
 "number" | "text";
+
+/**  Where a value comes from. */
+export type ValueOrigin = 
+/**  rekordbox's entry for the track. */
+"rekordboxEntry" | 
+/**  A tag in one of the track's files (named in [`SourcedValue::file`]). */
+"file";
 
 /**
  *  The verdicts. Stored in `file_verdict.verdict` under [`Verdict::as_str`]

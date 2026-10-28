@@ -84,7 +84,7 @@ function Field({ field, more }: { field: FieldSources; more: boolean }) {
  */
 export function TrackDetails({ row }: { row: TableRow }) {
   const { t } = useTranslation("shell");
-  const sources = useTrackTagSources(row.recordingId);
+  const sources = useTrackTagSources(row.recordingId, row.file?.id ?? null);
   const [more, setMore] = useState(false);
   const [withdrawn, setWithdrawn] = useState(false);
   const withdraw = useWithdrawRelink(() => setWithdrawn(true));

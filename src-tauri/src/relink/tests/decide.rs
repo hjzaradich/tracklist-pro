@@ -38,7 +38,7 @@ impl Lib {
     /// the track `recording` (1cB-17).
     fn withdrawable(&self, recording: i64) -> Option<i64> {
         self.writer
-            .call(move |c| crate::send_values::tag_sources(c, &Drives, recording))
+            .call(move |c| crate::send_values::tag_sources(c, &Drives, recording, None))
             .unwrap()
             .confirmed_entry
     }
