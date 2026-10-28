@@ -480,7 +480,10 @@ fn a_crate_membership_conflict_is_named_by_its_crate_and_is_never_given_by_hand(
     let sql_field = field.clone();
     app.state::<Writer>()
         .call(move |c| {
-            c.execute("INSERT INTO crate (kind, name) VALUES ('folder', 'Gigs')", [])?;
+            c.execute(
+                "INSERT INTO crate (kind, name) VALUES ('folder', 'Gigs')",
+                [],
+            )?;
             c.execute(
                 "INSERT INTO crate (parent_id, kind, name) VALUES (1, 'static', ?1)",
                 [name],
@@ -545,5 +548,8 @@ fn a_membership_conflict_whose_crate_is_gone_is_named_by_the_last_name_of_its_ke
         .iter()
         .find(|f| f["field"] == json!(field))
         .unwrap();
-    assert_eq!(named["crateName"], json!(crate::rekordbox_write::sibling_key("Old Peak")));
+    assert_eq!(
+        named["crateName"],
+        json!(crate::rekordbox_write::sibling_key("Old Peak"))
+    );
 }

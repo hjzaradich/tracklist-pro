@@ -146,7 +146,8 @@ pub(super) fn plan(
     let mut candidates: BTreeSet<&str> = KEPT_BY_REKORDBOX.into_iter().collect();
     for id in &ids {
         for value in own.of(*id) {
-            if app_values::editable(&value.field) && TRACK_ATTRIBUTES.contains(&value.field.as_str())
+            if app_values::editable(&value.field)
+                && TRACK_ATTRIBUTES.contains(&value.field.as_str())
             {
                 candidates.insert(&value.field);
             }
@@ -186,7 +187,10 @@ pub(super) fn plan(
         let Some(&first) = present.first() else {
             continue;
         };
-        if !present.iter().any(|&at| helds[at].as_ref().is_some_and(|h| h.user)) {
+        if !present
+            .iter()
+            .any(|&at| helds[at].as_ref().is_some_and(|h| h.user))
+        {
             continue;
         }
         let value_of = |at: usize| helds[at].as_ref().map(|h| h.value.as_str());

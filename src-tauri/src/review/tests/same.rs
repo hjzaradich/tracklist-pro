@@ -1085,11 +1085,10 @@ fn the_chosen_values_land_in_the_app_values_and_the_next_send_carries_them() {
 
     // The merge before the next send chooses them, by the 1.10 rules.
     let lt = crate::library::LibraryTrackId(t.lt(t.ta));
-    let merged = t
-        .db
-        .writer
-        .call(move |c| crate::conflicts::merge_before_send(c, &Mount, &[lt]))
-        .unwrap();
+    let merged =
+        t.db.writer
+            .call(move |c| crate::conflicts::merge_before_send(c, &Mount, &[lt]))
+            .unwrap();
     let chosen = &merged.chosen[&lt];
     for (field, value) in [
         ("Rating", "102"),
