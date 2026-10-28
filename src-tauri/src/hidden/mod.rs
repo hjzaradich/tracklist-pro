@@ -50,6 +50,8 @@ use crate::track_table::{SortColumn, TableSort};
 
 mod choose;
 #[cfg(test)]
+mod choose_tests;
+#[cfg(test)]
 mod tests;
 
 pub use choose::{use_this_file, Chosen, USE_THIS_FILE_OPERATION};

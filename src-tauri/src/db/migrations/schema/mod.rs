@@ -12,6 +12,7 @@ mod file_quality;
 mod file_roles;
 mod file_stage;
 mod file_verdict;
+mod file_choice;
 mod files;
 mod fingerprint_audio_hash;
 mod fingerprint_match;
