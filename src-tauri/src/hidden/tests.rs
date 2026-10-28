@@ -30,11 +30,11 @@ fn hide(lib: &Lib, file: i64, reason: &'static str) {
 fn reason_of(lib: &Lib, file: i64) -> Option<String> {
     lib.writer
         .call(move |c| {
-            Ok(c.query_row(
+            c.query_row(
                 "SELECT hidden_reason FROM file WHERE id = ?1",
                 [file],
                 |r| r.get::<_, Option<String>>(0),
-            )?)
+            )
         })
         .unwrap()
 }
