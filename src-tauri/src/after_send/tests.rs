@@ -491,6 +491,7 @@ impl Lib {
                 path: path.iter().map(|n| (*n).to_owned()).collect(),
                 folder: *folder,
                 entries: Vec::new(),
+                replaced: None,
             })
             .collect();
         self.writer

@@ -67,7 +67,12 @@
 //!
 //! The folders and playlists the send wrote are kept too, in the same
 //! transaction (`sent_playlist`, ROADMAP 1.9 rule 6): the path of each, so
-//! a later read can tell what the app itself put in rekordbox.
+//! a later read can tell what the app itself put in rekordbox. For a
+//! crate's playlist, with it, the tracks whose membership the send changed
+//! in rekordbox's playlist of that path (`sent_playlist.replaced`, 1cB-3,
+//! [`super::SentPath::replaced`]): the membership counterpart of
+//! `sync_base.replaced`, forgotten the same way once a read shows the send
+//! taken up ([`forget_taken_up`]).
 //!
 //! A send isn't an operation in the undo log. Its new `sync_base` and
 //! `sent_entry` rows never take the row id of a deleted one (migrations
@@ -103,16 +108,7 @@ fn entry_at(
     location: &str,
     read_at: &str,
 ) -> rusqlite::Result<Option<HashMap<String, String>>> {
-    let Ok(location) = decode(location) else {
-        return Ok(None);
-    };
-    let rows: Vec<i64> = conn
-        .prepare_cached(
-            "SELECT id FROM rekordbox_track WHERE location_key = ?1 AND read_at = ?2 LIMIT 2",
-        )?
-        .query_map(params![location.match_key(), read_at], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    let [row] = rows[..] else {
+    let Some(row) = row_at(conn, location, read_at)? else {
         return Ok(None);
     };
     let mut attributes = conn.prepare_cached(
@@ -128,6 +124,24 @@ fn entry_at(
         })
         .collect::<rusqlite::Result<_>>()?;
     Ok(Some(attributes))
+}
+
+/// The `rekordbox_track` row at `location` in the read made at `read_at`,
+/// when that read has exactly one row there.
+fn row_at(conn: &Connection, location: &str, read_at: &str) -> rusqlite::Result<Option<i64>> {
+    let Ok(location) = decode(location) else {
+        return Ok(None);
+    };
+    let rows: Vec<i64> = conn
+        .prepare_cached(
+            "SELECT id FROM rekordbox_track WHERE location_key = ?1 AND read_at = ?2 LIMIT 2",
+        )?
+        .query_map(params![location.match_key(), read_at], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(match rows[..] {
+        [row] => Some(row),
+        _ => None,
+    })
 }
 
 /// What a base replaced, given what rekordbox's entry showed: `None` when
@@ -192,11 +206,11 @@ pub fn record_send(
         // path already there is updated, never duplicated, and keeps its
         // `seen` mark. Done first: a track that fails below rolls them back too.
         let mut path = tx.prepare(
-            "INSERT INTO sent_playlist (path, path_key, kind, sent_at, send_id)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO sent_playlist (path, path_key, kind, sent_at, send_id, replaced)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT (path_key, kind)
              DO UPDATE SET path = excluded.path, sent_at = excluded.sent_at,
-                           send_id = excluded.send_id",
+                           send_id = excluded.send_id, replaced = excluded.replaced",
         )?;
         for sent_path in paths {
             path.execute(params![
@@ -209,6 +223,10 @@ pub fn record_send(
                 },
                 now,
                 send,
+                sent_path.replaced.as_ref().map(|tracks| {
+                    let ids: Vec<i64> = tracks.iter().map(|t| t.0).collect();
+                    serde_json::to_string(&ids).expect("numbers always serialize")
+                }),
             ])?;
         }
         for track in sent {
@@ -303,7 +321,8 @@ fn record_entries(
 /// and forgets nothing (§5.3); nor does a `Location` with no row of this
 /// read, or two. Runs inside the read's transaction, after its rows are in.
 /// Not an operation: the records are derived from sends and reads, like
-/// the sends that write them.
+/// the sends that write them. The records of crate membership are
+/// forgotten the same way (`forget_membership`).
 pub fn forget_taken_up(conn: &Connection, read_at: &str) -> rusqlite::Result<()> {
     // Every track with a record, its records, and the Location it was sent to.
     // Every send records `Location` (rule 1), so the join finds every track.
@@ -341,6 +360,99 @@ pub fn forget_taken_up(conn: &Connection, read_at: &str) -> rusqlite::Result<()>
         });
         if taken_up {
             forget.execute([track])?;
+        }
+    }
+    forget_membership(conn, read_at)
+}
+
+/// A playlist's names, normalized as the writer compares siblings.
+fn keyed(path: &[String]) -> Vec<String> {
+    path.iter().map(|name| super::sibling_key(name)).collect()
+}
+
+/// The playlists a `rekordbox_track` row is in, each as [`keyed`].
+fn playlists_of(conn: &Connection, row: i64) -> rusqlite::Result<HashSet<Vec<String>>> {
+    let json: String = conn.query_row(
+        "SELECT playlists FROM rekordbox_track WHERE id = ?1",
+        [row],
+        |r| r.get(0),
+    )?;
+    let paths: Vec<Vec<String>> = serde_json::from_str(&json).unwrap_or_default();
+    Ok(paths.iter().map(|path| keyed(path)).collect())
+}
+
+/// [`forget_taken_up`] for crate membership: forgets what a send changed in
+/// a playlist (`sent_playlist.replaced`) once the read made at `read_at`
+/// shows that send taken up. A track the send changed shows it when its
+/// entry at the `Location` it was sent to (the one row of this read there)
+/// is in the playlist as the send put it, or out of it as the send left it
+/// while the playlist is there (some row of this read is in it, or this
+/// read's tree has it, empty). An import replaces a whole playlist, so then the playlist's whole
+/// record goes. A row kept from an older read shows nothing.
+fn forget_membership(conn: &Connection, read_at: &str) -> rusqlite::Result<()> {
+    let records: Vec<(i64, String, String)> = conn
+        .prepare(
+            "SELECT id, path_key, replaced FROM sent_playlist
+             WHERE kind = 'playlist' AND replaced IS NOT NULL",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    if records.is_empty() {
+        return Ok(());
+    }
+    let mut present: HashSet<Vec<String>> = HashSet::new();
+    for json in conn
+        .prepare("SELECT playlists FROM rekordbox_track WHERE read_at = ?1 AND playlists <> '[]'")?
+        .query_map([read_at], |r| r.get::<_, String>(0))?
+    {
+        let paths: Vec<Vec<String>> = serde_json::from_str(&json?).unwrap_or_default();
+        present.extend(paths.iter().map(|path| keyed(path)));
+    }
+    // A playlist the import left empty is in no row: this read's tree has
+    // it (saved before this runs, `replace_snapshot`).
+    if let Some(tree) = crate::after_send::load_tree(conn)? {
+        present.extend(crate::conflicts::membership::playlist_keys(
+            &tree.crates,
+            &[super::sibling_key(super::CRATES_FOLDER)],
+        ));
+    }
+    let mut was_put_in = conn.prepare(
+        "SELECT EXISTS (SELECT 1 FROM sent_entry e
+                        JOIN sent_playlist p ON p.path_key = e.path_key AND p.kind = 'playlist'
+                                            AND p.send_id = e.send_id
+                        WHERE e.library_track_id = ?1 AND e.path_key = ?2)",
+    )?;
+    let mut sent_to = conn.prepare(
+        "SELECT value FROM sync_base WHERE library_track_id = ?1 AND field = 'Location'",
+    )?;
+    for (id, path_key, replaced) in records {
+        let (Ok(key), Ok(tracks)) = (
+            serde_json::from_str::<Vec<String>>(&path_key),
+            serde_json::from_str::<Vec<i64>>(&replaced),
+        ) else {
+            continue;
+        };
+        let mut taken_up = false;
+        for track in tracks {
+            let location: Option<String> = sent_to
+                .query_map([track], |r| r.get(0))?
+                .next()
+                .transpose()?;
+            let Some(row) = location.map_or(Ok(None), |l| row_at(conn, &l, read_at))? else {
+                continue;
+            };
+            let put_in: bool = was_put_in.query_row(params![track, path_key], |r| r.get(0))?;
+            let shown_in = playlists_of(conn, row)?.contains(&key);
+            if shown_in == put_in && (put_in || present.contains(&key)) {
+                taken_up = true;
+                break;
+            }
+        }
+        if taken_up {
+            conn.execute(
+                "UPDATE sent_playlist SET replaced = NULL WHERE id = ?1",
+                [id],
+            )?;
         }
     }
     Ok(())

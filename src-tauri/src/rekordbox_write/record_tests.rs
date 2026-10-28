@@ -536,6 +536,7 @@ fn sent_path(path: &[&str], folder: bool) -> SentPath {
         path: path.iter().map(|n| (*n).to_owned()).collect(),
         folder,
         entries: Vec::new(),
+        replaced: None,
     }
 }
 

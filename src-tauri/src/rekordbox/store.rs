@@ -203,7 +203,9 @@ fn playlist_paths(xml: &RekordboxXml) -> HashMap<usize, Vec<Vec<String>>> {
 /// transaction ([`crate::rekordbox_write::forget_taken_up`]).
 ///
 /// `before_commit` runs inside the transaction after the rows are in, with
-/// the rows' `read_at`, so a caller can record the read alongside them.
+/// the rows' `read_at`, so a caller can record the read alongside them. It
+/// runs before the forgetting, which needs the read's playlist tree that a
+/// read saves there (a playlist a send left empty is in no row).
 pub fn replace_snapshot(
     conn: &mut Connection,
     rows: &SnapshotRows,
@@ -246,10 +248,11 @@ pub fn replace_snapshot(
         not_stored: count(rows.not_stored),
         complete: rows.complete,
     };
-    // A send this read shows taken up: what it replaced is forgotten
-    // (ROADMAP 1.10). Only this read's rows count, never kept ones.
-    crate::rekordbox_write::forget_taken_up(&tx, &read_at)?;
     before_commit(&tx, &summary, &read_at)?;
+    // A send this read shows taken up: what it replaced is forgotten
+    // (ROADMAP 1.10). Only this read's rows (and tree) count, never kept
+    // ones.
+    crate::rekordbox_write::forget_taken_up(&tx, &read_at)?;
     tx.commit()?;
     Ok(summary)
 }

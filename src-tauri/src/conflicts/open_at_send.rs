@@ -24,7 +24,7 @@
 
 use std::collections::HashSet;
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 use super::store::json_ids;
 use crate::library::LibraryTrackId;
@@ -37,23 +37,32 @@ pub(crate) fn value_sent(_app: &str) -> Option<String> {
     None
 }
 
-/// The fields of these Library tracks with an open conflict, by track then
-/// field. The review counts them, and the go records its send only while
-/// they are the ones its merge saw: a resolve or an Undo landing between
-/// the merge and the record would otherwise record a base the file
-/// doesn't match ([`crate::send`]).
+/// The fields of these Library tracks with an open conflict, and every open
+/// crate membership conflict whatever its track ([`super::membership`]: a
+/// track the send leaves out of a playlist may be in no crate sent), by
+/// track then field. The review counts them, and the go records its send
+/// only while they are the ones its merge saw: a resolve or an Undo landing
+/// between the merge and the record would otherwise record a base the file
+/// doesn't match, or write a playlist the decision no longer matches
+/// ([`crate::send`]).
+///
+/// A membership conflict's base is its own (`conflict.base_value`) while it
+/// is open, so no send moves it, whatever `sent_entry` records.
 pub fn open_fields(
     conn: &Connection,
     tracks: &[LibraryTrackId],
 ) -> rusqlite::Result<Vec<(LibraryTrackId, String)>> {
     conn.prepare_cached(
         "SELECT library_track_id, field FROM conflict
-         WHERE status = 'open' AND library_track_id IN (SELECT value FROM json_each(?1))
+         WHERE status = 'open'
+           AND (library_track_id IN (SELECT value FROM json_each(?1))
+                OR substr(field, 1, length(?2)) = ?2)
          ORDER BY library_track_id, field",
     )?
-    .query_map([json_ids(tracks)], |r| {
-        Ok((LibraryTrackId(r.get(0)?), r.get(1)?))
-    })?
+    .query_map(
+        params![json_ids(tracks), super::membership::FIELD_PREFIX],
+        |r| Ok((LibraryTrackId(r.get(0)?), r.get(1)?)),
+    )?
     .collect()
 }
 

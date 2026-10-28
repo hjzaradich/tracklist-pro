@@ -1383,10 +1383,19 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // since it was made (0035: the send and the merge before it are to change
     // it outside the log), `sent_entry` since it was made (0036: a send
     // writes it), `relink` since 0028 (the relink job writes it
-    // outside the log, though it only fills a field in and never inserts).
+    // outside the log, though it only fills a field in and never inserts),
+    // `crate_entry` since 0038 (the merge before a send takes playlist
+    // changes made in rekordbox into crates).
     assert_eq!(
         never_reused,
-        ["sync_base", "sent_entry", "conflict", "app_value", "relink"]
+        [
+            "crate_entry",
+            "sync_base",
+            "sent_entry",
+            "conflict",
+            "app_value",
+            "relink"
+        ]
     );
 
     let sources = app_sources();
@@ -1409,9 +1418,10 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
         }
     }
     // The scan does see the inserts made outside the log (detecting
-    // conflicts, and a send), so it isn't passing by blindness.
+    // conflicts, a send, and the merge before it taking a crate entry in),
+    // so it isn't passing by blindness.
     seen.sort_unstable();
-    assert_eq!(seen, ["conflict", "sent_entry", "sync_base"]);
+    assert_eq!(seen, ["conflict", "crate_entry", "sent_entry", "sync_base"]);
 }
 
 #[test]
