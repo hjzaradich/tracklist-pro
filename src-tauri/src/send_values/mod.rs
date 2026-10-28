@@ -79,6 +79,7 @@
 //! many tracks it's given. Asking for one track is a batch of one.
 
 mod shown;
+pub mod sources;
 mod tag_fields;
 
 use std::collections::HashMap;
@@ -91,6 +92,9 @@ use crate::paths::Volumes;
 pub use shown::{
     shown, shown_fields, shown_recording_fields, shown_recordings, shown_removed, shown_tags,
     Removed, Shown, ShownFields,
+};
+pub use sources::{
+    tag_sources, FieldSources, NamedFile, SourcedValue, TagField, TagSources, ValueOrigin,
 };
 pub(crate) use tag_fields::read_only as tag_values;
 pub use tag_fields::TAG_ATTRIBUTES;

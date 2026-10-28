@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value as Json};
 
 mod entry;
+mod sources;
 
 use super::*;
 use crate::db::Writer;

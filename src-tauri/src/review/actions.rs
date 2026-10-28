@@ -1040,7 +1040,7 @@ pub fn review_reject_relink(
 }
 
 /// Withdraws the confirmation of the rekordbox entry `entry_id`'s Location:
-/// the entry is decided again from scratch. No screen calls it yet.
+/// the entry is decided again from scratch. The Details panel calls it (1cB-17).
 #[tauri::command(async)]
 #[specta::specta]
 pub fn review_withdraw_relink(
