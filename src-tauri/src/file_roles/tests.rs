@@ -820,6 +820,7 @@ fn base(id: i64) -> FileFacts {
             volume_kind: VolumeKind::Internal,
             folder_order: 1,
         },
+        chosen: false,
     }
 }
 
@@ -1044,6 +1045,7 @@ fn the_better_file_steps_are_exactly_the_ones_the_table_accepts() {
     // Every other step of the ranking is refused by the table, and no
     // better-file step comes from them.
     for step in [
+        crate::best_file::Step::Chosen,
         crate::best_file::Step::Tags,
         crate::best_file::Step::Art,
         crate::best_file::Step::Rekordbox,

@@ -80,6 +80,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0034_ui_setting"),
     migration!("0035_app_value"),
     migration!("0036_send_records"),
+    migration!("0037_file_choice"),
 ];
 
 /// The table that records which migrations a database has had.

@@ -264,6 +264,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // What each send replaced (a `sync_base` column), each track's playlist
     // entries, and a number per send (1cB-19).
     ("0036_send_records.sql", &["send", "sent_entry"]),
+    // The file the user chose to show for a track outside the Library (1cB-22).
+    ("0037_file_choice.sql", &["file_choice"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

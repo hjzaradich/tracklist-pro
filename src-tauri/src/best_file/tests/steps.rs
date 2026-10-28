@@ -7,7 +7,8 @@ use super::*;
 
 /// The order, written out here on purpose: a test that read it from the
 /// code would pass for any order.
-const ORDER: [Step; 11] = [
+const ORDER: [Step; 12] = [
+    Step::Chosen,
     Step::OnDisk,
     Step::Verdict,
     Step::Playable,
@@ -23,6 +24,7 @@ const ORDER: [Step; 11] = [
 
 fn make_good(file: &mut FileFacts, step: Step) {
     match step {
+        Step::Chosen => file.chosen = true,
         Step::OnDisk => file.on_disk = true,
         Step::Verdict => file.quality.verdict = Some(Verdict::Ok),
         Step::Playable => file.plays_in_dj_app = true,
@@ -44,6 +46,7 @@ fn make_good(file: &mut FileFacts, step: Step) {
 
 fn make_bad(file: &mut FileFacts, step: Step) {
     match step {
+        Step::Chosen => file.chosen = false,
         Step::OnDisk => file.on_disk = false,
         Step::Verdict => file.quality.verdict = Some(Verdict::LowBitrate),
         Step::Playable => file.plays_in_dj_app = false,
@@ -146,4 +149,8 @@ step_test!(
 step_test!(
     the_lower_file_id_is_ahead_when_nothing_else_differs,
     Step::Tied
+);
+step_test!(
+    the_file_the_user_chose_is_ahead_whatever_the_file_has_after_it,
+    Step::Chosen
 );

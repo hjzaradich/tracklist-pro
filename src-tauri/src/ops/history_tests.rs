@@ -38,6 +38,7 @@ pub(super) const LOGGED_TABLES: [&str; 13] = [
     "relink",
     "grouping_decision",
     "track_merge",
+    "file_choice",
 ];
 
 /// The tables an action changes through the log only by setting fields of

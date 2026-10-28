@@ -44,6 +44,7 @@ pub(super) fn file(id: i64) -> FileFacts {
             volume_kind: VolumeKind::Internal,
             folder_order: 1,
         },
+        chosen: false,
     }
 }
 

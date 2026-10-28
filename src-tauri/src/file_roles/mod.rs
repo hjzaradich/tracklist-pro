@@ -58,6 +58,7 @@
 //! link or a better place is not a better file: tags and art are picked per
 //! field, apart from the audio. A tie is not better either.
 
+pub(crate) mod choice;
 pub(crate) mod facts;
 #[cfg(test)]
 mod tests;
@@ -411,7 +412,9 @@ impl BetterStep {
             Step::Cutoff => BetterStep::Cutoff,
             Step::DecodeErrors => BetterStep::DecodeErrors,
             Step::Format => BetterStep::Format,
-            Step::Tags | Step::Art | Step::Rekordbox | Step::Place | Step::Tied => return None,
+            Step::Chosen | Step::Tags | Step::Art | Step::Rekordbox | Step::Place | Step::Tied => {
+                return None
+            }
         })
     }
 }

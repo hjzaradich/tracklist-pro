@@ -18,6 +18,7 @@
 //!
 //! | Step | Better | Reason |
 //! |---|---|---|
+//! | 0 you chose | the file the user chose for the track, over every other (only a file on disk counts as chosen) | `chosen` |
 //! | 1 on disk | on disk, over gone | `notOnDisk` |
 //! | 2 verdict | ok, then not checked, then flagged (low bitrate or suspect transcode), then truncated, then broken | `betterVerdict` |
 //! | 3 plays in the DJ app | yes, over no | `playable` |
@@ -144,6 +145,10 @@ pub struct FileFacts {
     pub art: Option<Art>,
     pub rekordbox: RekordboxLink,
     pub place: Place,
+    /// The user chose this file as the track's file (ROADMAP 1.11 "Use this
+    /// file instead"). Decides before every step, so the caller sets it only
+    /// for a file that is on disk: a chosen file that is gone has no say.
+    pub chosen: bool,
 }
 
 /// A file's codec and its header's average bitrate.
