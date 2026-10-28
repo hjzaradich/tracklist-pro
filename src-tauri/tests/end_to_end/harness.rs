@@ -163,7 +163,51 @@ pub struct World {
     /// When rekordbox last saved its export, in seconds since the epoch.
     saved: u64,
     // Last, so the app has let go of its files before the folder goes.
-    _dir: tempfile::TempDir,
+    sandbox: Sandbox,
+}
+
+/// The temp folder a [`World`] lives in, and the way out of it again. It
+/// is dropped last, also when the test failed: it closes the databases of
+/// every app the world started (Windows won't delete a file that a
+/// connection holds open, and the app's own state is never dropped while
+/// the process lives: its handlers hold the app) and removes the folder. A
+/// folder that can't be removed fails a test that passed; after a failure
+/// it is only said on stderr, so it never hides the failure.
+struct Sandbox {
+    dir: Option<tempfile::TempDir>,
+    databases: Vec<(db::Writer, db::ReadPool)>,
+}
+
+impl Sandbox {
+    /// The databases of `app`, to be closed at the end.
+    fn track(&mut self, app: &tauri::App<MockRuntime>) {
+        self.databases.push((
+            app.state::<db::Writer>().inner().clone(),
+            app.state::<db::ReadPool>().inner().clone(),
+        ));
+    }
+}
+
+impl Drop for Sandbox {
+    fn drop(&mut self) {
+        for (writer, reads) in &self.databases {
+            reads.close();
+            writer.close();
+        }
+        let Some(dir) = self.dir.take() else { return };
+        let path = dir.path().to_owned();
+        if let Err(e) = dir.close() {
+            let message = format!(
+                "the end-to-end sandbox {} can't be removed: {e}",
+                path.display()
+            );
+            if std::thread::panicking() {
+                eprintln!("{message}");
+            } else {
+                panic!("{message}");
+            }
+        }
+    }
 }
 
 impl World {
@@ -191,6 +235,11 @@ impl World {
         }
 
         let (app, webview, updates) = open_app(app_data.clone());
+        let mut sandbox = Sandbox {
+            dir: Some(dir),
+            databases: Vec::new(),
+        };
+        sandbox.track(&app);
 
         let mut world = World {
             app,
@@ -202,7 +251,7 @@ impl World {
             app_data,
             outside: BTreeMap::new(),
             saved: 0,
-            _dir: dir,
+            sandbox,
         };
         world.outside = world.outside_now();
         world
@@ -223,6 +272,8 @@ impl World {
             })
             .unwrap();
         let (app, webview, updates) = open_app(self.app_data.clone());
+        // The dead run's databases stay tracked, to be closed at the end.
+        self.sandbox.track(&app);
         self.webview = webview;
         self.updates = updates;
         self.app = app;

@@ -37,6 +37,8 @@ struct Inner {
 
 struct State {
     idle: Vec<Connection>,
+    /// [`ReadPool::close`] was called: no connection is kept or opened.
+    closed: bool,
     /// Connections opened so far, idle or checked out. Never above `size`.
     open: usize,
 }
@@ -69,6 +71,7 @@ impl ReadPool {
                 size,
                 state: Mutex::new(State {
                     idle: vec![first],
+                    closed: false,
                     open: 1,
                 }),
                 returned: Condvar::new(),
@@ -97,6 +100,23 @@ impl ReadPool {
         read(lease.conn()).map_err(DbError::Sqlite)
     }
 
+    /// Closes the idle connections and keeps none from now on (one that is
+    /// in use is closed when it is handed back), so that the database's
+    /// files are free: a test that removes the data folder needs that, as
+    /// Windows won't delete a file a connection holds open. Every clone of
+    /// the pool is closed; a later read returns [`DbError::WriterGone`].
+    /// The app never calls this: its process just ends.
+    #[doc(hidden)]
+    pub fn close(&self) {
+        let mut state = self.inner.lock();
+        state.closed = true;
+        let idle = std::mem::take(&mut state.idle);
+        state.open -= idle.len();
+        drop(state);
+        drop(idle);
+        self.inner.returned.notify_all();
+    }
+
     fn id(&self) -> usize {
         Arc::as_ptr(&self.inner) as usize
     }
@@ -104,6 +124,9 @@ impl ReadPool {
     fn checkout(&self) -> Result<Lease<'_>, DbError> {
         let mut state = self.inner.lock();
         loop {
+            if state.closed {
+                return Err(DbError::WriterGone);
+            }
             if let Some(conn) = state.idle.pop() {
                 return Ok(self.lease(conn));
             }
@@ -182,7 +205,7 @@ impl Drop for Lease<'_> {
         // can't be switched back on, close the connection instead.
         let reset = conn.pragma_update(None, "query_only", true);
         let mut state = self.pool.inner.lock();
-        if reset.is_ok() {
+        if reset.is_ok() && !state.closed {
             state.idle.push(conn);
         } else {
             state.open -= 1;
@@ -232,6 +255,29 @@ mod tests {
             DbError::Sqlite(rusqlite::Error::SqliteFailure(f, _))
                 if f.code == rusqlite::ErrorCode::ReadOnly
         )
+    }
+
+    #[test]
+    fn a_closed_pool_keeps_no_connection_and_refuses_reads() {
+        let (_dir, _writer, pool) = open_temp(2);
+        let clone = pool.clone();
+        assert_eq!(read_x(&pool), 1);
+        // Closed while a read holds a connection: that one is closed when
+        // the read hands it back.
+        let during = pool.read(|c| {
+            clone.close();
+            c.query_row("SELECT x FROM t", [], |r| r.get::<_, i64>(0))
+        });
+        assert_eq!(during.unwrap(), 1);
+        {
+            let state = pool.inner.lock();
+            assert!(state.idle.is_empty());
+            assert_eq!(state.open, 0);
+        }
+        assert!(matches!(
+            pool.read(|c| c.query_row("SELECT x FROM t", [], |r| r.get::<_, i64>(0))),
+            Err(DbError::WriterGone)
+        ));
     }
 
     #[test]
