@@ -4,6 +4,7 @@
 use rusqlite::Connection;
 
 use super::{accepts, db, db_at, insert, one, refuses, run, MIGRATIONS};
+use crate::db::migrations::Migration;
 
 /// How many migrations come before 0039: its index in [`MIGRATIONS`].
 fn before() -> usize {
@@ -189,4 +190,137 @@ fn a_row_with_no_bpm_and_no_key_does_not_make_the_track_due_for_the_search_index
          DELETE FROM analysis WHERE recording_id = 2;",
     );
     assert_eq!(due(&conn), 1, "taking a row with a key away is recorded");
+}
+
+// ---- What the rebuild must keep ------------------------------------------
+
+/// Every schema object as (type, name, table, SQL), sorted.
+fn schema(conn: &Connection) -> Vec<(String, String, String, Option<String>)> {
+    let mut stmt = conn
+        .prepare("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name")
+        .unwrap();
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap();
+    rows.map(Result::unwrap).collect()
+}
+
+/// The names of the indexes and triggers on `analysis`.
+fn on_analysis(conn: &Connection, kind: &str) -> Vec<String> {
+    let mut stmt = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = ?1 AND tbl_name = 'analysis' ORDER BY name")
+        .unwrap();
+    let rows = stmt.query_map([kind], |r| r.get(0)).unwrap();
+    rows.map(Result::unwrap).collect()
+}
+
+/// The tables that have a foreign key to `analysis`.
+fn pointing_at_analysis(conn: &Connection) -> Vec<String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.name FROM sqlite_master m, pragma_foreign_key_list(m.name) f
+             WHERE m.type = 'table' AND f.\"table\" = 'analysis' ORDER BY m.name",
+        )
+        .unwrap();
+    let rows = stmt.query_map([], |r| r.get(0)).unwrap();
+    rows.map(Result::unwrap).collect()
+}
+
+#[test]
+fn the_rebuild_keeps_every_index_and_trigger_of_analysis_and_changes_nothing_else_in_the_schema() {
+    let (_dir, mut conn) = db_at(before());
+    let old = schema(&conn);
+    run(&mut conn, &MIGRATIONS[..=before()]).unwrap();
+    let new = schema(&conn);
+
+    // The same indexes (the unique key's) and triggers, by name.
+    assert!(!on_analysis(&conn, "index").is_empty());
+    assert_eq!(
+        on_analysis(&conn, "index"),
+        old.iter()
+            .filter(|(kind, _, table, _)| kind == "index" && table == "analysis")
+            .map(|(_, name, _, _)| name.clone())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        on_analysis(&conn, "trigger"),
+        ["search_analysis_added", "search_analysis_changed", "search_analysis_removed"]
+    );
+    assert_eq!(
+        on_analysis(&conn, "trigger"),
+        old.iter()
+            .filter(|(kind, _, table, _)| kind == "trigger" && table == "analysis")
+            .map(|(_, name, _, _)| name.clone())
+            .collect::<Vec<_>>()
+    );
+
+    // Everything that isn't `analysis` or one of its triggers is text-identical,
+    // the view `recording_display` included.
+    let rest = |all: &[(String, String, String, Option<String>)]| {
+        all.iter()
+            .filter(|(_, _, table, _)| table != "analysis")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert!(rest(&old).iter().any(|(_, name, _, _)| name == "recording_display"));
+    assert_eq!(rest(&new), rest(&old));
+
+    // The only change to `analysis` is the ids that are never reused.
+    let table = |all: &[(String, String, String, Option<String>)]| {
+        all.iter()
+            .find(|(kind, name, _, _)| kind == "table" && name == "analysis")
+            .and_then(|(_, _, _, sql)| sql.clone())
+            .unwrap()
+    };
+    assert_eq!(
+        table(&new).replace("INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER PRIMARY KEY"),
+        table(&old)
+    );
+}
+
+#[test]
+fn nothing_points_at_analysis_before_or_after_and_no_reference_is_left_broken() {
+    let (_dir, mut conn) = db_at(before());
+    accepts(&conn, SETUP);
+    accepts(
+        &conn,
+        "INSERT INTO analysis (recording_id, source, bpm) VALUES (1, 'rekordbox', 128)",
+    );
+    assert_eq!(pointing_at_analysis(&conn), Vec::<String>::new());
+    run(&mut conn, &MIGRATIONS[..=before()]).unwrap();
+    conn.pragma_update(None, "foreign_keys", true).unwrap();
+    assert_eq!(pointing_at_analysis(&conn), Vec::<String>::new());
+    let broken: i64 = one(&conn, "SELECT count(*) FROM pragma_foreign_key_check");
+    assert_eq!(broken, 0);
+    // analysis still points at its track.
+    let targets: Vec<String> = conn
+        .prepare("SELECT \"table\" FROM pragma_foreign_key_list('analysis')")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(targets, ["recording"]);
+}
+
+#[test]
+fn the_rebuild_is_one_transaction_a_failing_step_leaves_the_old_table_whole() {
+    let (_dir, mut conn) = db_at(before());
+    accepts(&conn, SETUP);
+    accepts(
+        &conn,
+        "INSERT INTO analysis (recording_id, source, bpm) VALUES (1, 'rekordbox', 128)",
+    );
+    let old = schema(&conn);
+    let rows_before = rows(&conn);
+    // This migration with a last step that fails.
+    let real = MIGRATIONS[before()];
+    let sql: &'static str = Box::leak(format!("{}
+SELECT * FROM no_such_table;
+", real.sql).into_boxed_str());
+    let mut list = MIGRATIONS[..before()].to_vec();
+    list.push(Migration { name: real.name, sql });
+    assert!(run(&mut conn, &list).is_err());
+    assert_eq!(schema(&conn), old);
+    assert_eq!(rows(&conn), rows_before);
 }
