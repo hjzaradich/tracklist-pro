@@ -19,9 +19,10 @@ enum Match {
 
 /// A database with one volume and one music folder, `Music` (id 1).
 struct Lib {
-    _dir: tempfile::TempDir,
     writer: Writer,
     next_track_id: std::cell::Cell<i64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Lib {

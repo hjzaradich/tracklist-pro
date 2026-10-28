@@ -45,9 +45,10 @@ pub(super) fn serial(n: u32) -> String {
 
 /// A library database to relink in.
 pub(super) struct Lib {
-    _dir: tempfile::TempDir,
     pub writer: Writer,
     next_track_id: std::cell::Cell<i64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 /// A row's match: file, method, confidence.

@@ -20,8 +20,9 @@ const B: [u8; 34] = [0xB2; 34];
 const NO_PLAYS: i64 = -1;
 
 struct Db {
-    _dir: tempfile::TempDir,
     writer: Writer,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 /// A migrated database with one volume and one music folder (id 1).

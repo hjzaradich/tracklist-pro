@@ -109,8 +109,9 @@ pub(super) type State = Vec<(&'static str, Vec<Vec<String>>)>;
 /// A database with [`TRACKS`] tracks, each with one file on disk, and an
 /// empty Library.
 pub(super) struct Lib {
-    pub dir: tempfile::TempDir,
     pub writer: Writer,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    pub dir: tempfile::TempDir,
 }
 
 pub(super) fn open(dir: &Path) -> Writer {

@@ -220,8 +220,9 @@ fn a_tree_built_from_what_a_send_writes_keeps_its_folders_and_playlists() {
 // ---- the database ----------------------------------------------------------
 
 struct Lib {
-    _dir: tempfile::TempDir,
     writer: Writer,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Lib {

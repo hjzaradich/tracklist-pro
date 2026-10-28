@@ -53,9 +53,10 @@ impl Volumes for Mount {
 /// A library database with one volume (last mounted at `E:\`) and one
 /// music folder, `Music` (id 1).
 struct Lib {
-    dir: tempfile::TempDir,
     writer: Writer,
     next_track_id: std::cell::Cell<i64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    dir: tempfile::TempDir,
 }
 
 fn open(dir: &Path) -> Writer {

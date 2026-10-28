@@ -45,9 +45,10 @@ fn plugged() -> Mount {
 }
 
 struct Lib {
-    _dir: tempfile::TempDir,
     writer: Writer,
     next_track_id: std::cell::Cell<i64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 /// What a test file is like. Facts and tags are only set when a test cares.

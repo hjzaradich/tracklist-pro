@@ -114,7 +114,6 @@ fn set_offline(path: &Path, offline: bool) {
 // ---- a library to scan ------------------------------------------------------
 
 struct Lib {
-    _dir: tempfile::TempDir,
     volume: TempVolume,
     music: PathBuf,
     _db: tempfile::TempDir,
@@ -123,6 +122,8 @@ struct Lib {
     reads: Arc<Mutex<Vec<PathBuf>>>,
     /// What to do before each directory entry the walk looks at, if set.
     entry_hook: EntryHook,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 type EntryHook = Arc<Mutex<Option<Box<dyn Fn(u64) + Send + Sync>>>>;

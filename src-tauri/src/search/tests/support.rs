@@ -37,8 +37,9 @@ impl Volumes for Mount {
 
 /// A database with one volume and one music folder, `Music` (id 1).
 pub struct Lib {
-    pub _dir: tempfile::TempDir,
     pub writer: Writer,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    pub _dir: tempfile::TempDir,
 }
 
 /// The tag name a file's `raw_tags` give each field under.

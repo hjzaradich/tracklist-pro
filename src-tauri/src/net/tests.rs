@@ -26,9 +26,10 @@ impl Net {
 
 /// A fresh database in a temp folder. Keep it alive as long as the handles.
 struct TestDb {
-    _dir: tempfile::TempDir,
     writer: Writer,
     reads: ReadPool,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 fn test_db() -> TestDb {

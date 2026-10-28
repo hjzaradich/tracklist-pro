@@ -25,9 +25,10 @@ enum Kind {
 type Row = (i64, i64, String);
 
 struct Rig {
-    _dir: tempfile::TempDir,
     writer: Writer,
     next_track_id: std::cell::Cell<i64>,
+    // Last: fields drop in order, so the connections close before the folder goes.
+    _dir: tempfile::TempDir,
 }
 
 impl Rig {
