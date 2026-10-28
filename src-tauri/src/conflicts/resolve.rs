@@ -15,12 +15,16 @@
 //! puts the open row back under its old id. Ids are never reused (migration
 //! 0025).
 //!
-//! **Nothing here touches the three sides.** Settling records the decision;
+//! **The app's side takes the value chosen.** Settling records the decision;
 //! [`super::detect`] then answers the field with the value chosen
-//! ([`super::Outcome::Decided`]) for as long as the decision stands. A
-//! store of the app's own values must take the value chosen in the same
-//! operation, so one Undo takes that back too: [`resolve_with`] and
-//! [`resolve_all_with`] hand it the recorder for exactly that.
+//! ([`super::Outcome::Decided`]) for as long as the decision stands. In the
+//! same operation, so one Undo takes both back, [`resolve`] and
+//! [`resolve_all`] update the store of the app's own values
+//! ([`super::app_values::adopt`]): keeping rekordbox's clears the app's
+//! own, keeping the app's or a value by hand sets it. Without that, once a
+//! send moved the base, the value turned down would read as "only the app
+//! changed" and go out again (1cB-3). [`resolve_with`] and
+//! [`resolve_all_with`] take another hook in its place.
 //!
 //! Undo is refused, changing nothing, if the settled row is gone or
 //! changed, or if the field has a newer open conflict (a side moved after
@@ -36,7 +40,7 @@ use specta::Type;
 use super::store::{
     conflict_from, Conflict, ConflictId, Filter, Status, CONFLICT_COLUMNS, OPEN_WHERE,
 };
-use super::{fits, same};
+use super::{app_values, fits, same};
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError, Recorded, Recorder};
 
@@ -117,18 +121,19 @@ impl From<OpsError> for ResolveError {
     }
 }
 
-/// Settles one open conflict, as one operation.
+/// Settles one open conflict, as one operation, and the store of the
+/// app's own values takes the value chosen ([`app_values::adopt`]).
 pub fn resolve(
     conn: &mut Connection,
     id: ConflictId,
     choice: &Choice,
 ) -> Result<Recorded<Resolved>, ResolveError> {
-    resolve_with(conn, id, choice, |_, _| Ok(()))
+    resolve_with(conn, id, choice, app_values::adopt)
 }
 
 /// [`resolve`], with `adopt` run inside the same operation once the
-/// conflict is settled: what a store of the app's own values writes there
-/// (taking the value chosen) is undone with the resolve.
+/// conflict is settled, in place of [`app_values::adopt`]: what it writes
+/// there is undone with the resolve.
 pub fn resolve_with(
     conn: &mut Connection,
     id: ConflictId,
@@ -159,7 +164,8 @@ pub fn resolve_with(
 /// Settles every open conflict `filter` matches the same way, as one
 /// operation: "take rekordbox for all ratings" is `field: Some("Rating")`
 /// with [`Choice::KeepRekordbox`]. With nothing to settle, nothing is
-/// logged.
+/// logged. The store of the app's own values takes each value chosen
+/// ([`app_values::adopt`]).
 ///
 /// With [`Choice::Edit`] every matched conflict gets that value; if it
 /// doesn't fit one of their fields, none is settled.
@@ -168,11 +174,12 @@ pub fn resolve_all(
     filter: &Filter,
     choice: &Choice,
 ) -> Result<Recorded<Vec<Resolved>>, ResolveError> {
-    resolve_all_with(conn, filter, choice, |_, _| Ok(()))
+    resolve_all_with(conn, filter, choice, app_values::adopt)
 }
 
 /// [`resolve_all`], with `adopt` run inside the same operation after each
-/// conflict is settled (see [`resolve_with`]).
+/// conflict is settled, in place of [`app_values::adopt`] (see
+/// [`resolve_with`]).
 pub fn resolve_all_with(
     conn: &mut Connection,
     filter: &Filter,

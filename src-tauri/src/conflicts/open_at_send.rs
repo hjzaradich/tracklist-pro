@@ -1,0 +1,46 @@
+//! A field with an **open** conflict when a send goes (1cB-3; ROADMAP 1.9
+//! rule 2, 1.10). The owner hasn't decided this yet: this file is the one
+//! place that says what happens, so the answer can change here alone.
+//!
+//! **Today's default (foreman, 2026-10-28):** the send goes ahead, and for
+//! that field it carries what it would carry if the app held no value of
+//! its own: rekordbox's current value for a track rekordbox has (so a Yes
+//! in rekordbox destroys nothing), the file's for a track it doesn't. The
+//! base isn't moved ([`bases_kept`]): `sync_base` keeps the value it had
+//! (or stays absent), so the conflict is still open after the next read and
+//! the app's value waits in Review → Conflicts. Moving the base to
+//! rekordbox's value would make the next detection read "app ≠ base,
+//! rekordbox = base", only the app changed, and send the app's value over
+//! rekordbox's without asking.
+//!
+//! The send's review says how many fields wait ([`crate::send::Preflight`]
+//! `conflicts_waiting`).
+//!
+//! Other answers the owner may choose, and what each would change:
+//! - send the app's value and keep the conflict open: [`value_sent`]
+//!   returns the app's value; the base must still be kept;
+//! - leave the track out of the send until it's settled: the merge would
+//!   report the track as not sendable instead (`super::merge`).
+
+use std::collections::HashSet;
+
+use rusqlite::Connection;
+
+/// The value a send carries for a field with an open conflict, given the
+/// app's own value: `None` is "no value of the app's", so the send carries
+/// what it carries for a field the app doesn't change (rekordbox's value,
+/// or the file's for a track rekordbox doesn't have).
+pub(crate) fn value_sent(_app: &str) -> Option<String> {
+    None
+}
+
+/// The fields of Library track `track` whose base a send doesn't move:
+/// those with an open conflict as the send is recorded. Read inside the
+/// send's own transaction ([`crate::rekordbox_write::record_send`]).
+pub fn bases_kept(conn: &Connection, track: i64) -> rusqlite::Result<HashSet<String>> {
+    conn.prepare_cached(
+        "SELECT field FROM conflict WHERE library_track_id = ?1 AND status = 'open'",
+    )?
+    .query_map([track], |r| r.get(0))?
+    .collect()
+}

@@ -8,6 +8,7 @@ use super::{
     tree, ExportRead, LeftOut, LeftOutReason, LosesEntries, OtherFile, Preflight, Refusal,
     RefusalReason, TrackLabel, TreeKind,
 };
+use crate::conflicts;
 use crate::library::{self, LibraryTrackId, StoredTrack};
 use crate::paths::Volumes;
 use crate::rekordbox::location::{decode, Location, PathStyle};
@@ -42,8 +43,14 @@ pub struct SentElsewhere {
 }
 
 /// Builds the send from the database as it is now (every Library track,
-/// the crate tree, rekordbox's values from the last read) and describes
-/// it. Only reads. `None` if rekordbox was never read.
+/// the crate tree, rekordbox's values from the last read, merged with the
+/// app's own: read → merge → send in one step, ROADMAP 1.9 rule 2) and
+/// describes it. `None` if rekordbox was never read.
+///
+/// The merge ([`conflicts::merge_before_send`]) is the only write: it
+/// opens, updates and withdraws conflicts and takes rekordbox's values in,
+/// as detection does. Run again on sides that haven't moved, it writes
+/// nothing, so the go builds the very send that was reviewed.
 ///
 /// Call it in one writer job, so everything comes from the same moment.
 ///
@@ -52,16 +59,22 @@ pub struct SentElsewhere {
 /// [`Reviewed::sent_elsewhere`], outside the writer job, and the token
 /// doesn't cover it. A file that comes back between the review and the
 /// go changes neither the send nor whether it may be written.
-pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Option<Reviewed>> {
+pub fn review(
+    conn: &mut Connection,
+    volumes: &impl Volumes,
+) -> rusqlite::Result<Option<Reviewed>> {
     let Some(read) = stored_source(conn)?.last_read else {
         return Ok(None);
     };
     let tracks = library::stored(conn, volumes)?;
     let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
     let crates = tree::crate_tree(conn)?;
+    let merged = conflicts::merge_before_send(conn, volumes, &ids)?;
+    let open = merged.open.clone();
     // Playlists arrive in Phase 3; the folder is still written (rule 6).
-    let input = rekordbox_write::gather(conn, volumes, &ids, crates.clone(), Vec::new())?;
+    let input = rekordbox_write::gather_merged(conn, merged, crates.clone(), Vec::new())?;
     let built = rekordbox_write::build(&input);
+    let conn: &Connection = conn;
 
     let labels: HashMap<LibraryTrackId, &StoredTrack> = tracks.iter().map(|t| (t.id, t)).collect();
     let label = |id: LibraryTrackId| {
@@ -93,6 +106,7 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
         other_file: Vec::new(),
         no_kind: Vec::new(),
         loses_entries: Vec::new(),
+        conflicts_waiting: 0,
         refusal: None,
         nothing_to_send: false,
         can_send: false,
@@ -166,6 +180,15 @@ pub fn review(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Opt
                 .map(|sent| label(sent.library_track))
                 .collect();
             preflight.loses_entries = loses_entries(&out, &crates);
+            // Fields of the tracks sent that wait in Review → Conflicts:
+            // they go with rekordbox's value until the user decides.
+            preflight.conflicts_waiting = count(
+                out.sent
+                    .iter()
+                    .filter_map(|sent| open.get(&sent.library_track))
+                    .map(Vec::len)
+                    .sum(),
+            );
             Some(out)
         }
     };

@@ -12,6 +12,11 @@
 //! the app never edits them, and they can never conflict (1.10), so a
 //! base for one has no use, even when Phase 2 sends them (rule 3, case B).
 //!
+//! A field with an open conflict as the send is recorded keeps the base it
+//! had, or stays without one (1cB-3, [`open_at_send`]): the send carried
+//! rekordbox's value for it, and the conflict must still be open after the
+//! next read rather than read as "only the app changed".
+//!
 //! # What a base replaced (`sync_base.replaced`, 1cB-19)
 //!
 //! With each base goes the value it replaced in rekordbox: what rekordbox's
@@ -74,7 +79,7 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{params, Connection};
 
 use super::{SentPath, SentTrack, ANALYSIS_ATTRIBUTES};
-use crate::conflicts::same;
+use crate::conflicts::{open_at_send, same};
 use crate::library::LibraryTrackId;
 use crate::rekordbox::location::decode;
 
@@ -132,7 +137,9 @@ fn replaced(field: &str, base: &str, showing: &HashMap<String, String>) -> Optio
 /// Records one send: for each track in `sent`, its `sync_base` becomes
 /// exactly the fields sent (a field sent before and not this time is
 /// dropped; no value is kept twice), each with what it replaced in
-/// rekordbox (module docs), and the track's `last_sent_location` and
+/// rekordbox (module docs), except that a field with an open conflict keeps
+/// the base it had, or none ([`open_at_send::bases_kept`]); and the
+/// track's `last_sent_location` and
 /// `last_exported_at` are set. Each playlist in `paths` gets exactly its
 /// entries' tracks as its `sent_entry` rows. All of it or none: any
 /// failure, a track that isn't in the Library included, leaves the
@@ -218,7 +225,11 @@ pub fn record_send(
                 .fields()
                 .filter(|(field, _)| !is_analysis(field))
                 .collect();
-            for (field, value) in &fields {
+            // A field with an open conflict keeps its base, or stays
+            // without one ([`open_at_send`]): the conflict must still be
+            // open after the next read.
+            let kept = open_at_send::bases_kept(&tx, id)?;
+            for (field, value) in fields.iter().filter(|(field, _)| !kept.contains(*field)) {
                 let replaced = showing
                     .as_ref()
                     .and_then(|showing| replaced(field, value, showing));

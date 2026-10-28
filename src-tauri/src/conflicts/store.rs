@@ -654,7 +654,7 @@ fn withdraw_open(
 /// [`detect`], inside the caller's transaction. `not_taken_up` is how
 /// [`Verdict::NotTakenUp`] is handled ([`NOT_TAKEN_UP`], but for the tests
 /// of its other setting).
-fn detect_in(
+pub(super) fn detect_in(
     conn: &Connection,
     tracks: &[TrackSides],
     not_taken_up: Handling,

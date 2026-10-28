@@ -213,6 +213,10 @@ pub struct Preflight {
     /// Not empty: the send needs an explicit confirm
     /// ([`Preflight::needs_confirm`] says when it's needed).
     pub loses_entries: Vec<LosesEntries>,
+    /// Fields of the tracks sent with an open conflict: they wait in Review
+    /// → Conflicts, and the send carries rekordbox's value for each until
+    /// the user decides ([`crate::conflicts::open_at_send`]).
+    pub conflicts_waiting: u32,
     /// Set when the send can't go at all.
     pub refusal: Option<Refusal>,
     /// No track would be sent and there's no crate or playlist: the send
