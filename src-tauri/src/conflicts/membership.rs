@@ -68,7 +68,7 @@
 //! field's rekordbox value in ([`super::merge`]): it is derived from the
 //! three sides, and an Undo must never bring back what rekordbox has
 //! overtaken (the next send would take it in again anyway). `crate_entry`
-//! ids are never reused (migration 0039), so an Undo of a crate operation
+//! ids are never reused (migration 0038), so an Undo of a crate operation
 //! whose entry was taken in since is refused as "changed since", and
 //! nothing else is undone wrongly. Settling a membership conflict changes
 //! the crate in the resolve's own operation ([`adopt`]).

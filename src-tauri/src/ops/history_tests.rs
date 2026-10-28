@@ -1384,7 +1384,7 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // it outside the log), `sent_entry` since it was made (0036: a send
     // writes it), `relink` since 0028 (the relink job writes it
     // outside the log, though it only fills a field in and never inserts),
-    // `crate_entry` since 0039 (the merge before a send takes playlist
+    // `crate_entry` since 0038 (the merge before a send takes playlist
     // changes made in rekordbox into crates).
     assert_eq!(
         never_reused,

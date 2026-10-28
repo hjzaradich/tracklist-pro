@@ -270,7 +270,7 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0037_file_choice.sql", &["file_choice"]),
     // `crate_entry` ids are never reused, and what a send changed in each
     // playlist (a `sent_playlist` column), no new tables (1cB-3).
-    ("0039_crate_membership_merge.sql", &[]),
+    ("0038_crate_membership_merge.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

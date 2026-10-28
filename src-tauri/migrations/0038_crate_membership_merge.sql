@@ -1,4 +1,4 @@
--- 0039: crate membership merged before every send (ROADMAP 1.10, §2
+-- 0038: crate membership merged before every send (ROADMAP 1.10, §2
 -- `crate_entry` and `sent_playlist`; 1cB-3).
 --
 -- 1. `crate_entry` ids are never used twice (AUTOINCREMENT). The merge

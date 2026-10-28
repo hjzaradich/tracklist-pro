@@ -1,7 +1,12 @@
-//! 0039: `crate_entry` ids are never reused, and `sent_playlist.replaced`
+//! 0038: `crate_entry` ids are never reused, and `sent_playlist.replaced`
 //! (ROADMAP §2, 1.10; 1cB-3).
 
 use super::{accepts, columns, db_at, insert, one, refuses, run, MIGRATIONS};
+
+/// How many migrations come before 0038: its index in [`MIGRATIONS`].
+fn before() -> usize {
+    MIGRATIONS.iter().position(|m| m.version() == 38).unwrap()
+}
 
 const SETUP: &str = "
     INSERT INTO recording (title) VALUES ('Track 1'), ('Track 2'), ('Track 3');
@@ -14,7 +19,7 @@ const SETUP: &str = "
 
 #[test]
 fn a_crate_entry_keeps_its_id_and_a_new_one_never_takes_one_the_table_or_the_log_ever_held() {
-    let (_dir, mut conn) = db_at(36);
+    let (_dir, mut conn) = db_at(before());
     accepts(&conn, SETUP);
     // Entry 3 is deleted; an operation waiting for an undo names entry 7.
     accepts(&conn, "DELETE FROM crate_entry WHERE id = 3");
@@ -25,7 +30,7 @@ fn a_crate_entry_keeps_its_id_and_a_new_one_never_takes_one_the_table_or_the_log
              VALUES (1, 'crate_entry', 7, 'insert', 'crate_id', '1');",
     );
 
-    run(&mut conn, &MIGRATIONS[..37]).unwrap();
+    run(&mut conn, &MIGRATIONS[..=before()]).unwrap();
 
     assert_eq!(
         one::<String>(
@@ -68,14 +73,14 @@ fn a_crate_entry_keeps_its_id_and_a_new_one_never_takes_one_the_table_or_the_log
 
 #[test]
 fn what_a_send_changed_in_a_playlist_is_a_json_array_or_nothing() {
-    let (_dir, mut conn) = db_at(36);
+    let (_dir, mut conn) = db_at(before());
     accepts(
         &conn,
         r#"INSERT INTO sent_playlist (path, path_key, kind) VALUES ('["Crates","Peak"]', '["crates","peak"]', 'playlist')"#,
     );
     assert!(!columns(&conn, "sent_playlist").contains(&"replaced".to_owned()));
 
-    run(&mut conn, &MIGRATIONS[..37]).unwrap();
+    run(&mut conn, &MIGRATIONS[..=before()]).unwrap();
 
     assert_eq!(
         one::<Option<String>>(&conn, "SELECT replaced FROM sent_playlist"),
