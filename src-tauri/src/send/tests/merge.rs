@@ -246,13 +246,19 @@ fn only_rekordboxs_change_is_taken_in_the_apps_value_goes_and_rekordboxs_is_sent
 
     assert_eq!(preflight.conflicts_waiting, 0);
     assert_eq!(w.own(velo, "Genre"), None);
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("Tech House"));
     assert_eq!(w.conflicts(), Vec::<String>::new());
 
     // And it stays rekordbox's: the next send carries it again.
     w.send();
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
 }
 
 #[test]
@@ -281,7 +287,10 @@ fn a_send_never_imported_sends_the_apps_value_again() {
 
     w.send();
 
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Deep House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Deep House")
+    );
     assert_eq!(w.own(velo, "Genre").as_deref(), Some("Deep House"));
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("Deep House"));
     assert_eq!(w.conflicts(), Vec::<String>::new());
@@ -316,7 +325,10 @@ fn both_changed_opens_a_conflict_sends_rekordboxs_value_and_keeps_the_base() {
         sides_of(&open[0]),
         (Some("Deep House"), Some("Tech House"), Some("House"))
     );
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("House"));
     assert_eq!(w.own(velo, "Genre").as_deref(), Some("Deep House"));
 
@@ -327,7 +339,10 @@ fn both_changed_opens_a_conflict_sends_rekordboxs_value_and_keeps_the_base() {
 
     assert_eq!(preflight.conflicts_waiting, 1);
     assert_eq!(w.open_conflicts(), open);
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("House"));
     assert_eq!(w.own(velo, "Genre").as_deref(), Some("Deep House"));
 }
@@ -346,11 +361,18 @@ fn a_field_never_sent_with_an_open_conflict_gets_no_base() {
         sides_of(&w.open_conflicts()[0]),
         (Some("warm-up"), Some("closer"), None)
     );
-    assert_eq!(w.sent_value("velo.mp3", "Comments").as_deref(), Some("closer"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Comments").as_deref(),
+        Some("closer")
+    );
     assert_eq!(w.base(velo, "Comments"), None);
 
     w.send();
-    assert_eq!(w.open_conflicts().len(), 1, "still waiting after the next read");
+    assert_eq!(
+        w.open_conflicts().len(),
+        1,
+        "still waiting after the next read"
+    );
     assert_eq!(w.base(velo, "Comments"), None);
 }
 
@@ -363,14 +385,20 @@ fn keeping_the_apps_value_sends_it_and_it_stays() {
 
     w.send();
 
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Deep House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Deep House")
+    );
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("Deep House"));
 
     // Imported: rekordbox shows Deep House. Nothing is open, nothing new.
     w.rekordbox_now(&[("Genre", "Deep House")]);
     let preflight = w.send();
     assert_eq!(preflight.conflicts_waiting, 0);
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Deep House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Deep House")
+    );
     assert_eq!(w.open_conflicts(), []);
     assert_eq!(w.conflicts(), ["kept_app"], "only the settled one");
 }
@@ -383,14 +411,20 @@ fn keeping_rekordboxs_value_sends_it_and_the_value_turned_down_never_goes_out() 
 
     w.send();
 
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("Tech House"));
 
     // The next read and send: nothing is sent over again, no conflict.
     w.rekordbox_now(&[("Genre", "Tech House")]);
     let preflight = w.send();
     assert_eq!(preflight.conflicts_waiting, 0);
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
     assert_eq!(w.open_conflicts(), []);
     assert_eq!(w.conflicts(), ["kept_rekordbox"], "only the settled one");
 }
@@ -450,7 +484,10 @@ fn undo_of_a_resolve_before_the_next_send_reopens_the_conflict_and_the_app_value
 
     let preflight = w.send();
     assert_eq!(preflight.conflicts_waiting, 1);
-    assert_eq!(w.sent_value("velo.mp3", "Genre").as_deref(), Some("Tech House"));
+    assert_eq!(
+        w.sent_value("velo.mp3", "Genre").as_deref(),
+        Some("Tech House")
+    );
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("House"));
 }
 
@@ -478,7 +515,10 @@ fn a_row_kept_from_an_older_read_takes_nothing_in_and_opens_nothing() {
 
     let preflight = w.prepare().unwrap();
 
-    assert!(preflight.refusal.is_some(), "an incomplete export is refused");
+    assert!(
+        preflight.refusal.is_some(),
+        "an incomplete export is refused"
+    );
     // velo is still rekordbox's, by the row kept from the earlier read.
     assert_eq!((preflight.new_tracks, preflight.known_tracks), (0, 1));
     assert_eq!(w.own(velo, "Genre").as_deref(), Some("Deep House"));

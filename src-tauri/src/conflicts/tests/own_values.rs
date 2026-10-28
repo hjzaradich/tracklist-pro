@@ -499,7 +499,10 @@ fn a_value_chosen_for_a_field_the_store_has_none_of_is_stored_over_rekordboxs() 
     // the one it replaced.
     let lib = Lib::new();
     let id = lib.known(&[("Genre", "Tech House")]);
-    lib.detect(&[track(id, vec![apart("Genre", "Deep House", "Tech House", "House")])]);
+    lib.detect(&[track(
+        id,
+        vec![apart("Genre", "Deep House", "Tech House", "House")],
+    )]);
     let open = lib.only_open();
 
     lib.resolve(open.id, Choice::KeepApp).unwrap();
@@ -507,7 +510,13 @@ fn a_value_chosen_for_a_field_the_store_has_none_of_is_stored_over_rekordboxs() 
     let rows = lib.app_rows();
     assert_eq!(
         rows,
-        [row(rows[0].0, id, "Genre", "Deep House", Some("Tech House"))]
+        [row(
+            rows[0].0,
+            id,
+            "Genre",
+            "Deep House",
+            Some("Tech House")
+        )]
     );
 }
 

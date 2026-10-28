@@ -60,10 +60,7 @@ pub struct SentElsewhere {
 /// [`Reviewed::sent_elsewhere`], outside the writer job, and the token
 /// doesn't cover it. A file that comes back between the review and the
 /// go changes neither the send nor whether it may be written.
-pub fn review(
-    conn: &mut Connection,
-    volumes: &impl Volumes,
-) -> rusqlite::Result<Option<Reviewed>> {
+pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result<Option<Reviewed>> {
     let Some(read) = stored_source(conn)?.last_read else {
         return Ok(None);
     };
