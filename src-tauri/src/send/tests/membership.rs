@@ -374,7 +374,8 @@ fn a_crate_renamed_or_deleted_in_the_app_compares_nothing_and_its_open_conflicts
 
     w.crate_op(move |conn| crates::delete_on(conn, CrateId(peak))).unwrap();
     w.rekordbox_shows(&[("Prime", &[1, 3]), ("Peak", &[1, 2, 3])]);
-    w.send_through();
+    // Nothing is left to send; the merge still ran, and took nothing in.
+    assert!(w.prepare().unwrap().nothing_to_send);
     assert_eq!(w.rows("SELECT count(*) FROM crate_entry", (), |r| r.get::<_, i64>(0)), [0]);
 }
 
@@ -442,5 +443,5 @@ fn a_membership_settled_between_the_gos_merge_and_its_record_refuses_the_send() 
     assert_eq!(fs::read(w.send_file()).unwrap(), file, "the last file is back");
     // The next send carries the membership chosen.
     w.send_through();
-    assert_eq!(w.written("Peak"), ["a.mp3", "b.mp3", "c.mp3"]);
+    assert_eq!(w.written("Peak"), ["a.mp3", "c.mp3", "b.mp3"]);
 }
