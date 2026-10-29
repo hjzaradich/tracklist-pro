@@ -77,7 +77,7 @@ describe("the Details panel's crates", () => {
     expect(backend.state.history).toHaveLength(1);
 
     // Undo is in the top bar only: there is no Undo in the panel.
-    expect(panel().queryByRole("button", { name: new RegExp(tx("shell:undo.button")) })).toBeNull();
+    expect(panel().queryByRole("button", { name: (name) => name.includes(tx("shell:undo.button")) })).toBeNull();
     await userEvent.click(
       await screen.findByRole("button", { name: tx("shell:undo.action.removeFromCrate", { count: 1, name: "Warmup" }) }),
     );

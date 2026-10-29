@@ -116,7 +116,7 @@ describe("dragging tracks onto a crate", () => {
 
   it("a drop on a stage, or after Escape, adds nothing", async () => {
     const backend = await library({ rows: libraryRows(4), crates: CRATES });
-    const stage = screen.getByRole("link", { name: new RegExp(`^${tx("shell:stages.overview")}`) });
+    const stage = screen.getByRole("link", { name: (name) => name.startsWith(tx("shell:stages.overview")) });
     fireEvent.pointerDown(rowAt(0), { button: 0, clientX: 300, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(document.body, { clientX: 320, clientY: 120, pointerId: 1 });
     fireEvent.pointerUp(stage, { pointerId: 1 });
@@ -191,14 +191,14 @@ describe("Add to crate or playlist", () => {
     await library({ rows: libraryRows(3), crates: CRATES });
     await userEvent.keyboard("{Control>}k{/Control}");
     const palette = await screen.findByRole("combobox", { name: tx("palette:input.label") });
-    await userEvent.type(palette, "add to crate");
-    expect(screen.queryByRole("option", { name: new RegExp(tx("trackTable:keys.addToCrate")) })).toBeNull();
+    await userEvent.type(palette, tx("trackTable:keys.addToCrate"));
+    expect(screen.queryByRole("option", { name: (name) => name.includes(tx("trackTable:keys.addToCrate")) })).toBeNull();
     await userEvent.keyboard("{Escape}");
 
     clickRow(1);
     await userEvent.keyboard("{Control>}k{/Control}");
-    await userEvent.type(await screen.findByRole("combobox", { name: tx("palette:input.label") }), "add to crate");
-    const option = await screen.findByRole("option", { name: new RegExp(tx("trackTable:keys.addToCrate")) });
+    await userEvent.type(await screen.findByRole("combobox", { name: tx("palette:input.label") }), tx("trackTable:keys.addToCrate"));
+    const option = await screen.findByRole("option", { name: (name) => name.includes(tx("trackTable:keys.addToCrate")) });
     expect(within(option).getByText(tx("trackTable:keys.shortcut.addToCrate"))).toBeInTheDocument();
     await userEvent.keyboard("{Enter}");
     await dialog();
@@ -254,10 +254,7 @@ describe("Add to crate or playlist", () => {
     await userEvent.type(box(), "loose");
     await userEvent.keyboard("{Enter}");
 
-    const line = tx("crates:addSelection.withNotes", {
-      done: added(1, "Loose"),
-      notes: tx("crates:addSelection.alreadyThere", { count: 1 }),
-    });
+    const line = `${added(1, "Loose")} ${tx("crates:addSelection.alreadyThere", { count: 1 })}`;
     expect(await screen.findByText(line)).toBeInTheDocument();
     expect([...(backend.state.members.get(5) ?? [])]).toEqual([100, 101]);
 
@@ -270,10 +267,7 @@ describe("Add to crate or playlist", () => {
     await userEvent.keyboard("{Enter}");
     expect(
       await screen.findByText(
-        tx("crates:addSelection.withNotes", {
-          done: added(0, "Loose"),
-          notes: tx("crates:addSelection.alreadyThere", { count: 2 }),
-        }),
+        `${added(0, "Loose")} ${tx("crates:addSelection.alreadyThere", { count: 2 })}`,
       ),
     ).toBeInTheDocument();
     expect(backend.state.history).toHaveLength(1);
@@ -289,10 +283,7 @@ describe("Add to crate or playlist", () => {
     await userEvent.keyboard("{Enter}");
     expect(
       await screen.findByText(
-        tx("crates:addSelection.withNotes", {
-          done: added(1, "Loose"),
-          notes: tx("crates:addSelection.outsideLibrary", { count: 1 }),
-        }),
+        `${added(1, "Loose")} ${tx("crates:addSelection.outsideLibrary", { count: 1 })}`,
       ),
     ).toBeInTheDocument();
     expect([...(backend.state.members.get(5) ?? [])]).toEqual([100]);

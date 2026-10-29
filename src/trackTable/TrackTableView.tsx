@@ -228,5 +228,10 @@ function AddReportLine({ report }: { report: AddReport }) {
     report.outsideLibrary > 0 ? t("addSelection.outsideLibrary", { count: report.outsideLibrary }) : null,
   ].filter((note) => note !== null);
   const done = t("addSelection.added", { count: report.added, crate: report.crate });
-  return <span role="status">{notes.length > 0 ? t("addSelection.withNotes", { done, notes: notes.join(", ") }) : done}</span>;
+  return (
+    <span role="status">
+      {done}
+      {notes.map((note) => ` ${note}`).join("")}
+    </span>
+  );
 }

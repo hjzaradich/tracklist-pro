@@ -282,10 +282,6 @@
     "purpose": "Says how many of the tracks are not in the Library, so were left out (only Library tracks join a crate).",
     "where": "Above the track table, in parentheses after the number added."
   },
-  "addSelection.withNotes": {
-    "purpose": "Puts the notes in parentheses after what was added; {{done}} is the sentence, {{notes}} the notes joined with commas.",
-    "where": "Above the track table, after an add that left some tracks out or found some already there."
-  },
   "addSelection.folder": {
     "purpose": "Refuses a drop on a folder and says why.",
     "where": "Above the track table, after tracks were dropped on a folder in the sidebar."
