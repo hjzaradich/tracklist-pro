@@ -225,8 +225,8 @@ describe("outside your Library", () => {
   });
 
   it.each([
-    ["Review", "shell:stages.review", "/review"],
-    ["All music", "shell:stages.allMusic", "/all-music"],
+    ["the Review queue", "shell:stages.review", "/review"],
+    ["the All music list", "shell:stages.allMusic", "/all-music"],
   ])("opens %s", async (_name, key, path) => {
     fakeBackend({ overview: { outsideLibrary: 3 } });
     const { router } = renderApp("/overview");

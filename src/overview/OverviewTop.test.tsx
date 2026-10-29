@@ -104,9 +104,10 @@ describe("the check the header repeats", () => {
     });
     renderApp("/overview");
     const refusal = await screen.findByText(tx("send:review.refused.incompleteExport"));
-    // The refusal is two sentences and ends in a full stop: nothing follows it on its line.
-    expect(refusal.textContent?.endsWith(".")).toBe(true);
-    expect(refusal.nextElementSibling).toHaveTextContent(contains(tx("overview:header.exportRead", { when: "" }).trim()));
+    // The refusal is whole on its own line; the export's date is the line after it, not tacked on.
+    const exportRead = contains(tx("overview:header.exportRead", { when: "" }).trim());
+    expect(refusal).not.toHaveTextContent(exportRead);
+    expect(refusal.nextElementSibling).toHaveTextContent(exportRead);
   });
 
   it("stops saying there is nothing to send once the Library has changed", async () => {
