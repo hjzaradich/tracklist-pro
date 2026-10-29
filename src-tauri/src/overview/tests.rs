@@ -599,6 +599,115 @@ fn all_music_counts_each_track_with_a_visible_file_once() {
     assert_eq!(lib.overview().all_music, 4);
 }
 
+#[test]
+fn outside_the_library_counts_the_tracks_in_all_music_that_are_not_library_tracks() {
+    let lib = Lib::new();
+    // In the Library: in All music, not outside.
+    lib.library_track("Alpha", None, None);
+    // Not in the Library, with a file shown: outside.
+    let beta = lib.track("Beta");
+    let beta_file = lib.file(beta, "Beta.mp3", None, None);
+    // Two files, one track: counted once.
+    let gamma = lib.track("Gamma");
+    lib.file(gamma, "Gamma.mp3", None, None);
+    lib.other_file(gamma, "Gamma 2.mp3", None);
+    // A track with no file, and one with only a hidden file: not in All music.
+    lib.track("No file");
+    let hidden = lib.track("Hidden");
+    let hidden_file = lib.file(hidden, "Hidden.mp3", None, None);
+    lib.exec(
+        "UPDATE file SET hidden_reason = 'user' WHERE id = ?1",
+        [hidden_file],
+    );
+    // A Library track whose only file is hidden is in neither count.
+    lib.library_track("Library hidden", None, None);
+    lib.exec(
+        "UPDATE file SET hidden_reason = 'user' WHERE rel_path = 'Library hidden.mp3'",
+        [],
+    );
+
+    let o = lib.overview();
+    assert_eq!((o.all_music, o.outside_library), (3, 2));
+
+    // Adding Beta to the Library takes it out of "outside".
+    lib.add(beta, beta_file, 1);
+    let o = lib.overview();
+    assert_eq!((o.all_music, o.outside_library), (3, 1));
+}
+
+// Energy.
+
+/// An `analysis` row that holds only an energy.
+fn energy_row(lib: &Lib, track: i64, source: &'static str, energy: i64) {
+    lib.exec(
+        "INSERT INTO analysis (recording_id, source, energy) VALUES (?1, ?2, ?3)",
+        (track, source, energy),
+    );
+}
+
+#[test]
+fn energy_counts_the_level_each_library_track_shows_and_the_tracks_with_none() {
+    let lib = Lib::new();
+    // The user's energy beats Mixed In Key's, the local estimate's and the
+    // audio model's.
+    let (a, _) = lib.library_track("User wins", None, None);
+    energy_row(&lib, a, "user", 8);
+    energy_row(&lib, a, "mik", 5);
+    energy_row(&lib, a, "local", 3);
+    energy_row(&lib, a, "ml", 2);
+    // Mixed In Key's beats the local estimate's.
+    let (b, _) = lib.library_track("Mixed In Key wins", None, None);
+    energy_row(&lib, b, "mik", 5);
+    energy_row(&lib, b, "local", 3);
+    // The local estimate's beats the audio model's.
+    let (c, _) = lib.library_track("Local wins", None, None);
+    energy_row(&lib, c, "local", 3);
+    energy_row(&lib, c, "ml", 9);
+    // The audio model's counts when it is the only one.
+    let (d, _) = lib.library_track("Model only", None, None);
+    energy_row(&lib, d, "ml", 9);
+    // The top level and the bottom level are both counted.
+    let (e, _) = lib.library_track("Top", None, None);
+    energy_row(&lib, e, "user", 10);
+    let (f, _) = lib.library_track("Bottom", None, None);
+    energy_row(&lib, f, "user", 1);
+    // Two tracks at one level.
+    let (g, _) = lib.library_track("Also eight", None, None);
+    energy_row(&lib, g, "user", 8);
+    // A BPM or a key from rekordbox is no energy; nor is no analysis at all.
+    let (h, _) = lib.library_track("Rekordbox BPM only", None, None);
+    lib.exec(
+        "INSERT INTO analysis (recording_id, source, bpm) VALUES (?1, 'rekordbox', 128.0)",
+        [h],
+    );
+    lib.library_track("No analysis", None, None);
+    // A track outside the Library is not counted, whatever its energy.
+    let outside = lib.track("Outside");
+    lib.file(outside, "Outside.mp3", None, None);
+    energy_row(&lib, outside, "user", 4);
+
+    let o = lib.overview();
+    assert_eq!(o.energy, [1, 0, 1, 0, 1, 0, 0, 2, 1, 1]);
+    assert_eq!(o.no_energy, 2);
+    assert_eq!(
+        o.energy.iter().sum::<u32>() + o.no_energy,
+        o.tracks,
+        "every Library track is in exactly one bar"
+    );
+}
+
+#[test]
+fn energy_is_ten_empty_levels_and_no_energy_when_nothing_has_any() {
+    let lib = Lib::new();
+    let o = lib.overview();
+    assert_eq!((o.energy.clone(), o.no_energy), (vec![0; 10], 0));
+
+    lib.library_track("Alpha", None, None);
+    lib.library_track("Beta", None, None);
+    let o = lib.overview();
+    assert_eq!((o.energy, o.no_energy), (vec![0; 10], 2));
+}
+
 // This week.
 
 #[test]
@@ -1565,6 +1674,9 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         );
         let all_music = scans(c, ALL_MUSIC, []);
         assert_eq!(all_music, ["r"], "All music: one pass over the tracks");
+        let mut energy = scans(c, ENERGY, []);
+        energy.retain(|t| t != "s");
+        assert_eq!(energy, ["lt"], "energy: one pass over the Library's tracks");
         let decisions = scans(c, &decisions_sql(), [0]);
         assert_eq!(decisions, ["operation"]);
         let mut genres = scans(c, &genres_sql(), []);
@@ -1588,6 +1700,29 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
     });
 }
 
+#[test]
+fn a_library_of_2000_tracks_is_read_in_one_pass_for_energy_and_outside_the_library() {
+    // The plan, not a time: the statements this adds scan only the table
+    // they count, and reach the others through an index, however many
+    // tracks there are.
+    let lib = Lib::new();
+    build(&lib, 2_000);
+    lib.run(|c| {
+        let mut energy = scans(c, ENERGY, []);
+        energy.retain(|t| t != "s");
+        assert_eq!(energy, ["lt"], "energy: one pass over the Library's tracks");
+        assert_eq!(
+            scans(c, ALL_MUSIC, []),
+            ["r"],
+            "outside the Library: the pass All music makes"
+        );
+        Ok(())
+    });
+    let o = lib.overview();
+    assert_eq!(o.energy.iter().sum::<u32>() + o.no_energy, 2_000);
+    assert_eq!((o.all_music, o.outside_library), (2_000, 0));
+}
+
 /// A deterministic spread of tags and rekordbox data, by track number `n`.
 fn made_up_genre(n: i64) -> Option<String> {
     if n % 3 == 0 {
@@ -1601,7 +1736,7 @@ fn made_up_genre(n: i64) -> Option<String> {
 
 /// Builds a Library of `count` tracks by SQL alone: 3 in 3 are known to
 /// rekordbox with a BPM, 2 in 5 are in a crate, 4 in 5 of the others have a
-/// genre tag.
+/// genre tag, 1 in 4 has an energy from the user and 1 in 6 one from Mixed In Key.
 fn build(lib: &Lib, count: i64) {
     lib.run(move |c| {
         c.execute_batch(
@@ -1649,7 +1784,11 @@ fn build(lib: &Lib, count: i64) {
                                     THEN json_object('Artist', 'RB Artist ' || (id % 50))
                                     ELSE '{{}}' END),
                     'c:/music/' || id, '2026-09-30T10:00:00.000Z', id, id, 'path'
-             FROM recording WHERE id % 3 = 0;"
+             FROM recording WHERE id % 3 = 0;
+             INSERT INTO analysis (recording_id, source, energy)
+             SELECT id, 'user', id % 10 + 1 FROM recording WHERE id % 4 = 0;
+             INSERT INTO analysis (recording_id, source, energy)
+             SELECT id, 'mik', id % 7 + 1 FROM recording WHERE id % 6 = 0;"
         ))?;
         tx.commit()?;
         crate::attach::attach(c).map(|_| ())
@@ -1672,6 +1811,10 @@ fn check_a_library_of(count: i64) {
         c.query_row(&library_sql(), ["2000"], |_| Ok(()))
     });
     timed("all music", |c| c.query_row(ALL_MUSIC, [], |_| Ok(())));
+    timed("energy statement", |c| {
+        c.prepare(ENERGY)?.query_map([], |_| Ok(()))?.for_each(drop);
+        Ok(())
+    });
     timed("genres statement", |c| {
         c.prepare(&genres_sql())?
             .query_map([], |_| Ok(()))?
@@ -1681,8 +1824,30 @@ fn check_a_library_of(count: i64) {
     timed("genres", |c| genres(c, 0).map(|_| ()));
     timed("missing tags", |c| missing_tags(c, &NoVolumes).map(|_| ()));
     timed("missing art", |c| c.query_row(MISSING_ART, [], |_| Ok(())));
+    timed("energy", |c| energy(c).map(|_| ()));
 
     let all = 1..=count;
+    // The user's energy wins over Mixed In Key's; the rest have none.
+    let shown_energy = |n: i64| match (n % 4 == 0, n % 6 == 0) {
+        (true, _) => Some(n % 10 + 1),
+        (false, true) => Some(n % 7 + 1),
+        _ => None,
+    };
+    for level in 1..=10 {
+        assert_eq!(
+            i64::from(o.energy[level as usize - 1]),
+            all.clone()
+                .filter(|n| shown_energy(*n) == Some(level))
+                .count() as i64,
+            "tracks with energy {level}"
+        );
+    }
+    assert_eq!(
+        i64::from(o.no_energy),
+        all.clone().filter(|n| shown_energy(*n).is_none()).count() as i64
+    );
+    // Every track is in the Library, so none is outside it.
+    assert_eq!(o.outside_library, 0);
     assert_eq!(i64::from(o.tracks), count);
     assert_eq!(
         o.total_length_ms as i64,
@@ -1791,5 +1956,8 @@ fn the_frontend_gets_every_number_over_ipc() {
     assert_eq!(o["rekordboxRead"], false);
     assert_eq!(o["genres"], json!([]));
     assert_eq!(o["noGenre"], 1);
+    assert_eq!(o["energy"], json!([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+    assert_eq!(o["noEnergy"], 1);
+    assert_eq!(o["outsideLibrary"], 0);
     assert!(o["counting"]["files"].is_boolean());
 }

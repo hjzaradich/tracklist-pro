@@ -12,7 +12,9 @@ import { LIBRARY_TABLE_QUERY_KEY } from "../library/useLibraryTracks";
 
 /** Every crate query starts with this, so one invalidation reaches them all. */
 export const CRATES_QUERY_KEY = ["crates"] as const;
-const LIST_KEY = [...CRATES_QUERY_KEY, "list"] as const;
+/** The tree of folders and crates with their track counts. */
+export const CRATES_LIST_QUERY_KEY = [...CRATES_QUERY_KEY, "list"] as const;
+const LIST_KEY = CRATES_LIST_QUERY_KEY;
 
 /**
  * Call after anything that can change what a crate holds: a crate change, or

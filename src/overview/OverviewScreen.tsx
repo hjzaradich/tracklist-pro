@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AfterSendPanel } from "../afterSend/AfterSendLists";
 import { errorMessage } from "../api/errors";
@@ -11,20 +11,24 @@ import { useAnswerRequest } from "../palette/requests";
 import { XmlSourcePanel } from "../rekordbox/XmlSourcePanel";
 import { useReviewCounts } from "../review/useReview";
 import { SendChecklist } from "../send/SendChecklist";
+import { sendAvailable } from "../send/sendAvailable";
 import { useSendState } from "../send/useSend";
 import { StageScreen } from "../shell/StageScreen";
+import { Charts } from "./Charts";
+import { OutsideStrip } from "./OutsideStrip";
 import { OverviewHeader } from "./OverviewHeader";
+import overviewStyles from "./overview.module.css";
 import { ProgressLine } from "./ProgressLine";
 import { TodoList } from "./TodoList";
 import { useOverview } from "./useOverview";
 
 /**
- * The Overview. Its top half (1cB-11, ROADMAP 1.13) is the header with the
- * Send button, what's waiting for the DJ, and the progress line. Below it
- * come where rekordbox's collection comes from (1aB-11) and the offer to add
- * rekordbox tracks to the Library, shown after any read while there's
- * something to add (1aE-2). The four numbers, the charts and the strip for
- * what's outside the Library (1cB-12) go between the two.
+ * The Overview (ROADMAP 1.13). Its top half (1cB-11) is the header, with the
+ * four numbers and the Send button, what's waiting for the DJ, and the
+ * progress line. Then come the energy and genre bars and the strip for what's
+ * outside the Library (1cB-12). Below them are where rekordbox's collection
+ * comes from (1aB-11) and the offer to add rekordbox tracks to the Library,
+ * shown after any read while there's something to add (1aE-2).
  *
  * While the Library is empty it's also the first-run flow (1aE-1 to 1aE-4):
  * pick music folders, then start from rekordbox (the same offer) or start
@@ -46,9 +50,11 @@ export function OverviewScreen() {
   const review = useReviewCounts();
   const { data: sendState } = useSendState(null);
   const [sending, setSending] = useState(false);
+  // "Manage folders" in the strip takes the user down to the folders panel.
+  const folders = useRef<HTMLDivElement>(null);
   // The command palette's "Send to rekordbox" (1cB-7) opens the same guided send.
   useAnswerRequest("send", () => {
-    if (library.data?.length !== 0) setSending(true);
+    if (sendAvailable(tracks)) setSending(true);
   });
 
   if (sending) {
@@ -92,14 +98,26 @@ export function OverviewScreen() {
               reviewError={review.error}
             />
             {overview.data && <ProgressLine overview={overview.data} />}
+            {overview.data && <Charts overview={overview.data} />}
+            {overview.data && (
+              <OutsideStrip
+                overview={overview.data}
+                review={review.data}
+                onManageFolders={() => folders.current?.focus()}
+              />
+            )}
           </>
         )}
-        {/* 1cB-12 goes here: the four numbers, the energy and genre bars and the "Outside your Library" strip. */}
         {firstRun && <MusicFoldersStep />}
-        <XmlSourcePanel />
+        {/* Once the Library has tracks, Send is the Overview's one filled button. */}
+        <XmlSourcePanel quiet={sendAvailable(tracks)} />
         {library.data !== undefined && <RekordboxOffer firstRun={firstRun} />}
         {firstRun && <StartFresh />}
-        {library.data !== undefined && !firstRun && <MusicFoldersStep />}
+        {library.data !== undefined && !firstRun && (
+          <div ref={folders} tabIndex={-1} className={overviewStyles.anchor}>
+            <MusicFoldersStep />
+          </div>
+        )}
       </div>
     </StageScreen>
   );

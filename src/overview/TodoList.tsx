@@ -6,8 +6,11 @@ import type { Overview, ReviewCounts } from "../bindings";
 import styles from "./overview.module.css";
 import { isCounting } from "./useOverview";
 
-/** Where a line goes: Review for decisions, the Library for the rest (1cC-4 filters it). */
-type Door = "/review" | "/library";
+/**
+ * Where a line goes: Review for decisions, All music for the tracks outside
+ * the Library, the Library for the rest (1cC-4 filters it).
+ */
+type Door = "/review" | "/library" | "/all-music";
 
 interface Line {
   id: string;
@@ -47,6 +50,12 @@ export function waitingLines(overview: Overview | undefined, review: ReviewCount
         counting: counting.rekordbox,
       },
       { id: "inNoCrate", count: overview.inNoCrate, door: "/library", counting: false },
+      {
+        id: "outsideLibrary",
+        count: overview.outsideLibrary,
+        door: "/all-music",
+        counting: counting.files,
+      },
     );
   }
   return lines.filter((line) => line.count > 0);

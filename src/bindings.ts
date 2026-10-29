@@ -1614,6 +1614,18 @@ export type Overview = {
 	/**  Library tracks with no genre. */
 	noGenre: number,
 	/**
+	 *  Library tracks per energy level: entry 0 is energy 1 and entry 9 is
+	 *  energy 10 ([`ENERGY_LEVELS`] entries), the energy a track shows.
+	 */
+	energy: number[],
+	/**  Library tracks with no energy. */
+	noEnergy: number,
+	/**
+	 *  Tracks in All music that are not Library tracks: what "Add to
+	 *  Library" could still bring in.
+	 */
+	outsideLibrary: number,
+	/**
 	 *  Library tracks with no title, no artist or no genre, as the lists
 	 *  show them ([`missing_tags`]).
 	 */
