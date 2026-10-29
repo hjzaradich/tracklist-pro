@@ -324,8 +324,6 @@ export const commands = {
 	 *  aren't imported and the pick isn't remembered.
 	 */
 	addRekordboxTracks: (playlists: string[][] | null) => typedError<AddSummary, IpcError>(__TAURI_INVOKE("add_rekordbox_tracks", { playlists })),
-	/**  Undoes an add of rekordbox tracks, if nothing else was done since. */
-	undoAddRekordboxTracks: (operationId: number) => typedError<UndoOutcome, IpcError>(__TAURI_INVOKE("undo_add_rekordbox_tracks", { operationId })),
 	/**  The rekordbox playlists that hold tracks, for narrowing the offer. */
 	rekordboxPlaylists: () => typedError<PlaylistChoice[], IpcError>(__TAURI_INVOKE("rekordbox_playlists")),
 	/**
@@ -550,8 +548,8 @@ export type AddSummary = {
 	waitingInMissing: number,
 	waitingForConfirmation: number,
 	/**
-	 *  The operation that added them, for [`undo_add`]. `None` when nothing
-	 *  was added.
+	 *  The operation that added them, which the top bar's Undo takes back.
+	 *  `None` when nothing was added.
 	 */
 	operationId: number | null,
 };
