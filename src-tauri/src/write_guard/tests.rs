@@ -1120,7 +1120,10 @@ fn a_database_on_a_drive_is_named_to_sqlite_without_the_verbatim_prefix() {
     );
     assert_eq!(plain(r"\\?\d:\x\a.db"), Some(r"d:\x\a.db".to_owned()));
     // Dots inside a name are fine, and so are spaces that aren't last.
-    assert_eq!(plain(r"\\?\E:\Q.X.Z\a b.db"), Some(r"E:\Q.X.Z\a b.db".to_owned()));
+    assert_eq!(
+        plain(r"\\?\E:\Q.X.Z\a b.db"),
+        Some(r"E:\Q.X.Z\a b.db".to_owned())
+    );
 }
 
 #[test]

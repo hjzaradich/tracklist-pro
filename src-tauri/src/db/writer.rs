@@ -862,7 +862,11 @@ mod tests {
     fn writer_and_readers() -> (tempfile::TempDir, Writer, crate::db::ReadPool) {
         let (dir, writer) = open_temp();
         writer
-            .call(|c| c.execute_batch("CREATE TABLE t (x INTEGER, pad BLOB); INSERT INTO t VALUES (1, NULL);"))
+            .call(|c| {
+                c.execute_batch(
+                    "CREATE TABLE t (x INTEGER, pad BLOB); INSERT INTO t VALUES (1, NULL);",
+                )
+            })
             .unwrap();
         let reads = crate::db::ReadPool::with_size(writer.guarded_path(), READERS).unwrap();
         (dir, writer, reads)
