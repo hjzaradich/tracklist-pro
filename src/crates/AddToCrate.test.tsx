@@ -204,7 +204,7 @@ describe("Add to crate or playlist", () => {
     await dialog();
   });
 
-  it("a new crate from the dialog is made at the top from the typed name, and gets the tracks", async () => {
+  it("a new crate from the dialog is made at the top from the typed name with the tracks, as one operation and one Undo", async () => {
     const backend = await library({ rows: libraryRows(4), crates: CRATES });
     clickRow(0);
     clickRow(1, { ctrlKey: true });
@@ -215,10 +215,24 @@ describe("Add to crate or playlist", () => {
     await userEvent.keyboard("{Enter}");
 
     expect(await screen.findByText(added(2, "Closing"))).toBeInTheDocument();
-    expect(backend.called("create_crate")[0]?.args).toEqual({ name: "Closing", parent: null });
+    // One command, one entry in the history: the crate is not made on its own first.
+    expect(backend.called("create_crate")).toHaveLength(0);
+    expect(backend.called("add_recordings_to_crate")).toHaveLength(0);
+    expect(backend.called("add_recordings_to_new_crate")[0]?.args).toEqual({
+      name: "Closing",
+      recordings: [100, 101],
+    });
     const made = backend.state.crates.find((c) => c.name === "Closing");
     expect(made?.parentId).toBeNull();
-    expect(backend.called("add_recordings_to_crate")[0]?.args).toEqual({ id: made?.id, recordings: [100, 101] });
+    expect([...(backend.state.members.get(made?.id ?? -1) ?? [])]).toEqual([100, 101]);
+    expect(backend.state.history).toHaveLength(1);
+
+    // One Undo takes the tracks and the crate away together.
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.addToCrate", { count: 2, name: "Closing" }) }),
+    );
+    await waitFor(() => expect(backend.called("undo_last_operation")).toHaveLength(1));
+    expect(backend.state.crates.find((c) => c.name === "Closing")).toBeUndefined();
   });
 
   it("a new crate follows the sibling-name rules: a name a crate at the top has is that crate, a folder's name is refused", async () => {
@@ -236,7 +250,9 @@ describe("Add to crate or playlist", () => {
     await userEvent.keyboard("{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:error.nameTaken", { name: "sets" }));
     expect(backend.called("add_recordings_to_crate")).toHaveLength(0);
+    // Nothing was made, so there is no empty crate and nothing to undo.
     expect(backend.state.crates).toHaveLength(CRATES.length);
+    expect(backend.state.history).toHaveLength(0);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     // The same name in a folder is fine: "Warmup" is Friday residency's, so one at the top is allowed.
@@ -273,20 +289,82 @@ describe("Add to crate or playlist", () => {
     expect(backend.state.history).toHaveLength(1);
   });
 
-  it("a track outside the Library is left out and the line says how many", async () => {
-    const backend = await library({ rows: [...libraryRows(2), outsideRow(5)], crates: CRATES });
+  it("a track outside the Library joins the Library and the crate in one operation, and one Undo takes both back", async () => {
+    const backend = await library({ rows: [...libraryRows(2), outsideRow(2)], crates: CRATES });
     clickRow(0);
     clickRow(2, { ctrlKey: true });
     await userEvent.keyboard("c");
     await dialog();
     await userEvent.type(box(), "loose");
     await userEvent.keyboard("{Enter}");
-    expect(
-      await screen.findByText(
-        `${added(1, "Loose")} ${tx("crates:addSelection.outsideLibrary", { count: 1 })}`,
-      ),
-    ).toBeInTheDocument();
-    expect([...(backend.state.members.get(5) ?? [])]).toEqual([100]);
+
+    // A Library track and an outside one together: one command, one history entry.
+    const line = `${added(2, "Loose")} ${tx("crates:addSelection.alsoInLibrary", { count: 1 })}`;
+    expect(await screen.findByText(line)).toBeInTheDocument();
+    expect(backend.called("add_recordings_to_crate")).toHaveLength(1);
+    expect([...(backend.state.members.get(5) ?? [])]).toEqual([100, 102]);
+    expect(backend.state.rows[2]?.inLibrary).toBe(true);
+    expect(backend.state.history).toHaveLength(1);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.addToCrate", { count: 2, name: "Loose" }) }),
+    );
+    await waitFor(() => expect(backend.called("undo_last_operation")).toHaveLength(1));
+    expect(backend.state.members.get(5)?.size).toBe(0);
+    expect(backend.state.rows[2]?.inLibrary).toBe(false);
+    await waitFor(() => expect(screen.queryByText(line)).toBeNull());
+  });
+
+  it("tracks Add to Library refuses are left out of both, and the line counts them with the reason", async () => {
+    const backend = await library({
+      rows: [...libraryRows(1), outsideRow(1), outsideRow(2), outsideRow(3), outsideRow(4), outsideRow(5)],
+      crates: CRATES,
+      refused: { 101: "noFile", 102: "fileMissing", 103: "matchNotConfirmed", 104: "lowBitrate" },
+    });
+    clickRow(0);
+    for (const index of [1, 2, 3, 4, 5]) clickRow(index, { ctrlKey: true });
+    await userEvent.keyboard("c");
+    await dialog();
+    await userEvent.type(box(), "loose");
+    await userEvent.keyboard("{Enter}");
+
+    const notes = [
+      tx("crates:addSelection.alsoInLibrary", { count: 1 }),
+      tx("crates:addSelection.leftOut.noFile", { count: 1 }),
+      tx("crates:addSelection.leftOut.fileMissing", { count: 1 }),
+      tx("crates:addSelection.leftOut.matchNotConfirmed", { count: 1 }),
+      tx("crates:addSelection.leftOut.lowBitrate", { count: 1 }),
+    ];
+    expect(await screen.findByText([added(2, "Loose"), ...notes].join(" "))).toBeInTheDocument();
+    expect([...(backend.state.members.get(5) ?? [])]).toEqual([100, 105]);
+    expect(backend.state.rows.map((row) => row.inLibrary)).toEqual([true, false, false, false, false, true]);
+  });
+
+  it("after a refused new crate the box keeps the focus and the keys keep working", async () => {
+    const backend = await library({ rows: libraryRows(3), crates: CRATES });
+    clickRow(0);
+    await userEvent.keyboard("c");
+    await dialog();
+    await userEvent.type(box(), "sets");
+    const release = backend.hold("add_recordings_to_new_crate");
+    await userEvent.keyboard("{Enter}");
+
+    // While it works the box is read-only, not disabled: a disabled box gives up the focus.
+    await waitFor(() => expect(backend.called("add_recordings_to_new_crate")).toHaveLength(1));
+    expect(box()).not.toBeDisabled();
+    expect(box()).toHaveAttribute("readonly");
+    expect(box()).toHaveFocus();
+
+    release();
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("crates:error.nameTaken", { name: "sets" }));
+    expect(box()).not.toHaveAttribute("readonly");
+    expect(box()).toHaveFocus();
+
+    // Without a click: the keys edit the name, and Escape closes the dialog.
+    await userEvent.keyboard("{Backspace}");
+    expect(box()).toHaveValue("set");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("the keys do not fire in a text field, and C with nothing selected does nothing", async () => {

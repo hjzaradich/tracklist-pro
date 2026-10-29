@@ -223,9 +223,16 @@ function AddReportLine({ report }: { report: AddReport }) {
     );
   }
   if (report.kind === "folder") return <span role="status">{t("addSelection.folder")}</span>;
+  const { leftOut } = report;
   const notes = [
+    report.alsoAddedToLibrary > 0 ? t("addSelection.alsoInLibrary", { count: report.alsoAddedToLibrary }) : null,
     report.alreadyThere > 0 ? t("addSelection.alreadyThere", { count: report.alreadyThere }) : null,
-    report.outsideLibrary > 0 ? t("addSelection.outsideLibrary", { count: report.outsideLibrary }) : null,
+    leftOut.noFile > 0 ? t("addSelection.leftOut.noFile", { count: leftOut.noFile }) : null,
+    leftOut.fileMissing > 0 ? t("addSelection.leftOut.fileMissing", { count: leftOut.fileMissing }) : null,
+    leftOut.matchNotConfirmed > 0
+      ? t("addSelection.leftOut.matchNotConfirmed", { count: leftOut.matchNotConfirmed })
+      : null,
+    leftOut.lowBitrate > 0 ? t("addSelection.leftOut.lowBitrate", { count: leftOut.lowBitrate }) : null,
   ].filter((note) => note !== null);
   const done = t("addSelection.added", { count: report.added, crate: report.crate });
   return (

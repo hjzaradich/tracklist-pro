@@ -89,7 +89,13 @@
     "added_one": "Added {{count, number}} track to {{crate}}",
     "added_other": "Added {{count, number}} tracks to {{crate}}",
     "alreadyThere": "({{count, number}} already in it)",
-    "outsideLibrary": "({{count, number}} not in your Library)",
+    "alsoInLibrary": "({{count, number}} also added to your Library)",
+    "leftOut": {
+      "noFile": "({{count, number}} left out: no file)",
+      "fileMissing": "({{count, number}} left out: file missing)",
+      "matchNotConfirmed": "({{count, number}} left out: rekordbox match uncertain)",
+      "lowBitrate": "({{count, number}} left out: low bitrate)"
+    },
     "folder": "Can't add to a folder: it holds crates, not tracks"
   },
   "done": {

@@ -278,8 +278,24 @@
     "purpose": "Says how many of the tracks were in the crate already, so were not added again.",
     "where": "Above the track table, in parentheses after the number added."
   },
-  "addSelection.outsideLibrary": {
-    "purpose": "Says how many of the tracks are not in the Library, so were left out (only Library tracks join a crate).",
+  "addSelection.alsoInLibrary": {
+    "purpose": "Says how many of the tracks added to the crate were not in the Library and were added to it too, in the same step.",
+    "where": "Above the track table, in parentheses after the number added."
+  },
+  "addSelection.leftOut.noFile": {
+    "purpose": "Says how many tracks outside the Library were left out of the add because they have no file (the reason Add to Library refuses them).",
+    "where": "Above the track table, in parentheses after the number added."
+  },
+  "addSelection.leftOut.fileMissing": {
+    "purpose": "Says how many tracks outside the Library were left out of the add because their file is missing from disk.",
+    "where": "Above the track table, in parentheses after the number added."
+  },
+  "addSelection.leftOut.matchNotConfirmed": {
+    "purpose": "Says how many tracks outside the Library were left out of the add because their only rekordbox match is uncertain. Same words as the row in All music.",
+    "where": "Above the track table, in parentheses after the number added."
+  },
+  "addSelection.leftOut.lowBitrate": {
+    "purpose": "Says how many tracks outside the Library were left out of the add because their file has a low bitrate, which Add to Library asks about first.",
     "where": "Above the track table, in parentheses after the number added."
   },
   "addSelection.folder": {
