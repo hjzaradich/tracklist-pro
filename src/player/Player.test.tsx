@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
@@ -9,7 +9,8 @@ import { PlayerBar } from "../shell/PlayerBar";
 import { tx } from "../test/tx";
 import { formatTime } from "./formatTime";
 import { PlayButton } from "./PlayButton";
-import { usePlayer } from "./playerStore";
+import { createPlayer, usePlayer } from "./playerStore";
+import { browserVolumePrefs, VOLUME_STORAGE_KEY } from "./volumePrefs";
 
 const A = { id: 11, name: "Synthetic Tune A" };
 const B = { id: 12, name: "Synthetic Tune B" };
@@ -47,6 +48,7 @@ beforeEach(() => {
   });
   mockConvertFileSrc("windows");
   usePlayer.setState({ file: null, status: "idle", refusal: null, position: 0, duration: 0, playing: false });
+  usePlayer.getState().setVolume(1);
 });
 
 afterEach(() => {
@@ -60,6 +62,19 @@ function loaded(duration: number) {
   act(() => {
     element?.dispatchEvent(new Event("loadedmetadata"));
   });
+}
+
+/** The waveform that is the seek bar, laid out 400 px wide from the left edge of the page. */
+function seekBar() {
+  const bar = screen.getByRole("slider", { name: tx("player:position") });
+  vi.spyOn(bar, "getBoundingClientRect").mockReturnValue({ left: 0, width: 400, right: 400, x: 0 } as DOMRect);
+  return bar;
+}
+
+/** A click: the pointer goes down and comes up at `x`. */
+function click(bar: HTMLElement, x: number) {
+  fireEvent.pointerDown(bar, { clientX: x, button: 0, pointerId: 1 });
+  fireEvent.pointerUp(bar, { clientX: x, button: 0, pointerId: 1 });
 }
 
 function renderPlayer() {
@@ -79,7 +94,7 @@ describe("the player bar", () => {
     expect(screen.queryByRole("slider")).toBeNull();
   });
 
-  it("plays a file from its play button and shows its name, play/pause and a scrub bar", async () => {
+  it("plays a file from its play button and shows its name, play/pause and a seek bar", async () => {
     const user = userEvent.setup();
     renderPlayer();
     await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
@@ -92,7 +107,7 @@ describe("the player bar", () => {
     const bar = screen.getByRole("region", { name: tx("shell:player.label") });
     expect(bar).toHaveTextContent(A.name);
     expect(bar).toHaveTextContent("0:00 / 5:00");
-    expect(screen.getByRole("slider", { name: tx("player:position") })).toBeEnabled();
+    expect(screen.getByRole("slider", { name: tx("player:position") })).toHaveAttribute("aria-disabled", "false");
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1);
   });
 
@@ -104,7 +119,8 @@ describe("the player bar", () => {
     loaded(300);
 
     const bar = screen.getByRole("region", { name: tx("shell:player.label") });
-    const toggle = () => bar.querySelector("button") as HTMLButtonElement;
+    const toggle = () =>
+      within(bar).getByRole("button", { name: (name) => name === tx("player:play") || name === tx("player:pause") });
     // An icon: the name is the label, not text.
     expect(toggle()).toHaveAccessibleName(tx("player:pause"));
     await user.click(toggle());
@@ -115,14 +131,15 @@ describe("the player bar", () => {
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
   });
 
-  it("scrubs to the time the bar is moved to", async () => {
+  it("seeks to the time clicked on the waveform", async () => {
     const user = userEvent.setup();
     renderPlayer();
     await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
     await waitFor(() => expect(element).not.toBeNull());
     loaded(300);
 
-    fireEvent.change(screen.getByRole("slider", { name: tx("player:position") }), { target: { value: "90" } });
+    // 120 px across a 400 px bar of a 300 s file is 90 s.
+    click(seekBar(), 120);
     expect(element?.currentTime).toBe(90);
     expect(screen.getByRole("region", { name: tx("shell:player.label") })).toHaveTextContent("1:30 / 5:00");
   });
@@ -172,7 +189,7 @@ describe("a file that can't be played", () => {
     renderPlayer();
     await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
     expect(await screen.findByRole("status")).toHaveTextContent(tx(key));
-    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.queryByRole("slider", { name: tx("player:position") })).toBeNull();
     expect(element).toBeNull();
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
     // The file stays named, so the line says which one.
@@ -194,7 +211,7 @@ describe("a file that can't be played", () => {
     expect(asked).toEqual([A.id, A.id]);
     loaded(300);
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByRole("slider", { name: tx("player:position") })).toBeEnabled();
+    expect(screen.getByRole("slider", { name: tx("player:position") })).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("uses four different lines for the six codes", () => {
@@ -319,5 +336,230 @@ describe("time", () => {
     expect(formatTime(3725)).toBe("1:02:05");
     expect(formatTime(Number.NaN)).toBe("0:00");
     expect(formatTime(-4)).toBe("0:00");
+  });
+});
+
+describe("seeking from the waveform", () => {
+  const ready: WaveformAnswer = {
+    state: "ready",
+    peaks: [10, 200, 120, 255],
+    levels: [5, 100, 60, 128],
+    durationMs: 300_000,
+  };
+
+  async function playA() {
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    loaded(300);
+    return user;
+  }
+  const playhead = () =>
+    screen.getByRole("slider", { name: tx("player:position") }).querySelector<HTMLElement>("[data-playhead]");
+
+  it("seeks from the drawn waveform: a click a quarter of the way along moves to a quarter of the file", async () => {
+    waveforms[A.id] = ready;
+    await playA();
+    await screen.findByRole("img", { name: tx("player:waveform.label") });
+    click(seekBar(), 100);
+    expect(element?.currentTime).toBe(75);
+    await waitFor(() => expect(playhead()?.style.left).toBe("25%"));
+  });
+
+  it("seeks from the placeholder too, while the waveform is not drawn yet", async () => {
+    await playA();
+    expect(await screen.findByRole("img", { name: tx("player:waveform.notReady") })).toBeInTheDocument();
+    click(seekBar(), 200);
+    expect(element?.currentTime).toBe(150);
+    expect(screen.getByRole("region", { name: tx("shell:player.label") })).toHaveTextContent("2:30 / 5:00");
+  });
+
+  it("seeks from the placeholder of a file whose waveform will never come", async () => {
+    waveforms[A.id] = { state: "unavailable" };
+    await playA();
+    expect(await screen.findByRole("img", { name: tx("player:waveform.unavailable") })).toBeInTheDocument();
+    click(seekBar(), 40);
+    expect(element?.currentTime).toBe(30);
+  });
+
+  it("drags: the playhead follows the pointer, and the audio moves where it is let go", async () => {
+    waveforms[A.id] = ready;
+    await playA();
+    await screen.findByRole("img", { name: tx("player:waveform.label") });
+    const bar = seekBar();
+    fireEvent.pointerDown(bar, { clientX: 40, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(bar, { clientX: 200, pointerId: 1 });
+    expect(playhead()?.style.left).toBe("50%");
+    expect(screen.getByRole("region", { name: tx("shell:player.label") })).toHaveTextContent("0:00 / 5:00");
+    // Not moved yet: the sound is not chased across the file with every pixel.
+    expect(element?.currentTime).toBe(0);
+    fireEvent.pointerMove(bar, { clientX: 300, pointerId: 1 });
+    fireEvent.pointerUp(bar, { clientX: 300, button: 0, pointerId: 1 });
+    expect(element?.currentTime).toBe(225);
+    expect(playhead()?.style.left).toBe("75%");
+  });
+
+  it("holds a drag that leaves the bar to its ends", async () => {
+    await playA();
+    const bar = seekBar();
+    fireEvent.pointerDown(bar, { clientX: 200, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(bar, { clientX: 2000, button: 0, pointerId: 1 });
+    expect(element?.currentTime).toBe(300);
+    fireEvent.pointerDown(bar, { clientX: 200, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(bar, { clientX: -80, button: 0, pointerId: 1 });
+    expect(element?.currentTime).toBe(0);
+  });
+
+  it("seeks nowhere when the drag is cancelled", async () => {
+    await playA();
+    const bar = seekBar();
+    fireEvent.pointerDown(bar, { clientX: 300, button: 0, pointerId: 1 });
+    fireEvent.pointerCancel(bar, { pointerId: 1 });
+    fireEvent.pointerUp(bar, { clientX: 300, button: 0, pointerId: 1 });
+    expect(element?.currentTime).toBe(0);
+  });
+
+  it("ignores any button but the main one", async () => {
+    await playA();
+    const bar = seekBar();
+    fireEvent.pointerDown(bar, { clientX: 300, button: 2, pointerId: 1 });
+    fireEvent.pointerUp(bar, { clientX: 300, button: 2, pointerId: 1 });
+    expect(element?.currentTime).toBe(0);
+  });
+
+  it("cannot seek until the file is loaded, and says so", async () => {
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    // The element has the file, but its header has not been read.
+    const bar = seekBar();
+    expect(bar).toHaveAttribute("aria-disabled", "true");
+    click(bar, 200);
+    expect(usePlayer.getState().position).toBe(0);
+    loaded(300);
+    expect(bar).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("seeks from the keyboard: arrows a few seconds, Page Up and Down more, Home and End to the ends", async () => {
+    const user = await playA();
+    const bar = seekBar();
+    bar.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(element?.currentTime).toBe(5);
+    await user.keyboard("{PageUp}");
+    expect(element?.currentTime).toBe(35);
+    await user.keyboard("{ArrowLeft}");
+    expect(element?.currentTime).toBe(30);
+    await user.keyboard("{End}");
+    expect(element?.currentTime).toBe(300);
+    await user.keyboard("{Home}");
+    expect(element?.currentTime).toBe(0);
+  });
+
+  it("reads out the time and the length to a screen reader", async () => {
+    await playA();
+    click(seekBar(), 120);
+    const bar = screen.getByRole("slider", { name: tx("player:position") });
+    expect(bar).toHaveAttribute("aria-valuetext", tx("player:positionText", { position: "1:30", length: "5:00" }));
+    expect(bar).toHaveAttribute("aria-valuenow", "90");
+    expect(bar).toHaveAttribute("aria-valuemax", "300");
+  });
+});
+
+describe("the position still carries to another file", () => {
+  it("keeps 1:30 when another file's play button is pressed, playing as it was", async () => {
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    loaded(300);
+    click(seekBar(), 120);
+
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: B.name }) }));
+    await waitFor(() => expect(asked).toEqual([A.id, B.id]));
+    loaded(240);
+    const bar = screen.getByRole("region", { name: tx("shell:player.label") });
+    expect(bar).toHaveTextContent(B.name);
+    expect(bar).toHaveTextContent("1:30 / 4:00");
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("volume and mute on the bar", () => {
+  async function playA() {
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    loaded(300);
+    return user;
+  }
+  const slider = () => screen.getByRole("slider", { name: tx("player:volume") });
+  /** What the app does on its next start: a new player over the same storage. */
+  const started = () =>
+    createPlayer({
+      audio: () => document.createElement("audio"),
+      check: () => Promise.resolve(null),
+      urlOf: (id) => `media://${id}`,
+      volume: browserVolumePrefs,
+    });
+
+  it("sets the sound of the one audio element from the slider", async () => {
+    await playA();
+    fireEvent.change(slider(), { target: { value: "0.4" } });
+    expect(element?.volume).toBe(0.4);
+    expect(slider()).toHaveValue("0.4");
+  });
+
+  it("mutes and brings the sound back at the same volume, the button naming what it will do", async () => {
+    const user = await playA();
+    fireEvent.change(slider(), { target: { value: "0.4" } });
+    await user.click(screen.getByRole("button", { name: tx("player:mute") }));
+    expect(element?.muted).toBe(true);
+    // The slider shows the sound is off; the volume it will come back at is kept.
+    expect(slider()).toHaveValue("0");
+    expect(usePlayer.getState().volume).toBe(0.4);
+
+    await user.click(screen.getByRole("button", { name: tx("player:unmute") }));
+    expect(element?.muted).toBe(false);
+    expect(element?.volume).toBe(0.4);
+    expect(slider()).toHaveValue("0.4");
+    expect(screen.getByRole("button", { name: tx("player:mute") })).toBeInTheDocument();
+  });
+
+  it("survives a reload: the volume and mute are kept in storage and a new player starts from them", async () => {
+    const user = await playA();
+    fireEvent.change(slider(), { target: { value: "0.3" } });
+    await user.click(screen.getByRole("button", { name: tx("player:mute") }));
+    expect(JSON.parse(localStorage.getItem(VOLUME_STORAGE_KEY) ?? "null")).toEqual({ level: 0.3, muted: true });
+    expect(started().getState()).toMatchObject({ volume: 0.3, muted: true });
+  });
+
+  it("works when storage throws: the slider and the mute button still change the sound", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    const user = await playA();
+    fireEvent.change(slider(), { target: { value: "0.6" } });
+    expect(element?.volume).toBe(0.6);
+    await user.click(screen.getByRole("button", { name: tx("player:mute") }));
+    expect(element?.muted).toBe(true);
+    // And a player started now does not fall over reading it.
+    expect(started().getState()).toMatchObject({ volume: 1, muted: false });
+  });
+
+  it("is on the bar of a file that cannot be played, so the sound can still be set", async () => {
+    answers[A.id] = "missing";
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    expect(await screen.findByRole("status")).toBeInTheDocument();
+    expect(slider()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("player:mute") })).toBeInTheDocument();
   });
 });
