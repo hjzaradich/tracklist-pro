@@ -176,6 +176,8 @@
   right: 0;
   left: 0;
   color: var(--color-text);
+  /* A row is held and dragged to a crate (1cB-13), so its text isn't selected. */
+  user-select: none;
 }
 
 /* Every other row, so the eye stays on one row of a long list. Stripe, then

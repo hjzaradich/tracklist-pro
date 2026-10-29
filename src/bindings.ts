@@ -412,6 +412,14 @@ export const commands = {
 	deleteCrate: (id: CrateId) => typedError<null, IpcError>(__TAURI_INVOKE("delete_crate", { id })),
 	/**  Adds Library tracks to a crate. A track that's in it already is skipped. */
 	addTracksToCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("add_tracks_to_crate", { id, tracks })),
+	/**
+	 *  Adds tracks to a crate by their track id (a table row's `recordingId`).
+	 *  Tracks outside the Library are left out and counted; one that's in it
+	 *  already is skipped. One operation for all of them.
+	 */
+	addRecordingsToCrate: (id: CrateId, recordings: number[]) => typedError<AddedToCrate, IpcError>(__TAURI_INVOKE("add_recordings_to_crate", { id, recordings })),
+	/**  The crates a track is in, for the Details panel. */
+	cratesOfTrack: (recordingId: number) => typedError<CrateId[], IpcError>(__TAURI_INVOKE("crates_of_track", { recordingId })),
 	/**  Takes tracks out of a crate. They stay in the Library. */
 	removeTracksFromCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("remove_tracks_from_crate", { id, tracks })),
 	/**  Every folder and crate with its track count. */
@@ -530,6 +538,21 @@ export type AddSummary = {
 export type AddWarning = 
 /**  The file has the `low bitrate` finding. */
 { code: "lowBitrate"; kbps: number };
+
+/**
+ *  What adding tracks to a crate by their track id did (1cB-13): the table's
+ *  rows are tracks, and only a Library track can join a crate.
+ */
+export type AddedToCrate = {
+	/**  How many Library tracks joined the crate. */
+	added: number,
+	/**  How many were in it already. */
+	alreadyThere: number,
+	/**  How many aren't in the Library, so were left out. */
+	outsideLibrary: number,
+	/**  The operation this recorded; `None` when nothing was added. */
+	operationId: number | null,
+};
 
 /**  Both lists, for the screen. */
 export type AfterSendLists = {

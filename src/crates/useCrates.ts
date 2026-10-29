@@ -2,10 +2,12 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tansta
 import { unwrap } from "../api/errors";
 import {
   commands,
+  type AddedToCrate,
   type Changed,
   type Crate,
   type FolderContents,
 } from "../bindings";
+import { ALL_MUSIC_TABLE_QUERY_KEY } from "../allMusic/useAllMusic";
 import { LIBRARY_TABLE_QUERY_KEY } from "../library/useLibraryTracks";
 
 /** Every crate query starts with this, so one invalidation reaches them all. */
@@ -17,9 +19,10 @@ const LIST_KEY = [...CRATES_QUERY_KEY, "list"] as const;
  * a Library track going or coming back (its entries go and come with it).
  */
 export function invalidateCrates(queryClient: QueryClient): Promise<void> {
-  // The Library's table can be filtered to the tracks that are, or aren't,
-  // in a crate.
+  // The Library's and All music's tables can be filtered to the tracks that
+  // are, or aren't, in a crate.
   void queryClient.invalidateQueries({ queryKey: LIBRARY_TABLE_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: ALL_MUSIC_TABLE_QUERY_KEY });
   return queryClient.invalidateQueries({ queryKey: CRATES_QUERY_KEY });
 }
 
@@ -97,6 +100,28 @@ export function useAddToCrate() {
   return useMutation<Changed, Error, { id: number; tracks: number[] }>({
     mutationFn: ({ id, tracks }) => unwrap(commands.addTracksToCrate(id, tracks)),
     onSettled: () => invalidateCrates(queryClient),
+  });
+}
+
+/**
+ * Adds tracks to a crate by their track id (a track table's selection,
+ * 1cB-13). One operation for all of them. Resolves to how many joined, how
+ * many were in it already and how many aren't in the Library, so were left out.
+ */
+export function useAddRecordingsToCrate() {
+  const queryClient = useQueryClient();
+  return useMutation<AddedToCrate, Error, { id: number; recordings: readonly number[] }>({
+    mutationFn: ({ id, recordings }) => unwrap(commands.addRecordingsToCrate(id, [...recordings])),
+    onSettled: () => invalidateCrates(queryClient),
+  });
+}
+
+/** The crates (not folders) a track is in, by id; asked only for a Library track. */
+export function useCratesOfTrack(recordingId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...CRATES_QUERY_KEY, "of", recordingId] as const,
+    queryFn: (): Promise<number[]> => unwrap(commands.cratesOfTrack(recordingId)),
+    enabled,
   });
 }
 

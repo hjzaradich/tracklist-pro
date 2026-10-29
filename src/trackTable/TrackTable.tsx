@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -16,10 +17,14 @@ import { ColumnHeadings } from "./ColumnHeadings";
 import { moveColumnTo, tableLayout, type ColumnWidths } from "./columnChoice";
 import { COLUMNS, type CellContext, type ColumnDef, type ColumnId } from "./columns";
 import styles from "./TrackTable.module.css";
+import { useTrackDrag } from "./trackDrag";
 import { useTrackKeys } from "./useTrackKeys";
 
 /** Rows drawn above and below the ones on screen, so a quick scroll never shows a gap. */
 const OVERSCAN = 6;
+
+/** How far the pointer moves with a row held before it is a drag, not a click (pixels). */
+const DRAG_FROM = 5;
 
 /** The viewport's height in rows when the browser can't say (it has no layout). */
 const FALLBACK_ROWS = 20;
@@ -88,6 +93,11 @@ export interface TrackTableProps {
    * the keys are unavailable.
    */
   onSetEnergy?: (recordingIds: readonly number[], energy: number) => void;
+  /**
+   * The C key (or the palette's "Add to crate or playlist", 1cB-13) was used
+   * on these tracks. Without it the key is unavailable.
+   */
+  onAddToCrate?: (recordingIds: readonly number[]) => void;
 }
 
 const NO_WIDTHS: ColumnWidths = {};
@@ -118,6 +128,10 @@ function readRowHeight(): number {
  *   between too); buttons inside a row are tab stops of their own. The
  *   hotkeys J, K and 1 to 0 work from anywhere on the screen
  *   ({@link useTrackKeys}).
+ * - **Dragging** (1cB-13): a row held and moved carries the selected tracks
+ *   (or just that row's track when it isn't selected) to a crate in the
+ *   sidebar ({@link useTrackDrag}); the click that ends a drag selects
+ *   nothing.
  * - **Playing** is shown by the play button's bars alone; the row isn't
  *   tinted for it.
  */
@@ -141,6 +155,7 @@ export function TrackTable({
   onSelectedChange,
   idsInRange,
   onSetEnergy,
+  onAddToCrate,
 }: TrackTableProps) {
   const { t, i18n } = useTranslation("trackTable");
   const keyNotation = useKeyNotation();
@@ -375,13 +390,68 @@ export function TrackTable({
   useEffect(() => {
     onSelectedChange?.({ count: selectedCount, focus: active });
   }, [selectedCount, active, onSelectedChange]);
+  // The selected tracks' ids: the picked ones, else the focused row's track.
+  const selectedIds = () => (picked !== null ? [...picked] : activeId === null ? [] : [activeId]);
   const setEnergy = onSetEnergy
     ? (energy: number) => {
-        const ids = picked !== null ? [...picked] : activeId === null ? [] : [activeId];
+        const ids = selectedIds();
         if (ids.length > 0) onSetEnergy(ids, energy);
       }
     : undefined;
-  useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy });
+  const addToCrate = onAddToCrate
+    ? () => {
+        const ids = selectedIds();
+        if (ids.length > 0) onAddToCrate(ids);
+      }
+    : undefined;
+  useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy, addToCrate });
+
+  // Dragging tracks to a crate (1cB-13). The row held is remembered until the
+  // pointer is released; `dragged` swallows the click that follows a drag.
+  const dragged = useRef(false);
+  const startDrag = (event: PointerEvent<HTMLDivElement>, index: number) => {
+    if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+    // A button or link inside the row is its own.
+    if ((event.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+    const row = getRow(index);
+    if (row === undefined) return;
+    dragged.current = false;
+    const from = { x: event.clientX, y: event.clientY };
+    let begun = false;
+    const stop = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("keydown", onKey, true);
+    };
+    const onMove = (move: globalThis.PointerEvent) => {
+      if (!begun) {
+        if (Math.hypot(move.clientX - from.x, move.clientY - from.y) < DRAG_FROM) return;
+        begun = true;
+        dragged.current = true;
+        // A row that isn't selected is chosen first, and is what is carried.
+        const carried = picked !== null ? picked.has(row.recordingId) : active === index;
+        if (!carried) select(index);
+        const ids = carried && picked !== null ? [...picked] : [row.recordingId];
+        useTrackDrag.getState().begin(ids, move.clientX, move.clientY);
+      }
+      useTrackDrag.getState().moveTo(move.clientX, move.clientY);
+    };
+    const onUp = () => {
+      stop();
+      useTrackDrag.getState().end();
+    };
+    // Escape gives the drag up, and is not heard as "select none".
+    const onKey = (key: globalThis.KeyboardEvent) => {
+      if (key.key !== "Escape" || !begun) return;
+      key.preventDefault();
+      onUp();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("keydown", onKey, true);
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Keys pressed on a button inside a row are the button's.
@@ -458,10 +528,16 @@ export function TrackTable({
           .join(" ")}
         style={{ transform: `translateY(${index * rowHeight}px)` }}
         onClick={(event) => {
+          // The release that ends a drag is not a click on a row.
+          if (dragged.current) {
+            dragged.current = false;
+            return;
+          }
           if (event.shiftKey) extendTo(index);
           else if (event.ctrlKey || event.metaKey) toggle(index);
           else select(index);
         }}
+        onPointerDown={(event) => startDrag(event, index)}
         // A Shift+click selects rows, not the text between them.
         onMouseDown={(event) => {
           if (event.shiftKey) event.preventDefault();

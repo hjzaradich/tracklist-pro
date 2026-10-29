@@ -242,6 +242,50 @@
     "where": "Library screen, status strip above the list after an add.",
     "approved": "Already in {{crate}}"
   },
+  "addDialog.title": {
+    "purpose": "Names the dialog that adds the selected tracks to a crate.",
+    "where": "Dialog opened by the C key or the command palette over a track table, heading."
+  },
+  "addDialog.search": {
+    "purpose": "Names the box that finds crates, and says what it is for.",
+    "where": "Add to crate or playlist dialog, the text box (label and placeholder)."
+  },
+  "addDialog.create": {
+    "purpose": "Offers to make a new crate from the typed name and add the tracks to it; {{name}} is what was typed.",
+    "where": "Add to crate or playlist dialog, last row of the list while something is typed."
+  },
+  "addDialog.none": {
+    "purpose": "Says no crate matches what was typed.",
+    "where": "Add to crate or playlist dialog, under the box when the list is empty."
+  },
+  "addDialog.cancel": {
+    "purpose": "Closes the dialog without adding.",
+    "where": "Add to crate or playlist dialog, the quiet button at the bottom."
+  },
+  "addSelection.added_zero": {
+    "purpose": "Says no track was added to the crate, because none could be.",
+    "where": "Above the track table, after tracks were dropped on a crate or added with the C key."
+  },
+  "addSelection.added_one": {
+    "purpose": "Says one track was added to the crate.",
+    "where": "Above the track table, after tracks were dropped on a crate or added with the C key."
+  },
+  "addSelection.added_other": {
+    "purpose": "Says how many tracks were added to the crate.",
+    "where": "Above the track table, after tracks were dropped on a crate or added with the C key."
+  },
+  "addSelection.alreadyThere": {
+    "purpose": "Says how many of the tracks were in the crate already, so were not added again.",
+    "where": "Above the track table, in parentheses after the number added."
+  },
+  "addSelection.outsideLibrary": {
+    "purpose": "Says how many of the tracks are not in the Library, so were left out (only Library tracks join a crate).",
+    "where": "Above the track table, in parentheses after the number added."
+  },
+  "addSelection.folder": {
+    "purpose": "Refuses a drop on a folder and says why.",
+    "where": "Above the track table, after tracks were dropped on a folder in the sidebar."
+  },
   "done.created": {
     "purpose": "Says the crate was made.",
     "where": "Crates screen, status strip.",

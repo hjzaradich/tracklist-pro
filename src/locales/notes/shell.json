@@ -299,6 +299,22 @@
     "purpose": "Says several other values exist for the field.",
     "where": "Details panel, after a field's source, while More details is off."
   },
+  "details.crates.title": {
+    "purpose": "Heads the list of crates the selected track is in.",
+    "where": "Details panel, below the tags."
+  },
+  "details.crates.none": {
+    "purpose": "Says the selected Library track is in no crate.",
+    "where": "Details panel, under the crates heading."
+  },
+  "details.crates.remove": {
+    "purpose": "Takes the selected track out of the crate beside it; the track stays in the Library.",
+    "where": "Details panel, a plain text action beside each crate the track is in."
+  },
+  "details.crates.removed": {
+    "purpose": "Says the track was removed from the crate; {{crate}} is its place in the tree.",
+    "where": "Details panel, status line under the crates after a removal."
+  },
   "details.withdraw.confirmed": {
     "purpose": "Says the user confirmed the track's file as rekordbox's.",
     "where": "Details panel, a Library track whose rekordbox entry was confirmed to its file."

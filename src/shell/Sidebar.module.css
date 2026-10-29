@@ -147,3 +147,19 @@
   outline: 2px solid var(--color-focus-ring);
   outline-offset: -2px;
 }
+
+/* Tracks are dragged over a crate (1cB-13): the crate under the pointer is
+ * outlined in the accent ("active") on the hover tint, so the cue is a shape
+ * and not only a color, and only a selected item is ever tinted as selected.
+ * A folder takes no tracks, so it shows no cue and the pointer says so. */
+.treeRow[data-drop="target"] {
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-hover);
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.treeRow[data-drop="refused"],
+.treeRow[data-drop="refused"] * {
+  cursor: not-allowed;
+}
