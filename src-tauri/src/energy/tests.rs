@@ -169,22 +169,33 @@ fn only_energies_from_one_to_ten_are_accepted_and_nothing_is_changed_by_a_refusa
 }
 
 #[test]
-fn setting_the_energy_of_a_library_track_writes_nothing_a_send_reads() {
+fn what_a_send_would_write_for_a_library_track_is_the_same_before_and_after_its_energy_is_set() {
+    use crate::library::LibraryTrackId;
+    use crate::search::tests::support::Mount;
+    use crate::send_values::{send_values_one, Outcome};
+
     let lib = Lib::new();
     let (track, file) = lib.track(Some("One"), Some("Ann"), "a.mp3");
-    lib.library(track, file);
+    let library_track = lib.library(track, file);
+    let values = |lib: &Lib| {
+        lib.writer
+            .call(move |c| send_values_one(c, &Mount, LibraryTrackId(library_track)))
+            .unwrap()
+    };
+    let before = values(&lib);
+    let Outcome::Ready(ready) = &before.outcome else {
+        panic!("the track can be sent: {before:?}");
+    };
+    // The send has values to write, and energy is not among them.
+    assert!(!ready.values.is_empty());
+    assert!(ready
+        .values
+        .iter()
+        .all(|v| !v.attribute.to_lowercase().contains("energy")));
+
     set(&lib, &[track], 5).unwrap();
-    let (bases, values): (i64, i64) = lib
-        .writer
-        .call(|c| {
-            Ok((
-                c.query_row("SELECT count(*) FROM sync_base", [], |r| r.get(0))?,
-                c.query_row("SELECT count(*) FROM app_value", [], |r| r.get(0))?,
-            ))
-        })
-        .unwrap();
-    assert_eq!((bases, values), (0, 0));
     assert_eq!(shown(&lib, track), Some((5, "user".to_owned())));
+    assert_eq!(values(&lib), before);
 }
 
 #[test]

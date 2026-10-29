@@ -360,6 +360,8 @@ export function TrackTable({
   const clear = () => {
     changes.current += 1;
     setPicked(new Set());
+    // A Shift range starts again from the focused row.
+    if (active !== null) setAnchor(active);
   };
   // J and K: a row from the one focused (from the top of the screen when none is).
   const move = (step: 1 | -1, extend: boolean) => {

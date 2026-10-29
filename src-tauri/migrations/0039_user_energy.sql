@@ -61,6 +61,17 @@ ORDER BY id;
 DROP TABLE analysis;
 ALTER TABLE analysis_new RENAME TO analysis;
 
+-- The count SQLite keeps for the table (`sqlite_sequence`) is set from the
+-- ids copied, explicitly: the copy makes the table's row only if it copied a
+-- row, and a new id must be past every id the table has held.
+INSERT INTO sqlite_sequence (name, seq)
+SELECT 'analysis', 0
+WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'analysis');
+
+UPDATE sqlite_sequence
+SET seq = max(seq, (SELECT ifnull(max(id), 0) FROM analysis))
+WHERE name = 'analysis';
+
 -- trigger on `analysis`: a track's BPM or key (rekordbox's, or another
 -- source's) was added.
 CREATE TRIGGER search_analysis_added

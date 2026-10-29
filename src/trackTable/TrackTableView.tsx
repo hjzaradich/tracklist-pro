@@ -116,7 +116,10 @@ export function TrackTableView({
   const onSetEnergy = (recordingIds: readonly number[], energy: number) =>
     giveEnergy.mutate(
       { recordingIds, energy },
-      { onSuccess: () => setEnergyGiven({ energy, count: recordingIds.length }) },
+      {
+        // What changed, as the top bar's Undo counts it; nothing changed, nothing said.
+        onSuccess: (done) => setEnergyGiven(done.changed > 0 ? { energy, count: done.changed } : null),
+      },
     );
 
   if (rows.error != null) {

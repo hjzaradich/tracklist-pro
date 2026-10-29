@@ -191,7 +191,10 @@ export function ColumnHeadings({
   });
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") giveUp.current();
+      if (event.key !== "Escape") return;
+      // A drag given up has used the key: the track table's Escape leaves it.
+      if (moving.current?.dragging) event.preventDefault();
+      giveUp.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

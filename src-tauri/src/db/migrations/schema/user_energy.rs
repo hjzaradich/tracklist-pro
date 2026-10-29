@@ -85,7 +85,9 @@ fn analysis_rows_that_exist_when_the_migration_runs_keep_their_ids_and_values() 
     conn.pragma_update(None, "foreign_keys", true).unwrap();
 
     assert_eq!(rows(&conn), before_rows);
-    // New rows carry on after the highest id that was there.
+    // New rows carry on after the highest id that was there, even when that
+    // row is deleted first (the count is seeded, not just the table's top).
+    accepts(&conn, "DELETE FROM analysis WHERE id = 8");
     assert_eq!(analysis(&conn, 2, "mik", 4), 9);
 }
 

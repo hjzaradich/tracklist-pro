@@ -70,9 +70,16 @@ function fakeBackend() {
         case "set_energy": {
           const { recordings, energy } = args as { recordings: number[]; energy: number };
           backend.energyAsked.push({ recordings, energy });
-          backend.history.push({ before: new Map(backend.energy), tracks: recordings.length });
-          for (const id of recordings) backend.energy.set(id, energy);
-          return { changed: recordings.length, skipped: 0, operationId: backend.history.length };
+          // As the backend does: a track already at that energy is left alone,
+          // and when none changes there is no operation.
+          const changing = recordings.filter((id) => backend.energy.get(id) !== energy);
+          if (changing.length > 0) backend.history.push({ before: new Map(backend.energy), tracks: changing.length });
+          for (const id of changing) backend.energy.set(id, energy);
+          return {
+            changed: changing.length,
+            skipped: recordings.length - changing.length,
+            operationId: changing.length > 0 ? backend.history.length : null,
+          };
         }
         case "next_undo_operation": {
           const last = backend.history.at(-1);
@@ -243,6 +250,15 @@ describe("J and K", () => {
     expect(selected()).toEqual([5]);
   });
 
+  it("Escape starts a Shift range again from the focused row", async () => {
+    await library();
+    clickRow(2);
+    clickRow(10, { shiftKey: true });
+    await userEvent.keyboard("{Escape}");
+    fireEvent.keyDown(document.body, { key: "J", shiftKey: true });
+    expect(selected()).toEqual([10, 11]);
+  });
+
   it("start at the top of the screen when nothing has the focus, and stop at the ends", async () => {
     await library();
     await userEvent.keyboard("j");
@@ -266,6 +282,22 @@ describe("J and K", () => {
   });
 });
 
+describe("Escape meant for something else", () => {
+  it("closing the Activity popover with Escape leaves the selection alone", async () => {
+    await library();
+    clickRow(3);
+    const status = screen.getByRole("status", { name: tx("activity:label") });
+    await userEvent.click(status);
+    expect(status.closest("button")).toHaveAttribute("aria-expanded", "true");
+    await userEvent.keyboard("{Escape}");
+    expect(status.closest("button")).toHaveAttribute("aria-expanded", "false");
+    expect(selected()).toEqual([3]);
+    // With nothing else to close, Escape clears it as before.
+    await userEvent.keyboard("{Escape}");
+    expect(selected()).toEqual([]);
+  });
+});
+
 describe("the energy keys", () => {
   it("1 to 0 give every selected track the energy as one operation, and one Undo restores all of them", async () => {
     const backend = await library();
@@ -286,6 +318,25 @@ describe("the energy keys", () => {
     await waitFor(() => expect(backend.undone).toBe(1));
     expect(backend.energy).toEqual(before);
     expect(backend.energyAsked).toHaveLength(1);
+  });
+
+  it("says how many tracks changed, not how many were asked, and says nothing when none did", async () => {
+    const backend = await library();
+    backend.energy.set(idAt(3), 7);
+    backend.energy.set(idAt(4), 7);
+    clickRow(2);
+    clickRow(5, { shiftKey: true });
+    await userEvent.keyboard("7");
+    expect(await screen.findByText(tx("trackTable:energySet", { energy: 7, count: 2 }))).toBeInTheDocument();
+    expect(screen.queryByText(tx("trackTable:energySet", { energy: 7, count: 4 }))).toBeNull();
+
+    // Every one of them is at 7 now: nothing changes, and the line goes.
+    await userEvent.keyboard("7");
+    await waitFor(() => expect(backend.energyAsked).toHaveLength(2));
+    for (const count of [1, 2, 3, 4]) {
+      expect(screen.queryByText(tx("trackTable:energySet", { energy: 7, count }))).toBeNull();
+    }
+    expect(backend.history).toHaveLength(1);
   });
 
   it("0 gives energy 10, and 1 to 9 give themselves", async () => {
