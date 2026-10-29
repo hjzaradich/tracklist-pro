@@ -100,7 +100,7 @@ impl Lib {
         let recording = self.outside(title);
         self.run(
             "INSERT INTO volume (identity, kind, last_mount_path)
-             SELECT 'test-volume', 'external', 'E:\\' WHERE NOT EXISTS (SELECT 1 FROM volume)",
+             SELECT 'serial=TEST', 'external', 'E:\\' WHERE NOT EXISTS (SELECT 1 FROM volume)",
             (),
         );
         self.run(
@@ -552,7 +552,8 @@ fn an_outside_track_joins_the_library_and_the_crate_in_one_operation_and_one_und
     // One Undo takes the entry and the Library track away together.
     lib.undo();
     assert!(!lib.in_library(stray));
-    assert_eq!(lib.everything(), before);
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
 }
 
 #[test]
@@ -583,7 +584,9 @@ fn a_mixed_selection_adds_library_and_outside_tracks_in_one_operation() {
     assert!(lib.in_library(one) && lib.in_library(two));
     assert_eq!(lib.operations(), before.2 + 1);
     lib.undo();
-    assert_eq!(lib.everything(), before);
+    // The log keeps the undone operation; everything else is as it was.
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
 }
 
 #[test]
@@ -594,9 +597,9 @@ fn tracks_add_to_library_refuses_are_left_out_of_both_and_counted_with_the_reaso
     let unsure = lib.outside_with_file("Unsure", true);
     let file = lib.best_file(unsure);
     lib.run(
-        "INSERT INTO rekordbox_track
+        r#"INSERT INTO rekordbox_track
              (attributes, location_key, read_at, file_id, relink_method, relink_probable)
-         VALUES ('{}', 'E:/Music/unsure.mp3', '2026-09-30T10:00:00.000Z', ?1, 'filename_only', 1)",
+         VALUES ('{"TrackID": "1", "Location": "file://localhost/E:/Music/Unsure.mp3"}', 'E:/Music/unsure.mp3', '2026-09-30T10:00:00.000Z', ?1, 'filename_only', 1)"#,
         (file,),
     );
     let thin = lib.outside_with_file("Thin", true);
@@ -650,7 +653,8 @@ fn adding_an_outside_track_to_a_crate_writes_and_copies_no_file() {
 }
 
 #[test]
-fn a_new_crate_with_tracks_is_one_operation_and_one_undo_takes_the_crate_the_tracks_and_the_library_tracks_away() {
+fn a_new_crate_with_tracks_is_one_operation_and_one_undo_takes_the_crate_the_tracks_and_the_library_tracks_away(
+) {
     let lib = Lib::new();
     let a = lib.track("A");
     let stray = lib.outside_with_file("Stray", true);
@@ -659,15 +663,9 @@ fn a_new_crate_with_tracks_is_one_operation_and_one_undo_takes_the_crate_the_tra
 
     let made = lib
         .writer
-        .call(move |c| {
-            Ok(add_recordings_to_new_crate_on(
-                c,
-                "  Closing ",
-                &recordings,
-            ))
-        })
+        .call(move |c| Ok(add_recordings_to_new_crate_on(c, "  Closing ", &recordings)))
         .unwrap()
-        .unwrap();
+        .unwrap()
         .unwrap();
 
     assert_eq!(made.name, "Closing");
@@ -678,7 +676,9 @@ fn a_new_crate_with_tracks_is_one_operation_and_one_undo_takes_the_crate_the_tra
     assert_eq!(made.added.operation_id, Some(before.2 + 1));
 
     lib.undo();
-    assert_eq!(lib.everything(), before);
+    // The log keeps the undone operation; everything else is as it was.
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
     assert_eq!(lib.crates(), Vec::<(String, u32)>::new());
 }
 

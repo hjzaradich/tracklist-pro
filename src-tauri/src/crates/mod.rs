@@ -859,7 +859,10 @@ fn put_in(
         if present.insert(track) {
             rec.insert(
                 "crate_entry",
-                &[("crate_id", id.0.into()), ("library_track_id", track.into())],
+                &[
+                    ("crate_id", id.0.into()),
+                    ("library_track_id", track.into()),
+                ],
             )?;
             added += 1;
         } else {
@@ -1189,7 +1192,8 @@ pub async fn add_recordings_to_new_crate(
     name: String,
     recordings: Vec<i64>,
 ) -> Result<AddedToNewCrate, IpcError> {
-    Ok(writer.call(move |conn| Ok(add_recordings_to_new_crate_on(conn, &name, &recordings)))???)
+    Ok(writer
+        .call(move |conn| Ok(add_recordings_to_new_crate_on(conn, &name, &recordings)))???)
 }
 
 /// The crates a track is in, for the Details panel.

@@ -426,8 +426,9 @@ export const commands = {
 	addTracksToCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("add_tracks_to_crate", { id, tracks })),
 	/**
 	 *  Adds tracks to a crate by their track id (a table row's `recordingId`).
-	 *  Tracks outside the Library are left out and counted; one that's in it
-	 *  already is skipped. One operation for all of them.
+	 *  A track outside the Library joins the Library too; one the Library add
+	 *  refuses is left out and counted by reason; one in the crate already is
+	 *  skipped. One operation for all of it.
 	 */
 	addRecordingsToCrate: (id: CrateId, recordings: number[]) => typedError<AddedToCrate, IpcError>(__TAURI_INVOKE("add_recordings_to_crate", { id, recordings })),
 	/**
