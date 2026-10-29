@@ -252,14 +252,14 @@ function removable(initial: LibraryTrack[]) {
     }
     if (cmd === "next_undo_operation") {
       const operation =
-        last === null ? null : { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null } };
+        last === null ? null : { id: 1, kind: "remove_from_library", details: { name: null, from: null, tracks: null, newToLibrary: null, newCrate: null } };
       return { operation, refusal: null };
     }
     if (cmd === "undo_last_operation") {
       if (last === null) return { status: "nothingToUndo" };
       tracks = [...tracks, last].sort((a, b) => a.id - b.id);
       last = null;
-      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
+      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null, newToLibrary: null, newCrate: null } } };
     }
     throw new Error(`unexpected command ${cmd}`);
   });
@@ -441,13 +441,13 @@ function crateBackend(crates: { id: number; name: string; trackIds: number[] }[]
     }
     if (cmd === "undo_last_operation") {
       last = null;
-      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
+      return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null, newToLibrary: null, newCrate: null } } };
     }
     if (cmd === "next_undo_operation") {
       const operation =
         last === null || last.added.length === 0
           ? null
-          : { id: 1, kind: "add_to_crate", details: { name: "Warm up", from: null, tracks: last.added.length } };
+          : { id: 1, kind: "add_to_crate", details: { name: "Warm up", from: null, tracks: last.added.length, newToLibrary: null, newCrate: null } };
       return { operation, refusal: null };
     }
     throw new Error(`unexpected command ${cmd}`);

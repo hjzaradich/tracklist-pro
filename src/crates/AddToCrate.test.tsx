@@ -227,9 +227,9 @@ describe("Add to crate or playlist", () => {
     expect([...(backend.state.members.get(made?.id ?? -1) ?? [])]).toEqual([100, 101]);
     expect(backend.state.history).toHaveLength(1);
 
-    // One Undo takes the tracks and the crate away together.
+    // One Undo takes the tracks and the crate away together, and the button says a crate was made.
     await userEvent.click(
-      await screen.findByRole("button", { name: tx("shell:undo.action.addToCrate", { count: 2, name: "Closing" }) }),
+      await screen.findByRole("button", { name: tx("shell:undo.action.addToNewCrate", { count: 2, name: "Closing" }) }),
     );
     await waitFor(() => expect(backend.called("undo_last_operation")).toHaveLength(1));
     expect(backend.state.crates.find((c) => c.name === "Closing")).toBeUndefined();
@@ -306,8 +306,11 @@ describe("Add to crate or playlist", () => {
     expect(backend.state.rows[2]?.inLibrary).toBe(true);
     expect(backend.state.history).toHaveLength(1);
 
+    // The Undo button says the Library gets a track back out too.
     await userEvent.click(
-      await screen.findByRole("button", { name: tx("shell:undo.action.addToCrate", { count: 2, name: "Loose" }) }),
+      await screen.findByRole("button", {
+        name: tx("shell:undo.action.addToCrateLibrary", { count: 2, name: "Loose", library: 1 }),
+      }),
     );
     await waitFor(() => expect(backend.called("undo_last_operation")).toHaveLength(1));
     expect(backend.state.members.get(5)?.size).toBe(0);
@@ -338,6 +341,46 @@ describe("Add to crate or playlist", () => {
     expect(await screen.findByText([added(2, "Loose"), ...notes].join(" "))).toBeInTheDocument();
     expect([...(backend.state.members.get(5) ?? [])]).toEqual([100, 105]);
     expect(backend.state.rows.map((row) => row.inLibrary)).toEqual([true, false, false, false, false, true]);
+  });
+
+  it("when every track is left out the line says nothing was added and why", async () => {
+    const backend = await library({
+      rows: [...libraryRows(1), outsideRow(1), outsideRow(2)],
+      crates: CRATES,
+      refused: { 101: "noFile", 102: "noFile" },
+    });
+    clickRow(1);
+    clickRow(2, { ctrlKey: true });
+    await userEvent.keyboard("c");
+    await dialog();
+    await userEvent.type(box(), "loose");
+    await userEvent.keyboard("{Enter}");
+
+    const line = `${tx("crates:addSelection.added", { count: 0, crate: "Loose" })} ${tx("crates:addSelection.leftOut.noFile", { count: 2 })}`;
+    expect(await screen.findByText(line)).toBeInTheDocument();
+    expect(backend.state.history).toHaveLength(0);
+  });
+
+  it("a new crate whose tracks are all left out is made, and the line says so and why", async () => {
+    const backend = await library({
+      rows: [...libraryRows(2), outsideRow(2)],
+      crates: CRATES,
+      refused: { 102: "fileMissing" },
+    });
+    clickRow(2);
+    await userEvent.keyboard("c");
+    await dialog();
+    await userEvent.type(box(), "Closing");
+    await userEvent.keyboard("{Enter}");
+
+    const line = `${tx("crates:addSelection.newCrateEmpty", { crate: "Closing" })} ${tx("crates:addSelection.leftOut.fileMissing", { count: 1 })}`;
+    expect(await screen.findByText(line)).toBeInTheDocument();
+    expect(backend.state.crates.some((c) => c.name === "Closing")).toBe(true);
+    // One operation: the button names the empty crate, and Undo takes it away.
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.addToNewCrate", { count: 0, name: "Closing" }) }),
+    );
+    await waitFor(() => expect(backend.state.crates.some((c) => c.name === "Closing")).toBe(false));
   });
 
   it("after a refused new crate the box keeps the focus and the keys keep working", async () => {

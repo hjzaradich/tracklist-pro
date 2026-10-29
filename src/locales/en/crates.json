@@ -85,7 +85,8 @@
     "cancel": "Go back"
   },
   "addSelection": {
-    "added_zero": "No tracks added to {{crate}}",
+    "added_zero": "Nothing added to {{crate}}",
+    "newCrateEmpty": "Crate “{{crate}}” created, nothing added",
     "added_one": "Added {{count, number}} track to {{crate}}",
     "added_other": "Added {{count, number}} tracks to {{crate}}",
     "alreadyThere": "({{count, number}} already in it)",

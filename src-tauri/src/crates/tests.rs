@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::types::Value;
+use serde_json::json;
 
 use super::*;
 use crate::after_send::{lists, save_tree, RekordboxTree, TreeNode};
@@ -131,6 +132,20 @@ impl Lib {
                     |r| r.get(0),
                 )
             })
+            .unwrap()
+    }
+
+    /// The details the last operation stored, as the Undo button reads them.
+    fn last_details(&self) -> serde_json::Value {
+        self.writer
+            .call(|c| {
+                c.query_row(
+                    "SELECT details FROM operation ORDER BY id DESC LIMIT 1",
+                    [],
+                    |r| r.get::<_, String>(0),
+                )
+            })
+            .map(|text| serde_json::from_str(&text).unwrap())
             .unwrap()
     }
 
@@ -548,6 +563,17 @@ fn an_outside_track_joins_the_library_and_the_crate_in_one_operation_and_one_und
     assert_eq!(linked, ("linked".to_owned(), file));
     assert_eq!(lib.operations(), before.2 + 1);
     assert_eq!(done.operation_id, Some(before.2 + 1));
+    // The Undo button can say all of it.
+    let last = lib.last_details();
+    assert_eq!(
+        (
+            &last["name"],
+            &last["tracks"],
+            &last["newToLibrary"],
+            last.get("newCrate")
+        ),
+        (&json!("Warm up"), &json!(1), &json!(1), None)
+    );
 
     // One Undo takes the entry and the Library track away together.
     lib.undo();
@@ -583,6 +609,11 @@ fn a_mixed_selection_adds_library_and_outside_tracks_in_one_operation() {
     assert_eq!(lib.ids(id).len(), 4);
     assert!(lib.in_library(one) && lib.in_library(two));
     assert_eq!(lib.operations(), before.2 + 1);
+    let last = lib.last_details();
+    assert_eq!(
+        (&last["tracks"], &last["newToLibrary"]),
+        (&json!(3), &json!(2))
+    );
     lib.undo();
     // The log keeps the undone operation; everything else is as it was.
     let after = lib.everything();
@@ -674,12 +705,59 @@ fn a_new_crate_with_tracks_is_one_operation_and_one_undo_takes_the_crate_the_tra
     assert!(lib.in_library(stray));
     assert_eq!(lib.operations(), before.2 + 1);
     assert_eq!(made.added.operation_id, Some(before.2 + 1));
+    let last = lib.last_details();
+    assert_eq!(
+        (
+            &last["name"],
+            &last["tracks"],
+            &last["newToLibrary"],
+            &last["newCrate"]
+        ),
+        (&json!("Closing"), &json!(2), &json!(1), &json!(true))
+    );
 
     lib.undo();
     // The log keeps the undone operation; everything else is as it was.
     let after = lib.everything();
     assert_eq!((after.0, after.1), (before.0, before.1));
     assert_eq!(lib.crates(), Vec::<(String, u32)>::new());
+}
+
+#[test]
+fn a_new_crate_whose_tracks_are_all_refused_is_still_made_and_says_so() {
+    let lib = Lib::new();
+    let no_file = lib.outside("No file");
+    let missing = lib.outside_with_file("Missing", false);
+    let before = lib.everything();
+
+    let made = lib
+        .writer
+        .call(move |c| {
+            Ok(add_recordings_to_new_crate_on(
+                c,
+                "Closing",
+                &[no_file, missing],
+            ))
+        })
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    // The crate was asked for, so it exists, empty; the answer counts what was left out.
+    assert_eq!(added(made.added), (0, 0, 0));
+    assert_eq!(left_out(made.added), (1, 1, 0, 0));
+    assert_eq!(lib.crates(), [("Closing".to_owned(), 0)]);
+    assert!(!lib.in_library(no_file) && !lib.in_library(missing));
+    // It is one operation, and the Undo button can say a crate was made with nothing in it.
+    assert_eq!(made.added.operation_id, Some(before.2 + 1));
+    let last = lib.last_details();
+    assert_eq!(
+        (&last["tracks"], &last["newToLibrary"], &last["newCrate"]),
+        (&json!(0), &json!(0), &json!(true))
+    );
+    lib.undo();
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
 }
 
 #[test]

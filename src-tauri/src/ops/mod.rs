@@ -698,6 +698,11 @@ pub struct OperationDetails {
     pub from: Option<String>,
     /// How many tracks the operation added or removed.
     pub tracks: Option<u32>,
+    /// How many of the tracks an add to a crate put in the Library too
+    /// (1cB-23). Left out when the operation didn't record it.
+    pub new_to_library: Option<u32>,
+    /// Whether an add to a crate made the crate as well (1cB-23).
+    pub new_crate: Option<bool>,
 }
 
 impl OperationDetails {
@@ -706,13 +711,18 @@ impl OperationDetails {
     fn parse(json: &str) -> OperationDetails {
         let value: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
         let text = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+        let count = |key: &str| {
+            value
+                .get(key)
+                .and_then(|v| v.as_u64())
+                .and_then(|n| u32::try_from(n).ok())
+        };
         OperationDetails {
             name: text("name"),
             from: text("from"),
-            tracks: value
-                .get("tracks")
-                .and_then(|v| v.as_u64())
-                .and_then(|n| u32::try_from(n).ok()),
+            tracks: count("tracks"),
+            new_to_library: count("newToLibrary"),
+            new_crate: value.get("newCrate").and_then(|v| v.as_bool()),
         }
     }
 }

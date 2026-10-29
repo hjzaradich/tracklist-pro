@@ -67,7 +67,7 @@ function fakeBackend(options: {
       }
       if (cmd === "next_undo_operation") {
         const operation = added
-          ? { id: 9, kind: "add_rekordbox_tracks", details: { name: null, from: null, tracks: 3 } }
+          ? { id: 9, kind: "add_rekordbox_tracks", details: { name: null, from: null, tracks: 3, newToLibrary: null, newCrate: null } }
           : null;
         return { operation, refusal: null };
       }

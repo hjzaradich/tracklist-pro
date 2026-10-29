@@ -29,7 +29,7 @@ function libraryTrack(id: number): LibraryTrack {
 const OPERATION: OperationInfo = {
   id: 7,
   kind: "promote",
-  details: { name: null, from: null, tracks: null },
+  details: { name: null, from: null, tracks: null, newToLibrary: null, newCrate: null },
 };
 
 /** Stands in for the Rust side, and remembers which commands were asked. */

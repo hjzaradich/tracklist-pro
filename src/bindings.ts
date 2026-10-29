@@ -1597,6 +1597,13 @@ export type OperationDetails = {
 	from: string | null,
 	/**  How many tracks the operation added or removed. */
 	tracks: number | null,
+	/**
+	 *  How many of the tracks an add to a crate put in the Library too
+	 *  (1cB-23). Left out when the operation didn't record it.
+	 */
+	newToLibrary: number | null,
+	/**  Whether an add to a crate made the crate as well (1cB-23). */
+	newCrate: boolean | null,
 };
 
 /**  An operation, as undo reports it. */

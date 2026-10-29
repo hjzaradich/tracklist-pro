@@ -41,8 +41,18 @@ export function crateBackend(options: {
   const refuse = (kind: string, params: Record<string, string> = {}) => {
     throw { kind, params };
   };
-  const record = (kind: string, name: string, tracks: number, undo: () => void) => {
-    const info: OperationInfo = { id: state.history.length + 1, kind, details: { name, from: null, tracks } };
+  const record = (
+    kind: string,
+    name: string,
+    tracks: number,
+    undo: () => void,
+    also: { newToLibrary?: number; newCrate?: boolean } = {},
+  ) => {
+    const info: OperationInfo = {
+      id: state.history.length + 1,
+      kind,
+      details: { name, from: null, tracks, newToLibrary: also.newToLibrary ?? null, newCrate: also.newCrate ?? null },
+    };
     state.history.push({ info, undo });
     return info.id;
   };
@@ -140,7 +150,10 @@ export function crateBackend(options: {
         const held = state.members.get(id) ?? new Set<number>();
         const { done, joined, undo } = addTo(held, args.recordings as number[]);
         state.members.set(id, held);
-        const operationId = joined.length === 0 ? null : record("add_to_crate", target.name, joined.length, undo);
+        const operationId =
+          joined.length === 0
+            ? null
+            : record("add_to_crate", target.name, joined.length, undo, { newToLibrary: done.alsoAddedToLibrary });
         return { ...done, operationId };
       }
       case "add_recordings_to_new_crate": {
@@ -155,11 +168,17 @@ export function crateBackend(options: {
         const id = state.nextId++;
         state.crates.push({ id, parentId: null, kind: "static", name, trackCount: 0 });
         state.members.set(id, held);
-        const operationId = record("add_to_crate", name, joined.length, () => {
-          undo();
-          state.crates = state.crates.filter((c) => c.id !== id);
-          state.members.delete(id);
-        });
+        const operationId = record(
+          "add_to_crate",
+          name,
+          joined.length,
+          () => {
+            undo();
+            state.crates = state.crates.filter((c) => c.id !== id);
+            state.members.delete(id);
+          },
+          { newToLibrary: done.alsoAddedToLibrary, newCrate: true },
+        );
         return { crateId: id, name, added: { ...done, operationId } };
       }
       case "remove_tracks_from_crate": {

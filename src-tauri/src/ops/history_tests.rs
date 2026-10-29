@@ -1040,6 +1040,7 @@ fn the_next_undo_names_the_action_with_what_the_ui_needs_to_say_it() {
         name: Some(name.to_owned()),
         from: from.map(str::to_owned),
         tracks,
+        ..OperationDetails::default()
     };
 
     assert!(lib.apply(&Action::AddFromRekordbox));

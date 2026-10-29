@@ -170,10 +170,10 @@ function backend(
       }
       case "undo_last_operation":
         before = null;
-        return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null } } };
+        return { status: "undone", operation: { id: 1, kind: "x", details: { name: null, from: null, tracks: null, newToLibrary: null, newCrate: null } } };
       case "next_undo_operation":
         return {
-          operation: before === null ? null : { id: lastOperation, kind: "x", details: { name: null, from: null, tracks: null } },
+          operation: before === null ? null : { id: lastOperation, kind: "x", details: { name: null, from: null, tracks: null, newToLibrary: null, newCrate: null } },
           refusal: null,
         };
       default:

@@ -262,8 +262,12 @@
     "purpose": "Closes the dialog without adding.",
     "where": "Add to crate or playlist dialog, the quiet button at the bottom."
   },
+  "addSelection.newCrateEmpty": {
+    "purpose": "Says the crate asked for in the add dialog was created but no track was added to it, because none could be. The reasons follow in parentheses.",
+    "where": "Above the track table, after tracks were added to a new crate from the dialog and every one was left out."
+  },
   "addSelection.added_zero": {
-    "purpose": "Says no track was added to the crate, because none could be.",
+    "purpose": "Says nothing was added to the crate, because every track was in it already or was left out. The reasons follow in parentheses.",
     "where": "Above the track table, after tracks were dropped on a crate or added with the C key."
   },
   "addSelection.added_one": {

@@ -12,7 +12,7 @@ import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { UndoButton } from "./UndoButton";
 
-const NO_DETAILS: OperationDetails = { name: null, from: null, tracks: null };
+const NO_DETAILS: OperationDetails = { name: null, from: null, tracks: null, newToLibrary: null, newCrate: null };
 
 function operation(id: number, kind: string, details: Partial<OperationDetails> = {}): OperationInfo {
   return { id, kind, details: { ...NO_DETAILS, ...details } };
@@ -156,6 +156,37 @@ describe("the top bar's Undo", () => {
       operation(1, "add_to_crate", { name: "House", tracks: 3 }),
       "shell:undo.action.addToCrate",
       { count: 3, name: "House" },
+    ],
+    // An add that also put tracks in the Library, or made the crate (1cB-23).
+    [
+      operation(1, "add_to_crate", { name: "House", tracks: 3, newToLibrary: 0 }),
+      "shell:undo.action.addToCrate",
+      { count: 3, name: "House" },
+    ],
+    [
+      operation(1, "add_to_crate", { name: "House", tracks: 1, newToLibrary: 1 }),
+      "shell:undo.action.addToCrateLibrary",
+      { count: 1, name: "House", library: 1 },
+    ],
+    [
+      operation(1, "add_to_crate", { name: "House", tracks: 3, newToLibrary: 2 }),
+      "shell:undo.action.addToCrateLibrary",
+      { count: 3, name: "House", library: 2 },
+    ],
+    [
+      operation(1, "add_to_crate", { name: "House", tracks: 0, newCrate: true, newToLibrary: 0 }),
+      "shell:undo.action.addToNewCrate",
+      { count: 0, name: "House" },
+    ],
+    [
+      operation(1, "add_to_crate", { name: "House", tracks: 2, newCrate: true, newToLibrary: 0 }),
+      "shell:undo.action.addToNewCrate",
+      { count: 2, name: "House" },
+    ],
+    [
+      operation(1, "add_to_crate", { name: "House", tracks: 2, newCrate: true, newToLibrary: 1 }),
+      "shell:undo.action.addToNewCrateLibrary",
+      { count: 2, name: "House", library: 1 },
     ],
     [
       operation(1, "remove_from_crate", { name: "House", tracks: 2 }),

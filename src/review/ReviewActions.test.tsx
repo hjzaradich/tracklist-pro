@@ -173,7 +173,7 @@ interface World {
 }
 
 function operation(id: number, kind: string, tracks: number | null = null): OperationInfo {
-  return { id, kind, details: { name: null, from: null, tracks } };
+  return { id, kind, details: { name: null, from: null, tracks, newToLibrary: null, newCrate: null } };
 }
 
 function backend(start: Partial<World> = {}): World {

@@ -234,7 +234,10 @@ function AddReportLine({ report }: { report: AddReport }) {
       : null,
     leftOut.lowBitrate > 0 ? t("addSelection.leftOut.lowBitrate", { count: leftOut.lowBitrate }) : null,
   ].filter((note) => note !== null);
-  const done = t("addSelection.added", { count: report.added, crate: report.crate });
+  const done =
+    report.newCrate === true && report.added === 0
+      ? t("addSelection.newCrateEmpty", { crate: report.crate })
+      : t("addSelection.added", { count: report.added, crate: report.crate });
   return (
     <span role="status">
       {done}

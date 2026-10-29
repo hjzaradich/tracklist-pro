@@ -871,6 +871,8 @@ fn put_in(
     }
     rec.detail("name", name);
     rec.detail("tracks", added);
+    // What the Undo button names (1cB-23): how many came into the Library.
+    rec.detail("newToLibrary", also_added_to_library);
     Ok(AddedToCrate {
         added,
         also_added_to_library,
@@ -936,7 +938,7 @@ pub fn add_recordings_to_new_crate_on(
     let recorded = ops::record(
         conn,
         ADD_OPERATION,
-        &serde_json::json!({ "newCrate": name }),
+        &serde_json::json!({ "newCrate": true }),
         |rec| {
             let id = match make_in(rec, CrateKind::Static, None, &name)? {
                 Ok(id) => id,

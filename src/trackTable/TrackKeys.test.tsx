@@ -84,7 +84,7 @@ function fakeBackend() {
         case "next_undo_operation": {
           const last = backend.history.at(-1);
           const operation: OperationInfo | null = last
-            ? { id: backend.history.length, kind: "set_energy", details: { name: null, from: null, tracks: last.tracks } }
+            ? { id: backend.history.length, kind: "set_energy", details: { name: null, from: null, tracks: last.tracks, newToLibrary: null, newCrate: null } }
             : null;
           return { operation, refusal: null };
         }
@@ -94,7 +94,7 @@ function fakeBackend() {
           backend.undone += 1;
           return {
             status: "undone",
-            operation: { id: 1, kind: "set_energy", details: { name: null, from: null, tracks: last?.tracks ?? 0 } },
+            operation: { id: 1, kind: "set_energy", details: { name: null, from: null, tracks: last?.tracks ?? 0, newToLibrary: null, newCrate: null } },
           };
         }
         case "send_state":

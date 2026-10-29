@@ -9,7 +9,7 @@ import { useAddRecordingsToCrate, useAddRecordingsToNewCrate } from "./useCrates
  * key's dialog) reports here, and the table that is on screen says it.
  */
 export type AddReport =
-  | ({ kind: "added"; crate: string } & Pick<
+  | ({ kind: "added"; crate: string; newCrate?: boolean } & Pick<
       AddedToCrate,
       "added" | "alsoAddedToLibrary" | "alreadyThere" | "leftOut"
     >)
@@ -45,10 +45,11 @@ export function useAddSelectionToCrate() {
   };
 }
 
-function showAdded(crate: string, done: AddedToCrate) {
+function showAdded(crate: string, done: AddedToCrate, newCrate = false) {
   useAddReport.getState().show({
     kind: "added",
     crate,
+    newCrate,
     added: done.added,
     alsoAddedToLibrary: done.alsoAddedToLibrary,
     alreadyThere: done.alreadyThere,
@@ -66,6 +67,6 @@ export function useAddSelectionToNewCrate() {
   const add = useAddRecordingsToNewCrate();
   return async (name: string, recordings: readonly number[]): Promise<void> => {
     const done = await add.mutateAsync({ name, recordings });
-    showAdded(done.name, done.added);
+    showAdded(done.name, done.added, true);
   };
 }
