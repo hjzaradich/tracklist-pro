@@ -9,5 +9,10 @@
     "driveNotConnected": "Can't play: the file's drive isn't connected",
     "onlineOnly": "Can't play: the file is online only (not downloaded)",
     "cantPlay": "Can't play this file"
+  },
+  "waveform": {
+    "label": "Waveform",
+    "notReady": "No waveform yet",
+    "unavailable": "No waveform for this file"
   }
 }

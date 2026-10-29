@@ -20,7 +20,7 @@
 //!   (`queue_once`), and, once after an upgrade that changed the roles'
 //!   version, the file roles' one statement that makes every track due.
 //! - **One list of "ask this stage" calls** ([`ASKS`]), one line per stage,
-//!   in the scan chain's order (file roles and the search index last). Each queues through
+//!   in the scan chain's order (file roles, the search index and the waveforms last). Each queues through
 //!   `queue_once`, so it never queues what is already queued or running,
 //!   and each leaves a stage alone while an earlier one is still due (the
 //!   earlier stage's job chains on to it, as in the scan chain).
@@ -78,6 +78,7 @@ const ASKS: &[(&str, Ask)] = &[
     ("decide", ask_decide),
     ("file roles", ask_file_roles),
     ("search index", ask_search_index),
+    ("waveforms", ask_waveforms),
 ];
 
 /// What the asks share.
@@ -243,6 +244,19 @@ fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
 fn ask_search_index(a: &Asking) -> Result<(), DbError> {
     if a.read(crate::search::pending)? {
         a.queue(crate::search::index_job(false))?;
+    }
+    Ok(())
+}
+
+/// The waveforms follow the fingerprints, as the quality check does, and are
+/// the lowest-priority job there is (1cB-9). The check is one query that
+/// stops at the first file with no waveform of its current audio.
+fn ask_waveforms(a: &Asking) -> Result<(), DbError> {
+    if a.fingerprints_owed()? {
+        return Ok(());
+    }
+    if a.read(|c| crate::waveform::due(c, Some(&a.reachable)))? {
+        a.queue(crate::waveform::waveform_job())?;
     }
     Ok(())
 }

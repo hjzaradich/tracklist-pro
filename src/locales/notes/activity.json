@@ -84,6 +84,10 @@
     "where": "Top bar, Activity status and list rows, briefly after a scan, a rekordbox read or a change to a track, while the search words of the changed tracks are worked out.",
     "approved": "Updating search"
   },
+  "task.waveform": {
+    "purpose": "Names the job that works out each file's waveform for the player.",
+    "where": "Top bar, Activity status and list rows, in the background after a scan, while each file's audio is read once and its waveform is kept."
+  },
   "percent": {
     "purpose": "A task name with its progress.",
     "where": "Top bar, Activity status and list rows, for a running job that reports progress ({{task}} is a task name above).",

@@ -56,6 +56,7 @@ pub mod store;
 pub mod verdict;
 
 pub use cutoff::Gap;
+pub(crate) use job::unchanged;
 pub use job::{quality_job, Qualifier};
 pub use ledger::Stored;
 pub use measure::{measure, Ended, Errors, Failure, Measured};

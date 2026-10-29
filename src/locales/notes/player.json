@@ -43,5 +43,17 @@
     "purpose": "Says a file isn't played because it can't be read or decoded as audio.",
     "where": "Player bar, in place of the scrub bar, for a file the player can't use (unknown, unreadable or not decodable).",
     "approved": "Can't play this file"
+  },
+  "waveform.label": {
+    "purpose": "Screen-reader name of the waveform drawing of the loaded file.",
+    "where": "Player bar along the bottom, beside the scrub bar (screen-reader label)."
+  },
+  "waveform.notReady": {
+    "purpose": "Says the waveform of the loaded file is not drawn yet: a background task draws them after a scan.",
+    "where": "Player bar along the bottom, in place of the waveform, until the background task has reached the file (screen-reader label)."
+  },
+  "waveform.unavailable": {
+    "purpose": "Says no waveform will come for the loaded file because its audio can't be decoded.",
+    "where": "Player bar along the bottom, in place of the waveform, for a file that can't be decoded (screen-reader label)."
   }
 }

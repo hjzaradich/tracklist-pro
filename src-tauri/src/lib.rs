@@ -49,6 +49,7 @@ pub mod track_table;
 pub mod ui_setting;
 pub mod versions;
 pub mod volume;
+pub mod waveform;
 pub mod write_guard;
 
 /// The bundle ID. It also names the app data folder,

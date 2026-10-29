@@ -104,6 +104,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             JobKind::Index,
             crate::scan::chain::after_index(crate::search::indexer()),
         )
+        .handler(
+            JobKind::Waveform,
+            crate::scan::chain::after_waveform(crate::waveform::waveformer(app)),
+        )
         .start()
 }
 

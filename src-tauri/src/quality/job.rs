@@ -343,7 +343,7 @@ impl<V: Volumes> Run<'_, V> {
 }
 
 /// Whether the open file is still the size and age its row says.
-fn unchanged(file: &File, due: &Due) -> bool {
+pub(crate) fn unchanged(file: &File, due: &Due) -> bool {
     let Ok(meta) = file.metadata() else {
         return false;
     };

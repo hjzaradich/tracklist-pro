@@ -52,6 +52,11 @@
   white-space: nowrap;
 }
 
+/* The waveform takes the room the scrub bar leaves (it carries the playhead). */
+.waveform {
+  flex: 2 1 12rem;
+}
+
 .scrub {
   flex: 1 1 auto;
   min-width: 6rem;

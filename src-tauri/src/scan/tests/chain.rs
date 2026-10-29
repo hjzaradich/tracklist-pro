@@ -106,6 +106,7 @@ pub(super) fn chained_queue_with(
         looked.hashed.clone(),
         looked.fingerprinted.clone(),
     );
+    let v7 = volume.clone();
     let (m1, m2, m3, m4, m5) = (
         looked.marks.clone(),
         looked.marks.clone(),
@@ -200,6 +201,16 @@ pub(super) fn chained_queue_with(
         .handler(
             JobKind::Match,
             after_matching(crate::matching::Matcher::new()),
+        )
+        // The waveforms follow the chain like the quality checks (1cB-9);
+        // the tests below look at the stages, so they are left out of the
+        // lists of jobs (`jobs`).
+        .handler(
+            JobKind::Waveform,
+            crate::scan::chain::after_waveform(crate::waveform::Waveformer::new(
+                move || v7.clone(),
+                FirstUp::default(),
+            )),
         );
     more(builder).start().unwrap()
 }
@@ -243,7 +254,7 @@ pub(super) fn jobs(writer: &Writer) -> Vec<(String, Option<String>, i64, String)
             // has a test of its own below.
             let mut s = c.prepare(
                 "SELECT kind, target, priority, status FROM job
-                 WHERE kind NOT IN ('relink', 'index')
+                 WHERE kind NOT IN ('relink', 'index', 'waveform')
                    AND NOT (kind = 'group' AND target IS NOT NULL)
                  ORDER BY id",
             )?;
@@ -260,7 +271,7 @@ fn relinks(writer: &Writer) -> Vec<(String, String)> {
         .call(|c| {
             let mut s = c.prepare(
                 "SELECT r.status, (SELECT kind FROM job p
-                                   WHERE p.id < r.id AND p.kind <> 'index'
+                                   WHERE p.id < r.id AND p.kind NOT IN ('index', 'waveform')
                                      AND NOT (p.kind = 'group'
                                               AND COALESCE(json_extract(p.target, '$.roles'), 0) = 1)
                                    ORDER BY p.id DESC)
@@ -544,6 +555,48 @@ fn quality_is_measured_when_the_hashes_are_in_even_if_no_fingerprints_are_due() 
         .call(|c| c.query_row("SELECT COUNT(*) FROM file_quality", [], |r| r.get(0)))
         .unwrap();
     assert_eq!(measured, 1);
+    queue.shutdown();
+}
+
+#[test]
+fn waveforms_are_drawn_once_the_hashes_are_in_at_the_lowest_priority_and_not_again_for_an_unchanged_file(
+) {
+    let (_dir, volume, music) = drive();
+    put(&music, "a.mp3", &audio::mp3());
+    let (_db, writer, _reads) = db();
+    add_music(&writer, &volume, &music);
+    let queue = chained_queue(&writer, &volume, &LookedAt::default());
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    let waveform_jobs = || -> Vec<(i64, String)> {
+        writer
+            .call(|c| {
+                let mut s = c.prepare(
+                    "SELECT priority, status FROM job WHERE kind = 'waveform' ORDER BY id",
+                )?;
+                let rows = s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                rows.collect()
+            })
+            .unwrap()
+    };
+    let stored = || -> i64 {
+        writer
+            .call(|c| c.query_row("SELECT COUNT(*) FROM file_waveform", [], |r| r.get(0)))
+            .unwrap()
+    };
+    let first = waveform_jobs();
+    assert!(!first.is_empty());
+    assert!(first
+        .iter()
+        .all(|job| *job == (crate::waveform::PRIORITY.0, "done".to_owned())));
+    assert_eq!(stored(), 1);
+
+    // Walked again with nothing changed: nothing is due, so no job is asked
+    // for and nothing is decoded again.
+    queue.enqueue(scan_job(None)).unwrap();
+    wait_idle(&queue);
+    assert_eq!(waveform_jobs(), first);
+    assert_eq!(stored(), 1);
     queue.shutdown();
 }
 
@@ -1490,7 +1543,7 @@ fn the_deciding_job_follows_matching_at_its_priority_and_a_scan_with_nothing_new
         .call(|c| {
             let mut s = c.prepare(
                 "SELECT kind, target IS NOT NULL FROM job
-                 WHERE kind NOT IN ('relink', 'index')
+                 WHERE kind NOT IN ('relink', 'index', 'waveform')
                    AND NOT (kind = 'group' AND COALESCE(json_extract(target, '$.roles'), 0) = 1)
                  ORDER BY id DESC LIMIT 2",
             )?;

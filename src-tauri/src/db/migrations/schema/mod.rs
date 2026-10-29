@@ -14,6 +14,7 @@ mod file_quality;
 mod file_roles;
 mod file_stage;
 mod file_verdict;
+mod file_waveform;
 mod files;
 mod fingerprint_audio_hash;
 mod fingerprint_match;
@@ -275,6 +276,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // `analysis` ids are never reused, so the user's energy can be logged, no
     // new tables (1cB-8).
     ("0039_user_energy.sql", &[]),
+    // The waveform job's peaks per file (derived state, 1cB-9).
+    ("0040_file_waveform.sql", &["file_waveform"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

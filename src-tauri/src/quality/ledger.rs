@@ -49,7 +49,7 @@ pub(crate) struct Due {
 /// The condition that the hash stage is current for file `f`: it has an
 /// `audio_hash`, and a done `hash` row at the current version, size and
 /// mtime. `?HASH` is the hash stage's version.
-const HASH_CURRENT: &str = "f.audio_hash IS NOT NULL
+pub(crate) const HASH_CURRENT: &str = "f.audio_hash IS NOT NULL
     AND EXISTS (SELECT 1 FROM file_stage h
                 WHERE h.file_id = f.id AND h.stage = 'hash' AND h.status = 'done'
                   AND h.version = ?HASH AND h.size IS f.size AND h.mtime IS f.mtime)";

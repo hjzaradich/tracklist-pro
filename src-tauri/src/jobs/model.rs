@@ -58,11 +58,14 @@ pub enum JobKind {
     /// Work out the full-text search index of the tracks that changed
     /// (1.11).
     Index,
+    /// Reduce a file's audio to the peaks its waveform is drawn from
+    /// (1.11 "Audio").
+    Waveform,
 }
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 15] = [
+    pub const ALL: [JobKind; 16] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
@@ -78,6 +81,7 @@ impl JobKind {
         JobKind::Quality,
         JobKind::Match,
         JobKind::Index,
+        JobKind::Waveform,
     ];
 
     /// The name stored in the database.
@@ -98,6 +102,7 @@ impl JobKind {
             JobKind::Quality => "quality",
             JobKind::Match => "match",
             JobKind::Index => "index",
+            JobKind::Waveform => "waveform",
         }
     }
 
@@ -266,7 +271,8 @@ mod tests {
                 "attach",
                 "quality",
                 "match",
-                "index"
+                "index",
+                "waveform"
             ]
         );
     }

@@ -53,6 +53,9 @@
 //!   making way the same way. It's asked for when a matching job ends and
 //!   wherever matching is asked for, and queued only when matching has
 //!   nothing due: it can only decide a file matching has been through.
+//! - **Waveforms beside quality:** wherever quality is asked for, so is the
+//!   waveform job ([`crate::waveform`], 1cB-9): it needs only the audio
+//!   hashes, and runs below every other job, one file at a time.
 //! - **Asked again where the chain ends early:** a walk with nothing to
 //!   read ends the chain there, and still asks whether quality or matching
 //!   is owed anything (see `queue_next`), so neither waits for a file to
@@ -156,6 +159,17 @@ pub fn after_index<H: JobHandler>(indexer: H) -> Chained<H> {
         inner: indexer,
         next: Next::Nothing,
         priority: Priority::BACKGROUND,
+        reach: None,
+    }
+}
+
+/// The waveform job's handler, run once more if something asked for it
+/// meanwhile. It is queued again at its own priority, the lowest there is.
+pub fn after_waveform<H: JobHandler>(waveformer: H) -> Chained<H> {
+    Chained {
+        inner: waveformer,
+        next: Next::Nothing,
+        priority: crate::waveform::PRIORITY,
         reach: None,
     }
 }
@@ -341,6 +355,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
                 // would queue a job with nothing it can do.
                 if !rescan {
                     crate::quality::request(writer, reach, enqueue)?;
+                    crate::waveform::request(writer, reach, enqueue)?;
                 }
                 crate::matching::request(writer, enqueue)?;
                 crate::grouping::request_decide(writer, enqueue)?;
@@ -373,6 +388,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
                 // No fingerprints to wait for: measure quality now, and
                 // compare fingerprints (1bA-14).
                 crate::quality::request(writer, reach, enqueue)?;
+                crate::waveform::request(writer, reach, enqueue)?;
                 crate::matching::request(writer, enqueue)?;
                 crate::grouping::request_decide(writer, enqueue)?;
             }
@@ -385,6 +401,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
             // fingerprints compared (1bA-14), in that order, after anything
             // the user sees.
             crate::quality::request(writer, reach, enqueue)?;
+            crate::waveform::request(writer, reach, enqueue)?;
             crate::matching::request(writer, enqueue)?;
             crate::grouping::request_decide(writer, enqueue)?;
         }
@@ -756,10 +773,12 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn every_stage_is_queued_again_at_background_priority_and_only_matching_below_it() {
+    fn every_stage_is_queued_again_at_background_priority_and_only_matching_and_the_waveforms_below_it(
+    ) {
         // A stage asked for while it runs is queued once more at the
         // priority its wrapper holds. Matching was given one of its own
-        // (1bA-14); every other stage's is what it always was.
+        // (1bA-14), and the waveforms one below it (1cB-9); every other
+        // stage's is what it always was.
         let stage = |_: &JobContext| Ok(());
         for (name, priority) in [
             ("walk", after_walk(stage).priority),
@@ -772,6 +791,7 @@ mod tests {
             assert_eq!(priority, Priority::BACKGROUND, "{name}");
         }
         assert_eq!(after_matching(stage).priority, crate::matching::PRIORITY);
+        assert_eq!(after_waveform(stage).priority, crate::waveform::PRIORITY);
         assert!(crate::matching::PRIORITY < Priority::BACKGROUND);
     }
 }
