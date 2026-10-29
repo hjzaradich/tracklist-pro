@@ -517,21 +517,6 @@ export type ActivitySnapshot = {
 	jobs: JobUpdate[],
 };
 
-/**
- *  What adding tracks to a crate by their track id did (1cB-13): the table's
- *  rows are tracks, and only a Library track can join a crate.
- */
-export type AddedToCrate = {
-	/**  How many Library tracks joined the crate. */
-	added: number,
-	/**  How many were in it already. */
-	alreadyThere: number,
-	/**  How many aren't in the Library, so were left out. */
-	outsideLibrary: number,
-	/**  The operation this recorded; `None` when nothing was added. */
-	operationId: number | null,
-}
-
 /**  What an add did. */
 export type AddSummary = {
 	/**  Library tracks made. */
@@ -553,6 +538,21 @@ export type AddSummary = {
 export type AddWarning = 
 /**  The file has the `low bitrate` finding. */
 { code: "lowBitrate"; kbps: number };
+
+/**
+ *  What adding tracks to a crate by their track id did (1cB-13): the table's
+ *  rows are tracks, and only a Library track can join a crate.
+ */
+export type AddedToCrate = {
+	/**  How many Library tracks joined the crate. */
+	added: number,
+	/**  How many were in it already. */
+	alreadyThere: number,
+	/**  How many aren't in the Library, so were left out. */
+	outsideLibrary: number,
+	/**  The operation this recorded; `None` when nothing was added. */
+	operationId: number | null,
+};
 
 /**  Both lists, for the screen. */
 export type AfterSendLists = {

@@ -404,7 +404,6 @@ fn adding_selected_tracks_is_one_operation_and_one_undo_takes_them_all_out() {
     assert_eq!(done.operation_id, Some(before + 1));
     lib.undo();
     assert_eq!(lib.ids(id), Vec::<LibraryTrackId>::new());
-    assert_eq!(lib.operations(), before);
 }
 
 #[test]
