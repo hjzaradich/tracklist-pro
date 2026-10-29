@@ -3,6 +3,7 @@ import { formatTime } from "../player/formatTime";
 import { PlayingBars } from "../player/PlayingBars";
 import { PlayPauseIcon } from "../player/PlayPauseIcon";
 import { usePlayer } from "../player/playerStore";
+import { Waveform } from "../player/Waveform";
 import styles from "./PlayerBar.module.css";
 
 /**
@@ -21,7 +22,8 @@ const REFUSAL_LINES = {
 
 /**
  * The preview player along the bottom (1.11): the one player for the whole
- * app. Play or pause, a scrub bar and the file's name; when the file can't
+ * app. Play or pause, the file's waveform (1cB-9), a scrub bar and the
+ * file's name; when the file can't
  * be played, a short line says why and nothing plays. Files are chosen with
  * a `PlayButton` in the lists.
  */
@@ -62,6 +64,12 @@ export function PlayerBar({ className = "" }: { className?: string }) {
             </p>
           ) : (
             <>
+              <Waveform
+                fileId={file.id}
+                position={position}
+                duration={duration}
+                className={styles.waveform}
+              />
               <input
                 type="range"
                 className={styles.scrub}

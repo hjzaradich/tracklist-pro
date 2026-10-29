@@ -356,6 +356,46 @@ fn quality_and_matching_wait_while_the_fingerprints_are_owed() {
 }
 
 #[test]
+fn waveforms_not_drawn_yet_are_asked_for_at_the_next_start_once_the_fingerprints_are_in() {
+    let (_dir, volume, _db, writer) = scanned();
+    // The chain drew every file's waveform: nothing is due (the test above
+    // that nothing is due covers it). A run that died before drawing them:
+    writer
+        .call(|c| c.execute("DELETE FROM file_waveform", []))
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, vec!["waveform"]));
+    assert_eq!(queued[0].1, None);
+    // Asked again with that job waiting: still one.
+    let (_, queued) = ask(&writer, &volume);
+    assert_eq!(kinds(&queued), ["waveform"]);
+}
+
+#[test]
+fn waveforms_wait_while_the_fingerprints_are_owed_and_for_a_drive_that_is_back() {
+    let (_dir, volume, _db, writer) = scanned();
+    writer
+        .call(|c| c.execute("DELETE FROM file_waveform", []))
+        .unwrap();
+    bump(&writer, "fingerprint");
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, vec!["fingerprint"]));
+
+    // The fingerprints are in, but the drive is unplugged: no job to
+    // queue; it is asked for when the drive is back.
+    let (_dir, volume, _db, writer) = scanned();
+    writer
+        .call(|c| c.execute("DELETE FROM file_waveform", []))
+        .unwrap();
+    volume.set_online(false);
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+    volume.set_online(true);
+    let (_, queued) = ask(&writer, &volume);
+    assert_eq!(kinds(&queued), ["waveform"]);
+}
+
+#[test]
 fn grouping_and_deciding_wait_while_a_file_is_still_to_be_read() {
     let (_dir, volume, _db, writer) = scanned();
     // A file the walk has found and nothing has read yet: it has no track,
@@ -422,7 +462,7 @@ fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_el
         }
     });
     assert_eq!(asked.failed, 0);
-    assert_eq!(asked.took.len(), 8, "every stage was asked");
+    assert_eq!(asked.took.len(), 9, "every stage was asked");
     release.send(()).unwrap();
     holder.join().unwrap().unwrap();
 }

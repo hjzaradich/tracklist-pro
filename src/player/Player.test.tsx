@@ -1,8 +1,10 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockConvertFileSrc, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PreviewRefusal } from "../bindings";
+import { createQueryClient } from "../app/queryClient";
+import type { PreviewRefusal, Waveform as WaveformAnswer } from "../bindings";
 import { PlayerBar } from "../shell/PlayerBar";
 import { tx } from "../test/tx";
 import { formatTime } from "./formatTime";
@@ -16,11 +18,14 @@ const B = { id: 12, name: "Synthetic Tune B" };
 let element: HTMLAudioElement | null;
 let asked: number[];
 let answers: Record<number, PreviewRefusal | null>;
+/** What the waveform command says per file; "not ready" when a test says nothing. */
+let waveforms: Record<number, WaveformAnswer>;
 
 beforeEach(() => {
   element = null;
   asked = [];
   answers = {};
+  waveforms = {};
   // jsdom plays nothing; these record what the player asks of the element.
   vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function (this: HTMLMediaElement) {
     element = this as HTMLAudioElement;
@@ -32,6 +37,11 @@ beforeEach(() => {
       const id = (args as { fileId: number }).fileId;
       asked.push(id);
       return answers[id] ?? null;
+    }
+    if (cmd === "waveform_first") return null;
+    if (cmd === "waveform_peaks") {
+      const id = (args as { fileId: number }).fileId;
+      return waveforms[id] ?? { state: "notReady" };
     }
     throw new Error(`unexpected command ${cmd}`);
   });
@@ -54,11 +64,11 @@ function loaded(duration: number) {
 
 function renderPlayer() {
   return render(
-    <>
+    <QueryClientProvider client={createQueryClient()}>
       <PlayButton file={A} />
       <PlayButton file={B} />
       <PlayerBar />
-    </>,
+    </QueryClientProvider>,
   );
 }
 
@@ -189,6 +199,61 @@ describe("a file that can't be played", () => {
 
   it("uses four different lines for the six codes", () => {
     expect(new Set(lines.map(([, key]) => tx(key))).size).toBe(4);
+  });
+});
+
+describe("the waveform in the player bar", () => {
+  const ready: WaveformAnswer = {
+    state: "ready",
+    peaks: [10, 200, 120, 255],
+    levels: [5, 100, 60, 128],
+    durationMs: 300_000,
+  };
+
+  async function play(name: string) {
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    loaded(300);
+    return user;
+  }
+
+  it("stands in with a placeholder until the waveform is drawn", async () => {
+    await play(A.name);
+    expect(await screen.findByRole("img", { name: tx("player:waveform.notReady") })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: tx("player:waveform.label") })).toBeNull();
+  });
+
+  it("draws the waveform of the loaded file with the playhead where playback is", async () => {
+    waveforms[A.id] = ready;
+    await play(A.name);
+    const wave = await screen.findByRole("img", { name: tx("player:waveform.label") });
+    expect(wave.querySelectorAll("path")).toHaveLength(2);
+    const playhead = wave.querySelector<HTMLElement>("[data-playhead]");
+    expect(playhead?.style.left).toBe("0%");
+    act(() => {
+      if (element) element.currentTime = 75;
+      element?.dispatchEvent(new Event("timeupdate"));
+    });
+    await waitFor(() => expect(playhead?.style.left).toBe("25%"));
+  });
+
+  it("says so for a file whose audio can't be decoded", async () => {
+    waveforms[A.id] = { state: "unavailable" };
+    await play(A.name);
+    expect(await screen.findByRole("img", { name: tx("player:waveform.unavailable") })).toBeInTheDocument();
+  });
+
+  it("has no waveform where the file can't be played at all", async () => {
+    waveforms[B.id] = ready;
+    answers[B.id] = "missing";
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: B.name }) }));
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    expect(screen.queryByRole("img", { name: tx("player:waveform.label") })).toBeNull();
+    expect(screen.queryByRole("img", { name: tx("player:waveform.notReady") })).toBeNull();
   });
 });
 

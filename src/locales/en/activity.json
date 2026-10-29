@@ -16,7 +16,8 @@
     "attach": "Adding rekordbox data to tracks",
     "quality": "Checking audio quality",
     "match": "Comparing fingerprints",
-    "index": "Updating search"
+    "index": "Updating search",
+    "waveform": "Drawing waveforms"
   },
   "percent": "{{task}} ({{percent}}%)",
   "andMore_one": "{{summary}} ({{count}} other task)",

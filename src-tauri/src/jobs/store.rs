@@ -121,9 +121,10 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
 /// transaction, and works from what's still due, so a run from the top
 /// measures only the rest. The matching job stores its results a batch at
 /// a time and skips every pair that already has one, so a run from the top
-/// compares only the rest. These are the kinds a normal close already puts back in the
-/// queue ([`Ending::Requeued`]).
-const RESTARTABLE: [JobKind; 11] = [
+/// compares only the rest. The waveform job, like the quality job, writes one
+/// file at a time and works from what's still due. These are the kinds a
+/// normal close already puts back in the queue ([`Ending::Requeued`]).
+const RESTARTABLE: [JobKind; 12] = [
     JobKind::Scan,
     JobKind::Read,
     JobKind::Hash,
@@ -135,6 +136,7 @@ const RESTARTABLE: [JobKind; 11] = [
     JobKind::Quality,
     JobKind::Match,
     JobKind::Index,
+    JobKind::Waveform,
 ];
 
 /// Why a job [`recover_interrupted`] couldn't restart ended. Kept in the
@@ -466,14 +468,14 @@ mod tests {
                     recovered,
                     Recovered {
                         cancelled: 0,
-                        requeued: 11,
+                        requeued: 12,
                         failed: 5
                     }
                 );
                 assert_eq!(get(c, waiting)?.unwrap().status, JobStatus::Queued);
                 let mut stmt = c.prepare(
                     "SELECT kind, status, progress, started_at IS NULL, error FROM job
-                     WHERE id <= 16 ORDER BY id",
+                     WHERE id <= 17 ORDER BY id",
                 )?;
                 let rows = stmt.query_map([], |r| {
                     Ok((
@@ -500,8 +502,9 @@ mod tests {
             "quality",
             "match",
             "index",
+            "waveform",
         ];
-        assert_eq!(ended.len(), 16);
+        assert_eq!(ended.len(), 17);
         for (kind, status, progress, never_started, error) in ended {
             if restartable.contains(&kind.as_str()) {
                 // As if it had never started: a worker takes it again.

@@ -125,6 +125,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::start::rekordbox_playlists,
             crate::all_music::all_music_tracks,
             crate::audio_preview::preview_check,
+            crate::waveform::waveform_peaks,
+            crate::waveform::waveform_first,
             crate::overview::overview,
             crate::send::send_state,
             crate::send::prepare_send,
@@ -242,6 +244,7 @@ mod tests {
                     "quality",
                     "match",
                     "index",
+                    "waveform",
                 ][..],
             ),
             (

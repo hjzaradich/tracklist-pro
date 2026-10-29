@@ -1,0 +1,49 @@
+/*
+ * A track's waveform (1cB-9): the peaks stretched across the width of the
+ * element, a stronger inner shape for the loudness, and a playhead. The part
+ * already played is the accent, the rest is muted. Colors are tokens only.
+ */
+.wave {
+  position: relative;
+  width: 100%;
+  min-width: 6rem;
+  height: 2rem;
+  overflow: hidden;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.played {
+  stop-color: var(--color-accent);
+}
+
+.unplayed {
+  stop-color: var(--color-text-muted);
+}
+
+.peaks {
+  opacity: 0.45;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--color-text);
+  pointer-events: none;
+}
+
+/* Until there are peaks: a thin line where the waveform will be. */
+.placeholder {
+  position: relative;
+  width: 100%;
+  min-width: 6rem;
+  height: 2rem;
+  background: linear-gradient(var(--color-border), var(--color-border)) center / 100% 1px no-repeat;
+}

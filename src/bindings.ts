@@ -355,6 +355,18 @@ export const commands = {
 "unreadable" | 
 /**  Not a format the player can play, or damaged beyond decoding. */
 "not_decodable" | null>("preview_check", { fileId }),
+	/**
+	 *  The waveform of a file, for the player: the peaks, "not ready yet" while
+	 *  the waveform job hasn't reached it, or "unavailable" for a file that
+	 *  can't be decoded. Reads the database; never decodes.
+	 */
+	waveformPeaks: (fileId: number) => typedError<Waveform, IpcError>(__TAURI_INVOKE("waveform_peaks", { fileId })),
+	/**
+	 *  Draws file `file_id`'s waveform before the rest (the file the player has
+	 *  loaded). Nothing happens if it is drawn already; the answer to
+	 *  [`waveform_peaks`] changes when it is.
+	 */
+	waveformFirst: (fileId: number) => typedError<null, IpcError>(__TAURI_INVOKE("waveform_first", { fileId })),
 	/**  Every number the Overview screen shows, as of now. */
 	overview: () => typedError<Overview, IpcError>(__TAURI_INVOKE("overview")),
 	/**
@@ -1147,7 +1159,12 @@ export type JobKind =
  *  Work out the full-text search index of the tracks that changed
  *  (1.11).
  */
-"index";
+"index" | 
+/**
+ *  Reduce a file's audio to the peaks its waveform is drawn from
+ *  (1.11 "Audio").
+ */
+"waveform";
 
 /**
  *  Where a job is in its life. Stored in `job.status` as
@@ -2604,6 +2621,20 @@ export type Verdict = "ok" | "lowBitrate" | "suspectTranscode" | "truncated" | "
 
 /**  Drives came or went: the music folders' `online` may have changed. */
 export type VolumesChanged = null;
+
+/**  What the app knows of a file's waveform. */
+export type Waveform = 
+/**
+ *  The peaks: `peaks[i]` is the loudest sample of bucket `i` and
+ *  `levels[i]` its RMS level, each 0 to 255.
+ */
+{ state: "ready"; peaks: number[]; levels: number[]; 
+/**  The audio decoded, in milliseconds. */
+durationMs: number } | 
+/**  The job hasn't reached the file (or its audio just changed). */
+{ state: "notReady" } | 
+/**  The file can't be decoded, so there will be no waveform. */
+{ state: "unavailable" };
 
 /**  What a row can be offered to bring the file back. */
 export type WayBack = 
