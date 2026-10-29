@@ -1,9 +1,13 @@
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { formatTime } from "../player/formatTime";
+import { useRegisterActions } from "../palette/registry";
 import { PlayingBars } from "../player/PlayingBars";
 import { PlayPauseIcon } from "../player/PlayPauseIcon";
 import { usePlayer } from "../player/playerStore";
-import { Waveform } from "../player/Waveform";
+import { SeekBar } from "../player/SeekBar";
+import { canGoPrevious, hasRowBelow, playNext, playPrevious, useStepPlace } from "../player/stepList";
+import { NextIcon, PreviousIcon, VolumeIcon } from "../player/TransportIcons";
 import styles from "./PlayerBar.module.css";
 
 /**
@@ -22,10 +26,11 @@ const REFUSAL_LINES = {
 
 /**
  * The preview player along the bottom (1.11): the one player for the whole
- * app. Play or pause, the file's waveform (1cB-9), a scrub bar and the
- * file's name; when the file can't
- * be played, a short line says why and nothing plays. Files are chosen with
- * a `PlayButton` in the lists.
+ * app. Previous and next track through the rows of the table on screen,
+ * play or pause, the file's name, its waveform as the seek bar (1cB-9,
+ * 1cB-10), the time, and volume and mute (kept per user). When the file
+ * can't be played, a short line says why and nothing plays; the track can
+ * still be stepped past. Files are chosen with a `PlayButton` in the lists.
  */
 export function PlayerBar({ className = "" }: { className?: string }) {
   const { t } = useTranslation(["shell", "player"]);
@@ -37,6 +42,31 @@ export function PlayerBar({ className = "" }: { className?: string }) {
   const playing = usePlayer((s) => s.playing);
   const toggle = usePlayer((s) => s.toggle);
   const seek = usePlayer((s) => s.seek);
+  const volume = usePlayer((s) => s.volume);
+  const muted = usePlayer((s) => s.muted);
+  const setVolume = usePlayer((s) => s.setVolume);
+  const toggleMute = usePlayer((s) => s.toggleMute);
+  const keepVolume = usePlayer((s) => s.keepVolume);
+  // The slider moved and the volume is not kept yet: it is, when the slider is let go.
+  const unkept = useRef(false);
+  const keepIfMoved = () => {
+    if (!unkept.current) return;
+    unkept.current = false;
+    keepVolume();
+  };
+  const total = useStepPlace((s) => s.total);
+  const focus = useStepPlace((s) => s.focus);
+  const playingRow = useStepPlace((s) => s.playing);
+  const place = { total, focus, playing: playingRow };
+  const silent = muted || volume === 0;
+  const canPrevious = file !== null && canGoPrevious(place, { status, position });
+  const canNext = file !== null && hasRowBelow(place);
+
+  // Ctrl+K lists the two steps, no keys of their own (1cB-10).
+  useRegisterActions("player", [
+    { id: "player:previous", label: t("player:previous"), available: canPrevious, run: playPrevious },
+    { id: "player:next", label: t("player:next"), available: canNext, run: playNext },
+  ]);
 
   return (
     <section aria-label={t("shell:player.label")} className={`${styles.player} ${className}`}>
@@ -46,6 +76,16 @@ export function PlayerBar({ className = "" }: { className?: string }) {
         <>
           <button
             type="button"
+            className={styles.step}
+            disabled={!canPrevious}
+            aria-label={t("player:previous")}
+            title={t("player:previous")}
+            onClick={playPrevious}
+          >
+            <PreviousIcon />
+          </button>
+          <button
+            type="button"
             className={styles.toggle}
             disabled={status === "refused"}
             aria-label={t(playing ? "player:pause" : "player:play")}
@@ -53,6 +93,16 @@ export function PlayerBar({ className = "" }: { className?: string }) {
             onClick={toggle}
           >
             <PlayPauseIcon playing={playing} />
+          </button>
+          <button
+            type="button"
+            className={styles.step}
+            disabled={!canNext}
+            aria-label={t("player:next")}
+            title={t("player:next")}
+            onClick={playNext}
+          >
+            <NextIcon />
           </button>
           <PlayingBars playing={playing && status === "ready"} />
           <span className={styles.name} title={file.name}>
@@ -64,28 +114,45 @@ export function PlayerBar({ className = "" }: { className?: string }) {
             </p>
           ) : (
             <>
-              <Waveform
+              <SeekBar
                 fileId={file.id}
                 position={position}
                 duration={duration}
+                enabled={status === "ready"}
+                onSeek={seek}
                 className={styles.waveform}
-              />
-              <input
-                type="range"
-                className={styles.scrub}
-                aria-label={t("player:position")}
-                min={0}
-                max={duration}
-                step="any"
-                value={Math.min(position, duration)}
-                disabled={status !== "ready"}
-                onChange={(e) => seek(Number(e.target.value))}
               />
               <span className={styles.time}>
                 {formatTime(position)} / {formatTime(duration)}
               </span>
             </>
           )}
+          <button
+            type="button"
+            className={styles.step}
+            aria-label={t(silent ? "player:unmute" : "player:mute")}
+            title={t(silent ? "player:unmute" : "player:mute")}
+            onClick={toggleMute}
+          >
+            <VolumeIcon silent={silent} />
+          </button>
+          <input
+            type="range"
+            className={styles.volume}
+            aria-label={t("player:volume")}
+            min={0}
+            max={1}
+            step={0.01}
+            value={muted ? 0 : volume}
+            // Kept for the next run when the slider is let go, not on every step of a drag.
+            onChange={(e) => {
+              unkept.current = true;
+              setVolume(Number(e.target.value), false);
+            }}
+            onPointerUp={keepIfMoved}
+            onKeyUp={keepIfMoved}
+            onBlur={keepIfMoved}
+          />
         </>
       )}
     </section>

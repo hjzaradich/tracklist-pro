@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { commands, type PreviewRefusal } from "../bindings";
+import { browserVolumePrefs, clampLevel, DEFAULT_VOLUME, type VolumePrefs } from "./volumePrefs";
 
 /** The protocol the Rust side serves previews on (`audio_preview::SCHEME`). */
 export const PREVIEW_SCHEME = "audio-preview";
@@ -9,6 +10,12 @@ export const PREVIEW_SCHEME = "audio-preview";
 export interface PlayerFile {
   id: number;
   name: string;
+  /**
+   * The track the file was chosen from, when it was chosen from a track
+   * table: the player bar's previous and next find the track's row again
+   * from it, in whatever order the table has now (1cB-10).
+   */
+  recordingId?: number;
 }
 
 /**
@@ -33,24 +40,45 @@ export interface PlayerState {
    * file that can't be played, so the next file carries on the same way.
    */
   playing: boolean;
+  /** 0 to 1; kept per user (`volumePrefs.ts`). */
+  volume: number;
+  /** Whether the sound is off with the volume kept as it was. */
+  muted: boolean;
   /**
    * Plays `file`. The first file starts playing; after that a new file
    * keeps what the last one was doing: the same position (by time; a file
    * shorter than that starts from its beginning), and playing or paused as
    * it was. The file already loaded is left as it is; one that couldn't be
    * played is checked again.
+   *
+   * `fresh` is for stepping to another track (the player bar's next and
+   * previous, 1cB-10): it starts the file from its beginning, playing,
+   * whatever the last file was doing. Carrying the position is for
+   * comparing the files of one track, not for moving on to the next one.
    */
-  select: (file: PlayerFile) => void;
+  select: (file: PlayerFile, options?: { fresh?: boolean }) => void;
   /** Play or pause. */
   toggle: () => void;
   /** Moves to `seconds` in the loaded file. */
   seek: (seconds: number) => void;
+  /**
+   * Sets the volume (0 to 1); sound that was muted comes back. It is kept
+   * for the next run at once, unless `keep` is false (a slider being
+   * dragged: {@link PlayerState.keepVolume} is called when it is let go).
+   */
+  setVolume: (level: number, keep?: boolean) => void;
+  /** Keeps the volume and mute as they are now for the next run. */
+  keepVolume: () => void;
+  /** Mutes, or brings the sound back at the volume it had (full if that was none). */
+  toggleMute: () => void;
 }
 
 /** The part of an audio element the player uses, so a test can stand in. */
 export interface AudioLike {
   currentTime: number;
   readonly duration: number;
+  volume: number;
+  muted: boolean;
   src: string;
   play: () => Promise<void>;
   pause: () => void;
@@ -66,6 +94,8 @@ export interface PlayerDeps {
   check: (fileId: number) => Promise<PreviewRefusal | null>;
   /** The address a file is played from. */
   urlOf: (fileId: number) => string;
+  /** Where the volume is kept between runs; without it the volume starts at full each time. */
+  volume?: VolumePrefs;
 }
 
 /**
@@ -85,6 +115,8 @@ export function createPlayer(deps: PlayerDeps) {
     const audio = (): AudioLike => {
       if (element === null) {
         element = deps.audio();
+        element.volume = get().volume;
+        element.muted = get().muted;
         wire(element);
       }
       return element;
@@ -141,6 +173,18 @@ export function createPlayer(deps: PlayerDeps) {
       });
     };
 
+    const kept = deps.volume?.load() ?? DEFAULT_VOLUME;
+
+    /** Sets the volume and mute on the element (once there is one) and keeps them. */
+    const sound = (level: number, muted: boolean, keep = true) => {
+      if (element !== null) {
+        element.volume = level;
+        element.muted = muted;
+      }
+      set({ volume: level, muted });
+      if (keep) deps.volume?.save({ level, muted });
+    };
+
     return {
       file: null,
       status: "idle",
@@ -148,16 +192,19 @@ export function createPlayer(deps: PlayerDeps) {
       position: 0,
       duration: 0,
       playing: false,
+      volume: clampLevel(kept.level),
+      muted: kept.muted,
 
-      select: (file) => {
+      select: (file, options) => {
         const before = get();
         // The file already loaded is left alone. One that was refused is
         // asked about again: the drive may be connected by now.
         if (before.file?.id === file.id && before.status !== "refused") return;
         const a = audio();
         const first = before.file === null;
-        const position = before.status === "ready" ? a.currentTime : before.position;
-        const playing = first ? true : before.playing;
+        const fresh = options?.fresh === true;
+        const position = fresh ? 0 : before.status === "ready" ? a.currentTime : before.position;
+        const playing = first || fresh ? true : before.playing;
         const mine = ++choice;
         startAt = position;
         // One file is audible at a time: the old one stops at once.
@@ -194,6 +241,16 @@ export function createPlayer(deps: PlayerDeps) {
         audio().currentTime = to;
         set({ position: to });
       },
+
+      setVolume: (level, keep = true) => sound(clampLevel(level), false, keep),
+
+      keepVolume: () => deps.volume?.save({ level: get().volume, muted: get().muted }),
+
+      toggleMute: () => {
+        const { volume, muted } = get();
+        if (muted || volume === 0) sound(volume === 0 ? DEFAULT_VOLUME.level : volume, false);
+        else sound(volume, true);
+      },
     };
   });
 
@@ -205,4 +262,5 @@ export const usePlayer = createPlayer({
   audio: () => new Audio(),
   check: (fileId) => commands.previewCheck(fileId),
   urlOf: (fileId) => convertFileSrc(String(fileId), PREVIEW_SCHEME),
+  volume: browserVolumePrefs,
 });

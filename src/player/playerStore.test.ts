@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PreviewRefusal } from "../bindings";
 import { createPlayer, type AudioLike } from "./playerStore";
+import { VOLUME_STORAGE_KEY, volumePrefs, type VolumePrefs } from "./volumePrefs";
 
 /** An audio element that does what a test tells it: nothing plays. */
 class FakeAudio implements AudioLike {
   currentTime = 0;
   duration = Number.NaN;
+  volume = 1;
+  muted = false;
   src = "";
   /** What it was asked to do, in order. */
   log: string[] = [];
@@ -48,7 +51,7 @@ class FakeAudio implements AudioLike {
 }
 
 /** The player over a fake element. `refusals` says what each file's check answers. */
-function setup(refusals: Record<number, PreviewRefusal | null> = {}) {
+function setup(refusals: Record<number, PreviewRefusal | null> = {}, volume?: VolumePrefs) {
   const audio = new FakeAudio();
   let made = 0;
   const checked: number[] = [];
@@ -65,6 +68,7 @@ function setup(refusals: Record<number, PreviewRefusal | null> = {}) {
       return hold ? new Promise((resolve) => (held[id] = () => resolve(answer))) : Promise.resolve(answer);
     },
     urlOf: (id) => `media://${id}`,
+    volume,
   });
   return { audio, player, checked, made: () => made, held, state: () => player.getState() };
 }
@@ -345,5 +349,168 @@ describe("a file that can't be played", () => {
     await open(blocked, A, 100);
     await settle();
     expect(blocked.state().playing).toBe(false);
+  });
+});
+
+describe("stepping to another track", () => {
+  it("starts the new file from its beginning and playing, though the last was paused at 1:30", async () => {
+    const t = setup();
+    await open(t, A, 300);
+    t.state().seek(90);
+    t.state().toggle();
+    expect(t.state()).toMatchObject({ playing: false, position: 90 });
+    t.state().select(B, { fresh: true });
+    await settle();
+    t.audio.loaded(300);
+    expect(t.state()).toMatchObject({ file: B, status: "ready", position: 0, playing: true });
+    expect(t.audio.currentTime).toBe(0);
+    expect(t.audio.plays).toBe(2);
+  });
+
+  it("leaves switching between the files of one track as it was: the position carries", async () => {
+    const t = setup();
+    await open(t, A, 300);
+    t.state().seek(90);
+    t.state().select(B);
+    await settle();
+    t.audio.loaded(300);
+    expect(t.state()).toMatchObject({ file: B, position: 90, playing: true });
+  });
+});
+
+/** A storage that keeps what it is given, as the webview's does. */
+function memoryStorage() {
+  const kept = new Map<string, string>();
+  return {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => void kept.set(key, value),
+  };
+}
+
+describe("volume and mute", () => {
+  it("sets the volume on the element, never outside 0 to 1", async () => {
+    const t = setup();
+    await open(t, A, 100);
+    t.state().setVolume(0.4);
+    expect(t.state().volume).toBe(0.4);
+    expect(t.audio.volume).toBe(0.4);
+    t.state().setVolume(7);
+    expect(t.audio.volume).toBe(1);
+    t.state().setVolume(-1);
+    expect(t.audio.volume).toBe(0);
+  });
+
+  it("can follow a slider without keeping every step, and keeps the volume when told to", async () => {
+    const storage = memoryStorage();
+    const t = setup({}, volumePrefs(() => storage));
+    await open(t, A, 100);
+    t.state().setVolume(0.2, false);
+    t.state().setVolume(0.5, false);
+    expect(t.audio.volume).toBe(0.5);
+    expect(storage.getItem(VOLUME_STORAGE_KEY)).toBeNull();
+    t.state().keepVolume();
+    expect(JSON.parse(storage.getItem(VOLUME_STORAGE_KEY) ?? "null")).toEqual({ level: 0.5, muted: false });
+  });
+
+  it("mutes without losing the volume, and brings the sound back at the same level", async () => {
+    const t = setup();
+    await open(t, A, 100);
+    t.state().setVolume(0.4);
+    t.state().toggleMute();
+    expect(t.state()).toMatchObject({ muted: true, volume: 0.4 });
+    expect(t.audio.muted).toBe(true);
+    t.state().toggleMute();
+    expect(t.state()).toMatchObject({ muted: false, volume: 0.4 });
+    expect(t.audio.muted).toBe(false);
+    expect(t.audio.volume).toBe(0.4);
+  });
+
+  it("brings the sound back when the volume is moved while muted", async () => {
+    const t = setup();
+    await open(t, A, 100);
+    t.state().toggleMute();
+    t.state().setVolume(0.7);
+    expect(t.state()).toMatchObject({ muted: false, volume: 0.7 });
+    expect(t.audio.muted).toBe(false);
+  });
+
+  it("un-muting a volume that was turned all the way down gives full volume, not silence", async () => {
+    const t = setup();
+    await open(t, A, 100);
+    t.state().setVolume(0);
+    t.state().toggleMute();
+    expect(t.state()).toMatchObject({ muted: false, volume: 1 });
+    expect(t.audio.volume).toBe(1);
+  });
+
+  it("applies a volume set before any file was chosen when the element is made", async () => {
+    const t = setup();
+    t.state().setVolume(0.25);
+    t.state().toggleMute();
+    expect(t.made()).toBe(0);
+    await open(t, A, 100);
+    expect(t.audio.volume).toBe(0.25);
+    expect(t.audio.muted).toBe(true);
+  });
+
+  it("survives a reload: a new player starts at the volume and mute the last one ended with", async () => {
+    const storage = memoryStorage();
+    const first = setup({}, volumePrefs(() => storage));
+    first.state().setVolume(0.3);
+    first.state().toggleMute();
+    expect(JSON.parse(storage.getItem(VOLUME_STORAGE_KEY) ?? "null")).toEqual({ level: 0.3, muted: true });
+
+    const reloaded = setup({}, volumePrefs(() => storage));
+    expect(reloaded.state()).toMatchObject({ volume: 0.3, muted: true });
+    await open(reloaded, A, 100);
+    expect(reloaded.audio.volume).toBe(0.3);
+    expect(reloaded.audio.muted).toBe(true);
+  });
+
+  it("writes nothing to storage until the volume is changed", () => {
+    const storage = memoryStorage();
+    const setItem = vi.spyOn(storage, "setItem");
+    setup({}, volumePrefs(() => storage));
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it("starts at full volume, unmuted, when nothing was kept or what was kept is damaged", () => {
+    const storage = memoryStorage();
+    expect(setup({}, volumePrefs(() => storage)).state()).toMatchObject({ volume: 1, muted: false });
+    for (const damaged of ["{", "null", '"loud"', '{"level":"high"}', '{"level":null}']) {
+      storage.setItem(VOLUME_STORAGE_KEY, damaged);
+      expect(setup({}, volumePrefs(() => storage)).state(), damaged).toMatchObject({ volume: 1, muted: false });
+    }
+    // A level outside 0 to 1 is held to it.
+    storage.setItem(VOLUME_STORAGE_KEY, '{"level":4,"muted":true}');
+    expect(setup({}, volumePrefs(() => storage)).state()).toMatchObject({ volume: 1, muted: true });
+  });
+
+  it("works when storage throws: reading and writing are skipped, the sound still changes", async () => {
+    const broken = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("full");
+      },
+    };
+    const t = setup({}, volumePrefs(() => broken));
+    expect(t.state()).toMatchObject({ volume: 1, muted: false });
+    await open(t, A, 100);
+    t.state().setVolume(0.5);
+    t.state().toggleMute();
+    expect(t.state()).toMatchObject({ volume: 0.5, muted: true });
+    expect(t.audio.volume).toBe(0.5);
+    expect(t.audio.muted).toBe(true);
+  });
+
+  it("works when reaching storage at all throws", () => {
+    const prefs = volumePrefs(() => {
+      throw new Error("access denied");
+    });
+    const t = setup({}, prefs);
+    t.state().setVolume(0.2);
+    expect(t.state().volume).toBe(0.2);
   });
 });

@@ -21,8 +21,28 @@
   },
   "position": {
     "purpose": "Screen-reader name of the scrub bar.",
-    "where": "Player bar along the bottom (screen-reader label).",
+    "where": "Player bar along the bottom, on the waveform that is the seek bar (screen-reader label).",
     "approved": "Position"
+  },
+  "previous": {
+    "purpose": "Button that goes to the track above in the list; after the first 3 seconds of a track it starts the track over instead.",
+    "where": "Player bar along the bottom, left of play/pause (hover text and screen-reader name); also the Previous track command in the palette (Ctrl+K)."
+  },
+  "next": {
+    "purpose": "Button that goes to the track below in the list.",
+    "where": "Player bar along the bottom, right of play/pause (hover text and screen-reader name); also the Next track command in the palette (Ctrl+K)."
+  },
+  "mute": {
+    "purpose": "Button that turns the sound off, keeping the volume.",
+    "where": "Player bar along the bottom, left of the volume slider (hover text and screen-reader name)."
+  },
+  "unmute": {
+    "purpose": "Button that turns the sound back on.",
+    "where": "Player bar along the bottom, left of the volume slider while the sound is off (hover text and screen-reader name)."
+  },
+  "volume": {
+    "purpose": "Screen-reader name of the volume slider.",
+    "where": "Player bar along the bottom, at the right end (screen-reader label)."
   },
   "refused.missing": {
     "purpose": "Says why a file isn't played: it isn't on disk.",
