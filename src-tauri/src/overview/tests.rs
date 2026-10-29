@@ -615,10 +615,16 @@ fn outside_the_library_counts_the_tracks_in_all_music_that_are_not_library_track
     lib.track("No file");
     let hidden = lib.track("Hidden");
     let hidden_file = lib.file(hidden, "Hidden.mp3", None, None);
-    lib.exec("UPDATE file SET hidden_reason = 'user' WHERE id = ?1", [hidden_file]);
+    lib.exec(
+        "UPDATE file SET hidden_reason = 'user' WHERE id = ?1",
+        [hidden_file],
+    );
     // A Library track whose only file is hidden is in neither count.
     lib.library_track("Library hidden", None, None);
-    lib.exec("UPDATE file SET hidden_reason = 'user' WHERE rel_path = 'Library hidden.mp3'", []);
+    lib.exec(
+        "UPDATE file SET hidden_reason = 'user' WHERE rel_path = 'Library hidden.mp3'",
+        [],
+    );
 
     let o = lib.overview();
     assert_eq!((o.all_music, o.outside_library), (3, 2));
@@ -1705,7 +1711,11 @@ fn a_library_of_2000_tracks_is_read_in_one_pass_for_energy_and_outside_the_libra
         let mut energy = scans(c, ENERGY, []);
         energy.retain(|t| t != "s");
         assert_eq!(energy, ["lt"], "energy: one pass over the Library's tracks");
-        assert_eq!(scans(c, ALL_MUSIC, []), ["r"], "outside the Library: the pass All music makes");
+        assert_eq!(
+            scans(c, ALL_MUSIC, []),
+            ["r"],
+            "outside the Library: the pass All music makes"
+        );
         Ok(())
     });
     let o = lib.overview();
@@ -1826,7 +1836,9 @@ fn check_a_library_of(count: i64) {
     for level in 1..=10 {
         assert_eq!(
             i64::from(o.energy[level as usize - 1]),
-            all.clone().filter(|n| shown_energy(*n) == Some(level)).count() as i64,
+            all.clone()
+                .filter(|n| shown_energy(*n) == Some(level))
+                .count() as i64,
             "tracks with energy {level}"
         );
     }

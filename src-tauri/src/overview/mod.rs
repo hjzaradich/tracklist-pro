@@ -249,7 +249,9 @@ fn energy(conn: &Connection) -> rusqlite::Result<(Vec<u32>, u32)> {
         let tracks = count(row.get::<_, i64>(1)?);
         match row.get::<_, Option<i64>>(0)? {
             Some(level) => {
-                let slot = usize::try_from(level - 1).ok().and_then(|i| levels.get_mut(i));
+                let slot = usize::try_from(level - 1)
+                    .ok()
+                    .and_then(|i| levels.get_mut(i));
                 if let Some(slot) = slot {
                     *slot = slot.saturating_add(tracks);
                 }
