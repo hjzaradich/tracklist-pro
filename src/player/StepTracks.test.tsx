@@ -9,6 +9,7 @@ import { PlayerBar } from "../shell/PlayerBar";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { TrackTable } from "../trackTable/TrackTable";
+import { listedActions, usePaletteRegistry } from "../palette/registry";
 import { usePlayer } from "./playerStore";
 import { useStepPlace } from "./stepList";
 
@@ -59,11 +60,13 @@ function Screen({
   total = 5,
   resetKey = "a",
   onSelectionChange,
+  positionOf,
 }: {
   rows?: (index: number) => TableRow | undefined;
   total?: number;
   resetKey?: string;
   onSelectionChange?: (row: TableRow | null) => void;
+  positionOf?: (recordingId: number) => Promise<number | null>;
 }) {
   return (
     <QueryClientProvider client={createQueryClient()}>
@@ -77,6 +80,7 @@ function Screen({
         onSort={() => {}}
         resetKey={resetKey}
         onSelectionChange={onSelectionChange}
+        positionOf={positionOf}
       />
       <PlayerBar />
     </QueryClientProvider>
@@ -181,17 +185,94 @@ describe("next track", () => {
     expect(next()).toBeEnabled();
   });
 
-  it("starts at the first row when no row is selected", async () => {
+  it("starts at the first row when the playing track is not in the table and no row is selected", async () => {
     const user = userEvent.setup();
     render(<Screen />);
-    await playRow(user, 3);
-    // The same screen opened afresh: no row is selected in it.
-    cleanup();
-    render(<Screen resetKey="b" />);
-    expect(useStepPlace.getState().focus).toBeNull();
+    // Playing from elsewhere (Review, say): a file that is not one of the rows.
+    usePlayer.getState().select({ id: 99, name: "Elsewhere" });
+    await waitFor(() => expect(element?.getAttribute("src")).toContain("/99"));
+    loaded(300);
+    expect(useStepPlace.getState()).toMatchObject({ focus: null, playing: null });
     await user.click(next());
     await waitFor(() => expect(usePlayer.getState().file?.id).toBe(1));
     expect(selectedTune()).toContain("Tune 1");
+  });
+
+  it("steps from the selected row when the playing track is not in the table", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    usePlayer.getState().select({ id: 99, name: "Elsewhere" });
+    await waitFor(() => expect(element?.getAttribute("src")).toContain("/99"));
+    loaded(300);
+    await user.click(screen.getByText("Tune 3"));
+    expect(selectedTune()).toContain("Tune 3");
+    await user.click(next());
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(4));
+    expect(selectedTune()).toContain("Tune 4");
+  });
+
+  it("steps from the playing track's row, not from a row clicked while it plays", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 2);
+    // Browsing: the selection moves to row 5, the track keeps playing.
+    await user.click(screen.getByText("Tune 5"));
+    expect(selectedTune()).toContain("Tune 5");
+    expect(usePlayer.getState().file?.id).toBe(2);
+    expect(next()).toBeEnabled();
+    await user.click(next());
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(3));
+    expect(selectedTune()).toContain("Tune 3");
+  });
+
+  it("steps from the playing track after the table is sorted again, though its selection has not come back yet", async () => {
+    const user = userEvent.setup();
+    const view = render(<Screen />);
+    await playRow(user, 3);
+    // Sorted the other way: 5, 4, 3, 2, 1. The backend has not yet said where the selected track went.
+    const reversed = (index: number) => tableRow(5 - index, { title: `Tune ${5 - index}` });
+    view.rerender(<Screen rows={reversed} resetKey="b" positionOf={() => new Promise(() => {})} />);
+    await user.click(next());
+    // After Tune 3 in the new order comes Tune 2.
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(2));
+    expect(selectedTune()).toContain("Tune 2");
+  });
+
+  it("steps from the playing track after the table is filtered", async () => {
+    const user = userEvent.setup();
+    const view = render(<Screen />);
+    await playRow(user, 3);
+    // Filtered to the tunes 3, 4 and 5.
+    const filtered = (index: number) => (index < 3 ? tableRow(index + 3, { title: `Tune ${index + 3}` }) : undefined);
+    view.rerender(<Screen rows={filtered} total={3} resetKey="c" positionOf={async () => 0} />);
+    await user.click(next());
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(4));
+  });
+
+  it("asks the backend where the playing track is when it is not among the rows held, and scrolls to the row after it", async () => {
+    const user = userEvent.setup();
+    const view = render(<Screen />);
+    await playRow(user, 4);
+    // 1000 rows, only the first ten held; the playing track (recording 104) is row 500 of this order.
+    const held = (index: number) => (index < 10 ? tableRow(index + 11, { title: `Tune ${index + 11}` }) : undefined);
+    const asked: number[] = [];
+    view.rerender(
+      <Screen
+        rows={held}
+        total={1000}
+        resetKey="d"
+        positionOf={async (recordingId) => {
+          asked.push(recordingId);
+          return recordingId === 104 ? 500 : null;
+        }}
+      />,
+    );
+    await waitFor(() => expect(useStepPlace.getState().playing).toBe(500));
+    expect(asked).toContain(104);
+    await user.click(next());
+    // Row 501 has not arrived: the selection goes to it, and it plays when it does.
+    await waitFor(() => expect(useStepPlace.getState().focus).toBe(501));
+    expect(usePlayer.getState().file?.id).toBe(4);
   });
 
   it("follows the table's order, whatever it is sorted or filtered to", async () => {
@@ -220,14 +301,31 @@ describe("next track", () => {
     expect(selectedTune()).toContain("Tune 3");
   });
 
-  it("does nothing when the row below has not arrived from the backend yet", async () => {
+  it("plays the row below even when it has not arrived yet: it scrolls to it and plays it when it does", async () => {
     const user = userEvent.setup();
-    const loading = (index: number) => (index === 1 ? undefined : tunes(5)(index));
-    render(<Screen rows={loading} />);
+    const view = render(<Screen rows={(index) => (index === 1 ? undefined : tunes(5)(index))} />);
     await playRow(user, 1);
     await user.click(next());
+    // The selection has moved to the row, which is being fetched; the track has not changed yet.
+    await waitFor(() => expect(useStepPlace.getState().focus).toBe(1));
     expect(usePlayer.getState().file?.id).toBe(1);
-    expect(selectedTune()).toContain("Tune 1");
+    // Its window arrives.
+    view.rerender(<Screen rows={tunes(5)} />);
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(2));
+    expect(selectedTune()).toContain("Tune 2");
+  });
+
+  it("drops a step that waits for a row when the selection moves on meanwhile", async () => {
+    const user = userEvent.setup();
+    const view = render(<Screen rows={(index) => (index === 1 ? undefined : tunes(5)(index))} />);
+    await playRow(user, 1);
+    await user.click(next());
+    await waitFor(() => expect(useStepPlace.getState().focus).toBe(1));
+    await user.click(screen.getByText("Tune 4"));
+    view.rerender(<Screen rows={tunes(5)} />);
+    // Row 2 has arrived, but the user has gone elsewhere: it is not played.
+    expect(usePlayer.getState().file?.id).toBe(1);
+    expect(selectedTune()).toContain("Tune 4");
   });
 
   it("is off when no table is on screen", async () => {
@@ -314,5 +412,39 @@ describe("previous track", () => {
     expect(usePlayer.getState().position).toBe(0);
     expect(usePlayer.getState().file?.id).toBe(2);
     expect(previous()).toBeDisabled();
+  });
+});
+
+describe("the commands in the palette", () => {
+  const listed = () => listedActions(usePaletteRegistry.getState().sources);
+  const command = (id: string) => listed().find((action) => action.id === id);
+
+  it("lists Previous track and Next track, with no key of their own, and runs the same steps as the buttons", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 2);
+    const nextCommand = command("player:next");
+    const previousCommand = command("player:previous");
+    expect(nextCommand).toMatchObject({ label: tx("player:next") });
+    expect(previousCommand).toMatchObject({ label: tx("player:previous") });
+    expect(nextCommand?.shortcut).toBeUndefined();
+    expect(previousCommand?.shortcut).toBeUndefined();
+
+    act(() => nextCommand?.run());
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(3));
+    await waitFor(() => expect(element?.getAttribute("src")).toContain("/3"));
+    loaded(300);
+    act(() => command("player:previous")?.run());
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(2));
+  });
+
+  it("leaves a command out where its button is off: Next at the last row, both with nothing playing", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    expect(command("player:next")).toBeUndefined();
+    expect(command("player:previous")).toBeUndefined();
+    await playRow(user, 5);
+    expect(command("player:next")).toBeUndefined();
+    expect(command("player:previous")).toBeDefined();
   });
 });

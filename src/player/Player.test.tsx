@@ -48,7 +48,7 @@ beforeEach(() => {
   });
   mockConvertFileSrc("windows");
   usePlayer.setState({ file: null, status: "idle", refusal: null, position: 0, duration: 0, playing: false });
-  usePlayer.getState().setVolume(1);
+  usePlayer.getState().setVolume(1, false);
 });
 
 afterEach(() => {
@@ -411,6 +411,24 @@ describe("seeking from the waveform", () => {
     expect(element?.currentTime).toBe(0);
   });
 
+  it("seeks nothing in the new file when the file changes in the middle of a drag", async () => {
+    const user = userEvent.setup();
+    renderPlayer();
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
+    await waitFor(() => expect(element).not.toBeNull());
+    loaded(300);
+    const bar = seekBar();
+    fireEvent.pointerDown(bar, { clientX: 300, button: 0, pointerId: 1 });
+    // Another file is chosen while the pointer is held.
+    await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: B.name }) }));
+    await waitFor(() => expect(asked).toEqual([A.id, B.id]));
+    loaded(240);
+    expect(usePlayer.getState().position).toBe(0);
+    fireEvent.pointerUp(bar, { clientX: 300, button: 0, pointerId: 1 });
+    expect(usePlayer.getState().position).toBe(0);
+    expect(element?.currentTime).toBe(0);
+  });
+
   it("seeks nowhere when the drag is cancelled", async () => {
     await playA();
     const bar = seekBar();
@@ -532,9 +550,35 @@ describe("volume and mute on the bar", () => {
   it("survives a reload: the volume and mute are kept in storage and a new player starts from them", async () => {
     const user = await playA();
     fireEvent.change(slider(), { target: { value: "0.3" } });
+    fireEvent.pointerUp(slider());
     await user.click(screen.getByRole("button", { name: tx("player:mute") }));
     expect(JSON.parse(localStorage.getItem(VOLUME_STORAGE_KEY) ?? "null")).toEqual({ level: 0.3, muted: true });
     expect(started().getState()).toMatchObject({ volume: 0.3, muted: true });
+  });
+
+  it("keeps the volume when the slider is let go, not at every step of a drag", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    await playA();
+    for (const value of ["0.2", "0.4", "0.6"]) fireEvent.change(slider(), { target: { value } });
+    // The sound followed the slider, nothing was written yet.
+    expect(element?.volume).toBe(0.6);
+    expect(setItem).not.toHaveBeenCalled();
+    fireEvent.pointerUp(slider());
+    expect(setItem).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(localStorage.getItem(VOLUME_STORAGE_KEY) ?? "null")).toEqual({ level: 0.6, muted: false });
+    // Letting go without having moved it writes nothing more.
+    fireEvent.pointerUp(slider());
+    fireEvent.blur(slider());
+    expect(setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the volume set with the arrow keys when the key is let go", async () => {
+    await playA();
+    // What the browser does for an arrow key on a slider: a change, then the key comes up.
+    fireEvent.change(slider(), { target: { value: "0.99" } });
+    expect(localStorage.getItem(VOLUME_STORAGE_KEY)).toBeNull();
+    fireEvent.keyUp(slider(), { key: "ArrowLeft" });
+    expect(JSON.parse(localStorage.getItem(VOLUME_STORAGE_KEY) ?? "null")).toEqual({ level: 0.99, muted: false });
   });
 
   it("works when storage throws: the slider and the mute button still change the sound", async () => {
@@ -546,6 +590,7 @@ describe("volume and mute on the bar", () => {
     });
     const user = await playA();
     fireEvent.change(slider(), { target: { value: "0.6" } });
+    fireEvent.pointerUp(slider());
     expect(element?.volume).toBe(0.6);
     await user.click(screen.getByRole("button", { name: tx("player:mute") }));
     expect(element?.muted).toBe(true);

@@ -31,6 +31,13 @@ export function SeekBar({ fileId, position, duration, enabled, onSeek, className
   const { t } = useTranslation("player");
   /** Where the pointer is, in seconds, while it is held down on the bar. */
   const [dragTo, setDragTo] = useState<number | null>(null);
+  // A drag belongs to the file it began on, and to a bar that can seek: when
+  // the file changes or the bar goes off, the release must not seek the new one.
+  const [dragFor, setDragFor] = useState({ fileId, enabled });
+  if (dragFor.fileId !== fileId || dragFor.enabled !== enabled) {
+    setDragFor({ fileId, enabled });
+    if (dragTo !== null) setDragTo(null);
+  }
   const shown = dragTo ?? position;
 
   const timeAt = (event: PointerEvent<HTMLDivElement>): number => {
@@ -75,6 +82,7 @@ export function SeekBar({ fileId, position, duration, enabled, onSeek, className
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={() => setDragTo(null)}
+      onLostPointerCapture={() => setDragTo(null)}
       onKeyDown={onKeyDown}
     >
       <Waveform fileId={fileId} position={shown} duration={duration} />

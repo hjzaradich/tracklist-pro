@@ -10,6 +10,12 @@ export const PREVIEW_SCHEME = "audio-preview";
 export interface PlayerFile {
   id: number;
   name: string;
+  /**
+   * The track the file was chosen from, when it was chosen from a track
+   * table: the player bar's previous and next find the track's row again
+   * from it, in whatever order the table has now (1cB-10).
+   */
+  recordingId?: number;
 }
 
 /**
@@ -55,8 +61,14 @@ export interface PlayerState {
   toggle: () => void;
   /** Moves to `seconds` in the loaded file. */
   seek: (seconds: number) => void;
-  /** Sets the volume (0 to 1); sound that was muted comes back. */
-  setVolume: (level: number) => void;
+  /**
+   * Sets the volume (0 to 1); sound that was muted comes back. It is kept
+   * for the next run at once, unless `keep` is false (a slider being
+   * dragged: {@link PlayerState.keepVolume} is called when it is let go).
+   */
+  setVolume: (level: number, keep?: boolean) => void;
+  /** Keeps the volume and mute as they are now for the next run. */
+  keepVolume: () => void;
   /** Mutes, or brings the sound back at the volume it had (full if that was none). */
   toggleMute: () => void;
 }
@@ -164,13 +176,13 @@ export function createPlayer(deps: PlayerDeps) {
     const kept = deps.volume?.load() ?? DEFAULT_VOLUME;
 
     /** Sets the volume and mute on the element (once there is one) and keeps them. */
-    const sound = (level: number, muted: boolean) => {
+    const sound = (level: number, muted: boolean, keep = true) => {
       if (element !== null) {
         element.volume = level;
         element.muted = muted;
       }
       set({ volume: level, muted });
-      deps.volume?.save({ level, muted });
+      if (keep) deps.volume?.save({ level, muted });
     };
 
     return {
@@ -230,7 +242,9 @@ export function createPlayer(deps: PlayerDeps) {
         set({ position: to });
       },
 
-      setVolume: (level) => sound(clampLevel(level), false),
+      setVolume: (level, keep = true) => sound(clampLevel(level), false, keep),
+
+      keepVolume: () => deps.volume?.save({ level: get().volume, muted: get().muted }),
 
       toggleMute: () => {
         const { volume, muted } = get();

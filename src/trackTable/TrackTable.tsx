@@ -410,12 +410,25 @@ export function TrackTable({
   useOfferStepList({
     total,
     focus: active,
+    listKey: resetKey,
     fileAt: (index) => {
       const row = getRow(index);
       if (row === undefined) return undefined;
-      return row.file === null ? null : { id: row.file.id, name: shownName(row) };
+      return row.file === null ? null : { id: row.file.id, name: shownName(row), recordingId: row.recordingId };
     },
     select,
+    // The playing track's row: among the rows held, else where the backend
+    // says it is in this order (the track may be far off screen).
+    locate: (file) => {
+      for (let index = 0; index < total; index++) {
+        if (getRow(index)?.file?.id === file.id) return index;
+      }
+      if (file.recordingId === undefined || !positionOf) return null;
+      return positionOf(file.recordingId).then(
+        (index) => (index !== null && index < total ? index : null),
+        () => null,
+      );
+    },
   });
 
   // Dragging tracks to a crate (1cB-13). The row held is remembered until the

@@ -400,6 +400,18 @@ describe("volume and mute", () => {
     expect(t.audio.volume).toBe(0);
   });
 
+  it("can follow a slider without keeping every step, and keeps the volume when told to", async () => {
+    const storage = memoryStorage();
+    const t = setup({}, volumePrefs(() => storage));
+    await open(t, A, 100);
+    t.state().setVolume(0.2, false);
+    t.state().setVolume(0.5, false);
+    expect(t.audio.volume).toBe(0.5);
+    expect(storage.getItem(VOLUME_STORAGE_KEY)).toBeNull();
+    t.state().keepVolume();
+    expect(JSON.parse(storage.getItem(VOLUME_STORAGE_KEY) ?? "null")).toEqual({ level: 0.5, muted: false });
+  });
+
   it("mutes without losing the volume, and brings the sound back at the same level", async () => {
     const t = setup();
     await open(t, A, 100);

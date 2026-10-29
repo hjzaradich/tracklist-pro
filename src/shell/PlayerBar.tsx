@@ -1,5 +1,7 @@
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { formatTime } from "../player/formatTime";
+import { useRegisterActions } from "../palette/registry";
 import { PlayingBars } from "../player/PlayingBars";
 import { PlayPauseIcon } from "../player/PlayPauseIcon";
 import { usePlayer } from "../player/playerStore";
@@ -44,10 +46,27 @@ export function PlayerBar({ className = "" }: { className?: string }) {
   const muted = usePlayer((s) => s.muted);
   const setVolume = usePlayer((s) => s.setVolume);
   const toggleMute = usePlayer((s) => s.toggleMute);
+  const keepVolume = usePlayer((s) => s.keepVolume);
+  // The slider moved and the volume is not kept yet: it is, when the slider is let go.
+  const unkept = useRef(false);
+  const keepIfMoved = () => {
+    if (!unkept.current) return;
+    unkept.current = false;
+    keepVolume();
+  };
   const total = useStepPlace((s) => s.total);
   const focus = useStepPlace((s) => s.focus);
-  const place = { total, focus };
+  const playingRow = useStepPlace((s) => s.playing);
+  const place = { total, focus, playing: playingRow };
   const silent = muted || volume === 0;
+  const canPrevious = file !== null && canGoPrevious(place, { status, position });
+  const canNext = file !== null && hasRowBelow(place);
+
+  // Ctrl+K lists the two steps, no keys of their own (1cB-10).
+  useRegisterActions("player", [
+    { id: "player:previous", label: t("player:previous"), available: canPrevious, run: playPrevious },
+    { id: "player:next", label: t("player:next"), available: canNext, run: playNext },
+  ]);
 
   return (
     <section aria-label={t("shell:player.label")} className={`${styles.player} ${className}`}>
@@ -58,7 +77,7 @@ export function PlayerBar({ className = "" }: { className?: string }) {
           <button
             type="button"
             className={styles.step}
-            disabled={!canGoPrevious(place, { status, position })}
+            disabled={!canPrevious}
             aria-label={t("player:previous")}
             title={t("player:previous")}
             onClick={playPrevious}
@@ -78,7 +97,7 @@ export function PlayerBar({ className = "" }: { className?: string }) {
           <button
             type="button"
             className={styles.step}
-            disabled={!hasRowBelow(place)}
+            disabled={!canNext}
             aria-label={t("player:next")}
             title={t("player:next")}
             onClick={playNext}
@@ -125,7 +144,14 @@ export function PlayerBar({ className = "" }: { className?: string }) {
             max={1}
             step={0.01}
             value={muted ? 0 : volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
+            // Kept for the next run when the slider is let go, not on every step of a drag.
+            onChange={(e) => {
+              unkept.current = true;
+              setVolume(Number(e.target.value), false);
+            }}
+            onPointerUp={keepIfMoved}
+            onKeyUp={keepIfMoved}
+            onBlur={keepIfMoved}
           />
         </>
       )}

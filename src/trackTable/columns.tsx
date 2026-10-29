@@ -99,7 +99,7 @@ function TitleCell({ row }: { row: TableRow }) {
     <>
       {row.file !== null && (
         <span className={styles.play}>
-          <PlayButton file={{ id: row.file.id, name }} />
+          <PlayButton file={{ id: row.file.id, name, recordingId: row.recordingId }} />
         </span>
       )}
       <span className={styles.text} title={name}>
