@@ -11,7 +11,8 @@
     "dateAdded": "Date added",
     "file": "File",
     "folder": "Folder",
-    "actions": "Actions"
+    "actions": "Actions",
+    "fit": "Fit"
   },
   "sortBy": "Sort by {{column}}",
   "resize": "Resize {{column}}",
@@ -97,5 +98,27 @@
     }
   },
   "energySet_one": "Energy {{energy}} set on {{count, number}} track",
-  "energySet_other": "Energy {{energy}} set on {{count, number}} tracks"
+  "energySet_other": "Energy {{energy}} set on {{count, number}} tracks",
+  "fit": {
+    "button": "Sort by fit",
+    "action": "Sort by fit after the selected track",
+    "needsSelection": "Select a track to sort by fit",
+    "sortedAfter": "Sorted by fit after {{track}}",
+    "sortNormally": "Sort normally",
+    "selected": "selected track",
+    "dots": "Fit {{count}} of {{most}}",
+    "separator": ", ",
+    "sameKey": "same key ({{key}})",
+    "keyChange": "{{from}} → {{to}}",
+    "keyFar": "{{from}} → {{to}} (not neighbors)",
+    "noKey": "no key",
+    "noTargetKey": "selected track has no key",
+    "bpm": "{{delta}} BPM",
+    "sameBpm": "same BPM",
+    "halfTime": "{{bpm}} (half time)",
+    "doubleTime": "{{bpm}} (double time)",
+    "noBpm": "no BPM",
+    "noTargetBpm": "selected track has no BPM",
+    "noTarget": "selected track has no key or BPM"
+  }
 }

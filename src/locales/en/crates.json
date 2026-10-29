@@ -107,7 +107,9 @@
     "renamedFolder": "Folder renamed",
     "deletedFolder": "Folder deleted",
     "moved": "Moved",
-    "removed": "Removed from crate"
+    "removed": "Removed from crate",
+    "notesSaved": "Note saved",
+    "notesCleared": "Note cleared"
   },
   "error": {
     "notFound": "Crate not found",
@@ -119,6 +121,24 @@
     "tooDeep": "Folders can't be nested this deep",
     "folderNotFound": "Folder not found",
     "folderNameEmpty": "Folder needs a name",
-    "folderNameTaken": "Folder name already used (“{{name}}”)"
+    "folderNameTaken": "Folder name already used (“{{name}}”)",
+    "notesTooLong": "Note is too long. Shorten it and try again."
+  },
+  "notes": {
+    "label": "Note",
+    "add": "Add a note",
+    "edit": "Edit note"
+  },
+  "summary": {
+    "separator": " · ",
+    "empty": "No tracks to sum up",
+    "nothing": "No BPM, energy, key or genre on these tracks",
+    "bpm": "BPM {{min}} to {{max}}",
+    "bpmOne": "BPM {{bpm}}",
+    "energy": "energy {{min}} to {{max}}",
+    "energyOne": "energy {{energy}}",
+    "keys_one": "key {{keys}}",
+    "keys_other": "keys {{keys}}",
+    "keysMore": "keys {{keys}} +{{more}}"
   }
 }

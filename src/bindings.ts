@@ -421,6 +421,8 @@ export const commands = {
 	 *  Deletes a crate, or a folder with everything in it. The Library tracks
 	 *  stay in the Library.
 	 */
+	crateSummary: (id: CrateId) => typedError<CrateSummary, IpcError>(__TAURI_INVOKE("crate_summary", { id })),
+	setCrateNotes: (id: CrateId, notes: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_crate_notes", { id, notes })),
 	deleteCrate: (id: CrateId) => typedError<null, IpcError>(__TAURI_INVOKE("delete_crate", { id })),
 	/**  Adds Library tracks to a crate. A track that's in it already is skipped. */
 	addTracksToCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("add_tracks_to_crate", { id, tracks })),
@@ -495,7 +497,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -808,6 +810,29 @@ export type Crate = {
 /**  A crate's row id. */
 export type CrateId = number;
 
+export type BpmRange = { min: number, max: number };
+
+export type EnergyRange = { min: number, max: number };
+
+export type CrateSummary = {
+	notes: string | null,
+	tracks: number,
+	bpm: BpmRange | null,
+	energy: EnergyRange | null,
+	keys: string[],
+	genres: string[],
+};
+
+export type KeyFit = { kind: "same"; key: string } | { kind: "neighbor"; from: string; to: string } | { kind: "far"; from: string; to: string } | { kind: "noKey" } | { kind: "noTargetKey" };
+
+export type TimeFeel = "straight" | "half" | "double";
+
+export type BpmFit = { kind: "delta"; delta: number; time: TimeFeel } | { kind: "noBpm" } | { kind: "noTargetBpm" };
+
+export type FitReason = { key: KeyFit, bpm: BpmFit };
+
+export type RowFit = { dots: number, reason: FitReason | null };
+
 /**  What a row of the crate tree is. */
 export type CrateKind = 
 /**  Holds crates and folders, never tracks. */
@@ -892,6 +917,7 @@ export type ErrorKind =
 "libraryMatchNotConfirmed" | 
 /**  There's no crate with that id. */
 "crateNotFound" | 
+"crateNotesTooLong" | 
 /**  The crate's name is empty. */
 "crateNameEmpty" | 
 /**
@@ -2525,6 +2551,7 @@ export type TableRow = {
 	/**  How many conflicts with rekordbox are still open for it. */
 	openConflicts: number,
 	betterFile: BetterFile | null,
+	fit: RowFit | null,
 };
 
 /**
@@ -2546,7 +2573,8 @@ export type TableSource =
 /**  Every track that has a file. */
 { kind: "allMusic" } | 
 /**  The Library tracks in one crate, in the order they were added. */
-{ kind: "crate"; id: CrateId };
+{ kind: "crate"; id: CrateId } | 
+{ kind: "crateByFit"; id: CrateId; after: number };
 
 /**  A tag field the panel lists, in the order it lists them. */
 export type TagField = "title" | "artist" | "album" | "genre" | "composer" | "remixer" | "label" | "year" | "comment";

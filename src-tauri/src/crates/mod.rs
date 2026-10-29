@@ -1,8 +1,8 @@
 //! Crates: hand-made groups of Library tracks, and the folders they live in
 //! (1aG-7 and 1cA-9/10; ROADMAP 1.14, §2 `crate` and `crate_entry`). A
 //! crate is static; a folder holds crates and folders, never tracks; the
-//! tree is as deep as the XML writer allows. Notes, summaries and smart
-//! crates come later.
+//! tree is as deep as the XML writer allows. Notes and the summary line
+//! are in [`summary`], sorting by fit in [`fit`]; smart crates come later.
 //!
 //! - **Every change is one recorded operation** ([`crate::ops`]), so
 //!   `undo_last_operation` puts the earlier state back exactly, the entries'
@@ -38,6 +38,9 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
+
+pub mod fit;
+pub mod summary;
 
 use crate::db::{DbError, ReadPool, Writer};
 use crate::fragile::{self, FragileDirs, Located};
@@ -182,6 +185,8 @@ pub enum CratesError {
     /// The name holds a character XML can't carry, so a send couldn't write
     /// it.
     NameUnsendable,
+    /// A note is longer than a note can be.
+    NotesTooLong,
     /// The place to put a crate or folder isn't a folder.
     NotAFolder,
     /// A folder can't go inside itself or one of its own subfolders.
@@ -249,6 +254,7 @@ impl From<CratesError> for IpcError {
                 [("name", ErrorParam::from(existing))],
             ),
             CratesError::NameUnsendable => IpcError::new(ErrorKind::CrateNameUnsendable),
+            CratesError::NotesTooLong => IpcError::new(ErrorKind::CrateNotesTooLong),
             CratesError::NotAFolder => IpcError::new(ErrorKind::CrateNotAFolder),
             CratesError::MoveIntoItself => IpcError::new(ErrorKind::CrateMoveIntoItself),
             CratesError::TooDeep => IpcError::new(ErrorKind::CrateTooDeep),

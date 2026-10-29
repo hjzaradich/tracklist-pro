@@ -43,6 +43,9 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "move_crate":
       if (name !== null) return t("undo.action.moveCrate", { name });
       break;
+    case "set_crate_notes":
+      if (name !== null) return t("undo.action.setCrateNotes", { name });
+      break;
     case "add_to_crate":
       if (name !== null && tracks !== null) {
         // What it also did (1cB-23): put tracks in the Library, made the crate.
