@@ -416,47 +416,15 @@ fn the_whole_batch_is_one_operation_and_one_undo_removes_it() {
         1
     );
 
+    // The top bar's Undo takes back the operation the summary names.
     let operation = summary.operation_id.unwrap();
-    let outcome = lib
-        .writer
-        .call(move |c| Ok(undo_add(c, operation)))
-        .unwrap()
-        .unwrap();
-    assert!(matches!(outcome, UndoOutcome::Undone { .. }), "{outcome:?}");
+    match crate::ops::undo_last_via(&lib.writer).unwrap() {
+        crate::ops::UndoOutcome::Undone { operation: undone } => assert_eq!(undone.id, operation),
+        other => panic!("{other:?}"),
+    }
     assert_eq!(lib.library_tracks(), 0);
     // They're offered again.
     assert_eq!(lib.offer(), offered(3));
-}
-
-#[test]
-fn the_summarys_undo_never_undoes_a_later_action() {
-    let lib = Lib::new();
-    let (_, file) = lib.track("a", true);
-    lib.entry(Match::Trusted(file), &[]);
-    let (other, other_file) = lib.track("b", true);
-
-    let operation = lib.add().operation_id.unwrap();
-    // The user adds another track by hand afterwards.
-    lib.writer
-        .call(move |c| {
-            Ok(ops::record(
-                c,
-                library::PROMOTE_OPERATION,
-                &json!({}),
-                |rec| library::insert_linked(rec, other, other_file),
-            ))
-        })
-        .unwrap()
-        .unwrap();
-    assert_eq!(lib.library_tracks(), 2);
-
-    let outcome = lib
-        .writer
-        .call(move |c| Ok(undo_add(c, operation)))
-        .unwrap()
-        .unwrap();
-    assert_eq!(outcome, UndoOutcome::NothingToUndo);
-    assert_eq!(lib.library_tracks(), 2);
 }
 
 #[test]
@@ -695,13 +663,10 @@ fn the_frontend_can_ask_for_the_offer_add_it_and_undo_it() {
     let tracks = invoke(&app, "library_tracks", json!({})).unwrap();
     assert_eq!(tracks.as_array().unwrap().len(), 1);
 
-    let undone = invoke(
-        &app,
-        "undo_add_rekordbox_tracks",
-        json!({ "operationId": summary["operationId"] }),
-    )
-    .unwrap();
+    // The top bar's Undo (the same command) takes the add back.
+    let undone = invoke(&app, "undo_last_operation", json!({})).unwrap();
     assert_eq!(undone["status"], "undone");
+    assert_eq!(undone["operation"]["id"], summary["operationId"]);
     let tracks = invoke(&app, "library_tracks", json!({})).unwrap();
     assert_eq!(tracks, json!([]));
 }
