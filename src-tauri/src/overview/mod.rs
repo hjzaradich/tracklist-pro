@@ -14,8 +14,8 @@
 //! - **Energy** is the one `recording_display` shows: the user's, else
 //!   Mixed In Key's, else the local estimate's, else the audio model's
 //!   (ROADMAP §2, `analysis`), counted per level 1 to 10 ([`ENERGY_LEVELS`])
-//!   with the tracks that have none ([`ENERGY`]). Nothing writes it yet, so
-//!   until a source does, every track has none.
+//!   with the tracks that have none ([`ENERGY`]). A track with no
+//!   energy from any source counts as having none.
 //! - **Outside the Library** is the tracks in All music that are not
 //!   Library tracks ([`ALL_MUSIC`]).
 //!
