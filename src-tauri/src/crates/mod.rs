@@ -128,7 +128,7 @@ pub struct AddedToCrate {
     /// How many were in the crate already.
     pub already_there: u32,
     /// The tracks outside the Library that couldn't join it, so were left out.
-    pub left_out: LeftOut,
+    pub left_out: LeftOutOfCrate,
     /// The operation this recorded; `None` when nothing was added.
     pub operation_id: Option<i64>,
 }
@@ -138,7 +138,7 @@ pub struct AddedToCrate {
 /// not get around. Each track is counted once, under one reason.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct LeftOut {
+pub struct LeftOutOfCrate {
     /// The track has no file.
     pub no_file: u32,
     /// Its file isn't on disk.
@@ -789,7 +789,7 @@ enum Item {
 struct Prepared {
     /// The tracks that will join, each once, in the order given.
     items: Vec<Item>,
-    left_out: LeftOut,
+    left_out: LeftOutOfCrate,
 }
 
 /// Sorts `recordings` the way "Add to Library" would judge them (1.8): a
@@ -801,7 +801,7 @@ fn prepare(conn: &mut Connection, recordings: &[i64]) -> Result<Done<Prepared>, 
     let mut seen = HashSet::new();
     let mut prepared = Prepared {
         items: Vec::new(),
-        left_out: LeftOut::default(),
+        left_out: LeftOutOfCrate::default(),
     };
     for &recording in recordings {
         if !seen.insert(recording) {
@@ -881,7 +881,7 @@ fn put_in(
 /// A track outside the Library is added to the Library as well (1cB-23): a
 /// linked Library track, as "Add to Library" makes it, no file touched. One
 /// that "Add to Library" refuses is left out and counted by reason
-/// ([`LeftOut`]). A track already in the crate is skipped, and one listed
+/// ([`LeftOutOfCrate`]). A track already in the crate is skipped, and one listed
 /// twice counts once. A track that doesn't exist refuses the whole call
 /// before anything is added. One operation for everything added, so one Undo
 /// takes the tracks out of the crate and out of the Library again; nothing
