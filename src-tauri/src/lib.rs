@@ -647,25 +647,16 @@ mod tests {
 
     #[test]
     fn exiting_the_app_folds_the_databases_log_into_the_database_and_empties_it() {
-        // Started without the asking of what is due ([`jobs::startup`]).
-        // After it, about one run in fifty (Windows) found the checkpoint
-        // blocked by a read lock on the database that nothing here held:
-        // not the writer's connection, and still there after the read pool
-        // was closed and after waiting two seconds. Without the asking it
-        // never happened in 200 runs. This test is about the exit, and the
-        // checkpoint gives up on a read in its way by design (the next
-        // start folds the log in, `Writer::open`), so it starts from a
-        // quiet database, as the IPC tests do.
-        let data = tempfile::tempdir().unwrap();
-        let mut app = setup_with(
-            mock_builder(),
-            DataDir::At(data.path().join(IDENTIFIER)),
-            StartupAsks::Skip,
-        )
-        .build(tauri::generate_context!(test = true))
-        .unwrap();
-        #[allow(deprecated)]
-        app.run_iteration(|_, _| {});
+        let (_data, app, _webview) = started_app();
+        // Startup's own thread is still asking the stages what is due, on
+        // the read pool: a read it holds when the exit checkpoint runs
+        // makes the checkpoint give up (by design), and the log stays. Wait
+        // for it. The jobs it queued are waited for by the exit itself
+        // (`JobQueue::shutdown` joins the workers before the checkpoint).
+        // The asking and the other starting reads used to leave a lock
+        // behind about one run in fifty, which blocked this checkpoint
+        // whatever was waited for (see `GuardedPath::sqlite_name`).
+        app.state::<jobs::startup::StartupAsks>().finished();
         let writer = app.state::<db::Writer>().inner().clone();
         writer
             .call(|c| {
@@ -680,6 +671,44 @@ mod tests {
 
         on_run_event(app.handle(), RunEvent::Exit);
         assert_eq!(std::fs::metadata(&log).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn after_the_startup_checks_a_checkpoint_finds_nothing_in_its_way_and_the_log_stays_bounded() {
+        // The app as it starts, with the startup asking of what is due and
+        // the watchers reading beside it. Whatever those reads left behind
+        // used to block every checkpoint of the session, SQLite's own
+        // included, so the log grew with each write.
+        let (_data, app, _webview) = started_app();
+        app.state::<jobs::startup::StartupAsks>().finished();
+        let writer = app.state::<db::Writer>().inner().clone();
+        writer
+            .call(|c| c.execute_batch("CREATE TABLE t (x INTEGER, pad BLOB)"))
+            .unwrap();
+        assert_eq!(writer.checkpoint().unwrap(), db::Checkpoint::Emptied);
+
+        for _ in 0..4000 {
+            writer
+                .call(|c| c.execute("INSERT INTO t VALUES (1, randomblob(3000))", []))
+                .unwrap();
+        }
+        let mut log = writer.path().as_os_str().to_owned();
+        log.push("-wal");
+        let log_bytes = std::fs::metadata(&log).unwrap().len();
+        assert!(
+            log_bytes < 8 * 1024 * 1024,
+            "{log_bytes} bytes of log after 4,000 writes"
+        );
+        // Every frame of the log is in the database.
+        let (blocked, in_log, checkpointed): (i64, i64, i64) = writer
+            .call(|c| {
+                c.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+            })
+            .unwrap();
+        assert_eq!((blocked, checkpointed), (0, in_log));
+        assert_eq!(writer.checkpoint().unwrap(), db::Checkpoint::Emptied);
     }
 
     #[test]
