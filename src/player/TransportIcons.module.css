@@ -1,0 +1,14 @@
+.icon {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: currentColor;
+}
+
+/* The lines of the speaker's sound waves or cross: drawn, not filled. */
+.stroke {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}

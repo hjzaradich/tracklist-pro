@@ -1,0 +1,21 @@
+/*
+ * The waveform as the seek bar (1cB-10). Colors are tokens only; the
+ * Designer pass styles it later.
+ */
+.seek {
+  position: relative;
+  min-width: 6rem;
+  cursor: pointer;
+  /* A finger dragging along the bar is a seek, not a scroll. */
+  touch-action: none;
+  user-select: none;
+}
+
+.seek[data-enabled="false"] {
+  cursor: default;
+}
+
+.seek:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}

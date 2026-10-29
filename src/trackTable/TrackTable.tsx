@@ -13,9 +13,10 @@ import {
 import { useTranslation } from "react-i18next";
 import type { SortColumn, TableRow, TableSort } from "../bindings";
 import { useKeyNotation } from "../keys/useKeyNotation";
+import { useOfferStepList } from "../player/stepList";
 import { ColumnHeadings } from "./ColumnHeadings";
 import { moveColumnTo, tableLayout, type ColumnWidths } from "./columnChoice";
-import { COLUMNS, type CellContext, type ColumnDef, type ColumnId } from "./columns";
+import { COLUMNS, shownName, type CellContext, type ColumnDef, type ColumnId } from "./columns";
 import styles from "./TrackTable.module.css";
 import { useTrackDrag } from "./trackDrag";
 import { useTrackKeys } from "./useTrackKeys";
@@ -405,6 +406,17 @@ export function TrackTable({
       }
     : undefined;
   useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy, addToCrate });
+  // The player bar's previous and next step through these rows (1cB-10).
+  useOfferStepList({
+    total,
+    focus: active,
+    fileAt: (index) => {
+      const row = getRow(index);
+      if (row === undefined) return undefined;
+      return row.file === null ? null : { id: row.file.id, name: shownName(row) };
+    },
+    select,
+  });
 
   // Dragging tracks to a crate (1cB-13). The row held is remembered until the
   // pointer is released; `dragged` swallows the click that follows a drag.

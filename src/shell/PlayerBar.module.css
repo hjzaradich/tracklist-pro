@@ -14,7 +14,9 @@
   font-size: var(--font-size-sm);
 }
 
-.toggle {
+/* Play/pause, and the buttons beside it: previous, next and mute. */
+.toggle,
+.step {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -29,17 +31,20 @@
   cursor: pointer;
 }
 
-.toggle:hover:not(:disabled) {
+.toggle:hover:not(:disabled),
+.step:hover:not(:disabled) {
   background: var(--color-surface-hover);
 }
 
-.toggle:disabled {
+.toggle:disabled,
+.step:disabled {
   color: var(--color-text-disabled);
   cursor: default;
 }
 
 .toggle:focus-visible,
-.scrub:focus-visible {
+.step:focus-visible,
+.volume:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 1px;
 }
@@ -52,14 +57,14 @@
   white-space: nowrap;
 }
 
-/* The waveform takes the room the scrub bar leaves (it carries the playhead). */
+/* The waveform is the seek bar: it takes the room the other controls leave. */
 .waveform {
-  flex: 2 1 12rem;
+  flex: 1 1 12rem;
 }
 
-.scrub {
-  flex: 1 1 auto;
-  min-width: 6rem;
+.volume {
+  flex: 0 1 6rem;
+  min-width: 3rem;
   accent-color: var(--color-accent);
 }
 

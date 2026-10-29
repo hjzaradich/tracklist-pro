@@ -4,6 +4,12 @@
   "playNamed": "Play {{name}}",
   "pauseNamed": "Pause {{name}}",
   "position": "Position",
+  "positionText": "{{position}} of {{length}}",
+  "previous": "Previous track",
+  "next": "Next track",
+  "mute": "Mute",
+  "unmute": "Unmute",
+  "volume": "Volume",
   "refused": {
     "missing": "Can't play: the file is missing",
     "driveNotConnected": "Can't play: the file's drive isn't connected",
