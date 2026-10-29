@@ -1174,3 +1174,100 @@ fn a_choice_the_screen_did_not_show_refuses_the_merge_and_changes_nothing() {
     assert_eq!(t.own_values(), own);
     assert_eq!(t.operations(), operations);
 }
+
+// ---- a pick on top of a field rekordbox changed since the last send (PR 129, A) --
+
+/// The staying track's rating was sent as `base`, then rekordbox's newest
+/// read shows 2 stars (102); the leaving track shows 3 stars (153) and the
+/// user picks `pick_value` in the merge. Returns what the next merge before
+/// a send carries, the fields left open, and the fields taken from rekordbox.
+fn pick_over_a_changed_field(
+    base: &str,
+    pick_value: &str,
+) -> (Vec<(String, String)>, Vec<String>, Vec<String>) {
+    let t = Twice::new();
+    t.entry(t.a, 1, 102, 1, 120.0);
+    t.entry(t.b, 1, 153, 1, 120.0);
+    let lt_keep = t.lt(t.ta);
+    t.db.sql(&format!(
+        "INSERT INTO sync_base (library_track_id, field, value) VALUES ({lt_keep}, 'Rating', '{base}')"
+    ));
+    assert!(t.questions(t.ta).iter().any(|f| f.field == "Rating"));
+    t.merge_choosing(t.ta, vec![pick("Rating", t.tb, pick_value)])
+        .unwrap();
+    let lt = crate::library::LibraryTrackId(lt_keep);
+    let merged =
+        t.db.writer
+            .call(move |c| crate::conflicts::merge_before_send(c, &Mount, &[lt]))
+            .unwrap();
+    (
+        merged.chosen.get(&lt).cloned().unwrap_or_default(),
+        merged.open.get(&lt).cloned().unwrap_or_default(),
+        merged.taken_in.iter().map(|(_, f)| f.clone()).collect(),
+    )
+}
+
+#[test]
+fn a_pick_equal_to_the_last_sent_value_is_sent_and_not_taken_back_by_rekordbox() {
+    // Sent as 3 stars, rekordbox changed it to 2, the user picks 3 stars.
+    let (chosen, open, taken) = pick_over_a_changed_field("153", "153");
+    assert!(
+        chosen.contains(&("Rating".to_owned(), "153".to_owned())),
+        "chosen={chosen:?} open={open:?} taken={taken:?}"
+    );
+    assert!(taken.is_empty() && open.is_empty(), "{taken:?} {open:?}");
+}
+
+#[test]
+fn a_pick_that_differs_from_the_last_sent_value_and_from_rekordbox_is_not_asked_again() {
+    // Sent as 4 stars, rekordbox changed it to 2, the user picks 3 stars.
+    let (chosen, open, _) = pick_over_a_changed_field("204", "153");
+    assert!(open.is_empty(), "asked again: {open:?}");
+    assert!(
+        chosen.contains(&("Rating".to_owned(), "153".to_owned())),
+        "{chosen:?}"
+    );
+}
+
+// ---- a pick answers an open conflict on the staying track (PR 129, B) ----------
+
+#[test]
+fn a_pick_settles_an_open_conflict_on_the_staying_track_and_undo_opens_it_again() {
+    let t = Twice::new();
+    // The staying track: 2 stars in rekordbox, 4 stars of the app's own, 3
+    // stars last sent, and the conflict that says so. The other track has 5.
+    t.entry(t.a, 1, 102, 1, 120.0);
+    t.entry(t.b, 1, 255, 1, 120.0);
+    t.own_value(t.ta, "Rating", "204");
+    let lt_keep = t.lt(t.ta);
+    t.db.sql(&format!(
+        "INSERT INTO sync_base (library_track_id, field, value) VALUES ({lt_keep}, 'Rating', '153');
+         INSERT INTO conflict (library_track_id, field, app_value, rekordbox_value, base_value)
+             VALUES ({lt_keep}, 'Rating', '204', '102', '153');"
+    ));
+    let open = || {
+        t.db.count("SELECT count(*) FROM conflict WHERE status = 'open'")
+    };
+    let (rows, own) = (t.rows(), t.own_values());
+
+    t.merge_choosing(t.ta, vec![pick("Rating", t.tb, "255")])
+        .unwrap();
+
+    // Conflicts no longer lists the value the user just replaced, so "Keep
+    // app's" can't bring it back; the next send carries the pick.
+    assert_eq!(open(), 0);
+    assert!(t.owns(t.ta, "Rating", "255 102"), "{:?}", t.own_values());
+    let lt = crate::library::LibraryTrackId(lt_keep);
+    let merged =
+        t.db.writer
+            .call(move |c| crate::conflicts::merge_before_send(c, &Mount, &[lt]))
+            .unwrap();
+    assert!(merged.chosen[&lt].contains(&("Rating".to_owned(), "255".to_owned())));
+    assert!(merged.open.is_empty(), "{:?}", merged.open);
+
+    // Undo puts the conflict, the base and the old value back.
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(open(), 1);
+    assert_eq!(t.rows(), rows);
+    assert_eq!(t.own_values(), own);
+}

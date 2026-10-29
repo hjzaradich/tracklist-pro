@@ -632,8 +632,10 @@ export type Choice = { choice: "keepApp" } | { choice: "keepRekordbox" } |
 /**
  *  A value given by hand. It must fit the field ([`fits`]) and hold no
  *  character XML can't carry; for a crate membership it is
- *  [`membership::IN`] or [`membership::OUT`]. One that is the same value
- *  as a side's is recorded as keeping that side.
+ *  [`membership::IN`] or [`membership::OUT`] (so it is always a side's;
+ *  the screen never offers it and the Review command refuses it, since a
+ *  crate holds the track or it doesn't). One that is the same value as a
+ *  side's is recorded as keeping that side.
  */
 { choice: "edit"; value: string };
 

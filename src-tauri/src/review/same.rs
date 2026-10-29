@@ -627,9 +627,10 @@ pub fn merge_choosing(
                 fold(rec, &staying, &track, entry)?;
             }
             // The values the user chose from the tracks that leave: the
-            // staying track's own from now on (the engine's store, 1.10).
+            // staying track's own from now on (the engine's store, 1.10),
+            // chosen against what rekordbox shows now.
             for write in &writes {
-                app_values::set_in(
+                app_values::set_chosen(
                     rec,
                     staying.library_track,
                     &write.field,
