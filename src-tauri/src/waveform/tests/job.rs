@@ -15,8 +15,8 @@ use crate::hash::{hash_job, Hasher};
 use crate::jobs::{JobContext, JobError, JobId, JobKind, JobQueue, JobStatus, NewJob, Priority};
 use crate::scan::walk::{scan_job, ScannedFile, Walker};
 use crate::waveform::{
-    peaks, request, request_first, waveform_job, waveform_job_for, waveform_of, Waveform,
-    Wanted, Waveformer, PRIORITY, VERSION,
+    peaks, request, request_first, waveform_job, waveform_job_for, waveform_of, Wanted, Waveform,
+    Waveformer, PRIORITY, VERSION,
 };
 
 const RATE: u32 = 44_100;
@@ -819,13 +819,15 @@ fn a_file_asked_for_never_decodes_beside_the_background_run() {
     library.put("c.wav", &wav(7.0));
     let ids = library.walk_and_hash();
     // The background run takes the lower id first.
-    let (a, c) = (ids["a.wav"].min(ids["c.wav"]), ids["a.wav"].max(ids["c.wav"]));
+    let (a, c) = (
+        ids["a.wav"].min(ids["c.wav"]),
+        ids["a.wav"].max(ids["c.wav"]),
+    );
 
     let (started, started_rx) = mpsc::channel();
     let (release, release_rx) = mpsc::channel();
     let (waiting, waiting_rx) = mpsc::channel();
-    let (handler, seen) =
-        watching_decodes(waveformer(&library), a, started, release_rx, waiting);
+    let (handler, seen) = watching_decodes(waveformer(&library), a, started, release_rx, waiting);
     let wanted = handler.wanted_handle();
     let queue = JobQueue::builder(library.writer.clone())
         .workers(2)
@@ -839,7 +841,11 @@ fn a_file_asked_for_never_decodes_beside_the_background_run() {
     // …when the player asks for the other. It has to wait for its turn.
     request_first(&library.writer, &wanted, c, |job| queue.enqueue(job)).unwrap();
     assert_eq!(waiting_rx.recv_timeout(PATIENCE).unwrap(), c);
-    assert_eq!(*seen.decoded.lock().unwrap(), [a], "nothing else is decoding");
+    assert_eq!(
+        *seen.decoded.lock().unwrap(),
+        [a],
+        "nothing else is decoding"
+    );
     assert_eq!(seen.active.load(Ordering::SeqCst), 1);
 
     release.send(()).unwrap();
@@ -868,8 +874,7 @@ fn requests_for_files_the_player_skipped_past_drop_out_and_do_not_pile_up() {
     let (started, started_rx) = mpsc::channel();
     let (release, release_rx) = mpsc::channel();
     let (waiting, _waiting_rx) = mpsc::channel();
-    let (handler, seen) =
-        watching_decodes(waveformer(&library), a, started, release_rx, waiting);
+    let (handler, seen) = watching_decodes(waveformer(&library), a, started, release_rx, waiting);
     let wanted = handler.wanted_handle();
     let queue = JobQueue::builder(library.writer.clone())
         .workers(4)
