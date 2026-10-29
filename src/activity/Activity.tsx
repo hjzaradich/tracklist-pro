@@ -28,6 +28,8 @@ export function Activity() {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // Used here: the track table's Escape (clear the selection) leaves it.
+      event.preventDefault();
       setOpen(false);
       trigger.current?.focus();
     };

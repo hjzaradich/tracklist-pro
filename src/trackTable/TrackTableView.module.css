@@ -37,6 +37,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.failed {
+  color: var(--color-danger);
+}
+
 .updating {
   color: var(--color-text-muted);
 }

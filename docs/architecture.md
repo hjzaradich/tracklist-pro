@@ -84,10 +84,11 @@ What it deliberately is not (ROADMAP §1 principles; CLAUDE.md "Must / never"):
 | `library` | Library tracks: add (`promote`), remove, list; `library::follow` moves a link to the same audio when the linked file is gone (the second step of the relink job) | Re-point a link in any other case (another encode, a better file, a file that is still on disk); change which rekordbox entry a track is sent as; touch a file |
 | `start` | The offer to add rekordbox's tracks, whole or by playlist | Add anything automatically |
 | `all_music` | The list of every track with a file (the old simple list; the screens use `track_table`) | — |
-| `track_table` | One window of rows at a time for the Library, All music and a crate, sorted, searched and filtered in SQL over `track_row` (`track_table_page`) | Load a whole list into the page; open a file |
+| `track_table` | One window of rows at a time for the Library, All music and a crate, sorted, searched and filtered in SQL over `track_row` (`track_table_page`; `track_table_ids` gives the ids of a range, to select it) | Load a whole list into the page; open a file |
 | `missing` | rekordbox entries with no file, grouped by folder | Open a file or wake a network path |
 | `fragile` | Warnings for files in Downloads, temp, external or network drives | — |
 | `crates` | Top-level static crates and their entries | Accept a name the XML writer would refuse |
+| `energy` | The user's energy for tracks (keys 1 to 0): one operation for many tracks (`set_energy`) | Send energy to rekordbox; write a file |
 | `send_values` | Per track, every XML attribute to send and where it came from | Write anything |
 | `rekordbox_write` | Building the XML bytes, the writer rules, `record_send` | Decide a track's values; write analysis fields |
 | `send` | The send flow: prepare job, preflight, write job, the fixed output file | Use an old read; outlive the app run |

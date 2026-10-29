@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
 import {
@@ -10,11 +10,13 @@ import {
   type TableSource,
 } from "../bindings";
 import { useReportSelection } from "../shell/selectedTrack";
+import { useWhenUndone } from "../shell/undoneStore";
 import { ColumnEditor } from "./ColumnEditor";
 import { FilterChips } from "./FilterChips";
 import { TrackTable } from "./TrackTable";
 import styles from "./TrackTableView.module.css";
 import type { TableScreen } from "./columns";
+import { useSetEnergy } from "./useSetEnergy";
 import { useTableColumns } from "./useTableColumns";
 import { useTrackRows, type RowsQuery } from "./useTrackRows";
 
@@ -78,6 +80,16 @@ export function TrackTableView({
   const [filters, setFilters] = useState<TableFilter[]>([]);
   const choice = useTableColumns(screen);
   const reportSelection = useReportSelection(onSelectionChange);
+  // How many tracks are selected, and the line saying what the energy keys last did.
+  const [selectedCount, setSelectedCount] = useState(0);
+  const [energyGiven, setEnergyGiven] = useState<{ energy: number; count: number } | null>(null);
+  const giveEnergy = useSetEnergy();
+  // The line describes a change that stands: a move, another selection or an Undo drops it.
+  const onSelectedChange = useCallback((selection: { count: number }) => {
+    setSelectedCount(selection.count);
+    setEnergyGiven(null);
+  }, []);
+  useWhenUndone(() => setEnergyGiven(null));
 
   const query: RowsQuery = useMemo(
     () => ({ source, search: search.trim() === "" ? null : search, filters, sort }),
@@ -98,6 +110,17 @@ export function TrackTableView({
   // the order or the filters change: the same source, search, filters and sort.
   const positionOf = (recordingId: number) =>
     unwrap(commands.trackTablePosition({ ...query, recordingId }));
+  // The ids of rows first to last, for a range or all of the rows to select.
+  const idsInRange = (first: number, last: number) =>
+    unwrap(commands.trackTableIds({ ...query, offset: first, limit: last - first + 1, withTotal: false }));
+  const onSetEnergy = (recordingIds: readonly number[], energy: number) =>
+    giveEnergy.mutate(
+      { recordingIds, energy },
+      {
+        // What changed, as the top bar's Undo counts it; nothing changed, nothing said.
+        onSuccess: (done) => setEnergyGiven(done.changed > 0 ? { energy, count: done.changed } : null),
+      },
+    );
 
   if (rows.error != null) {
     return (
@@ -125,7 +148,16 @@ export function TrackTableView({
         <div className={styles.end}>
           <p className={styles.count}>
             <span>{count(rows.total)}</span>
+            {selectedCount > 1 && <span>{t("selected", { selected: selectedCount })}</span>}
             {rows.behind && <span className={styles.updating}>{t("updating")}</span>}
+            {energyGiven !== null && (
+              <span role="status">{t("energySet", { energy: energyGiven.energy, count: energyGiven.count })}</span>
+            )}
+            {giveEnergy.isError && (
+              <span role="alert" className={styles.failed}>
+                {errorMessage(giveEnergy.error)}
+              </span>
+            )}
           </p>
           <ColumnEditor
             screen={screen}
@@ -156,6 +188,9 @@ export function TrackTableView({
           positionOf={positionOf}
           settled={!rows.loading}
           onSelectionChange={reportSelection}
+          onSelectedChange={onSelectedChange}
+          idsInRange={idsInRange}
+          onSetEnergy={onSetEnergy}
         />
       )}
     </div>

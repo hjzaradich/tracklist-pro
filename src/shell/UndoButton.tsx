@@ -84,6 +84,9 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.showFileAgain");
     case "use_this_file":
       return t("undo.action.useThisFile");
+    case "set_energy":
+      if (tracks !== null) return t("undo.action.setEnergy", { count: tracks });
+      break;
     case "resolve_conflict":
       return t("undo.action.resolveConflict");
     case "resolve_conflicts":
