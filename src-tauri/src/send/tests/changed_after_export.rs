@@ -1,7 +1,8 @@
 //! The send review's warning about files changed after the export (1cB-4;
 //! ROADMAP 1.10, "Second channel"): counted from the modified time the
-//! scan recorded, a warning only, and never a source of rekordbox's
-//! values. Times are set by hand; every name is invented.
+//! scan recorded and the one on disk at prepare, a warning only, and never
+//! a source of rekordbox's values. Times are set by hand; every name is
+//! invented.
 
 use super::*;
 use crate::send::preflight::changed_after_export;
@@ -117,18 +118,18 @@ fn a_file_no_library_track_links_a_track_the_send_leaves_out_and_a_new_track_are
 }
 
 #[test]
-fn a_track_is_counted_by_the_file_rekordboxs_entry_is_matched_to_as_well() {
+fn the_file_rekordboxs_entry_is_matched_to_is_watched_and_the_linked_file_only_without_one() {
     let w = World::new();
-    let (known, file) = w.library_track("known.mp3", "Known", true);
-    let (other, _) = w.library_track("other.mp3", "Other", true);
+    let (known, known_file) = w.library_track("known.mp3", "Known", true);
+    let (other, other_file) = w.library_track("other.mp3", "Other", true);
     w.crate_of("Warm up", &[known, other]);
     w.save_export(&[Rb(40, "known.mp3", "Known")]);
     let export = w.export_ms();
-    w.file_modified(file, (export + 1) * MS);
     w.prepare().unwrap();
-
-    // `other`'s own file is unchanged, but it goes out as rekordbox's entry
-    // 40 (as a copy's entry does), whose file changed.
+    let before = (export - 60_000) * MS;
+    let after = (export + 1) * MS;
+    // `other` goes out as rekordbox's entry 40 (as a copy's entry does),
+    // whose file is `known.mp3`.
     let sent_as_40 = |track: LibraryTrackId, in_rekordbox: bool| SentTrack {
         library_track: track,
         in_rekordbox,
@@ -137,19 +138,62 @@ fn a_track_is_counted_by_the_file_rekordboxs_entry_is_matched_to_as_well() {
         rekordbox_holds_other_file: None,
         file_missing: false,
     };
-    let sent = [sent_as_40(other, true)];
-    let found = w
-        .writer
-        .call(move |c| changed_after_export(c, export, &sent))
-        .unwrap();
-    assert_eq!(found, [other]);
-    // A new track numbered 40 in the file isn't rekordbox's entry 40.
-    let sent = [sent_as_40(other, false)];
-    let found = w
-        .writer
-        .call(move |c| changed_after_export(c, export, &sent))
-        .unwrap();
-    assert!(found.is_empty());
+    let watched = |sent: SentTrack| {
+        w.writer
+            .call(move |c| changed_after_export(c, export, &[sent]))
+            .unwrap()
+    };
+
+    // The entry's file changed, the linked file didn't: counted.
+    w.file_modified(known_file, after);
+    w.file_modified(other_file, before);
+    assert_eq!(
+        watched(sent_as_40(other, true)),
+        [(other, known_file, true)]
+    );
+    // The linked file changed, the entry's file didn't: rekordbox writes
+    // into the entry's file, so a change elsewhere is no edit of its.
+    w.file_modified(known_file, before);
+    w.file_modified(other_file, after);
+    assert_eq!(
+        watched(sent_as_40(other, true)),
+        [(other, known_file, false)]
+    );
+    // A probable match isn't trusted: the linked file is watched instead.
+    w.insert("UPDATE rekordbox_track SET relink_probable = 1", ());
+    assert_eq!(
+        watched(sent_as_40(other, true)),
+        [(other, other_file, true)]
+    );
+    // A new track numbered 40 in the file isn't rekordbox's entry 40, and
+    // isn't watched at all.
+    assert!(watched(sent_as_40(other, false)).is_empty());
+}
+
+#[test]
+fn a_refused_send_warns_about_nothing() {
+    let (w, known, _) = world_with_a_send_waiting();
+    // COLLECTION says three tracks and holds one.
+    w.save_export_text(&export_text(
+        &[Rb(40, "known.mp3", "Known in rekordbox")],
+        3,
+    ));
+    w.file_modified(w.linked_file(known), (w.export_ms() + 1) * MS);
+
+    let preflight = w.prepare().unwrap();
+    assert!(preflight.refusal.is_some());
+    assert!(listed(&preflight).is_empty());
+}
+
+#[test]
+fn a_scan_between_the_review_and_the_go_changes_nothing_about_the_go() {
+    let (w, known, _) = world_with_a_send_waiting();
+    let preflight = w.prepare().unwrap();
+    assert!(listed(&preflight).is_empty());
+    // A scan lands after the review.
+    w.file_modified(w.linked_file(known), (w.export_ms() + 1) * MS);
+    assert_eq!(w.go(false), None);
+    assert_eq!(w.sent_titles(), ["Known in rekordbox", "New"]);
 }
 
 #[test]
@@ -198,53 +242,206 @@ fn a_file_tag_is_never_taken_as_rekordboxs_value_and_the_warning_changes_nothing
     assert_eq!((w.count_of("conflict"), w.count_of("app_value")), (0, 0));
 }
 
-/// Builds a Library of `count` tracks, every one in rekordbox and every
-/// tenth file changed after the export, and times the count over a send
-/// of them all.
-#[test]
-#[ignore = "builds 100,000 tracks; run with -- --ignored --nocapture"]
-fn counting_over_100000_tracks_is_cheap() {
-    let count: i64 = 100_000;
-    let w = World::new();
-    let export: i64 = 4_102_444_860_000;
-    w.writer
-        .call(move |c| {
-            c.execute_batch(&format!(
-                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
-                 INSERT INTO recording (id) SELECT i FROM n;
-                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
-                 INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, present, mtime)
-                 SELECT i, 1, 'f' || i || '.mp3', 'f' || i || '.mp3', 1,
-                        CASE WHEN i % 10 = 0 THEN ({export} + 1) * {MS} ELSE ({export} - 1000) * {MS} END
-                 FROM n;
-                 INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
-                 SELECT id, 'linked', id, 'ok' FROM file ORDER BY id;
-                 INSERT INTO rekordbox_track (attributes, location_key, file_id, relink_method, read_at)
-                 SELECT json_object('TrackID', CAST(id AS TEXT), 'Location', 'file://localhost/E:/Music/' || rel_path), 'e:/music/' || rel_path_key, id,
-                        'path', '2100-01-01T00:00:00.000Z'
-                 FROM file;"
-            ))
-        })
-        .unwrap();
-    let sent: Vec<SentTrack> = (1..=count)
-        .map(|i| SentTrack {
-            library_track: LibraryTrackId(i),
-            in_rekordbox: true,
-            track_id: u64::try_from(i).unwrap(),
-            attributes: Vec::new(),
-            rekordbox_holds_other_file: None,
-            file_missing: false,
-        })
-        .collect();
-    let started = Instant::now();
-    let found = w
-        .writer
-        .call(move |c| changed_after_export(c, export, &sent))
-        .unwrap();
-    println!(
-        "counted {} of {count} tracks in {:?}",
-        found.len(),
-        started.elapsed()
-    );
-    assert_eq!(i64::try_from(found.len()).unwrap(), count / 10);
+// --- on disk -----------------------------------------------------------------
+
+// Off Windows no drive is ever connected, and only the scan's answer counts.
+#[cfg(windows)]
+mod on_disk {
+    use super::*;
+    use crate::send::preflight::{changed_on_disk, Watched};
+
+    /// The test volume, mounted at a folder of the sandbox, so its files are
+    /// real files on a local drive.
+    #[derive(Clone)]
+    struct MountedAt(PathBuf);
+
+    impl Volumes for MountedAt {
+        fn volume_for(&self, path: &Path) -> std::io::Result<Volume> {
+            Err(std::io::Error::other(format!(
+                "{} isn't looked up in these tests",
+                path.display()
+            )))
+        }
+
+        fn mount_path(&self, id: &VolumeId) -> Option<PathBuf> {
+            (*id == volume_id()).then(|| self.0.clone())
+        }
+    }
+
+    impl World {
+        /// Where the test volume is mounted for [`World::prepare_on`], with its
+        /// `Music` folder made: a folder of the sandbox, written as Windows
+        /// writes a drive path.
+        fn volume_root(&self) -> PathBuf {
+            let root = PathBuf::from(
+                self.base
+                    .join("volume")
+                    .to_string_lossy()
+                    .trim_start_matches(r"\\?\"),
+            );
+            fs::create_dir_all(root.join("Music")).unwrap();
+            root
+        }
+
+        /// The prepare step, with the test volume mounted at `root`.
+        fn prepare_on(&self, root: &Path) -> Option<Preflight> {
+            let root = root.to_path_buf();
+            let sender = Sender::new(self.flow.clone(), move || MountedAt(root.clone()));
+            // A send of 100,000 tracks takes minutes in a debug build.
+            self.run_within(
+                sender,
+                self.flow.prepare_job(&self.export.to_string_lossy()),
+                Duration::from_secs(480),
+            );
+            self.flow.preflight()
+        }
+    }
+
+    /// An export of the files named, each `TrackID` with its file under
+    /// `<root>\Music`.
+    fn export_on(root: &Path, tracks: &[(u32, &str)]) -> String {
+        let tracks: String = tracks
+            .iter()
+            .map(|(id, name)| {
+                let location = location_of(&root.join("Music").join(name));
+                format!(
+                    "    <TRACK TrackID=\"{id}\" Name=\"{name}\" Artist=\"Kit\" Location=\"{location}\"/>\n"
+                )
+            })
+            .collect();
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+    <DJ_PLAYLISTS Version="1.0.0">
+      <PRODUCT Name="rekordbox" Version="7.2.19" Company="AlphaTheta"/>
+      <COLLECTION Entries="{}">
+    {tracks}  </COLLECTION>
+      <PLAYLISTS>
+        <NODE Type="0" Name="ROOT" Count="0"/>
+      </PLAYLISTS>
+    </DJ_PLAYLISTS>
+    "#,
+            tracks.lines().count()
+        )
+    }
+
+    /// Sets the modified time of the file at `path` on disk, in milliseconds
+    /// since the Unix epoch.
+    fn touch_at(path: &Path, ms: i64) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(
+                SystemTime::UNIX_EPOCH + Duration::from_millis(u64::try_from(ms).unwrap()),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn a_file_changed_on_disk_after_the_export_is_counted_though_no_scan_has_seen_it() {
+        let w = World::new();
+        let root = w.volume_root();
+        let (edited, edited_file) = w.library_track("edited.mp3", "Edited", true);
+        let (untouched, untouched_file) = w.library_track("untouched.mp3", "Untouched", true);
+        let (gone, gone_file) = w.library_track("gone.mp3", "Gone", true);
+        w.crate_of("Warm up", &[edited, untouched, gone]);
+        for name in ["edited.mp3", "untouched.mp3"] {
+            fs::write(root.join("Music").join(name), b"").unwrap();
+        }
+        w.save_export_text(&export_on(
+            &root,
+            &[(40, "edited.mp3"), (41, "untouched.mp3"), (42, "gone.mp3")],
+        ));
+        let export = w.export_ms();
+        // The last scan saw both files on disk before the export. rekordbox
+        // then wrote an edit into one, and no scan has run since.
+        for file in [edited_file, untouched_file] {
+            w.file_modified(file, (export - 60_000) * MS);
+        }
+        touch_at(&root.join("Music").join("edited.mp3"), export + 1_000);
+        touch_at(&root.join("Music").join("untouched.mp3"), export - 60_000);
+        // A file the disk can't show: the scan's answer stands.
+        w.file_modified(gone_file, (export + 1) * MS);
+
+        let preflight = w.prepare_on(&root).unwrap();
+        assert_eq!(preflight.known_tracks, 3);
+        // `untouched` isn't listed: its file is as the scan saw it.
+        assert_eq!(listed(&preflight), [edited, gone]);
+        assert!(!listed(&preflight).contains(&untouched));
+    }
+
+    /// A send of `count` tracks rekordbox has, each on a real file, every tenth
+    /// file modified on disk after the export with no scan since: times the
+    /// whole prepare step, and the look at the disk alone.
+    #[test]
+    #[ignore = "makes 100,000 files; run with -- --ignored --nocapture"]
+    fn preparing_a_send_of_100000_tracks_looks_at_every_file_once() {
+        let count: i64 = 100_000;
+        let w = World::new();
+        let root = w.volume_root();
+        let music = root.join("Music");
+        let started = Instant::now();
+        for i in 1..=count {
+            fs::write(music.join(format!("f{i}.mp3")), b"").unwrap();
+        }
+        println!("made {count} files in {:?}", started.elapsed());
+        w.writer
+            .call(move |c| {
+                c.execute_batch(&format!(
+                    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
+                     INSERT INTO recording (id) SELECT i FROM n;
+                     WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
+                     INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, present, size,
+                                       sniffed_format, mtime)
+                     SELECT i, 1, 'f' || i || '.mp3', 'f' || i || '.mp3', 1, 1234, 'mp3', 0 FROM n;
+                     INSERT INTO recording_file (recording_id, file_id, role)
+                     SELECT id, id, 'best' FROM file ORDER BY id;
+                     INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
+                     SELECT id, 'linked', id, 'ok' FROM file ORDER BY id;
+                     INSERT INTO crate (kind, name) VALUES ('static', 'All');
+                     INSERT INTO crate_entry (crate_id, library_track_id, added_at)
+                     SELECT 1, id, '2026-01-01T00:00:00.000Z' FROM library_track ORDER BY id;"
+                ))
+            })
+            .unwrap();
+        let names: Vec<String> = (1..=count).map(|i| format!("f{i}.mp3")).collect();
+        let tracks: Vec<(u32, &str)> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (u32::try_from(i + 1).unwrap(), name.as_str()))
+            .collect();
+        w.save_export_text(&export_on(&root, &tracks));
+        let export = w.export_ms();
+        for i in (10..=count).step_by(10) {
+            touch_at(&music.join(format!("f{i}.mp3")), export + 1_000);
+        }
+
+        let started = Instant::now();
+        let preflight = w.prepare_on(&root).unwrap();
+        println!(
+            "prepared a send of {count} tracks in {:?}",
+            started.elapsed()
+        );
+        assert_eq!(i64::from(preflight.known_tracks), count);
+        assert_eq!(i64::try_from(listed(&preflight).len()).unwrap(), count / 10);
+
+        let watched: Vec<Watched> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| Watched {
+                track: TrackLabel {
+                    library_track: LibraryTrackId(i64::try_from(i).unwrap() + 1),
+                    title: None,
+                    artist: None,
+                    file_name: None,
+                },
+                path: Some(crate::scan::display_path(&music.join(name))),
+                recorded: false,
+            })
+            .collect();
+        let started = Instant::now();
+        let changed = changed_on_disk(&watched, export);
+        println!("looked at {count} files on disk in {:?}", started.elapsed());
+        assert_eq!(i64::try_from(changed.len()).unwrap(), count / 10);
+    }
 }

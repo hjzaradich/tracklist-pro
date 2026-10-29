@@ -223,9 +223,10 @@ pub struct Preflight {
     /// doesn't, and a Yes on import would overwrite it (1.10, "Second
     /// channel"). A warning only: the user is asked to export again, and the
     /// send goes all the same if they choose. A file tag is never taken as
-    /// rekordbox's value. Told by the modified time the last scan recorded
-    /// (`preflight::changed_after_export`); the token doesn't cover it, so
-    /// a scan between the review and the go changes nothing about the go.
+    /// rekordbox's value. Told by the file's modified time, as the last
+    /// scan recorded it or, looked up once by the prepare step, on disk now
+    /// (`preflight::changed_on_disk`); the token doesn't cover it, so a
+    /// change between the review and the go changes nothing about the go.
     pub changed_after_export: Vec<TrackLabel>,
     /// Set when the send can't go at all.
     pub refusal: Option<Refusal>,

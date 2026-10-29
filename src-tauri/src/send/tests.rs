@@ -228,7 +228,17 @@ impl World {
     }
 
     /// Runs one send job to its end with `sender` as the handler.
-    fn run_with(&self, sender: Sender<Plugged>, job: NewJob) -> JobStatus {
+    fn run_with<V: Volumes + 'static>(&self, sender: Sender<V>, job: NewJob) -> JobStatus {
+        self.run_within(sender, job, Duration::from_secs(60))
+    }
+
+    /// The same, failing if the job takes longer than `limit`.
+    fn run_within<V: Volumes + 'static>(
+        &self,
+        sender: Sender<V>,
+        job: NewJob,
+        limit: Duration,
+    ) -> JobStatus {
         let queue = JobQueue::builder(self.writer.clone())
             .workers(1)
             .handler(JobKind::Export, sender)
@@ -246,10 +256,7 @@ impl World {
                 queue.shutdown();
                 return job.status;
             }
-            assert!(
-                start.elapsed() < Duration::from_secs(60),
-                "the job never finished"
-            );
+            assert!(start.elapsed() < limit, "the job never finished");
             std::thread::sleep(Duration::from_millis(5));
         }
     }

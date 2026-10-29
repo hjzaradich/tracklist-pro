@@ -9,7 +9,9 @@ use rusqlite::Connection;
 use tauri::{AppHandle, Manager, Runtime};
 
 use super::file::{send_path, write_and_record, WriteError};
-use super::preflight::{may_send_from_this_export, no_file_at_location, review, Reviewed};
+use super::preflight::{
+    changed_on_disk, may_send_from_this_export, no_file_at_location, review, Reviewed,
+};
 use super::{SendFailure, SendFlow, SendStep, Sent};
 use crate::conflicts::open_at_send;
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
@@ -277,10 +279,14 @@ impl<V: Volumes + 'static> Sender<V> {
             ));
         }
         // The writer is free again: now ask the disk about the tracks
-        // sent at another path than their file's. Only here; the go never
-        // asks again, and the token doesn't cover the answer.
+        // sent at another path than their file's, and about files changed
+        // after the export that no scan has seen yet (1.10, "Second
+        // channel"). Only here; the go never asks again, and the token
+        // doesn't cover the answers.
         let mut preflight = reviewed.preflight;
         preflight.no_file_at_location = no_file_at_location(&reviewed.sent_elsewhere);
+        preflight.changed_after_export =
+            changed_on_disk(&reviewed.watched, preflight.export.modified_ms);
         self.flow.end(SendStep::Prepare, |steps| {
             steps.review = Some(preflight);
         });

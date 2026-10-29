@@ -1,7 +1,7 @@
 //! The preflight: a send built in memory and described, no file written.
 //! The merge before it (1cB-3) is its only write to the database.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use rusqlite::Connection;
 
@@ -11,7 +11,7 @@ use super::{
 };
 use crate::conflicts::{self, open_at_send};
 use crate::library::{self, LibraryTrackId, StoredTrack};
-use crate::paths::Volumes;
+use crate::paths::{StoredPath, Volumes};
 use crate::rekordbox::location::{decode, Location, PathStyle};
 use crate::rekordbox::source::stored_source;
 use crate::rekordbox_write::{
@@ -37,6 +37,23 @@ pub struct Reviewed {
     /// left them ([`open_at_send::open_fields`]). The go records the send
     /// only while they are still these.
     pub open: Vec<(LibraryTrackId, String)>,
+    /// The tracks rekordbox has, sent with the export's values, each with
+    /// the file a change after the export is looked for in, for the prepare
+    /// step to look at on disk ([`changed_on_disk`]). Nothing in the
+    /// preflight's token depends on them.
+    pub watched: Vec<Watched>,
+}
+
+/// A track rekordbox has, sent with the export's values, and the file
+/// rekordbox writes its edits into (1.10, "Second channel").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Watched {
+    pub track: TrackLabel,
+    /// The file's path as Windows writes it, while its drive is connected;
+    /// `None` when it isn't, and the file isn't looked at on disk.
+    pub path: Option<String>,
+    /// The last scan already recorded a change after the export.
+    pub recorded: bool,
 }
 
 /// A track rekordbox has, sent with rekordbox's own `Location` although
@@ -221,11 +238,31 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
         !preflight.loses_entries.is_empty() || preflight.export.not_stored > 0;
     preflight.token = token(&preflight, outgoing.as_ref());
     // A warning only, after the token: it changes nothing about the go
-    // (1.10, "Second channel").
+    // (1.10, "Second channel"). The prepare step looks at the disk too.
+    let mut watched = Vec::new();
     if let Some(out) = &outgoing {
-        preflight.changed_after_export = changed_after_export(conn, read.modified_ms, &out.sent)?
-            .into_iter()
-            .map(label)
+        for (id, file, recorded) in changed_after_export(conn, read.modified_ms, &out.sent)? {
+            let linked = labels.get(&id).and_then(|t| t.file.as_ref());
+            let file = match linked.filter(|f| f.file_id == file) {
+                Some(f) => Some(f.clone()),
+                None => library::stored_file(conn, file)?,
+            };
+            let path = file.and_then(|f| {
+                StoredPath::new(f.volume, f.rel)
+                    .resolve(volumes)
+                    .ok()
+                    .map(|abs| crate::scan::display_path(&abs))
+            });
+            watched.push(Watched {
+                track: label(id),
+                path,
+                recorded,
+            });
+        }
+        preflight.changed_after_export = watched
+            .iter()
+            .filter(|w| w.recorded)
+            .map(|w| w.track.clone())
             .collect();
     }
     // A refused send sends nothing anywhere.
@@ -238,6 +275,7 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
         outgoing,
         sent_elsewhere,
         open,
+        watched,
     }))
 }
 
@@ -323,53 +361,110 @@ fn nothing_is_at(path: &str) -> bool {
     matches!(std::fs::metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
 }
 
-/// The tracks among `sent` that rekordbox has, whose file changed after
-/// the export saved at `export_modified_ms` (1.10, "Second channel"), in
-/// send order. rekordbox writes a DJ's edits into the file (§5.1), so such
-/// a track may hold an edit made in rekordbox after the export, which a
-/// send of the export's values would overwrite.
+/// The first nanosecond after the millisecond `ms`, as `file.mtime`
+/// counts time: a file modified then or later changed after it.
+fn first_ns_after(ms: i64) -> i64 {
+    ms.saturating_add(1).saturating_mul(1_000_000)
+}
+
+/// The tracks among `sent` that rekordbox has, in send order, each with the
+/// file a change after the export saved at `export_modified_ms` is looked
+/// for in, and whether the last scan recorded one (1.10, "Second
+/// channel"). rekordbox writes a DJ's edits into the file (§5.1), so such a
+/// track may hold an edit made in rekordbox after the export, which a send
+/// of the export's values would overwrite.
 ///
-/// The sign is the file's modified time as the last scan recorded it
-/// (`file.mtime`), later than the export's millisecond. It is checked for
-/// the track's linked file and for the file rekordbox's entry is matched
-/// to (they differ when the track is sent as a copy's entry). The app
-/// never writes an audio file, so nothing it does moves the sign. Reads
-/// two columns per track and asks the disk nothing: a change no scan has
-/// seen yet isn't counted. A new track isn't counted either: its values
-/// come from its own file, not from the export.
+/// The file is the one rekordbox's entry is matched to (a trusted match
+/// only), since that is the file rekordbox writes into; the track's linked
+/// file only when the entry has none. They differ when a track is sent as a
+/// copy's entry. A track with neither isn't listed, and nor is a new track:
+/// its values come from its own file, not from the export.
 ///
-/// Nothing here feeds the send: the file's tags are never read for it.
+/// The sign recorded here is the file's modified time as the last scan
+/// stored it (`file.mtime`), later than the export's millisecond. The app
+/// never writes an audio file, so nothing it does moves it. Reads the
+/// database only; the prepare step also looks at the disk
+/// ([`changed_on_disk`]). Nothing here feeds the send: the file's tags are
+/// never read for it.
 pub(super) fn changed_after_export(
     conn: &Connection,
     export_modified_ms: i64,
     sent: &[SentTrack],
-) -> rusqlite::Result<Vec<LibraryTrackId>> {
-    // The first nanosecond after the export's millisecond.
-    let after = export_modified_ms
-        .saturating_add(1)
-        .saturating_mul(1_000_000);
-    let changed = |sql: &str| -> rusqlite::Result<HashSet<i64>> {
+) -> rusqlite::Result<Vec<(LibraryTrackId, i64, bool)>> {
+    let after = first_ns_after(export_modified_ms);
+    let files = |sql: &str| -> rusqlite::Result<HashMap<i64, (i64, bool)>> {
         conn.prepare(sql)?
-            .query_map([after], |r| r.get(0))?
+            .query_map([after], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
             .collect()
     };
-    let linked = changed(
-        "SELECT l.id FROM library_track l JOIN file f ON f.id = l.linked_file_id
-         WHERE f.mtime >= ?1",
+    let entries = files(
+        "SELECT r.track_id, f.id, coalesce(f.mtime >= ?1, 0)
+         FROM rekordbox_track r JOIN file f ON f.id = r.file_id
+         WHERE r.relink_probable = 0",
     )?;
-    let entries = changed(
-        "SELECT r.track_id FROM rekordbox_track r JOIN file f ON f.id = r.file_id
-         WHERE r.relink_probable = 0 AND f.mtime >= ?1",
+    let linked = files(
+        "SELECT l.id, f.id, coalesce(f.mtime >= ?1, 0)
+         FROM library_track l JOIN file f ON f.id = l.linked_file_id",
     )?;
     Ok(sent
         .iter()
-        .filter(|s| {
-            s.in_rekordbox
-                && (linked.contains(&s.library_track.0)
-                    || i64::try_from(s.track_id).is_ok_and(|id| entries.contains(&id)))
+        .filter(|s| s.in_rekordbox)
+        .filter_map(|s| {
+            i64::try_from(s.track_id)
+                .ok()
+                .and_then(|id| entries.get(&id))
+                .or_else(|| linked.get(&s.library_track.0))
+                .map(|&(file, recorded)| (s.library_track, file, recorded))
         })
-        .map(|s| s.library_track)
         .collect())
+}
+
+/// The tracks among `watched` whose file changed after the export saved at
+/// `export_modified_ms`, in send order: the ones the last scan recorded,
+/// and the ones whose file's modified time on disk now is later than the
+/// export's millisecond (1.10, "Second channel"). So a DJ who edits in
+/// rekordbox after exporting and sends at once is warned, though no scan
+/// has seen the change.
+///
+/// This asks the disk once per track the scan didn't flag and once per
+/// drive, so the prepare step calls it after its writer job, never inside
+/// one, and the go never asks again (the token doesn't cover the answer).
+/// A file isn't looked at, and the scan's answer stands, when its drive
+/// isn't connected now or is a network drive, or the lookup fails. Off
+/// Windows no drive is connected, so only the scan's answer counts
+/// (ROADMAP §1.1).
+pub fn changed_on_disk(watched: &[Watched], export_modified_ms: i64) -> Vec<TrackLabel> {
+    let after = first_ns_after(export_modified_ms);
+    // By drive (a path's first three characters, letter case folded):
+    // whether it's a local drive that's connected.
+    let mut local: HashMap<String, bool> = HashMap::new();
+    watched
+        .iter()
+        .filter(|w| {
+            w.recorded
+                || w.path.as_deref().is_some_and(|path| {
+                    let Some(drive) = path.get(..3) else {
+                        return false;
+                    };
+                    *local
+                        .entry(drive.to_ascii_uppercase())
+                        .or_insert_with(|| is_local_drive(drive))
+                        && modified_since(path, after)
+                })
+        })
+        .map(|w| w.track.clone())
+        .collect()
+}
+
+/// Whether the disk says `path` was modified at `after` (nanoseconds since
+/// the Unix epoch) or later. Only looks; `false` when it can't tell.
+fn modified_since(path: &str, after: i64) -> bool {
+    let Ok(path) = crate::paths::verbatim_absolute(std::path::Path::new(path)) else {
+        return false;
+    };
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .is_ok_and(|at| crate::scan::walk::nanos(at) >= after)
 }
 
 /// Whether an export saved at `export_modified_ms` is older than the last
