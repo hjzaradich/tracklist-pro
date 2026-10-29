@@ -896,7 +896,7 @@ mod tests {
     #[test]
     fn reads_that_begin_at_the_same_moment_never_leave_a_lock_that_blocks_a_later_checkpoint() {
         // About one round in four left a read lock behind before (SQLite's
-        // Windows file layer, handed a `\?\` name): the log then kept every
+        // Windows file layer, handed a `\\?\` name): the log then kept every
         // frame, whoever asked for the checkpoint.
         let (_dir, writer, reads) = writer_and_readers();
         for round in 0..150 {

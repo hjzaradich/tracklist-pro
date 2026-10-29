@@ -31,7 +31,11 @@
 //! refuses `ATTACH` of any file and `VACUUM INTO`: both would make SQLite
 //! create or open a database file elsewhere. Even a read-only connection
 //! creates `-wal` and `-shm` files beside a WAL database, so every
-//! connection, reader or writer, is opened from a [`GuardedPath`].
+//! connection, reader or writer, is opened from a [`GuardedPath`]. SQLite is
+//! given the checked path in its plain drive-letter spelling where Win32
+//! reads that as the same file, because it takes a `\\?\` name for a network
+//! share and locks that kind of database in a way that can go wrong
+//! (`GuardedPath::sqlite_name`).
 
 use std::fmt;
 use std::fs::{self, File};
@@ -389,6 +393,25 @@ impl GuardedPath {
         self.root
     }
 
+    /// The name SQLite is given for the database file: the path with the
+    /// `\\?\` prefix taken off where that changes nothing (see
+    /// [`plain_drive_spelling`]).
+    ///
+    /// SQLite's Windows file layer treats a name that starts with `\\` as a
+    /// network share and then takes every shared-memory lock through one
+    /// shared handle. With that, two connections taking the same read lock
+    /// of the `-shm` file at the same moment (two reads beginning together
+    /// while the log is empty) can leave one lock held for good: nothing
+    /// SQLite tracks holds it, closing the connections doesn't free it, and
+    /// from then on no checkpoint can move a frame into the database. The
+    /// log grows with every write for the rest of the session, and the
+    /// checkpoint at the app's exit finds it blocked. Every connection must
+    /// be opened under the same name, so this is the only place that names
+    /// the file to SQLite.
+    fn sqlite_name(&self) -> PathBuf {
+        plain_drive_spelling(&self.path).unwrap_or_else(|| self.path.clone())
+    }
+
     /// Opens (or creates) the SQLite database at this path, read-write.
     ///
     /// SQLite puts its `-wal`, `-shm` and journal files beside the database,
@@ -397,7 +420,7 @@ impl GuardedPath {
     /// system temp folder, and `ATTACH` / `VACUUM INTO` are refused.
     pub fn open_database(&self) -> rusqlite::Result<Connection> {
         self.database_files_have_one_name()?;
-        confine(Connection::open(&self.path)?)
+        confine(Connection::open(self.sqlite_name())?)
     }
 
     /// Opens the SQLite database at this path read-only, confined like
@@ -405,7 +428,7 @@ impl GuardedPath {
     pub fn open_database_read_only(&self) -> rusqlite::Result<Connection> {
         self.database_files_have_one_name()?;
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        confine(Connection::open_with_flags(&self.path, flags)?)
+        confine(Connection::open_with_flags(self.sqlite_name(), flags)?)
     }
 
     /// Refuses a database whose file, or `-wal`, `-shm` or `-journal` file,
@@ -575,6 +598,49 @@ fn link_count(file: &File) -> io::Result<u64> {
         use std::os::unix::fs::MetadataExt;
         Ok(file.metadata()?.nlink())
     }
+}
+
+/// `\\?\C:\dir\name` as `C:\dir\name`, when Windows reads the two as the
+/// same file: a drive path whose names Win32 wouldn't rewrite (no trailing
+/// dot or space in any, no device name such as `CON` or `AUX.db`, no
+/// character it forbids) and that is short enough for a plain path. `None`
+/// for any other path, which is then used as it is. Plain string logic, so
+/// the tests run on every platform.
+fn plain_drive_spelling(path: &Path) -> Option<PathBuf> {
+    /// Windows' limit for a plain path (260), less room for a `-wal` suffix
+    /// and the terminating NUL.
+    const LONGEST_PLAIN: usize = 240;
+    const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+
+    let rest = path.to_str()?.strip_prefix(r"\\?\")?;
+    let b = rest.as_bytes();
+    if b.len() < 4 || !b[0].is_ascii_alphabetic() || b[1] != b':' || b[2] != b'\\' {
+        return None;
+    }
+    if rest.len() > LONGEST_PLAIN {
+        return None;
+    }
+    for name in rest[3..].split('\\') {
+        let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+        let device = DEVICES.contains(&stem.as_str())
+            || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+                && stem.len() == 4
+                && stem.as_bytes()[3].is_ascii_digit());
+        let forbidden = name
+            .chars()
+            .any(|c| c.is_control() || "<>:\"/|?*".contains(c));
+        if name.is_empty()
+            || name == "."
+            || name == ".."
+            || name.ends_with('.')
+            || name.ends_with(' ')
+            || device
+            || forbidden
+        {
+            return None;
+        }
+    }
+    Some(PathBuf::from(rest))
 }
 
 /// A guarded path for a test database at `rel` under `root`, which becomes
