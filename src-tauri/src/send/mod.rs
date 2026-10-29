@@ -217,6 +217,17 @@ pub struct Preflight {
     /// → Conflicts, and the send carries rekordbox's value for each until
     /// the user decides ([`crate::conflicts::open_at_send`]).
     pub conflicts_waiting: u32,
+    /// Tracks rekordbox has, sent with rekordbox's values from this export,
+    /// whose file changed after the export was saved: rekordbox writes a
+    /// DJ's edits into the file, so rekordbox may hold an edit this export
+    /// doesn't, and a Yes on import would overwrite it (1.10, "Second
+    /// channel"). A warning only: the user is asked to export again, and the
+    /// send goes all the same if they choose. A file tag is never taken as
+    /// rekordbox's value. Told by the file's modified time, as the last
+    /// scan recorded it or, looked up once by the prepare step, on disk now
+    /// (`preflight::changed_on_disk`); the token doesn't cover it, so a
+    /// change between the review and the go changes nothing about the go.
+    pub changed_after_export: Vec<TrackLabel>,
     /// Set when the send can't go at all.
     pub refusal: Option<Refusal>,
     /// No track would be sent and there's no crate or playlist: the send

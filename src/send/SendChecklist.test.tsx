@@ -34,6 +34,7 @@ function preflight(fields: Partial<Preflight> = {}): Preflight {
     noKind: [],
     losesEntries: [],
     conflictsWaiting: 0,
+    changedAfterExport: [],
     refusal: null,
     nothingToSend: false,
     canSend: true,
@@ -371,6 +372,36 @@ describe("the send checklist", () => {
     for (const count of [0, 1]) {
       expect(review.queryByText(tx("send:review.conflictsWaiting", { count }))).toBeNull();
     }
+  });
+
+  it("warns with the count of tracks whose file changed after the export, lists them, and lets the send go", async () => {
+    fakeBackend({
+      preflight: preflight({ changedAfterExport: [label(2, "Velo"), label(5, null, "drift.mp3")] }),
+    });
+    renderChecklist();
+    const review = step(tx("send:review.title"));
+    expect(
+      await review.findByText(tx("send:review.changedAfterExport", { count: 2 })),
+    ).toBeInTheDocument();
+    // The list waits until it's asked for.
+    expect(review.getByText("Velo")).not.toBeVisible();
+    await userEvent.click(review.getByText(tx("send:review.changedAfterExportList")));
+    expect(review.getByText("Velo")).toBeVisible();
+    expect(review.getByText("drift.mp3")).toBeVisible();
+    // A warning only: no confirm, and the go stays open.
+    expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled();
+  });
+
+  it("says nothing about files changed after the export when there are none", async () => {
+    fakeBackend({ preflight: preflight() });
+    renderChecklist();
+    const review = step(tx("send:review.title"));
+    expect(await review.findByText(tx("send:review.new", { count: 3 }))).toBeInTheDocument();
+    for (const count of [0, 1]) {
+      expect(review.queryByText(tx("send:review.changedAfterExport", { count }))).toBeNull();
+    }
+    expect(review.queryByText(tx("send:review.changedAfterExportList"))).toBeNull();
   });
 
   it("lists new tracks in a format rekordbox may not play, and asks for no confirm", async () => {

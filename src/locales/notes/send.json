@@ -217,6 +217,18 @@
     "purpose": "The same line for several fields.",
     "where": "Send checklist, step 2, a line under the counts of tracks."
   },
+  "review.changedAfterExport_one": {
+    "purpose": "Warns that one track rekordbox has, sent with the export's values, has a file changed after the export was saved. rekordbox writes a DJ's edits into the file, so an edit made in rekordbox after the export may be in it, and the send would overwrite it on import. Asks the user to export again first. A warning only: the send can still go (ROADMAP 1.10, Second channel).",
+    "where": "Send checklist, step 2, a line under the counts of tracks."
+  },
+  "review.changedAfterExport_other": {
+    "purpose": "The same warning for several tracks.",
+    "where": "Send checklist, step 2, a line under the counts of tracks."
+  },
+  "review.changedAfterExportList": {
+    "purpose": "Opens the list of the tracks the warning above counts.",
+    "where": "Send checklist, step 2, a disclosure under the warning about files changed after the export."
+  },
   "review.losesEntries": {
     "purpose": "Warns that sending replaces rekordbox playlists that will lose tracks.",
     "where": "Send checklist, step 2, warning above the list of crates sent with tracks left out.",
