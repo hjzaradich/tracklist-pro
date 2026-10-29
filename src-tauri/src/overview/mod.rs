@@ -11,11 +11,19 @@
 //! - **Analyzed** means rekordbox supplied a BPM or a key: the track has an
 //!   `analysis` row from rekordbox, which attach writes only then.
 //! - **Decisions made** counts the operations in the undo log.
-//! - **Energy** is not here: nothing stores it until task 1cC-1.
+//! - **Energy** is the one `recording_display` shows: the user's, else
+//!   Mixed In Key's, else the local estimate's, else the audio model's
+//!   (ROADMAP §2, `analysis`), counted per level 1 to 10 ([`ENERGY_LEVELS`])
+//!   with the tracks that have none ([`ENERGY`]). Nothing writes it yet, so
+//!   until a source does, every track has none.
+//! - **Outside the Library** is the tracks in All music that are not
+//!   Library tracks ([`ALL_MUSIC`]).
 //!
 //! **Left out on purpose**, each with the function a later job should use:
-//! - *Unsent changes* ("Send N changes"): defined with the Send button
-//!   (1cB-11), from `send::preflight`.
+//! - *Unsent changes* ("Send N changes", "send due"): what a send carries
+//!   depends on rekordbox's export (a known track goes only inside a sent
+//!   crate, a new one always), so a count is only right once `send::review`
+//!   has read it; no cheaper signal from the log is exact (ROADMAP 1.13).
 //! - *How many need a decision*: the Review screen's read model (1bD-1/2).
 //! - **Missing tags** is a Library track with no title, no artist or no
 //!   genre ([`missing_tags`]); **missing art** one whose linked file holds
@@ -73,6 +81,9 @@ pub const THIS_WEEK: &str = "-7 days";
 /// takes the genre of its file's tag (owner decision: no, rekordbox's blank
 /// is the answer).
 pub const BLANK_GENRE_FALLS_BACK: bool = false;
+
+/// The levels of energy, 1 to 10 (the check on `analysis.energy`).
+pub const ENERGY_LEVELS: usize = 10;
 
 /// The verdicts that make a track "made from a low-quality file".
 const LOW_QUALITY_VERDICTS: &str = "'low_bitrate', 'suspect_transcode', 'truncated', 'broken'";
@@ -154,6 +165,14 @@ pub struct Overview {
     pub genres: Vec<GenreCount>,
     /// Library tracks with no genre.
     pub no_genre: u32,
+    /// Library tracks per energy level: entry 0 is energy 1 and entry 9 is
+    /// energy 10 ([`ENERGY_LEVELS`] entries), the energy a track shows.
+    pub energy: Vec<u32>,
+    /// Library tracks with no energy.
+    pub no_energy: u32,
+    /// Tracks in All music that are not Library tracks: what "Add to
+    /// Library" could still bring in.
+    pub outside_library: u32,
     /// Library tracks with no title, no artist or no genre, as the lists
     /// show them ([`missing_tags`]).
     pub missing_tags: u32,
@@ -193,12 +212,53 @@ fn library_sql() -> String {
     )
 }
 
-/// Tracks with a file that isn't hidden. A track is counted once however
-/// many files it has.
+/// Tracks with a file that isn't hidden, and how many of them are not
+/// Library tracks. A track is counted once however many files it has.
 const ALL_MUSIC: &str = concat!(
-    "SELECT count(*) FROM recording r WHERE ",
+    "SELECT count(*),
+            coalesce(sum(NOT EXISTS (SELECT 1 FROM library_track lt
+                                     WHERE lt.recording_id = r.id)), 0)
+     FROM recording r WHERE ",
     crate::hidden::has_shown_file!("r.id")
 );
+
+/// How many Library tracks show each energy, as `(energy, tracks)` rows, the
+/// energy being `NULL` for the tracks with none. The `analysis` row that
+/// ranks first among those with an energy gives it: the user's, then Mixed
+/// In Key's, then the local estimate's, then the audio model's (the order of
+/// the `recording_display` view, which also works out BPM and key). One pass
+/// over the Library's tracks; each `analysis` row is found by its unique
+/// (track, source) index.
+const ENERGY: &str = "SELECT s.energy, count(*)
+     FROM (SELECT (SELECT a.energy FROM analysis a
+                   WHERE a.recording_id = lt.recording_id AND a.energy IS NOT NULL
+                   ORDER BY CASE a.source
+                       WHEN 'user' THEN 1 WHEN 'mik' THEN 2 WHEN 'local' THEN 3 WHEN 'ml' THEN 4
+                   END
+                   LIMIT 1) AS energy
+           FROM library_track lt) s
+     GROUP BY s.energy";
+
+/// Library tracks per energy level, and the tracks with none ([`ENERGY`]).
+fn energy(conn: &Connection) -> rusqlite::Result<(Vec<u32>, u32)> {
+    let mut levels = vec![0u32; ENERGY_LEVELS];
+    let mut none = 0u32;
+    let mut stmt = conn.prepare(ENERGY)?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let tracks = count(row.get::<_, i64>(1)?);
+        match row.get::<_, Option<i64>>(0)? {
+            Some(level) => {
+                let slot = usize::try_from(level - 1).ok().and_then(|i| levels.get_mut(i));
+                if let Some(slot) = slot {
+                    *slot = slot.saturating_add(tracks);
+                }
+            }
+            None => none = none.saturating_add(tracks),
+        }
+    }
+    Ok((levels, none))
+}
 
 /// The start of this week as stored timestamps are written.
 fn week_start() -> String {
@@ -587,7 +647,9 @@ pub fn overview_at(
         })?;
     let tracks = count(tracks);
     let (in_crates, analyzed) = (count(in_crates), count(analyzed));
-    let all_music = conn.query_row(ALL_MUSIC, [], |r| r.get::<_, i64>(0))?;
+    let (all_music, outside_library) = conn.query_row(ALL_MUSIC, [], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+    })?;
     let decisions = conn.query_row(&decisions_sql(), [now_ms], |r| r.get::<_, i64>(0))?;
     let last_sent = crate::send::last_send_ms(conn)?;
     let rekordbox_read =
@@ -595,6 +657,7 @@ pub fn overview_at(
             r.get::<_, bool>(0)
         })?;
     let (genres, no_genre) = genres(conn, tracks)?;
+    let (energy, no_energy) = energy(conn)?;
     let missing_tags = missing_tags(conn, volumes)?;
     let missing_art = conn.query_row(MISSING_ART, [], |r| r.get::<_, i64>(0))?;
     let counting = counting(conn)?;
@@ -615,6 +678,9 @@ pub fn overview_at(
         decisions_this_week: count(decisions),
         genres,
         no_genre,
+        energy,
+        no_energy,
+        outside_library: count(outside_library),
         missing_tags,
         missing_art: count(missing_art),
         counting,
