@@ -7,9 +7,8 @@ use crate::search::tests::support::Lib;
 /// Three tracks outside the Library; their ids.
 fn three() -> (Lib, [i64; 3]) {
     let lib = Lib::new();
-    let ids = [("One", "a.mp3"), ("Two", "b.mp3"), ("Three", "c.mp3")].map(|(title, name)| {
-        lib.track(Some(title), Some("Ann"), name).0
-    });
+    let ids = [("One", "a.mp3"), ("Two", "b.mp3"), ("Three", "c.mp3")]
+        .map(|(title, name)| lib.track(Some(title), Some("Ann"), name).0);
     (lib, ids)
 }
 
@@ -27,7 +26,10 @@ fn shown(lib: &Lib, track: i64) -> Option<(i64, String)> {
             c.query_row(
                 "SELECT energy, energy_source FROM recording_display WHERE recording_id = ?1",
                 [track],
-                |r| Ok(r.get::<_, Option<i64>>(0)?.zip(r.get::<_, Option<String>>(1)?)),
+                |r| {
+                    Ok(r.get::<_, Option<i64>>(0)?
+                        .zip(r.get::<_, Option<String>>(1)?))
+                },
             )
         })
         .unwrap()
@@ -51,7 +53,10 @@ fn undo(lib: &Lib) {
         .call(|c| Ok(ops::undo_for_user(c, None)))
         .unwrap()
         .unwrap();
-    assert!(matches!(undone, ops::UndoOutcome::Undone { .. }), "{undone:?}");
+    assert!(
+        matches!(undone, ops::UndoOutcome::Undone { .. }),
+        "{undone:?}"
+    );
 }
 
 fn energies(lib: &Lib, tracks: &[i64]) -> Vec<Option<i64>> {
@@ -127,10 +132,16 @@ fn when_nothing_changes_nothing_is_recorded() {
     let (lib, tracks) = three();
     set(&lib, &tracks, 4).unwrap();
     let again = set(&lib, &tracks, 4).unwrap();
-    assert_eq!((again.changed, again.skipped, again.operation_id), (0, 3, None));
+    assert_eq!(
+        (again.changed, again.skipped, again.operation_id),
+        (0, 3, None)
+    );
     assert_eq!(operations(&lib), 1);
     let none = set(&lib, &[], 4).unwrap();
-    assert_eq!((none.changed, none.skipped, none.operation_id), (0, 0, None));
+    assert_eq!(
+        (none.changed, none.skipped, none.operation_id),
+        (0, 0, None)
+    );
 }
 
 #[test]

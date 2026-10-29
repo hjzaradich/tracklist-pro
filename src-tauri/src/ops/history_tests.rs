@@ -1425,7 +1425,13 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     seen.sort_unstable();
     assert_eq!(
         seen,
-        ["analysis", "conflict", "crate_entry", "sent_entry", "sync_base"]
+        [
+            "analysis",
+            "conflict",
+            "crate_entry",
+            "sent_entry",
+            "sync_base"
+        ]
     );
 }
 

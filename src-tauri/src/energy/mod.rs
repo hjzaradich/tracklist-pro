@@ -99,59 +99,57 @@ pub fn set_energy_on(
         return Err(Refused::NotAnEnergy(energy));
     }
     let wanted = serde_json::to_string(recordings).expect("numbers always serialize");
-    let recorded = ops::record(
-        conn,
-        SET_ENERGY_OPERATION,
-        &serde_json::json!({}),
-        |rec| {
-            // The tracks that exist, with the user's row if they have one.
-            let held: HashMap<i64, Held> = rec
-                .read_rows(
-                    "SELECT r.id, a.id, a.energy
+    let recorded = ops::record(conn, SET_ENERGY_OPERATION, &serde_json::json!({}), |rec| {
+        // The tracks that exist, with the user's row if they have one.
+        let held: HashMap<i64, Held> = rec
+            .read_rows(
+                "SELECT r.id, a.id, a.energy
                      FROM recording r
                      LEFT JOIN analysis a ON a.recording_id = r.id AND a.source = 'user'
                      WHERE r.id IN (SELECT value FROM json_each(?1))",
-                    [wanted.as_str()],
-                    |r| {
-                        Ok((
-                            r.get::<_, i64>(0)?,
-                            (r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?),
-                        ))
-                    },
-                )?
-                .into_iter()
-                .collect();
-            let mut done = std::collections::HashSet::new();
-            let mut changed = 0u32;
-            for &recording in recordings {
-                if !done.insert(recording) {
-                    continue;
+                [wanted.as_str()],
+                |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        (r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?),
+                    ))
+                },
+            )?
+            .into_iter()
+            .collect();
+        let mut done = std::collections::HashSet::new();
+        let mut changed = 0u32;
+        for &recording in recordings {
+            if !done.insert(recording) {
+                continue;
+            }
+            match held.get(&recording) {
+                None => {}
+                Some((_, Some(now))) if *now == energy => {}
+                Some((Some(row), _)) => {
+                    rec.set("analysis", *row, "energy", energy)?;
+                    changed += 1;
                 }
-                match held.get(&recording) {
-                    None => {}
-                    Some((_, Some(now))) if *now == energy => {}
-                    Some((Some(row), _)) => {
-                        rec.set("analysis", *row, "energy", energy)?;
-                        changed += 1;
-                    }
-                    Some((None, _)) => {
-                        rec.insert(
-                            "analysis",
-                            &[
-                                ("recording_id", recording.into()),
-                                ("source", Value::Text("user".to_owned())),
-                                ("energy", energy.into()),
-                            ],
-                        )?;
-                        changed += 1;
-                    }
+                Some((None, _)) => {
+                    rec.insert(
+                        "analysis",
+                        &[
+                            ("recording_id", recording.into()),
+                            ("source", Value::Text("user".to_owned())),
+                            ("energy", energy.into()),
+                        ],
+                    )?;
+                    changed += 1;
                 }
             }
-            rec.detail("tracks", changed);
-            Ok(changed)
-        },
-    )?;
-    let asked = recordings.iter().collect::<std::collections::HashSet<_>>().len();
+        }
+        rec.detail("tracks", changed);
+        Ok(changed)
+    })?;
+    let asked = recordings
+        .iter()
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     Ok(EnergySet {
         changed: recorded.value,
         skipped: (asked as u32).saturating_sub(recorded.value),

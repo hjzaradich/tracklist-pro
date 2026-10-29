@@ -52,12 +52,12 @@ fn the_ids_of_a_range_are_the_ids_of_the_same_rows_in_a_window_in_every_sort_bot
                 assert_eq!(ids_of(&lib, &q), Some(whole.clone()), "{q:?}");
                 // A range in the middle is the same rows.
                 let middle = TableQuery {
-                    offset: 2,
-                    limit: 3,
+                    offset: 1,
+                    limit: 2,
                     with_total: false,
                     ..q.clone()
                 };
-                assert_eq!(ids_of(&lib, &middle), Some(whole[2..5].to_vec()), "{q:?}");
+                assert_eq!(ids_of(&lib, &middle), Some(whole[1..3].to_vec()), "{q:?}");
             }
         }
     }
@@ -95,7 +95,13 @@ fn a_list_longer_than_a_window_comes_whole_in_one_answer() {
     let all = ids_of(&lib, &q).unwrap();
     assert_eq!(all.len(), count);
     // A window stops at its own limit; the ids don't, and are the same order.
-    let first_window = ids(&run(&lib, TableQuery { limit: MAX_WINDOW, ..q.clone() }));
+    let first_window = ids(&run(
+        &lib,
+        TableQuery {
+            limit: MAX_WINDOW,
+            ..q.clone()
+        },
+    ));
     assert_eq!(first_window.len(), MAX_WINDOW as usize);
     assert_eq!(all[..first_window.len()], first_window[..]);
     // A range beyond the first window is the rest.

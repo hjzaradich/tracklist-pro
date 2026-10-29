@@ -140,11 +140,7 @@ fn after_the_migration_analysis_keeps_its_rules() {
         "INSERT INTO analysis (recording_id, source) VALUES (2, 'tag')",
         "CHECK",
     );
-    refuses(
-        &conn,
-        "DELETE FROM recording WHERE id = 1",
-        "FOREIGN KEY",
-    );
+    refuses(&conn, "DELETE FROM recording WHERE id = 1", "FOREIGN KEY");
 }
 
 #[test]
@@ -244,7 +240,11 @@ fn the_rebuild_keeps_every_index_and_trigger_of_analysis_and_changes_nothing_els
     );
     assert_eq!(
         on_analysis(&conn, "trigger"),
-        ["search_analysis_added", "search_analysis_changed", "search_analysis_removed"]
+        [
+            "search_analysis_added",
+            "search_analysis_changed",
+            "search_analysis_removed"
+        ]
     );
     assert_eq!(
         on_analysis(&conn, "trigger"),
@@ -262,7 +262,9 @@ fn the_rebuild_keeps_every_index_and_trigger_of_analysis_and_changes_nothing_els
             .cloned()
             .collect::<Vec<_>>()
     };
-    assert!(rest(&old).iter().any(|(_, name, _, _)| name == "recording_display"));
+    assert!(rest(&old)
+        .iter()
+        .any(|(_, name, _, _)| name == "recording_display"));
     assert_eq!(rest(&new), rest(&old));
 
     // The only change to `analysis` is the ids that are never reused.
@@ -272,8 +274,11 @@ fn the_rebuild_keeps_every_index_and_trigger_of_analysis_and_changes_nothing_els
             .and_then(|(_, _, _, sql)| sql.clone())
             .unwrap()
     };
+    // (SQLite quotes the name when it renames the new table into place.)
     assert_eq!(
-        table(&new).replace("INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER PRIMARY KEY"),
+        table(&new)
+            .replace("CREATE TABLE \"analysis\"", "CREATE TABLE analysis")
+            .replace("INTEGER PRIMARY KEY AUTOINCREMENT", "INTEGER PRIMARY KEY"),
         table(&old)
     );
 }
@@ -315,11 +320,20 @@ fn the_rebuild_is_one_transaction_a_failing_step_leaves_the_old_table_whole() {
     let rows_before = rows(&conn);
     // This migration with a last step that fails.
     let real = MIGRATIONS[before()];
-    let sql: &'static str = Box::leak(format!("{}
+    let sql: &'static str = Box::leak(
+        format!(
+            "{}
 SELECT * FROM no_such_table;
-", real.sql).into_boxed_str());
+",
+            real.sql
+        )
+        .into_boxed_str(),
+    );
     let mut list = MIGRATIONS[..before()].to_vec();
-    list.push(Migration { name: real.name, sql });
+    list.push(Migration {
+        name: real.name,
+        sql,
+    });
     assert!(run(&mut conn, &list).is_err());
     assert_eq!(schema(&conn), old);
     assert_eq!(rows(&conn), rows_before);
