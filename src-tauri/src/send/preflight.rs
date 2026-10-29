@@ -426,45 +426,93 @@ pub(super) fn changed_after_export(
 /// rekordbox after exporting and sends at once is warned, though no scan
 /// has seen the change.
 ///
-/// This asks the disk once per track the scan didn't flag and once per
-/// drive, so the prepare step calls it after its writer job, never inside
-/// one, and the go never asks again (the token doesn't cover the answer).
-/// A file isn't looked at, and the scan's answer stands, when its drive
-/// isn't connected now or is a network drive, or the lookup fails. Off
-/// Windows no drive is connected, so only the scan's answer counts
-/// (ROADMAP §1.1).
+/// This asks the disk, so the prepare step calls it after its writer job,
+/// never inside one, and the go never asks again (the token doesn't cover
+/// the answer). A folder holding [`LIST_FROM`] or more of the files is
+/// listed once, which gives every file's modified time without opening it
+/// (as the scan's walk does); other files are looked up one by one. A file
+/// isn't looked at, and the scan's answer stands, when its drive isn't
+/// connected now or is a network drive, or the lookup fails. Off Windows no
+/// drive is connected, so only the scan's answer counts (ROADMAP §1.1).
 pub fn changed_on_disk(watched: &[Watched], export_modified_ms: i64) -> Vec<TrackLabel> {
     let after = first_ns_after(export_modified_ms);
     // By drive (a path's first three characters, letter case folded):
     // whether it's a local drive that's connected.
     let mut local: HashMap<String, bool> = HashMap::new();
+    // The files to look at, by folder: those the scan didn't flag.
+    let mut wanted: HashMap<&str, Vec<&str>> = HashMap::new();
+    for w in watched.iter().filter(|w| !w.recorded) {
+        let Some(path) = w.path.as_deref() else {
+            continue;
+        };
+        let Some(drive) = path.get(..3) else {
+            continue;
+        };
+        let connected = *local
+            .entry(drive.to_ascii_uppercase())
+            .or_insert_with(|| is_local_drive(drive));
+        if let (true, Some((folder, name))) = (connected, path.rsplit_once('\\')) {
+            wanted.entry(folder).or_default().push(name);
+        }
+    }
+    let mut modified: HashMap<(&str, &str), i64> = HashMap::new();
+    for (&folder, names) in &wanted {
+        let listed = if names.len() >= LIST_FROM {
+            listing(folder)
+        } else {
+            None
+        };
+        for &name in names {
+            let at = match &listed {
+                Some(listing) => listing
+                    .get(name)
+                    .copied()
+                    .or_else(|| modified_at(&format!("{folder}\\{name}"))),
+                None => modified_at(&format!("{folder}\\{name}")),
+            };
+            if let Some(at) = at {
+                modified.insert((folder, name), at);
+            }
+        }
+    }
     watched
         .iter()
         .filter(|w| {
             w.recorded
-                || w.path.as_deref().is_some_and(|path| {
-                    let Some(drive) = path.get(..3) else {
-                        return false;
-                    };
-                    *local
-                        .entry(drive.to_ascii_uppercase())
-                        .or_insert_with(|| is_local_drive(drive))
-                        && modified_since(path, after)
-                })
+                || w.path
+                    .as_deref()
+                    .and_then(|path| path.rsplit_once('\\'))
+                    .and_then(|key| modified.get(&key))
+                    .is_some_and(|&at| at >= after)
         })
         .map(|w| w.track.clone())
         .collect()
 }
 
-/// Whether the disk says `path` was modified at `after` (nanoseconds since
-/// the Unix epoch) or later. Only looks; `false` when it can't tell.
-fn modified_since(path: &str, after: i64) -> bool {
-    let Ok(path) = crate::paths::verbatim_absolute(std::path::Path::new(path)) else {
-        return false;
-    };
-    std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .is_ok_and(|at| crate::scan::walk::nanos(at) >= after)
+/// How many files of one folder make [`changed_on_disk`] list the folder
+/// instead of looking the files up one by one.
+pub(super) const LIST_FROM: usize = 8;
+
+/// The modified time of every file in `folder`, by name, in nanoseconds
+/// since the Unix epoch, from one listing; `None` if it can't be listed.
+fn listing(folder: &str) -> Option<HashMap<String, i64>> {
+    let folder = crate::paths::verbatim_absolute(std::path::Path::new(folder)).ok()?;
+    let mut found = HashMap::new();
+    for entry in std::fs::read_dir(folder).ok()?.flatten() {
+        if let Ok(at) = entry.metadata().and_then(|m| m.modified()) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            found.insert(name, crate::scan::walk::nanos(at));
+        }
+    }
+    Some(found)
+}
+
+/// The modified time of the file at `path`, in nanoseconds since the Unix
+/// epoch; `None` when the disk can't tell.
+fn modified_at(path: &str) -> Option<i64> {
+    let path = crate::paths::verbatim_absolute(std::path::Path::new(path)).ok()?;
+    let at = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+    Some(crate::scan::walk::nanos(at))
 }
 
 /// Whether an export saved at `export_modified_ms` is older than the last

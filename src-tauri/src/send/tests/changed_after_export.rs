@@ -248,7 +248,7 @@ fn a_file_tag_is_never_taken_as_rekordboxs_value_and_the_warning_changes_nothing
 #[cfg(windows)]
 mod on_disk {
     use super::*;
-    use crate::send::preflight::{changed_on_disk, Watched};
+    use crate::send::preflight::{changed_on_disk, Watched, LIST_FROM};
 
     /// The test volume, mounted at a folder of the sandbox, so its files are
     /// real files on a local drive.
@@ -337,37 +337,58 @@ mod on_disk {
             .unwrap();
     }
 
-    #[test]
-    fn a_file_changed_on_disk_after_the_export_is_counted_though_no_scan_has_seen_it() {
+    /// rekordbox edited one file after the export and no scan has run since;
+    /// `others` more files the scan saw, unchanged, share its folder.
+    fn check_on_disk(others: usize) {
         let w = World::new();
         let root = w.volume_root();
-        let (edited, edited_file) = w.library_track("edited.mp3", "Edited", true);
-        let (untouched, untouched_file) = w.library_track("untouched.mp3", "Untouched", true);
+        let music = root.join("Music");
+        let mut names = vec!["edited.mp3".to_owned(), "untouched.mp3".to_owned()];
+        names.extend((0..others).map(|i| format!("other-{i}.mp3")));
+        let mut tracks = Vec::new();
+        let mut files = Vec::new();
+        for name in &names {
+            let (track, file) = w.library_track(name, name, true);
+            fs::write(music.join(name), b"").unwrap();
+            tracks.push(track);
+            files.push(file);
+        }
         let (gone, gone_file) = w.library_track("gone.mp3", "Gone", true);
-        w.crate_of("Warm up", &[edited, untouched, gone]);
-        for name in ["edited.mp3", "untouched.mp3"] {
-            fs::write(root.join("Music").join(name), b"").unwrap();
-        }
-        w.save_export_text(&export_on(
-            &root,
-            &[(40, "edited.mp3"), (41, "untouched.mp3"), (42, "gone.mp3")],
-        ));
+        tracks.push(gone);
+        names.push("gone.mp3".to_owned());
+        w.crate_of("Warm up", &tracks);
+        let entries: Vec<(u32, &str)> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (40 + u32::try_from(i).unwrap(), name.as_str()))
+            .collect();
+        w.save_export_text(&export_on(&root, &entries));
         let export = w.export_ms();
-        // The last scan saw both files on disk before the export. rekordbox
-        // then wrote an edit into one, and no scan has run since.
-        for file in [edited_file, untouched_file] {
+        // The last scan saw every file on disk before the export.
+        for (name, &file) in names.iter().zip(&files) {
             w.file_modified(file, (export - 60_000) * MS);
+            touch_at(&music.join(name), export - 60_000);
         }
-        touch_at(&root.join("Music").join("edited.mp3"), export + 1_000);
-        touch_at(&root.join("Music").join("untouched.mp3"), export - 60_000);
+        // rekordbox then wrote an edit into one.
+        touch_at(&music.join("edited.mp3"), export + 1_000);
         // A file the disk can't show: the scan's answer stands.
         w.file_modified(gone_file, (export + 1) * MS);
 
         let preflight = w.prepare_on(&root).unwrap();
-        assert_eq!(preflight.known_tracks, 3);
-        // `untouched` isn't listed: its file is as the scan saw it.
-        assert_eq!(listed(&preflight), [edited, gone]);
-        assert!(!listed(&preflight).contains(&untouched));
+        assert_eq!(preflight.known_tracks as usize, names.len());
+        assert_eq!(listed(&preflight), [tracks[0], gone]);
+    }
+
+    #[test]
+    fn a_file_changed_on_disk_after_the_export_is_counted_though_no_scan_has_seen_it() {
+        // Few files in the folder: each is looked up on its own.
+        check_on_disk(0);
+    }
+
+    #[test]
+    fn a_file_changed_on_disk_is_counted_from_its_folders_listing_too() {
+        // Enough to list the folder once instead.
+        check_on_disk(LIST_FROM);
     }
 
     /// A send of `count` tracks rekordbox has, each on a real file, every tenth

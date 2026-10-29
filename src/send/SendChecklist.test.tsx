@@ -383,6 +383,8 @@ describe("the send checklist", () => {
     expect(
       await review.findByText(tx("send:review.changedAfterExport", { count: 2 })),
     ).toBeInTheDocument();
+    // The list waits until it's asked for.
+    expect(review.getByText("Velo")).not.toBeVisible();
     await userEvent.click(review.getByText(tx("send:review.changedAfterExportList")));
     expect(review.getByText("Velo")).toBeVisible();
     expect(review.getByText("drift.mp3")).toBeVisible();
