@@ -25,7 +25,12 @@
 //!   audio is opened read-only.
 //! - **The loaded file first.** The player asks for the file it has loaded
 //!   ([`waveform_first`]); a job for that one file, at user priority, draws
-//!   it without waiting for the budget or for other jobs.
+//!   it without waiting for the budget or for other jobs. Only the file asked
+//!   for last counts: a job for a file the player has moved on from drops
+//!   out, so skipping through tracks piles up nothing.
+//! - **One decode at a time in the whole app.** The background run and the
+//!   files asked for share one lock around the decode, so memory stays
+//!   capped whatever asked.
 //! - **Same audio, drawn once.** Before a file is decoded, the peaks of
 //!   another file with the very same `audio_hash` are copied (an index on
 //!   it makes that one lookup): duplicates, a copy in two folders and a file
@@ -49,7 +54,7 @@ mod tests;
 use rusqlite::Connection;
 use serde::Serialize;
 use specta::Type;
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 use crate::db::{DbError, ReadPool, Writer};
 use crate::ipc::IpcError;
@@ -58,7 +63,7 @@ use crate::scan::chain::{self, Reach};
 use crate::scan::folders;
 use crate::scan::ReadGate;
 
-pub use job::{waveform_job, waveform_job_for, Waveformer, PRIORITY};
+pub use job::{waveform_job, waveform_job_for, Wanted, Waveformer, PRIORITY};
 pub use peaks::BUCKETS;
 
 /// The waveform job's handler for the app, on the thread budget the
@@ -68,6 +73,18 @@ pub fn waveformer<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
         crate::scan::system_volumes,
         crate::fingerprint::shared_first(app),
     )
+    .wanted(shared_wanted(app))
+}
+
+/// The record of the file the player asked for last, kept in Tauri's state
+/// for [`waveform_first`]: made on the first call, the same one after.
+pub fn shared_wanted<R: Runtime>(app: &AppHandle<R>) -> Wanted {
+    if let Some(wanted) = app.try_state::<Wanted>() {
+        return wanted.inner().clone();
+    }
+    let wanted = Wanted::default();
+    app.manage(wanted.clone());
+    wanted
 }
 
 /// The version of the method. Bump it when anything that shapes the peaks
@@ -131,9 +148,12 @@ pub fn waveform_peaks(reads: State<'_, ReadPool>, file_id: i64) -> Result<Wavefo
 /// other job: it is one file, and the user is looking at it.
 pub(crate) fn request_first<E: From<DbError>>(
     writer: &Writer,
+    wanted: &Wanted,
     file_id: i64,
     enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
 ) -> Result<(), E> {
+    // Whatever was asked for before is no longer wanted.
+    wanted.ask(file_id);
     if writer.call(move |c| ledger::due(c, file_id))?.is_some() {
         chain::queue_once(writer, waveform_job_for(vec![file_id]), enqueue)?;
     }
@@ -147,10 +167,13 @@ pub(crate) fn request_first<E: From<DbError>>(
 #[specta::specta]
 pub fn waveform_first(
     writer: State<'_, Writer>,
+    wanted: State<'_, Wanted>,
     jobs: State<'_, JobQueue>,
     file_id: i64,
 ) -> Result<(), IpcError> {
-    Ok(request_first(&writer, file_id, |job| jobs.enqueue(job))?)
+    Ok(request_first(&writer, &wanted, file_id, |job| {
+        jobs.enqueue(job)
+    })?)
 }
 
 /// Queues a waveform job if any file is due, unless one is already queued

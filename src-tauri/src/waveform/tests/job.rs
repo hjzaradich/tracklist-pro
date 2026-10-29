@@ -16,7 +16,7 @@ use crate::jobs::{JobContext, JobError, JobId, JobKind, JobQueue, JobStatus, New
 use crate::scan::walk::{scan_job, ScannedFile, Walker};
 use crate::waveform::{
     peaks, request, request_first, waveform_job, waveform_job_for, waveform_of, Waveform,
-    Waveformer, PRIORITY, VERSION,
+    Wanted, Waveformer, PRIORITY, VERSION,
 };
 
 const RATE: u32 = 44_100;
@@ -677,6 +677,7 @@ fn a_file_asked_for_is_drawn_at_once_even_while_the_other_waveforms_wait_behind_
     let handler = waveformer(&library).on_pause(move || {
         paused.send(()).ok();
     });
+    let wanted = handler.wanted_handle();
     let (up, export_up) = mpsc::channel();
     let (release, released) = mpsc::channel();
     let queue = queue_with_a_blocking_job(&library, handler, blocking_job(up, released));
@@ -687,7 +688,10 @@ fn a_file_asked_for_is_drawn_at_once_even_while_the_other_waveforms_wait_behind_
     assert_eq!(stored_rows(&library), 0, "the waveforms wait");
 
     // The player loads the last file: it is asked for.
-    request_first(&library.writer, ids["c.wav"], |job| queue.enqueue(job)).unwrap();
+    request_first(&library.writer, &wanted, ids["c.wav"], |job| {
+        queue.enqueue(job)
+    })
+    .unwrap();
     let asked = JobId(
         library
             .writer
@@ -719,6 +723,7 @@ fn a_file_is_asked_for_only_while_it_is_due_and_the_job_is_for_it_alone_at_user_
     library.put("a.wav", &wav(6.0));
     let ids = library.walk_and_hash();
     let id = ids["a.wav"];
+    let wanted = Wanted::default();
     let queued = |library: &Library| -> Vec<(i64, Option<String>)> {
         library
             .writer
@@ -732,10 +737,10 @@ fn a_file_is_asked_for_only_while_it_is_due_and_the_job_is_for_it_alone_at_user_
             .unwrap()
     };
     // A file nobody knows, then the file twice: one job, for it alone.
-    request_first(&library.writer, 9_999, store_row(&library)).unwrap();
+    request_first(&library.writer, &wanted, 9_999, store_row(&library)).unwrap();
     assert_eq!(queued(&library), []);
-    request_first(&library.writer, id, store_row(&library)).unwrap();
-    request_first(&library.writer, id, store_row(&library)).unwrap();
+    request_first(&library.writer, &wanted, id, store_row(&library)).unwrap();
+    request_first(&library.writer, &wanted, id, store_row(&library)).unwrap();
     let jobs = queued(&library);
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0].0, Priority::USER.0);
@@ -748,6 +753,149 @@ fn a_file_is_asked_for_only_while_it_is_due_and_the_job_is_for_it_alone_at_user_
         .call(|c| c.execute("DELETE FROM job", []))
         .unwrap();
     draw_all(&library);
-    request_first(&library.writer, id, store_row(&library)).unwrap();
+    request_first(&library.writer, &wanted, id, store_row(&library)).unwrap();
     assert_eq!(queued(&library), []);
+}
+
+/// What a test sees of the decodes: how many run at once (the most there
+/// ever were), and which files were decoded, in order. The first decode,
+/// of `hold`, stays in progress until `release` is sent on.
+struct Decodes {
+    active: Arc<AtomicUsize>,
+    most: Arc<AtomicUsize>,
+    decoded: Arc<Mutex<Vec<i64>>>,
+}
+
+fn watching_decodes(
+    handler: Waveformer<TempVolume>,
+    hold: i64,
+    started: mpsc::Sender<()>,
+    release: mpsc::Receiver<()>,
+    waiting: mpsc::Sender<i64>,
+) -> (Waveformer<TempVolume>, Decodes) {
+    let seen = Decodes {
+        active: Arc::new(AtomicUsize::new(0)),
+        most: Arc::new(AtomicUsize::new(0)),
+        decoded: Arc::new(Mutex::new(Vec::new())),
+    };
+    let (active, most, decoded) = (seen.active.clone(), seen.most.clone(), seen.decoded.clone());
+    let release = Mutex::new(release);
+    let begin = move |id: i64| {
+        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+        most.fetch_max(now, Ordering::SeqCst);
+        decoded.lock().unwrap().push(id);
+        if id == hold {
+            started.send(()).unwrap();
+            release.lock().unwrap().recv_timeout(PATIENCE).unwrap();
+        }
+    };
+    let end = seen.active.clone();
+    let handler = handler
+        .on_decode(begin)
+        .on_decoded(move |_| {
+            end.fetch_sub(1, Ordering::SeqCst);
+        })
+        .on_decode_wait(move |id| {
+            waiting.send(id).ok();
+        });
+    (handler, seen)
+}
+
+fn waveform_jobs(library: &Library) -> Vec<JobId> {
+    library
+        .writer
+        .call(|c| {
+            let mut s = c.prepare("SELECT id FROM job WHERE kind = 'waveform' ORDER BY id")?;
+            let rows = s.query_map([], |r| Ok(JobId(r.get(0)?)))?;
+            rows.collect()
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_file_asked_for_never_decodes_beside_the_background_run() {
+    let library = Library::new();
+    library.put("a.wav", &wav(6.0));
+    library.put("c.wav", &wav(7.0));
+    let ids = library.walk_and_hash();
+    // The background run takes the lower id first.
+    let (a, c) = (ids["a.wav"].min(ids["c.wav"]), ids["a.wav"].max(ids["c.wav"]));
+
+    let (started, started_rx) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let (waiting, waiting_rx) = mpsc::channel();
+    let (handler, seen) =
+        watching_decodes(waveformer(&library), a, started, release_rx, waiting);
+    let wanted = handler.wanted_handle();
+    let queue = JobQueue::builder(library.writer.clone())
+        .workers(2)
+        .handler(JobKind::Waveform, handler)
+        .start()
+        .unwrap();
+
+    // The background run is in the middle of decoding the first file…
+    let background = queue.enqueue(waveform_job()).unwrap();
+    started_rx.recv_timeout(PATIENCE).unwrap();
+    // …when the player asks for the other. It has to wait for its turn.
+    request_first(&library.writer, &wanted, c, |job| queue.enqueue(job)).unwrap();
+    assert_eq!(waiting_rx.recv_timeout(PATIENCE).unwrap(), c);
+    assert_eq!(*seen.decoded.lock().unwrap(), [a], "nothing else is decoding");
+    assert_eq!(seen.active.load(Ordering::SeqCst), 1);
+
+    release.send(()).unwrap();
+    assert_eq!(wait(&library.writer, background).status, JobStatus::Done);
+    for job in waveform_jobs(&library) {
+        assert_eq!(wait(&library.writer, job).status, JobStatus::Done);
+    }
+    queue.shutdown();
+    assert_eq!(seen.most.load(Ordering::SeqCst), 1, "never two at once");
+    let mut decoded = seen.decoded.lock().unwrap().clone();
+    decoded.sort_unstable();
+    assert_eq!(decoded, [a, c], "each decoded once");
+    assert!(matches!(answer(&library, a), Waveform::Ready { .. }));
+    assert!(matches!(answer(&library, c), Waveform::Ready { .. }));
+}
+
+#[test]
+fn requests_for_files_the_player_skipped_past_drop_out_and_do_not_pile_up() {
+    let library = Library::new();
+    for (i, name) in ["a.wav", "b.wav", "c.wav", "d.wav"].into_iter().enumerate() {
+        library.put(name, &wav(6.0 + i as f64));
+    }
+    let ids = library.walk_and_hash();
+    let (a, b, c, d) = (ids["a.wav"], ids["b.wav"], ids["c.wav"], ids["d.wav"]);
+
+    let (started, started_rx) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let (waiting, _waiting_rx) = mpsc::channel();
+    let (handler, seen) =
+        watching_decodes(waveformer(&library), a, started, release_rx, waiting);
+    let wanted = handler.wanted_handle();
+    let queue = JobQueue::builder(library.writer.clone())
+        .workers(4)
+        .handler(JobKind::Waveform, handler)
+        .start()
+        .unwrap();
+
+    // The first file is being decoded; the player skips on through three more.
+    request_first(&library.writer, &wanted, a, |job| queue.enqueue(job)).unwrap();
+    started_rx.recv_timeout(PATIENCE).unwrap();
+    for file in [b, c, d] {
+        request_first(&library.writer, &wanted, file, |job| queue.enqueue(job)).unwrap();
+    }
+
+    release.send(()).unwrap();
+    let jobs = waveform_jobs(&library);
+    assert_eq!(jobs.len(), 4);
+    for job in jobs {
+        assert_eq!(wait(&library.writer, job).status, JobStatus::Done);
+    }
+    queue.shutdown();
+    // The ones skipped past were never decoded: the one in progress and the
+    // one the player stopped on were.
+    assert_eq!(*seen.decoded.lock().unwrap(), [a, d]);
+    assert_eq!(seen.most.load(Ordering::SeqCst), 1);
+    assert!(matches!(answer(&library, d), Waveform::Ready { .. }));
+    assert_eq!(answer(&library, b), Waveform::NotReady);
+    assert_eq!(answer(&library, c), Waveform::NotReady);
 }

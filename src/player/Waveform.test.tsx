@@ -1,10 +1,17 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { emit } from "@tauri-apps/api/event";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import { tx } from "../test/tx";
 import { Waveform, WaveformPeaks, WaveformPlaceholder } from "./Waveform";
+import {
+  WAVEFORM_POLL_LIMIT,
+  WAVEFORM_POLL_MS,
+  WAVEFORM_QUICK_POLLS,
+  WAVEFORM_SLOW_POLL_MS,
+} from "./useWaveform";
 import { outline, playedFraction } from "./waveformShape";
 
 afterEach(() => {
@@ -162,5 +169,92 @@ describe("the waveform of a file", () => {
     });
     renderFor(7);
     expect(await screen.findByRole("img", { name: tx("player:waveform.notReady") })).toBeInTheDocument();
+  });
+});
+
+describe("looking again for a waveform that isn't drawn", () => {
+  const ENDED = [{ seq: 1, id: 1, kind: "scan", status: "done", progress: 1, priority: 0 }];
+  /** The whole schedule, in milliseconds. */
+  const SCHEDULE =
+    WAVEFORM_QUICK_POLLS * WAVEFORM_POLL_MS +
+    (WAVEFORM_POLL_LIMIT - WAVEFORM_QUICK_POLLS) * WAVEFORM_SLOW_POLL_MS;
+
+  it("slows down, stops after a bound, and starts a bounded run again when a task ends", async () => {
+    // Only the interval runs on a fake clock; TanStack Query's own 0 ms
+    // timers stay real (see XmlSourcePanel.test.tsx).
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let reads = 0;
+      mockIPC(
+        (cmd) => {
+          if (cmd !== "waveform_peaks") return null;
+          reads += 1;
+          return { state: "notReady" };
+        },
+        { shouldMockEvents: true },
+      );
+      render(
+        <QueryClientProvider client={createQueryClient()}>
+          <Waveform fileId={5} position={0} />
+        </QueryClientProvider>,
+      );
+      await screen.findByRole("img", { name: tx("player:waveform.notReady") });
+      expect(reads).toBe(1);
+
+      // The first looks come quickly, one each WAVEFORM_POLL_MS…
+      await act(() => vi.advanceTimersByTimeAsync(WAVEFORM_POLL_MS - 1));
+      expect(reads).toBe(1);
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(reads).toBe(2);
+      // …then they slow down: the next one is not due after the quick wait.
+      await act(() => vi.advanceTimersByTimeAsync((WAVEFORM_QUICK_POLLS - 2) * WAVEFORM_POLL_MS));
+      expect(reads).toBe(WAVEFORM_QUICK_POLLS);
+      await act(() => vi.advanceTimersByTimeAsync(WAVEFORM_POLL_MS));
+      expect(reads).toBe(WAVEFORM_QUICK_POLLS);
+      await act(() => vi.advanceTimersByTimeAsync(WAVEFORM_SLOW_POLL_MS - WAVEFORM_POLL_MS));
+      expect(reads).toBe(WAVEFORM_QUICK_POLLS + 1);
+
+      // It stops at the bound, however long the file stays undrawn.
+      await act(() => vi.advanceTimersByTimeAsync(2 * SCHEDULE));
+      expect(reads).toBe(WAVEFORM_POLL_LIMIT);
+      await act(() => vi.advanceTimersByTimeAsync(10 * SCHEDULE));
+      expect(reads).toBe(WAVEFORM_POLL_LIMIT);
+
+      // A task ends: one more look, and another bounded run.
+      await act(() => emit("job-updates", ENDED));
+      expect(reads).toBe(WAVEFORM_POLL_LIMIT + 1);
+      await act(() => vi.advanceTimersByTimeAsync(2 * SCHEDULE));
+      expect(reads).toBe(2 * WAVEFORM_POLL_LIMIT);
+      await act(() => vi.advanceTimersByTimeAsync(10 * SCHEDULE));
+      expect(reads).toBe(2 * WAVEFORM_POLL_LIMIT);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops looking when the waveform is drawn", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let reads = 0;
+      mockIPC((cmd) => {
+        if (cmd !== "waveform_peaks") return null;
+        reads += 1;
+        return reads < 3
+          ? { state: "notReady" }
+          : { state: "ready", peaks: PEAKS, levels: LEVELS, durationMs: 200_000 };
+      });
+      render(
+        <QueryClientProvider client={createQueryClient()}>
+          <Waveform fileId={5} position={0} />
+        </QueryClientProvider>,
+      );
+      await screen.findByRole("img", { name: tx("player:waveform.notReady") });
+      await act(() => vi.advanceTimersByTimeAsync(2 * WAVEFORM_POLL_MS));
+      expect(await screen.findByRole("img", { name: tx("player:waveform.label") })).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(10 * SCHEDULE));
+      expect(reads).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

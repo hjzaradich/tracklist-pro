@@ -17,8 +17,13 @@
 //!   files, not inside one: a very long file is decoded to its end.
 //! - **A file asked for** ([`waveform_job_for`], the player's loaded file,
 //!   1cB-9) is drawn first, by a job of its own at user priority that takes
-//!   no thread from the budget and waits for nobody: one file, the user is
-//!   waiting for it.
+//!   no thread from the budget and waits for no other job. It is dropped if
+//!   the player has asked for another file since ([`Wanted`]), so skipping
+//!   through tracks leaves no queue of decodes behind.
+//! - **One decode at a time in the whole app.** Every decode, the
+//!   background run's and a file asked for, takes the same lock, so memory
+//!   stays capped whatever asked: a file asked for waits for the decode in
+//!   progress, at most one file's time.
 //!
 //! Per file: if another file already holds the waveform of the very same
 //! audio (`audio_hash`), the peaks are copied and nothing is opened.
@@ -39,6 +44,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
 use std::thread;
 use std::time::Duration;
 
@@ -109,20 +115,55 @@ fn jobs_above(conn: &rusqlite::Connection) -> rusqlite::Result<Above> {
     })
 }
 
+/// How often a job waiting for the one decode at a time checks again.
+const DECODE_POLL: Duration = Duration::from_millis(20);
+
+/// The file the player asked for last ([`waveform_job_for`]). A job for one
+/// file drops out when another has been asked for since: the player moved
+/// on, so a run of skipped tracks never piles up decodes behind each other.
+/// Cheap to clone; clones share the answer.
+#[derive(Clone, Default)]
+pub struct Wanted(Arc<Mutex<Option<i64>>>);
+
+impl Wanted {
+    fn lock(&self) -> MutexGuard<'_, Option<i64>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Notes that the player wants file `id` now.
+    pub(crate) fn ask(&self, id: i64) {
+        *self.lock() = Some(id);
+    }
+
+    /// Whether `id` is still the file asked for last.
+    fn is(&self, id: i64) -> bool {
+        *self.lock() == Some(id)
+    }
+}
+
 /// Test hooks: called with each file id as the job takes it, with each file
-/// id it decodes, and whenever the job waits behind a running job.
+/// id it decodes (and when that decode is over), whenever the job waits
+/// behind a running job, and when a decode waits for the one in progress.
 type FileHook = Box<dyn Fn(i64) + Send + Sync>;
 type PauseHook = Box<dyn Fn() + Send + Sync>;
 
-/// The waveform job's handler.
+/// The waveform job's handler. One handler serves every waveform job, so
+/// what it holds is shared by all of them.
 pub struct Waveformer<V> {
     /// The volumes mounted now, asked once per job.
     volumes: Box<dyn Fn() -> V + Send + Sync>,
     first: FirstUp,
     budget: usize,
+    /// Held while a file is decoded: **one decode at a time in the whole
+    /// app**, whichever job asked for it (the background run, or a file the
+    /// player asked for), so memory stays capped.
+    decoding: Mutex<()>,
+    wanted: Wanted,
     on_file: Option<FileHook>,
     on_decode: Option<FileHook>,
+    on_decoded: Option<FileHook>,
     on_pause: Option<PauseHook>,
+    on_decode_wait: Option<FileHook>,
 }
 
 impl<V: Volumes + Sync + 'static> Waveformer<V> {
@@ -133,10 +174,43 @@ impl<V: Volumes + Sync + 'static> Waveformer<V> {
             volumes: Box::new(volumes),
             first,
             budget: default_threads(),
+            decoding: Mutex::new(()),
+            wanted: Wanted::default(),
             on_file: None,
             on_decode: None,
+            on_decoded: None,
             on_pause: None,
+            on_decode_wait: None,
         }
+    }
+
+    /// Uses `wanted` as the record of the file asked for last, shared with
+    /// whoever asks (the `waveform_first` command).
+    pub fn wanted(mut self, wanted: Wanted) -> Self {
+        self.wanted = wanted;
+        self
+    }
+
+    /// The record of the file asked for last.
+    #[cfg(all(test, windows))]
+    pub(crate) fn wanted_handle(&self) -> Wanted {
+        self.wanted.clone()
+    }
+
+    /// Calls `hook` with each file id when its decode is over (still inside
+    /// the one decode at a time).
+    #[cfg(all(test, windows))]
+    pub(crate) fn on_decoded(mut self, hook: impl Fn(i64) + Send + Sync + 'static) -> Self {
+        self.on_decoded = Some(Box::new(hook));
+        self
+    }
+
+    /// Calls `hook` with a file id once, when its decode has to wait for the
+    /// decode in progress.
+    #[cfg(all(test, windows))]
+    pub(crate) fn on_decode_wait(mut self, hook: impl Fn(i64) + Send + Sync + 'static) -> Self {
+        self.on_decode_wait = Some(Box::new(hook));
+        self
     }
 
     /// Calls `hook` with each file id as the job takes it.
@@ -300,6 +374,10 @@ impl<V: Volumes + Sync + 'static> Waveformer<V> {
     /// went.
     fn one(&self, run: &Run<'_, V>, id: i64) -> Result<(), JobError> {
         let job = run.job;
+        // The player has moved on to another file since this was asked for.
+        if run.urgent && !self.wanted.is(id) {
+            return Ok(());
+        }
         let Some(due) = job.writer().call(move |c| ledger::due(c, id))? else {
             return Ok(());
         };
@@ -322,6 +400,15 @@ impl<V: Volumes + Sync + 'static> Waveformer<V> {
             // Online only, or couldn't tell: don't open it.
             Ok(false) | Err(_) => return Ok(()),
         }
+        // One decode at a time in the whole app. Waiting for the turn can take
+        // as long as the decode in progress; meanwhile the file may have been
+        // drawn, or changed, or no longer be the one asked for.
+        let Some(_turn) = self.take_turn(run, id)? else {
+            return Ok(());
+        };
+        let Some(due) = job.writer().call(move |c| ledger::due(c, id))? else {
+            return Ok(());
+        };
         // Locked, gone, or the drive went away: nothing recorded, so it's
         // tried again next time.
         let Ok(file) = File::open(&path) else {
@@ -342,6 +429,9 @@ impl<V: Volumes + Sync + 'static> Waveformer<V> {
         let computed = panic::catch_unwind(AssertUnwindSafe(|| {
             compute(Box::new(file), &mut keep_going)
         }));
+        if let Some(hook) = &self.on_decoded {
+            hook(id);
+        }
         let row = match computed {
             Ok(Ok(c)) => Row::Peaks {
                 peaks: c.peaks,
@@ -362,6 +452,37 @@ impl<V: Volumes + Sync + 'static> Waveformer<V> {
         }
         job.writer().call(move |c| ledger::record(c, &due, &row))?;
         Ok(())
+    }
+}
+
+impl<V: Volumes + Sync + 'static> Waveformer<V> {
+    /// The one decode at a time ([`Waveformer::decoding`]): waits for its
+    /// turn, a poll at a time so a cancel is noticed. `None` if the job is
+    /// for a file the player has moved on from, by the time it has the turn
+    /// or while it waits.
+    fn take_turn(&self, run: &Run<'_, V>, id: i64) -> Result<Option<MutexGuard<'_, ()>>, JobError> {
+        let mut waited = false;
+        loop {
+            let turn = match self.decoding.try_lock() {
+                Ok(turn) => Some(turn),
+                Err(TryLockError::Poisoned(p)) => Some(p.into_inner()),
+                Err(TryLockError::WouldBlock) => None,
+            };
+            if let Some(turn) = turn {
+                return Ok((!run.urgent || self.wanted.is(id)).then_some(turn));
+            }
+            if !waited {
+                waited = true;
+                if let Some(hook) = &self.on_decode_wait {
+                    hook(id);
+                }
+            }
+            run.job.check_cancelled()?;
+            if run.urgent && !self.wanted.is(id) {
+                return Ok(None);
+            }
+            thread::sleep(DECODE_POLL);
+        }
     }
 }
 
