@@ -15,8 +15,11 @@ type Reading = { job: number; marker: string };
  * user saves from rekordbox and picks here, read into the snapshot as a job.
  * With the watch on, a newer export (the chosen file saved again, or one in
  * Documents) is offered, never read unasked.
+ *
+ * The offer's button is the screen's one filled button, unless `quiet`: once
+ * the Library has tracks, Send is the Overview's (1cB-11).
  */
-export function XmlSourcePanel() {
+export function XmlSourcePanel({ quiet = false }: { quiet?: boolean }) {
   const { t } = useTranslation("rekordbox");
   const titleId = useId();
   const [started, setStarted] = useState<Reading | null>(null);
@@ -75,7 +78,7 @@ export function XmlSourcePanel() {
           <span>{t("newer", { name: source.newerExport.name })}</span>
           <button
             type="button"
-            className={styles.button}
+            className={quiet ? styles.button : styles.primary}
             onClick={() => startRead(source.newerExport?.path ?? null)}
           >
             {t("readNewer")}

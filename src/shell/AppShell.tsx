@@ -7,6 +7,7 @@ import { PlayerBar } from "./PlayerBar";
 import { useTableOnScreen } from "./selectedTrack";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { useNoteLibraryChanges } from "../send/useLibraryChangedAt";
 import { useReloadListsWhenJobsEnd } from "./useReloadListsWhenJobsEnd";
 import { ZONES, type Zones } from "./zones";
 import styles from "./AppShell.module.css";
@@ -21,6 +22,7 @@ import styles from "./AppShell.module.css";
 export function AppShell({ zones = ZONES }: { zones?: Zones }) {
   useScannedFilesSync();
   useReloadListsWhenJobsEnd();
+  useNoteLibraryChanges();
   // The panel shows the selected row of a track table: it is drawn beside one.
   const tableOnScreen = useTableOnScreen();
   const details = zones.details && tableOnScreen;

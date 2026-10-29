@@ -1,9 +1,11 @@
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { emit } from "@tauri-apps/api/event";
+import { clearMocks } from "@tauri-apps/api/mocks";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
-import type { LibraryTrack, Overview, Preflight, ReviewCounts, SendState } from "../bindings";
+import type { JobUpdate, Overview, ReviewCounts } from "../bindings";
+import { fakeBackend, preflight } from "../test/overviewBackend";
 import { tx } from "../test/tx";
 
 // The Overview's top half (1cB-11): the header with Send, what's waiting, and
@@ -14,162 +16,11 @@ function contains(text: string): RegExp {
   return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`));
 }
 
-function libraryTrack(id: number): LibraryTrack {
-  return {
-    id,
-    recordingId: id + 100,
-    kind: "linked",
-    title: `Synthetic Tune ${id}`,
-    artist: null,
-    file: { id: 1, path: String.raw`E:\Music\tune.mp3`, name: "tune.mp3", present: true, driveConnected: true },
-    fragile: null,
-    sourceMissing: false,
-    openConflicts: 0,
-    addedAt: "2026-10-01T10:00:00.000Z",
-    betterFile: null,
-  };
-}
-
-const NOTHING_WAITING: Overview = {
-  tracks: 3,
-  totalLengthMs: 600_000,
-  inCrates: 3,
-  inNoCrate: 0,
-  analyzedByRekordbox: 3,
-  notAnalyzed: 0,
-  rekordboxRead: true,
-  lowQuality: 0,
-  lastSentMs: Date.UTC(2026, 9, 20, 12, 0),
-  allMusic: 3,
-  addedThisWeek: 0,
-  decisionsThisWeek: 0,
-  genres: [],
-  noGenre: 0,
-  missingTags: 0,
-  missingArt: 0,
-  counting: { files: false, rekordbox: false, quality: false },
-};
-
 /** The to-do list's own region (the sidebar has lists of its own). */
 function todoList() {
   return screen.getByRole("region", { name: tx("overview:todo.title") });
 }
 
-const NO_REVIEW: ReviewCounts = {
-  needsCloserLook: 0,
-  clearBestFile: 0,
-  qualityProblems: 0,
-  conflicts: 0,
-  total: 0,
-};
-
-function preflight(over: Partial<Preflight>): Preflight {
-  return {
-    token: "t1",
-    export: { path: String.raw`C:\export.xml`, modifiedMs: 0, readAt: "2026-10-27T10:00:00.000Z", notStored: 0 },
-    newTracks: 0,
-    knownTracks: 0,
-    leftOut: [],
-    fileMissing: [],
-    noFileAtLocation: [],
-    otherFile: [],
-    noKind: [],
-    losesEntries: [],
-    conflictsWaiting: 0,
-    refusal: null,
-    nothingToSend: false,
-    canSend: true,
-    exportOlderThanLastSend: false,
-    needsConfirm: false,
-    ...over,
-  } as Preflight;
-}
-
-interface World {
-  library?: number;
-  /** The Library can't be read. */
-  libraryBroken?: boolean;
-  overview?: Partial<Overview>;
-  /** The Overview command fails. */
-  overviewBroken?: boolean;
-  /** The Overview command doesn't answer until `release()`. */
-  overviewHeld?: boolean;
-  review?: Partial<ReviewCounts>;
-  preflight?: Preflight | null;
-}
-
-/** Stands in for the Rust side, and keeps the names of the commands asked. */
-function fakeBackend(world: World = {}) {
-  const calls: string[] = [];
-  let release = () => {};
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  mockIPC(
-    async (cmd) => {
-      calls.push(cmd);
-      switch (cmd) {
-        case "library_tracks":
-          if (world.libraryBroken) throw { kind: "database", params: {} };
-          return Array.from({ length: world.library ?? 3 }, (_, n) => libraryTrack(n + 1));
-        case "overview":
-          if (world.overviewHeld) await gate;
-          if (world.overviewBroken) throw { kind: "database", params: {} };
-          return { ...NOTHING_WAITING, ...world.overview };
-        case "review_counts":
-          return { ...NO_REVIEW, ...world.review };
-        case "send_state": {
-          const state: SendState = {
-            revision: 0,
-            filePath: String.raw`C:\data\send.xml`,
-            exportPath: null,
-            preflight: world.preflight ?? null,
-            step: null,
-            failure: null,
-            sent: null,
-          };
-          return state;
-        }
-        case "rekordbox_offer":
-          return { toAdd: 0, alreadyInLibrary: 0, waitingInMissing: 0, waitingForConfirmation: 0 };
-        case "after_send_lists":
-          return { playlistsChecked: true, stalePlaylists: [], manualRemovals: [] };
-        case "rekordbox_xml_source":
-          return {
-            path: null,
-            watch: false,
-            lastRead: null,
-            lastFailure: null,
-            newerExport: null,
-            exportFolder: null,
-          };
-        case "music_folders":
-          return [];
-        case "read_online_only_files":
-          return false;
-        case "key_notation":
-          return "camelot";
-        case "table_columns":
-          return null;
-        case "track_table_page":
-          return { total: 0, offset: 0, rows: [], behind: false };
-        case "list_crates":
-          return [];
-        case "missing_tracks":
-          return { total: 0, groups: [] };
-        case "review_conflict_fields":
-          return [];
-        case "review_items":
-          return { total: 0, items: [] };
-        default:
-          // The shell's own commands (Activity) aren't this test's business.
-          throw { kind: "internal", params: {} };
-      }
-    },
-    { shouldMockEvents: true },
-  );
-  return { calls, release };
-}
 
 // Unmount first: unmounting stops listening, which needs the mocks.
 afterEach(() => {
@@ -190,13 +41,26 @@ describe("Send on the Overview", () => {
     expect(calls.filter((cmd) => SEND_STEPS.includes(cmd))).toEqual([]);
   });
 
-  it("is the Overview's one filled button", async () => {
-    fakeBackend({ library: 3 });
+  it("is the Overview's one filled button, the quiet ones being quiet", async () => {
+    // Everything on the screen that can be filled is there: a newer export to
+    // read and rekordbox tracks to add.
+    fakeBackend({ library: 3, newerExport: true, rekordboxToAdd: 2 });
     renderApp("/overview");
     const send = await screen.findByRole("button", { name: tx("send:open") });
-    // Every filled button takes the class Send takes.
-    const filled = screen.getAllByRole("button").filter((button) => button.className === send.className);
+    const readNewer = await screen.findByRole("button", { name: tx("rekordbox:readNewer") });
+    const add = await screen.findByRole("button", { name: tx("rekordboxOffer:add") });
+    // Each stylesheet names its filled buttons "primary" (CSS modules keep the name in the class).
+    const filled = screen.getAllByRole("button").filter((button) => /primary/.test(button.className));
     expect(filled).toEqual([send]);
+    expect(readNewer).toBeEnabled();
+    expect(add).toBeEnabled();
+  });
+
+  it("makes Read newer export the filled button only while the Library has no tracks", async () => {
+    fakeBackend({ library: 0, newerExport: true });
+    renderApp("/overview");
+    const readNewer = await screen.findByRole("button", { name: tx("rekordbox:readNewer") });
+    expect(readNewer.className).toMatch(/primary/);
   });
 
   it("is greyed out, and names the reason, when the Library can't be read", async () => {
@@ -233,21 +97,46 @@ describe("Send on the Overview", () => {
   });
 });
 
-describe("the Overview's header", () => {
-  it("says how big the Library is and when it was last sent", async () => {
-    fakeBackend({ library: 3 });
+describe("the check the header repeats", () => {
+  it("says when the export was read on a line of its own, never after a full stop", async () => {
+    fakeBackend({
+      preflight: preflight({ refusal: { reason: "incompleteExport", path: [] }, canSend: false }),
+    });
     renderApp("/overview");
-    expect(await screen.findByText(tx("overview:header.library", { count: 3 }))).toBeInTheDocument();
-    const lastSent = tx("overview:header.lastSent", { when: "" }).trim();
-    expect(await screen.findByText(contains(lastSent))).toBeInTheDocument();
+    const refusal = await screen.findByText(tx("send:review.refused.incompleteExport"));
+    // The refusal is two sentences and ends in a full stop: nothing follows it on its line.
+    expect(refusal.textContent?.endsWith(".")).toBe(true);
+    expect(refusal.nextElementSibling).toHaveTextContent(contains(tx("overview:header.exportRead", { when: "" }).trim()));
   });
 
-  it("says when the Library was never sent", async () => {
-    fakeBackend({ overview: { lastSentMs: null } });
+  it("stops saying there is nothing to send once the Library has changed", async () => {
+    const world = { library: 3, preflight: preflight({ nothingToSend: true, canSend: false }) };
+    fakeBackend(world);
     renderApp("/overview");
-    expect(await screen.findByText(tx("overview:header.neverSent"))).toBeInTheDocument();
+    expect(await screen.findByText(contains(tx("send:review.nothing")))).toBeInTheDocument();
+
+    // A track is added: the check was made on a Library that is gone.
+    world.library = 4;
+    await act(() => emit("job-updates", [endedJob()]));
+    await waitFor(() => expect(screen.queryByText(contains(tx("send:review.nothing")))).toBeNull());
+    expect(screen.getByRole("button", { name: tx("send:open") })).toBeEnabled();
+  });
+
+  it("keeps saying it while the Library is the same after a job ends", async () => {
+    fakeBackend({ library: 3, preflight: preflight({ nothingToSend: true, canSend: false }) });
+    renderApp("/overview");
+    expect(await screen.findByText(contains(tx("send:review.nothing")))).toBeInTheDocument();
+
+    await act(() => emit("job-updates", [endedJob()]));
+    // Give the lists time to come back (they are asked again when a job ends).
+    await screen.findByText(tx("overview:todo.empty"));
+    expect(screen.getByText(contains(tx("send:review.nothing")))).toBeInTheDocument();
   });
 });
+
+function endedJob(): JobUpdate {
+  return { seq: 9, id: 9, kind: "scan", status: "done", progress: null, priority: 0 };
+}
 
 interface Line {
   name: string;
@@ -312,6 +201,12 @@ const LINES: Line[] = [
     overview: { inNoCrate: 1 },
     text: tx("overview:todo.inNoCrate", { count: 1 }),
     door: "/library",
+  },
+  {
+    name: "outsideLibrary",
+    overview: { outsideLibrary: 12 },
+    text: tx("overview:todo.outsideLibrary", { count: 12 }),
+    door: "/all-music",
   },
 ];
 

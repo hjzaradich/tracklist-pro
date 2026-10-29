@@ -1,12 +1,42 @@
 {
   "empty": "Your Library at a glance, and what to do next.",
   "header": {
-    "library_one": "Library: {{count, number}} track",
-    "library_other": "Library: {{count, number}} tracks",
-    "lastSent": "Last sent {{when}}",
-    "neverSent": "Not sent yet",
     "unreadable": "Can't send: the Library couldn't be read",
-    "lastCheck": "{{what}} (export read {{when}})"
+    "exportRead": "Export read {{when}}"
+  },
+  "numbers": {
+    "tracks_one": "track",
+    "tracks_other": "tracks",
+    "length": "{{hours, number}} h {{minutes}} min",
+    "lengthMinutes": "{{minutes}} min",
+    "inCrates": "in crates",
+    "analyzed": "analyzed by rekordbox",
+    "analyzedUnread": "analyzed (rekordbox not read yet)",
+    "lastSent": "last sent",
+    "neverSent": "Not sent yet"
+  },
+  "charts": {
+    "energy": {
+      "title": "Energy",
+      "none": "No energy",
+      "empty": "No tracks with energy"
+    },
+    "genres": {
+      "title": "Genres",
+      "other": "Other",
+      "none": "No genre",
+      "empty": "No tracks with a genre"
+    }
+  },
+  "outside": {
+    "title": "Outside your Library",
+    "tracks_zero": "No tracks",
+    "tracks_one": "{{count, number}} track",
+    "tracks_other": "{{count, number}} tracks",
+    "decisions_zero": "No items need a decision",
+    "decisions_one": "{{count, number}} item needs a decision",
+    "decisions_other": "{{count, number}} items need a decision",
+    "manageFolders": "Manage folders"
   },
   "todo": {
     "title": "What to do next",
@@ -21,16 +51,18 @@
     "notAnalyzed_other": "{{count, number}} tracks rekordbox hasn't analyzed",
     "inNoCrate_one": "{{count, number}} track in no crate",
     "inNoCrate_other": "{{count, number}} tracks in no crate",
+    "outsideLibrary_one": "{{count, number}} track outside your Library",
+    "outsideLibrary_other": "{{count, number}} tracks outside your Library",
     "lineCounting": "(still counting)",
     "counting": "Still counting",
     "empty": "Nothing to fix"
   },
   "progress": {
     "line": "This week: {{added}}, {{decisions}}",
-    "added_zero": "No tracks added",
+    "added_zero": "no tracks added",
     "added_one": "{{count, number}} track added",
     "added_other": "{{count, number}} tracks added",
-    "decisions_zero": "No decisions made",
+    "decisions_zero": "no decisions made",
     "decisions_one": "{{count, number}} decision made",
     "decisions_other": "{{count, number}} decisions made"
   }

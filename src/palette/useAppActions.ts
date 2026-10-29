@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useLibraryTracks } from "../library/useLibraryTracks";
+import { sendAvailable } from "../send/sendAvailable";
 import { STAGES } from "../shell/stages";
 import { THEMES, useThemeStore } from "../theme/themeStore";
 import { type PaletteAction, useRegisterActions } from "./registry";
@@ -41,7 +42,8 @@ export function useAppActions() {
       // Opens the guided send, which sends nothing until its own steps say so.
       id: "send",
       label: t("send:open"),
-      available: library.data !== undefined && library.data.length > 0,
+      // The Overview's Send button is greyed out under the same rule.
+      available: sendAvailable(library.data?.length),
       run: () => {
         ask("send");
         void navigate({ to: "/overview" });

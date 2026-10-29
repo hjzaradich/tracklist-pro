@@ -4,29 +4,109 @@
     "where": "Overview screen, when the Library has tracks (first-run flow not shown).",
     "approved": "Your Library at a glance, and what to do next."
   },
-  "header.library_one": {
-    "purpose": "Says how big the Library is.",
-    "where": "Overview header, first line."
-  },
-  "header.library_other": {
-    "purpose": "Says how big the Library is.",
-    "where": "Overview header, first line."
-  },
-  "header.lastSent": {
-    "purpose": "Says when the Library was last sent to rekordbox.",
-    "where": "Overview header, under the size, once the numbers have loaded."
-  },
-  "header.neverSent": {
-    "purpose": "Says the Library was never sent to rekordbox.",
-    "where": "Overview header, under the size, once the numbers have loaded."
-  },
   "header.unreadable": {
     "purpose": "Says why Send is greyed out.",
     "where": "Overview header, beside Send, when the Library can't be read."
   },
-  "header.lastCheck": {
-    "purpose": "Repeats what the send review found at its last read of the export, with when it was read. Send stays available: the next read may find otherwise.",
-    "where": "Overview header, under the size, when the review's last read found nothing to send or refused the send."
+  "header.exportRead": {
+    "purpose": "Says when the export was read, under what the send review's last read found. Kept apart from that text so a full stop never comes before it.",
+    "where": "Overview header, under the line that says what the last read found."
+  },
+  "numbers.tracks_one": {
+    "purpose": "Names the Library's track count in the first of the four numbers.",
+    "where": "Overview, the four numbers, under the count of tracks."
+  },
+  "numbers.tracks_other": {
+    "purpose": "Names the Library's track count in the first of the four numbers.",
+    "where": "Overview, the four numbers, under the count of tracks."
+  },
+  "numbers.length": {
+    "purpose": "The Library's total length, for an hour or more.",
+    "where": "Overview, the four numbers, under the count of tracks."
+  },
+  "numbers.lengthMinutes": {
+    "purpose": "The Library's total length, under an hour.",
+    "where": "Overview, the four numbers, under the count of tracks."
+  },
+  "numbers.inCrates": {
+    "purpose": "Names the count of Library tracks that are in at least one crate.",
+    "where": "Overview, the four numbers."
+  },
+  "numbers.analyzed": {
+    "purpose": "Names the count of Library tracks rekordbox supplied a BPM or a key for.",
+    "where": "Overview, the four numbers."
+  },
+  "numbers.analyzedUnread": {
+    "purpose": "Says why there is no count of analyzed tracks: rekordbox has not been read, so none could be.",
+    "where": "Overview, the four numbers, in place of the analyzed count before the first read of rekordbox."
+  },
+  "numbers.lastSent": {
+    "purpose": "Names the date the Library was last sent to rekordbox.",
+    "where": "Overview, the four numbers."
+  },
+  "numbers.neverSent": {
+    "purpose": "Says the Library was never sent to rekordbox.",
+    "where": "Overview, the four numbers, in place of the date of the last send."
+  },
+  "charts.energy.title": {
+    "purpose": "Heading of the bars that count tracks per energy, 1 to 10.",
+    "where": "Overview, above the energy bars."
+  },
+  "charts.energy.none": {
+    "purpose": "Label of the bar that counts tracks with no energy.",
+    "where": "Overview, energy bars, after energy 10."
+  },
+  "charts.energy.empty": {
+    "purpose": "Says no track has an energy, so there are no bars to draw.",
+    "where": "Overview, in place of the energy bars."
+  },
+  "charts.genres.title": {
+    "purpose": "Heading of the bars that count tracks per genre.",
+    "where": "Overview, above the genre bars."
+  },
+  "charts.genres.other": {
+    "purpose": "Label of the bar that adds up the genres too small to have a bar of their own.",
+    "where": "Overview, genre bars, after the biggest genres."
+  },
+  "charts.genres.none": {
+    "purpose": "Label of the bar that counts tracks with no genre.",
+    "where": "Overview, genre bars, last."
+  },
+  "charts.genres.empty": {
+    "purpose": "Says no track has a genre, so there are no bars to draw.",
+    "where": "Overview, in place of the genre bars."
+  },
+  "outside.title": {
+    "purpose": "Heading of the strip about the tracks in All music that are not in the Library.",
+    "where": "Overview, above the strip."
+  },
+  "outside.tracks_zero": {
+    "purpose": "Says no track in All music is outside the Library.",
+    "where": "Overview, Outside your Library."
+  },
+  "outside.tracks_one": {
+    "purpose": "Counts the tracks in All music that are not in the Library.",
+    "where": "Overview, Outside your Library."
+  },
+  "outside.tracks_other": {
+    "purpose": "Counts the tracks in All music that are not in the Library.",
+    "where": "Overview, Outside your Library."
+  },
+  "outside.decisions_zero": {
+    "purpose": "Says Review holds nothing that waits for a decision.",
+    "where": "Overview, Outside your Library."
+  },
+  "outside.decisions_one": {
+    "purpose": "Counts the items in Review that wait for a decision.",
+    "where": "Overview, Outside your Library."
+  },
+  "outside.decisions_other": {
+    "purpose": "Counts the items in Review that wait for a decision.",
+    "where": "Overview, Outside your Library."
+  },
+  "outside.manageFolders": {
+    "purpose": "Takes the user down to the music folders panel on the same screen.",
+    "where": "Overview, Outside your Library, beside the links to Review and All music."
   },
   "todo.title": {
     "purpose": "Heading of the list of things waiting for the DJ.",
@@ -74,6 +154,14 @@
   },
   "todo.inNoCrate_other": {
     "purpose": "Counts Library tracks in no crate. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.outsideLibrary_one": {
+    "purpose": "Counts the tracks in All music that are not in the Library. Opens All music.",
+    "where": "Overview to-do list."
+  },
+  "todo.outsideLibrary_other": {
+    "purpose": "Counts the tracks in All music that are not in the Library. Opens All music.",
     "where": "Overview to-do list."
   },
   "todo.lineCounting": {

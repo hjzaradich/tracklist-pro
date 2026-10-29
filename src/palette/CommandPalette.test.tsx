@@ -33,12 +33,17 @@ const OPERATION: OperationInfo = {
 };
 
 /** Stands in for the Rust side, and remembers which commands were asked. */
-function fakeBackend({ library = 2, undoable = true }: { library?: number; undoable?: boolean } = {}) {
+function fakeBackend({
+  library = 2,
+  undoable = true,
+  libraryBroken = false,
+}: { library?: number; undoable?: boolean; libraryBroken?: boolean } = {}) {
   const backend = { calls: [] as string[], undone: [] as number[], undoable };
   mockIPC(
     (cmd, rawArgs) => {
       backend.calls.push(cmd);
       const args = (rawArgs ?? {}) as Record<string, unknown>;
+      if (cmd === "library_tracks" && libraryBroken) throw { kind: "database", params: {} };
       if (cmd === "library_tracks") return Array.from({ length: library }, (_, n) => libraryTrack(n + 1));
       if (cmd === "next_undo_operation") {
         return { operation: backend.undoable ? OPERATION : null, refusal: null };
@@ -328,6 +333,17 @@ describe("the command palette", () => {
     } finally {
       question.remove();
     }
+  });
+
+  it("doesn't offer Send to rekordbox while the Overview's Send button is greyed out", async () => {
+    const backend = fakeBackend({ libraryBroken: true });
+    renderApp("/overview");
+    // The Library can't be read: the button is greyed out, and so is the palette's Send.
+    expect(await screen.findByRole("button", { name: tx("send:open") })).toBeDisabled();
+    await waitFor(() => expect(backend.calls).toContain("library_tracks"));
+    await openPalette();
+    expect(optionNames()).not.toContain(tx("send:open"));
+    expect(optionNames()).toContain(goTo("review"));
   });
 
   it("opens the send review for Send to rekordbox and sends nothing", async () => {

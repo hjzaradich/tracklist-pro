@@ -1,7 +1,10 @@
-/* The Overview's top half: the header with Send, what's waiting, and the
- * progress line (1cB-11). Same width as the panels below it. */
+/* The Overview: the header with the four numbers and Send, what's waiting, the
+ * progress line (1cB-11), the bars and the strip for what is outside the
+ * Library (1cB-12). Same width as the panels below it. */
 .header,
-.todo {
+.todo,
+.charts,
+.outside {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -15,10 +18,49 @@
 }
 
 .header {
-  flex-direction: row;
+  gap: var(--space-3);
+}
+
+.sendRow {
+  display: flex;
   gap: var(--space-4);
   align-items: flex-start;
   justify-content: space-between;
+}
+
+/* The four numbers: a row of figures, each with what it counts under it.
+ * Numbers are right-aligned with tabular figures, so they line up. */
+.numbers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.number {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.value {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.caption {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.number .muted {
+  font-size: var(--font-size-sm);
 }
 
 .facts {
@@ -30,13 +72,9 @@
 }
 
 .facts p,
-.todo p {
+.todo p,
+.outside p {
   margin: 0;
-}
-
-.size {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 .muted {
@@ -91,4 +129,106 @@
   margin: 0;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* The bars: one color, from a theme token. Each row has its label and its
+ * count in text, so the bar only adds the shape. */
+.charts {
+  gap: var(--space-4);
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chart p {
+  margin: 0;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: minmax(4rem, 9rem) 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: var(--row-height);
+}
+
+.barLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barTrack {
+  display: block;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-row-stripe);
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--color-text-muted);
+}
+
+.barCount {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Outside your Library: counts, then the doors, quiet like every button here
+ * but Send. */
+.outside {
+  font-variant-numeric: tabular-nums;
+}
+
+.doors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.door {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--row-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.door:hover {
+  background: var(--color-surface-hover);
+}
+
+.door:focus-visible,
+.anchor:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The folders panel, where "Manage folders" lands: focus goes to this box. */
+.anchor {
+  display: flex;
+  flex-direction: column;
 }
