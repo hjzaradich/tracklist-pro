@@ -114,6 +114,21 @@ pub struct Changed {
     pub operation_id: Option<i64>,
 }
 
+/// What adding tracks to a crate by their track id did (1cB-13): the table's
+/// rows are tracks, and only a Library track can join a crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedToCrate {
+    /// How many Library tracks joined the crate.
+    pub added: u32,
+    /// How many were in it already.
+    pub already_there: u32,
+    /// How many aren't in the Library, so were left out.
+    pub outside_library: u32,
+    /// The operation this recorded; `None` when nothing was added.
+    pub operation_id: Option<i64>,
+}
+
 /// Why a crate command was refused. Nothing was changed.
 #[derive(Debug)]
 pub enum CratesError {
@@ -718,6 +733,103 @@ pub fn add_on(
     .map(with_operation)
 }
 
+/// Adds tracks to a crate by their track id (`TableRow.recordingId`, 1cB-13),
+/// as the track table's selection holds them. Only Library tracks can join a
+/// crate: a track outside the Library is left out and counted (adding it to
+/// the Library as well is not built). A track already in the crate is
+/// skipped, and one listed twice counts once. A track that doesn't exist
+/// refuses the whole call before anything is added. One operation for all
+/// the tracks added, so one Undo takes them all out; none added, none
+/// recorded.
+pub fn add_recordings_on(
+    conn: &mut Connection,
+    id: CrateId,
+    recordings: &[i64],
+) -> Result<Done<AddedToCrate>, OpsError> {
+    let recorded = ops::record(
+        conn,
+        ADD_OPERATION,
+        &serde_json::json!({ "crateId": id.0 }),
+        |rec| {
+            let Some(name) = static_name(rec, id)? else {
+                return Ok(Err(CratesError::NotFound));
+            };
+            let library: HashMap<i64, i64> = rec
+                .read_rows("SELECT recording_id, id FROM library_track", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?
+                .into_iter()
+                .collect();
+            let known: HashSet<i64> = rec
+                .read_rows("SELECT id FROM recording", [], |r| r.get(0))?
+                .into_iter()
+                .collect();
+            if recordings.iter().any(|r| !known.contains(r)) {
+                return Ok(Err(CratesError::TrackNotFound));
+            }
+            let mut present: HashSet<i64> = rec
+                .read_rows(
+                    "SELECT library_track_id FROM crate_entry WHERE crate_id = ?1",
+                    [id.0],
+                    |r| r.get(0),
+                )?
+                .into_iter()
+                .collect();
+            let mut seen = HashSet::new();
+            let (mut added, mut already_there, mut outside_library) = (0, 0, 0);
+            for recording in recordings {
+                if !seen.insert(*recording) {
+                    continue;
+                }
+                match library.get(recording) {
+                    None => outside_library += 1,
+                    Some(track) if present.insert(*track) => {
+                        rec.insert(
+                            "crate_entry",
+                            &[
+                                ("crate_id", id.0.into()),
+                                ("library_track_id", (*track).into()),
+                            ],
+                        )?;
+                        added += 1;
+                    }
+                    Some(_) => already_there += 1,
+                }
+            }
+            rec.detail("name", name);
+            rec.detail("tracks", added);
+            Ok(Ok(AddedToCrate {
+                added,
+                already_there,
+                outside_library,
+                operation_id: None,
+            }))
+        },
+    )?;
+    Ok(recorded.value.map(|done| AddedToCrate {
+        operation_id: recorded.operation_id,
+        ..done
+    }))
+}
+
+/// The crates (not folders) a track is in, by id: the answer to "which
+/// crates is this track in?" for the Details panel (1cB-14). `recording` is
+/// the track's id (`TableRow.recordingId`); a track outside the Library is in
+/// no crate. The caller puts them in tree order.
+pub fn crates_of(conn: &Connection, recording: i64) -> rusqlite::Result<Vec<CrateId>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT c.id FROM crate_entry e
+         JOIN library_track l ON l.id = e.library_track_id
+         JOIN crate c ON c.id = e.crate_id
+         WHERE l.recording_id = ?1 AND e.kind = 'member' AND c.kind = 'static'
+         ORDER BY c.id",
+    )?;
+    let ids = stmt
+        .query_map([recording], |r| Ok(CrateId(r.get(0)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(ids)
+}
+
 /// Takes tracks out of a crate; the Library tracks stay. A track that isn't
 /// in the crate is skipped. Recorded as one operation; if nothing was
 /// removed, nothing is recorded.
@@ -910,6 +1022,29 @@ pub async fn add_tracks_to_crate(
     tracks: Vec<LibraryTrackId>,
 ) -> Result<Changed, IpcError> {
     Ok(writer.call(move |conn| Ok(add_on(conn, id, &tracks)))???)
+}
+
+/// Adds tracks to a crate by their track id (a table row's `recordingId`).
+/// Tracks outside the Library are left out and counted; one that's in it
+/// already is skipped. One operation for all of them.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_recordings_to_crate(
+    writer: State<'_, Writer>,
+    id: CrateId,
+    recordings: Vec<i64>,
+) -> Result<AddedToCrate, IpcError> {
+    Ok(writer.call(move |conn| Ok(add_recordings_on(conn, id, &recordings)))???)
+}
+
+/// The crates a track is in, for the Details panel.
+#[tauri::command]
+#[specta::specta]
+pub async fn crates_of_track(
+    reads: State<'_, ReadPool>,
+    recording_id: i64,
+) -> Result<Vec<CrateId>, IpcError> {
+    Ok(reads.read(|conn| crates_of(conn, recording_id))?)
 }
 
 /// Takes tracks out of a crate. They stay in the Library.

@@ -86,6 +86,39 @@ impl Lib {
         ))
     }
 
+    /// A track that isn't in the Library, titled `title`: its id.
+    fn outside(&self, title: &'static str) -> i64 {
+        self.run(
+            "INSERT INTO recording (title, artist) VALUES (?1, 'Kit')",
+            (title,),
+        )
+    }
+
+    /// The track (`TableRow.recordingId`) a Library track is.
+    fn recording_of(&self, track: LibraryTrackId) -> i64 {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT recording_id FROM library_track WHERE id = ?1",
+                    [track.0],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
+    fn add_recordings(&self, id: CrateId, recordings: &[i64]) -> Done<AddedToCrate> {
+        let recordings = recordings.to_vec();
+        self.writer
+            .call(move |c| Ok(add_recordings_on(c, id, &recordings)))
+            .unwrap()
+            .unwrap()
+    }
+
+    fn crates_of(&self, recording: i64) -> Vec<CrateId> {
+        self.writer.call(move |c| crates_of(c, recording)).unwrap()
+    }
+
     fn create(&self, name: &str) -> Done<CrateId> {
         let name = name.to_owned();
         self.writer
@@ -348,6 +381,112 @@ fn a_send_is_never_refused_because_of_a_crate_the_app_let_the_user_make() {
         ..SendInput::default()
     });
     assert!(built.is_ok(), "{:?}", built.err());
+}
+
+// ---- adding by track id (1cB-13) and a track's crates (1cB-14) ---------------
+
+/// (added, already there, outside the Library) of an add by track id.
+fn added(done: AddedToCrate) -> (u32, u32, u32) {
+    (done.added, done.already_there, done.outside_library)
+}
+
+#[test]
+fn adding_selected_tracks_is_one_operation_and_one_undo_takes_them_all_out() {
+    let lib = Lib::new();
+    let (a, b, c) = (lib.track("A"), lib.track("B"), lib.track("C"));
+    let id = lib.made("Warm up");
+    let before = lib.operations();
+    let done = lib
+        .add_recordings(id, &[a, b, c].map(|t| lib.recording_of(t)))
+        .unwrap();
+    assert_eq!(added(done), (3, 0, 0));
+    assert_eq!(lib.operations(), before + 1);
+    assert_eq!(done.operation_id, Some(before + 1));
+    lib.undo();
+    assert_eq!(lib.ids(id), Vec::<LibraryTrackId>::new());
+    assert_eq!(lib.operations(), before);
+}
+
+#[test]
+fn a_track_already_in_the_crate_is_not_added_twice_and_the_count_says_so() {
+    let lib = Lib::new();
+    let (a, b) = (lib.track("A"), lib.track("B"));
+    let id = lib.made("Warm up");
+    lib.add(id, &[a]).unwrap();
+    let both = [a, b].map(|t| lib.recording_of(t));
+    assert_eq!(added(lib.add_recordings(id, &both).unwrap()), (1, 1, 0));
+    assert_eq!(lib.ids(id).len(), 2);
+    // Listed twice counts once; all there already records nothing.
+    let operations = lib.operations();
+    let again = lib
+        .add_recordings(id, &[both[0], both[0], both[1]])
+        .unwrap();
+    assert_eq!((added(again), again.operation_id), ((0, 2, 0), None));
+    assert_eq!(lib.operations(), operations);
+}
+
+#[test]
+fn a_track_outside_the_library_is_left_out_and_counted() {
+    let lib = Lib::new();
+    let a = lib.track("A");
+    let stray = lib.outside("Stray");
+    let id = lib.made("Warm up");
+    let done = lib
+        .add_recordings(id, &[lib.recording_of(a), stray])
+        .unwrap();
+    assert_eq!(added(done), (1, 0, 1));
+    assert_eq!(lib.ids(id), [a]);
+    // Only tracks outside the Library: nothing recorded.
+    let operations = lib.operations();
+    let none = lib.add_recordings(id, &[stray]).unwrap();
+    assert_eq!((added(none), none.operation_id), ((0, 0, 1), None));
+    assert_eq!(lib.operations(), operations);
+}
+
+#[test]
+fn adding_by_track_id_to_a_folder_or_a_missing_crate_or_with_a_missing_track_is_refused() {
+    let lib = Lib::new();
+    let a = lib.track("A");
+    let recording = lib.recording_of(a);
+    let id = lib.made("Warm up");
+    let folder = lib
+        .writer
+        .call(|c| Ok(create_folder_on(c, None, "Friday")))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let before = lib.state();
+    assert!(matches!(
+        lib.add_recordings(folder, &[recording]),
+        Err(CratesError::NotFound)
+    ));
+    assert!(matches!(
+        lib.add_recordings(CrateId(999), &[recording]),
+        Err(CratesError::NotFound)
+    ));
+    assert!(matches!(
+        lib.add_recordings(id, &[recording, 99_999]),
+        Err(CratesError::TrackNotFound)
+    ));
+    assert_eq!(lib.state(), before);
+}
+
+#[test]
+fn a_track_knows_its_crates_but_not_folders_or_other_tracks_crates() {
+    let lib = Lib::new();
+    let (a, b) = (lib.track("A"), lib.track("B"));
+    let (warm, peak, other) = (lib.made("Warm up"), lib.made("Peak"), lib.made("Other"));
+    lib.add(warm, &[a, b]).unwrap();
+    lib.add(peak, &[a]).unwrap();
+    lib.add(other, &[b]).unwrap();
+    assert_eq!(lib.crates_of(lib.recording_of(a)), [warm, peak]);
+    assert_eq!(lib.crates_of(lib.recording_of(b)), [warm, other]);
+    assert_eq!(lib.crates_of(lib.outside("Stray")), Vec::<CrateId>::new());
+    // Taking it out of one crate is one operation, and one Undo puts it back.
+    lib.take_out(warm, &[a]).unwrap();
+    assert_eq!(lib.crates_of(lib.recording_of(a)), [peak]);
+    lib.undo();
+    assert_eq!(lib.crates_of(lib.recording_of(a)), [warm, peak]);
 }
 
 #[test]
