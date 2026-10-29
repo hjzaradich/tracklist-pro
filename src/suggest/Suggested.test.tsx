@@ -17,12 +17,12 @@ beforeAll(() => {
   i18n.addResourceBundle("en", "suggestTest", {
     reason: {
       sameKey: "same key",
-      nearBpm: "+{{bpm}} BPM",
+      nearBpm: "+{{bpm}} bpm",
       tagged: "tagged {{tag}}",
       soundsDark: "sounds dark",
       played_one: "follows this track in your history once",
       played_other: "follows this track in your history {{count}} times",
-      withFormat: "{{bpm, number}} BPM",
+      withFormat: "{{bpm, number}} bpm",
     },
   });
 });
@@ -63,7 +63,7 @@ describe("a suggestion is shown with its reasons", () => {
       suggestion([fact("sameKey"), fact("nearBpm", { bpm: 2 }), fact("tagged", { tag: "Peak Time" })]),
     );
     expect(screen.getByText("Track A")).toBeInTheDocument();
-    expect(line(["same key", "+2 BPM", "tagged Peak Time"].join(separator))).toBeInTheDocument();
+    expect(line(["same key", "+2 bpm", "tagged Peak Time"].join(separator))).toBeInTheDocument();
     expect(consoleError).not.toHaveBeenCalled();
   });
 
@@ -177,7 +177,7 @@ describe("reasonProblem", () => {
     expect(reasonProblem("same key")).toBe("noReason");
     expect(reasonProblem([audio("soundsDark"), audio("soundsDark")])).toBe("onlyAudioModel");
     expect(reasonProblem([fact("nope")])).toBe("unknownKey");
-    expect(reasonProblem([{ ...fact("sameKey"), key: "same key, +2 BPM" }])).toBe("unknownKey");
+    expect(reasonProblem([{ ...fact("sameKey"), key: "same key, +2 bpm" }])).toBe("unknownKey");
     expect(reasonProblem([fact("nearBpm", { bpm: Number.NaN })])).toBe("badParam");
     expect(reasonProblem([{ ...fact("sameKey"), params: null } as unknown as Reason])).toBe(
       "badParam",

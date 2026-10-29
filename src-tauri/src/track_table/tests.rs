@@ -2,6 +2,7 @@
 //! volume, folders, files, titles and artists in a migrated database in a
 //! temp dir.
 
+mod fit;
 mod folders;
 mod hidden;
 mod ids;

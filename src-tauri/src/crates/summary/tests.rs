@@ -499,8 +499,8 @@ fn summary_cost_at_10000_tracks() {
     lib.exec(
         "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10000)
          INSERT INTO recording (title) SELECT 'Tune ' || i FROM n;
-         INSERT INTO library_track (recording_id, kind, source_status)
-             SELECT id, 'linked', 'ok' FROM recording;
+         INSERT INTO library_track (recording_id, source_status)
+             SELECT id, 'missing' FROM recording;
          INSERT INTO analysis (recording_id, source, bpm, key)
              SELECT id, 'rekordbox', 90 + id % 60, (1 + id % 12) || (CASE id % 2 WHEN 0 THEN 'A' ELSE 'B' END)
              FROM recording;

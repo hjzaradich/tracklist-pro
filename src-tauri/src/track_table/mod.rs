@@ -37,6 +37,7 @@
 //! Read-only: only the database is read, and no audio file is opened.
 
 mod filters;
+mod fit_order;
 #[cfg(test)]
 mod tests;
 
@@ -48,6 +49,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
 
+use crate::crates::fit::RowFit;
 use crate::crates::{CrateId, CratesError};
 use crate::db::{ReadPool, Writer};
 use crate::fragile::{self, FragileDirs, FragileReason, Located};
@@ -74,6 +76,21 @@ pub enum TableSource {
     AllMusic,
     /// The Library tracks in one crate, in the order they were added.
     Crate { id: CrateId },
+    /// The Library tracks in one crate, sorted by how well they follow the
+    /// track `after` (a `recording` id; 1cB-16): that track first, then the
+    /// rest, best fit first. A sort is ignored: this source has its own order
+    /// ([`crate::crates::fit`]), and its rows carry a `fit`.
+    CrateByFit { id: CrateId, after: i64 },
+}
+
+impl TableSource {
+    /// The crate the tracks come from, if they come from one.
+    fn crate_id(&self) -> Option<CrateId> {
+        match self {
+            TableSource::Crate { id } | TableSource::CrateByFit { id, .. } => Some(*id),
+            TableSource::Library | TableSource::AllMusic => None,
+        }
+    }
 }
 
 /// A column the table can be sorted by.
@@ -177,6 +194,9 @@ pub struct TableRow {
     /// How many conflicts with rekordbox are still open for it.
     pub open_conflicts: u32,
     pub better_file: Option<BetterFile>,
+    /// How well the track follows the selected one, with the reason; only in
+    /// a [`TableSource::CrateByFit`] table.
+    pub fit: Option<RowFit>,
 }
 
 /// A window of rows.
@@ -242,7 +262,9 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
     let Some(TableSort { column, descending }) = sort else {
         return (
             match source {
-                TableSource::Crate { .. } => "ce.added_at, ce.library_track_id".to_owned(),
+                TableSource::Crate { .. } | TableSource::CrateByFit { .. } => {
+                    "ce.added_at, ce.library_track_id".to_owned()
+                }
                 _ => "tr.title_key, tr.artist_key, tr.recording_id".to_owned(),
             },
             None,
@@ -288,7 +310,7 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
             ));
             "track_row tr"
         }
-        TableSource::Crate { id } => {
+        TableSource::Crate { id } | TableSource::CrateByFit { id, .. } => {
             params.push(Value::Integer(id.0));
             conditions.push(format!(
                 "ce.crate_id = ?{} AND ce.kind = 'member'",
@@ -312,7 +334,7 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
     // A search is read by rowid from the index of words, and a crate from
     // its own entries: neither is in the order of a sort index, so there is
     // nothing for a backward scan to read.
-    let indexed = !searched && !matches!(query.source, TableSource::Crate { .. });
+    let indexed = !searched && query.source.crate_id().is_none();
     conditions.extend(filters::conditions(&query.filters, quality, &mut params));
     Built {
         from_where: format!("FROM {from} WHERE {}", conditions.join(" AND ")),
@@ -373,6 +395,9 @@ fn window_ids_up_to(
     query: &TableQuery,
     most: u32,
 ) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
+    if let Some((ids, total, _)) = fit_order::window(conn, query, most)? {
+        return Ok((ids, total));
+    }
     // Review's quality problems are worked out once for the count and the window.
     let quality = match query.filters.contains(&TableFilter::QualityProblem) {
         true => Some(filters::quality_problems(conn)?),
@@ -567,6 +592,7 @@ fn rows_for(
                 source_missing: library_track.is_some_and(|t| t.source_missing),
                 open_conflicts: library_track.map_or(0, |t| t.open_conflicts),
                 better_file: library_track.and_then(|t| t.better_file),
+                fit: None,
             },
             file,
         });
@@ -588,13 +614,24 @@ pub fn read(
     volumes: &impl Volumes,
     query: &TableQuery,
 ) -> rusqlite::Result<Option<Read>> {
-    if let TableSource::Crate { id } = &query.source {
-        if !crate_exists(conn, *id)? {
+    if let Some(id) = query.source.crate_id() {
+        if !crate_exists(conn, id)? {
             return Ok(None);
         }
     }
-    let (ids, total) = window_ids(conn, query)?;
-    let rows = rows_for(conn, volumes, &ids)?;
+    let (ids, total, fits) = match fit_order::window(conn, query, MAX_WINDOW)? {
+        Some((ids, total, fits)) => (ids, total, Some(fits)),
+        None => {
+            let (ids, total) = window_ids(conn, query)?;
+            (ids, total, None)
+        }
+    };
+    let mut rows = rows_for(conn, volumes, &ids)?;
+    if let Some(mut fits) = fits {
+        for stored in &mut rows {
+            stored.row.fit = fits.remove(&stored.row.recording_id);
+        }
+    }
     let files: Vec<i64> = rows
         .iter()
         .filter(|r| r.row.in_library)
@@ -619,8 +656,8 @@ pub const MAX_IDS: u32 = 1_000_000;
 /// tracks (Shift+click, Ctrl+A; 1cB-8), which it can't do from the windows
 /// it holds. Holds [`MAX_IDS`] at most.
 pub fn ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<Option<Vec<i64>>> {
-    if let TableSource::Crate { id } = &query.source {
-        if !crate_exists(conn, *id)? {
+    if let Some(id) = query.source.crate_id() {
+        if !crate_exists(conn, id)? {
             return Ok(None);
         }
     }
@@ -725,8 +762,8 @@ pub fn position(
     conn: &Connection,
     asked: &TablePositionQuery,
 ) -> rusqlite::Result<Option<Option<u32>>> {
-    if let TableSource::Crate { id } = &asked.source {
-        if !crate_exists(conn, *id)? {
+    if let Some(id) = asked.source.crate_id() {
+        if !crate_exists(conn, id)? {
             return Ok(None);
         }
     }
@@ -739,6 +776,13 @@ pub fn position(
         limit: 0,
         with_total: false,
     };
+    if let Some(ids) = fit_order::ids(conn, &query)? {
+        return Ok(Some(
+            ids.iter()
+                .position(|&id| id == asked.recording_id)
+                .map(|at| at as u32),
+        ));
+    }
     let quality = match query.filters.contains(&TableFilter::QualityProblem) {
         true => Some(filters::quality_problems(conn)?),
         false => None,
@@ -803,8 +847,8 @@ pub fn formats(conn: &Connection, source: &TableSource) -> rusqlite::Result<Opti
         limit: 0,
         with_total: false,
     };
-    if let TableSource::Crate { id } = source {
-        if !crate_exists(conn, *id)? {
+    if let Some(id) = source.crate_id() {
+        if !crate_exists(conn, id)? {
             return Ok(None);
         }
     }

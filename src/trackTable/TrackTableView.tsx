@@ -11,13 +11,14 @@ import {
   type TableSort,
   type TableSource,
 } from "../bindings";
+import { type PaletteAction, useRegisterActions } from "../palette/registry";
 import { useReportSelection } from "../shell/selectedTrack";
 import { useWhenUndone } from "../shell/undoneStore";
 import { ColumnEditor } from "./ColumnEditor";
 import { FilterChips } from "./FilterChips";
 import { TrackTable } from "./TrackTable";
 import styles from "./TrackTableView.module.css";
-import type { TableScreen } from "./columns";
+import { shownName, type ColumnId, type TableScreen } from "./columns";
 import { useSetEnergy } from "./useSetEnergy";
 import { useTableColumns } from "./useTableColumns";
 import { useTrackRows, type RowsQuery } from "./useTrackRows";
@@ -34,6 +35,12 @@ const DEFAULT_SORT: Readonly<Record<TableScreen, TableSort | null>> = {
 };
 
 /** The sort after `column`'s heading is clicked: its order the other way round if it is sorted already. */
+/** The track a crate is sorted after (1cB-16): its id and the name the line over the table gives. */
+interface FitTarget {
+  recordingId: number;
+  name: string;
+}
+
 export function nextSort(current: TableSort | null, column: SortColumn): TableSort {
   return current?.column === column
     ? { column, descending: !current.descending }
@@ -79,9 +86,22 @@ export function TrackTableView({
 }) {
   const { t } = useTranslation("trackTable");
   const [sort, setSort] = useState<TableSort | null>(null);
+  // A crate can be sorted by fit after its selected track (1cB-16); the
+  // selected track is the one in focus. Any heading goes back to normal.
+  const [fitTarget, setFitTarget] = useState<FitTarget | null>(null);
+  const [selectedRow, setSelectedRow] = useState<TableRow | null>(null);
+  const [fitWidth, setFitWidth] = useState<number | undefined>(undefined);
+  const canFit = source.kind === "crate";
   const [filters, setFilters] = useState<TableFilter[]>([]);
   const choice = useTableColumns(screen);
-  const reportSelection = useReportSelection(onSelectionChange);
+  const followSelection = useCallback(
+    (row: TableRow | null) => {
+      setSelectedRow(row);
+      onSelectionChange?.(row);
+    },
+    [onSelectionChange],
+  );
+  const reportSelection = useReportSelection(followSelection);
   // How many tracks are selected, and the line saying what the energy keys last did.
   const [selectedCount, setSelectedCount] = useState(0);
   const [energyGiven, setEnergyGiven] = useState<{ energy: number; count: number } | null>(null);
@@ -103,12 +123,21 @@ export function TrackTableView({
   // A line about a table that is gone doesn't wait for the next one.
   useEffect(() => () => useAddReport.getState().clear(), []);
 
+  // The rows come from the crate as it is, or sorted by fit after a track.
+  const listed: TableSource = useMemo(
+    () =>
+      fitTarget !== null && source.kind === "crate"
+        ? { kind: "crateByFit", id: source.id, after: fitTarget.recordingId }
+        : source,
+    [source, fitTarget],
+  );
   const query: RowsQuery = useMemo(
-    () => ({ source, search: search.trim() === "" ? null : search, filters, sort }),
-    [source, search, filters, sort],
+    () => ({ source: listed, search: search.trim() === "" ? null : search, filters, sort }),
+    [listed, search, filters, sort],
   );
   const rows = useTrackRows(keyPrefix, query);
-  const shownSort = sort ?? DEFAULT_SORT[screen];
+  // Sorted by fit, no heading shows a sort.
+  const shownSort = fitTarget !== null ? null : (sort ?? DEFAULT_SORT[screen]);
   const narrowedBy = JSON.stringify([query.search, query.filters]);
   const seenNarrowing = useRef(narrowedBy);
   useEffect(() => {
@@ -133,6 +162,37 @@ export function TrackTableView({
         onSuccess: (done) => setEnergyGiven(done.changed > 0 ? { energy, count: done.changed } : null),
       },
     );
+
+  // The Fit column joins the user's columns after the title while sorted by fit.
+  const shownColumns = useMemo<readonly ColumnId[]>(() => {
+    if (fitTarget === null) return choice.columns;
+    const at = choice.columns.indexOf("title") + 1;
+    return [...choice.columns.slice(0, at), "fit", ...choice.columns.slice(at)];
+  }, [choice.columns, fitTarget]);
+  const shownWidths = useMemo(
+    () => (fitTarget !== null && fitWidth !== undefined ? { ...choice.widths, fit: fitWidth } : choice.widths),
+    [choice.widths, fitTarget, fitWidth],
+  );
+
+  // A heading was clicked: back to normal sorting (the Fit column goes), by
+  // that column if it sorts anything.
+  const onSort = (column: SortColumn | null) => {
+    setFitTarget(null);
+    setSort(column === null ? null : nextSort(shownSort, column));
+  };
+  // Sort by fit after the track in focus now. With none in focus the control
+  // is disabled and says why.
+  const sortByFit = () => {
+    if (selectedRow !== null) setFitTarget({ recordingId: selectedRow.recordingId, name: shownName(selectedRow) });
+  };
+  useRegisterActions("trackFit", [
+    {
+      id: "tracks:sortByFit",
+      label: t("fit.action"),
+      available: canFit && selectedRow !== null,
+      run: sortByFit,
+    } satisfies PaletteAction,
+  ]);
 
   if (rows.error != null) {
     return (
@@ -162,6 +222,7 @@ export function TrackTableView({
             <span>{count(rows.total)}</span>
             {selectedCount > 1 && <span>{t("selected", { selected: selectedCount })}</span>}
             {rows.behind && <span className={styles.updating}>{t("updating")}</span>}
+            {fitTarget !== null && <span>{t("fit.sortedAfter", { track: fitTarget.name })}</span>}
             {energyGiven !== null && (
               <span role="status">{t("energySet", { energy: energyGiven.energy, count: energyGiven.count })}</span>
             )}
@@ -172,6 +233,19 @@ export function TrackTableView({
               </span>
             )}
           </p>
+          {canFit && (
+            <>
+              {selectedRow === null && <span className={styles.hint}>{t("fit.needsSelection")}</span>}
+              <button
+                type="button"
+                className={styles.fitButton}
+                disabled={selectedRow === null}
+                onClick={sortByFit}
+              >
+                {t("fit.button")}
+              </button>
+            </>
+          )}
           <ColumnEditor
             screen={screen}
             columns={choice.columns}
@@ -186,15 +260,20 @@ export function TrackTableView({
       ) : (
         <TrackTable
           label={t("label")}
-          columns={choice.columns}
-          widths={choice.widths}
-          onReorder={choice.change}
-          onResize={choice.resize}
+          columns={shownColumns}
+          widths={shownWidths}
+          // The Fit column is not the user's choice: it is never saved.
+          onReorder={(next) => choice.change(next.filter((id) => id !== "fit"))}
+          onResize={(next) => {
+            const { fit, ...saved } = next;
+            if (fit !== undefined) setFitWidth(fit);
+            if (JSON.stringify(saved) !== JSON.stringify(choice.widths)) choice.resize(saved);
+          }}
           total={rows.total}
           getRow={rows.getRow}
           onRangeChange={rows.setRange}
           sort={shownSort}
-          onSort={(column) => setSort(nextSort(shownSort, column))}
+          onSort={onSort}
           actions={actions}
           actionsWidth={actionsWidth}
           resetKey={JSON.stringify(query)}

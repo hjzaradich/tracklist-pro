@@ -55,8 +55,8 @@ export interface TrackTableProps {
   onRangeChange: (first: number, last: number) => void;
   /** The order the rows are in, as the headings show it. */
   sort: TableSort | null;
-  /** A heading was clicked. */
-  onSort: (column: SortColumn) => void;
+  /** A heading was clicked; `null` for the one that sorts nothing (Fit, 1cB-16). */
+  onSort: (column: SortColumn | null) => void;
   /** The last cell of each row: the screen's buttons. */
   actions?: (row: TableRow) => ReactNode;
   /** The actions column's width in pixels. */

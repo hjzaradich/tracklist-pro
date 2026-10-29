@@ -57,3 +57,36 @@
   margin: 0;
   color: var(--color-danger);
 }
+
+/* Why "Sort by fit" can't be used yet, beside it. */
+.hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Quiet, like the Columns button beside it. */
+.fitButton {
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.fitButton:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.fitButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fitButton:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
