@@ -28,6 +28,11 @@
     "base": "Last sent",
     "actions": "Actions"
   },
+  "membership": {
+    "field": "In {{name}}",
+    "in": "In crate",
+    "out": "Not in crate"
+  },
   "neverSent": "Never sent",
   "noValue": "No value",
   "noRating": "No rating",

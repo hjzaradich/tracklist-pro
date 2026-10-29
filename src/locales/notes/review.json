@@ -821,6 +821,30 @@
     "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choice.",
     "approved": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues, ratings and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone."
   },
+  "same.confirmValues_one": {
+    "purpose": "Warns what a merge of two Library tracks does, now that ratings, colors, comments and the user's edits can carry over (they are picked above it): the track that leaves, its files and crates, what is lost in rekordbox (cues and plays), the remove list, and that it can be undone. Replaces same.confirm_one, which says the rating won't carry over.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choices."
+  },
+  "same.confirmValues_other": {
+    "purpose": "The same warning when several tracks leave ({{count}} is how many). Replaces same.confirm_other.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choices."
+  },
+  "same.values.heading": {
+    "purpose": "Introduces the rows where the two tracks hold different values and the user picks which one stays (the user's edits, and rekordbox's rating, color and comments).",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, above the table of values; shown only when some field differs."
+  },
+  "same.values.field": {
+    "purpose": "Column heading: the field a row is about (Rating, Genre, ...).",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values."
+  },
+  "same.values.stays": {
+    "purpose": "Marks the column of the track that stays in the merge, whose values are picked at first.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values, column heading."
+  },
+  "same.values.use": {
+    "purpose": "Names one choice of a row for screen readers: {{field}} is the field, {{name}} the track whose value it keeps.",
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values, each radio button (read by screen readers)."
+  },
   "keep.moreCues": {
     "purpose": "Reason: the suggested track to keep has more cues in rekordbox ({{count}}) than the next one ({{other}}).",
     "where": "Review screen, \"Same track twice in your Library\" item, the suggestion line.",

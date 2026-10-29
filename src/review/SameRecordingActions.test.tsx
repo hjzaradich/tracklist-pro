@@ -9,6 +9,7 @@ import type {
   OperationInfo,
   ReviewComparison,
   ReviewFileRow,
+  MergeField,
   ReviewItem,
   SameRecordingOffer,
 } from "../bindings";
@@ -101,13 +102,23 @@ function comparison(offer: SameRecordingOffer): ReviewComparison {
 interface World {
   queued: boolean;
   offer: SameRecordingOffer;
+  /** What a merge asks, by the track that stays (1cB-20). */
+  questions: (keep: number) => MergeField[];
   refuse: Record<string, { kind: string; params: object }>;
   calls: { cmd: string; args: Record<string, unknown> }[];
   undo: OperationInfo | null;
 }
 
 function backend(start: Partial<World> = {}): World {
-  const world: World = { queued: true, offer: OFFER, refuse: {}, calls: [], undo: null, ...start };
+  const world: World = {
+    queued: true,
+    offer: OFFER,
+    questions: () => [],
+    refuse: {},
+    calls: [],
+    undo: null,
+    ...start,
+  };
   const act = (kind: string) => {
     world.queued = false;
     world.undo = { id: 100, kind, details: { name: null, from: null, tracks: 1 } };
@@ -137,6 +148,8 @@ function backend(start: Partial<World> = {}): World {
         return [];
       case "review_keep_both":
         return { operationId: act("keep_both_library_tracks") };
+      case "review_merge_questions":
+        return world.questions(args.keep as number);
       case "review_merge":
         return { operationId: act("merge_library_tracks"), kept: args.keep, merged: [9] };
       case "next_undo_operation":
@@ -223,7 +236,7 @@ describe("a Same track twice item", () => {
     const dialog = await screen.findByRole("alertdialog", { name: tx("review:same.choose") });
     expect(callsOf(world, "review_merge")).toHaveLength(0);
     expect(within(dialog).getByRole("button", { name: tx("review:action.goBack") })).toHaveFocus();
-    expect(within(dialog).getByText(tx("review:same.confirm", { count: 1 }))).toBeInTheDocument();
+    expect(within(dialog).getByText(tx("review:same.confirmValues", { count: 1 }))).toBeInTheDocument();
     // The suggested track is chosen.
     const radios = within(dialog).getAllByRole("radio");
     expect(radios.map((r) => (r as HTMLInputElement).checked)).toEqual([true, false]);
@@ -236,7 +249,12 @@ describe("a Same track twice item", () => {
     const again = await screen.findByRole("alertdialog", { name: tx("review:same.choose") });
     await userEvent.click(within(again).getAllByRole("radio")[1]!);
     await userEvent.click(within(again).getByRole("button", { name: tx("review:action.mergeConfirm") }));
-    expect(callsOf(world, "review_merge")[0]?.args).toEqual({ anchor: 4, recordingIds: [4, 9], keep: 9 });
+    expect(callsOf(world, "review_merge")[0]?.args).toEqual({
+      anchor: 4,
+      recordingIds: [4, 9],
+      keep: 9,
+      choices: [],
+    });
     await waitFor(() => expect(screen.queryByRole("table", { name: tx("review:same.label") })).toBeNull());
     // Undo names the merge and brings the item back.
     await userEvent.click(await screen.findByRole("button", { name: tx("shell:undo.action.mergeTracks") }));
@@ -274,5 +292,106 @@ describe("a Same track twice item", () => {
     const radios = within(dialog).getAllByRole("radio");
     expect(radios.map((r) => (r as HTMLInputElement).checked)).toEqual([false, true]);
     expect(callsOf(world, "review_merge")).toHaveLength(0);
+  });
+
+  describe("asks field by field where the two tracks differ (1cB-20)", () => {
+    const STAYS = tx("review:item.trackName", { artist: "Made Up Artist", title: "Made Up Tune" });
+    const LEAVES = tx("review:item.trackName", { artist: "Made Up Artist", title: "Made Up Tune (copy)" });
+
+    /** The rating differs (4 stars against 2) and so does the genre; the stayer comes first. */
+    const questions = (keep: number): MergeField[] => {
+      const other = keep === 4 ? 9 : 4;
+      const rating = (id: number) => (id === 4 ? "204" : "102");
+      const genre = (id: number) => (id === 4 ? "Techno" : "House");
+      return [
+        {
+          field: "Genre",
+          kind: "text",
+          values: [keep, other].map((recordingId) => ({ recordingId, value: genre(recordingId) })),
+          chosen: keep,
+        },
+        {
+          field: "Rating",
+          kind: "rating",
+          values: [keep, other].map((recordingId) => ({ recordingId, value: rating(recordingId) })),
+          chosen: keep,
+        },
+      ];
+    };
+
+    async function openChoice() {
+      renderScreen();
+      await userEvent.click((await actions()).getByRole("button", { name: tx("review:action.merge") }));
+      return screen.findByRole("alertdialog", { name: tx("review:same.choose") });
+    }
+
+    /** The radio that keeps `field` from the track `name`. */
+    const radio = (dialog: HTMLElement, field: string, name: string) =>
+      within(dialog).getByRole("radio", {
+        name: tx("review:same.values.use", { name, field: tx(`conflicts:field.${field}`) }),
+      }) as HTMLInputElement;
+
+    it("shows a row per field with each track's value, the staying track's picked, and says which stays", async () => {
+      backend({ questions });
+      const dialog = await openChoice();
+      await within(dialog).findByText(tx("review:same.values.heading"));
+      const heads = within(dialog).getAllByRole("columnheader");
+      expect(heads[0]).toHaveTextContent(tx("review:same.values.field"));
+      expect(heads[1]).toHaveTextContent(tx("review:same.values.stays"));
+      expect(heads[2]).not.toHaveTextContent(tx("review:same.values.stays"));
+      for (const field of ["Genre", "Rating"]) {
+        expect(radio(dialog, field, STAYS).checked).toBe(true);
+        expect(radio(dialog, field, LEAVES).checked).toBe(false);
+      }
+      // The values are shown by their kind: stars for the rating.
+      expect(within(dialog).getByRole("img", { name: tx("conflicts:stars", { count: 4 }) })).toBeVisible();
+      expect(within(dialog).getByRole("img", { name: tx("conflicts:stars", { count: 2 }) })).toBeVisible();
+    });
+
+    it("sends what was picked with Merge, the default for the rows left alone, and Undo takes it all back", async () => {
+      const world = backend({ questions });
+      const dialog = await openChoice();
+      await userEvent.click(await waitFor(() => radio(dialog, "Rating", LEAVES)));
+      expect(radio(dialog, "Rating", LEAVES).checked).toBe(true);
+      expect(radio(dialog, "Genre", STAYS).checked).toBe(true);
+      await userEvent.click(within(dialog).getByRole("button", { name: tx("review:action.mergeConfirm") }));
+      expect(callsOf(world, "review_merge")[0]?.args).toEqual({
+        anchor: 4,
+        recordingIds: [4, 9],
+        keep: 4,
+        choices: [
+          { field: "Genre", from: 4, value: "Techno" },
+          { field: "Rating", from: 9, value: "102" },
+        ],
+      });
+      await waitFor(() => expect(screen.queryByRole("table", { name: tx("review:same.label") })).toBeNull());
+      await userEvent.click(await screen.findByRole("button", { name: tx("shell:undo.action.mergeTracks") }));
+      expect(await screen.findByRole("table", { name: tx("review:same.label") })).toBeInTheDocument();
+    });
+
+    it("asks again, with the picks starting over, when another track is chosen to stay", async () => {
+      const world = backend({ questions });
+      const dialog = await openChoice();
+      await userEvent.click(await waitFor(() => radio(dialog, "Rating", LEAVES)));
+      await userEvent.click(within(dialog).getByRole("radio", { name: LEAVES }));
+      await waitFor(() =>
+        expect(callsOf(world, "review_merge_questions").map((c) => c.args.keep)).toEqual([4, 9]),
+      );
+      // The other track stays now: its values are the ones picked.
+      await waitFor(() => expect(radio(dialog, "Rating", LEAVES).checked).toBe(true));
+      await userEvent.click(within(dialog).getByRole("button", { name: tx("review:action.mergeConfirm") }));
+      const sent = callsOf(world, "review_merge")[0]?.args as { keep: number; choices: { from: number }[] };
+      expect(sent.keep).toBe(9);
+      expect(sent.choices.map((c) => c.from)).toEqual([9, 9]);
+    });
+
+    it("shows no rows, and merges with no choices, where nothing differs", async () => {
+      const world = backend();
+      const dialog = await openChoice();
+      await waitFor(() => expect(callsOf(world, "review_merge_questions")).toHaveLength(1));
+      expect(within(dialog).queryByText(tx("review:same.values.heading"))).toBeNull();
+      await userEvent.click(within(dialog).getByRole("button", { name: tx("review:action.mergeConfirm") }));
+      expect(callsOf(world, "review_merge")[0]?.args).toMatchObject({ choices: [] });
+    });
   });
 });

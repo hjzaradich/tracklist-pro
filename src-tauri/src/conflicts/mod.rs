@@ -122,7 +122,7 @@ mod tests;
 use serde::Serialize;
 use specta::Type;
 
-pub use compare::{fits, kind_of, same, Kind, ANALYSIS_FIELDS};
+pub use compare::{fits, is_blank, kind_of, same, Kind, ANALYSIS_FIELDS};
 pub use merge::{merge_before_send, Merged};
 pub use resolve::{
     resolve, resolve_all, resolve_all_with, resolve_with, Choice, ResolveError, Resolved,

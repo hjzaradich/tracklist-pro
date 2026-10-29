@@ -15,10 +15,21 @@ export function fieldLabel(t: TFunction<"conflicts">, field: string): string {
   return (t as (key: string, options: object) => string)(`field.${field}`, { defaultValue: field });
 }
 
+/**
+ * A field with conflicts as the user knows it. A crate membership has no
+ * attribute name to show (it is a playlist path): it reads "In" and the crate's
+ * name, inside the names of its folders.
+ */
+export function conflictLabel(t: TFunction<"conflicts">, field: ConflictField): string {
+  return field.kind === "membership"
+    ? t("membership.field", { name: field.crateName ?? "" })
+    : fieldLabel(t, field.field);
+}
+
 /** The fields in the order the queue lists them: by the name the user sees. */
 export function sortedFields(t: TFunction<"conflicts">, fields: ConflictField[]): ConflictField[] {
   return fields
-    .map((f) => ({ f, label: fieldLabel(t, f.field) }))
+    .map((f) => ({ f, label: conflictLabel(t, f) }))
     .sort((a, b) => a.label.localeCompare(b.label))
     .map(({ f }) => f);
 }
@@ -45,7 +56,7 @@ export function ConflictsGroup({
   const { t: review } = useTranslation("review");
   const headingId = useId();
   if (fields.length === 0) return null;
-  const sorted = fields.map((f) => ({ ...f, label: fieldLabel(t, f.field) }));
+  const sorted = fields.map((f) => ({ ...f, label: conflictLabel(t, f) }));
   const total = fields.reduce((n, f) => n + f.count, 0);
   const inGroup = sorted.some((f) => f.field === selected);
   return (

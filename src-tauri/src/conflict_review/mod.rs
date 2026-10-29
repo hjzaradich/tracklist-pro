@@ -63,10 +63,15 @@ pub enum ValueKind {
     /// Whole numbers.
     Number,
     Text,
+    /// A crate membership (`playlist:...`): `in` or `out`, shown in words.
+    Membership,
 }
 
 impl ValueKind {
-    fn of(field: &str) -> ValueKind {
+    pub(crate) fn of(field: &str) -> ValueKind {
+        if conflicts::membership::is_membership(field) {
+            return ValueKind::Membership;
+        }
         match kind_of(field) {
             Kind::Location => ValueKind::Location,
             Kind::Rating => ValueKind::Rating,
@@ -87,6 +92,10 @@ pub struct ConflictField {
     pub kind: ValueKind,
     /// How many open conflicts the field has.
     pub count: u32,
+    /// For a crate membership: the crate's name inside its folders' names,
+    /// joined with " / " (`conflicts::membership::crate_labels`); `None`
+    /// for any other field.
+    pub crate_name: Option<String>,
 }
 
 /// A track named as Review names tracks.
@@ -164,19 +173,33 @@ pub fn open_count(conn: &Connection) -> rusqlite::Result<u32> {
 
 /// The fields with open conflicts, by field name.
 pub fn fields(conn: &Connection) -> rusqlite::Result<Vec<ConflictField>> {
-    conn.prepare(
-        "SELECT field, COUNT(*) FROM conflict WHERE status = 'open'
-         GROUP BY field ORDER BY field",
-    )?
-    .query_map([], |r| {
-        let field: String = r.get(0)?;
-        Ok(ConflictField {
-            kind: ValueKind::of(&field),
-            field,
-            count: r.get(1)?,
-        })
-    })?
-    .collect()
+    let mut found: Vec<ConflictField> = conn
+        .prepare(
+            "SELECT field, COUNT(*) FROM conflict WHERE status = 'open'
+             GROUP BY field ORDER BY field",
+        )?
+        .query_map([], |r| {
+            let field: String = r.get(0)?;
+            Ok(ConflictField {
+                kind: ValueKind::of(&field),
+                field,
+                count: r.get(1)?,
+                crate_name: None,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let memberships: Vec<String> = found
+        .iter()
+        .filter(|f| f.kind == ValueKind::Membership)
+        .map(|f| f.field.clone())
+        .collect();
+    if !memberships.is_empty() {
+        let mut names = conflicts::membership::crate_labels(conn, &memberships)?;
+        for field in &mut found {
+            field.crate_name = names.remove(&field.field);
+        }
+    }
+    Ok(found)
 }
 
 /// A page of the open conflicts of `field`, the oldest first, in one read
@@ -327,7 +350,9 @@ pub async fn review_conflicts(
 /// Settles one open conflict: keep the app's value, keep rekordbox's, or a
 /// value given by hand. Refused, with nothing changed, if the conflict isn't
 /// open any more or the value doesn't fit the field. A file location is
-/// never given by hand: the app holds no value of its own for it.
+/// never given by hand: the app holds no value of its own for it. Nor is a
+/// crate membership: the crate holds the track or it doesn't, so the choices
+/// are the app's and rekordbox's.
 #[tauri::command]
 #[specta::specta]
 pub async fn review_resolve_conflict(
@@ -342,7 +367,9 @@ pub async fn review_resolve_conflict(
                     r.get(0)
                 })
                 .optional()?;
-            if field.is_some_and(|field| kind_of(&field) == Kind::Location) {
+            if field.is_some_and(|field| {
+                kind_of(&field) == Kind::Location || conflicts::membership::is_membership(&field)
+            }) {
                 return Ok(Err(IpcError::new(ErrorKind::ConflictBadValue)));
             }
         }

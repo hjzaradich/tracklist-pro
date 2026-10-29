@@ -257,43 +257,111 @@ pub fn set(
         // rekordbox's side, read in the operation's own transaction. Reads
         // only.
         |c| showing(c, volumes, track, field),
-        |rec, rekordbox| {
-            let own = own_row(rec, track, field)?;
-            if let Some(rekordbox) = &rekordbox {
-                if same(field, Some(value), Some(rekordbox)) {
-                    if let Some((id, _)) = own {
-                        rec.delete("app_value", id)?;
-                    }
-                    return Ok(None);
-                }
-            }
-            let replaced = match own {
-                Some((id, replaced)) => {
-                    rec.set("app_value", id, "value", value)?;
-                    replaced
-                }
-                None => {
-                    rec.insert(
-                        "app_value",
-                        &[
-                            ("library_track_id", Value::Integer(track.0)),
-                            ("field", Value::Text(field.to_owned())),
-                            ("value", Value::Text(value.to_owned())),
-                            ("replaced", rekordbox.clone().into()),
-                        ],
-                    )?;
-                    rekordbox
-                }
-            };
-            Ok(Some(AppValue {
-                field: field.to_owned(),
-                value: value.to_owned(),
-                replaced,
-            }))
-        },
+        |rec, rekordbox| set_in(rec, track, field, value, rekordbox),
         |_| Ok(()),
     )?;
     Ok(recorded)
+}
+
+/// [`set`]'s writes, as changes of the operation `rec` records, for a
+/// caller that is part of a bigger operation (the merge of two Library
+/// tracks, which takes the value the user chose from the other track). The
+/// caller checked the field and the value ([`editable`], [`fits`]).
+/// `rekordbox` is what rekordbox shows for the field now (`None`: no trusted
+/// entry). Returns the app's own value afterwards, `None` when `value` is
+/// rekordbox's and the field follows it.
+pub(crate) fn set_in(
+    rec: &mut Recorder<'_>,
+    track: LibraryTrackId,
+    field: &str,
+    value: &str,
+    rekordbox: Option<String>,
+) -> Result<Option<AppValue>, OpsError> {
+    let own = own_row(rec, track, field)?;
+    if let Some(rekordbox) = &rekordbox {
+        if same(field, Some(value), Some(rekordbox)) {
+            if let Some((id, _)) = own {
+                rec.delete("app_value", id)?;
+            }
+            return Ok(None);
+        }
+    }
+    let replaced = match own {
+        Some((id, replaced)) => {
+            rec.set("app_value", id, "value", value)?;
+            replaced
+        }
+        None => {
+            rec.insert(
+                "app_value",
+                &[
+                    ("library_track_id", Value::Integer(track.0)),
+                    ("field", Value::Text(field.to_owned())),
+                    ("value", Value::Text(value.to_owned())),
+                    ("replaced", rekordbox.clone().into()),
+                ],
+            )?;
+            rekordbox
+        }
+    };
+    Ok(Some(AppValue {
+        field: field.to_owned(),
+        value: value.to_owned(),
+        replaced,
+    }))
+}
+
+/// What the merge of two Library tracks does for a value the user chose
+/// (1cB-20; ROADMAP 1.12): [`set_in`], and the choice becomes the user's
+/// decision against what rekordbox shows now, so the next send carries it as
+/// an app change (the rules of 1.10) instead of reading rekordbox's change
+/// since the last send as a change to take in or to ask about again. In the
+/// merge's own operation:
+///
+/// - the value records rekordbox's present value as what it replaced (also
+///   when an edit was stored already: this is a new decision);
+/// - a base (`sync_base`) that rekordbox's value has moved off since the
+///   send is dropped, as if the field were never sent: the base is the
+///   value last sent, and the user has now chosen against rekordbox's;
+/// - an open conflict on the field is withdrawn: the user answered it, and
+///   what is left to disagree is detected again from the three sides.
+pub(crate) fn set_chosen(
+    rec: &mut Recorder<'_>,
+    track: LibraryTrackId,
+    field: &str,
+    value: &str,
+    rekordbox: Option<String>,
+) -> Result<(), OpsError> {
+    let own = set_in(rec, track, field, value, rekordbox.clone())?;
+    if let (Some(rekordbox), Some(own)) = (&rekordbox, &own) {
+        if own.replaced.as_ref() != Some(rekordbox) {
+            if let Some((id, _)) = own_row(rec, track, field)? {
+                rec.set("app_value", id, "replaced", rekordbox.as_str())?;
+            }
+        }
+    }
+    if let Some(rekordbox) = &rekordbox {
+        let base: Vec<(i64, String)> = rec.read_rows(
+            "SELECT id, value FROM sync_base WHERE library_track_id = ?1 AND field = ?2",
+            (track.0, field),
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        for (id, sent) in base {
+            if !same(field, Some(&sent), Some(rekordbox)) {
+                rec.delete("sync_base", id)?;
+            }
+        }
+    }
+    let open: Vec<i64> = rec.read_rows(
+        "SELECT id FROM conflict
+         WHERE library_track_id = ?1 AND field = ?2 AND status = 'open'",
+        (track.0, field),
+        |r| r.get(0),
+    )?;
+    for id in open {
+        rec.delete("conflict", id)?;
+    }
+    Ok(())
 }
 
 /// Clears the app's own value of `field` for a Library track, as one

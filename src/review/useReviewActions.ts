@@ -5,6 +5,8 @@ import {
   type AcceptedAll,
   type AcceptItem,
   type Acted,
+  type MergeChoice,
+  type MergeField,
   type Merged,
   type NotSame,
   type ReviewItemId,
@@ -19,7 +21,11 @@ import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
 import { useAcceptedStore } from "./acceptedStore";
 import { TRACK_TAG_SOURCES_QUERY_KEY } from "../shell/useTrackTagSources";
 import { MISSING_TRACKS_QUERY_KEY } from "./useMissingTracks";
-import { REVIEW_ACCEPT_ALL_QUERY_KEY, REVIEW_QUERY_KEYS } from "./useReview";
+import {
+  REVIEW_ACCEPT_ALL_QUERY_KEY,
+  REVIEW_MERGE_QUESTIONS_QUERY_KEY,
+  REVIEW_QUERY_KEYS,
+} from "./useReview";
 
 // What the user decides about a Review item (1bE-5, 1bE-6, 1bE-7). Each action is
 // one undoable step on the Rust side; here it only calls the command and asks
@@ -185,13 +191,38 @@ export function useKeepBoth(onDone?: () => void) {
 
 /**
  * Merges a "Same track twice in your Library" item into the track `keep`
- * (1bE-9): the other Library tracks leave the Library. Undoable.
+ * (1bE-9): the other Library tracks leave the Library. `choices` are the
+ * values picked where the tracks differ (1cB-20). Undoable, choices and all.
  */
 export function useMergeTracks(onDone?: () => void) {
-  return useAction<{ anchor: number; recordingIds: number[]; keep: number }, Merged>(
-    ({ anchor, recordingIds, keep }) => unwrap(commands.reviewMerge(anchor, recordingIds, keep)),
+  return useAction<
+    { anchor: number; recordingIds: number[]; keep: number; choices: MergeChoice[] },
+    Merged
+  >(
+    ({ anchor, recordingIds, keep, choices }) =>
+      unwrap(commands.reviewMerge(anchor, recordingIds, keep, choices)),
     onDone,
   );
+}
+
+/**
+ * The fields a merge into `keep` asks about (1cB-20): where the tracks hold
+ * different values and one is the user's, with every track's value and the
+ * default (the staying track's). Asked for again when the track that stays
+ * changes.
+ */
+export function useMergeQuestions(
+  anchor: number,
+  recordingIds: number[],
+  keep: number | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: [...REVIEW_MERGE_QUESTIONS_QUERY_KEY, anchor, recordingIds, keep],
+    enabled: enabled && keep !== null,
+    queryFn: (): Promise<MergeField[]> =>
+      unwrap(commands.reviewMergeQuestions(anchor, recordingIds, keep ?? 0)),
+  });
 }
 
 /**
