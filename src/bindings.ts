@@ -444,6 +444,11 @@ export const commands = {
 	 *  first.
 	 */
 	trackTagSources: (recordingId: number, shownFile: number | null) => typedError<TagSources, IpcError>(__TAURI_INVOKE("track_tag_sources", { recordingId, shownFile })),
+	/**
+	 *  The ids of the tracks in a range of a query's rows, to select them
+	 *  (1cB-8). `with_total` is ignored.
+	 */
+	trackTableIds: (query: TableQuery) => typedError<number[], IpcError>(__TAURI_INVOKE("track_table_ids", { query })),
 	/**  A window of the hidden files (the Hidden filter in All music). */
 	hiddenFilesPage: (query: HiddenQuery) => typedError<HiddenPage, IpcError>(__TAURI_INVOKE("hidden_files_page", { query })),
 	/**  "Show again" for a file the user hid. */
@@ -452,6 +457,8 @@ export const commands = {
 	useThisFileInstead: (fileId: number) => typedError<Chosen, IpcError>(__TAURI_INVOKE("use_this_file_instead", { fileId })),
 	/**  How many hidden files `text` matches that the results don't show. */
 	hiddenFilesMatching: (text: string) => typedError<HiddenMatches, IpcError>(__TAURI_INVOKE("hidden_files_matching", { text })),
+	/**  Gives tracks an energy from 1 to 10: one operation, one Undo. */
+	setEnergy: (recordings: number[], energy: number) => typedError<EnergySet, IpcError>(__TAURI_INVOKE("set_energy", { recordings, energy })),
 };
 
 /** Events */
@@ -752,6 +759,16 @@ export type CrateKind =
 "folder" | 
 /**  A hand-made crate of Library tracks. */
 "static";
+
+/**  What setting energy did. */
+export type EnergySet = {
+	/**  Tracks whose energy is now the one asked for and was not. */
+	changed: number,
+	/**  Tracks left as they were: they had that energy, or are gone. */
+	skipped: number,
+	/**  The operation Undo takes back; none if nothing changed. */
+	operationId: number | null,
+};
 
 /**  What rekordbox holds for a Library track: the entry it is sent as. */
 export type EntryFacts = {
