@@ -67,7 +67,7 @@ export function SeekBar({ fileId, position, duration, enabled, onSeek, className
       aria-valuemin={0}
       aria-valuemax={duration}
       aria-valuenow={Math.floor(shown)}
-      aria-valuetext={t("positionText", { position: formatTime(shown), length: formatTime(duration) })}
+      aria-valuetext={formatTime(shown)}
       aria-disabled={!enabled}
       className={`${styles.seek} ${className}`}
       data-enabled={enabled}

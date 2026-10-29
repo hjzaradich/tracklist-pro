@@ -458,11 +458,11 @@ describe("seeking from the waveform", () => {
     expect(element?.currentTime).toBe(0);
   });
 
-  it("reads out the time and the length to a screen reader", async () => {
+  it("reads out the time to a screen reader, with the length as the end of the scale", async () => {
     await playA();
     click(seekBar(), 120);
     const bar = screen.getByRole("slider", { name: tx("player:position") });
-    expect(bar).toHaveAttribute("aria-valuetext", tx("player:positionText", { position: "1:30", length: "5:00" }));
+    expect(bar).toHaveAttribute("aria-valuetext", "1:30");
     expect(bar).toHaveAttribute("aria-valuenow", "90");
     expect(bar).toHaveAttribute("aria-valuemax", "300");
   });
