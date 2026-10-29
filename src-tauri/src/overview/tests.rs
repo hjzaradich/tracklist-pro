@@ -559,7 +559,7 @@ fn all_music_counts_each_track_with_a_visible_file_once() {
     // In the Library, and not.
     lib.library_track("Alpha", None, None);
     let beta = lib.track("Beta");
-    let beta_file = lib.file(beta, "Beta.mp3", None, None);
+    lib.file(beta, "Beta.mp3", None, None);
     // Two files, one track.
     let gamma = lib.track("Gamma");
     lib.file(gamma, "Gamma.mp3", None, None);
