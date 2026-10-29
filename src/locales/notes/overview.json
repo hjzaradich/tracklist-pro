@@ -3,5 +3,117 @@
     "purpose": "Placeholder describing what the Overview will hold, until its features arrive.",
     "where": "Overview screen, when the Library has tracks (first-run flow not shown).",
     "approved": "Your Library at a glance, and what to do next."
+  },
+  "header.library_one": {
+    "purpose": "Says how big the Library is.",
+    "where": "Overview header, first line."
+  },
+  "header.library_other": {
+    "purpose": "Says how big the Library is.",
+    "where": "Overview header, first line."
+  },
+  "header.lastSent": {
+    "purpose": "Says when the Library was last sent to rekordbox.",
+    "where": "Overview header, under the size, once the numbers have loaded."
+  },
+  "header.neverSent": {
+    "purpose": "Says the Library was never sent to rekordbox.",
+    "where": "Overview header, under the size, once the numbers have loaded."
+  },
+  "header.unreadable": {
+    "purpose": "Says why Send is greyed out.",
+    "where": "Overview header, beside Send, when the Library can't be read."
+  },
+  "header.lastCheck": {
+    "purpose": "Repeats what the send review found at its last read of the export, with when it was read. Send stays available: the next read may find otherwise.",
+    "where": "Overview header, under the size, when the review's last read found nothing to send or refused the send."
+  },
+  "todo.title": {
+    "purpose": "Heading of the list of things waiting for the DJ.",
+    "where": "Overview, above the to-do list."
+  },
+  "todo.review": {
+    "purpose": "One Review group with items waiting. Opens Review. The group name is the one Review shows.",
+    "where": "Overview to-do list, one line per Review group that has items."
+  },
+  "todo.lowQuality_one": {
+    "purpose": "Counts Library tracks whose linked file is flagged for quality. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.lowQuality_other": {
+    "purpose": "Counts Library tracks whose linked file is flagged for quality. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.missingTags_one": {
+    "purpose": "Counts Library tracks with no title, no artist or no genre. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.missingTags_other": {
+    "purpose": "Counts Library tracks with no title, no artist or no genre. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.missingArt_one": {
+    "purpose": "Counts Library tracks whose linked file has no embedded cover. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.missingArt_other": {
+    "purpose": "Counts Library tracks whose linked file has no embedded cover. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.notAnalyzed_one": {
+    "purpose": "Counts Library tracks rekordbox gave neither a BPM nor a key. Only after rekordbox has been read. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.notAnalyzed_other": {
+    "purpose": "Counts Library tracks rekordbox gave neither a BPM nor a key. Only after rekordbox has been read. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.inNoCrate_one": {
+    "purpose": "Counts Library tracks in no crate. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.inNoCrate_other": {
+    "purpose": "Counts Library tracks in no crate. Opens the Library.",
+    "where": "Overview to-do list."
+  },
+  "todo.lineCounting": {
+    "purpose": "Says a line's number can still change because background work is running.",
+    "where": "Overview to-do list, after a line's text."
+  },
+  "todo.counting": {
+    "purpose": "Says the list isn't complete yet: the numbers are still being worked out.",
+    "where": "Overview to-do list, while the numbers load or background work is counting."
+  },
+  "todo.empty": {
+    "purpose": "Says nothing is waiting.",
+    "where": "Overview to-do list, when every number is in and none is waiting."
+  },
+  "progress.line": {
+    "purpose": "The progress line: what was prepared in the last 7 days.",
+    "where": "Overview, under the to-do list."
+  },
+  "progress.added_zero": {
+    "purpose": "Part of the progress line.",
+    "where": "Overview progress line."
+  },
+  "progress.added_one": {
+    "purpose": "Part of the progress line.",
+    "where": "Overview progress line."
+  },
+  "progress.added_other": {
+    "purpose": "Part of the progress line.",
+    "where": "Overview progress line."
+  },
+  "progress.decisions_zero": {
+    "purpose": "Part of the progress line.",
+    "where": "Overview progress line."
+  },
+  "progress.decisions_one": {
+    "purpose": "Part of the progress line.",
+    "where": "Overview progress line."
+  },
+  "progress.decisions_other": {
+    "purpose": "Part of the progress line.",
+    "where": "Overview progress line."
   }
 }
