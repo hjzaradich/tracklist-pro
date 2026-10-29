@@ -178,6 +178,52 @@ fn only_the_apps_adds_and_removals_are_written_and_become_the_base() {
 }
 
 #[test]
+fn a_track_added_to_a_crate_in_the_app_goes_out_at_the_next_send_as_the_apps_change() {
+    // Peak holds a and b, sent and imported. c is a track outside the
+    // Library, which rekordbox has. Adding it to Peak in the app (1cB-23)
+    // adds it to the Library too; rekordbox's Peak still lacks it.
+    let w = World::new();
+    let [a, b] = ["a.mp3", "b.mp3"].map(|f| w.library_track(f, f, true).0);
+    let stray = w.insert(
+        "INSERT INTO recording (title) VALUES (?1)",
+        ("c.mp3".to_owned(),),
+    );
+    w.file(stray, "c.mp3", "c.mp3", true);
+    let peak = w.crate_of("Peak", &[a, b]);
+    w.rekordbox_shows(&[]);
+    w.send_through();
+    w.rekordbox_shows(&[("Peak", &[1, 2])]);
+
+    let done = w
+        .crate_op(move |conn| crates::add_recordings_on(conn, CrateId(peak), &[stray]))
+        .unwrap();
+    assert_eq!((done.added, done.also_added_to_library), (1, 1));
+    let operations = w.operation_count();
+
+    w.send_through();
+
+    // The app's side is the only one that changed: no conflict, nothing
+    // taken in or taken out, and the new Library track goes out in Peak.
+    let c = w.rows(
+        "SELECT id FROM library_track WHERE recording_id = ?1",
+        (stray,),
+        |r| r.get::<_, i64>(0),
+    );
+    assert_eq!(c.len(), 1);
+    assert_eq!(w.open_ones(), []);
+    assert_eq!(w.holds(peak), [a.0, b.0, c[0]]);
+    assert_eq!(w.written("Peak"), ["a.mp3", "b.mp3", "c.mp3"]);
+    assert_eq!(w.base_of("Peak"), [a.0, b.0, c[0]]);
+    assert_eq!(w.operation_count(), operations);
+
+    // Imported: the next send changes nothing and still holds all three.
+    w.rekordbox_shows(&[("Peak", &[1, 2, 3])]);
+    w.send_through();
+    assert_eq!(w.holds(peak), [a.0, b.0, c[0]]);
+    assert_eq!(w.open_ones(), []);
+}
+
+#[test]
 fn a_track_the_dj_adds_or_removes_in_rekordbox_is_taken_into_the_crate_outside_the_log() {
     let (w, [a, _, c], peak) = peak_sent_and_imported();
     w.rekordbox_shows(&[("Peak", &[1, 3])]);
