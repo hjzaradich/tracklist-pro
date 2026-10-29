@@ -83,6 +83,7 @@
     "energy": "Set energy to {{energy}}",
     "playPause": "Play or pause",
     "tag": "Tag",
+    "addToCrate": "Add to crate or playlist",
     "shortcut": {
       "next": "J",
       "previous": "K",
@@ -91,7 +92,8 @@
       "selectAll": "Ctrl A",
       "clearSelection": "Esc",
       "playPause": "Space",
-      "tag": "T"
+      "tag": "T",
+      "addToCrate": "C"
     }
   },
   "energySet_one": "Energy {{energy}} set on {{count, number}} track",

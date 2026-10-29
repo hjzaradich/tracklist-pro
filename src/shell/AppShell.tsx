@@ -1,6 +1,7 @@
 import { Outlet } from "@tanstack/react-router";
 import { CommandPalette } from "../palette/CommandPalette";
 import { useScannedFilesSync } from "../scan/useScannedFilesSync";
+import { TrackDragChip } from "../trackTable/TrackDragChip";
 import { DetailsPanel } from "./DetailsPanel";
 import { PlayerBar } from "./PlayerBar";
 import { useTableOnScreen } from "./selectedTrack";
@@ -37,6 +38,7 @@ export function AppShell({ zones = ZONES }: { zones?: Zones }) {
       {details && <DetailsPanel className={styles.details} />}
       {zones.player && <PlayerBar className={styles.player} />}
       <CommandPalette />
+      <TrackDragChip />
     </div>
   );
 }

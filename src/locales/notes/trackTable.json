@@ -299,6 +299,10 @@
     "purpose": "A command that tags the selected tracks (the T key). Not listed until tags exist (Phase 3).",
     "where": "Command palette, list (not yet shown)."
   },
+  "keys.addToCrate": {
+    "purpose": "A command that adds the selected tracks to a crate (the C key).",
+    "where": "Command palette, list."
+  },
   "keys.shortcut.next": {
     "purpose": "The key shown beside the command that moves to the next track.",
     "where": "Command palette, beside the command."
@@ -330,6 +334,10 @@
   "keys.shortcut.tag": {
     "purpose": "The key shown beside the command that tags.",
     "where": "Command palette, beside the command (not yet shown)."
+  },
+  "keys.shortcut.addToCrate": {
+    "purpose": "The key shown beside the command that adds to a crate.",
+    "where": "Command palette, beside the command."
   },
   "energySet_one": {
     "purpose": "Says what an energy key did, for one track; {{energy}} is the number given.",

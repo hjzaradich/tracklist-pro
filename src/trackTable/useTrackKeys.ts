@@ -16,6 +16,8 @@ export interface TrackKeyHandlers {
   selected: number;
   /** Gives the selected tracks an energy from 1 to 10. Without it the energy keys are unavailable. */
   setEnergy?: (energy: number) => void;
+  /** Opens "Add to crate or playlist" for the selected tracks (1cB-13). Without it the C key is unavailable. */
+  addToCrate?: () => void;
 }
 
 /** The energy each key gives: 1 to 9, and 0 for 10 (ROADMAP 1.11). */
@@ -51,8 +53,8 @@ function isControl(target: EventTarget | null): boolean {
 /**
  * The track table's hotkeys (1cB-8; ROADMAP 1.11): J and K move the focus
  * down and up (Shift extends the selection), Ctrl+A selects all, Escape
- * clears, 1 to 0 give the selected tracks an energy, Space plays or pauses
- * and T tags.
+ * clears, 1 to 0 give the selected tracks an energy, C opens "Add to crate
+ * or playlist", Space plays or pauses and T tags.
  *
  * Every key is an action in the palette's registry (`useRegisterActions`),
  * shown there with its shortcut, so the palette runs the very handler the key
@@ -64,7 +66,7 @@ function isControl(target: EventTarget | null): boolean {
  * open (the palette is one), and for a key another handler already used. Space
  * is also left to a button or link that has the focus.
  */
-export function useTrackKeys({ move, selectAll, clear, selected, setEnergy }: TrackKeyHandlers) {
+export function useTrackKeys({ move, selectAll, clear, selected, setEnergy, addToCrate }: TrackKeyHandlers) {
   const { t } = useTranslation("trackTable");
   const playing = usePlayer((state) => state.file !== null);
   const toggle = usePlayer((state) => state.toggle);
@@ -117,6 +119,17 @@ export function useTrackKeys({ move, selectAll, clear, selected, setEnergy }: Tr
       matches: press(key),
       repeats: false,
     })),
+    {
+      action: {
+        id: "tracks:addToCrate",
+        label: t("keys.addToCrate"),
+        shortcut: t("keys.shortcut.addToCrate"),
+        available: addToCrate !== undefined && selected > 0,
+        run: () => addToCrate?.(),
+      },
+      matches: press("c"),
+      repeats: false,
+    },
     {
       action: {
         id: "tracks:playPause",

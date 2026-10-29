@@ -93,6 +93,12 @@
       "other_one": "(1 other value)",
       "other_other": "({{count}} other values)"
     },
+    "crates": {
+      "title": "In crates",
+      "none": "In no crate",
+      "remove": "Remove from this crate",
+      "removed": "Removed from {{crate}}"
+    },
     "withdraw": {
       "confirmed": "Confirmed as the file rekordbox has",
       "action": "Withdraw confirmation",

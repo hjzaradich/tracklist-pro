@@ -77,6 +77,22 @@
     "added": "Added to {{crate}}",
     "alreadyIn": "Already in {{crate}}"
   },
+  "addDialog": {
+    "title": "Add to crate or playlist",
+    "search": "Search crates",
+    "create": "Create crate “{{name}}”",
+    "none": "No crates match",
+    "cancel": "Go back"
+  },
+  "addSelection": {
+    "added_zero": "No tracks added to {{crate}}",
+    "added_one": "Added {{count, number}} track to {{crate}}",
+    "added_other": "Added {{count, number}} tracks to {{crate}}",
+    "alreadyThere": "{{count, number}} already in it",
+    "outsideLibrary": "{{count, number}} not in your Library",
+    "withNotes": "{{done}} ({{notes}})",
+    "folder": "Can't add to a folder: it holds crates, not tracks"
+  },
   "done": {
     "created": "Crate created",
     "renamed": "Crate renamed",

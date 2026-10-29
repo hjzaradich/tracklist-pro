@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
+import { AddToCrateDialog } from "../crates/AddToCrateDialog";
+import { type AddReport, useAddReport } from "../crates/addSelection";
 import {
   commands,
   type SortColumn,
@@ -84,12 +86,22 @@ export function TrackTableView({
   const [selectedCount, setSelectedCount] = useState(0);
   const [energyGiven, setEnergyGiven] = useState<{ energy: number; count: number } | null>(null);
   const giveEnergy = useSetEnergy();
+  // The tracks "Add to crate or playlist" (the C key) is open for, and what
+  // the last add to a crate did (1cB-13; the sidebar's drop reports the same way).
+  const [adding, setAdding] = useState<readonly number[] | null>(null);
+  const addReport = useAddReport((state) => state.report);
   // The line describes a change that stands: a move, another selection or an Undo drops it.
   const onSelectedChange = useCallback((selection: { count: number }) => {
     setSelectedCount(selection.count);
     setEnergyGiven(null);
+    useAddReport.getState().clear();
   }, []);
-  useWhenUndone(() => setEnergyGiven(null));
+  useWhenUndone(() => {
+    setEnergyGiven(null);
+    useAddReport.getState().clear();
+  });
+  // A line about a table that is gone doesn't wait for the next one.
+  useEffect(() => () => useAddReport.getState().clear(), []);
 
   const query: RowsQuery = useMemo(
     () => ({ source, search: search.trim() === "" ? null : search, filters, sort }),
@@ -153,6 +165,7 @@ export function TrackTableView({
             {energyGiven !== null && (
               <span role="status">{t("energySet", { energy: energyGiven.energy, count: energyGiven.count })}</span>
             )}
+            {addReport !== null && <AddReportLine report={addReport} />}
             {giveEnergy.isError && (
               <span role="alert" className={styles.failed}>
                 {errorMessage(giveEnergy.error)}
@@ -191,8 +204,29 @@ export function TrackTableView({
           onSelectedChange={onSelectedChange}
           idsInRange={idsInRange}
           onSetEnergy={onSetEnergy}
+          onAddToCrate={setAdding}
         />
       )}
+      {adding !== null && <AddToCrateDialog recordings={adding} onClose={() => setAdding(null)} />}
     </div>
   );
+}
+
+/** What the last add to a crate did, in words (1cB-13). */
+function AddReportLine({ report }: { report: AddReport }) {
+  const { t } = useTranslation("crates");
+  if (report.kind === "failed") {
+    return (
+      <span role="alert" className={styles.failed}>
+        {report.message}
+      </span>
+    );
+  }
+  if (report.kind === "folder") return <span role="status">{t("addSelection.folder")}</span>;
+  const notes = [
+    report.alreadyThere > 0 ? t("addSelection.alreadyThere", { count: report.alreadyThere }) : null,
+    report.outsideLibrary > 0 ? t("addSelection.outsideLibrary", { count: report.outsideLibrary }) : null,
+  ].filter((note) => note !== null);
+  const done = t("addSelection.added", { count: report.added, crate: report.crate });
+  return <span role="status">{notes.length > 0 ? t("addSelection.withNotes", { done, notes: notes.join(", ") }) : done}</span>;
 }
