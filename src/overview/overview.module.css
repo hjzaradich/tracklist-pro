@@ -111,18 +111,37 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A whole line is the door: as tall as a list row, with a visible focus ring. */
+/* A whole line is the door: as tall as a list row, with a visible focus ring.
+ * A chevron at its end says it opens somewhere (drawn, not text: it has an
+ * empty alternative, so a screen reader doesn't read it), and the words are
+ * underlined under the pointer. */
 .line {
+  position: relative;
   display: block;
   min-height: var(--row-height);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-6) var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   color: var(--color-text);
   text-decoration: none;
 }
 
+.line::after {
+  content: "\203A" / "";
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+}
+
 .line:hover {
   background: var(--color-surface-hover);
+  text-decoration: underline;
+}
+
+.line:hover::after {
+  color: var(--color-text);
 }
 
 .line:focus-visible {
