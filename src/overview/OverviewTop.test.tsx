@@ -123,6 +123,19 @@ describe("the check the header repeats", () => {
     expect(screen.getByRole("button", { name: tx("send:open") })).toBeEnabled();
   });
 
+  it("stops saying it once a track is retitled, though the Library holds as many tracks as before", async () => {
+    const world = { library: 3, libraryStamp: 1, preflight: preflight({ nothingToSend: true, canSend: false }) };
+    fakeBackend(world);
+    renderApp("/overview");
+    expect(await screen.findByText(contains(tx("send:review.nothing")))).toBeInTheDocument();
+
+    // The count stays 3; only the change stamp moves, as it does for a retitle.
+    world.libraryStamp = 2;
+    await act(() => emit("job-updates", [endedJob()]));
+    await waitFor(() => expect(screen.queryByText(contains(tx("send:review.nothing")))).toBeNull());
+    expect(screen.getByRole("button", { name: tx("send:open") })).toBeEnabled();
+  });
+
   it("keeps saying it while the Library is the same after a job ends", async () => {
     fakeBackend({ library: 3, preflight: preflight({ nothingToSend: true, canSend: false }) });
     renderApp("/overview");

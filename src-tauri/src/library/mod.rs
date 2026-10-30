@@ -53,7 +53,9 @@ use crate::paths::{RelPath, StoredPath, Volumes};
 use crate::scan::{display_path, system_volumes};
 use crate::volume::VolumeId;
 
+mod stamp;
 mod warning;
+pub use stamp::{LibraryStamp, LibrarySummary, LISTED_TABLES};
 use warning::is_confirmed;
 pub use warning::{warning_for, AddWarning, Confirmed, PromoteOutcome};
 
@@ -793,12 +795,10 @@ fn filled(text: Option<String>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty())
 }
 
-fn stored_where(
-    conn: &Connection,
-    filter: &str,
-    params: impl rusqlite::Params,
-) -> rusqlite::Result<Vec<StoredTrack>> {
-    let mut stmt = conn.prepare(&format!(
+/// The query behind [`stored`]: one row per Library track, `filter` narrowing
+/// it. Its tables are the ones [`LISTED_TABLES`] names (a test holds them to it).
+fn stored_sql(filter: &str) -> String {
+    format!(
         "SELECT lt.id, lt.recording_id, lt.kind, r.title, r.artist, lt.added_at, lt.source_status,
                 (SELECT count(*) FROM conflict c
                  WHERE c.library_track_id = lt.id AND c.status = 'open'),
@@ -810,7 +810,15 @@ fn stored_where(
          {FILE_JOINS}
          {filter}
          ORDER BY lt.id"
-    ))?;
+    )
+}
+
+fn stored_where(
+    conn: &Connection,
+    filter: &str,
+    params: impl rusqlite::Params,
+) -> rusqlite::Result<Vec<StoredTrack>> {
+    let mut stmt = conn.prepare(&stored_sql(filter))?;
     let rows = stmt.query_map(params, |r| {
         Ok((
             r.get::<_, i64>(0)?,
@@ -983,18 +991,15 @@ pub fn list_with_fragile(
     list(tracks, volumes, &fragile::judge(located, volumes, dirs))
 }
 
-/// Every Library track, sorted for the Library list (see [`list`]).
+/// How many Library tracks there are, and a stamp that moves when the list
+/// of them would come back different. Cheap at any size: no list is read.
 #[tauri::command]
 #[specta::specta]
-pub async fn library_tracks(reads: State<'_, ReadPool>) -> Result<Vec<LibraryTrack>, IpcError> {
-    let volumes = system_volumes();
-    let (tracks, located) = reads.read(|conn| stored_with_locations(conn, &volumes))?;
-    Ok(list_with_fragile(
-        &tracks,
-        &located,
-        &volumes,
-        &FragileDirs::system(),
-    ))
+pub async fn library_summary(
+    reads: State<'_, ReadPool>,
+    stamp: State<'_, LibraryStamp>,
+) -> Result<LibrarySummary, IpcError> {
+    Ok(reads.read(|conn| stamp::summary(conn, &stamp))?)
 }
 
 /// Adds a track to the Library as a linked Library track. Its file is never

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderApp } from "../app/testApp";
-import type { LibraryTrack, OperationInfo, TablePage, TableQuery } from "../bindings";
+import type { OperationInfo, TablePage, TableQuery } from "../bindings";
 import { usePlayer } from "../player/playerStore";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
@@ -27,22 +27,6 @@ function windowOf(query: TableQuery): TablePage {
 /** The track id of the row at list position `index`. */
 const idAt = (index: number) => index + 100;
 
-function libraryTrack(id: number): LibraryTrack {
-  return {
-    id,
-    recordingId: id + 100,
-    kind: "linked",
-    title: `Synthetic Tune ${id}`,
-    artist: null,
-    file: { id: 1, path: String.raw`E:\Music\tune.mp3`, name: "tune.mp3", present: true, driveConnected: true },
-    fragile: null,
-    sourceMissing: false,
-    openConflicts: 0,
-    addedAt: "2026-10-01T10:00:00.000Z",
-    betterFile: null,
-  };
-}
-
 /** Stands in for the Rust side: the track table, the energy each track was given, and Undo. */
 function fakeBackend() {
   const backend = {
@@ -58,8 +42,8 @@ function fakeBackend() {
     (cmd, rawArgs) => {
       const args = (rawArgs ?? {}) as Record<string, unknown>;
       switch (cmd) {
-        case "library_tracks":
-          return Array.from({ length: 3 }, (_, n) => libraryTrack(n + 1));
+        case "library_summary":
+          return { tracks: 3, changeStamp: 3 };
         case "track_table_page":
           return windowOf(args.query as TableQuery);
         case "track_table_ids": {

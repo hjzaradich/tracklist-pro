@@ -203,6 +203,7 @@ impl Lib {
     }
 }
 
+mod change_stamp;
 mod upkeep;
 mod warning;
 
@@ -907,10 +908,23 @@ mod ipc {
     use crate::db::Writer;
     use crate::ipc::testing::{app, invoke};
 
+    /// What `library_summary` counts, asked the way the frontend asks.
+    fn tracks_over_ipc(app: &tauri::App<tauri::test::MockRuntime>) -> u64 {
+        invoke(app, "library_summary", json!({})).unwrap()["tracks"]
+            .as_u64()
+            .unwrap()
+    }
+
+    fn stamp_over_ipc(app: &tauri::App<tauri::test::MockRuntime>) -> u64 {
+        invoke(app, "library_summary", json!({})).unwrap()["changeStamp"]
+            .as_u64()
+            .unwrap()
+    }
+
     #[test]
-    fn a_fresh_library_lists_no_tracks_over_ipc() {
+    fn a_fresh_library_counts_no_tracks_over_ipc() {
         let (_data, app) = app();
-        assert_eq!(invoke(&app, "library_tracks", json!({})), Ok(json!([])));
+        assert_eq!(tracks_over_ipc(&app), 0);
     }
 
     #[test]
@@ -932,6 +946,7 @@ mod ipc {
             })
             .unwrap();
 
+        let stamp_before = stamp_over_ipc(&app);
         let added = invoke(
             &app,
             "promote_track",
@@ -939,6 +954,10 @@ mod ipc {
         )
         .unwrap();
         assert_eq!(added["added"], json!(true));
+        // The count and the stamp the app is asked for follow the add.
+        assert_eq!(tracks_over_ipc(&app), 1);
+        let stamp_added = stamp_over_ipc(&app);
+        assert_ne!(stamp_added, stamp_before);
         let track = &added["libraryTrack"];
         assert_eq!(track["recordingId"], json!(1));
         assert_eq!(track["kind"], json!("linked"));
@@ -948,11 +967,8 @@ mod ipc {
         assert_eq!(track["file"]["present"], json!(true));
 
         // The test volume is an external drive, and the real command (not a
-        // rebuilt copy of it) says so on the listed row too.
+        // rebuilt copy of it) says so.
         assert_eq!(track["fragile"], json!("external"));
-        let listed = invoke(&app, "library_tracks", json!({})).unwrap();
-        assert_eq!(listed, json!([track]));
-        assert_eq!(listed[0]["fragile"], json!("external"));
 
         let again = invoke(
             &app,
@@ -962,11 +978,14 @@ mod ipc {
         .unwrap();
         assert_eq!(again["added"], json!(false));
         assert_eq!(&again["libraryTrack"], track);
+        // Adding it again changed nothing.
+        assert_eq!(stamp_over_ipc(&app), stamp_added);
 
         // Undo over IPC takes it out again.
         let undone = invoke(&app, "undo_last_operation", json!({})).unwrap();
         assert_eq!(undone["status"], json!("undone"));
-        assert_eq!(invoke(&app, "library_tracks", json!({})), Ok(json!([])));
+        assert_eq!(tracks_over_ipc(&app), 0);
+        assert_ne!(stamp_over_ipc(&app), stamp_added);
     }
 
     #[test]
@@ -1002,7 +1021,7 @@ mod ipc {
                 "warning": { "code": "lowBitrate", "kbps": 128 }
             })
         );
-        assert_eq!(invoke(&app, "library_tracks", json!({})), Ok(json!([])));
+        assert_eq!(tracks_over_ipc(&app), 0);
 
         // Confirmed: the same add goes through.
         let added = invoke(
@@ -1100,7 +1119,8 @@ mod ipc {
         crate::ipc::export_bindings(&path).unwrap();
         let ts = std::fs::read_to_string(&path).unwrap();
         for expected in [
-            r#"libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks"))"#,
+            r#"librarySummary: () => typedError<LibrarySummary, IpcError>(__TAURI_INVOKE("library_summary"))"#,
+            "export type LibrarySummary = {",
             r#"promoteTrack: (recordingId: number, confirmLowBitrate: boolean) => typedError<PromoteOutcome, IpcError>(__TAURI_INVOKE("promote_track", { recordingId, confirmLowBitrate }))"#,
             "export type LibraryTrack = {",
             "export type LinkedFile = {",

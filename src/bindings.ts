@@ -85,11 +85,10 @@ export const commands = {
 	removeMusicFolder: (id: MusicFolderId) => typedError<null, IpcError>(__TAURI_INVOKE("remove_music_folder", { id })),
 	/**
 	 *  Scans the music folders `ids`, or all of them. Returns the job's id; its
-	 *  progress shows in Activity, and new files arrive as `ScannedFiles`.
-	 *  Asked again while that same scan is waiting, nothing more is queued and
-	 *  the waiting job's id comes back; while it's running, it runs once more
-	 *  when it ends, however many times it's asked (a double click is one
-	 *  scan).
+	 *  progress shows in Activity. Asked again while that same scan is waiting,
+	 *  nothing more is queued and the waiting job's id comes back; while it's
+	 *  running, it runs once more when it ends, however many times it's asked
+	 *  (a double click is one scan).
 	 */
 	scanMusicFolders: (ids: MusicFolderId[] | null) => typedError<JobId, IpcError>(__TAURI_INVOKE("scan_music_folders", { ids })),
 	/**
@@ -294,8 +293,11 @@ export const commands = {
 	 *  settled and the screen asks again. Answers how many were settled.
 	 */
 	reviewResolveConflicts: (field: string, side: Side, expected: number) => typedError<number, IpcError>(__TAURI_INVOKE("review_resolve_conflicts", { field, side, expected })),
-	/**  Every Library track, sorted for the Library list (see [`list`]). */
-	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
+	/**
+	 *  How many Library tracks there are, and a stamp that moves when the list
+	 *  of them would come back different. Cheap at any size: no list is read.
+	 */
+	librarySummary: () => typedError<LibrarySummary, IpcError>(__TAURI_INVOKE("library_summary")),
 	/**
 	 *  Adds a track to the Library as a linked Library track. Its file is never
 	 *  written. Adding a track that's already there changes nothing.
@@ -495,7 +497,6 @@ export const commands = {
 /** Events */
 export const events = {
 	jobUpdates: makeEvent<JobUpdates>("job-updates"),
-	scannedFiles: makeEvent<ScannedFiles>("scanned-files"),
 	volumesChanged: makeEvent<VolumesChanged>("volumes-changed"),
 };
 
@@ -1393,6 +1394,18 @@ export type LeftOutReason =
  */
 "rekordboxEntry";
 
+/**  What the screens need to know about the Library without its list. */
+export type LibrarySummary = {
+	/**  How many Library tracks there are. */
+	tracks: number,
+	/**
+	 *  Moves whenever any row the Library list is made of changes (a track
+	 *  added, removed, retitled or relinked). Only ever compared with the
+	 *  last one seen: for equality, never for order.
+	 */
+	changeStamp: number,
+};
+
 /**  A Library track, with what the Library list shows. */
 export type LibraryTrack = {
 	id: LibraryTrackId,
@@ -2188,27 +2201,6 @@ export type SameRecordingTrack = {
 	/**  How many crates hold it. */
 	crates: number,
 };
-
-/**  A file the walk added to the index, as the frontend hears it. */
-export type ScannedFile = {
-	/**  The `file` row id. */
-	id: number,
-	musicFolderId: MusicFolderId,
-	/**  From the music folder, `/`-separated, in the on-disk spelling. */
-	relPath: string,
-	/**  In bytes. */
-	size: number,
-	/**
-	 *  Milliseconds since the Unix epoch (the stored nanoseconds don't fit
-	 *  a JavaScript number).
-	 */
-	modifiedMs: number,
-	/**  A OneDrive placeholder: its bytes aren't on this PC. */
-	onlineOnly: boolean,
-};
-
-/**  Files the walk just added to the index, one batch at a time. */
-export type ScannedFiles = ScannedFile[];
 
 /**  Why a step of the send stopped. Nothing was sent. */
 export type SendFailure = 

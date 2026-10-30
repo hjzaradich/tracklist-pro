@@ -38,8 +38,8 @@ function backend(list: Crate[]) {
           return list;
         case "crate_tracks":
           return [];
-        case "library_tracks":
-          return [];
+        case "library_summary":
+          return { tracks: 0, changeStamp: 0 };
         case "next_undo_operation":
           return { operation: null, refusal: null };
         default:

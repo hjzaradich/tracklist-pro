@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate } from "../bindings";
@@ -6,11 +6,12 @@ import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { useWhenUndone } from "../shell/undoneStore";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import styles from "./LibraryTrackList.module.css";
+import { crateChoices } from "../crates/tree";
 import { useAddToCrate, useCrates } from "../crates/useCrates";
 import { AddedToCrate, AddToCrate } from "./AddToCrate";
 import { ConfirmRemove, RemoveButton } from "./RemoveFromLibrary";
 import { libraryRow, type LibraryRow } from "./libraryRow";
-import { LIBRARY_TABLE_QUERY_KEY } from "./useLibraryTracks";
+import { LIBRARY_TABLE_QUERY_KEY } from "./useLibrarySummary";
 import { useRemoveLibraryTrack } from "./useRemoveLibraryTrack";
 
 const LIBRARY_SOURCE = { kind: "library" } as const;
@@ -29,6 +30,11 @@ export function LibraryScreen() {
   const [removed, setRemoved] = useState(false);
   const crates = useCrates();
   const addToCrate = useAddToCrate();
+  // The choices of every row's "Add to crate", built once for the screen.
+  const choices = useMemo(
+    () => (crates.data === undefined ? [] : crateChoices(crates.data)),
+    [crates.data],
+  );
   // What the last "Add to crate" did; a new `key` announces the line anew.
   const [added, setAdded] = useState<{
     key: number;
@@ -111,7 +117,7 @@ export function LibraryScreen() {
             return (
               track && (
                 <>
-                  <AddToCrate track={track} crates={crates.data ?? []} onChoose={add} />
+                  <AddToCrate track={track} choices={choices} onChoose={add} />
                   <RemoveButton
                     track={track}
                     onRemove={(chosen) => {

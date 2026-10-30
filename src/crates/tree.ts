@@ -22,17 +22,28 @@ export function buildTree(list: Crate[]): TreeNode[] {
   return top;
 }
 
+/**
+ * Finds the names from the top of the tree down to a crate or folder, or none
+ * if it isn't there. The lookup over `list` is built once, so asking for
+ * every crate's path costs one pass over the list, not one per crate.
+ */
+export function pathFinder(list: Crate[]): (id: number) => string[] {
+  const byId = new Map(list.map((c) => [c.id, c]));
+  return (id) => {
+    const names: string[] = [];
+    const seen = new Set<number>();
+    for (let at = byId.get(id); at !== undefined && !seen.has(at.id); ) {
+      seen.add(at.id);
+      names.unshift(at.name);
+      at = at.parentId === null ? undefined : byId.get(at.parentId);
+    }
+    return names;
+  };
+}
+
 /** The names from the top of the tree down to `id`, or none if it isn't there. */
 export function pathOf(list: Crate[], id: number): string[] {
-  const byId = new Map(list.map((c) => [c.id, c]));
-  const names: string[] = [];
-  const seen = new Set<number>();
-  for (let at = byId.get(id); at !== undefined && !seen.has(at.id); ) {
-    seen.add(at.id);
-    names.unshift(at.name);
-    at = at.parentId === null ? undefined : byId.get(at.parentId);
-  }
-  return names;
+  return pathFinder(list)(id);
 }
 
 /** The ids of every folder and crate somewhere below `id`. */
@@ -80,11 +91,18 @@ export function walk(list: Crate[]): { crate: Crate; depth: number }[] {
   return out;
 }
 
+/** A hand-made crate and the name it is chosen by. */
+export interface CrateChoice {
+  crate: Crate;
+  label: string;
+}
+
 /** Hand-made crates in tree order, each named by where it is ("Friday residency › Warmup"). */
-export function crateChoices(list: Crate[]): { crate: Crate; label: string }[] {
+export function crateChoices(list: Crate[]): CrateChoice[] {
+  const pathTo = pathFinder(list);
   return walk(list)
     .filter(({ crate }) => crate.kind === "static")
-    .map(({ crate }) => ({ crate, label: pathOf(list, crate.id).join(PATH_SEPARATOR) }));
+    .map(({ crate }) => ({ crate, label: pathTo(crate.id).join(PATH_SEPARATOR) }));
 }
 
 /** The places something can be moved to: the top, then every folder not in `except`. */
@@ -92,7 +110,8 @@ export function folderChoices(
   list: Crate[],
   except: Set<number>,
 ): { id: number; label: string }[] {
+  const pathTo = pathFinder(list);
   return walk(list)
     .filter(({ crate }) => crate.kind === "folder" && !except.has(crate.id))
-    .map(({ crate }) => ({ id: crate.id, label: pathOf(list, crate.id).join(PATH_SEPARATOR) }));
+    .map(({ crate }) => ({ id: crate.id, label: pathTo(crate.id).join(PATH_SEPARATOR) }));
 }

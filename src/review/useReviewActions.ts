@@ -13,18 +13,11 @@ import {
   type SwitchEffect,
   type Switched,
 } from "../bindings";
-import { AFTER_SEND_LISTS_QUERY_KEY } from "../afterSend/useAfterSendLists";
-import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
-import { CRATES_QUERY_KEY } from "../crates/useCrates";
-import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { reloadLists } from "../app/lists";
 import { useAcceptedStore } from "./acceptedStore";
-import { TRACK_TAG_SOURCES_QUERY_KEY } from "../shell/useTrackTagSources";
-import { MISSING_TRACKS_QUERY_KEY } from "./useMissingTracks";
 import {
   REVIEW_ACCEPT_ALL_QUERY_KEY,
   REVIEW_MERGE_QUESTIONS_QUERY_KEY,
-  REVIEW_QUERY_KEYS,
 } from "./useReview";
 
 // What the user decides about a Review item (1bE-5, 1bE-6, 1bE-7). Each action is
@@ -40,17 +33,15 @@ import {
  * tracks to remove in rekordbox (a merge of two Library tracks).
  */
 function reload(queryClient: QueryClient) {
-  return Promise.all(
-    [
-      ...REVIEW_QUERY_KEYS,
-      LIBRARY_TRACKS_QUERY_KEY,
-      ALL_MUSIC_QUERY_KEY,
-      REKORDBOX_OFFER_QUERY_KEY,
-      MISSING_TRACKS_QUERY_KEY,
-      CRATES_QUERY_KEY,
-      AFTER_SEND_LISTS_QUERY_KEY,
-      TRACK_TAG_SOURCES_QUERY_KEY,
-    ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  return reloadLists(
+    queryClient,
+    "review",
+    "library",
+    "offer",
+    "missing",
+    "crates",
+    "afterSend",
+    "tagSources",
   );
 }
 

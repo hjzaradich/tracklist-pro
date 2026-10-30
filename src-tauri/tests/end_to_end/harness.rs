@@ -26,8 +26,10 @@ use tauri::Manager;
 use tauri_specta::Event;
 use tracklist_pro_lib::all_music::AllMusicList;
 use tracklist_pro_lib::crates::CrateId;
+use tracklist_pro_lib::fragile::FragileDirs;
 use tracklist_pro_lib::jobs::{self, ActivitySnapshot, JobId, JobRecord, JobStatus};
-use tracklist_pro_lib::library::{LibraryTrack, LibraryTrackId, PromoteOutcome};
+use tracklist_pro_lib::library::{self, LibraryTrack, LibraryTrackId, PromoteOutcome};
+use tracklist_pro_lib::paths::SystemVolumes;
 use tracklist_pro_lib::rekordbox::RekordboxXml;
 use tracklist_pro_lib::send::{Preflight, SendFailure, SendState};
 use tracklist_pro_lib::{db, scan, IDENTIFIER};
@@ -549,8 +551,17 @@ impl World {
         );
     }
 
+    /// Every Library track, sorted as the Library list was (the app no
+    /// longer has a command for the whole list: its screens ask for the
+    /// count and a window of rows), read the way that command did.
     pub fn library(&self) -> Vec<LibraryTrack> {
-        self.call("library_tracks", json!({}))
+        let volumes = SystemVolumes::scan_remembering(Vec::new());
+        let (tracks, located) = self
+            .app
+            .state::<db::ReadPool>()
+            .read(|conn| library::stored_with_locations(conn, &volumes))
+            .expect("the Library is readable");
+        library::list_with_fragile(&tracks, &located, &volumes, &FragileDirs::system())
     }
 
     /// The Library track linked to this song's file.

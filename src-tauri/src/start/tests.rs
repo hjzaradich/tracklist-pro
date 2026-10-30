@@ -660,15 +660,15 @@ fn the_frontend_can_ask_for_the_offer_add_it_and_undo_it() {
     )
     .unwrap();
     assert_eq!(summary["added"], 1);
-    let tracks = invoke(&app, "library_tracks", json!({})).unwrap();
-    assert_eq!(tracks.as_array().unwrap().len(), 1);
+    let library = invoke(&app, "library_summary", json!({})).unwrap();
+    assert_eq!(library["tracks"], 1);
 
     // The top bar's Undo (the same command) takes the add back.
     let undone = invoke(&app, "undo_last_operation", json!({})).unwrap();
     assert_eq!(undone["status"], "undone");
     assert_eq!(undone["operation"]["id"], summary["operationId"]);
-    let tracks = invoke(&app, "library_tracks", json!({})).unwrap();
-    assert_eq!(tracks, json!([]));
+    let library = invoke(&app, "library_summary", json!({})).unwrap();
+    assert_eq!(library["tracks"], 0);
 }
 
 // A track can be left with no files (e.g. one removed from the Library

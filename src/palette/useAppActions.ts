@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { useLibraryTracks } from "../library/useLibraryTracks";
+import { useLibrarySummary } from "../library/useLibrarySummary";
 import { sendAvailable } from "../send/sendAvailable";
 import { STAGES } from "../shell/stages";
 import { THEMES, useThemeStore } from "../theme/themeStore";
@@ -17,7 +17,7 @@ export function useAppActions() {
   const { t } = useTranslation(["palette", "shell", "afterSend", "send", "theme"]);
   const navigate = useNavigate();
   const ask = useRequests((state) => state.ask);
-  const library = useLibraryTracks();
+  const library = useLibrarySummary();
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
 
@@ -43,7 +43,7 @@ export function useAppActions() {
       id: "send",
       label: t("send:open"),
       // The Overview's Send button is greyed out under the same rule.
-      available: sendAvailable(library.data?.length),
+      available: sendAvailable(library.data?.tracks),
       run: () => {
         ask("send");
         void navigate({ to: "/overview" });

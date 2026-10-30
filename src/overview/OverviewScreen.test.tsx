@@ -3,27 +3,11 @@ import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
-import type { AddSummary, LibraryTrack, Offer } from "../bindings";
+import type { AddSummary, Offer } from "../bindings";
 import { tx } from "../test/tx";
 
 function offer(toAdd: number): Offer {
   return { toAdd, alreadyInLibrary: 0, waitingInMissing: 0, waitingForConfirmation: 0 };
-}
-
-function libraryTrack(id: number): LibraryTrack {
-  return {
-    id,
-    recordingId: id + 100,
-    kind: "linked",
-    title: `Synthetic Tune ${id}`,
-    artist: null,
-    file: { id: 1, path: String.raw`E:\Music\tune.mp3`, name: "tune.mp3", present: true, driveConnected: true },
-    fragile: null,
-    sourceMissing: false,
-    openConflicts: 0,
-    addedAt: "2026-10-01T10:00:00.000Z",
-    betterFile: null,
-  };
 }
 
 /** Stands in for the Rust side: a Library of `library` tracks and an offer of `toAdd`. */
@@ -42,10 +26,10 @@ function fakeBackend(state: {
   const backend = { ...state, adds: 0, release };
   mockIPC(
     async (cmd) => {
-      if (cmd === "library_tracks") {
+      if (cmd === "library_summary") {
         if (state.libraryHeld) await gate;
         if (state.libraryBroken) throw { kind: "database", params: {} };
-        return Array.from({ length: backend.library }, (_, n) => libraryTrack(n + 1));
+        return { tracks: backend.library, changeStamp: backend.library };
       }
       if (cmd === "rekordbox_offer") return offer(backend.toAdd);
       if (cmd === "add_rekordbox_tracks") {

@@ -11,7 +11,7 @@
 //! no-op here), over a music folder on this PC's own volumes, and
 //! measures:
 //!
-//! - the time to the first `ScannedFiles` batch (what the UI shows first),
+//! - the time to the first batch of new files (what the UI shows first),
 //! - the whole stage-1 walk, and the chained stage-2 read: the target,
 //! - the chained hashes and grouping, reported beside it,
 //! - a rescan with nothing changed (the unchanged check, 1aC-1) and what
@@ -238,7 +238,7 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
     }
 }
 
-/// The frontend's side of `ScannedFiles`: when the first batch of a run
+/// The walk's sink: when the first batch of a run
 /// arrived, and how much came through.
 #[derive(Default)]
 struct Sink {
@@ -425,12 +425,12 @@ fn print(report: &Report, music: &Path, source: &str) {
     println!("the target (ROADMAP 1.1):");
     match report.first_batch {
         Some(d) => println!(
-            "  first ScannedFiles batch   {}   target < {} s   {}",
+            "  first batch of files       {}   target < {} s   {}",
             secs(d),
             FIRST_RESULTS_TARGET.as_secs(),
             verdict(d, FIRST_RESULTS_TARGET)
         ),
-        None => println!("  first ScannedFiles batch   never arrived   MISS"),
+        None => println!("  first batch of files       never arrived   MISS"),
     }
     println!(
         "  stage 1 walk, all rows     {}   {} rows, {} files in {} batches {}",

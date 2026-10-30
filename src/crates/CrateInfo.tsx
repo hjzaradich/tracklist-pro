@@ -62,6 +62,10 @@ export function CrateNotes({ id, onSave }: { id: number; onSave: (notes: string)
         onChange={(event) => setDraft(event.target.value.replace(/\s*[\r\n]+\s*/g, " "))}
         onBlur={save}
         onKeyDown={(event) => {
+          // An input method's Enter (or Escape) settles its candidate; it isn't
+          // the user's. Some browsers send the key after the composition has
+          // ended, with key code 229 and no composing flag.
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter") {
             event.preventDefault();
             save();

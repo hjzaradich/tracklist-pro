@@ -217,7 +217,9 @@ pub fn replace_snapshot(
             r.get(0)
         })?;
     let kept = if rows.complete {
-        tx.execute("DELETE FROM rekordbox_track", [])?;
+        // `WHERE 1`: the Library's change stamp counts the rows a statement
+        // reports, and SQLite reports none for a DELETE with no WHERE clause.
+        tx.execute("DELETE FROM rekordbox_track WHERE 1", [])?;
         0
     } else {
         keep_missing(&tx, rows)?

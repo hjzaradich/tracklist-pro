@@ -6,18 +6,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useWhenJobsEnd } from "../activity/useWhenJobsEnd";
-import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { unwrap } from "../api/errors";
 import { commands, type NextUndo, type UndoOutcome } from "../bindings";
-import { CRATES_QUERY_KEY } from "../crates/useCrates";
-import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
-import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
-import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
+import { reloadLists } from "../app/lists";
 import { useAcceptedStore } from "../review/acceptedStore";
-import { TRACK_TAG_SOURCES_QUERY_KEY } from "./useTrackTagSources";
 import { useUndoneCount } from "./undoneStore";
-import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { dialogIsOpen, isTextField } from "../keys/typing";
 
 // Undo (1bA-12): one step at a time, newest first, from the top bar or
@@ -71,18 +64,16 @@ export function useKeepNextUndoCurrent() {
  * The lists an undo can change: asked for again, so they show what's back.
  * Review is one of them: undoing a Review action brings its item back.
  */
-function reloadLists(queryClient: QueryClient) {
-  return Promise.all(
-    [
-      LIBRARY_TRACKS_QUERY_KEY,
-      CRATES_QUERY_KEY,
-      ALL_MUSIC_QUERY_KEY,
-      REKORDBOX_OFFER_QUERY_KEY,
-      MISSING_TRACKS_QUERY_KEY,
-      TRACK_TAG_SOURCES_QUERY_KEY,
-      OVERVIEW_QUERY_KEY,
-      ...REVIEW_QUERY_KEYS,
-    ].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+function reloadAfterUndo(queryClient: QueryClient) {
+  return reloadLists(
+    queryClient,
+    "library",
+    "crates",
+    "offer",
+    "missing",
+    "tagSources",
+    "overview",
+    "review",
   );
 }
 
@@ -94,7 +85,7 @@ export function useUndoOperation() {
   const queryClient = useQueryClient();
   return useMutation<UndoOutcome, Error, number>({
     mutationFn: (operationId) => unwrap(commands.undoLastOperation(operationId)),
-    onSettled: () => reloadLists(queryClient),
+    onSettled: () => reloadAfterUndo(queryClient),
   });
 }
 
