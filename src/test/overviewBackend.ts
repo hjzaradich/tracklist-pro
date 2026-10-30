@@ -50,6 +50,7 @@ export function preflight(over: Partial<Preflight>): Preflight {
     noKind: [],
     losesEntries: [],
     conflictsWaiting: 0,
+    starsChanged: null,
     refusal: null,
     nothingToSend: false,
     canSend: true,

@@ -492,6 +492,24 @@ export const commands = {
 	hiddenFilesMatching: (text: string) => typedError<HiddenMatches, IpcError>(__TAURI_INVOKE("hidden_files_matching", { text })),
 	/**  Gives tracks an energy from 1 to 10: one operation, one Undo. */
 	setEnergy: (recordings: number[], energy: number) => typedError<EnergySet, IpcError>(__TAURI_INVOKE("set_energy", { recordings, energy })),
+	/**
+	 *  Whether energy is sent as rekordbox's star rating. Off until the user
+	 *  turns it on.
+	 */
+	readEnergyAsStars: () => typedError<boolean, IpcError>(__TAURI_INVOKE("read_energy_as_stars")),
+	/**
+	 *  How many Library tracks' stars in rekordbox turning energy-as-stars on
+	 *  would change (see [`would_change`]) and when the read it counts from was
+	 *  made, or that there's been no read yet, for the screen to ask the user to
+	 *  confirm before it calls [`set_energy_as_stars`].
+	 */
+	energyAsStarsWouldChange: () => typedError<WouldChange, IpcError>(__TAURI_INVOKE("energy_as_stars_would_change")),
+	/**
+	 *  Turns sending energy as rekordbox's star rating on or off. Turning it
+	 *  off leaves the stars as last sent, and the rating follows rekordbox
+	 *  again. Not an operation: it is the user's choice, not Library data.
+	 */
+	setEnergyAsStars: (on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_energy_as_stars", { on })),
 };
 
 /** Events */
@@ -1843,6 +1861,12 @@ export type Preflight = {
 	 */
 	conflictsWaiting: number,
 	/**
+	 *  How many tracks rekordbox has get different stars from this send,
+	 *  counted from this fresh read and merge. `None` while energy isn't
+	 *  sent as the star rating ([`crate::energy_stars`]). The token covers it.
+	 */
+	starsChanged: number | null,
+	/**
 	 *  Tracks rekordbox has, sent with rekordbox's values from this export,
 	 *  whose file changed after the export was saved: rekordbox writes a
 	 *  DJ's edits into the file, so rekordbox may hold an edit this export
@@ -2796,6 +2820,25 @@ export type Why =
 "clearedInbox" | 
 /**  An extra copy of a track whose best file is another file. */
 "extraFile";
+
+/**
+ *  The answer to "how many tracks' stars would change", which the screen
+ *  shows before the user turns the setting on.
+ */
+export type WouldChange = 
+/**
+ *  rekordbox's export was never read, so there's nothing to compare
+ *  with. Not the same as no track changing.
+ */
+{ result: "noRead" } | 
+/**
+ *  The count, from rekordbox's values as of the newest read. Only a
+ *  send's prepare step reads the export afresh, so the screen says how
+ *  old this read is.
+ */
+{ result: "counted"; tracks: number; 
+/**  When that read was made, as the database writes times. */
+readAt: string };
 
 /**  Everything the XML source screen shows. */
 export type XmlSource = {

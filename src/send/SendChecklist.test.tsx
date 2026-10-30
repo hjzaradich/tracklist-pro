@@ -34,6 +34,7 @@ function preflight(fields: Partial<Preflight> = {}): Preflight {
     noKind: [],
     losesEntries: [],
     conflictsWaiting: 0,
+    starsChanged: null,
     changedAfterExport: [],
     refusal: null,
     nothingToSend: false,

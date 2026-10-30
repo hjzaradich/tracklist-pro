@@ -296,7 +296,11 @@ pub fn adopt(rec: &mut Recorder<'_>, resolved: &Resolved) -> Result<(), OpsError
 /// The answer to "how many tracks' stars would change", which the screen
 /// shows before the user turns the setting on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-#[serde(tag = "result", rename_all = "camelCase")]
+#[serde(
+    tag = "result",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum WouldChange {
     /// rekordbox's export was never read, so there's nothing to compare
     /// with. Not the same as no track changing.
