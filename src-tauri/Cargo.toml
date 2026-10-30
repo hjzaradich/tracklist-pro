@@ -80,6 +80,16 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# SQLite (compiled from C by libsqlite3-sys), sha2 and blake3 run in most
+# tests (migrations, hashing); unoptimized they dominate test time (audit
+# 1cB, B16). Dev and test builds only.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.blake3]
+opt-level = 3
+
 # Fingerprinting (1aB-7) decodes and analyzes minutes of audio per test;
 # unoptimized, these crates run 10-20x slower. Dev and test builds only.
 [profile.dev.package.rusty-chromaprint]
