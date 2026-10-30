@@ -73,6 +73,15 @@ test("a shard filters for its modules; the catch-all skips everyone else's", () 
   ]);
 });
 
+test("a shard's skip keeps out a test another shard's module owns, though its filter matches", () => {
+  const shards = [{ lib: ["a", "x"] }, { lib: ["b"], skip: ["a::"] }, { catchAll: true, lib: ["c", "tests"] }];
+  assert.deepEqual(commands(shards[1], shards), [["--lib", "--", "b::", "--skip", "a::"]]);
+  assert.deepEqual(commands(shards[2], shards), [["--lib", "--", "--skip", "a::", "--skip", "x::", "--skip", "b::"]]);
+  // b's filter matches a's test a::b::t, and the skip hands it to shard 1; the catch-all skips it too.
+  assert.deepEqual(listProblems(["a::b::t", "b::t", "c::t"], shards), []);
+  assert.deepEqual(shards.map((s) => runsIn(s, "a::b::t", shards)), [true, false, false]);
+});
+
 test("the real shards: shard 3 runs the integration tests, the bin, the example and the doc tests", () => {
   const all = SHARDS.flatMap((s) => commands(s));
   assert.equal(all.filter((c) => c[0] === "--doc").length, 1);

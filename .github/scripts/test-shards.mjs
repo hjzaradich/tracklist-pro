@@ -44,7 +44,9 @@ const CRATE = join(ROOT, "src-tauri");
  * The shards. `lib`: top-level modules of the library whose unit tests the
  * shard runs. `tests`: integration test binaries (src-tauri/tests). `bins`:
  * the app binary's own tests. `examples`: examples with `test = true`.
- * `doc`: the doc tests. `catchAll`: runs every library test the other
+ * `skip`: substrings of tests this shard must not run even though a filter
+ * matches them, because they belong to a module in another shard (libtest
+ * lets a --skip win over a filter). `doc`: the doc tests. `catchAll`: runs every library test the other
  * shards' filters don't match, instead of filtering for its own modules.
  *
  * Keep the shards' run times level: the slowest one is the CI time. To
@@ -62,6 +64,10 @@ export const SHARDS = [
     // name ends in another's, or that has a submodule of that name, runs with
     // it: review (audio_preview, conflict_review, preview), scan (write_guard),
     // matching (fingerprint), send (after_send). The check fails if one is missed.
+    // And a filter can also match a module of another shard: hash:: matches db's
+    // fingerprint_audio_hash and partial_hash, and send:: matches conflicts'
+    // open_at_send. Those are skipped here; db and conflicts are in shard 1.
+    skip: ["db::", "conflicts::"],
     lib: [
       "scan", "write_guard", "rekordbox", "review", "audio_preview", "conflict_review", "preview", "versions",
       "send", "after_send", "crates", "matching", "fingerprint", "hash",
@@ -94,7 +100,8 @@ export function commands(shard, shards = SHARDS) {
   const out = [];
   if (shard.lib.length > 0) {
     const others = shards.filter((s) => s !== shard);
-    const args = shard.catchAll ? others.flatMap((s) => filtersOf(s).flatMap((f) => ["--skip", f])) : filtersOf(shard);
+    const skips = (shard.catchAll ? others.flatMap(filtersOf) : shard.skip ?? []).flatMap((f) => ["--skip", f]);
+    const args = [...(shard.catchAll ? [] : filtersOf(shard)), ...skips];
     out.push(["--lib", "--", ...args]);
   }
   const targets = [
@@ -111,7 +118,7 @@ export function commands(shard, shards = SHARDS) {
 /** Whether libtest runs the test `name` in `shard` (filters match as substrings of the full name). */
 export function runsIn(shard, name, shards = SHARDS) {
   if (shard.catchAll) return !shards.some((s) => s !== shard && filtersOf(s).some((f) => name.includes(f)));
-  return filtersOf(shard).some((f) => name.includes(f));
+  return filtersOf(shard).some((f) => name.includes(f)) && !(shard.skip ?? []).some((f) => name.includes(f));
 }
 
 // What exists in src-tauri, from its files.
