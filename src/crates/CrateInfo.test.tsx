@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -168,6 +168,35 @@ describe("a crate's note", () => {
     expect(box).toHaveValue("Opens slow builds up");
     await userEvent.keyboard("{Enter}");
     expect(saves().map((call) => call.args)).toEqual([{ id: CRATE.id, notes: "Opens slow builds up" }]);
+  });
+
+  it("is not saved by the Enter that settles an input method's candidate, but by the Enter after it", async () => {
+    renderCrate();
+    await userEvent.click(await noteButton(tx("crates:notes.add")));
+    const box = await noteBox();
+    await userEvent.type(box, "Opens slow");
+
+    // While composing, and (in some browsers) right after the composition ended.
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(box, { key: "Enter", keyCode: 229 });
+    expect(saves()).toHaveLength(0);
+    expect(box).toBeInTheDocument();
+    expect(box).toHaveValue("Opens slow");
+
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(await noteButton("Opens slow")).toBeInTheDocument();
+    expect(saves().map((call) => call.args)).toEqual([{ id: CRATE.id, notes: "Opens slow" }]);
+  });
+
+  it("keeps the note being written when Escape settles an input method's candidate", async () => {
+    renderCrate();
+    await userEvent.click(await noteButton(tx("crates:notes.add")));
+    const box = await noteBox();
+    await userEvent.type(box, "Opens slow");
+
+    fireEvent.keyDown(box, { key: "Escape", isComposing: true });
+    expect(box).toBeInTheDocument();
+    expect(box).toHaveValue("Opens slow");
   });
 
   it("is saved when the box is left", async () => {
