@@ -8,7 +8,7 @@ import { COUNTING_INTERVAL_MS, isCounting, OVERVIEW_QUERY_KEY } from "../overvie
 import { REVIEW_COUNTS_QUERY_KEY } from "../review/useReview";
 import type { LaunchContext } from "./launchContext";
 import { screenAt, writeSavedScreen, type SavedScreen } from "./savedScreen";
-import { hasNews, lowest, newsNumbers, readSeen, writeSeen, type Seen } from "./seenNews";
+import { forgetSeen, hasNews, lowest, newsNumbers, readSeen, writeSeen, type Seen } from "./seenNews";
 
 /** How long a move waits for the next one before the screen is remembered. */
 export const SCREEN_SAVE_DELAY_MS = 400;
@@ -52,7 +52,9 @@ export function rememberScreen(router: AnyRouter): () => void {
     clearTimeout(timer);
     timer = setTimeout(flush, SCREEN_SAVE_DELAY_MS);
   });
-  // The last move before closing must not be lost to the delay.
+  // Leaving the page writes the last move at once, where the webview says so;
+  // if a close gives no word, the move of the last moments is lost and the app
+  // reopens one screen back.
   window.addEventListener("pagehide", flush);
   return () => {
     stopListening();
@@ -85,7 +87,10 @@ function cachedNumbers(queryClient: QueryClient): Numbers | null {
  * in and none still being counted, they have seen all of it. Anywhere else
  * a number can only lower what is kept: the user worked it down, and when
  * it grows again that is news. Without a record the first complete numbers
- * start one. Returns the stop function.
+ * start one. The record is only good while the Library holds the tracks it
+ * held then (see `seenNews.ts`): an empty Library drops it, and numbers
+ * from a Library of another size are not compared with it (the launch drops
+ * it; on the Overview it is replaced). Returns the stop function.
  */
 export function keepWhatWasSeen(router: AnyRouter, queryClient: QueryClient): () => void {
   const note = () => {
@@ -93,13 +98,24 @@ export function keepWhatWasSeen(router: AnyRouter, queryClient: QueryClient): ()
     if (found === null || found.counting) return;
     const seen = readSeen();
     const onOverview = router.state.location.pathname === "/overview";
-    const next = seen === null || onOverview ? found.numbers : lowest(seen, found.numbers);
-    if (seen === null || differs(seen, next)) writeSeen(next);
+    if (seen === null || (onOverview && seen.tracks !== found.numbers.tracks)) {
+      writeSeen(found.numbers);
+      return;
+    }
+    if (seen.tracks !== found.numbers.tracks) return;
+    const next = onOverview ? found.numbers : lowest(seen, found.numbers);
+    if (differs(seen, next)) writeSeen(next);
   };
   const stopCache = queryClient.getQueryCache().subscribe((event) => {
     if (event.type !== "updated" || event.action.type !== "success") return;
-    const key = event.query.queryKey[0];
-    if (key === OVERVIEW_QUERY_KEY[0] || key === REVIEW_COUNTS_QUERY_KEY[0]) note();
+    const key = event.query.queryKey;
+    if (key[0] === OVERVIEW_QUERY_KEY[0] || key[0] === REVIEW_COUNTS_QUERY_KEY[0]) note();
+    // A Library with nothing in it ("Start fresh", or every track removed) has no numbers to compare.
+    const emptied =
+      key.length === LIBRARY_SUMMARY_QUERY_KEY.length &&
+      key.every((part: unknown, i: number) => part === LIBRARY_SUMMARY_QUERY_KEY[i]) &&
+      (event.query.state.data as { tracks?: number } | undefined)?.tracks === 0;
+    if (emptied) forgetSeen();
   });
   const stopRouter = router.subscribe("onResolved", note);
   return () => {
@@ -134,38 +150,57 @@ async function fetchNumbers(queryClient: QueryClient): Promise<Numbers | null> {
 /**
  * When the app reopened on a remembered screen and a scan or read has found
  * something new (see `seenNews.ts`), moves to Overview, as long as the user
- * has not moved yet. While numbers are still being counted it looks again,
- * for {@link NEWS_WINDOW_MS}. A number it can't read is no news. Returns the
- * stop function.
+ * has done nothing yet. The first navigation, key or pointer press after
+ * launch ends the watch for good (going away and coming back included, and an
+ * open dialog or edit, which takes input). While numbers are still being
+ * counted it looks again, for {@link NEWS_WINDOW_MS}. A number it can't read
+ * is no news. Returns the stop function.
  */
 export function openOnNews(router: AnyRouter, queryClient: QueryClient): () => void {
   const { launch } = router.options.context as { launch: LaunchContext };
   if (!launch.reopened) return () => {};
   const seen = readSeen();
   if (seen === null) return () => {};
-  const launchedAt = router.state.location.href;
   const giveUpAt = Date.now() + NEWS_WINDOW_MS;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+    window.removeEventListener("keydown", stop, true);
+    window.removeEventListener("pointerdown", stop, true);
+    stopNavigation();
+  };
+  window.addEventListener("keydown", stop, true);
+  window.addEventListener("pointerdown", stop, true);
+  const stopNavigation = router.subscribe("onBeforeNavigate", (event) => {
+    if (event.toLocation.href !== event.fromLocation?.href) stop();
+  });
+
   const look = async () => {
     try {
       const found = await fetchNumbers(queryClient);
-      if (stopped || found === null) return;
-      // The user went somewhere: that is where they are.
-      if (router.state.location.href !== launchedAt) return;
-      if (hasNews(found.numbers, seen)) {
+      if (stopped) return;
+      // An empty Library, or one of another size than when the record was made, has nothing to compare.
+      if (found === null || found.numbers.tracks !== seen.tracks) {
+        // Start a record from these numbers if they are complete; else the first complete ones will.
+        if (found !== null && found.numbers.tracks > 0 && !found.counting) writeSeen(found.numbers);
+        else forgetSeen();
+        stop();
+      } else if (hasNews(found.numbers, seen)) {
+        stop();
         await router.navigate({ to: "/overview", replace: true });
       } else if (found.counting && Date.now() < giveUpAt) {
         timer = setTimeout(() => void look(), COUNTING_INTERVAL_MS);
+      } else {
+        stop();
       }
     } catch {
       // Not read: nothing is known to be new.
+      stop();
     }
   };
   void look();
-  return () => {
-    stopped = true;
-    clearTimeout(timer);
-  };
+  return stop;
 }

@@ -1,11 +1,13 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderApp } from "../app/testApp";
 import { crate } from "../test/crateBackend";
 import { fakeBackend, type World } from "../test/overviewBackend";
 import { tx } from "../test/tx";
+import { COUNTING_INTERVAL_MS } from "../overview/useOverview";
+import { NEWS_WINDOW_MS } from "./LaunchWatcher";
 import { SCREEN_STORAGE_KEY } from "./savedScreen";
 import { readSeen, SEEN_STORAGE_KEY, type Seen } from "./seenNews";
 
@@ -15,9 +17,12 @@ import { readSeen, SEEN_STORAGE_KEY, type Seen } from "./seenNews";
 afterEach(() => {
   cleanup();
   clearMocks();
+  vi.useRealTimers();
 });
 
+// The Library the fake backend holds, and what was seen of it.
 const NOTHING_SEEN: Seen = {
+  tracks: 3,
   outsideLibrary: 0,
   needsCloserLook: 0,
   clearBestFile: 0,
@@ -220,6 +225,57 @@ describe("opening on Overview when a scan or read finds something new", () => {
     expect(router.state.location.pathname).toBe("/review");
   });
 
+  it("going away and coming back ends the watch for good", async () => {
+    remember({ path: "/library" });
+    seen(NOTHING_SEEN);
+    const { backend, router } = launch({ overview: { outsideLibrary: 4 }, overviewHeld: true });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.library") });
+    await act(() => router.navigate({ to: "/review" }));
+    await act(() => router.navigate({ to: "/library" }));
+    backend.release();
+    await untilNewsIsKnown(backend.calls);
+    expect(router.state.location.pathname).toBe("/library");
+  });
+
+  it.each([
+    ["a key", () => fireEvent.keyDown(document.body, { key: "a" })],
+    ["a pointer press", () => fireEvent.pointerDown(document.body)],
+  ])("%s anywhere ends the watch for good", async (_what, doSomething) => {
+    remember({ path: "/library" });
+    seen(NOTHING_SEEN);
+    const { backend, router } = launch({ overview: { outsideLibrary: 4 }, overviewHeld: true });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.library") });
+    doSomething();
+    backend.release();
+    await untilNewsIsKnown(backend.calls);
+    expect(router.state.location.pathname).toBe("/library");
+  });
+
+  it("an open dialog ends the watch: opening one takes input", async () => {
+    remember({ path: "/library" });
+    seen(NOTHING_SEEN);
+    const { backend, router } = launch({ overview: { outsideLibrary: 4 }, overviewHeld: true });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.library") });
+    await userEvent.keyboard("{Control>}k{/Control}");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    backend.release();
+    await untilNewsIsKnown(backend.calls);
+    expect(router.state.location.pathname).toBe("/library");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("an edit in progress ends the watch", async () => {
+    remember({ path: "/crates" });
+    seen(NOTHING_SEEN);
+    const { backend, router } = launch({ overview: { outsideLibrary: 4 }, overviewHeld: true });
+    await userEvent.click(await screen.findByRole("button", { name: tx("crates:new.button") }));
+    await userEvent.type(await screen.findByRole("textbox", { name: tx("crates:new.label") }), "Peak");
+    backend.release();
+    await untilNewsIsKnown(backend.calls);
+    expect(router.state.location.pathname).toBe("/crates");
+    expect(screen.getByRole("textbox", { name: tx("crates:new.label") })).toHaveValue("Peak");
+  });
+
   it("an Overview that can't be read is no news", async () => {
     remember({ path: "/library" });
     seen(NOTHING_SEEN);
@@ -252,5 +308,105 @@ describe("keeping what the user has seen", () => {
     const { backend } = launch({ overview: { outsideLibrary: 4 }, review: { conflicts: 1 } });
     await untilNewsIsKnown(backend.calls);
     expect(readSeen()).toEqual({ ...NOTHING_SEEN, outsideLibrary: 4, conflicts: 1 });
+  });
+});
+
+describe("looking again while numbers are still being counted", () => {
+  const COUNTING = { files: true, rekordbox: false, quality: false };
+  const overviewCalls = (calls: string[]) => calls.filter((call) => call === "overview").length;
+
+  async function untilLaunched(world: World) {
+    remember({ path: "/library" });
+    seen(NOTHING_SEEN);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const app = launch(world);
+    await vi.waitFor(() => expect(overviewCalls(app.backend.calls)).toBe(1));
+    return app;
+  }
+
+  it("polls while counting, and opens Overview when a later look finds news", async () => {
+    const world: World = { overview: { counting: COUNTING } };
+    const { backend, router } = await untilLaunched(world);
+    await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS);
+    await vi.waitFor(() => expect(overviewCalls(backend.calls)).toBe(2));
+    expect(router.state.location.pathname).toBe("/library");
+
+    world.overview = { outsideLibrary: 3, counting: COUNTING };
+    await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS);
+    await vi.waitFor(() => expect(router.state.location.pathname).toBe("/overview"));
+  });
+
+  it("stops looking once nothing is being counted", async () => {
+    const world: World = { overview: { counting: COUNTING } };
+    const { backend, router } = await untilLaunched(world);
+    world.overview = { counting: { files: false, rekordbox: false, quality: false } };
+    await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS);
+    await vi.waitFor(() => expect(overviewCalls(backend.calls)).toBe(2));
+    await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS * 3);
+    expect(overviewCalls(backend.calls)).toBe(2);
+    expect(router.state.location.pathname).toBe("/library");
+  });
+
+  it("gives up after the window, however long the counting goes on", async () => {
+    const world: World = { overview: { counting: COUNTING } };
+    const { backend, router } = await untilLaunched(world);
+    await vi.advanceTimersByTimeAsync(NEWS_WINDOW_MS + COUNTING_INTERVAL_MS);
+    const looks = overviewCalls(backend.calls);
+    expect(looks).toBeGreaterThan(2);
+    expect(looks).toBeLessThanOrEqual(NEWS_WINDOW_MS / COUNTING_INTERVAL_MS + 2);
+
+    world.overview = { outsideLibrary: 3, counting: COUNTING };
+    await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS * 4);
+    expect(overviewCalls(backend.calls)).toBe(looks);
+    expect(router.state.location.pathname).toBe("/library");
+  });
+
+  it("a key pressed between two looks ends the polling", async () => {
+    const world: World = { overview: { counting: COUNTING } };
+    const { backend, router } = await untilLaunched(world);
+    fireEvent.keyDown(document.body, { key: "a" });
+    world.overview = { outsideLibrary: 3, counting: COUNTING };
+    await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS * 3);
+    expect(overviewCalls(backend.calls)).toBe(1);
+    expect(router.state.location.pathname).toBe("/library");
+  });
+});
+
+describe("the user's own work is not news", () => {
+  it("a Library that holds other tracks than when last seen is no news, and a new record is started", async () => {
+    remember({ path: "/library" });
+    seen({ ...NOTHING_SEEN, tracks: 9 });
+    const { backend, router } = launch({ library: 3, overview: { tracks: 3, outsideLibrary: 6 } });
+    await untilNewsIsKnown(backend.calls);
+    expect(router.state.location.pathname).toBe("/library");
+    // Nothing is compared with the old Library; the first complete numbers start a record.
+    await waitFor(() => expect(readSeen()).toEqual({ ...NOTHING_SEEN, outsideLibrary: 6 }));
+  });
+
+  it("starting fresh, then adding tracks, is no news at the next launch", async () => {
+    // Seen with 3 tracks; the user started fresh (an empty Library), and has since added 2.
+    seen({ ...NOTHING_SEEN, outsideLibrary: 1 });
+    const empty = fakeBackend({ library: 0 });
+    const first = renderApp("/overview");
+    await waitFor(() => expect(empty.calls).toContain("library_summary"));
+    await waitFor(() => expect(readSeen()).toBeNull());
+    first.unmount();
+    clearMocks();
+
+    remember({ path: "/library" });
+    const { backend, router } = launch({ library: 2, overview: { tracks: 2, outsideLibrary: 8 } });
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.library") });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+    // No record, so nothing to compare: nothing is asked and nothing moves.
+    expect(backend.calls).not.toContain("overview");
+    expect(router.state.location.pathname).toBe("/library");
+  });
+
+  it("an empty Library at launch drops the record", async () => {
+    remember({ path: "/library" });
+    seen(NOTHING_SEEN);
+    const { router } = launch({ library: 0 });
+    await waitFor(() => expect(readSeen()).toBeNull());
+    expect(router.state.location.pathname).toBe("/library");
   });
 });

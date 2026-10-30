@@ -11,7 +11,10 @@ import type { Overview, ReviewCounts } from "../bindings";
  * Something is new when one of these holds more than the last time the user
  * saw it: the last time the Overview showed all of them with nothing still
  * being counted, or the least they held since (so that a number the user
- * worked down, and that then grows again, is news).
+ * worked down, and that then grows again, is news). Only while the Library
+ * holds the tracks it held then: a Library the user has changed (tracks added
+ * or removed, "Start fresh") has moved these numbers by their own hand, so
+ * there is no record, and the first complete numbers start a new one.
  */
 export const SEEN_STORAGE_KEY = "tracklist-pro.launch.seen";
 
@@ -25,12 +28,19 @@ export const NEWS_KEYS = [
 
 export type NewsKey = (typeof NEWS_KEYS)[number];
 
-/** How many each of the {@link NEWS_KEYS} held. */
-export type Seen = Record<NewsKey, number>;
+/**
+ * How many each of the {@link NEWS_KEYS} held, and how many tracks the
+ * Library held then. The track count says whether the numbers can be
+ * compared at all: when it differs from the Library's now, the user changed
+ * the Library (added or removed tracks, started fresh) and moved the numbers
+ * themselves, so the record is dropped and started again.
+ */
+export type Seen = Record<NewsKey, number> & { tracks: number };
 
 /** The numbers the to-do list shows for the {@link NEWS_KEYS}. */
 export function newsNumbers(overview: Overview, review: ReviewCounts): Seen {
   return {
+    tracks: overview.tracks,
     outsideLibrary: overview.outsideLibrary,
     needsCloserLook: review.needsCloserLook,
     clearBestFile: review.clearBestFile,
@@ -54,7 +64,7 @@ export function lowest(a: Seen, b: Seen): Seen {
 function isSeen(value: unknown): value is Seen {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
-  return NEWS_KEYS.every((key) => {
+  return [...NEWS_KEYS, "tracks"].every((key) => {
     const count = record[key];
     return typeof count === "number" && Number.isSafeInteger(count) && count >= 0;
   });
@@ -67,11 +77,20 @@ export function readSeen(): Seen | null {
     if (raw === null) return null;
     const stored: unknown = JSON.parse(raw);
     if (!isSeen(stored)) return null;
-    const seen = {} as Seen;
+    const seen = { tracks: stored.tracks } as Seen;
     for (const key of NEWS_KEYS) seen[key] = stored[key];
     return seen;
   } catch {
     return null;
+  }
+}
+
+/** Forgets what was seen. */
+export function forgetSeen(): void {
+  try {
+    localStorage.removeItem(SEEN_STORAGE_KEY);
+  } catch {
+    // Storage is blocked: the record can't be read either.
   }
 }
 
