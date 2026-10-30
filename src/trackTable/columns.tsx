@@ -146,7 +146,7 @@ function FitCell({ row, ctx }: { row: TableRow; ctx: CellContext }) {
   return (
     <>
       {fit.reason !== null && (
-        <span role="img" aria-label={dots} title={dots}>
+        <span role="img" aria-label={dots} title={dots} className={styles.fitDots}>
           {"●".repeat(fit.dots)}
           {"○".repeat(MOST_DOTS - fit.dots)}
         </span>

@@ -232,6 +232,14 @@
 }
 
 /* A long title is cut off with "…"; the notes beside it give way first. */
+/* The Fit column's dots, then the reason: the dots keep their width and sit
+ * a space away from it. */
+.fitDots {
+  margin-right: var(--space-2);
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
 .text {
   flex: 1 1 5rem;
   min-width: 0;
