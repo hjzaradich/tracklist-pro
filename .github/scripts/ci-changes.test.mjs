@@ -9,8 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { areas, jobsFor, changesCacheKeys, decide, changedFiles, markerName, parseMarker, covers, SHARED, resultProblems, AREA_JOBS, JOBS } from "./ci-changes.mjs";
 
-const none = { app: false, fixture_gen: false, rb_kit: false };
-const every = { app: true, fixture_gen: true, rb_kit: true };
+const none = { app: false, rust: false, fixture_gen: false, rb_kit: false };
+const every = { app: true, rust: true, fixture_gen: true, rb_kit: true };
+// A change to Rust (or anything not clearly frontend): the frontend's checks and the Rust job.
+const rustApp = { ...none, app: true, rust: true };
+// A change to frontend files nobody in Rust reads: the frontend's checks only.
+const frontendOnly = { ...none, app: true };
 
 const area = (path) => areas(path).join("+");
 
@@ -25,19 +29,19 @@ test("each path lands in the area whose checks it can affect", () => {
   assert.equal(area("tools/fixture-gen/Cargo.lock"), "fixture_gen");
   assert.equal(area("spikes/rb-kit/rb_check.py"), "rb_kit");
   assert.equal(area("spikes/audio-lab/main.py"), "spike");
-  assert.equal(area("src-tauri/src/tags/key.rs"), "app");
+  assert.equal(area("src-tauri/src/tags/key.rs"), "app+rust");
   assert.equal(area("src/App.tsx"), "app");
-  assert.equal(area("package-lock.json"), "app");
-  assert.equal(area("deny.toml"), "app");
+  assert.equal(area("package-lock.json"), "app+rust");
+  assert.equal(area("deny.toml"), "app+rust");
   // Only a real .md name is docs; a file that merely mentions "md" is not.
   assert.equal(area("src/markdown.ts"), "app");
 });
 
 test("only the root LICENSE file is docs, not LICENSE files elsewhere or LICENSE.*", () => {
   assert.equal(area("LICENSE"), "docs");
-  assert.equal(area("LICENSE.txt"), "app");
-  assert.equal(area("src-tauri/LICENSE"), "app");
-  assert.equal(area("src-tauri/src/LICENSE_NOTES.rs"), "app");
+  assert.equal(area("LICENSE.txt"), "app+rust");
+  assert.equal(area("src-tauri/LICENSE"), "app+rust");
+  assert.equal(area("src-tauri/src/LICENSE_NOTES.rs"), "app+rust");
   assert.equal(area("tools/fixture-gen/LICENSE"), "fixture_gen");
 });
 
@@ -47,11 +51,11 @@ test(".gitattributes changes every checkout, so it counts as a CI change and run
 });
 
 test("the app's Cargo.toml and Cargo.lock also run the fixture generator, whose dev-only test reads them", () => {
-  assert.equal(area("src-tauri/Cargo.toml"), "app+fixture_gen");
-  assert.equal(area("src-tauri/Cargo.lock"), "app+fixture_gen");
-  assert.deepEqual(jobsFor(["src-tauri/Cargo.lock"]), { ...none, app: true, fixture_gen: true });
+  assert.equal(area("src-tauri/Cargo.toml"), "app+rust+fixture_gen");
+  assert.equal(area("src-tauri/Cargo.lock"), "app+rust+fixture_gen");
+  assert.deepEqual(jobsFor(["src-tauri/Cargo.lock"]), { ...rustApp, fixture_gen: true });
   // Other app files don't.
-  assert.deepEqual(jobsFor(["src-tauri/src/lib.rs"]), { ...none, app: true });
+  assert.deepEqual(jobsFor(["src-tauri/src/lib.rs"]), rustApp);
 });
 
 test("every cross-area file listed in SHARED is really read by the other area's test", () => {
@@ -85,9 +89,84 @@ test("a change to other spikes runs nothing, since CI builds no other spike", ()
   assert.deepEqual(jobsFor(["spikes/audio-lab/x.py", "spikes/inventory.py"]), none);
 });
 
-test("an app change runs the app job, and mixed changes run each area's job", () => {
-  assert.deepEqual(jobsFor(["src-tauri/src/lib.rs"]), { ...none, app: true });
-  assert.deepEqual(jobsFor(["src/main.tsx", "spikes/rb-kit/rbxml.py", "TASKS.md"]), { ...none, app: true, rb_kit: true });
+test("a Rust change runs the frontend checks and the Rust job, and mixed changes run each area's job", () => {
+  assert.deepEqual(jobsFor(["src-tauri/src/lib.rs"]), rustApp);
+  assert.deepEqual(jobsFor(["src/main.tsx", "spikes/rb-kit/rbxml.py", "TASKS.md"]), { ...frontendOnly, rb_kit: true });
+  assert.deepEqual(jobsFor(["src-tauri/src/lib.rs", "spikes/rb-kit/rbxml.py"]), { ...rustApp, rb_kit: true });
+});
+
+// 1cC-D2: a frontend-only change skips the slow Rust job.
+
+test("a change to only frontend files runs the frontend jobs and skips the Rust job", () => {
+  for (const file of [
+    "src/App.tsx",
+    "src/shell/Shell.test.tsx",
+    "src/locales/notes/review.json",
+    "src/locales/fr/review.json",
+    "index.html",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "tsconfig.json",
+    "tsconfig.node.json",
+    "eslint.config.js",
+    "eslint-rules/no-raw-jsx-strings.js",
+    "scripts/copy.mjs",
+  ]) {
+    assert.deepEqual(jobsFor([file]), frontendOnly, file);
+  }
+  assert.deepEqual(jobsFor(["src/a.tsx", "src/b.tsx", "index.html", "README.md"]), frontendOnly);
+});
+
+test("a frontend change together with src/bindings.ts runs the Rust job", () => {
+  assert.deepEqual(jobsFor(["src/App.tsx", "src/bindings.ts"]), rustApp);
+  assert.deepEqual(jobsFor(["src/bindings.ts"]), rustApp);
+});
+
+test("each frontend file a Rust test reads runs the Rust job; a new file in a listed folder does too", () => {
+  for (const file of [
+    "src/bindings.ts",
+    "src/locales/en/review.json",
+    "src/locales/en/errors.json",
+    "src/locales/en/aNewNamespace.json",
+    "scripts/preview.mjs",
+  ]) {
+    assert.deepEqual(jobsFor([file]), rustApp, file);
+  }
+});
+
+test("anything that isn't clearly frontend still runs the Rust job, even if it sits beside the frontend", () => {
+  for (const file of ["package.json", "package-lock.json", "deny.toml", "rust-toolchain.toml", "tools/new-tool/main.rs", "Dockerfile", "src-tauri/tauri.conf.json"]) {
+    assert.deepEqual(jobsFor([file]), rustApp, file);
+  }
+  // A look-alike outside the frontend's folders isn't frontend.
+  assert.deepEqual(jobsFor(["src2/a.ts", "vite.config.ts.bak", "srcx.ts"]), rustApp);
+});
+
+test("the rekordbox fixture that a Rust test includes runs the Rust job as well as the check kit", () => {
+  assert.deepEqual(jobsFor(["spikes/rb-kit/fixtures/rb-export-snippet.xml"]), { ...rustApp, rb_kit: true });
+});
+
+test("a docs-only change still runs nothing, with or without frontend neighbours in the diff", () => {
+  assert.deepEqual(jobsFor(["docs/architecture.md", "src/locales/notes/README.md"]), none);
+});
+
+test("a pull request that changes only the frontend skips the Rust job and says so", () => {
+  const d = decide({ event: "pull_request", files: ["src/App.tsx", "src/App.test.tsx"] });
+  assert.deepEqual(d.jobs, frontendOnly);
+  assert.match(d.reason, /app/);
+  assert.doesNotMatch(d.reason, /rust/);
+});
+
+test("a push to main runs the Rust job only when its own diff needs it, and a marker skips it only if that run covered it", () => {
+  // Pushes are decided by the diff, as before; this one is frontend-only.
+  assert.deepEqual(decide({ event: "push", files: ["src/App.tsx"], tested: [] }).jobs, frontendOnly);
+  // A frontend-only PR's marker doesn't cover a push that needs Rust.
+  assert.deepEqual(decide({ event: "push", files: ["src/bindings.ts"], tested: [frontendOnly] }).jobs, rustApp);
+  // The other way round, a run that ran Rust covers a frontend-only push.
+  assert.deepEqual(decide({ event: "push", files: ["src/App.tsx"], tested: [rustApp] }).jobs, none);
+  // Scheduled, manual and unreadable-diff runs run everything, the Rust job included.
+  assert.deepEqual(decide({ event: "schedule", files: null }).jobs, every);
+  assert.deepEqual(decide({ event: "push", files: null }).jobs, every);
 });
 
 test("an empty change runs nothing", () => {
@@ -122,28 +201,28 @@ test("a docs-only pull request runs nothing but still gets a reason", () => {
 });
 
 test("a push to main whose exact tree already passed on its pull request runs nothing again", () => {
-  const d = decide({ event: "push", files: ["src-tauri/src/lib.rs", "src/App.tsx"], tested: [{ ...none, app: true }] });
+  const d = decide({ event: "push", files: ["src-tauri/src/lib.rs", "src/App.tsx"], tested: [rustApp] });
   assert.deepEqual(d.jobs, none);
   assert.match(d.reason, /already tested this exact tree/);
 });
 
 test("a tested push that changes cache keys still runs, so main's caches are rebuilt", () => {
   const d = decide({ event: "push", files: ["src-tauri/Cargo.lock"], tested: [every] });
-  assert.deepEqual(d.jobs, { ...none, app: true, fixture_gen: true });
-  const npm = decide({ event: "push", files: ["package-lock.json"], tested: [{ ...none, app: true }] });
-  assert.deepEqual(npm.jobs, { ...none, app: true });
+  assert.deepEqual(d.jobs, { ...rustApp, fixture_gen: true });
+  const npm = decide({ event: "push", files: ["package-lock.json"], tested: [rustApp] });
+  assert.deepEqual(npm.jobs, rustApp);
   const ci = decide({ event: "push", files: [".github/workflows/ci-windows.yml"], tested: [every] });
   assert.deepEqual(ci.jobs, every);
 });
 
 test("a push to main whose tree no pull request run tested runs the jobs its changes need", () => {
-  assert.deepEqual(decide({ event: "push", files: ["src/App.tsx"], tested: [] }).jobs, { ...none, app: true });
+  assert.deepEqual(decide({ event: "push", files: ["src-tauri/src/lib.rs"], tested: [] }).jobs, rustApp);
   assert.deepEqual(decide({ event: "push", files: ["tools/fixture-gen/src/lib.rs"] }).jobs, { ...none, fixture_gen: true });
 });
 
 test("a pull request ignores tested-tree markers: its own run is the test", () => {
-  const d = decide({ event: "pull_request", files: ["src/App.tsx"], tested: [{ ...none, app: true }] });
-  assert.deepEqual(d.jobs, { ...none, app: true });
+  const d = decide({ event: "pull_request", files: ["src/App.tsx"], tested: [frontendOnly] });
+  assert.deepEqual(d.jobs, frontendOnly);
 });
 
 test("a tested push skips only if the PR run covered every job the push's own diff needs", () => {
@@ -151,26 +230,28 @@ test("a tested push skips only if the PR run covered every job the push's own di
   // PR (it ran nothing), but this push's diff touches the app.
   const docsOnlyRun = none;
   const d = decide({ event: "push", files: ["src/App.tsx"], tested: [docsOnlyRun] });
-  assert.deepEqual(d.jobs, { ...none, app: true });
+  assert.deepEqual(d.jobs, frontendOnly);
   // A run that ran the app, but not the check kit the push also needs.
-  const partial = decide({ event: "push", files: ["src/App.tsx", "spikes/rb-kit/rbxml.py"], tested: [{ ...none, app: true }] });
-  assert.deepEqual(partial.jobs, { ...none, app: true, rb_kit: true });
+  const partial = decide({ event: "push", files: ["src/App.tsx", "spikes/rb-kit/rbxml.py"], tested: [frontendOnly] });
+  assert.deepEqual(partial.jobs, { ...frontendOnly, rb_kit: true });
   // Any one covering run is enough.
   const covered = decide({ event: "push", files: ["src/App.tsx"], tested: [docsOnlyRun, every] });
   assert.deepEqual(covered.jobs, none);
 });
 
 test("covers is true only when every needed job ran", () => {
-  assert.ok(covers(every, { ...none, app: true }));
+  assert.ok(covers(every, rustApp));
   assert.ok(covers(none, none));
-  assert.ok(!covers({ ...none, app: true }, { ...none, fixture_gen: true }));
+  assert.ok(!covers(frontendOnly, { ...none, fixture_gen: true }));
+  assert.ok(!covers(frontendOnly, rustApp));
 });
 
 test("a marker names the tree and exactly the jobs that ran, and reads back the same", () => {
   const tree = "0123456789abcdef0123456789abcdef01234567";
   assert.equal(markerName(tree, none), `ci-passed-tree-${tree}-ran-none`);
   assert.equal(markerName(tree, { ...none, app: true, rb_kit: true }), `ci-passed-tree-${tree}-ran-app.rb_kit`);
-  for (const jobs of [none, every, { ...none, fixture_gen: true }, { ...none, app: true, rb_kit: true }]) {
+  assert.equal(markerName(tree, rustApp), `ci-passed-tree-${tree}-ran-app.rust`);
+  for (const jobs of [none, every, rustApp, { ...none, fixture_gen: true }, { ...none, app: true, rb_kit: true }]) {
     assert.deepEqual(parseMarker(markerName(tree, jobs), tree), jobs);
   }
 });
@@ -189,7 +270,7 @@ test("a marker for another tree, or naming an unknown job, is ignored", () => {
 const ok = { result: "success" };
 const skipped = { result: "skipped" };
 function needs(flags, results = {}) {
-  const outputs = { app: "false", fixture_gen: "false", rb_kit: "false", marker: "m", ...flags };
+  const outputs = { app: "false", rust: "false", fixture_gen: "false", rb_kit: "false", marker: "m", ...flags };
   return {
     changes: { result: "success", outputs },
     windows: skipped, "fixture-gen": skipped, "rb-kit": skipped, checks: skipped, licenses: skipped,
@@ -198,16 +279,18 @@ function needs(flags, results = {}) {
 }
 
 test("a run passes when every needed job passed and the rest were skipped", () => {
-  assert.deepEqual(resultProblems(needs({ app: "true" }, { windows: ok, checks: ok, licenses: ok })), []);
+  assert.deepEqual(resultProblems(needs({ app: "true", rust: "true" }, { windows: ok, checks: ok, licenses: ok })), []);
+  // A frontend-only run: the Rust job is skipped on purpose, and that's a pass.
+  assert.deepEqual(resultProblems(needs({ app: "true" }, { checks: ok, licenses: ok })), []);
   assert.deepEqual(resultProblems(needs({ rb_kit: "true" }, { "rb-kit": ok })), []);
   // Docs only: nothing needed, everything skipped.
   assert.deepEqual(resultProblems(needs({})), []);
 });
 
 test("a run fails when any job failed or was cancelled", () => {
-  assert.deepEqual(resultProblems(needs({ app: "true" }, { windows: { result: "failure" }, checks: ok, licenses: ok })), [
+  assert.deepEqual(resultProblems(needs({ app: "true", rust: "true" }, { windows: { result: "failure" }, checks: ok, licenses: ok })), [
     "windows: failure",
-    "windows: needed for app, but its result is failure",
+    "windows: needed for rust, but its result is failure",
   ]);
   assert.deepEqual(resultProblems(needs({}, { licenses: { result: "cancelled" } })), ["licenses: cancelled"]);
   assert.deepEqual(resultProblems({ changes: { result: "failure", outputs: {} } }), [
@@ -228,12 +311,25 @@ test("a run fails, never reports green, when the gate job was skipped, failed or
 });
 
 test("a run fails when a job its changes needed was skipped, so its marker can't claim that job", () => {
-  assert.deepEqual(resultProblems(needs({ app: "true" }, { checks: ok, licenses: ok })), [
-    "windows: needed for app, but its result is skipped",
+  // The Rust job was needed (a Rust change) but skipped: not a pass.
+  assert.deepEqual(resultProblems(needs({ app: "true", rust: "true" }, { checks: ok, licenses: ok })), [
+    "windows: needed for rust, but its result is skipped",
+  ]);
+  // A frontend job skipped when the run needed it is not a pass either.
+  assert.deepEqual(resultProblems(needs({ app: "true" }, { windows: ok, licenses: ok })), [
+    "checks: needed for app, but its result is skipped",
   ]);
   assert.deepEqual(resultProblems(needs({ fixture_gen: "true" }, { "fixture-gen": ok, checks: ok })), [
     "licenses: needed for fixture_gen, but its result is skipped",
   ]);
+});
+
+test("a run fails when the gate gives no verdict for a job area, rather than reading it as not needed", () => {
+  const n = needs({ app: "true" }, { checks: ok, licenses: ok });
+  delete n.changes.outputs.rust;
+  assert.deepEqual(resultProblems(n), ["changes: no output for rust"]);
+  n.changes.outputs.rust = "maybe";
+  assert.deepEqual(resultProblems(n), ["changes: no output for rust"]);
 });
 
 // The workflow itself, read from ci-windows.yml, so the script and the
