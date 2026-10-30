@@ -68,6 +68,15 @@ proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_ProcessStatus"] }
 mp3lame-encoder = "=0.2.5"
 
+# Debug info for dev and test builds: line tables only for our own code, so
+# panics and backtraces still show file and line; none for dependencies. Full
+# debug info made each test binary's PDB huge and slowed every link (audit
+# 1cB, A13). To inspect variables in a debugger, set these to 2 locally.
+[profile.dev]
+debug = "line-tables-only"
+[profile.dev.package."*"]
+debug = false
+
 # Fingerprinting (1aB-7) decodes and analyzes minutes of audio per test;
 # unoptimized, these crates run 10-20x slower. Dev and test builds only.
 [profile.dev.package.rusty-chromaprint]
