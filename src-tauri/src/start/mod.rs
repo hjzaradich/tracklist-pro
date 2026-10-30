@@ -42,7 +42,7 @@ use tauri::State;
 use crate::db::{ReadPool, Writer};
 use crate::ipc::IpcError;
 use crate::library::{self, Plan, Refusal};
-use crate::ops::{self, OpsError, UndoOutcome};
+use crate::ops::{self, OpsError};
 use crate::rekordbox::location::{decode, Location};
 
 #[cfg(test)]
@@ -78,8 +78,8 @@ pub struct AddSummary {
     pub already_in_library: u32,
     pub waiting_in_missing: u32,
     pub waiting_for_confirmation: u32,
-    /// The operation that added them, for [`undo_add`]. `None` when nothing
-    /// was added.
+    /// The operation that added them, which the top bar's Undo takes back.
+    /// `None` when nothing was added.
     pub operation_id: Option<i64>,
 }
 
@@ -231,14 +231,6 @@ pub fn add_offered(
     })
 }
 
-/// Undoes the add recorded as `operation`, if it's the next operation to
-/// undo. If something else was done since (or the add was undone already),
-/// nothing is undone ([`UndoOutcome::NothingToUndo`]): the summary's undo
-/// never undoes a different action.
-pub fn undo_add(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, OpsError> {
-    ops::undo_only(conn, operation)
-}
-
 /// How playlist names are ordered in the pick: letter case ignored.
 fn sort_key(path: &PlaylistPath) -> Vec<String> {
     path.iter().map(|name| name.to_lowercase()).collect()
@@ -293,16 +285,6 @@ pub async fn add_rekordbox_tracks(
     playlists: Option<Vec<PlaylistPath>>,
 ) -> Result<AddSummary, IpcError> {
     Ok(writer.call(move |conn| Ok(add_offered(conn, playlists.as_deref())))??)
-}
-
-/// Undoes an add of rekordbox tracks, if nothing else was done since.
-#[tauri::command]
-#[specta::specta]
-pub async fn undo_add_rekordbox_tracks(
-    writer: State<'_, Writer>,
-    operation_id: i64,
-) -> Result<UndoOutcome, IpcError> {
-    Ok(writer.call(move |conn| Ok(undo_add(conn, operation_id)))??)
 }
 
 /// The rekordbox playlists that hold tracks, for narrowing the offer.

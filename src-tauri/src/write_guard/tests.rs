@@ -1103,6 +1103,109 @@ fn the_guards_database_connections_refuse_attach_and_vacuum_into() {
     assert_eq!(sb.outside_listing(), before);
 }
 
+// ---- the name SQLite is given -----------------------------------------------
+
+fn plain(path: &str) -> Option<String> {
+    plain_drive_spelling(Path::new(path)).map(|p| p.to_str().unwrap().to_owned())
+}
+
+#[test]
+fn a_database_on_a_drive_is_named_to_sqlite_without_the_verbatim_prefix() {
+    // SQLite takes a name that starts with two backslashes for a network
+    // share, and its shared-memory locking for those can leave a read lock
+    // held for good (see `GuardedPath::sqlite_name`).
+    assert_eq!(
+        plain(r"\\?\C:\Users\dj\AppData\Roaming\com.tracklistpro.desktop\tracklist-pro.db"),
+        Some(r"C:\Users\dj\AppData\Roaming\com.tracklistpro.desktop\tracklist-pro.db".to_owned())
+    );
+    assert_eq!(plain(r"\\?\d:\x\a.db"), Some(r"d:\x\a.db".to_owned()));
+    // Dots inside a name are fine, and so are spaces that aren't last.
+    assert_eq!(
+        plain(r"\\?\E:\Q.X.Z\a b.db"),
+        Some(r"E:\Q.X.Z\a b.db".to_owned())
+    );
+}
+
+#[test]
+fn a_database_path_win32_would_rewrite_keeps_its_verbatim_form() {
+    for path in [
+        // A trailing dot or space in any name is dropped by Win32.
+        r"\\?\C:\Q.X.Z.\a.db",
+        r"\\?\C:\data\a.db.",
+        r"\\?\C:\data \a.db",
+        r"\\?\C:\data\a.db ",
+        // Device names, with or without an extension.
+        r"\\?\C:\data\CON",
+        r"\\?\C:\data\aux.db",
+        r"\\?\C:\COM1\a.db",
+        r"\\?\C:\data\lpt9.txt",
+        // Names Win32 reads as something else.
+        r"\\?\C:\data\.\a.db",
+        r"\\?\C:\data\..\a.db",
+        r"\\?\C:\data\\a.db",
+        r"\\?\C:\data\a:b.db",
+        r"\\?\C:\data\a?.db",
+        "\\\\?\\C:\\data\\a\u{7}.db",
+    ] {
+        assert_eq!(plain(path), None, "{path}");
+    }
+}
+
+#[test]
+fn a_database_path_that_is_not_a_plain_drive_path_keeps_its_verbatim_form() {
+    for path in [
+        // Not verbatim at all, or not on a drive letter.
+        r"C:\data\a.db",
+        r"\\?\UNC\server\share\a.db",
+        r"\\?\Volume{0a1b2c3d-0000-0000-0000-000000000000}\a.db",
+        r"\\server\share\a.db",
+        r"\\?\C:",
+        r"\\?\C:\",
+        r"\\?\1:\a.db",
+        r"/data/a.db",
+    ] {
+        assert_eq!(plain(path), None, "{path}");
+    }
+    // The length limit: the plain path (`C:\` + folder + `\a.db`) may be 240
+    // characters; one more keeps the verbatim form.
+    let of_length = |len: usize| {
+        let folder = len - r"C:\".len() - r"\a.db".len();
+        format!(r"\\?\C:\{}\a.db", "d".repeat(folder))
+    };
+    for (len, plain_form) in [(200, true), (240, true), (241, false), (250, false)] {
+        let got = plain(&of_length(len));
+        assert_eq!(got.is_some(), plain_form, "length {len}");
+        if let Some(got) = got {
+            assert_eq!(got.len(), len);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn every_database_connection_the_guard_opens_is_named_to_sqlite_without_the_verbatim_prefix() {
+    let sb = Sandbox::new();
+    let checked = sb.guard.check(&sb.data().join("app.db")).unwrap();
+    assert!(
+        checked.as_path().to_str().unwrap().starts_with(r"\\?\"),
+        "the guard's own path is verbatim: {:?}",
+        checked.as_path()
+    );
+    let writer = checked.open_database().unwrap();
+    writer.execute_batch("CREATE TABLE t (x)").unwrap();
+    let reader = checked.open_database_read_only().unwrap();
+    for conn in [&writer, &reader] {
+        let name = conn.path().unwrap().to_owned();
+        assert!(!name.starts_with(r"\\"), "SQLite was handed {name}");
+        assert!(name.ends_with("app.db"), "{name}");
+    }
+    // The same file under either spelling.
+    let seen: i64 = reader
+        .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(seen, 1);
+}
+
 #[test]
 fn sql_cannot_move_sqlites_temp_or_data_files() {
     // Review round 3: `PRAGMA temp_store = FILE` (or a temp directory)

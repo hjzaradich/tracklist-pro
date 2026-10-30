@@ -121,7 +121,6 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::library::remove_library_track,
             crate::start::rekordbox_offer,
             crate::start::add_rekordbox_tracks,
-            crate::start::undo_add_rekordbox_tracks,
             crate::start::rekordbox_playlists,
             crate::all_music::all_music_tracks,
             crate::audio_preview::preview_check,

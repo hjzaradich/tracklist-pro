@@ -855,4 +855,97 @@ mod tests {
         assert_eq!(rows(&writer), 3);
         drop(holder);
     }
+
+    /// A database with a table, and a pool of `READERS` read connections.
+    const READERS: usize = 4;
+
+    fn writer_and_readers() -> (tempfile::TempDir, Writer, crate::db::ReadPool) {
+        let (dir, writer) = open_temp();
+        writer
+            .call(|c| {
+                c.execute_batch(
+                    "CREATE TABLE t (x INTEGER, pad BLOB); INSERT INTO t VALUES (1, NULL);",
+                )
+            })
+            .unwrap();
+        let reads = crate::db::ReadPool::with_size(writer.guarded_path(), READERS).unwrap();
+        (dir, writer, reads)
+    }
+
+    /// `READERS` reads that all begin at the same instant. The log is empty
+    /// before them (everything is in the database file), the case in which
+    /// they all take the same lock of SQLite's shared-memory file.
+    fn reads_begin_together(reads: &crate::db::ReadPool) {
+        let barrier = std::sync::Barrier::new(READERS);
+        std::thread::scope(|s| {
+            for _ in 0..READERS {
+                s.spawn(|| {
+                    reads
+                        .read(|c| {
+                            barrier.wait();
+                            c.query_row("SELECT count(*) FROM t", [], |r| r.get::<_, i64>(0))
+                        })
+                        .unwrap();
+                });
+            }
+        });
+    }
+
+    fn one_write(writer: &Writer) {
+        writer
+            .call(|c| c.execute("INSERT INTO t VALUES (2, randomblob(3000))", []))
+            .unwrap();
+    }
+
+    #[test]
+    fn reads_that_begin_at_the_same_moment_never_leave_a_lock_that_blocks_a_later_checkpoint() {
+        // About one round in four left a read lock behind before (SQLite's
+        // Windows file layer, handed a `\\?\` name): the log then kept every
+        // frame, whoever asked for the checkpoint.
+        let (_dir, writer, reads) = writer_and_readers();
+        for round in 0..150 {
+            assert_eq!(
+                writer.checkpoint().unwrap(),
+                Checkpoint::Emptied,
+                "round {round}: a checkpoint was blocked with no read in progress"
+            );
+            reads_begin_together(&reads);
+            one_write(&writer);
+        }
+        assert_eq!(writer.checkpoint().unwrap(), Checkpoint::Emptied);
+        assert_eq!(log_bytes(&writer), 0);
+    }
+
+    #[test]
+    fn the_log_stays_bounded_over_many_writes_after_reads_that_began_together() {
+        let (_dir, writer, reads) = writer_and_readers();
+        for _ in 0..60 {
+            writer.checkpoint().unwrap();
+            reads_begin_together(&reads);
+            one_write(&writer);
+        }
+
+        // SQLite's own checkpoints, which run as the writer commits, must
+        // be able to put the log in the database and start it again: a
+        // blocked one lets the file grow with every write (4,000 writes of
+        // 3 kB are over 16 MB of log when none can).
+        for _ in 0..4000 {
+            one_write(&writer);
+        }
+        assert!(
+            log_bytes(&writer) < 8 * 1024 * 1024,
+            "{} bytes of log after 4,000 writes",
+            log_bytes(&writer)
+        );
+        // And a checkpoint of the kind SQLite runs by itself finds nothing
+        // in its way: every frame of the log is in the database.
+        let (blocked, in_log, checkpointed): (i64, i64, i64) = writer
+            .call(|c| {
+                c.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+            })
+            .unwrap();
+        assert_eq!((blocked, checkpointed), (0, in_log));
+    }
 }
