@@ -1,0 +1,9 @@
+# Link with the Rust toolchain's bundled lld instead of MSVC link.exe (audit
+# 1cB, C22). It ships with the pinned toolchain (rust-toolchain.toml), so
+# nothing extra to install. Measured: a one-line change to the library
+# relinks all test binaries about twice as fast. build.rs embeds the Common
+# Controls manifest with /MANIFEST:EMBED and /MANIFESTINPUT, which lld-link
+# honors; the tests that start Tauri (end_to_end, preview_seed) prove it.
+# This applies to every profile, release included.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
