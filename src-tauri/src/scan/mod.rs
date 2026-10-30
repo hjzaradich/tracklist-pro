@@ -20,13 +20,12 @@ pub mod watch;
 pub use folders::{MusicFolder, MusicFolderError, MusicFolderId, MusicFolderRole};
 pub use online_only::ReadGate;
 pub use volumes::VolumesChanged;
-pub use walk::{scan_job, ScannedFile, ScannedFiles, Walker};
+pub use walk::{scan_job, ScannedFile, Walker};
 pub use watch::Watchers;
 
 use std::path::Path;
 
-use tauri::{AppHandle, Runtime, State};
-use tauri_specta::Event;
+use tauri::State;
 
 use crate::ipc::IpcError;
 use crate::jobs::{JobHandler, JobId, JobQueue};
@@ -48,21 +47,18 @@ pub fn is_skipped(name: &str) -> bool {
 }
 
 /// The scan job's handler for the app: asks Windows which volumes are
-/// mounted at the start of each job, and sends new rows to the webview.
-pub fn walker<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
-    let app = app.clone();
-    Walker::new(system_volumes, move |files| {
-        // Only fails if the app is closing.
-        let _ = ScannedFiles(files).emit(&app);
-    })
+/// mounted at the start of each job. The walk hands each batch of new rows
+/// to a sink; nothing in the app listens for them (the tests and the 100k
+/// run do), so the app's sink drops them.
+pub fn walker() -> impl JobHandler {
+    Walker::new(system_volumes, |_: Vec<ScannedFile>| {})
 }
 
 /// Scans the music folders `ids`, or all of them. Returns the job's id; its
-/// progress shows in Activity, and new files arrive as `ScannedFiles`.
-/// Asked again while that same scan is waiting, nothing more is queued and
-/// the waiting job's id comes back; while it's running, it runs once more
-/// when it ends, however many times it's asked (a double click is one
-/// scan).
+/// progress shows in Activity. Asked again while that same scan is waiting,
+/// nothing more is queued and the waiting job's id comes back; while it's
+/// running, it runs once more when it ends, however many times it's asked
+/// (a double click is one scan).
 #[tauri::command(async)]
 #[specta::specta]
 pub fn scan_music_folders(

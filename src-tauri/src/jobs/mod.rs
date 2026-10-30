@@ -58,7 +58,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         // the drives mounted now (`reaching`).
         .handler(
             JobKind::Scan,
-            crate::scan::chain::after_walk(crate::scan::walker(app))
+            crate::scan::chain::after_walk(crate::scan::walker())
                 .reaching(crate::scan::system_volumes),
         )
         .handler(

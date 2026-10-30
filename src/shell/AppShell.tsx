@@ -1,6 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
 import { CommandPalette } from "../palette/CommandPalette";
-import { useScannedFilesSync } from "../scan/useScannedFilesSync";
 import { TrackDragChip } from "../trackTable/TrackDragChip";
 import { DetailsPanel } from "./DetailsPanel";
 import { PlayerBar } from "./PlayerBar";
@@ -20,7 +19,6 @@ import styles from "./AppShell.module.css";
  * drawn (`zones`, by default {@link ZONES}) leaves its space to the center.
  */
 export function AppShell({ zones = ZONES }: { zones?: Zones }) {
-  useScannedFilesSync();
   useReloadListsWhenJobsEnd();
   useNoteLibraryChanges();
   // The panel shows the selected row of a track table: it is drawn beside one.

@@ -159,7 +159,6 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,
-            crate::scan::ScannedFiles,
             crate::scan::VolumesChanged,
         ])
         // Every key notation's 24 names, so the frontend formats keys from the

@@ -27,7 +27,7 @@
 //!   is compared by its partial hash; if the content is the same, no stage
 //!   redoes it. The first walk of a file opens nothing.
 //! - Rows are written in batches, each in one transaction, and every batch's
-//!   new rows go to the frontend as one [`ScannedFiles`] event. Cancelling
+//!   new rows go to the walker's sink as one batch. Cancelling
 //!   stops at the next entry; batches already written stay, whole.
 //! - **Rows are never deleted.** A walk that reaches the end of a music
 //!   folder marks the files it didn't find `present = 0` (1aB-9), except
@@ -46,8 +46,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
-use specta::Type;
 
 use super::folders::{self, MusicFolderId, StoredFolder};
 use super::is_indexed;
@@ -63,9 +61,8 @@ pub const BATCH_MAX: usize = 1000;
 /// show up quickly even on a slow drive.
 pub const BATCH_WINDOW: Duration = Duration::from_millis(250);
 
-/// A file the walk added to the index, as the frontend hears it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
+/// A file the walk added to the index, handed to the walker's sink in a batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScannedFile {
     /// The `file` row id.
     pub id: i64,
@@ -74,16 +71,11 @@ pub struct ScannedFile {
     pub rel_path: String,
     /// In bytes.
     pub size: i64,
-    /// Milliseconds since the Unix epoch (the stored nanoseconds don't fit
-    /// a JavaScript number).
+    /// Milliseconds since the Unix epoch (the stored value is nanoseconds).
     pub modified_ms: i64,
     /// A OneDrive placeholder: its bytes aren't on this PC.
     pub online_only: bool,
 }
-
-/// Files the walk just added to the index, one batch at a time.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type, tauri_specta::Event)]
-pub struct ScannedFiles(pub Vec<ScannedFile>);
 
 /// One file as the listing described it.
 #[derive(Debug, Clone, PartialEq, Eq)]

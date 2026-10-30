@@ -85,11 +85,10 @@ export const commands = {
 	removeMusicFolder: (id: MusicFolderId) => typedError<null, IpcError>(__TAURI_INVOKE("remove_music_folder", { id })),
 	/**
 	 *  Scans the music folders `ids`, or all of them. Returns the job's id; its
-	 *  progress shows in Activity, and new files arrive as `ScannedFiles`.
-	 *  Asked again while that same scan is waiting, nothing more is queued and
-	 *  the waiting job's id comes back; while it's running, it runs once more
-	 *  when it ends, however many times it's asked (a double click is one
-	 *  scan).
+	 *  progress shows in Activity. Asked again while that same scan is waiting,
+	 *  nothing more is queued and the waiting job's id comes back; while it's
+	 *  running, it runs once more when it ends, however many times it's asked
+	 *  (a double click is one scan).
 	 */
 	scanMusicFolders: (ids: MusicFolderId[] | null) => typedError<JobId, IpcError>(__TAURI_INVOKE("scan_music_folders", { ids })),
 	/**
@@ -495,7 +494,6 @@ export const commands = {
 /** Events */
 export const events = {
 	jobUpdates: makeEvent<JobUpdates>("job-updates"),
-	scannedFiles: makeEvent<ScannedFiles>("scanned-files"),
 	volumesChanged: makeEvent<VolumesChanged>("volumes-changed"),
 };
 
@@ -2188,27 +2186,6 @@ export type SameRecordingTrack = {
 	/**  How many crates hold it. */
 	crates: number,
 };
-
-/**  A file the walk added to the index, as the frontend hears it. */
-export type ScannedFile = {
-	/**  The `file` row id. */
-	id: number,
-	musicFolderId: MusicFolderId,
-	/**  From the music folder, `/`-separated, in the on-disk spelling. */
-	relPath: string,
-	/**  In bytes. */
-	size: number,
-	/**
-	 *  Milliseconds since the Unix epoch (the stored nanoseconds don't fit
-	 *  a JavaScript number).
-	 */
-	modifiedMs: number,
-	/**  A OneDrive placeholder: its bytes aren't on this PC. */
-	onlineOnly: boolean,
-};
-
-/**  Files the walk just added to the index, one batch at a time. */
-export type ScannedFiles = ScannedFile[];
 
 /**  Why a step of the send stopped. Nothing was sent. */
 export type SendFailure = 
