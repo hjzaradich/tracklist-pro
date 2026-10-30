@@ -86,6 +86,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0038_crate_membership_merge"),
     migration!("0039_user_energy"),
     migration!("0040_file_waveform"),
+    migration!("0041_stars_held"),
 ];
 
 /// The table that records which migrations a database has had.

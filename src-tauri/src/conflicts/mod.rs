@@ -25,6 +25,7 @@
 //! | 6 | app ≠ base, rekordbox = base | `SendApp` | `onlyAppChanged` |
 //! | 7 | app = base, rekordbox ≠ base, rekordbox = replaced | `NotTakenUp` | `sendNotTakenUp` |
 //! | 8 | app = base, rekordbox ≠ base, otherwise | `TakeRekordbox` | `onlyRekordboxChanged` |
+//! | 8a | as row 8, but the app's value is derived from the track's energy (below) | `DerivedChanged` | `derivedChangedInRekordbox` |
 //! | 9 | both ≠ base, app = rekordbox | `Same` | `bothChangedAlike` |
 //! | 10 | both ≠ base, app ≠ rekordbox | `Conflict` | `bothChanged` |
 //! | | **The field was never sent (no base)** | | |
@@ -65,6 +66,16 @@
 //!   and the app's edit would be reverted without a word.
 //! - **Row 13.** With no base nothing proves that either side is unchanged,
 //!   so neither may overwrite the other silently.
+//! - **Row 8a** (1cC-2; ROADMAP §7 "How energy reaches rekordbox"). While the
+//!   user has energy sent as the star rating ([`crate::energy_stars`]), a
+//!   `Rating` the app sends from the track's energy is derived, not an edit:
+//!   the energy hasn't moved, so row 8 would take rekordbox's stars in and
+//!   the energy would silently stop mattering. The owner wants a star change
+//!   made in rekordbox to be a conflict like any other field changed on both
+//!   sides, so [`decide_with`] answers `DerivedChanged`, which is handled as
+//!   [`Handling::Review`]. Only row 8 changes: a send not taken up (row 7)
+//!   is still sent again, and with the setting off, or for a track with no
+//!   energy, row 8 stands.
 //!
 //! One case stays a conflict although `replaced` could settle it: an edit
 //! made on top of a send that wasn't taken up (both differ from the base,
@@ -122,7 +133,7 @@ mod tests;
 use serde::Serialize;
 use specta::Type;
 
-pub use compare::{fits, is_blank, kind_of, same, Kind, ANALYSIS_FIELDS};
+pub use compare::{fits, is_blank, kind_of, same, stars_of, Kind, ANALYSIS_FIELDS};
 pub use merge::{merge_before_send, Merged};
 pub use resolve::{
     resolve, resolve_all, resolve_all_with, resolve_with, Choice, ResolveError, Resolved,
@@ -183,6 +194,9 @@ pub enum Verdict {
     NotTakenUp,
     /// Both sides changed, to different values.
     Conflict,
+    /// Only rekordbox changed a field whose app side is derived from the
+    /// track's energy (row 8a): the user decides.
+    DerivedChanged,
 }
 
 /// What is done about a [`Verdict`].
@@ -220,7 +234,7 @@ impl Verdict {
             Verdict::SendApp => Handling::SendApp,
             Verdict::TakeRekordbox => Handling::TakeRekordbox,
             Verdict::NotTakenUp => not_taken_up,
-            Verdict::Conflict => Handling::Review,
+            Verdict::Conflict | Verdict::DerivedChanged => Handling::Review,
         }
     }
 }
@@ -240,6 +254,7 @@ pub enum Reason {
     OnlyRekordboxChanged,
     BothChangedAlike,
     BothChanged,
+    DerivedChangedInRekordbox,
     NeverSentAlike,
     NeverSentOnlyAppChanged,
     NeverSentBothDiffer,
@@ -256,6 +271,13 @@ pub struct Decision {
 /// What happened to `field` since its base, by the decision table in the
 /// module docs.
 pub fn decide(field: &str, sides: &Sides<'_>) -> Decision {
+    decide_with(field, sides, false)
+}
+
+/// [`decide`], told whether the app's value is derived from the track's energy
+/// (`derived`, only for `Rating`; [`crate::energy_stars`]): then row 8 is
+/// row 8a, a conflict instead of a take-in.
+pub fn decide_with(field: &str, sides: &Sides<'_>, derived: bool) -> Decision {
     use Reason as R;
     use Verdict as V;
     let is = |verdict, reason| Decision { verdict, reason };
@@ -291,6 +313,7 @@ pub fn decide(field: &str, sides: &Sides<'_>) -> Decision {
         (true, true) => is(V::Unchanged, R::NeitherChanged),
         (false, true) => is(V::SendApp, R::OnlyAppChanged),
         (true, false) if still_replaced => is(V::NotTakenUp, R::SendNotTakenUp),
+        (true, false) if derived => is(V::DerivedChanged, R::DerivedChangedInRekordbox),
         (true, false) => is(V::TakeRekordbox, R::OnlyRekordboxChanged),
         (false, false) if app == rekordbox => is(V::Same, R::BothChangedAlike),
         (false, false) => is(V::Conflict, R::BothChanged),

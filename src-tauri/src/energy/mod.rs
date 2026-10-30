@@ -8,8 +8,8 @@
 //! energy (`recording_display`), above Mixed In Key's, the local estimate
 //! and the audio model's, so the user's word wins and taking it away (Undo)
 //! brings the next source's value back. Nothing is written to a file, and
-//! nothing is sent to rekordbox: energy is not sent by default (ROADMAP §1.1,
-//! "Energy"; 1cC-2 adds the opt-in).
+//! nothing is sent to rekordbox unless the user opted in to energy as the star
+//! rating (ROADMAP §7, "How energy reaches rekordbox"; `crate::energy_stars`).
 //!
 //! # The operation
 //!
@@ -31,7 +31,7 @@ use tauri::State;
 
 use crate::db::Writer;
 use crate::ipc::{ErrorKind, IpcError};
-use crate::ops::{self, OpsError};
+use crate::ops::{self, OpsError, Recorder};
 
 /// The operation setting energy records.
 pub const SET_ENERGY_OPERATION: &str = "set_energy";
@@ -85,6 +85,11 @@ impl From<Refused> for IpcError {
     }
 }
 
+/// The `library_track` column that marks a track whose stars stay
+/// rekordbox's (`energy_stars`, migration 0041). Setting an energy on the
+/// track ends it.
+pub(crate) const STARS_HELD: &str = "stars_held";
+
 /// What a track holds now: the id of its `user` row and the energy in it.
 type Held = (Option<i64>, Option<i64>);
 
@@ -98,51 +103,8 @@ pub fn set_energy_on(
     if !(LOWEST..=HIGHEST).contains(&energy) {
         return Err(Refused::NotAnEnergy(energy));
     }
-    let wanted = serde_json::to_string(recordings).expect("numbers always serialize");
     let recorded = ops::record(conn, SET_ENERGY_OPERATION, &serde_json::json!({}), |rec| {
-        // The tracks that exist, with the user's row if they have one.
-        let held: HashMap<i64, Held> = rec
-            .read_rows(
-                "SELECT r.id, a.id, a.energy
-                     FROM recording r
-                     LEFT JOIN analysis a ON a.recording_id = r.id AND a.source = 'user'
-                     WHERE r.id IN (SELECT value FROM json_each(?1))",
-                [wanted.as_str()],
-                |r| {
-                    Ok((
-                        r.get::<_, i64>(0)?,
-                        (r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?),
-                    ))
-                },
-            )?
-            .into_iter()
-            .collect();
-        let mut done = std::collections::HashSet::new();
-        let mut changed = 0u32;
-        for &recording in recordings {
-            if !done.insert(recording) {
-                continue;
-            }
-            match held.get(&recording) {
-                None => {}
-                Some((_, Some(now))) if *now == energy => {}
-                Some((Some(row), _)) => {
-                    rec.set("analysis", *row, "energy", energy)?;
-                    changed += 1;
-                }
-                Some((None, _)) => {
-                    rec.insert(
-                        "analysis",
-                        &[
-                            ("recording_id", recording.into()),
-                            ("source", Value::Text("user".to_owned())),
-                            ("energy", energy.into()),
-                        ],
-                    )?;
-                    changed += 1;
-                }
-            }
-        }
+        let changed = set_in(rec, recordings, energy)?;
         rec.detail("tracks", changed);
         Ok(changed)
     })?;
@@ -155,6 +117,95 @@ pub fn set_energy_on(
         skipped: (asked as u32).saturating_sub(recorded.value),
         operation_id: recorded.operation_id,
     })
+}
+
+/// [`set_energy_on`]'s writes, inside an operation the caller records: the
+/// user's energy of each track in `recordings` becomes `energy`. Answers
+/// how many changed. `energy` must be from [`LOWEST`] to [`HIGHEST`] (the
+/// table refuses any other). The conflict engine uses it to settle a star
+/// conflict in the resolve's own operation (`energy_stars::adopt`).
+pub(crate) fn set_in(
+    rec: &mut Recorder<'_>,
+    recordings: &[i64],
+    energy: i64,
+) -> Result<u32, OpsError> {
+    let wanted = serde_json::to_string(recordings).expect("numbers always serialize");
+    // The tracks that exist, with the user's row if they have one.
+    let held: HashMap<i64, Held> = rec
+        .read_rows(
+            "SELECT r.id, a.id, a.energy
+                 FROM recording r
+                 LEFT JOIN analysis a ON a.recording_id = r.id AND a.source = 'user'
+                 WHERE r.id IN (SELECT value FROM json_each(?1))",
+            [wanted.as_str()],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    (r.get::<_, Option<i64>>(1)?, r.get::<_, Option<i64>>(2)?),
+                ))
+            },
+        )?
+        .into_iter()
+        .collect();
+    let mut done = std::collections::HashSet::new();
+    let mut changed = 0u32;
+    for &recording in recordings {
+        if !done.insert(recording) {
+            continue;
+        }
+        match held.get(&recording) {
+            None => {}
+            Some((_, Some(now))) if *now == energy => {}
+            Some((Some(row), _)) => {
+                rec.set("analysis", *row, "energy", energy)?;
+                changed += 1;
+            }
+            Some((None, _)) => {
+                rec.insert(
+                    "analysis",
+                    &[
+                        ("recording_id", recording.into()),
+                        ("source", Value::Text("user".to_owned())),
+                        ("energy", energy.into()),
+                    ],
+                )?;
+                changed += 1;
+            }
+        }
+    }
+    // Setting an energy ends a track's "stars stay rekordbox's" marker, in
+    // the same operation, so Undo puts it back with the energy.
+    let marked = rec.read_rows(
+        "SELECT id FROM library_track
+         WHERE stars_held = 1 AND recording_id IN (SELECT value FROM json_each(?1))",
+        [wanted.as_str()],
+        |r| r.get::<_, i64>(0),
+    )?;
+    for track in marked {
+        rec.set("library_track", track, STARS_HELD, 0)?;
+    }
+    Ok(changed)
+}
+
+/// Takes the user's own energy away from the track `recording`, inside an
+/// operation the caller records: it then shows the next source's energy
+/// (Mixed In Key's, the local estimate's, the audio model's), or none.
+/// Answers whether there was one to take away.
+pub(crate) fn clear_in(rec: &mut Recorder<'_>, recording: i64) -> Result<bool, OpsError> {
+    let row = rec
+        .read_rows(
+            "SELECT id FROM analysis WHERE recording_id = ?1 AND source = 'user'",
+            [recording],
+            |r| r.get::<_, i64>(0),
+        )?
+        .pop();
+    match row {
+        Some(row) => {
+            rec.delete("analysis", row)?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
 }
 
 /// Gives tracks an energy from 1 to 10: one operation, one Undo.

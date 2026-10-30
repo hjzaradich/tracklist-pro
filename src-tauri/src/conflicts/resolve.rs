@@ -45,7 +45,8 @@ use super::membership::{self, is_membership};
 use super::store::{
     conflict_from, Conflict, ConflictId, Filter, Status, CONFLICT_COLUMNS, OPEN_WHERE,
 };
-use super::{app_values, fits, same};
+use super::{fits, same};
+use crate::energy_stars;
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError, Recorded, Recorder};
 use crate::rekordbox_write::uncarriable;
@@ -132,17 +133,18 @@ impl From<OpsError> for ResolveError {
 }
 
 /// Settles one open conflict, as one operation, and the store of the
-/// app's own values takes the value chosen ([`app_values::adopt`]).
+/// app's own values takes the value chosen ([`energy_stars::adopt`], which is
+/// [`super::app_values::adopt`] unless the star rating follows energy).
 pub fn resolve(
     conn: &mut Connection,
     id: ConflictId,
     choice: &Choice,
 ) -> Result<Recorded<Resolved>, ResolveError> {
-    resolve_with(conn, id, choice, app_values::adopt)
+    resolve_with(conn, id, choice, energy_stars::adopt)
 }
 
 /// [`resolve`], with `adopt` run inside the same operation once the
-/// conflict is settled, in place of [`app_values::adopt`]: what it writes
+/// conflict is settled, in place of [`energy_stars::adopt`]: what it writes
 /// there is undone with the resolve.
 pub fn resolve_with(
     conn: &mut Connection,
@@ -175,7 +177,7 @@ pub fn resolve_with(
 /// operation: "take rekordbox for all ratings" is `field: Some("Rating")`
 /// with [`Choice::KeepRekordbox`]. With nothing to settle, nothing is
 /// logged. The store of the app's own values takes each value chosen
-/// ([`app_values::adopt`]).
+/// ([`energy_stars::adopt`]).
 ///
 /// With [`Choice::Edit`] every matched conflict gets that value; if it
 /// doesn't fit one of their fields, none is settled.
@@ -184,11 +186,11 @@ pub fn resolve_all(
     filter: &Filter,
     choice: &Choice,
 ) -> Result<Recorded<Vec<Resolved>>, ResolveError> {
-    resolve_all_with(conn, filter, choice, app_values::adopt)
+    resolve_all_with(conn, filter, choice, energy_stars::adopt)
 }
 
 /// [`resolve_all`], with `adopt` run inside the same operation after each
-/// conflict is settled, in place of [`app_values::adopt`] (see
+/// conflict is settled, in place of [`energy_stars::adopt`] (see
 /// [`resolve_with`]).
 pub fn resolve_all_with(
     conn: &mut Connection,

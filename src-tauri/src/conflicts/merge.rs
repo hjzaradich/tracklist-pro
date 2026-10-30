@@ -76,7 +76,7 @@ pub fn merge_before_send(
     let mut merged = Merged::default();
     for some in ids.chunks(TRACKS_AT_A_TIME) {
         let values = send_values(&tx, volumes, some)?;
-        let app = app_values::read(&tx, some)?;
+        let app = app_values::read_for_send(&tx, &values)?;
         let sides = load_sides(&tx, &values, &app)?;
         let detected = detect_in(&tx, &sides, NOT_TAKEN_UP)?;
         for field in detected.fields {
