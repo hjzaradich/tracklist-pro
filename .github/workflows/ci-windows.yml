@@ -211,8 +211,6 @@ jobs:
 
       - name: Test the backend (one shard)
         if: matrix.part == 'tests'
-        env:
-          SHARD_TIMES: "1" # TEMPORARY: measuring module times
         run: node .github/scripts/test-shards.mjs run ${{ matrix.shard }}
 
       # The owner's PC: everything, in one part, as before sharding.

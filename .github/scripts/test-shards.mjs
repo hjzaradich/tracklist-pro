@@ -26,9 +26,6 @@
 // as `db::` also matches `ipc::db::x`, and that would run the test twice.
 //
 // Usage (in CI):  node .github/scripts/test-shards.mjs run <shard number>
-//   env SHARD_TIMES=1  (measuring only) prints each library module's test
-//                      time, so a shard can be rebalanced. It needs
-//                      RUSTC_BOOTSTRAP, so it is never on in a normal run.
 //
 //                 node .github/scripts/test-shards.mjs check
 
@@ -49,36 +46,44 @@ const CRATE = join(ROOT, "src-tauri");
  * lets a --skip win over a filter). `doc`: the doc tests. `catchAll`: runs every library test the other
  * shards' filters don't match, instead of filtering for its own modules.
  *
- * Keep the shards' run times level: the slowest one is the CI time. To
- * rebalance, run with SHARD_TIMES=1 (see above) and move modules.
+ * Keep the shards' run times level: the slowest one is the CI time. Summed
+ * test seconds per module, measured on GitHub's runner (1cC-D1b), to move
+ * modules by: scan 192, matching 158, ops 127, db 110, grouping 88, quality 87,
+ * relink 85, fingerprint 78, send 67, review 47, jobs 39, conflicts 33,
+ * versions 31, track_table 28, crates 24, rekordbox 21, overview 21, library 20;
+ * all the others under 20 each (about 110 together). The shards' test time is
+ * this divided by the 4 cores. Shard 3 also compiles and runs the integration
+ * tests (about 3 minutes more), so it gets the small modules only.
  */
 export const SHARDS = [
   {
-    // db's migrations::schema modules are named analysis_never_conflicts and
-    // file_quality, so the filters "conflicts::" and "quality::" (and the
-    // modules the latter matches, best_file and track_table) run with db.
-    lib: ["grouping", "db", "conflicts", "quality", "best_file", "track_table"],
+    // db's migrations::schema modules are named analysis_never_conflicts,
+    // file_quality and grouping, so the filters "conflicts::", "quality::" and
+    // "grouping::" (and the modules the middle one matches, best_file and
+    // track_table) run with db. matching:: also matches fingerprint's.
+    lib: ["grouping", "db", "conflicts", "quality", "best_file", "track_table", "matching", "fingerprint", "versions", "crates"],
   },
   {
     // A filter "x::" matches any test whose path holds "x::", so a module whose
     // name ends in another's, or that has a submodule of that name, runs with
-    // it: review (audio_preview, conflict_review, preview), scan (write_guard),
-    // matching (fingerprint), send (after_send). The check fails if one is missed.
-    // And a filter can also match a module of another shard: hash:: matches db's
-    // fingerprint_audio_hash and partial_hash, and send:: matches conflicts'
+    // it: review (audio_preview, conflict_review, preview, hash), scan
+    // (write_guard), send (after_send), ops (relink's follow_props). The check
+    // fails if one is missed.
+    // And a filter can also match a module of another shard: hash:: and
+    // library:: match db's schema modules, and send:: matches conflicts'
     // open_at_send. Those are skipped here; db and conflicts are in shard 1.
     skip: ["db::", "conflicts::"],
     lib: [
-      "scan", "write_guard", "rekordbox", "review", "audio_preview", "conflict_review", "preview", "versions",
-      "send", "after_send", "crates", "matching", "fingerprint", "hash",
+      "scan", "write_guard", "rekordbox", "review", "audio_preview", "conflict_review", "preview", "hash",
+      "send", "after_send", "ops", "relink", "jobs", "overview", "library",
     ],
   },
   {
     catchAll: true,
     lib: [
-      "relink", "ops", "all_music", "attach", "energy", "file_roles", "fragile", "hidden", "ipc", "jobs", "library", "missing", "net",
-      "overview", "paths", "read", "rekordbox_write", "scan_state", "search", "send_values", "settings", "sniff",
-      "start", "suggest", "tags", "ui_setting", "volume", "waveform",
+      "all_music", "attach", "energy", "file_roles", "fragile", "hidden", "ipc", "missing", "net", "paths", "read",
+      "rekordbox_write", "scan_state", "search", "send_values", "settings", "sniff", "start", "suggest", "tags",
+      "ui_setting", "volume", "waveform",
       // The tests in lib.rs itself are named tests::..., which no filter can pick
       // out (every `scan::tests::x` contains "tests::"), so only the catch-all can run them.
       "tests",
@@ -249,27 +254,11 @@ function cargo(args, options = {}) {
   return spawnSync("cargo", ["test", "--locked", "--no-fail-fast", ...args], { cwd: CRATE, ...options });
 }
 
-/** Per-module test times from `--report-time` output: sorted [module, tests, seconds]. */
-export function moduleTimes(output) {
-  const by = new Map();
-  for (const line of output.split(/\r?\n/)) {
-    const m = line.match(/^test (\S+) \.\.\. \S+(?: <([\d.]+)s>)?\s*$/);
-    if (!m) continue;
-    const module = m[1].split("::")[0];
-    const entry = by.get(module) ?? [0, 0];
-    entry[0] += 1;
-    entry[1] += Number(m[2] ?? 0);
-    by.set(module, entry);
-  }
-  return [...by].map(([module, [n, s]]) => [module, n, s]).sort((a, b) => b[2] - a[2]);
-}
-
 function runShard(number) {
   const shard = SHARDS[number - 1];
   if (!shard) fail([`There is no shard ${number}; there are ${SHARDS.length}.`]);
   fail0(assignmentProblems(discover()));
 
-  const times = process.env.SHARD_TIMES === "1";
   if (shard.lib.length > 0) {
     // Compiles the library's test binary, which the run below reuses.
     const listed = cargo(["--lib", "--", "--list"], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
@@ -285,17 +274,7 @@ function runShard(number) {
   for (const args of commands(shard)) {
     console.log(`::group::cargo test ${args.join(" ")}`);
     console.log("::endgroup::");
-    const timed = times && args[0] === "--lib";
-    const options = timed
-      ? { encoding: "utf8", maxBuffer: 512 * 1024 * 1024, env: { ...process.env, RUSTC_BOOTSTRAP: "1" }, stdio: ["ignore", "pipe", "inherit"] }
-      : { stdio: "inherit" };
-    const flags = timed ? [...args.slice(0, 2), "-Z", "unstable-options", "--report-time", ...args.slice(2)] : args;
-    const result = cargo(flags, options);
-    if (timed) {
-      process.stdout.write(result.stdout);
-      const rows = moduleTimes(result.stdout).map(([m, n, s]) => `| ${m} | ${n} | ${s.toFixed(1)} |`);
-      summary(`| module (shard ${number}) | tests | summed test seconds |\n|---|---|---|\n${rows.join("\n")}`);
-    }
+    const result = cargo(args, { stdio: "inherit" });
     if (result.status !== 0) failed = true;
   }
   if (failed) fail([`Shard ${number}: a test failed.`]);

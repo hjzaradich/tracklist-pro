@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { SHARDS, assignmentProblems, commands, discover, libModules, listProblems, moduleTimes, parseList, runsIn, tomlTargets } from "./test-shards.mjs";
+import { SHARDS, assignmentProblems, commands, discover, libModules, listProblems, parseList, runsIn, tomlTargets } from "./test-shards.mjs";
 
 const workflow = readFileSync(new URL("../workflows/ci-windows.yml", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
@@ -133,11 +133,6 @@ test("problems are grouped by module, with a count", () => {
 test("cargo's test list is read as test names", () => {
   const out = "scan::tests::a: test\r\ndb::b: test\nsome::bench: benchmark\n\n3 tests, 1 benchmarks\n";
   assert.deepEqual(parseList(out), ["scan::tests::a", "db::b"]);
-});
-
-test("module times are summed from --report-time lines, slowest first", () => {
-  const out = "running 4 tests\ntest scan::a ... ok <1.500s>\ntest scan::b ... ok <0.500s>\ntest db::c ... ok <3.000s>\ntest db::d ... ignored\n";
-  assert.deepEqual(moduleTimes(out), [["db", 2, 3], ["scan", 2, 2]]);
 });
 
 // The workflow.
