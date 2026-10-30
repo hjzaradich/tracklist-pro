@@ -1000,6 +1000,90 @@ fn an_add_checks_every_id_given_across_chunks_and_counts_a_repeated_one_once() {
     assert_eq!(counts(changed), (tracks as u32, 2));
 }
 
+/// A Library of 100,000 tracks, with 100,000 more tracks outside it (ids
+/// 100,001 to 200,000), each with a file on disk.
+fn library_of_100000_and_100000_outside() -> Lib {
+    const COUNT: i64 = 100_000;
+    let lib = Lib::new();
+    lib.writer
+        .call(|c| {
+            c.execute_batch(&format!(
+                "INSERT INTO volume (identity, kind, last_mount_path)
+                     VALUES ('serial=TEST', 'external', 'E:\');
+                 INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+                     VALUES (1, 'Music', 'Music');
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {COUNT})
+                 INSERT INTO recording (title) SELECT 'In ' || i FROM n;
+                 INSERT INTO library_track (recording_id, source_status)
+                     SELECT id, 'missing' FROM recording;
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {COUNT})
+                 INSERT INTO recording (title) SELECT 'Out ' || i FROM n;
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {COUNT})
+                 INSERT INTO file (music_folder_id, rel_path, rel_path_key, present)
+                     SELECT 1, i || '.mp3', i || '.mp3', 1 FROM n;
+                 INSERT INTO recording_file (recording_id, file_id, role)
+                     SELECT {COUNT} + file.id, file.id, 'best' FROM file;"
+            ))
+        })
+        .unwrap();
+    lib
+}
+
+/// How long adding one track to a crate takes in a Library of 100,000, and
+/// adding 100,000 tracks from outside it by track id. Run on its own to
+/// read the times: `cargo test crate_add_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn crate_add_cost_at_100000_tracks() {
+    let lib = library_of_100000_and_100000_outside();
+    let id = lib.made("Big");
+    let started = std::time::Instant::now();
+    for n in 1..=20 {
+        lib.add(id, &[LibraryTrackId(n)]).unwrap();
+    }
+    println!("20 adds of one track took {:?}", started.elapsed());
+    let outside: Vec<i64> = (100_001..=200_000).collect();
+    let started = std::time::Instant::now();
+    let added = lib.add_recordings(id, &outside).unwrap();
+    println!("add by track id of 100000 took {:?}", started.elapsed());
+    assert_eq!(added.added, 100_000);
+}
+
+/// How long the checks that come before an add by track id take for
+/// 100,000 tracks from outside the Library: the Library check alone, then
+/// all of the preparing, which settles each file's verdict too (nothing is
+/// written to the Library or a crate):
+/// `cargo test crate_add_check_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn crate_add_check_cost_at_100000_tracks() {
+    let lib = library_of_100000_and_100000_outside();
+    let outside: Vec<i64> = (100_001..=200_000).collect();
+    let again = outside.clone();
+    let started = std::time::Instant::now();
+    lib.writer
+        .call(move |c| {
+            for recording in again {
+                library::check(c, recording)?.unwrap();
+            }
+            Ok(())
+        })
+        .unwrap();
+    println!(
+        "library::check of 100000 tracks took {:?}",
+        started.elapsed()
+    );
+    let started = std::time::Instant::now();
+    let prepared = lib
+        .writer
+        .call(move |c| Ok(prepare(c, &outside)))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    println!("prepare of 100000 tracks took {:?}", started.elapsed());
+    assert_eq!(prepared.items.len(), 100_000);
+}
+
 #[test]
 fn removing_tracks_takes_them_out_of_the_crate_only_and_skips_those_not_in_it() {
     let lib = Lib::new();
