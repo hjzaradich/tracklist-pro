@@ -62,6 +62,11 @@ use crate::db::{DbError, Writer};
 /// A test (`the_stamp_watches_every_table_the_library_list_reads`) holds this
 /// list to the tables the list's query reads. A table that the
 /// list starts to read through some other query must be added here.
+///
+/// Every table here must be a rowid table: SQLite's update hook does not fire
+/// for WITHOUT ROWID tables (a test holds this too). A table the list reads
+/// only alongside another listed one (`file_stage` is written with the hash
+/// write that also updates `file`) is covered by that one, not named.
 pub const LISTED_TABLES: &[&str] = &[
     "library_track",
     "recording",

@@ -382,3 +382,27 @@ fn the_stamp_watches_every_table_the_library_list_reads() {
         "the list reads {missing:?}; add to LISTED_TABLES"
     );
 }
+
+/// SQLite's update hook does not fire for WITHOUT ROWID tables, so a listed
+/// table that was one would never move the stamp.
+#[test]
+fn no_listed_table_is_without_rowid() {
+    let lib = Lib::new();
+    let without_rowid: Vec<String> = lib
+        .writer
+        .call(|c| {
+            let mut stmt =
+                c.prepare("SELECT name FROM pragma_table_list WHERE schema = 'main' AND wr = 1")?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect()
+        })
+        .unwrap();
+    for table in LISTED_TABLES {
+        assert!(
+            !without_rowid.iter().any(|name| name == table),
+            "{table} is WITHOUT ROWID"
+        );
+    }
+    // The query found tables at all: the setting table is one.
+    assert!(without_rowid.iter().any(|name| name == "setting"));
+}
