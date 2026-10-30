@@ -725,6 +725,30 @@ pub fn folder_contents(conn: &Connection, id: CrateId) -> rusqlite::Result<Optio
     }))
 }
 
+/// How many ids one check of "are these Library tracks?" asks about.
+const LIBRARY_CHECK_CHUNK: usize = 1000;
+
+/// Whether every one of `tracks` is a Library track. Asks about the ids
+/// given, a chunk at a time, not about the whole Library.
+fn all_in_library(rec: &ops::Recorder<'_>, tracks: &[LibraryTrackId]) -> Result<bool, OpsError> {
+    let mut wanted: Vec<i64> = tracks.iter().map(|t| t.0).collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    for chunk in wanted.chunks(LIBRARY_CHECK_CHUNK) {
+        let ids = serde_json::to_string(chunk).unwrap_or_else(|_| "[]".into());
+        let found = rec.read_rows(
+            "SELECT count(*) FROM library_track
+             WHERE id IN (SELECT value FROM json_each(?1))",
+            [ids],
+            |r| r.get::<_, i64>(0),
+        )?;
+        if found != [chunk.len() as i64] {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Adds Library tracks to a crate. A track already in it is skipped (and a
 /// track listed twice counts once). The entries get the time of the add, and
 /// ties (a batch in one millisecond) are ordered by Library track id, as a
@@ -743,11 +767,7 @@ pub fn add_on(
             let Some(name) = static_name(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
             };
-            let library: HashSet<i64> = rec
-                .read_rows("SELECT id FROM library_track", [], |r| r.get(0))?
-                .into_iter()
-                .collect();
-            if tracks.iter().any(|t| !library.contains(&t.0)) {
+            if !all_in_library(rec, tracks)? {
                 return Ok(Err(CratesError::TrackNotFound));
             }
             let mut present: HashSet<i64> = rec

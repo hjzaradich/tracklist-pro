@@ -962,6 +962,45 @@ fn adding_an_unknown_track_or_to_an_unknown_crate_is_refused_and_adds_none() {
 }
 
 #[test]
+fn an_add_checks_every_id_given_across_chunks_and_counts_a_repeated_one_once() {
+    let lib = Lib::new();
+    let tracks = (LIBRARY_CHECK_CHUNK * 2 + 5) as i64;
+    lib.writer
+        .call(move |c| {
+            let tx = c.transaction()?;
+            for n in 1..=tracks {
+                tx.execute(
+                    "INSERT INTO recording (title) VALUES (?1)",
+                    (n.to_string(),),
+                )?;
+                tx.execute(
+                    "INSERT INTO library_track (recording_id, source_status)
+                     VALUES (?1, 'missing')",
+                    (n,),
+                )?;
+            }
+            tx.commit()
+        })
+        .unwrap();
+    let id = lib.made("Warm up");
+    let before = lib.state();
+    // An id that is no track, in the last chunk (the sort puts it there),
+    // refuses the whole add.
+    let mut given: Vec<LibraryTrackId> = (1..=tracks).map(LibraryTrackId).collect();
+    given.push(LibraryTrackId(tracks + 1));
+    assert!(matches!(
+        lib.add(id, &given),
+        Err(CratesError::TrackNotFound)
+    ));
+    assert_eq!(lib.state(), before);
+    // The same ids without it go in, and a repeated id is one track.
+    given.pop();
+    given.extend([LibraryTrackId(1), LibraryTrackId(tracks)]);
+    let changed = lib.add(id, &given).unwrap();
+    assert_eq!(counts(changed), (tracks as u32, 2));
+}
+
+#[test]
 fn removing_tracks_takes_them_out_of_the_crate_only_and_skips_those_not_in_it() {
     let lib = Lib::new();
     let (a, b, c) = (lib.track("A"), lib.track("B"), lib.track("C"));
