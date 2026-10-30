@@ -10,7 +10,10 @@ publish = false
 # The `_lib` suffix keeps the lib name distinct from the bin name, which
 # otherwise collide on Windows (rust-lang/cargo#8519).
 name = "tracklist_pro_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# The Windows app, the tests and the examples use only the rlib. Tauri's
+# mobile template also lists staticlib and cdylib; mobile is never built here
+# (audit 1cB, B17). Restore them if a mobile target is ever added.
+crate-type = ["rlib"]
 
 # The preview seed's own tests (they seed a temp folder) run with the suite.
 [[example]]
