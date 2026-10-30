@@ -82,7 +82,7 @@ test("a shard's skip keeps out a test another shard's module owns, though its fi
   assert.deepEqual(shards.map((s) => runsIn(s, "a::b::t", shards)), [true, false, false]);
 });
 
-test("the real shards: shard 3 runs the integration tests, the bin, the example and the doc tests", () => {
+test("the real shards: one shard runs the integration tests, the bin, the example and the doc tests", () => {
   const all = SHARDS.flatMap((s) => commands(s));
   assert.equal(all.filter((c) => c[0] === "--doc").length, 1);
   assert.equal(all.flat().filter((a) => a === "--bins").length, 1);

@@ -51,43 +51,42 @@ const CRATE = join(ROOT, "src-tauri");
  * modules by: scan 192, matching 158, ops 127, db 110, grouping 88, quality 87,
  * relink 85, fingerprint 78, send 67, review 47, jobs 39, conflicts 33,
  * versions 31, track_table 28, crates 24, rekordbox 21, overview 21, library 20;
- * all the others under 20 each (about 110 together). The shards' test time is
- * this divided by the 4 cores. Shard 3 also compiles and runs the integration
- * tests (about 3 minutes more), so it gets the small modules only.
+ * all the others under 20 each (about 110 together). A shard's test time is
+ * this divided by the 4 cores. The last shard compiles the integration tests
+ * and runs them and the doc tests (about 3 minutes in all), and no library
+ * tests, so that no shard compiles both.
  */
 export const SHARDS = [
   {
     // db's migrations::schema modules are named analysis_never_conflicts,
-    // file_quality and grouping, so the filters "conflicts::", "quality::" and
-    // "grouping::" (and the modules the middle one matches, best_file and
-    // track_table) run with db. matching:: also matches fingerprint's.
-    lib: ["grouping", "db", "conflicts", "quality", "best_file", "track_table", "matching", "fingerprint", "versions"],
+    // file_quality, grouping and library, so the filters "conflicts::",
+    // "quality::", "grouping::" and "library::" (and the modules "quality::"
+    // matches, best_file and track_table) run with db.
+    lib: ["db", "grouping", "conflicts", "quality", "best_file", "track_table", "versions", "crates", "rekordbox", "overview", "library"],
   },
   {
-    // A filter "x::" matches any test whose path holds "x::", so a module whose
-    // name ends in another's, or that has a submodule of that name, runs with
-    // it: review (audio_preview, conflict_review, preview, hash), scan
-    // (write_guard), send (after_send), ops (relink's follow_props). The check
-    // fails if one is missed.
-    // And a filter can also match a module of another shard: hash:: matches
-    // db's schema modules, and send:: matches conflicts' open_at_send. Those are skipped here; db and conflicts are in shard 1.
-    skip: ["db::", "conflicts::"],
-    lib: [
-      "scan", "write_guard", "rekordbox", "review", "audio_preview", "conflict_review", "preview", "hash",
-      "send", "after_send", "ops", "relink",
-    ],
+    // scan:: also matches write_guard's, and matching:: fingerprint's.
+    lib: ["scan", "write_guard", "matching", "fingerprint", "jobs"],
   },
   {
+    // Everything else, by default, so a test can't fall between shards. These
+    // modules (ops with relink, review with its look-alikes, send with
+    // after_send) have no filter, so nothing here has to avoid a clash.
     catchAll: true,
     lib: [
-      "all_music", "attach", "crates", "energy", "file_roles", "fragile", "hidden", "ipc", "jobs", "library", "missing",
-      "net", "overview", "paths", "read",
-      "rekordbox_write", "scan_state", "search", "send_values", "settings", "sniff", "start", "suggest", "tags",
-      "ui_setting", "volume", "waveform",
+      "after_send", "all_music", "attach", "audio_preview", "conflict_review", "energy", "file_roles", "fragile", "hash",
+      "hidden", "ipc", "missing", "net", "ops", "paths", "preview", "read", "rekordbox_write", "relink", "review",
+      "scan_state", "search", "send", "send_values", "settings", "sniff", "start", "suggest", "tags", "ui_setting",
+      "volume", "waveform",
       // The tests in lib.rs itself are named tests::..., which no filter can pick
       // out (every `scan::tests::x` contains "tests::"), so only the catch-all can run them.
       "tests",
     ],
+  },
+  {
+    // No library tests: this shard compiles the integration tests, and a shard
+    // that also compiled the library's test binary would be the slowest.
+    lib: [],
     tests: [
       "csp", "end_to_end", "file_roles_scale", "fingerprint_memory", "freeze_prototype", "grouping_scale",
       "matching_memory", "net_gate", "perf_100k", "rekordbox_xml_scale", "search_scale", "track_table_scale",

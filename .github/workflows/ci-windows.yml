@@ -1,5 +1,5 @@
 # Full CI for Windows, the only supported platform (ROADMAP §0.3). On
-# Windows: Rust tests (in three parallel shards on GitHub's runners, 1cC-D1b;
+# Windows: Rust tests (in four parallel shards on GitHub's runners, 1cC-D1b;
 # one of them checks that the generated TS bindings are current), a compile
 # of the app (which also builds the frontend), clippy, and the Windows-only
 # dev tools (the fixture generator in tools/fixture-gen and
@@ -147,7 +147,7 @@ jobs:
     runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'windows-latest' }}
     timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 120 || 75 }}
     # Parts that run side by side on GitHub's runners (1cC-D1b; audit 1cB,
-    # B13): the backend tests in three shards, and the compile of the app with
+    # B13): the backend tests in four shards, and the compile of the app with
     # clippy. Each part builds what it needs itself, from rust-cache's
     # restored dependencies, rather than building the test binaries once and
     # passing them on as an artifact: the parts compile side by side, so a
@@ -164,7 +164,7 @@ jobs:
     strategy:
       # A failing part doesn't stop the others, so one run reports every failure.
       fail-fast: false
-      matrix: ${{ fromJSON((vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && '{"include":[{"part":"all"}]}' || '{"include":[{"part":"tests","shard":1},{"part":"tests","shard":2},{"part":"tests","shard":3},{"part":"build"}]}') }}
+      matrix: ${{ fromJSON((vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && '{"include":[{"part":"all"}]}' || '{"include":[{"part":"tests","shard":1},{"part":"tests","shard":2},{"part":"tests","shard":3},{"part":"tests","shard":4},{"part":"build"}]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
