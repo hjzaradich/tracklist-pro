@@ -1,8 +1,6 @@
 //! The `index` job: it brings the index up to date in the background, from
 //! what `search_due` holds, and is asked for wherever something is due.
 
-use std::time::{Duration, Instant};
-
 use super::support::{Lib, Mount};
 use crate::db::Writer;
 use crate::jobs::{self, JobKind, JobQueue, JobRecord, JobStatus, Priority};
@@ -33,18 +31,8 @@ fn index_jobs(writer: &Writer) -> Vec<JobRecord> {
 
 /// Waits until nothing is queued or running.
 fn wait_idle(queue: &JobQueue, writer: &Writer) -> Vec<JobRecord> {
-    let start = Instant::now();
-    loop {
-        if queue.activity().unwrap().jobs.is_empty() {
-            return index_jobs(writer);
-        }
-        assert!(
-            start.elapsed() < Duration::from_secs(60),
-            "the jobs never finished: {:?}",
-            index_jobs(writer)
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    crate::jobs::idle::wait_until_idle(queue);
+    index_jobs(writer)
 }
 
 fn request_now(lib: &Lib, queue: &JobQueue) {

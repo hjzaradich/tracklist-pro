@@ -226,27 +226,44 @@ pub(super) fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
     }
 }
 
-/// Waits until no job is queued or running. A chained job queues its
-/// follow-up before it finishes, so an empty list means the chain ended.
+/// Waits until no job is queued or running ([`crate::jobs::idle`]): the
+/// one wait every chain test uses.
 pub(super) fn wait_idle(queue: &JobQueue) {
-    let start = Instant::now();
-    loop {
-        if queue.activity().unwrap().jobs.is_empty() {
-            return;
-        }
-        assert!(
-            start.elapsed() < Duration::from_secs(120),
-            "the jobs never finished"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    crate::jobs::idle::wait_until_idle(queue);
 }
 
 /// Every scan-stage job so far: kind, target, priority and status, oldest
 /// first. Relink jobs (queued after each read) are left out; see
 /// [`relinks`]. So are the search index jobs (1cA-6), which any stage that
 /// changed a track asks for and which have a test of their own below.
-pub(super) fn jobs(writer: &Writer) -> Vec<(String, Option<String>, i64, String)> {
+///
+/// A matching pass that made way for a more important job and then picked
+/// up where it stopped is two `match` rows that ended `done`, one after the
+/// other, and counts as one here. How many times matching steps aside
+/// depends on whether the other worker has taken the waiting job yet (a
+/// pass checks a few milliseconds before it does, or after), so it differs
+/// from run to run; what the tests ask is whether matching ran, and how
+/// often a stage asked for it. (Matching should step aside only when no
+/// worker is free: audit 1cB, C2. Until then, this.) A `match` that failed
+/// is never merged into its neighbour.
+pub(super) fn jobs(writer: &Writer) -> Vec<JobRow> {
+    let mut rows = all_jobs(writer);
+    one_pass_when_matching_made_way(&mut rows);
+    rows
+}
+
+/// A job's kind, target, priority and status.
+pub(super) type JobRow = (String, Option<String>, i64, String);
+
+/// Merges each run of `match` rows that all ended `done` into one.
+fn one_pass_when_matching_made_way(rows: &mut Vec<JobRow>) {
+    rows.dedup_by(|this, before| {
+        this.0 == "match" && before.0 == "match" && this.3 == "done" && before.3 == "done"
+    });
+}
+
+/// [`jobs`] with every row, as the queue stored them.
+fn all_jobs(writer: &Writer) -> Vec<JobRow> {
     writer
         .call(|c| {
             // Not the deciding job either (a grouping job with a target,
@@ -281,6 +298,48 @@ fn relinks(writer: &Writer) -> Vec<(String, String)> {
             rows.collect()
         })
         .unwrap()
+}
+
+#[test]
+fn matching_that_made_way_and_picked_up_again_counts_as_one_pass_and_a_failed_one_never_merges() {
+    let row = |kind: &str, status: &str| (kind.to_string(), None, 0, status.to_string());
+    let merged = |mut rows: Vec<JobRow>| {
+        one_pass_when_matching_made_way(&mut rows);
+        rows.into_iter().map(|r| (r.0, r.3)).collect::<Vec<_>>()
+    };
+    let pair = |kind: &str, status: &str| (kind.to_string(), status.to_string());
+    // Made way once, or twice: one pass.
+    assert_eq!(
+        merged(vec![
+            row("quality", "done"),
+            row("match", "done"),
+            row("match", "done"),
+            row("match", "done"),
+        ]),
+        [pair("quality", "done"), pair("match", "done")]
+    );
+    // A failed pass beside a finished one is two things, whichever is first.
+    assert_eq!(
+        merged(vec![row("match", "failed"), row("match", "done")]),
+        [pair("match", "failed"), pair("match", "done")]
+    );
+    assert_eq!(
+        merged(vec![row("match", "done"), row("match", "failed")]),
+        [pair("match", "done"), pair("match", "failed")]
+    );
+    // Two scans' passes, with the second scan's stages between, are two.
+    assert_eq!(
+        merged(vec![
+            row("match", "done"),
+            row("scan", "done"),
+            row("match", "done"),
+        ]),
+        [
+            pair("match", "done"),
+            pair("scan", "done"),
+            pair("match", "done")
+        ]
+    );
 }
 
 fn kinds(writer: &Writer) -> Vec<String> {

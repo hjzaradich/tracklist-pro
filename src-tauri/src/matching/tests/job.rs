@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::db::{DbError, Writer};
 use crate::jobs::{self, JobContext, JobHandler, JobKind, JobQueue, JobRecord, JobStatus, NewJob};
@@ -60,18 +60,8 @@ fn jobs(writer: &Writer) -> Vec<JobRecord> {
 /// over: a test expecting more jobs than came fails on its assertion at
 /// once, not on a watchdog.
 fn wait_idle(queue: &JobQueue, writer: &Writer) -> Vec<JobRecord> {
-    let start = Instant::now();
-    loop {
-        if queue.activity().unwrap().jobs.is_empty() {
-            return jobs(writer);
-        }
-        assert!(
-            start.elapsed() < Duration::from_secs(60),
-            "the jobs never finished: {:?}",
-            jobs(writer)
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    crate::jobs::idle::wait_until_idle(queue);
+    jobs(writer)
 }
 
 fn kinds(jobs: &[JobRecord]) -> Vec<(Option<JobKind>, JobStatus)> {

@@ -13,23 +13,15 @@ use super::chain::{chained_queue, jobs, two_copies_and_another, LookedAt};
 use super::support::{db, TempVolume};
 use super::walk::{add_music, drive};
 use crate::db::{DbError, ReadPool, Writer};
+use crate::jobs::idle::wait_until_idle;
 use crate::jobs::startup::{ask_what_is_due, ask_with};
-use crate::jobs::{JobId, JobQueue, NewJob};
+use crate::jobs::{JobId, NewJob};
 use crate::scan::chain::reach_by;
 use crate::scan::walk::scan_job;
 
 /// Long enough that a passing test never hits it; a failing one ends here
 /// with a message instead of hanging.
 const PATIENCE: Duration = Duration::from_secs(60);
-
-/// Waits until nothing is queued or running. No time limit of its own: how
-/// long the chain takes on a loaded machine is not what these tests are
-/// about (the test runner's own limit ends a hung one).
-fn wait_until_idle(queue: &JobQueue) {
-    while !queue.activity().unwrap().jobs.is_empty() {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
 
 /// The library every test starts from, scanned through the whole chain once
 /// per run of the tests (the chain fingerprints real audio, which is slow

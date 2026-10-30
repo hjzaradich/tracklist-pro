@@ -1136,9 +1136,13 @@ fn the_read_job_writes_nothing_outside_the_app_data_folder() {
 }
 
 #[test]
+#[ignore = "a measurement, run alone: a throughput floor fails on a busy machine"]
 fn timing_smoke_the_read_job_keeps_up_a_steady_pace() {
     // Not a benchmark: a floor far below what a laptop does, to catch a
     // regression that makes reading files crawl. The rate is printed.
+    // Ignored in the suite (a wall-clock floor fails when the machine is
+    // busy with other tests); run it alone with
+    // `cargo test --lib timing_smoke_the_read_job -- --ignored --nocapture`.
     const FILES: usize = 2000;
     let s = Sandbox::new();
     let (_, dir) = s.folder("Music");

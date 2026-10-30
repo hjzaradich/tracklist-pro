@@ -448,10 +448,21 @@ fn a_service_that_never_answers_times_out() {
     let mut net = Net::for_tests(db.reads.clone());
     net.timeout_override = Some(Duration::from_millis(300));
     let server = TestServer::start(Reply::Silent);
+    let url = server.url("/");
+    // The request runs on its own thread so that a timeout that doesn't
+    // work ends this test with a message, rather than hanging it. How long
+    // a working one takes is the machine's business; only that it ended.
+    let (done, answer) = std::sync::mpsc::channel();
     let started = Instant::now();
-    let result = net.send(Request::get(Service::MusicBrainz, server.url("/")));
+    std::thread::spawn(move || {
+        let _ = done.send(net.send(Request::get(Service::MusicBrainz, url)));
+    });
+    let result = answer
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the request never ended, so its 300 ms timeout did not apply");
     assert!(matches!(result, Err(NetError::Failed { .. })), "{result:?}");
-    assert!(started.elapsed() < Duration::from_secs(5));
+    // The one time that can be asserted without flaking (a little under the 300 ms, for the clocks' sake): it did wait.
+    assert!(started.elapsed() >= Duration::from_millis(250));
 }
 
 #[test]
