@@ -12,7 +12,9 @@ use serde_json::{json, Value};
 use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::library::LibraryTrack;
 use tracklist_pro_lib::rekordbox;
-use tracklist_pro_lib::send::{LeftOutReason, LosesEntries, SendFailure, TreeKind};
+use tracklist_pro_lib::send::{
+    LeftOutReason, LosesEntries, Refusal, RefusalReason, SendFailure, TreeKind,
+};
 
 use super::fixtures::{
     assert_is_rekordboxs_own_entry, children, collection, entries, songs, track_at, KNOWN,
@@ -533,4 +535,379 @@ fn a_track_rekordbox_holds_under_a_file_with_other_tags_is_flagged_and_arrives_a
     assert_eq!(rb.tracks.len(), before.tracks.len() + 1);
     assert_eq!(rb.tracks[..before.tracks.len()], before.tracks[..]);
     assert_eq!(rb.at(&world.path_of(&other)).unwrap().id, theirs);
+}
+
+// --- 1cC-3: the crate tree, sent end to end ---------------------------------
+
+/// The `Location` keys of `songs`, as the file read back spells them.
+fn keys_of(world: &World, songs: &[Song]) -> Vec<String> {
+    songs.iter().map(|s| key_of(&world.path_of(s))).collect()
+}
+
+/// How often a track at `song`'s path is in the file's COLLECTION.
+fn times_in_collection(world: &World, sent: &rekordbox::RekordboxXml, song: &Song) -> usize {
+    let key = key_of(&world.path_of(song));
+    sent.tracks
+        .iter()
+        .filter(|t| t.location.as_ref().is_ok_and(|l| l.match_key() == key))
+        .count()
+}
+
+/// Every playlist of the file, as `Crates/Folder/Name`, sorted.
+fn playlist_paths(sent: &rekordbox::RekordboxXml) -> Vec<String> {
+    let mut all: Vec<String> = sent
+        .playlists
+        .playlists()
+        .iter()
+        .map(|(at, playlist)| format!("{}/{}", at.join("/"), playlist.name))
+        .collect();
+    all.sort();
+    all
+}
+
+/// "Add to crate" for one track, a moment after the one before, so that the
+/// crate's order is the order of the adds and not the Library's.
+fn add_to_crate_later(world: &World, id: CrateId, track: &LibraryTrack) {
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let added: Value = world.call(
+        "add_tracks_to_crate",
+        json!({ "id": id, "tracks": [track.id] }),
+    );
+    assert_eq!(added["changed"], 1, "{added}");
+}
+
+/// A crate with nothing in it, made inside `parent`.
+fn create_empty_crate_in(world: &World, parent: CrateId, name: &str) -> CrateId {
+    world.call("create_crate", json!({ "name": name, "parent": parent }))
+}
+
+/// Folders nested `levels` deep (`Level 1` at the top, each inside the one
+/// before), made one "New folder" at a time. Returns their names and the
+/// innermost one.
+fn folders_nested(world: &World, levels: usize) -> (Vec<String>, CrateId) {
+    let mut names = Vec::new();
+    let mut parent = None;
+    for level in 1..=levels {
+        let name = format!("Level {level}");
+        parent = Some(world.create_folder(&name, parent));
+        names.push(name);
+    }
+    (names, parent.unwrap())
+}
+
+/// The path of a node of the depth tests' tree, from `Crates` down: the
+/// nested folders, then `last`.
+fn path_to(names: &[String], last: &str) -> Vec<String> {
+    std::iter::once("Crates".to_owned())
+        .chain(names.iter().cloned())
+        .chain(std::iter::once(last.to_owned()))
+        .collect()
+}
+
+/// 1cC-3: folders four deep, crates at every level, siblings in the order
+/// they were made (not the alphabet's) and each crate's tracks in the order
+/// they were added: the file holds the same tree, at the exact paths.
+#[test]
+fn a_nested_crate_tree_is_sent_at_the_exact_paths_with_its_orders() {
+    let (world, _rb) = started_fresh();
+    // The Library's order is not the files' alphabetical order.
+    let n9 = world.add_from_all_music(&UNKNOWN[2]);
+    let n7 = world.add_from_all_music(&UNKNOWN[0]);
+    let n8 = world.add_from_all_music(&UNKNOWN[1]);
+    let k1 = world.add_from_all_music(&KNOWN[1]);
+    let k0 = world.add_from_all_music(&KNOWN[0]);
+
+    // Siblings are made in the reverse of the alphabet, folders and
+    // crates mixed.
+    let zulu = world.create_folder("Zulu", None);
+    world.create_crate("Top crate", &[n9.id, k0.id]);
+    let alpha = world.create_folder("Alpha", None);
+
+    let yankee = world.create_folder("Yankee", Some(zulu));
+    world.create_crate_in(zulu, "Xray", &[n8.id]);
+    world.create_folder("Mike", Some(zulu));
+
+    // n9 joined the Library first, but joins this crate last.
+    let whiskey = world.create_crate_in(yankee, "Whiskey", &[n7.id]);
+    add_to_crate_later(&world, whiskey, &n9);
+    let victor = world.create_folder("Victor", Some(yankee));
+    world.create_crate_in(victor, "Uniform", &[n7.id, k1.id, k0.id]);
+    world.create_crate_in(victor, "Tango", &[n8.id]);
+    let oscar = world.create_folder("Oscar", Some(victor));
+    world.create_crate_in(oscar, "November", &[k0.id]);
+
+    world.create_crate_in(alpha, "Sierra", &[k0.id]);
+    let romeo = world.create_folder("Romeo", Some(alpha));
+    let quebec = world.create_folder("Quebec", Some(romeo));
+    world.create_crate_in(quebec, "Papa", &[n9.id, k1.id]);
+
+    let preflight = world.prepared();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (3, 2));
+    assert!(preflight.left_out.is_empty() && preflight.loses_entries.is_empty());
+    let sent = world.write_and_read_back(&preflight, false);
+
+    // Folders and crates, siblings in the order they were made.
+    assert_eq!(children(&sent, &["Crates"]), ["Zulu", "Top crate", "Alpha"]);
+    assert_eq!(
+        children(&sent, &["Crates", "Zulu"]),
+        ["Yankee", "Xray", "Mike"]
+    );
+    assert_eq!(
+        children(&sent, &["Crates", "Zulu", "Yankee"]),
+        ["Whiskey", "Victor"]
+    );
+    assert_eq!(
+        children(&sent, &["Crates", "Zulu", "Yankee", "Victor"]),
+        ["Uniform", "Tango", "Oscar"]
+    );
+    assert_eq!(
+        children(&sent, &["Crates", "Zulu", "Yankee", "Victor", "Oscar"]),
+        ["November"]
+    );
+    assert_eq!(children(&sent, &["Crates", "Alpha"]), ["Sierra", "Romeo"]);
+    assert_eq!(children(&sent, &["Crates", "Alpha", "Romeo"]), ["Quebec"]);
+    assert_eq!(
+        children(&sent, &["Crates", "Alpha", "Romeo", "Quebec"]),
+        ["Papa"]
+    );
+    assert_eq!(
+        children(&sent, &["Crates", "Zulu", "Mike"]),
+        [] as [&str; 0]
+    );
+    assert_eq!(children(&sent, &["Playlists"]), [] as [&str; 0]);
+    assert_eq!(
+        playlist_paths(&sent),
+        [
+            "Crates/Alpha/Romeo/Quebec/Papa",
+            "Crates/Alpha/Sierra",
+            "Crates/Top crate",
+            "Crates/Zulu/Xray",
+            "Crates/Zulu/Yankee/Victor/Oscar/November",
+            "Crates/Zulu/Yankee/Victor/Tango",
+            "Crates/Zulu/Yankee/Victor/Uniform",
+            "Crates/Zulu/Yankee/Whiskey",
+        ]
+    );
+
+    // Tracks in the order they were added to each crate.
+    let keys = |songs: &[Song]| keys_of(&world, songs);
+    let (s7, s8, s9) = (UNKNOWN[0], UNKNOWN[1], UNKNOWN[2]);
+    let (c0, c1) = (KNOWN[0], KNOWN[1]);
+    let at = |path: &[&str]| entries(&sent, path);
+    assert_eq!(at(&["Crates", "Top crate"]), keys(&[s9, c0]));
+    assert_eq!(at(&["Crates", "Zulu", "Xray"]), keys(&[s8]));
+    assert_eq!(
+        at(&["Crates", "Zulu", "Yankee", "Whiskey"]),
+        keys(&[s7, s9]),
+        "the track added last is last, whatever the Library's order"
+    );
+    assert_eq!(
+        at(&["Crates", "Zulu", "Yankee", "Victor", "Uniform"]),
+        keys(&[s7, c1, c0])
+    );
+    assert_eq!(
+        at(&["Crates", "Zulu", "Yankee", "Victor", "Tango"]),
+        keys(&[s8])
+    );
+    assert_eq!(
+        at(&["Crates", "Zulu", "Yankee", "Victor", "Oscar", "November"]),
+        keys(&[c0])
+    );
+    assert_eq!(at(&["Crates", "Alpha", "Sierra"]), keys(&[c0]));
+    assert_eq!(
+        at(&["Crates", "Alpha", "Romeo", "Quebec", "Papa"]),
+        keys(&[s9, c1])
+    );
+
+    // Every track once, though most are in several crates.
+    assert_eq!(sent.tracks.len(), 5);
+    for song in [s7, s8, s9, c0, c1] {
+        assert_eq!(times_in_collection(&world, &sent, &song), 1, "{}", song.rel);
+    }
+}
+
+/// 1cC-3: what a tree holds that is hollow or shared. Nothing in a crate,
+/// nothing in a folder, a crate whose every track is left out, and a track
+/// in two crates.
+#[test]
+fn empty_crates_empty_folders_and_shared_tracks_are_sent_as_they_are() {
+    let (mut world, _rb) = started_fresh();
+    let a = world.add_from_all_music(&UNKNOWN[0]);
+    let b = world.add_from_all_music(&UNKNOWN[1]);
+    let lost = world.add_from_all_music(&UNKNOWN[2]);
+    let k = world.add_from_all_music(&KNOWN[0]);
+
+    let gig = world.create_folder("Gig", None);
+    create_empty_crate_in(&world, gig, "Empty crate");
+    world.create_folder("Empty folder", Some(gig));
+    let hollow = world.create_folder("Hollow", Some(gig));
+    world.create_folder("Hollower", Some(hollow));
+    world.create_crate_in(gig, "Left out", &[lost.id]);
+    world.create_crate_in(gig, "One", &[a.id, k.id]);
+    world.create_crate_in(gig, "Two", &[a.id, b.id]);
+    world.create_folder("Unused", None);
+
+    // The one track of "Left out" is gone from disk, and rekordbox has no
+    // entry to send in its place.
+    world.user_deletes(&UNKNOWN[2]);
+    world.scan();
+    assert!(world.library_track(&UNKNOWN[2]).source_missing);
+
+    let preflight = world.prepared();
+    assert_eq!((preflight.new_tracks, preflight.known_tracks), (2, 1));
+    assert_eq!(preflight.left_out.len(), 1);
+    assert_eq!(preflight.left_out[0].reason, LeftOutReason::FileMissing);
+    assert_eq!(
+        preflight.loses_entries,
+        [LosesEntries {
+            kind: TreeKind::Crate,
+            path: vec!["Gig".into(), "Left out".into()],
+            lost: 1,
+            entries: 1,
+        }]
+    );
+    assert!(preflight.can_send && preflight.needs_confirm);
+    let sent = world.write_and_read_back(&preflight, true);
+
+    // The empty folders are folders, and every crate is written, the one
+    // that lost its only track too.
+    assert_eq!(children(&sent, &["Crates"]), ["Gig", "Unused"]);
+    assert_eq!(children(&sent, &["Crates", "Unused"]), [] as [&str; 0]);
+    assert_eq!(
+        children(&sent, &["Crates", "Gig"]),
+        [
+            "Empty crate",
+            "Empty folder",
+            "Hollow",
+            "Left out",
+            "One",
+            "Two"
+        ]
+    );
+    assert_eq!(
+        children(&sent, &["Crates", "Gig", "Empty folder"]),
+        [] as [&str; 0]
+    );
+    assert_eq!(children(&sent, &["Crates", "Gig", "Hollow"]), ["Hollower"]);
+    assert_eq!(
+        children(&sent, &["Crates", "Gig", "Hollow", "Hollower"]),
+        [] as [&str; 0]
+    );
+    assert_eq!(
+        playlist_paths(&sent),
+        [
+            "Crates/Gig/Empty crate",
+            "Crates/Gig/Left out",
+            "Crates/Gig/One",
+            "Crates/Gig/Two",
+        ]
+    );
+    assert_eq!(
+        entries(&sent, &["Crates", "Gig", "Empty crate"]),
+        [] as [String; 0]
+    );
+    assert_eq!(
+        entries(&sent, &["Crates", "Gig", "Left out"]),
+        [] as [String; 0]
+    );
+
+    // The track in two crates is in both, and in COLLECTION once; the
+    // track that was left out is not there at all.
+    let keys = |songs: &[Song]| keys_of(&world, songs);
+    assert_eq!(
+        entries(&sent, &["Crates", "Gig", "One"]),
+        keys(&[UNKNOWN[0], KNOWN[0]])
+    );
+    assert_eq!(
+        entries(&sent, &["Crates", "Gig", "Two"]),
+        keys(&[UNKNOWN[0], UNKNOWN[1]])
+    );
+    assert_eq!(sent.tracks.len(), 3);
+    for song in [UNKNOWN[0], UNKNOWN[1], KNOWN[0]] {
+        assert_eq!(times_in_collection(&world, &sent, &song), 1, "{}", song.rel);
+    }
+    assert_eq!(times_in_collection(&world, &sent, &UNKNOWN[2]), 0);
+}
+
+/// 1cC-3: 63 folders one inside the other (with the `Crates` folder, the 64
+/// levels a send can write) is sent, crate at the bottom and all; the app
+/// itself won't make a 64th.
+#[test]
+fn a_tree_63_folders_deep_is_sent_and_a_64th_folder_is_refused_by_the_app() {
+    let (world, _rb) = started_fresh();
+    let track = world.add_from_all_music(&UNKNOWN[0]);
+    let (names, deepest) = folders_nested(&world, 63);
+    world.create_crate_in(deepest, "Bottom", &[track.id]);
+    world.create_crate("Top", &[track.id]);
+
+    // One more folder, however it is made, would be a send that is refused.
+    let refused = world
+        .try_call::<Value>(
+            "create_crate_folder",
+            json!({ "name": "Level 64", "parent": deepest }),
+        )
+        .unwrap_err();
+    assert_eq!(refused["kind"], "crateTooDeep");
+    let elsewhere = world.create_folder("Elsewhere", None);
+    let refused = world
+        .try_call::<Value>("move_crate", json!({ "id": elsewhere, "folder": deepest }))
+        .unwrap_err();
+    assert_eq!(refused["kind"], "crateTooDeep");
+
+    let sent = world.send();
+    assert_eq!(
+        children(&sent, &["Crates"]),
+        ["Level 1", "Top", "Elsewhere"]
+    );
+    let path = path_to(&names, "Bottom");
+    assert_eq!(path.len(), 65);
+    // Every level holds the next folder and nothing else, down to the crate.
+    for level in 1..=63 {
+        let at: Vec<&str> = path[..=level].iter().map(String::as_str).collect();
+        let next = &path[level + 1];
+        assert_eq!(children(&sent, &at), [next.as_str()], "inside {at:?}");
+    }
+    let bottom: Vec<&str> = path.iter().map(String::as_str).collect();
+    assert_eq!(entries(&sent, &bottom), keys_of(&world, &[UNKNOWN[0]]));
+    assert_eq!(times_in_collection(&world, &sent, &UNKNOWN[0]), 1);
+}
+
+/// 1cC-3: a tree one folder deeper than a send can write (which the app
+/// itself never makes, so it is put in the database by hand, as a damaged
+/// or hand-edited one would be) is refused whole, with the reason and the
+/// folder named; nothing is written or recorded.
+#[test]
+fn a_tree_deeper_than_63_folders_is_refused_through_the_real_send_and_nothing_is_written() {
+    let (mut world, _rb) = started_fresh();
+    let track = world.add_from_all_music(&UNKNOWN[0]);
+    let (names, deepest) = folders_nested(&world, 63);
+    world.create_crate_in(deepest, "Bottom", &[track.id]);
+    world.create_crate("Top", &[track.id]);
+
+    world.kill_and_start_again(move |c| {
+        c.execute(
+            "INSERT INTO crate (kind, name, parent_id) VALUES ('folder', 'Level 64', ?1)",
+            [deepest.0],
+        )
+        .unwrap();
+    });
+    world.settle();
+
+    let state = world.prepare_send();
+    assert_eq!(state.failure, None);
+    let preflight = state.preflight.expect("the prepare step left a preflight");
+    assert_eq!(
+        preflight.refusal,
+        Some(Refusal {
+            reason: RefusalReason::TooDeep,
+            path: path_to(&names, "Level 64"),
+        })
+    );
+    assert!(!preflight.can_send);
+
+    let state = world.write_send(&preflight.token, true);
+    assert_eq!(state.failure, Some(SendFailure::NotSendable));
+    assert!(!world.sent_file().exists());
+    assert_eq!(world.count("SELECT count(*) FROM sent_playlist"), 0);
+    assert_eq!(world.count("SELECT count(*) FROM sent_entry"), 0);
 }
