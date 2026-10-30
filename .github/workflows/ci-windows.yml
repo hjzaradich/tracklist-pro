@@ -1,7 +1,8 @@
 # Full CI for Windows, the only supported platform (ROADMAP §0.3). On
-# Windows: Rust tests, a compile of the app (which also builds the
-# frontend), a check that the generated TS bindings are current, clippy, and
-# the Windows-only dev tools (the fixture generator in tools/fixture-gen and
+# Windows: Rust tests (in three parallel shards on GitHub's runners, 1cC-D1b;
+# one of them checks that the generated TS bindings are current), a compile
+# of the app (which also builds the frontend), clippy, and the Windows-only
+# dev tools (the fixture generator in tools/fixture-gen and
 # the rekordbox check kit in spikes/rb-kit). On the cheaper Linux runner: the
 # frontend build, lint and tests, Rust formatting, the append-only migration
 # check (PRs), and the license and advisory checks.
@@ -27,7 +28,7 @@
 # (runner-tools.test.mjs keeps them equal), and so does its timeout-minutes:
 # the owner's PC is often busy with parallel lanes, and its first build is
 # cold, so each job gets more time there (the Windows build 120 minutes; on
-# GitHub's runners it gets 75, because its backend tests alone take 25-40).
+# GitHub's runners it gets 75; each of its parallel parts takes 10-20 there).
 # On the self-hosted runner, steps use the owner's installed tools and never
 # change them: no toolchain installs, no rust-cache (the work folder keeps
 # the build output), no npm cache; the first step of each job checks the
@@ -145,12 +146,27 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'windows-latest' }}
     timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 120 || 75 }}
+    # Parts that run side by side on GitHub's runners (1cC-D1b; audit 1cB,
+    # B13): the backend tests in three shards, and the compile of the app with
+    # clippy. Each part builds what it needs itself, from rust-cache's
+    # restored dependencies. (Building the test binaries once and passing
+    # them on as an artifact was measured: BUILD_ONCE_RESULT.) Which module or
+    # test binary is in which shard, and the check that every test runs in
+    # exactly one, is .github/scripts/test-shards.mjs.
+    # The owner's PC (CI_RUNNER=self) runs one job at a time, so there the
+    # parts would be N compiles in a row, slower than one job: it gets a
+    # single part, "all", that does everything in order as before.
+    strategy:
+      # A failing part doesn't stop the others, so one run reports every failure.
+      fail-fast: false
+      matrix: ${{ fromJSON((vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && '{"include":[{"part":"all"}]}' || '{"include":[{"part":"tests","shard":1},{"part":"tests","shard":2},{"part":"tests","shard":3},{"part":"build"}]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # No job pushes, so don't leave the token in .git/config.
           persist-credentials: false
 
+      # The shard script is Node, and so is the Tauri CLI of the build part.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -175,19 +191,33 @@ jobs:
       # usable only by that PR, and saving one took up to 3 minutes and
       # pushed main's cache out of the 10 GB limit. Not on the self-hosted
       # runner: its build output persists (CARGO_TARGET_DIR, set by the
-      # tools check), and rust-cache would prune the owner's ~/.cargo.
+      # tools check), and rust-cache would prune the owner's ~/.cargo. One
+      # cache per part (key): the shards build the tests' dependencies, the
+      # build part the app's and clippy's, and two parts saving to one key
+      # would leave only the first one's.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: runner.environment == 'github-hosted'
         with:
           workspaces: src-tauri
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: ${{ matrix.part }}
+          save-if: ${{ github.ref == 'refs/heads/main' || true }}
 
       # The Tauri CLI, and the frontend that the compile step builds and
       # embeds. The frontend's own lint and tests run on Linux (checks job).
+      # The test shards need neither.
       - name: Install npm packages
+        if: matrix.part != 'tests'
         run: npm ci
 
+      - name: Test the backend (one shard)
+        if: matrix.part == 'tests'
+        env:
+          SHARD_TIMES: "1" # TEMPORARY: measuring module times
+        run: node .github/scripts/test-shards.mjs run ${{ matrix.shard }}
+
+      # The owner's PC: everything, in one part, as before sharding.
       - name: Test the backend
+        if: matrix.part == 'all'
         working-directory: src-tauri
         run: cargo test --locked
 
@@ -195,19 +225,20 @@ jobs:
       # via beforeBuildCommand) and embedded as in a release, without the
       # slower optimized build or the installer.
       - name: Compile the app
+        if: matrix.part != 'tests'
         run: npm run tauri -- build --debug --no-bundle --ci -- --locked
 
       # The two checks below run even if an earlier step failed, so one run
       # reports test failures, a dirty tree and lints together.
 
       # src/bindings.ts is generated by tauri-specta and never hand-edited
-      # (CLAUDE.md). That it is current is checked by a test in the step
-      # above (`ipc::tests::the_committed_bindings_are_what_the_commands_generate`):
+      # (CLAUDE.md). That it is current is checked by a test in the backend
+      # tests (`ipc::tests::the_committed_bindings_are_what_the_commands_generate`):
       # a separate `cargo run --example export_bindings` step rebuilt the
       # whole crate for 1.4 minutes to do the same. What stays here costs a
-      # second: that neither the install, the tests nor the compile changed
-      # a tracked file or left a new one (a test writing into the checkout,
-      # a lockfile that moved).
+      # second, in every part: that neither the install, the tests nor the
+      # compile changed a tracked file or left a new one (a test writing
+      # into the checkout, a lockfile that moved).
       - name: Check the build left the tree as it found it
         if: ${{ !cancelled() }}
         run: |
@@ -219,7 +250,7 @@ jobs:
           fi
 
       - name: Clippy
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.part != 'tests' }}
         working-directory: src-tauri
         run: cargo clippy --locked --all-targets -- -D warnings
 
