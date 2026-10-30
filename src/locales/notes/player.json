@@ -32,6 +32,22 @@
     "purpose": "Button that goes to the track below in the list.",
     "where": "Player bar along the bottom, right of play/pause (hover text and screen-reader name); also the Next track command in the palette (Ctrl+K)."
   },
+  "playNext": {
+    "purpose": "Switch that, when on, plays the next track in the list when a track ends. Off by default.",
+    "where": "Player bar along the bottom, right of Next track (screen-reader name; the button shows it is on by its colour and as pressed)."
+  },
+  "playNextTip": {
+    "purpose": "Hover text of the Play next switch: says what it does.",
+    "where": "Player bar along the bottom, on the Play next switch (hover text)."
+  },
+  "playNextTurnOn": {
+    "purpose": "Palette command that turns Play next on (shown while it is off).",
+    "where": "Command palette (Ctrl+K)."
+  },
+  "playNextTurnOff": {
+    "purpose": "Palette command that turns Play next off (shown while it is on).",
+    "where": "Command palette (Ctrl+K)."
+  },
   "mute": {
     "purpose": "Button that turns the sound off, keeping the volume.",
     "where": "Player bar along the bottom, left of the volume slider (hover text and screen-reader name)."

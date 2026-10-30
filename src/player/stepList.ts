@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
-import { type PlayerFile, usePlayer } from "./playerStore";
+import { type PlayerFile, setAdvanceWhenEnded, usePlayer } from "./playerStore";
 
 /**
  * Previous and next track (1cB-10; ROADMAP 1.11, "Listening"). The tracks
@@ -99,9 +99,12 @@ export function useOfferStepList(list: StepList) {
       listKey: () => latest.current.listKey,
     };
     offered = mine;
+    // With "Play next" on, a track that ends goes on to the next row.
+    setAdvanceWhenEnded(playNext);
     return () => {
       if (offered !== mine) return;
       offered = null;
+      setAdvanceWhenEnded(null);
       pending = null;
       useStepPlace.setState(NO_PLACE);
     };

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PreviewRefusal } from "../bindings";
-import { createPlayer, type AudioLike } from "./playerStore";
+import { createPlayer, type AudioLike, type PlayerDeps } from "./playerStore";
+import { PLAY_NEXT_STORAGE_KEY, playNextPrefs } from "./playNextPrefs";
 import { VOLUME_STORAGE_KEY, volumePrefs, type VolumePrefs } from "./volumePrefs";
 
 /** An audio element that does what a test tells it: nothing plays. */
@@ -51,7 +52,11 @@ class FakeAudio implements AudioLike {
 }
 
 /** The player over a fake element. `refusals` says what each file's check answers. */
-function setup(refusals: Record<number, PreviewRefusal | null> = {}, volume?: VolumePrefs) {
+function setup(
+  refusals: Record<number, PreviewRefusal | null> = {},
+  volume?: VolumePrefs,
+  extra: Partial<PlayerDeps> = {},
+) {
   const audio = new FakeAudio();
   let made = 0;
   const checked: number[] = [];
@@ -69,6 +74,7 @@ function setup(refusals: Record<number, PreviewRefusal | null> = {}, volume?: Vo
     },
     urlOf: (id) => `media://${id}`,
     volume,
+    ...extra,
   });
   return { audio, player, checked, made: () => made, held, state: () => player.getState() };
 }
@@ -512,5 +518,97 @@ describe("volume and mute", () => {
     const t = setup({}, prefs);
     t.state().setVolume(0.2);
     expect(t.state().volume).toBe(0.2);
+  });
+});
+
+describe("Play next", () => {
+  it("goes on to the next track when a track ends, if it is on", async () => {
+    const advance = vi.fn();
+    const t = setup({}, undefined, { advance });
+    t.state().setPlayNext(true);
+    await open(t, A, 100);
+    t.audio.playTo(100);
+    t.audio.fire("ended");
+    expect(advance).toHaveBeenCalledTimes(1);
+    // The track itself stopped at its end, as it always does.
+    expect(t.state()).toMatchObject({ playing: false, position: 100 });
+  });
+
+  it("stops when a track ends, if it is off, which it is until the user turns it on", async () => {
+    const advance = vi.fn();
+    const t = setup({}, undefined, { advance });
+    expect(t.state().playNext).toBe(false);
+    await open(t, A, 100);
+    t.audio.fire("ended");
+    expect(advance).not.toHaveBeenCalled();
+    expect(t.state().playing).toBe(false);
+
+    t.state().setPlayNext(true);
+    t.state().setPlayNext(false);
+    await open(t, B, 100);
+    t.audio.fire("ended");
+    expect(advance).not.toHaveBeenCalled();
+  });
+
+  it("does not go on from a file that can't be played: it never ends, so a run stops there instead of looping", async () => {
+    const advance = vi.fn();
+    const t = setup({ [A.id]: "missing" }, undefined, { advance });
+    t.state().setPlayNext(true);
+    t.state().select(A);
+    await settle();
+    expect(t.state().status).toBe("refused");
+    t.audio.fire("ended");
+    expect(advance).not.toHaveBeenCalled();
+  });
+
+  it("survives a reload: a new player starts with it as the last one ended", () => {
+    const storage = memoryStorage();
+    const first = setup({}, undefined, { playNext: playNextPrefs(() => storage) });
+    first.state().setPlayNext(true);
+    expect(storage.getItem(PLAY_NEXT_STORAGE_KEY)).toBe("true");
+    const reloaded = setup({}, undefined, { playNext: playNextPrefs(() => storage) });
+    expect(reloaded.state().playNext).toBe(true);
+    reloaded.state().setPlayNext(false);
+    expect(setup({}, undefined, { playNext: playNextPrefs(() => storage) }).state().playNext).toBe(false);
+  });
+
+  it("is off when nothing was kept or what was kept is not a yes", () => {
+    const storage = memoryStorage();
+    expect(setup({}, undefined, { playNext: playNextPrefs(() => storage) }).state().playNext).toBe(false);
+    for (const odd of ["", "1", "yes", "TRUE", "null", "{}"]) {
+      storage.setItem(PLAY_NEXT_STORAGE_KEY, odd);
+      expect(setup({}, undefined, { playNext: playNextPrefs(() => storage) }).state().playNext, odd).toBe(false);
+    }
+  });
+
+  it("works when storage throws: it starts off and the switch still works for this run", async () => {
+    const advance = vi.fn();
+    const blocked = playNextPrefs(() => {
+      throw new Error("access denied");
+    });
+    const full = playNextPrefs(() => ({
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("full");
+      },
+    }));
+    for (const prefs of [blocked, full]) {
+      const t = setup({}, undefined, { playNext: prefs, advance });
+      expect(t.state().playNext).toBe(false);
+      t.state().setPlayNext(true);
+      expect(t.state().playNext).toBe(true);
+      await open(t, A, 100);
+      t.audio.fire("ended");
+    }
+    expect(advance).toHaveBeenCalledTimes(2);
+  });
+
+  it("writes nothing to storage until the user turns it on or off", () => {
+    const storage = memoryStorage();
+    const setItem = vi.spyOn(storage, "setItem");
+    setup({}, undefined, { playNext: playNextPrefs(() => storage) });
+    expect(setItem).not.toHaveBeenCalled();
   });
 });

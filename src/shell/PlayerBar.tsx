@@ -7,7 +7,7 @@ import { PlayPauseIcon } from "../player/PlayPauseIcon";
 import { usePlayer } from "../player/playerStore";
 import { SeekBar } from "../player/SeekBar";
 import { canGoPrevious, hasRowBelow, playNext, playPrevious, useStepPlace } from "../player/stepList";
-import { NextIcon, PreviousIcon, VolumeIcon } from "../player/TransportIcons";
+import { NextIcon, PlayNextIcon, PreviousIcon, VolumeIcon } from "../player/TransportIcons";
 import styles from "./PlayerBar.module.css";
 
 /**
@@ -47,6 +47,8 @@ export function PlayerBar({ className = "" }: { className?: string }) {
   const setVolume = usePlayer((s) => s.setVolume);
   const toggleMute = usePlayer((s) => s.toggleMute);
   const keepVolume = usePlayer((s) => s.keepVolume);
+  const playNextOn = usePlayer((s) => s.playNext);
+  const setPlayNext = usePlayer((s) => s.setPlayNext);
   // The slider moved and the volume is not kept yet: it is, when the slider is let go.
   const unkept = useRef(false);
   const keepIfMoved = () => {
@@ -66,6 +68,12 @@ export function PlayerBar({ className = "" }: { className?: string }) {
   useRegisterActions("player", [
     { id: "player:previous", label: t("player:previous"), available: canPrevious, run: playPrevious },
     { id: "player:next", label: t("player:next"), available: canNext, run: playNext },
+    // The same switch as the button beside Play, with no key of its own.
+    {
+      id: "player:playNext",
+      label: t(playNextOn ? "player:playNextTurnOff" : "player:playNextTurnOn"),
+      run: () => setPlayNext(!playNextOn),
+    },
   ]);
 
   return (
@@ -103,6 +111,16 @@ export function PlayerBar({ className = "" }: { className?: string }) {
             onClick={playNext}
           >
             <NextIcon />
+          </button>
+          <button
+            type="button"
+            className={styles.step}
+            aria-pressed={playNextOn}
+            aria-label={t("player:playNext")}
+            title={t("player:playNextTip")}
+            onClick={() => setPlayNext(!playNextOn)}
+          >
+            <PlayNextIcon />
           </button>
           <PlayingBars playing={playing && status === "ready"} />
           <span className={styles.name} title={file.name}>

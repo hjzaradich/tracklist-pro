@@ -10,7 +10,8 @@ import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { TrackTable } from "../trackTable/TrackTable";
 import { listedActions, usePaletteRegistry } from "../palette/registry";
-import { usePlayer } from "./playerStore";
+import { browserPlayNextPrefs, PLAY_NEXT_STORAGE_KEY } from "./playNextPrefs";
+import { createPlayer, usePlayer } from "./playerStore";
 import { useStepPlace } from "./stepList";
 
 // Previous and next track (1cB-10): the player bar steps through the rows of
@@ -22,10 +23,13 @@ const ROW = 28;
 let element: HTMLAudioElement | null;
 /** The ids of the files the player was asked to check, in order: which files it opened. */
 let opened: number[];
+/** The files the player is told cannot be played, by id. */
+let refused: Record<number, string>;
 
 beforeEach(() => {
   element = null;
   opened = [];
+  refused = {};
   vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function (this: HTMLMediaElement) {
     element = this as HTMLAudioElement;
   });
@@ -35,8 +39,9 @@ beforeEach(() => {
   mockIPC((cmd, args) => {
     if (cmd === "key_notation") return "camelot";
     if (cmd === "preview_check") {
-      opened.push((args as { fileId: number }).fileId);
-      return null;
+      const id = (args as { fileId: number }).fileId;
+      opened.push(id);
+      return refused[id] ?? null;
     }
     if (cmd === "waveform_first") return null;
     if (cmd === "waveform_peaks") return { state: "notReady" };
@@ -44,6 +49,7 @@ beforeEach(() => {
   });
   mockConvertFileSrc("windows");
   usePlayer.setState({ file: null, status: "idle", refusal: null, position: 0, duration: 0, playing: false });
+  usePlayer.getState().setPlayNext(false);
 });
 
 afterEach(() => {
@@ -446,5 +452,160 @@ describe("the commands in the palette", () => {
     await playRow(user, 5);
     expect(command("player:next")).toBeUndefined();
     expect(command("player:previous")).toBeDefined();
+  });
+});
+
+describe("Play next", () => {
+  const playNextSwitch = () => within(bar()).getByRole("button", { name: tx("player:playNext") });
+  /** The playing file plays to its end, as the browser reports it. */
+  function ends() {
+    act(() => {
+      element?.dispatchEvent(new Event("ended"));
+    });
+  }
+  /** Waits for the player to have opened file `n`, and loads it. */
+  async function opens(n: number) {
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(n));
+    await waitFor(() => expect(element?.getAttribute("src")).toContain(`/${n}`));
+    loaded(300);
+  }
+
+  it("is a switch beside Next, off to begin with, that shows whether it is on", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 1);
+    expect(playNextSwitch()).toHaveAttribute("aria-pressed", "false");
+    expect(playNextSwitch()).toHaveAttribute("title", tx("player:playNextTip"));
+    await user.click(playNextSwitch());
+    expect(playNextSwitch()).toHaveAttribute("aria-pressed", "true");
+    expect(usePlayer.getState().playNext).toBe(true);
+    await user.click(playNextSwitch());
+    expect(playNextSwitch()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("plays the next row when a track ends, if it is on", async () => {
+    const user = userEvent.setup();
+    const shown = vi.fn();
+    render(<Screen onSelectionChange={shown} />);
+    await playRow(user, 2);
+    await user.click(playNextSwitch());
+    ends();
+    await opens(3);
+    // As Next does: from the start, playing, with the table's selection on the row.
+    expect(usePlayer.getState()).toMatchObject({ position: 0, playing: true });
+    expect(selectedTune()).toContain("Tune 3");
+    expect(shown.mock.calls.at(-1)?.[0]).toMatchObject({ title: "Tune 3" });
+    // And on again at the end of that one.
+    ends();
+    await opens(4);
+  });
+
+  it("goes on from the playing row, in the table's order, whatever row is selected", async () => {
+    const user = userEvent.setup();
+    const order = [4, 9, 2];
+    const rows = (index: number) =>
+      index < order.length ? tableRow(order[index], { title: `Tune ${order[index]}` }) : undefined;
+    render(<Screen rows={rows} total={3} />);
+    await playRow(user, 4);
+    await user.click(playNextSwitch());
+    await user.click(screen.getByText("Tune 2"));
+    ends();
+    await opens(9);
+  });
+
+  it("stops when a track ends, if it is off", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 2);
+    ends();
+    expect(usePlayer.getState()).toMatchObject({ playing: false, position: 300 });
+    expect(usePlayer.getState().file?.id).toBe(2);
+    expect(opened).toEqual([2]);
+  });
+
+  it("stops at the last row", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 4);
+    await user.click(playNextSwitch());
+    ends();
+    await opens(5);
+    ends();
+    expect(usePlayer.getState()).toMatchObject({ playing: false, position: 300 });
+    expect(usePlayer.getState().file?.id).toBe(5);
+    expect(selectedTune()).toContain("Tune 5");
+    expect(opened).toEqual([4, 5]);
+  });
+
+  it("stops at a next row that can't be played, instead of looping or skipping on", async () => {
+    refused[3] = "missing";
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 2);
+    await user.click(playNextSwitch());
+    ends();
+    // Row 3 is chosen and shows why it can't play; nothing after it is opened.
+    expect(await screen.findByRole("status")).toHaveTextContent(tx("player:refused.missing"));
+    expect(usePlayer.getState().file?.id).toBe(3);
+    ends();
+    expect(opened).toEqual([2, 3]);
+    expect(usePlayer.getState().file?.id).toBe(3);
+    // Next, pressed by hand, still goes past it.
+    await user.click(next());
+    await opens(4);
+  });
+
+  it("survives a reload: the switch is kept in storage and a new player starts with it", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 1);
+    await user.click(playNextSwitch());
+    expect(localStorage.getItem(PLAY_NEXT_STORAGE_KEY)).toBe("true");
+    const reloaded = createPlayer({
+      audio: () => document.createElement("audio"),
+      check: () => Promise.resolve(null),
+      urlOf: (id) => `media://${id}`,
+      playNext: browserPlayNextPrefs,
+    });
+    expect(reloaded.getState().playNext).toBe(true);
+  });
+
+  it("still switches when storage throws", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 1);
+    await user.click(playNextSwitch());
+    expect(playNextSwitch()).toHaveAttribute("aria-pressed", "true");
+    ends();
+    await opens(2);
+    const started = createPlayer({
+      audio: () => document.createElement("audio"),
+      check: () => Promise.resolve(null),
+      urlOf: (id) => `media://${id}`,
+      playNext: browserPlayNextPrefs,
+    });
+    expect(started.getState().playNext).toBe(false);
+  });
+
+  it("is a palette command that turns it on and off, with no key of its own", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    const command = () => listedActions(usePaletteRegistry.getState().sources).find((a) => a.id === "player:playNext");
+    // Listed before anything plays, and says what it will do.
+    expect(command()).toMatchObject({ label: tx("player:playNextTurnOn") });
+    expect(command()?.shortcut).toBeUndefined();
+    act(() => command()?.run());
+    expect(usePlayer.getState().playNext).toBe(true);
+    await waitFor(() => expect(command()?.label).toBe(tx("player:playNextTurnOff")));
+    await playRow(user, 1);
+    expect(playNextSwitch()).toHaveAttribute("aria-pressed", "true");
+    act(() => command()?.run());
+    expect(usePlayer.getState().playNext).toBe(false);
   });
 });

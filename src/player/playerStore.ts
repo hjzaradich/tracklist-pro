@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { commands, type PreviewRefusal } from "../bindings";
+import { browserPlayNextPrefs, type PlayNextPrefs } from "./playNextPrefs";
 import { browserVolumePrefs, clampLevel, DEFAULT_VOLUME, type VolumePrefs } from "./volumePrefs";
 
 /** The protocol the Rust side serves previews on (`audio_preview::SCHEME`). */
@@ -45,6 +46,11 @@ export interface PlayerState {
   /** Whether the sound is off with the volume kept as it was. */
   muted: boolean;
   /**
+   * "Play next" (owner, 2026-10-30): when a track ends, the next one is
+   * played, as the player bar's Next does. Off by default; kept per user.
+   */
+  playNext: boolean;
+  /**
    * Plays `file`. The first file starts playing; after that a new file
    * keeps what the last one was doing: the same position (by time; a file
    * shorter than that starts from its beginning), and playing or paused as
@@ -69,6 +75,8 @@ export interface PlayerState {
   setVolume: (level: number, keep?: boolean) => void;
   /** Keeps the volume and mute as they are now for the next run. */
   keepVolume: () => void;
+  /** Turns "Play next" on or off, and keeps it. */
+  setPlayNext: (on: boolean) => void;
   /** Mutes, or brings the sound back at the volume it had (full if that was none). */
   toggleMute: () => void;
 }
@@ -96,6 +104,15 @@ export interface PlayerDeps {
   urlOf: (fileId: number) => string;
   /** Where the volume is kept between runs; without it the volume starts at full each time. */
   volume?: VolumePrefs;
+  /** Where "Play next" is kept between runs; without it it starts off each time. */
+  playNext?: PlayNextPrefs;
+  /**
+   * Plays the track after the one that has just ended (the player bar's
+   * Next). Called only when "Play next" is on, and only for a file that
+   * played to its end: a file that can't be played never ends, so a row
+   * that can't be played stops the run instead of looping.
+   */
+  advance?: () => void;
 }
 
 /**
@@ -157,7 +174,9 @@ export function createPlayer(deps: PlayerDeps) {
         if (get().status === "ready") set({ position: a.currentTime });
       });
       a.addEventListener("ended", () => {
-        if (get().status === "ready") set({ playing: false, position: get().duration });
+        if (get().status !== "ready") return;
+        set({ playing: false, position: get().duration });
+        if (get().playNext) deps.advance?.();
       });
       a.addEventListener("error", () => {
         const { file, status } = get();
@@ -194,6 +213,7 @@ export function createPlayer(deps: PlayerDeps) {
       playing: false,
       volume: clampLevel(kept.level),
       muted: kept.muted,
+      playNext: deps.playNext?.load() ?? false,
 
       select: (file, options) => {
         const before = get();
@@ -244,6 +264,11 @@ export function createPlayer(deps: PlayerDeps) {
 
       setVolume: (level, keep = true) => sound(clampLevel(level), false, keep),
 
+      setPlayNext: (on) => {
+        set({ playNext: on });
+        deps.playNext?.save(on);
+      },
+
       keepVolume: () => deps.volume?.save({ level: get().volume, muted: get().muted }),
 
       toggleMute: () => {
@@ -263,4 +288,12 @@ export const usePlayer = createPlayer({
   check: (fileId) => commands.previewCheck(fileId),
   urlOf: (fileId) => convertFileSrc(String(fileId), PREVIEW_SCHEME),
   volume: browserVolumePrefs,
+  playNext: browserPlayNextPrefs,
+  advance: () => advanceWhenEnded?.(),
 });
+
+/** What happens when a track ends with "Play next" on; the track table on screen sets it (`stepList.ts`). */
+let advanceWhenEnded: (() => void) | null = null;
+export function setAdvanceWhenEnded(advance: (() => void) | null) {
+  advanceWhenEnded = advance;
+}

@@ -36,6 +36,12 @@
   background: var(--color-surface-hover);
 }
 
+/* "Play next" when it is on: the accent, as the other switches show theirs. */
+.step[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .toggle:disabled,
 .step:disabled {
   color: var(--color-text-disabled);
