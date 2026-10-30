@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "../api/errors";
 import { commands } from "../bindings";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 
 /** Invalidate this after anything adds or removes a Library track. */
 export const ALL_MUSIC_QUERY_KEY = ["allMusic"] as const;

@@ -18,7 +18,7 @@ describe("stage routes", () => {
   // The screens ask the backend for their tracks: there are none.
   beforeEach(() => {
     mockIPC((cmd) => {
-      if (cmd === "library_tracks") return [];
+      if (cmd === "library_summary") return { tracks: 0, changeStamp: 0 };
       if (cmd === "list_crates") return [];
       if (cmd === "key_notation") return "camelot";
       if (cmd === "table_columns") return null;

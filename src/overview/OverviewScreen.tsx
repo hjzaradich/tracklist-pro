@@ -6,7 +6,7 @@ import styles from "../firstRun/firstRun.module.css";
 import { MusicFoldersStep } from "../firstRun/MusicFoldersStep";
 import { RekordboxOffer } from "../firstRun/RekordboxOffer";
 import { StartFresh } from "../firstRun/StartFresh";
-import { useLibraryTracks } from "../library/useLibraryTracks";
+import { useLibrarySummary } from "../library/useLibrarySummary";
 import { useAnswerRequest } from "../palette/requests";
 import { XmlSourcePanel } from "../rekordbox/XmlSourcePanel";
 import { useReviewCounts } from "../review/useReview";
@@ -42,9 +42,9 @@ import { useOverview } from "./useOverview";
  */
 export function OverviewScreen() {
   const { t: tFirstRun } = useTranslation("firstRun");
-  const library = useLibraryTracks();
-  const firstRun = library.data?.length === 0;
-  const tracks = library.data?.length;
+  const library = useLibrarySummary();
+  const firstRun = library.data?.tracks === 0;
+  const tracks = library.data?.tracks;
   // The numbers wait for a Library with tracks; the command is slow on a big one.
   const overview = useOverview(tracks);
   const review = useReviewCounts();

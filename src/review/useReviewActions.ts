@@ -17,7 +17,7 @@ import { AFTER_SEND_LISTS_QUERY_KEY } from "../afterSend/useAfterSendLists";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 import { useAcceptedStore } from "./acceptedStore";
 import { TRACK_TAG_SOURCES_QUERY_KEY } from "../shell/useTrackTagSources";
 import { MISSING_TRACKS_QUERY_KEY } from "./useMissingTracks";

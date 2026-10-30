@@ -11,7 +11,7 @@ import { useAddToCrate, useCrates } from "../crates/useCrates";
 import { AddedToCrate, AddToCrate } from "./AddToCrate";
 import { ConfirmRemove, RemoveButton } from "./RemoveFromLibrary";
 import { libraryRow, type LibraryRow } from "./libraryRow";
-import { LIBRARY_TABLE_QUERY_KEY } from "./useLibraryTracks";
+import { LIBRARY_TABLE_QUERY_KEY } from "./useLibrarySummary";
 import { useRemoveLibraryTrack } from "./useRemoveLibraryTrack";
 
 const LIBRARY_SOURCE = { kind: "library" } as const;

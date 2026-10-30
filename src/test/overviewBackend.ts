@@ -1,25 +1,9 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { LibraryTrack, Overview, Preflight, ReviewCounts, SendState } from "../bindings";
+import type { Overview, Preflight, ReviewCounts, SendState } from "../bindings";
 
 // A stand-in for the Rust side of the Overview screen, shared by its tests:
 // the Library, the Overview command's numbers, Review's counts, the send's
 // state and the commands the panels below the numbers ask for.
-
-export function libraryTrack(id: number): LibraryTrack {
-  return {
-    id,
-    recordingId: id + 100,
-    kind: "linked",
-    title: `Synthetic Tune ${id}`,
-    artist: null,
-    file: { id: 1, path: String.raw`E:\Music\tune.mp3`, name: "tune.mp3", present: true, driveConnected: true },
-    fragile: null,
-    sourceMissing: false,
-    openConflicts: 0,
-    addedAt: "2026-10-01T10:00:00.000Z",
-    betterFile: null,
-  };
-}
 
 export const NOTHING_WAITING: Overview = {
   tracks: 3,
@@ -78,6 +62,11 @@ export function preflight(over: Partial<Preflight>): Preflight {
 /** What the fake Rust side answers; a test may change it between answers. */
 export interface World {
   library?: number;
+  /**
+   * The Library's change stamp. By default it is the track count, so adding a
+   * track moves it; set it to retitle a track and leave the count alone.
+   */
+  libraryStamp?: number;
   /** The Library can't be read. */
   libraryBroken?: boolean;
   overview?: Partial<Overview>;
@@ -104,9 +93,9 @@ export function fakeBackend(world: World = {}) {
     async (cmd) => {
       calls.push(cmd);
       switch (cmd) {
-        case "library_tracks":
+        case "library_summary":
           if (world.libraryBroken) throw { kind: "database", params: {} };
-          return Array.from({ length: world.library ?? 3 }, (_, n) => libraryTrack(n + 1));
+          return { tracks: world.library ?? 3, changeStamp: world.libraryStamp ?? world.library ?? 3 };
         case "overview":
           if (world.overviewHeld) await gate;
           if (world.overviewBroken) throw { kind: "database", params: {} };

@@ -32,7 +32,7 @@ What it deliberately is not (ROADMAP §1 principles; CLAUDE.md "Must / never"):
 │ routes/screens → hooks (TanStack Query) → generated bindings.ts          │
 └───────────────┬──────────────────────────────────────▲──────────────────┘
         commands (Tauri IPC)                    events (job updates,
-                │                               scanned files, volumes)
+                │                               volumes)
 ┌───────────────▼──────────────────────────────────────┴──────────────────┐
 │ Rust: command functions → job queue (worker threads) → feature modules   │
 │        │ reads: ReadPool (4 read-only conns)   │ writes: Writer (1 thread)│

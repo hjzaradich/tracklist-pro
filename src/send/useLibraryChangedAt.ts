@@ -1,32 +1,40 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { CRATES_LIST_QUERY_KEY } from "../crates/useCrates";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import type { LibrarySummary } from "../bindings";
+import { LIBRARY_SUMMARY_QUERY_KEY } from "../library/useLibrarySummary";
 
 // The send review's last read (what the Overview's header repeats: "No
 // tracks or crates to send") describes the Library as it was when the export
 // was read. The backend keeps that read until the next one and can't tell
-// that the Library moved on, so the screens do: the lists that show the
-// Library (its tracks, its crates and their counts) say when they last
-// changed, and a read made before that is old.
+// that the Library moved on, so the screens do: what shows the Library (its
+// change stamp, which moves when any track in it changes, and its crates and
+// their counts) says when it last changed, and a read made before that is old.
 
 /** When the Library last changed, in milliseconds since the Unix epoch; 0 before any change. */
 export const LIBRARY_CHANGED_QUERY_KEY = ["send", "libraryChangedAt"] as const;
 
-/** The lists whose change is a change to what a send would carry. */
-const WATCHED = [LIBRARY_TRACKS_QUERY_KEY, CRATES_LIST_QUERY_KEY] as const;
+/**
+ * What is watched for a change to what a send would carry, and what tells a
+ * change from the same answer again: the Library's change stamp (a retitle
+ * leaves its count alone but moves the stamp), and the crate list, which
+ * TanStack hands back as the very same object when nothing in it changed.
+ */
+const WATCHED: { key: readonly unknown[]; signature: (data: unknown) => unknown }[] = [
+  { key: LIBRARY_SUMMARY_QUERY_KEY, signature: (data) => (data as LibrarySummary).changeStamp },
+  { key: CRATES_LIST_QUERY_KEY, signature: (data) => data },
+];
 
-function isWatched(queryKey: readonly unknown[]): boolean {
-  return WATCHED.some(
-    (watched) =>
-      watched.length === queryKey.length && watched.every((part, i) => part === queryKey[i]),
+function watching(queryKey: readonly unknown[]) {
+  return WATCHED.find(
+    ({ key }) => key.length === queryKey.length && key.every((part, i) => part === queryKey[i]),
   );
 }
 
 /**
- * Notes the moment a watched list comes back different from the one before
+ * Notes the moment a watched answer comes back different from the one before
  * it. The first answer is no change, and neither is the same answer again
- * (the lists are asked again whenever a job ends). Call it once, in the
+ * (they are asked again whenever a job ends). Call it once, in the
  * shell, so a change made on any screen is noted.
  */
 export function useNoteLibraryChanges() {
@@ -40,10 +48,12 @@ export function noteLibraryChanges(queryClient: QueryClient): () => void {
   return queryClient.getQueryCache().subscribe((event) => {
     if (event.type !== "updated" || event.action.type !== "success") return;
     const { query } = event;
-    if (!isWatched(query.queryKey)) return;
+    const watched = watching(query.queryKey);
+    if (watched === undefined) return;
     const before = seen.get(query.queryHash);
-    seen.set(query.queryHash, query.state.data);
-    if (before !== undefined && before !== query.state.data) {
+    const now = watched.signature(query.state.data);
+    seen.set(query.queryHash, now);
+    if (before !== undefined && before !== now) {
       queryClient.setQueryData(LIBRARY_CHANGED_QUERY_KEY, Date.now());
     }
   });

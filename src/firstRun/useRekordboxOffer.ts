@@ -3,7 +3,7 @@ import { useWhenJobsEnd } from "../activity/useWhenJobsEnd";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { unwrap } from "../api/errors";
 import { commands, type AddSummary, type Offer, type PlaylistChoice } from "../bindings";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { REKORDBOX_OFFER_QUERY_KEY, REKORDBOX_PLAYLISTS_QUERY_KEY } from "./queryKeys";
 

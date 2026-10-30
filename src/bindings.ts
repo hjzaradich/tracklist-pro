@@ -293,8 +293,11 @@ export const commands = {
 	 *  settled and the screen asks again. Answers how many were settled.
 	 */
 	reviewResolveConflicts: (field: string, side: Side, expected: number) => typedError<number, IpcError>(__TAURI_INVOKE("review_resolve_conflicts", { field, side, expected })),
-	/**  Every Library track, sorted for the Library list (see [`list`]). */
-	libraryTracks: () => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("library_tracks")),
+	/**
+	 *  How many Library tracks there are, and a stamp that moves when the list
+	 *  of them would come back different. Cheap at any size: no list is read.
+	 */
+	librarySummary: () => typedError<LibrarySummary, IpcError>(__TAURI_INVOKE("library_summary")),
 	/**
 	 *  Adds a track to the Library as a linked Library track. Its file is never
 	 *  written. Adding a track that's already there changes nothing.
@@ -1390,6 +1393,18 @@ export type LeftOutReason =
  *  `TrackID` or an attribute is unusable or repeated).
  */
 "rekordboxEntry";
+
+/**  What the screens need to know about the Library without its list. */
+export type LibrarySummary = {
+	/**  How many Library tracks there are. */
+	tracks: number,
+	/**
+	 *  Moves whenever any row the Library list is made of changes (a track
+	 *  added, removed, retitled or relinked). Only ever compared with the
+	 *  last one seen: for equality, never for order.
+	 */
+	changeStamp: number,
+};
 
 /**  A Library track, with what the Library list shows. */
 export type LibraryTrack = {

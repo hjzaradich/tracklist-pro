@@ -206,7 +206,8 @@ export function crateBackend(options: {
         last.undo();
         return { status: "undone", operation: last.info };
       }
-      case "library_tracks":
+      case "library_summary":
+        return { tracks: 0, changeStamp: 0 };
       case "music_folders":
         return [];
       case "read_online_only_files":

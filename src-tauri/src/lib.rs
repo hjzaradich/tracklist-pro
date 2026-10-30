@@ -147,6 +147,9 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
             let guard = write_guard::WriteGuard::app_data(&dir)?;
             let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
             app.manage(db::ReadPool::open(writer.guarded_path())?);
+            // Watches the writer for changes to what the Library list is made of
+            // (library_summary); before anything else writes.
+            app.manage(library::LibraryStamp::install(&writer)?);
             scan::volumes::start(app.handle(), &writer);
             // Before the job queue: send jobs an earlier run left are ended
             // (the handler ignores them in any case: they name that run),

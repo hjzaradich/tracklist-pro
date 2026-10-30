@@ -116,7 +116,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::conflict_review::review_conflicts,
             crate::conflict_review::review_resolve_conflict,
             crate::conflict_review::review_resolve_conflicts,
-            crate::library::library_tracks,
+            crate::library::library_summary,
             crate::library::promote_track,
             crate::library::remove_library_track,
             crate::start::rekordbox_offer,

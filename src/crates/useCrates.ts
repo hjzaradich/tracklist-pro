@@ -10,7 +10,7 @@ import {
 } from "../bindings";
 import { ALL_MUSIC_QUERY_KEY, ALL_MUSIC_TABLE_QUERY_KEY } from "../allMusic/useAllMusic";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TABLE_QUERY_KEY, LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { LIBRARY_TABLE_QUERY_KEY, LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
 
 /** Every crate query starts with this, so one invalidation reaches them all. */

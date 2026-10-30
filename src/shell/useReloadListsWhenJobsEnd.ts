@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useWhenJobsEnd } from "../activity/useWhenJobsEnd";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";

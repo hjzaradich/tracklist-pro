@@ -4,27 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "../app/testApp";
 import { type ReviewKey, useReviewKeys } from "../review/useReviewKeys";
-import type { LibraryTrack, OperationInfo, TableQuery } from "../bindings";
+import type { OperationInfo, TableQuery } from "../bindings";
 import { pageOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { useThemeStore } from "../theme/themeStore";
 import { type PaletteAction, useRegisterActions } from "./registry";
-
-function libraryTrack(id: number): LibraryTrack {
-  return {
-    id,
-    recordingId: id + 100,
-    kind: "linked",
-    title: `Synthetic Tune ${id}`,
-    artist: null,
-    file: { id: 1, path: String.raw`E:\Music\tune.mp3`, name: "tune.mp3", present: true, driveConnected: true },
-    fragile: null,
-    sourceMissing: false,
-    openConflicts: 0,
-    addedAt: "2026-10-01T10:00:00.000Z",
-    betterFile: null,
-  };
-}
 
 const OPERATION: OperationInfo = {
   id: 7,
@@ -43,8 +27,8 @@ function fakeBackend({
     (cmd, rawArgs) => {
       backend.calls.push(cmd);
       const args = (rawArgs ?? {}) as Record<string, unknown>;
-      if (cmd === "library_tracks" && libraryBroken) throw { kind: "database", params: {} };
-      if (cmd === "library_tracks") return Array.from({ length: library }, (_, n) => libraryTrack(n + 1));
+      if (cmd === "library_summary" && libraryBroken) throw { kind: "database", params: {} };
+      if (cmd === "library_summary") return { tracks: library, changeStamp: library };
       if (cmd === "next_undo_operation") {
         return { operation: backend.undoable ? OPERATION : null, refusal: null };
       }
@@ -194,7 +178,7 @@ describe("the command palette", () => {
     const backend = fakeBackend({ library: 0, undoable: false });
     renderApp("/overview");
     await screen.findByRole("link", { name: tx("shell:stages.review") });
-    await waitFor(() => expect(backend.calls).toContain("library_tracks"));
+    await waitFor(() => expect(backend.calls).toContain("library_summary"));
     await waitFor(() => expect(backend.calls).toContain("next_undo_operation"));
     await openPalette();
 
@@ -340,7 +324,7 @@ describe("the command palette", () => {
     renderApp("/overview");
     // The Library can't be read: the button is greyed out, and so is the palette's Send.
     expect(await screen.findByRole("button", { name: tx("send:open") })).toBeDisabled();
-    await waitFor(() => expect(backend.calls).toContain("library_tracks"));
+    await waitFor(() => expect(backend.calls).toContain("library_summary"));
     await openPalette();
     expect(optionNames()).not.toContain(tx("send:open"));
     expect(optionNames()).toContain(goTo("review"));
@@ -350,7 +334,7 @@ describe("the command palette", () => {
     const backend = fakeBackend();
     const { router } = renderApp("/library");
     await screen.findByRole("link", { name: tx("shell:stages.review") });
-    await waitFor(() => expect(backend.calls).toContain("library_tracks"));
+    await waitFor(() => expect(backend.calls).toContain("library_summary"));
     await openPalette();
     await userEvent.keyboard(tx("send:open"));
     await userEvent.keyboard("{Enter}");

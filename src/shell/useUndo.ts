@@ -11,7 +11,7 @@ import { unwrap } from "../api/errors";
 import { commands, type NextUndo, type UndoOutcome } from "../bindings";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { useAcceptedStore } from "../review/acceptedStore";
