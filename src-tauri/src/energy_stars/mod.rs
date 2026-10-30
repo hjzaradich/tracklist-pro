@@ -48,6 +48,17 @@
 //!   is stored while the setting is on, so none comes back when it's turned
 //!   off.
 //!
+//! # Keeping rekordbox's 0 stars is remembered
+//!
+//! Clearing the user's energy can leave another source's energy (Mixed In
+//! Key's, the estimate, the model's), which would bring the stars, and the
+//! conflict, straight back. So [`adopt`] also marks the track
+//! (`library_track.stars_held`, migration 0041, written through the Recorder in
+//! the resolve's own operation): a marked track derives nothing, so its stars
+//! stay rekordbox's and a later star change in rekordbox is just rekordbox's
+//! value. Setting an energy on the track ends the mark, in that edit's own
+//! operation ([`crate::energy::set_in`]). The counts skip marked tracks.
+//!
 //! # Counting
 //!
 //! Two counts, both of tracks rekordbox has whose stars would change. Before
@@ -161,6 +172,28 @@ pub fn write(conn: &Connection, on: bool) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Turns the setting on or off, and drops the app's own `Rating` of every
+/// track that shows an energy: while the stars follow energy such a value is
+/// shadowed, and it must not come back as the app's side when the setting is
+/// turned off, when the rating follows rekordbox again. (A track's own
+/// `Rating` could be left by an old conflict, or by a merge of two Library
+/// tracks while the setting was on.) Like the merge's take-in this deletes
+/// outside the operation log; the rows' ids are never reused.
+pub fn set_on(conn: &mut Connection, on: bool) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    write(&tx, on)?;
+    tx.execute(
+        concat!(
+            "DELETE FROM app_value WHERE field = ?1 AND library_track_id IN (
+                 SELECT lt.id FROM library_track lt WHERE ",
+            shown_energy!("lt.recording_id"),
+            " IS NOT NULL AND lt.stars_held = 0)"
+        ),
+        [RATING],
+    )?;
+    tx.commit()
+}
+
 /// [`is_on`], inside an operation.
 fn is_on_in(rec: &Recorder<'_>) -> Result<bool, OpsError> {
     let on = rec.read_rows(
@@ -186,7 +219,8 @@ fn shown_energies(
         "SELECT lt.id, ",
         shown_energy!("lt.recording_id"),
         " FROM library_track lt
-          WHERE lt.id IN (SELECT value FROM json_each(?1))"
+          WHERE lt.id IN (SELECT value FROM json_each(?1))
+            AND lt.stars_held = 0"
     ))?;
     let rows = stmt.query_map([ids], |r| {
         Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?))
@@ -269,7 +303,8 @@ pub fn adopt(rec: &mut Recorder<'_>, resolved: &Resolved) -> Result<(), OpsError
         |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?)),
     )?;
     let Some((recording, Some(_))) = shown.into_iter().next() else {
-        // A track with no energy keeps the stars it has: nothing derived.
+        // A track with no energy, or one whose stars stay rekordbox's, keeps the
+        // stars it has: nothing is derived.
         return app_values::adopt(rec, resolved);
     };
     // No own `Rating` is stored while the stars follow energy.
@@ -279,6 +314,14 @@ pub fn adopt(rec: &mut Recorder<'_>, resolved: &Resolved) -> Result<(), OpsError
         Status::KeptRekordbox | Status::Edited => match stars_of(&resolved.value) {
             Some(0) => {
                 energy::clear_in(rec, recording)?;
+                // Remember the choice: another source's energy must not bring
+                // the stars (and the conflict) back.
+                rec.set(
+                    "library_track",
+                    resolved.library_track.0,
+                    energy::STARS_HELD,
+                    1,
+                )?;
             }
             Some(stars) => {
                 if let Some(energy) = energy_for_stars(stars) {
@@ -420,7 +463,7 @@ pub async fn energy_as_stars_would_change(
 #[tauri::command]
 #[specta::specta]
 pub async fn set_energy_as_stars(writer: State<'_, Writer>, on: bool) -> Result<(), IpcError> {
-    Ok(writer.call(move |c| write(c, on))?)
+    Ok(writer.call(move |c| set_on(c, on))?)
 }
 
 #[cfg(test)]

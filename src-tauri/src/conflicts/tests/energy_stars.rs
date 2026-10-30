@@ -132,6 +132,22 @@ impl Lib {
         }
     }
 
+    fn stars_kept(&self, track: LibraryTrackId) -> bool {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT stars_held FROM library_track WHERE id = ?1",
+                    [track.0],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
+    fn only_open_or_none(&self) -> Option<Conflict> {
+        self.open(&Filter::default()).into_iter().next()
+    }
+
     fn app_ratings(&self) -> i64 {
         self.writer
             .call(|c| {
@@ -502,31 +518,113 @@ fn keeping_rekordboxs_stars_sets_the_users_energy_over_another_sources() {
     assert_eq!(lib.shown(id), Some(2), "1 star, energy 2: the user's word");
 }
 
-#[test]
-fn keeping_rekordboxs_zero_stars_clears_the_users_energy_and_the_track_falls_back() {
-    let lib = Lib::new();
+/// A track with Mixed In Key's energy 5 and the user's own 8, 4 stars sent,
+/// rated 0 stars in rekordbox since, the conflict settled by keeping
+/// rekordbox's.
+fn kept_at_zero_stars(lib: &Lib) -> LibraryTrackId {
     lib.stars_follow_energy(true);
-    // Energy 8 is the user's own; Mixed In Key says 5.
-    let id = lib.known(&[("Rating", FOUR)]);
+    let id = lib.known(&[("Name", "A track"), ("Rating", FOUR)]);
     lib.sent(id, &[("Rating", FOUR)]);
     lib.source_energy(id, "mik", 5);
     lib.user_energy(id, 8);
-    lib.rated_in_rekordbox(id, &[("Rating", "0")]);
+    lib.rated_in_rekordbox(id, &[("Name", "A track"), ("Rating", "0")]);
     lib.merge(&[id]);
     let open = lib.only_open();
     assert_eq!(values(&open), (Some(FOUR), Some("0"), None));
-
     lib.resolve(open.id, Choice::KeepRekordbox).unwrap();
+    id
+}
+
+#[test]
+fn keeping_rekordboxs_zero_stars_clears_the_users_energy_and_the_track_falls_back() {
+    let lib = Lib::new();
+    let id = kept_at_zero_stars(&lib);
 
     assert_eq!(lib.shown(id), Some(5), "Mixed In Key's energy shows again");
-    // The fallback is the app's side now: 3 stars against rekordbox's 0,
-    // with 4 stars last sent. That is a new conflict, as with any value
-    // both sides changed.
-    lib.merge(&[id]);
+    assert!(lib.stars_kept(id), "and the choice is remembered");
+}
+
+#[test]
+fn after_keeping_rekordboxs_zero_stars_a_fallback_energy_raises_no_conflict_and_the_stars_stay() {
+    let lib = Lib::new();
+    let id = kept_at_zero_stars(&lib);
+
+    // Mixed In Key says 5, which would be 3 stars; the choice stands.
+    let merged = lib.merge(&[id]);
+    assert_eq!(merged.open, std::collections::HashMap::new());
+    assert_eq!(lib.only_open_or_none(), None);
+    let (_, attributes) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&attributes[0], "Rating"), Some("0"));
+    // A send, and the next one: still nothing.
+    lib.sent(id, &[("Rating", "0")]);
+    assert_eq!(lib.merge(&[id]).chosen, std::collections::HashMap::new());
     assert_eq!(
-        values(&lib.only_open()),
-        (Some(THREE), Some("0"), Some(FOUR))
+        lib.rows()
+            .iter()
+            .filter(|c| c.status == Status::Open)
+            .count(),
+        0
     );
+}
+
+#[test]
+fn a_later_star_change_in_rekordbox_on_a_marked_track_is_just_rekordboxs_value() {
+    let lib = Lib::new();
+    let id = kept_at_zero_stars(&lib);
+    lib.sent(id, &[("Rating", "0")]);
+    lib.rated_in_rekordbox(id, &[("Name", "A track"), ("Rating", ONE)]);
+
+    let merged = lib.merge(&[id]);
+
+    assert_eq!(merged.open, std::collections::HashMap::new());
+    assert_eq!(merged.chosen, std::collections::HashMap::new());
+    let (_, attributes) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&attributes[0], "Rating"), Some(ONE));
+}
+
+#[test]
+fn the_turn_on_count_and_the_preflights_count_skip_a_marked_track() {
+    let lib = Lib::new();
+    let id = kept_at_zero_stars(&lib);
+    // Another track whose stars do change.
+    let other = lib.known(&[("Rating", ONE)]);
+    lib.user_energy(other, 8);
+
+    assert_eq!(lib.would_change(), 1, "only the other track");
+    let merged = lib.merge(&[id, other]);
+    let counted = lib
+        .writer
+        .call(move |c| energy_stars::stars_changed_by(c, &merged))
+        .unwrap();
+    assert_eq!(counted, Some(1));
+}
+
+#[test]
+fn setting_an_energy_on_a_marked_track_ends_the_marker_and_the_stars_follow_the_energy_again() {
+    let lib = Lib::new();
+    let id = kept_at_zero_stars(&lib);
+    lib.sent(id, &[("Rating", "0")]);
+
+    lib.user_energy(id, 8);
+
+    assert!(!lib.stars_kept(id));
+    let merged = lib.merge(&[id]);
+    assert_eq!(merged.chosen[&id], [("Rating".to_owned(), FOUR.to_owned())]);
+    let (_, attributes) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&attributes[0], "Rating"), Some(FOUR));
+}
+
+#[test]
+fn undoing_the_energy_that_ended_the_marker_puts_the_marker_back() {
+    let lib = Lib::new();
+    let id = kept_at_zero_stars(&lib);
+    lib.user_energy(id, 8);
+    assert!(!lib.stars_kept(id));
+
+    assert_eq!(lib.undone(), crate::energy::SET_ENERGY_OPERATION);
+
+    assert!(lib.stars_kept(id));
+    assert_eq!(lib.shown(id), Some(5));
 }
 
 #[test]
@@ -628,6 +726,21 @@ fn undoing_keep_rekordboxs_at_zero_stars_brings_the_cleared_energy_back() {
 }
 
 #[test]
+fn one_undo_of_keeping_rekordboxs_zero_stars_restores_the_energy_the_marker_and_the_conflict() {
+    let lib = Lib::new();
+    let id = kept_at_zero_stars(&lib);
+    assert!(lib.stars_kept(id));
+    assert_eq!(lib.merge(&[id]).open, std::collections::HashMap::new());
+
+    assert_eq!(lib.undone(), RESOLVE_OPERATION);
+
+    assert_eq!(lib.shown(id), Some(8), "the user's energy is back");
+    assert!(!lib.stars_kept(id), "and the marker is gone");
+    assert_eq!(lib.only_open().field, "Rating", "and the conflict is open");
+    assert_eq!(lib.merge(&[id]).open[&id], ["Rating"]);
+}
+
+#[test]
 fn undoing_keep_rekordboxs_is_refused_once_a_send_carried_the_stars() {
     let lib = Lib::new();
     let (id, open) = in_dispute(&lib);
@@ -665,4 +778,48 @@ fn crate_of(ids: &[LibraryTrackId]) -> Node {
         name: "Crate".to_owned(),
         entries: ids.to_vec(),
     }
+}
+
+// ---- Turning it off: the rating follows rekordbox ---------------------------
+
+#[test]
+fn after_keeping_the_apps_stars_and_turning_it_off_the_next_send_writes_rekordboxs_value() {
+    let lib = Lib::new();
+    let (id, open) = in_dispute(&lib);
+    lib.resolve(open.id, Choice::KeepApp).unwrap();
+    lib.stars_follow_energy(false);
+
+    let merged = lib.merge(&[id]);
+
+    assert_eq!(merged.chosen, std::collections::HashMap::new());
+    assert_eq!(merged.open, std::collections::HashMap::new());
+    let (_, attributes) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&attributes[0], "Rating"), Some(THREE));
+    assert_eq!(lib.app_ratings(), 0);
+}
+
+#[test]
+fn an_own_rating_from_before_is_dropped_for_a_track_with_energy_when_the_setting_changes() {
+    let lib = Lib::new();
+    // An old own Rating on a track that has an energy, and one on a track
+    // that has none.
+    let with = lib.known(&[("Rating", ONE)]);
+    lib.set(with, "Rating", "255").unwrap();
+    lib.user_energy(with, 4);
+    let without = lib.known(&[("Rating", ONE)]);
+    lib.set(without, "Rating", THREE).unwrap();
+
+    lib.writer.call(|c| energy_stars::set_on(c, true)).unwrap();
+    assert_eq!(
+        lib.app_ratings(),
+        1,
+        "the one for a track with no energy stays"
+    );
+    lib.writer.call(|c| energy_stars::set_on(c, false)).unwrap();
+
+    // The rating follows rekordbox again for the track that had an energy.
+    let merged = lib.merge(&[with]);
+    assert_eq!(merged.chosen, std::collections::HashMap::new());
+    let (_, attributes) = lib.sent_after_merge(&[with]);
+    assert_eq!(attribute(&attributes[0], "Rating"), Some(ONE));
 }

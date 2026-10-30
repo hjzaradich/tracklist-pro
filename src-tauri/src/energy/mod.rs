@@ -85,6 +85,11 @@ impl From<Refused> for IpcError {
     }
 }
 
+/// The `library_track` column that marks a track whose stars stay
+/// rekordbox's (`energy_stars`, migration 0041). Setting an energy on the
+/// track ends it.
+pub(crate) const STARS_HELD: &str = "stars_held";
+
 /// What a track holds now: the id of its `user` row and the energy in it.
 type Held = (Option<i64>, Option<i64>);
 
@@ -167,6 +172,17 @@ pub(crate) fn set_in(
                 changed += 1;
             }
         }
+    }
+    // Setting an energy ends a track's "stars stay rekordbox's" marker, in
+    // the same operation, so Undo puts it back with the energy.
+    let marked = rec.read_rows(
+        "SELECT id FROM library_track
+         WHERE stars_held = 1 AND recording_id IN (SELECT value FROM json_each(?1))",
+        [wanted.as_str()],
+        |r| r.get::<_, i64>(0),
+    )?;
+    for track in marked {
+        rec.set("library_track", track, STARS_HELD, 0)?;
     }
     Ok(changed)
 }

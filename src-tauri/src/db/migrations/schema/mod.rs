@@ -29,6 +29,7 @@ mod review_decisions;
 mod search_index;
 mod send_records;
 mod sent_playlist;
+mod stars_held;
 mod sync_base_ids;
 mod track_merge;
 mod track_row;
@@ -286,6 +287,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0039_user_energy.sql", &[]),
     // The waveform job's peaks per file (derived state, 1cB-9).
     ("0040_file_waveform.sql", &["file_waveform"]),
+    // A Library track's "stars stay rekordbox's" marker, a column, no new tables (1cC-2).
+    ("0041_stars_held.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
