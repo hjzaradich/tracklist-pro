@@ -13,10 +13,11 @@ use serde_json::json;
 ///   it can't record.
 fn db() -> (tempfile::TempDir, Connection) {
     let dir = tempfile::tempdir().unwrap();
-    let mut conn = write_guard::test_path(dir.path(), "ops.db")
+    // A copy of the fully migrated database, built once per test run.
+    migrations::template::seed_prefix(&dir.path().join("ops.db"), migrations::MIGRATIONS.len());
+    let conn = write_guard::test_path(dir.path(), "ops.db")
         .open_database()
         .unwrap();
-    migrations::run(&mut conn, migrations::MIGRATIONS).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     conn.execute_batch(
         "CREATE TABLE sample (
