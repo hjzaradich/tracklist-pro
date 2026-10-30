@@ -119,7 +119,8 @@ pub(crate) fn due_ids(conn: &Connection, only: Option<&[i64]>) -> rusqlite::Resu
 /// File `id` as it stands now, if it's present and due.
 pub(crate) fn due(conn: &Connection, id: i64) -> rusqlite::Result<Option<Due>> {
     let scope = Scope::Files(vec![id]);
-    let page = scan_state::due(conn, Stage::Fingerprint, version(), &scope, 0, 1)?;
+    // `id - 1`: the page starts after it, so only `id` itself can come back.
+    let page = scan_state::due(conn, Stage::Fingerprint, version(), &scope, id - 1, 1)?;
     Ok(page.into_iter().next().map(Due::from))
 }
 
