@@ -52,19 +52,27 @@ const CRATE = join(ROOT, "src-tauri");
  */
 export const SHARDS = [
   {
-    lib: ["grouping", "db", "relink", "ops"],
+    // conflicts is here because the filter "conflicts::" also matches db's
+    // migrations::schema::analysis_never_conflicts::....
+    lib: ["grouping", "db", "conflicts", "relink", "ops"],
   },
   {
-    // after_send is here because the filter "send::" also matches "after_send::".
-    lib: ["scan", "rekordbox", "conflicts", "review", "versions", "quality", "send", "after_send", "crates", "matching", "hash"],
+    // A filter "x::" matches any test whose path holds "x::", so a module whose
+    // name ends in another's, or that has a submodule of that name, runs with
+    // it: review (audio_preview, conflict_review, preview), quality
+    // (best_file, track_table), scan (write_guard), matching (fingerprint),
+    // send (after_send). The check in test-shards.mjs fails if one is missed.
+    lib: [
+      "scan", "write_guard", "rekordbox", "review", "audio_preview", "conflict_review", "preview", "versions",
+      "quality", "best_file", "track_table", "send", "after_send", "crates", "matching", "fingerprint", "hash",
+    ],
   },
   {
     catchAll: true,
     lib: [
-      "all_music", "attach", "audio_preview", "best_file", "conflict_review", "energy", "file_roles",
-      "fingerprint", "fragile", "hidden", "ipc", "jobs", "library", "missing", "net", "overview", "paths", "preview",
-      "read", "rekordbox_write", "scan_state", "search", "send_values", "settings", "sniff", "start", "suggest",
-      "tags", "track_table", "ui_setting", "volume", "waveform", "write_guard",
+      "all_music", "attach", "energy", "file_roles", "fragile", "hidden", "ipc", "jobs", "library", "missing", "net",
+      "overview", "paths", "read", "rekordbox_write", "scan_state", "search", "send_values", "settings", "sniff",
+      "start", "suggest", "tags", "ui_setting", "volume", "waveform",
       // The tests in lib.rs itself are named tests::..., which no filter can pick
       // out (every `scan::tests::x` contains "tests::"), so only the catch-all can run them.
       "tests",
