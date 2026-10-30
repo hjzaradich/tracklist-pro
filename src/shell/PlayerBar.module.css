@@ -31,6 +31,12 @@
   cursor: pointer;
 }
 
+/* Previous, play and next are one control: closer to each other (4px) than
+ * to the rest of the bar (12px). */
+.toggle {
+  margin-inline: calc(var(--space-1) - var(--space-3));
+}
+
 .toggle:hover:not(:disabled),
 .step:hover:not(:disabled) {
   background: var(--color-surface-hover);
@@ -71,6 +77,9 @@
 .volume {
   flex: 0 1 6rem;
   min-width: 3rem;
+  /* As tall as a row, so the slider is easy to hit (the track itself is thin). */
+  height: var(--row-height);
+  margin: 0;
   accent-color: var(--color-accent);
 }
 

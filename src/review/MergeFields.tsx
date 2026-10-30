@@ -69,7 +69,7 @@ export function MergeFields({
               const picked = pickedFor(field, picks);
               return (
                 <tr key={field.field} className={styles.row}>
-                  <th scope="row">{label}</th>
+                  <th scope="row" className={styles.rowHead}>{label}</th>
                   {field.values.map((v) => (
                     <td key={v.recordingId}>
                       {v.value === null ? (
