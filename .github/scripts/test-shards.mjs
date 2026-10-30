@@ -61,7 +61,7 @@ export const SHARDS = [
     // file_quality and grouping, so the filters "conflicts::", "quality::" and
     // "grouping::" (and the modules the middle one matches, best_file and
     // track_table) run with db. matching:: also matches fingerprint's.
-    lib: ["grouping", "db", "conflicts", "quality", "best_file", "track_table", "matching", "fingerprint", "versions", "crates"],
+    lib: ["grouping", "db", "conflicts", "quality", "best_file", "track_table", "matching", "fingerprint", "versions"],
   },
   {
     // A filter "x::" matches any test whose path holds "x::", so a module whose
@@ -69,19 +69,19 @@ export const SHARDS = [
     // it: review (audio_preview, conflict_review, preview, hash), scan
     // (write_guard), send (after_send), ops (relink's follow_props). The check
     // fails if one is missed.
-    // And a filter can also match a module of another shard: hash:: and
-    // library:: match db's schema modules, and send:: matches conflicts'
-    // open_at_send. Those are skipped here; db and conflicts are in shard 1.
+    // And a filter can also match a module of another shard: hash:: matches
+    // db's schema modules, and send:: matches conflicts' open_at_send. Those are skipped here; db and conflicts are in shard 1.
     skip: ["db::", "conflicts::"],
     lib: [
       "scan", "write_guard", "rekordbox", "review", "audio_preview", "conflict_review", "preview", "hash",
-      "send", "after_send", "ops", "relink", "jobs", "overview", "library",
+      "send", "after_send", "ops", "relink",
     ],
   },
   {
     catchAll: true,
     lib: [
-      "all_music", "attach", "energy", "file_roles", "fragile", "hidden", "ipc", "missing", "net", "paths", "read",
+      "all_music", "attach", "crates", "energy", "file_roles", "fragile", "hidden", "ipc", "jobs", "library", "missing",
+      "net", "overview", "paths", "read",
       "rekordbox_write", "scan_state", "search", "send_values", "settings", "sniff", "start", "suggest", "tags",
       "ui_setting", "volume", "waveform",
       // The tests in lib.rs itself are named tests::..., which no filter can pick

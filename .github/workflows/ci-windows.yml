@@ -213,6 +213,20 @@ jobs:
         if: matrix.part == 'tests'
         run: node .github/scripts/test-shards.mjs run ${{ matrix.shard }}
 
+      # TEMPORARY MEASUREMENT: what moving the test binary between jobs costs.
+      - name: Measure the test binary
+        if: matrix.part == 'tests' && matrix.shard == 1
+        continue-on-error: true
+        run: ls -l src-tauri/target/debug/deps/tracklist_pro_lib-*.exe
+      - name: Upload the test binary
+        if: matrix.part == 'tests' && matrix.shard == 1
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: measure-test-binary
+          path: src-tauri/target/debug/deps/tracklist_pro_lib-*.exe
+          retention-days: 1
+
       # The owner's PC: everything, in one part, as before sharding.
       - name: Test the backend
         if: matrix.part == 'all'
