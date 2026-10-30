@@ -145,6 +145,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::crates::remove_tracks_from_crate,
             crate::crates::list_crates,
             crate::crates::crate_tracks,
+            crate::crates::summary::crate_summary,
+            crate::crates::summary::set_crate_notes,
             crate::track_table::track_table_page,
             crate::track_table::track_table_formats,
             crate::track_table::track_table_position,

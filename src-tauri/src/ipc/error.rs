@@ -122,6 +122,8 @@ error_kinds! {
     CrateNameTaken => "crates:error.nameTaken", params: ["name"];
     /// The name has a character that can't be sent to rekordbox.
     CrateNameUnsendable => "crates:error.nameUnsendable", params: [];
+    /// A crate's note is longer than a note can be.
+    CrateNotesTooLong => "crates:error.notesTooLong", params: [];
     /// There's no folder with that id (the crate refusals above, for a folder).
     FolderNotFound => "crates:error.folderNotFound", params: [];
     /// The folder's name is empty.

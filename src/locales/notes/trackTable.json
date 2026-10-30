@@ -346,5 +346,89 @@
   "energySet_other": {
     "purpose": "Says what an energy key did, for several tracks; {{energy}} is the number given.",
     "where": "Above the track table, after the keys 1 to 0 gave tracks an energy."
+  },
+  "columns.fit": {
+    "purpose": "The Fit column's heading.",
+    "where": "Track table of a crate sorted by fit."
+  },
+  "fit.button": {
+    "purpose": "Sorts a crate's tracks by how well they follow the selected track.",
+    "where": "Crates screen, above the track table."
+  },
+  "fit.action": {
+    "purpose": "The same, as the command palette lists it.",
+    "where": "Command palette."
+  },
+  "fit.needsSelection": {
+    "purpose": "Says why the Sort by fit button is greyed out.",
+    "where": "Crates screen, beside the Sort by fit button, while no track is selected."
+  },
+  "fit.sortedAfter": {
+    "purpose": "Says the table is sorted by fit, after which track.",
+    "where": "Crates screen, in the line over the track table."
+  },
+  "fit.sortNormally": {
+    "purpose": "Hover text of the Fit heading: clicking it goes back to normal sorting.",
+    "where": "Track table, the Fit heading (hover)."
+  },
+  "fit.selected": {
+    "purpose": "Says the row is the selected track the others are sorted after.",
+    "where": "Track table, the Fit column of the first row."
+  },
+  "fit.dots": {
+    "purpose": "Names the dots of the Fit column for screen readers and hover.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.separator": {
+    "purpose": "Goes between the key part and the BPM part of a fit reason.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.sameKey": {
+    "purpose": "The track has the selected track's key.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.keyChange": {
+    "purpose": "The track's key is a neighbor of the selected track's (from the selected track's to the track's).",
+    "where": "Track table, the Fit column."
+  },
+  "fit.keyFar": {
+    "purpose": "The track's key is not the selected track's or a neighbor of it.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.noKey": {
+    "purpose": "The track has no key.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.noTargetKey": {
+    "purpose": "The selected track has no key, so keys can't be compared.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.bpm": {
+    "purpose": "The track's BPM minus the selected track's, with its sign.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.sameBpm": {
+    "purpose": "The track has the selected track's BPM.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.halfTime": {
+    "purpose": "The BPM was compared at half the selected track's tempo.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.doubleTime": {
+    "purpose": "The BPM was compared at double the selected track's tempo.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.noBpm": {
+    "purpose": "The track has no BPM.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.noTargetBpm": {
+    "purpose": "The selected track has no BPM, so tempos can't be compared.",
+    "where": "Track table, the Fit column."
+  },
+  "fit.noTarget": {
+    "purpose": "The selected track has neither key nor BPM.",
+    "where": "Track table, the Fit column."
   }
 }

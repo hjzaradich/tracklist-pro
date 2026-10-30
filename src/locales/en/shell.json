@@ -33,6 +33,7 @@
       "renameFolder": "Undo (folder “{{from}}” renamed to “{{name}}”)",
       "deleteFolder": "Undo (folder “{{name}}” deleted)",
       "moveCrate": "Undo (“{{name}}” moved)",
+      "setCrateNotes": "Undo (note of “{{name}}” changed)",
       "addToCrate_one": "Undo ({{count}} track added to “{{name}}”)",
       "addToCrate_other": "Undo ({{count}} tracks added to “{{name}}”)",
       "addToCrateLibrary_one": "Undo ({{count}} track added to “{{name}}”, {{library, number}} new to your Library)",

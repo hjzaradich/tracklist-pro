@@ -122,6 +122,10 @@
     "purpose": "Undo button naming what it takes back: a crate or folder that was moved.",
     "where": "Top bar, Undo button, when the next step to undo is a move."
   },
+  "undo.action.setCrateNotes": {
+    "purpose": "Undo button naming what it takes back: a crate's note was edited or cleared.",
+    "where": "Top bar, Undo button, when the next step to undo is a change to a crate's note."
+  },
   "undo.action.addToCrate_one": {
     "purpose": "Undo button naming what it takes back: one track added to a crate.",
     "where": "Top bar, Undo button, when the next step to undo is \"Add to crate\".",

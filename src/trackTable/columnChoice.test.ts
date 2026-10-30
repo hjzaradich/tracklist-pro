@@ -20,7 +20,8 @@ const LIBRARY: ColumnId[] = ["title", "artist", "bpm", "key", "time", "genre", "
 
 describe("the columns a screen shows", () => {
   it("lists every column there is, once", () => {
-    expect([...ALL_COLUMNS].sort()).toEqual(Object.keys(COLUMNS).sort());
+    // The Fit column is not one to choose: it shows while a crate is sorted by fit.
+    expect([...ALL_COLUMNS].sort()).toEqual(Object.keys(COLUMNS).filter((id) => id !== "fit").sort());
   });
 
   it("are the screen's own defaults until the user chooses (the owner's lists)", () => {

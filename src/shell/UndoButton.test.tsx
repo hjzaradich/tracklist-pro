@@ -147,6 +147,7 @@ describe("the top bar's Undo", () => {
       { from: "House", name: "Techno" },
     ],
     [operation(1, "delete_crate", { name: "House" }), "shell:undo.action.deleteCrate", { name: "House" }],
+    [operation(1, "set_crate_notes", { name: "House" }), "shell:undo.action.setCrateNotes", { name: "House" }],
     [
       operation(1, "add_to_crate", { name: "House", tracks: 1 }),
       "shell:undo.action.addToCrate",
@@ -205,6 +206,7 @@ describe("the top bar's Undo", () => {
     operation(1, "delete_crate"),
     operation(1, "add_to_crate", { name: "House" }),
     operation(1, "rename_crate", { name: "Techno" }),
+    operation(1, "set_crate_notes"),
     operation(1, "add_rekordbox_tracks"),
   ])("names an action it has no wording for plainly, and still undoes it: %o", async (next) => {
     const backend = history([{ operation: next }]);

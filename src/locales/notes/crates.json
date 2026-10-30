@@ -385,5 +385,69 @@
   "error.folderNameTaken": {
     "purpose": "Says another crate or folder in the same folder already has the name.",
     "where": "Crates screen, new-folder, rename and move forms, for a folder."
+  },
+  "notes.label": {
+    "purpose": "Names the note's box for screen readers.",
+    "where": "Crates screen, under a crate's name, while the note is being edited (not shown)."
+  },
+  "notes.add": {
+    "purpose": "Stands where a crate's note would be, when it has none; click it to write one.",
+    "where": "Crates screen, under a crate's name."
+  },
+  "notes.edit": {
+    "purpose": "Hover text of the note, saying a click edits it.",
+    "where": "Crates screen, under a crate's name (hover)."
+  },
+  "summary.separator": {
+    "purpose": "Goes between the parts of a crate's summary line.",
+    "where": "Crates screen, the line under a crate's path."
+  },
+  "summary.empty": {
+    "purpose": "Says a crate has no tracks, so there is nothing to sum up.",
+    "where": "Crates screen, the summary line of a crate with no tracks."
+  },
+  "summary.nothing": {
+    "purpose": "Says a crate has tracks but none has a BPM, energy, key or genre.",
+    "where": "Crates screen, the summary line."
+  },
+  "summary.bpm": {
+    "purpose": "The slowest and fastest BPM in a crate.",
+    "where": "Crates screen, the summary line."
+  },
+  "summary.bpmOne": {
+    "purpose": "The one BPM every track with a BPM in a crate has.",
+    "where": "Crates screen, the summary line."
+  },
+  "summary.energy": {
+    "purpose": "The lowest and highest energy in a crate.",
+    "where": "Crates screen, the summary line."
+  },
+  "summary.energyOne": {
+    "purpose": "The one energy every track with an energy in a crate has.",
+    "where": "Crates screen, the summary line."
+  },
+  "summary.keys_one": {
+    "purpose": "The key of a crate's tracks, when there is one.",
+    "where": "Crates screen, the summary line."
+  },
+  "summary.keys_other": {
+    "purpose": "The keys of a crate's tracks in Camelot order, written in the user's notation.",
+    "where": "Crates screen, the summary line."
+  },
+  "summary.keysMore": {
+    "purpose": "The first five keys of a crate's tracks and how many more there are.",
+    "where": "Crates screen, the summary line."
+  },
+  "done.notesSaved": {
+    "purpose": "Says a crate's note was saved.",
+    "where": "Crates screen, the line above the crate after saving a note."
+  },
+  "done.notesCleared": {
+    "purpose": "Says a crate's note was cleared.",
+    "where": "Crates screen, the line above the crate after clearing a note."
+  },
+  "error.notesTooLong": {
+    "purpose": "Says the note is longer than a note can be.",
+    "where": "Crates screen, above the crate, after saving a long note."
   }
 }

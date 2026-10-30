@@ -8,6 +8,7 @@ import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { useWhenUndone } from "../shell/undoneStore";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import { ConfirmDelete, MoveForm, NameForm } from "./CrateForms";
+import { CrateNotes, CrateSummaryLine } from "./CrateInfo";
 import styles from "./CratesScreen.module.css";
 import { buildTree, PATH_SEPARATOR, pathOf, type TreeNode } from "./tree";
 import {
@@ -21,6 +22,7 @@ import {
   useRemoveFromCrate,
   useRenameCrate,
 } from "./useCrates";
+import { useSetCrateNotes } from "./useCrateSummary";
 
 /** What the strip above the screen says about the last change. */
 type Done =
@@ -31,7 +33,9 @@ type Done =
   | "deleted"
   | "deletedFolder"
   | "moved"
-  | "removed";
+  | "removed"
+  | "notesSaved"
+  | "notesCleared";
 
 /**
  * What the screen is asking for, if anything. The first four make something
@@ -51,8 +55,8 @@ type Asking =
  * The Crates screen (1aG-8, 1cA-11): the tree of folders and crates, and the
  * chosen crate's tracks. Which one is chosen is the page's address
  * (`/crates?crate=ID`), so the sidebar's tree can choose too; an id that
- * isn't there is no choice. Notes, summaries and drag and drop wait for
- * Phase 1c (ROADMAP 1.14). Every change can be undone, from the top bar or
+ * isn't there is no choice. A crate shows its note and a summary line of
+ * its tracks (1cB-15), and its table can be sorted by fit (1cB-16). Every change can be undone, from the top bar or
  * with Ctrl+Z; this screen offers no Undo of its own (owner decision, 2026-10-27).
  */
 export function CratesScreen({
@@ -72,6 +76,7 @@ export function CratesScreen({
   const remove = useDeleteCrate();
   const move = useMoveCrate();
   const take = useRemoveFromCrate();
+  const setNotes = useSetCrateNotes();
 
   const list = crates.data ?? [];
   // The crate or folder the right side shows: the chosen one, if it exists.
@@ -103,8 +108,9 @@ export function CratesScreen({
     remove.reset();
     move.reset();
     take.reset();
+    setNotes.reset();
   };
-  const failure = [create, createFolder, rename, remove, move, take].find((m) => m.isError);
+  const failure = [create, createFolder, rename, remove, move, take, setNotes].find((m) => m.isError);
   const ask = (what: Asking) => {
     clearErrors();
     setAsking(what);
@@ -258,6 +264,18 @@ export function CratesScreen({
                       },
                     });
                   }}
+                  onSaveNotes={(notes) => {
+                    clearErrors();
+                    setNotes.mutate(
+                      { id: current.id, notes },
+                      {
+                        // The note it has: nothing is recorded, so nothing is said.
+                        onSuccess: (operation) => {
+                          if (operation !== null) finished(notes.trim() === "" ? "notesCleared" : "notesSaved");
+                        },
+                      },
+                    );
+                  }}
                   onRemoveTrack={(track) => {
                     clearErrors();
                     take.mutate(
@@ -326,6 +344,7 @@ function CrateView({
   onRename,
   onMove,
   onDelete,
+  onSaveNotes,
   onRemoveTrack,
 }: {
   crate: Crate;
@@ -340,6 +359,7 @@ function CrateView({
   onRename: (name: string) => void;
   onMove: (folder: number | null) => void;
   onDelete: () => void;
+  onSaveNotes: (notes: string) => void;
   onRemoveTrack: (track: LibraryRow) => void;
 }) {
   const { t } = useTranslation("crates");
@@ -349,10 +369,13 @@ function CrateView({
       <div className={styles.header}>
         <div className={styles.titles}>
           <h2 className={styles.crateName}>{crate.name}</h2>
+          {/* A folder holds crates, so it has no notes or summary (ROADMAP 1.14). */}
+          {!folder && <CrateNotes key={crate.id} id={crate.id} onSave={onSaveNotes} />}
           {/* Where rekordbox will show it after a send (ROADMAP 1.9 and 1.14). */}
           <p className={styles.path} aria-label={t("path.label")}>
             {[t("path.root"), ...pathOf(all, crate.id)].join(PATH_SEPARATOR)}
           </p>
+          {!folder && <CrateSummaryLine id={crate.id} />}
         </div>
         <div className={styles.actions}>
           {folder && (

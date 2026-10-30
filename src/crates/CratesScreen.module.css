@@ -222,3 +222,53 @@
   margin: 0;
   padding-left: var(--space-4);
 }
+
+/* A crate's note, one line under its name; click to edit. */
+.note {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.note:hover {
+  border-color: var(--color-border-strong);
+}
+
+.note:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.noteEmpty {
+  color: var(--color-text-muted);
+}
+
+.noteInput {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.noteInput:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* What the crate's tracks add up to. */
+.summary {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}

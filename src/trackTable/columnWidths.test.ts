@@ -17,7 +17,7 @@ describe("the default columns", () => {
   }
 
   it("give Title and Artist the most room, and the numbers the least", () => {
-    const widest = Math.max(...Object.values(COLUMNS).map((c) => c.width));
+    const widest = Math.max(...Object.values(COLUMNS).filter((c) => c.id !== "fit").map((c) => c.width));
     expect(COLUMNS.title.width).toBe(widest);
     expect(COLUMNS.artist.width).toBeGreaterThan(COLUMNS.genre.width);
     for (const id of ["bpm", "key", "time"] as const) {

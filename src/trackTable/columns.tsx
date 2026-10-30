@@ -6,6 +6,7 @@ import { formatKey, type KeyNotation } from "../keys/keyNotation";
 import { describeNote, trackNotes } from "../library/libraryTrackNotes";
 import { PlayButton } from "../player/PlayButton";
 import { formatTime } from "../player/formatTime";
+import { fitText, MOST_DOTS } from "./fitText";
 import styles from "./TrackTable.module.css";
 
 /**
@@ -33,7 +34,8 @@ export type ColumnId =
   | "rating"
   | "dateAdded"
   | "file"
-  | "folder";
+  | "folder"
+  | "fit";
 
 /** What a cell needs to be worked out. */
 export interface CellContext {
@@ -44,8 +46,11 @@ export interface CellContext {
 
 export interface ColumnDef {
   id: ColumnId;
-  /** What the backend sorts by when this heading is clicked. */
-  sort: SortColumn;
+  /**
+   * What the backend sorts by when this heading is clicked; `null` for a
+   * heading that sorts nothing (Fit): clicking it goes back to normal sorting.
+   */
+  sort: SortColumn | null;
   /** The width in pixels a column starts with, and the least it shrinks to while nobody has resized it. */
   width: number;
   /** The least a column can be dragged to (1cB-21): its heading is still readable. */
@@ -132,6 +137,27 @@ function RatingCell({ stars, t }: { stars: number; t: TFunction<"trackTable"> })
   );
 }
 
+/** The Fit column's cell: dots out of three, then the reason (1cB-16). */
+function FitCell({ row, ctx }: { row: TableRow; ctx: CellContext }) {
+  const fit = row.fit;
+  if (fit === null) return null;
+  const reason = fitText(fit, ctx.t, ctx.keyNotation);
+  const dots = ctx.t("fit.dots", { count: fit.dots, most: MOST_DOTS });
+  return (
+    <>
+      {fit.reason !== null && (
+        <span role="img" aria-label={dots} title={dots}>
+          {"●".repeat(fit.dots)}
+          {"○".repeat(MOST_DOTS - fit.dots)}
+        </span>
+      )}
+      <span className={styles.text} title={reason}>
+        {reason}
+      </span>
+    </>
+  );
+}
+
 export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   title: {
     id: "title",
@@ -213,6 +239,17 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     min: 48,
     grow: 1,
     text: (row) => (row.file ? folderOf(row.file.path, row.file.name) : ""),
+  },
+  // Shown only while a crate is sorted by fit (1cB-16). It is not one of the
+  // columns a user chooses: it is in no screen's list and not in the column
+  // editor (`ALL_COLUMNS`).
+  fit: {
+    id: "fit",
+    sort: null,
+    width: 200,
+    min: 100,
+    text: (row, ctx) => fitText(row.fit, ctx.t, ctx.keyNotation),
+    cell: (row, ctx) => <FitCell row={row} ctx={ctx} />,
   },
 };
 

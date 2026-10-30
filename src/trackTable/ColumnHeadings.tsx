@@ -56,7 +56,8 @@ export function ColumnHeadings({
   columns: readonly ColumnId[];
   widths: ColumnWidths;
   sort: TableSort | null;
-  onSort: (column: SortColumn) => void;
+  /** A heading was clicked; `null` for the heading that sorts nothing (Fit). */
+  onSort: (column: SortColumn | null) => void;
   /** The column `id` was dropped at place `to`, counted in the columns without it. */
   onReorder?: (id: ColumnId, to: number) => void;
   /** The column was given this width (the other widths stay as `widths` has them). */
@@ -268,7 +269,7 @@ export function ColumnHeadings({
     <div role="row" aria-rowindex={1} className={styles.headRow}>
       {columns.map((id) => {
         const def = COLUMNS[id];
-        const sorted = sort?.column === def.sort;
+        const sorted = def.sort !== null && sort?.column === def.sort;
         const name = t(`columns.${id}`);
         const classes = [
           styles.headCell,
@@ -294,7 +295,7 @@ export function ColumnHeadings({
               id={`${base}-${id}`}
               type="button"
               className={styles.sortButton}
-              title={t("sortBy", { column: name })}
+              title={def.sort === null ? t("fit.sortNormally") : t("sortBy", { column: name })}
               onClick={() => {
                 if (!ignoreClick.current) onSort(def.sort);
               }}
