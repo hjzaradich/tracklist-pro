@@ -607,8 +607,10 @@ fn link_count(file: &File) -> io::Result<u64> {
 /// for any other path, which is then used as it is. Plain string logic, so
 /// the tests run on every platform.
 fn plain_drive_spelling(path: &Path) -> Option<PathBuf> {
-    /// Windows' limit for a plain path (260), less room for a `-wal` suffix
-    /// and the terminating NUL.
+    /// Characters of the plain path (bytes, so a non-ASCII name counts
+    /// more). Windows' limit is 260 including the terminating NUL, and the
+    /// longest name SQLite adds is `-journal` (8): 260 - 1 - 8 = 251 would
+    /// still fit; 240 keeps some room over that.
     const LONGEST_PLAIN: usize = 240;
     const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
 

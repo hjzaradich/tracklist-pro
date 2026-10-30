@@ -1166,11 +1166,19 @@ fn a_database_path_that_is_not_a_plain_drive_path_keeps_its_verbatim_form() {
     ] {
         assert_eq!(plain(path), None, "{path}");
     }
-    // Too long for a plain path (260 characters).
-    let long = format!(r"\\?\C:\{}\a.db", "d".repeat(250));
-    assert_eq!(plain(&long), None);
-    let just_fits = format!(r"\\?\C:\{}\a.db", "d".repeat(200));
-    assert!(plain(&just_fits).is_some());
+    // The length limit: the plain path (`C:\` + folder + `\a.db`) may be 240
+    // characters; one more keeps the verbatim form.
+    let of_length = |len: usize| {
+        let folder = len - r"C:\".len() - r"\a.db".len();
+        format!(r"\\?\C:\{}\a.db", "d".repeat(folder))
+    };
+    for (len, plain_form) in [(200, true), (240, true), (241, false), (250, false)] {
+        let got = plain(&of_length(len));
+        assert_eq!(got.is_some(), plain_form, "length {len}");
+        if let Some(got) = got {
+            assert_eq!(got.len(), len);
+        }
+    }
 }
 
 #[cfg(windows)]
