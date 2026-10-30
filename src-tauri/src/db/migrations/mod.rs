@@ -10,6 +10,8 @@
 mod append_only;
 #[cfg(test)]
 mod schema;
+#[cfg(test)]
+pub(crate) mod template;
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};

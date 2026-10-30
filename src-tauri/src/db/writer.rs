@@ -145,6 +145,12 @@ impl Writer {
     /// If a migration fails, no writer is started and the database stays at
     /// the last version that applied cleanly.
     pub fn open(path: &GuardedPath) -> Result<Writer, DbError> {
+        // Tests only: a new file starts as a copy of the database the real
+        // open makes (built once per test process), so the 40 migrations
+        // don't run for every test. A test of the migrations themselves
+        // uses `open_with`, which always runs them.
+        #[cfg(test)]
+        migrations::template::seed_new_writer_database(path.as_path());
         Writer::open_with(path, migrations::MIGRATIONS)
     }
 
@@ -646,7 +652,11 @@ mod tests {
 
     #[test]
     fn opening_applies_every_migration_and_reopening_applies_none_again() {
-        let (dir, writer) = open_temp();
+        // `open_with`, not `open`: a test that opens a new file is handed a
+        // copy of a ready database, and this one is about the migrating.
+        let dir = tempfile::tempdir().unwrap();
+        let guarded = test_path(dir.path(), "test.db");
+        let writer = Writer::open_with(&guarded, migrations::MIGRATIONS).unwrap();
         let expected: Vec<String> = migrations::MIGRATIONS
             .iter()
             .map(|m| m.name.to_string())
@@ -662,7 +672,7 @@ mod tests {
         };
         assert_eq!(names(&writer), expected);
         drop(writer);
-        let writer = Writer::open(&test_path(dir.path(), "test.db")).unwrap();
+        let writer = Writer::open_with(&guarded, migrations::MIGRATIONS).unwrap();
         assert_eq!(names(&writer), expected);
     }
 

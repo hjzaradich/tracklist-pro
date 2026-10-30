@@ -245,11 +245,7 @@ fn grouping_writes_nothing_outside_the_app_data_folder() {
 /// Waits until no job is queued or running: a chained job queues what
 /// follows it before it ends.
 fn wait_idle(queue: &JobQueue) {
-    let begun = Instant::now();
-    while !queue.activity().unwrap().jobs.is_empty() {
-        assert!(begun.elapsed() < PATIENCE, "the jobs never finished");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    crate::jobs::idle::wait_until_idle(queue);
 }
 
 fn song<'a>(name: &'a str, title: &'a str, n: u8, items: Option<Vec<u32>>) -> NewFile<'a> {

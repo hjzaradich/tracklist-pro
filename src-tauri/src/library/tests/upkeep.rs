@@ -492,15 +492,15 @@ fn undoing_an_add_is_refused_when_the_linked_file_was_changed_since() {
 #[test]
 fn a_removal_made_before_base_ids_stopped_being_reused_is_still_undone_after_the_upgrade_and_a_send(
 ) {
-    use crate::db::migrations::{run, MIGRATIONS};
+    use crate::db::migrations::{run, template, MIGRATIONS};
     use crate::rekordbox_write::{record_send, SentTrack};
 
     // A database as the version before migration 0018 left it.
     let dir = tempfile::tempdir().unwrap();
+    template::seed_prefix(&dir.path().join("old.db"), 17);
     let mut conn = crate::write_guard::test_path(dir.path(), "old.db")
         .open_database()
         .unwrap();
-    run(&mut conn, &MIGRATIONS[..17]).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     conn.execute_batch(
         "INSERT INTO volume (identity, kind) VALUES ('serial=NTFS-1A2B3C4D', 'external');

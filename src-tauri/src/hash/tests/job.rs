@@ -532,14 +532,11 @@ fn cancelling_mid_file_stops_at_once_and_keeps_only_the_files_already_hashed() {
 
     at_stop.recv_timeout(Duration::from_secs(60)).unwrap();
     q.cancel(id).unwrap();
-    let asked = Instant::now();
     resume.send(()).unwrap();
+    // `wait` has its own limit and says which job never ended. How soon the
+    // cancel is seen is not a number of seconds: it is that the job stopped
+    // at the next read (the furthest offset below), not that it hashed on.
     assert_eq!(wait(&writer, id), JobStatus::Cancelled);
-    assert!(
-        asked.elapsed() < Duration::from_secs(2),
-        "{:?}",
-        asked.elapsed()
-    );
     q.shutdown();
 
     // Not one more read of the file it was in.

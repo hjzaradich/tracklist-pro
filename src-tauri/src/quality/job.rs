@@ -70,10 +70,12 @@ fn wanted(target: Option<&serde_json::Value>) -> Option<Option<Vec<i64>>> {
 /// How often a job waiting for threads checks whether it was cancelled.
 const THREAD_POLL: Duration = Duration::from_millis(100);
 
-/// Test hooks: called with each file id as a thread takes it, and before
-/// each packet with the number of packets so far in that file.
+/// Test hooks: called with each file id as a thread takes it, before
+/// each packet with the number of packets so far in that file, and each
+/// time the job finds no thread of the budget free and is about to wait.
 type FileHook = Box<dyn Fn(i64) + Send + Sync>;
 type PacketHook = Box<dyn Fn(u64) + Send + Sync>;
+type WaitHook = Box<dyn Fn() + Send + Sync>;
 
 /// The quality job's handler.
 pub struct Qualifier<V> {
@@ -83,6 +85,7 @@ pub struct Qualifier<V> {
     threads: usize,
     on_file: Option<FileHook>,
     on_packet: Option<PacketHook>,
+    on_wait: Option<WaitHook>,
 }
 
 impl<V: Volumes + Sync + 'static> Qualifier<V> {
@@ -95,6 +98,7 @@ impl<V: Volumes + Sync + 'static> Qualifier<V> {
             threads: default_threads(),
             on_file: None,
             on_packet: None,
+            on_wait: None,
         }
     }
 
@@ -116,6 +120,14 @@ impl<V: Volumes + Sync + 'static> Qualifier<V> {
     #[cfg(all(test, windows))]
     pub(crate) fn on_packet(mut self, hook: impl Fn(u64) + Send + Sync + 'static) -> Self {
         self.on_packet = Some(Box::new(hook));
+        self
+    }
+
+    /// Calls `hook` each time the job finds no thread of the budget free,
+    /// just before it waits.
+    #[cfg(all(test, windows))]
+    pub(crate) fn on_wait(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_wait = Some(Box::new(hook));
         self
     }
 }
@@ -170,6 +182,9 @@ impl<V: Volumes + Sync + 'static> JobHandler for Qualifier<V> {
             job.check_cancelled()?;
             if let Some(threads) = self.first.try_threads(want, self.threads) {
                 break threads;
+            }
+            if let Some(hook) = &self.on_wait {
+                hook();
             }
             thread::sleep(THREAD_POLL);
         };

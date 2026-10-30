@@ -3,7 +3,7 @@
 
 use rusqlite::Connection;
 
-use crate::db::migrations::{run, MIGRATIONS};
+use crate::db::migrations::{template, MIGRATIONS};
 use crate::quality::store::{
     any_stale, codec_of, read_verdict_of, settle, settle_files, stale_page_sql, stored_verdict,
     stored_verdicts, ALL_CODECS, CHUNK, INPUTS, KEY_IGNORES,
@@ -19,8 +19,10 @@ const HASH_B: &str = "x'01000000000000000000000000000000000000000000000000000000
 /// A migrated database with one volume and one music folder.
 fn db() -> (tempfile::TempDir, Connection) {
     let dir = tempfile::tempdir().unwrap();
-    let mut conn = Connection::open(dir.path().join("test.db")).unwrap();
-    run(&mut conn, MIGRATIONS).unwrap();
+    let path = dir.path().join("test.db");
+    // A copy of the fully migrated database, built once per test run.
+    template::seed_prefix(&path, MIGRATIONS.len());
+    let conn = Connection::open(&path).unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     conn.execute_batch(
         "INSERT INTO volume (identity, kind) VALUES ('serial=NTFS-1A2B3C4D', 'external');
@@ -650,9 +652,13 @@ fn settling_named_files_takes_them_in_pages_and_skips_ids_that_are_no_file() {
     let (_dir, mut conn) = db();
     // More files than one page holds, asked for out of order, twice, and
     // with ids no file has.
+    // One transaction for the inserts: committed one by one, each would
+    // wait for the disk, which was 36 s of this test's 36 s.
+    exec(&conn, "BEGIN");
     let mut ids: Vec<i64> = (0..520)
         .map(|n| file(&conn, &format!("{n}.mp3"), "mp3", Some(128)))
         .collect();
+    exec(&conn, "COMMIT");
     let left_out = ids.pop().unwrap();
     ids.reverse();
     ids.push(ids[0]);

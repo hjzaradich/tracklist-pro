@@ -5,9 +5,9 @@ use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
-use super::support::{wait, Library};
+use super::support::{wait, Library, PATIENCE};
 use super::{audio, low_passed, noise, pcm, wav};
 use crate::hash::hash_job;
 use crate::jobs::{JobId, JobKind, JobStatus, Priority};
@@ -17,12 +17,16 @@ use crate::scan::walk::scan_job;
 
 const RATE: u32 = 44_100;
 
-/// Waits until a hook reports it is at its packet. If the job has ended
-/// instead (it took no file), fails saying so, rather than waiting for
-/// ever for a packet that will never come.
+/// Waits until a hook reports it is at its packet (or, for the budget
+/// test, at its wait). Blocks on the hook's own signal; the job's stored
+/// status is only looked at every quarter second, to fail at once if the
+/// job has ended instead (it took no file) rather than wait for a signal
+/// that will never come, and to give up, with a message, after
+/// [`PATIENCE`].
 fn wait_for_packet(library: &Library, job: JobId, packet: &mpsc::Receiver<()>) {
+    let start = Instant::now();
     loop {
-        match packet.recv_timeout(Duration::from_millis(20)) {
+        match packet.recv_timeout(Duration::from_millis(250)) {
             Ok(()) => return,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let status = library
@@ -34,6 +38,10 @@ fn wait_for_packet(library: &Library, job: JobId, packet: &mpsc::Receiver<()>) {
                 assert!(
                     !status.is_finished(),
                     "the job ended ({status:?}) without reaching the packet"
+                );
+                assert!(
+                    start.elapsed() < PATIENCE,
+                    "the job ({status:?}) never reached the packet within {PATIENCE:?}"
                 );
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the hook went away"),
@@ -460,25 +468,16 @@ fn a_job_waits_for_a_free_thread_of_the_shared_budget_and_stops_if_cancelled_whi
     // Something else (a fingerprint run) holds the only thread.
     let held = library.first.try_threads(1, 1).expect("the budget is free");
     let (qualifier, taken) = counting(&library);
+    // The job says when it has found the budget empty and is about to wait:
+    // a running status only says a worker took it, not that it got there.
+    let (at_the_wait, parked) = mpsc::channel::<()>();
+    let at_the_wait = Mutex::new(at_the_wait);
+    let qualifier = qualifier.on_wait(move || {
+        let _ = at_the_wait.lock().unwrap().send(());
+    });
     let queue = library.queue(qualifier);
     let job = queue.enqueue(quality_job(None)).unwrap();
-    // Running means it has started, and is parked on the budget.
-    loop {
-        let status = library
-            .writer
-            .call(move |c| crate::jobs::store::get(c, job))
-            .unwrap()
-            .unwrap()
-            .status;
-        assert!(
-            !status.is_finished(),
-            "the job ended ({status:?}) instead of waiting for a thread"
-        );
-        if status == JobStatus::Running {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    wait_for_packet(&library, job, &parked);
     queue.cancel(job).unwrap();
     assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
     assert_eq!(

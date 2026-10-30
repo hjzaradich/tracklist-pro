@@ -38,14 +38,22 @@ mod workspace;
 
 use rusqlite::{Connection, ErrorCode};
 
-use super::{applied, run, MIGRATIONS};
+use super::{applied, run, template, MIGRATIONS};
 
 /// A fresh database with the first `version` real migrations applied and
-/// foreign keys on, as the writer leaves it.
+/// foreign keys on, as the writer leaves it. The file is a copy of one
+/// built once per test run (see [`template`]); a test that
+/// goes on to apply the migration it is about does so for real.
 pub(super) fn db_at(version: usize) -> (tempfile::TempDir, Connection) {
     let dir = tempfile::tempdir().unwrap();
-    let mut conn = Connection::open(dir.path().join("test.db")).unwrap();
-    run(&mut conn, &MIGRATIONS[..version]).unwrap();
+    let path = dir.path().join("test.db");
+    template::seed_prefix(&path, version);
+    let conn = Connection::open(&path).unwrap();
+    // The tests that go on to apply later migrations here would otherwise
+    // create, flush and delete a journal file for each one. What they check
+    // is the SQL's effect, not that a commit survives a power cut.
+    conn.execute_batch("PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF;")
+        .unwrap();
     conn.pragma_update(None, "foreign_keys", true).unwrap();
     (dir, conn)
 }

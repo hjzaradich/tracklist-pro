@@ -123,4 +123,6 @@ pub fn emitter<R: Runtime>(app: &AppHandle<R>) -> impl Fn(&[JobUpdate]) + Send +
 }
 
 #[cfg(test)]
+pub(crate) mod idle;
+#[cfg(test)]
 mod tests;
