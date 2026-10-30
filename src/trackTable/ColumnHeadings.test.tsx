@@ -222,9 +222,9 @@ describe("a click on a heading and a drag", () => {
 describe("dragging the line after a heading", () => {
   it("changes the column's width by how far the line was dragged, and hands over all the widths", () => {
     const { onResize } = renderTable({ widths: { title: 200 } });
-    // BPM starts at its own width, 54 pixels.
+    // BPM starts at its own width, 48 pixels.
     drag(line("bpm"), 300, 340);
-    expect(onResize).toHaveBeenCalledExactlyOnceWith({ title: 200, bpm: 94 });
+    expect(onResize).toHaveBeenCalledExactlyOnceWith({ title: 200, bpm: 88 });
   });
 
   it("starts from the width the column has on screen", () => {
@@ -252,11 +252,11 @@ describe("dragging the line after a heading", () => {
     const bpm = line("bpm");
     fireEvent.pointerDown(bpm, { clientX: 300, button: 0, pointerId: 1 });
     fireEvent.pointerMove(bpm, { clientX: 330, pointerId: 1 });
-    await waitFor(() => expect(template()).toBe(before.replace(/54px$/, "84px")));
+    await waitFor(() => expect(template()).toBe(before.replace(/48px$/, "78px")));
     expect(onResize).not.toHaveBeenCalled();
     fireEvent.pointerUp(bpm, { clientX: 330, pointerId: 1 });
-    expect(onResize).toHaveBeenCalledExactlyOnceWith({ bpm: 84 });
-    expect(template()).toBe(before.replace(/54px$/, "84px"));
+    expect(onResize).toHaveBeenCalledExactlyOnceWith({ bpm: 78 });
+    expect(template()).toBe(before.replace(/48px$/, "78px"));
   });
 
   it("puts the width back when the drag is cancelled", async () => {
@@ -293,7 +293,7 @@ describe("dragging the line after a heading", () => {
 
   it("draws a column at the width it was given, and the others as they were", () => {
     renderTable({ widths: { artist: 321 } });
-    expect(template()).toBe("minmax(132px, 3fr) 321px 54px");
+    expect(template()).toBe("minmax(120px, 3fr) 321px 48px");
   });
 
   it("cannot be done when the table was not given a way to save the widths", () => {
@@ -307,7 +307,7 @@ describe("the keyboard and the line after a heading", () => {
     renderTable();
     expect(screen.getAllByRole("separator")).toHaveLength(COLUMNS.length);
     expect(line("artist")).toHaveAttribute("tabindex", "0");
-    expect(line("bpm")).toHaveAttribute("aria-valuenow", "54");
+    expect(line("bpm")).toHaveAttribute("aria-valuenow", "48");
     expect(line("bpm")).toHaveAttribute("aria-valuemin", "44");
   });
 

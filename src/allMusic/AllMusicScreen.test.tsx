@@ -69,7 +69,12 @@ function fakeBackend(
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     if (cmd === "key_notation") return "camelot";
-    if (cmd === "table_columns") return null;
+    // These tests read the File and Folder cells, which are not shown at first (owner decision,
+    // 2026-10-30), so the screen has a choice that shows every column.
+    if (cmd === "table_columns") {
+      const shown = ["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded", "file", "folder"];
+      return { shown, known: shown, widths: {} };
+    }
     // No hidden file matches any search here (the hidden files have their own tests).
     if (cmd === "hidden_files_matching") return { count: 0, behind: false };
     if (cmd === "track_table_page") {
@@ -149,7 +154,7 @@ describe("the All music screen", () => {
     fakeBackend([track(1), track(2, { title: null, artist: null })]);
     renderScreen();
     const [first, second] = await rows();
-    // The Library's columns and, for All music, the file's name and folder.
+    // Every column, the file's name and folder among them.
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
       tx("trackTable:columns.title"),
       tx("trackTable:columns.artist"),

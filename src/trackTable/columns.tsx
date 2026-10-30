@@ -162,7 +162,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   title: {
     id: "title",
     sort: "title",
-    width: 132,
+    width: 120,
     min: 80,
     grow: 3,
     text: shownName,
@@ -171,7 +171,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   artist: {
     id: "artist",
     sort: "artist",
-    width: 90,
+    width: 80,
     min: 64,
     grow: 2,
     text: (row) => row.artist ?? "",
@@ -179,7 +179,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   bpm: {
     id: "bpm",
     sort: "bpm",
-    width: 54,
+    width: 48,
     min: 44,
     numeric: true,
     text: (row) => formatBpm(row.bpm),
@@ -187,7 +187,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   key: {
     id: "key",
     sort: "key",
-    width: 46,
+    width: 42,
     min: 40,
     numeric: true,
     text: (row, ctx) => formatKey(row.key, ctx.keyNotation) ?? "",
@@ -195,7 +195,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   time: {
     id: "time",
     sort: "time",
-    width: 50,
+    width: 46,
     min: 44,
     numeric: true,
     text: (row) => formatLength(row.timeMs),
@@ -203,7 +203,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   genre: {
     id: "genre",
     sort: "genre",
-    width: 60,
+    width: 52,
     min: 48,
     grow: 1,
     text: (row) => row.genre ?? "",
@@ -256,23 +256,17 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
 /** The screens that show the table (the backend keeps a column choice for each). */
 export type { TableScreen };
 
-const LIBRARY_COLUMNS: readonly ColumnId[] = [
-  "title",
-  "artist",
-  "bpm",
-  "key",
-  "time",
-  "genre",
-  "rating",
-  "dateAdded",
-];
+const SHOWN_AT_FIRST: readonly ColumnId[] = ["title", "artist", "bpm", "key", "time", "genre"];
 
 /**
- * The columns each screen shows, in order (owner decision, 2026-10-26):
- * All music adds the file and its folder; a crate is the Library's.
+ * The columns each screen shows, in order (owner decisions, 2026-10-26 and
+ * 2026-10-30): the same six everywhere, so they fit beside the Details panel
+ * at a 1270px window without scrolling sideways. Rating, Date added, File and
+ * Folder are in the column editor. Only the default: a choice the user saved
+ * keeps its columns.
  */
 export const DEFAULT_COLUMNS: Readonly<Record<TableScreen, readonly ColumnId[]>> = {
-  library: LIBRARY_COLUMNS,
-  allMusic: [...LIBRARY_COLUMNS, "file", "folder"],
-  crate: LIBRARY_COLUMNS,
+  library: SHOWN_AT_FIRST,
+  allMusic: SHOWN_AT_FIRST,
+  crate: SHOWN_AT_FIRST,
 };

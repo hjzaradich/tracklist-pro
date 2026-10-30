@@ -9,10 +9,14 @@ import { useCrateSummary } from "./useCrateSummary";
 /** The most characters a note holds (the backend refuses more: `MAX_NOTES_CHARS`). */
 export const MAX_NOTES_CHARS = 300;
 
+/** Rows the box a note is written in has at least; it grows with the note (the stylesheet). */
+export const NOTES_ROWS = 3;
+
 /**
- * A crate's note (1cB-15; ROADMAP 1.14), one line under its name. Click it to
- * edit it in place: Enter or leaving the box saves, Escape goes back to the
- * note as it was. An empty note clears it. Saving is the screen's
+ * A crate's note (1cB-15; ROADMAP 1.14), under its name. Click it to edit it
+ * in place, in a box of at least three rows that grows with the note, so a
+ * note of the longest length is all in view: Enter or leaving the box saves (a note has no line breaks, so Enter
+ * has no other use), Escape goes back to the note as it was. An empty note clears it. Saving is the screen's
  * (`onSave`); it records one operation, so the top bar's Undo puts the old
  * note back.
  */
@@ -23,7 +27,7 @@ export function CrateNotes({ id, onSave }: { id: number; onSave: (notes: string)
   const [draft, setDraft] = useState<string | null>(null);
   // Enter, Escape and the blur that follows them are one decision, not two.
   const decided = useRef(true);
-  const input = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
   const editing = draft !== null;
   useEffect(() => {
     if (editing) input.current?.focus();
@@ -47,13 +51,15 @@ export function CrateNotes({ id, onSave }: { id: number; onSave: (notes: string)
 
   if (draft !== null) {
     return (
-      <input
+      <textarea
         ref={input}
         className={styles.noteInput}
+        rows={NOTES_ROWS}
         aria-label={t("notes.label")}
         maxLength={MAX_NOTES_CHARS}
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        // A pasted line break is a space: the note is one paragraph.
+        onChange={(event) => setDraft(event.target.value.replace(/\s*[\r\n]+\s*/g, " "))}
         onBlur={save}
         onKeyDown={(event) => {
           if (event.key === "Enter") {

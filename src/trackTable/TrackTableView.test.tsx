@@ -627,11 +627,12 @@ describe("the column editor", () => {
     serve(5);
     const library = renderView("library");
     await grid();
-    expect(headings()).toEqual(names(["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded"]));
+    // The same six everywhere (owner decision, 2026-10-30); the other four are in the editor.
+    expect(headings()).toEqual(names(["title", "artist", "bpm", "key", "time", "genre"]));
     library.unmount();
     renderView("allMusic");
     await grid();
-    expect(headings()).toEqual(names(everyColumn));
+    expect(headings()).toEqual(names(["title", "artist", "bpm", "key", "time", "genre"]));
   });
 
   it("draws the columns that were chosen for the screen, in that order, and ignores an id it does not know", async () => {
@@ -647,7 +648,7 @@ describe("the column editor", () => {
     serve(5);
     renderView("library");
     await grid();
-    expect(headings()).toHaveLength(8);
+    expect(headings()).toHaveLength(6);
   });
 
   it("hides a column at once and keeps the choice for the screen", async () => {
@@ -656,11 +657,11 @@ describe("the column editor", () => {
     await grid();
     const dialog = await editor();
     await userEvent.click(within(dialog).getByRole("button", { name: named("hide", "genre") }));
-    expect(headings()).toEqual(names(["title", "artist", "bpm", "key", "time", "rating", "dateAdded"]));
+    expect(headings()).toEqual(names(["title", "artist", "bpm", "key", "time"]));
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0]).toEqual({
       screen: "library",
-      columns: { shown: ["title", "artist", "bpm", "key", "time", "rating", "dateAdded"], known: everyColumn, widths: {} },
+      columns: { shown: ["title", "artist", "bpm", "key", "time"], known: everyColumn, widths: {} },
     });
   });
 
@@ -694,7 +695,7 @@ describe("the column editor", () => {
     renderView("crate", { source: { kind: "crate", id: 8 } });
     await grid();
     expect(headings()).not.toContain(tx("trackTable:columns.key"));
-    expect(headings()).toHaveLength(7);
+    expect(headings()).toHaveLength(5);
   });
 
   it("goes back to the default and forgets the choice", async () => {
@@ -705,7 +706,7 @@ describe("the column editor", () => {
     expect(headings()).toHaveLength(2);
     const dialog = await editor();
     await userEvent.click(within(dialog).getByRole("button", { name: tx("trackTable:editor.reset") }));
-    await waitFor(() => expect(headings()).toHaveLength(8));
+    await waitFor(() => expect(headings()).toHaveLength(6));
     await waitFor(() => expect(saved).toEqual([{ screen: "library", columns: null }]));
   });
 
@@ -753,10 +754,11 @@ describe("dragging the headings (1cB-21)", () => {
   const template = () => screen.getByRole("grid").parentElement!.style.getPropertyValue("--tt-columns");
   const headings = () => screen.getAllByRole("columnheader").map((h) => h.textContent);
   const names = (ids: string[]) => ids.map((id) => tx(`trackTable:columns.${id}`));
-  const library = ["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded"];
+  // The six every screen shows at first, and the eight a user who also showed Rating and Date added has.
+  const six = ["title", "artist", "bpm", "key", "time", "genre"];
+  const library = [...six, "rating", "dateAdded"];
   const everyColumn = [...library, "file", "folder"];
-  const defaultTemplate =
-    "minmax(132px, 3fr) minmax(90px, 2fr) 54px 46px 50px minmax(60px, 1fr) 76px 90px";
+  const defaultTemplate = "minmax(120px, 3fr) minmax(80px, 2fr) 48px 42px 46px minmax(52px, 1fr)";
   const openEditor = async () => {
     await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:editor.open") }));
     return screen.getByRole("dialog", { name: tx("trackTable:editor.title") });
@@ -773,7 +775,7 @@ describe("dragging the headings (1cB-21)", () => {
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0]).toEqual({
       screen: "library",
-      columns: { shown: ["title", "bpm", "artist", ...library.slice(3)], known: everyColumn, widths: {} },
+      columns: { shown: ["title", "bpm", "artist", ...six.slice(3)], known: everyColumn, widths: {} },
     });
   });
 
@@ -815,9 +817,9 @@ describe("dragging the headings (1cB-21)", () => {
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0]).toEqual({
       screen: "library",
-      columns: { shown: library, known: everyColumn, widths: { bpm: 94 } },
+      columns: { shown: six, known: everyColumn, widths: { bpm: 88 } },
     });
-    expect(template()).toContain("minmax(90px, 2fr) 94px 46px");
+    expect(template()).toContain("minmax(80px, 2fr) 88px 42px");
   });
 
   it("remembers the widths the next time the screen is shown, and not for another screen", async () => {
@@ -829,11 +831,11 @@ describe("dragging the headings (1cB-21)", () => {
     first.unmount();
     const again = renderView("library");
     await grid();
-    expect(template()).toContain(" 150px ");
+    expect(template()).toContain(" 140px ");
     again.unmount();
     renderView("allMusic");
     await grid();
-    expect(template()).not.toContain("150px");
+    expect(template()).not.toContain("140px");
   });
 
   it("keeps the widths when a column is hidden, and the columns when a width changes", async () => {
@@ -868,7 +870,7 @@ describe("dragging the headings (1cB-21)", () => {
     const dialog = await openEditor();
     await userEvent.click(within(dialog).getByRole("button", { name: tx("trackTable:editor.reset") }));
     await waitFor(() => expect(saved).toEqual([{ screen: "library", columns: null }]));
-    await waitFor(() => expect(headings()).toEqual(names(library)));
+    await waitFor(() => expect(headings()).toEqual(names(six)));
     expect(template()).toContain(defaultTemplate);
   });
 
@@ -887,7 +889,7 @@ describe("dragging the headings (1cB-21)", () => {
     renderView("library");
     await grid();
     expect(headings()).toEqual(names(["title", "bpm", "artist"]));
-    expect(template()).toContain("minmax(132px, 3fr) 54px minmax(90px, 2fr)");
+    expect(template()).toContain("minmax(120px, 3fr) 48px minmax(80px, 2fr)");
   });
 
   it("brings a stored width back inside what its column allows, and ignores one for an id it does not know", async () => {

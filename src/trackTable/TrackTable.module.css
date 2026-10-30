@@ -170,6 +170,46 @@
   min-width: var(--tt-min-width);
 }
 
+/* The first column (the Title, unless the user moved it) stays at the left
+ * edge when the table scrolls sideways, so a row is never read without its
+ * name. It has the row's own background in every state (stripe, hover,
+ * selected: a cell with none would show the columns sliding under it), and a
+ * line at its right edge, drawn as a shadow so it takes no room. The
+ * selected row's bar is drawn on the cell too, since the row's own scrolls
+ * away. The header's cell sits above the rows' (stuck to the top as well). */
+.headRow > :first-child,
+.row > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  box-shadow: 1px 0 0 var(--color-border);
+}
+
+.headRow > :first-child {
+  z-index: 2;
+  background: var(--color-surface-raised);
+}
+
+.row > :first-child {
+  background: var(--color-surface);
+}
+
+.stripe > :first-child {
+  background: var(--color-row-stripe);
+}
+
+.row:hover > :first-child {
+  background: var(--color-surface-hover);
+}
+
+.selected > :first-child,
+.selected:hover > :first-child {
+  background: var(--color-selected);
+  box-shadow:
+    inset 3px 0 0 var(--color-accent),
+    1px 0 0 var(--color-border);
+}
+
 .row {
   position: absolute;
   top: 0;
@@ -232,19 +272,19 @@
 }
 
 /* A long title is cut off with "…"; the notes beside it give way first. */
-/* The Fit column's dots, then the reason: the dots keep their width and sit
- * a space away from it. */
-.fitDots {
-  margin-right: var(--space-2);
-  letter-spacing: 0.1em;
-  white-space: nowrap;
-}
-
 .text {
   flex: 1 1 5rem;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The Fit column's dots, then the reason: the dots keep their width and sit
+ * a space away from it. */
+.fitDots {
+  margin-right: var(--space-2);
+  letter-spacing: 0.1em;
   white-space: nowrap;
 }
 

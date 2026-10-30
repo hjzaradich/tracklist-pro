@@ -91,7 +91,7 @@ describe("the Library screen", () => {
     library([track(2), track(1)]);
     renderScreen();
     const [first, second] = await rows();
-    // The columns the owner chose for the Library; the file's name and folder are All music's.
+    // The six columns shown at first (owner decision, 2026-10-30); Rating, Date added, File and Folder are in the column editor.
     expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
       tx("trackTable:columns.title"),
       tx("trackTable:columns.artist"),
@@ -99,8 +99,6 @@ describe("the Library screen", () => {
       tx("trackTable:columns.key"),
       tx("trackTable:columns.time"),
       tx("trackTable:columns.genre"),
-      tx("trackTable:columns.rating"),
-      tx("trackTable:columns.dateAdded"),
       tx("trackTable:columns.actions"),
     ]);
     const cells = within(first).getAllByRole("gridcell");

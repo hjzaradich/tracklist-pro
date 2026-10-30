@@ -445,7 +445,7 @@ function CrateView({
           keyPrefix={[...CRATES_QUERY_KEY, "table", crate.id]}
           count={(total) => t("trackCount", { count: total })}
           empty={<EmptyState>{t("noTracks")}</EmptyState>}
-          actionsWidth={120}
+          actionsWidth={96}
           actions={(row) => {
             const track = libraryRow(row);
             return (
