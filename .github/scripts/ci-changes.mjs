@@ -5,7 +5,14 @@
 //   fixture_gen  tools/fixture-gen/**          the fixture generator's job
 //   rb_kit       spikes/rb-kit/**              the rekordbox check kit's job
 //   spike        other spikes/**               nothing: CI builds no other spike
-//   app          anything else                 the app's build, tests and lints
+//   app          anything else, and the frontend      the frontend's build, lint and
+//                (FRONTEND below)                     tests, rustfmt, license checks
+//   rust         anything else, but not a frontend    the Windows build and Rust tests
+//                file nobody in Rust reads
+// So a change to only frontend files skips the slow Windows Rust job
+// (1cC-D2), unless a Rust test reads that file (RUST_READS below). Anything
+// not clearly frontend (package.json, the lockfiles, deny.toml, src-tauri/**,
+// tools/**) is both, as before.
 // A file one area's tests read from another area's folder belongs to both
 // (SHARED below). Scheduled and manual runs run everything. So does a push
 // whose diff can't be read (a new branch, or a force push that dropped the
@@ -26,7 +33,7 @@
 //       BEFORE          push only: the commit main was at before the push
 //       MARKERS_FILE    push only: names of the marker artifacts found for
 //                       this tree, one per line
-// Writes app, fixture_gen and rb_kit (each "true" or "false"), and marker
+// Writes app, rust, fixture_gen and rb_kit (each "true" or "false"), and marker
 // (this run's marker name), to $GITHUB_OUTPUT, and says why in the log and
 // the job summary.
 //
@@ -38,7 +45,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export const JOBS = ["app", "fixture_gen", "rb_kit"];
+export const JOBS = ["app", "rust", "fixture_gen", "rb_kit"];
 
 const all = (value) => Object.fromEntries(JOBS.map((job) => [job, value]));
 
@@ -48,9 +55,54 @@ const all = (value) => Object.fromEntries(JOBS.map((job) => [job, value]));
 // test that reads it.
 export const SHARED = {
   // tools/fixture-gen/tests/dev_only.rs: the app never depends on the dev tool.
-  "src-tauri/Cargo.toml": ["app", "fixture_gen"],
-  "src-tauri/Cargo.lock": ["app", "fixture_gen"],
+  "src-tauri/Cargo.toml": ["app", "rust", "fixture_gen"],
+  "src-tauri/Cargo.lock": ["app", "rust", "fixture_gen"],
+  // src-tauri/src/rekordbox/tests.rs includes it with include_str!.
+  "spikes/rb-kit/fixtures/rb-export-snippet.xml": ["rb_kit", "app", "rust"],
 };
+
+// The files that only the frontend's checks (build, lint, tests) look at. A
+// path matching one of these, and not in RUST_READS, skips the Rust job. It's
+// an allow list on purpose: a path nobody thought about counts as Rust input.
+export const FRONTEND = [
+  /^src\//,
+  /^index\.html$/,
+  /^vite\.config\.[cm]?[jt]s$/,
+  /^vitest\.config\.[cm]?[jt]s$/,
+  /^tsconfig[^/]*\.json$/,
+  /^eslint\.config\.[cm]?js$/,
+  /^eslint-rules\//,
+  /^scripts\//,
+];
+
+// The frontend files a Rust test reads, so a change to one must run the Rust
+// job. A path ending in "/" is a folder: everything under it. The guard in
+// rust-reads.test.mjs scans src-tauri/**/*.rs and fails if a read isn't
+// covered here, so add the file here (not to FRONTEND's exceptions) when it
+// does. The reader is named for each entry.
+export const RUST_READS = [
+  // ipc.rs (BINDINGS_REL_PATH): the test that the committed bindings are
+  // what the commands generate.
+  "src/bindings.ts",
+  // ipc.rs (bindings_path_points_at_the_frontend_src_folder): checks that
+  // src/main.tsx is a file beside it.
+  "src/main.tsx",
+  // ipc/error.rs (every error key has an English message in some namespace
+  // file), review/reasons.rs and review/tests/plan.rs (review.json).
+  "src/locales/en/",
+  // preview.rs: the script must hold the folder the app deletes.
+  "scripts/preview.mjs",
+];
+
+/** True if `path` is in RUST_READS. */
+export function isRustRead(path) {
+  return RUST_READS.some((r) => (r.endsWith("/") ? path.startsWith(r) : path === r));
+}
+
+/** True if only the frontend's checks can be affected by `path`. */
+export function isFrontendOnly(path) {
+  return FRONTEND.some((re) => re.test(path)) && !isRustRead(path);
+}
 
 /** The areas a changed path belongs to (see the table at the top). */
 export function areas(path) {
@@ -60,7 +112,7 @@ export function areas(path) {
   if (path.startsWith("tools/fixture-gen/")) return ["fixture_gen"];
   if (path.startsWith("spikes/rb-kit/")) return ["rb_kit"];
   if (path.startsWith("spikes/")) return ["spike"];
-  return ["app"];
+  return isFrontendOnly(path) ? ["app"] : ["app", "rust"];
 }
 
 /** Which jobs a set of changed paths needs. */
@@ -144,7 +196,8 @@ export function decide({ event, files, tested = [] }) {
 
 /** The jobs (workflow job ids) each area needs; mirrors the job conditions in ci-windows.yml. */
 export const AREA_JOBS = {
-  app: ["windows", "checks", "licenses"],
+  app: ["checks", "licenses"],
+  rust: ["windows"],
   fixture_gen: ["fixture-gen", "checks", "licenses"],
   rb_kit: ["rb-kit"],
 };
@@ -166,6 +219,14 @@ export function resultProblems(needs) {
   if (changes !== "success") problems.push(`changes: ${changes}; the gate must pass`);
   const outputs = needs.changes?.outputs;
   if (changes === "success" && !outputs) problems.push("changes: no outputs");
+  // An output the gate doesn't give (a job added to JOBS but not to the
+  // workflow's outputs) would read as "not needed" and let its job be
+  // skipped unnoticed, so every one must be there.
+  if (changes === "success" && outputs) {
+    for (const area of JOBS) {
+      if (outputs[area] !== "true" && outputs[area] !== "false") problems.push(`changes: no output for ${area}`);
+    }
+  }
   for (const area of JOBS) {
     if (outputs?.[area] !== "true") continue;
     for (const job of AREA_JOBS[area]) {

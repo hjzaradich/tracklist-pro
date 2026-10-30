@@ -9,8 +9,9 @@
 # Minutes (0E-13): Windows minutes cost 2x Linux ones on a private repo, so
 # only work that needs Windows runs there. The "Changed paths" job decides
 # which jobs a run needs (.github/scripts/ci-changes.mjs): docs-only changes
-# build nothing, the fixture generator and the check kit run only when their
-# folders change, and a push to main skips everything when a passing PR run
+# build nothing, a frontend-only change skips the Rust job (1cC-D2), the
+# fixture generator and the check kit run only when their folders change,
+# and a push to main skips everything when a passing PR run
 # already tested the same tree. "CI result" sums up every job, so each run,
 # docs-only ones included, ends in one pass or fail (CLAUDE.md, "Green
 # before merge").
@@ -83,6 +84,7 @@ jobs:
       actions: read
     outputs:
       app: ${{ steps.decide.outputs.app }}
+      rust: ${{ steps.decide.outputs.rust }}
       fixture_gen: ${{ steps.decide.outputs.fixture_gen }}
       rb_kit: ${{ steps.decide.outputs.rb_kit }}
       marker: ${{ steps.decide.outputs.marker }}
@@ -137,8 +139,10 @@ jobs:
 
   windows:
     name: Build and test (Windows)
+    # Skipped when only frontend files changed (and none a Rust test reads):
+    # the frontend's own build, lint and tests run in the checks job.
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && fromJSON('["self-hosted", "tlp-windows"]') || 'windows-latest' }}
     timeout-minutes: ${{ (vars.CI_RUNNER == 'self' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.pull_request.user.login != 'dependabot[bot]') && 120 || 75 }}
     steps:
@@ -344,8 +348,9 @@ jobs:
         if: ${{ !cancelled() && env.APP == 'true' }}
         run: npm ci
 
-      # Includes the i18n types check and tsc. The Windows compile builds the
-      # frontend again, so a Windows-only build problem still shows there.
+      # Includes the i18n types check and tsc. A change that touches Rust
+      # also builds the frontend again in the Windows compile, but a
+      # frontend-only change skips that job, so this step is its build check.
       - name: Build the frontend
         if: ${{ !cancelled() && env.APP == 'true' }}
         run: npm run build
