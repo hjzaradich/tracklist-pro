@@ -11,6 +11,7 @@ import { expectOnlyTheTopBarUndo, TopBarUndo } from "../test/topBarUndo";
 import { pageOf, queryOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { CratesScreen } from "./CratesScreen";
+import { MAX_NOTES_CHARS, NOTES_ROWS } from "./CrateInfo";
 
 const ROW = 28;
 const CRATE: Crate = { id: 1, parentId: null, kind: "static", name: "Warmup", trackCount: 2 };
@@ -144,6 +145,29 @@ describe("a crate's note", () => {
     expect(saves().map((call) => call.args)).toEqual([{ id: CRATE.id, notes: "Opens slow" }]);
     expect(await screen.findByText(tx("crates:done.notesSaved"))).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("is written in a box of at least three rows that holds the longest note whole", async () => {
+    const longest = "x".repeat(MAX_NOTES_CHARS);
+    summary = { ...summary, notes: longest };
+    renderCrate();
+    await userEvent.click(await noteButton(longest));
+    const box = await noteBox();
+    expect(box.tagName).toBe("TEXTAREA");
+    expect(box).toHaveAttribute("rows", String(NOTES_ROWS));
+    expect(box).toHaveValue(longest);
+    expect(box).toHaveAttribute("maxlength", String(MAX_NOTES_CHARS));
+  });
+
+  it("has no line breaks: Enter saves instead of adding one, and a pasted one is a space", async () => {
+    renderCrate();
+    await userEvent.click(await noteButton(tx("crates:notes.add")));
+    const box = await noteBox();
+    await userEvent.click(box);
+    await userEvent.paste("Opens slow\r\nbuilds up");
+    expect(box).toHaveValue("Opens slow builds up");
+    await userEvent.keyboard("{Enter}");
+    expect(saves().map((call) => call.args)).toEqual([{ id: CRATE.id, notes: "Opens slow builds up" }]);
   });
 
   it("is saved when the box is left", async () => {

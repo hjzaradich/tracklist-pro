@@ -9,12 +9,16 @@ import { DEFAULT_COLUMNS, type ColumnId, type TableScreen } from "./columns";
 
 afterEach(cleanup);
 
+// The columns a user who showed Rating and Date added has: the editor tests start from them, so
+// every column but File and Folder is there to move and hide.
+const EIGHT: readonly ColumnId[] = ["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded"];
+
 const name = (id: string) => tx(`trackTable:columns.${id}`);
 
 /** The editor with state of its own, as the screen holds it. */
 function Editor({
   screen = "library",
-  start = DEFAULT_COLUMNS.library,
+  start = EIGHT,
   onReset = () => {},
 }: {
   screen?: TableScreen;
@@ -61,7 +65,7 @@ describe("the column editor", () => {
     const shown = within(within(panel()).getByRole("list", { name: tx("trackTable:editor.shown") })).getAllByRole(
       "listitem",
     );
-    expect(shown.map((li) => li.getAttribute("data-column"))).toEqual(DEFAULT_COLUMNS.library);
+    expect(shown.map((li) => li.getAttribute("data-column"))).toEqual(EIGHT);
     const hidden = within(within(panel()).getByRole("list", { name: tx("trackTable:editor.hidden") })).getAllByRole(
       "listitem",
     );
@@ -117,7 +121,7 @@ describe("the column editor", () => {
     render(<Editor />);
     await open();
     await userEvent.click(button("show", "file"));
-    expect(shownNow()).toBe(`${DEFAULT_COLUMNS.library.join(",")},file`);
+    expect(shownNow()).toBe(`${EIGHT.join(",")},file`);
   });
 
   it("cannot hide the title, and says it is always shown", async () => {

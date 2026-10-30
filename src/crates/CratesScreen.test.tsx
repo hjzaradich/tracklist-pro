@@ -261,8 +261,6 @@ describe("the Crates screen", () => {
       tx("trackTable:columns.key"),
       tx("trackTable:columns.time"),
       tx("trackTable:columns.genre"),
-      tx("trackTable:columns.rating"),
-      tx("trackTable:columns.dateAdded"),
       tx("trackTable:columns.actions"),
     ]);
     const rows = within(table).getAllByRole("row").slice(1);

@@ -16,7 +16,9 @@ import {
 } from "./columnChoice";
 import { COLUMNS, DEFAULT_COLUMNS, type ColumnId } from "./columns";
 
-const LIBRARY: ColumnId[] = ["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded"];
+// What every screen shows at first (owner decision, 2026-10-30), and the eight a user had before it.
+const FIRST: ColumnId[] = ["title", "artist", "bpm", "key", "time", "genre"];
+const EIGHT: ColumnId[] = [...FIRST, "rating", "dateAdded"];
 
 describe("the columns a screen shows", () => {
   it("lists every column there is, once", () => {
@@ -26,9 +28,9 @@ describe("the columns a screen shows", () => {
 
   it("are the screen's own defaults until the user chooses (the owner's lists)", () => {
     for (const none of [null, undefined]) {
-      expect(resolveColumns("library", none)).toEqual(LIBRARY);
-      expect(resolveColumns("crate", none)).toEqual(LIBRARY);
-      expect(resolveColumns("allMusic", none)).toEqual([...LIBRARY, "file", "folder"]);
+      expect(resolveColumns("library", none)).toEqual(FIRST);
+      expect(resolveColumns("crate", none)).toEqual(FIRST);
+      expect(resolveColumns("allMusic", none)).toEqual(FIRST);
     }
     expect(DEFAULT_COLUMNS.crate).toEqual(DEFAULT_COLUMNS.library);
   });
@@ -58,10 +60,10 @@ describe("the columns a screen shows", () => {
   });
 
   it("show a default column added later, next to the default column before it", () => {
-    // Saved before "genre" and "rating" existed: neither is known to the choice.
-    const known = ALL_COLUMNS.filter((id) => id !== "genre" && id !== "rating");
+    // Saved before "genre" existed: it is not known to the choice.
+    const known = ALL_COLUMNS.filter((id) => id !== "genre");
     const stored = { shown: ["title", "artist", "time", "dateAdded"], known };
-    expect(resolveColumns("library", stored)).toEqual(["title", "artist", "time", "genre", "rating", "dateAdded"]);
+    expect(resolveColumns("library", stored)).toEqual(["title", "artist", "time", "genre", "dateAdded"]);
   });
 
   it("show a default column added later before the next default column shown when none before it is, else at the end", () => {
@@ -70,12 +72,11 @@ describe("the columns a screen shows", () => {
   });
 
   it("hide a column added later that is not a default column of the screen", () => {
-    // The Library never shows file or folder by default; a version that adds them leaves them hidden.
+    // No screen shows file or folder by default; a version that adds them leaves them hidden.
     const known = ALL_COLUMNS.filter((id) => id !== "file" && id !== "folder");
     const stored = { shown: [...known], known };
-    expect(resolveColumns("library", stored)).toEqual(LIBRARY);
-    // On All music they are default columns, so they appear.
-    expect(resolveColumns("allMusic", stored)).toEqual([...LIBRARY, "file", "folder"]);
+    expect(resolveColumns("library", stored)).toEqual(EIGHT);
+    expect(resolveColumns("allMusic", stored)).toEqual(EIGHT);
   });
 
   it("always include the title, first when it was dropped", () => {
@@ -104,7 +105,7 @@ describe("changing the columns", () => {
   });
 
   it("lists the hidden columns in the editor's order", () => {
-    expect(hiddenColumns(LIBRARY)).toEqual(["file", "folder"]);
+    expect(hiddenColumns(EIGHT)).toEqual(["file", "folder"]);
     expect(hiddenColumns(["title"])).toEqual(ALL_COLUMNS.slice(1));
   });
 
@@ -112,7 +113,7 @@ describe("changing the columns", () => {
     expect(isDefault("library", resolveColumns("library", null))).toBe(true);
     expect(isDefault("library", [...DEFAULT_COLUMNS.library].reverse())).toBe(false);
     expect(isDefault("library", ["title"])).toBe(false);
-    expect(isDefault("allMusic", DEFAULT_COLUMNS.library)).toBe(false);
+    expect(isDefault("allMusic", ["title", "artist"])).toBe(false);
   });
 
   it("stores the columns shown and every column there is, so a later column can be told from a hidden one", () => {
@@ -175,20 +176,20 @@ describe("the widths of the columns", () => {
 
   it("make the grid: a dragged column is exactly that wide, the others start where they did", () => {
     expect(tableLayout(["title", "artist", "bpm"], { artist: 200 })).toEqual({
-      template: "minmax(132px, 3fr) 200px 54px",
-      minWidth: 132 + 200 + 54,
+      template: "minmax(120px, 3fr) 200px 48px",
+      minWidth: 120 + 200 + 48,
     });
     expect(tableLayout(["bpm", "genre"], {}, 100)).toEqual({
-      template: "54px minmax(60px, 1fr) 100px",
-      minWidth: 54 + 60 + 100,
+      template: "48px minmax(52px, 1fr) 100px",
+      minWidth: 48 + 52 + 100,
     });
   });
 
   it("leave the default layouts as the Designer fixed them", () => {
     const total = (screen: keyof typeof DEFAULT_COLUMNS, actions: number) =>
       tableLayout(DEFAULT_COLUMNS[screen], {}, actions).minWidth;
-    expect(total("library", 232)).toBe(830);
-    expect(total("allMusic", 220)).toBe(938);
-    expect(total("crate", 120)).toBe(718);
+    expect(total("library", 232)).toBe(620);
+    expect(total("allMusic", 220)).toBe(608);
+    expect(total("crate", 96)).toBe(484);
   });
 });
