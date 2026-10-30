@@ -33,6 +33,15 @@ export function NextIcon() {
   );
 }
 
+/** A short list with a play triangle after it: the tracks that play on in turn ("Play next"). */
+export function PlayNextIcon() {
+  return (
+    <Icon>
+      <path d="M2 3h8v1.5H2zM2 7h6v1.5H2zM2 11h6v1.5H2zM10.5 7v6l4.5-3z" />
+    </Icon>
+  );
+}
+
 /** A speaker; crossed out when the sound is off. */
 export function VolumeIcon({ silent }: { silent: boolean }) {
   return (
