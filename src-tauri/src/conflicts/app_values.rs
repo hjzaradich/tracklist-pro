@@ -71,10 +71,11 @@ use serde_json::json;
 use super::resolve::Resolved;
 use super::store::{json_ids, load_sides, AppValue, AppValues, RekordboxEntry, Status};
 use super::{fits, kind_of, membership, same, Kind};
+use crate::energy_stars;
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError, Recorded, Recorder};
 use crate::paths::Volumes;
-use crate::send_values::send_values;
+use crate::send_values::{send_values, SendValues};
 use std::fmt;
 
 /// The operation kind of [`set`].
@@ -469,4 +470,32 @@ pub fn read(conn: &Connection, ids: &[LibraryTrackId]) -> rusqlite::Result<AppVa
         values.set(track, value);
     }
     Ok(values)
+}
+
+/// [`read`] for the tracks `sent` and the merge before a send: the app's
+/// own values, and while the user has energy sent as the star rating, each
+/// track's `Rating` derived from its energy ([`energy_stars::derive`]),
+/// which stands in place of an own `Rating` of the track's. Only the
+/// merge and detection read it so; the store itself, and the merge of two
+/// Library tracks (1.12), see the rows as they are.
+pub fn read_for_send(conn: &Connection, sent: &[SendValues]) -> rusqlite::Result<AppValues> {
+    let ids: Vec<LibraryTrackId> = sent.iter().map(|s| s.library_track).collect();
+    let mut values = read(conn, &ids)?;
+    energy_stars::derive(conn, sent, &mut values)?;
+    Ok(values)
+}
+
+/// Drops the app's own row for a field, inside an operation the caller
+/// records, if it has one. `adopt` for a field that the app sends from
+/// something else (`Rating`, from the track's energy; [`energy_stars`]) uses
+/// it, so no stale value of the app's own comes back when that stops.
+pub(crate) fn forget(
+    rec: &mut Recorder<'_>,
+    track: LibraryTrackId,
+    field: &str,
+) -> Result<(), OpsError> {
+    match own_row(rec, track, field)? {
+        Some((id, _)) => rec.delete("app_value", id),
+        None => Ok(()),
+    }
 }

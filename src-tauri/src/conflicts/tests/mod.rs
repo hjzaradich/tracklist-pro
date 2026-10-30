@@ -10,6 +10,8 @@
 //! - `own_values`: the store of the app's own values, its Undo, and the
 //!   engine reading it.
 //! - `resolve`: settling one conflict or many, and undoing it.
+//! - `energy_stars`: the star rating sent from energy (1cC-2): the merge, the
+//!   conflict on a star change, and settling it.
 //! - `never_lost`: any sequence of edits, reads, sends, resolves and undos
 //!   keeps every value, judged by an account of the sides the test keeps
 //!   itself, not by the engine's own decisions.
@@ -30,6 +32,7 @@ use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 mod compare;
 mod detect;
+mod energy_stars;
 mod never_lost;
 mod own_values;
 mod resolve;

@@ -92,6 +92,7 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
     let tracks = library::stored(conn, volumes)?;
     let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
     let merged = conflicts::merge_before_send(conn, volumes, &ids)?;
+    let stars_changed = crate::energy_stars::stars_changed_by(conn, &merged)?;
     // The tree after the merge: it may have taken playlist changes made in
     // rekordbox into crates (1.10).
     let mut crates = tree::crate_tree(conn)?;
@@ -136,6 +137,7 @@ pub fn review(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result
         no_kind: Vec::new(),
         loses_entries: Vec::new(),
         conflicts_waiting: 0,
+        stars_changed,
         changed_after_export: Vec::new(),
         refusal: None,
         nothing_to_send: false,

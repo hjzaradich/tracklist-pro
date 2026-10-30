@@ -156,6 +156,9 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::hidden::use_this_file_instead,
             crate::hidden::hidden_files_matching,
             crate::energy::set_energy,
+            crate::energy_stars::read_energy_as_stars,
+            crate::energy_stars::energy_as_stars_would_change,
+            crate::energy_stars::set_energy_as_stars,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

@@ -217,6 +217,10 @@ pub struct Preflight {
     /// → Conflicts, and the send carries rekordbox's value for each until
     /// the user decides ([`crate::conflicts::open_at_send`]).
     pub conflicts_waiting: u32,
+    /// How many tracks rekordbox has get different stars from this send,
+    /// counted from this fresh read and merge. `None` while energy isn't
+    /// sent as the star rating ([`crate::energy_stars`]). The token covers it.
+    pub stars_changed: Option<u32>,
     /// Tracks rekordbox has, sent with rekordbox's values from this export,
     /// whose file changed after the export was saved: rekordbox writes a
     /// DJ's edits into the file, so rekordbox may hold an edit this export

@@ -69,8 +69,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::{
-    compare, decide, kind_of, Decision, Handling, Kind, Rekordbox, Sides, Verdict, NOT_TAKEN_UP,
+    compare, decide_with, kind_of, Decision, Handling, Kind, Rekordbox, Sides, Verdict,
+    NOT_TAKEN_UP,
 };
+use crate::energy_stars;
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
 use crate::send_values::{self, send_values, Provenance, SendValues};
@@ -629,7 +631,7 @@ fn detect_chunks(
         let app = match app {
             Some(app) => app,
             None => {
-                stored = super::app_values::read(&tx, some)?;
+                stored = super::app_values::read_for_send(&tx, &sent)?;
                 &stored
             }
         };
@@ -710,11 +712,27 @@ pub(super) fn detect_in(
     )?;
     let mut delete = conn.prepare("DELETE FROM conflict WHERE id = ?1 AND status = 'open'")?;
 
+    // The tracks whose star rating the app sends from their energy (1cC-2):
+    // for those a star change made in rekordbox is a conflict (row 8a).
+    let derived = if tracks
+        .iter()
+        .any(|t| t.fields.iter().any(|f| f.field == energy_stars::RATING))
+    {
+        let library_tracks: Vec<LibraryTrackId> = tracks.iter().map(|t| t.library_track).collect();
+        energy_stars::derived_tracks(conn, &library_tracks)?
+    } else {
+        HashSet::new()
+    };
+
     let mut detected = Detected::default();
     for track in tracks {
         for field in &track.fields {
             let sides = track.sides(field);
-            let decision = decide(&field.field, &sides);
+            let decision = decide_with(
+                &field.field,
+                &sides,
+                field.field == energy_stars::RATING && derived.contains(&track.library_track.0),
+            );
             let key = (track.library_track.0, field.field.clone());
             let handling = decision.verdict.handling_when(not_taken_up);
             let merged = decision.verdict != Verdict::Never;

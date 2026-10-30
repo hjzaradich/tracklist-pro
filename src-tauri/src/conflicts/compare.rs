@@ -158,3 +158,13 @@ pub fn fits(field: &str, value: &str) -> bool {
         _ => true,
     }
 }
+
+/// The stars a `Rating` value stands for, 0 to 5, as [`same`] reads it: no
+/// value is 0 stars. `None` for a number that is not one of rekordbox's six
+/// ratings, and for text that isn't a number at all.
+pub fn stars_of(value: &str) -> Option<u8> {
+    match key("Rating", Some(value)) {
+        Key::Stars(stars) => Some(stars),
+        _ => None,
+    }
+}

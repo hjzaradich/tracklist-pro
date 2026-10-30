@@ -12,6 +12,7 @@ pub mod conflicts;
 pub mod crates;
 pub mod db;
 pub mod energy;
+pub mod energy_stars;
 pub mod file_roles;
 pub mod fingerprint;
 pub mod fragile;

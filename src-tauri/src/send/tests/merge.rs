@@ -641,3 +641,43 @@ fn a_row_kept_from_an_older_read_takes_nothing_in_and_opens_nothing() {
     assert_eq!(w.bases(velo), bases);
     assert_eq!(w.base(velo, "Genre").as_deref(), Some("Deep House"));
 }
+
+// ---- Energy as the star rating (1cC-2) --------------------------------------
+
+impl World {
+    /// The user gives the track this energy.
+    fn give_energy(&self, track: LibraryTrackId, energy: i64) {
+        self.writer
+            .call(move |c| {
+                let recording: i64 = c.query_row(
+                    "SELECT recording_id FROM library_track WHERE id = ?1",
+                    [track.0],
+                    |r| r.get(0),
+                )?;
+                Ok(crate::energy::set_energy_on(c, &[recording], energy))
+            })
+            .unwrap()
+            .unwrap();
+    }
+}
+
+#[test]
+fn the_preflight_counts_the_stars_this_send_changes_only_while_energy_is_sent_as_stars() {
+    let w = World::new();
+    let (velo, _) = w.library_track("velo.mp3", "Velo", true);
+    w.crate_of("Peak", &[velo]);
+    // rekordbox shows 4 stars; energy 2 is 1 star.
+    w.rekordbox_now(&[]);
+    w.give_energy(velo, 2);
+
+    assert_eq!(w.prepare().unwrap().stars_changed, None, "off by default");
+
+    w.writer
+        .call(|c| crate::energy_stars::write(c, true))
+        .unwrap();
+    assert_eq!(w.prepare().unwrap().stars_changed, Some(1));
+
+    // Energy 8 is 4 stars: nothing to change.
+    w.give_energy(velo, 8);
+    assert_eq!(w.prepare().unwrap().stars_changed, Some(0));
+}
