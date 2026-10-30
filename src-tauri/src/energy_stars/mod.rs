@@ -72,8 +72,8 @@
 //!
 //! Leaves the stars as last sent; the app holds no `Rating` of its own any
 //! more, so the rating follows rekordbox again, as it does by default. A
-//! conflict still open on the stars is withdrawn by the next merge, which
-//! finds the sides no longer disagree.
+//! conflict still open on the stars is withdrawn at once, with the setting
+//! (`set_on`), so it can't be settled into a rating that is sent afterwards.
 //!
 //! # Where it is stored
 //!
@@ -172,22 +172,47 @@ pub fn write(conn: &Connection, on: bool) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// The Library tracks whose `Rating` the stars follow energy for: those
+/// that show an energy and aren't marked ([`energy::STARS_HELD`]).
+const FOLLOWING_ENERGY: &str = concat!(
+    "SELECT lt.id FROM library_track lt WHERE ",
+    shown_energy!("lt.recording_id"),
+    " IS NOT NULL AND lt.stars_held = 0"
+);
+
 /// Turns the setting on or off, and drops the app's own `Rating` of every
 /// track that shows an energy: while the stars follow energy such a value is
 /// shadowed, and it must not come back as the app's side when the setting is
 /// turned off, when the rating follows rekordbox again. (A track's own
 /// `Rating` could be left by an old conflict, or by a merge of two Library
-/// tracks while the setting was on.) Like the merge's take-in this deletes
-/// outside the operation log; the rows' ids are never reused.
+/// tracks while the setting was on.)
+///
+/// Turning it **off** also withdraws the open `Rating` conflicts of those
+/// tracks, in the same transaction: they were raised because the stars
+/// followed energy (row 8a, or a row 10 against the derived value), and
+/// left in Review a "keep app's" would store an energy-derived own `Rating`
+/// that a later send writes with the setting off. Other fields' conflicts
+/// are not touched.
+///
+/// Like the merge's take-in and detection's withdrawals, these deletes are
+/// outside the operation log, because they are derived from the setting; the
+/// rows' ids are never reused. The setting itself is not in the log either.
 pub fn set_on(conn: &mut Connection, on: bool) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     write(&tx, on)?;
+    if !on {
+        tx.execute(
+            &format!(
+                "DELETE FROM conflict WHERE status = 'open' AND field = ?1
+                 AND library_track_id IN ({FOLLOWING_ENERGY})"
+            ),
+            [RATING],
+        )?;
+    }
     tx.execute(
-        concat!(
-            "DELETE FROM app_value WHERE field = ?1 AND library_track_id IN (
-                 SELECT lt.id FROM library_track lt WHERE ",
-            shown_energy!("lt.recording_id"),
-            " IS NOT NULL AND lt.stars_held = 0)"
+        &format!(
+            "DELETE FROM app_value WHERE field = ?1
+             AND library_track_id IN ({FOLLOWING_ENERGY})"
         ),
         [RATING],
     )?;

@@ -823,3 +823,101 @@ fn an_own_rating_from_before_is_dropped_for_a_track_with_energy_when_the_setting
     let (_, attributes) = lib.sent_after_merge(&[with]);
     assert_eq!(attribute(&attributes[0], "Rating"), Some(ONE));
 }
+
+// ---- Turning it off withdraws the open star conflicts -----------------------
+
+impl Lib {
+    fn open_fields(&self) -> Vec<(i64, String)> {
+        let mut open: Vec<(i64, String)> = self
+            .open(&Filter::default())
+            .into_iter()
+            .map(|c| (c.library_track.0, c.field))
+            .collect();
+        open.sort();
+        open
+    }
+
+    fn set_on(&self, on: bool) {
+        self.writer
+            .call(move |c| energy_stars::set_on(c, on))
+            .unwrap();
+    }
+}
+
+#[test]
+fn turning_it_off_withdraws_an_open_star_conflict_so_keep_apps_cannot_store_a_rating() {
+    let lib = Lib::new();
+    let (id, open) = in_dispute(&lib);
+    assert_eq!(lib.open_fields(), [(id.0, "Rating".to_owned())]);
+
+    lib.set_on(false);
+
+    assert_eq!(lib.open_fields(), []);
+    assert!(matches!(
+        lib.resolve(open.id, Choice::KeepApp),
+        Err(ResolveError::NotOpen { .. })
+    ));
+    assert_eq!(lib.app_ratings(), 0);
+    // The next send writes rekordbox's value.
+    let (_, attributes) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&attributes[0], "Rating"), Some(THREE));
+}
+
+#[test]
+fn turning_it_off_withdraws_a_star_conflict_that_has_a_base_too_and_the_send_follows_rekordbox() {
+    let lib = Lib::new();
+    lib.stars_follow_energy(true);
+    // 4 stars sent; rekordbox says 3 stars since; the user's energy 2 (one
+    // star) was set after: all three sides differ.
+    let id = rated(&lib, FOUR, 8);
+    lib.rated_in_rekordbox(id, &[("Name", "A track"), ("Rating", THREE)]);
+    lib.user_energy(id, 2);
+    lib.merge(&[id]);
+    let open = lib.only_open();
+    assert_eq!(values(&open), (Some(ONE), Some(THREE), Some(FOUR)));
+
+    lib.set_on(false);
+
+    assert_eq!(lib.open_fields(), []);
+    assert!(lib.resolve(open.id, Choice::KeepApp).is_err());
+    let (_, attributes) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&attributes[0], "Rating"), Some(THREE));
+    assert_eq!(lib.app_ratings(), 0);
+}
+
+#[test]
+fn turning_it_off_leaves_other_fields_conflicts_and_other_tracks_star_conflicts_alone() {
+    let lib = Lib::new();
+    let (with_energy, _) = in_dispute(&lib);
+    // Another field of the same track is in dispute too.
+    lib.detect(&[track(
+        with_energy,
+        vec![apart("Genre", "Deep House", "Tech House", "House")],
+    )]);
+    // A track with no energy has a star conflict of its own making.
+    let no_energy = lib.known(&[("Rating", ONE)]);
+    lib.detect(&[track(no_energy, vec![apart("Rating", FOUR, THREE, "0")])]);
+    assert_eq!(lib.open_fields().len(), 3);
+
+    lib.set_on(false);
+
+    assert_eq!(
+        lib.open_fields(),
+        [
+            (with_energy.0, "Genre".to_owned()),
+            (no_energy.0, "Rating".to_owned())
+        ]
+    );
+}
+
+#[test]
+fn turning_it_on_leaves_the_conflicts_open_before_it_alone() {
+    let lib = Lib::new();
+    let id = lib.known(&[("Rating", ONE)]);
+    lib.user_energy(id, 8);
+    lib.detect(&[track(id, vec![apart("Rating", FOUR, THREE, "0")])]);
+
+    lib.set_on(true);
+
+    assert_eq!(lib.open_fields(), [(id.0, "Rating".to_owned())]);
+}
