@@ -74,7 +74,7 @@ One line each: the date, what was decided, and why, so the next change holds to 
 - 2026-10-10 · **Long lists get faint row stripes, and a clearly stronger "selected" look.** · Lists run to hundreds of rows; stripes keep the eye on one row, and "selected" must beat "hover" and "stripe". · Style
 - 2026-10-10 · **The amber accent means "selected or active", and nothing else.** Warnings stay yellow. · Amber on screen then always tells you where you are. · Style
 - 2026-10-10 · **Dark stays the default.** A "follow Windows" option may come later. · Dark suits a dim room. The option is a new setting. · Foreman (backlog)
-- 2026-10-10 · **Long titles are cut off with "…" so a row stays one line.** The full text shows on hover, and in the Details panel once that panel is built. · A tidy grid beats a ragged one. · Style (cut-off), hover text done as `title` (below), Foreman (Details panel, waits for the Phase 1a checkpoint)
+- 2026-10-10 · **Long titles are cut off with "…" so a row stays one line.** The full text shows on hover, and in the Details panel (built in 1cB-17). · A tidy grid beats a ragged one. · Style (cut-off), hover text done as `title` (below), Foreman (Details panel, waits for the Phase 1a checkpoint)
 - 2026-10-10 · **One filled accent button per screen, everything else quiet.** Each screen is walked through with the owner to name its one thing. · The loudest thing on a screen should be the thing to do next. · Style, with Foreman for any screen that needs a control moved
 - 2026-10-10 · **Almost no motion:** a quick fade on hover and focus only, and none when Windows' "reduce motion" is on. · Motion costs attention, and some people can't have it. · Style
 
@@ -107,11 +107,25 @@ Owner-approved on 2026-10-24, after a real Library showed three nested scrollbar
 - **One selected item in the sidebar.** With a crate chosen in the tree, the crate carries the tint and the bar; the Crates stage above it keeps its place without them. The tree indents 16px a level.
 - **Empty states are centred** where the table would be, like the other empty states.
 
+## Overview, Conflicts, the player bar and the Details panel (1cB style pass)
+
+- **The Overview's panels are 40rem wide** (640px; the first-run panels and the rekordbox collection panel share it), so the four numbers sit in a row, the longest being a date ("Oct 20, 2026"). In a header narrower than 28rem they sit two and two, never three and one.
+- **A bar's empty part is `--color-border`**, a step above the panel, so the length of the bar reads against something. (It was the stripe colour, which is meant to be nearly invisible.) The fill stays `--color-text-muted`: the accent means selected or active, and a bar is neither.
+- **The bars' labels share one column.** Its width is the longest label, up to 14rem, so every bar starts in the same place; a label longer than that still ends in "..." with the full text as its `title`.
+- **In Conflicts the three values are body text (14px) and wrap.** They are what the table is read for, and the end of a title is often where the two sides differ ("Oltane Lines" against "Oltane Lines (Original Mix)"), so a value is never cut off here. The track keeps a share of the table (24%, at least 9rem) and its file name still ends in "...". The row's buttons stay on one line and sit close (8px of side padding); the field of a row being edited is as tall as they are (28px). _An exception to the cut-off rule above: owner approved, 2026-10-30._
+- **Merge's picked value is the checked radio**, in the accent colour (it marks the one that is chosen); nothing is tinted. A field's name in the first column is body text, striped with its row.
+- **The player bar:** previous, play/pause and next sit 4px apart (one control) and 12px from the rest. The waveform is the seek bar: played part in the accent, the rest muted, and a 2px playhead in the text colour (so the position is not colour alone). The volume slider is as tall as a row (28px) so it is easy to hit; its track is the browser's, in the accent. No loudness, no EQ: the player is for checking files (ROADMAP 1.11).
+- **A line that opens somewhere says so.** The Overview's "What to do next" lines carry a chevron at their end (drawn by CSS with an empty alternative, so no extra text), which goes from muted to the text colour under the pointer, where the words are underlined too. Not the accent: that means selected or active.
+- **The top bar keeps "Undo" whole.** The button never narrows below 4rem; the bar gives way elsewhere. (The app's smallest window is 900px, so this only shows in a smaller preview.)
+- **The crate view (1cB-15, 1cB-16).** Under the crate's name: its note (body text, wraps; click to edit), its path and the summary line (muted 12px). The note's edit box is as wide as that column, not the browser's 20 characters (a note can be 300). The buttons (Move to folder, Rename, Delete) keep their size on one line and drop under the name when the name and note need the room, rather than squeezing into tall boxes. In the table's controls, the count, "Sorted by fit after ...", the hint and "Sort by fit" wrap onto a second line before they overlap. The Fit column shows its dots (a little apart from the reason, which ends in "..." with the whole as its `title`).
+- **A switch that is on is active, so it takes the accent:** its border and icon or words, and a mark that isn't colour (the words are underlined; "Play next" in the player bar has a 2px bar under its icon). Nothing is filled: the one filled button stays the screen's main action.
+- **The Details panel** is 288px wide: the title (16px, wraps), the file's path in the mono font, then each tag as a muted 12px label over its value (14px) and a 12px source line. "More details" is a checkbox in the accent colour.
+
 ## The one exception to "class names only"
 
 A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").
 
-Hover text does not reach keyboard users, and a touch screen has no hover. So the full text also lives in the Details panel (built in 1cB-17): the selected track's full title and the full path of its file, wrapped and never cut off, as plain text to select and copy.
+Hover text does not reach keyboard users, and a touch screen has no hover. So the full text also lives in the Details panel (built in 1cB-17): for the selected track, its full title, the full path of its file and each tag's value (artist and genre among them), wrapped and never cut off, as plain text to select and copy. The panel follows the selected track, never the playing one.
 
 ## How the decisions look in the styles
 

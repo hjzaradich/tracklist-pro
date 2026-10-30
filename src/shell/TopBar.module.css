@@ -69,6 +69,8 @@
 }
 
 .undoButton {
+  /* A long label is cut, but never "Undo" itself. */
+  min-width: 4rem;
   max-width: 320px;
   overflow: hidden;
   padding: var(--space-1) var(--space-3);

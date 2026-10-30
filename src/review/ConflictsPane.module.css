@@ -6,13 +6,12 @@
   color: var(--color-text-muted);
 }
 
-/* A value too long for its cell ends in "..."; the full text is its title. */
+/* A value too long for its cell wraps, never ends in "...": the end of a
+ * title is often where the two sides differ ("Mix" against "Original Mix"),
+ * and the whole value is what the choice is made on. */
 .cut {
   display: block;
-  max-width: 16rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* The colour's code is written beside its swatch: never colour alone. */
@@ -30,10 +29,11 @@
   border-radius: var(--radius-sm);
 }
 
-/* The buttons of a row, or the field and the buttons of a row being edited. */
+/* The buttons of a row, or the field and the buttons of a row being edited.
+ * They stay on one line: the values give way (they wrap), the buttons don't. */
 .buttons {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
@@ -59,11 +59,17 @@
   white-space: nowrap;
 }
 
-/* A value you can pick, with its radio (a merge asking which value stays). */
+/* A value you can pick, with its radio (a merge asking which value stays).
+ * The radio's check is the accent: it marks the one that is chosen. */
 .pick {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
+}
+
+.pick input {
+  margin: 2px 0 0;
+  accent-color: var(--color-accent);
 }
 
 /* A table that is wider than its place scrolls sideways, not the page. */
@@ -71,3 +77,56 @@
   max-width: 100%;
   overflow-x: auto;
 }
+
+/* The three values are what this table is read for, so they are body text,
+ * not the comparison's secondary detail. (Doubled to outweigh the comparison's
+ * `.table td`, whichever stylesheet loads last.) */
+.table.table td {
+  font-size: var(--font-size-md);
+}
+
+/* The track takes a share of the table and never less than 9rem, as the
+ * comparison's file column does: a long title ends in "..." (its title
+ * attribute holds the whole) instead of widening the table. */
+.trackCol {
+  width: 24%;
+  min-width: 9rem;
+}
+
+/* The three value columns never get so narrow that "Never sent" or a
+ * heading breaks in two. */
+.table.table th:not(:first-child):not(:last-child) {
+  min-width: 5.5rem;
+}
+
+.trackCell {
+  max-width: 0;
+}
+
+/* The buttons of a row sit close, so they fit beside the three values, and
+ * the field being edited is as tall as they are. */
+.buttons > button,
+.buttons > select,
+.buttons > input:not([type="color"]):not([type="checkbox"]) {
+  min-height: var(--row-height);
+}
+
+.buttons > button {
+  padding-inline: var(--space-2);
+  white-space: nowrap;
+}
+
+.buttons > select,
+.buttons > input:not([type="color"]):not([type="checkbox"]) {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.buttons > input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+

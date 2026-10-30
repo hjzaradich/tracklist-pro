@@ -494,3 +494,54 @@ describe("disabled text", () => {
     });
   }
 });
+
+describe("chart bars (the Overview)", () => {
+  // A bar's empty part is its guide: the stripe colour is too faint for that
+  // (it is meant to be barely there), so the track is the border colour. The
+  // fill must stand out from it.
+  const bars = import.meta.glob<string>(["../overview/overview.module.css"], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  });
+  const css = Object.values(bars)[0] ?? "";
+  const rule = (selector: string) =>
+    blocks(css).find((b) => b.selector === selector)?.body ?? "";
+
+  it("the track is the border color and the fill the muted text color", () => {
+    expect(rule(".barTrack")).toMatch(/background:\s*var\(--color-border\)/);
+    expect(rule(".barFill")).toMatch(/background:\s*var\(--color-text-muted\)/);
+  });
+
+  for (const theme of ["dark", "light"] as const) {
+    it(`the track shows against the panel, and the fill against the track (${theme})`, () => {
+      const tokens = colorTokens(themeBlock(theme));
+      const get = (name: string) => tokens.get(name)!;
+      const track = get("--color-border");
+      expect(perceivedDistance(track, get("--color-surface"))).toBeGreaterThanOrEqual(0.05);
+      expect(contrast(get("--color-text-muted"), track)).toBeGreaterThanOrEqual(3);
+    });
+  }
+});
+
+describe("Conflicts values", () => {
+  // The end of a title is often where the two sides differ, so a value is
+  // never cut off with "..." in this table (docs/design-style.md).
+  const files = import.meta.glob<string>(["../review/ConflictsPane.module.css"], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  });
+  const css = Object.values(files)[0] ?? "";
+
+  it("a value wraps instead of ending in an ellipsis", () => {
+    const cut = blocks(css).find((b) => b.selector === ".cut")?.body ?? "";
+    expect(cut).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(cut).not.toMatch(/text-overflow|white-space:\s*nowrap/);
+  });
+
+  it("the values are body text", () => {
+    const body = blocks(css).find((b) => b.selector === ".table.table td")?.body ?? "";
+    expect(body).toMatch(/font-size:\s*var\(--font-size-md\)/);
+  });
+});

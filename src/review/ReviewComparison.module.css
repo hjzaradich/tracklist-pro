@@ -99,8 +99,21 @@
   min-width: 8rem;
 }
 
-.row:nth-child(even) td {
+.row:nth-child(even) td,
+.row:nth-child(even) th.rowHead {
   background: var(--color-row-stripe);
+}
+
+/* A row's name when it is not the file (the merge's field names): body text
+ * that reads as a label, striped with its row, on one line. */
+.table th.rowHead {
+  position: static;
+  border-bottom: none;
+  color: var(--color-text);
+  font-size: inherit;
+  font-weight: normal;
+  vertical-align: top;
+  white-space: nowrap;
 }
 
 /* The file column takes a share of the table, never less than 10rem (so at

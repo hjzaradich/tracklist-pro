@@ -170,7 +170,7 @@ function ConflictLine({
   const showFile = NAMED_BY_THE_FIELD.includes(row.field) && row.track.fileName !== null;
   return (
     <tr className={styles.row} data-conflict={row.id}>
-      <td className={styles.trackCell}>
+      <td className={`${styles.trackCell} ${conflictStyles.trackCell}`}>
         <span className={styles.name} title={name}>
           {name}
         </span>
@@ -306,10 +306,10 @@ export function ConflictsPane({ info }: { info: ConflictField }) {
         </p>
       )}
       <div className={styles.tableScroll}>
-        <table className={styles.table} aria-label={t("label")}>
+        <table className={`${styles.table} ${conflictStyles.table}`} aria-label={t("label")}>
           <thead>
             <tr>
-              <th scope="col" className={styles.trackCol}>
+              <th scope="col" className={`${styles.trackCol} ${conflictStyles.trackCol}`}>
                 {t("col.track")}
               </th>
               <th scope="col">{t("col.app")}</th>

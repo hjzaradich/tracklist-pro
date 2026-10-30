@@ -1,6 +1,7 @@
 /* The Overview: the header with the four numbers and Send, what's waiting, the
  * progress line (1cB-11), the bars and the strip for what is outside the
- * Library (1cB-12). Same width as the panels below it. */
+ * Library (1cB-12). Same width as the panels below it (40rem: room for four
+ * numbers in a row, the longest being a date). */
 .header,
 .todo,
 .charts,
@@ -8,7 +9,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  width: min(520px, 100%);
+  width: min(40rem, 100%);
   padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -19,6 +20,8 @@
 
 .header {
   gap: var(--space-3);
+  /* The numbers ask how wide the header is, not how wide the window is. */
+  container-type: inline-size;
 }
 
 .sendRow {
@@ -29,14 +32,21 @@
 }
 
 /* The four numbers: a row of figures, each with what it counts under it.
- * Numbers are right-aligned with tabular figures, so they line up. */
+ * Numbers are right-aligned with tabular figures, so they line up. Four in a
+ * row, or two and two in a narrow header: never three and one. */
 .numbers {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+@container (max-width: 28rem) {
+  .numbers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .number {
@@ -101,18 +111,37 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A whole line is the door: as tall as a list row, with a visible focus ring. */
+/* A whole line is the door: as tall as a list row, with a visible focus ring.
+ * A chevron at its end says it opens somewhere (drawn, not text: it has an
+ * empty alternative, so a screen reader doesn't read it), and the words are
+ * underlined under the pointer. */
 .line {
+  position: relative;
   display: block;
   min-height: var(--row-height);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--space-6) var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   color: var(--color-text);
   text-decoration: none;
 }
 
+.line::after {
+  content: "\203A" / "";
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+}
+
 .line:hover {
   background: var(--color-surface-hover);
+  text-decoration: underline;
+}
+
+.line:hover::after {
+  color: var(--color-text);
 }
 
 .line:focus-visible {
@@ -125,7 +154,7 @@
 }
 
 .progress {
-  width: min(520px, 100%);
+  width: min(40rem, 100%);
   margin: 0;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
@@ -148,9 +177,11 @@
 }
 
 .bars {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  /* One set of columns for every row, so the bars start in the same place:
+   * the label column is as wide as the longest label, up to 14rem. */
+  display: grid;
+  grid-template-columns: fit-content(14rem) minmax(0, 1fr) auto;
+  gap: 2px var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -158,8 +189,8 @@
 
 .bar {
   display: grid;
-  grid-template-columns: minmax(4rem, 9rem) 1fr auto;
-  gap: var(--space-2);
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   align-items: center;
   min-height: var(--row-height);
 }
@@ -174,7 +205,8 @@
   display: block;
   height: 10px;
   border-radius: var(--radius-sm);
-  background: var(--color-row-stripe);
+  /* The empty part of the bar, a step above the panel so it can be seen. */
+  background: var(--color-border);
 }
 
 .barFill {
