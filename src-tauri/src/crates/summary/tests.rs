@@ -14,7 +14,11 @@ fn track(lib: &Lib, n: usize, genre: Option<&str>) -> (i64, i64) {
     if let Some(genre) = genre {
         lib.tag(
             file,
-            &[("Name", &format!("Tune {n}")), ("Artist", "Kit"), ("Genre", genre)],
+            &[
+                ("Name", &format!("Tune {n}")),
+                ("Artist", "Kit"),
+                ("Genre", genre),
+            ],
         );
     }
     let library = lib.library(recording, file);
@@ -74,7 +78,11 @@ fn set_notes(lib: &Lib, id: CrateId, notes: &str) -> Done<Option<i64>> {
 
 fn notes(lib: &Lib, id: CrateId) -> Option<String> {
     lib.writer
-        .call(move |c| c.query_row("SELECT notes FROM crate WHERE id = ?1", [id.0], |r| r.get(0)))
+        .call(move |c| {
+            c.query_row("SELECT notes FROM crate WHERE id = ?1", [id.0], |r| {
+                r.get(0)
+            })
+        })
         .unwrap()
 }
 
@@ -85,8 +93,13 @@ fn a_note_is_saved_and_the_summary_gives_it_back() {
     let lib = Lib::new();
     let id = crate_of(&lib, "Warmup", &[]);
     assert_eq!(summary(&lib, id).notes, None);
-    assert!(set_notes(&lib, id, "Opens slow, builds to 124").unwrap().is_some());
-    assert_eq!(summary(&lib, id).notes.as_deref(), Some("Opens slow, builds to 124"));
+    assert!(set_notes(&lib, id, "Opens slow, builds to 124")
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        summary(&lib, id).notes.as_deref(),
+        Some("Opens slow, builds to 124")
+    );
 }
 
 #[test]
@@ -115,7 +128,10 @@ fn an_empty_note_clears_the_note() {
 fn saving_the_note_a_crate_has_records_nothing() {
     let lib = Lib::new();
     let id = crate_of(&lib, "Warmup", &[]);
-    assert!(set_notes(&lib, id, "").unwrap().is_none(), "no note to none");
+    assert!(
+        set_notes(&lib, id, "").unwrap().is_none(),
+        "no note to none"
+    );
     set_notes(&lib, id, "Opens slow").unwrap();
     assert!(set_notes(&lib, id, " Opens slow ").unwrap().is_none());
     // The earlier edit is still the one Undo would take back.
@@ -226,7 +242,13 @@ fn the_bpm_range_runs_from_the_slowest_to_the_fastest_track() {
     let id = crate_of(&lib, "Peak", &ids);
     let got = summary(&lib, id);
     assert_eq!(got.tracks, 4);
-    assert_eq!(got.bpm, Some(BpmRange { min: 122.5, max: 128.0 }));
+    assert_eq!(
+        got.bpm,
+        Some(BpmRange {
+            min: 122.5,
+            max: 128.0
+        })
+    );
 }
 
 #[test]
@@ -256,7 +278,10 @@ fn the_bpm_is_the_one_the_table_shows_rekordbox_first_then_the_tag_then_mixed_in
     // a shows 100, b shows 120, c shows 140.
     assert_eq!(
         summary(&lib, id).bpm,
-        Some(BpmRange { min: 100.0, max: 140.0 })
+        Some(BpmRange {
+            min: 100.0,
+            max: 140.0
+        })
     );
     let table_shows = |recording: i64| {
         lib.writer
@@ -273,7 +298,8 @@ fn the_bpm_is_the_one_the_table_shows_rekordbox_first_then_the_tag_then_mixed_in
 }
 
 #[test]
-fn the_energy_is_the_one_the_overview_uses_user_then_mixed_in_key_then_local_then_the_audio_model() {
+fn the_energy_is_the_one_the_overview_uses_user_then_mixed_in_key_then_local_then_the_audio_model()
+{
     let lib = Lib::new();
     let tracks: Vec<i64> = (0..5).map(|n| track(&lib, n, None).0).collect();
     // 0: every source; the user's wins.
@@ -293,10 +319,16 @@ fn the_energy_is_the_one_the_overview_uses_user_then_mixed_in_key_then_local_the
     // 4: none.
     let id = crate_of(&lib, "Energy", &tracks);
     // The shown energies are 2, 4, 6 and 5.
-    assert_eq!(summary(&lib, id).energy, Some(EnergyRange { min: 2, max: 6 }));
+    assert_eq!(
+        summary(&lib, id).energy,
+        Some(EnergyRange { min: 2, max: 6 })
+    );
     // And the track whose energy the user sets last shows the user's.
     energy(&lib, tracks[4], "user", 10);
-    assert_eq!(summary(&lib, id).energy, Some(EnergyRange { min: 2, max: 10 }));
+    assert_eq!(
+        summary(&lib, id).energy,
+        Some(EnergyRange { min: 2, max: 10 })
+    );
 }
 
 #[test]
@@ -362,7 +394,10 @@ fn the_genre_is_rekordbox_s_when_it_has_one_and_the_file_tag_otherwise() {
     let (tagged, _) = track(&lib, 0, Some("House"));
     let (known, _) = {
         let (recording, file) = lib.track(Some("Known"), Some("Kit"), "Music/known.mp3");
-        lib.tag(file, &[("Name", "Known"), ("Artist", "Kit"), ("Genre", "Tag genre")]);
+        lib.tag(
+            file,
+            &[("Name", "Known"), ("Artist", "Kit"), ("Genre", "Tag genre")],
+        );
         let library = lib.library(recording, file);
         lib.rekordbox_entry(file, &[("Name", "Known"), ("Genre", "Rekordbox genre")]);
         (recording, library)
@@ -416,7 +451,13 @@ fn the_summary_is_of_the_crate_s_own_tracks_only() {
     let id = crate_of(&lib, "Mine", &[inside]);
     crate_of(&lib, "Other", &[outside]);
     let got = summary(&lib, id);
-    assert_eq!(got.bpm, Some(BpmRange { min: 124.0, max: 124.0 }));
+    assert_eq!(
+        got.bpm,
+        Some(BpmRange {
+            min: 124.0,
+            max: 124.0
+        })
+    );
     assert_eq!(got.keys, ["8A"]);
     assert_eq!(got.genres, ["House"]);
 }
@@ -434,7 +475,13 @@ fn the_summary_updates_after_tracks_are_added_and_removed() {
 
     let before = summary(&lib, id);
     assert_eq!(before.tracks, 1);
-    assert_eq!(before.bpm, Some(BpmRange { min: 124.0, max: 124.0 }));
+    assert_eq!(
+        before.bpm,
+        Some(BpmRange {
+            min: 124.0,
+            max: 124.0
+        })
+    );
     assert_eq!(before.energy, Some(EnergyRange { min: 4, max: 4 }));
     assert_eq!(before.keys, ["8A"]);
     assert_eq!(before.genres, ["House"]);
@@ -442,7 +489,13 @@ fn the_summary_updates_after_tracks_are_added_and_removed() {
     add(&lib, id, &[b]);
     let after = summary(&lib, id);
     assert_eq!(after.tracks, 2);
-    assert_eq!(after.bpm, Some(BpmRange { min: 124.0, max: 132.0 }));
+    assert_eq!(
+        after.bpm,
+        Some(BpmRange {
+            min: 124.0,
+            max: 132.0
+        })
+    );
     assert_eq!(after.energy, Some(EnergyRange { min: 4, max: 9 }));
     assert_eq!(after.keys, ["8A", "9A"]);
     assert_eq!(after.genres, ["House", "Techno"]);
@@ -454,7 +507,13 @@ fn the_summary_updates_after_tracks_are_added_and_removed() {
         .unwrap();
     let removed = summary(&lib, id);
     assert_eq!(removed.tracks, 1);
-    assert_eq!(removed.bpm, Some(BpmRange { min: 132.0, max: 132.0 }));
+    assert_eq!(
+        removed.bpm,
+        Some(BpmRange {
+            min: 132.0,
+            max: 132.0
+        })
+    );
     assert_eq!(removed.genres, ["Techno"]);
 }
 
@@ -465,7 +524,13 @@ fn the_summary_updates_after_a_track_s_values_change() {
     rekordbox(&lib, a, Some(124.0), Some("8A"));
     energy(&lib, a, "mik", 5);
     let id = crate_of(&lib, "Changing", &[a]);
-    assert_eq!(summary(&lib, id).bpm, Some(BpmRange { min: 124.0, max: 124.0 }));
+    assert_eq!(
+        summary(&lib, id).bpm,
+        Some(BpmRange {
+            min: 124.0,
+            max: 124.0
+        })
+    );
 
     // rekordbox says something else after the next read; the user sets an
     // energy; the file's genre tag is retagged.
@@ -484,7 +549,13 @@ fn the_summary_updates_after_a_track_s_values_change() {
         (a,),
     );
     let got = summary(&lib, id);
-    assert_eq!(got.bpm, Some(BpmRange { min: 126.0, max: 126.0 }));
+    assert_eq!(
+        got.bpm,
+        Some(BpmRange {
+            min: 126.0,
+            max: 126.0
+        })
+    );
     assert_eq!(got.keys, ["9A"]);
     assert_eq!(got.energy, Some(EnergyRange { min: 8, max: 8 }));
     assert_eq!(got.genres, ["Disco"]);
@@ -517,6 +588,10 @@ fn summary_cost_at_10000_tracks() {
         .call(|c| summarize(c, &Mount, CrateId(1)))
         .unwrap()
         .unwrap();
-    println!("summary of {} tracks took {:?}", got.tracks, started.elapsed());
+    println!(
+        "summary of {} tracks took {:?}",
+        got.tracks,
+        started.elapsed()
+    );
     assert_eq!(got.tracks, 10_000);
 }

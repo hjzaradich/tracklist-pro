@@ -421,8 +421,6 @@ export const commands = {
 	 *  Deletes a crate, or a folder with everything in it. The Library tracks
 	 *  stay in the Library.
 	 */
-	crateSummary: (id: CrateId) => typedError<CrateSummary, IpcError>(__TAURI_INVOKE("crate_summary", { id })),
-	setCrateNotes: (id: CrateId, notes: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_crate_notes", { id, notes })),
 	deleteCrate: (id: CrateId) => typedError<null, IpcError>(__TAURI_INVOKE("delete_crate", { id })),
 	/**  Adds Library tracks to a crate. A track that's in it already is skipped. */
 	addTracksToCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("add_tracks_to_crate", { id, tracks })),
@@ -446,6 +444,13 @@ export const commands = {
 	listCrates: () => typedError<Crate[], IpcError>(__TAURI_INVOKE("list_crates")),
 	/**  A crate's tracks, in the order they were added. */
 	crateTracks: (id: CrateId) => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("crate_tracks", { id })),
+	/**  A crate's notes and summary line. */
+	crateSummary: (id: CrateId) => typedError<CrateSummary, IpcError>(__TAURI_INVOKE("crate_summary", { id })),
+	/**
+	 *  Gives a crate a note; an empty note clears it. Answers the operation
+	 *  recorded, or none when the note is the one it has.
+	 */
+	setCrateNotes: (id: CrateId, notes: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_crate_notes", { id, notes })),
 	/**
 	 *  A window of the track table: the rows of a source, searched, filtered
 	 *  and sorted, with how many there are in all when asked.
@@ -665,6 +670,24 @@ export type BetterFile = {
  */
 export type BetterStep = "onDisk" | "verdict" | "playable" | "cutoff" | "decodeErrors" | "format";
 
+/**  How a track's tempo relates to the selected track's. */
+export type BpmFit = 
+/**
+ *  `delta` BPM above (positive) or below the selected track's, read the
+ *  way `time` says.
+ */
+{ kind: "delta"; delta: number | null; time: TimeFeel } | 
+/**  The track has no BPM. */
+{ kind: "noBpm" } | 
+/**  The selected track has no BPM. */
+{ kind: "noTargetBpm" };
+
+/**  The lowest and highest BPM in a crate. */
+export type BpmRange = {
+	min: number | null,
+	max: number | null,
+};
+
 /**  What asking to cancel a job did. */
 export type CancelOutcome = 
 /**  It hadn't started, and now never will. */
@@ -810,35 +833,40 @@ export type Crate = {
 /**  A crate's row id. */
 export type CrateId = number;
 
-export type BpmRange = { min: number, max: number };
-
-export type EnergyRange = { min: number, max: number };
-
-export type CrateSummary = {
-	notes: string | null,
-	tracks: number,
-	bpm: BpmRange | null,
-	energy: EnergyRange | null,
-	keys: string[],
-	genres: string[],
-};
-
-export type KeyFit = { kind: "same"; key: string } | { kind: "neighbor"; from: string; to: string } | { kind: "far"; from: string; to: string } | { kind: "noKey" } | { kind: "noTargetKey" };
-
-export type TimeFeel = "straight" | "half" | "double";
-
-export type BpmFit = { kind: "delta"; delta: number; time: TimeFeel } | { kind: "noBpm" } | { kind: "noTargetBpm" };
-
-export type FitReason = { key: KeyFit, bpm: BpmFit };
-
-export type RowFit = { dots: number, reason: FitReason | null };
-
 /**  What a row of the crate tree is. */
 export type CrateKind = 
 /**  Holds crates and folders, never tracks. */
 "folder" | 
 /**  A hand-made crate of Library tracks. */
 "static";
+
+/**  What the crate view shows under a crate's name. */
+export type CrateSummary = {
+	/**  The crate's note, if it has one. */
+	notes: string | null,
+	/**  How many tracks are in the crate. */
+	tracks: number,
+	/**  `None` when no track has a BPM. */
+	bpm: BpmRange | null,
+	/**  `None` when no track has an energy. */
+	energy: EnergyRange | null,
+	/**
+	 *  Every different key, as Camelot, in Camelot order; empty when no
+	 *  track has a key.
+	 */
+	keys: string[],
+	/**
+	 *  The biggest genres, biggest first (at most [`TOP_GENRES`]); empty when
+	 *  no track has a genre.
+	 */
+	genres: string[],
+};
+
+/**  The lowest and highest energy (1 to 10) in a crate. */
+export type EnergyRange = {
+	min: number,
+	max: number,
+};
 
 /**  What setting energy did. */
 export type EnergySet = {
@@ -917,7 +945,6 @@ export type ErrorKind =
 "libraryMatchNotConfirmed" | 
 /**  There's no crate with that id. */
 "crateNotFound" | 
-"crateNotesTooLong" | 
 /**  The crate's name is empty. */
 "crateNameEmpty" | 
 /**
@@ -927,6 +954,8 @@ export type ErrorKind =
 "crateNameTaken" | 
 /**  The name has a character that can't be sent to rekordbox. */
 "crateNameUnsendable" | 
+/**  A crate's note is longer than a note can be. */
+"crateNotesTooLong" | 
 /**  There's no folder with that id (the crate refusals above, for a folder). */
 "folderNotFound" | 
 /**  The folder's name is empty. */
@@ -1064,6 +1093,12 @@ export type FieldValue = {
 	recordingId: number,
 	/**  `None`: the track has no value for the field. */
 	value: string | null,
+};
+
+/**  The reason a track fits, as facts for the screen to word. */
+export type FitReason = {
+	key: KeyFit,
+	bpm: BpmFit,
 };
 
 /**  What deleting a folder would delete, below the folder itself. */
@@ -1253,6 +1288,19 @@ export type JobUpdate = {
  *  changed since the last batch, in `seq` order.
  */
 export type JobUpdates = JobUpdate[];
+
+/**  How a track's key relates to the selected track's. */
+export type KeyFit = 
+/**  The same key. */
+{ kind: "same"; key: string } | 
+/**  Next to it on the wheel. */
+{ kind: "neighbor"; from: string; to: string } | 
+/**  Any other key. */
+{ kind: "far"; from: string; to: string } | 
+/**  The track has no key. */
+{ kind: "noKey" } | 
+/**  The selected track has no key. */
+{ kind: "noTargetKey" };
 
 /**
  *  How keys are shown: one app-wide setting (ROADMAP §1.1), stored in the
@@ -2101,6 +2149,17 @@ export type ReviewTrackName = {
 	artist: string | null,
 };
 
+/**  What the Fit column shows for a row. */
+export type RowFit = {
+	/**  0 to 3. */
+	dots: number,
+	/**
+	 *  Why; `None` for the selected track itself, which has no fit to
+	 *  itself.
+	 */
+	reason: FitReason | null,
+};
+
 /**  What a comparison row stands for. */
 export type RowSource = "file" | 
 /**  rekordbox's own entry (a relink item): the file it names is gone. */
@@ -2551,6 +2610,10 @@ export type TableRow = {
 	/**  How many conflicts with rekordbox are still open for it. */
 	openConflicts: number,
 	betterFile: BetterFile | null,
+	/**
+	 *  How well the track follows the selected one, with the reason; only in
+	 *  a [`TableSource::CrateByFit`] table.
+	 */
 	fit: RowFit | null,
 };
 
@@ -2574,6 +2637,12 @@ export type TableSource =
 { kind: "allMusic" } | 
 /**  The Library tracks in one crate, in the order they were added. */
 { kind: "crate"; id: CrateId } | 
+/**
+ *  The Library tracks in one crate, sorted by how well they follow the
+ *  track `after` (a `recording` id; 1cB-16): that track first, then the
+ *  rest, best fit first. A sort is ignored: this source has its own order
+ *  ([`crate::crates::fit`]), and its rows carry a `fit`.
+ */
 { kind: "crateByFit"; id: CrateId; after: number };
 
 /**  A tag field the panel lists, in the order it lists them. */
@@ -2595,6 +2664,15 @@ export type TagSources = {
 	 */
 	confirmedEntry: number | null,
 };
+
+/**  Which way the tempo was read. */
+export type TimeFeel = 
+/**  As it is. */
+"straight" | 
+/**  The track is at half the selected track's tempo. */
+"half" | 
+/**  The track is at double the selected track's tempo. */
+"double";
 
 /**  A Library track, as the preflight's lists name it. */
 export type TrackLabel = {

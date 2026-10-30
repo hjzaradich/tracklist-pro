@@ -35,6 +35,8 @@ function keyText(fit: KeyFit, t: TFunction<"trackTable">, notation: KeyNotation)
 function bpmText(fit: BpmFit, t: TFunction<"trackTable">): string {
   switch (fit.kind) {
     case "delta": {
+      // A difference that did not cross as a number (JSON has no NaN) is no BPM to compare.
+      if (fit.delta === null) return t("fit.noBpm");
       const bpm = isNone(fit.delta) ? t("fit.sameBpm") : t("fit.bpm", { delta: signedBpm(fit.delta) });
       if (fit.time === "half") return t("fit.halfTime", { bpm });
       if (fit.time === "double") return t("fit.doubleTime", { bpm });

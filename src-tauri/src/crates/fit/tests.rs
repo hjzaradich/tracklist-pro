@@ -27,14 +27,30 @@ fn a_key_is_read_from_its_name_and_from_its_place_on_the_wheel() {
         ("12b", 12, true),
         (" 5a ", 5, false),
     ] {
-        assert_eq!(Camelot::parse(text), Some(Camelot { number, major }), "{text}");
+        assert_eq!(
+            Camelot::parse(text),
+            Some(Camelot { number, major }),
+            "{text}"
+        );
     }
-    for text in ["", "A", "0A", "13A", "8", "8C", "+8A", "-8A", "8 A", "1m", "A minor"] {
+    for text in [
+        "", "A", "0A", "13A", "8", "8C", "+8A", "-8A", "8 A", "1m", "A minor",
+    ] {
         assert_eq!(Camelot::parse(text), None, "{text:?}");
     }
     // The table stores 1A as 2, 1B as 3, up to 12B as 25.
-    for (order, name) in [(2, "1A"), (3, "1B"), (16, "8A"), (17, "8B"), (24, "12A"), (25, "12B")] {
-        assert_eq!(Camelot::from_order(order).map(Camelot::name).as_deref(), Some(name));
+    for (order, name) in [
+        (2, "1A"),
+        (3, "1B"),
+        (16, "8A"),
+        (17, "8B"),
+        (24, "12A"),
+        (25, "12B"),
+    ] {
+        assert_eq!(
+            Camelot::from_order(order).map(Camelot::name).as_deref(),
+            Some(name)
+        );
     }
     for order in [-1, 0, 1, 26, 100] {
         assert_eq!(Camelot::from_order(order), None, "{order}");
@@ -94,7 +110,13 @@ fn every_key_has_exactly_three_neighbors_and_the_relation_goes_both_ways() {
             .collect();
         assert_eq!(near.len(), 3, "{} has {near:?}", a.name());
         for &b in &wheel {
-            assert_eq!(a.neighbors(b), b.neighbors(a), "{} and {}", a.name(), b.name());
+            assert_eq!(
+                a.neighbors(b),
+                b.neighbors(a),
+                "{} and {}",
+                a.name(),
+                b.name()
+            );
         }
         assert!(!a.neighbors(a));
     }

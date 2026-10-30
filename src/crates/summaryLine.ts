@@ -24,7 +24,8 @@ export function summaryParts(
 ): string[] {
   if (summary.tracks === 0) return [t("summary.empty")];
   const parts: string[] = [];
-  if (summary.bpm !== null) {
+  // The generated types allow a non-number (JSON has no NaN); that is no BPM.
+  if (summary.bpm !== null && summary.bpm.min !== null && summary.bpm.max !== null) {
     const { min, max } = summary.bpm;
     parts.push(
       plain(min) === plain(max)

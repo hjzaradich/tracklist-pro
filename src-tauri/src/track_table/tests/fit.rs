@@ -157,9 +157,15 @@ fn tracks_that_fit_equally_stay_in_the_order_they_were_added() {
         ("D", Some(120.0), Some("5A")),
     ];
     let t = crate_of(&lib, &same);
-    assert_eq!(ids(&run(&lib, by_fit(t[1]))), [t[1], t[0], t[2], t[3], t[4]]);
+    assert_eq!(
+        ids(&run(&lib, by_fit(t[1]))),
+        [t[1], t[0], t[2], t[3], t[4]]
+    );
     // The same, whichever track is selected.
-    assert_eq!(ids(&run(&lib, by_fit(t[3]))), [t[3], t[0], t[1], t[2], t[4]]);
+    assert_eq!(
+        ids(&run(&lib, by_fit(t[3]))),
+        [t[3], t[0], t[1], t[2], t[4]]
+    );
 }
 
 #[test]
