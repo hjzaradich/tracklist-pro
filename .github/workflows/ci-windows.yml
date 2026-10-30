@@ -149,8 +149,13 @@ jobs:
     # Parts that run side by side on GitHub's runners (1cC-D1b; audit 1cB,
     # B13): the backend tests in three shards, and the compile of the app with
     # clippy. Each part builds what it needs itself, from rust-cache's
-    # restored dependencies. (Building the test binaries once and passing
-    # them on as an artifact was measured: BUILD_ONCE_RESULT.) Which module or
+    # restored dependencies, rather than building the test binaries once and
+    # passing them on as an artifact: the parts compile side by side, so a
+    # single build takes as long as the slowest of them, and the extra job
+    # (checkout, download, a runner to start) comes on top of it, for a
+    # saving in runner minutes that a public repo doesn't need (measured: the
+    # library's test binary is 109 MB, 29 MB zipped, 6 s to upload, so moving
+    # it is cheap, but it doesn't shorten the critical path). Which module or
     # test binary is in which shard, and the check that every test runs in
     # exactly one, is .github/scripts/test-shards.mjs.
     # The owner's PC (CI_RUNNER=self) runs one job at a time, so there the
@@ -200,7 +205,7 @@ jobs:
         with:
           workspaces: src-tauri
           key: ${{ matrix.part }}
-          save-if: ${{ github.ref == 'refs/heads/main' || true }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # The Tauri CLI, and the frontend that the compile step builds and
       # embeds. The frontend's own lint and tests run on Linux (checks job).
@@ -212,20 +217,6 @@ jobs:
       - name: Test the backend (one shard)
         if: matrix.part == 'tests'
         run: node .github/scripts/test-shards.mjs run ${{ matrix.shard }}
-
-      # TEMPORARY MEASUREMENT: what moving the test binary between jobs costs.
-      - name: Measure the test binary
-        if: matrix.part == 'tests' && matrix.shard == 1
-        continue-on-error: true
-        run: ls -l src-tauri/target/debug/deps/tracklist_pro_lib-*.exe
-      - name: Upload the test binary
-        if: matrix.part == 'tests' && matrix.shard == 1
-        continue-on-error: true
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: measure-test-binary
-          path: src-tauri/target/debug/deps/tracklist_pro_lib-*.exe
-          retention-days: 1
 
       # The owner's PC: everything, in one part, as before sharding.
       - name: Test the backend
