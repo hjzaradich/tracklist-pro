@@ -1,5 +1,6 @@
+import type { QueryClient } from "@tanstack/react-query";
 import {
-  createRootRoute,
+  createRootRouteWithContext,
   createRoute,
   createRouter,
   redirect,
@@ -9,24 +10,39 @@ import {
 import { AfterSendScreen } from "../afterSend/AfterSendScreen";
 import { AllMusicScreen } from "../allMusic/AllMusicScreen";
 import { CratesScreen } from "../crates/CratesScreen";
+import { launchScreen, type RouterContext } from "../launch/launchContext";
+import { LaunchWatcher } from "../launch/LaunchWatcher";
+import { isCrateId } from "../launch/savedScreen";
 import { LibraryScreen } from "../library/LibraryScreen";
 import { OverviewScreen } from "../overview/OverviewScreen";
 import { ReviewScreen } from "../review/ReviewScreen";
 import { AppShell } from "../shell/AppShell";
-import { HOME_STAGE_PATH } from "../shell/stages";
 
 // Code-based routes (no file-based route generation). Every screen renders
 // inside the layout shell. Stage paths match STAGES in src/shell/stages.ts.
-const rootRoute = createRootRoute({
-  component: AppShell,
+const rootRoute = createRootRouteWithContext<RouterContext>()({
+  component: Root,
 });
 
-// The app opens on Overview; "reopen where you left off" comes later (1.13).
+function Root() {
+  return (
+    <>
+      <AppShell />
+      <LaunchWatcher />
+    </>
+  );
+}
+
+// The app opens where the user left off, and on Overview on a first run (1.13,
+// "Launch"; src/launch). Overview is also where it moves to when a scan or a
+// read has found something new.
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({ to: HOME_STAGE_PATH });
+  beforeLoad: async ({ context }) => {
+    const { path, crate } = await launchScreen(context);
+    if (path === "/crates" && crate !== undefined) throw redirect({ to: "/crates", search: { crate } });
+    throw redirect({ to: path });
   },
 });
 
@@ -62,7 +78,7 @@ const libraryRoute = createRoute({
  */
 export function validateCratesSearch(search: Record<string, unknown>): { crate?: number } {
   const id = search.crate;
-  return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? { crate: id } : {};
+  return isCrateId(id) ? { crate: id } : {};
 }
 
 function CratesRoute() {
@@ -104,9 +120,16 @@ const routeTree = rootRoute.addChildren([
   afterSendRoute,
 ]);
 
-/** Tests pass a memory history; the app uses the browser's. */
-export function createAppRouter(options: { history?: RouterHistory } = {}) {
-  return createRouter({ routeTree, history: options.history });
+/**
+ * Tests pass a memory history; the app uses the browser's. The query client
+ * lets the launch check that a remembered crate still exists.
+ */
+export function createAppRouter(options: { history?: RouterHistory; queryClient?: QueryClient } = {}) {
+  return createRouter({
+    routeTree,
+    history: options.history,
+    context: { launch: { reopened: false }, queryClient: options.queryClient },
+  });
 }
 
 declare module "@tanstack/react-router" {

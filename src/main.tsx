@@ -10,8 +10,8 @@ import { syncThemeToDocument } from "./theme/themeStore";
 // Apply the saved theme before the first render so there's no flash.
 syncThemeToDocument();
 
-const router = createAppRouter();
 const queryClient = createQueryClient();
+const router = createAppRouter({ queryClient });
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
