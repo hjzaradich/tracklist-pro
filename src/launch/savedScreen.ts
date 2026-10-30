@@ -11,8 +11,8 @@ import { STAGES } from "../shell/stages";
  */
 export const SCREEN_STORAGE_KEY = "tracklist-pro.launch.screen";
 
-/** The screens that are remembered: the stages (the after-send lists are not one). */
-const REMEMBERED_PATHS: readonly string[] = STAGES.map((stage) => stage.path);
+/** The screens that are remembered: the stages and Settings (the after-send lists are not one). */
+const REMEMBERED_PATHS: readonly string[] = [...STAGES.map((stage) => stage.path), "/settings"];
 
 export interface SavedScreen {
   /** A stage's path, e.g. `/library`. */
