@@ -8,10 +8,9 @@ import {
   type Crate,
   type FolderContents,
 } from "../bindings";
-import { ALL_MUSIC_QUERY_KEY, ALL_MUSIC_TABLE_QUERY_KEY } from "../allMusic/useAllMusic";
-import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TABLE_QUERY_KEY, LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
-import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
+import { reloadLists } from "../app/lists";
+import { ALL_MUSIC_TABLE_QUERY_KEY } from "../allMusic/useAllMusic";
+import { LIBRARY_TABLE_QUERY_KEY } from "../library/useLibrarySummary";
 
 /** Every crate query starts with this, so one invalidation reaches them all. */
 export const CRATES_QUERY_KEY = ["crates"] as const;
@@ -116,9 +115,7 @@ export function useAddToCrate() {
 function invalidateCratesAndLibrary(queryClient: QueryClient): Promise<unknown> {
   return Promise.all([
     invalidateCrates(queryClient),
-    ...[ALL_MUSIC_QUERY_KEY, LIBRARY_TRACKS_QUERY_KEY, REKORDBOX_OFFER_QUERY_KEY, OVERVIEW_QUERY_KEY].map((queryKey) =>
-      queryClient.invalidateQueries({ queryKey }),
-    ),
+    reloadLists(queryClient, "library", "offer", "overview"),
   ]);
 }
 

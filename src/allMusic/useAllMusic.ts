@@ -1,8 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { unwrap } from "../api/errors";
 import { commands } from "../bindings";
-import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
-import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
+import { reloadLists } from "../app/lists";
 
 /** Invalidate this after anything adds or removes a Library track. */
 export const ALL_MUSIC_QUERY_KEY = ["allMusic"] as const;
@@ -31,11 +30,6 @@ export function useAddToLibrary() {
       // A warned add changed nothing, so there is nothing to reload.
       outcome.outcome !== "done"
         ? undefined
-        : Promise.all([
-            queryClient.invalidateQueries({ queryKey: ALL_MUSIC_QUERY_KEY }),
-            queryClient.invalidateQueries({ queryKey: LIBRARY_TRACKS_QUERY_KEY }),
-            // A track added by hand leaves the rekordbox offer.
-            queryClient.invalidateQueries({ queryKey: REKORDBOX_OFFER_QUERY_KEY }),
-          ]),
+        : reloadLists(queryClient, "library", "offer"),
   });
 }
