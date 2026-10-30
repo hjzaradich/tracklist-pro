@@ -246,6 +246,10 @@ pub(super) fn wait_idle(queue: &JobQueue) {
 /// often a stage asked for it. (Matching should step aside only when no
 /// worker is free: audit 1cB, C2. Until then, this.) A `match` that failed
 /// is never merged into its neighbour.
+///
+/// Merging also hides matching being requested twice in a row: two passes
+/// that each ran to the end look the same as one that made way. It is a
+/// stopgap until the "make way" rule is fixed (C2); then merge nothing.
 pub(super) fn jobs(writer: &Writer) -> Vec<JobRow> {
     let mut rows = all_jobs(writer);
     one_pass_when_matching_made_way(&mut rows);

@@ -1022,11 +1022,15 @@ fn shutdown_with_a_stuck_job_returns_within_the_time_limit() {
     let start = Instant::now();
     queue.shutdown();
     let took = start.elapsed();
-    // Only the lower bound is a time: it cannot fail from a slow machine.
-    // That shutdown did not wait longer than the limit for the stuck job is
-    // shown below instead: the job is still held (`release` is not sent
-    // until the end) and shutdown has returned.
+    // The lower bound cannot fail from a slow machine. The upper bound is
+    // generous (the stuck job would hold shutdown for PATIENCE, a minute),
+    // so only a shutdown that ignores the limit fails it, not a busy
+    // machine. The job being still held below says the same without a time.
     assert!(took >= limit, "gave up after {took:?}, before the limit");
+    assert!(
+        took < limit + Duration::from_secs(10),
+        "shutdown took {took:?}: it waited for the stuck job instead of giving up at the {limit:?} limit"
+    );
     // Left for crash resume to find, not marked as finished.
     assert_eq!(stored(&writer, id).status, JobStatus::Running);
     // Calling it again (here, on drop) doesn't wait again.
