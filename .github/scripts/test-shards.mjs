@@ -10,13 +10,14 @@
 //
 // The split, in SHARDS below:
 //   - The library's unit tests (about 4,100) are split by top-level module.
-//     Shards 1 and 2 name their modules, as the filters `module::`. The last
-//     shard is the catch-all: it runs the library tests that none of the
-//     others' filters match (a --skip for each), so a test can't fall
-//     between shards, but it must still name its modules too (see below).
+//     Shards 1 and 2 name their modules, as the filters `module::`. Shard 3
+//     is the catch-all: it runs the library tests that none of the others'
+//     filters match (a --skip for each), so a test can't fall between
+//     shards, but it must still name its modules too (see below).
 //   - The integration tests (src-tauri/tests), the bin's tests, the example
-//     with `test = true`, and the doc tests are named by the shard that runs
-//     them.
+//     with `test = true`, and the doc tests are named by the last shard,
+//     which runs no library tests: a shard that compiled both the library's
+//     test binary and the integration tests would be the slowest.
 //
 // Nothing is left to chance. `check` (run in the CI script tests, on every
 // run) fails if a module, integration test, example or the doc tests exist
