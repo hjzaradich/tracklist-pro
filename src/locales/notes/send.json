@@ -217,6 +217,26 @@
     "purpose": "The same line for several fields.",
     "where": "Send checklist, step 2, a line under the counts of tracks."
   },
+  "review.starsOn": {
+    "purpose": "Read-only line saying energy is sent to rekordbox as the star rating, shown only while that setting is on.",
+    "where": "Send checklist, step 2 (review), a line under the counts of tracks, before its link."
+  },
+  "review.starsLink": {
+    "purpose": "A link beside the line about energy as stars; opens the Settings screen, where the switch is.",
+    "where": "Send checklist, step 2 (review), link at the end of the energy-as-stars line."
+  },
+  "review.starsChange_zero": {
+    "purpose": "Says no track's stars in rekordbox will change in this send (exact, from the fresh read); shown only while energy is sent as stars.",
+    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (none)."
+  },
+  "review.starsChange_one": {
+    "purpose": "Says one track's stars in rekordbox will change in this send (exact, from the fresh read).",
+    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (one)."
+  },
+  "review.starsChange_other": {
+    "purpose": "Says how many tracks' stars in rekordbox will change in this send (exact, from the fresh read).",
+    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (several)."
+  },
   "review.changedAfterExport_one": {
     "purpose": "Warns that one track rekordbox has, sent with the export's values, has a file changed after the export was saved. rekordbox writes a DJ's edits into the file, so an edit made in rekordbox after the export may be in it, and the send would overwrite it on import. Asks the user to export again first. A warning only: the send can still go (ROADMAP 1.10, Second channel).",
     "where": "Send checklist, step 2, a line under the counts of tracks."

@@ -61,6 +61,10 @@
     "where": "Top bar, beside the search box.",
     "approved": "Ctrl K"
   },
+  "settings.button": {
+    "purpose": "Name and hover text of the gear that opens the Settings screen. Same wording as the palette's Open Settings.",
+    "where": "Top bar, gear button (accessible name and tooltip)."
+  },
   "undo.button": {
     "purpose": "The Undo button when there is nothing to undo.",
     "where": "Top bar, Undo button (greyed out).",

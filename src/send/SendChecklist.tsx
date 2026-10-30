@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { open } from "@tauri-apps/plugin-dialog";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -288,6 +289,19 @@ function Review({
         <>
           <p>{t("review.new", { count: preflight.newTracks })}</p>
           <p>{t("review.known", { count: preflight.knownTracks })}</p>
+        </>
+      )}
+      {preflight.starsChanged !== null && (
+        // Energy goes out as the star rating (1cC-2). The echo is read-only:
+        // the switch lives in Settings. The count is exact, from this read.
+        <>
+          <p>
+            {t("review.starsOn")}{" "}
+            <Link to="/settings" className={styles.link}>
+              {t("review.starsLink")}
+            </Link>
+          </p>
+          {!refusal && <p>{t("review.starsChange", { count: preflight.starsChanged })}</p>}
         </>
       )}
       {preflight.conflictsWaiting > 0 && !refusal && (

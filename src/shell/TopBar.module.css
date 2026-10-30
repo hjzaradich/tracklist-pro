@@ -118,3 +118,50 @@
 .undoError {
   color: var(--color-danger);
 }
+
+/* The Settings gear (1cC-2): icon only, a top-bar button's height, quiet at
+ * rest. Active on /settings: the selected tint, the accent, and a 2px bar
+ * under the icon (the mark that isn't colour). */
+.gear {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--row-height);
+  height: var(--row-height);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.gear:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.gear:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.gear[aria-current="page"] {
+  background: var(--color-selected);
+  color: var(--color-accent);
+}
+
+.gear[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 2px;
+  left: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+
+.gearIcon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}

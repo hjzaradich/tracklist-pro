@@ -1,0 +1,23 @@
+{
+  "title": "Settings",
+  "rekordbox": {
+    "title": "rekordbox"
+  },
+  "energyStars": {
+    "label": "Send energy as the star rating",
+    "helpOff": "Energy 1 and 2 are one star, 3 and 4 two, 5 and 6 three, 7 and 8 four, 9 and 10 five. Energy stays in this app until you turn this on.",
+    "helpOn": "Each send sets your tracks' star rating from their energy (1 and 2 are one star, up to 9 and 10 for five). Tracks with no energy keep their stars.",
+    "offNote": "Stars already in rekordbox stay as last sent, and rekordbox's rating counts again.",
+    "counting": "Counting tracks",
+    "confirmTitle": "Send energy as the star rating?",
+    "changes_zero": "No track's stars in rekordbox would change (from the export read {{when}})",
+    "changes_one": "1 track's stars in rekordbox would change (from the export read {{when}})",
+    "changes_other": "{{count, number}} tracks' stars in rekordbox would change (from the export read {{when}})",
+    "noRead": "Nothing to count yet: rekordbox's export hasn't been read. The send review shows the number before anything is written.",
+    "confirmDetail": "Tracks with no energy keep their stars. A star rating you change in rekordbox later will wait in Review as a conflict.",
+    "confirm": "Turn on",
+    "back": "Go back",
+    "error": "Couldn't save the setting. Try again.",
+    "countError": "Couldn't count the tracks. Try again."
+  }
+}

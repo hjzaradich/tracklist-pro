@@ -173,3 +173,18 @@
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 1px;
 }
+
+/* The link in the energy-as-stars line (1cC-2): words underlined, not colour alone. */
+.link {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.link:hover {
+  color: var(--color-accent-hover);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}

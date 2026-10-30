@@ -135,6 +135,18 @@ describe("the command palette", () => {
     expect(screen.queryByRole("dialog", { name: tx("palette:title") })).toBeNull();
   });
 
+  it("lists Open Settings, always, and runs it by opening the Settings screen", async () => {
+    fakeBackend();
+    const { router } = renderApp("/overview");
+    await screen.findByRole("link", { name: tx("shell:stages.review") });
+    await openPalette();
+    expect(optionNames()).toContain(tx("palette:openSettings"));
+    await userEvent.keyboard(tx("palette:openSettings"));
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
+    expect(screen.queryByRole("dialog", { name: tx("palette:title") })).toBeNull();
+  });
+
   it("runs Undo through the top bar's handler, and shows its shortcut", async () => {
     const backend = fakeBackend();
     renderApp("/overview");

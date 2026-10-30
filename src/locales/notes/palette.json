@@ -27,6 +27,10 @@
     "purpose": "A command that opens All music with the cursor in its search box.",
     "where": "Command palette, list."
   },
+  "openSettings": {
+    "purpose": "A command that opens the Settings screen. Always listed.",
+    "where": "Command palette, list."
+  },
   "theme": {
     "purpose": "A command that switches the theme; {{name}} is the theme (Dark or Light). Listed only for the theme not in use.",
     "where": "Command palette, list."

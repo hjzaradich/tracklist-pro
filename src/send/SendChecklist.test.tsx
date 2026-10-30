@@ -1,4 +1,11 @@
 import { QueryClientProvider } from "@tanstack/react-query";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -139,6 +146,33 @@ function renderChecklist(afterSend?: React.ReactNode) {
     </QueryClientProvider>,
   );
   return { onClose };
+}
+
+/**
+ * The checklist on a router of its own, for the review's link to Settings
+ * (the other tests need no router: the link is drawn only while energy is
+ * sent as stars). The router is returned so a test can see where a link went.
+ */
+async function renderChecklistWithRouter() {
+  const rootRoute = createRootRoute({
+    component: () => <SendChecklist onClose={vi.fn()} />,
+  });
+  const settingsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/settings",
+    component: () => <p>settings</p>,
+  });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([settingsRoute]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  await router.load();
+  render(
+    <QueryClientProvider client={createQueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+  return { router };
 }
 
 // A date and time as the checklist shows them.
@@ -363,6 +397,51 @@ describe("the send checklist", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: tx("send:review.confirm") })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled();
+  });
+
+  describe("energy as the star rating", () => {
+    it("echoes the setting with a link to Settings, and says how many tracks' stars this send changes", async () => {
+      fakeBackend({ preflight: preflight({ starsChanged: 5 }) });
+      const { router } = await renderChecklistWithRouter();
+      const review = step(tx("send:review.title"));
+      expect(await review.findByText(tx("send:review.starsChange", { count: 5 }))).toBeInTheDocument();
+      expect(review.getByText(tx("send:review.starsOn"), { exact: false })).toBeInTheDocument();
+      await userEvent.click(review.getByRole("link", { name: tx("send:review.starsLink") }));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
+    });
+
+    it("has no switch of its own: the echo is read-only", async () => {
+      fakeBackend({ preflight: preflight({ starsChanged: 5 }) });
+      await renderChecklistWithRouter();
+      const review = step(tx("send:review.title"));
+      await review.findByText(tx("send:review.starsChange", { count: 5 }));
+      expect(review.queryByRole("checkbox", { name: tx("settings:energyStars.label") })).toBeNull();
+    });
+
+    it("names one track, and none", async () => {
+      for (const count of [1, 0]) {
+        fakeBackend({ preflight: preflight({ starsChanged: count }) });
+        await renderChecklistWithRouter();
+        const review = step(tx("send:review.title"));
+        expect(
+          await review.findByText(tx("send:review.starsChange", { count })),
+        ).toBeInTheDocument();
+        cleanup();
+        clearMocks();
+      }
+    });
+
+    it("says nothing about stars while the setting is off", async () => {
+      fakeBackend({ preflight: preflight({ starsChanged: null }) });
+      renderChecklist();
+      const review = step(tx("send:review.title"));
+      expect(await review.findByText(tx("send:review.new", { count: 3 }))).toBeInTheDocument();
+      expect(review.queryByRole("link", { name: tx("send:review.starsLink") })).toBeNull();
+      expect(review.queryByText(tx("send:review.starsOn"), { exact: false })).toBeNull();
+      for (const count of [0, 1, 2]) {
+        expect(review.queryByText(tx("send:review.starsChange", { count }))).toBeNull();
+      }
+    });
   });
 
   it("says nothing about Conflicts when no field waits there", async () => {

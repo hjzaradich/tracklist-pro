@@ -62,6 +62,13 @@ describe("reopening where the user left off", () => {
     expect(router.state.location.pathname).toBe("/library");
   });
 
+  it("reopens Settings, which is a screen to come back to though it is not a stage", async () => {
+    remember({ path: "/settings" });
+    const { router } = launch();
+    expect(await screen.findByRole("heading", { level: 1, name: tx("settings:title") })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/settings");
+  });
+
   it("reopens the crate", async () => {
     remember({ path: "/crates", crate: 7 });
     const { router } = launch({ crates: [crate(3, "Warmup"), crate(7, "Peak time")] });
@@ -142,6 +149,14 @@ describe("remembering the screen as the user moves", () => {
     await act(() => router.navigate({ to: "/library" }));
     expect(localStorage.getItem(SCREEN_STORAGE_KEY)).toBeNull();
     await waitFor(() => expect(localStorage.getItem(SCREEN_STORAGE_KEY)).toBe(JSON.stringify({ path: "/library" })));
+  });
+
+  it("remembers Settings like a stage", async () => {
+    fakeBackend();
+    const { router } = renderApp("/overview");
+    await screen.findByRole("heading", { level: 1, name: tx("shell:stages.overview") });
+    await act(() => router.navigate({ to: "/settings" }));
+    await waitFor(() => expect(localStorage.getItem(SCREEN_STORAGE_KEY)).toBe(JSON.stringify({ path: "/settings" })));
   });
 
   it("does not remember a screen that isn't a stage", async () => {

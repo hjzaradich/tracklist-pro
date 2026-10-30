@@ -122,6 +122,17 @@ Owner-approved on 2026-10-24, after a real Library showed three nested scrollbar
 - **A switch that is on is active, so it takes the accent:** its border and icon or words, and a mark that isn't colour (the words are underlined; "Play next" in the player bar has a 2px bar under its icon). Nothing is filled: the one filled button stays the screen's main action.
 - **The Details panel** is 288px wide: the title (16px, wraps), the file's path in the mono font, then each tag as a muted 12px label over its value (14px) and a 12px source line. "More details" is a checkbox in the accent colour.
 
+## Settings (1cC-2)
+
+- **A screen, not a stage.** Settings is reached from a gear button at the end of the top bar (before the theme switch) and from the palette's "Open Settings". The sidebar lists the workflow's five stages and nothing else, so no stage is selected on `/settings`; the gear carries the active mark instead (the selected tint, the accent, and a 2px bar under the icon, as "Play next" does).
+- **The gear is an icon-only button** the size of the other top-bar buttons (`--row-height`), with an accessible name and the same hover tint. It is quiet at rest.
+- **Panels, not a form.** One panel per group, each `width: min(40rem, 100%)`, `--color-surface-raised`, 1px `--color-border`, `--radius-md`, `--space-4` inside, `--space-4` between panels, under an `h1` (the stage title style) and an `h2` per panel. The screen sits in the normal stage column.
+- **A change applies at once, so the screen has no Save and no filled button.** The filled accent button belongs to the action a screen leads to; Settings leads nowhere. The only filled button that can appear is the one inside a confirm.
+- **A switch row** is a native checkbox with its label, and its help text below it, linked with `aria-describedby`: label `--font-size-md` regular, help `--font-size-sm` in `--color-text-muted`, `--space-1` between them, the help indented under the label text (the box's width plus `--space-2`). The checkbox takes `accent-color: var(--color-accent)`. "On" is shown by the ticked box and by the help text's own words, so it is never colour alone. The same build as the OneDrive row (`ReadOnlineOnlySwitch`), which joins this screen later (as a `SwitchRow`), so every row looks and behaves the same.
+- **While a change is saving the row is disabled** (`disabled`, muted text) and keeps the state it shows. A failure puts the row back and shows an error line under it (`role="alert"`, `--color-danger`).
+- **A confirm in a row is an in-flow `alertdialog`** under the row it belongs to, like the Library's remove and the crates' delete: `--color-surface` with a 1px `--color-border`, `--radius-md`, `--space-3` inside, `--space-2` above the row. It takes the focus on **Go back**, closes on Esc, and holds one filled button (the verb of its question) with Go back beside it, plain. A narrow window wraps the two buttons. Turning a setting off never asks.
+- **Words under the switch change with its state** (off and on each have their own help line); the row's label never changes.
+
 ## The one exception to "class names only"
 
 A cell that is cut off with "…" gets a `title` attribute (the native hover text) set to **the same value the cell shows**: no new text, no new data, no locale key. Allowed by the foreman, 2026-10-10. A test per list holds it ("a cut-off title cell carries its full text").

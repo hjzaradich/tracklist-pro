@@ -18,6 +18,9 @@
     "placeholder": "Search or type a command",
     "shortcut": "Ctrl K"
   },
+  "settings": {
+    "button": "Settings"
+  },
   "undo": {
     "button": "Undo",
     "shortcut": "Ctrl Z",
