@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { Crate } from "../bindings";
-import { crateChoices } from "../crates/tree";
+import type { CrateChoice } from "../crates/tree";
 import type { LibraryRow } from "./libraryRow";
 import { shownTitle } from "./RemoveFromLibrary";
 import styles from "./LibraryTrackList.module.css";
@@ -11,19 +11,19 @@ import styles from "./LibraryTrackList.module.css";
  * for the next track. Crates in folders are named by where they are
  * ("Friday residency › Warmup"); folders themselves can't be chosen, as they
  * hold no tracks. With no crates there is nothing to choose, and it says so.
- * `crates` is the whole list from the backend, folders included.
+ * `choices` is `crateChoices` of the crates, built once by the screen
+ * and shared by every row.
  */
 export function AddToCrate({
   track,
-  crates,
+  choices,
   onChoose,
 }: {
   track: LibraryRow;
-  crates: Crate[];
+  choices: CrateChoice[];
   onChoose: (track: LibraryRow, crate: Crate) => void;
 }) {
   const { t } = useTranslation("crates");
-  const choices = crateChoices(crates);
   return (
     <select
       className={styles.select}

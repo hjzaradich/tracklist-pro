@@ -2,14 +2,21 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type { LibraryTrack } from "../bindings";
 import "../i18n";
+import { crateChoices } from "../crates/tree";
 import { LibraryScreen } from "./LibraryScreen";
 import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
 import { expectOnlyTheTopBarUndo, TopBarUndo } from "../test/topBarUndo";
 import { tx } from "../test/tx";
+
+// Counts the calls and keeps the real function.
+vi.mock("../crates/tree", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../crates/tree")>();
+  return { ...original, crateChoices: vi.fn(original.crateChoices) };
+});
 
 function track(id: number, fields: Partial<LibraryTrack> = {}): LibraryTrack {
   return {
@@ -481,6 +488,20 @@ describe("adding a track to a crate", () => {
       "Warm up",
       "Peak time",
     ]);
+  });
+
+  it("builds the crates to choose from once for the whole screen, not once per row", async () => {
+    crateBackend([
+      { id: 1, name: "Warm up", trackIds: [] },
+      { id: 2, name: "Peak time", trackIds: [] },
+    ]);
+    vi.mocked(crateChoices).mockClear();
+    renderScreen();
+    for (const title of ["Synthetic Tune 1", "Synthetic Tune 2"]) {
+      const choice = await addChoice(title);
+      await waitFor(() => expect(choice).toBeEnabled());
+    }
+    expect(crateChoices).toHaveBeenCalledTimes(1);
   });
 
   it("adds that track, and only that track, to the chosen crate", async () => {
