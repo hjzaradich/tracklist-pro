@@ -31,6 +31,11 @@ export function useAppActions() {
     ...STAGES.map((stage) => goTo(stage.id, t(`shell:stages.${stage.id}`), stage.path)),
     goTo("afterSend", t("afterSend:page"), "/after-send"),
     {
+      id: "openSettings",
+      label: t("palette:openSettings"),
+      run: () => void navigate({ to: "/settings" }),
+    },
+    {
       id: "searchAllMusic",
       label: t("palette:searchAllMusic"),
       run: () => {

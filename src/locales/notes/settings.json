@@ -1,0 +1,66 @@
+{
+  "title": {
+    "purpose": "Heading of the Settings screen.",
+    "where": "Settings screen, page title."
+  },
+  "rekordbox.title": {
+    "purpose": "Heading of the panel that holds the settings about rekordbox.",
+    "where": "Settings screen, panel heading."
+  },
+  "energyStars.label": {
+    "purpose": "Label of the switch that sends energy to rekordbox as the star rating. It never changes with the state.",
+    "where": "Settings screen, rekordbox panel, the switch's label."
+  },
+  "energyStars.helpOff": {
+    "purpose": "Help under the switch while it is off: how energy maps to stars, and that energy stays in the app.",
+    "where": "Settings screen, rekordbox panel, under the switch while off."
+  },
+  "energyStars.helpOn": {
+    "purpose": "Help under the switch while it is on: each send sets the stars from energy; tracks with no energy keep theirs.",
+    "where": "Settings screen, rekordbox panel, under the switch while on."
+  },
+  "energyStars.offNote": {
+    "purpose": "Says what turning the switch off leaves behind: stars stay as last sent and rekordbox's rating counts again.",
+    "where": "Settings screen, rekordbox panel, under the help, right after the switch is turned off (until the user leaves the screen)."
+  },
+  "energyStars.counting": {
+    "purpose": "Says the tracks are being counted before the confirm opens.",
+    "where": "Settings screen, rekordbox panel, under the switch, while counting."
+  },
+  "energyStars.confirmTitle": {
+    "purpose": "Title of the confirm that opens when the switch is turned on. A question whose verb the filled button restates.",
+    "where": "Settings screen, rekordbox panel, confirm under the switch (title)."
+  },
+  "energyStars.changes_zero": {
+    "purpose": "Says no track's stars in rekordbox would change; {{when}} is the date and time of the export read it counts from.",
+    "where": "Settings screen, rekordbox panel, confirm, count line (none)."
+  },
+  "energyStars.changes_one": {
+    "purpose": "Says one track's stars in rekordbox would change; {{when}} is the date and time of the export read it counts from.",
+    "where": "Settings screen, rekordbox panel, confirm, count line (one)."
+  },
+  "energyStars.changes_other": {
+    "purpose": "Says how many tracks' stars in rekordbox would change; {{when}} is the date and time of the export read it counts from.",
+    "where": "Settings screen, rekordbox panel, confirm, count line (several)."
+  },
+  "energyStars.noRead": {
+    "purpose": "Says there is nothing to count because rekordbox's export has never been read, and that the send review shows the number before anything is written.",
+    "where": "Settings screen, rekordbox panel, confirm, in place of the count line."
+  },
+  "energyStars.confirmDetail": {
+    "purpose": "Says tracks with no energy keep their stars, and that a star rating changed in rekordbox later waits in Review as a conflict.",
+    "where": "Settings screen, rekordbox panel, confirm, body under the count line."
+  },
+  "energyStars.confirm": {
+    "purpose": "The confirm's filled button; restates the verb of the question.",
+    "where": "Settings screen, rekordbox panel, confirm, button."
+  },
+  "energyStars.back": {
+    "purpose": "The confirm's other button; leaves the switch off.",
+    "where": "Settings screen, rekordbox panel, confirm, button."
+  },
+  "energyStars.error": {
+    "purpose": "Says the setting could not be saved and the switch is as it was.",
+    "where": "Settings screen, rekordbox panel, error line under the switch (alert)."
+  }
+}

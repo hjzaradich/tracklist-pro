@@ -1,0 +1,134 @@
+/* The Settings screen (1cC-2). Tokens only; see docs/design-style.md, "Settings". */
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+  align-self: stretch;
+  justify-self: stretch;
+  min-height: 0;
+  overflow: auto;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(40rem, 100%);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.checkbox {
+  accent-color: var(--color-accent);
+}
+
+.label:has(.checkbox:disabled) {
+  color: var(--color-text-disabled);
+}
+
+/* The help is indented under the label's text: the box's width plus the gap. */
+.help {
+  margin: 0;
+  padding-left: calc(13px + var(--space-2));
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  margin: 0;
+  padding-left: calc(13px + var(--space-2));
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+/* A confirm in a row: in the flow, under the row it belongs to. */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.confirmTitle {
+  margin: 0;
+  font-weight: 600;
+}
+
+.confirmDetail {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.button,
+.primary {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The one filled button on the screen, and only inside a confirm. */
+.primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button:focus-visible,
+.primary:focus-visible,
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}

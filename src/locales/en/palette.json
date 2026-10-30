@@ -10,5 +10,6 @@
   "empty": "No matching commands",
   "goTo": "Go to {{name}}",
   "searchAllMusic": "Search All music",
+  "openSettings": "Open Settings",
   "theme": "Theme: {{name}}"
 }

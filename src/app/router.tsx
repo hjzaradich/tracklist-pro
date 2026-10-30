@@ -16,6 +16,7 @@ import { isCrateId } from "../launch/savedScreen";
 import { LibraryScreen } from "../library/LibraryScreen";
 import { OverviewScreen } from "../overview/OverviewScreen";
 import { ReviewScreen } from "../review/ReviewScreen";
+import { SettingsScreen } from "../settings/SettingsScreen";
 import { AppShell } from "../shell/AppShell";
 
 // Code-based routes (no file-based route generation). Every screen renders
@@ -108,6 +109,14 @@ const afterSendRoute = createRoute({
   component: AfterSendScreen,
 });
 
+// Not a stage and not in the sidebar: Settings, reached from the top bar's gear
+// and the palette (1cC-2).
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsScreen,
+});
+
 // One route per line, with a trailing comma, so lanes adding routes each add
 // a line and don't conflict.
 const routeTree = rootRoute.addChildren([
@@ -118,6 +127,7 @@ const routeTree = rootRoute.addChildren([
   libraryRoute,
   cratesRoute,
   afterSendRoute,
+  settingsRoute,
 ]);
 
 /**
