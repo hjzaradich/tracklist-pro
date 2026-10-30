@@ -44,6 +44,10 @@
 }
 
 .checkbox {
+  /* A known size, so the help can line up under the label's text. */
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
   accent-color: var(--color-accent);
 }
 
@@ -54,14 +58,14 @@
 /* The help is indented under the label's text: the box's width plus the gap. */
 .help {
   margin: 0;
-  padding-left: calc(13px + var(--space-2));
+  padding-left: calc(1rem + var(--space-2));
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
 
 .error {
   margin: 0;
-  padding-left: calc(13px + var(--space-2));
+  padding-left: calc(1rem + var(--space-2));
   color: var(--color-danger);
   font-size: var(--font-size-sm);
 }

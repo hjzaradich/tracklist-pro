@@ -17,6 +17,7 @@
     "confirmDetail": "Tracks with no energy keep their stars. A star rating you change in rekordbox later will wait in Review as a conflict.",
     "confirm": "Turn on",
     "back": "Go back",
-    "error": "Couldn't save the setting. Try again."
+    "error": "Couldn't save the setting. Try again.",
+    "countError": "Couldn't count the tracks. Try again."
   }
 }

@@ -45,14 +45,20 @@ function fakeBackend({
   return backend;
 }
 
+/** The screen, with the switch once the setting has been read (until then it can't be used). */
 async function renderSettings() {
+  const box = renderSettingsUnread();
+  await waitFor(() => expect(box).toBeEnabled());
+  return box;
+}
+
+function renderSettingsUnread() {
   render(
     <QueryClientProvider client={createQueryClient()}>
       <SettingsScreen />
     </QueryClientProvider>,
   );
-  const box = await screen.findByRole("checkbox", { name: tx("settings:energyStars.label") });
-  return box;
+  return screen.getByRole("checkbox", { name: tx("settings:energyStars.label") });
 }
 
 afterEach(() => {
@@ -219,6 +225,97 @@ describe("turning the energy setting on", () => {
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(box).toBeChecked());
     expect(backend.writes).toEqual([true]);
+  });
+});
+
+describe("before the setting is known", () => {
+  it("is disabled and shows neither state while the setting is being read, and a click starts nothing", async () => {
+    let answer: (on: boolean) => void = () => {};
+    const stored = new Promise<boolean>((resolve) => {
+      answer = resolve;
+    });
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      if (cmd === "read_energy_as_stars") return stored;
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    const box = renderSettingsUnread();
+    expect(box).toBeDisabled();
+    expect(box).toBePartiallyChecked();
+    expect(screen.queryByText(tx("settings:energyStars.helpOff"))).toBeNull();
+    await userEvent.click(box);
+    expect(calls).not.toContain("energy_as_stars_would_change");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    // Once it is read as on, it shows on and offers no turn-on.
+    answer(true);
+    await waitFor(() => expect(box).toBeEnabled());
+    expect(box).toBeChecked();
+    expect(box).not.toBePartiallyChecked();
+    expect(box).toHaveAccessibleDescription(tx("settings:energyStars.helpOn"));
+  });
+
+  it("stays disabled and shows an alert when the setting can't be read, and a click starts nothing", async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      if (cmd === "read_energy_as_stars") throw { kind: "database", params: {} };
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    const box = renderSettingsUnread();
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("errors:database"));
+    expect(box).toBeDisabled();
+    await userEvent.click(box);
+    expect(calls).not.toContain("energy_as_stars_would_change");
+    expect(calls).not.toContain("set_energy_as_stars");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
+
+describe("when the tracks can't be counted", () => {
+  it("shows its own alert, not the one about saving, and leaves the switch off and usable", async () => {
+    const backend = fakeBackend();
+    const box = await renderSettings();
+    mockIPC((cmd) => {
+      backend.calls.push(cmd);
+      if (cmd === "read_energy_as_stars") return false;
+      if (cmd === "energy_as_stars_would_change") throw { kind: "database", params: {} };
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    await userEvent.click(box);
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("settings:energyStars.countError"));
+    expect(screen.queryByText(tx("settings:energyStars.error"))).toBeNull();
+    expect(box).not.toBeChecked();
+    expect(box).toBeEnabled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
+
+describe("while Turn on is saving", () => {
+  it("ignores Esc: the panel stays until the result lands", async () => {
+    let finish: () => void = () => {};
+    const saving = new Promise<null>((resolve) => {
+      finish = () => resolve(null);
+    });
+    mockIPC((cmd) => {
+      if (cmd === "read_energy_as_stars") return false;
+      if (cmd === "energy_as_stars_would_change") return { result: "noRead" };
+      if (cmd === "set_energy_as_stars") return saving;
+      if (cmd === "send_state") return null;
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    const box = await renderSettings();
+    await userEvent.click(box);
+    const turnOn = await screen.findByRole("button", { name: tx("settings:energyStars.confirm") });
+    await userEvent.click(turnOn);
+    await waitFor(() => expect(turnOn).toBeDisabled());
+    const back = screen.getByRole("button", { name: tx("settings:energyStars.back") });
+    back.focus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    finish();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(box).toBeChecked();
   });
 });
 

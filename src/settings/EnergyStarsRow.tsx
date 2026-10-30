@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { errorMessage } from "../api/errors";
 import type { WouldChange } from "../bindings";
 import { SwitchRow } from "./SwitchRow";
 import styles from "./settings.module.css";
@@ -16,34 +17,45 @@ import {
  */
 export function EnergyStarsRow() {
   const { t } = useTranslation("settings");
-  const on = useEnergyAsStars();
+  const stored = useEnergyAsStars();
+  // Until the setting has been read, the box is not "off": it is disabled and
+  // shows neither state, so a click can never turn on what is already on.
+  const known = stored.status === "ready";
+  const on = stored.status === "ready" && stored.on;
   const save = useSetEnergyAsStars();
   const count = useEnergyStarsWouldChange();
   const [asking, setAsking] = useState<WouldChange | null>(null);
   // Said under the switch right after it is turned off, until the user leaves.
   const [justOff, setJustOff] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<"save" | "count" | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   const counting = count.isPending;
-  const pending = save.isPending || counting;
+  const pending = !known || save.isPending || counting;
   // While a change is saved the box shows where it is going; a failure puts it back.
   const checked = save.isPending ? save.variables === true : on;
 
+  // A box that doesn't know its state shows neither: a dash, not an empty box.
+  useEffect(() => {
+    if (input.current) input.current.indeterminate = !known;
+  });
+
   const turnOn = () => {
-    setFailed(false);
+    if (!known) return;
+    setFailed(null);
     setJustOff(false);
     count.mutate(undefined, {
       onSuccess: (answer) => setAsking(answer),
-      onError: () => setFailed(true),
+      onError: () => setFailed("count"),
     });
   };
 
   const turnOff = () => {
-    setFailed(false);
+    if (!known) return;
+    setFailed(null);
     save.mutate(false, {
       onSuccess: () => setJustOff(true),
-      onError: () => setFailed(true),
+      onError: () => setFailed("save"),
     });
   };
 
@@ -62,11 +74,11 @@ export function EnergyStarsRow() {
   };
 
   const confirm = () => {
-    setFailed(false);
+    setFailed(null);
     save.mutate(true, {
       onSuccess: close,
       onError: () => {
-        setFailed(true);
+        setFailed("save");
         close();
       },
     });
@@ -75,11 +87,19 @@ export function EnergyStarsRow() {
   return (
     <SwitchRow
       label={t("energyStars.label")}
-      help={t(checked ? "energyStars.helpOn" : "energyStars.helpOff")}
+      help={known ? t(checked ? "energyStars.helpOn" : "energyStars.helpOff") : undefined}
       notes={justOff && !checked ? [t("energyStars.offNote")] : []}
       checked={checked}
       pending={pending}
-      error={failed ? t("energyStars.error") : null}
+      error={
+        stored.status === "error"
+          ? errorMessage(stored.error)
+          : failed === "count"
+            ? t("energyStars.countError")
+            : failed === "save"
+              ? t("energyStars.error")
+              : null
+      }
       onChange={(next) => (next ? turnOn() : turnOff())}
       inputRef={input}
     >
@@ -88,6 +108,8 @@ export function EnergyStarsRow() {
           {t("energyStars.counting")}
         </p>
       )}
+      {/* The count is a snapshot from when this opened; it names the read it
+          comes from, and the send review gives the exact figure. */}
       {asking !== null && (
         <ConfirmTurnOn
           answer={asking}
@@ -134,7 +156,8 @@ function ConfirmTurnOn({
       aria-describedby={`${countId} ${detailId}`}
       className={styles.confirm}
       onKeyDown={(event) => {
-        if (event.key === "Escape") onCancel();
+        // Not while the write runs: the panel stays until the result lands.
+        if (event.key === "Escape" && !saving) onCancel();
       }}
     >
       <p id={titleId} className={styles.confirmTitle}>

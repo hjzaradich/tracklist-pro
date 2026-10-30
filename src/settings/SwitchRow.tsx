@@ -19,8 +19,8 @@ export function SwitchRow({
   children,
 }: {
   label: string;
-  /** The help under the switch; it changes with the state, the label never does. */
-  help: string;
+  /** The help under the switch; it changes with the state, the label never does. Left out while the state is not known. */
+  help?: string;
   /** Further lines under the help, read with it. */
   notes?: string[];
   checked: boolean;
@@ -35,6 +35,7 @@ export function SwitchRow({
 }) {
   const helpId = useId();
   const noteIds = notes.map((_, index) => `${helpId}-${index}`);
+  const described = [...(help === undefined ? [] : [helpId]), ...noteIds].join(" ");
   return (
     <div className={styles.row}>
       <label className={styles.label}>
@@ -44,14 +45,16 @@ export function SwitchRow({
           className={styles.checkbox}
           checked={checked}
           disabled={pending}
-          aria-describedby={[helpId, ...noteIds].join(" ")}
+          aria-describedby={described === "" ? undefined : described}
           onChange={(event) => onChange(event.target.checked)}
         />
         {label}
       </label>
-      <p id={helpId} className={styles.help}>
-        {help}
-      </p>
+      {help !== undefined && (
+        <p id={helpId} className={styles.help}>
+          {help}
+        </p>
+      )}
       {notes.map((note, index) => (
         <p key={noteIds[index]} id={noteIds[index]} className={styles.help}>
           {note}

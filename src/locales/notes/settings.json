@@ -62,5 +62,9 @@
   "energyStars.error": {
     "purpose": "Says the setting could not be saved and the switch is as it was.",
     "where": "Settings screen, rekordbox panel, error line under the switch (alert)."
+  },
+  "energyStars.countError": {
+    "purpose": "Says the tracks could not be counted, so the confirm did not open and the switch is as it was.",
+    "where": "Settings screen, rekordbox panel, error line under the switch (alert), after turning it on."
   }
 }
