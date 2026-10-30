@@ -91,7 +91,7 @@ test("a change to other spikes runs nothing, since CI builds no other spike", ()
 
 test("a Rust change runs the frontend checks and the Rust job, and mixed changes run each area's job", () => {
   assert.deepEqual(jobsFor(["src-tauri/src/lib.rs"]), rustApp);
-  assert.deepEqual(jobsFor(["src/main.tsx", "spikes/rb-kit/rbxml.py", "TASKS.md"]), { ...frontendOnly, rb_kit: true });
+  assert.deepEqual(jobsFor(["src/App.tsx", "spikes/rb-kit/rbxml.py", "TASKS.md"]), { ...frontendOnly, rb_kit: true });
   assert.deepEqual(jobsFor(["src-tauri/src/lib.rs", "spikes/rb-kit/rbxml.py"]), { ...rustApp, rb_kit: true });
 });
 
@@ -125,6 +125,7 @@ test("a frontend change together with src/bindings.ts runs the Rust job", () => 
 test("each frontend file a Rust test reads runs the Rust job; a new file in a listed folder does too", () => {
   for (const file of [
     "src/bindings.ts",
+    "src/main.tsx",
     "src/locales/en/review.json",
     "src/locales/en/errors.json",
     "src/locales/en/aNewNamespace.json",

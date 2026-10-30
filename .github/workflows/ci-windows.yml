@@ -348,8 +348,9 @@ jobs:
         if: ${{ !cancelled() && env.APP == 'true' }}
         run: npm ci
 
-      # Includes the i18n types check and tsc. The Windows compile builds the
-      # frontend again, so a Windows-only build problem still shows there.
+      # Includes the i18n types check and tsc. A change that touches Rust
+      # also builds the frontend again in the Windows compile, but a
+      # frontend-only change skips that job, so this step is its build check.
       - name: Build the frontend
         if: ${{ !cancelled() && env.APP == 'true' }}
         run: npm run build

@@ -296,7 +296,9 @@ fn reading_and_watching_leave_the_export_and_its_folder_untouched() {
     write_at(&xml, &export(&[1, 2]), 1_000);
     write_at(&docs.join("broken.xml"), "<DJ_PLAYLISTS><COLLECTION", 2_000);
     write_at(&docs.join("notes.txt"), "not an export", 3_000);
+    // ci-reads: not a frontend read (a folder in a temp dir)
     fs::create_dir(docs.join("rekordbox")).unwrap();
+    // ci-reads: not a frontend read (a folder in a temp dir)
     write_at(&docs.join("rekordbox").join("old.xml"), &export(&[9]), 500);
     let mut before = BTreeMap::new();
     disk_state(docs, &mut before);

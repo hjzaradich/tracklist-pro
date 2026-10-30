@@ -84,6 +84,9 @@ export const RUST_READS = [
   // ipc.rs (BINDINGS_REL_PATH): the test that the committed bindings are
   // what the commands generate.
   "src/bindings.ts",
+  // ipc.rs (bindings_path_points_at_the_frontend_src_folder): checks that
+  // src/main.tsx is a file beside it.
+  "src/main.tsx",
   // ipc/error.rs (every error key has an English message in some namespace
   // file), review/reasons.rs and review/tests/plan.rs (review.json).
   "src/locales/en/",
