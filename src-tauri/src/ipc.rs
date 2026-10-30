@@ -284,6 +284,40 @@ mod tests {
     }
 
     #[test]
+    fn the_committed_bindings_are_what_the_commands_generate() {
+        // Replaces a CI step that rebuilt the whole crate to run the export
+        // example (audit 1cB, A11): the tests already hold the compiled
+        // commands, so the same comparison costs no build. Line endings are
+        // normalised, as a checkout on another machine may differ in them.
+        let dir = tempfile::tempdir().unwrap();
+        let generated_path = dir.path().join("bindings.ts");
+        export_bindings(&generated_path).unwrap();
+        let normalised = |path: &Path| {
+            std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+                .replace("\r\n", "\n")
+        };
+        let generated = normalised(&generated_path);
+        let committed = normalised(&bindings_path());
+        if generated != committed {
+            let line = generated
+                .lines()
+                .zip(committed.lines())
+                .position(|(g, c)| g != c)
+                .unwrap_or_else(|| generated.lines().count().min(committed.lines().count()));
+            panic!(
+                "src/bindings.ts is out of date (first difference at line {}): a Rust IPC \
+                 change was committed without its bindings. Run `cargo run --example \
+                 export_bindings` in src-tauri and commit the result.\n  generated: {:?}\n  \
+                 committed: {:?}",
+                line + 1,
+                generated.lines().nth(line),
+                committed.lines().nth(line),
+            );
+        }
+    }
+
+    #[test]
     fn bindings_path_points_at_the_frontend_src_folder() {
         let path = bindings_path();
         assert!(
