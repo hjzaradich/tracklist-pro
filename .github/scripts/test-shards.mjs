@@ -55,12 +55,13 @@ export const SHARDS = [
     lib: ["grouping", "db", "relink", "ops"],
   },
   {
-    lib: ["scan", "rekordbox", "conflicts", "review", "versions", "quality", "send", "crates", "matching", "hash"],
+    // after_send is here because the filter "send::" also matches "after_send::".
+    lib: ["scan", "rekordbox", "conflicts", "review", "versions", "quality", "send", "after_send", "crates", "matching", "hash"],
   },
   {
     catchAll: true,
     lib: [
-      "after_send", "all_music", "attach", "audio_preview", "best_file", "conflict_review", "energy", "file_roles",
+      "all_music", "attach", "audio_preview", "best_file", "conflict_review", "energy", "file_roles",
       "fingerprint", "fragile", "hidden", "ipc", "jobs", "library", "missing", "net", "overview", "paths", "preview",
       "read", "rekordbox_write", "scan_state", "search", "send_values", "settings", "sniff", "start", "suggest",
       "tags", "track_table", "ui_setting", "volume", "waveform", "write_guard",
@@ -193,25 +194,28 @@ export function parseList(output) {
 
 /**
  * Why the library's tests (`names`) don't each run in exactly one shard, and
- * in the shard that names their module; empty if they do. A message per
- * problem, at most `limit` of them.
+ * in the shard that names their module; empty if they do. One message per
+ * module and wrong place, with a count and the first test as an example.
  */
-export function listProblems(names, shards = SHARDS, limit = 20) {
-  const problems = [];
+export function listProblems(names, shards = SHARDS) {
+  const groups = new Map();
   for (const name of names) {
     const module = name.split("::")[0];
     const at = shards.flatMap((s, i) => (runsIn(s, name, shards) ? [i + 1] : []));
     const named = shards.flatMap((s, i) => (s.lib.includes(module) ? [i + 1] : []));
+    let why = null;
     if (at.length !== 1) {
-      problems.push(`${name} runs in ${at.length === 0 ? "no shard" : `shards ${at.join(" and ")}`}.`);
+      why = `runs in ${at.length === 0 ? "no shard" : `shards ${at.join(" and ")}`}`;
     } else if (named.length !== 1 || named[0] !== at[0]) {
-      problems.push(
-        `${name} runs in shard ${at[0]}, but its module "${module}" is ${named.length === 0 ? "in no shard's list" : `listed in shard ${named.join(" and ")}`}.`,
-      );
+      why = `runs in shard ${at[0]}, but its module "${module}" is ${named.length === 0 ? "in no shard's list" : `listed in shard ${named.join(" and ")}`}`;
     }
+    if (!why) continue;
+    const key = `${module}|${why}`;
+    const group = groups.get(key) ?? { why, count: 0, first: name };
+    group.count++;
+    groups.set(key, group);
   }
-  if (problems.length > limit) return [...problems.slice(0, limit), `...and ${problems.length - limit} more.`];
-  return problems;
+  return [...groups.values()].map((g) => `${g.first}${g.count > 1 ? ` and ${g.count - 1} more` : ""} ${g.why}.`);
 }
 
 // Reports.

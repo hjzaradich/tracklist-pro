@@ -114,11 +114,11 @@ test("the real shards: nested module names that look like another shard's filter
   assert.match(listProblems(["ipc::db::x"])[0], /ipc::db::x runs in shard 1, but its module "ipc" is listed in shard 3/);
 });
 
-test("long problem lists are cut short", () => {
-  const names = Array.from({ length: 30 }, (_, i) => `new${i}::x`);
-  const problems = listProblems(names, small, 5);
-  assert.equal(problems.length, 6);
-  assert.equal(problems[5], "...and 25 more.");
+test("problems are grouped by module, with a count", () => {
+  const names = [...Array.from({ length: 30 }, (_, i) => `new${i % 2}::x${i}`)];
+  const problems = listProblems(names, small);
+  assert.equal(problems.length, 2);
+  assert.equal(problems[0], `new0::x0 and 14 more runs in shard 2, but its module "new0" is in no shard's list.`);
 });
 
 test("cargo's test list is read as test names", () => {
