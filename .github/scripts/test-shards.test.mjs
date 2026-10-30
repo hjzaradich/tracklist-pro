@@ -159,7 +159,7 @@ test("the windows job runs a part per shard on GitHub's runners, and one part fo
 });
 
 test("each shard runs the shard script with its number; the build part compiles and lints", () => {
-  assert.match(windows, /if: matrix\.part == 'tests'\n {8}run: node \.github\/scripts\/test-shards\.mjs run \$\{\{ matrix\.shard \}\}/);
+  assert.match(windows, /if: matrix\.part == 'tests'\n(?: {8}env:\n {10}.*\n)? {8}run: node \.github\/scripts\/test-shards\.mjs run \$\{\{ matrix\.shard \}\}/);
   assert.match(windows, /name: Compile the app\n {8}if: matrix\.part != 'tests'/);
   assert.match(windows, /name: Clippy\n {8}if: \$\{\{ !cancelled\(\) && matrix\.part != 'tests' \}\}/);
   // The unsharded run is for the owner's PC alone.
