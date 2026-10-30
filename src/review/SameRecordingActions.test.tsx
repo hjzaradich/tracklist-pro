@@ -121,7 +121,7 @@ function backend(start: Partial<World> = {}): World {
   };
   const act = (kind: string) => {
     world.queued = false;
-    world.undo = { id: 100, kind, details: { name: null, from: null, tracks: 1 } };
+    world.undo = { id: 100, kind, details: { name: null, from: null, tracks: 1, newToLibrary: null, newCrate: null } };
     return 100;
   };
   mockIPC((cmd, payload) => {

@@ -132,6 +132,34 @@
     "where": "Top bar, Undo button, when the next step to undo is \"Add to crate\".",
     "approved": "Undo ({{count}} tracks added to “{{name}}”)"
   },
+  "undo.action.addToCrateLibrary_one": {
+    "purpose": "Undo button naming what it takes back: one track added to a crate, which also came into the Library.",
+    "where": "Top bar, Undo button, when the next step to undo is an add to a crate that also added tracks to the Library."
+  },
+  "undo.action.addToCrateLibrary_other": {
+    "purpose": "Undo button naming what it takes back: several tracks added to a crate, some of which also came into the Library.",
+    "where": "Top bar, Undo button, when the next step to undo is an add to a crate that also added tracks to the Library."
+  },
+  "undo.action.addToNewCrate_zero": {
+    "purpose": "Undo button naming what it takes back: a crate made from the add dialog when every track was left out.",
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added nothing to it."
+  },
+  "undo.action.addToNewCrate_one": {
+    "purpose": "Undo button naming what it takes back: a crate made from the add dialog, with one track in it.",
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added a track to it."
+  },
+  "undo.action.addToNewCrate_other": {
+    "purpose": "Undo button naming what it takes back: a crate made from the add dialog, with several tracks in it.",
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks to it."
+  },
+  "undo.action.addToNewCrateLibrary_one": {
+    "purpose": "Undo button naming what it takes back: a new crate with one track, which also came into the Library.",
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks that were not in the Library."
+  },
+  "undo.action.addToNewCrateLibrary_other": {
+    "purpose": "Undo button naming what it takes back: a new crate with several tracks, some of which also came into the Library.",
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks that were not in the Library."
+  },
   "undo.action.removeFromCrate_one": {
     "purpose": "Undo button naming what it takes back: one track removed from a crate.",
     "where": "Top bar, Undo button, when the next step to undo is a removal from a crate.",

@@ -3,10 +3,10 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate } from "../bindings";
 import { matches } from "../palette/match";
-import { useAddSelectionToCrate } from "./addSelection";
+import { useAddSelectionToCrate, useAddSelectionToNewCrate } from "./addSelection";
 import styles from "./AddToCrateDialog.module.css";
 import { crateChoices } from "./tree";
-import { useCrates, useCreateCrate } from "./useCrates";
+import { useCrates } from "./useCrates";
 
 /** How a name is compared with its siblings (ROADMAP 1.9): NFC, letter case and trailing space ignored. */
 const siblingKey = (name: string) => name.normalize("NFC").trim().toLowerCase();
@@ -23,9 +23,11 @@ type Option =
  * starts a word of the name. Enter adds the selected tracks to the highlighted
  * crate; the last row, when something is typed, makes a new crate at the top
  * of the tree from the typed name (the sibling-name rules are the backend's,
- * so a name already used is refused there) and adds to it. Folders can't be
- * chosen: they hold crates, not tracks. Escape, a click outside and "Go back"
- * close it. What was added is told on the line over the track table.
+ * so a name already used is refused there) and adds to it. Making the crate
+ * and adding are one operation (one Undo), and a refusal makes no crate.
+ * Folders can't be chosen: they hold crates, not tracks. Escape, a click
+ * outside and "Go back" close it. What was added is told on the line over
+ * the track table.
  *
  * `recordings` are the tracks (`TableRow.recordingId`) as they were when it
  * opened.
@@ -39,8 +41,8 @@ export function AddToCrateDialog({
 }) {
   const { t } = useTranslation("crates");
   const crates = useCrates().data;
-  const create = useCreateCrate();
   const addSelection = useAddSelectionToCrate();
+  const addToNewCrate = useAddSelectionToNewCrate();
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -87,15 +89,15 @@ export function AddToCrateDialog({
     setWorking(true);
     setError(null);
     try {
-      const target =
-        option.kind === "crate"
-          ? option.crate
-          : { id: await create.mutateAsync({ name: option.name, parent: null }), name: option.name.trim() };
-      await addSelection(target, recordings);
+      if (option.kind === "crate") await addSelection(option.crate, recordings);
+      else await addToNewCrate(option.name, recordings);
       onClose();
     } catch (failure) {
       setError(errorMessage(failure));
       setWorking(false);
+      // The box keeps the keyboard: it was never disabled, and this puts the
+      // focus back if the page moved it meanwhile.
+      input.current?.focus();
     }
   };
 
@@ -182,7 +184,9 @@ export function AddToCrateDialog({
           spellCheck={false}
           className={styles.input}
           value={query}
-          disabled={working}
+          // Read-only while working, not disabled: a focused box that is
+          // disabled loses the focus, and the keys would go to the page behind.
+          readOnly={working}
           onChange={(event) => {
             setQuery(event.target.value);
             setChosen(null);

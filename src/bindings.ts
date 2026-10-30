@@ -426,10 +426,16 @@ export const commands = {
 	addTracksToCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("add_tracks_to_crate", { id, tracks })),
 	/**
 	 *  Adds tracks to a crate by their track id (a table row's `recordingId`).
-	 *  Tracks outside the Library are left out and counted; one that's in it
-	 *  already is skipped. One operation for all of them.
+	 *  A track outside the Library joins the Library too; one the Library add
+	 *  refuses is left out and counted by reason; one in the crate already is
+	 *  skipped. One operation for all of it.
 	 */
 	addRecordingsToCrate: (id: CrateId, recordings: number[]) => typedError<AddedToCrate, IpcError>(__TAURI_INVOKE("add_recordings_to_crate", { id, recordings })),
+	/**
+	 *  Makes a crate at the top of the tree and adds tracks to it, as
+	 *  `add_recordings_to_crate` does, as one operation (one Undo).
+	 */
+	addRecordingsToNewCrate: (name: string, recordings: number[]) => typedError<AddedToNewCrate, IpcError>(__TAURI_INVOKE("add_recordings_to_new_crate", { name, recordings })),
 	/**  The crates a track is in, for the Details panel. */
 	cratesOfTrack: (recordingId: number) => typedError<CrateId[], IpcError>(__TAURI_INVOKE("crates_of_track", { recordingId })),
 	/**  Takes tracks out of a crate. They stay in the Library. */
@@ -552,18 +558,32 @@ export type AddWarning =
 { code: "lowBitrate"; kbps: number };
 
 /**
- *  What adding tracks to a crate by their track id did (1cB-13): the table's
- *  rows are tracks, and only a Library track can join a crate.
+ *  What adding tracks to a crate by their track id did (1cB-13, 1cB-23): the
+ *  table's rows are tracks. A track outside the Library joins the Library as
+ *  a linked Library track in the same operation, so one Undo takes both back.
  */
 export type AddedToCrate = {
-	/**  How many Library tracks joined the crate. */
+	/**
+	 *  How many tracks joined the crate, those that joined the Library with
+	 *  it included.
+	 */
 	added: number,
-	/**  How many were in it already. */
+	/**  How many of those weren't in the Library: they were added to it too. */
+	alsoAddedToLibrary: number,
+	/**  How many were in the crate already. */
 	alreadyThere: number,
-	/**  How many aren't in the Library, so were left out. */
-	outsideLibrary: number,
+	/**  The tracks outside the Library that couldn't join it, so were left out. */
+	leftOut: LeftOutOfCrate,
 	/**  The operation this recorded; `None` when nothing was added. */
 	operationId: number | null,
+};
+
+/**  What adding tracks to a new crate did: the crate, and the add. */
+export type AddedToNewCrate = {
+	crateId: CrateId,
+	/**  The name as stored (trimmed). */
+	name: string,
+	added: AddedToCrate,
 };
 
 /**  Both lists, for the screen. */
@@ -1254,6 +1274,25 @@ export type LeftOut = {
 };
 
 /**
+ *  How many tracks outside the Library were left out of an add to a crate,
+ *  by why: the reasons "Add to Library" gives (1.8), which a crate add must
+ *  not get around. Each track is counted once, under one reason.
+ */
+export type LeftOutOfCrate = {
+	/**  The track has no file. */
+	noFile: number,
+	/**  Its file isn't on disk. */
+	fileMissing: number,
+	/**  Its only rekordbox match is a probable one, not confirmed yet. */
+	matchNotConfirmed: number,
+	/**
+	 *  Its file has the low bitrate finding, which "Add to Library" asks the
+	 *  user to agree to; an add to a crate can't ask, so it is added by hand.
+	 */
+	lowBitrate: number,
+};
+
+/**
  *  Why a Library track is left out of a send. A code; the wording is in
  *  the locale file.
  */
@@ -1558,6 +1597,13 @@ export type OperationDetails = {
 	from: string | null,
 	/**  How many tracks the operation added or removed. */
 	tracks: number | null,
+	/**
+	 *  How many of the tracks an add to a crate put in the Library too
+	 *  (1cB-23). Left out when the operation didn't record it.
+	 */
+	newToLibrary: number | null,
+	/**  Whether an add to a crate made the crate as well (1cB-23). */
+	newCrate: boolean | null,
 };
 
 /**  An operation, as undo reports it. */

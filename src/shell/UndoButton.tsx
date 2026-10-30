@@ -13,7 +13,7 @@ import { useKeepNextUndoCurrent, useNextUndo, useUndoOperation, useUndoShortcut 
  * need (an older build's), is named plainly.
  */
 function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
-  const { name, from, tracks } = operation.details;
+  const { name, from, tracks, newToLibrary, newCrate } = operation.details;
   switch (operation.kind) {
     case "promote":
       return t("undo.action.addToLibrary");
@@ -45,7 +45,16 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       break;
     case "add_to_crate":
       if (name !== null && tracks !== null) {
-        return t("undo.action.addToCrate", { count: tracks, name });
+        // What it also did (1cB-23): put tracks in the Library, made the crate.
+        const library = newToLibrary ?? 0;
+        if (newCrate === true) {
+          return library > 0
+            ? t("undo.action.addToNewCrateLibrary", { count: tracks, name, library })
+            : t("undo.action.addToNewCrate", { count: tracks, name });
+        }
+        return library > 0
+          ? t("undo.action.addToCrateLibrary", { count: tracks, name, library })
+          : t("undo.action.addToCrate", { count: tracks, name });
       }
       break;
     case "remove_from_crate":

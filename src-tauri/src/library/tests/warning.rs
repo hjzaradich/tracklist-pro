@@ -248,12 +248,14 @@ fn a_refusal_that_is_not_the_warning_still_comes_first() {
 }
 
 #[test]
-fn only_the_library_add_and_the_rekordbox_offer_insert_linked_library_tracks() {
+fn only_the_library_add_the_rekordbox_offer_and_the_crate_add_insert_linked_library_tracks() {
     // The low-bitrate rule is in `promote`. This fails if another code path
     // starts adding linked tracks without going through it; the rekordbox
-    // offer is the one named exception (`start::add_offered`). It counts
+    // offer (`start::add_offered`) is a named exception, and the crate add
+    // (`crates::add_recordings_on`) leaves out the files that have the
+    // warning instead of asking. It counts
     // call sites per file, whitespace and line breaks ignored, so one more
-    // call anywhere (this module and `start` included) fails it.
+    // call anywhere (this module, `start` and `crates` included) fails it.
     fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
@@ -309,10 +311,11 @@ fn only_the_library_add_and_the_rekordbox_offer_insert_linked_library_tracks() {
     // (file, "insert_linked" mentions, `insert("library_track"` calls,
     // SQL inserts into library_track). library/mod.rs: the function and its
     // one use in `promote_on`, and the one insert inside it. start/mod.rs:
-    // the offer's one call.
+    // the offer's one call. crates/mod.rs: the crate add's one call.
     assert_eq!(
         found,
         [
+            ("crates/mod.rs".to_owned(), 1, 0, 0),
             ("library/mod.rs".to_owned(), 2, 1, 0),
             ("start/mod.rs".to_owned(), 1, 0, 0),
         ]

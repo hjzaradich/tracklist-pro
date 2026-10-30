@@ -899,6 +899,30 @@ fn a_detail_added_during_the_write_is_stored_with_the_operation() {
             name: Some("Peak".into()),
             from: None,
             tracks: Some(3),
+            ..OperationDetails::default()
+        }
+    );
+}
+
+#[test]
+fn the_details_of_an_add_to_a_crate_that_also_filled_the_library_reach_the_ui() {
+    let (_dir, mut conn) = db();
+    let id = crate_row(&conn, "Warmup");
+    record(
+        &mut conn,
+        "add_to_crate",
+        &json!({ "name": "Warmup", "tracks": 3, "newToLibrary": 2, "newCrate": true }),
+        |rec| rec.set("crate", id, "notes", "x"),
+    )
+    .unwrap();
+    assert_eq!(
+        undone(undo_last(&mut conn).unwrap()).details,
+        OperationDetails {
+            name: Some("Warmup".into()),
+            from: None,
+            tracks: Some(3),
+            new_to_library: Some(2),
+            new_crate: Some(true),
         }
     );
 }
@@ -1120,12 +1144,13 @@ fn undo_outcomes_serialize_for_the_ui_with_operation_and_row_ids() {
             name: Some("Peak".into()),
             from: None,
             tracks: Some(2),
+            ..OperationDetails::default()
         },
     };
     let operation_json = json!({
         "id": 41,
         "kind": "edit_crate",
-        "details": { "name": "Peak", "from": null, "tracks": 2 },
+        "details": { "name": "Peak", "from": null, "tracks": 2, "newToLibrary": null, "newCrate": null },
     });
     assert_eq!(
         serde_json::to_value(UndoOutcome::NothingToUndo).unwrap(),
@@ -1250,7 +1275,7 @@ fn the_undo_command_answers_over_ipc() {
             "operation": {
                 "id": added.operation_id.unwrap(),
                 "kind": "add_crate",
-                "details": { "name": null, "from": null, "tracks": null },
+                "details": { "name": null, "from": null, "tracks": null, "newToLibrary": null, "newCrate": null },
             },
         })
     );
@@ -1306,7 +1331,7 @@ fn a_refused_undo_names_the_operation_and_each_conflicting_row_by_id_over_ipc() 
             "operation": {
                 "id": op,
                 "kind": "edit_crate",
-                "details": { "name": null, "from": null, "tracks": null },
+                "details": { "name": null, "from": null, "tracks": null, "newToLibrary": null, "newCrate": null },
             },
             "reason": { "code": "changedSince" },
             "conflicts": [

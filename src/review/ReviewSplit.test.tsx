@@ -121,7 +121,7 @@ function backend(start: Partial<World> = {}): World {
     if (!stays) world.lists.needsCloserLook = before.filter((i) => i.id.a !== id.a);
     const operationId = nextOperation++;
     world.undo = {
-      operation: { id: operationId, kind, details: { name: null, from: null, tracks: 2 } },
+      operation: { id: operationId, kind, details: { name: null, from: null, tracks: 2, newToLibrary: null, newCrate: null } },
       restore: () => (world.lists.needsCloserLook = before),
     };
     return operationId;

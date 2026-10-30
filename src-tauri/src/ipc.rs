@@ -140,6 +140,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::crates::delete_crate,
             crate::crates::add_tracks_to_crate,
             crate::crates::add_recordings_to_crate,
+            crate::crates::add_recordings_to_new_crate,
             crate::crates::crates_of_track,
             crate::crates::remove_tracks_from_crate,
             crate::crates::list_crates,

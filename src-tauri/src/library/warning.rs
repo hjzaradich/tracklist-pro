@@ -19,8 +19,13 @@
 //! - **One named exception: the rekordbox offer.** `start::add_offered`
 //!   adds the tracks rekordbox already knows without a warning per track;
 //!   they show under "Quality problems" in Review afterwards (owner
-//!   decision, 2026-10-12). It is the only other caller of
-//!   [`insert_linked`](super::insert_linked); a test fails if a third
+//!   decision, 2026-10-12).
+//! - **And a crate add that can't ask** (1cB-23). Adding tracks outside the
+//!   Library to a crate (`crates::add_recordings_on`) links them in the same
+//!   operation, but it leaves out any track that has this warning, because
+//!   there is nobody to agree to it; the track is counted, with its reason,
+//!   and is added by hand. These are the only other callers of
+//!   [`insert_linked`](super::insert_linked); a test fails if a fourth
 //!   appears.
 
 use rusqlite::Connection;

@@ -114,19 +114,50 @@ pub struct Changed {
     pub operation_id: Option<i64>,
 }
 
-/// What adding tracks to a crate by their track id did (1cB-13): the table's
-/// rows are tracks, and only a Library track can join a crate.
+/// What adding tracks to a crate by their track id did (1cB-13, 1cB-23): the
+/// table's rows are tracks. A track outside the Library joins the Library as
+/// a linked Library track in the same operation, so one Undo takes both back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AddedToCrate {
-    /// How many Library tracks joined the crate.
+    /// How many tracks joined the crate, those that joined the Library with
+    /// it included.
     pub added: u32,
-    /// How many were in it already.
+    /// How many of those weren't in the Library: they were added to it too.
+    pub also_added_to_library: u32,
+    /// How many were in the crate already.
     pub already_there: u32,
-    /// How many aren't in the Library, so were left out.
-    pub outside_library: u32,
+    /// The tracks outside the Library that couldn't join it, so were left out.
+    pub left_out: LeftOutOfCrate,
     /// The operation this recorded; `None` when nothing was added.
     pub operation_id: Option<i64>,
+}
+
+/// How many tracks outside the Library were left out of an add to a crate,
+/// by why: the reasons "Add to Library" gives (1.8), which a crate add must
+/// not get around. Each track is counted once, under one reason.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LeftOutOfCrate {
+    /// The track has no file.
+    pub no_file: u32,
+    /// Its file isn't on disk.
+    pub file_missing: u32,
+    /// Its only rekordbox match is a probable one, not confirmed yet.
+    pub match_not_confirmed: u32,
+    /// Its file has the low bitrate finding, which "Add to Library" asks the
+    /// user to agree to; an add to a crate can't ask, so it is added by hand.
+    pub low_bitrate: u32,
+}
+
+/// What adding tracks to a new crate did: the crate, and the add.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedToNewCrate {
+    pub crate_id: CrateId,
+    /// The name as stored (trimmed).
+    pub name: String,
+    pub added: AddedToCrate,
 }
 
 /// Why a crate command was refused. Nothing was changed.
@@ -469,38 +500,51 @@ fn make_on(
     name: &str,
 ) -> Result<Done<CrateId>, OpsError> {
     let name = name.trim().to_owned();
-    let (operation, stored_kind) = match kind {
-        CrateKind::Static => (CREATE_OPERATION, "static"),
-        CrateKind::Folder => (CREATE_FOLDER_OPERATION, "folder"),
+    let operation = match kind {
+        CrateKind::Static => CREATE_OPERATION,
+        CrateKind::Folder => CREATE_FOLDER_OPERATION,
     };
     ops::record(
         conn,
         operation,
         &serde_json::json!({ "name": name, "parentId": parent.map(|p| p.0) }),
-        |rec| {
-            let levels = usize::from(kind == CrateKind::Folder);
-            let parent = match room_in(rec, parent, levels)? {
-                Ok(parent) => parent,
-                Err(refusal) => return Ok(Err(refusal)),
-            };
-            let name = match checked_name(&siblings(rec, parent, None)?, &name) {
-                Ok(name) => name,
-                Err(refusal) => return Ok(Err(refusal)),
-            };
-            let position = next_position(rec, parent)?;
-            let id = rec.insert(
-                "crate",
-                &[
-                    ("parent_id", parent.into()),
-                    ("kind", stored_kind.to_owned().into()),
-                    ("name", name.into()),
-                    ("position", position.into()),
-                ],
-            )?;
-            Ok(Ok(CrateId(id)))
-        },
+        |rec| make_in(rec, kind, parent, &name),
     )
     .map(|recorded| worded(recorded.value, Some(kind)))
+}
+
+/// The writes of [`make_on`], inside the operation `rec` is recording. Every
+/// refusal comes before the first write.
+fn make_in(
+    rec: &mut ops::Recorder<'_>,
+    kind: CrateKind,
+    parent: Option<CrateId>,
+    name: &str,
+) -> Result<Done<CrateId>, OpsError> {
+    let stored_kind = match kind {
+        CrateKind::Static => "static",
+        CrateKind::Folder => "folder",
+    };
+    let levels = usize::from(kind == CrateKind::Folder);
+    let parent = match room_in(rec, parent, levels)? {
+        Ok(parent) => parent,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    let name = match checked_name(&siblings(rec, parent, None)?, name) {
+        Ok(name) => name,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    let position = next_position(rec, parent)?;
+    let id = rec.insert(
+        "crate",
+        &[
+            ("parent_id", parent.into()),
+            ("kind", stored_kind.to_owned().into()),
+            ("name", name.into()),
+            ("position", position.into()),
+        ],
+    )?;
+    Ok(Ok(CrateId(id)))
 }
 
 /// Renames a crate or folder and returns the operation it recorded.
@@ -733,19 +777,132 @@ pub fn add_on(
     .map(with_operation)
 }
 
-/// Adds tracks to a crate by their track id (`TableRow.recordingId`, 1cB-13),
-/// as the track table's selection holds them. Only Library tracks can join a
-/// crate: a track outside the Library is left out and counted (adding it to
-/// the Library as well is not built). A track already in the crate is
-/// skipped, and one listed twice counts once. A track that doesn't exist
-/// refuses the whole call before anything is added. One operation for all
-/// the tracks added, so one Undo takes them all out; none added, none
-/// recorded.
+/// One track of an add by track id, once it is known what it will be.
+enum Item {
+    /// A Library track (its id).
+    InLibrary(i64),
+    /// A track outside the Library, to be linked to this file.
+    Link { recording: i64, file: i64 },
+}
+
+/// What an add by track id will do, decided before anything is written.
+struct Prepared {
+    /// The tracks that will join, each once, in the order given.
+    items: Vec<Item>,
+    left_out: LeftOutOfCrate,
+}
+
+/// Sorts `recordings` the way "Add to Library" would judge them (1.8): a
+/// Library track joins as it is; a track outside it joins the Library too,
+/// unless the Library add refuses it or asks the user to agree to a warning
+/// first (then it is left out, counted by reason). A track that doesn't exist
+/// refuses the whole call. Changes nothing the log records.
+fn prepare(conn: &mut Connection, recordings: &[i64]) -> Result<Done<Prepared>, OpsError> {
+    let mut seen = HashSet::new();
+    let mut prepared = Prepared {
+        items: Vec::new(),
+        left_out: LeftOutOfCrate::default(),
+    };
+    for &recording in recordings {
+        if !seen.insert(recording) {
+            continue;
+        }
+        match library::check(conn, recording)? {
+            Ok(library::Plan::AlreadyThere(track)) => {
+                prepared.items.push(Item::InLibrary(track.0));
+            }
+            Ok(library::Plan::Link(choice)) => {
+                if library::warning_for(conn, choice.file_id)?.is_some() {
+                    prepared.left_out.low_bitrate += 1;
+                } else {
+                    prepared.items.push(Item::Link {
+                        recording,
+                        file: choice.file_id,
+                    });
+                }
+            }
+            Err(library::Refusal::TrackNotFound) => return Ok(Err(CratesError::TrackNotFound)),
+            Err(library::Refusal::NoFile) => prepared.left_out.no_file += 1,
+            Err(library::Refusal::FileMissing { .. }) => prepared.left_out.file_missing += 1,
+            Err(library::Refusal::MatchNotConfirmed) => prepared.left_out.match_not_confirmed += 1,
+        }
+    }
+    Ok(Ok(prepared))
+}
+
+/// The writes of an add by track id, inside the operation `rec` is
+/// recording: links the tracks outside the Library (the file is only linked,
+/// never written), then puts every track not in the crate yet into it.
+fn put_in(
+    rec: &mut ops::Recorder<'_>,
+    id: CrateId,
+    name: String,
+    prepared: &Prepared,
+) -> Result<AddedToCrate, OpsError> {
+    let mut present: HashSet<i64> = rec
+        .read_rows(
+            "SELECT library_track_id FROM crate_entry WHERE crate_id = ?1",
+            [id.0],
+            |r| r.get(0),
+        )?
+        .into_iter()
+        .collect();
+    let (mut added, mut also_added_to_library, mut already_there) = (0, 0, 0);
+    for item in &prepared.items {
+        let track = match item {
+            Item::InLibrary(track) => *track,
+            Item::Link { recording, file } => {
+                also_added_to_library += 1;
+                library::insert_linked(rec, *recording, *file)?.0
+            }
+        };
+        if present.insert(track) {
+            rec.insert(
+                "crate_entry",
+                &[
+                    ("crate_id", id.0.into()),
+                    ("library_track_id", track.into()),
+                ],
+            )?;
+            added += 1;
+        } else {
+            already_there += 1;
+        }
+    }
+    rec.detail("name", name);
+    rec.detail("tracks", added);
+    // What the Undo button names (1cB-23): how many came into the Library.
+    rec.detail("newToLibrary", also_added_to_library);
+    Ok(AddedToCrate {
+        added,
+        also_added_to_library,
+        already_there,
+        left_out: prepared.left_out,
+        operation_id: None,
+    })
+}
+
+/// Adds tracks to a crate by their track id (`TableRow.recordingId`, 1cB-13).
+/// A track outside the Library is added to the Library as well (1cB-23): a
+/// linked Library track, as "Add to Library" makes it, no file touched. One
+/// that "Add to Library" refuses is left out and counted by reason
+/// ([`LeftOutOfCrate`]). A track already in the crate is skipped, and one listed
+/// twice counts once. A track that doesn't exist refuses the whole call
+/// before anything is added. One operation for everything added, so one Undo
+/// takes the tracks out of the crate and out of the Library again; nothing
+/// added, nothing recorded.
 pub fn add_recordings_on(
     conn: &mut Connection,
     id: CrateId,
     recordings: &[i64],
 ) -> Result<Done<AddedToCrate>, OpsError> {
+    if kind_of(conn, id)? != Some(CrateKind::Static) {
+        return Ok(Err(CratesError::NotFound));
+    }
+    let prepared = match prepare(conn, recordings)? {
+        Ok(prepared) => prepared,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
     let recorded = ops::record(
         conn,
         ADD_OPERATION,
@@ -754,61 +911,51 @@ pub fn add_recordings_on(
             let Some(name) = static_name(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
             };
-            let library: HashMap<i64, i64> = rec
-                .read_rows("SELECT recording_id, id FROM library_track", [], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })?
-                .into_iter()
-                .collect();
-            let known: HashSet<i64> = rec
-                .read_rows("SELECT id FROM recording", [], |r| r.get(0))?
-                .into_iter()
-                .collect();
-            if recordings.iter().any(|r| !known.contains(r)) {
-                return Ok(Err(CratesError::TrackNotFound));
-            }
-            let mut present: HashSet<i64> = rec
-                .read_rows(
-                    "SELECT library_track_id FROM crate_entry WHERE crate_id = ?1",
-                    [id.0],
-                    |r| r.get(0),
-                )?
-                .into_iter()
-                .collect();
-            let mut seen = HashSet::new();
-            let (mut added, mut already_there, mut outside_library) = (0, 0, 0);
-            for recording in recordings {
-                if !seen.insert(*recording) {
-                    continue;
-                }
-                match library.get(recording) {
-                    None => outside_library += 1,
-                    Some(track) if present.insert(*track) => {
-                        rec.insert(
-                            "crate_entry",
-                            &[
-                                ("crate_id", id.0.into()),
-                                ("library_track_id", (*track).into()),
-                            ],
-                        )?;
-                        added += 1;
-                    }
-                    Some(_) => already_there += 1,
-                }
-            }
-            rec.detail("name", name);
-            rec.detail("tracks", added);
-            Ok(Ok(AddedToCrate {
-                added,
-                already_there,
-                outside_library,
-                operation_id: None,
-            }))
+            put_in(rec, id, name, &prepared).map(Ok)
         },
     )?;
     Ok(recorded.value.map(|done| AddedToCrate {
         operation_id: recorded.operation_id,
         ..done
+    }))
+}
+
+/// Makes a static crate at the top of the tree and adds tracks to it, as
+/// [`add_recordings_on`] does, in ONE operation: one Undo takes the tracks,
+/// the Library tracks that came with them and the crate away. A refusal (the
+/// name, a track that doesn't exist) comes before anything is written, so it
+/// leaves no crate behind.
+pub fn add_recordings_to_new_crate_on(
+    conn: &mut Connection,
+    name: &str,
+    recordings: &[i64],
+) -> Result<Done<AddedToNewCrate>, OpsError> {
+    let prepared = match prepare(conn, recordings)? {
+        Ok(prepared) => prepared,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    let name = name.trim().to_owned();
+    let recorded = ops::record(
+        conn,
+        ADD_OPERATION,
+        &serde_json::json!({ "newCrate": true }),
+        |rec| {
+            let id = match make_in(rec, CrateKind::Static, None, &name)? {
+                Ok(id) => id,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
+            let stored = static_name(rec, id)?.unwrap_or_else(|| name.clone());
+            let added = put_in(rec, id, stored.clone(), &prepared)?;
+            Ok(Ok(AddedToNewCrate {
+                crate_id: id,
+                name: stored,
+                added,
+            }))
+        },
+    )?;
+    Ok(recorded.value.map(|mut done| {
+        done.added.operation_id = recorded.operation_id;
+        done
     }))
 }
 
@@ -1025,8 +1172,9 @@ pub async fn add_tracks_to_crate(
 }
 
 /// Adds tracks to a crate by their track id (a table row's `recordingId`).
-/// Tracks outside the Library are left out and counted; one that's in it
-/// already is skipped. One operation for all of them.
+/// A track outside the Library joins the Library too; one the Library add
+/// refuses is left out and counted by reason; one in the crate already is
+/// skipped. One operation for all of it.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_recordings_to_crate(
@@ -1035,6 +1183,19 @@ pub async fn add_recordings_to_crate(
     recordings: Vec<i64>,
 ) -> Result<AddedToCrate, IpcError> {
     Ok(writer.call(move |conn| Ok(add_recordings_on(conn, id, &recordings)))???)
+}
+
+/// Makes a crate at the top of the tree and adds tracks to it, as
+/// `add_recordings_to_crate` does, as one operation (one Undo).
+#[tauri::command]
+#[specta::specta]
+pub async fn add_recordings_to_new_crate(
+    writer: State<'_, Writer>,
+    name: String,
+    recordings: Vec<i64>,
+) -> Result<AddedToNewCrate, IpcError> {
+    Ok(writer
+        .call(move |conn| Ok(add_recordings_to_new_crate_on(conn, &name, &recordings)))???)
 }
 
 /// The crates a track is in, for the Details panel.

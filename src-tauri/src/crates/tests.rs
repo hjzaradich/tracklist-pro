@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::types::Value;
+use serde_json::json;
 
 use super::*;
 use crate::after_send::{lists, save_tree, RekordboxTree, TreeNode};
@@ -92,6 +93,73 @@ impl Lib {
             "INSERT INTO recording (title, artist) VALUES (?1, 'Kit')",
             (title,),
         )
+    }
+
+    /// A track outside the Library with one best file (`<title>.mp3`) in a
+    /// music folder, on disk or not: its id.
+    fn outside_with_file(&self, title: &'static str, present: bool) -> i64 {
+        let recording = self.outside(title);
+        self.run(
+            "INSERT INTO volume (identity, kind, last_mount_path)
+             SELECT 'serial=TEST', 'external', 'E:\\' WHERE NOT EXISTS (SELECT 1 FROM volume)",
+            (),
+        );
+        self.run(
+            "INSERT INTO music_folder (volume_id, rel_path, rel_path_key)
+             SELECT (SELECT min(id) FROM volume), 'Music', 'Music'
+             WHERE NOT EXISTS (SELECT 1 FROM music_folder)",
+            (),
+        );
+        let file = self.run(
+            "INSERT INTO file (music_folder_id, rel_path, rel_path_key, present)
+             VALUES ((SELECT min(id) FROM music_folder), ?1, ?1, ?2)",
+            (format!("{title}.mp3"), present),
+        );
+        self.run(
+            "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
+            (recording, file),
+        );
+        recording
+    }
+
+    /// The best file of a track.
+    fn best_file(&self, recording: i64) -> i64 {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT file_id FROM recording_file WHERE recording_id = ?1 AND role = 'best'",
+                    [recording],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+
+    /// The details the last operation stored, as the Undo button reads them.
+    fn last_details(&self) -> serde_json::Value {
+        self.writer
+            .call(|c| {
+                c.query_row(
+                    "SELECT details FROM operation ORDER BY id DESC LIMIT 1",
+                    [],
+                    |r| r.get::<_, String>(0),
+                )
+            })
+            .map(|text| serde_json::from_str(&text).unwrap())
+            .unwrap()
+    }
+
+    /// Whether a track is in the Library now.
+    fn in_library(&self, recording: i64) -> bool {
+        self.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM library_track WHERE recording_id = ?1)",
+                    [recording],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
     }
 
     /// The track (`TableRow.recordingId`) a Library track is.
@@ -201,6 +269,37 @@ impl Lib {
                 ))
             })
             .unwrap()
+    }
+
+    /// Everything an add can change: the crates, their entries, the Library,
+    /// and how many operations are logged.
+    fn everything(&self) -> (State, Vec<Vec<String>>, i64) {
+        let library = self
+            .writer
+            .call(|c| Ok(dump(c, "SELECT * FROM library_track ORDER BY id")))
+            .unwrap();
+        (self.state(), library, self.operations())
+    }
+
+    /// The files under the folder the database lives in, so a test can tell
+    /// that nothing was written beside it (the database's own journal files
+    /// come and go, and are left out).
+    fn files_on_disk(&self) -> Vec<String> {
+        fn walk(dir: &Path, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else {
+                    out.push(path.to_string_lossy().into_owned());
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(self._dir.path(), &mut out);
+        out.retain(|f| !f.ends_with("-wal") && !f.ends_with("-shm"));
+        out.sort();
+        out
     }
 
     /// Gives a crate's entries these add times, in the order of `tracks`, so
@@ -385,9 +484,20 @@ fn a_send_is_never_refused_because_of_a_crate_the_app_let_the_user_make() {
 
 // ---- adding by track id (1cB-13) and a track's crates (1cB-14) ---------------
 
-/// (added, already there, outside the Library) of an add by track id.
+/// (added, already there, also added to the Library) of an add by track id.
 fn added(done: AddedToCrate) -> (u32, u32, u32) {
-    (done.added, done.already_there, done.outside_library)
+    (done.added, done.already_there, done.also_added_to_library)
+}
+
+/// (no file, file missing, match not confirmed, low bitrate) of an add.
+fn left_out(done: AddedToCrate) -> (u32, u32, u32, u32) {
+    let l = done.left_out;
+    (
+        l.no_file,
+        l.file_missing,
+        l.match_not_confirmed,
+        l.low_bitrate,
+    )
 }
 
 #[test]
@@ -425,21 +535,266 @@ fn a_track_already_in_the_crate_is_not_added_twice_and_the_count_says_so() {
 }
 
 #[test]
-fn a_track_outside_the_library_is_left_out_and_counted() {
+fn an_outside_track_joins_the_library_and_the_crate_in_one_operation_and_one_undo_restores_both() {
+    let lib = Lib::new();
+    let stray = lib.outside_with_file("Stray", true);
+    let file = lib.best_file(stray);
+    let id = lib.made("Warm up");
+    let before = lib.everything();
+    assert!(!lib.in_library(stray));
+
+    let done = lib.add_recordings(id, &[stray]).unwrap();
+
+    assert_eq!(added(done), (1, 0, 1));
+    assert_eq!(left_out(done), (0, 0, 0, 0));
+    assert!(lib.in_library(stray));
+    assert_eq!(lib.crates_of(stray), [id]);
+    // Linked to its best file, as "Add to Library" does it; one operation.
+    let linked: (String, i64) = lib
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT kind, linked_file_id FROM library_track WHERE recording_id = ?1",
+                [stray],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+        })
+        .unwrap();
+    assert_eq!(linked, ("linked".to_owned(), file));
+    assert_eq!(lib.operations(), before.2 + 1);
+    assert_eq!(done.operation_id, Some(before.2 + 1));
+    // The Undo button can say all of it.
+    let last = lib.last_details();
+    assert_eq!(
+        (
+            &last["name"],
+            &last["tracks"],
+            &last["newToLibrary"],
+            last.get("newCrate")
+        ),
+        (&json!("Warm up"), &json!(1), &json!(1), None)
+    );
+
+    // One Undo takes the entry and the Library track away together.
+    lib.undo();
+    assert!(!lib.in_library(stray));
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
+}
+
+#[test]
+fn a_mixed_selection_adds_library_and_outside_tracks_in_one_operation() {
+    let lib = Lib::new();
+    let (a, b) = (lib.track("A"), lib.track("B"));
+    let (one, two) = (
+        lib.outside_with_file("One", true),
+        lib.outside_with_file("Two", true),
+    );
+    let id = lib.made("Warm up");
+    lib.add(id, &[b]).unwrap();
+    let before = lib.everything();
+
+    let given = [
+        lib.recording_of(a),
+        one,
+        lib.recording_of(b),
+        two,
+        // Listed twice counts once.
+        one,
+    ];
+    let done = lib.add_recordings(id, &given).unwrap();
+
+    // A, One and Two joined; B was there already; two came with the Library.
+    assert_eq!(added(done), (3, 1, 2));
+    assert_eq!(lib.ids(id).len(), 4);
+    assert!(lib.in_library(one) && lib.in_library(two));
+    assert_eq!(lib.operations(), before.2 + 1);
+    let last = lib.last_details();
+    assert_eq!(
+        (&last["tracks"], &last["newToLibrary"]),
+        (&json!(3), &json!(2))
+    );
+    lib.undo();
+    // The log keeps the undone operation; everything else is as it was.
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
+}
+
+#[test]
+fn tracks_add_to_library_refuses_are_left_out_of_both_and_counted_with_the_reason() {
+    let lib = Lib::new();
+    let no_file = lib.outside("No file");
+    let missing = lib.outside_with_file("Missing", false);
+    let unsure = lib.outside_with_file("Unsure", true);
+    let file = lib.best_file(unsure);
+    lib.run(
+        r#"INSERT INTO rekordbox_track
+             (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+         VALUES ('{"TrackID": "1", "Location": "file://localhost/E:/Music/Unsure.mp3"}', 'E:/Music/unsure.mp3', '2026-09-30T10:00:00.000Z', ?1, 'filename_only', 1)"#,
+        (file,),
+    );
+    let thin = lib.outside_with_file("Thin", true);
+    let thin_file = lib.best_file(thin);
+    lib.run(
+        "UPDATE file SET codec = 'mp3', bitrate = 128 WHERE id = ?1",
+        (thin_file,),
+    );
+    let good = lib.outside_with_file("Good", true);
+    let id = lib.made("Warm up");
+
+    let done = lib
+        .add_recordings(id, &[no_file, missing, unsure, thin, good])
+        .unwrap();
+
+    assert_eq!(added(done), (1, 0, 1));
+    assert_eq!(left_out(done), (1, 1, 1, 1));
+    for refused in [no_file, missing, unsure, thin] {
+        assert!(!lib.in_library(refused));
+        assert_eq!(lib.crates_of(refused), Vec::<CrateId>::new());
+    }
+    assert!(lib.in_library(good));
+
+    // Only refused tracks: nothing is recorded, and Undo is not offered.
+    let before = lib.everything();
+    let none = lib.add_recordings(id, &[no_file, missing]).unwrap();
+    assert_eq!((added(none), none.operation_id), ((0, 0, 0), None));
+    assert_eq!(left_out(none), (1, 1, 0, 0));
+    assert_eq!(lib.everything(), before);
+}
+
+#[test]
+fn adding_an_outside_track_to_a_crate_writes_and_copies_no_file() {
+    let lib = Lib::new();
+    let stray = lib.outside_with_file("Stray", true);
+    let id = lib.made("Warm up");
+    let before = lib.files_on_disk();
+    let rows = |lib: &Lib| -> i64 {
+        lib.writer
+            .call(|c| c.query_row("SELECT count(*) FROM file", [], |r| r.get(0)))
+            .unwrap()
+    };
+    let records = rows(&lib);
+
+    lib.add_recordings(id, &[stray]).unwrap();
+    assert_eq!(lib.files_on_disk(), before);
+    assert_eq!(rows(&lib), records);
+    lib.undo();
+    assert_eq!(lib.files_on_disk(), before);
+    assert_eq!(rows(&lib), records);
+}
+
+#[test]
+fn a_new_crate_with_tracks_is_one_operation_and_one_undo_takes_the_crate_the_tracks_and_the_library_tracks_away(
+) {
     let lib = Lib::new();
     let a = lib.track("A");
-    let stray = lib.outside("Stray");
-    let id = lib.made("Warm up");
-    let done = lib
-        .add_recordings(id, &[lib.recording_of(a), stray])
+    let stray = lib.outside_with_file("Stray", true);
+    let before = lib.everything();
+    let recordings = vec![lib.recording_of(a), stray];
+
+    let made = lib
+        .writer
+        .call(move |c| Ok(add_recordings_to_new_crate_on(c, "  Closing ", &recordings)))
+        .unwrap()
+        .unwrap()
         .unwrap();
-    assert_eq!(added(done), (1, 0, 1));
-    assert_eq!(lib.ids(id), [a]);
-    // Only tracks outside the Library: nothing recorded.
-    let operations = lib.operations();
-    let none = lib.add_recordings(id, &[stray]).unwrap();
-    assert_eq!((added(none), none.operation_id), ((0, 0, 1), None));
-    assert_eq!(lib.operations(), operations);
+
+    assert_eq!(made.name, "Closing");
+    assert_eq!(added(made.added), (2, 0, 1));
+    assert_eq!(lib.ids(made.crate_id).len(), 2);
+    assert!(lib.in_library(stray));
+    assert_eq!(lib.operations(), before.2 + 1);
+    assert_eq!(made.added.operation_id, Some(before.2 + 1));
+    let last = lib.last_details();
+    assert_eq!(
+        (
+            &last["name"],
+            &last["tracks"],
+            &last["newToLibrary"],
+            &last["newCrate"]
+        ),
+        (&json!("Closing"), &json!(2), &json!(1), &json!(true))
+    );
+
+    lib.undo();
+    // The log keeps the undone operation; everything else is as it was.
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
+    assert_eq!(lib.crates(), Vec::<(String, u32)>::new());
+}
+
+#[test]
+fn a_new_crate_whose_tracks_are_all_refused_is_still_made_and_says_so() {
+    let lib = Lib::new();
+    let no_file = lib.outside("No file");
+    let missing = lib.outside_with_file("Missing", false);
+    let before = lib.everything();
+
+    let made = lib
+        .writer
+        .call(move |c| {
+            Ok(add_recordings_to_new_crate_on(
+                c,
+                "Closing",
+                &[no_file, missing],
+            ))
+        })
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    // The crate was asked for, so it exists, empty; the answer counts what was left out.
+    assert_eq!(added(made.added), (0, 0, 0));
+    assert_eq!(left_out(made.added), (1, 1, 0, 0));
+    assert_eq!(lib.crates(), [("Closing".to_owned(), 0)]);
+    assert!(!lib.in_library(no_file) && !lib.in_library(missing));
+    // It is one operation, and the Undo button can say a crate was made with nothing in it.
+    assert_eq!(made.added.operation_id, Some(before.2 + 1));
+    let last = lib.last_details();
+    assert_eq!(
+        (&last["tracks"], &last["newToLibrary"], &last["newCrate"]),
+        (&json!(0), &json!(0), &json!(true))
+    );
+    lib.undo();
+    let after = lib.everything();
+    assert_eq!((after.0, after.1), (before.0, before.1));
+}
+
+#[test]
+fn a_failed_add_to_a_new_crate_leaves_no_crate_and_changes_nothing() {
+    let lib = Lib::new();
+    let a = lib.track("A");
+    let stray = lib.outside_with_file("Stray", true);
+    lib.writer
+        .call(|c| Ok(create_folder_on(c, None, "Sets")))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let before = lib.everything();
+    let add = |name: &'static str, recordings: Vec<i64>| {
+        lib.writer
+            .call(move |c| Ok(add_recordings_to_new_crate_on(c, name, &recordings)))
+            .unwrap()
+            .unwrap()
+    };
+    let known = vec![lib.recording_of(a), stray];
+
+    // A name a folder at the top has, an empty name, and a track that doesn't exist.
+    assert!(matches!(
+        add("sets", known.clone()),
+        Err(CratesError::NameTaken { .. })
+    ));
+    assert!(matches!(
+        add("  ", known.clone()),
+        Err(CratesError::NameEmpty)
+    ));
+    assert!(matches!(
+        add("Closing", vec![known[0], 99_999]),
+        Err(CratesError::TrackNotFound)
+    ));
+
+    assert_eq!(lib.everything(), before);
+    assert!(!lib.in_library(stray));
 }
 
 #[test]

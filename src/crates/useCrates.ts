@@ -3,12 +3,15 @@ import { unwrap } from "../api/errors";
 import {
   commands,
   type AddedToCrate,
+  type AddedToNewCrate,
   type Changed,
   type Crate,
   type FolderContents,
 } from "../bindings";
-import { ALL_MUSIC_TABLE_QUERY_KEY } from "../allMusic/useAllMusic";
-import { LIBRARY_TABLE_QUERY_KEY } from "../library/useLibraryTracks";
+import { ALL_MUSIC_QUERY_KEY, ALL_MUSIC_TABLE_QUERY_KEY } from "../allMusic/useAllMusic";
+import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
+import { LIBRARY_TABLE_QUERY_KEY, LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibraryTracks";
+import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
 
 /** Every crate query starts with this, so one invalidation reaches them all. */
 export const CRATES_QUERY_KEY = ["crates"] as const;
@@ -106,15 +109,43 @@ export function useAddToCrate() {
 }
 
 /**
+ * Call after an add by track id: it can put tracks in the Library as well
+ * (1cB-23), which every list of Library tracks, All music, the rekordbox
+ * offer and the overview's counts show.
+ */
+function invalidateCratesAndLibrary(queryClient: QueryClient): Promise<unknown> {
+  return Promise.all([
+    invalidateCrates(queryClient),
+    ...[ALL_MUSIC_QUERY_KEY, LIBRARY_TRACKS_QUERY_KEY, REKORDBOX_OFFER_QUERY_KEY, OVERVIEW_QUERY_KEY].map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey }),
+    ),
+  ]);
+}
+
+/**
  * Adds tracks to a crate by their track id (a track table's selection,
- * 1cB-13). One operation for all of them. Resolves to how many joined, how
- * many were in it already and how many aren't in the Library, so were left out.
+ * 1cB-13). One operation for all of them. A track outside the Library joins
+ * it too (1cB-23). Resolves to how many joined, how many came into the
+ * Library with them, how many were in the crate already and how many were
+ * left out, by reason.
  */
 export function useAddRecordingsToCrate() {
   const queryClient = useQueryClient();
   return useMutation<AddedToCrate, Error, { id: number; recordings: readonly number[] }>({
     mutationFn: ({ id, recordings }) => unwrap(commands.addRecordingsToCrate(id, [...recordings])),
-    onSettled: () => invalidateCrates(queryClient),
+    onSettled: () => invalidateCratesAndLibrary(queryClient),
+  });
+}
+
+/**
+ * Makes a crate at the top of the tree and adds tracks to it, as one
+ * operation (one Undo): a refused name or a failed add leaves no crate.
+ */
+export function useAddRecordingsToNewCrate() {
+  const queryClient = useQueryClient();
+  return useMutation<AddedToNewCrate, Error, { name: string; recordings: readonly number[] }>({
+    mutationFn: ({ name, recordings }) => unwrap(commands.addRecordingsToNewCrate(name, [...recordings])),
+    onSettled: () => invalidateCratesAndLibrary(queryClient),
   });
 }
 
