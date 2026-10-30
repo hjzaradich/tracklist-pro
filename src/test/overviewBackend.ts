@@ -1,5 +1,5 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Overview, Preflight, ReviewCounts, SendState } from "../bindings";
+import type { Crate, Overview, Preflight, ReviewCounts, SendState } from "../bindings";
 
 // A stand-in for the Rust side of the Overview screen, shared by its tests:
 // the Library, the Overview command's numbers, Review's counts, the send's
@@ -76,6 +76,8 @@ export interface World {
   /** The Overview command doesn't answer until `release()`. */
   overviewHeld?: boolean;
   review?: Partial<ReviewCounts>;
+  /** The crates and folders; none by default. */
+  crates?: Crate[];
   preflight?: Preflight | null;
   /** How many rekordbox tracks the offer could add to the Library. */
   rekordboxToAdd?: number;
@@ -146,7 +148,7 @@ export function fakeBackend(world: World = {}) {
         case "track_table_page":
           return { total: 0, offset: 0, rows: [], behind: false };
         case "list_crates":
-          return [];
+          return world.crates ?? [];
         case "missing_tracks":
           return { total: 0, groups: [] };
         case "review_conflict_fields":

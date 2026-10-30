@@ -137,7 +137,8 @@ describe("the Overview while the Library is empty (first run)", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/all-music"));
     expect(await screen.findByText(tx("allMusic:empty"))).toBeInTheDocument();
     expect(backend.adds).toBe(0);
-    expect(localStorage.length).toBe(0);
+    // The launch remembers screens (src/launch), but nothing about starting fresh.
+    expect(Object.keys(localStorage).filter((key) => !key.startsWith("tracklist-pro.launch."))).toEqual([]);
   });
 });
 

@@ -16,5 +16,5 @@ export const STAGES = [
 
 export type StageId = (typeof STAGES)[number]["id"];
 
-/** Where the app opens until "reopen where you left off" arrives (1.13). */
+/** Where the app opens on a first run, and when the screen it left off on is gone (1.13). */
 export const HOME_STAGE_PATH = "/overview";
