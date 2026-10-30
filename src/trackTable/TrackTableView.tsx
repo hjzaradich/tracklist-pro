@@ -34,13 +34,13 @@ const DEFAULT_SORT: Readonly<Record<TableScreen, TableSort | null>> = {
   crate: null,
 };
 
-/** The sort after `column`'s heading is clicked: its order the other way round if it is sorted already. */
 /** The track a crate is sorted after (1cB-16): its id and the name the line over the table gives. */
 interface FitTarget {
   recordingId: number;
   name: string;
 }
 
+/** The sort after `column`'s heading is clicked: its order the other way round if it is sorted already. */
 export function nextSort(current: TableSort | null, column: SortColumn): TableSort {
   return current?.column === column
     ? { column, descending: !current.descending }

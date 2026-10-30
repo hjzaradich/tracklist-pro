@@ -12,7 +12,12 @@ import { describe, expect, it } from "vitest";
 
 /** A test may repeat this many characters of a text before it counts as a copy. */
 const LONG_RUN = 14;
-/** Shorter whole texts ("Add", "Done", "Artist") are also ordinary data, so only longer ones count here. */
+/**
+ * Shorter whole texts ("Add", "Done", "Artist") are also ordinary data, so only
+ * longer ones count here. Counted without the placeholders: a text that is a
+ * placeholder and a few words ("{{delta}} BPM") matches almost anything that
+ * ends in them, so it is no copy of its own.
+ */
 const SHORTEST_WHOLE = 8;
 
 /** Texts that name the app, not the UI: they're in paths and identifiers all over. */
@@ -78,7 +83,7 @@ function finderFor(texts: Map<string, string>): Finder {
     keys.push(key);
     const runs = value.split(PLACEHOLDER);
     wholes.push(
-      value.length >= SHORTEST_WHOLE
+      runs.join("").length >= SHORTEST_WHOLE
         ? { runs, pattern: new RegExp(`^${runs.map(escapeRegExp).join(".*")}$`, "s") }
         : null,
     );
@@ -191,6 +196,17 @@ describe("copiesIn", () => {
   it("flags a long run of a text, in a regex too", () => {
     expect(copiesIn('findByText(/changed after the review/)', texts)).toHaveLength(1);
     expect(copiesIn('findByText("Oops. Your Library changed after the review. Try again.")', texts)).toHaveLength(1);
+  });
+
+  it("leaves a fixture alone that only shares the few words round a placeholder", () => {
+    const withUnit = new Map([
+      ["a.delta", "{{delta}} BPM"],
+      ["a.named", "Remove {{title}} from your Library?"],
+    ]);
+    // A test's own sample reasons, ending in the same unit.
+    expect(copiesIn('const reasons = ["+2 BPM", "same key, +2 BPM", "124 BPM"];', withUnit)).toEqual([]);
+    // A placeholder text with enough words of its own is still a copy.
+    expect(copiesIn('expect(a).toBe("Remove Song from your Library?");', withUnit)).toHaveLength(1);
   });
 
   it("leaves data, test titles, keys and comments alone", () => {

@@ -94,15 +94,9 @@ const FROM: &str = "FROM crate_entry ce
      LEFT JOIN track_row tr ON tr.recording_id = lt.recording_id
      WHERE ce.crate_id = ?1 AND ce.kind = 'member'";
 
-/// A track's energy: the `analysis` row that ranks first among those with an
-/// energy, by the Overview's order (`overview::ENERGY`; a test holds the two
-/// to the same answers).
-pub(crate) const ENERGY_OF_LT: &str = "(SELECT a.energy FROM analysis a
-         WHERE a.recording_id = lt.recording_id AND a.energy IS NOT NULL
-         ORDER BY CASE a.source
-             WHEN 'user' THEN 1 WHEN 'mik' THEN 2 WHEN 'local' THEN 3 WHEN 'ml' THEN 4
-         END
-         LIMIT 1)";
+/// A track's energy, as the Overview's chart counts it: the same SQL
+/// ([`crate::overview::shown_energy!`]), not a copy.
+const ENERGY_OF_LT: &str = crate::overview::shown_energy!("lt.recording_id");
 
 /// The note as it will be stored: one line, trimmed. `None` is no note.
 fn tidy(notes: &str) -> Option<String> {

@@ -222,22 +222,41 @@ const ALL_MUSIC: &str = concat!(
     crate::hidden::has_shown_file!("r.id")
 );
 
+/// SQL for "the energy a track shows": the energy of the `analysis` row that
+/// ranks first among those with an energy, the user's, then Mixed In Key's,
+/// then the local estimate's, then the audio model's (the order of the
+/// `recording_display` view, which also works out BPM and key), or `NULL`.
+/// `$recording` is a SQL expression for the track's id. The one place that
+/// says which energy a track shows: the Overview's chart ([`ENERGY`]) and a
+/// crate's summary line (`crates::summary`) both use it. Each `analysis` row
+/// is found by its unique (track, source) index.
+macro_rules! shown_energy {
+    ($recording:literal) => {
+        concat!(
+            "(SELECT a.energy FROM analysis a
+               WHERE a.recording_id = ",
+            $recording,
+            " AND a.energy IS NOT NULL
+               ORDER BY CASE a.source
+                   WHEN 'user' THEN 1 WHEN 'mik' THEN 2 WHEN 'local' THEN 3 WHEN 'ml' THEN 4
+               END
+               LIMIT 1)"
+        )
+    };
+}
+pub(crate) use shown_energy;
+
 /// How many Library tracks show each energy, as `(energy, tracks)` rows, the
-/// energy being `NULL` for the tracks with none. The `analysis` row that
-/// ranks first among those with an energy gives it: the user's, then Mixed
-/// In Key's, then the local estimate's, then the audio model's (the order of
-/// the `recording_display` view, which also works out BPM and key). One pass
-/// over the Library's tracks; each `analysis` row is found by its unique
-/// (track, source) index.
-const ENERGY: &str = "SELECT s.energy, count(*)
-     FROM (SELECT (SELECT a.energy FROM analysis a
-                   WHERE a.recording_id = lt.recording_id AND a.energy IS NOT NULL
-                   ORDER BY CASE a.source
-                       WHEN 'user' THEN 1 WHEN 'mik' THEN 2 WHEN 'local' THEN 3 WHEN 'ml' THEN 4
-                   END
-                   LIMIT 1) AS energy
+/// energy being `NULL` for the tracks with none ([`shown_energy!`]). One pass
+/// over the Library's tracks.
+const ENERGY: &str = concat!(
+    "SELECT s.energy, count(*)
+     FROM (SELECT ",
+    shown_energy!("lt.recording_id"),
+    " AS energy
            FROM library_track lt) s
-     GROUP BY s.energy";
+     GROUP BY s.energy"
+);
 
 /// Library tracks per energy level, and the tracks with none ([`ENERGY`]).
 fn energy(conn: &Connection) -> rusqlite::Result<(Vec<u32>, u32)> {
