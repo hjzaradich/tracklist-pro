@@ -217,8 +217,14 @@ fn accents_and_letters_in_other_scripts_are_their_own_genres_but_capitals_are_no
     let lib = world();
     let o = overview(&lib);
     let tracks_of = |name: &str| o.genres.iter().find(|g| g.name == name).map(|g| g.tracks);
-    assert_eq!(tracks_of("Caf\u{e9}"), Some(1), "Caf\u{e9} and CAF\u{c9} have one bar");
-    assert_eq!(tracks_of("CAF\u{c9}"), None);
+    // The two spellings are one bar, named by the smaller spelling.
+    assert_eq!(
+        tracks_of("CAF\u{c9}"),
+        Some(2),
+        "Caf\u{e9} and CAF\u{c9} have one bar"
+    );
+    assert_eq!(tracks_of("Caf\u{e9}"), None);
+    assert_eq!(rows(&lib, TableSource::Library, genre_filter("Caf\u{e9}")).0, 2);
     assert_eq!(tracks_of("Cafe"), Some(1), "an accent makes another genre");
     assert_eq!(tracks_of("Hip Hop"), Some(1));
     assert_eq!(tracks_of("Hip  Hop"), Some(1), "a blank inside is part of the name");

@@ -2083,11 +2083,17 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         );
         let decisions = scans(c, &decisions_sql(), [0]);
         assert_eq!(decisions, ["operation"]);
-        let stored_genres = scans(c, stored_genres_sql(), []);
-        assert_eq!(
-            stored_genres,
-            ["track_row"],
-            "genres: one pass over the stored genres, in their index"
+        // The stored genres are read from their covering index alone: a
+        // range of it, which skips the tracks with no genre.
+        let plan: Vec<String> = c
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", stored_genres_sql()))?
+            .query_map([], |r| r.get(3))?
+            .collect::<rusqlite::Result<_>>()?;
+        assert!(
+            plan.iter()
+                .any(|p| p.contains("COVERING INDEX track_row_in_genre"))
+                && !plan.iter().any(|p| p.contains("TEMP B-TREE")),
+            "genres: counted from the stored genres' index, nothing sorted: {plan:?}"
         );
         let mut genres = scans(c, &genre_source_sql(false), []);
         genres.retain(|t| t != "blk" && t != "i" && t != "b");
