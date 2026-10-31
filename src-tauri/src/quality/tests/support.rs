@@ -18,7 +18,7 @@ use crate::paths::Volumes;
 use crate::quality::ledger::{self, Stored};
 use crate::quality::Qualifier;
 use crate::scan::folders::add;
-use crate::scan::walk::{scan_job, ScannedFile, Walker};
+use crate::scan::walk::{scan_job, Walker};
 use crate::scan::MusicFolderRole;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
@@ -135,10 +135,7 @@ impl Library {
         let hash_volume = self.volume.clone();
         JobQueue::builder(self.writer.clone())
             .workers(1)
-            .handler(
-                JobKind::Scan,
-                Walker::new(move || volume.clone(), |_: Vec<ScannedFile>| {}),
-            )
+            .handler(JobKind::Scan, Walker::new(move || volume.clone()))
             .handler(JobKind::Hash, Hasher::new(move || hash_volume.clone()))
             .handler(JobKind::Quality, qualifier)
             .start()

@@ -157,7 +157,7 @@ impl Lib {
             .workers(1)
             .handler(
                 JobKind::Scan,
-                Walker::new(move || volume.clone(), |_| {})
+                Walker::new(move || volume.clone())
                     .on_entry(move |n| {
                         if let Some(hook) = &*entry.lock().unwrap() {
                             hook(n);

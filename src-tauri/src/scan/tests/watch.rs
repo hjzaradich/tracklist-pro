@@ -439,14 +439,12 @@ fn a_burst_during_a_running_walk_folds_into_one_more_walk_after_it() {
     let queue = Arc::new(chained_queue_with(&writer, &volume, &looked, 2, |b| {
         b.handler(
             crate::jobs::JobKind::Scan,
-            crate::scan::chain::after_walk(Walker::new(move || v.clone(), |_| {}).on_entry(
-                move |_| {
-                    let held = held.lock().unwrap().take();
-                    if let Some(held) = held {
-                        let _ = held.recv_timeout(Duration::from_secs(30));
-                    }
-                },
-            )),
+            crate::scan::chain::after_walk(Walker::new(move || v.clone()).on_entry(move |_| {
+                let held = held.lock().unwrap().take();
+                if let Some(held) = held {
+                    let _ = held.recv_timeout(Duration::from_secs(30));
+                }
+            })),
         )
     }));
     let watchers = start(&writer, &volume, &queue);

@@ -178,13 +178,10 @@ fn a_drive_unplugged_mid_walk_stops_that_folder_and_marks_nothing_missing() {
     // after the first batch's worth of entries.
     many(&music, BATCH_MAX * 3);
     let unplug = volume.clone();
-    let walker = Walker::new(
-        {
-            let volume = volume.clone();
-            move || volume.clone()
-        },
-        |_| {},
-    )
+    let walker = Walker::new({
+        let volume = volume.clone();
+        move || volume.clone()
+    })
     .batch_window(Duration::from_secs(3600))
     .on_entry(move |n| {
         if n == (BATCH_MAX + BATCH_MAX / 2) as u64 {
@@ -257,13 +254,10 @@ fn a_different_drive_swapped_in_on_the_same_mount_mid_walk_is_not_indexed_as_the
     let id = add_music(&writer, &volume, &music);
 
     let swap = swappable.swapped.clone();
-    let walker = Walker::new(
-        {
-            let swappable = swappable.clone();
-            move || swappable.clone()
-        },
-        |_| {},
-    )
+    let walker = Walker::new({
+        let swappable = swappable.clone();
+        move || swappable.clone()
+    })
     .batch_window(Duration::from_secs(3600))
     .on_entry(move |n| {
         if n == (BATCH_MAX + BATCH_MAX / 2) as u64 {
@@ -320,13 +314,10 @@ fn a_drive_unplugged_after_the_last_batch_but_before_the_walk_ends_marks_nothing
 
     // Two entries left (a, c); the drive goes just as the last is looked at.
     let unplug = volume.clone();
-    let walker = Walker::new(
-        {
-            let volume = volume.clone();
-            move || volume.clone()
-        },
-        |_| {},
-    )
+    let walker = Walker::new({
+        let volume = volume.clone();
+        move || volume.clone()
+    })
     .on_entry(move |n| {
         if n == 1 {
             unplug.set_online(false);
@@ -351,13 +342,10 @@ fn a_cancelled_walk_marks_nothing_missing() {
     let (reached, at_stop) = std::sync::mpsc::channel::<()>();
     let (resume, cancelled) = std::sync::mpsc::channel::<()>();
     let (reached, cancelled) = (Mutex::new(reached), Mutex::new(cancelled));
-    let walker = Walker::new(
-        {
-            let volume = volume.clone();
-            move || volume.clone()
-        },
-        |_| {},
-    )
+    let walker = Walker::new({
+        let volume = volume.clone();
+        move || volume.clone()
+    })
     .on_entry(move |n| {
         if n == 1 {
             reached.lock().unwrap().send(()).unwrap();
@@ -419,13 +407,10 @@ fn a_swap_the_drive_list_has_not_caught_up_with_still_stops_the_walk() {
     let id = add_music(&writer, &volume, &music);
 
     let swap = lagging.inner.swapped.clone();
-    let walker = Walker::new(
-        {
-            let lagging = lagging.clone();
-            move || lagging.clone()
-        },
-        |_| {},
-    )
+    let walker = Walker::new({
+        let lagging = lagging.clone();
+        move || lagging.clone()
+    })
     .batch_window(Duration::from_secs(3600))
     .on_entry(move |n| {
         if n == (BATCH_MAX + BATCH_MAX / 2) as u64 {
@@ -484,13 +469,10 @@ fn a_clone_with_the_same_serial_swapped_in_mid_walk_stops_the_walk() {
     };
 
     let swap = swapping.swapped.clone();
-    let walker = Walker::new(
-        {
-            let swapping = swapping.clone();
-            move || swapping.clone()
-        },
-        |_| {},
-    )
+    let walker = Walker::new({
+        let swapping = swapping.clone();
+        move || swapping.clone()
+    })
     .batch_window(Duration::from_secs(3600))
     .on_entry(move |n| {
         if n == (BATCH_MAX + BATCH_MAX / 2) as u64 {

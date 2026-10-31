@@ -11,7 +11,8 @@
 //! no-op here), over a music folder on this PC's own volumes, and
 //! measures:
 //!
-//! - the time to the first batch of new files (what the UI shows first),
+//! - the time to the first new rows in the database (what the UI can show
+//!   first; polled from a second, read-only connection, see [`FirstRows`]),
 //! - the whole stage-1 walk, and the chained stage-2 read: the target,
 //! - the chained hashes and grouping, reported beside it,
 //! - a rescan with nothing changed (the unchanged check, 1aC-1) and what
@@ -53,8 +54,9 @@
 use std::fs;
 use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use tracklist_pro_lib::db::{Writer, DB_FILE_NAME};
@@ -90,10 +92,8 @@ struct Report {
     files_on_disk: usize,
     /// `file` rows after the walk.
     rows: i64,
-    /// Files and batches the sink heard during the first walk.
-    sink_files: u64,
-    sink_batches: u64,
-    first_batch: Option<Duration>,
+    /// How long after the first walk started its first rows were readable.
+    first_rows: Option<Duration>,
     walk: Duration,
     /// The chained read, from the walk's end to its end.
     read: Duration,
@@ -109,8 +109,8 @@ struct Report {
     /// The peak working set once stages 1 and 2 were done.
     peak_after_read: usize,
     rescan: Duration,
-    /// New rows the sink heard during the rescan (should be none).
-    rescan_new: u64,
+    /// Rows the rescan added (should be none).
+    rescan_new: i64,
     /// The kinds of job the chain queued after the rescan, in order.
     after_rescan: Vec<String>,
     /// From the rescan's end until nothing was queued or running.
@@ -135,16 +135,11 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
     let volumes = SystemVolumes::scan();
     let folder = folders::add(&writer, &volumes, music, MusicFolderRole::Scan).unwrap();
 
-    // What the frontend would hear: the first batch's time, and counts.
-    let sink = Arc::new(Sink::default());
-    let heard = sink.clone();
     let queue = JobQueue::builder(writer.clone())
         .workers(1)
         .handler(
             JobKind::Scan,
-            chain::after_walk(Walker::new(SystemVolumes::scan, move |files| {
-                heard.batch(files.len())
-            })),
+            chain::after_walk(Walker::new(SystemVolumes::scan)),
         )
         .handler(
             JobKind::Read,
@@ -170,11 +165,10 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
     let baseline_working_set = working_set().1;
 
     // Stage 1, then what the chain queues: read, hashes, grouping.
-    sink.start();
+    let first_rows = FirstRows::start(writer.path());
     let scan = queue.enqueue(scan_job(Some(vec![folder.id]))).unwrap();
     let walk = timed(|| assert_done(&writer, scan, "the walk"));
-    let first_batch = sink.first_batch();
-    let (sink_files, sink_batches) = sink.counts();
+    let first_rows = first_rows.finish();
     let rows = count(&writer, "SELECT COUNT(*) FROM file WHERE present = 1");
 
     let read = timed(|| wait_next(&writer, JobKind::Read, scan, "the chained read"));
@@ -197,10 +191,10 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
     wait_idle(&writer);
 
     // Nothing changed: walk again, and see what the chain makes of it.
-    sink.start();
+    let rows_before = count(&writer, "SELECT COUNT(*) FROM file");
     let rescan_job = queue.enqueue(scan_job(Some(vec![folder.id]))).unwrap();
     let rescan = timed(|| assert_done(&writer, rescan_job, "the rescan"));
-    let (rescan_new, _) = sink.counts();
+    let rescan_new = count(&writer, "SELECT COUNT(*) FROM file") - rows_before;
     let settle = timed(|| wait_idle(&writer));
     let after_rescan = kinds_after(&writer, rescan_job);
 
@@ -216,9 +210,7 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
     Report {
         files_on_disk,
         rows,
-        sink_files,
-        sink_batches,
-        first_batch,
+        first_rows,
         walk,
         read,
         still_due,
@@ -238,43 +230,61 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
     }
 }
 
-/// The walk's sink: when the first batch of a run
-/// arrived, and how much came through.
-#[derive(Default)]
-struct Sink {
-    started: Mutex<Option<Instant>>,
-    first: Mutex<Option<Instant>>,
-    files: AtomicU64,
-    batches: AtomicU64,
+/// When the first rows of a walk could be read from the database: the
+/// moment the first batch's transaction commits, which is when the screens
+/// can first list a new track. A second, read-only connection polls for a
+/// `file` row while the walk runs, so the walk does the same work as in the
+/// app and nothing is handed to it.
+struct FirstRows {
+    started: Instant,
+    stop: Arc<AtomicBool>,
+    poller: JoinHandle<Option<Instant>>,
 }
 
-impl Sink {
-    /// Starts a run's clock and forgets the last run's counts.
-    fn start(&self) {
-        *self.started.lock().unwrap() = Some(Instant::now());
-        *self.first.lock().unwrap() = None;
-        self.files.store(0, Ordering::SeqCst);
-        self.batches.store(0, Ordering::SeqCst);
+impl FirstRows {
+    /// How often the poller looks. Small beside the 5 s target.
+    const EVERY: Duration = Duration::from_millis(2);
+
+    /// Starts the clock and the poller on the database at `db`.
+    fn start(db: &Path) -> FirstRows {
+        let stop = Arc::new(AtomicBool::new(false));
+        let (flag, db) = (stop.clone(), db.to_owned());
+        let started = Instant::now();
+        let poller = std::thread::spawn(move || {
+            let conn = rusqlite::Connection::open_with_flags(
+                db,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            conn.busy_timeout(Duration::from_secs(5)).unwrap();
+            let any = || {
+                conn.query_row("SELECT EXISTS (SELECT 1 FROM file)", [], |r| r.get(0))
+                    .unwrap_or(false)
+            };
+            loop {
+                let stopped = flag.load(Ordering::SeqCst);
+                if any() {
+                    return Some(Instant::now());
+                }
+                if stopped {
+                    return None;
+                }
+                std::thread::sleep(Self::EVERY);
+            }
+        });
+        FirstRows {
+            started,
+            stop,
+            poller,
+        }
     }
 
-    fn batch(&self, files: usize) {
-        self.first.lock().unwrap().get_or_insert_with(Instant::now);
-        self.files.fetch_add(files as u64, Ordering::SeqCst);
-        self.batches.fetch_add(1, Ordering::SeqCst);
-    }
-
-    /// How long after the run started the first batch arrived.
-    fn first_batch(&self) -> Option<Duration> {
-        let started = (*self.started.lock().unwrap())?;
-        let first = (*self.first.lock().unwrap())?;
-        Some(first.duration_since(started))
-    }
-
-    fn counts(&self) -> (u64, u64) {
-        (
-            self.files.load(Ordering::SeqCst),
-            self.batches.load(Ordering::SeqCst),
-        )
+    /// Stops the poller (after the walk ended) and says how long after
+    /// [`FirstRows::start`] the first row could be read, if any could.
+    fn finish(self) -> Option<Duration> {
+        self.stop.store(true, Ordering::SeqCst);
+        let first = self.poller.join().unwrap()?;
+        Some(first.duration_since(self.started))
     }
 }
 
@@ -423,21 +433,19 @@ fn print(report: &Report, music: &Path, source: &str) {
         !cfg!(debug_assertions)
     );
     println!("the target (ROADMAP 1.1):");
-    match report.first_batch {
+    match report.first_rows {
         Some(d) => println!(
-            "  first batch of files       {}   target < {} s   {}",
+            "  first rows in the database {}   target < {} s   {}",
             secs(d),
             FIRST_RESULTS_TARGET.as_secs(),
             verdict(d, FIRST_RESULTS_TARGET)
         ),
-        None => println!("  first batch of files       never arrived   MISS"),
+        None => println!("  first rows in the database never arrived   MISS"),
     }
     println!(
-        "  stage 1 walk, all rows     {}   {} rows, {} files in {} batches {}",
+        "  stage 1 walk, all rows     {}   {} rows {}",
         secs(report.walk),
         report.rows,
-        report.sink_files,
-        report.sink_batches,
         per_file(report.walk, n)
     );
     println!(
@@ -659,12 +667,7 @@ fn a_thousand_files_go_through_the_chain() {
     print(&report, &music, "synthetic WAVs");
 
     assert_eq!(report.rows, FILES as i64, "every file gets a row");
-    assert_eq!(
-        report.sink_files, FILES as u64,
-        "every new row reaches the sink"
-    );
-    assert!(report.sink_batches >= 1);
-    assert!(report.first_batch.is_some(), "a batch arrived");
+    assert!(report.first_rows.is_some(), "the first rows arrived");
     assert_eq!(report.read_done, FILES as i64, "every file was read");
     assert_eq!(report.still_due, 0, "nothing is due after the read");
     assert_eq!(report.hash_done, FILES as i64, "every file was hashed");
