@@ -1,8 +1,9 @@
 //! "Every number is a door" (1cC-4; ROADMAP 1.13): a number on the Overview
 //! that opens the Library with a chip counts exactly the rows behind the
-//! chip. The two are one definition (`overview::low_quality_sql`, `ANALYZED`,
-//! `IN_A_CRATE`, `shown_energy!`), and these tests count both on a Library
-//! made of the edge cases: a linked file that is gone, a track with no linked
+//! chip. The two are one definition (`overview::ANALYZED`, `IN_A_CRATE`,
+//! `door_answers_of`, `gaps_of`), read when the query runs or from what the
+//! index job keeps, and these tests count both on a Library made of the edge
+//! cases: a linked file that is gone, a track with no linked
 //! file, a stale verdict, a track rekordbox knows but never analyzed, a
 //! hidden file, a smart crate's rule, an energy from two sources.
 
@@ -132,6 +133,7 @@ fn world() -> Doors {
     let (outside, outside_file) = lib.track(Some("outside"), Some("Someone"), "outside.mp3");
     current_verdict(&lib, outside_file, "broken");
     analysis(&lib, outside, 128.0, "1A");
+    energy(&lib, outside, "user", 5);
     let (plain_outside, _) = lib.track(Some("plain outside"), Some("Someone"), "plain.mp3");
 
     let rec = |name: &str| tracks.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -192,7 +194,7 @@ fn the_low_quality_chip_opens_the_tracks_the_overview_counts_as_made_from_low_qu
 }
 
 #[test]
-fn the_low_quality_chip_follows_a_verdict_made_again_at_once() {
+fn the_low_quality_chip_and_number_follow_a_verdict_made_again_once_the_index_has_run() {
     let w = world();
     w.agree(TableFilter::LowQuality, |o| o.low_quality, &["low", "gone"]);
     // The quality job judges "old" again with the rules of now.
@@ -297,6 +299,93 @@ fn the_energy_chips_open_the_tracks_each_bar_counts() {
         assert_eq!(total, o.energy[usize::from(level) - 1], "energy {level}");
     }
     w.agree(TableFilter::NoEnergy, |o| o.no_energy, &["nofile"]);
+}
+
+/// Which number of the Overview a door counts.
+type Number = Box<dyn Fn(&Overview) -> u32>;
+
+/// The twelve doors that read what the index job keeps of a Library track
+/// (1cD-R1a), each with the Overview's number for it.
+fn stored_doors() -> Vec<(TableFilter, Number)> {
+    let mut doors: Vec<(TableFilter, Number)> = vec![
+        (TableFilter::LowQuality, Box::new(|o| o.low_quality)),
+        (TableFilter::NoEnergy, Box::new(|o| o.no_energy)),
+    ];
+    for level in 1..=10u8 {
+        doors.push((
+            TableFilter::Energy { level },
+            Box::new(move |o| o.energy[usize::from(level) - 1]),
+        ));
+    }
+    doors
+}
+
+#[test]
+fn each_of_the_twelve_doors_lists_the_number_the_overview_counts_in_the_library_and_in_all_music() {
+    let w = world();
+    let o = w.overview();
+    // "unjudged", a Library track, has only a hidden file, so All music
+    // leaves it out, as it does on every list.
+    let hidden = w.named(&["unjudged"]);
+    let in_library: Vec<i64> = w.tracks.iter().map(|(_, id)| *id).collect();
+    for (filter, number) in stored_doors() {
+        let (total, found) = w.rows(vec![filter.clone()]);
+        assert_eq!(
+            total,
+            number(&o),
+            "{filter:?}: rows == the Overview's number"
+        );
+        assert!(found.iter().all(|id| in_library.contains(id)), "{filter:?}");
+
+        let mut in_all_music = ids(&run(
+            &w.lib,
+            filtered(TableSource::AllMusic, vec![filter.clone()]),
+        ));
+        in_all_music.sort_unstable();
+        let expected: Vec<i64> = found
+            .iter()
+            .copied()
+            .filter(|id| !hidden.contains(id))
+            .collect();
+        assert_eq!(in_all_music, expected, "{filter:?} in All music");
+    }
+}
+
+#[test]
+fn a_track_outside_the_library_with_an_energy_and_a_flagged_file_is_behind_no_door_in_any_scope() {
+    let w = world();
+    let (outside, _) = w
+        .lib
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT a.recording_id, a.energy FROM analysis a
+                 WHERE a.energy = 5 AND a.source = 'user'",
+                [],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+            )
+        })
+        .unwrap();
+    w.overview();
+    for (filter, _) in stored_doors() {
+        for source in [TableSource::Library, TableSource::AllMusic] {
+            let found = ids(&run(&w.lib, filtered(source.clone(), vec![filter.clone()])));
+            assert!(!found.contains(&outside), "{filter:?} in {source:?}");
+        }
+    }
+}
+
+#[test]
+fn an_energy_door_that_names_no_level_lists_nothing_in_any_scope() {
+    let w = world();
+    w.overview();
+    for level in [0, 11, 15, 16, 255] {
+        for source in [TableSource::Library, TableSource::AllMusic] {
+            let filter = TableFilter::Energy { level };
+            let page = run(&w.lib, filtered(source.clone(), vec![filter]));
+            assert_eq!(page.total, Some(0), "level {level} in {source:?}");
+        }
+    }
 }
 
 #[test]

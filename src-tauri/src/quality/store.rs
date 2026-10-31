@@ -32,7 +32,11 @@
 //! every file it decides or makes due, and the second only at the start of
 //! a deciding job that has a file to decide. A stale verdict alone
 //! queues no job ([`super::request`]): that would add a job to every walk
-//! of files nobody has read yet, to store rows that say nothing.
+//! of files nobody has read yet, to store rows that say nothing. The
+//! exception is a verdict of other rules ([`any_other_rules`]): the
+//! Overview's low-quality number is kept in the track table's rows, and only
+//! a verdict being written can tell a row that a new build's rules changed
+//! what it holds.
 //!
 //! **Reading** ([`stored_verdict`], [`stored_verdicts`]) gives the row only
 //! while it's current. A file with no row, a stale row, or a row this build
@@ -364,6 +368,17 @@ pub fn any_stale(conn: &Connection, only: Option<&[i64]>) -> rusqlite::Result<bo
         stale = stale_condition()
     ))?
     .query_row([only], |r| r.get(0))
+}
+
+/// Whether a stored verdict was made by rules other than today's. No row
+/// changes when [`RULES_VERSION`] does, so this is how a new build learns the
+/// verdicts need making again. Cheap: a stored verdict answers at once, and
+/// with none of other rules it reads `file_verdict` once.
+pub fn any_other_rules(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.prepare_cached(&format!(
+        "SELECT EXISTS (SELECT 1 FROM file_verdict WHERE rules_version != {RULES_VERSION})"
+    ))?
+    .query_row([], |r| r.get(0))
 }
 
 /// The verdict and findings stored for file `id`, as of the inputs it has

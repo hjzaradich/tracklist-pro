@@ -1054,3 +1054,170 @@ fn the_overview_doors_at_100k() {
 fn the_overview_doors_at_10k() {
     doors(10_000);
 }
+
+/// 1cD-R1a: what the quality job pays for the marks that keep the stored
+/// "low-quality file" answer current (migration 0043). Every file gets a
+/// first verdict, one in twenty a flagged one, with the triggers and without,
+/// and then the index catches up with what was marked. Prints; asserts
+/// nothing about time.
+fn quality_marks(tracks: u64) {
+    let db = Db::new();
+    db.make(tracks);
+    db.writer
+        .call(|c| {
+            c.execute_batch(
+                "UPDATE file SET codec = 'mp3', sample_rate = 44100,
+                                 bitrate = CASE WHEN id % 20 = 0 THEN 128 ELSE 320 END",
+            )
+        })
+        .unwrap();
+    let (settled, built) = timed(|| db.writer.call(|c| settle(c, &NoDrives, 500)).unwrap());
+    println!("rows built: {settled} tracks in {}", secs(built));
+    let triggers: Vec<(String, String)> = db
+        .writer
+        .call(|c| {
+            c.prepare(
+                "SELECT name, sql FROM sqlite_master
+                 WHERE type = 'trigger' AND name LIKE 'search_low_quality%'",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect()
+        })
+        .unwrap();
+    assert_eq!(triggers.len(), 7, "the triggers of migration 0043");
+    let round = |label: &str| {
+        db.writer
+            .call(|c| c.execute_batch("DELETE FROM file_verdict; DELETE FROM search_due;"))
+            .unwrap();
+        let (_, took) = timed(|| {
+            db.writer
+                .call(tracklist_pro_lib::quality::store::settle)
+                .unwrap()
+        });
+        let due: i64 = db
+            .writer
+            .call(|c| c.query_row("SELECT count(*) FROM search_due", [], |r| r.get(0)))
+            .unwrap();
+        let (_, caught_up) = timed(|| db.writer.call(|c| settle(c, &NoDrives, 500)).unwrap());
+        println!(
+            "{label}: verdicts of {tracks} files {}, {due} tracks marked, index caught up in {}",
+            secs(took),
+            secs(caught_up)
+        );
+    };
+    for _ in 0..3 {
+        let drop_all = triggers.clone();
+        db.writer
+            .call(move |c| {
+                for (name, _) in &drop_all {
+                    c.execute_batch(&format!("DROP TRIGGER {name}"))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        round("without the triggers");
+        let make_all = triggers.clone();
+        db.writer
+            .call(move |c| {
+                for (_, sql) in &make_all {
+                    c.execute_batch(sql)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        round("with the triggers");
+    }
+}
+
+#[test]
+#[ignore = "a measurement: run it alone, in a release build, with --nocapture (see the file's doc)"]
+fn the_quality_marks_at_100k() {
+    quality_marks(100_000);
+}
+
+/// 1cD-R1a: what the three energy triggers of migration 0043 add to setting
+/// an energy on 100,000 selected tracks and to its Undo, with and without
+/// them, in turns, on one database. As `src/energy/tests.rs`'s measurement:
+/// half the tracks are in the Library, a quarter have an energy of their own.
+/// Prints; asserts nothing about time.
+#[test]
+#[ignore = "a measurement: run it alone, in a release build, with --nocapture (see the file's doc)"]
+fn the_energy_marks_at_100k() {
+    use tracklist_pro_lib::{energy::set_energy_on, ops::undo_for_user};
+    let db = Db::new();
+    db.writer
+        .call(|c| {
+            c.execute_batch(
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000)
+                 INSERT INTO recording (title) SELECT 'Tune ' || i FROM n;
+                 INSERT INTO library_track (recording_id, source_status)
+                     SELECT id, 'missing' FROM recording WHERE id % 2 = 0;
+                 INSERT INTO analysis (recording_id, source, energy)
+                     SELECT id, 'user', 1 + id % 10 FROM recording WHERE id % 4 = 0;",
+            )
+        })
+        .unwrap();
+    db.writer.call(|c| settle(c, &NoDrives, 500)).unwrap();
+    let triggers: Vec<(String, String)> = db
+        .writer
+        .call(|c| {
+            c.prepare(
+                "SELECT name, sql FROM sqlite_master
+                 WHERE type = 'trigger' AND name LIKE 'search_analysis_energy%'",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect()
+        })
+        .unwrap();
+    assert_eq!(triggers.len(), 3, "the triggers of migration 0043");
+    let all: Vec<i64> = (1..=100_000).collect();
+    let round = |label: &str| {
+        let wanted = all.clone();
+        let (_, set) = timed(|| {
+            db.writer
+                .call(move |c| Ok(set_energy_on(c, &wanted, 7)))
+                .unwrap()
+                .unwrap()
+        });
+        let due: i64 = db
+            .writer
+            .call(|c| c.query_row("SELECT count(*) FROM search_due", [], |r| r.get(0)))
+            .unwrap();
+        let (_, undone) = timed(|| {
+            db.writer
+                .call(|c| Ok(undo_for_user(c, None)))
+                .unwrap()
+                .unwrap()
+        });
+        db.writer
+            .call(|c| c.execute_batch("DELETE FROM search_due"))
+            .unwrap();
+        println!(
+            "{label}: set {}, {due} tracks marked, Undo {}",
+            secs(set),
+            secs(undone)
+        );
+    };
+    for _ in 0..3 {
+        let drop_all = triggers.clone();
+        db.writer
+            .call(move |c| {
+                for (name, _) in &drop_all {
+                    c.execute_batch(&format!("DROP TRIGGER {name}"))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        round("without the triggers");
+        let make_all = triggers.clone();
+        db.writer
+            .call(move |c| {
+                for (_, sql) in &make_all {
+                    c.execute_batch(sql)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        round("with the triggers");
+    }
+}

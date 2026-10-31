@@ -1039,10 +1039,11 @@ pub async fn remove_library_track(
     Ok(())
 }
 
-/// Works out the track table's row of the track an add or a removal has just
-/// changed, so the lists read right after it show the change and don't wait
-/// for the index job. A failure is not the change's: the job does it later.
-fn settle_now(writer: &Writer, jobs: &crate::jobs::JobQueue) {
+/// Works out the track table's row of the track an add, a removal or a new
+/// energy has just changed, so the lists read right after it show the change
+/// and don't wait for the index job. A failure is not the change's: the job
+/// does it later.
+pub(crate) fn settle_now(writer: &Writer, jobs: &crate::jobs::JobQueue) {
     let volumes = system_volumes();
     let settled = writer.call(move |conn| crate::search::settle_if_small(conn, &volumes, 50));
     if let Err(e) = settled {

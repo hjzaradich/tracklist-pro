@@ -203,6 +203,8 @@ fn rows_for(
         .filter_map(|id| library.get(id).copied())
         .collect();
     let gaps = gaps_or_none(conn, volumes, &library_tracks);
+    // And so are their doors' two answers.
+    let answers = crate::overview::door_answers_of(conn, &library_tracks)?;
     let mut rows = HashMap::new();
     for id in wanted {
         // A track the lists can't name yet (no row) is skipped; it is due
@@ -217,6 +219,12 @@ fn rows_for(
             }
             if gaps.art.contains(&lt.0) {
                 facts.flags |= table_row::flag::MISSING_ART;
+            }
+            if let Some(answer) = answers.get(&lt.0) {
+                if answer.low_quality {
+                    facts.flags |= table_row::flag::LOW_QUALITY;
+                }
+                facts.flags |= table_row::flag::energy(answer.energy.unwrap_or(0));
             }
         }
         let has_file = names.contains_key(&id);

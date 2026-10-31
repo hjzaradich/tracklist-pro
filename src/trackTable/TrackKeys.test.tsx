@@ -30,6 +30,8 @@ const idAt = (index: number) => index + 100;
 /** Stands in for the Rust side: the track table, the energy each track was given, and Undo. */
 function fakeBackend() {
   const backend = {
+    /** How many windows of the table were asked for. */
+    pagesAsked: 0,
     /** The ids track_table_ids was asked for, as [first, last]. */
     idsAsked: [] as [number, number][],
     /** What set_energy was asked, in order. */
@@ -45,6 +47,7 @@ function fakeBackend() {
         case "library_summary":
           return { tracks: 3, changeStamp: 3 };
         case "track_table_page":
+          backend.pagesAsked += 1;
           return windowOf(args.query as TableQuery);
         case "track_table_ids": {
           const query = args.query as TableQuery;
@@ -302,6 +305,14 @@ describe("the energy keys", () => {
     await waitFor(() => expect(backend.undone).toBe(1));
     expect(backend.energy).toEqual(before);
     expect(backend.energyAsked).toHaveLength(1);
+  });
+
+  it("asks for the list again, so a door that lists by energy doesn't keep a track that left it", async () => {
+    const backend = await library();
+    clickRow(2);
+    const before = backend.pagesAsked;
+    await userEvent.keyboard("7");
+    await waitFor(() => expect(backend.pagesAsked).toBeGreaterThan(before));
   });
 
   it("says how many tracks changed, not how many were asked, and says nothing when none did", async () => {

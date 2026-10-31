@@ -10,6 +10,9 @@
 //! brings the next source's value back. Nothing is written to a file, and
 //! nothing is sent to rekordbox unless the user opted in to energy as the star
 //! rating (ROADMAP §7, "How energy reaches rekordbox"; `crate::energy_stars`).
+//! A Library track's row in the track table keeps the energy it shows, for
+//! the Overview and its doors: a trigger marks the track for the index job
+//! whatever path changed the `analysis` row (migration 0043).
 //!
 //! # The operation
 //!
@@ -31,6 +34,7 @@ use tauri::State;
 
 use crate::db::Writer;
 use crate::ipc::{ErrorKind, IpcError};
+use crate::jobs::JobQueue;
 use crate::ops::{self, OpsError, Recorder};
 
 /// The operation setting energy records.
@@ -208,15 +212,22 @@ pub(crate) fn clear_in(rec: &mut Recorder<'_>, recording: i64) -> Result<bool, O
     }
 }
 
-/// Gives tracks an energy from 1 to 10: one operation, one Undo.
+/// Gives tracks an energy from 1 to 10: one operation, one Undo. The
+/// Overview and its doors read the energy from the track table's rows, so a
+/// few tracks' rows are worked out now, for the lists read right after it.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn set_energy(
     writer: State<'_, Writer>,
+    jobs: State<'_, JobQueue>,
     recordings: Vec<i64>,
     energy: i64,
 ) -> Result<EnergySet, IpcError> {
-    Ok(writer.call(move |conn| Ok(set_energy_on(conn, &recordings, energy)))??)
+    let set = writer.call(move |conn| Ok(set_energy_on(conn, &recordings, energy)))??;
+    if set.changed > 0 {
+        crate::library::settle_now(&writer, &jobs);
+    }
+    Ok(set)
 }
 
 #[cfg(test)]

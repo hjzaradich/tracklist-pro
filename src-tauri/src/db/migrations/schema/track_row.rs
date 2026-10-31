@@ -197,13 +197,15 @@ fn a_change_that_leaves_bpm_key_format_and_the_rest_alone_notes_nothing() {
 }
 
 #[test]
-fn a_quality_verdict_a_decision_or_a_better_file_notes_nothing_because_the_filter_reads_reviews_definition(
+fn a_healthy_verdict_a_decision_or_a_better_file_notes_nothing_because_the_filter_reads_reviews_definition(
 ) {
+    // A verdict that may flag does note the track, for the Overview's
+    // low-quality door: migration 0043, `track_row_doors.rs`.
     let (_dir, conn) = with_tracks();
     for change in [
         "INSERT INTO file_verdict (file_id, rules_version, inputs, verdict) VALUES (1, 1, '[]', 'ok')",
-        "UPDATE file_verdict SET verdict = 'ok', rules_version = 2 WHERE file_id = 2",
-        "DELETE FROM file_verdict WHERE file_id = 2",
+        "UPDATE file_verdict SET verdict = NULL, rules_version = 2 WHERE file_id = 1",
+        "DELETE FROM file_verdict WHERE file_id = 1",
         "INSERT INTO better_file (recording_id, file_id, step) VALUES (1, 2, 'format')",
         "INSERT INTO review_decision (kind, linked_key) VALUES ('keep_anyway', x'0102')",
     ] {

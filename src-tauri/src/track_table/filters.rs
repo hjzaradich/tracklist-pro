@@ -14,26 +14,27 @@
 //! "Better file available" item whose linked file is still there.
 //!
 //! **Doors from the Overview** (1cC-4, "Every number is a door"): the
-//! filters [`TableFilter::LowQuality`], [`TableFilter::AnalyzedByRekordbox`],
-//! [`TableFilter::NotAnalyzedByRekordbox`], [`TableFilter::Energy`] and
-//! [`TableFilter::NoEnergy`] are the Overview's own definitions, in the very
-//! SQL text it counts with (`overview::low_quality_sql`, `ANALYZED`,
-//! `shown_energy!`), looked up through the row's Library track when the query
-//! runs. A number on the Overview and the rows behind its chip can't mean
-//! different things, because there is one definition; a test counts both. The
-//! crate filters read the flags `track_row` keeps, worked out from the same
-//! text (`overview::IN_A_CRATE`), so they agree once the index has caught up.
-//! So do [`TableFilter::MissingTags`] and [`TableFilter::MissingArt`] (1cC-U1b):
-//! the Overview's definitions read tag data per track, so the index job works
-//! each Library track's answer out with the Overview's own function
-//! (`overview::gaps_of`) and keeps it as a flag bit of the row, which the
-//! Overview counts and these filters list.
+//! filters [`TableFilter::AnalyzedByRekordbox`] and
+//! [`TableFilter::NotAnalyzedByRekordbox`] are the Overview's own definition,
+//! in the very SQL text it counts with (`overview::ANALYZED`), looked up
+//! through the row's Library track when the query runs. A number on the
+//! Overview and the rows behind its chip can't mean different things, because
+//! there is one definition; a test counts both. The crate filters read the
+//! flags `track_row` keeps, worked out from the same text
+//! (`overview::IN_A_CRATE`), so they agree once the index has caught up. So do
+//! the rest, whose definitions cost too much per row to run in a filter:
+//! [`TableFilter::MissingTags`] and [`TableFilter::MissingArt`] (1cC-U1b;
+//! `overview::gaps_of`), and [`TableFilter::LowQuality`],
+//! [`TableFilter::Energy`] and [`TableFilter::NoEnergy`] (1cD-R1a;
+//! `overview::door_answers_of`). The index job works each Library track's
+//! answer out with the Overview's own function and keeps it in the row's
+//! flags, which the Overview counts and these filters list.
 
 use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::overview::library_track_where;
+use crate::overview::{library_track_where, ENERGY_LEVELS};
 use crate::search::flag;
 
 /// One filter chip.
@@ -63,7 +64,8 @@ pub enum TableFilter {
     NotInLibrary,
     /// The track's linked file has a current quality verdict that flags it
     /// (low bitrate, a suspected transcode, cut off or broken): the Overview's
-    /// "tracks made from low-quality files". Not the same as
+    /// "tracks made from low-quality files" (`track_row` flag
+    /// [`flag::LOW_QUALITY`]). Not the same as
     /// [`TableFilter::QualityProblem`], which is Review's group and leaves
     /// out a track with a better copy or a "Keep anyway".
     LowQuality,
@@ -72,10 +74,10 @@ pub enum TableFilter {
     AnalyzedByRekordbox,
     /// rekordbox didn't: a Library track with no `analysis` row from it.
     NotAnalyzedByRekordbox,
-    /// The energy the track shows is this level, 1 to 10 (the Overview's
-    /// energy bars).
+    /// The energy the Library track shows is this level, 1 to 10 (the
+    /// Overview's energy bars; `track_row` bits [`flag::ENERGY`]).
     Energy { level: u8 },
-    /// No source gives the track an energy.
+    /// No source gives the Library track an energy.
     NoEnergy,
     /// The Library track has no title, no artist or no genre (the
     /// Overview's "tracks with missing tags"; `track_row` flag
@@ -104,7 +106,8 @@ pub(super) fn quality_problems(conn: &rusqlite::Connection) -> rusqlite::Result<
 /// `track_row.flags` or `format`, which every index holds, except the
 /// quality problems, which are Review's definition: `quality` is
 /// [`quality_problems`] when the caller has worked it out already, else the
-/// definition itself is put into the query.
+/// definition itself is put into the query; and the two "analyzed" doors,
+/// which look at the row's Library track.
 pub(super) fn conditions(
     filters: &[TableFilter],
     quality: Option<&str>,
@@ -147,25 +150,22 @@ pub(super) fn conditions(
             TableFilter::InNoCrate => lacks(flag::IN_CRATE),
             TableFilter::InLibrary => has(flag::IN_LIBRARY),
             TableFilter::NotInLibrary => lacks(flag::IN_LIBRARY),
-            TableFilter::LowQuality => {
-                library_track_where(&format!("({}) = 1", crate::overview::low_quality_sql()))
-            }
+            TableFilter::LowQuality => has(flag::LOW_QUALITY),
             TableFilter::AnalyzedByRekordbox => library_track_where(crate::overview::ANALYZED),
             TableFilter::NotAnalyzedByRekordbox => {
                 library_track_where(&format!("NOT {}", crate::overview::ANALYZED))
             }
-            TableFilter::Energy { level } => {
-                params.push(Value::Integer(i64::from(*level)));
-                library_track_where(&format!(
-                    "{} = ?{}",
-                    crate::overview::shown_energy!("lt.recording_id"),
-                    params.len()
-                ))
+            TableFilter::Energy { level } if (1..=ENERGY_LEVELS).contains(&usize::from(*level)) => {
+                format!("(tr.flags & {}) = {}", flag::ENERGY, flag::energy(*level))
             }
-            TableFilter::NoEnergy => library_track_where(&format!(
-                "{} IS NULL",
-                crate::overview::shown_energy!("lt.recording_id")
-            )),
+            // A level that isn't one holds no track. Without this, level 0
+            // would read as "no energy" on every row, in the Library or not.
+            TableFilter::Energy { .. } => "0".to_owned(),
+            TableFilter::NoEnergy => format!(
+                "(tr.flags & {}) = {}",
+                flag::IN_LIBRARY | flag::ENERGY,
+                flag::IN_LIBRARY
+            ),
             TableFilter::MissingTags => has(flag::MISSING_TAGS),
             TableFilter::MissingArt => has(flag::MISSING_ART),
         };

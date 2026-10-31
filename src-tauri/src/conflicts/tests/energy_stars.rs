@@ -921,3 +921,45 @@ fn turning_it_on_leaves_the_conflicts_open_before_it_alone() {
 
     assert_eq!(lib.open_fields(), [(id.0, "Rating".to_owned())]);
 }
+
+/// The energy the track's row holds, with the index caught up.
+fn stored_energy(lib: &Lib, id: LibraryTrackId) -> i64 {
+    lib.writer
+        .call(move |c| {
+            crate::search::settle(c, &Mount, 500)?;
+            c.query_row(
+                "SELECT tr.flags FROM track_row tr
+                 JOIN library_track lt ON lt.recording_id = tr.recording_id WHERE lt.id = ?1",
+                [id.0],
+                |r| r.get(0),
+            )
+        })
+        .map(crate::search::flag::energy_of)
+        .unwrap()
+}
+
+#[test]
+fn a_settled_star_conflict_and_its_undo_reach_the_energy_the_tracks_row_holds() {
+    let lib = Lib::new();
+    let (id, open) = in_dispute(&lib);
+    assert_eq!(stored_energy(&lib, id), 8);
+    lib.resolve(open.id, Choice::KeepRekordbox).unwrap();
+    assert_eq!(stored_energy(&lib, id), 6);
+    assert_eq!(lib.undone(), RESOLVE_OPERATION);
+    assert_eq!(stored_energy(&lib, id), 8);
+}
+
+#[test]
+fn zero_stars_kept_from_rekordbox_and_its_undo_reach_the_energy_the_tracks_row_holds() {
+    let lib = Lib::new();
+    lib.stars_follow_energy(true);
+    let id = rated(&lib, FOUR, 8);
+    lib.rated_in_rekordbox(id, &[("Name", "A track"), ("Rating", "0")]);
+    lib.merge(&[id]);
+    assert_eq!(stored_energy(&lib, id), 8);
+    lib.resolve(lib.only_open().id, Choice::KeepRekordbox)
+        .unwrap();
+    assert_eq!(stored_energy(&lib, id), 0, "the energy was cleared");
+    assert_eq!(lib.undone(), RESOLVE_OPERATION);
+    assert_eq!(stored_energy(&lib, id), 8);
+}

@@ -33,6 +33,7 @@ mod stars_held;
 mod sync_base_ids;
 mod track_merge;
 mod track_row;
+mod track_row_doors;
 mod track_row_gaps;
 mod tracks;
 mod user_energy;
@@ -292,6 +293,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0041_stars_held.sql", &[]),
     // Two more flag bits in track_row and the triggers that mark a merge's track due, no new tables (1cC-U1b).
     ("0042_track_row_gaps.sql", &[]),
+    // Two more answers in track_row's flags and the triggers that mark a track due for them, no new tables (1cD-R1a).
+    ("0043_track_row_doors.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
