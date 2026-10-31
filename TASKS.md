@@ -60,7 +60,7 @@ In [TASKS-archive.md](TASKS-archive.md).
   7. Search index from nothing: 49 s (10 s on 10-13), 59 s with the table rows
   8. Undo of a big operation: up to 362 MiB and 8 s (audit B3; high risk, last)
   9. Startup checks 16 s every launch with nothing due; roles pass 13 s after every rekordbox read
-  10. Waveforms: about 5 to 11 hours of one thread for 100,000 files (extrapolated); an owner scope question
+  10. Waveforms: about 5 to 11 hours of one thread for 100,000 files (extrapolated). Owner decision 2026-10-31: Library tracks only; any other track is drawn when it is played
   Dropped with numbers: audit B2 (a 100k add to a crate is 6 to 7.5 s), B4 (about 2.3 s), B7, B12, all Review queries. Not measured: B8 and B10 (need a browser profile), B11.
 - **Lane 👤, gig:** 1cD-2 Prep and play a real or practice gig with it; log the friction in `DOGFOOD.md`. This is also the second dogfooding cycle, moved here from 1aG-3 (2026-10-10). In order: (1) back up rekordbox and the app's data folder, clear old test entries out of rekordbox, install over the older build; (2) start fresh with a set-sized Library (50 to 150 tracks), send, prepare the tracks in rekordbox (analyze, cues), send again and check nothing prepared was lost; (3) the rekordbox checks cycle 1 couldn't run: paths with `;` `@` `=`, a network drive, the USB eject test, the unsigned-app warning, importing two playlists whose names differ only by letter case; (4) play the gig; (5) then bring the whole collection into the Library, after duplicates and versions have been reviewed
 - **Lane 👤, legal:** 1cD-3 Pre-public checklist (moved to 1aP on 2026-09-30)
