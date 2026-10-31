@@ -223,6 +223,10 @@
     "purpose": "Filter: Library tracks whose linked file has tags and no embedded cover (the Overview's \"tracks with missing art\"). Same wording as overview:todo.missingArt, without the count.",
     "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
   },
+  "filters.genre": {
+    "purpose": "Filter: Library tracks whose genre is one genre ({{genre}} is its name as most tracks spell it, free text). Same word as the Overview's genre bars.",
+    "where": "Filter chip, opened from a genre bar on the Overview. Not in the Add filter menu."
+  },
   "format.mp3": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
     "where": "Filter chip and the Add filter menu, the formats."

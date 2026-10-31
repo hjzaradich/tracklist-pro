@@ -37,7 +37,9 @@ const chipKey = (filter: TableFilter) =>
     ? `format:${filter.format}`
     : filter.kind === "energy"
       ? `energy:${filter.level}`
-      : filter.kind;
+      : filter.kind === "genre"
+        ? `genre:${filter.name}`
+        : filter.kind;
 
 /**
  * The filter chips above the track table (1cA-4): the filters in use, each

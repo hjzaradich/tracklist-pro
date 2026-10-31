@@ -5,6 +5,7 @@
 mod doors;
 mod fit;
 mod folders;
+mod genre_door;
 mod hidden;
 mod ids;
 mod order;

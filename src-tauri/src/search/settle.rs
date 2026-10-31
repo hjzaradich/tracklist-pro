@@ -225,6 +225,7 @@ fn rows_for(
                     facts.flags |= table_row::flag::LOW_QUALITY;
                 }
                 facts.flags |= table_row::flag::energy(answer.energy.unwrap_or(0));
+                facts.genre.clone_from(&answer.genre);
             }
         }
         let has_file = names.contains_key(&id);

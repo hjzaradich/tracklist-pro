@@ -88,6 +88,14 @@
     "purpose": "Label of the bar that counts tracks with no genre.",
     "where": "Overview, genre bars, last."
   },
+  "charts.genres.door_one": {
+    "purpose": "Name of a genre bar's link, for one track: the genre ({{genre}}, free text) and its count. The link opens the Library with that genre.",
+    "where": "Overview, genre bars (screen readers only: the name of the link a bar is)."
+  },
+  "charts.genres.door_other": {
+    "purpose": "Name of a genre bar's link: the genre ({{genre}}, free text) and its count. The link opens the Library with that genre.",
+    "where": "Overview, genre bars (screen readers only: the name of the link a bar is)."
+  },
   "charts.genres.empty": {
     "purpose": "Says no track has a genre, so there are no bars to draw.",
     "where": "Overview, in place of the genre bars."

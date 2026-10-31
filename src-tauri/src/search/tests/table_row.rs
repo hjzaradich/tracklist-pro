@@ -48,6 +48,7 @@ fn filled() -> Inputs {
             bpm: Some(124.0),
             key: Some("8A".into()),
             added_at: Some("2026-10-01T10:00:00Z".into()),
+            genre: Some("A Genre".into()),
         },
         has_file: true,
         text_hash: 11,
@@ -111,6 +112,16 @@ const CHANGES: &[(&str, &str, Change)] = &[
     }),
     ("added_at", "no date added", |i| i.facts.added_at = None),
     ("text_hash", "other search text", |i| i.text_hash = 12),
+    // The Overview's genre (1cD-R1b): the spelling, and the group it is
+    // counted in (the lower case), which only another genre changes.
+    ("genre", "another spelling of it", |i| {
+        i.facts.genre = Some("a genre".into())
+    }),
+    ("genre", "no genre", |i| i.facts.genre = None),
+    ("genre_group", "another genre", |i| {
+        i.facts.genre = Some("Another Genre".into())
+    }),
+    ("genre_group", "no genre", |i| i.facts.genre = None),
 ];
 
 /// The columns of `track_row` that are values: all but the track's id.

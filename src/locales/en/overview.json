@@ -29,6 +29,8 @@
       "title": "Genres",
       "other": "Other",
       "none": "No genre",
+      "door_one": "{{genre}}: {{count, number}} track",
+      "door_other": "{{genre}}: {{count, number}} tracks",
       "empty": "No tracks with a genre"
     }
   },

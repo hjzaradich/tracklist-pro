@@ -1600,6 +1600,152 @@ fn the_short_way_agrees_with_asking_for_every_track_on_four_hundred_random_ones(
     );
 }
 
+// The genres the index job keeps (1cD-R1b): the Overview counts them.
+
+/// The old way of counting genres, which the stored genres replaced: every
+/// Library track's source (rekordbox's genre, or the tag's frames) read
+/// from the live tables, grouped by what they say, and each distinct group
+/// read with the send's rules. The reference the stored counts are held to.
+fn genres_live(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, u32)> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT rb, digest, count(*) FROM ({}) GROUP BY rb, digest",
+        genre_source_sql(false)
+    ))?;
+    let mut spellings = Vec::new();
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let (rekordbox, digest): (Option<String>, Option<String>) = (row.get(0)?, row.get(1)?);
+        let n = u32::try_from(row.get::<_, i64>(2)?).unwrap_or(u32::MAX);
+        if let Some(genre) = genre_of(rekordbox.as_deref(), digest.as_deref()) {
+            spellings.push((genre, n));
+        }
+    }
+    let genres = rank_genres(spellings);
+    let with_genre = genres.iter().map(|g| g.tracks).sum::<u32>();
+    Ok((genres, tracks.saturating_sub(with_genre)))
+}
+
+/// The stored genres, as the Overview counts them, against the live ones.
+fn assert_genres_agree(lib: &Lib, what: &str) -> Overview {
+    let o = lib.overview();
+    let tracks = o.tracks;
+    let live = lib.run(move |c| genres_live(c, tracks));
+    assert_eq!((o.genres.clone(), o.no_genre), live, "{what}");
+    assert!(!o.counting.index, "{what}: the index job has run");
+    o
+}
+
+/// Library tracks with the genres a DJ's tags really hold: spellings that
+/// differ in capitals only, accents, other scripts, blanks inside, signs
+/// that mean something in an address, and one in rekordbox's entry only.
+fn genre_library() -> Lib {
+    let lib = Lib::new();
+    let tagged = |genre: &str| Some(json!({"id3v2": [text("TCON", genre)]}));
+    for (i, genre) in [
+        "House",
+        "house",
+        "HOUSE",
+        " House ",
+        "Deep House",
+        "Drum & Bass",
+        "drum & bass",
+        "R&B / Soul",
+        "100% Pure",
+        "Caf\u{e9}",
+        "Cafe",
+        "CAF\u{c9}",
+        "\u{c9}lectro",
+        "\u{30c6}\u{30af}\u{30ce}",
+        "\u{41f}\u{43e}\u{43f}",
+        "\u{3a3}\u{39f}\u{3a5}\u{39b}",
+        "\u{3c3}\u{3bf}\u{3c5}\u{3bb}",
+        "Hip Hop",
+        "Hip  Hop",
+        "50/50",
+        "a+b",
+        "#1 Hits",
+        "\u{1f3b5} Mix",
+        "Stra\u{df}e",
+        "STRASSE",
+        "\u{130}stanbul",
+        "Techno",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        lib.library_track(&format!("T{i}"), None, tagged(genre));
+    }
+    lib.library_track("No tag", None, None);
+    lib.library_track("Blank tag", None, tagged("   "));
+    // rekordbox's word beats the tag's, and a blank one there means none.
+    for (name, rekordbox) in [("Known", "Rekordbox Disco"), ("Known blank", " ")] {
+        lib.library_track(name, None, tagged("Tag Disco"));
+        lib.rekordbox(file_of(&lib, name), json!({"Genre": rekordbox}), false);
+    }
+    // A track outside the Library is nobody's genre.
+    let outside = lib.track("Outside");
+    lib.file(outside, "Outside.mp3", None, tagged("Outside Genre"));
+    lib
+}
+
+#[test]
+fn the_stored_genres_give_the_bars_the_per_track_reading_gave_on_a_varied_library() {
+    let lib = genre_library();
+    let o = assert_genres_agree(&lib, "a varied library");
+    let names: Vec<&str> = o.genres.iter().map(|g| g.name.as_str()).collect();
+    // Not a trivial answer: capitals merged, the rest kept apart.
+    assert!(o.genres.len() > 15 && o.no_genre >= 3, "{names:?}");
+    assert_eq!(o.genres[0].name, "House");
+    assert_eq!(o.genres[0].tracks, 4, "House, house, HOUSE and ' House '");
+    assert!(names.contains(&"Rekordbox Disco") && !names.contains(&"Tag Disco"));
+    assert!(!names.contains(&"Outside Genre"));
+}
+
+#[test]
+fn the_stored_genres_give_the_same_bars_on_the_awkward_tags_and_the_edge_case_libraries() {
+    for (what, lib) in [
+        ("the awkward library", awkward_library()),
+        ("the gap library", gap_library()),
+        (
+            "four hundred random tracks",
+            random_library(0x2026_1031, 400),
+        ),
+        ("more random tracks", random_library(0x2026_0007, 400)),
+    ] {
+        assert_genres_agree(&lib, what);
+    }
+    let lib = Lib::new();
+    for (case, tags) in awkward_tags() {
+        lib.library_track(case, None, tags);
+    }
+    let o = assert_genres_agree(&lib, "every awkward tag");
+    assert!(!o.genres.is_empty() && o.no_genre > 0);
+}
+
+#[test]
+fn a_change_to_a_genre_is_counted_after_the_index_job_and_the_overview_says_still_counting_until_then(
+) {
+    let lib = Lib::new();
+    let tagged = |genre: &str| Some(json!({"id3v2": [text("TCON", genre)]}));
+    lib.library_track("A", None, tagged("House"));
+    lib.library_track("B", None, tagged("Techno"));
+    let before = assert_genres_agree(&lib, "before");
+    assert_eq!(before.genres.len(), 2);
+
+    // A rekordbox read gives the second track a genre of its own.
+    lib.rekordbox(file_of(&lib, "B"), json!({"Genre": "Disco"}), false);
+    let behind = lib.overview_now();
+    assert!(behind.counting.index, "the stored genres are behind");
+    assert_eq!(behind.genres, before.genres, "no wrong number, the old one");
+    let after = assert_genres_agree(&lib, "after");
+    let got: Vec<(&str, u32)> = after
+        .genres
+        .iter()
+        .map(|g| (g.name.as_str(), g.tracks))
+        .collect();
+    assert_eq!(got, [("Disco", 1), ("House", 1)]);
+}
+
 // The gap flags (1cC-U1b): the Overview counts bits the index job keeps.
 
 /// The Library track ids whose row has `bit`.
@@ -1937,9 +2083,22 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         );
         let decisions = scans(c, &decisions_sql(), [0]);
         assert_eq!(decisions, ["operation"]);
-        let mut genres = scans(c, &genres_sql(), []);
+        let stored_genres = scans(c, stored_genres_sql(), []);
+        assert_eq!(
+            stored_genres,
+            ["track_row"],
+            "genres: one pass over the stored genres, in their index"
+        );
+        let mut genres = scans(c, &genre_source_sql(false), []);
         genres.retain(|t| t != "blk" && t != "i" && t != "b");
-        assert_eq!(genres, ["lt"], "genres: one pass over the Library's tracks");
+        assert_eq!(
+            genres,
+            ["lt"],
+            "the genres of every Library track (the old way): one pass over the Library's tracks"
+        );
+        let mut page = scans(c, &genre_source_sql(true), ["[1]"]);
+        page.retain(|t| !["blk", "i", "b", "json_each"].contains(&t.as_str()));
+        assert!(page.is_empty(), "the genres of a page scan {page:?}");
         let mut per_track = scans(c, &missing_tags_sql(false), []);
         per_track.retain(|t| t != "blk" && t != "i" && t != "b");
         assert_eq!(
@@ -2087,13 +2246,10 @@ fn check_a_library_of(count: i64) {
         c.query_row(&library_sql(), ["2000"], |_| Ok(()))
     });
     timed("all music", |c| c.query_row(ALL_MUSIC, [], |_| Ok(())));
-    timed("genres statement", |c| {
-        c.prepare(&genres_sql())?
-            .query_map([], |_| Ok(()))?
-            .for_each(drop);
-        Ok(())
+    timed("genres (stored)", |c| genres(c, 0).map(|_| ()));
+    timed("genres (the old per-track way)", |c| {
+        genres_live(c, 0).map(|_| ())
     });
-    timed("genres", |c| genres(c, 0).map(|_| ()));
     timed(
         "stored counts (the Overview's whole cost for tags, art, quality and energy)",
         |c| stored_counts(c).map(|_| ()),
@@ -2198,9 +2354,17 @@ fn check_a_library_of(count: i64) {
     );
 
     // Grouping happens in SQL: the genres statement returns a row per
-    // distinct source, not a row per track.
-    let rows = lib.run(|c| Ok(c.prepare(&genres_sql())?.query_map([], |_| Ok(()))?.count()));
+    // distinct spelling, not a row per track.
+    let rows = lib.run(|c| {
+        Ok(c.prepare(stored_genres_sql())?
+            .query_map([], |_| Ok(()))?
+            .count())
+    });
     assert!(rows < 200, "{rows} rows for {count} tracks");
+    // And the old way, from the tags and rekordbox, gives the same bars.
+    let tracks = o.tracks;
+    let live = lib.run(move |c| genres_live(c, tracks));
+    assert_eq!((o.genres.clone(), o.no_genre), live);
 }
 
 #[test]

@@ -208,6 +208,31 @@ describe("the genre bars", () => {
     expect(within(region).getByText(tx("overview:charts.genres.empty"))).toBeInTheDocument();
   });
 
+  it("make a door of each genre's bar, and none of Other or No genre", () => {
+    const labels = { other: "Other", none: "None" };
+    const bars = genreBars({ genres: genres(Array(TOP_GENRES + 2).fill(3)), noGenre: 2 }, labels);
+    expect(bars.slice(0, TOP_GENRES).map((bar) => bar.filter)).toEqual(
+      Array.from({ length: TOP_GENRES }, (_, i) => ({ kind: "genre", name: `Genre ${i + 1}` })),
+    );
+    expect(bars.slice(TOP_GENRES).map((bar) => [bar.label, bar.filter])).toEqual([
+      ["Other", undefined],
+      ["None", undefined],
+    ]);
+  });
+
+  it("say the genres are still counting while the index is behind", async () => {
+    fakeBackend({
+      overview: {
+        genres: [{ name: "House", tracks: 2 }],
+        noGenre: 1,
+        counting: { files: false, rekordbox: false, quality: false, index: true },
+      },
+    });
+    renderApp("/overview");
+    const region = await screen.findByRole("region", { name: tx("overview:charts.genres.title") });
+    expect(within(region).getByText(tx("overview:todo.lineCounting"))).toBeInTheDocument();
+  });
+
   it("keep a single genre too many as a bar of its own instead of an Other of one", () => {
     const labels = { other: "Other", none: "None" };
     const nine = genreBars({ genres: genres(Array(TOP_GENRES + 1).fill(3)), noGenre: 0 }, labels);

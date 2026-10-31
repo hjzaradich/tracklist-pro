@@ -83,15 +83,14 @@ fn an_existing_database_gets_its_stored_answers_from_the_index_job_and_says_stil
              INSERT OR IGNORE INTO search_due (recording_id) SELECT id FROM recording;"
         ),
     );
-    let mut conn = conn;
-    settle(&mut conn, &Mount, 500).unwrap();
+    // The rows an older build wrote (the index job of this build writes
+    // columns that database doesn't have yet), without the new bits.
     accepts(
         &conn,
-        &format!(
-            "UPDATE track_row SET flags = flags & ~{};
-             DELETE FROM search_due;",
-            flag::LOW_QUALITY | flag::ENERGY
-        ),
+        "INSERT INTO track_row (recording_id, flags, title_key)
+         SELECT id, CASE WHEN id IN (SELECT recording_id FROM library_track) THEN 1 ELSE 0 END, 'x'
+         FROM recording;
+         DELETE FROM search_due;",
     );
     drop(conn);
     let mut conn = Connection::open(dir.path().join("test.db")).unwrap();

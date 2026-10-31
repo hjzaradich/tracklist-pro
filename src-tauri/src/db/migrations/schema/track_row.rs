@@ -116,7 +116,9 @@ fn every_sort_has_an_index_that_holds_the_flags_and_the_format_and_a_descending_
     }
     // And one narrow index to count a filter's rows by.
     assert!(names.contains(&"track_row_flags".to_owned()));
-    assert_eq!(names.len(), 11, "{names:?}");
+    // And one for the Overview's genre and its door (migration 0044).
+    assert!(names.contains(&"track_row_in_genre".to_owned()));
+    assert_eq!(names.len(), 12, "{names:?}");
 }
 
 #[test]

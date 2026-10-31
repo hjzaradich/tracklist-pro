@@ -163,6 +163,31 @@ impl Lib {
         )
     }
 
+    /// A trusted rekordbox entry for `file` (matched to it and to its track,
+    /// as a read and a relink leave it) with this genre. Each call makes
+    /// another entry, with a `TrackID` of its own.
+    pub fn trusted_entry(&self, file: i64, genre: &str) -> i64 {
+        let genre = genre.to_owned();
+        self.writer
+            .call(move |c| {
+                c.execute(
+                    "INSERT INTO rekordbox_track
+                         (attributes, location_key, read_at, file_id, recording_id,
+                          relink_method, relink_probable)
+                     SELECT json_object('TrackID', CAST(n AS TEXT),
+                                        'Location', 'file://localhost/E:/Music/' || n || '.mp3',
+                                        'Genre', ?2),
+                            'E:/MUSIC/' || n || '.MP3', '2026-09-30T10:00:00.000Z', ?1,
+                            (SELECT recording_id FROM recording_file WHERE file_id = ?1),
+                            'path', 0
+                     FROM (SELECT coalesce(max(track_id), 0) + 1 AS n FROM rekordbox_track)",
+                    rusqlite::params![file, genre],
+                )?;
+                Ok(c.last_insert_rowid())
+            })
+            .unwrap()
+    }
+
     /// Works out every row that is due, two tracks to a transaction.
     pub fn settle(&self) -> usize {
         self.writer.call(|c| settle(c, &Mount, 2)).unwrap()
