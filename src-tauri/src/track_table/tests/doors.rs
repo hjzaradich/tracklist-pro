@@ -301,10 +301,13 @@ fn the_energy_chips_open_the_tracks_each_bar_counts() {
     w.agree(TableFilter::NoEnergy, |o| o.no_energy, &["nofile"]);
 }
 
+/// Which number of the Overview a door counts.
+type Number = Box<dyn Fn(&Overview) -> u32>;
+
 /// The twelve doors that read what the index job keeps of a Library track
 /// (1cD-R1a), each with the Overview's number for it.
-fn stored_doors() -> Vec<(TableFilter, Box<dyn Fn(&Overview) -> u32>)> {
-    let mut doors: Vec<(TableFilter, Box<dyn Fn(&Overview) -> u32>)> = vec![
+fn stored_doors() -> Vec<(TableFilter, Number)> {
+    let mut doors: Vec<(TableFilter, Number)> = vec![
         (TableFilter::LowQuality, Box::new(|o| o.low_quality)),
         (TableFilter::NoEnergy, Box::new(|o| o.no_energy)),
     ];
