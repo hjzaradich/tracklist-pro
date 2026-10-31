@@ -138,9 +138,9 @@ fn starting_fresh_keeps_the_column_choices() {
 fn a_fresh_library_is_empty_and_all_music_shows_every_track_once() {
     let (world, _rb) = started_fresh();
     let all = world.all_music();
-    assert_eq!(all.total, TRACKS_IN_ALL_MUSIC);
-    assert_eq!(all.tracks.len(), TRACKS_IN_ALL_MUSIC as usize);
-    assert!(all.tracks.iter().all(|t| !t.in_library));
+    assert_eq!(all.total, Some(TRACKS_IN_ALL_MUSIC));
+    assert_eq!(all.rows.len(), TRACKS_IN_ALL_MUSIC as usize);
+    assert!(all.rows.iter().all(|t| !t.in_library));
 }
 
 #[test]
@@ -454,7 +454,7 @@ fn a_new_track_whose_file_is_missing_is_left_out_with_the_reason_and_the_send_ne
 fn add_a_twin(world: &World) -> (LibraryTrack, Song, Song) {
     let row = world
         .all_music()
-        .tracks
+        .rows
         .into_iter()
         .find(|t| {
             let name = t.file.as_ref().map(|f| f.name.as_str());

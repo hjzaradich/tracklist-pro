@@ -143,10 +143,9 @@ describe("warning color", () => {
       }
     });
 
-    it(`stays clearly apart from danger and success (${theme})`, () => {
+    it(`stays clearly apart from danger (${theme})`, () => {
       expect(perceivedDistance(warning, get("--color-danger"))).toBeGreaterThanOrEqual(0.15);
       expect(hueGap(warning, get("--color-danger"))).toBeGreaterThanOrEqual(60);
-      expect(perceivedDistance(warning, get("--color-success"))).toBeGreaterThanOrEqual(0.08);
     });
 
     it(`is readable as text on every background (${theme})`, () => {

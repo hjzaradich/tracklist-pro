@@ -55,7 +55,6 @@ All in `src/theme/tokens.css`. Components use the variables only.
 | `--color-focus-ring` | `#e0a13c` | `#a86a12` | Keyboard focus |
 | `--color-danger` | `#e5675c` | `#b83a30` | Data loss, errors |
 | `--color-warning` | `#e6dc70` | `#625e00` | Warnings |
-| `--color-success` | `#5fb87a` | `#2f7d4a` | Done, ok |
 
 ## Seeing the app: the preview
 

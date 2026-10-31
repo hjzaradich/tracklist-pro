@@ -24,7 +24,6 @@ use serde_json::{json, Value};
 use tauri::test::{mock_builder, MockRuntime};
 use tauri::Manager;
 use tauri_specta::Event;
-use tracklist_pro_lib::all_music::AllMusicList;
 use tracklist_pro_lib::crates::CrateId;
 use tracklist_pro_lib::fragile::FragileDirs;
 use tracklist_pro_lib::jobs::{self, ActivitySnapshot, JobId, JobRecord, JobStatus};
@@ -32,6 +31,7 @@ use tracklist_pro_lib::library::{self, LibraryTrack, LibraryTrackId, PromoteOutc
 use tracklist_pro_lib::paths::SystemVolumes;
 use tracklist_pro_lib::rekordbox::RekordboxXml;
 use tracklist_pro_lib::send::{Preflight, SendFailure, SendState};
+use tracklist_pro_lib::track_table::TablePage;
 use tracklist_pro_lib::{db, scan, IDENTIFIER};
 
 /// A generated audio file: where it goes in the music folder, its tags,
@@ -572,15 +572,27 @@ impl World {
             .unwrap_or_else(|| panic!("{} isn't in the Library", song.rel))
     }
 
-    pub fn all_music(&self) -> AllMusicList {
-        self.call("all_music_tracks", json!({ "search": null }))
+    /// Every track with a file, as the All music table lists them.
+    pub fn all_music(&self) -> TablePage {
+        self.call(
+            "track_table_page",
+            json!({ "query": {
+                "source": { "kind": "allMusic" },
+                "search": null,
+                "filters": [],
+                "sort": null,
+                "offset": 0,
+                "limit": 500,
+                "withTotal": true,
+            } }),
+        )
     }
 
     /// "Add to Library" on the All music row showing this song's file.
     pub fn add_from_all_music(&self, song: &Song) -> LibraryTrack {
         let row = self
             .all_music()
-            .tracks
+            .rows
             .into_iter()
             .find(|t| t.file.as_ref().is_some_and(|f| f.name == song.file_name()))
             .unwrap_or_else(|| panic!("{} isn't in All music", song.rel));

@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import { useActivityStore } from "../activity/activityStore";
-import type { AllMusicTrack, JobUpdate, TableRow } from "../bindings";
+import type { JobUpdate, TableRow } from "../bindings";
 import { usePlayer } from "../player/playerStore";
 import { useReloadListsWhenJobsEnd } from "../shell/useReloadListsWhenJobsEnd";
 import "../i18n";
@@ -14,6 +14,12 @@ import { AllMusicScreen } from "./AllMusicScreen";
 import type { Schedule } from "./useDebounced";
 import { pageOf, queryOf, tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
+
+/** A track as these tests set up All music. */
+type AllMusicTrack = Pick<
+  TableRow,
+  "recordingId" | "title" | "artist" | "file" | "inLibrary" | "matchNotConfirmed"
+>;
 
 /** Typing has "stopped" at once: the search is asked for on every change. */
 const AT_ONCE: Schedule = (run) => {

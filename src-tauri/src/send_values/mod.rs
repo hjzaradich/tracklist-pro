@@ -1160,7 +1160,9 @@ fn kind(format: &str) -> Option<&'static str> {
     })
 }
 
-/// A single Library track's values (a batch of one).
+/// A single Library track's values (a batch of one). Only tests ask for one
+/// track at a time.
+#[cfg(test)]
 pub fn send_values_one(
     conn: &Connection,
     volumes: &impl Volumes,

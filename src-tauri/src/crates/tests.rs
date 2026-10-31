@@ -9,6 +9,7 @@ use serde_json::json;
 use super::*;
 use crate::after_send::{lists, save_tree, RekordboxTree, TreeNode};
 use crate::ops::{undo_last_via, UndoOutcome};
+use crate::paths::Volumes;
 use crate::rekordbox_write::record_send;
 use crate::send::crate_tree;
 use crate::volume::{Volume, VolumeId};
@@ -1116,23 +1117,6 @@ fn a_crates_tracks_come_in_the_order_they_were_added_and_the_order_a_send_writes
             entries: vec![c, a, b]
         }]
     );
-    // And as rows, in that order.
-    let (stored, located) = lib
-        .writer
-        .call(|conn| library::stored_with_locations(conn, &NoVolumes))
-        .unwrap();
-    let rows = ordered_tracks(
-        &lib.ids(id),
-        &stored,
-        &located,
-        &NoVolumes,
-        &FragileDirs {
-            downloads: None,
-            temp: Vec::new(),
-        },
-    );
-    let titles: Vec<_> = rows.iter().map(|t| t.title.clone().unwrap()).collect();
-    assert_eq!(titles, ["C", "A", "B"]);
 }
 
 // ---- undo ----------------------------------------------------------------------
@@ -1366,9 +1350,6 @@ mod ipc {
             listed,
             json!([{ "id": id, "parentId": null, "kind": "static", "name": "Warm up", "trackCount": 1 }])
         );
-        let tracks = invoke(&app, "crate_tracks", json!({ "id": id })).unwrap();
-        assert_eq!(tracks[0]["title"], json!("Tune"));
-        assert_eq!(tracks[0]["id"], json!(library_track));
 
         // Renaming to the name it has records nothing, and says so.
         let same = invoke(&app, "rename_crate", json!({ "id": id, "name": "Warm up" })).unwrap();
@@ -1526,8 +1507,6 @@ mod ipc {
         );
         let empty = invoke(&app, "create_crate", json!({ "name": "  " })).unwrap_err();
         assert_eq!(empty["kind"], json!("crateNameEmpty"));
-        let missing = invoke(&app, "crate_tracks", json!({ "id": 99 })).unwrap_err();
-        assert_eq!(missing["kind"], json!("crateNotFound"));
         assert_eq!(
             invoke(&app, "list_crates", json!({}))
                 .unwrap()
@@ -1535,121 +1514,5 @@ mod ipc {
                 .map(Vec::len),
             Some(1)
         );
-    }
-}
-
-#[test]
-fn a_crates_tracks_show_what_a_send_would_write_in_the_order_of_the_crate() {
-    let lib = Lib::new();
-    lib.run(
-        "INSERT INTO volume (identity, kind, last_mount_path) VALUES (?1, 'external', 'E:\\')",
-        (crate::volume::identity(crate::volume::IdentitySignals {
-            kind: crate::volume::VolumeKind::External,
-            unc_share: None,
-            serial: Some(0x1A2B_3C4D),
-            filesystem: "NTFS",
-            guid: None,
-        })
-        .unwrap()
-        .as_str()
-        .to_owned(),),
-    );
-    lib.run(
-        "INSERT INTO music_folder (volume_id, rel_path, rel_path_key) VALUES (1, 'Music', 'Music')",
-        (),
-    );
-    // Library tracks with no title of their own, each with a file.
-    let untitled = |name: &'static str, tags: Option<(&'static str, &'static str)>| {
-        let recording = lib.run("INSERT INTO recording DEFAULT VALUES", ());
-        let raw_tags = tags.map(|(title, artist)| {
-            serde_json::json!({"id3v2": [
-                {"key": "TIT2", "value": {"type": "text", "text": title}},
-                {"key": "TPE1", "value": {"type": "text", "text": artist}},
-            ]})
-            .to_string()
-        });
-        let file = lib.run(
-            "INSERT INTO file (music_folder_id, rel_path, rel_path_key, raw_tags)
-             VALUES (1, ?1, ?1, ?2)",
-            (name, raw_tags),
-        );
-        lib.run(
-            "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
-            (recording, file),
-        );
-        let track = lib.run(
-            "INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
-             VALUES (?1, 'linked', ?2, 'ok')",
-            (recording, file),
-        );
-        (LibraryTrackId(track), file)
-    };
-    let (known, known_file) = untitled("known.mp3", Some(("Tag of a known track", "Tag artist")));
-    let (new, _) = untitled("new.mp3", Some(("Tag of a new track", "New artist")));
-    let (bare, _) = untitled("Sub/bare.mp3", None);
-    lib.run(
-        "INSERT INTO rekordbox_track
-             (attributes, location_key, read_at, file_id, relink_method, relink_probable)
-         VALUES (?1, 'E:/MUSIC/KNOWN.MP3', '2026-09-30T10:00:00.000Z', ?2, 'path', 0)",
-        (
-            r#"{"TrackID":"7","Name":"Their title","Artist":"Their artist","Location":"file://localhost/E:/Music/known.mp3"}"#,
-            known_file,
-        ),
-    );
-    let id = lib.made("Warm up");
-    lib.add(id, &[known, new, bare]).unwrap();
-    lib.added_at(id, &[bare, known, new]);
-
-    let (stored, located) = lib
-        .writer
-        .call(|conn| library::stored_with_locations(conn, &Plugged))
-        .unwrap();
-    let rows = ordered_tracks(
-        &lib.ids(id),
-        &stored,
-        &located,
-        &Plugged,
-        &FragileDirs {
-            downloads: None,
-            temp: Vec::new(),
-        },
-    );
-    let shown: Vec<_> = rows
-        .iter()
-        .map(|t| (t.title.as_deref(), t.artist.as_deref()))
-        .collect();
-    assert_eq!(
-        shown,
-        [
-            // Neither a title nor a tag: the file's name, no artist.
-            (Some("bare.mp3"), None),
-            // rekordbox knows it: its name and artist, not the file's tags.
-            (Some("Their title"), Some("Their artist")),
-            (Some("Tag of a new track"), Some("New artist")),
-        ]
-    );
-}
-
-/// The volume the files of the crate tests are on, mounted at `E:\`.
-struct Plugged;
-
-impl Volumes for Plugged {
-    fn volume_for(&self, path: &Path) -> std::io::Result<Volume> {
-        Err(std::io::Error::other(format!(
-            "{} isn't looked up in these tests",
-            path.display()
-        )))
-    }
-
-    fn mount_path(&self, id: &VolumeId) -> Option<PathBuf> {
-        let mine = crate::volume::identity(crate::volume::IdentitySignals {
-            kind: crate::volume::VolumeKind::External,
-            unc_share: None,
-            serial: Some(0x1A2B_3C4D),
-            filesystem: "NTFS",
-            guid: None,
-        })
-        .unwrap();
-        (*id == mine).then(|| PathBuf::from(r"E:\"))
     }
 }
