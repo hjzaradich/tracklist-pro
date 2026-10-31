@@ -490,7 +490,8 @@ export const commands = {
 	/**
 	 *  Gives tracks an energy from 1 to 10: one operation, one Undo. The
 	 *  Overview and its doors read the energy from the track table's rows, so a
-	 *  few tracks' rows are worked out now, for the lists read right after it.
+	 *  few tracks' rows (at most [`SETTLE_NOW_LIMIT`] due) are worked out now,
+	 *  for the lists read right after it.
 	 */
 	setEnergy: (recordings: number[], energy: number) => typedError<EnergySet, IpcError>(__TAURI_INVOKE("set_energy", { recordings, energy })),
 	/**
