@@ -10,14 +10,16 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use super::file::{send_path, write_and_record, WriteError};
 use super::preflight::{
-    changed_on_disk, may_send_from_this_export, no_file_at_location, review, Reviewed,
+    changed_on_disk, describe, labels_of, may_send_from_this_export, merge, merge_read_only,
+    no_file_at_location, Describing, Merging, Reviewed,
 };
-use super::{SendFailure, SendFlow, SendStep, Sent};
+use super::{SendFailure, SendFlow, SendStep, SendWork, Sent};
 use crate::conflicts::open_at_send;
+use crate::db::Moment;
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
-use crate::rekordbox::source::XmlReader;
+use crate::rekordbox::source::{stored_source, XmlReader};
 use crate::rekordbox_write::{record_send, SentPath, SentTrack};
 use crate::relink::{self, Mounted};
 
@@ -66,6 +68,21 @@ pub fn drop_unfinished_jobs(conn: &Connection) -> rusqlite::Result<usize> {
     )
 }
 
+/// How far along each job is when each of its parts starts, as far as a
+/// measured send of 100,000 tracks says each part takes (1cD-S1). The part
+/// of the prepare step up to `MATCHING` is the export's read.
+mod progress {
+    pub const MATCHING: f64 = 0.35;
+    pub const MERGING: f64 = 0.55;
+    pub const BUILDING: f64 = 0.7;
+    pub const LOOKING_AT_FILES: f64 = 0.95;
+
+    pub const GO_MERGING: f64 = 0.02;
+    pub const GO_BUILDING: f64 = 0.4;
+    pub const WRITING: f64 = 0.75;
+    pub const RECORDING: f64 = 0.8;
+}
+
 /// How a send is recorded once its file is in place.
 type Record =
     dyn Fn(&mut Connection, &[SentTrack], &[SentPath]) -> rusqlite::Result<()> + Send + Sync;
@@ -82,9 +99,16 @@ pub struct Sender<V> {
     /// matched, so tests can act there.
     #[cfg(test)]
     after_read: Option<Arc<dyn Fn() + Send + Sync>>,
-    /// Called between matching the tracks and building the preflight.
+    /// Called between matching the tracks and building the preflight, in
+    /// the writer job that matches them.
     #[cfg(test)]
     after_relink: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Called as the merge of a review starts, off the writer.
+    #[cfg(test)]
+    before_merge: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Called once the merge is done, before the send is built.
+    #[cfg(test)]
+    after_merge: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Called at the go, between building the send again and writing it.
     #[cfg(test)]
     before_write: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -94,13 +118,17 @@ impl<V: Volumes + 'static> Sender<V> {
     pub fn new(flow: SendFlow, volumes: impl Fn() -> V + Send + Sync + 'static) -> Sender<V> {
         Sender {
             flow,
-            reader: XmlReader::default(),
+            reader: XmlReader::up_to(progress::MATCHING),
             volumes: Arc::new(volumes),
             record: Arc::new(record_send),
             #[cfg(test)]
             after_read: None,
             #[cfg(test)]
             after_relink: None,
+            #[cfg(test)]
+            before_merge: None,
+            #[cfg(test)]
+            after_merge: None,
             #[cfg(test)]
             before_write: None,
         }
@@ -119,6 +147,20 @@ impl<V: Volumes + 'static> Sender<V> {
     #[cfg(test)]
     pub(crate) fn after_relink(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
         self.after_relink = Some(Arc::new(hook));
+        self
+    }
+
+    /// Calls `hook` as the merge of a review starts, off the writer.
+    #[cfg(test)]
+    pub(crate) fn before_merge(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.before_merge = Some(Arc::new(hook));
+        self
+    }
+
+    /// Calls `hook` once the merge is done, before the send is built.
+    #[cfg(test)]
+    pub(crate) fn after_merge(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.after_merge = Some(Arc::new(hook));
         self
     }
 
@@ -188,6 +230,12 @@ impl From<crate::db::DbError> for Stop {
     }
 }
 
+impl From<rusqlite::Error> for Stop {
+    fn from(e: rusqlite::Error) -> Stop {
+        Stop::internal(e)
+    }
+}
+
 impl<V: Volumes + 'static> JobHandler for Sender<V> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         // A job another run of the app queued: that run's click, not this
@@ -239,6 +287,7 @@ impl<V: Volumes + 'static> Sender<V> {
             .and_then(|p| p.as_str())
             .unwrap_or_default()
             .to_owned();
+        self.flow.working_on(SendWork::Reading);
         // The read job itself, run here: it reads the file the job's
         // target names, and records a failure for the rekordbox source.
         self.reader.run(job).map_err(|e| match e {
@@ -249,27 +298,34 @@ impl<V: Volumes + 'static> Sender<V> {
         if let Some(hook) = &self.after_read {
             hook();
         }
+        self.part(job, SendWork::Matching, progress::MATCHING)?;
         let known = job.writer().call(|c| relink::identities(c))?;
         let mounted = Mounted::ask(&known, &(self.volumes)());
         if job.is_cancelled() {
             return Err(Stop::cancelled());
         }
         // The read replaced every rekordbox row, unmatched, and any other
-        // read does the same. So the matching and the preflight are one
-        // writer job: no read can land between them, and a track
-        // rekordbox has never goes out as new.
-        let volumes = self.volumes.clone();
+        // read does the same. So the review reads the moment the matching
+        // ended, held in the matching's own writer job: no read can land
+        // between them, and a track rekordbox has never goes out as new.
+        let moment = Moment::open(job.writer().guarded_path())?;
         #[cfg(test)]
         let after_relink = self.after_relink.clone();
-        let reviewed = job.writer().call(move |c| {
+        let (moment, mounted) = job.writer().call(move |c| {
             relink::relink(c, &mounted)?;
             #[cfg(test)]
             if let Some(hook) = &after_relink {
                 hook();
             }
-            review(c, &volumes())
+            moment.hold()?;
+            Ok((moment, mounted))
         })?;
-        let reviewed = reviewed.ok_or_else(|| Stop::internal("the read left no record"))?;
+        self.part(job, SendWork::Merging, progress::MERGING)?;
+        let volumes = (self.volumes)();
+        let (merging, moment) = self.merged(job, &volumes, moment, Some(mounted))?;
+        let merging = merging.ok_or_else(|| Stop::internal("the read left no record"))?;
+        self.part(job, SendWork::Building, progress::BUILDING)?;
+        let reviewed = describe(moment.conn(), &volumes, merging, Describing::All)?;
         // Another read, of another export, got in after this one: the
         // preflight would be of a file the user didn't ask for.
         if reviewed.preflight.export.path != path {
@@ -278,24 +334,109 @@ impl<V: Volumes + 'static> Sender<V> {
                 "another export was read meanwhile",
             ));
         }
-        // The writer is free again: now ask the disk about the tracks
-        // sent at another path than their file's, and about files changed
-        // after the export that no scan has seen yet (1.10, "Second
-        // channel"). Only here; the go never asks again, and the token
-        // doesn't cover the answers.
+        // Now ask the disk about the tracks sent at another path than their
+        // file's, and about files changed after the export that no scan has
+        // seen yet (1.10, "Second channel"). Only here; the go never asks
+        // again, and the token doesn't cover the answers.
+        self.part(job, SendWork::LookingAtFiles, progress::LOOKING_AT_FILES)?;
         let mut preflight = reviewed.preflight;
-        preflight.no_file_at_location = no_file_at_location(&reviewed.sent_elsewhere);
+        let no_file = no_file_at_location(&reviewed.sent_elsewhere);
+        preflight.no_file_at_location =
+            labels_of(moment.conn(), &volumes, &no_file, &reviewed.gone)?;
+        let changed = changed_on_disk(&reviewed.watched, preflight.export.modified_ms);
         preflight.changed_after_export =
-            changed_on_disk(&reviewed.watched, preflight.export.modified_ms);
+            labels_of(moment.conn(), &volumes, &changed, &reviewed.gone)?;
         self.flow.end(SendStep::Prepare, |steps| {
             steps.review = Some(preflight);
         });
         Ok(())
     }
 
-    fn review(&self, job: &JobContext) -> Result<Option<Reviewed>, Stop> {
+    /// A part of a step begins, `done` of the way through its job. A report
+    /// that fails stops nothing; a cancelled job stops here.
+    fn part(&self, job: &JobContext, work: SendWork, done: f64) -> Result<(), Stop> {
+        self.flow.working_on(work);
+        if job.is_cancelled() {
+            return Err(Stop::cancelled());
+        }
+        let _ = job.progress(done);
+        Ok(())
+    }
+
+    /// The merge at `moment`, and the moment the rest of the review reads.
+    /// With nothing to write it is all done on `moment`, off the writer. With
+    /// something to write it is done again on the writer, whatever else
+    /// landed meanwhile, and the rest reads the moment that job ends: what
+    /// the merge wrote is in it. `None` if rekordbox was never read.
+    ///
+    /// `matched`, for the prepare step: a read landing since the matching
+    /// left every row unmatched, so this job matches them first, and no
+    /// track rekordbox has goes out as new.
+    fn merged(
+        &self,
+        job: &JobContext,
+        volumes: &V,
+        moment: Moment,
+        matched: Option<Mounted>,
+    ) -> Result<(Option<Merging>, Moment), Stop> {
+        #[cfg(test)]
+        if let Some(hook) = &self.before_merge {
+            hook();
+        }
+        let merged = self.merge_on(job, volumes, moment, matched)?;
+        #[cfg(test)]
+        if let Some(hook) = &self.after_merge {
+            hook();
+        }
+        Ok(merged)
+    }
+
+    fn merge_on(
+        &self,
+        job: &JobContext,
+        volumes: &V,
+        moment: Moment,
+        matched: Option<Mounted>,
+    ) -> Result<(Option<Merging>, Moment), Stop> {
+        if let Ok(merging) = merge_read_only(moment.conn(), volumes)? {
+            return Ok((merging, moment));
+        }
+        fn read_at(conn: &Connection) -> rusqlite::Result<Option<String>> {
+            Ok(stored_source(conn)?.last_read.map(|read| read.read_at))
+        }
+        let seen = read_at(moment.conn())?;
+        drop(moment);
+        let moment = Moment::open(job.writer().guarded_path())?;
         let volumes = self.volumes.clone();
-        Ok(job.writer().call(move |c| review(c, &volumes()))?)
+        Ok(job.writer().call(move |c| {
+            if let Some(mounted) = matched {
+                if read_at(c)? != seen {
+                    relink::relink(c, &mounted)?;
+                }
+            }
+            let merging = merge(c, &volumes())?;
+            moment.hold()?;
+            Ok((merging, moment))
+        })?)
+    }
+
+    /// The review the go checks: the database as it is now, which holds the
+    /// writer only if the merge has something to write.
+    fn review(&self, job: &JobContext) -> Result<Option<Reviewed>, Stop> {
+        let moment = Moment::open(job.writer().guarded_path())?;
+        moment.hold()?;
+        let volumes = (self.volumes)();
+        let (merging, moment) = self.merged(job, &volumes, moment, None)?;
+        let Some(merging) = merging else {
+            return Ok(None);
+        };
+        self.part(job, SendWork::Building, progress::GO_BUILDING)?;
+        Ok(Some(describe(
+            moment.conn(),
+            &volumes,
+            merging,
+            Describing::ForTheGo,
+        )?))
     }
 
     /// The go: builds the send again, checks it's the reviewed one, writes
@@ -349,6 +490,7 @@ impl<V: Volumes + 'static> Sender<V> {
                     .dropping_preflight(),
             );
         }
+        self.part(job, SendWork::Merging, progress::GO_MERGING)?;
         let now = self.review(job)?;
         let Some(now) = now.filter(|n| n.preflight.export.read_at == reviewed.export.read_at)
         else {
@@ -375,10 +517,14 @@ impl<V: Volumes + 'static> Sender<V> {
             hook();
         }
 
+        self.part(job, SendWork::Writing, progress::WRITING)?;
         let outgoing = Arc::new(outgoing);
         let open_seen = now.open;
         let dest = send_path(self.flow.guard());
         let at = write_and_record(self.flow.guard(), &dest, &outgoing, || {
+            // The file is in place: a cancel changes nothing any more.
+            self.flow.working_on(SendWork::Recording);
+            let _ = job.progress(progress::RECORDING);
             let record = self.record.clone();
             let outgoing = outgoing.clone();
             job.writer()

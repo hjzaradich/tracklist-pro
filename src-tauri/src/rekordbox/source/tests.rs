@@ -222,6 +222,45 @@ fn a_successful_read_clears_the_last_failure() {
 }
 
 #[test]
+fn a_read_that_is_only_the_start_of_its_job_reports_no_further_than_its_part() {
+    let (dir, writer) = db();
+    let xml = dir.path().join("big.xml");
+    let ids: Vec<u64> = (1..=30_000).collect();
+    write_at(&xml, &export(&ids), 5);
+    let updates = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let heard = updates.clone();
+    let queue = JobQueue::builder(writer.clone())
+        .workers(1)
+        .on_updates(move |u: &[jobs::JobUpdate]| heard.lock().unwrap().extend_from_slice(u))
+        .handler(JobKind::ReadRekordbox, XmlReader::up_to(0.25))
+        .start()
+        .unwrap();
+    let id = queue.enqueue(read_job(&xml)).unwrap();
+    let start = Instant::now();
+    while !writer
+        .call(move |c| jobs::store::get(c, id))
+        .unwrap()
+        .unwrap()
+        .status
+        .is_finished()
+    {
+        assert!(start.elapsed() < Duration::from_secs(120));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    queue.shutdown();
+    std::thread::sleep(crate::jobs::BATCH_WINDOW * 4);
+    let heard: Vec<f64> = updates
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|u| u.status == JobStatus::Running)
+        .filter_map(|u| u.progress)
+        .collect();
+    assert!(heard.len() >= 2, "{heard:?}");
+    assert!(heard.iter().all(|p| *p <= 0.25), "{heard:?}");
+}
+
+#[test]
 fn a_large_export_reports_progress_as_it_is_read() {
     let (dir, writer) = db();
     let xml = dir.path().join("big.xml");
@@ -649,6 +688,7 @@ fn cancel_at(writer: &Writer, path: &Path, stage: Stage) -> (JobStatus, Vec<Stag
                 let _ = resume.lock().unwrap().recv_timeout(Duration::from_secs(30));
             }
         })),
+        ..XmlReader::default()
     };
     let queue = JobQueue::builder(writer.clone())
         .workers(1)

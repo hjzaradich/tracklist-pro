@@ -878,6 +878,61 @@ pub fn stored(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<Vec
     Ok(tracks)
 }
 
+/// [`stored`] of the Library tracks `ids` only, in id order: the same rows,
+/// the same title and artist.
+pub fn stored_these(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<Vec<StoredTrack>> {
+    let ids = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+        .expect("numbers always serialize");
+    let mut tracks = stored_where(
+        conn,
+        "WHERE lt.id IN (SELECT value FROM json_each(?1))",
+        [ids],
+    )?;
+    fill_shown(conn, volumes, &mut tracks)?;
+    Ok(tracks)
+}
+
+/// The ids of [`stored`], in its order, without what it reads for each: a
+/// send's merge reads every track itself. Every Library track whose kind
+/// this build knows.
+pub fn stored_ids(conn: &Connection) -> rusqlite::Result<Vec<LibraryTrackId>> {
+    let mut stmt = conn.prepare(
+        "SELECT lt.id, lt.kind FROM library_track lt
+         JOIN recording r ON r.id = lt.recording_id
+         ORDER BY lt.id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    let mut ids = Vec::new();
+    for row in rows {
+        let (id, kind) = row?;
+        if LibraryTrackKind::parse(&kind).is_some() {
+            ids.push(LibraryTrackId(id));
+        }
+    }
+    Ok(ids)
+}
+
+/// Every Library track's linked file, by track. A track with no linked file
+/// isn't here, nor is one whose file doesn't read back ([`file_from`]).
+pub fn linked_files(conn: &Connection) -> rusqlite::Result<HashMap<LibraryTrackId, StoredFile>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT lt.id, {FILE_COLUMNS} FROM library_track lt
+         JOIN file f ON f.id = lt.linked_file_id
+         {FILE_JOINS}"
+    ))?;
+    let rows = stmt.query_map([], |r| Ok((LibraryTrackId(r.get(0)?), file_from(r, 1)?)))?;
+    let mut files = HashMap::new();
+    for row in rows {
+        let (track, file) = row?;
+        files.extend(file.map(|file| (track, file)));
+    }
+    Ok(files)
+}
+
 /// Sets each track's title and artist to the ones a list shows. Worked out
 /// now, from what the scan stored: nothing is written.
 fn fill_shown(

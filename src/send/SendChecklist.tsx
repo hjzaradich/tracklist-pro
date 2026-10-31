@@ -31,7 +31,7 @@ export function SendChecklist({
   onClose: () => void;
   afterSend?: ReactNode;
 }) {
-  const { t, i18n } = useTranslation(["send", "rekordbox"]);
+  const { t, i18n } = useTranslation(["send", "rekordbox", "activity"]);
   const titleId = useId();
   const queryClient = useQueryClient();
   const [waiting, setWaiting] = useState<Waiting | null>(null);
@@ -39,6 +39,9 @@ export function SendChecklist({
   const jobEnded = useActivityStore(
     (activity) =>
       waiting !== null && activity.seen.has(waiting.job) && activity.jobs[waiting.job] === undefined,
+  );
+  const progress = useActivityStore((activity) =>
+    waiting === null ? null : (activity.jobs[waiting.job]?.progress ?? null),
   );
   const { data: state } = useSendState(waiting !== null && !jobEnded ? waiting.revision : null);
   useEffect(() => {
@@ -73,6 +76,14 @@ export function SendChecklist({
   // The step the failure belongs under: the one that ended last.
   const failedStep = state?.step ?? "write";
   const working = busy || prepare.isPending || write.isPending;
+  // What the step under way is doing, with how far its job has got. Until
+  // the step says, `first`.
+  const underWay = (first: string) => {
+    const task = state?.workingOn ? t(`working.${state.workingOn}`) : first;
+    return progress === null
+      ? task
+      : t("activity:percent", { task, percent: Math.floor(progress * 100) });
+  };
 
   const startPrepare = (path: string | null) => {
     const since = state?.revision ?? 0;
@@ -132,7 +143,9 @@ export function SendChecklist({
           ) : (
             state && <p className={styles.muted}>{t("export.noneChosen")}</p>
           )}
-          {busy && waiting?.step === "prepare" && <p role="status">{t("export.reading")}</p>}
+          {busy && waiting?.step === "prepare" && (
+            <p role="status">{underWay(t("export.reading"))}</p>
+          )}
           {preflight && (
             <p role="status">
               {t("export.saved", { when: when(new Date(preflight.export.modifiedMs)) })}
@@ -190,7 +203,7 @@ export function SendChecklist({
         <li>
           <h3 className={styles.stepTitle}>{t("write.title")}</h3>
           {state && <SendFile path={state.filePath} />}
-          {busy && waiting?.step === "write" && <p role="status">{t("write.writing")}</p>}
+          {busy && waiting?.step === "write" && <p role="status">{underWay(t("write.writing"))}</p>}
           {state?.sent && !busy && (
             <p role="status">{t("write.written", { when: when(new Date(state.sent.at)) })}</p>
           )}

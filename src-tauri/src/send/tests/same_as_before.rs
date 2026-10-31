@@ -352,6 +352,29 @@ impl World {
         assert_eq!(now.preflight, before.preflight);
         assert_eq!(now.outgoing, before.outgoing);
         assert_eq!(now.open, before.open);
+        // What the prepare step looks up on disk, too.
+        let elsewhere: Vec<(LibraryTrackId, String)> = before
+            .sent_elsewhere
+            .iter()
+            .map(|sent| (sent.track.library_track, sent.path.clone()))
+            .collect();
+        let now_elsewhere: Vec<(LibraryTrackId, String)> = now
+            .sent_elsewhere
+            .iter()
+            .map(|sent| (sent.track, sent.path.clone()))
+            .collect();
+        assert_eq!(now_elsewhere, elsewhere);
+        let watched: Vec<(LibraryTrackId, Option<String>, bool)> = before
+            .watched
+            .iter()
+            .map(|w| (w.track.library_track, w.path.clone(), w.recorded))
+            .collect();
+        let now_watched: Vec<(LibraryTrackId, Option<String>, bool)> = now
+            .watched
+            .iter()
+            .map(|w| (w.track, w.path.clone(), w.recorded))
+            .collect();
+        assert_eq!(now_watched, watched);
         before
     }
 

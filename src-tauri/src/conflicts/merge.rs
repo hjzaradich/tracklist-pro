@@ -31,6 +31,10 @@
 //! The merge runs again at the go, before the send is built again. On
 //! sides that haven't moved it writes nothing and chooses the same values,
 //! so the file is byte for byte the one reviewed.
+//!
+//! A merge that has nothing to write needs no writer (1cD-S1):
+//! [`merge_without_writing`] is the same code on a read-only connection,
+//! which stops at the first write it would make.
 
 use std::collections::HashMap;
 
@@ -39,6 +43,7 @@ use rusqlite::Connection;
 use super::membership::{self, Memberships};
 use super::store::{detect_in, kept_from_older_read, load_sides_with, Outcome, TRACKS_AT_A_TIME};
 use super::{app_values, open_at_send, NOT_TAKEN_UP};
+use crate::db::is_read_only;
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
 use crate::send_values::{send_values, SendValues};
@@ -73,15 +78,42 @@ pub fn merge_before_send(
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<Merged> {
     let tx = conn.transaction()?;
+    let merged = merge_in(&tx, volumes, ids)?;
+    tx.commit()?;
+    Ok(merged)
+}
+
+/// [`merge_before_send`] on a connection that can't write, such as a
+/// [`crate::db::Moment`]: the merge as it stands at that moment, or `None`
+/// if it has something to write, which only [`merge_before_send`] can do.
+/// Where it answers, that one would have answered the same and written
+/// nothing: it is the same code, reading the same rows.
+pub fn merge_without_writing(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<Option<Merged>> {
+    match merge_in(conn, volumes, ids) {
+        Ok(merged) => Ok(Some(merged)),
+        Err(e) if is_read_only(&e) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+fn merge_in(
+    tx: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<Merged> {
     let mut merged = Merged::default();
     // Once for the whole merge: it writes conflicts, app values and crate
     // entries, never `rekordbox_track`, so the answer can't change.
-    let stale = kept_from_older_read(&tx)?;
+    let stale = kept_from_older_read(tx)?;
     for some in ids.chunks(TRACKS_AT_A_TIME) {
-        let values = send_values(&tx, volumes, some)?;
-        let app = app_values::read_for_send(&tx, &values)?;
-        let sides = load_sides_with(&tx, &values, &app, &stale)?;
-        let detected = detect_in(&tx, &sides, NOT_TAKEN_UP)?;
+        let values = send_values(tx, volumes, some)?;
+        let app = app_values::read_for_send(tx, &values)?;
+        let sides = load_sides_with(tx, &values, &app, &stale)?;
+        let detected = detect_in(tx, &sides, NOT_TAKEN_UP)?;
         for field in detected.fields {
             let track = field.library_track;
             let own = app
@@ -93,7 +125,7 @@ pub fn merge_before_send(
                 Outcome::SendApp => own.map(str::to_owned),
                 Outcome::TakeRekordbox => {
                     if own.is_some() {
-                        app_values::take_in(&tx, track, &field.field)?;
+                        app_values::take_in(tx, track, &field.field)?;
                         merged.taken_in.push((track, field.field.clone()));
                     }
                     None
@@ -121,8 +153,7 @@ pub fn merge_before_send(
     }
     // Crate membership, once every track's entry is known.
     let values = std::mem::take(&mut merged.values);
-    membership::merge(&tx, &values, &stale, &mut merged)?;
+    membership::merge(tx, &values, &stale, &mut merged)?;
     merged.values = values;
-    tx.commit()?;
     Ok(merged)
 }

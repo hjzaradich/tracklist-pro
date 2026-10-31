@@ -225,6 +225,51 @@ fn open_reader(path: &GuardedPath) -> Result<Connection, DbError> {
     Ok(conn)
 }
 
+/// One moment of the database, kept for as long as it's needed: a read
+/// connection of its own, out of the pool, that sees exactly what was
+/// committed when [`Moment::hold`] was called and nothing written since.
+///
+/// Held from inside a writer job, that is exactly the end of that job: no
+/// other job can commit in between. So work that must be one moment with
+/// what a writer job wrote can read on after the job has ended, and the
+/// writer is free meanwhile. Nothing can be written through it: an attempt
+/// fails ([`is_read_only`]).
+pub struct Moment {
+    conn: Connection,
+}
+
+impl Moment {
+    /// A connection to the database at `path`, holding nothing yet. Opened
+    /// off the writer thread, so a writer job only has to [`Moment::hold`]
+    /// it, which waits for nothing.
+    pub fn open(path: &GuardedPath) -> Result<Moment, DbError> {
+        Ok(Moment {
+            conn: open_reader(path)?,
+        })
+    }
+
+    /// From now on this connection reads the database as it is now. A read
+    /// transaction takes its view at its first read, not at `BEGIN`.
+    pub fn hold(&self) -> rusqlite::Result<()> {
+        self.conn.execute_batch("BEGIN DEFERRED")?;
+        self.conn
+            .query_row("SELECT count(*) FROM sqlite_schema", [], |_| Ok(()))
+    }
+
+    /// The connection, read-only. Dropping the [`Moment`] closes it.
+    pub fn conn(&self) -> &Connection {
+        &self.conn
+    }
+}
+
+/// Whether `error` says a write was tried on a read-only connection.
+pub fn is_read_only(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::ReadOnly
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,11 +295,63 @@ mod tests {
     }
 
     fn is_read_only_error(e: &DbError) -> bool {
-        matches!(
-            e,
-            DbError::Sqlite(rusqlite::Error::SqliteFailure(f, _))
-                if f.code == rusqlite::ErrorCode::ReadOnly
-        )
+        matches!(e, DbError::Sqlite(e) if is_read_only(e))
+    }
+
+    fn held_x(moment: &Moment) -> i64 {
+        moment
+            .conn()
+            .query_row("SELECT x FROM t", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_moment_held_in_a_writer_job_sees_that_job_and_nothing_written_after_it() {
+        let (_dir, writer, _pool) = open_temp(1);
+        let moment = Moment::open(writer.guarded_path()).unwrap();
+        let moment = writer
+            .call(move |c| {
+                c.execute("UPDATE t SET x = 2", [])?;
+                moment.hold()?;
+                Ok(moment)
+            })
+            .unwrap();
+        writer
+            .call(|c| c.execute("UPDATE t SET x = 3", []))
+            .unwrap();
+        assert_eq!(held_x(&moment), 2);
+        // A later read of the same moment too, on the job's own thread.
+        assert_eq!(held_x(&moment), 2);
+        drop(moment);
+        let again = Moment::open(writer.guarded_path()).unwrap();
+        again.hold().unwrap();
+        assert_eq!(held_x(&again), 3);
+    }
+
+    #[test]
+    fn a_moment_can_write_nothing_and_says_so() {
+        let (_dir, writer, _pool) = open_temp(1);
+        let moment = Moment::open(writer.guarded_path()).unwrap();
+        moment.hold().unwrap();
+        let tried = moment.conn().execute("UPDATE t SET x = 9", []).unwrap_err();
+        assert!(is_read_only(&tried), "{tried:?}");
+        assert_eq!(held_x(&moment), 1);
+    }
+
+    #[test]
+    fn a_moment_held_keeps_no_writer_waiting_and_only_stops_the_log_being_emptied() {
+        let (_dir, writer, _pool) = open_temp(1);
+        let moment = Moment::open(writer.guarded_path()).unwrap();
+        moment.hold().unwrap();
+        writer
+            .call(|c| c.execute("UPDATE t SET x = 2", []))
+            .unwrap();
+        assert_eq!(
+            writer.checkpoint().unwrap(),
+            crate::db::Checkpoint::ReadInProgress
+        );
+        drop(moment);
+        assert_eq!(writer.checkpoint().unwrap(), crate::db::Checkpoint::Emptied);
     }
 
     #[test]

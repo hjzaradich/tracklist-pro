@@ -37,7 +37,7 @@ fn add_a_track(writer: &Writer) {
             c.execute_batch(
                 "INSERT INTO recording (title) VALUES ('Late');
                  INSERT INTO library_track (recording_id, kind, source_status)
-                 VALUES (last_insert_rowid(), 'linked', 'ok');",
+                 VALUES (last_insert_rowid(), 'linked', 'missing');",
             )
         })
         .unwrap();
@@ -218,10 +218,7 @@ fn a_title_changed_during_the_review_never_shows_in_the_preflight_and_refuses_th
     assert_eq!(status, JobStatus::Done);
 
     let preflight = w.flow.preflight().unwrap();
-    assert_eq!(
-        preflight.left_out[0].track.title.as_deref(),
-        Some("Before")
-    );
+    assert_eq!(preflight.left_out[0].track.title.as_deref(), Some("Before"));
     assert_eq!(w.go(true), Some(SendFailure::LibraryChanged));
 }
 
@@ -272,18 +269,23 @@ fn a_go_with_no_read_left_says_rekordbox_was_read_again() {
     let (w, ..) = world_with_a_send_waiting();
     w.prepare().unwrap();
     w.writer
-        .call(|c| c.execute("DELETE FROM setting WHERE key = 'rekordbox_xml_last_read'", []))
+        .call(|c| {
+            c.execute(
+                "DELETE FROM setting WHERE key = 'rekordbox_xml_last_read'",
+                [],
+            )
+        })
         .unwrap();
     assert_eq!(w.go(false), Some(SendFailure::ExportChanged));
     assert_eq!(w.data_files(), Vec::<String>::new());
 }
 
-/// The job's progress now, as stored.
+/// The send job's progress now, as stored.
 fn progress_of_the_last_job(writer: &Writer) -> Option<f64> {
     writer
         .call(|c| {
             c.query_row(
-                "SELECT progress FROM job ORDER BY id DESC LIMIT 1",
+                "SELECT progress FROM job WHERE kind = 'export' ORDER BY id DESC LIMIT 1",
                 [],
                 |r| r.get(0),
             )
@@ -334,7 +336,8 @@ fn a_send_names_each_part_of_its_two_steps_and_its_progress_only_goes_forward() 
     assert_eq!(w.flow.state(None).working_on, None);
 
     let seen = seen.lock().unwrap();
-    let parts: Vec<(&str, Option<SendWork>)> = seen.iter().map(|&(at, work, _)| (at, work)).collect();
+    let parts: Vec<(&str, Option<SendWork>)> =
+        seen.iter().map(|&(at, work, _)| (at, work)).collect();
     assert_eq!(
         parts,
         [

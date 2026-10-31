@@ -52,6 +52,7 @@ function fakeBackend(state: {
           exportPath: null,
           preflight: null,
           step: null,
+          workingOn: null,
           failure: null,
           sent: null,
         };

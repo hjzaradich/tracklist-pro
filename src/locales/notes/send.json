@@ -69,6 +69,34 @@
     "where": "Send checklist, step 1, status while the read runs.",
     "approved": "Reading export"
   },
+  "working.reading": {
+    "purpose": "The send is reading rekordbox's export (same words as export.reading).",
+    "where": "Send checklist, under the step that is running, with how far along it is."
+  },
+  "working.matching": {
+    "purpose": "The send is matching rekordbox's tracks to files.",
+    "where": "Send checklist, under the step that is running, with how far along it is."
+  },
+  "working.merging": {
+    "purpose": "The send is comparing the app's values with rekordbox's (the merge before a send).",
+    "where": "Send checklist, under the step that is running, with how far along it is."
+  },
+  "working.building": {
+    "purpose": "The send is building its file in memory and reading it back.",
+    "where": "Send checklist, under the step that is running, with how far along it is."
+  },
+  "working.lookingAtFiles": {
+    "purpose": "The send is looking at the files on disk for changes after the export.",
+    "where": "Send checklist, under the step that is running, with how far along it is."
+  },
+  "working.writing": {
+    "purpose": "The send is writing its file (same words as write.writing).",
+    "where": "Send checklist, under the step that is running, with how far along it is."
+  },
+  "working.recording": {
+    "purpose": "The file is in place and the send is being recorded.",
+    "where": "Send checklist, under the step that is running, with how far along it is."
+  },
   "export.saved": {
     "purpose": "Says when the export file was saved.",
     "where": "Send checklist, step 1, status after a read ({{when}} is a date and time).",

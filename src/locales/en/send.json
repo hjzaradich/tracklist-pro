@@ -17,6 +17,15 @@
     "saved": "Export saved {{when}}",
     "fileFilter": "rekordbox export"
   },
+  "working": {
+    "reading": "Reading export",
+    "matching": "Matching tracks to files",
+    "merging": "Comparing with rekordbox",
+    "building": "Building the send",
+    "lookingAtFiles": "Checking files on disk",
+    "writing": "Writing file",
+    "recording": "Recording the send"
+  },
   "review": {
     "title": "Review what will be sent",
     "notYet": "Not read yet",

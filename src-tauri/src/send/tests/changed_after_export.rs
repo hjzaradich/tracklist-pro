@@ -450,12 +450,7 @@ mod on_disk {
             .iter()
             .enumerate()
             .map(|(i, name)| Watched {
-                track: TrackLabel {
-                    library_track: LibraryTrackId(i64::try_from(i).unwrap() + 1),
-                    title: None,
-                    artist: None,
-                    file_name: None,
-                },
+                track: LibraryTrackId(i64::try_from(i).unwrap() + 1),
                 path: Some(crate::scan::display_path(&music.join(name))),
                 recorded: false,
             })
@@ -580,17 +575,15 @@ mod on_disk {
             fs::metadata(w.send_file()).map(|m| m.len()).unwrap_or(0) / (1024 * 1024)
         );
 
-        // Where the review's time goes: the steps of `preflight::review`, one
-        // by one, on the writer (the prepare runs them in one writer job after
-        // the read and the relink; the go runs them again).
+        // Where the review's time goes: its steps one by one (the prepare
+        // runs them after the read and the relink; the go runs them again).
         let on = root.clone();
         w.writer
             .call(move |c| {
                 let volumes = MountedAt(on);
                 let at = Instant::now();
-                let tracks = crate::library::stored(c, &volumes)?;
-                println!("  library::stored: {:?}", at.elapsed());
-                let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
+                let ids = crate::library::stored_ids(c)?;
+                println!("  library::stored_ids: {:?}", at.elapsed());
                 let at = Instant::now();
                 let merged = crate::conflicts::merge_before_send(c, &volumes, &ids)?;
                 println!("  conflicts::merge_before_send: {:?}", at.elapsed());

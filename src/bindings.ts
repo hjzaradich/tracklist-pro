@@ -2255,6 +2255,8 @@ export type SendState = {
 	preflight: Preflight | null,
 	/**  The step that ended last, in this run of the app. */
 	step: SendStep | null,
+	/**  What the step under way is doing now; `None` between steps. */
+	workingOn: SendWork | null,
 	/**  Why the last step stopped, until the next step starts. */
 	failure: SendFailure | null,
 	/**  The last send of this run of the app, until the next read starts. */
@@ -2263,6 +2265,26 @@ export type SendState = {
 
 /**  One of the send's two steps. */
 export type SendStep = "prepare" | "write";
+
+/**
+ *  What a step is doing now, for the checklist to name. A job only reports
+ *  how far it has got, so this says what the number is about.
+ */
+export type SendWork = 
+/**  Reading rekordbox's export. */
+"reading" | 
+/**  Matching its tracks to files. */
+"matching" | 
+/**  Merging the two sides (1.10). */
+"merging" | 
+/**  Building the send and reading it back. */
+"building" | 
+/**  Looking at the files on disk. */
+"lookingAtFiles" | 
+/**  Writing the send's file. */
+"writing" | 
+/**  Recording the send. */
+"recording";
 
 /**  A send that went through. */
 export type Sent = {

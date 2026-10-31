@@ -121,10 +121,19 @@ impl FilePath {
     /// letter's simple uppercase form within the BMP; `ß` stays `ß`).
     /// macOS paths keep their case.
     pub fn match_key(&self) -> String {
+        // An ASCII path has nothing to compose, and that's nearly every
+        // path of a library: this runs for every track of a send.
+        let folded = matches!(self.style, PathStyle::WindowsDrive | PathStyle::WindowsUnc);
+        if self.path.is_ascii() {
+            return match folded {
+                true => self.path.to_ascii_uppercase(),
+                false => self.path.clone(),
+            };
+        }
         let nfc = self.path.nfc();
-        match self.style {
-            PathStyle::WindowsDrive | PathStyle::WindowsUnc => nfc.map(upcase).collect(),
-            PathStyle::Posix => nfc.collect(),
+        match folded {
+            true => nfc.map(upcase).collect(),
+            false => nfc.collect(),
         }
     }
 }
@@ -356,6 +365,25 @@ fn upcase(c: char) -> char {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn a_paths_key_is_the_same_whether_it_is_ascii_or_not(path in r"[ -\[\]-~]{0,40}") {
+            let drive = format!("C:/{path}");
+            let key: String = drive.nfc().map(upcase).collect();
+            prop_assert_eq!(file(&format!("file://localhost/{}", all_escaped(&drive))).match_key(), key);
+        }
+    }
+
+    /// Percent-encodes every character of an ASCII path but the separators.
+    fn all_escaped(path: &str) -> String {
+        path.bytes()
+            .map(|b| match b {
+                b'/' | b':' => (b as char).to_string(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
+    }
 
     fn file(raw: &str) -> FilePath {
         match decode(raw) {
