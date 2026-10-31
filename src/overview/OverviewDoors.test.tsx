@@ -286,13 +286,19 @@ describe("the genre bars as doors", () => {
     const { asked } = libraryWith({ genres: [{ name, tracks: 3 }], noGenre: 0 }, { kind: "genre", name }, 3);
     const { router } = renderApp("/overview");
     await userEvent.click(
-      await screen.findByRole("link", { name: tx("overview:charts.genres.door", { genre: name, count: 3 }) }),
+      // The accessible name collapses runs of spaces; the name in the address does not.
+      await screen.findByRole("link", {
+        name: tx("overview:charts.genres.door", { genre: name, count: 3 }).replace(/\s+/g, " ").trim(),
+      }),
     );
     await waitFor(() => expect(router.state.location.pathname).toBe("/library"));
     // The address names the genre, and only the genre.
     expect(Object.keys(router.state.location.search)).toEqual(["filter"]);
     const chips = await chipsList();
-    expect(within(chips).getByText(tx("trackTable:filters.genre", { genre: name }))).toBeInTheDocument();
+    // The text matcher collapses runs of spaces in the page; the query below is the exact check.
+    expect(
+      within(chips).getByText(tx("trackTable:filters.genre", { genre: name }).replace(/\s+/g, " ")),
+    ).toBeInTheDocument();
     expect(within(chips).getAllByRole("listitem")).toHaveLength(1);
     expect(await screen.findByText(tx("library:trackCount", { count: 3 }))).toBeInTheDocument();
     expect(asked.find((query) => query.filters.length > 0)?.filters).toEqual([{ kind: "genre", name }]);

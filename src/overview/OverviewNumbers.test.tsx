@@ -229,7 +229,10 @@ describe("the genre bars", () => {
       },
     });
     renderApp("/overview");
-    const region = await screen.findByRole("region", { name: tx("overview:charts.genres.title") });
+    // The heading carries the counting note, so the name starts with the title.
+    const region = await screen.findByRole("region", {
+      name: (name) => name.startsWith(tx("overview:charts.genres.title")),
+    });
     expect(within(region).getByText(tx("overview:todo.lineCounting"))).toBeInTheDocument();
   });
 
