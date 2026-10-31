@@ -197,6 +197,7 @@ fn run(music: &Path, files_on_disk: usize) -> Report {
     let rescan_new = count(&writer, "SELECT COUNT(*) FROM file") - rows_before;
     let settle = timed(|| wait_idle(&writer));
     let after_rescan = kinds_after(&writer, rescan_job);
+    print_jobs(&writer);
 
     let (peak_working_set, _) = working_set();
     queue.shutdown();
@@ -359,6 +360,31 @@ fn wait_idle(writer: &Writer) {
     {
         assert!(start.elapsed() < JOB_LIMIT, "the queue never went idle");
         std::thread::sleep(POLL);
+    }
+}
+
+/// Prints every job's kind, outcome and run time, from its own start and end
+/// stamps (1cC-M1), so the time between two steps can be placed in a job.
+fn print_jobs(writer: &Writer) {
+    let rows: Vec<(i64, String, String, Option<String>, f64)> = writer
+        .call(|c| {
+            let mut stmt = c.prepare(
+                "SELECT id, kind, status, error,
+                        ifnull((julianday(finished_at) - julianday(started_at)) * 86400.0, 0.0)
+                 FROM job ORDER BY id",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })?;
+            rows.collect()
+        })
+        .unwrap();
+    println!("jobs, in order (run time from the job's own stamps):");
+    for (id, kind, status, error, took) in rows {
+        println!(
+            "  job {id:>3} {kind:<12} {status:<9} {took:>8.2} s{}",
+            error.map_or(String::new(), |e| format!("   error: {e}"))
+        );
     }
 }
 

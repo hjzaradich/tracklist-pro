@@ -406,3 +406,66 @@ fn no_listed_table_is_without_rowid() {
     // The query found tables at all: the setting table is one.
     assert!(without_rowid.iter().any(|name| name == "setting"));
 }
+
+/// 1cC-M1: what the count and the stamp cost with 100,000 Library tracks,
+/// what the full list the screens used to fetch costs beside it, and what the
+/// stamp's row hooks add to a bulk write (the same 100,000 inserts and
+/// updates with and without them). Prints; asserts nothing about time. Run
+/// alone, in a release build:
+/// `cargo test --release --lib the_summary_at_100000 -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn the_summary_at_100000_tracks_cost() {
+    use std::time::Instant;
+    const MAKE: &str =
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000)
+         INSERT INTO recording (title) SELECT 'Tune ' || i FROM n;
+         INSERT INTO library_track (recording_id, source_status)
+             SELECT id, 'missing' FROM recording;";
+    const TOUCH: &str = "UPDATE library_track SET source_status = source_status";
+
+    let bare = Lib::new();
+    let started = Instant::now();
+    bare.writer.call(|c| c.execute_batch(MAKE)).unwrap();
+    println!("100000 inserts, no hooks: {:?}", started.elapsed());
+    let started = Instant::now();
+    bare.writer.call(|c| c.execute_batch(TOUCH)).unwrap();
+    println!("100000 updates, no hooks: {:?}", started.elapsed());
+
+    let lib = Lib::new();
+    let stamp = lib.stamp();
+    let started = Instant::now();
+    lib.writer.call(|c| c.execute_batch(MAKE)).unwrap();
+    println!(
+        "100000 inserts, with the stamp's hooks: {:?}",
+        started.elapsed()
+    );
+    let started = Instant::now();
+    lib.writer.call(|c| c.execute_batch(TOUCH)).unwrap();
+    println!(
+        "100000 updates, with the stamp's hooks: {:?}",
+        started.elapsed()
+    );
+
+    let mut times = Vec::new();
+    for _ in 0..20 {
+        let started = Instant::now();
+        let summary = lib.summary(&stamp);
+        times.push(started.elapsed());
+        assert_eq!(summary.tracks, 100_000);
+    }
+    times.sort();
+    println!(
+        "library_summary: median {:?}, slowest {:?}",
+        times[10], times[19]
+    );
+    for run in 1..=2 {
+        let started = Instant::now();
+        let list = lib.list();
+        println!(
+            "the full Library list (run {run}): {} rows in {:?}",
+            list.len(),
+            started.elapsed()
+        );
+    }
+}

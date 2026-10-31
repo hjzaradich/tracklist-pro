@@ -1085,6 +1085,131 @@ fn crate_add_check_cost_at_100000_tracks() {
     assert_eq!(prepared.items.len(), 100_000);
 }
 
+/// 1cC-M1: the same add by track id of 100,000 tracks from outside the
+/// Library, with the checks run twice first (the first one settles 100,000
+/// fresh verdicts, which a library whose quality job has run already has),
+/// to tell what the add costs once the verdicts are stored. Prints; asserts
+/// nothing about time. Run alone, in a release build.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn crate_add_by_track_id_with_verdicts_stored_cost_at_100000_tracks() {
+    use std::time::Instant;
+    let mib = crate::ops::history_tests::peak_working_set_mib;
+    let lib = library_of_100000_and_100000_outside();
+    let id = lib.made("Big");
+    let outside: Vec<i64> = (100_001..=200_000).collect();
+    for run in 1..=2 {
+        let again = outside.clone();
+        let started = Instant::now();
+        let prepared = lib
+            .writer
+            .call(move |c| Ok(prepare(c, &again)))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        println!(
+            "prepare of 100000 tracks, run {run}: {:?} ({} items)",
+            started.elapsed(),
+            prepared.items.len()
+        );
+    }
+    let started = Instant::now();
+    let added = lib.add_recordings(id, &outside).unwrap();
+    println!(
+        "add by track id of 100000 with the verdicts stored: {:?} (added {}); peak {} MiB",
+        started.elapsed(),
+        added.added,
+        mib()
+    );
+    let started = Instant::now();
+    lib.undo();
+    println!(
+        "Undo of that add: {:?}; peak {} MiB",
+        started.elapsed(),
+        mib()
+    );
+}
+
+/// 1cC-M1: the add of 100,000 Library tracks to a crate and its Undo, what
+/// asking "what would Undo do" costs after it (`next_undo`), taking the
+/// 100,000 out again and that Undo, then the add by track id of 100,000
+/// tracks from outside the Library (Library and crate in one step) and its
+/// Undo. Prints; asserts nothing about time. Run alone, in a release build:
+/// `cargo test --release --lib crate_add_and_undo_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn crate_add_and_undo_cost_at_100000_tracks() {
+    use std::time::Instant;
+    let mib = crate::ops::history_tests::peak_working_set_mib;
+    let lib = library_of_100000_and_100000_outside();
+    println!("peak memory after building the library: {} MiB", mib());
+    let id = lib.made("Big");
+    let all: Vec<LibraryTrackId> = (1..=100_000).map(LibraryTrackId).collect();
+    let next = |lib: &Lib| {
+        let started = Instant::now();
+        let next = lib
+            .writer
+            .call(|c| Ok(crate::ops::next_undo(c)))
+            .unwrap()
+            .unwrap();
+        (started.elapsed(), next.refusal, next.operation.is_some())
+    };
+
+    let started = Instant::now();
+    let added = lib.add(id, &all).unwrap();
+    println!(
+        "add of 100000 Library tracks: {:?} (added {}); peak {} MiB",
+        started.elapsed(),
+        added.changed,
+        mib()
+    );
+    println!("next_undo after it: {:?}", next(&lib));
+    let started = Instant::now();
+    lib.undo();
+    println!(
+        "Undo of the add: {:?}; peak {} MiB",
+        started.elapsed(),
+        mib()
+    );
+
+    lib.add(id, &all).unwrap();
+    let started = Instant::now();
+    let removed = lib.take_out(id, &all).unwrap();
+    println!(
+        "removing 100000 from the crate: {:?} (removed {}); peak {} MiB",
+        started.elapsed(),
+        removed.changed,
+        mib()
+    );
+    println!("next_undo after it: {:?}", next(&lib));
+    let started = Instant::now();
+    lib.undo();
+    println!(
+        "Undo of the removal: {:?}; peak {} MiB",
+        started.elapsed(),
+        mib()
+    );
+    lib.undo();
+
+    let outside: Vec<i64> = (100_001..=200_000).collect();
+    let started = Instant::now();
+    let added = lib.add_recordings(id, &outside).unwrap();
+    println!(
+        "add by track id of 100000 from outside the Library: {:?} (added {}); peak {} MiB",
+        started.elapsed(),
+        added.added,
+        mib()
+    );
+    println!("next_undo after it: {:?}", next(&lib));
+    let started = Instant::now();
+    lib.undo();
+    println!(
+        "Undo of that add: {:?}; peak {} MiB",
+        started.elapsed(),
+        mib()
+    );
+}
+
 #[test]
 fn removing_tracks_takes_them_out_of_the_crate_only_and_skips_those_not_in_it() {
     let lib = Lib::new();

@@ -566,9 +566,22 @@ fn the_summary_updates_after_a_track_s_values_change() {
 #[test]
 #[ignore = "a measurement, not a check"]
 fn summary_cost_at_10000_tracks() {
+    summary_cost(10_000);
+}
+
+/// The same at 100,000 tracks (1cC-M1).
+#[test]
+#[ignore = "a measurement, not a check"]
+fn summary_cost_at_100000_tracks() {
+    summary_cost(100_000);
+}
+
+fn summary_cost(tracks: i64) {
     let lib = Lib::new();
-    lib.exec(
-        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10000)
+    lib.writer
+        .call(move |c| {
+            c.execute_batch(&format!(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {tracks})
          INSERT INTO recording (title) SELECT 'Tune ' || i FROM n;
          INSERT INTO library_track (recording_id, source_status)
              SELECT id, 'missing' FROM recording;
@@ -579,8 +592,10 @@ fn summary_cost_at_10000_tracks() {
              SELECT id, 'user', 1 + id % 10 FROM recording;
          INSERT INTO crate (kind, name, position) VALUES ('static', 'Big', 0);
          INSERT INTO crate_entry (crate_id, library_track_id)
-             SELECT 1, id FROM library_track;",
-    );
+             SELECT 1, id FROM library_track;"
+            ))
+        })
+        .unwrap();
     lib.settle();
     let started = std::time::Instant::now();
     let got = lib
@@ -593,5 +608,5 @@ fn summary_cost_at_10000_tracks() {
         got.tracks,
         started.elapsed()
     );
-    assert_eq!(got.tracks, 10_000);
+    assert_eq!(i64::from(got.tracks), tracks);
 }

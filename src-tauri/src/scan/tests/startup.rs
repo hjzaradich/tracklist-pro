@@ -583,6 +583,24 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
         crate::grouping::any_ungrouped(c)
     });
     time("roles: any track due", crate::file_roles::any_due);
+    // The same checks as a chain end runs them (1cC-M1, audit B4): on the one
+    // writer connection, so each one is time nothing else can write.
+    let on_writer = |what: &str, check: fn(&rusqlite::Connection) -> rusqlite::Result<bool>| {
+        let started = Instant::now();
+        let due = writer.call(move |c| check(c)).unwrap();
+        println!(
+            "{what:>34}: {:>8.1?}  due: {due}  (on the writer)",
+            started.elapsed()
+        );
+    };
+    on_writer("matching: any file due", crate::matching::any_due);
+    on_writer("grouping: a file with no track", |c| {
+        crate::grouping::any_ungrouped(c)
+    });
+    on_writer("roles: any track due", crate::file_roles::any_due);
+    on_writer("quality: any file due", |c| crate::quality::due(c, None));
+    on_writer("waveform: any file due", |c| crate::waveform::due(c, None));
+    on_writer("deciding: a file is due", crate::grouping::decide_due);
     let stored = writer.clone();
     let enqueue = move |job: NewJob| -> Result<JobId, DbError> {
         stored.call(move |c| {
@@ -609,5 +627,6 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
         println!("{stage:>34}: {took:>8.1?}");
     }
     assert_eq!(asked.failed, 0);
-    assert_eq!(kinds(&queued(&writer)), Vec::<&str>::new());
+    // Only the waveform job (PR 131) is owed: this library has none drawn.
+    assert!(kinds(&queued(&writer)).iter().all(|k| *k == "waveform"));
 }
