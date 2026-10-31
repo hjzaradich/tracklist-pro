@@ -17,7 +17,7 @@ use super::{
     RefusalReason, TrackLabel, TreeKind,
 };
 use crate::conflicts::{self, open_at_send, Merged};
-use crate::library::{self, LibraryTrackId, StoredTrack};
+use crate::library::{self, LibraryTrackId, LinkedFile, StoredTrack};
 use crate::paths::{StoredPath, Volumes};
 use crate::rekordbox::location::{decode, Location, PathStyle};
 use crate::rekordbox::source::{stored_source, LastRead};
@@ -113,9 +113,8 @@ pub struct Merging {
 /// moved, it writes nothing, so the go builds the very send that was
 /// reviewed.
 ///
-/// Reads through `conn`, and on the writer's connection everything it reads
-/// is the moment it writes at. Call it in one writer job, and hold the
-/// [`crate::db::Moment`] [`describe`] reads at the end of that job.
+/// Call it in one writer job, and hold the [`crate::db::Moment`] that
+/// [`describe`] reads at the end of that job.
 pub fn merge(conn: &mut Connection, volumes: &impl Volumes) -> rusqlite::Result<Option<Merging>> {
     let Some(read) = stored_source(conn)?.last_read else {
         return Ok(None);
@@ -304,12 +303,13 @@ pub fn describe(
     let mut elsewhere = Vec::new();
     let mut watched = Vec::new();
     if let (Describing::All, Some(out)) = (describing, &outgoing) {
-        let linked = library::linked_files(conn)?;
+        let linked: HashMap<LibraryTrackId, LinkedFile> = library::linked_files(conn)?
+            .into_iter()
+            .map(|(track, file)| (track, file.shown(volumes)))
+            .collect();
         for sent in out.sent.iter().filter(|sent| sent.in_rekordbox) {
-            let file = linked
-                .get(&sent.library_track)
-                .map(|f| f.shown(volumes).path);
-            if let Some(path) = sent_elsewhere(sent, file.as_deref()) {
+            let file = linked.get(&sent.library_track);
+            if let Some(path) = sent_elsewhere(sent, file.map(|f| f.path.as_str())) {
                 elsewhere.push(SentElsewhere {
                     track: sent.library_track,
                     path,
@@ -319,16 +319,15 @@ pub fn describe(
         // A warning only: it changes nothing about the go (1.10, "Second
         // channel"). The prepare step looks at the disk too.
         for (id, file, recorded) in changed_after_export(conn, read.modified_ms, &out.sent)? {
-            let file = match linked.get(&id).filter(|f| f.file_id == file) {
-                Some(f) => Some(f.clone()),
-                None => library::stored_file(conn, file)?,
+            let path = match linked.get(&id).filter(|f| f.id == file) {
+                Some(f) => f.drive_connected.then(|| f.path.clone()),
+                None => library::stored_file(conn, file)?.and_then(|f| {
+                    StoredPath::new(f.volume, f.rel)
+                        .resolve(volumes)
+                        .ok()
+                        .map(|abs| crate::scan::display_path(&abs))
+                }),
             };
-            let path = file.and_then(|f| {
-                StoredPath::new(f.volume, f.rel)
-                    .resolve(volumes)
-                    .ok()
-                    .map(|abs| crate::scan::display_path(&abs))
-            });
             watched.push(Watched {
                 track: id,
                 path,

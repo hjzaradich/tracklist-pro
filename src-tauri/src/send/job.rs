@@ -73,14 +73,14 @@ pub fn drop_unfinished_jobs(conn: &Connection) -> rusqlite::Result<usize> {
 /// of the prepare step up to `MATCHING` is the export's read.
 mod progress {
     pub const MATCHING: f64 = 0.35;
-    pub const MERGING: f64 = 0.55;
-    pub const BUILDING: f64 = 0.7;
-    pub const LOOKING_AT_FILES: f64 = 0.95;
+    pub const MERGING: f64 = 0.65;
+    pub const BUILDING: f64 = 0.78;
+    pub const LOOKING_AT_FILES: f64 = 0.98;
 
     pub const GO_MERGING: f64 = 0.02;
-    pub const GO_BUILDING: f64 = 0.4;
-    pub const WRITING: f64 = 0.75;
-    pub const RECORDING: f64 = 0.8;
+    pub const GO_BUILDING: f64 = 0.25;
+    pub const WRITING: f64 = 0.5;
+    pub const RECORDING: f64 = 0.55;
 }
 
 /// How a send is recorded once its file is in place.

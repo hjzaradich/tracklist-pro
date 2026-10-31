@@ -27,6 +27,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::{params, Connection, Transaction};
+use serde::de::{MapAccess, Visitor};
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -168,6 +169,33 @@ fn object_json(attrs: &Attrs) -> String {
         }
     }
     serde_json::to_string(&Ordered(attrs)).expect("strings always serialize")
+}
+
+/// What [`object_json`] wrote, in file order: every name with its value.
+/// `None` for a text it didn't write, one with anything but strings in it;
+/// such a row is read with SQLite's `json_each`, as every row once was. A
+/// send reads every attribute of every track, and this is many times faster.
+pub(crate) fn object_values(text: &str) -> Option<Vec<(String, String)>> {
+    struct Pairs;
+    impl<'de> Visitor<'de> for Pairs {
+        type Value = Vec<(String, String)>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("an object of strings")
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+            let mut pairs = Vec::with_capacity(map.size_hint().unwrap_or(32));
+            while let Some(pair) = map.next_entry()? {
+                pairs.push(pair);
+            }
+            Ok(pairs)
+        }
+    }
+    let mut text = serde_json::Deserializer::from_str(text);
+    let pairs = serde::Deserializer::deserialize_map(&mut text, Pairs).ok()?;
+    text.end().ok()?;
+    Some(pairs)
 }
 
 fn array_json<'a>(elements: impl Iterator<Item = &'a Attrs>) -> String {

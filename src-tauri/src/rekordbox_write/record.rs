@@ -90,6 +90,7 @@ use super::{SentPath, SentTrack, ANALYSIS_ATTRIBUTES};
 use crate::conflicts::{open_at_send, same};
 use crate::library::LibraryTrackId;
 use crate::rekordbox::location::decode;
+use crate::rekordbox::store::object_values;
 
 /// rekordbox's analysis elements, named as `conflict.field` names them.
 const ANALYSIS_ELEMENTS: [&str; 2] = ["TEMPO", "POSITION_MARK"];
@@ -111,6 +112,12 @@ fn entry_at(
     let Some(row) = row_at(conn, location, read_at)? else {
         return Ok(None);
     };
+    let text: String = conn
+        .prepare_cached("SELECT attributes FROM rekordbox_track WHERE id = ?1")?
+        .query_row([row], |r| r.get(0))?;
+    if let Some(pairs) = object_values(&text) {
+        return Ok(Some(pairs.into_iter().collect()));
+    }
     let mut attributes = conn.prepare_cached(
         "SELECT j.key, CAST(j.atom AS TEXT) FROM rekordbox_track rt, json_each(rt.attributes) j
          WHERE rt.id = ?1",

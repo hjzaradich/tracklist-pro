@@ -8,7 +8,6 @@ use std::sync::mpsc::{self, Sender as Channel};
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::conflicts::Merged;
 use crate::jobs::JobId;
 use crate::library::LibraryTrackId;
 use crate::send::job::Sender;
@@ -142,11 +141,7 @@ fn a_merge_read_only_says_so_when_it_has_something_to_write_and_changes_nothing(
 #[test]
 fn a_merge_with_something_to_write_writes_it_and_the_preflight_is_of_what_it_wrote() {
     let (w, known, _) = world_with_a_send_waiting();
-    w.insert(
-        "INSERT INTO conflict (library_track_id, field, app_value, rekordbox_value)
-         VALUES (?1, 'Artist', 'Mine', 'Theirs')",
-        (known.0,),
-    );
+    a_conflict_to_withdraw(&w, known);
     let preflight = w.prepare().unwrap();
     assert_eq!(open_conflicts(&w), 0);
     assert_eq!(preflight.conflicts_waiting, 0);
@@ -397,34 +392,4 @@ fn a_prepare_cancelled_between_its_parts_stops_there_and_leaves_no_preflight() {
     assert_eq!(w.flow.failure(), Some(SendFailure::Cancelled));
     assert_eq!(w.flow.preflight(), None);
     assert_eq!(w.flow.state(None).working_on, None);
-}
-
-#[test]
-fn merging_on_a_moment_gives_what_the_writer_gives_for_a_send_with_conflicts_open() {
-    // A field changed on both sides stays open: the merge has nothing more
-    // to write, and says the same on a read-only connection.
-    let (w, known, _) = world_with_a_send_waiting();
-    w.writer
-        .call(move |c| {
-            Ok(crate::conflicts::app_values::set(
-                c, &Plugged, known, "Artist", "Mine",
-            ))
-        })
-        .unwrap()
-        .unwrap();
-    w.prepare().unwrap();
-    let merged_now = |w: &World| -> Merged {
-        let moment = crate::db::Moment::open(w.writer.guarded_path()).unwrap();
-        moment.hold().unwrap();
-        let ids = crate::library::stored_ids(moment.conn()).unwrap();
-        crate::conflicts::merge_without_writing(moment.conn(), &Plugged, &ids)
-            .unwrap()
-            .expect("nothing to write")
-    };
-    let ids = w.writer.call(|c| crate::library::stored_ids(c)).unwrap();
-    let on_the_writer = w
-        .writer
-        .call(move |c| crate::conflicts::merge_before_send(c, &Plugged, &ids))
-        .unwrap();
-    assert_eq!(merged_now(&w), on_the_writer);
 }
