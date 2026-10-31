@@ -140,8 +140,7 @@ pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Hash
                 f.sniffed_format,
                 f.id IS NULL OR f.present = 0 OR coalesce(lt.source_status = 'missing', 0),
                 {in_rekordbox},
-                coalesce(EXISTS (SELECT 1 FROM crate_entry ce
-                                 WHERE ce.library_track_id = lt.id AND ce.kind = 'member'), 0)
+                coalesce({in_a_crate}, 0)
          FROM recording r
          LEFT JOIN library_track lt ON lt.recording_id = r.id
          LEFT JOIN file f ON f.id = COALESCE(
@@ -151,6 +150,9 @@ pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Hash
          LEFT JOIN music_folder mf ON mf.id = f.music_folder_id
          WHERE r.id IN (SELECT value FROM json_each(?1))",
         in_rekordbox = in_rekordbox_sql("r.id"),
+        // The Overview's own text for "in a crate", so its count and the
+        // table's filter can't mean different things (1cC-4).
+        in_a_crate = crate::overview::IN_A_CRATE,
     ))?;
     let rows = stmt.query_map([&json], |r| {
         let rel_path: Option<String> = r.get(5)?;

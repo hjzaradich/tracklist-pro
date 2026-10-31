@@ -91,11 +91,11 @@ const LOW_QUALITY_VERDICTS: &str = "'low_bitrate', 'suspect_transcode', 'truncat
 /// A Library track is in a crate when a static crate holds it. A smart
 /// crate's entries are always-include and never-include rules, not
 /// membership. Playlists arrive in Phase 3.
-const IN_A_CRATE: &str = "EXISTS (SELECT 1 FROM crate_entry ce
+pub(crate) const IN_A_CRATE: &str = "EXISTS (SELECT 1 FROM crate_entry ce
                                   WHERE ce.library_track_id = lt.id AND ce.kind = 'member')";
 
 /// The track has a row from rekordbox in `analysis` (see the module docs).
-const ANALYZED: &str = "EXISTS (SELECT 1 FROM analysis a
+pub(crate) const ANALYZED: &str = "EXISTS (SELECT 1 FROM analysis a
                                 WHERE a.recording_id = lt.recording_id AND a.source = 'rekordbox')";
 
 /// The job kinds whose work changes the counts of files and tracks.
@@ -182,13 +182,46 @@ pub struct Overview {
     pub counting: Counting,
 }
 
+/// A Library track's linked file with its quality rows, as `f`, `q` and `v`,
+/// for a query over `library_track lt`. The one text the Overview's numbers
+/// and the Library's door filters (`track_table`) both read a track's file
+/// through, so a number and the rows behind it can't differ in which file
+/// they look at.
+pub(crate) const LINKED_FILE: &str = "LEFT JOIN file f ON f.id = lt.linked_file_id
+               LEFT JOIN file_quality q ON q.file_id = f.id
+               LEFT JOIN file_verdict v ON v.file_id = f.id";
+
+/// `1` for a Library track whose linked file has a current verdict that
+/// flags it, else `0`: a missing or stale verdict is no verdict, never `ok`,
+/// and isn't counted. SQL over [`LINKED_FILE`]; the one place that says what
+/// "made from a low-quality file" means (the Overview's count and the
+/// Library's "Low-quality file" filter).
+pub(crate) fn low_quality_sql() -> String {
+    format!(
+        "CASE WHEN f.id IS NULL OR {stale} THEN 0
+              WHEN v.verdict IN ({LOW_QUALITY_VERDICTS}) THEN 1
+              ELSE 0 END",
+        stale = stale_condition()
+    )
+}
+
+/// A condition on a `track_row` `tr`: the row's Library track exists and
+/// `condition` holds for it (SQL over `lt` and [`LINKED_FILE`]). How the
+/// Library's door filters say what the Overview's numbers say, in the very
+/// same SQL text.
+pub(crate) fn library_track_where(condition: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM library_track lt {LINKED_FILE}
+                 WHERE lt.recording_id = tr.recording_id AND ({condition}))"
+    )
+}
+
 /// The Library's numbers in one pass over `library_track`. Each other table
 /// is looked up by its primary key or an index. `?1` is the start of this
 /// week.
 ///
 /// `q` is 1 for a flagged file whose verdict is current and 0 for any other
-/// track: a missing or stale verdict is no verdict, never `ok`, and isn't
-/// counted.
+/// track ([`low_quality_sql`]).
 fn library_sql() -> String {
     format!(
         "SELECT count(*),
@@ -200,15 +233,11 @@ fn library_sql() -> String {
          FROM (SELECT f.duration_ms AS duration_ms,
                       {IN_A_CRATE} AS in_a_crate,
                       {ANALYZED} AS analyzed,
-                      CASE WHEN f.id IS NULL OR {stale} THEN 0
-                           WHEN v.verdict IN ({LOW_QUALITY_VERDICTS}) THEN 1
-                           ELSE 0 END AS q,
+                      {low_quality} AS q,
                       lt.added_at AS added
                FROM library_track lt
-               LEFT JOIN file f ON f.id = lt.linked_file_id
-               LEFT JOIN file_quality q ON q.file_id = f.id
-               LEFT JOIN file_verdict v ON v.file_id = f.id) s",
-        stale = stale_condition(),
+               {LINKED_FILE}) s",
+        low_quality = low_quality_sql(),
     )
 }
 
