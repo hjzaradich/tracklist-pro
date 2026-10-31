@@ -93,7 +93,7 @@ describe("the four numbers", () => {
   });
 
   it("say a number is still counting while background work can change it", async () => {
-    fakeBackend({ overview: { counting: { files: false, rekordbox: true, quality: false } } });
+    fakeBackend({ overview: { counting: { files: false, rekordbox: true, quality: false, index: false } } });
     renderApp("/overview");
     const analyzed = (await screen.findByText(tx("overview:numbers.analyzed"))).closest("li");
     expect(analyzed).toHaveTextContent(tx("overview:todo.lineCounting"));

@@ -17,6 +17,8 @@ const PLAIN_DOORS = [
   "inCrate",
   "inNoCrate",
   "noEnergy",
+  "missingTags",
+  "missingArt",
 ] as const;
 
 type PlainDoor = (typeof PLAIN_DOORS)[number];

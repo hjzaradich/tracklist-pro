@@ -197,6 +197,12 @@ fn rows_for(
         .collect();
     let mut fields = fields_of(conn, volumes, &wanted, &library)?;
     let mut facts = table_row::facts_for(conn, &wanted)?;
+    // The Library tracks' two gap flags are the Overview's own definition.
+    let library_tracks: Vec<LibraryTrackId> = wanted
+        .iter()
+        .filter_map(|id| library.get(id).copied())
+        .collect();
+    let gaps = gaps_or_none(conn, volumes, &library_tracks);
     let mut rows = HashMap::new();
     for id in wanted {
         // A track the lists can't name yet (no row) is skipped; it is due
@@ -204,6 +210,15 @@ fn rows_for(
         let (Some(fields), Some(facts)) = (fields.remove(&id), facts.remove(&id)) else {
             continue;
         };
+        let mut facts = facts;
+        if let Some(lt) = library.get(&id) {
+            if gaps.tags.contains(&lt.0) {
+                facts.flags |= table_row::flag::MISSING_TAGS;
+            }
+            if gaps.art.contains(&lt.0) {
+                facts.flags |= table_row::flag::MISSING_ART;
+            }
+        }
         let has_file = names.contains_key(&id);
         let file_names = names.remove(&id).unwrap_or_default().join("\u{1f}");
         rows.insert(
@@ -217,6 +232,41 @@ fn rows_for(
         );
     }
     Ok(rows)
+}
+
+/// [`crate::overview::gaps_of`] for a page of Library tracks, which never
+/// fails the page: one track whose tags can't be read must not stop the index
+/// job (it would stay due, and the Overview would say "still counting" for
+/// ever). If the page errors, each track is asked alone; a track that still
+/// errors is logged and has no gaps, and its row is written like any other.
+fn gaps_or_none(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    tracks: &[LibraryTrackId],
+) -> crate::overview::Gaps {
+    match crate::overview::gaps_of(conn, volumes, tracks) {
+        Ok(gaps) => gaps,
+        Err(error) => {
+            eprintln!(
+                "index: the tag gaps of a page of {} tracks failed: {error}",
+                tracks.len()
+            );
+            let mut all = crate::overview::Gaps::default();
+            for track in tracks {
+                match crate::overview::gaps_of(conn, volumes, &[*track]) {
+                    Ok(gaps) => {
+                        all.tags.extend(gaps.tags);
+                        all.art.extend(gaps.art);
+                    }
+                    Err(error) => eprintln!(
+                        "index: Library track {} has no tag gaps recorded, its tags can't be read: {error}",
+                        track.0
+                    ),
+                }
+            }
+            all
+        }
+    }
 }
 
 /// What the lists show of each of the tracks `wanted`, given which of them

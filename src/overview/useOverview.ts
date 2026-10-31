@@ -10,8 +10,8 @@ export const COUNTING_INTERVAL_MS = 5_000;
 
 /** True while any of the numbers can still change because background work runs. */
 export function isCounting(overview: Overview): boolean {
-  const { files, rekordbox, quality } = overview.counting;
-  return files || rekordbox || quality;
+  const { files, rekordbox, quality, index } = overview.counting;
+  return files || rekordbox || quality || index;
 }
 
 /**

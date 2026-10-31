@@ -58,7 +58,9 @@
     "analyzedByRekordbox": "Analyzed by rekordbox",
     "notAnalyzedByRekordbox": "Not analyzed by rekordbox",
     "energy": "Energy {{level}}",
-    "noEnergy": "No energy"
+    "noEnergy": "No energy",
+    "missingTags": "With missing tags",
+    "missingArt": "With missing art"
   },
   "format": {
     "mp3": "MP3",

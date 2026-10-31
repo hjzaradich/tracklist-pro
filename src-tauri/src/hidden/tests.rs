@@ -273,7 +273,7 @@ fn the_all_music_table_and_the_overview_count_leave_out_hidden_files_the_same_wa
     };
     let overview = |lib: &Lib| {
         lib.writer
-            .call(|c| crate::overview::overview_at(c, &Mount, 0).map(|o| o.all_music))
+            .call(|c| crate::overview::overview_at(c, 0).map(|o| o.all_music))
             .unwrap()
     };
 

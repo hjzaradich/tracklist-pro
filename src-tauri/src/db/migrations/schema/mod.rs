@@ -33,6 +33,7 @@ mod stars_held;
 mod sync_base_ids;
 mod track_merge;
 mod track_row;
+mod track_row_gaps;
 mod tracks;
 mod user_energy;
 mod workspace;
@@ -289,6 +290,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0040_file_waveform.sql", &["file_waveform"]),
     // A Library track's "stars stay rekordbox's" marker, a column, no new tables (1cC-2).
     ("0041_stars_held.sql", &[]),
+    // Two more flag bits in track_row and the triggers that mark a merge's track due, no new tables (1cC-U1b).
+    ("0042_track_row_gaps.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

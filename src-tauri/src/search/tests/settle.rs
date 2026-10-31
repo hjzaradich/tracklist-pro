@@ -208,3 +208,71 @@ fn a_database_that_has_tracks_when_the_index_arrives_gets_a_row_for_each() {
     assert_eq!(lib.finds("first"), vec![a]);
     assert_eq!(lib.finds("second"), vec![b]);
 }
+
+/// One Library track whose stored tags can't be read (the column's CHECK is
+/// switched off for the write, as a damaged database would hold it), and
+/// one that is fine.
+#[test]
+fn a_track_whose_tags_cannot_be_read_does_not_stop_its_page_and_has_no_gaps() {
+    use crate::search::flag;
+    let lib = Lib::new();
+    let (bad, bad_file) = lib.track(Some("Bad"), Some("Someone"), "bad.mp3");
+    let (good, good_file) = lib.track(Some("Good"), Some("Someone"), "good.mp3");
+    lib.library(bad, bad_file);
+    lib.library(good, good_file);
+    // "Good" has no genre, so it is missing tags; "Bad" would be too.
+    lib.writer
+        .call(move |c| {
+            c.execute_batch("PRAGMA ignore_check_constraints = ON")?;
+            c.execute(
+                "UPDATE file SET raw_tags = 'not json at all' WHERE id = ?1",
+                [bad_file],
+            )?;
+            c.execute_batch("PRAGMA ignore_check_constraints = OFF")
+        })
+        .unwrap();
+    // The reason the page used to fail: the definition itself errors.
+    let asked = lib
+        .writer
+        .call(move |c| {
+            Ok(crate::overview::gaps_of(
+                c,
+                &Mount,
+                &[
+                    crate::library::LibraryTrackId(1),
+                    crate::library::LibraryTrackId(2),
+                ],
+            )
+            .is_err())
+        })
+        .unwrap();
+    assert!(asked, "the fixture must make gaps_of fail");
+
+    // Both are in one page (two to a page): the page is written, the job ends.
+    lib.settle();
+    assert!(!lib.pending(), "nothing stays due, so the job ends");
+    let flags = |track: i64| -> i64 {
+        lib.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT flags FROM track_row WHERE recording_id = ?1",
+                    [track],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    let gaps = flag::MISSING_TAGS | flag::MISSING_ART;
+    assert_eq!(
+        flags(bad) & gaps,
+        0,
+        "the unreadable track has no gaps recorded"
+    );
+    assert_ne!(flags(bad) & flag::IN_LIBRARY, 0, "but its row is written");
+    // No genre and no cover: the other track keeps its own answer.
+    assert_eq!(
+        flags(good) & gaps,
+        gaps,
+        "the other track keeps its own answer"
+    );
+}

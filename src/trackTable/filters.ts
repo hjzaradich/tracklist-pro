@@ -14,7 +14,7 @@ export type FilterKind = TableFilter["kind"];
  * screen what makes sense"):
  * - the Library: missing, in or not in rekordbox, a format, a quality
  *   problem, in a crate or in no crate, from a low-quality file, analyzed or
- *   not analyzed by rekordbox. The energy filters are not on offer: they
+ *   not analyzed by rekordbox, with missing tags, with missing art. The energy filters are not on offer: they
  *   come only from the Overview's energy bars (1cC-4), one level at a time;
  * - All music: the same except the crate filters, which mean nothing for a
  *   track that isn't in the Library, and in or not in the Library instead;
@@ -33,6 +33,8 @@ export const FILTERS_BY_SCREEN: Readonly<Record<TableScreen, readonly FilterKind
     "lowQuality",
     "analyzedByRekordbox",
     "notAnalyzedByRekordbox",
+    "missingTags",
+    "missingArt",
   ],
   allMusic: [
     "missing",
@@ -143,5 +145,9 @@ export function filterLabel(filter: TableFilter, t: TFunction<"trackTable">): st
       return t("filters.energy", { level: filter.level });
     case "noEnergy":
       return t("filters.noEnergy");
+    case "missingTags":
+      return t("filters.missingTags");
+    case "missingArt":
+      return t("filters.missingArt");
   }
 }

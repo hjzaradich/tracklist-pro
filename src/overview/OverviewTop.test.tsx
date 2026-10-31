@@ -266,7 +266,7 @@ describe("what to do next", () => {
   });
 
   it("says it is still counting, rather than calling the list empty, while background work runs", async () => {
-    fakeBackend({ overview: { counting: { files: true, rekordbox: false, quality: false } } });
+    fakeBackend({ overview: { counting: { files: true, rekordbox: false, quality: false, index: false } } });
     renderApp("/overview");
     expect(await screen.findByText(tx("overview:todo.counting"))).toBeInTheDocument();
     expect(screen.queryByText(tx("overview:todo.empty"))).toBeNull();
@@ -274,13 +274,31 @@ describe("what to do next", () => {
 
   it("marks a line whose number is still being counted", async () => {
     fakeBackend({
-      overview: { missingTags: 4, counting: { files: true, rekordbox: false, quality: false } },
+      overview: { missingTags: 4, counting: { files: true, rekordbox: false, quality: false, index: false } },
     });
     renderApp("/overview");
     const link = await screen.findByRole("link", {
       name: contains(tx("overview:todo.missingTags", { count: 4 })),
     });
     expect(link).toHaveTextContent(tx("overview:todo.lineCounting"));
+  });
+
+  it("marks the missing-tags and missing-art lines, and the list, while the index is behind", async () => {
+    fakeBackend({
+      overview: {
+        missingTags: 4,
+        missingArt: 2,
+        counting: { files: false, rekordbox: false, quality: false, index: true },
+      },
+    });
+    renderApp("/overview");
+    for (const [key, count] of [["missingTags", 4], ["missingArt", 2]] as const) {
+      const link = await screen.findByRole("link", {
+        name: contains(tx(`overview:todo.${key}`, { count })),
+      });
+      expect(link).toHaveTextContent(tx("overview:todo.lineCounting"));
+    }
+    expect(screen.getByText(tx("overview:todo.counting"))).toBeInTheDocument();
   });
 
   it("shows the Review lines while the slower numbers are still on their way", async () => {

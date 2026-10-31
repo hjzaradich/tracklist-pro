@@ -215,6 +215,14 @@
     "purpose": "Filter: Library tracks with no energy. Same wording as overview:charts.energy.none.",
     "where": "Filter chip, opened from the \"No energy\" bar on the Overview. Not in the Add filter menu."
   },
+  "filters.missingTags": {
+    "purpose": "Filter: Library tracks with no title, no artist or no genre (the Overview's \"tracks with missing tags\"). Same wording as overview:todo.missingTags, without the count.",
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+  },
+  "filters.missingArt": {
+    "purpose": "Filter: Library tracks whose linked file has tags and no embedded cover (the Overview's \"tracks with missing art\"). Same wording as overview:todo.missingArt, without the count.",
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+  },
   "format.mp3": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
     "where": "Filter chip and the Add filter menu, the formats."

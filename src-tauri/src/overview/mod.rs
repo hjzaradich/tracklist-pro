@@ -26,23 +26,33 @@
 //!   has read it; no cheaper signal from the log is exact (ROADMAP 1.13).
 //! - *How many need a decision*: the Review screen's read model (1bD-1/2).
 //! - **Missing tags** is a Library track with no title, no artist or no
-//!   genre ([`missing_tags`]); **missing art** one whose linked file holds
-//!   no picture ([`MISSING_ART`]).
+//!   genre ([`missing_tag_ids`]); **missing art** one whose linked file holds
+//!   no picture ([`missing_art_sql`]). Both are per-track definitions that
+//!   read tag data, so they are not counted here: the index job works each
+//!   Library track's two answers out with [`gaps_of`], in the same step as
+//!   the rest of its `track_row`, and keeps them as two flag bits
+//!   (`search::flag::MISSING_TAGS`, `MISSING_ART`). The Overview counts the
+//!   bits, and the Library's two filters read them, so the number and the
+//!   rows behind it are one definition (1cC-U1b).
 //!
 //! **Cost.** Every number is an aggregate SQL statement on the read pool.
 //! The Library's numbers come from one pass over `library_track` that looks
 //! the rest up by primary key or index; a test reads each statement's query
 //! plan to prove nothing else is scanned. The genres statement groups the
 //! tracks by what their tags say and Rust reads the *distinct* groups only
-//! ([`genres`]). Missing tags is the exception: its statement hands Rust one
-//! small row per Library track, and `shown` is asked only about the tracks
-//! those rows can't settle.
+//! ([`genres`]). The two tag gaps are the index job's work, not the
+//! Overview's: [`gaps_of`] hands Rust one small row per Library track of a
+//! page of the index, and `shown_tags` is asked only about the tracks those
+//! rows can't settle.
 //!
 //! **Still counting** ([`Counting`]): a flag per source of numbers that can
 //! change while background work runs. A flag is true while a job of one of
 //! its kinds is queued or running, and only then: a failed or cancelled job
 //! holds nothing, and neither does a stale verdict with no job to settle it
-//! (a stale verdict is no verdict: it isn't counted as low quality).
+//! (a stale verdict is no verdict: it isn't counted as low quality). The
+//! exception is `index`: the two tag gaps are as current as the search
+//! index, so it is true while any track is due (`search::pending`), which is
+//! what an upgrade leaves behind until the index job has filled the bits.
 //!
 //! **One place to change** each choice the owner answered (2026-10-12):
 //! [`COUNT_UNDONE_OPERATIONS`], [`THIS_WEEK`] and [`BLANK_GENRE_FALLS_BACK`].
@@ -63,7 +73,6 @@ use crate::ipc::IpcError;
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
 use crate::quality::stale_condition;
-use crate::scan::system_volumes;
 
 #[cfg(test)]
 mod tests;
@@ -127,6 +136,9 @@ pub struct Counting {
     pub rekordbox: bool,
     /// A quality job is queued or running: the low-quality count.
     pub quality: bool,
+    /// The search index is behind (a track is due): the missing-tags and
+    /// missing-art counts, which are read from the rows the index job writes.
+    pub index: bool,
 }
 
 /// Every Overview number.
@@ -174,10 +186,11 @@ pub struct Overview {
     /// Library" could still bring in.
     pub outside_library: u32,
     /// Library tracks with no title, no artist or no genre, as the lists
-    /// show them ([`missing_tags`]).
+    /// show them ([`missing_tag_ids`]), counted from the flag the index job
+    /// keeps (`counting.index` says when it is behind).
     pub missing_tags: u32,
     /// Library tracks whose linked file has tags and no embedded cover
-    /// ([`MISSING_ART`]).
+    /// ([`missing_art_sql`]), counted from the flag the index job keeps.
     pub missing_art: u32,
     pub counting: Counting,
 }
@@ -461,16 +474,14 @@ fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, 
     Ok((genres, tracks.saturating_sub(with_genre)))
 }
 
-/// Library tracks whose linked file has tags and no embedded cover. The
-/// tags layer records a picture as a binary frame under the key of its
-/// format (`tags::raw`): `APIC` in ID3v2 (a description may follow after a
-/// colon), `covr` in MP4, `METADATA_BLOCK_PICTURE` in Vorbis comments
-/// and FLAC, and an item named `Cover Art (...)` in APE. A file whose tags
-/// were never read (`raw_tags` is NULL) is unknown, not without a cover,
-/// and a track with no linked file has nothing to look at: neither counts.
-const MISSING_ART: &str = "SELECT count(*) FROM library_track lt
-     JOIN file f ON f.id = lt.linked_file_id
-     WHERE f.raw_tags IS NOT NULL AND NOT EXISTS (
+/// A condition on a Library track's linked file `f`: it has tags and no
+/// embedded cover. The tags layer records a picture as a binary frame under
+/// the key of its format (`tags::raw`): `APIC` in ID3v2 (a description may
+/// follow after a colon), `covr` in MP4, `METADATA_BLOCK_PICTURE` in Vorbis
+/// comments and FLAC, and an item named `Cover Art (...)` in APE. A file
+/// whose tags were never read (`raw_tags` is NULL) is unknown, not without a
+/// cover.
+const NO_COVER: &str = "f.raw_tags IS NOT NULL AND NOT EXISTS (
          SELECT 1 FROM json_each(f.raw_tags) blk, json_each(blk.value) i
          WHERE json_type(blk.value) = 'array'
            AND json_extract(i.value, '$.value.type') = 'binary'
@@ -485,15 +496,39 @@ const MISSING_ART: &str = "SELECT count(*) FROM library_track lt
              OR (blk.key = 'ape'
                  AND lower(substr(json_extract(i.value, '$.key'), 1, 9)) = 'cover art')))";
 
+/// The ids of the Library tracks whose linked file has tags and no embedded
+/// cover ([`NO_COVER`]): the definition of "missing art". A track with no
+/// linked file has nothing to look at and isn't listed. `scoped` limits it
+/// to the Library tracks of `?1`, a JSON array of their ids.
+fn missing_art_sql(scoped: bool) -> String {
+    let scope = if scoped {
+        "lt.id IN (SELECT value FROM json_each(?1)) AND "
+    } else {
+        ""
+    };
+    format!(
+        "SELECT lt.id FROM library_track lt
+         JOIN file f ON f.id = lt.linked_file_id
+         WHERE {scope}{NO_COVER}"
+    )
+}
+
 /// Each Library track with what its title, artist and genre are made of,
-/// for [`missing_tags`]: `(id, rb, own_title, own_artist, linked, present,
+/// for [`missing_tag_ids`]: `(id, rb, own_title, own_artist, linked, present,
 /// known_name, known_artist, digest)`.
 ///
 /// `known_name` and `known_artist` are the `Name` and `Artist` of the
 /// trusted rekordbox entry for the linked file (`NULL` when there is none,
 /// `''` for a blank one). `digest` holds the linked file's genre, title
 /// and artist frames, as [`genre_source_sql`] does for the genre alone.
-fn missing_tags_sql() -> String {
+/// `scoped` limits it to the Library tracks of `?1`, a JSON array of their
+/// ids (a page of the index job).
+fn missing_tags_sql(scoped: bool) -> String {
+    let scope = if scoped {
+        "WHERE lt.id IN (SELECT value FROM json_each(?1))"
+    } else {
+        ""
+    };
     let tag_needed = if BLANK_GENRE_FALLS_BACK {
         "s.rb IS NULL OR trim(s.rb) = '' OR s.ka IS NULL"
     } else {
@@ -522,7 +557,8 @@ fn missing_tags_sql() -> String {
                        LIMIT 1) AS ka
                FROM library_track lt
                LEFT JOIN recording r ON r.id = lt.recording_id
-               LEFT JOIN file f ON f.id = lt.linked_file_id) s",
+               LEFT JOIN file f ON f.id = lt.linked_file_id
+               {scope}) s",
         frames = frame_filter(true),
         rekordbox_genre = REKORDBOX_GENRE
             .replace("{order}", crate::attach::PICK_ORDER)
@@ -530,7 +566,48 @@ fn missing_tags_sql() -> String {
     )
 }
 
-/// How many Library tracks lack a title, an artist or a genre (owner
+/// Which Library tracks lack a title, an artist or a genre, and which have
+/// tags and no cover: the two per-track definitions the Overview counts
+/// ("tracks with missing tags", "tracks with missing art"). Library track
+/// ids.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Gaps {
+    pub tags: HashSet<i64>,
+    pub art: HashSet<i64>,
+}
+
+/// The two gaps of the Library tracks `ids`: **the one definition**. The
+/// index job calls it for each page of tracks it writes, and keeps the answer
+/// as two flag bits of the track's `track_row`; the Overview counts the bits
+/// and the Library's two filters list them. Nothing else says what a missing
+/// tag or a missing cover is.
+pub(crate) fn gaps_of(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<Gaps> {
+    if ids.is_empty() {
+        return Ok(Gaps::default());
+    }
+    Ok(Gaps {
+        tags: missing_tag_ids(conn, volumes, false, Some(ids))?
+            .into_iter()
+            .collect(),
+        art: missing_art_ids(conn, ids)?.into_iter().collect(),
+    })
+}
+
+/// The ids (among `ids`) of the Library tracks with a linked file that has tags
+/// and no cover ([`missing_art_sql`]).
+fn missing_art_ids(conn: &Connection, ids: &[LibraryTrackId]) -> rusqlite::Result<Vec<i64>> {
+    let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+        .expect("numbers always serialize");
+    conn.prepare_cached(&missing_art_sql(true))?
+        .query_map([json], |r| r.get(0))?
+        .collect()
+}
+
+/// The Library tracks that lack a title, an artist or a genre (owner
 /// decision, ROADMAP 1.13).
 ///
 /// - **Title and artist** come from the same rules the lists use
@@ -549,18 +626,16 @@ fn missing_tags_sql() -> String {
 /// asked of `shown_tags` itself, in chunks: one with no linked file or a
 /// gone one (rekordbox may stand in by location), or whose linked file's
 /// tags lack a title or an artist (another file of the track may have it).
-pub fn missing_tags(conn: &Connection, volumes: &impl Volumes) -> rusqlite::Result<u32> {
-    let ids = missing_tag_ids(conn, volumes, false)?;
-    Ok(u32::try_from(ids.len()).unwrap_or(u32::MAX))
-}
-
-/// The ids of the Library tracks [`missing_tags`] counts. `ask_all` sends
-/// every track to `shown_tags` instead of settling some by the values at
-/// hand; the tests use it to prove the short way agrees.
-fn missing_tag_ids(
+///
+/// The ids are Library track ids. `only` limits the answer to those tracks
+/// (the index job's page); `ask_all` sends every track to `shown_tags`
+/// instead of settling some by the values at hand; the tests use it to prove
+/// the short way agrees.
+pub(crate) fn missing_tag_ids(
     conn: &Connection,
     volumes: &impl Volumes,
     ask_all: bool,
+    only: Option<&[LibraryTrackId]>,
 ) -> rusqlite::Result<Vec<i64>> {
     let mut genre_known: HashMap<(Option<String>, Option<String>), bool> = HashMap::new();
     // What the linked file's frames give: (a title, an artist).
@@ -569,8 +644,16 @@ fn missing_tag_ids(
     let filled = |text: &Option<String>| text.as_deref().is_some_and(|t| !blank(t));
     let mut missing: Vec<i64> = Vec::new();
     let mut ask: Vec<i64> = Vec::new();
-    let mut stmt = conn.prepare(&missing_tags_sql())?;
-    let mut rows = stmt.query([])?;
+    let mut stmt = conn.prepare(&missing_tags_sql(only.is_some()))?;
+    let mut rows = match only {
+        Some(ids) => {
+            stmt.query([
+                serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+                    .expect("numbers always serialize"),
+            ])?
+        }
+        None => stmt.query([])?,
+    };
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
         let rb: Option<String> = row.get(1)?;
@@ -651,6 +734,20 @@ fn missing_tag_ids(
 /// How many tracks' shown values are worked out in one go.
 const SHOWN_CHUNK: usize = 5_000;
 
+/// The Library tracks with the two gap bits set in their `track_row`
+/// (`(missing tags, missing art)`; [`gaps_of`] says what they mean). Only the
+/// rows of Library tracks carry them. One pass over the narrow `flags` index.
+fn gap_counts(conn: &Connection) -> rusqlite::Result<(i64, i64)> {
+    use crate::search::flag::{MISSING_ART, MISSING_TAGS};
+    conn.prepare_cached(&format!(
+        "SELECT coalesce(sum((flags & {MISSING_TAGS}) <> 0), 0),
+                coalesce(sum((flags & {MISSING_ART}) <> 0), 0)
+         FROM track_row WHERE (flags & {}) <> 0",
+        MISSING_TAGS | MISSING_ART
+    ))?
+    .query_row([], |r| Ok((r.get(0)?, r.get(1)?)))
+}
+
 /// Which sources have background work going, from the queued and running
 /// jobs.
 fn counting(conn: &Connection) -> rusqlite::Result<Counting> {
@@ -664,6 +761,7 @@ fn counting(conn: &Connection) -> rusqlite::Result<Counting> {
         files: any(&FILE_JOBS),
         rekordbox: any(&REKORDBOX_JOBS),
         quality: any(&QUALITY_JOBS),
+        index: crate::search::pending(conn)?,
     })
 }
 
@@ -674,11 +772,7 @@ fn count(n: i64) -> u32 {
 /// Every Overview number, as of `now_ms` (milliseconds since the Unix
 /// epoch; it sets where "this week" starts). Reads in one transaction, so
 /// the numbers agree with each other.
-pub fn overview_at(
-    conn: &Connection,
-    volumes: &impl Volumes,
-    now_ms: i64,
-) -> rusqlite::Result<Overview> {
+pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview> {
     let tx = conn.unchecked_transaction()?;
     let conn = &*tx;
 
@@ -708,8 +802,7 @@ pub fn overview_at(
         })?;
     let (genres, no_genre) = genres(conn, tracks)?;
     let (energy, no_energy) = energy(conn)?;
-    let missing_tags = missing_tags(conn, volumes)?;
-    let missing_art = conn.query_row(MISSING_ART, [], |r| r.get::<_, i64>(0))?;
+    let (missing_tags, missing_art) = gap_counts(conn)?;
     let counting = counting(conn)?;
     drop(tx);
 
@@ -731,18 +824,31 @@ pub fn overview_at(
         energy,
         no_energy,
         outside_library: count(outside_library),
-        missing_tags,
+        missing_tags: count(missing_tags),
         missing_art: count(missing_art),
         counting,
     })
 }
 
-/// Every number the Overview screen shows, as of now.
+/// Every number the Overview screen shows, as of now. When the index is
+/// behind (`counting.index`), it asks for the index job, as the track table
+/// does: the missing-tags and missing-art counts come from the rows that job
+/// writes, and the screen asks again while it runs.
 #[tauri::command]
 #[specta::specta]
-pub async fn overview(reads: State<'_, ReadPool>) -> Result<Overview, IpcError> {
+pub async fn overview(
+    reads: State<'_, ReadPool>,
+    writer: State<'_, crate::db::Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
+) -> Result<Overview, IpcError> {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
-    Ok(reads.read(|conn| overview_at(conn, &system_volumes(), now_ms))?)
+    let found = reads.read(|conn| overview_at(conn, now_ms))?;
+    if found.counting.index {
+        if let Err(e) = crate::search::request(&writer, |job| jobs.enqueue(job)) {
+            eprintln!("overview: couldn't ask for the index: {e:?}");
+        }
+    }
+    Ok(found)
 }

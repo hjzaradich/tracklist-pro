@@ -397,6 +397,8 @@ describe("filter chips", () => {
         "lowQuality",
         "analyzedByRekordbox",
         "notAnalyzedByRekordbox",
+        "missingTags",
+        "missingArt",
       ],
     ],
     ["allMusic", ["missing", "inRekordbox", "notInRekordbox", "qualityProblem", "inLibrary", "notInLibrary"]],

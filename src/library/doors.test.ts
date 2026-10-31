@@ -10,6 +10,8 @@ describe("the words a door is written as in the Library's address", () => {
     { kind: "inCrate" },
     { kind: "inNoCrate" },
     { kind: "noEnergy" },
+    { kind: "missingTags" },
+    { kind: "missingArt" },
     { kind: "energy", level: 1 },
     { kind: "energy", level: 10 },
   ];
