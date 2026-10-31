@@ -26,7 +26,11 @@ fn an_upgrade_makes_every_library_track_due_and_no_other_track() {
     drop(conn);
     let mut conn = rusqlite::Connection::open(dir.path().join("test.db")).unwrap();
     run(&mut conn, MIGRATIONS).unwrap();
-    assert_eq!(due(&conn), vec![1, 3], "the Library tracks, whose bits are unknown");
+    assert_eq!(
+        due(&conn),
+        vec![1, 3],
+        "the Library tracks, whose bits are unknown"
+    );
 }
 
 #[test]

@@ -475,17 +475,32 @@ fn gaps_world() -> Doors {
     tagged(&lib, known, &[], true);
     lib.rekordbox_entry(
         known,
-        &[("TrackID", "8"), ("Name", "N"), ("Artist", "A"), ("Genre", "House")],
+        &[
+            ("TrackID", "8"),
+            ("Name", "N"),
+            ("Artist", "A"),
+            ("Genre", "House"),
+        ],
     );
     tagged(&lib, blank_genre, &full, true);
     lib.rekordbox_entry(
         blank_genre,
-        &[("TrackID", "9"), ("Name", "N"), ("Artist", "A"), ("Genre", "")],
+        &[
+            ("TrackID", "9"),
+            ("Name", "N"),
+            ("Artist", "A"),
+            ("Genre", ""),
+        ],
     );
     // The tags were never read: nothing says art is missing.
     lib.rekordbox_entry(
         unread,
-        &[("TrackID", "10"), ("Name", "N"), ("Artist", "A"), ("Genre", "House")],
+        &[
+            ("TrackID", "10"),
+            ("Name", "N"),
+            ("Artist", "A"),
+            ("Genre", "House"),
+        ],
     );
     // (relink sets the track beside the file.)
     lib.exec(

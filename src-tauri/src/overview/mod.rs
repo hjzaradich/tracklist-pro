@@ -646,10 +646,12 @@ pub(crate) fn missing_tag_ids(
     let mut ask: Vec<i64> = Vec::new();
     let mut stmt = conn.prepare(&missing_tags_sql(only.is_some()))?;
     let mut rows = match only {
-        Some(ids) => stmt.query([serde_json::to_string(
-            &ids.iter().map(|id| id.0).collect::<Vec<_>>(),
-        )
-        .expect("numbers always serialize")])?,
+        Some(ids) => {
+            stmt.query([
+                serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+                    .expect("numbers always serialize"),
+            ])?
+        }
         None => stmt.query([])?,
     };
     while let Some(row) = rows.next()? {

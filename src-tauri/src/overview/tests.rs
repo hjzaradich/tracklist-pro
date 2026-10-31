@@ -1642,8 +1642,16 @@ fn gap_library() -> Lib {
         Some(json!({"id3v2": [text("TIT2", "A"), text("TPE1", "B"), text("TCON", "House"), extra]}))
     };
     lib.library_track("Complete with a cover", None, tagged(cover.clone()));
-    lib.library_track("Complete without a cover", None, tagged(binary("GEOB:x", 9)));
-    lib.library_track("Complete with an empty cover", None, tagged(binary("APIC", 0)));
+    lib.library_track(
+        "Complete without a cover",
+        None,
+        tagged(binary("GEOB:x", 9)),
+    );
+    lib.library_track(
+        "Complete with an empty cover",
+        None,
+        tagged(binary("APIC", 0)),
+    );
     lib.library_track(
         "Empty title tag",
         None,
@@ -1718,7 +1726,10 @@ fn the_edge_cases_come_out_as_the_owner_decided() {
     // another binary frame is; tags never read are unknown, not missing.
     assert_eq!(
         named(crate::search::flag::MISSING_ART),
-        ["Complete with an empty cover.mp3", "Complete without a cover.mp3"]
+        [
+            "Complete with an empty cover.mp3",
+            "Complete without a cover.mp3"
+        ]
     );
 }
 
@@ -1759,7 +1770,11 @@ fn a_change_to_what_the_gaps_read_refreshes_the_flags_once_the_index_runs() {
     assert_eq!(flags_of(&lib) & (tags | art), art);
 
     // rekordbox is read: its blank genre is the answer for a track it knows.
-    lib.rekordbox(file, json!({"Name": "N", "Artist": "B", "Genre": " "}), false);
+    lib.rekordbox(
+        file,
+        json!({"Name": "N", "Artist": "B", "Genre": " "}),
+        false,
+    );
     assert!(due(&lib), "a rekordbox read marks every Library track due");
     lib.index();
     assert_eq!(flags_of(&lib) & (tags | art), tags | art);
@@ -1780,7 +1795,10 @@ fn a_change_to_what_the_gaps_read_refreshes_the_flags_once_the_index_runs() {
     assert_eq!(flags_of(&lib) & (tags | art), 0);
 
     // Taking the track out of the Library takes its flags with it.
-    lib.exec("DELETE FROM library_track WHERE recording_id = ?1", (recording,));
+    lib.exec(
+        "DELETE FROM library_track WHERE recording_id = ?1",
+        (recording,),
+    );
     lib.index();
     assert_eq!(flags_of(&lib) & (tags | art), 0);
 }
@@ -2072,18 +2090,23 @@ fn check_a_library_of(count: i64) {
         Ok(())
     });
     timed("genres", |c| genres(c, 0).map(|_| ()));
-    timed("gap counts (the Overview's whole cost for tags and art)", |c| {
-        gap_counts(c).map(|_| ())
-    });
-    timed("missing tags (the old per-track pass, now the index job's)", |c| {
-        missing_tag_ids(c, &NoVolumes, false, None).map(|_| ())
-    });
-    timed("missing art (the old per-track pass, now the index job's)", |c| {
-        c.prepare(&missing_art_sql(false))?
-            .query_map([], |_| Ok(()))?
-            .for_each(drop);
-        Ok(())
-    });
+    timed(
+        "gap counts (the Overview's whole cost for tags and art)",
+        |c| gap_counts(c).map(|_| ()),
+    );
+    timed(
+        "missing tags (the old per-track pass, now the index job's)",
+        |c| missing_tag_ids(c, &NoVolumes, false, None).map(|_| ()),
+    );
+    timed(
+        "missing art (the old per-track pass, now the index job's)",
+        |c| {
+            c.prepare(&missing_art_sql(false))?
+                .query_map([], |_| Ok(()))?
+                .for_each(drop);
+            Ok(())
+        },
+    );
     timed("energy", |c| energy(c).map(|_| ()));
 
     let all = 1..=count;
@@ -2124,7 +2147,9 @@ fn check_a_library_of(count: i64) {
     assert_eq!(i64::from(o.all_music), count);
     if count <= 5_000 {
         // The short way of counting missing tags is the long way.
-        let long = lib.run(|c| missing_tag_ids(c, &NoVolumes, true, None)).len();
+        let long = lib
+            .run(|c| missing_tag_ids(c, &NoVolumes, true, None))
+            .len();
         assert_eq!(o.missing_tags as usize, long);
     }
     // Known tracks (every third) take rekordbox's artist, absent for every
