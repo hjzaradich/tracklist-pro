@@ -466,6 +466,41 @@ mod on_disk {
         assert_eq!(i64::try_from(changed.len()).unwrap(), count / 10);
     }
 
+    /// How long the writer is held: a thread asks it to do nothing, over and
+    /// over, so each answer takes as long as whatever the writer was doing
+    /// (1cD-S1). Stands in for a user's save waiting on a send.
+    struct WriterWatch {
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        thread: std::thread::JoinHandle<(Duration, Duration)>,
+    }
+
+    impl WriterWatch {
+        fn start(writer: &Writer) -> WriterWatch {
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (writer, stopped) = (writer.clone(), stop.clone());
+            let thread = std::thread::spawn(move || {
+                let (mut longest, mut in_all) = (Duration::ZERO, Duration::ZERO);
+                while !stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                    let at = Instant::now();
+                    writer.call(|_| Ok(())).unwrap();
+                    let waited = at.elapsed();
+                    longest = longest.max(waited);
+                    if waited > Duration::from_millis(50) {
+                        in_all += waited;
+                    }
+                }
+                (longest, in_all)
+            });
+            WriterWatch { stop, thread }
+        }
+
+        fn report(self, step: &str) {
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            let (longest, in_all) = self.thread.join().unwrap();
+            println!("  writer during {step}: held {longest:?} at most, {in_all:?} in all");
+        }
+    }
+
     /// 1cC-M1: a whole send of 100,000 tracks rekordbox has, each on a real
     /// (empty) file, in one crate: the prepare step, then the go (which
     /// reads the export again, merges, builds the XML and reads it back).
@@ -512,6 +547,7 @@ mod on_disk {
         w.save_export_text(&export_on(&root, &tracks));
         println!("peak memory after building the library: {} MiB", mib());
 
+        let watch = WriterWatch::start(&w.writer);
         let started = Instant::now();
         let preflight = w.prepare_on(&root).unwrap();
         println!(
@@ -519,10 +555,12 @@ mod on_disk {
             started.elapsed(),
             mib()
         );
+        watch.report("prepare");
         assert_eq!(i64::from(preflight.known_tracks), count);
 
         let on = root.clone();
         let sender = Sender::new(w.flow.clone(), move || MountedAt(on.clone()));
+        let watch = WriterWatch::start(&w.writer);
         let started = Instant::now();
         let status = w.run_within(
             sender,
@@ -535,6 +573,7 @@ mod on_disk {
             started.elapsed(),
             mib()
         );
+        watch.report("go");
         println!("failure: {:?}", w.flow.failure());
         println!(
             "the send file: {} MiB",

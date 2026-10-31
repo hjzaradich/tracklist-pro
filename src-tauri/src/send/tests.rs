@@ -20,6 +20,7 @@ use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 mod changed_after_export;
 mod membership;
 mod merge;
+mod same_as_before;
 
 fn volume_id() -> VolumeId {
     identity(IdentitySignals {
