@@ -344,6 +344,32 @@ pub fn load_sides(
     sent: &[SendValues],
     app: &AppValues,
 ) -> rusqlite::Result<Vec<TrackSides>> {
+    load_sides_with(conn, sent, app, &kept_from_older_read(conn)?)
+}
+
+/// `TrackID`s of the rows an incomplete read kept from an earlier one (the
+/// current read never gives a kept row's id to another track). Two scans
+/// of `rekordbox_track`: a caller loading sides chunk after chunk in one
+/// transaction works it out once and passes it to [`load_sides_with`],
+/// which is sound while nothing writes `rekordbox_track` in between.
+pub(super) fn kept_from_older_read(conn: &Connection) -> rusqlite::Result<HashSet<i64>> {
+    conn.prepare(
+        "SELECT track_id FROM rekordbox_track
+         WHERE read_at < (SELECT max(read_at) FROM rekordbox_track)",
+    )?
+    .query_map([], |r| r.get::<_, Option<i64>>(0))?
+    .filter_map(Result::transpose)
+    .collect()
+}
+
+/// [`load_sides`] with the rows kept from an older read given, as
+/// [`kept_from_older_read`] gives them.
+pub(super) fn load_sides_with(
+    conn: &Connection,
+    sent: &[SendValues],
+    app: &AppValues,
+    stale: &HashSet<i64>,
+) -> rusqlite::Result<Vec<TrackSides>> {
     let ready: Vec<(LibraryTrackId, &send_values::TrackValues)> = sent
         .iter()
         .filter_map(|s| match &s.outcome {
@@ -378,17 +404,6 @@ pub fn load_sides(
         let (track, field): (i64, String) = row?;
         open.entry(track).or_default().push(field);
     }
-
-    // Rows an incomplete read kept from an earlier one, by `TrackID` (the
-    // current read never gives a kept row's id to another track).
-    let stale: HashSet<i64> = conn
-        .prepare(
-            "SELECT track_id FROM rekordbox_track
-             WHERE read_at < (SELECT max(read_at) FROM rekordbox_track)",
-        )?
-        .query_map([], |r| r.get::<_, Option<i64>>(0))?
-        .filter_map(Result::transpose)
-        .collect::<rusqlite::Result<_>>()?;
 
     let mut tracks = Vec::with_capacity(ready.len());
     for (id, values) in ready {
@@ -625,6 +640,7 @@ fn detect_chunks(
 ) -> rusqlite::Result<Detected> {
     let tx = conn.transaction()?;
     let mut detected = Detected::default();
+    let stale = kept_from_older_read(&tx)?;
     for some in ids.chunks(TRACKS_AT_A_TIME) {
         let sent = send_values(&tx, volumes, some)?;
         let stored;
@@ -635,7 +651,7 @@ fn detect_chunks(
                 &stored
             }
         };
-        let sides = load_sides(&tx, &sent, app)?;
+        let sides = load_sides_with(&tx, &sent, app, &stale)?;
         detected.extend(detect_in(&tx, &sides, NOT_TAKEN_UP)?);
     }
     tx.commit()?;

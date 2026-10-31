@@ -37,7 +37,7 @@ use std::collections::HashMap;
 use rusqlite::Connection;
 
 use super::membership::{self, Memberships};
-use super::store::{detect_in, load_sides, Outcome, TRACKS_AT_A_TIME};
+use super::store::{detect_in, kept_from_older_read, load_sides_with, Outcome, TRACKS_AT_A_TIME};
 use super::{app_values, open_at_send, NOT_TAKEN_UP};
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
@@ -74,10 +74,13 @@ pub fn merge_before_send(
 ) -> rusqlite::Result<Merged> {
     let tx = conn.transaction()?;
     let mut merged = Merged::default();
+    // Once for the whole merge: it writes conflicts, app values and crate
+    // entries, never `rekordbox_track`, so the answer can't change.
+    let stale = kept_from_older_read(&tx)?;
     for some in ids.chunks(TRACKS_AT_A_TIME) {
         let values = send_values(&tx, volumes, some)?;
         let app = app_values::read_for_send(&tx, &values)?;
-        let sides = load_sides(&tx, &values, &app)?;
+        let sides = load_sides_with(&tx, &values, &app, &stale)?;
         let detected = detect_in(&tx, &sides, NOT_TAKEN_UP)?;
         for field in detected.fields {
             let track = field.library_track;

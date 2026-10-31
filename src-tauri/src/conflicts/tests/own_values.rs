@@ -609,6 +609,51 @@ fn undo_of_a_resolve_is_refused_once_its_field_was_sent_since_a_tie_counting_as_
     }
 }
 
+#[test]
+fn a_merge_across_batches_holds_back_the_entries_kept_from_an_older_read_in_every_batch() {
+    // More tracks than two batches hold, so the stale entries are in the
+    // first and the last batch.
+    let lib = Lib::new();
+    let known = lib.many_known(2_300);
+    // Two entries kept from an older read, rekordbox showing Tech House
+    // where House was sent.
+    let mut stale = Vec::new();
+    for _ in 0..2 {
+        let (id, file) = lib.linked();
+        lib.entry(file, EARLIER_READ, false, &[("Genre", "Tech House")]);
+        lib.sent(id, &[("Genre", "House")]);
+        stale.push(id);
+    }
+    let (stale_first, stale_last) = (stale[0], stale[1]);
+    let (live_first, live_last) = (known[10], known[2_250]);
+    let mut ids = vec![stale_first];
+    ids.extend(&known[..2_200]);
+    ids.push(stale_last);
+    ids.extend(&known[2_200..]);
+    assert!(ids.len() > 2 * store::TRACKS_AT_A_TIME);
+    // Each has an edit of its own that rekordbox's differs from.
+    for id in [stale_first, stale_last, live_first, live_last] {
+        lib.set(id, "Genre", "Deep House").unwrap();
+    }
+    let all = ids.clone();
+
+    let merged = lib
+        .writer
+        .call(move |c| merge_before_send(c, &Mount, &all))
+        .unwrap();
+
+    let mut open: Vec<LibraryTrackId> = merged.open.keys().copied().collect();
+    open.sort_by_key(|t| t.0);
+    assert_eq!(open, [live_first, live_last]);
+    let conflicted: Vec<LibraryTrackId> = lib
+        .open(&Filter::default())
+        .iter()
+        .map(|c| c.library_track)
+        .collect();
+    assert_eq!(conflicted, [live_first, live_last]);
+    assert_eq!(merged.values.len(), ids.len(), "in the order asked");
+}
+
 // ---- Taking rekordbox's value in (1cB-3) -------------------------------------
 
 #[test]
