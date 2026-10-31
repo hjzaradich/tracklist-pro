@@ -26,7 +26,7 @@ export const NOTHING_WAITING: Overview = {
   outsideLibrary: 0,
   missingTags: 0,
   missingArt: 0,
-  counting: { files: false, rekordbox: false, quality: false },
+  counting: { files: false, rekordbox: false, quality: false, index: false },
 };
 
 export const NO_REVIEW: ReviewCounts = {

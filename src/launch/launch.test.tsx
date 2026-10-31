@@ -309,7 +309,7 @@ describe("keeping what the user has seen", () => {
 
   it("numbers still being counted are not recorded", async () => {
     const backend = fakeBackend({
-      overview: { outsideLibrary: 4, counting: { files: true, rekordbox: false, quality: false } },
+      overview: { outsideLibrary: 4, counting: { files: true, rekordbox: false, quality: false, index: false } },
     });
     renderApp("/overview");
     await untilNewsIsKnown(backend.calls);
@@ -327,7 +327,7 @@ describe("keeping what the user has seen", () => {
 });
 
 describe("looking again while numbers are still being counted", () => {
-  const COUNTING = { files: true, rekordbox: false, quality: false };
+  const COUNTING = { files: true, rekordbox: false, quality: false, index: false };
   const overviewCalls = (calls: string[]) => calls.filter((call) => call === "overview").length;
 
   async function untilLaunched(world: World) {
@@ -354,7 +354,7 @@ describe("looking again while numbers are still being counted", () => {
   it("stops looking once nothing is being counted", async () => {
     const world: World = { overview: { counting: COUNTING } };
     const { backend, router } = await untilLaunched(world);
-    world.overview = { counting: { files: false, rekordbox: false, quality: false } };
+    world.overview = { counting: { files: false, rekordbox: false, quality: false, index: false } };
     await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS);
     await vi.waitFor(() => expect(overviewCalls(backend.calls)).toBe(2));
     await vi.advanceTimersByTimeAsync(COUNTING_INTERVAL_MS * 3);

@@ -27,6 +27,8 @@ const PLAIN = new Set<TableFilter["kind"]>([
   "lowQuality",
   "analyzedByRekordbox",
   "notAnalyzedByRekordbox",
+  "missingTags",
+  "missingArt",
 ]);
 
 /** What a chip is called in the list of chips. */

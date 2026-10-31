@@ -50,8 +50,21 @@ export function waitingLines(overview: Overview | undefined, review: ReviewCount
         filter: { kind: "lowQuality" },
         counting: counting.quality,
       },
-      { id: "missingTags", count: overview.missingTags, door: "/library", counting: counting.files },
-      { id: "missingArt", count: overview.missingArt, door: "/library", counting: counting.files },
+      // Read from the rows the index job writes, so they are counting while it is behind.
+      {
+        id: "missingTags",
+        count: overview.missingTags,
+        door: "/library",
+        filter: { kind: "missingTags" },
+        counting: counting.files || counting.index,
+      },
+      {
+        id: "missingArt",
+        count: overview.missingArt,
+        door: "/library",
+        filter: { kind: "missingArt" },
+        counting: counting.files || counting.index,
+      },
       // Before rekordbox has been read, every track is "not analyzed", which says nothing.
       {
         id: "notAnalyzed",
