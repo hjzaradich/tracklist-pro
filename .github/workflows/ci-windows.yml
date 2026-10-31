@@ -382,6 +382,12 @@ jobs:
         if: ${{ !cancelled() && env.APP == 'true' }}
         run: npm ci
 
+      # Fails on a high or critical advisory in the packages that ship in the
+      # app. Dev-only advisories stay Dependabot alerts and don't fail CI.
+      - name: Audit the npm packages that ship
+        if: ${{ !cancelled() && env.APP == 'true' }}
+        run: npm audit --omit=dev --audit-level=high
+
       # Includes the i18n types check and tsc. A change that touches Rust
       # also builds the frontend again in the Windows compile, but a
       # frontend-only change skips that job, so this step is its build check.
