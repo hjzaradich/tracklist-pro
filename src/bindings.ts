@@ -361,7 +361,12 @@ export const commands = {
 	 *  [`waveform_peaks`] changes when it is.
 	 */
 	waveformFirst: (fileId: number) => typedError<null, IpcError>(__TAURI_INVOKE("waveform_first", { fileId })),
-	/**  Every number the Overview screen shows, as of now. */
+	/**
+	 *  Every number the Overview screen shows, as of now. When the index is
+	 *  behind (`counting.index`), it asks for the index job, as the track table
+	 *  does: the missing-tags and missing-art counts come from the rows that job
+	 *  writes, and the screen asks again while it runs.
+	 */
 	overview: () => typedError<Overview, IpcError>(__TAURI_INVOKE("overview")),
 	/**
 	 *  Where the send is: the file's path, the preflight waiting for the go,
@@ -794,6 +799,11 @@ export type Counting = {
 	rekordbox: boolean,
 	/**  A quality job is queued or running: the low-quality count. */
 	quality: boolean,
+	/**
+	 *  The search index is behind (a track is due): the missing-tags and
+	 *  missing-art counts, which are read from the rows the index job writes.
+	 */
+	index: boolean,
 };
 
 /**  A crate or a folder, as the Crates screen and the sidebar list it. */
@@ -1753,12 +1763,13 @@ export type Overview = {
 	outsideLibrary: number,
 	/**
 	 *  Library tracks with no title, no artist or no genre, as the lists
-	 *  show them ([`missing_tags`]).
+	 *  show them ([`missing_tag_ids`]), counted from the flag the index job
+	 *  keeps (`counting.index` says when it is behind).
 	 */
 	missingTags: number,
 	/**
 	 *  Library tracks whose linked file has tags and no embedded cover
-	 *  ([`MISSING_ART`]).
+	 *  ([`missing_art_sql`]), counted from the flag the index job keeps.
 	 */
 	missingArt: number,
 	counting: Counting,
@@ -2513,7 +2524,19 @@ export type TableFilter =
  */
 { kind: "energy"; level: number } | 
 /**  No source gives the track an energy. */
-{ kind: "noEnergy" };
+{ kind: "noEnergy" } | 
+/**
+ *  The Library track has no title, no artist or no genre (the
+ *  Overview's "tracks with missing tags"; `track_row` flag
+ *  [`flag::MISSING_TAGS`]).
+ */
+{ kind: "missingTags" } | 
+/**
+ *  The Library track's linked file has tags and no embedded cover (the
+ *  Overview's "tracks with missing art"; `track_row` flag
+ *  [`flag::MISSING_ART`]).
+ */
+{ kind: "missingArt" };
 
 /**  A window of rows. */
 export type TablePage = {
