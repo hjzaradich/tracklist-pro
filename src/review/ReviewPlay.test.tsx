@@ -10,6 +10,7 @@ import { usePlayer } from "../player/playerStore";
 import { PlayerBar } from "../shell/PlayerBar";
 import { tx } from "../test/tx";
 import { ReviewComparison } from "./ReviewComparison";
+import { quietAnswer } from "../test/quietCommands";
 
 function row(fileId: number | null, name: string, fields: Partial<ReviewFileRow> = {}): ReviewFileRow {
   return {
@@ -77,7 +78,7 @@ beforeEach(() => {
       asked.push(id);
       return answers[id] ?? null;
     }
-    throw new Error(`unexpected command ${cmd}`);
+    return quietAnswer(cmd);
   });
   usePlayer.setState({ file: null, status: "idle", refusal: null, position: 0, duration: 0, playing: false });
 });

@@ -15,6 +15,7 @@ import { TopBar } from "./TopBar";
 import { useSelectedTrack } from "./selectedTrack";
 import { ZONES } from "./zones";
 import { tx } from "../test/tx";
+import { quietAnswer } from "../test/quietCommands";
 
 const WORKFLOW_ORDER = ["overview", "review", "allMusic", "library", "crates"].map((id) =>
   tx(`shell:stages.${id}`),
@@ -47,7 +48,7 @@ function crates(names: string[]) {
   mockIPC(
     (cmd) => {
       if (cmd === "list_crates") return list;
-      throw new Error(`unexpected command ${cmd}`);
+      return quietAnswer(cmd);
     },
     { shouldMockEvents: true },
   );

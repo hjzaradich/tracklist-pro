@@ -6,6 +6,7 @@ import { renderApp } from "../app/testApp";
 import { validateCratesSearch } from "../app/router";
 import type { Crate } from "../bindings";
 import { tx } from "../test/tx";
+import { quietAnswer } from "../test/quietCommands";
 
 const crate = (id: number, name: string, parentId: number | null = null): Crate => ({
   id,
@@ -43,7 +44,7 @@ function backend(list: Crate[]) {
         case "next_undo_operation":
           return { operation: null, refusal: null };
         default:
-          throw new Error(`unexpected command ${cmd}`);
+          return quietAnswer(cmd);
       }
     },
     { shouldMockEvents: true },
@@ -192,7 +193,7 @@ describe("the crate tree in the sidebar", () => {
           return null;
         }
         if (cmd === "next_undo_operation") return { operation: null, refusal: null };
-        throw new Error(`unexpected command ${cmd}`);
+        return quietAnswer(cmd);
       },
       { shouldMockEvents: true },
     );
