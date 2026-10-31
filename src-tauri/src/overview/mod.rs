@@ -603,16 +603,16 @@ pub(crate) fn door_answers_of(
     let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
         .expect("numbers always serialize");
     conn.prepare_cached(&door_answers_sql())?
-    .query_map([json], |r| {
-        Ok((
-            r.get::<_, i64>(0)?,
-            DoorAnswer {
-                low_quality: r.get(1)?,
-                energy: r.get(2)?,
-            },
-        ))
-    })?
-    .collect()
+        .query_map([json], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                DoorAnswer {
+                    low_quality: r.get(1)?,
+                    energy: r.get(2)?,
+                },
+            ))
+        })?
+        .collect()
 }
 
 /// The ids (among `ids`) of the Library tracks with a linked file that has tags

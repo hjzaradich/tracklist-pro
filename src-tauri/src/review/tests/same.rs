@@ -1370,14 +1370,29 @@ fn a_merge_and_its_undo_carry_the_stored_energy_and_low_quality_answers() {
             .unwrap()
             .map(|flags| (flags & flag::LOW_QUALITY != 0, flag::energy_of(flags)))
     };
+    let shown_energy = |track: i64| -> i64 {
+        let sql = concat!(
+            "SELECT coalesce(",
+            crate::overview::shown_energy!("?1"),
+            ", 0)"
+        );
+        t.db.writer
+            .call(move |c| c.query_row(sql, [track], |r| r.get(0)))
+            .unwrap()
+    };
     assert_eq!(row_of(t.ta), Some((true, 0)));
     assert_eq!(row_of(t.tb), Some((false, 8)));
 
     t.merge(&t.both(), t.ta).unwrap();
     assert_eq!(
         row_of(t.ta),
-        Some((true, 8)),
-        "the kept track has its own flagged file and the other track's energy"
+        Some((true, shown_energy(t.ta))),
+        "the kept track holds what the Overview's definition says"
+    );
+    assert_eq!(
+        row_of(t.tb).unwrap_or_default(),
+        (false, 0),
+        "the other track is no Library track any more"
     );
 
     assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));

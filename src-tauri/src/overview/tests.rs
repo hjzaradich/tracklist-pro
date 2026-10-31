@@ -2232,7 +2232,9 @@ fn the_frontend_gets_every_number_over_ipc() {
                  INSERT INTO recording DEFAULT VALUES;
                  INSERT INTO recording_file (recording_id, file_id, role) VALUES (1, 1, 'best');
                  INSERT INTO library_track (recording_id, linked_file_id) VALUES (1, 1);",
-            )
+            )?;
+            // The energy numbers are read from the rows the index job writes.
+            crate::search::settle(c, &NoVolumes, 500)
         })
         .unwrap();
 

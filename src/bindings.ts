@@ -364,8 +364,8 @@ export const commands = {
 	/**
 	 *  Every number the Overview screen shows, as of now. When the index is
 	 *  behind (`counting.index`), it asks for the index job, as the track table
-	 *  does: the missing-tags and missing-art counts come from the rows that job
-	 *  writes, and the screen asks again while it runs.
+	 *  does: the low-quality, energy, missing-tags and missing-art counts come
+	 *  from the rows that job writes, and the screen asks again while it runs.
 	 */
 	overview: () => typedError<Overview, IpcError>(__TAURI_INVOKE("overview")),
 	/**
@@ -487,7 +487,11 @@ export const commands = {
 	useThisFileInstead: (fileId: number) => typedError<Chosen, IpcError>(__TAURI_INVOKE("use_this_file_instead", { fileId })),
 	/**  How many hidden files `text` matches that the results don't show. */
 	hiddenFilesMatching: (text: string) => typedError<HiddenMatches, IpcError>(__TAURI_INVOKE("hidden_files_matching", { text })),
-	/**  Gives tracks an energy from 1 to 10: one operation, one Undo. */
+	/**
+	 *  Gives tracks an energy from 1 to 10: one operation, one Undo. The
+	 *  Overview and its doors read the energy from the track table's rows, so a
+	 *  few tracks' rows are worked out now, for the lists read right after it.
+	 */
 	setEnergy: (recordings: number[], energy: number) => typedError<EnergySet, IpcError>(__TAURI_INVOKE("set_energy", { recordings, energy })),
 	/**
 	 *  Whether energy is sent as rekordbox's star rating. Off until the user
@@ -800,8 +804,9 @@ export type Counting = {
 	/**  A quality job is queued or running: the low-quality count. */
 	quality: boolean,
 	/**
-	 *  The search index is behind (a track is due): the missing-tags and
-	 *  missing-art counts, which are read from the rows the index job writes.
+	 *  The search index is behind (a track is due): the low-quality, energy,
+	 *  missing-tags and missing-art counts, which are read from the rows the
+	 *  index job writes.
 	 */
 	index: boolean,
 };
@@ -2506,7 +2511,8 @@ export type TableFilter =
 /**
  *  The track's linked file has a current quality verdict that flags it
  *  (low bitrate, a suspected transcode, cut off or broken): the Overview's
- *  "tracks made from low-quality files". Not the same as
+ *  "tracks made from low-quality files" (`track_row` flag
+ *  [`flag::LOW_QUALITY`]). Not the same as
  *  [`TableFilter::QualityProblem`], which is Review's group and leaves
  *  out a track with a better copy or a "Keep anyway".
  */
@@ -2519,11 +2525,11 @@ export type TableFilter =
 /**  rekordbox didn't: a Library track with no `analysis` row from it. */
 { kind: "notAnalyzedByRekordbox" } | 
 /**
- *  The energy the track shows is this level, 1 to 10 (the Overview's
- *  energy bars).
+ *  The energy the Library track shows is this level, 1 to 10 (the
+ *  Overview's energy bars; `track_row` bits [`flag::ENERGY`]).
  */
 { kind: "energy"; level: number } | 
-/**  No source gives the track an energy. */
+/**  No source gives the Library track an energy. */
 { kind: "noEnergy" } | 
 /**
  *  The Library track has no title, no artist or no genre (the

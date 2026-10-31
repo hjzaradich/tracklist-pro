@@ -30,8 +30,8 @@ use specta::Type;
 use tauri::State;
 
 use crate::db::Writer;
-use crate::jobs::JobQueue;
 use crate::ipc::{ErrorKind, IpcError};
+use crate::jobs::JobQueue;
 use crate::ops::{self, OpsError, Recorder};
 
 /// The operation setting energy records.

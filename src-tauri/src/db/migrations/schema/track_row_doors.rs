@@ -40,8 +40,8 @@ const TRACKS: &str = "
         VALUES (1, 'a.mp3', 'a.mp3', 'mp3', 320);
     INSERT INTO file (music_folder_id, rel_path, rel_path_key, codec, bitrate)
         VALUES (1, 'b.mp3', 'b.mp3', 'mp3', 128);
-    INSERT INTO file (music_folder_id, rel_path, rel_path_key, codec, bitrate)
-        VALUES (1, 'c.mp3', 'c.mp3', 'mp3', 128);
+    INSERT INTO file (music_folder_id, rel_path, rel_path_key, codec, bitrate, raw_tags)
+        VALUES (1, 'c.mp3', 'c.mp3', 'mp3', 128, '{\"id3v2\": []}');
     INSERT INTO recording_file (recording_id, file_id, role) VALUES (1, 1, 'best');
     INSERT INTO recording_file (recording_id, file_id, role) VALUES (2, 2, 'best');
     INSERT INTO recording_file (recording_id, file_id, role) VALUES (3, 3, 'best');
@@ -58,7 +58,11 @@ fn an_upgrade_makes_every_library_track_due_and_no_other_track() {
     drop(conn);
     let mut conn = Connection::open(dir.path().join("test.db")).unwrap();
     run(&mut conn, MIGRATIONS).unwrap();
-    assert_eq!(due(&conn), [1, 2], "the Library tracks, whose bits are unknown");
+    assert_eq!(
+        due(&conn),
+        [1, 2],
+        "the Library tracks, whose bits are unknown"
+    );
 }
 
 #[test]
@@ -75,7 +79,8 @@ fn an_existing_database_gets_its_stored_answers_from_the_index_job_and_says_stil
              SELECT f.id, {RULES_VERSION}, {INPUTS}, 'low_bitrate', '[]'
              FROM file f LEFT JOIN file_quality q ON q.file_id = f.id WHERE f.id IN (2, 3);
              INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'user', 7);
-             INSERT INTO analysis (recording_id, source, energy) VALUES (3, 'user', 2);"
+             INSERT INTO analysis (recording_id, source, energy) VALUES (3, 'user', 2);
+             INSERT OR IGNORE INTO search_due (recording_id) SELECT id FROM recording;"
         ),
     );
     let mut conn = conn;
@@ -177,15 +182,39 @@ fn a_verdict_that_may_flag_marks_its_library_track_and_a_healthy_one_nothing() {
             (outside.as_str(), &[]),
             (new_flagged.as_str(), &[2]),
             // Each column that makes it another answer, flagged before or after.
-            ("UPDATE file_verdict SET rules_version = 2 WHERE file_id = 2", &[2]),
-            ("UPDATE file_verdict SET inputs = '[1]' WHERE file_id = 2", &[2]),
-            ("UPDATE file_verdict SET verdict = 'broken' WHERE file_id = 2", &[2]),
-            ("UPDATE file_verdict SET verdict = 'ok' WHERE file_id = 2", &[2]),
-            ("UPDATE file_verdict SET verdict = 'truncated' WHERE file_id = 2", &[2]),
+            (
+                "UPDATE file_verdict SET rules_version = 2 WHERE file_id = 2",
+                &[2],
+            ),
+            (
+                "UPDATE file_verdict SET inputs = '[1]' WHERE file_id = 2",
+                &[2],
+            ),
+            (
+                "UPDATE file_verdict SET verdict = 'broken' WHERE file_id = 2",
+                &[2],
+            ),
+            (
+                "UPDATE file_verdict SET verdict = 'ok' WHERE file_id = 2",
+                &[2],
+            ),
+            (
+                "UPDATE file_verdict SET verdict = 'truncated' WHERE file_id = 2",
+                &[2],
+            ),
             // Never flagged either side: the answer is 0 before and after.
-            ("UPDATE file_verdict SET verdict = NULL, inputs = '[2]' WHERE file_id = 1", &[]),
-            ("UPDATE file_verdict SET verdict = 'broken' WHERE file_id = 3", &[]),
-            ("UPDATE file_verdict SET findings = '[1]' WHERE file_id = 2", &[]),
+            (
+                "UPDATE file_verdict SET verdict = NULL, inputs = '[2]' WHERE file_id = 1",
+                &[],
+            ),
+            (
+                "UPDATE file_verdict SET verdict = 'broken' WHERE file_id = 3",
+                &[],
+            ),
+            (
+                "UPDATE file_verdict SET findings = '[1]' WHERE file_id = 2",
+                &[],
+            ),
             ("DELETE FROM file_verdict WHERE file_id = 1", &[]),
             ("DELETE FROM file_verdict WHERE file_id = 3", &[]),
             ("DELETE FROM file_verdict WHERE file_id = 2", &[2]),
@@ -212,9 +241,15 @@ fn each_fact_of_a_verdict_marks_the_library_track_of_a_file_with_one_that_may_fl
             ("UPDATE file SET codec = 'aac' WHERE id = 2", &[2]),
             ("UPDATE file SET bitrate = 129 WHERE id = 2", &[2]),
             ("UPDATE file SET sample_rate = 44100 WHERE id = 2", &[2]),
-            ("UPDATE file SET quality_verdict = 'broken' WHERE id = 2", &[2]),
+            (
+                "UPDATE file SET quality_verdict = 'broken' WHERE id = 2",
+                &[2],
+            ),
             // Nothing changed.
-            ("UPDATE file SET bitrate = 129, codec = 'aac' WHERE id = 2", &[]),
+            (
+                "UPDATE file SET bitrate = 129, codec = 'aac' WHERE id = 2",
+                &[],
+            ),
             // Not what a verdict reads.
             ("UPDATE file SET size = 10, mtime = 5 WHERE id = 2", &[]),
             // A healthy verdict, and a file no Library track links.
@@ -238,8 +273,9 @@ fn a_measurement_marks_the_library_track_of_a_file_with_a_verdict_that_may_flag(
     );
     let measure = |file: i64| {
         format!(
-            "INSERT INTO file_quality (file_id, audio_hash, method_version)
-             VALUES ({file}, x'01', 1)"
+            "INSERT INTO file_quality (file_id, audio_hash, method_version, cutoff_hz, decoded_ms,
+                                       header_ms, ended)
+             VALUES ({file}, zeroblob(34), 1, 20000, 1000, 1000, 'complete')"
         )
     };
     let (flagged, healthy, outside) = (measure(2), measure(1), measure(3));
@@ -249,8 +285,14 @@ fn a_measurement_marks_the_library_track_of_a_file_with_a_verdict_that_may_flag(
             (flagged.as_str(), &[2]),
             (healthy.as_str(), &[]),
             (outside.as_str(), &[]),
-            ("UPDATE file_quality SET cutoff_hz = 15000 WHERE file_id = 2", &[2]),
-            ("UPDATE file_quality SET cutoff_hz = 15000 WHERE file_id = 1", &[]),
+            (
+                "UPDATE file_quality SET cutoff_hz = 15000 WHERE file_id = 2",
+                &[2],
+            ),
+            (
+                "UPDATE file_quality SET cutoff_hz = 15000 WHERE file_id = 1",
+                &[],
+            ),
             ("DELETE FROM file_quality WHERE file_id = 2", &[2]),
             ("DELETE FROM file_quality WHERE file_id = 1", &[]),
         ],
@@ -264,21 +306,42 @@ fn an_energy_marks_a_library_track_and_nothing_else_about_analysis_does() {
     each(
         &conn,
         &[
-            ("INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'user', 5)", &[1]),
-            ("UPDATE analysis SET energy = 6 WHERE recording_id = 1", &[1]),
+            (
+                "INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'user', 5)",
+                &[1],
+            ),
+            (
+                "UPDATE analysis SET energy = 6 WHERE recording_id = 1",
+                &[1],
+            ),
             ("UPDATE analysis SET energy = 6 WHERE recording_id = 1", &[]),
-            ("UPDATE analysis SET confidence = 0.5 WHERE recording_id = 1", &[]),
+            (
+                "UPDATE analysis SET confidence = 0.5 WHERE recording_id = 1",
+                &[],
+            ),
             ("DELETE FROM analysis WHERE recording_id = 1", &[1]),
             // Outside the Library no row holds it.
-            ("INSERT INTO analysis (recording_id, source, energy) VALUES (3, 'mik', 5)", &[]),
+            (
+                "INSERT INTO analysis (recording_id, source, energy) VALUES (3, 'mik', 5)",
+                &[],
+            ),
             ("UPDATE analysis SET energy = 6 WHERE recording_id = 3", &[]),
             ("DELETE FROM analysis WHERE recording_id = 3", &[]),
             // A row with no energy is `search_analysis_*` of 0039 alone.
-            ("INSERT INTO analysis (recording_id, source, key) VALUES (3, 'tag', '8A')", &[3]),
+            (
+                "INSERT INTO analysis (recording_id, source, key) VALUES (3, 'tag', '8A')",
+                &[3],
+            ),
             ("DELETE FROM analysis WHERE recording_id = 3", &[3]),
             // A row that moves is that too, and takes its energy along.
-            ("INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'user', 5)", &[1]),
-            ("UPDATE analysis SET recording_id = 2 WHERE recording_id = 1", &[1, 2]),
+            (
+                "INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'user', 5)",
+                &[1],
+            ),
+            (
+                "UPDATE analysis SET recording_id = 2 WHERE recording_id = 1",
+                &[1, 2],
+            ),
         ],
     );
 }

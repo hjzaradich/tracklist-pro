@@ -27,7 +27,7 @@ struct Track {
 fn outside(lib: &Lib, name: &str) -> Track {
     let (recording, file) = lib.track(Some(name), Some("Someone"), name);
     lib.insert(
-        "UPDATE file SET audio_hash = randomblob(16), codec = 'mp3', bitrate = 128,
+        "UPDATE file SET audio_hash = randomblob(34), codec = 'mp3', bitrate = 128,
                          sample_rate = 44100
          WHERE id = ?1",
         (file,),
@@ -106,10 +106,7 @@ fn undo(lib: &Lib) {
         .call(|c| Ok(undo_for_user(c, None)))
         .unwrap()
         .unwrap();
-    assert!(
-        matches!(outcome, UndoOutcome::Undone { .. }),
-        "{outcome:?}"
-    );
+    assert!(matches!(outcome, UndoOutcome::Undone { .. }), "{outcome:?}");
 }
 
 fn set_energy(lib: &Lib, tracks: &[Track], energy: i64) {
@@ -126,7 +123,11 @@ fn set_energy(lib: &Lib, tracks: &[Track], energy: i64) {
 fn a_verdict_the_quality_job_makes_reaches_the_library_tracks_row() {
     let lib = Lib::new();
     let track = in_library(&lib, "low.mp3");
-    assert_eq!(row(&lib, track), (false, 0), "no verdict yet is not flagged");
+    assert_eq!(
+        row(&lib, track),
+        (false, 0),
+        "no verdict yet is not flagged"
+    );
     judge(&lib);
     assert!(due(&lib, track), "a flagged verdict marks the track");
     assert_eq!(row(&lib, track), (true, 0));
@@ -159,10 +160,19 @@ fn a_verdict_dropped_takes_the_bit_away() {
 fn every_fact_a_verdict_reads_makes_it_stale_and_the_next_settling_brings_the_bit_back() {
     let changes: [(&str, &'static str); 5] = [
         ("bitrate", "UPDATE file SET bitrate = 129 WHERE id = ?1"),
-        ("sample rate", "UPDATE file SET sample_rate = 48000 WHERE id = ?1"),
+        (
+            "sample rate",
+            "UPDATE file SET sample_rate = 48000 WHERE id = ?1",
+        ),
         ("codec", "UPDATE file SET codec = 'aac' WHERE id = ?1"),
-        ("audio hash", "UPDATE file SET audio_hash = randomblob(16) WHERE id = ?1"),
-        ("read verdict", "UPDATE file SET quality_verdict = 'truncated' WHERE id = ?1"),
+        (
+            "audio hash",
+            "UPDATE file SET audio_hash = randomblob(34) WHERE id = ?1",
+        ),
+        (
+            "read verdict",
+            "UPDATE file SET quality_verdict = 'truncated' WHERE id = ?1",
+        ),
     ];
     for (what, change) in changes {
         let lib = Lib::new();
@@ -221,20 +231,18 @@ fn a_new_rules_version_needs_no_mark_of_its_own_because_the_quality_job_makes_ev
     lib.exec("DELETE FROM search_due");
     assert_eq!(row(&lib, track), (true, 0), "nothing has told the row yet");
     // So the quality job is asked for, with nothing to measure ...
-    assert!(lib
-        .writer
-        .call(|c| crate::quality::due(c, None))
-        .unwrap());
+    assert!(lib.writer.call(|c| crate::quality::due(c, None)).unwrap());
     // ... and the verdict it makes again reaches the row, flagged or not.
     lib.insert("UPDATE file SET bitrate = 320 WHERE id = ?1", (track.file,));
     lib.exec("DELETE FROM search_due");
     judge(&lib);
-    assert!(due(&lib, track), "the verdict that stopped flagging marks it");
+    assert!(
+        due(&lib, track),
+        "the verdict that stopped flagging marks it"
+    );
     assert_eq!(row(&lib, track), (false, 0));
     assert!(
-        !lib.writer
-            .call(|c| crate::quality::due(c, None))
-            .unwrap(),
+        !lib.writer.call(|c| crate::quality::due(c, None)).unwrap(),
         "nothing is asked for once the verdicts are made"
     );
 }
@@ -245,15 +253,22 @@ fn a_healthy_file_and_a_file_outside_the_library_mark_nothing_so_the_quality_job
     let lib = Lib::new();
     // Healthy: its verdict, a stale one, its measurement.
     let healthy = in_library(&lib, "fine.mp3");
-    lib.insert("UPDATE file SET bitrate = 320 WHERE id = ?1", (healthy.file,));
+    lib.insert(
+        "UPDATE file SET bitrate = 320 WHERE id = ?1",
+        (healthy.file,),
+    );
     lib.settle();
     judge(&lib);
     assert!(!lib.pending(), "an `ok` verdict");
-    lib.insert("UPDATE file SET bitrate = 256 WHERE id = ?1", (healthy.file,));
+    lib.insert(
+        "UPDATE file SET bitrate = 256 WHERE id = ?1",
+        (healthy.file,),
+    );
     assert!(!lib.pending(), "a stale `ok` verdict");
     lib.insert(
-        "INSERT INTO file_quality (file_id, audio_hash, method_version)
-         SELECT id, audio_hash, 1 FROM file WHERE id = ?1",
+        "INSERT INTO file_quality (file_id, audio_hash, method_version, cutoff_hz, decoded_ms,
+                                   header_ms, ended)
+         SELECT id, audio_hash, 1, 20000, 1000, 1000, 'complete' FROM file WHERE id = ?1",
         (healthy.file,),
     );
     assert!(!lib.pending(), "a measurement of a file no verdict flags");
@@ -352,7 +367,10 @@ fn the_row_holds_the_energy_of_the_source_that_wins_and_follows_each_source_row(
         "UPDATE analysis SET energy = 7 WHERE recording_id = ?1 AND source = 'mik'",
         (track.recording,),
     );
-    assert!(due(&lib, track), "a row that loses still marks: it costs a read");
+    assert!(
+        due(&lib, track),
+        "a row that loses still marks: it costs a read"
+    );
     assert_eq!(row(&lib, track), (false, 10));
     lib.insert(
         "DELETE FROM analysis WHERE recording_id = ?1 AND source = 'user'",
@@ -385,7 +403,11 @@ fn an_energy_outside_the_library_marks_nothing_and_stores_nothing() {
     lib.settle();
     set_energy(&lib, &[track], 7);
     assert!(!lib.pending());
-    assert_eq!(row(&lib, track), (false, 0), "only a Library track's row holds it");
+    assert_eq!(
+        row(&lib, track),
+        (false, 0),
+        "only a Library track's row holds it"
+    );
 }
 
 // ---- the Library and its links ----------------------------------------------
@@ -396,7 +418,11 @@ fn joining_and_leaving_the_library_bring_and_take_both_answers_and_undo_moves_th
     let track = outside(&lib, "a.mp3");
     set_energy(&lib, &[track], 7);
     judge(&lib);
-    assert_eq!(row(&lib, track), (false, 0), "outside: none of it is stored");
+    assert_eq!(
+        row(&lib, track),
+        (false, 0),
+        "outside: none of it is stored"
+    );
 
     let library = lib.library(track.recording, track.file);
     let track = Track { library, ..track };
@@ -416,9 +442,9 @@ fn joining_and_leaving_the_library_bring_and_take_both_answers_and_undo_moves_th
 fn a_new_link_reads_the_new_files_verdict() {
     let lib = Lib::new();
     let track = flagged(&lib, "low.mp3");
-    let better = lib.file(track.recording, "better.mp3", "duplicate");
+    let better = lib.file(track.recording, "better.mp3", "extra");
     lib.insert(
-        "UPDATE file SET audio_hash = randomblob(16), codec = 'flac', bitrate = 900,
+        "UPDATE file SET audio_hash = randomblob(34), codec = 'flac', bitrate = 900,
                          sample_rate = 44100
          WHERE id = ?1",
         (better,),
@@ -468,23 +494,18 @@ fn a_rekordbox_read_keeps_both_answers_and_adds_its_own_flag() {
 #[test]
 fn every_library_row_holds_what_the_definitions_say_and_a_rebuild_comes_out_the_same() {
     let lib = Lib::new();
-    let tracks = [
+    let (low, stale, energy) = (
         flagged(&lib, "low.mp3"),
-        in_library(&lib, "no verdict.mp3"),
         flagged(&lib, "stale.mp3"),
         flagged(&lib, "energy.mp3"),
-    ];
-    lib.insert("UPDATE file SET bitrate = 127 WHERE id = ?1", (tracks[2].file,));
+    );
+    let tracks = [low, in_library(&lib, "no verdict.mp3"), stale, energy];
+    lib.insert("UPDATE file SET bitrate = 127 WHERE id = ?1", (stale.file,));
     set_energy(&lib, &tracks[1..2], 1);
     set_energy(&lib, &tracks[3..], 10);
-    let held = |lib: &Lib| -> Vec<(bool, i64)> {
-        tracks.iter().map(|t| row(lib, *t)).collect()
-    };
+    let held = |lib: &Lib| -> Vec<(bool, i64)> { tracks.iter().map(|t| row(lib, *t)).collect() };
     let rows = held(&lib);
-    assert_eq!(
-        rows,
-        [(true, 0), (false, 1), (false, 0), (true, 10)]
-    );
+    assert_eq!(rows, [(true, 0), (false, 1), (false, 0), (true, 10)]);
     for (track, (low_quality, energy)) in tracks.iter().zip(&rows) {
         let answer = definition(&lib, *track);
         assert_eq!(answer.low_quality, *low_quality);

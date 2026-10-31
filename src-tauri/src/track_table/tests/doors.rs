@@ -326,7 +326,11 @@ fn each_of_the_twelve_doors_lists_the_number_the_overview_counts_in_the_library_
     let in_library: Vec<i64> = w.tracks.iter().map(|(_, id)| *id).collect();
     for (filter, number) in stored_doors() {
         let (total, found) = w.rows(vec![filter.clone()]);
-        assert_eq!(total, number(&o), "{filter:?}: rows == the Overview's number");
+        assert_eq!(
+            total,
+            number(&o),
+            "{filter:?}: rows == the Overview's number"
+        );
         assert!(found.iter().all(|id| in_library.contains(id)), "{filter:?}");
 
         let mut in_all_music = ids(&run(
