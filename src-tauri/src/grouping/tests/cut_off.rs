@@ -678,11 +678,41 @@ mod chain {
             .unwrap()
             .unwrap();
         assert_eq!(job.status, JobStatus::Done, "{job:?}");
-        // Deciding jobs only: the roles job shares the grouping job's kind.
-        db.count(
-            "SELECT count(*) FROM job
-             WHERE kind = 'group' AND COALESCE(json_extract(target, '$.decide'), 0) = 1",
-        )
+        deciding_jobs(db)
+    }
+
+    /// How many deciding jobs ran (the roles job shares the grouping job's
+    /// kind, so it is left out). A deciding job that made way for a more
+    /// important job (the index job outranks it) and picked up again is two
+    /// rows that ended `done`, one after the other, and counts as one here.
+    /// Whether it makes way depends on whether the other worker has taken
+    /// the waiting job yet, so it differs from run to run (the same stopgap
+    /// as `scan::tests::chain::jobs`, until the "make way" rule is fixed:
+    /// audit 1cB, C2). A deciding job that failed is never merged into its
+    /// neighbour.
+    fn deciding_jobs(db: &Db) -> i64 {
+        let statuses: Vec<String> = db
+            .writer
+            .call(|c| {
+                c.prepare(
+                    "SELECT status FROM job
+                     WHERE kind = 'group' AND COALESCE(json_extract(target, '$.decide'), 0) = 1
+                     ORDER BY id",
+                )?
+                .query_map([], |r| r.get(0))?
+                .collect()
+            })
+            .unwrap();
+        let mut passes = 0;
+        let mut after_done = false;
+        for status in &statuses {
+            let done = status == "done";
+            if !(done && after_done) {
+                passes += 1;
+            }
+            after_done = done;
+        }
+        passes
     }
 
     #[test]

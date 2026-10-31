@@ -329,12 +329,6 @@ export const commands = {
 	/**  The rekordbox playlists that hold tracks, for narrowing the offer. */
 	rekordboxPlaylists: () => typedError<PlaylistChoice[], IpcError>(__TAURI_INVOKE("rekordbox_playlists")),
 	/**
-	 *  The tracks in All music whose title, artist or file path holds `search`
-	 *  (every track when it's blank), up to 200, with whether each is in the
-	 *  Library.
-	 */
-	allMusicTracks: (search: string | null) => typedError<AllMusicList, IpcError>(__TAURI_INVOKE("all_music_tracks", { search })),
-	/**
 	 *  Whether file `file_id` can be played, and if not why: `None` means it
 	 *  can. The same check the protocol makes before it answers, so the player
 	 *  can show the reason when its audio element reports a failure.
@@ -442,8 +436,6 @@ export const commands = {
 	removeTracksFromCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("remove_tracks_from_crate", { id, tracks })),
 	/**  Every folder and crate with its track count. */
 	listCrates: () => typedError<Crate[], IpcError>(__TAURI_INVOKE("list_crates")),
-	/**  A crate's tracks, in the order they were added. */
-	crateTracks: (id: CrateId) => typedError<LibraryTrack[], IpcError>(__TAURI_INVOKE("crate_tracks", { id })),
 	/**  A crate's notes and summary line. */
 	crateSummary: (id: CrateId) => typedError<CrateSummary, IpcError>(__TAURI_INVOKE("crate_summary", { id })),
 	/**
@@ -620,38 +612,6 @@ export type AfterSendLists = {
 	playlistsChecked: boolean,
 	stalePlaylists: StalePlaylist[],
 	manualRemovals: ManualRemoval[],
-};
-
-/**  The tracks matching a search, up to [`LIST_LIMIT`] of them. */
-export type AllMusicList = {
-	/**  How many tracks match, shown or not. */
-	total: number,
-	tracks: AllMusicTrack[],
-};
-
-/**  A track in All music. */
-export type AllMusicTrack = {
-	/**  The track's id, as "Add to Library" takes it. */
-	recordingId: number,
-	/**
-	 *  The title shown: the track's own, else what a send would write for
-	 *  it, else the file's name. `None` only when the track has no file.
-	 */
-	title: string | null,
-	artist: string | null,
-	/**
-	 *  The file adding it to the Library would link (ROADMAP 1.8), or
-	 *  otherwise its best file, or its first.
-	 */
-	file: LinkedFile | null,
-	inLibrary: boolean,
-	/**
-	 *  One of its files is the probable match of a rekordbox track, and
-	 *  the match can't be confirmed yet: it can't be added to the Library
-	 *  ([`library::match_not_confirmed`]). The row says so and its "Add
-	 *  to Library" is greyed out.
-	 */
-	matchNotConfirmed: boolean,
 };
 
 /**  The app's name, version and bundle ID, as the frontend sees them. */

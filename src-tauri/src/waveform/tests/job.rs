@@ -13,7 +13,7 @@ use super::{audio, shaped, source, split};
 use crate::db::DbError;
 use crate::hash::{hash_job, Hasher};
 use crate::jobs::{JobContext, JobError, JobId, JobKind, JobQueue, JobStatus, NewJob, Priority};
-use crate::scan::walk::{scan_job, ScannedFile, Walker};
+use crate::scan::walk::{scan_job, Walker};
 use crate::waveform::{
     peaks, request, request_first, waveform_job, waveform_job_for, waveform_of, Wanted, Waveform,
     Waveformer, PRIORITY, VERSION,
@@ -36,10 +36,7 @@ fn queue(library: &Library, waveformer: Waveformer<TempVolume>) -> JobQueue {
     let (walk_volume, hash_volume) = (library.volume.clone(), library.volume.clone());
     JobQueue::builder(library.writer.clone())
         .workers(1)
-        .handler(
-            JobKind::Scan,
-            Walker::new(move || walk_volume.clone(), |_: Vec<ScannedFile>| {}),
-        )
+        .handler(JobKind::Scan, Walker::new(move || walk_volume.clone()))
         .handler(JobKind::Hash, Hasher::new(move || hash_volume.clone()))
         .handler(JobKind::Waveform, waveformer)
         .start()

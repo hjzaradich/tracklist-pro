@@ -11,6 +11,7 @@ import { pageOf, queryOf, rowOfLibraryTrack } from "../test/trackTableIpc";
 import { expectOnlyTheTopBarUndo, TopBarUndo } from "../test/topBarUndo";
 import { tx } from "../test/tx";
 import { CratesScreen } from "./CratesScreen";
+import { quietAnswer } from "../test/quietCommands";
 
 function track(id: number): LibraryTrack {
   return {
@@ -177,7 +178,7 @@ function backend(
           refusal: null,
         };
       default:
-        throw new Error(`unexpected command ${cmd}`);
+        return quietAnswer(cmd);
     }
   });
   return calls;

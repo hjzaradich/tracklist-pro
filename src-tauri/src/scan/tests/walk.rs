@@ -12,33 +12,22 @@ use super::support::{db, link_dir, TempVolume};
 use crate::db::Writer;
 use crate::jobs::{self, JobId, JobKind, JobQueue, JobStatus, JobUpdate};
 use crate::scan::folders::{add, MusicFolderId};
-use crate::scan::walk::{scan_job, ScannedFile, Walker, BATCH_MAX};
+use crate::scan::walk::{scan_job, Walker, BATCH_MAX};
 use crate::scan::MusicFolderRole;
 
-/// What every scan in these tests is given back.
-pub(super) type Batches = Arc<Mutex<Vec<Vec<ScannedFile>>>>;
-
-/// A queue with one worker running the walker over `volume`, sending each
-/// batch of new rows to `sent` and every job update to `updates`.
+/// A queue with one worker running the walker over `volume`, sending every
+/// job update to `updates`.
 pub(super) fn queue(
     writer: &Writer,
     volume: &TempVolume,
-    sent: &Batches,
     updates: &Arc<Mutex<Vec<JobUpdate>>>,
 ) -> JobQueue {
     let volume = volume.clone();
-    let sent = sent.clone();
     let heard = updates.clone();
     JobQueue::builder(writer.clone())
         .workers(1)
         .on_updates(move |u: &[JobUpdate]| heard.lock().unwrap().extend_from_slice(u))
-        .handler(
-            JobKind::Scan,
-            Walker::new(
-                move || volume.clone(),
-                move |files| sent.lock().unwrap().push(files),
-            ),
-        )
+        .handler(JobKind::Scan, Walker::new(move || volume.clone()))
         .start()
         .unwrap()
 }
@@ -61,15 +50,12 @@ pub(super) fn wait(writer: &Writer, id: JobId) -> JobStatus {
     }
 }
 
-/// A scan of every music folder, run to the end. Returns the batches sent.
-pub(super) fn scan(writer: &Writer, volume: &TempVolume) -> Vec<Vec<ScannedFile>> {
-    let sent = Batches::default();
-    let q = queue(writer, volume, &sent, &Arc::default());
+/// A scan of every music folder, run to the end.
+pub(super) fn scan(writer: &Writer, volume: &TempVolume) {
+    let q = queue(writer, volume, &Arc::default());
     let id = q.enqueue(scan_job(None)).unwrap();
     assert_eq!(wait(writer, id), JobStatus::Done);
     q.shutdown();
-    let sent = sent.lock().unwrap().clone();
-    sent
 }
 
 /// A stored `file` row.
@@ -403,22 +389,17 @@ fn every_file_gets_its_own_file_id_in_the_stored_form() {
 }
 
 #[test]
-fn rescanning_is_idempotent_no_duplicate_rows_and_nothing_new_to_send() {
+fn rescanning_is_idempotent_and_adds_no_duplicate_rows() {
     let (_dir, volume, music) = drive();
     let expected = awkward_tree(&music);
     let (_db, writer, _reads) = db();
     add_music(&writer, &volume, &music);
 
-    let first_sent = scan(&writer, &volume);
+    scan(&writer, &volume);
     let first = rows(&writer);
-    let sent_ids: BTreeSet<i64> = first_sent.iter().flatten().map(|f| f.id).collect();
-    assert_eq!(sent_ids.len(), expected.len());
+    assert_eq!(first.len(), expected.len());
 
-    let second_sent = scan(&writer, &volume);
-    assert!(
-        second_sent.is_empty(),
-        "a rescan sent rows again: {second_sent:?}"
-    );
+    scan(&writer, &volume);
     assert_eq!(rows(&writer), first, "a rescan changed the rows");
 }
 
@@ -442,7 +423,7 @@ fn a_rescan_refreshes_a_changed_file_and_adds_a_new_one() {
     drop(file);
     put(&music, "b.mp3", b"new");
 
-    let sent = scan(&writer, &volume);
+    scan(&writer, &volume);
     let after = rows(&writer);
     assert_eq!(after.len(), 2);
     let a = &after[0];
@@ -450,8 +431,10 @@ fn a_rescan_refreshes_a_changed_file_and_adds_a_new_one() {
     assert_eq!(a.size, Some(12));
     assert_ne!(a.mtime, before[0].mtime);
     assert_eq!(a.file_id, before[0].file_id, "same file, same id");
-    let new: Vec<&str> = sent.iter().flatten().map(|f| f.rel_path.as_str()).collect();
-    assert_eq!(new, ["b.mp3"]);
+    // The new file got a row of its own.
+    let b = &after[1];
+    assert_eq!(b.rel_path, "b.mp3");
+    assert!(before.iter().all(|r| r.id != b.id), "b.mp3 took a row");
 }
 
 /// `n` small audio files spread over `n / 100` folders.
@@ -466,28 +449,20 @@ pub(super) fn many(music: &Path, n: usize) -> BTreeSet<String> {
 }
 
 #[test]
-fn new_rows_reach_the_frontend_once_each_in_batches() {
+fn every_file_gets_one_row_across_batches() {
     let (_dir, volume, music) = drive();
     let expected = many(&music, 2 * BATCH_MAX + 500);
     let (_db, writer, _reads) = db();
     let folder = add_music(&writer, &volume, &music);
 
-    let sent = scan(&writer, &volume);
-    assert!(sent.len() >= 3, "{} batches", sent.len());
-    assert!(sent.iter().all(|b| !b.is_empty() && b.len() <= BATCH_MAX));
-    let files: Vec<&ScannedFile> = sent.iter().flatten().collect();
-    let paths: BTreeSet<String> = files.iter().map(|f| f.rel_path.clone()).collect();
-    assert_eq!(paths.len(), files.len(), "a row was sent twice");
+    scan(&writer, &volume);
+    let stored = rows(&writer);
+    let paths: BTreeSet<String> = stored.iter().map(|r| r.rel_path.clone()).collect();
+    assert_eq!(paths.len(), stored.len(), "a file got two rows");
     assert_eq!(paths, expected);
-
-    // What was sent is what was stored.
-    let stored: BTreeMap<i64, Row> = rows(&writer).into_iter().map(|r| (r.id, r)).collect();
-    for f in files {
-        let row = &stored[&f.id];
-        assert_eq!(f.music_folder_id, folder);
-        assert_eq!(f.rel_path, row.rel_path);
-        assert_eq!(Some(f.size), row.size);
-        assert_eq!(f.modified_ms, row.mtime.unwrap().div_euclid(1_000_000));
+    for row in &stored {
+        assert_eq!(row.folder, folder.0);
+        assert_eq!(row.size, Some(8), "{}", row.rel_path);
     }
 }
 
@@ -507,7 +482,7 @@ fn progress_only_rises_and_ends_at_one() {
     // whatever the machine's speed.
     let heard = updates.clone();
     let walk_volume = volume.clone();
-    let walker = Walker::new(move || walk_volume.clone(), |_| {}).on_entry(move |entries| {
+    let walker = Walker::new(move || walk_volume.clone()).on_entry(move |entries| {
         if entries == 500 {
             let start = Instant::now();
             while !heard
@@ -564,41 +539,39 @@ fn progress_only_rises_and_ends_at_one() {
 
 #[test]
 fn cancelling_mid_walk_stops_promptly_and_keeps_only_whole_batches() {
+    // Past the first full batch, before the walk is through.
+    const HOLD_AT: u64 = 2 * BATCH_MAX as u64;
     let (_dir, volume, music) = drive();
     let all = many(&music, 3 * BATCH_MAX);
     let (_db, writer, _reads) = db();
     add_music(&writer, &volume, &music);
 
-    // The first batch's arrival holds the walk until the test has asked
-    // to cancel, so the cancel lands mid-walk every time.
-    let (arrived, first) = mpsc::channel::<usize>();
+    // The walk is held at an entry until the test has asked to cancel, so
+    // the cancel lands mid-walk every time.
+    let (arrived, at_hold) = mpsc::channel::<()>();
     let (resume, cancelled) = mpsc::channel::<()>();
     let (arrived, cancelled) = (Mutex::new(arrived), Mutex::new(cancelled));
-    let sent = Batches::default();
-    let heard = sent.clone();
     let walker_volume = volume.clone();
+    let walker = Walker::new(move || walker_volume.clone()).on_entry(move |n| {
+        if n == HOLD_AT {
+            let _ = arrived.lock().unwrap().send(());
+            let _ = cancelled
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(30));
+        }
+    });
     let q = JobQueue::builder(writer.clone())
         .workers(1)
-        .handler(
-            JobKind::Scan,
-            Walker::new(
-                move || walker_volume.clone(),
-                move |files: Vec<ScannedFile>| {
-                    let n = files.len();
-                    heard.lock().unwrap().push(files);
-                    let _ = arrived.lock().unwrap().send(n);
-                    let _ = cancelled
-                        .lock()
-                        .unwrap()
-                        .recv_timeout(Duration::from_secs(30));
-                },
-            ),
-        )
+        .handler(JobKind::Scan, walker)
         .start()
         .unwrap();
     let id = q.enqueue(scan_job(None)).unwrap();
 
-    let first_batch = first.recv_timeout(Duration::from_secs(60)).unwrap();
+    at_hold.recv_timeout(Duration::from_secs(60)).unwrap();
+    // What the walk has written so far: whole batches.
+    let written = rel_paths(&writer);
+    assert!(written.len() >= BATCH_MAX, "{} written", written.len());
     q.cancel(id).unwrap();
     let asked = Instant::now();
     resume.send(()).unwrap();
@@ -610,18 +583,10 @@ fn cancelling_mid_walk_stops_promptly_and_keeps_only_whole_batches() {
     );
     q.shutdown();
 
-    // Only the batch that was written before the cancel is in the index,
-    // whole: every row it announced, and no row it didn't.
+    // Nothing was written after the cancel: the files found since the last
+    // batch are dropped, not stored.
     let stored = rel_paths(&writer);
-    let announced: BTreeSet<String> = sent
-        .lock()
-        .unwrap()
-        .iter()
-        .flatten()
-        .map(|f| f.rel_path.clone())
-        .collect();
-    assert_eq!(announced.len(), first_batch);
-    assert_eq!(stored, announced);
+    assert_eq!(stored, written);
     assert!(stored.len() < all.len());
 
     // A new scan picks up where the index is and finishes it.
@@ -638,8 +603,7 @@ fn a_scan_of_named_folders_walks_only_those() {
     let music_id = add_music(&writer, &volume, &music);
     add_music(&writer, &volume, &at(&volume.mount, "Other"));
 
-    let sent = Batches::default();
-    let q = queue(&writer, &volume, &sent, &Arc::default());
+    let q = queue(&writer, &volume, &Arc::default());
     let id = q.enqueue(scan_job(Some(vec![music_id]))).unwrap();
     assert_eq!(wait(&writer, id), JobStatus::Done);
     assert_eq!(rel_paths(&writer), BTreeSet::from(["a.mp3".to_owned()]));
@@ -662,8 +626,7 @@ fn a_music_folder_on_an_unplugged_drive_is_skipped_and_keeps_its_rows() {
     let before = rows(&writer);
 
     volume.set_online(false);
-    let sent = scan(&writer, &volume);
-    assert!(sent.is_empty());
+    scan(&writer, &volume);
     assert_eq!(rows(&writer), before);
 }
 
@@ -741,10 +704,9 @@ fn timing_smoke_a_few_thousand_files() {
     add_music(&writer, &volume, &music);
 
     let start = Instant::now();
-    let sent = scan(&writer, &volume);
+    scan(&writer, &volume);
     let walk = start.elapsed();
-    let first = sent.first().map(|b| b.len()).unwrap_or(0);
-    assert_eq!(sent.iter().map(Vec::len).sum::<usize>(), FILES);
+    assert_eq!(rows(&writer).len(), FILES);
 
     // What the file id costs on its own, per file.
     let paths: Vec<PathBuf> = rows(&writer)
@@ -762,7 +724,7 @@ fn timing_smoke_a_few_thousand_files() {
     let rescan = rescan_start.elapsed();
 
     println!(
-        "walk: {FILES} files in {walk:?} = {:.0} files/s (first batch {first} files); \
+        "walk: {FILES} files in {walk:?} = {:.0} files/s; \
          rescan {rescan:?} = {:.0} files/s; file id alone {:.1} µs/file",
         FILES as f64 / walk.as_secs_f64(),
         FILES as f64 / rescan.as_secs_f64(),
@@ -777,7 +739,7 @@ fn timing_smoke_a_few_thousand_files() {
 /// queue with `walker`. Returns its final status.
 pub(super) fn scan_with<V: crate::paths::Volumes + 'static>(
     writer: &Writer,
-    walker: Walker<V, impl Fn(Vec<ScannedFile>) + Send + Sync + 'static>,
+    walker: Walker<V>,
     ids: Option<Vec<MusicFolderId>>,
 ) -> JobStatus {
     let q = JobQueue::builder(writer.clone())
@@ -792,7 +754,7 @@ pub(super) fn scan_with<V: crate::paths::Volumes + 'static>(
 }
 
 #[test]
-fn cancelling_partway_through_a_batch_keeps_exactly_the_batches_already_sent() {
+fn cancelling_partway_through_a_batch_keeps_exactly_the_batches_already_written() {
     const FILES: usize = 3 * BATCH_MAX;
     // Mid-way through the second batch.
     const STOP_AT: u64 = (BATCH_MAX + BATCH_MAX / 2) as u64;
@@ -809,25 +771,20 @@ fn cancelling_partway_through_a_batch_keeps_exactly_the_batches_already_sent() {
     let (reached, cancelled) = (Mutex::new(reached), Mutex::new(cancelled));
     let furthest = Arc::new(AtomicU64::new(0));
     let seen = furthest.clone();
-    let sent = Batches::default();
-    let heard = sent.clone();
     let walker_volume = volume.clone();
-    let walker = Walker::new(
-        move || walker_volume.clone(),
-        move |files| heard.lock().unwrap().push(files),
-    )
-    // Only full batches: the test decides where the cancel lands.
-    .batch_window(Duration::from_secs(3600))
-    .on_entry(move |n| {
-        seen.fetch_max(n, Ordering::SeqCst);
-        if n == STOP_AT {
-            reached.lock().unwrap().send(()).unwrap();
-            let _ = cancelled
-                .lock()
-                .unwrap()
-                .recv_timeout(Duration::from_secs(30));
-        }
-    });
+    let walker = Walker::new(move || walker_volume.clone())
+        // Only full batches: the test decides where the cancel lands.
+        .batch_window(Duration::from_secs(3600))
+        .on_entry(move |n| {
+            seen.fetch_max(n, Ordering::SeqCst);
+            if n == STOP_AT {
+                reached.lock().unwrap().send(()).unwrap();
+                let _ = cancelled
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(30));
+            }
+        });
     let q = JobQueue::builder(writer.clone())
         .workers(1)
         .handler(JobKind::Scan, walker)
@@ -836,24 +793,16 @@ fn cancelling_partway_through_a_batch_keeps_exactly_the_batches_already_sent() {
     let id = q.enqueue(scan_job(None)).unwrap();
 
     at_stop.recv_timeout(Duration::from_secs(60)).unwrap();
-    let announced: BTreeSet<String> = sent
-        .lock()
-        .unwrap()
-        .iter()
-        .flatten()
-        .map(|f| f.rel_path.clone())
-        .collect();
+    let written = rel_paths(&writer);
     q.cancel(id).unwrap();
     resume.send(()).unwrap();
     assert_eq!(wait(&writer, id), JobStatus::Cancelled);
     q.shutdown();
 
-    // The first batch went out whole; the 500 files found since are neither
-    // stored nor sent.
-    assert_eq!(announced.len(), BATCH_MAX);
-    assert_eq!(rel_paths(&writer), announced);
-    let sent_after: usize = sent.lock().unwrap().iter().map(Vec::len).sum();
-    assert_eq!(sent_after, BATCH_MAX, "a batch went out after the cancel");
+    // The first batch was written whole; the 500 files found since are not
+    // stored, and no batch was written after the cancel.
+    assert_eq!(written.len(), BATCH_MAX);
+    assert_eq!(rel_paths(&writer), written);
     // And it stopped at once: no entry after the one where it was cancelled.
     assert_eq!(furthest.load(Ordering::SeqCst), STOP_AT);
 }
@@ -877,7 +826,7 @@ fn a_rescan_of_one_folder_leaves_a_same_named_file_in_another_folder_alone() {
 
     put(&music, "a.mp3", b"music, retagged and longer");
     let walker_volume = volume.clone();
-    let walker = Walker::new(move || walker_volume.clone(), |_| {});
+    let walker = Walker::new(move || walker_volume.clone());
     assert_eq!(
         scan_with(&writer, walker, Some(vec![music_id])),
         JobStatus::Done
@@ -888,7 +837,7 @@ fn a_rescan_of_one_folder_leaves_a_same_named_file_in_another_folder_alone() {
 }
 
 #[test]
-fn files_found_early_go_out_while_the_walk_is_still_going() {
+fn files_found_early_are_stored_while_the_walk_is_still_going() {
     let (_dir, volume, music) = drive();
     for i in 0..3 {
         put(&music, &format!("A/Track {i}.mp3"), b"audio");
@@ -900,34 +849,36 @@ fn files_found_early_go_out_while_the_walk_is_still_going() {
     let (_db, writer, _reads) = db();
     add_music(&writer, &volume, &music);
 
+    // At each entry the walk looks at, the hook asks the database how many
+    // rows it holds, and keeps the first answer that isn't none.
     let entries = Arc::new(AtomicU64::new(0));
     let counted = entries.clone();
-    let at_first_batch = Arc::new(Mutex::new(None::<(usize, u64)>));
-    let first = at_first_batch.clone();
-    let now = entries.clone();
+    let at_first_rows = Arc::new(Mutex::new(None::<(i64, u64)>));
+    let first = at_first_rows.clone();
+    let asking = writer.clone();
     let walker_volume = volume.clone();
-    let walker = Walker::new(
-        move || walker_volume.clone(),
-        move |files| {
-            let mut first = first.lock().unwrap();
-            if first.is_none() {
-                *first = Some((files.len(), now.load(Ordering::SeqCst)));
-            }
-        },
-    )
-    .on_entry(move |n| {
+    let walker = Walker::new(move || walker_volume.clone()).on_entry(move |n| {
         counted.store(n + 1, Ordering::SeqCst);
+        let mut first = first.lock().unwrap();
+        if first.is_none() {
+            let rows: i64 = asking
+                .call(|c| c.query_row("SELECT COUNT(*) FROM file", [], |r| r.get(0)))
+                .unwrap();
+            if rows > 0 {
+                *first = Some((rows, n));
+            }
+        }
         // Slow enough that the no-audio stretch takes over a second.
         std::thread::sleep(Duration::from_millis(2));
     });
     assert_eq!(scan_with(&writer, walker, None), JobStatus::Done);
 
     // The walk lists A (3 files), then Z's 300 folders (600 ms, no audio,
-    // so nothing is pushed), then each of them. The 3 files go out when
+    // so nothing is pushed), then each of them. The 3 files are stored when
     // the first of those folders is taken up, not when the walk ends.
-    let (size, entries_then) = at_first_batch.lock().unwrap().unwrap();
+    let (rows, entries_then) = at_first_rows.lock().unwrap().unwrap();
     let total = entries.load(Ordering::SeqCst);
-    assert_eq!(size, 3);
+    assert_eq!(rows, 3);
     assert!(
         entries_then + 250 < total,
         "the first files waited for the walk to end ({entries_then} of {total} entries)"

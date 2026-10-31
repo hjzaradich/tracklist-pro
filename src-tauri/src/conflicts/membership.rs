@@ -271,10 +271,12 @@ struct Pair {
 
 /// Merges crate membership before a send, inside the merge's transaction
 /// (module docs). `values` are every Library track's send values, read in
-/// that transaction.
+/// that transaction. `stale` is the rows kept from an older read
+/// ([`super::store::kept_from_older_read`]), which the merge works out once.
 pub(super) fn merge(
     tx: &Connection,
     values: &[SendValues],
+    stale: &HashSet<i64>,
     merged: &mut Merged,
 ) -> rusqlite::Result<()> {
     let crates_key = sibling_key(CRATES_FOLDER);
@@ -327,14 +329,6 @@ pub(super) fn merge(
     // rekordbox's side: each Library track's own entry, and what each
     // playlist of the newest read holds.
     let ids: Vec<LibraryTrackId> = values.iter().map(|v| v.library_track).collect();
-    let stale: HashSet<i64> = tx
-        .prepare(
-            "SELECT track_id FROM rekordbox_track
-             WHERE read_at < (SELECT max(read_at) FROM rekordbox_track)",
-        )?
-        .query_map([], |r| r.get::<_, Option<i64>>(0))?
-        .filter_map(Result::transpose)
-        .collect::<rusqlite::Result<_>>()?;
     let mut entries: HashMap<i64, RekordboxEntry> = HashMap::new();
     let mut library_of: HashMap<i64, i64> = HashMap::new();
     for track in values {

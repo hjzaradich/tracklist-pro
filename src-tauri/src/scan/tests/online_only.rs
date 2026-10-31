@@ -137,7 +137,7 @@ fn an_online_only_file_is_indexed_and_marked_without_ever_being_opened_for_readi
     let lock = lock_against_reading(&cloud);
     let (_db, writer, _reads) = db();
     add_music(&writer, &volume, &music);
-    let sent = scan(&writer, &volume);
+    scan(&writer, &volume);
     drop(lock);
 
     // Indexed like any file, with its size and file id, and marked.
@@ -154,17 +154,6 @@ fn an_online_only_file_is_indexed_and_marked_without_ever_being_opened_for_readi
             ("House/In The Cloud.mp3".to_owned(), true),
             ("Local.mp3".to_owned(), false)
         ]
-    );
-    // The frontend hears which files are online only.
-    let mut heard: Vec<_> = sent
-        .iter()
-        .flatten()
-        .map(|f| (f.rel_path.as_str(), f.online_only))
-        .collect();
-    heard.sort();
-    assert_eq!(
-        heard,
-        [("House/In The Cloud.mp3", true), ("Local.mp3", false)]
     );
     // Its music folder counts it.
     let folder = writer

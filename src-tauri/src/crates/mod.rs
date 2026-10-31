@@ -43,13 +43,10 @@ pub mod fit;
 pub mod summary;
 
 use crate::db::{DbError, ReadPool, Writer};
-use crate::fragile::{self, FragileDirs, Located};
 use crate::ipc::{ErrorKind, ErrorParam, IpcError};
-use crate::library::{self, LibraryTrack, LibraryTrackId, StoredTrack};
+use crate::library::{self, LibraryTrackId};
 use crate::ops::{self, OpsError};
-use crate::paths::Volumes;
 use crate::rekordbox_write::{build, sibling_key, BuildError, Node, SendInput, MAX_DEPTH};
-use crate::scan::system_volumes;
 
 /// The operation kinds, as the operation log stores them.
 pub const CREATE_OPERATION: &str = "create_crate";
@@ -1080,7 +1077,7 @@ pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Crate>> {
 }
 
 /// The Library tracks in a crate, in the order they were added, or `None`
-/// if there's no such crate. Ids only: [`ordered_tracks`] makes them rows.
+/// if there's no such crate.
 pub fn track_ids(conn: &Connection, id: CrateId) -> rusqlite::Result<Option<Vec<LibraryTrackId>>> {
     let exists: bool = conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM crate WHERE id = ?1 AND kind = 'static')",
@@ -1099,22 +1096,6 @@ pub fn track_ids(conn: &Connection, id: CrateId) -> rusqlite::Result<Option<Vec<
         .query_map([id.0], |r| Ok(LibraryTrackId(r.get(0)?)))?
         .collect::<rusqlite::Result<_>>()?;
     Ok(Some(ids))
-}
-
-/// `ids` as the Library list shows its rows, in the order of `ids`.
-pub fn ordered_tracks(
-    ids: &[LibraryTrackId],
-    stored: &[StoredTrack],
-    located: &[Located],
-    volumes: &impl Volumes,
-    dirs: &FragileDirs,
-) -> Vec<LibraryTrack> {
-    let fragile = fragile::judge(located, volumes, dirs);
-    let by_id: HashMap<LibraryTrackId, &StoredTrack> = stored.iter().map(|t| (t.id, t)).collect();
-    ids.iter()
-        .filter_map(|id| by_id.get(id))
-        .map(|track| track.to_library_track(volumes, &fragile))
-        .collect()
 }
 
 // `async` runs the writes off the main thread, like the Library's commands.
@@ -1250,33 +1231,6 @@ pub async fn remove_tracks_from_crate(
 #[specta::specta]
 pub async fn list_crates(reads: State<'_, ReadPool>) -> Result<Vec<Crate>, IpcError> {
     Ok(reads.read(list)?)
-}
-
-/// A crate's tracks, in the order they were added.
-#[tauri::command]
-#[specta::specta]
-pub async fn crate_tracks(
-    reads: State<'_, ReadPool>,
-    id: CrateId,
-) -> Result<Vec<LibraryTrack>, IpcError> {
-    let volumes = system_volumes();
-    let found = reads.read(|conn| {
-        let Some(ids) = track_ids(conn, id)? else {
-            return Ok(None);
-        };
-        let (stored, located) = library::stored_with_locations(conn, &volumes)?;
-        Ok(Some((ids, stored, located)))
-    })?;
-    let Some((ids, stored, located)) = found else {
-        return Err(CratesError::NotFound.into());
-    };
-    Ok(ordered_tracks(
-        &ids,
-        &stored,
-        &located,
-        &volumes,
-        &FragileDirs::system(),
-    ))
 }
 
 #[cfg(test)]

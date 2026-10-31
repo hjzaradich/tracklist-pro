@@ -1296,6 +1296,7 @@ fn undo_step(conn: &mut Connection, only: Option<i64>) -> Result<UndoOutcome, Op
 /// Refused, changing nothing, if anything the operation wrote has changed
 /// since: undoing would silently throw that later change away. A refused
 /// operation isn't skipped; the next call tries it again.
+#[cfg(test)]
 pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
     undo_step(conn, None)
 }
@@ -1303,6 +1304,7 @@ pub fn undo_last(conn: &mut Connection) -> Result<UndoOutcome, OpsError> {
 /// [`undo_last`], but only if `operation` is the one it would undo.
 /// Otherwise nothing is undone ([`UndoOutcome::NothingToUndo`]): an Undo
 /// offered for one action never takes back a different one.
+#[cfg(test)]
 pub fn undo_only(conn: &mut Connection, operation: i64) -> Result<UndoOutcome, OpsError> {
     undo_step(conn, Some(operation))
 }
@@ -1394,6 +1396,7 @@ fn rank_again_after(conn: &mut Connection, operation: i64) -> rusqlite::Result<(
 }
 
 /// [`undo_last`], run on the database's one writer connection.
+#[cfg(test)]
 pub fn undo_last_via(writer: &Writer) -> Result<UndoOutcome, OpsError> {
     writer.call(|conn| Ok(undo_last(conn)))?
 }

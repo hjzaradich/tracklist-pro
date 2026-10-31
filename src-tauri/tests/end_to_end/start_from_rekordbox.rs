@@ -332,13 +332,13 @@ fn a_track_whose_rekordbox_match_is_only_probable_cannot_be_added_so_it_is_never
     // All music marks the row: its Add control is greyed out there.
     let all = world.all_music();
     let held_back: Vec<_> = all
-        .tracks
+        .rows
         .iter()
         .filter(|t| t.match_not_confirmed)
         .map(|t| t.file.as_ref().unwrap().name.clone())
         .collect();
     assert_eq!(held_back, [moved.file_name()]);
-    let row = all.tracks.iter().find(|t| t.match_not_confirmed).unwrap();
+    let row = all.rows.iter().find(|t| t.match_not_confirmed).unwrap();
 
     // And the add itself refuses, whoever asks.
     let refused = world

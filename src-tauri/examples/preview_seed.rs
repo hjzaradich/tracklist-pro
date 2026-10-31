@@ -738,8 +738,19 @@ mod seeding {
         )?;
 
         // All music, by file name.
-        let rows: Value = app.call("all_music_tracks", json!({ "search": null }));
-        let rows = rows["tracks"].as_array().cloned().unwrap_or_default();
+        let rows: Value = app.call(
+            "track_table_page",
+            json!({ "query": {
+                "source": { "kind": "allMusic" },
+                "search": null,
+                "filters": [],
+                "sort": null,
+                "offset": 0,
+                "limit": 500,
+                "withTotal": false,
+            } }),
+        );
+        let rows = rows["rows"].as_array().cloned().unwrap_or_default();
         let recording_of = |sample: &Sample| -> Option<i64> {
             rows.iter()
                 .find(|row| row["file"]["name"] == sample.file_name())

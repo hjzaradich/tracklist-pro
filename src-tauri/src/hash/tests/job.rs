@@ -123,7 +123,7 @@ fn walk(writer: &Writer, volume: &TempVolume) {
     let volume = volume.clone();
     let q = JobQueue::builder(writer.clone())
         .workers(1)
-        .handler(JobKind::Scan, Walker::new(move || volume.clone(), |_| {}))
+        .handler(JobKind::Scan, Walker::new(move || volume.clone()))
         .start()
         .unwrap();
     let id = q.enqueue(scan_job(None)).unwrap();

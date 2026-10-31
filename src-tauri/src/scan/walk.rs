@@ -26,8 +26,7 @@
 //!   the listing. A file whose mtime alone moved (rekordbox touches files)
 //!   is compared by its partial hash; if the content is the same, no stage
 //!   redoes it. The first walk of a file opens nothing.
-//! - Rows are written in batches, each in one transaction, and every batch's
-//!   new rows go to the walker's sink as one batch. Cancelling
+//! - Rows are written in batches, each in one transaction. Cancelling
 //!   stops at the next entry; batches already written stay, whole.
 //! - **Rows are never deleted.** A walk that reaches the end of a music
 //!   folder marks the files it didn't find `present = 0` (1aB-9), except
@@ -60,22 +59,6 @@ pub const BATCH_MAX: usize = 1000;
 /// …or once its first file has waited this long, so the first results
 /// show up quickly even on a slow drive.
 pub const BATCH_WINDOW: Duration = Duration::from_millis(250);
-
-/// A file the walk added to the index, handed to the walker's sink in a batch.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScannedFile {
-    /// The `file` row id.
-    pub id: i64,
-    pub music_folder_id: MusicFolderId,
-    /// From the music folder, `/`-separated, in the on-disk spelling.
-    pub rel_path: String,
-    /// In bytes.
-    pub size: i64,
-    /// Milliseconds since the Unix epoch (the stored value is nanoseconds).
-    pub modified_ms: i64,
-    /// A OneDrive placeholder: its bytes aren't on this PC.
-    pub online_only: bool,
-}
 
 /// One file as the listing described it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,11 +96,9 @@ fn wanted(target: Option<&serde_json::Value>) -> Option<Option<Vec<MusicFolderId
 }
 
 /// The scan job's handler: walks the folders its target names.
-pub struct Walker<V, S> {
+pub struct Walker<V> {
     /// The volumes mounted now, asked once per job.
     volumes: Box<dyn Fn() -> V + Send + Sync>,
-    /// Where each batch of new rows goes.
-    sink: S,
     /// Called before each directory entry is looked at, with how many the
     /// job has looked at so far. Tests use it to act mid-walk.
     on_entry: Option<EntryHook>,
@@ -134,15 +115,13 @@ type EntryHook = Box<dyn Fn(u64) + Send + Sync>;
 /// See [`Walker::on_read`].
 type ReadHook = Box<dyn Fn(&Path) + Send + Sync>;
 
-impl<V, S> Walker<V, S>
+impl<V> Walker<V>
 where
     V: Volumes + 'static,
-    S: Fn(Vec<ScannedFile>) + Send + Sync + 'static,
 {
-    pub fn new(volumes: impl Fn() -> V + Send + Sync + 'static, sink: S) -> Walker<V, S> {
+    pub fn new(volumes: impl Fn() -> V + Send + Sync + 'static) -> Walker<V> {
         Walker {
             volumes: Box::new(volumes),
-            sink,
             on_entry: None,
             on_read: None,
             window: BATCH_WINDOW,
@@ -172,10 +151,9 @@ where
     }
 }
 
-impl<V, S> JobHandler for Walker<V, S>
+impl<V> JobHandler for Walker<V>
 where
     V: Volumes + 'static,
-    S: Fn(Vec<ScannedFile>) + Send + Sync + 'static,
 {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let ids = wanted(job.target())
@@ -188,7 +166,6 @@ where
         let count = folders.len().max(1) as f64;
         let mut walk = Walk {
             job,
-            sink: &self.sink,
             on_entry: self.on_entry.as_deref(),
             reads: Reads {
                 gate: job.writer().call(|c| ReadGate::for_job(c))?,
@@ -226,9 +203,8 @@ where
 }
 
 /// One job's walk over its music folders.
-struct Walk<'a, S> {
+struct Walk<'a> {
     job: &'a JobContext,
-    sink: &'a S,
     on_entry: Option<&'a (dyn Fn(u64) + Send + Sync)>,
     reads: Reads<'a>,
     window: Duration,
@@ -250,7 +226,7 @@ struct Dir {
     hi: f64,
 }
 
-impl<S: Fn(Vec<ScannedFile>)> Walk<'_, S> {
+impl Walk<'_> {
     /// Walks one music folder at `root` (a `\\?\` path), moving the job's
     /// progress from `range.0` to `range.1`.
     ///
@@ -287,7 +263,7 @@ impl<S: Fn(Vec<ScannedFile>)> Walk<'_, S> {
                 if !still_there() {
                     return Ok(());
                 }
-                batch.flush(job, self.sink, &self.reads)?;
+                batch.flush(job, &self.reads)?;
             }
             let Ok(entries) = fs::read_dir(&dir.abs) else {
                 unread.folder(&dir.rel);
@@ -357,7 +333,7 @@ impl<S: Fn(Vec<ScannedFile>)> Walk<'_, S> {
                     if !still_there() {
                         return Ok(());
                     }
-                    batch.flush(job, self.sink, &self.reads)?;
+                    batch.flush(job, &self.reads)?;
                 }
             }
             if subdirs.is_empty() {
@@ -379,7 +355,7 @@ impl<S: Fn(Vec<ScannedFile>)> Walk<'_, S> {
         if !still_there() {
             return Ok(());
         }
-        batch.flush(job, self.sink, &self.reads)?;
+        batch.flush(job, &self.reads)?;
         let id = folder.id;
         job.writer()
             .call(move |c| finish(c, id, &unread, &started))?;
@@ -536,15 +512,9 @@ impl Batch {
             && (self.rows.len() >= BATCH_MAX || self.since.elapsed() >= self.window)
     }
 
-    /// Writes the batch in one transaction, then sends its new rows. Files
-    /// whose mtime alone moved are compared by content first (1aC-1), off
-    /// the writer.
-    fn flush(
-        &mut self,
-        job: &JobContext,
-        sink: &impl Fn(Vec<ScannedFile>),
-        reads: &Reads,
-    ) -> Result<(), JobError> {
+    /// Writes the batch in one transaction. Files whose mtime alone moved
+    /// are compared by content first (1aC-1), off the writer.
+    fn flush(&mut self, job: &JobContext, reads: &Reads) -> Result<(), JobError> {
         if self.rows.is_empty() {
             return Ok(());
         }
@@ -567,12 +537,8 @@ impl Batch {
             job.check_cancelled()?;
             now.push(reads.partial_hash(path, found.online_only));
         }
-        let new = job
-            .writer()
+        job.writer()
             .call(move |c| upsert_with(c, folder, &rows, &started, &now))?;
-        if !new.is_empty() {
-            sink(new);
-        }
         Ok(())
     }
 }
@@ -599,7 +565,7 @@ pub(crate) fn upsert(
     folder: MusicFolderId,
     rows: &[Found],
     started: &str,
-) -> rusqlite::Result<Vec<ScannedFile>> {
+) -> rusqlite::Result<()> {
     upsert_with(conn, folder, rows, started, &[])
 }
 
@@ -623,16 +589,14 @@ pub(crate) fn upsert(
 ///   are dropped, so every stage redoes it. A changed size or mtime
 ///   already makes the stages due.
 ///
-/// Returns the rows that are new.
 pub(crate) fn upsert_with(
     conn: &mut Connection,
     folder: MusicFolderId,
     rows: &[Found],
     started: &str,
     now: &[Option<PartialHash>],
-) -> rusqlite::Result<Vec<ScannedFile>> {
+) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
-    let mut new = Vec::new();
     {
         let mut insert = tx.prepare_cached(
             "INSERT INTO file
@@ -669,14 +633,6 @@ pub(crate) fn upsert_with(
             );
             let Some((id, stored)) = unchanged::stored_one(&tx, folder, f.rel.as_str())? else {
                 insert.execute(row)?;
-                new.push(ScannedFile {
-                    id: tx.last_insert_rowid(),
-                    music_folder_id: folder,
-                    rel_path: f.rel.as_str().to_owned(),
-                    size: f.size,
-                    modified_ms: f.mtime_ns.div_euclid(1_000_000),
-                    online_only: f.online_only,
-                });
                 continue;
             };
             let change = unchanged::compare(&stored, f);
@@ -696,6 +652,5 @@ pub(crate) fn upsert_with(
             }
         }
     }
-    tx.commit()?;
-    Ok(new)
+    tx.commit()
 }

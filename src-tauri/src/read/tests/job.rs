@@ -124,7 +124,7 @@ impl Sandbox {
         let volume = self.volume.clone();
         JobQueue::builder(self.writer.clone())
             .workers(1)
-            .handler(JobKind::Scan, Walker::new(move || volume.clone(), |_| {}))
+            .handler(JobKind::Scan, Walker::new(move || volume.clone()))
             .handler(JobKind::Read, reader)
             .start()
             .unwrap()
@@ -972,7 +972,7 @@ fn a_parallel_reads_progress_only_rises_and_ends_at_one() {
             s.parallel()
                 .on_file(|_| std::thread::sleep(Duration::from_millis(2))),
         )
-        .handler(JobKind::Scan, Walker::new(move || volume.clone(), |_| {}))
+        .handler(JobKind::Scan, Walker::new(move || volume.clone()))
         .start()
         .unwrap();
     let id = q.enqueue(read_job(None)).unwrap();

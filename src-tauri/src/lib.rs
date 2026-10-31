@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use tauri::{Builder, Manager, RunEvent, Runtime};
 
 pub mod after_send;
-pub mod all_music;
 pub mod attach;
 pub mod audio_preview;
 pub mod best_file;

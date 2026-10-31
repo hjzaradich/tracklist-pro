@@ -16,7 +16,7 @@ use super::harness::World;
 fn scanned_then_a_file_added() -> World {
     let mut world = World::new(&KNOWN[..2]);
     world.add_music_folder_and_scan();
-    assert_eq!(world.all_music().total, 2);
+    assert_eq!(world.all_music().total, Some(2));
     world.user_adds(&UNKNOWN[0]);
     world
 }
@@ -55,7 +55,7 @@ fn scan_stages_left_running_by_a_killed_app_run_again_at_the_next_start_and_the_
             .all(|(_, _, status)| status != "running" && status != "queued"),
         "{jobs:?}"
     );
-    assert_eq!(world.all_music().total, 3);
+    assert_eq!(world.all_music().total, Some(3));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn a_job_nothing_can_restart_ends_failed_a_send_job_is_dropped_and_neither_block
 
     // And the scan goes all the way through.
     world.scan();
-    assert_eq!(world.all_music().total, 3);
+    assert_eq!(world.all_music().total, Some(3));
 }
 
 #[test]

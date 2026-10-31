@@ -7,8 +7,8 @@
  * pure-white text.
  *
  * Warning is yellow, never the amber accent's hue: amber means "selected /
- * active", so a warning mustn't look like one. It sits between the accent and
- * success in hue, well away from danger, and is readable as text; in the light
+ * active", so a warning mustn't look like one. It sits well away from danger
+ * in hue, and is readable as text; in the light
  * theme that makes it a dark olive-yellow. A test checks the gaps.
  *
  * Both themes must define exactly the same color token names (a test checks
@@ -74,7 +74,6 @@
 
   --color-danger: #e5675c;
   --color-warning: #e6dc70;
-  --color-success: #5fb87a;
 }
 
 :root[data-theme="light"] {
@@ -100,7 +99,6 @@
 
   --color-danger: #b83a30;
   --color-warning: #625e00;
-  --color-success: #2f7d4a;
 }
 
 *,

@@ -132,7 +132,7 @@ pub(super) fn chained_queue_with(
         )
         .handler(
             JobKind::Scan,
-            after_walk(Walker::new(move || v1.clone(), |_| {})).reaching(reach(volume)),
+            after_walk(Walker::new(move || v1.clone())).reaching(reach(volume)),
         )
         .handler(
             JobKind::Read,
@@ -671,7 +671,7 @@ fn a_walk_that_stops_early_queues_nothing() {
     add_music(&writer, &volume, &music);
     // A walk that fails after finding the file: its rows are there, so a
     // read would have work, but a stopped walk never asks for one.
-    let inner = Walker::new(move || volume.clone(), |_| {});
+    let inner = Walker::new(move || volume.clone());
     let failing = move |job: &JobContext| {
         inner.run(job)?;
         Err(JobError::failed("the drive went away"))
@@ -860,7 +860,7 @@ fn chained_stage_jobs_run_after_anything_the_user_is_waiting_on() {
     // The walk, held at its end until the test says go.
     let (release, held) = mpsc::channel::<()>();
     let held = Mutex::new(held);
-    let walker = Walker::new(move || volume.clone(), |_| {});
+    let walker = Walker::new(move || volume.clone());
     let holding_walk = move |job: &JobContext| {
         scan_ran();
         walker.run(job)?;
@@ -1107,10 +1107,7 @@ fn a_walk_that_stops_early_asks_for_no_relink() {
     let v = volume.clone();
     let queue = JobQueue::builder(writer.clone())
         .workers(1)
-        .handler(
-            JobKind::Scan,
-            after_walk(Walker::new(move || v.clone(), |_| {})),
-        )
+        .handler(JobKind::Scan, after_walk(Walker::new(move || v.clone())))
         .handler(
             JobKind::Read,
             after_read(|_: &JobContext| Err(JobError::failed("the drive went away"))),

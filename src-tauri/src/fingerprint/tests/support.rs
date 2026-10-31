@@ -16,7 +16,7 @@ use crate::hash::Hasher;
 use crate::jobs::{self, JobId, JobKind, JobQueue, JobRecord, JobUpdate};
 use crate::paths::Volumes;
 use crate::scan::folders::add;
-use crate::scan::walk::{scan_job, ScannedFile, Walker};
+use crate::scan::walk::{scan_job, Walker};
 use crate::scan::MusicFolderRole;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
@@ -163,10 +163,7 @@ impl Library {
         JobQueue::builder(self.writer.clone())
             .workers(workers)
             .on_updates(updates)
-            .handler(
-                JobKind::Scan,
-                Walker::new(move || volume.clone(), |_: Vec<ScannedFile>| {}),
-            )
+            .handler(JobKind::Scan, Walker::new(move || volume.clone()))
             .handler(JobKind::Hash, Hasher::new(move || hash_volume.clone()))
             .handler(JobKind::Fingerprint, fingerprinter)
             .start()

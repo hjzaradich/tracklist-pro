@@ -20,7 +20,7 @@ pub mod watch;
 pub use folders::{MusicFolder, MusicFolderError, MusicFolderId, MusicFolderRole};
 pub use online_only::ReadGate;
 pub use volumes::VolumesChanged;
-pub use walk::{scan_job, ScannedFile, Walker};
+pub use walk::{scan_job, Walker};
 pub use watch::Watchers;
 
 use std::path::Path;
@@ -47,11 +47,9 @@ pub fn is_skipped(name: &str) -> bool {
 }
 
 /// The scan job's handler for the app: asks Windows which volumes are
-/// mounted at the start of each job. The walk hands each batch of new rows
-/// to a sink; nothing in the app listens for them (the tests and the 100k
-/// run do), so the app's sink drops them.
+/// mounted at the start of each job.
 pub fn walker() -> impl JobHandler {
-    Walker::new(system_volumes, |_: Vec<ScannedFile>| {})
+    Walker::new(system_volumes)
 }
 
 /// Scans the music folders `ids`, or all of them. Returns the job's id; its

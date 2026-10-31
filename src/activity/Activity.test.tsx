@@ -8,6 +8,7 @@ import { DEFAULT_THEME, syncThemeToDocument, useThemeStore } from "../theme/them
 import "../theme/tokens.css";
 import { Activity } from "./Activity";
 import { tx } from "../test/tx";
+import { quietAnswer } from "../test/quietCommands";
 
 // The name tauri-specta gives the JobUpdates event (see src/bindings.ts).
 const JOB_UPDATES_EVENT = "job-updates";
@@ -26,7 +27,7 @@ function mockApp(snapshot: ActivitySnapshot = { seq: 0, jobs: [] }) {
   mockIPC(
     (cmd) => {
       if (cmd === "activity") return snapshot;
-      throw new Error(`unexpected command ${cmd}`);
+      return quietAnswer(cmd);
     },
     { shouldMockEvents: true },
   );

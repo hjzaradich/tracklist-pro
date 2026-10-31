@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { STAGES } from "../shell/stages";
 import { renderApp } from "./testApp";
 import { tx } from "../test/tx";
+import { quietAnswer } from "../test/quietCommands";
 
 // Each stage's name and what its screen says with an empty Library.
 const SCREENS = [
@@ -42,7 +43,7 @@ describe("stage routes", () => {
       if (cmd === "rekordbox_offer") {
         return { toAdd: 0, alreadyInLibrary: 0, waitingInMissing: 0, waitingForConfirmation: 0 };
       }
-      throw new Error(`unexpected command ${cmd}`);
+      return quietAnswer(cmd);
     });
   });
   afterEach(() => clearMocks());
