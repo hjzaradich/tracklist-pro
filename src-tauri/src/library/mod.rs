@@ -57,7 +57,7 @@ mod stamp;
 mod warning;
 pub use stamp::{LibraryStamp, LibrarySummary, LISTED_TABLES};
 use warning::is_confirmed;
-pub use warning::{warning_for, AddWarning, Confirmed, PromoteOutcome};
+pub use warning::{warning_for, warnings_for, AddWarning, Confirmed, PromoteOutcome};
 
 /// The operation kind of an add, as the operation log stores it.
 pub const PROMOTE_OPERATION: &str = "promote";

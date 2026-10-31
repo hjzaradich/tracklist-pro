@@ -752,12 +752,19 @@ fn a_varied_selection_adds_and_leaves_out_exactly_the_same_tracks_with_the_same_
         assert!(!lib.in_library(refused));
         assert_eq!(lib.crates_of(refused), Vec::<CrateId>::new());
     }
-    // The order given is the order in the crate.
-    let order = lib
-        .ids(id)
-        .into_iter()
-        .map(|t| lib.recording_of(t))
-        .collect::<Vec<_>>();
+    // The tracks went into the crate in the order given.
+    let order: Vec<i64> = lib
+        .writer
+        .call(move |c| {
+            let mut stmt = c.prepare(
+                "SELECT lt.recording_id FROM crate_entry ce
+                 JOIN library_track lt ON lt.id = ce.library_track_id
+                 WHERE ce.crate_id = ?1 ORDER BY ce.id",
+            )?;
+            let rows = stmt.query_map([id.0], |r| r.get(0))?;
+            rows.collect::<rusqlite::Result<Vec<i64>>>()
+        })
+        .unwrap();
     assert_eq!(order, vec![good, in_library, stale_but_fine]);
 
     // One Undo takes it all away again.
@@ -777,6 +784,38 @@ fn adding_an_empty_selection_changes_nothing_and_records_nothing() {
     assert_eq!((added(done), done.operation_id), ((0, 0, 0), None));
     assert_eq!(left_out(done), (0, 0, 0, 0));
     assert_eq!(lib.everything(), before);
+}
+
+#[test]
+fn warnings_for_many_files_answer_as_warning_for_answers_one_file_at_a_time() {
+    let lib = Lib::new();
+    let fine = outside_mp3(&lib, "Fine", 320);
+    let thin = outside_mp3(&lib, "Thin", 128);
+    let stale = outside_mp3(&lib, "Stale", 128);
+    settle_now(&lib, stale);
+    let stale_file = lib.best_file(stale);
+    lib.run("UPDATE file SET bitrate = 320 WHERE id = ?1", (stale_file,));
+    let files: Vec<i64> = [fine, thin, stale].map(|r| lib.best_file(r)).to_vec();
+    let asked = files.clone();
+    let (together, one_by_one) = lib
+        .writer
+        .call(move |c| {
+            let together = library::warnings_for(c, &asked)?;
+            let mut one_by_one = std::collections::HashMap::new();
+            for file in &asked {
+                if let Some(w) = library::warning_for(c, *file)? {
+                    one_by_one.insert(*file, w);
+                }
+            }
+            Ok((together, one_by_one))
+        })
+        .unwrap();
+    assert_eq!(together, one_by_one);
+    assert_eq!(together.len(), 1);
+    assert!(together.contains_key(&files[1]));
+    // Asking for nothing answers nothing.
+    let none = lib.writer.call(|c| library::warnings_for(c, &[])).unwrap();
+    assert!(none.is_empty());
 }
 
 #[test]
