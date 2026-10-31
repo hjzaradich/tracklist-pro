@@ -197,6 +197,12 @@ fn rows_for(
         .collect();
     let mut fields = fields_of(conn, volumes, &wanted, &library)?;
     let mut facts = table_row::facts_for(conn, &wanted)?;
+    // The Library tracks' two gap flags are the Overview's own definition.
+    let library_tracks: Vec<LibraryTrackId> = wanted
+        .iter()
+        .filter_map(|id| library.get(id).copied())
+        .collect();
+    let gaps = crate::overview::gaps_of(conn, volumes, &library_tracks)?;
     let mut rows = HashMap::new();
     for id in wanted {
         // A track the lists can't name yet (no row) is skipped; it is due
@@ -204,6 +210,15 @@ fn rows_for(
         let (Some(fields), Some(facts)) = (fields.remove(&id), facts.remove(&id)) else {
             continue;
         };
+        let mut facts = facts;
+        if let Some(lt) = library.get(&id) {
+            if gaps.tags.contains(&lt.0) {
+                facts.flags |= table_row::flag::MISSING_TAGS;
+            }
+            if gaps.art.contains(&lt.0) {
+                facts.flags |= table_row::flag::MISSING_ART;
+            }
+        }
         let has_file = names.contains_key(&id);
         let file_names = names.remove(&id).unwrap_or_default().join("\u{1f}");
         rows.insert(

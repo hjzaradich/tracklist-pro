@@ -84,8 +84,22 @@ impl Lib {
         })
     }
 
+    /// The Overview once the index is current: the tag gaps are read from
+    /// the rows the index job writes, so a test that changed the Library
+    /// asks for them after the job has run.
     fn overview(&self) -> Overview {
-        self.run(|c| overview_at(c, &NoVolumes, NOW_MS))
+        self.index();
+        self.overview_now()
+    }
+
+    /// The index job's work, all of it.
+    fn index(&self) {
+        self.run(|c| crate::search::settle(c, &NoVolumes, 500).map(|_| ()));
+    }
+
+    /// The Overview with the index as it is.
+    fn overview_now(&self) -> Overview {
+        self.run(|c| overview_at(c, NOW_MS))
     }
 
     /// The stored form of the moment `ms` milliseconds before [`NOW_MS`].
@@ -1438,8 +1452,8 @@ fn awkward_library() -> Lib {
 /// track counts, sorted.
 fn both_ways(lib: &Lib) -> (Vec<i64>, Vec<i64>) {
     lib.run(|c| {
-        let mut short = missing_tag_ids(c, &NoVolumes, false)?;
-        let mut long = missing_tag_ids(c, &NoVolumes, true)?;
+        let mut short = missing_tag_ids(c, &NoVolumes, false, None)?;
+        let mut long = missing_tag_ids(c, &NoVolumes, true, None)?;
         short.sort_unstable();
         long.sort_unstable();
         Ok((short, long))
@@ -1586,6 +1600,228 @@ fn the_short_way_agrees_with_asking_for_every_track_on_four_hundred_random_ones(
     );
 }
 
+// The gap flags (1cC-U1b): the Overview counts bits the index job keeps.
+
+/// The Library track ids whose row has `bit`.
+fn with_bit(lib: &Lib, bit: i64) -> Vec<i64> {
+    lib.run(move |c| {
+        c.prepare(
+            "SELECT lt.id FROM library_track lt
+             JOIN track_row tr ON tr.recording_id = lt.recording_id
+             WHERE tr.flags & ?1 <> 0 ORDER BY lt.id",
+        )?
+        .query_map([bit], |r| r.get(0))?
+        .collect()
+    })
+}
+
+/// The old definitions, asked of every track: the ids missing tags (asking
+/// `shown_tags` about each) and the ids missing art, sorted.
+fn per_track(lib: &Lib) -> (Vec<i64>, Vec<i64>) {
+    lib.run(|c| {
+        let mut tags = missing_tag_ids(c, &NoVolumes, true, None)?;
+        let mut art: Vec<i64> = c
+            .prepare(&missing_art_sql(false))?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        tags.sort_unstable();
+        art.sort_unstable();
+        Ok((tags, art))
+    })
+}
+
+/// The edge cases of both numbers in one Library, on top of the awkward
+/// one: a track rekordbox knows (complete there with no tags to read, or
+/// with a blank genre there), file-only tracks (tagged, an empty tag), a
+/// linked file that is gone, and a cover that is there, empty or another
+/// binary frame.
+fn gap_library() -> Lib {
+    let lib = awkward_library();
+    let cover = binary("APIC", 50_000);
+    let tagged = |extra: Value| {
+        Some(json!({"id3v2": [text("TIT2", "A"), text("TPE1", "B"), text("TCON", "House"), extra]}))
+    };
+    lib.library_track("Complete with a cover", None, tagged(cover.clone()));
+    lib.library_track("Complete without a cover", None, tagged(binary("GEOB:x", 9)));
+    lib.library_track("Complete with an empty cover", None, tagged(binary("APIC", 0)));
+    lib.library_track(
+        "Empty title tag",
+        None,
+        Some(json!({"id3v2": [text("TIT2", ""), text("TPE1", "B"), text("TCON", "House"), cover.clone()]})),
+    );
+    // rekordbox has everything; the file's tags were never read.
+    lib.library_track("Known, tags never read", None, None);
+    lib.rekordbox(
+        file_of(&lib, "Known, tags never read"),
+        json!({"Name": "N", "Artist": "B", "Genre": "House"}),
+        false,
+    );
+    // rekordbox's genre is blank: the file's tag does not stand in.
+    lib.library_track("Known, blank genre", None, tagged(cover.clone()));
+    lib.rekordbox(
+        file_of(&lib, "Known, blank genre"),
+        json!({"Name": "N", "Artist": "B", "Genre": ""}),
+        false,
+    );
+    lib.library_track("Gone with a cover", None, tagged(cover));
+    lib.exec(
+        "UPDATE file SET present = 0 WHERE rel_path = 'Gone with a cover.mp3'",
+        [],
+    );
+    lib
+}
+
+#[test]
+fn the_flags_the_index_keeps_are_the_per_track_definitions_on_edge_cases() {
+    let lib = gap_library();
+    lib.index();
+    let (tags, art) = per_track(&lib);
+    // Not everything and not nothing.
+    let tracks = i64::from(lib.overview_now().tracks);
+    assert!(!tags.is_empty() && (tags.len() as i64) < tracks);
+    assert!(!art.is_empty() && (art.len() as i64) < tracks);
+    // The very tracks, and so the very counts.
+    assert_eq!(with_bit(&lib, crate::search::flag::MISSING_TAGS), tags);
+    assert_eq!(with_bit(&lib, crate::search::flag::MISSING_ART), art);
+    let o = lib.overview_now();
+    assert_eq!(o.missing_tags as usize, tags.len());
+    assert_eq!(o.missing_art as usize, art.len());
+    assert!(!o.counting.index);
+}
+
+#[test]
+fn the_edge_cases_come_out_as_the_owner_decided() {
+    let lib = gap_library();
+    lib.index();
+    let named = |bit: i64| -> Vec<String> {
+        lib.run(move |c| {
+            c.prepare(
+                "SELECT f.rel_path FROM track_row tr
+                 JOIN library_track lt ON lt.recording_id = tr.recording_id
+                 JOIN file f ON f.id = lt.linked_file_id
+                 WHERE tr.flags & ?1 <> 0 AND f.rel_path IN (
+                    'Complete with a cover.mp3', 'Complete without a cover.mp3',
+                    'Complete with an empty cover.mp3', 'Empty title tag.mp3',
+                    'Known, tags never read.mp3', 'Known, blank genre.mp3',
+                    'Gone with a cover.mp3')
+                 ORDER BY f.rel_path",
+            )?
+            .query_map([bit], |r| r.get(0))?
+            .collect()
+        })
+    };
+    assert_eq!(
+        named(crate::search::flag::MISSING_TAGS),
+        ["Empty title tag.mp3", "Known, blank genre.mp3"]
+    );
+    // A cover that is there, even in a gone file, is no gap; an empty one or
+    // another binary frame is; tags never read are unknown, not missing.
+    assert_eq!(
+        named(crate::search::flag::MISSING_ART),
+        ["Complete with an empty cover.mp3", "Complete without a cover.mp3"]
+    );
+}
+
+#[test]
+fn a_change_to_what_the_gaps_read_refreshes_the_flags_once_the_index_runs() {
+    let lib = gap_library();
+    lib.index();
+    let file = file_of(&lib, "Empty title tag");
+    let recording: i64 = lib.run(move |c| {
+        c.query_row(
+            "SELECT recording_id FROM library_track WHERE linked_file_id = ?1",
+            [file],
+            |r| r.get(0),
+        )
+    });
+    let flags_of = |lib: &Lib| -> i64 {
+        lib.run(move |c| {
+            c.query_row(
+                "SELECT flags FROM track_row WHERE recording_id = ?1",
+                [recording],
+                |r| r.get(0),
+            )
+        })
+    };
+    let due = |lib: &Lib| lib.run(|c| crate::search::pending(c));
+    let tags = crate::search::flag::MISSING_TAGS;
+    let art = crate::search::flag::MISSING_ART;
+    assert_eq!(flags_of(&lib) & (tags | art), tags);
+
+    // The file's tags change (a scan or a tag edit): a title now, no cover.
+    let changed = json!({"id3v2": [text("TIT2", "T"), text("TPE1", "B"), text("TCON", "House")]});
+    lib.exec(
+        "UPDATE file SET raw_tags = ?1 WHERE id = ?2",
+        (changed.to_string(), file),
+    );
+    assert!(due(&lib), "the file's tags mark the track due");
+    lib.index();
+    assert_eq!(flags_of(&lib) & (tags | art), art);
+
+    // rekordbox is read: its blank genre is the answer for a track it knows.
+    lib.rekordbox(file, json!({"Name": "N", "Artist": "B", "Genre": " "}), false);
+    assert!(due(&lib), "a rekordbox read marks every Library track due");
+    lib.index();
+    assert_eq!(flags_of(&lib) & (tags | art), tags | art);
+
+    // The Library track is linked to another file: that file's tags count.
+    lib.exec("DELETE FROM rekordbox_track WHERE file_id = ?1", (file,));
+    let other = lib.other_file(
+        recording,
+        "Relinked.mp3",
+        Some(json!({"id3v2": [text("TIT2", "T"), text("TPE1", "B"), text("TCON", "House"), binary("APIC", 9)]})),
+    );
+    lib.exec(
+        "UPDATE library_track SET linked_file_id = ?1 WHERE recording_id = ?2",
+        (other, recording),
+    );
+    assert!(due(&lib), "a new link marks the track due");
+    lib.index();
+    assert_eq!(flags_of(&lib) & (tags | art), 0);
+
+    // Taking the track out of the Library takes its flags with it.
+    lib.exec("DELETE FROM library_track WHERE recording_id = ?1", (recording,));
+    lib.index();
+    assert_eq!(flags_of(&lib) & (tags | art), 0);
+}
+
+#[test]
+fn until_the_index_has_filled_the_flags_the_overview_says_it_is_still_counting() {
+    let lib = gap_library();
+    // Nothing is indexed yet: no flag is set, and the Overview says so
+    // instead of giving the zeroes as numbers.
+    let before = lib.overview_now();
+    assert!(before.counting.index);
+    assert_eq!((before.missing_tags, before.missing_art), (0, 0));
+    lib.index();
+    let after = lib.overview_now();
+    assert!(!after.counting.index);
+    assert!(after.missing_tags > 0 && after.missing_art > 0);
+}
+
+#[test]
+fn an_upgrade_makes_every_library_track_due_and_the_index_fills_the_flags() {
+    // A database as 0041 left it: rows written without the new bits.
+    let lib = gap_library();
+    lib.index();
+    let (tags, art) = per_track(&lib);
+    lib.exec("UPDATE track_row SET flags = flags & ~192", []);
+    assert_eq!(lib.overview_now().missing_tags, 0);
+    // What migration 0042 does to the queue.
+    lib.exec(
+        "INSERT OR IGNORE INTO search_due (recording_id) SELECT recording_id FROM library_track",
+        [],
+    );
+    assert!(lib.overview_now().counting.index);
+    lib.index();
+    let o = lib.overview_now();
+    assert!(!o.counting.index);
+    assert_eq!(
+        (o.missing_tags as usize, o.missing_art as usize),
+        (tags.len(), art.len())
+    );
+}
+
 // Still counting.
 
 #[test]
@@ -1604,6 +1840,7 @@ fn a_queued_or_running_job_holds_exactly_its_flag_and_a_finished_failed_or_cance
         files,
         rekordbox,
         quality,
+        index: false,
     };
     for (kind, held) in [
         ("scan", flags(true, false, false)),
@@ -1682,20 +1919,28 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         let mut genres = scans(c, &genres_sql(), []);
         genres.retain(|t| t != "blk" && t != "i" && t != "b");
         assert_eq!(genres, ["lt"], "genres: one pass over the Library's tracks");
-        let mut per_track = scans(c, &missing_tags_sql(), []);
+        let mut per_track = scans(c, &missing_tags_sql(false), []);
         per_track.retain(|t| t != "blk" && t != "i" && t != "b");
         assert_eq!(
             per_track,
             ["lt"],
             "missing tags: one pass over the Library's tracks"
         );
-        let mut art = scans(c, MISSING_ART, []);
+        let mut art = scans(c, &missing_art_sql(false), []);
         art.retain(|t| t != "blk" && t != "i");
         assert_eq!(
             art,
             ["lt"],
             "missing art: one pass over the Library's tracks"
         );
+        // The index job asks about a page of tracks at a time: those are
+        // found by id, never by a pass over the Library.
+        let mut page = scans(c, &missing_tags_sql(true), ["[1]"]);
+        page.retain(|t| !["blk", "i", "b", "json_each"].contains(&t.as_str()));
+        assert!(page.is_empty(), "missing tags of a page scans {page:?}");
+        let mut page = scans(c, &missing_art_sql(true), ["[1]"]);
+        page.retain(|t| !["blk", "i", "json_each"].contains(&t.as_str()));
+        assert!(page.is_empty(), "missing art of a page scans {page:?}");
         Ok(())
     });
 }
@@ -1799,8 +2044,13 @@ fn check_a_library_of(count: i64) {
     let lib = Lib::new();
     build(&lib, count);
 
+    // The index job's work, which now includes the two tag gaps of every
+    // Library track; the Overview only counts the bits it leaves.
     let started = std::time::Instant::now();
-    let o = lib.overview();
+    lib.index();
+    println!("index of {count} tracks: {:?}", started.elapsed());
+    let started = std::time::Instant::now();
+    let o = lib.overview_now();
     println!("overview of {count} tracks: {:?}", started.elapsed());
     let timed = |what: &str, f: fn(&Connection) -> rusqlite::Result<()>| {
         let at = std::time::Instant::now();
@@ -1822,8 +2072,18 @@ fn check_a_library_of(count: i64) {
         Ok(())
     });
     timed("genres", |c| genres(c, 0).map(|_| ()));
-    timed("missing tags", |c| missing_tags(c, &NoVolumes).map(|_| ()));
-    timed("missing art", |c| c.query_row(MISSING_ART, [], |_| Ok(())));
+    timed("gap counts (the Overview's whole cost for tags and art)", |c| {
+        gap_counts(c).map(|_| ())
+    });
+    timed("missing tags (the old per-track pass, now the index job's)", |c| {
+        missing_tag_ids(c, &NoVolumes, false, None).map(|_| ())
+    });
+    timed("missing art (the old per-track pass, now the index job's)", |c| {
+        c.prepare(&missing_art_sql(false))?
+            .query_map([], |_| Ok(()))?
+            .for_each(drop);
+        Ok(())
+    });
     timed("energy", |c| energy(c).map(|_| ()));
 
     let all = 1..=count;
@@ -1864,7 +2124,7 @@ fn check_a_library_of(count: i64) {
     assert_eq!(i64::from(o.all_music), count);
     if count <= 5_000 {
         // The short way of counting missing tags is the long way.
-        let long = lib.run(|c| missing_tag_ids(c, &NoVolumes, true)).len();
+        let long = lib.run(|c| missing_tag_ids(c, &NoVolumes, true, None)).len();
         assert_eq!(o.missing_tags as usize, long);
     }
     // Known tracks (every third) take rekordbox's artist, absent for every
@@ -1888,6 +2148,7 @@ fn check_a_library_of(count: i64) {
     // job queued, nothing is counting.
     assert_eq!(o.low_quality, 0);
     assert!(!o.counting.quality);
+    assert!(!o.counting.index, "the index job has run");
 
     let mut expected: BTreeMap<String, u32> = BTreeMap::new();
     for n in all {

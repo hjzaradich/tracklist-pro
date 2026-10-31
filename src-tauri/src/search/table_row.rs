@@ -20,6 +20,13 @@
 //!   better copy ...), which can change without any row changing (a new
 //!   rules version makes every verdict stale at once), so the filter reads
 //!   it when the query runs (`review::quality_problem_recordings`).
+//!   Two flags are Rust's, not the triggers': a Library track's missing tags
+//!   and missing art, which read tag data per track. The job asks the
+//!   Overview's own function for each page of Library tracks it writes
+//!   (`overview::gaps_of`), so a number on the Overview and the rows behind
+//!   its chip are one definition (1cC-U1b). They are as current as the rest
+//!   of the row: whatever marks a track due (its tags, files, links,
+//!   rekordbox's snapshot) refreshes them.
 //! - **BPM and key** are `recording_display`'s, the analysis the app keeps
 //!   (rekordbox's for a track rekordbox knows). The key is stored as its
 //!   position on the Camelot wheel ([`camelot_order`]), so the table sorts
@@ -52,6 +59,12 @@ pub mod flag {
     pub const IN_REKORDBOX: i64 = 16;
     /// The track is in at least one crate.
     pub const IN_CRATE: i64 = 32;
+    /// The Library track lacks a title, an artist or a genre: the
+    /// Overview's "missing tags", worked out by `overview::gaps_of` (1cC-U1b).
+    pub const MISSING_TAGS: i64 = 64;
+    /// The Library track's linked file has tags and no embedded cover: the
+    /// Overview's "missing art" (`overview::gaps_of`).
+    pub const MISSING_ART: i64 = 128;
 }
 
 /// What the table sorts and filters a track by, besides its text.

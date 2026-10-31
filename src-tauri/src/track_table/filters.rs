@@ -23,6 +23,11 @@
 //! different things, because there is one definition; a test counts both. The
 //! crate filters read the flags `track_row` keeps, worked out from the same
 //! text (`overview::IN_A_CRATE`), so they agree once the index has caught up.
+//! So do [`TableFilter::MissingTags`] and [`TableFilter::MissingArt`] (1cC-U1b):
+//! the Overview's definitions read tag data per track, so the index job works
+//! each Library track's answer out with the Overview's own function
+//! (`overview::gaps_of`) and keeps it as a flag bit of the row, which the
+//! Overview counts and these filters list.
 
 use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
@@ -72,6 +77,14 @@ pub enum TableFilter {
     Energy { level: u8 },
     /// No source gives the track an energy.
     NoEnergy,
+    /// The Library track has no title, no artist or no genre (the
+    /// Overview's "tracks with missing tags"; `track_row` flag
+    /// [`flag::MISSING_TAGS`]).
+    MissingTags,
+    /// The Library track's linked file has tags and no embedded cover (the
+    /// Overview's "tracks with missing art"; `track_row` flag
+    /// [`flag::MISSING_ART`]).
+    MissingArt,
 }
 
 /// The ids of the tracks Review lists as quality problems, as the JSON array
@@ -153,6 +166,8 @@ pub(super) fn conditions(
                 "{} IS NULL",
                 crate::overview::shown_energy!("lt.recording_id")
             )),
+            TableFilter::MissingTags => has(flag::MISSING_TAGS),
+            TableFilter::MissingArt => has(flag::MISSING_ART),
         };
         out.push(sql);
     }

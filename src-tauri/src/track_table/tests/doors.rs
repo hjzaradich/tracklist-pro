@@ -40,7 +40,7 @@ impl Doors {
         self.lib.settle();
         self.lib
             .writer
-            .call(|c| overview_at(c, &Mount, 1_800_000_000_000))
+            .call(|c| overview_at(c, 1_800_000_000_000))
             .unwrap()
     }
 
