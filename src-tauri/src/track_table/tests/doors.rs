@@ -194,7 +194,7 @@ fn the_low_quality_chip_opens_the_tracks_the_overview_counts_as_made_from_low_qu
 }
 
 #[test]
-fn the_low_quality_chip_follows_a_verdict_made_again_at_once() {
+fn the_low_quality_chip_and_number_follow_a_verdict_made_again_once_the_index_has_run() {
     let w = world();
     w.agree(TableFilter::LowQuality, |o| o.low_quality, &["low", "gone"]);
     // The quality job judges "old" again with the rules of now.
