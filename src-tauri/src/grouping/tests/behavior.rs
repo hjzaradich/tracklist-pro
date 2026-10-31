@@ -415,3 +415,30 @@ fn a_file_that_moves_starts_over_as_undecided_and_the_track_it_left_gets_a_new_b
     assert_eq!(db.role(a1), "undecided");
     assert_eq!(db.role(a2), "best", "the track it left picked a new best");
 }
+
+#[test]
+fn a_users_energy_handed_over_by_a_merge_reaches_the_row_of_the_library_track_that_got_it() {
+    use crate::search::tests::support::Mount;
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    let b = db.file(2, "b.mp3", Some(B));
+    db.group();
+    let (heir, emptied) = (db.track(a).unwrap(), db.track(b).unwrap());
+    db.to_library(a);
+    db.sql(&format!(
+        "INSERT INTO analysis (recording_id, source, energy) VALUES ({emptied}, 'user', 6)"
+    ));
+    let stored = |db: &Db| -> i64 {
+        db.writer
+            .call(|c| crate::search::settle(c, &Mount, 500))
+            .unwrap();
+        crate::search::flag::energy_of(db.count(&format!(
+            "SELECT flags FROM track_row WHERE recording_id = {heir}"
+        )))
+    };
+    assert_eq!(stored(&db), 0);
+    db.set_hash(b, Some(A));
+    db.group();
+    assert_eq!(db.track(b), Some(heir));
+    assert_eq!(stored(&db), 6);
+}

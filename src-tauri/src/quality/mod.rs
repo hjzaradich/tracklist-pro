@@ -115,15 +115,16 @@ pub(crate) fn request<E: From<DbError>>(
     Ok(())
 }
 
-/// Whether any file is due a measurement that can be taken now, in the
-/// `reachable` music folders if given: the question [`request`] asks, for a
-/// caller that asks it on a read connection.
+/// Whether a quality job has work: a file is due a measurement that can be
+/// taken now, in the `reachable` music folders if given, or a stored verdict
+/// was made by other rules ([`store::any_other_rules`]). The question
+/// [`request`] asks, for a caller that asks it on a read connection.
 pub(crate) fn due(
     conn: &rusqlite::Connection,
     reachable: Option<&[i64]>,
 ) -> rusqlite::Result<bool> {
     let gate = ReadGate::for_job(conn)?;
-    ledger::any_due(conn, gate.allows(true), reachable)
+    Ok(ledger::any_due(conn, gate.allows(true), reachable)? || store::any_other_rules(conn)?)
 }
 
 #[cfg(test)]

@@ -27,6 +27,14 @@
 //!   its chip are one definition (1cC-U1b). They are as current as the rest
 //!   of the row: whatever marks a track due (its tags, files, links,
 //!   rekordbox's snapshot) refreshes them.
+//! - **The doors' two answers** (1cD-R1a): a Library track's "low-quality
+//!   file" bit and the energy it shows are kept in the flags too, from the
+//!   Overview's own definitions (`overview::door_answers_of`), so those doors
+//!   never leave an index either. The energy needs four bits
+//!   ([`flag::ENERGY`]), which go in `flags` and not in a column because
+//!   every index holds `flags`. Migration 0043 marks a track due when an
+//!   input of either answer changes, and the quality job makes the verdicts
+//!   of a new rules version.
 //! - **BPM and key** are `recording_display`'s, the analysis the app keeps
 //!   (rekordbox's for a track rekordbox knows). The key is stored as its
 //!   position on the Camelot wheel ([`camelot_order`]), so the table sorts
@@ -65,6 +73,26 @@ pub mod flag {
     /// The Library track's linked file has tags and no embedded cover: the
     /// Overview's "missing art" (`overview::gaps_of`).
     pub const MISSING_ART: i64 = 128;
+    /// The Library track's linked file has a current verdict that flags it:
+    /// the Overview's "from a low-quality file"
+    /// (`overview::door_answers_of`).
+    pub const LOW_QUALITY: i64 = 8;
+    /// The four bits that hold the energy a Library track shows, 1 to 10;
+    /// 0 for none, and for a track outside the Library
+    /// (`overview::door_answers_of`). The bits from 4096 up are free.
+    pub const ENERGY: i64 = 0b1111 << ENERGY_SHIFT;
+    /// Where [`ENERGY`] starts.
+    const ENERGY_SHIFT: u32 = 8;
+
+    /// The bits of the shown energy `level`.
+    pub const fn energy(level: u8) -> i64 {
+        (level as i64) << ENERGY_SHIFT
+    }
+
+    /// The energy `flags` hold, 0 for none.
+    pub const fn energy_of(flags: i64) -> i64 {
+        (flags & ENERGY) >> ENERGY_SHIFT
+    }
 }
 
 /// What the table sorts and filters a track by, besides its text.

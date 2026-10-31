@@ -1220,3 +1220,44 @@ fn undo_of_a_switch_the_track_then_followed_from_never_links_it_to_a_file_scanne
     old_file_removed_and_another_scanned(&lib, music, &item);
     undo_refused(&lib, &item, twin);
 }
+
+// ---- the stored low-quality answer follows the link (1cD-R1a) -------------------
+
+#[test]
+fn a_switch_and_its_undo_move_the_low_quality_bit_with_the_link() {
+    use crate::search::flag::LOW_QUALITY;
+    let (lib, _mounted, item) = one(Rekordbox::Unknown);
+    // The gone file is flagged, by a current verdict; the copy has none.
+    let sql = format!(
+        "INSERT OR REPLACE INTO file_verdict (file_id, rules_version, inputs, verdict, findings)
+         SELECT f.id, {}, {}, 'low_bitrate', '[]' FROM file f
+         LEFT JOIN file_quality q ON q.file_id = f.id WHERE f.id = ?1",
+        crate::quality::RULES_VERSION,
+        crate::quality::store::INPUTS
+    );
+    let old = item.old;
+    lib.writer.call(move |c| c.execute(&sql, [old])).unwrap();
+    let recording = item.recording;
+    let low_quality = |lib: &Lib| -> bool {
+        lib.writer
+            .call(move |c| {
+                crate::search::settle(c, &crate::search::tests::support::Mount, 500)?;
+                c.query_row(
+                    "SELECT flags FROM track_row WHERE recording_id = ?1",
+                    [recording],
+                    |r| r.get::<_, i64>(0),
+                )
+            })
+            .unwrap()
+            & LOW_QUALITY
+            != 0
+    };
+    assert!(low_quality(&lib));
+
+    lib.switch(item.recording, item.copy, SwitchEffect::NotInRekordbox)
+        .unwrap();
+    assert!(!low_quality(&lib), "the new linked file isn't flagged");
+
+    assert!(matches!(lib.undo_last(), UndoOutcome::Undone { .. }));
+    assert!(low_quality(&lib), "the Undo links the flagged file again");
+}

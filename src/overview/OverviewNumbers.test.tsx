@@ -114,6 +114,17 @@ describe("the energy bars", () => {
     ]);
   });
 
+  it("say they are still counting while the index is behind, and only then", async () => {
+    const heading = () => screen.findByText(tx("overview:charts.energy.title"));
+    fakeBackend({ overview: { counting: { files: false, rekordbox: false, quality: false, index: true } } });
+    const { unmount } = renderApp("/overview");
+    expect(await heading()).toHaveTextContent(tx("overview:todo.lineCounting"));
+    unmount();
+    fakeBackend({ overview: { counting: { files: true, rekordbox: true, quality: true, index: false } } });
+    renderApp("/overview");
+    expect(await heading()).not.toHaveTextContent(tx("overview:todo.lineCounting"));
+  });
+
   it("leave out the no energy row when every track has an energy", async () => {
     fakeBackend({ overview: { energy: Array(ENERGY_LEVELS).fill(1), noEnergy: 0 } });
     renderApp("/overview");

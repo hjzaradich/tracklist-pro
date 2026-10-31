@@ -1327,3 +1327,60 @@ fn a_merge_and_its_undo_refresh_the_missing_tags_flag_once_the_index_runs() {
     assert!(flag_of(t.ta), "the Undo takes them away again");
     assert!(!flag_of(t.tb), "and the track that came back is complete");
 }
+
+// ---- the doors' stored answers follow a merge and its Undo (1cD-R1a) ------------
+
+#[test]
+fn a_merge_and_its_undo_carry_the_stored_energy_and_low_quality_answers() {
+    use crate::search::flag;
+    use rusqlite::OptionalExtension;
+    let t = Twice::new();
+    // The kept track's file is flagged by a current verdict. The other track
+    // has the user's energy, which the kept track doesn't.
+    let sql = format!(
+        "INSERT OR REPLACE INTO file_verdict (file_id, rules_version, inputs, verdict, findings)
+         SELECT f.id, {}, {}, 'low_bitrate', '[]' FROM file f
+         LEFT JOIN file_quality q ON q.file_id = f.id WHERE f.id = ?1",
+        crate::quality::RULES_VERSION,
+        crate::quality::store::INPUTS
+    );
+    let (a, tb) = (t.a, t.tb);
+    t.db.writer
+        .call(move |c| {
+            c.execute(&sql, [a])?;
+            c.execute(
+                "INSERT INTO analysis (recording_id, source, energy) VALUES (?1, 'user', 8)",
+                [tb],
+            )
+        })
+        .unwrap();
+    let row_of = |track: i64| -> Option<(bool, i64)> {
+        t.db.writer
+            .call(|c| crate::search::settle(c, &Mount, 500))
+            .unwrap();
+        t.db.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT flags FROM track_row WHERE recording_id = ?1",
+                    [track],
+                    |r| r.get::<_, i64>(0),
+                )
+                .optional()
+            })
+            .unwrap()
+            .map(|flags| (flags & flag::LOW_QUALITY != 0, flag::energy_of(flags)))
+    };
+    assert_eq!(row_of(t.ta), Some((true, 0)));
+    assert_eq!(row_of(t.tb), Some((false, 8)));
+
+    t.merge(&t.both(), t.ta).unwrap();
+    assert_eq!(
+        row_of(t.ta),
+        Some((true, 8)),
+        "the kept track has its own flagged file and the other track's energy"
+    );
+
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert_eq!(row_of(t.ta), Some((true, 0)), "each has its own again");
+    assert_eq!(row_of(t.tb), Some((false, 8)));
+}

@@ -95,7 +95,7 @@ export function Charts({ overview }: { overview: Overview }) {
     <div className={styles.charts}>
       <Chart
         title={t("charts.energy.title")}
-        counting={false}
+        counting={overview.counting.index}
         empty={hasEnergy ? null : t("charts.energy.empty")}
         bars={energyBars(overview, { none: t("charts.energy.none") }, (level, count) =>
           level === null ? t("charts.energy.noneDoor", { count }) : t("charts.energy.door", { level, count }),

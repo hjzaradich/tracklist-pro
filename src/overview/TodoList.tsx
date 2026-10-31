@@ -43,14 +43,14 @@ export function waitingLines(overview: Overview | undefined, review: ReviewCount
   if (overview !== undefined) {
     const { counting } = overview;
     lines.push(
+      // These three are read from the rows the index job writes, so they are counting while it is behind.
       {
         id: "lowQuality",
         count: overview.lowQuality,
         door: "/library",
         filter: { kind: "lowQuality" },
-        counting: counting.quality,
+        counting: counting.quality || counting.index,
       },
-      // Read from the rows the index job writes, so they are counting while it is behind.
       {
         id: "missingTags",
         count: overview.missingTags,

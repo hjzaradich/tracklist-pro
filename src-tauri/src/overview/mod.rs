@@ -14,8 +14,8 @@
 //! - **Energy** is the one `recording_display` shows: the user's, else
 //!   Mixed In Key's, else the local estimate's, else the audio model's
 //!   (ROADMAP §2, `analysis`), counted per level 1 to 10 ([`ENERGY_LEVELS`])
-//!   with the tracks that have none ([`ENERGY`]). A track with no
-//!   energy from any source counts as having none.
+//!   with the tracks that have none. A track with no energy from any source
+//!   counts as having none.
 //! - **Outside the Library** is the tracks in All music that are not
 //!   Library tracks ([`ALL_MUSIC`]).
 //!
@@ -34,6 +34,10 @@
 //!   (`search::flag::MISSING_TAGS`, `MISSING_ART`). The Overview counts the
 //!   bits, and the Library's two filters read them, so the number and the
 //!   rows behind it are one definition (1cC-U1b).
+//! - **Low quality** and **energy** go the same way (1cD-R1a): [`door_answers_of`]
+//!   holds the two definitions, the index job keeps a Library track's answers
+//!   in `search::flag::LOW_QUALITY` and `ENERGY`, and the Overview's numbers
+//!   and the Library's doors both read those ([`stored_counts`]).
 //!
 //! **Cost.** Every number is an aggregate SQL statement on the read pool.
 //! The Library's numbers come from one pass over `library_track` that looks
@@ -50,9 +54,10 @@
 //! its kinds is queued or running, and only then: a failed or cancelled job
 //! holds nothing, and neither does a stale verdict with no job to settle it
 //! (a stale verdict is no verdict: it isn't counted as low quality). The
-//! exception is `index`: the two tag gaps are as current as the search
-//! index, so it is true while any track is due (`search::pending`), which is
-//! what an upgrade leaves behind until the index job has filled the bits.
+//! exception is `index`: the numbers read from `track_row` are as current
+//! as the search index, so it is true while any track is due
+//! (`search::pending`), which is what an upgrade leaves behind until the
+//! index job has filled the bits.
 //!
 //! **One place to change** each choice the owner answered (2026-10-12):
 //! [`COUNT_UNDONE_OPERATIONS`], [`THIS_WEEK`] and [`BLANK_GENRE_FALLS_BACK`].
@@ -136,8 +141,9 @@ pub struct Counting {
     pub rekordbox: bool,
     /// A quality job is queued or running: the low-quality count.
     pub quality: bool,
-    /// The search index is behind (a track is due): the missing-tags and
-    /// missing-art counts, which are read from the rows the index job writes.
+    /// The search index is behind (a track is due): the low-quality, energy,
+    /// missing-tags and missing-art counts, which are read from the rows the
+    /// index job writes.
     pub index: bool,
 }
 
@@ -207,8 +213,9 @@ pub(crate) const LINKED_FILE: &str = "LEFT JOIN file f ON f.id = lt.linked_file_
 /// `1` for a Library track whose linked file has a current verdict that
 /// flags it, else `0`: a missing or stale verdict is no verdict, never `ok`,
 /// and isn't counted. SQL over [`LINKED_FILE`]; the one place that says what
-/// "made from a low-quality file" means (the Overview's count and the
-/// Library's "Low-quality file" filter).
+/// "made from a low-quality file" means. The index job keeps the answer
+/// ([`door_answers_of`]); the Overview's count and the Library's "Low-quality
+/// file" filter read that.
 pub(crate) fn low_quality_sql() -> String {
     format!(
         "CASE WHEN f.id IS NULL OR {stale} THEN 0
@@ -220,8 +227,8 @@ pub(crate) fn low_quality_sql() -> String {
 
 /// A condition on a `track_row` `tr`: the row's Library track exists and
 /// `condition` holds for it (SQL over `lt` and [`LINKED_FILE`]). How the
-/// Library's door filters say what the Overview's numbers say, in the very
-/// same SQL text.
+/// Library's "analyzed" door filters say what the Overview's numbers say, in
+/// the very same SQL text.
 pub(crate) fn library_track_where(condition: &str) -> String {
     format!(
         "EXISTS (SELECT 1 FROM library_track lt {LINKED_FILE}
@@ -232,25 +239,19 @@ pub(crate) fn library_track_where(condition: &str) -> String {
 /// The Library's numbers in one pass over `library_track`. Each other table
 /// is looked up by its primary key or an index. `?1` is the start of this
 /// week.
-///
-/// `q` is 1 for a flagged file whose verdict is current and 0 for any other
-/// track ([`low_quality_sql`]).
 fn library_sql() -> String {
     format!(
         "SELECT count(*),
                 coalesce(sum(s.duration_ms), 0),
                 coalesce(sum(s.in_a_crate), 0),
                 coalesce(sum(s.analyzed), 0),
-                coalesce(sum(s.q = 1), 0),
                 coalesce(sum(s.added >= ?1), 0)
          FROM (SELECT f.duration_ms AS duration_ms,
                       {IN_A_CRATE} AS in_a_crate,
                       {ANALYZED} AS analyzed,
-                      {low_quality} AS q,
                       lt.added_at AS added
                FROM library_track lt
-               {LINKED_FILE}) s",
-        low_quality = low_quality_sql(),
+               LEFT JOIN file f ON f.id = lt.linked_file_id) s"
     )
 }
 
@@ -269,9 +270,11 @@ const ALL_MUSIC: &str = concat!(
 /// then the local estimate's, then the audio model's (the order of the
 /// `recording_display` view, which also works out BPM and key), or `NULL`.
 /// `$recording` is a SQL expression for the track's id. The one place that
-/// says which energy a track shows: the Overview's chart ([`ENERGY`]) and a
-/// crate's summary line (`crates::summary`) both use it. Each `analysis` row
-/// is found by its unique (track, source) index.
+/// says which energy a track shows: the index job keeps a Library track's
+/// answer for the Overview's chart and its doors ([`door_answers_of`]), and a
+/// crate's summary line (`crates::summary`) and energy as stars
+/// (`energy_stars`) read it here. Each `analysis` row is found by its unique
+/// (track, source) index.
 macro_rules! shown_energy {
     ($recording:literal) => {
         concat!(
@@ -287,41 +290,6 @@ macro_rules! shown_energy {
     };
 }
 pub(crate) use shown_energy;
-
-/// How many Library tracks show each energy, as `(energy, tracks)` rows, the
-/// energy being `NULL` for the tracks with none ([`shown_energy!`]). One pass
-/// over the Library's tracks.
-const ENERGY: &str = concat!(
-    "SELECT s.energy, count(*)
-     FROM (SELECT ",
-    shown_energy!("lt.recording_id"),
-    " AS energy
-           FROM library_track lt) s
-     GROUP BY s.energy"
-);
-
-/// Library tracks per energy level, and the tracks with none ([`ENERGY`]).
-fn energy(conn: &Connection) -> rusqlite::Result<(Vec<u32>, u32)> {
-    let mut levels = vec![0u32; ENERGY_LEVELS];
-    let mut none = 0u32;
-    let mut stmt = conn.prepare(ENERGY)?;
-    let mut rows = stmt.query([])?;
-    while let Some(row) = rows.next()? {
-        let tracks = count(row.get::<_, i64>(1)?);
-        match row.get::<_, Option<i64>>(0)? {
-            Some(level) => {
-                let slot = usize::try_from(level - 1)
-                    .ok()
-                    .and_then(|i| levels.get_mut(i));
-                if let Some(slot) = slot {
-                    *slot = slot.saturating_add(tracks);
-                }
-            }
-            None => none = none.saturating_add(tracks),
-        }
-    }
-    Ok((levels, none))
-}
 
 /// The start of this week as stored timestamps are written.
 fn week_start() -> String {
@@ -597,6 +565,56 @@ pub(crate) fn gaps_of(
     })
 }
 
+/// A Library track's doors' answers, for the Library tracks of `?1`, a JSON
+/// array of their ids: `(id, low quality, energy)`.
+fn door_answers_sql() -> String {
+    format!(
+        "SELECT lt.id, {low_quality}, {energy}
+         FROM library_track lt
+         {LINKED_FILE}
+         WHERE lt.id IN (SELECT value FROM json_each(?1))",
+        low_quality = low_quality_sql(),
+        energy = shown_energy!("lt.recording_id"),
+    )
+}
+
+/// What the Overview's doors ask of one Library track, besides its gaps.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DoorAnswer {
+    /// Made from a low-quality file ([`low_quality_sql`]).
+    pub low_quality: bool,
+    /// The energy it shows, 1 to 10 ([`shown_energy!`]).
+    pub energy: Option<u8>,
+}
+
+/// The doors' answers of the Library tracks `ids`, by Library track id:
+/// **the one definition**, as [`gaps_of`] is for the gaps. The index job
+/// calls it for each page of tracks it writes and keeps the answers in the
+/// flags of the track's `track_row`; the Overview counts them and the
+/// Library's doors list them. Another definition that costs too much per
+/// row to run in a table filter belongs here, in the same way.
+pub(crate) fn door_answers_of(
+    conn: &Connection,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<HashMap<i64, DoorAnswer>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+        .expect("numbers always serialize");
+    conn.prepare_cached(&door_answers_sql())?
+    .query_map([json], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            DoorAnswer {
+                low_quality: r.get(1)?,
+                energy: r.get(2)?,
+            },
+        ))
+    })?
+    .collect()
+}
+
 /// The ids (among `ids`) of the Library tracks with a linked file that has tags
 /// and no cover ([`missing_art_sql`]).
 fn missing_art_ids(conn: &Connection, ids: &[LibraryTrackId]) -> rusqlite::Result<Vec<i64>> {
@@ -734,18 +752,64 @@ pub(crate) fn missing_tag_ids(
 /// How many tracks' shown values are worked out in one go.
 const SHOWN_CHUNK: usize = 5_000;
 
-/// The Library tracks with the two gap bits set in their `track_row`
-/// (`(missing tags, missing art)`; [`gaps_of`] says what they mean). Only the
-/// rows of Library tracks carry them. One pass over the narrow `flags` index.
-fn gap_counts(conn: &Connection) -> rusqlite::Result<(i64, i64)> {
-    use crate::search::flag::{MISSING_ART, MISSING_TAGS};
-    conn.prepare_cached(&format!(
-        "SELECT coalesce(sum((flags & {MISSING_TAGS}) <> 0), 0),
-                coalesce(sum((flags & {MISSING_ART}) <> 0), 0)
-         FROM track_row WHERE (flags & {}) <> 0",
-        MISSING_TAGS | MISSING_ART
-    ))?
-    .query_row([], |r| Ok((r.get(0)?, r.get(1)?)))
+/// The Overview's numbers that are kept in the Library tracks' `track_row`
+/// flags ([`gaps_of`] and [`door_answers_of`] say what they mean).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StoredCounts {
+    low_quality: u32,
+    /// Library tracks per energy level, 1 to 10.
+    energy: Vec<u32>,
+    no_energy: u32,
+    missing_tags: u32,
+    missing_art: u32,
+}
+
+/// How many Library tracks have each mix of the flags [`StoredCounts`] reads.
+fn stored_counts_sql() -> String {
+    use crate::search::flag::{ENERGY, IN_LIBRARY, LOW_QUALITY, MISSING_ART, MISSING_TAGS};
+    format!(
+        "SELECT flags & {}, count(*) FROM track_row
+         WHERE (flags & {IN_LIBRARY}) <> 0 GROUP BY 1",
+        LOW_QUALITY | ENERGY | MISSING_TAGS | MISSING_ART,
+    )
+}
+
+/// Counts what [`StoredCounts`] holds, in one pass over the narrow `flags`
+/// index, with a row per mix of flags: the very bits the Library's doors
+/// list, so a number and the rows behind it always agree. While the index is
+/// behind they are behind too, which `counting.index` says.
+fn stored_counts(conn: &Connection) -> rusqlite::Result<StoredCounts> {
+    use crate::search::flag::{self, LOW_QUALITY, MISSING_ART, MISSING_TAGS};
+    let mut counts = StoredCounts {
+        low_quality: 0,
+        energy: vec![0; ENERGY_LEVELS],
+        no_energy: 0,
+        missing_tags: 0,
+        missing_art: 0,
+    };
+    let mut stmt = conn.prepare_cached(&stored_counts_sql())?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let (flags, tracks) = (row.get::<_, i64>(0)?, count(row.get::<_, i64>(1)?));
+        for (bit, number) in [
+            (LOW_QUALITY, &mut counts.low_quality),
+            (MISSING_TAGS, &mut counts.missing_tags),
+            (MISSING_ART, &mut counts.missing_art),
+        ] {
+            if flags & bit != 0 {
+                *number = number.saturating_add(tracks);
+            }
+        }
+        let level = flag::energy_of(flags);
+        let number = match usize::try_from(level - 1) {
+            Ok(index) => counts.energy.get_mut(index),
+            Err(_) => Some(&mut counts.no_energy),
+        };
+        if let Some(number) = number {
+            *number = number.saturating_add(tracks);
+        }
+    }
+    Ok(counts)
 }
 
 /// Which sources have background work going, from the queued and running
@@ -778,7 +842,7 @@ pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview>
 
     let since: String =
         conn.query_row(&format!("SELECT {}", week_start()), [now_ms], |r| r.get(0))?;
-    let (tracks, length, in_crates, analyzed, flagged, added) =
+    let (tracks, length, in_crates, analyzed, added) =
         conn.query_row(&library_sql(), params![since], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
@@ -786,7 +850,6 @@ pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview>
                 r.get::<_, i64>(2)?,
                 r.get::<_, i64>(3)?,
                 r.get::<_, i64>(4)?,
-                r.get::<_, i64>(5)?,
             ))
         })?;
     let tracks = count(tracks);
@@ -801,8 +864,7 @@ pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview>
             r.get::<_, bool>(0)
         })?;
     let (genres, no_genre) = genres(conn, tracks)?;
-    let (energy, no_energy) = energy(conn)?;
-    let (missing_tags, missing_art) = gap_counts(conn)?;
+    let stored = stored_counts(conn)?;
     let counting = counting(conn)?;
     drop(tx);
 
@@ -814,26 +876,26 @@ pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview>
         analyzed_by_rekordbox: analyzed,
         not_analyzed: tracks.saturating_sub(analyzed),
         rekordbox_read,
-        low_quality: count(flagged),
+        low_quality: stored.low_quality,
         last_sent_ms: last_sent.and_then(|ms| u64::try_from(ms).ok()),
         all_music: count(all_music),
         added_this_week: count(added),
         decisions_this_week: count(decisions),
         genres,
         no_genre,
-        energy,
-        no_energy,
+        energy: stored.energy,
+        no_energy: stored.no_energy,
         outside_library: count(outside_library),
-        missing_tags: count(missing_tags),
-        missing_art: count(missing_art),
+        missing_tags: stored.missing_tags,
+        missing_art: stored.missing_art,
         counting,
     })
 }
 
 /// Every number the Overview screen shows, as of now. When the index is
 /// behind (`counting.index`), it asks for the index job, as the track table
-/// does: the missing-tags and missing-art counts come from the rows that job
-/// writes, and the screen asks again while it runs.
+/// does: the low-quality, energy, missing-tags and missing-art counts come
+/// from the rows that job writes, and the screen asks again while it runs.
 #[tauri::command]
 #[specta::specta]
 pub async fn overview(

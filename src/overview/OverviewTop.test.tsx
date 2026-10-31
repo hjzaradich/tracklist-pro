@@ -283,16 +283,17 @@ describe("what to do next", () => {
     expect(link).toHaveTextContent(tx("overview:todo.lineCounting"));
   });
 
-  it("marks the missing-tags and missing-art lines, and the list, while the index is behind", async () => {
+  it("marks the low-quality, missing-tags and missing-art lines, and the list, while the index is behind", async () => {
     fakeBackend({
       overview: {
+        lowQuality: 3,
         missingTags: 4,
         missingArt: 2,
         counting: { files: false, rekordbox: false, quality: false, index: true },
       },
     });
     renderApp("/overview");
-    for (const [key, count] of [["missingTags", 4], ["missingArt", 2]] as const) {
+    for (const [key, count] of [["lowQuality", 3], ["missingTags", 4], ["missingArt", 2]] as const) {
       const link = await screen.findByRole("link", {
         name: contains(tx(`overview:todo.${key}`, { count })),
       });

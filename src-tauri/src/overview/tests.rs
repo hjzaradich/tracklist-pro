@@ -1929,9 +1929,12 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         );
         let all_music = scans(c, ALL_MUSIC, []);
         assert_eq!(all_music, ["r"], "All music: one pass over the tracks");
-        let mut energy = scans(c, ENERGY, []);
-        energy.retain(|t| t != "s");
-        assert_eq!(energy, ["lt"], "energy: one pass over the Library's tracks");
+        let stored = scans(c, &stored_counts_sql(), []);
+        assert_eq!(
+            stored,
+            ["track_row"],
+            "what the index job keeps: one pass over the rows' flags"
+        );
         let decisions = scans(c, &decisions_sql(), [0]);
         assert_eq!(decisions, ["operation"]);
         let mut genres = scans(c, &genres_sql(), []);
@@ -1959,6 +1962,9 @@ fn no_statement_scans_a_table_it_does_not_have_to() {
         let mut page = scans(c, &missing_art_sql(true), ["[1]"]);
         page.retain(|t| !["blk", "i", "json_each"].contains(&t.as_str()));
         assert!(page.is_empty(), "missing art of a page scans {page:?}");
+        let mut page = scans(c, &door_answers_sql(), ["[1]"]);
+        page.retain(|t| t != "json_each");
+        assert!(page.is_empty(), "the doors of a page scan {page:?}");
         Ok(())
     });
 }
@@ -1971,9 +1977,11 @@ fn a_library_of_2000_tracks_is_read_in_one_pass_for_energy_and_outside_the_libra
     let lib = Lib::new();
     build(&lib, 2_000);
     lib.run(|c| {
-        let mut energy = scans(c, ENERGY, []);
-        energy.retain(|t| t != "s");
-        assert_eq!(energy, ["lt"], "energy: one pass over the Library's tracks");
+        assert_eq!(
+            scans(c, &stored_counts_sql(), []),
+            ["track_row"],
+            "energy: one pass over the rows' flags"
+        );
         assert_eq!(
             scans(c, ALL_MUSIC, []),
             ["r"],
@@ -2079,10 +2087,6 @@ fn check_a_library_of(count: i64) {
         c.query_row(&library_sql(), ["2000"], |_| Ok(()))
     });
     timed("all music", |c| c.query_row(ALL_MUSIC, [], |_| Ok(())));
-    timed("energy statement", |c| {
-        c.prepare(ENERGY)?.query_map([], |_| Ok(()))?.for_each(drop);
-        Ok(())
-    });
     timed("genres statement", |c| {
         c.prepare(&genres_sql())?
             .query_map([], |_| Ok(()))?
@@ -2091,8 +2095,8 @@ fn check_a_library_of(count: i64) {
     });
     timed("genres", |c| genres(c, 0).map(|_| ()));
     timed(
-        "gap counts (the Overview's whole cost for tags and art)",
-        |c| gap_counts(c).map(|_| ()),
+        "stored counts (the Overview's whole cost for tags, art, quality and energy)",
+        |c| stored_counts(c).map(|_| ()),
     );
     timed(
         "missing tags (the old per-track pass, now the index job's)",
@@ -2107,7 +2111,6 @@ fn check_a_library_of(count: i64) {
             Ok(())
         },
     );
-    timed("energy", |c| energy(c).map(|_| ()));
 
     let all = 1..=count;
     // The user's energy wins over Mixed In Key's; the rest have none.

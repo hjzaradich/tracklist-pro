@@ -199,7 +199,9 @@ fn what_a_send_would_write_for_a_library_track_is_the_same_before_and_after_its_
 }
 
 #[test]
-fn an_energy_alone_does_not_make_the_search_index_work_again() {
+fn an_energy_outside_the_library_does_not_make_the_search_index_work_again() {
+    // (A Library track's does: its row holds the energy it shows,
+    // `search/tests/door_answers.rs`.)
     let (lib, tracks) = three();
     lib.settle();
     assert!(!lib.pending());

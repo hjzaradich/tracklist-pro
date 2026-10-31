@@ -14,7 +14,11 @@ fn due(conn: &rusqlite::Connection) -> Vec<i64> {
 
 #[test]
 fn an_upgrade_makes_every_library_track_due_and_no_other_track() {
-    let (dir, conn) = db_at(MIGRATIONS.len() - 1);
+    let before = MIGRATIONS
+        .iter()
+        .position(|m| m.name.ends_with("_track_row_gaps.sql"))
+        .expect("the migration");
+    let (dir, conn) = db_at(before);
     accepts(
         &conn,
         "INSERT INTO recording DEFAULT VALUES; INSERT INTO recording DEFAULT VALUES;
@@ -25,7 +29,7 @@ fn an_upgrade_makes_every_library_track_due_and_no_other_track() {
     );
     drop(conn);
     let mut conn = rusqlite::Connection::open(dir.path().join("test.db")).unwrap();
-    run(&mut conn, MIGRATIONS).unwrap();
+    run(&mut conn, &MIGRATIONS[..=before]).unwrap();
     assert_eq!(
         due(&conn),
         vec![1, 3],

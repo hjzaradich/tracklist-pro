@@ -130,7 +130,8 @@ fn a_stale_verdict_is_not_counted() {
         [stale_rules.track, stale_inputs.track, current.track]
     );
     // The rules changed since the verdict was made: no row of the track
-    // changes, and the chip follows at once all the same.
+    // changes, and the chip follows at once all the same (the Overview's
+    // low-quality door follows once the index has run, `doors.rs`).
     lib.insert(
         "UPDATE file_verdict SET rules_version = rules_version + 1 WHERE file_id = ?1",
         (stale_rules.file,),
