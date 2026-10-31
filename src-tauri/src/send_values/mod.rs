@@ -97,6 +97,7 @@ pub use sources::{
     tag_sources, FieldSources, NamedFile, SourcedValue, TagField, TagSources, ValueOrigin,
 };
 pub(crate) use tag_fields::read_only as tag_values;
+pub(crate) use tag_fields::read_only_and_largest_binary as tag_values_and_largest_binary;
 pub use tag_fields::TAG_ATTRIBUTES;
 
 /// The `TRACK` attributes that are rekordbox's analysis: a track already in

@@ -8,14 +8,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rusqlite::Connection;
-use serde_json::Value;
 
 use super::choice::{content_key, Choices, Held};
 use crate::best_file::{
     Art, FileFacts, FolderRole, Format, Place, Quality, RekordboxLink, VolumeKind,
 };
 use crate::quality::store::codec_of;
-use crate::send_values::{plays_in_dj_app, tag_values, TAG_ATTRIBUTES};
+use crate::send_values::{plays_in_dj_app, tag_values_and_largest_binary, TAG_ATTRIBUTES};
 use crate::tags::TagFields;
 
 /// One file of a track, as the ranking sees it, and the role it has now.
@@ -123,7 +122,7 @@ fn read(
             None => Quality::NOT_CHECKED,
         };
         let (tags, art) = match row.raw_tags.as_deref() {
-            Some(raw) => (tags_of(raw), art_of(raw)),
+            Some(raw) => tags_and_art_of(raw),
             None => (TagFields::default(), None),
         };
         let facts = FileFacts {
@@ -233,12 +232,17 @@ struct Row {
     blake3: Option<Vec<u8>>,
 }
 
-/// The descriptive tags a file's `raw_tags` give. Album artist and ISRC
-/// aren't mapped yet (they stay `None`).
-pub(super) fn tags_of(raw_tags: &str) -> TagFields {
+/// The descriptive tags a file's `raw_tags` give, and its largest embedded
+/// picture, from one read of the stored tags. Album artist and ISRC aren't
+/// mapped yet (they stay `None`).
+///
+/// The art is the largest picture's size in bytes. The scan records nothing
+/// else about a picture: width, height and hash stay `None`.
+pub(super) fn tags_and_art_of(raw_tags: &str) -> (TagFields, Option<Art>) {
     let mut tags = TagFields::default();
     let number = |text: &str| text.trim().parse::<i64>().ok();
-    for found in tag_values(raw_tags, &TAG_ATTRIBUTES) {
+    let (found, largest) = tag_values_and_largest_binary(raw_tags, &TAG_ATTRIBUTES, is_picture_key);
+    for found in found {
         let text = Some(found.value.clone());
         match found.attribute {
             "Name" => tags.title = text,
@@ -255,38 +259,25 @@ pub(super) fn tags_of(raw_tags: &str) -> TagFields {
             _ => {}
         }
     }
-    tags
-}
-
-/// The largest embedded picture's size in bytes. The scan records nothing
-/// else about a picture: width, height and hash stay `None`.
-pub(super) fn art_of(raw_tags: &str) -> Option<Art> {
-    let Ok(Value::Object(blocks)) = serde_json::from_str::<Value>(raw_tags) else {
-        return None;
-    };
-    let largest = blocks
-        .values()
-        .filter_map(Value::as_array)
-        .flatten()
-        .filter(|item| {
-            item.get("key")
-                .and_then(Value::as_str)
-                .is_some_and(is_picture_key)
-        })
-        .filter_map(|item| {
-            let value = item.get("value")?;
-            (value.get("type")?.as_str()? == "binary")
-                .then(|| value.get("len")?.as_u64())
-                .flatten()
-        })
-        .filter(|len| *len > 0)
-        .max()?;
-    Some(Art {
+    let art = largest.map(|largest| Art {
         bytes: u32::try_from(largest).unwrap_or(u32::MAX),
         width: None,
         height: None,
         hash: None,
-    })
+    });
+    (tags, art)
+}
+
+/// [`tags_and_art_of`]'s tags.
+#[cfg(test)]
+pub(super) fn tags_of(raw_tags: &str) -> TagFields {
+    tags_and_art_of(raw_tags).0
+}
+
+/// [`tags_and_art_of`]'s art.
+#[cfg(test)]
+pub(super) fn art_of(raw_tags: &str) -> Option<Art> {
+    tags_and_art_of(raw_tags).1
 }
 
 /// Whether a stored tag item's key is a picture: ID3's `APIC` (and `PIC`),

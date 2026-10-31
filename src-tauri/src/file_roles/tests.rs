@@ -970,6 +970,147 @@ fn tags_are_read_from_the_stored_frames_and_album_artist_and_isrc_stay_empty() {
     assert_eq!((tags.album_artist, tags.isrc), (None, None));
 }
 
+/// The largest picture's size as it was read before the tags were read once:
+/// a separate pass over the stored JSON, as any JSON.
+fn art_read_on_its_own(raw_tags: &str) -> Option<Art> {
+    let Ok(serde_json::Value::Object(blocks)) = serde_json::from_str::<serde_json::Value>(raw_tags)
+    else {
+        return None;
+    };
+    let picture = |key: &str| {
+        let name = key.split(':').next().unwrap_or(key);
+        matches!(name, "APIC" | "PIC" | "METADATA_BLOCK_PICTURE" | "covr")
+            || name.to_ascii_lowercase().starts_with("cover art")
+    };
+    let largest = blocks
+        .values()
+        .filter_map(serde_json::Value::as_array)
+        .flatten()
+        .filter(|item| {
+            item.get("key")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(picture)
+        })
+        .filter_map(|item| {
+            let value = item.get("value")?;
+            (value.get("type")?.as_str()? == "binary")
+                .then(|| value.get("len")?.as_u64())
+                .flatten()
+        })
+        .filter(|len| *len > 0)
+        .max()?;
+    Some(Art {
+        bytes: u32::try_from(largest).unwrap_or(u32::MAX),
+        width: None,
+        height: None,
+        hash: None,
+    })
+}
+
+#[test]
+fn reading_the_tags_and_the_art_in_one_pass_gives_what_two_passes_gave() {
+    let text = |key: &str, text: &str| json!({"key": key, "value": {"type": "text", "text": text}});
+    let binary = |key: &str, len: serde_json::Value| json!({"key": key, "value": {"type": "binary", "len": len}});
+    let inputs: Vec<String> = vec![
+        // The shape the scan writes, with pictures of every format's kind.
+        json!({
+            "id3v2": [
+                text("TIT2", "Made Up"), text("TPE1", "Nobody"), text("TCON", "House"),
+                text("TDRC", "2019"), text("TRCK", "3/12"),
+                binary("APIC:front", json!(1200)), binary("APIC:back", json!(3400)),
+                binary("GEOB:thing", json!(99999)),
+            ],
+            "vorbis_comments": [
+                text("TITLE", "Other"), text("ARTIST", "A"), text("ARTIST", "B"),
+                binary("METADATA_BLOCK_PICTURE", json!(77)),
+            ],
+            "mp4_ilst": [text("©nam", "Mp4"), binary("covr", json!(5000))],
+            "ape": [binary("Cover Art (Front)", json!(9000))],
+        })
+        .to_string(),
+        // A text that was cut, empty pictures, huge and odd lengths.
+        json!({"id3v2": [
+            {"key": "TIT2", "value": {"type": "text", "text": "Cut", "full_len": 900}},
+            binary("APIC", json!(0)), binary("PIC", json!(u64::MAX)),
+        ]})
+        .to_string(),
+        json!({"id3v2": [binary("APIC", json!(-5)), binary("APIC:x", json!("12")),
+                         binary("APIC:y", json!(1.5)), binary("APIC:z", json!(null))]})
+        .to_string(),
+        // Items of other shapes: no key, a key that isn't text, no value, a
+        // value that isn't an object, a type that isn't text.
+        json!({"id3v2": [
+            {"value": {"type": "binary", "len": 10}},
+            {"key": 5, "value": {"type": "binary", "len": 10}},
+            {"key": "APIC"},
+            {"key": "APIC", "value": "binary"},
+            {"key": "APIC", "value": {"type": 3, "len": 10}},
+            {"key": "APIC", "value": {"len": 10}},
+            {"key": "TIT2", "value": {"type": "text", "text": 5}},
+            text("TPE1", "Survivor"),
+        ]})
+        .to_string(),
+        // Blocks that aren't lists, and tags that aren't objects.
+        json!({"id3v2": "nothing", "ape": {"a": 1}, "riff_info": [text("INAM", "Riff")]})
+            .to_string(),
+        json!({"id3v2": [text("TIT2", "Null full_len")], "x": null}).to_string(),
+        json!([1, 2]).to_string(),
+        "{}".to_owned(),
+        "not json".to_owned(),
+        String::new(),
+    ];
+    for raw in &inputs {
+        let (_, art) = facts::tags_and_art_of(raw);
+        assert_eq!(art, art_read_on_its_own(raw), "art of {raw}");
+        let all: Vec<_> = crate::send_values::tag_values(raw, &crate::send_values::TAG_ATTRIBUTES)
+            .into_iter()
+            .map(|f| (f.attribute, f.value))
+            .collect();
+        let again: Vec<_> = {
+            let (found, _) = crate::send_values::tag_values_and_largest_binary(
+                raw,
+                &crate::send_values::TAG_ATTRIBUTES,
+                |_| false,
+            );
+            found.into_iter().map(|f| (f.attribute, f.value)).collect()
+        };
+        assert_eq!(again, all, "tags of {raw}");
+    }
+}
+
+/// How long reading the tags of 100,000 files takes, both ways: two passes
+/// each, then one: `cargo test reading_the_tags_of -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn reading_the_tags_of_100000_files_costs() {
+    let frames = |n: usize| -> Vec<serde_json::Value> {
+        (0..n)
+            .map(|i| json!({"key": format!("TXXX:frame{i}"), "value": {"type": "text", "text": "x".repeat(40)}}))
+            .collect()
+    };
+    let mut id3 = frames(20);
+    id3.extend([
+        json!({"key": "TIT2", "value": {"type": "text", "text": "A Title"}}),
+        json!({"key": "TPE1", "value": {"type": "text", "text": "An Artist"}}),
+        json!({"key": "TCON", "value": {"type": "text", "text": "House"}}),
+        json!({"key": "APIC:front", "value": {"type": "binary", "len": 120_000}}),
+    ]);
+    let raw = json!({"id3v2": id3}).to_string();
+    let started = std::time::Instant::now();
+    for _ in 0..100_000 {
+        let tags = crate::send_values::tag_values(&raw, &crate::send_values::TAG_ATTRIBUTES);
+        let art = art_read_on_its_own(&raw);
+        assert!(!tags.is_empty() && art.is_some());
+    }
+    println!("two passes: {:?}", started.elapsed());
+    let started = std::time::Instant::now();
+    for _ in 0..100_000 {
+        let (tags, art) = facts::tags_and_art_of(&raw);
+        assert!(tags.title.is_some() && art.is_some());
+    }
+    println!("one pass: {:?}", started.elapsed());
+}
+
 // ---- a measurement of other audio ----------------------------------------------
 
 /// Gives a file this audio hash and a measurement of it with this cutoff.
