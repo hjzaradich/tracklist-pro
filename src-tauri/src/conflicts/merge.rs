@@ -121,7 +121,7 @@ pub fn merge_before_send(
     }
     // Crate membership, once every track's entry is known.
     let values = std::mem::take(&mut merged.values);
-    membership::merge(&tx, &values, &mut merged)?;
+    membership::merge(&tx, &values, &stale, &mut merged)?;
     merged.values = values;
     tx.commit()?;
     Ok(merged)
