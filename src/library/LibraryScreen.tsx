@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Crate } from "../bindings";
+import type { Crate, TableFilter } from "../bindings";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { useWhenUndone } from "../shell/undoneStore";
 import { TrackTableView } from "../trackTable/TrackTableView";
@@ -21,9 +21,10 @@ const LIBRARY_SOURCE = { kind: "library" } as const;
  * table (1cA-3). Starting a Library and adding tracks arrive in 1aE. A track
  * is removed after a confirmation, and the removal can be undone (1aE-6) from
  * the top bar or with Ctrl+Z; this screen offers no Undo of its own (owner
- * decision, 2026-10-27).
+ * decision, 2026-10-27). It starts with the filter chips it is given: the
+ * door an Overview number opened (1cC-4).
  */
-export function LibraryScreen() {
+export function LibraryScreen({ initialFilters = [] }: { initialFilters?: readonly TableFilter[] }) {
   const { t } = useTranslation("library");
   const remove = useRemoveLibraryTrack();
   const [pending, setPending] = useState<LibraryRow | null>(null);
@@ -102,6 +103,7 @@ export function LibraryScreen() {
         <TrackTableView
           screen="library"
           source={LIBRARY_SOURCE}
+          initialFilters={initialFilters}
           keyPrefix={LIBRARY_TABLE_QUERY_KEY}
           // How many tracks the Library holds: the list itself is too long
           // to count.

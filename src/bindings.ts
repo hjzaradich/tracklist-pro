@@ -2531,7 +2531,29 @@ export type TableFilter =
 /**  The track is in the Library. */
 { kind: "inLibrary" } | 
 /**  The track is not in the Library. */
-{ kind: "notInLibrary" };
+{ kind: "notInLibrary" } | 
+/**
+ *  The track's linked file has a current quality verdict that flags it
+ *  (low bitrate, a suspected transcode, cut off or broken): the Overview's
+ *  "tracks made from low-quality files". Not the same as
+ *  [`TableFilter::QualityProblem`], which is Review's group and leaves
+ *  out a track with a better copy or a "Keep anyway".
+ */
+{ kind: "lowQuality" } | 
+/**
+ *  rekordbox supplied a BPM or a key for the track (the Overview's
+ *  "analyzed").
+ */
+{ kind: "analyzedByRekordbox" } | 
+/**  rekordbox didn't: a Library track with no `analysis` row from it. */
+{ kind: "notAnalyzedByRekordbox" } | 
+/**
+ *  The energy the track shows is this level, 1 to 10 (the Overview's
+ *  energy bars).
+ */
+{ kind: "energy"; level: number } | 
+/**  No source gives the track an energy. */
+{ kind: "noEnergy" };
 
 /**  A window of rows. */
 export type TablePage = {

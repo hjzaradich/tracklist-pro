@@ -26,7 +26,7 @@ fn case(lib: &Lib, name: &'static str, verdict: Option<&str>) -> Case {
 
 /// A verdict as the quality job leaves it: for the rules and the inputs of
 /// now.
-fn current_verdict(lib: &Lib, file: i64, verdict: &str) {
+pub(super) fn current_verdict(lib: &Lib, file: i64, verdict: &str) {
     let sql = format!(
         "INSERT OR REPLACE INTO file_verdict (file_id, rules_version, inputs, verdict, findings)
          SELECT f.id, {}, {}, ?2, '[]' FROM file f

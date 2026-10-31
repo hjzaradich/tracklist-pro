@@ -20,11 +20,16 @@ afterEach(() => {
 const MINUTE_MS = 60_000;
 const ENERGY_LEVELS = 10;
 
+/** The label, the bar and the count of a chart's row (an energy bar's are inside its link). */
+function cellsOf(row: HTMLElement): Element[] {
+  return Array.from((row.querySelector("a") ?? row).children);
+}
+
 /** The rows of a chart, each as `[label, count]`, read from what is written beside the bars. */
 function rowsOf(region: HTMLElement): [string, string][] {
   return within(region)
     .getAllByRole("listitem")
-    .map((row) => [row.children[0]?.textContent ?? "", row.children[2]?.textContent ?? ""]);
+    .map((row) => [cellsOf(row)[0]?.textContent ?? "", cellsOf(row)[2]?.textContent ?? ""]);
 }
 
 const sum = (rows: [string, string][]) => rows.reduce((total, [, n]) => total + Number(n), 0);
@@ -132,7 +137,7 @@ describe("the energy bars", () => {
     const widths = within(region)
       .getAllByRole("listitem")
       .slice(0, 4)
-      .map((row) => (row.children[1]?.firstElementChild as HTMLElement).style.width);
+      .map((row) => (cellsOf(row)[1]?.firstElementChild as HTMLElement).style.width);
     expect(widths).toEqual(["100%", "50%", "0%", "25%"]);
   });
 

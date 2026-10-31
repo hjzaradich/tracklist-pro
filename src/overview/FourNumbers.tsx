@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { Overview } from "../bindings";
+import { LibraryDoor } from "./LibraryDoor";
 import styles from "./overview.module.css";
 
 const MINUTE_MS = 60_000;
@@ -11,6 +12,11 @@ const HOUR_MINUTES = 60;
  * last sent. The track count comes from the Library's own list, so it shows
  * before the rest, which wait for the Overview command. A number that
  * background work can still change says so.
+ *
+ * Every number that counts tracks is a door (1cC-4): the track count opens the
+ * Library, "in crates" and "analyzed" open it with the chip that holds those
+ * tracks. The length and the date of the last send count no tracks, so they
+ * open nothing.
  */
 export function FourNumbers({
   libraryTracks,
@@ -42,32 +48,38 @@ export function FourNumbers({
     <ul className={styles.numbers}>
       {libraryTracks !== undefined && (
         <li className={styles.number}>
-          <span className={styles.value}>{number.format(libraryTracks)}</span>
-          <span className={styles.caption}>{t("numbers.tracks", { count: libraryTracks })}</span>
-          {length !== null && <span className={styles.caption}>{length}</span>}
-          {stillCounting(counting?.files)}
+          <LibraryDoor className={styles.numberDoor}>
+            <span className={styles.value}>{number.format(libraryTracks)}</span>
+            <span className={styles.caption}>{t("numbers.tracks", { count: libraryTracks })}</span>
+            {length !== null && <span className={styles.caption}>{length}</span>}
+            {stillCounting(counting?.files)}
+          </LibraryDoor>
         </li>
       )}
       {overview && (
         <>
           <li className={styles.number}>
-            <span className={styles.value}>{number.format(overview.inCrates)}</span>
-            <span className={styles.caption}>{t("numbers.inCrates")}</span>
+            <LibraryDoor filter={{ kind: "inCrate" }} className={styles.numberDoor}>
+              <span className={styles.value}>{number.format(overview.inCrates)}</span>
+              <span className={styles.caption}>{t("numbers.inCrates")}</span>
+            </LibraryDoor>
           </li>
           <li className={styles.number}>
             {overview.rekordboxRead ? (
-              <>
+              <LibraryDoor filter={{ kind: "analyzedByRekordbox" }} className={styles.numberDoor}>
                 <span className={styles.value}>{number.format(overview.analyzedByRekordbox)}</span>
                 <span className={styles.caption}>{t("numbers.analyzed")}</span>
-              </>
+                {stillCounting(counting?.rekordbox)}
+              </LibraryDoor>
             ) : (
-              // Before rekordbox has been read, "none analyzed" would say nothing.
+              // Before rekordbox has been read, "none analyzed" would say nothing,
+              // and there are no rows behind it: not a door.
               <>
                 <span className={styles.value}>–</span>
                 <span className={styles.caption}>{t("numbers.analyzedUnread")}</span>
+                {stillCounting(counting?.rekordbox)}
               </>
             )}
-            {stillCounting(counting?.rekordbox)}
           </li>
           <li className={styles.number}>
             {overview.lastSentMs === null ? (

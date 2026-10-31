@@ -2,13 +2,15 @@ import { Link } from "@tanstack/react-router";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Overview, ReviewCounts } from "../bindings";
+import type { Overview, ReviewCounts, TableFilter } from "../bindings";
+import { LibraryDoor } from "./LibraryDoor";
 import styles from "./overview.module.css";
 import { isCounting } from "./useOverview";
 
 /**
  * Where a line goes: Review for decisions, All music for the tracks outside
- * the Library, the Library for the rest (1cC-4 filters it).
+ * the Library, the Library for the rest, filtered to the tracks the line
+ * counts (1cC-4: the chip says why).
  */
 type Door = "/review" | "/library" | "/all-music";
 
@@ -16,6 +18,8 @@ interface Line {
   id: string;
   count: number;
   door: Door;
+  /** The Library's filter chip that holds the tracks the line counts. */
+  filter?: TableFilter;
   /** The number can still change because background work is running. */
   counting: boolean;
 }
@@ -39,7 +43,13 @@ export function waitingLines(overview: Overview | undefined, review: ReviewCount
   if (overview !== undefined) {
     const { counting } = overview;
     lines.push(
-      { id: "lowQuality", count: overview.lowQuality, door: "/library", counting: counting.quality },
+      {
+        id: "lowQuality",
+        count: overview.lowQuality,
+        door: "/library",
+        filter: { kind: "lowQuality" },
+        counting: counting.quality,
+      },
       { id: "missingTags", count: overview.missingTags, door: "/library", counting: counting.files },
       { id: "missingArt", count: overview.missingArt, door: "/library", counting: counting.files },
       // Before rekordbox has been read, every track is "not analyzed", which says nothing.
@@ -47,9 +57,16 @@ export function waitingLines(overview: Overview | undefined, review: ReviewCount
         id: "notAnalyzed",
         count: overview.rekordboxRead ? overview.notAnalyzed : 0,
         door: "/library",
+        filter: { kind: "notAnalyzedByRekordbox" },
         counting: counting.rekordbox,
       },
-      { id: "inNoCrate", count: overview.inNoCrate, door: "/library", counting: false },
+      {
+        id: "inNoCrate",
+        count: overview.inNoCrate,
+        door: "/library",
+        filter: { kind: "inNoCrate" },
+        counting: false,
+      },
       {
         id: "outsideLibrary",
         count: overview.outsideLibrary,
@@ -99,12 +116,25 @@ export function TodoList({
         <ul className={styles.lines}>
           {lines.map((line) => (
             <li key={line.id}>
-              <Link to={line.door} className={styles.line}>
-                {label(line)}
-                {line.counting && (
-                  <span className={styles.muted}> {t("overview:todo.lineCounting")}</span>
-                )}
-              </Link>
+              {(() => {
+                const text = (
+                  <>
+                    {label(line)}
+                    {line.counting && (
+                      <span className={styles.muted}> {t("overview:todo.lineCounting")}</span>
+                    )}
+                  </>
+                );
+                return line.door === "/library" ? (
+                  <LibraryDoor filter={line.filter} className={styles.line}>
+                    {text}
+                  </LibraryDoor>
+                ) : (
+                  <Link to={line.door} className={styles.line}>
+                    {text}
+                  </Link>
+                );
+              })()}
             </li>
           ))}
         </ul>

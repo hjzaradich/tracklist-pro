@@ -58,6 +58,26 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A number that is a door (1cC-4): the figure and what it counts, in one link
+ * that looks like the plain number until it is hovered or focused. */
+.numberDoor {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.numberDoor:hover .value {
+  text-decoration: underline;
+}
+
+.numberDoor:focus-visible,
+.barDoor:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
 .value {
   font-size: var(--font-size-xl);
   font-weight: 600;
@@ -193,6 +213,21 @@
   grid-column: 1 / -1;
   align-items: center;
   min-height: var(--row-height);
+}
+
+/* An energy bar is a door too: the link is the whole row, laid out as the row is. */
+.barDoor {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  min-height: var(--row-height);
+  color: inherit;
+  text-decoration: none;
+}
+
+.barDoor:hover .barLabel {
+  text-decoration: underline;
 }
 
 .barLabel {

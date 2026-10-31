@@ -13,6 +13,7 @@ import { CratesScreen } from "../crates/CratesScreen";
 import { launchScreen, type RouterContext } from "../launch/launchContext";
 import { LaunchWatcher } from "../launch/LaunchWatcher";
 import { isCrateId } from "../launch/savedScreen";
+import { filterOfDoor, validateLibrarySearch } from "../library/doors";
 import { LibraryScreen } from "../library/LibraryScreen";
 import { OverviewScreen } from "../overview/OverviewScreen";
 import { ReviewScreen } from "../review/ReviewScreen";
@@ -65,10 +66,23 @@ const allMusicRoute = createRoute({
   component: AllMusicScreen,
 });
 
+/**
+ * `/library?filter=WORD` opens the Library with a filter chip on: the door an
+ * Overview number opens (1cC-4; `src/library/doors.ts`). A word that stands
+ * for no filter is no choice at all, and not an error. The screen is keyed by
+ * the word, so another door starts the table afresh.
+ */
+function LibraryRoute() {
+  const { filter } = libraryRoute.useSearch();
+  const chip = filterOfDoor(filter);
+  return <LibraryScreen key={filter ?? ""} initialFilters={chip === null ? [] : [chip]} />;
+}
+
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/library",
-  component: LibraryScreen,
+  validateSearch: validateLibrarySearch,
+  component: LibraryRoute,
 });
 
 /**

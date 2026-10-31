@@ -56,6 +56,22 @@
     "purpose": "Label of the bar that counts tracks with no energy.",
     "where": "Overview, energy bars, after energy 10."
   },
+  "charts.energy.door_one": {
+    "purpose": "Name of an energy bar's link, for one track: the bar's energy and its count. The link opens the Library with that energy.",
+    "where": "Overview, energy bars (screen readers only: the name of the link a bar is)."
+  },
+  "charts.energy.door_other": {
+    "purpose": "Name of an energy bar's link: the bar's energy and its count. The link opens the Library with that energy.",
+    "where": "Overview, energy bars (screen readers only: the name of the link a bar is)."
+  },
+  "charts.energy.noneDoor_one": {
+    "purpose": "Name of the No energy bar's link, for one track. The link opens the Library with the tracks that have no energy.",
+    "where": "Overview, energy bars (screen readers only: the name of the link a bar is)."
+  },
+  "charts.energy.noneDoor_other": {
+    "purpose": "Name of the No energy bar's link. The link opens the Library with the tracks that have no energy.",
+    "where": "Overview, energy bars (screen readers only: the name of the link a bar is)."
+  },
   "charts.energy.empty": {
     "purpose": "Says no track has an energy, so there are no bars to draw.",
     "where": "Overview, in place of the energy bars."

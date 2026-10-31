@@ -12,11 +12,23 @@
 //! flagged by a current verdict, cut off or broken, with no better copy and
 //! no "Keep anyway" or "Find a better file" for that audio, or one with a
 //! "Better file available" item whose linked file is still there.
+//!
+//! **Doors from the Overview** (1cC-4, "Every number is a door"): the
+//! filters [`TableFilter::LowQuality`], [`TableFilter::AnalyzedByRekordbox`],
+//! [`TableFilter::NotAnalyzedByRekordbox`], [`TableFilter::Energy`] and
+//! [`TableFilter::NoEnergy`] are the Overview's own definitions, in the very
+//! SQL text it counts with (`overview::low_quality_sql`, `ANALYZED`,
+//! `shown_energy!`), looked up through the row's Library track when the query
+//! runs. A number on the Overview and the rows behind its chip can't mean
+//! different things, because there is one definition; a test counts both. The
+//! crate filters read the flags `track_row` keeps, worked out from the same
+//! text (`overview::IN_A_CRATE`), so they agree once the index has caught up.
 
 use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::overview::library_track_where;
 use crate::search::flag;
 
 /// One filter chip.
@@ -44,6 +56,22 @@ pub enum TableFilter {
     InLibrary,
     /// The track is not in the Library.
     NotInLibrary,
+    /// The track's linked file has a current quality verdict that flags it
+    /// (low bitrate, a suspected transcode, cut off or broken): the Overview's
+    /// "tracks made from low-quality files". Not the same as
+    /// [`TableFilter::QualityProblem`], which is Review's group and leaves
+    /// out a track with a better copy or a "Keep anyway".
+    LowQuality,
+    /// rekordbox supplied a BPM or a key for the track (the Overview's
+    /// "analyzed").
+    AnalyzedByRekordbox,
+    /// rekordbox didn't: a Library track with no `analysis` row from it.
+    NotAnalyzedByRekordbox,
+    /// The energy the track shows is this level, 1 to 10 (the Overview's
+    /// energy bars).
+    Energy { level: u8 },
+    /// No source gives the track an energy.
+    NoEnergy,
 }
 
 /// The ids of the tracks Review lists as quality problems, as the JSON array
@@ -106,6 +134,25 @@ pub(super) fn conditions(
             TableFilter::InNoCrate => lacks(flag::IN_CRATE),
             TableFilter::InLibrary => has(flag::IN_LIBRARY),
             TableFilter::NotInLibrary => lacks(flag::IN_LIBRARY),
+            TableFilter::LowQuality => {
+                library_track_where(&format!("({}) = 1", crate::overview::low_quality_sql()))
+            }
+            TableFilter::AnalyzedByRekordbox => library_track_where(crate::overview::ANALYZED),
+            TableFilter::NotAnalyzedByRekordbox => {
+                library_track_where(&format!("NOT {}", crate::overview::ANALYZED))
+            }
+            TableFilter::Energy { level } => {
+                params.push(Value::Integer(i64::from(*level)));
+                library_track_where(&format!(
+                    "{} = ?{}",
+                    crate::overview::shown_energy!("lt.recording_id"),
+                    params.len()
+                ))
+            }
+            TableFilter::NoEnergy => library_track_where(&format!(
+                "{} IS NULL",
+                crate::overview::shown_energy!("lt.recording_id")
+            )),
         };
         out.push(sql);
     }
