@@ -40,6 +40,7 @@ function fakeApp(starsOn: boolean) {
             exportPath: String.raw`C:\export.xml`,
             preflight: backend.held,
             step: null,
+            workingOn: null,
             failure: null,
             sent: null,
           } satisfies SendState;

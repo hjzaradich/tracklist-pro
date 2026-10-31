@@ -115,6 +115,7 @@ export function fakeBackend(world: World = {}) {
             exportPath: null,
             preflight: world.preflight ?? null,
             step: null,
+            workingOn: null,
             failure: null,
             sent: null,
           };

@@ -1313,3 +1313,33 @@ fn listing_the_library_leaves_the_database_unchanged() {
     assert_eq!(lib.list().len(), 2);
     assert_eq!(lib.snapshot(), before);
 }
+
+#[test]
+fn the_cheaper_reads_a_send_makes_give_what_the_whole_library_read_gives() {
+    let lib = Lib::new();
+    for name in ["a.mp3", "b.mp3", "c.mp3", "d.mp3"] {
+        let track = lib.track(Some(name), Some("Kit"));
+        let file = lib.file(track, name, "best", true);
+        lib.rekordbox_match(file, false);
+        lib.promote(track).unwrap();
+    }
+    // A file gone since.
+    lib.insert("UPDATE file SET present = 0 WHERE rel_path = 'b.mp3'", ());
+    let (all, ids, some, linked) = lib
+        .writer
+        .call(|c| {
+            let volumes = Mount::at(r"E:\");
+            let all = stored(c, &volumes)?;
+            let ids = stored_ids(c)?;
+            let some = stored_these(c, &volumes, &[LibraryTrackId(3), LibraryTrackId(1)])?;
+            Ok((all, ids, some, linked_files(c)?))
+        })
+        .unwrap();
+
+    assert_eq!(all.len(), 4);
+    assert_eq!(ids, all.iter().map(|t| t.id).collect::<Vec<_>>());
+    assert_eq!(some, [all[0].clone(), all[2].clone()]);
+    for track in &all {
+        assert_eq!(linked.get(&track.id), track.file.as_ref());
+    }
+}

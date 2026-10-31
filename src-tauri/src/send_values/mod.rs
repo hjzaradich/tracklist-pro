@@ -88,6 +88,7 @@ use rusqlite::Connection;
 
 use crate::library::{file_from, LibraryTrackId, StoredFile, FILE_COLUMNS, FILE_JOINS};
 use crate::paths::Volumes;
+use crate::rekordbox::store::object_values;
 
 pub use shown::{
     shown, shown_fields, shown_recording_fields, shown_recordings, shown_removed, shown_tags,
@@ -518,12 +519,38 @@ impl Loaded {
     /// 5. The attributes of the linked files' entries, in the order
     ///    rekordbox wrote them (only `Name` and `Artist` for a list).
     fn load_attributes(&mut self, conn: &Connection, scope: Scope) -> rusqlite::Result<()> {
-        let entries = json_ids(
-            &mut self.rows.values().filter_map(|r| match self.source(r) {
+        let mut entries: Vec<i64> = self
+            .rows
+            .values()
+            .filter_map(|r| match self.source(r) {
                 Source::Known { entry, .. } => Some(entry),
                 Source::Files { .. } | Source::Cannot(_) => None,
-            }),
-        );
+            })
+            .collect();
+        if scope == Scope::Send {
+            // Every attribute of every entry: read whole, not one by one.
+            let mut stmt = conn.prepare(
+                "SELECT id, attributes FROM rekordbox_track
+                 WHERE id IN (SELECT value FROM json_each(?1))",
+            )?;
+            let wanted = json_ids(&mut entries.iter().copied());
+            entries.clear();
+            for row in stmt.query_map([&wanted], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (entry, text) = row?;
+                match object_values(&text) {
+                    Some(pairs) => {
+                        self.attributes.insert(entry, pairs);
+                    }
+                    None => entries.push(entry),
+                }
+            }
+            if entries.is_empty() {
+                return Ok(());
+            }
+        }
+        let entries = json_ids(&mut entries.into_iter());
         let only = match scope {
             Scope::Send | Scope::Decide => "",
             Scope::Names => "AND j.key IN ('Name', 'Artist')",

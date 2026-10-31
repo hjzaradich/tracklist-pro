@@ -650,3 +650,21 @@ fn an_incomplete_export_replaces_earlier_tracks_it_now_skips_or_cannot_store() {
     );
     assert_eq!((summary.kept, summary.not_stored), (1, 2));
 }
+
+#[test]
+fn stored_attributes_read_back_as_they_were_in_their_order_and_nothing_else_does() {
+    let xml = parse(&export(
+        r#"<TRACK TrackID="1" Zed="quote &quot; é" Name="a\b" Alpha="" Location="file://localhost/C:/a.mp3"/>"#,
+    ));
+    let text = object_json(&xml.tracks[0].attrs);
+    let read = object_values(&text).unwrap();
+    let names: Vec<&str> = read.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["TrackID", "Zed", "Name", "Alpha", "Location"]);
+    assert_eq!(read[1].1, "quote \" é");
+    assert_eq!(read[2].1, "a\\b");
+
+    assert_eq!(object_values(r#"{"TrackID":7}"#), None);
+    assert_eq!(object_values(r#"{"a":"b"} trailing"#), None);
+    assert_eq!(object_values("[]"), None);
+    assert_eq!(object_values("{}"), Some(Vec::new()));
+}

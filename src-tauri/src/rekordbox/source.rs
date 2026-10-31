@@ -453,6 +453,9 @@ const PROGRESS_BYTES: u64 = 1 << 20;
 /// The read job's handler.
 #[derive(Default)]
 pub struct XmlReader {
+    /// How far along its job the read ends: `None` when the read is the
+    /// whole job. A step the read is only the start of sets this.
+    up_to: Option<f64>,
     /// Called as the read passes each [`Stage`], so tests can act there.
     #[cfg(test)]
     pub(crate) hook: Option<std::sync::Arc<dyn Fn(Stage) + Send + Sync>>,
@@ -469,6 +472,20 @@ pub(crate) enum Stage {
 }
 
 impl XmlReader {
+    /// A reader for a job the read is only the start of: it reports
+    /// progress up to `end`, not up to 1.
+    pub fn up_to(end: f64) -> XmlReader {
+        XmlReader {
+            up_to: Some(end),
+            #[cfg(test)]
+            hook: None,
+        }
+    }
+
+    fn end(&self) -> f64 {
+        self.up_to.unwrap_or(1.0)
+    }
+
     #[cfg(test)]
     fn at(&self, stage: Stage) {
         if let Some(hook) = &self.hook {
@@ -540,6 +557,7 @@ impl XmlReader {
             total: meta.len().max(1),
             next_report: PROGRESS_BYTES,
             job,
+            end: self.end(),
             #[cfg(test)]
             reader: self,
         };
@@ -582,7 +600,7 @@ impl XmlReader {
             })
             .map_err(Stop::Db)?;
         // Stored: a cancel now changes nothing.
-        let _ = job.progress(1.0);
+        let _ = job.progress(self.end());
         // Match the fresh snapshot's tracks to files. The read stands if
         // this fails; the next read or scan asks again.
         if let Err(e) = crate::relink::request(job.writer(), |j| job.enqueue(j)) {
@@ -604,6 +622,8 @@ struct Counting<'a> {
     total: u64,
     next_report: u64,
     job: &'a JobContext,
+    /// How far along its job the read ends.
+    end: f64,
     #[cfg(test)]
     reader: &'a XmlReader,
 }
@@ -616,7 +636,7 @@ impl Read for Counting<'_> {
             self.next_report = self.read + PROGRESS_BYTES;
             let fraction = self.read as f64 / self.total as f64;
             self.job
-                .progress(fraction.min(1.0) * READ_SHARE)
+                .progress(fraction.min(1.0) * READ_SHARE * self.end)
                 .map_err(|_| io::Error::other("cancelled"))?;
             #[cfg(test)]
             self.reader.at(Stage::Progress);

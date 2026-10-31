@@ -450,12 +450,7 @@ mod on_disk {
             .iter()
             .enumerate()
             .map(|(i, name)| Watched {
-                track: TrackLabel {
-                    library_track: LibraryTrackId(i64::try_from(i).unwrap() + 1),
-                    title: None,
-                    artist: None,
-                    file_name: None,
-                },
+                track: LibraryTrackId(i64::try_from(i).unwrap() + 1),
                 path: Some(crate::scan::display_path(&music.join(name))),
                 recorded: false,
             })
@@ -464,6 +459,41 @@ mod on_disk {
         let changed = changed_on_disk(&watched, export);
         println!("looked at {count} files on disk in {:?}", started.elapsed());
         assert_eq!(i64::try_from(changed.len()).unwrap(), count / 10);
+    }
+
+    /// How long the writer is held: a thread asks it to do nothing, over and
+    /// over, so each answer takes as long as whatever the writer was doing
+    /// (1cD-S1). Stands in for a user's save waiting on a send.
+    struct WriterWatch {
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        thread: std::thread::JoinHandle<(Duration, Duration)>,
+    }
+
+    impl WriterWatch {
+        fn start(writer: &Writer) -> WriterWatch {
+            let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (writer, stopped) = (writer.clone(), stop.clone());
+            let thread = std::thread::spawn(move || {
+                let (mut longest, mut in_all) = (Duration::ZERO, Duration::ZERO);
+                while !stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                    let at = Instant::now();
+                    writer.call(|_| Ok(())).unwrap();
+                    let waited = at.elapsed();
+                    longest = longest.max(waited);
+                    if waited > Duration::from_millis(50) {
+                        in_all += waited;
+                    }
+                }
+                (longest, in_all)
+            });
+            WriterWatch { stop, thread }
+        }
+
+        fn report(self, step: &str) {
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            let (longest, in_all) = self.thread.join().unwrap();
+            println!("  writer during {step}: held {longest:?} at most, {in_all:?} in all");
+        }
     }
 
     /// 1cC-M1: a whole send of 100,000 tracks rekordbox has, each on a real
@@ -512,6 +542,7 @@ mod on_disk {
         w.save_export_text(&export_on(&root, &tracks));
         println!("peak memory after building the library: {} MiB", mib());
 
+        let watch = WriterWatch::start(&w.writer);
         let started = Instant::now();
         let preflight = w.prepare_on(&root).unwrap();
         println!(
@@ -519,10 +550,12 @@ mod on_disk {
             started.elapsed(),
             mib()
         );
+        watch.report("prepare");
         assert_eq!(i64::from(preflight.known_tracks), count);
 
         let on = root.clone();
         let sender = Sender::new(w.flow.clone(), move || MountedAt(on.clone()));
+        let watch = WriterWatch::start(&w.writer);
         let started = Instant::now();
         let status = w.run_within(
             sender,
@@ -535,23 +568,22 @@ mod on_disk {
             started.elapsed(),
             mib()
         );
+        watch.report("go");
         println!("failure: {:?}", w.flow.failure());
         println!(
             "the send file: {} MiB",
             fs::metadata(w.send_file()).map(|m| m.len()).unwrap_or(0) / (1024 * 1024)
         );
 
-        // Where the review's time goes: the steps of `preflight::review`, one
-        // by one, on the writer (the prepare runs them in one writer job after
-        // the read and the relink; the go runs them again).
+        // Where the review's time goes: its steps one by one (the prepare
+        // runs them after the read and the relink; the go runs them again).
         let on = root.clone();
         w.writer
             .call(move |c| {
                 let volumes = MountedAt(on);
                 let at = Instant::now();
-                let tracks = crate::library::stored(c, &volumes)?;
-                println!("  library::stored: {:?}", at.elapsed());
-                let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
+                let ids = crate::library::stored_ids(c)?;
+                println!("  library::stored_ids: {:?}", at.elapsed());
                 let at = Instant::now();
                 let merged = crate::conflicts::merge_before_send(c, &volumes, &ids)?;
                 println!("  conflicts::merge_before_send: {:?}", at.elapsed());

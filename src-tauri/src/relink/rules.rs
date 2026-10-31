@@ -430,6 +430,10 @@ fn totals_fitting(duration_ms: i64) -> impl Iterator<Item = u32> {
 /// A path's key for matching: NFC, and letter case folded the way NTFS
 /// folds it. The same key [`FilePath::match_key`] gives a Windows path.
 pub fn path_key(path: &str) -> String {
+    // An ASCII path has nothing to compose, and that's nearly every path.
+    if path.is_ascii() {
+        return path.to_ascii_uppercase();
+    }
     path.nfc().map(upcase).collect()
 }
 

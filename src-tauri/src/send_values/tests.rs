@@ -1908,3 +1908,56 @@ fn the_dj_app_plays_exactly_the_formats_the_send_gives_a_kind() {
         assert_eq!(plays_in_dj_app(format), kind(format).is_some(), "{format}");
     }
 }
+
+#[test]
+fn an_entrys_values_read_whole_are_the_ones_sqlite_reads_one_by_one() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(track, "a.mp3", "best", id3(&[("TIT2", "Tag")]));
+    let value = "quote \" slash \\ tab\t line\n é 日本 🚀 \u{2028} &amp;";
+    let attributes = [("Zeta", value), ("Name", "Theirs"), ("Alpha", "")];
+    lib.rekordbox(file, &attributes, false);
+    let library = lib.library(track, Some(file));
+    let whole = lib.ready(library);
+
+    assert_eq!(
+        whole
+            .values
+            .iter()
+            .map(|v| v.attribute.as_str())
+            .collect::<Vec<_>>(),
+        ["TrackID", "Zeta", "Name", "Alpha", "Location"]
+    );
+    assert_eq!(whole.get("Zeta").map(|v| v.value.as_str()), Some(value));
+}
+
+#[test]
+fn an_entry_holding_something_but_text_is_still_read_whole_by_sqlite() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(track, "a.mp3", "best", id3(&[("TIT2", "Tag")]));
+    lib.insert(
+        "INSERT INTO rekordbox_track
+             (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+         VALUES (?1, 'E:/MUSIC/A.MP3', '2026-09-30T10:00:00.000Z', ?2, 'path', 0)",
+        (
+            r#"{"TrackID":"7","Odd":7,"Name":"Theirs","Location":"file://localhost/E:/Music/a.mp3"}"#,
+            file,
+        ),
+    );
+    let library = lib.library(track, Some(file));
+    let values = lib.ready(library);
+    assert_eq!(
+        values
+            .values
+            .iter()
+            .map(|v| (v.attribute.as_str(), v.value.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("TrackID", "7"),
+            ("Odd", "7"),
+            ("Name", "Theirs"),
+            ("Location", "file://localhost/E:/Music/a.mp3"),
+        ]
+    );
+}

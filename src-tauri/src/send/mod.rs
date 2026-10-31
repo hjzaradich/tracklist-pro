@@ -48,7 +48,9 @@ use crate::write_guard::WriteGuard;
 
 pub use job::{drop_unfinished_jobs, sender, Sender};
 pub(crate) use preflight::last_send_ms;
-pub use preflight::{review, Reviewed};
+#[cfg(test)]
+pub use preflight::review;
+pub use preflight::Reviewed;
 pub use tree::crate_tree;
 
 /// A Library track, as the preflight's lists name it.
@@ -300,6 +302,27 @@ pub enum SendStep {
     Write,
 }
 
+/// What a step is doing now, for the checklist to name. A job only reports
+/// how far it has got, so this says what the number is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SendWork {
+    /// Reading rekordbox's export.
+    Reading,
+    /// Matching its tracks to files.
+    Matching,
+    /// Merging the two sides (1.10).
+    Merging,
+    /// Building the send and reading it back.
+    Building,
+    /// Looking at the files on disk.
+    LookingAtFiles,
+    /// Writing the send's file.
+    Writing,
+    /// Recording the send.
+    Recording,
+}
+
 /// A send that went through.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -325,6 +348,8 @@ pub struct SendState {
     pub preflight: Option<Preflight>,
     /// The step that ended last, in this run of the app.
     pub step: Option<SendStep>,
+    /// What the step under way is doing now; `None` between steps.
+    pub working_on: Option<SendWork>,
     /// Why the last step stopped, until the next step starts.
     pub failure: Option<SendFailure>,
     /// The last send of this run of the app, until the next read starts.
@@ -335,6 +360,7 @@ pub struct SendState {
 struct Steps {
     revision: u32,
     step: Option<SendStep>,
+    working_on: Option<SendWork>,
     review: Option<Preflight>,
     failure: Option<SendFailure>,
     sent: Option<Sent>,
@@ -409,11 +435,17 @@ impl SendFlow {
         self.steps().failure = None;
     }
 
+    /// Records what the step under way is doing now.
+    fn working_on(&self, work: SendWork) {
+        self.steps().working_on = Some(work);
+    }
+
     /// Records how a step ended.
     fn end(&self, step: SendStep, change: impl FnOnce(&mut Steps)) {
         let mut steps = self.steps();
         change(&mut steps);
         steps.step = Some(step);
+        steps.working_on = None;
         steps.revision = steps.revision.wrapping_add(1);
     }
 
@@ -425,6 +457,7 @@ impl SendFlow {
             export_path,
             preflight: steps.review.clone(),
             step: steps.step,
+            working_on: steps.working_on,
             failure: steps.failure,
             sent: steps.sent.clone(),
         }

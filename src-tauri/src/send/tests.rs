@@ -20,6 +20,8 @@ use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 mod changed_after_export;
 mod membership;
 mod merge;
+mod one_moment;
+mod same_as_before;
 
 fn volume_id() -> VolumeId {
     identity(IdentitySignals {
@@ -1521,9 +1523,9 @@ fn a_read_landing_during_prepare_never_makes_known_tracks_count_as_new() {
 #[test]
 fn no_read_can_land_between_matching_the_tracks_and_building_the_preflight() {
     // A read tried at that very point: it can't get the database, because
-    // the matching and the preflight are one writer job. Were they two, it
-    // would land, leave every row unmatched, and the known track would
-    // count as new.
+    // the matching and the moment the preflight reads are one writer job.
+    // Were they two, it would land, leave every row unmatched, and the
+    // known track would count as new.
     let (w, ..) = world_with_a_send_waiting();
     let (writer, text) = (w.writer.clone(), fs::read_to_string(&w.export).unwrap());
     let tried = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

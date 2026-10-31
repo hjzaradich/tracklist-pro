@@ -68,6 +68,7 @@ function fakeBackend(initial: Partial<SendState> = {}) {
       exportPath: EXPORT,
       preflight: null,
       step: null,
+      workingOn: null,
       failure: null,
       sent: null,
       ...initial,
@@ -799,6 +800,30 @@ describe("the send checklist", () => {
     expect(await screen.findByText(tx("send:review.new", { count: 3 }))).toBeInTheDocument();
     expect(screen.queryByText(tx("send:export.reading"))).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: tx("send:write.go") })).toBeEnabled();
+  });
+
+  it("names what the step under way is doing, and how far its job has got", async () => {
+    const backend = fakeBackend();
+    backend.onPrepare = () => {};
+    renderChecklist();
+    await userEvent.click(await screen.findByRole("button", { name: tx("send:export.read") }));
+    expect(await screen.findByText(tx("send:export.reading"))).toBeInTheDocument();
+
+    // The app says what it is doing, and the job how far it has got.
+    backend.state = { ...backend.state, workingOn: "merging" };
+    await screen.findByText(tx("send:working.merging"), {}, { timeout: 3_000 });
+    act(() => {
+      const activity = useActivityStore.getState();
+      activity.applySnapshot({ seq: 0, jobs: [] });
+      activity.applyUpdates([
+        { seq: 1, id: 7, kind: "export", status: "running", progress: 0.555, priority: 10 },
+      ]);
+    });
+    expect(
+      await screen.findByText(
+        tx("activity:percent", { task: tx("send:working.merging"), percent: 55 }),
+      ),
+    ).toBeInTheDocument();
   });
 
   it("stops waiting when Activity says the step's job ended without a result", async () => {

@@ -134,7 +134,7 @@ use serde::Serialize;
 use specta::Type;
 
 pub use compare::{fits, is_blank, kind_of, same, stars_of, Kind, ANALYSIS_FIELDS};
-pub use merge::{merge_before_send, Merged};
+pub use merge::{merge_before_send, merge_without_writing, Merged};
 pub use resolve::{
     resolve, resolve_all, resolve_all_with, resolve_with, Choice, ResolveError, Resolved,
     RESOLVE_ALL_OPERATION, RESOLVE_OPERATION,
