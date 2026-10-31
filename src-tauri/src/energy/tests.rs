@@ -208,3 +208,62 @@ fn an_energy_alone_does_not_make_the_search_index_work_again() {
     undo(&lib);
     assert!(!lib.pending());
 }
+
+/// 1cC-M1: setting an energy on 100,000 selected tracks (one operation), what
+/// asking "what would Undo do" costs after it (`next_undo`) and its Undo.
+/// Half the tracks are in the Library and a quarter already have an energy of
+/// their own, so both the insert and the update paths run. Prints; asserts
+/// nothing about time. Run alone, in a release build:
+/// `cargo test --release --lib setting_energy_on_100000 -- --ignored --nocapture`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn setting_energy_on_100000_tracks_and_undoing_it_cost() {
+    use std::time::Instant;
+    let mib = crate::ops::history_tests::peak_working_set_mib;
+    let lib = Lib::new();
+    lib.writer
+        .call(|c| {
+            c.execute_batch(
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100000)
+                 INSERT INTO recording (title) SELECT 'Tune ' || i FROM n;
+                 INSERT INTO library_track (recording_id, source_status)
+                     SELECT id, 'missing' FROM recording WHERE id % 2 = 0;
+                 INSERT INTO analysis (recording_id, source, energy)
+                     SELECT id, 'user', 1 + id % 10 FROM recording WHERE id % 4 = 0;",
+            )
+        })
+        .unwrap();
+    println!("peak memory after building the library: {} MiB", mib());
+    let all: Vec<i64> = (1..=100_000).collect();
+    let started = Instant::now();
+    let done = set(&lib, &all, 7).unwrap();
+    println!(
+        "set energy on 100000 tracks: {:?} (changed {}, skipped {}); peak {} MiB",
+        started.elapsed(),
+        done.changed,
+        done.skipped,
+        mib()
+    );
+    let started = Instant::now();
+    let next = lib.writer.call(|c| Ok(ops::next_undo(c))).unwrap().unwrap();
+    println!(
+        "next_undo after it: {:?} (refusal {:?})",
+        started.elapsed(),
+        next.refusal
+    );
+    let started = Instant::now();
+    undo(&lib);
+    println!("Undo of it: {:?}; peak {} MiB", started.elapsed(), mib());
+    // The search index is not asked to work again by an energy alone.
+    println!("search work pending afterwards: {}", lib.pending());
+    // The same again from a clean slate for the second figure: setting an
+    // energy on the tracks that all have it already changes nothing.
+    set(&lib, &all, 7).unwrap();
+    let started = Instant::now();
+    let again = set(&lib, &all, 7).unwrap();
+    println!(
+        "set the same energy again: {:?} (changed {})",
+        started.elapsed(),
+        again.changed
+    );
+}

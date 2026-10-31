@@ -932,3 +932,125 @@ fn a_library_of_100k() {
 fn a_library_of_10k() {
     run(10_000, false);
 }
+
+/// 1cC-M1: what each of the Overview's doors costs (ROADMAP 1.13, "Every
+/// number is a door"): the Library behind a number's chip, at the top with
+/// the total, at a deep offset, sorted descending by a column that is blank
+/// for many tracks (BPM), and the place of the last row of that sorted list.
+/// Every figure is the first run (nothing cached) and the median of four
+/// more. A quarter of the Library's tracks get an energy of their own first,
+/// so the energy doors have rows. Prints; asserts nothing about time.
+fn doors(tracks: u64) {
+    let db = Db::new();
+    db.make(tracks);
+    db.writer
+        .call(|c| {
+            c.execute_batch(
+                "INSERT INTO analysis (recording_id, source, energy)
+                 SELECT recording_id, 'user', 1 + recording_id % 10
+                 FROM library_track WHERE recording_id % 4 = 0",
+            )
+        })
+        .unwrap();
+    let (settled, built) = timed(|| db.writer.call(|c| settle(c, &NoDrives, 500)).unwrap());
+    println!(
+        "index and table rows built: {settled} tracks in {}",
+        secs(built)
+    );
+
+    let mut doors: Vec<(String, TableFilter)> = vec![
+        ("lowQuality".to_owned(), TableFilter::LowQuality),
+        (
+            "notAnalyzedByRekordbox".to_owned(),
+            TableFilter::NotAnalyzedByRekordbox,
+        ),
+        (
+            "analyzedByRekordbox".to_owned(),
+            TableFilter::AnalyzedByRekordbox,
+        ),
+        ("inCrate".to_owned(), TableFilter::InCrate),
+        ("inNoCrate".to_owned(), TableFilter::InNoCrate),
+        ("noEnergy".to_owned(), TableFilter::NoEnergy),
+    ];
+    for level in 1..=10u8 {
+        doors.push((format!("energy-{level}"), TableFilter::Energy { level }));
+    }
+    doors.push(("missingTags".to_owned(), TableFilter::MissingTags));
+    doors.push(("missingArt".to_owned(), TableFilter::MissingArt));
+
+    // The first run, then the median of four.
+    let both = |q: &TableQuery| -> (TablePage, Duration, Duration) {
+        let (page, first) = timed(|| db.page(q.clone()));
+        let (_, median) = measure(&db, q, 4);
+        (page, first, median)
+    };
+    println!("door | rows | top+total first/median | deep first/median | desc BPM top first/median | desc BPM deep first/median | position of last row (desc BPM)");
+    for (what, filter) in &doors {
+        let top = filtered(TableSource::Library, filter.clone());
+        let (page, top_first, top_median) = both(&top);
+        let total = page.total.unwrap_or(0);
+        let deep_at = total.saturating_sub(100);
+        let deep = TableQuery {
+            offset: deep_at,
+            with_total: false,
+            ..top.clone()
+        };
+        let (_, deep_first, deep_median) = both(&deep);
+        let desc = TableQuery {
+            sort: Some(TableSort {
+                column: SortColumn::Bpm,
+                descending: true,
+            }),
+            ..top.clone()
+        };
+        let (_, desc_first, desc_median) = both(&desc);
+        let desc_deep = TableQuery {
+            offset: deep_at,
+            with_total: false,
+            ..desc.clone()
+        };
+        let (_, dd_first, dd_median) = both(&desc_deep);
+        let place = if total > 0 {
+            let (found, took) = measure_position(&db, &desc, total - 1, 3);
+            format!("{} (row {found:?})", ms(took))
+        } else {
+            "no rows".to_owned()
+        };
+        println!(
+            "{what} | {total} | {} / {} | {} / {} | {} / {} | {} / {} | {place}",
+            ms(top_first),
+            ms(top_median),
+            ms(deep_first),
+            ms(deep_median),
+            ms(desc_first),
+            ms(desc_median),
+            ms(dd_first),
+            ms(dd_median),
+        );
+    }
+
+    // The same doors in All music, where they are also reachable by the
+    // filter chips, at the top with the total.
+    for (what, filter) in &doors {
+        let q = filtered(TableSource::AllMusic, filter.clone());
+        let (page, first, median) = both(&q);
+        println!(
+            "All music, door {what}: {:?} rows, first {} / median {}",
+            page.total,
+            ms(first),
+            ms(median)
+        );
+    }
+}
+
+#[test]
+#[ignore = "a measurement: run it alone, in a release build, with --nocapture (see the file's doc)"]
+fn the_overview_doors_at_100k() {
+    doors(100_000);
+}
+
+#[test]
+#[ignore = "a measurement: run it alone, in a release build, with --nocapture (see the file's doc)"]
+fn the_overview_doors_at_10k() {
+    doors(10_000);
+}

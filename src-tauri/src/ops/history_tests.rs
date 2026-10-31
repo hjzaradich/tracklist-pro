@@ -23,6 +23,29 @@ use crate::send::crate_tree;
 use crate::start;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
+/// This test process's peak working set so far, in MiB (a helper for the
+/// `#[ignore]`d 100,000-track measurements; the peak only ever goes up, so
+/// read it before and after a step to see what the step added).
+#[cfg(windows)]
+pub(crate) fn peak_working_set_mib() -> u64 {
+    use windows_sys::Win32::System::ProcessStatus::{
+        K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    // SAFETY: an all-zero counters struct is valid for the call to fill in.
+    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
+    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    // SAFETY: the current process's pseudo-handle is always valid.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    assert_ne!(ok, 0, "GetProcessMemoryInfo failed");
+    (counters.PeakWorkingSetSize / (1024 * 1024)) as u64
+}
+
+#[cfg(not(windows))]
+pub(crate) fn peak_working_set_mib() -> u64 {
+    0
+}
+
 /// The tables the app's actions change through the log.
 pub(super) const LOGGED_TABLES: [&str; 15] = [
     "library_track",

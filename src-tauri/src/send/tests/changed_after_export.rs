@@ -465,4 +465,118 @@ mod on_disk {
         println!("looked at {count} files on disk in {:?}", started.elapsed());
         assert_eq!(i64::try_from(changed.len()).unwrap(), count / 10);
     }
+
+    /// 1cC-M1: a whole send of 100,000 tracks rekordbox has, each on a real
+    /// (empty) file, in one crate: the prepare step, then the go (which
+    /// reads the export again, merges, builds the XML and reads it back).
+    /// Prints; asserts nothing about time. Run alone, in a release build:
+    /// `cargo test --release --lib preparing_and_sending_100000 -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "makes 100,000 files; run with -- --ignored --nocapture"]
+    fn preparing_and_sending_100000_tracks_cost() {
+        let mib = crate::ops::history_tests::peak_working_set_mib;
+        let count: i64 = 100_000;
+        let w = World::new();
+        let root = w.volume_root();
+        let music = root.join("Music");
+        let started = Instant::now();
+        for i in 1..=count {
+            fs::write(music.join(format!("f{i}.mp3")), b"").unwrap();
+        }
+        println!("made {count} files in {:?}", started.elapsed());
+        w.writer
+            .call(move |c| {
+                c.execute_batch(&format!(
+                    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
+                     INSERT INTO recording (id) SELECT i FROM n;
+                     WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < {count})
+                     INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, present, size,
+                                       sniffed_format, mtime)
+                     SELECT i, 1, 'f' || i || '.mp3', 'f' || i || '.mp3', 1, 1234, 'mp3', 0 FROM n;
+                     INSERT INTO recording_file (recording_id, file_id, role)
+                     SELECT id, id, 'best' FROM file ORDER BY id;
+                     INSERT INTO library_track (recording_id, kind, linked_file_id, source_status)
+                     SELECT id, 'linked', id, 'ok' FROM file ORDER BY id;
+                     INSERT INTO crate (kind, name) VALUES ('static', 'All');
+                     INSERT INTO crate_entry (crate_id, library_track_id, added_at)
+                     SELECT 1, id, '2026-01-01T00:00:00.000Z' FROM library_track ORDER BY id;"
+                ))
+            })
+            .unwrap();
+        let names: Vec<String> = (1..=count).map(|i| format!("f{i}.mp3")).collect();
+        let tracks: Vec<(u32, &str)> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (u32::try_from(i + 1).unwrap(), name.as_str()))
+            .collect();
+        w.save_export_text(&export_on(&root, &tracks));
+        println!("peak memory after building the library: {} MiB", mib());
+
+        let started = Instant::now();
+        let preflight = w.prepare_on(&root).unwrap();
+        println!(
+            "prepare of a send of {count} tracks: {:?}; peak {} MiB",
+            started.elapsed(),
+            mib()
+        );
+        assert_eq!(i64::from(preflight.known_tracks), count);
+
+        let on = root.clone();
+        let sender = Sender::new(w.flow.clone(), move || MountedAt(on.clone()));
+        let started = Instant::now();
+        let status = w.run_within(
+            sender,
+            w.flow
+                .write_job(&preflight.token, preflight.needs_confirm, None),
+            Duration::from_secs(580),
+        );
+        println!(
+            "go of a send of {count} tracks: {:?} ({status:?}); peak {} MiB",
+            started.elapsed(),
+            mib()
+        );
+        println!("failure: {:?}", w.flow.failure());
+        println!(
+            "the send file: {} MiB",
+            fs::metadata(w.send_file()).map(|m| m.len()).unwrap_or(0) / (1024 * 1024)
+        );
+
+        // Where the review's time goes: the steps of `preflight::review`, one
+        // by one, on the writer (the prepare runs them in one writer job after
+        // the read and the relink; the go runs them again).
+        let on = root.clone();
+        w.writer
+            .call(move |c| {
+                let volumes = MountedAt(on);
+                let at = Instant::now();
+                let tracks = crate::library::stored(c, &volumes)?;
+                println!("  library::stored: {:?}", at.elapsed());
+                let ids: Vec<LibraryTrackId> = tracks.iter().map(|t| t.id).collect();
+                let at = Instant::now();
+                let merged = crate::conflicts::merge_before_send(c, &volumes, &ids)?;
+                println!("  conflicts::merge_before_send: {:?}", at.elapsed());
+                let at = Instant::now();
+                let crates = crate::send::crate_tree(c)?;
+                println!("  crate_tree: {:?}", at.elapsed());
+                let at = Instant::now();
+                let input = crate::rekordbox_write::gather_merged(c, merged, crates, Vec::new())?;
+                println!("  rekordbox_write::gather_merged: {:?}", at.elapsed());
+                let at = Instant::now();
+                let built = crate::rekordbox_write::build(&input);
+                println!(
+                    "  rekordbox_write::build: {:?} ({} sent)",
+                    at.elapsed(),
+                    built.map_or(0, |b| b.sent.len())
+                );
+                let at = Instant::now();
+                let reviewed = crate::send::preflight::review(c, &volumes)?;
+                println!(
+                    "  the whole review again: {:?} ({})",
+                    at.elapsed(),
+                    reviewed.is_some()
+                );
+                Ok(())
+            })
+            .unwrap();
+    }
 }
