@@ -51,7 +51,11 @@ fn world() -> Lib {
         let (recording, file) = lib.track(Some(&format!("T{i}")), Some("A"), &format!("t{i}.mp3"));
         lib.tag(
             file,
-            &[("Name", &format!("T{i}")), ("Artist", "A"), ("Genre", genre)],
+            &[
+                ("Name", &format!("T{i}")),
+                ("Artist", "A"),
+                ("Genre", genre),
+            ],
         );
         lib.library(recording, file);
     }
@@ -134,7 +138,11 @@ fn every_genre_bar_opens_exactly_the_tracks_it_counts_whatever_the_name() {
     let mut counted = 0;
     for bar in &o.genres {
         let (total, found) = rows(&lib, TableSource::Library, genre_filter(&bar.name));
-        assert_eq!(total, bar.tracks, "the rows of {:?} are its count", bar.name);
+        assert_eq!(
+            total, bar.tracks,
+            "the rows of {:?} are its count",
+            bar.name
+        );
         // Each row has the bar's genre, however it is spelled.
         for genre in defined(&lib, &found) {
             assert_eq!(
@@ -155,7 +163,10 @@ fn every_genre_bar_opens_exactly_the_tracks_it_counts_whatever_the_name() {
     }
     // Every Library track is behind one bar, or has no genre.
     assert_eq!(counted + o.no_genre, o.tracks);
-    assert_eq!(o.no_genre, 3, "no tag, a blank tag and a blank in rekordbox");
+    assert_eq!(
+        o.no_genre, 3,
+        "no tag, a blank tag and a blank in rekordbox"
+    );
 }
 
 #[test]
@@ -199,12 +210,18 @@ fn a_name_that_stands_for_nothing_lists_nothing_and_a_name_is_a_value_not_a_quer
         let (found, _) = rows(&lib, TableSource::Library, genre_filter(name));
         // Only a name that really is a genre lists rows ("x' OR '1'='1" is
         // one, with its blank trimmed).
-        let is_a_genre = GENRES.iter().any(|g| g.trim().to_lowercase() == name.trim().to_lowercase());
+        let is_a_genre = GENRES
+            .iter()
+            .any(|g| g.trim().to_lowercase() == name.trim().to_lowercase());
         assert_eq!(found > 0, is_a_genre, "{name:?}");
         assert!(found < total, "{name:?} never lists every track");
     }
     // The table is intact after the names that look like statements.
-    let (found, _) = rows(&lib, TableSource::Library, genre_filter("'; DROP TABLE track_row; --"));
+    let (found, _) = rows(
+        &lib,
+        TableSource::Library,
+        genre_filter("'; DROP TABLE track_row; --"),
+    );
     assert_eq!(found, 1);
     let (found, _) = rows(&lib, TableSource::Library, genre_filter("a_b"));
     assert_eq!(found, 1, "an underscore is not a wildcard");
@@ -224,11 +241,22 @@ fn accents_and_letters_in_other_scripts_are_their_own_genres_but_capitals_are_no
         "Caf\u{e9} and CAF\u{c9} have one bar"
     );
     assert_eq!(tracks_of("Caf\u{e9}"), None);
-    assert_eq!(rows(&lib, TableSource::Library, genre_filter("Caf\u{e9}")).0, 2);
+    assert_eq!(
+        rows(&lib, TableSource::Library, genre_filter("Caf\u{e9}")).0,
+        2
+    );
     assert_eq!(tracks_of("Cafe"), Some(1), "an accent makes another genre");
     assert_eq!(tracks_of("Hip Hop"), Some(1));
-    assert_eq!(tracks_of("Hip  Hop"), Some(1), "a blank inside is part of the name");
-    for name in ["\u{30c6}\u{30af}\u{30ce}", "\u{41f}\u{43e}\u{43f}", "\u{1f3b5} Mix"] {
+    assert_eq!(
+        tracks_of("Hip  Hop"),
+        Some(1),
+        "a blank inside is part of the name"
+    );
+    for name in [
+        "\u{30c6}\u{30af}\u{30ce}",
+        "\u{41f}\u{43e}\u{43f}",
+        "\u{1f3b5} Mix",
+    ] {
         assert_eq!(
             rows(&lib, TableSource::Library, genre_filter(name)).0,
             1,
@@ -246,12 +274,16 @@ fn a_genre_chip_works_with_the_other_filters_a_search_and_a_sort() {
 
     // With another filter: the tracks that have both.
     let both = vec![
-        TableFilter::Genre { name: "House".into() },
+        TableFilter::Genre {
+            name: "House".into(),
+        },
         TableFilter::InNoCrate,
     ];
     assert_eq!(rows(&lib, TableSource::Library, both).1, all);
     let none = vec![
-        TableFilter::Genre { name: "House".into() },
+        TableFilter::Genre {
+            name: "House".into(),
+        },
         TableFilter::InCrate,
     ];
     assert_eq!(rows(&lib, TableSource::Library, none).0, 0);
@@ -279,7 +311,12 @@ fn a_genre_chip_works_with_the_other_filters_a_search_and_a_sort() {
 fn a_change_to_a_tag_moves_the_track_between_genre_chips_once_the_index_has_run() {
     let lib = world();
     let before = overview(&lib);
-    let house = before.genres.iter().find(|g| g.name == "House").unwrap().tracks;
+    let house = before
+        .genres
+        .iter()
+        .find(|g| g.name == "House")
+        .unwrap()
+        .tracks;
     let moved = rows(&lib, TableSource::Library, genre_filter("House")).1[0];
     let file: i64 = lib
         .writer
@@ -292,16 +329,26 @@ fn a_change_to_a_tag_moves_the_track_between_genre_chips_once_the_index_has_run(
         })
         .unwrap();
     // The tag editor or a scan gives the file another genre.
-    lib.tag(file, &[("Name", "Moved"), ("Artist", "A"), ("Genre", "Brand New")]);
+    lib.tag(
+        file,
+        &[("Name", "Moved"), ("Artist", "A"), ("Genre", "Brand New")],
+    );
     assert!(lib.pending(), "the change marks the track due");
-    assert_eq!(rows(&lib, TableSource::Library, genre_filter("House")).0, house - 1);
+    assert_eq!(
+        rows(&lib, TableSource::Library, genre_filter("House")).0,
+        house - 1
+    );
     assert_eq!(
         rows(&lib, TableSource::Library, genre_filter("brand new")).1,
         [moved]
     );
     let after = overview(&lib);
     assert_eq!(
-        after.genres.iter().find(|g| g.name == "Brand New").map(|g| g.tracks),
+        after
+            .genres
+            .iter()
+            .find(|g| g.name == "Brand New")
+            .map(|g| g.tracks),
         Some(1)
     );
 }

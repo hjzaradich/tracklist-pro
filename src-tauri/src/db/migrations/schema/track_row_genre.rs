@@ -64,7 +64,9 @@ fn the_row_gets_the_genre_and_its_group_and_an_index_to_count_and_filter_by() {
          VALUES (1, 'a', 'House', 'house');",
     );
     let columns: Vec<String> = conn
-        .prepare("SELECT name FROM pragma_table_info('track_row') WHERE name LIKE 'genre%' ORDER BY 1")
+        .prepare(
+            "SELECT name FROM pragma_table_info('track_row') WHERE name LIKE 'genre%' ORDER BY 1",
+        )
         .unwrap()
         .query_map([], |r| r.get(0))
         .unwrap()

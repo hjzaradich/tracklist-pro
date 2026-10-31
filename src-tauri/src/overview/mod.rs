@@ -423,10 +423,7 @@ fn genre_of(rekordbox: Option<&str>, digest: Option<&str>) -> Option<String> {
 /// The genre is rekordbox's for a track rekordbox knows (blank there means
 /// none, [`BLANK_GENRE_FALLS_BACK`]), else the linked file's tag, read with
 /// the send's own rules; outer blanks are dropped.
-fn genres_of(
-    conn: &Connection,
-    ids: &[LibraryTrackId],
-) -> rusqlite::Result<HashMap<i64, String>> {
+fn genres_of(conn: &Connection, ids: &[LibraryTrackId]) -> rusqlite::Result<HashMap<i64, String>> {
     let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
         .expect("numbers always serialize");
     // Most tracks of a page share a source (a few hundred distinct frames at
