@@ -379,6 +379,111 @@ pub fn read_only(raw_tags: &str, wanted: &[&str]) -> Vec<TagValue> {
     read_blocks(&blocks, wanted)
 }
 
+/// [`read_only`], and the size of the largest binary item whose key
+/// `is_picture` accepts (an embedded picture's length in bytes; none if it
+/// has no such item or only empty ones), from one read of the tags. For a
+/// caller that needs both, so the tags aren't read twice.
+///
+/// The picture is judged as a loose reading of the stored JSON does: a
+/// block that isn't a list is skipped, and an item counts when its key is
+/// text, its `value.type` is `"binary"` and its `value.len` is a number.
+pub fn read_only_and_largest_binary(
+    raw_tags: &str,
+    wanted: &[&str],
+    is_picture: impl Fn(&str) -> bool,
+) -> (Vec<TagValue>, Option<u64>) {
+    if let Some((blocks, largest)) = parse_frames_and_binary(raw_tags, &is_picture) {
+        return (read_blocks(&blocks, wanted), largest);
+    }
+    // Tags in some other shape: read as far as they go, twice. The scan
+    // never writes them so, so this costs nothing in practice.
+    let found = parse_frames_loosely(raw_tags)
+        .map(|blocks| read_blocks(&blocks, wanted))
+        .unwrap_or_default();
+    (found, largest_binary_loosely(raw_tags, &is_picture))
+}
+
+/// [`parse_frames`], and the largest picture's length as
+/// [`read_only_and_largest_binary`] counts it, from the same pass.
+fn parse_frames_and_binary<'a>(
+    raw_tags: &'a str,
+    is_picture: &impl Fn(&str) -> bool,
+) -> Option<(Blocks<'a>, Option<u64>)> {
+    #[derive(Deserialize)]
+    struct Item<'a> {
+        #[serde(borrow)]
+        key: Cow<'a, str>,
+        #[serde(borrow, default)]
+        value: ItemValue<'a>,
+    }
+    #[derive(Deserialize, Default)]
+    struct ItemValue<'a> {
+        #[serde(borrow, default)]
+        text: Option<Cow<'a, str>>,
+        #[serde(default)]
+        full_len: Option<IgnoredAny>,
+        // Any JSON, so a value of an odd type is no reason to give up the
+        // fast reading that [`parse_frames`] would have managed.
+        #[serde(default, rename = "type")]
+        kind: Option<Value>,
+        #[serde(default)]
+        len: Option<Value>,
+    }
+    let blocks: HashMap<Cow<'_, str>, Vec<Item<'_>>> = serde_json::from_str(raw_tags).ok()?;
+    let mut largest: Option<u64> = None;
+    let blocks = blocks
+        .into_iter()
+        .map(|(block, items)| {
+            let frames = items
+                .into_iter()
+                .map(|i| {
+                    let length = i
+                        .value
+                        .kind
+                        .as_ref()
+                        .and_then(Value::as_str)
+                        .filter(|kind| *kind == "binary" && is_picture(&i.key))
+                        .and_then(|_| i.value.len.as_ref()?.as_u64())
+                        .filter(|len| *len > 0);
+                    largest = largest.max(length);
+                    Frame {
+                        key: i.key,
+                        text: i.value.text,
+                        cut: i.value.full_len.is_some(),
+                    }
+                })
+                .collect();
+            (block, frames)
+        })
+        .collect();
+    Some((blocks, largest))
+}
+
+/// The largest picture's length as [`read_only_and_largest_binary`] counts
+/// it, reading the tags as any JSON.
+fn largest_binary_loosely(raw_tags: &str, is_picture: &impl Fn(&str) -> bool) -> Option<u64> {
+    let Ok(Value::Object(blocks)) = serde_json::from_str::<Value>(raw_tags) else {
+        return None;
+    };
+    blocks
+        .values()
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter(|item| {
+            item.get("key")
+                .and_then(Value::as_str)
+                .is_some_and(is_picture)
+        })
+        .filter_map(|item| {
+            let value = item.get("value")?;
+            (value.get("type")?.as_str()? == "binary")
+                .then(|| value.get("len")?.as_u64())
+                .flatten()
+        })
+        .filter(|len| *len > 0)
+        .max()
+}
+
 /// The mapped values of the `wanted` attributes in already parsed blocks.
 fn read_blocks(blocks: &Blocks<'_>, wanted: &[&str]) -> Vec<TagValue> {
     let mut found: Vec<TagValue> = Vec::new();

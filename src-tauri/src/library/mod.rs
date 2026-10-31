@@ -254,8 +254,9 @@ pub fn linked_file_for(
     conn: &Connection,
     recording: i64,
 ) -> rusqlite::Result<Option<LinkedFileChoice>> {
+    // `prepare_cached`: a crate add asks these once per track.
     let trusted = conn
-        .query_row(
+        .prepare_cached(
             "SELECT f.id, f.present
              FROM rekordbox_track rt
              JOIN recording_file rf ON rf.file_id = rt.file_id
@@ -263,32 +264,30 @@ pub fn linked_file_for(
              WHERE rf.recording_id = ?1 AND rt.relink_probable = 0
              ORDER BY f.present DESC, (rf.role = 'best') DESC, f.id
              LIMIT 1",
-            [recording],
-            |r| {
-                Ok(LinkedFileChoice {
-                    file_id: r.get(0)?,
-                    source: LinkedFileSource::Rekordbox,
-                    present: r.get(1)?,
-                })
-            },
-        )
+        )?
+        .query_row([recording], |r| {
+            Ok(LinkedFileChoice {
+                file_id: r.get(0)?,
+                source: LinkedFileSource::Rekordbox,
+                present: r.get(1)?,
+            })
+        })
         .optional()?;
     if trusted.is_some() {
         return Ok(trusted);
     }
-    conn.query_row(
+    conn.prepare_cached(
         "SELECT f.id, f.present
          FROM recording_file rf JOIN file f ON f.id = rf.file_id
          WHERE rf.recording_id = ?1 AND rf.role = 'best'",
-        [recording],
-        |r| {
-            Ok(LinkedFileChoice {
-                file_id: r.get(0)?,
-                source: LinkedFileSource::BestFile,
-                present: r.get(1)?,
-            })
-        },
-    )
+    )?
+    .query_row([recording], |r| {
+        Ok(LinkedFileChoice {
+            file_id: r.get(0)?,
+            source: LinkedFileSource::BestFile,
+            present: r.get(1)?,
+        })
+    })
     .optional()
 }
 
@@ -300,16 +299,15 @@ pub fn linked_file_for(
 /// can be confirmed (1bE-6). A track that also has a trusted match is
 /// linked to that file and isn't held back.
 pub fn match_not_confirmed(conn: &Connection, recording: i64) -> rusqlite::Result<bool> {
-    conn.query_row(
+    conn.prepare_cached(
         "SELECT EXISTS (SELECT 1 FROM rekordbox_track rt
                         JOIN recording_file rf ON rf.file_id = rt.file_id
                         WHERE rf.recording_id = ?1 AND rt.relink_probable = 1)
             AND NOT EXISTS (SELECT 1 FROM rekordbox_track rt
                             JOIN recording_file rf ON rf.file_id = rt.file_id
                             WHERE rf.recording_id = ?1 AND rt.relink_probable = 0)",
-        [recording],
-        |r| r.get(0),
-    )
+    )?
+    .query_row([recording], |r| r.get(0))
 }
 
 /// Why [`check`] refused a track, before any path is made readable.
@@ -337,20 +335,15 @@ pub enum Plan {
 /// Decides what adding `recording` would do, without changing anything.
 pub fn check(conn: &Connection, recording: i64) -> rusqlite::Result<Result<Plan, Refusal>> {
     let existing: Option<i64> = conn
-        .query_row(
-            "SELECT id FROM library_track WHERE recording_id = ?1",
-            [recording],
-            |r| r.get(0),
-        )
+        .prepare_cached("SELECT id FROM library_track WHERE recording_id = ?1")?
+        .query_row([recording], |r| r.get(0))
         .optional()?;
     if let Some(id) = existing {
         return Ok(Ok(Plan::AlreadyThere(LibraryTrackId(id))));
     }
-    let exists: bool = conn.query_row(
-        "SELECT EXISTS (SELECT 1 FROM recording WHERE id = ?1)",
-        [recording],
-        |r| r.get(0),
-    )?;
+    let exists: bool = conn
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM recording WHERE id = ?1)")?
+        .query_row([recording], |r| r.get(0))?;
     if !exists {
         return Ok(Err(Refusal::TrackNotFound));
     }

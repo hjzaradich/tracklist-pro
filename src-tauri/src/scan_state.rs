@@ -183,6 +183,19 @@ const DUE_WHERE: &str = "
          OR s.size IS NOT f.size
          OR s.mtime IS NOT f.mtime)";
 
+/// The statement behind [`due`]. Parameters: those of [`DUE_WHERE`], then
+/// ?5 the id to start after and ?6 the page size.
+pub(crate) fn due_sql() -> String {
+    format!(
+        "SELECT f.id, f.music_folder_id, f.rel_path, f.size, f.mtime, f.online_only
+         FROM file f
+         LEFT JOIN file_stage s ON s.file_id = f.id AND s.stage = ?1
+         WHERE {DUE_WHERE} AND f.id > ?5
+         ORDER BY f.id
+         LIMIT ?6"
+    )
+}
+
 /// Up to `limit` files due for `stage` at `version` in `scope`, with ids
 /// above `after`, in id order. Page through them by passing the last id
 /// back as `after` (start at 0).
@@ -199,14 +212,7 @@ pub fn due(
     limit: usize,
 ) -> rusqlite::Result<Vec<DueFile>> {
     let (folders, files) = scope.params();
-    let mut stmt = conn.prepare_cached(&format!(
-        "SELECT f.id, f.music_folder_id, f.rel_path, f.size, f.mtime, f.online_only
-         FROM file f
-         LEFT JOIN file_stage s ON s.file_id = f.id AND s.stage = ?1
-         WHERE {DUE_WHERE} AND f.id > ?5
-         ORDER BY f.id
-         LIMIT ?6"
-    ))?;
+    let mut stmt = conn.prepare_cached(&due_sql())?;
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     let rows = stmt.query_map(
         (stage.as_str(), version, folders, files, after, limit),
