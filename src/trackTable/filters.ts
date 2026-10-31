@@ -13,7 +13,9 @@ export type FilterKind = TableFilter["kind"];
  * The filters each screen offers (owner decision, 2026-10-26: "pick per
  * screen what makes sense"):
  * - the Library: missing, in or not in rekordbox, a format, a quality
- *   problem, in a crate or in no crate;
+ *   problem, in a crate or in no crate, from a low-quality file, analyzed or
+ *   not analyzed by rekordbox. The energy filters are not on offer: they
+ *   come only from the Overview's energy bars (1cC-4), one level at a time;
  * - All music: the same except the crate filters, which mean nothing for a
  *   track that isn't in the Library, and in or not in the Library instead;
  * - a crate: missing, in or not in rekordbox, a format, a quality problem
@@ -28,6 +30,9 @@ export const FILTERS_BY_SCREEN: Readonly<Record<TableScreen, readonly FilterKind
     "qualityProblem",
     "inCrate",
     "inNoCrate",
+    "lowQuality",
+    "analyzedByRekordbox",
+    "notAnalyzedByRekordbox",
   ],
   allMusic: [
     "missing",
@@ -46,10 +51,17 @@ const OPPOSITES: readonly (readonly [FilterKind, FilterKind])[] = [
   ["inRekordbox", "notInRekordbox"],
   ["inCrate", "inNoCrate"],
   ["inLibrary", "notInLibrary"],
+  ["analyzedByRekordbox", "notAnalyzedByRekordbox"],
 ];
 
+/** The energy filters: one at a time, a new one takes the old one off. */
+const ENERGY_KINDS: readonly FilterKind[] = ["energy", "noEnergy"];
+
 export function sameFilter(a: TableFilter, b: TableFilter): boolean {
-  return a.kind === b.kind && (a.kind !== "format" || a.format === (b as typeof a).format);
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "format") return a.format === (b as typeof a).format;
+  if (a.kind === "energy") return a.level === (b as typeof a).level;
+  return true;
 }
 
 /** `filters` with `filter` added: nothing changes if it is there already, and its opposite goes. */
@@ -58,6 +70,7 @@ export function addFilter(filters: readonly TableFilter[], filter: TableFilter):
   const opposite = OPPOSITES.flatMap(([a, b]) =>
     filter.kind === a ? [b] : filter.kind === b ? [a] : [],
   );
+  if (ENERGY_KINDS.includes(filter.kind)) opposite.push(...ENERGY_KINDS);
   return [...filters.filter((f) => !opposite.includes(f.kind)), filter];
 }
 
@@ -120,5 +133,15 @@ export function filterLabel(filter: TableFilter, t: TFunction<"trackTable">): st
       return t("filters.inLibrary");
     case "notInLibrary":
       return t("filters.notInLibrary");
+    case "lowQuality":
+      return t("filters.lowQuality");
+    case "analyzedByRekordbox":
+      return t("filters.analyzedByRekordbox");
+    case "notAnalyzedByRekordbox":
+      return t("filters.notAnalyzedByRekordbox");
+    case "energy":
+      return t("filters.energy", { level: filter.level });
+    case "noEnergy":
+      return t("filters.noEnergy");
   }
 }

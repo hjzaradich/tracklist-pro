@@ -53,7 +53,12 @@
     "inCrate": "In a crate",
     "inNoCrate": "In no crate",
     "inLibrary": "In Library",
-    "notInLibrary": "Not in Library"
+    "notInLibrary": "Not in Library",
+    "lowQuality": "From a low-quality file",
+    "analyzedByRekordbox": "Analyzed by rekordbox",
+    "notAnalyzedByRekordbox": "Not analyzed by rekordbox",
+    "energy": "Energy {{level}}",
+    "noEnergy": "No energy"
   },
   "format": {
     "mp3": "MP3",

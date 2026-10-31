@@ -24,11 +24,18 @@ const PLAIN = new Set<TableFilter["kind"]>([
   "inNoCrate",
   "inLibrary",
   "notInLibrary",
+  "lowQuality",
+  "analyzedByRekordbox",
+  "notAnalyzedByRekordbox",
 ]);
 
 /** What a chip is called in the list of chips. */
 const chipKey = (filter: TableFilter) =>
-  filter.kind === "format" ? `format:${filter.format}` : filter.kind;
+  filter.kind === "format"
+    ? `format:${filter.format}`
+    : filter.kind === "energy"
+      ? `energy:${filter.level}`
+      : filter.kind;
 
 /**
  * The filter chips above the track table (1cA-4): the filters in use, each

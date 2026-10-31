@@ -385,7 +385,20 @@ describe("filter chips", () => {
   });
 
   it.each([
-    ["library", ["missing", "inRekordbox", "notInRekordbox", "qualityProblem", "inCrate", "inNoCrate"]],
+    [
+      "library",
+      [
+        "missing",
+        "inRekordbox",
+        "notInRekordbox",
+        "qualityProblem",
+        "inCrate",
+        "inNoCrate",
+        "lowQuality",
+        "analyzedByRekordbox",
+        "notAnalyzedByRekordbox",
+      ],
+    ],
     ["allMusic", ["missing", "inRekordbox", "notInRekordbox", "qualityProblem", "inLibrary", "notInLibrary"]],
     ["crate", ["missing", "inRekordbox", "notInRekordbox", "qualityProblem"]],
   ] as const)("offers the filters that make sense on the %s screen", async (screenName, kinds) => {
@@ -903,5 +916,102 @@ describe("dragging the headings (1cB-21)", () => {
     await grid();
     expect(template()).toContain(" 1200px 44px ");
     expect(template()).not.toContain("80px");
+  });
+});
+
+describe("a filter chip the table starts with (a door from the Overview, 1cC-4)", () => {
+  const low = { kind: "lowQuality" } as const;
+  const lowLabel = () => tx("trackTable:filters.lowQuality");
+
+  it("shows the chip and asks for its very first window with the filter on", async () => {
+    serve(6);
+    renderView("library", { initialFilters: [low] });
+    await grid();
+    expect(chips().map((c) => c.textContent)).toEqual([lowLabel()]);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.filters).toEqual([low]);
+    expect(asked[0]?.withTotal).toBe(true);
+  });
+
+  it("says how many rows the chip leaves, which is the number the door was opened from", async () => {
+    serve(6);
+    renderView("library", { initialFilters: [low] });
+    await grid();
+    expect(screen.getByText("rows: 6")).toBeInTheDocument();
+  });
+
+  it("takes the chip off with its ×, like any other, and asks for every row again", async () => {
+    serve(6);
+    renderView("library", { initialFilters: [low] });
+    await grid();
+    await userEvent.click(
+      screen.getByRole("button", { name: tx("trackTable:filters.remove", { filter: lowLabel() }) }),
+    );
+    await waitFor(() => expect(lastQuery().filters).toEqual([]));
+    expect(screen.queryByRole("list", { name: tx("trackTable:filters.label") })).toBeNull();
+    expect(screen.getByRole("button", { name: tx("trackTable:filters.add") })).toHaveFocus();
+  });
+
+  it("works with a search: both narrow the same rows", async () => {
+    serve(2);
+    renderView("allMusic", { initialFilters: [low], search: "wave" });
+    await grid();
+    expect(asked[0]?.search).toBe("wave");
+    expect(asked[0]?.filters).toEqual([low]);
+  });
+
+  it("works with the other filters: a chip added beside it", async () => {
+    serve(6);
+    renderView("library", { initialFilters: [low] });
+    await grid();
+    await addFilter(tx("trackTable:filters.inNoCrate"));
+    await waitFor(() => expect(lastQuery().filters).toEqual([low, { kind: "inNoCrate" }]));
+    expect(chips().map((c) => c.textContent)).toEqual([lowLabel(), tx("trackTable:filters.inNoCrate")]);
+  });
+
+  it("survives a sort", async () => {
+    serve(6);
+    renderView("library", { initialFilters: [low] });
+    await grid();
+    await userEvent.click(await heading("bpm"));
+    await waitFor(() => expect(lastQuery().sort).toEqual({ column: "bpm", descending: false }));
+    expect(lastQuery().filters).toEqual([low]);
+    expect(chips().map((c) => c.textContent)).toEqual([lowLabel()]);
+  });
+
+  it("is replaced by its opposite: not analyzed by rekordbox takes analyzed off", async () => {
+    serve(6);
+    renderView("library", { initialFilters: [{ kind: "analyzedByRekordbox" }] });
+    await grid();
+    await addFilter(tx("trackTable:filters.notAnalyzedByRekordbox"));
+    await waitFor(() => expect(lastQuery().filters).toEqual([{ kind: "notAnalyzedByRekordbox" }]));
+    expect(chips().map((c) => c.textContent)).toEqual([tx("trackTable:filters.notAnalyzedByRekordbox")]);
+  });
+
+  it("names an energy level and no energy, which the Add filter list doesn't offer", async () => {
+    serve(6);
+    renderView("library", { initialFilters: [{ kind: "energy", level: 7 }] });
+    await grid();
+    expect(chips().map((c) => c.textContent)).toEqual([tx("trackTable:filters.energy", { level: 7 })]);
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    const menu = screen.getByRole("group", { name: tx("trackTable:filters.menu") });
+    for (const kind of ["energy", "noEnergy"]) {
+      expect(within(menu).queryByRole("button", { name: tx(`trackTable:filters.${kind}`, { level: 7 }) })).toBeNull();
+    }
+  });
+
+  it("is not remembered: a table made afresh starts with the chips it is given", async () => {
+    serve(6);
+    const first = renderView("library", { initialFilters: [low] });
+    await grid();
+    await userEvent.click(
+      screen.getByRole("button", { name: tx("trackTable:filters.remove", { filter: lowLabel() }) }),
+    );
+    await waitFor(() => expect(lastQuery().filters).toEqual([]));
+    first.unmount();
+    asked = [];
+    renderView("library");
+    await grid();
+    expect(asked[0]?.filters).toEqual([]);
   });
 });

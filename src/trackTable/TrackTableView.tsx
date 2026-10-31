@@ -62,6 +62,7 @@ export function TrackTableView({
   source,
   keyPrefix,
   search = "",
+  initialFilters = [],
   count,
   empty,
   actions,
@@ -74,6 +75,12 @@ export function TrackTableView({
   /** The screen's query key; its lists' invalidations reach the windows under it. */
   keyPrefix: readonly unknown[];
   search?: string;
+  /**
+   * The filter chips the table starts with (1cC-4: the door an Overview number
+   * opened). Only the first render reads them; after that the chips are the
+   * user's, taken off and added like any other, and never remembered.
+   */
+  initialFilters?: readonly TableFilter[];
   /** The line over the table: how many tracks there are. */
   count: (total: number) => string;
   /** What to say when the screen has no tracks at all (nothing searched or filtered). */
@@ -92,7 +99,7 @@ export function TrackTableView({
   const [selectedRow, setSelectedRow] = useState<TableRow | null>(null);
   const [fitWidth, setFitWidth] = useState<number | undefined>(undefined);
   const canFit = source.kind === "crate";
-  const [filters, setFilters] = useState<TableFilter[]>([]);
+  const [filters, setFilters] = useState<TableFilter[]>(() => [...initialFilters]);
   const choice = useTableColumns(screen);
   const followSelection = useCallback(
     (row: TableRow | null) => {

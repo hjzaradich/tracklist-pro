@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import type { Overview } from "../bindings";
+import type { Overview, TableFilter } from "../bindings";
+import { LibraryDoor } from "./LibraryDoor";
 import styles from "./overview.module.css";
 
 /** How many genres get a bar of their own; the rest are added up as "Other". */
@@ -12,6 +13,11 @@ export interface Bar {
   id: string;
   label: string;
   tracks: number;
+  /**
+   * The Library's filter chip that holds the tracks the bar counts (1cC-4);
+   * none for a bar that opens nothing.
+   */
+  filter?: TableFilter;
 }
 
 /**
@@ -38,8 +44,11 @@ export function genreBars(
 
 /**
  * The energy bars: energy 1 to 10, always all ten, then "No energy" when a
- * track has none. (When no track has any energy the chart draws none of them
- * and says so instead: see {@link Charts}.)
+ * track has none. Each is a door to the Library, filtered to that energy
+ * (1cC-4). The genre bars are not doors: the Overview's genre is worked out in
+ * Rust from the tags, and no filter of the Library's table can give the same
+ * rows (see {@link genreBars}). (When no track has any energy the chart draws
+ * none of them and says so instead: see {@link Charts}.)
  */
 export function energyBars(
   overview: Pick<Overview, "energy" | "noEnergy">,
@@ -49,8 +58,11 @@ export function energyBars(
     id: `energy:${i + 1}`,
     label: String(i + 1),
     tracks,
+    filter: { kind: "energy", level: i + 1 },
   }));
-  if (overview.noEnergy > 0) bars.push({ id: "none", label: labels.none, tracks: overview.noEnergy });
+  if (overview.noEnergy > 0) {
+    bars.push({ id: "none", label: labels.none, tracks: overview.noEnergy, filter: { kind: "noEnergy" } });
+  }
   return bars;
 }
 
@@ -114,20 +126,33 @@ function Chart({
         <p className={styles.muted}>{empty}</p>
       ) : (
         <ul className={styles.bars}>
-          {bars.map((bar) => (
-            <li key={bar.id} className={styles.bar}>
-              <span className={styles.barLabel} title={bar.label}>
-                {bar.label}
-              </span>
-              <span className={styles.barTrack} aria-hidden="true">
-                <span
-                  className={styles.barFill}
-                  style={{ width: `${(bar.tracks / most) * 100}%` }}
-                />
-              </span>
-              <span className={styles.barCount}>{number.format(bar.tracks)}</span>
-            </li>
-          ))}
+          {bars.map((bar) => {
+            const cells = (
+              <>
+                <span className={styles.barLabel} title={bar.label}>
+                  {bar.label}
+                </span>
+                <span className={styles.barTrack} aria-hidden="true">
+                  <span
+                    className={styles.barFill}
+                    style={{ width: `${(bar.tracks / most) * 100}%` }}
+                  />
+                </span>
+                <span className={styles.barCount}>{number.format(bar.tracks)}</span>
+              </>
+            );
+            return (
+              <li key={bar.id} className={styles.bar}>
+                {bar.filter !== undefined ? (
+                  <LibraryDoor filter={bar.filter} className={styles.barDoor}>
+                    {cells}
+                  </LibraryDoor>
+                ) : (
+                  cells
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

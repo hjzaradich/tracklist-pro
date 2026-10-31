@@ -195,6 +195,26 @@
     "purpose": "Filter: tracks not in the Library.",
     "where": "Filter chip and its menu entry, All music."
   },
+  "filters.lowQuality": {
+    "purpose": "Filter: Library tracks whose linked file has a current quality verdict that flags it (the Overview's \"tracks from low-quality files\"). Not the same as Quality problem, which is Review's group.",
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+  },
+  "filters.analyzedByRekordbox": {
+    "purpose": "Filter: Library tracks rekordbox supplied a BPM or a key for (the Overview's \"analyzed by rekordbox\"). rekordbox is written as rekordbox shows it.",
+    "where": "Filter chip, opened from the Overview's number; also in the Library's Add filter menu."
+  },
+  "filters.notAnalyzedByRekordbox": {
+    "purpose": "Filter: Library tracks rekordbox supplied no BPM or key for (the Overview's \"tracks rekordbox hasn't analyzed\").",
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+  },
+  "filters.energy": {
+    "purpose": "Filter: Library tracks whose energy is one level, 1 to 10 ({{level}}). Same word as the Overview's Energy chart.",
+    "where": "Filter chip, opened from an energy bar on the Overview. Not in the Add filter menu."
+  },
+  "filters.noEnergy": {
+    "purpose": "Filter: Library tracks with no energy. Same wording as overview:charts.energy.none.",
+    "where": "Filter chip, opened from the \"No energy\" bar on the Overview. Not in the Add filter menu."
+  },
   "format.mp3": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
     "where": "Filter chip and the Add filter menu, the formats."

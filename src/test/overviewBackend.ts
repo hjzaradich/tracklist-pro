@@ -1,5 +1,6 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Crate, Overview, Preflight, ReviewCounts, SendState } from "../bindings";
+import type { Crate, Overview, Preflight, ReviewCounts, SendState, TablePage, TableQuery } from "../bindings";
+import { queryOf } from "./trackTableIpc";
 
 // A stand-in for the Rust side of the Overview screen, shared by its tests:
 // the Library, the Overview command's numbers, Review's counts, the send's
@@ -83,6 +84,8 @@ export interface World {
   rekordboxToAdd?: number;
   /** A newer rekordbox export is offered. */
   newerExport?: boolean;
+  /** The rows the track table gets for a query (none by default): where the Overview's doors lead. */
+  tablePage?: (query: TableQuery) => TablePage;
 }
 
 /** Stands in for the Rust side, and keeps the names of the commands asked. */
@@ -93,7 +96,7 @@ export function fakeBackend(world: World = {}) {
     release = resolve;
   });
   mockIPC(
-    async (cmd) => {
+    async (cmd, args) => {
       calls.push(cmd);
       switch (cmd) {
         case "library_summary":
@@ -146,7 +149,7 @@ export function fakeBackend(world: World = {}) {
         case "table_columns":
           return null;
         case "track_table_page":
-          return { total: 0, offset: 0, rows: [], behind: false };
+          return world.tablePage?.(queryOf(args)) ?? { total: 0, offset: 0, rows: [], behind: false };
         case "list_crates":
           return world.crates ?? [];
         case "missing_tracks":
