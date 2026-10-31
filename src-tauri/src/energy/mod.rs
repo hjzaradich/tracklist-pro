@@ -10,6 +10,9 @@
 //! brings the next source's value back. Nothing is written to a file, and
 //! nothing is sent to rekordbox unless the user opted in to energy as the star
 //! rating (ROADMAP §7, "How energy reaches rekordbox"; `crate::energy_stars`).
+//! A Library track's row in the track table keeps the energy it shows, for
+//! the Overview and its doors: a trigger marks the track for the index job
+//! whatever path changed the `analysis` row (migration 0043).
 //!
 //! # The operation
 //!

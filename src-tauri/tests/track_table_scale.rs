@@ -1054,3 +1054,83 @@ fn the_overview_doors_at_100k() {
 fn the_overview_doors_at_10k() {
     doors(10_000);
 }
+
+/// 1cD-R1a: what the quality job pays for the marks that keep the stored
+/// "low-quality file" answer current (migration 0043). Every file gets a
+/// first verdict, one in twenty a flagged one, with the triggers and without,
+/// and then the index catches up with what was marked. Prints; asserts
+/// nothing about time.
+fn quality_marks(tracks: u64) {
+    let db = Db::new();
+    db.make(tracks);
+    db.writer
+        .call(|c| {
+            c.execute_batch(
+                "UPDATE file SET codec = 'mp3', sample_rate = 44100,
+                                 bitrate = CASE WHEN id % 20 = 0 THEN 128 ELSE 320 END",
+            )
+        })
+        .unwrap();
+    let (settled, built) = timed(|| db.writer.call(|c| settle(c, &NoDrives, 500)).unwrap());
+    println!("rows built: {settled} tracks in {}", secs(built));
+    let triggers: Vec<(String, String)> = db
+        .writer
+        .call(|c| {
+            c.prepare(
+                "SELECT name, sql FROM sqlite_master
+                 WHERE type = 'trigger' AND name LIKE 'search_low_quality%'",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect()
+        })
+        .unwrap();
+    assert_eq!(triggers.len(), 7, "the triggers of migration 0043");
+    let round = |label: &str| {
+        db.writer
+            .call(|c| c.execute_batch("DELETE FROM file_verdict; DELETE FROM search_due;"))
+            .unwrap();
+        let (_, took) = timed(|| {
+            db.writer
+                .call(tracklist_pro_lib::quality::store::settle)
+                .unwrap()
+        });
+        let due: i64 = db
+            .writer
+            .call(|c| c.query_row("SELECT count(*) FROM search_due", [], |r| r.get(0)))
+            .unwrap();
+        let (_, caught_up) = timed(|| db.writer.call(|c| settle(c, &NoDrives, 500)).unwrap());
+        println!(
+            "{label}: verdicts of {tracks} files {}, {due} tracks marked, index caught up in {}",
+            secs(took),
+            secs(caught_up)
+        );
+    };
+    for _ in 0..3 {
+        let drop_all = triggers.clone();
+        db.writer
+            .call(move |c| {
+                for (name, _) in &drop_all {
+                    c.execute_batch(&format!("DROP TRIGGER {name}"))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        round("without the triggers");
+        let make_all = triggers.clone();
+        db.writer
+            .call(move |c| {
+                for (_, sql) in &make_all {
+                    c.execute_batch(sql)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        round("with the triggers");
+    }
+}
+
+#[test]
+#[ignore = "a measurement: run it alone, in a release build, with --nocapture (see the file's doc)"]
+fn the_quality_marks_at_100k() {
+    quality_marks(100_000);
+}

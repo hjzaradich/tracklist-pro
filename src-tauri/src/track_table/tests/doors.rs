@@ -1,8 +1,9 @@
 //! "Every number is a door" (1cC-4; ROADMAP 1.13): a number on the Overview
 //! that opens the Library with a chip counts exactly the rows behind the
-//! chip. The two are one definition (`overview::low_quality_sql`, `ANALYZED`,
-//! `IN_A_CRATE`, `shown_energy!`), and these tests count both on a Library
-//! made of the edge cases: a linked file that is gone, a track with no linked
+//! chip. The two are one definition (`overview::ANALYZED`, `IN_A_CRATE`,
+//! `door_answers_of`, `gaps_of`), read when the query runs or from what the
+//! index job keeps, and these tests count both on a Library made of the edge
+//! cases: a linked file that is gone, a track with no linked
 //! file, a stale verdict, a track rekordbox knows but never analyzed, a
 //! hidden file, a smart crate's rule, an energy from two sources.
 

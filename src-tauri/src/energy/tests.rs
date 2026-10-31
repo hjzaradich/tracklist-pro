@@ -237,6 +237,16 @@ fn setting_energy_on_100000_tracks_and_undoing_it_cost() {
         .unwrap();
     println!("peak memory after building the library: {} MiB", mib());
     let all: Vec<i64> = (1..=100_000).collect();
+    // The first index run, so what is timed below is the catching up. The
+    // pages are the job's.
+    let catch_up = || {
+        let started = Instant::now();
+        lib.writer
+            .call(|c| crate::search::settle(c, &crate::search::tests::support::Mount, 500))
+            .unwrap();
+        started.elapsed()
+    };
+    println!("the first index run: {:?}", catch_up());
     let started = Instant::now();
     let done = set(&lib, &all, 7).unwrap();
     println!(
@@ -245,6 +255,14 @@ fn setting_energy_on_100000_tracks_and_undoing_it_cost() {
         done.changed,
         done.skipped,
         mib()
+    );
+    let due: i64 = lib
+        .writer
+        .call(|c| c.query_row("SELECT count(*) FROM search_due", [], |r| r.get(0)))
+        .unwrap();
+    println!(
+        "tracks marked for the index: {due}, caught up in {:?}",
+        catch_up()
     );
     let started = Instant::now();
     let next = lib.writer.call(|c| Ok(ops::next_undo(c))).unwrap().unwrap();
@@ -256,8 +274,9 @@ fn setting_energy_on_100000_tracks_and_undoing_it_cost() {
     let started = Instant::now();
     undo(&lib);
     println!("Undo of it: {:?}; peak {} MiB", started.elapsed(), mib());
-    // The search index is not asked to work again by an energy alone.
-    println!("search work pending afterwards: {}", lib.pending());
+    // 1cD-R1a: the Library's half is marked for the index job, which brings
+    // the stored energy of their rows up to date.
+    println!("the index catching up after the Undo: {:?}", catch_up());
     // The same again from a clean slate for the second figure: setting an
     // energy on the tracks that all have it already changes nothing.
     set(&lib, &all, 7).unwrap();
