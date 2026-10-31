@@ -28,7 +28,7 @@ enum Kind {
     /// New, with a tag XML can't carry: left out.
     BadCharacter,
     /// New, in a format rekordbox isn't known to play.
-    NoKind,
+    OddFormat,
     /// rekordbox holds another file of the track, not the linked one.
     Sibling,
     /// Sent as a byte-identical copy's entry.
@@ -47,7 +47,7 @@ const KINDS: [Kind; 12] = [
     Kind::GoneNew,
     Kind::GoneKnown,
     Kind::BadCharacter,
-    Kind::NoKind,
+    Kind::OddFormat,
     Kind::Sibling,
     Kind::Copy,
     Kind::Late,
@@ -205,7 +205,7 @@ impl World {
             Kind::GoneNew => (self.library_track(&name, "Gone", false).0, None),
             Kind::GoneKnown => (self.library_track(&name, "Gone", false).0, entry(&name)),
             Kind::BadCharacter => (self.library_track(&name, "Bad \u{1} title", true).0, None),
-            Kind::NoKind => {
+            Kind::OddFormat => {
                 let (track, file) = self.library_track(&name, "Odd format", true);
                 self.insert(
                     "UPDATE file SET sniffed_format = 'ogg' WHERE id = ?1",

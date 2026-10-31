@@ -275,6 +275,9 @@ fn a_go_with_no_read_left_says_rekordbox_was_read_again() {
     assert_eq!(w.data_files(), Vec::<String>::new());
 }
 
+/// Where a step was, what it said it was doing, and how far its job had got.
+type Part = (&'static str, Option<SendWork>, Option<f64>);
+
 /// The send job's progress now, as stored.
 fn progress_of_the_last_job(writer: &Writer) -> Option<f64> {
     writer
@@ -291,7 +294,7 @@ fn progress_of_the_last_job(writer: &Writer) -> Option<f64> {
 #[test]
 fn a_send_names_each_part_of_its_two_steps_and_its_progress_only_goes_forward() {
     let (w, ..) = world_with_a_send_waiting();
-    let seen: Arc<Mutex<Vec<(&'static str, Option<SendWork>, Option<f64>)>>> = Arc::default();
+    let seen: Arc<Mutex<Vec<Part>>> = Arc::default();
     let note = |at: &'static str| {
         let (flow, writer, seen) = (w.flow.clone(), w.writer.clone(), seen.clone());
         move || {

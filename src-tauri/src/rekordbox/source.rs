@@ -477,7 +477,8 @@ impl XmlReader {
     pub fn up_to(end: f64) -> XmlReader {
         XmlReader {
             up_to: Some(end),
-            ..XmlReader::default()
+            #[cfg(test)]
+            hook: None,
         }
     }
 
