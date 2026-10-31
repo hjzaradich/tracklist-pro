@@ -19,6 +19,10 @@
     "energy": {
       "title": "Energy",
       "none": "No energy",
+      "door_one": "Energy {{level}}: {{count, number}} track",
+      "door_other": "Energy {{level}}: {{count, number}} tracks",
+      "noneDoor_one": "No energy: {{count, number}} track",
+      "noneDoor_other": "No energy: {{count, number}} tracks",
       "empty": "No tracks with energy"
     },
     "genres": {

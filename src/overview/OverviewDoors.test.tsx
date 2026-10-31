@@ -72,7 +72,7 @@ const todoLine = (key: string, count: number) => () =>
 
 const DOORS: Door[] = [
   {
-    name: "the tracks made from low-quality files",
+    name: "lowQuality todo line",
     overview: { lowQuality: 6 },
     open: todoLine("lowQuality", 6),
     chip: { kind: "lowQuality" },
@@ -81,7 +81,7 @@ const DOORS: Door[] = [
     word: "lowQuality",
   },
   {
-    name: "the tracks rekordbox hasn't analyzed",
+    name: "notAnalyzed todo line",
     overview: { notAnalyzed: 9 },
     open: todoLine("notAnalyzed", 9),
     chip: { kind: "notAnalyzedByRekordbox" },
@@ -90,7 +90,7 @@ const DOORS: Door[] = [
     word: "notAnalyzedByRekordbox",
   },
   {
-    name: "the tracks in no crate",
+    name: "inNoCrate todo line",
     overview: { inNoCrate: 1 },
     open: todoLine("inNoCrate", 1),
     chip: { kind: "inNoCrate" },
@@ -99,7 +99,7 @@ const DOORS: Door[] = [
     word: "inNoCrate",
   },
   {
-    name: "the number of tracks in crates",
+    name: "inCrates number",
     overview: { inCrates: 3 },
     open: async () => screen.findByRole("link", { name: contains(tx("overview:numbers.inCrates")) }),
     chip: { kind: "inCrate" },
@@ -108,7 +108,7 @@ const DOORS: Door[] = [
     word: "inCrate",
   },
   {
-    name: "the number of tracks analyzed by rekordbox",
+    name: "analyzed number",
     overview: { analyzedByRekordbox: 4 },
     open: async () => screen.findByRole("link", { name: contains(tx("overview:numbers.analyzed")) }),
     chip: { kind: "analyzedByRekordbox" },
@@ -117,11 +117,10 @@ const DOORS: Door[] = [
     word: "analyzedByRekordbox",
   },
   {
-    name: "the energy 7 bar",
+    name: "energy 7 bar",
     overview: { energy: [0, 0, 0, 0, 0, 0, 5, 0, 0, 0], noEnergy: 2 },
     open: async () => {
-      const region = await screen.findByRole("region", { name: tx("overview:charts.energy.title") });
-      return within(region).getAllByRole("link")[6] as HTMLElement;
+      return screen.findByRole("link", { name: tx("overview:charts.energy.door", { level: 7, count: 5 }) });
     },
     chip: { kind: "energy", level: 7 },
     label: tx("trackTable:filters.energy", { level: 7 }),
@@ -129,13 +128,9 @@ const DOORS: Door[] = [
     word: "energy-7",
   },
   {
-    name: "the No energy bar",
+    name: "no energy bar",
     overview: { energy: [0, 0, 0, 0, 0, 0, 5, 0, 0, 0], noEnergy: 2 },
-    open: async () => {
-      const region = await screen.findByRole("region", { name: tx("overview:charts.energy.title") });
-      const links = within(region).getAllByRole("link");
-      return links[links.length - 1] as HTMLElement;
-    },
+    open: async () => screen.findByRole("link", { name: tx("overview:charts.energy.noneDoor", { count: 2 }) }),
     chip: { kind: "noEnergy" },
     label: tx("trackTable:filters.noEnergy"),
     number: 2,
@@ -224,6 +219,20 @@ describe("a number that is a door", () => {
     await chipsList();
     await router.navigate({ to: "/library" });
     await waitFor(() => expect(screen.queryByRole("list", { name: tx("trackTable:filters.label") })).toBeNull());
+  });
+});
+
+describe("the energy bars as doors", () => {
+  it("name what they open, and an empty bar is no door", async () => {
+    fakeBackend({ overview: { energy: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0], noEnergy: 0 } });
+    renderApp("/overview");
+    const region = await screen.findByRole("region", { name: tx("overview:charts.energy.title") });
+    expect(
+      within(region)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("aria-label")),
+    ).toEqual([tx("overview:charts.energy.door", { level: 7, count: 1 })]);
+    expect(within(region).getAllByRole("listitem")).toHaveLength(10);
   });
 });
 

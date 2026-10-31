@@ -15,6 +15,9 @@ struct Doors {
     lib: Lib,
     /// Library tracks, by name, as recording ids.
     tracks: Vec<(&'static str, i64)>,
+    /// A track outside the Library that is not analyzed and has no energy:
+    /// the one an unscoped "not analyzed" or "no energy" would wrongly list.
+    plain_outside: i64,
 }
 
 impl Doors {
@@ -129,6 +132,7 @@ fn world() -> Doors {
     let (outside, outside_file) = lib.track(Some("outside"), Some("Someone"), "outside.mp3");
     current_verdict(&lib, outside_file, "broken");
     analysis(&lib, outside, 128.0, "1A");
+    let (plain_outside, _) = lib.track(Some("plain outside"), Some("Someone"), "plain.mp3");
 
     let rec = |name: &str| tracks.iter().find(|(n, _)| *n == name).unwrap().1;
 
@@ -172,7 +176,11 @@ fn world() -> Doors {
          WHERE id = (SELECT linked_file_id FROM library_track WHERE recording_id = ?1)",
         (rec("unjudged"),),
     );
-    Doors { lib, tracks }
+    Doors {
+        lib,
+        tracks,
+        plain_outside,
+    }
 }
 
 #[test]
@@ -368,4 +376,43 @@ fn the_windows_of_a_door_chip_lay_end_to_end_into_its_rows() {
     all.sort_unstable();
     pieces.sort_unstable();
     assert_eq!(pieces, all);
+}
+
+#[test]
+fn the_door_filters_list_only_library_tracks_whatever_the_source() {
+    let w = world();
+    // A track outside the Library is neither analyzed nor not analyzed, and
+    // its energy is neither a level nor "none": a door never lists it.
+    for filter in [
+        TableFilter::NotAnalyzedByRekordbox,
+        TableFilter::AnalyzedByRekordbox,
+        TableFilter::NoEnergy,
+        TableFilter::LowQuality,
+    ] {
+        let (_, in_library) = w.rows(vec![filter.clone()]);
+        assert!(!in_library.contains(&w.plain_outside), "{filter:?}");
+        let mut in_all_music = ids(&run(
+            &w.lib,
+            filtered(TableSource::AllMusic, vec![filter.clone()]),
+        ));
+        in_all_music.sort_unstable();
+        assert!(
+            !in_all_music.contains(&w.plain_outside),
+            "{filter:?} in All music"
+        );
+        let library_ids: Vec<i64> = w.tracks.iter().map(|(_, id)| *id).collect();
+        assert!(
+            in_all_music.iter().all(|id| library_ids.contains(id)),
+            "{filter:?} in All music lists a track outside the Library"
+        );
+    }
+    let mut not_analyzed = ids(&run(
+        &w.lib,
+        filtered(
+            TableSource::AllMusic,
+            vec![TableFilter::NotAnalyzedByRekordbox],
+        ),
+    ));
+    not_analyzed.sort_unstable();
+    assert_eq!(not_analyzed, w.named(&["gone", "old", "nofile"]));
 }

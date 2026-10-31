@@ -12,15 +12,18 @@ import { doorWord } from "../library/doors";
 export function LibraryDoor({
   filter,
   className,
+  name,
   children,
 }: {
   filter?: TableFilter;
   className?: string;
+  /** What a screen reader calls the link, when its text alone doesn't say. */
+  name?: string;
   children: ReactNode;
 }) {
   const word = filter === undefined ? null : doorWord(filter);
   return (
-    <Link to="/library" search={word === null ? {} : { filter: word }} className={className}>
+    <Link to="/library" search={word === null ? {} : { filter: word }} className={className} aria-label={name}>
       {children}
     </Link>
   );

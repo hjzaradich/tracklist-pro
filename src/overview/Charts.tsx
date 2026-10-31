@@ -13,6 +13,8 @@ export interface Bar {
   id: string;
   label: string;
   tracks: number;
+  /** The name of the bar's link, which says what it opens (a door's only). */
+  doorName?: string;
   /**
    * The Library's filter chip that holds the tracks the bar counts (1cC-4);
    * none for a bar that opens nothing.
@@ -53,15 +55,23 @@ export function genreBars(
 export function energyBars(
   overview: Pick<Overview, "energy" | "noEnergy">,
   labels: { none: string },
+  doorName?: (level: number | null, tracks: number) => string,
 ): Bar[] {
   const bars: Bar[] = overview.energy.map((tracks, i) => ({
     id: `energy:${i + 1}`,
     label: String(i + 1),
     tracks,
     filter: { kind: "energy", level: i + 1 },
+    doorName: doorName?.(i + 1, tracks),
   }));
   if (overview.noEnergy > 0) {
-    bars.push({ id: "none", label: labels.none, tracks: overview.noEnergy, filter: { kind: "noEnergy" } });
+    bars.push({
+      id: "none",
+      label: labels.none,
+      tracks: overview.noEnergy,
+      filter: { kind: "noEnergy" },
+      doorName: doorName?.(null, overview.noEnergy),
+    });
   }
   return bars;
 }
@@ -87,7 +97,9 @@ export function Charts({ overview }: { overview: Overview }) {
         title={t("charts.energy.title")}
         counting={false}
         empty={hasEnergy ? null : t("charts.energy.empty")}
-        bars={energyBars(overview, { none: t("charts.energy.none") })}
+        bars={energyBars(overview, { none: t("charts.energy.none") }, (level, count) =>
+          level === null ? t("charts.energy.noneDoor", { count }) : t("charts.energy.door", { level, count }),
+        )}
       />
       <Chart
         title={t("charts.genres.title")}
@@ -143,8 +155,8 @@ function Chart({
             );
             return (
               <li key={bar.id} className={styles.bar}>
-                {bar.filter !== undefined ? (
-                  <LibraryDoor filter={bar.filter} className={styles.barDoor}>
+                {bar.filter !== undefined && bar.tracks > 0 ? (
+                  <LibraryDoor filter={bar.filter} className={styles.barDoor} name={bar.doorName}>
                     {cells}
                   </LibraryDoor>
                 ) : (
