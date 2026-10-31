@@ -1271,3 +1271,59 @@ fn a_pick_settles_an_open_conflict_on_the_staying_track_and_undo_opens_it_again(
     assert_eq!(t.rows(), rows);
     assert_eq!(t.own_values(), own);
 }
+
+// ---- the gap flags follow a merge and its Undo (1cC-U1b) ----------------------------
+
+#[test]
+fn a_merge_and_its_undo_refresh_the_missing_tags_flag_once_the_index_runs() {
+    use crate::search::flag::MISSING_TAGS;
+    let t = Twice::new();
+    // The kept track's own file has a genre and no title or artist; the other
+    // file has all three. A track may take its title and artist from another
+    // of its files, so the merge brings the kept track what it lacked.
+    let tags = |fields: &[(&str, &str)]| {
+        let items: Vec<_> = fields
+            .iter()
+            .map(|(k, v)| serde_json::json!({"key": k, "value": {"type": "text", "text": v}}))
+            .collect();
+        serde_json::json!({ "id3v2": items }).to_string()
+    };
+    let genre_only = tags(&[("TCON", "House")]);
+    let complete = tags(&[("TIT2", "Velo"), ("TPE1", "Someone"), ("TCON", "House")]);
+    let (a, b) = (t.a, t.b);
+    t.db.writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE file SET raw_tags = ?1 WHERE id = ?2",
+                (genre_only, a),
+            )?;
+            c.execute("UPDATE file SET raw_tags = ?1 WHERE id = ?2", (complete, b))
+        })
+        .unwrap();
+    let flag_of = |track: i64| -> bool {
+        t.db.writer
+            .call(|c| crate::search::settle(c, &Mount, 500))
+            .unwrap();
+        t.db.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT flags & ?2 <> 0 FROM track_row WHERE recording_id = ?1",
+                    (track, MISSING_TAGS),
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    assert!(flag_of(t.ta), "no title or artist of its own");
+    assert!(!flag_of(t.tb), "the other track is complete");
+
+    t.merge(&t.both(), t.ta).unwrap();
+    assert!(
+        !flag_of(t.ta),
+        "after the merge the kept track has the other file's title and artist"
+    );
+
+    assert!(matches!(t.undo(), UndoOutcome::Undone { .. }));
+    assert!(flag_of(t.ta), "the Undo takes them away again");
+    assert!(!flag_of(t.tb), "and the track that came back is complete");
+}

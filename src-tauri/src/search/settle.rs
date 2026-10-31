@@ -202,7 +202,7 @@ fn rows_for(
         .iter()
         .filter_map(|id| library.get(id).copied())
         .collect();
-    let gaps = crate::overview::gaps_of(conn, volumes, &library_tracks)?;
+    let gaps = gaps_or_none(conn, volumes, &library_tracks);
     let mut rows = HashMap::new();
     for id in wanted {
         // A track the lists can't name yet (no row) is skipped; it is due
@@ -232,6 +232,41 @@ fn rows_for(
         );
     }
     Ok(rows)
+}
+
+/// [`crate::overview::gaps_of`] for a page of Library tracks, which never
+/// fails the page: one track whose tags can't be read must not stop the index
+/// job (it would stay due, and the Overview would say "still counting" for
+/// ever). If the page errors, each track is asked alone; a track that still
+/// errors is logged and has no gaps, and its row is written like any other.
+fn gaps_or_none(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    tracks: &[LibraryTrackId],
+) -> crate::overview::Gaps {
+    match crate::overview::gaps_of(conn, volumes, tracks) {
+        Ok(gaps) => gaps,
+        Err(error) => {
+            eprintln!(
+                "index: the tag gaps of a page of {} tracks failed: {error}",
+                tracks.len()
+            );
+            let mut all = crate::overview::Gaps::default();
+            for track in tracks {
+                match crate::overview::gaps_of(conn, volumes, &[*track]) {
+                    Ok(gaps) => {
+                        all.tags.extend(gaps.tags);
+                        all.art.extend(gaps.art);
+                    }
+                    Err(error) => eprintln!(
+                        "index: Library track {} has no tag gaps recorded, its tags can't be read: {error}",
+                        track.0
+                    ),
+                }
+            }
+            all
+        }
+    }
 }
 
 /// What the lists show of each of the tracks `wanted`, given which of them
