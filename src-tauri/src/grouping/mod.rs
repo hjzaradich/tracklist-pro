@@ -111,6 +111,7 @@ pub mod decide;
 pub mod plan;
 pub mod rules;
 mod store;
+mod stored_names;
 mod target;
 
 pub use decide::{Decided, Names, MAX_TITLE_BUCKET, PAGE};
@@ -134,8 +135,9 @@ use crate::ipc::IpcError;
 use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, JobQueue, NewJob, Priority};
 
 /// The version of what the deciding run stores. Bump it when the rules
-/// ([`rules::decide`]), the pairs asked about or what is stored for one
-/// change: every file is then due again, and its pairs are decided afresh.
+/// ([`rules::decide`]), the pairs asked about, what is stored for one, or
+/// the keys the index looks files up by (`decide::Entry::new`, so the
+/// parser and `title_key` too) change: every file is then due again, and its pairs are decided afresh.
 ///
 /// 2: 1bD-4 (dotted spellings, label-word artists, the folder a file sits
 /// in, harmless brackets, a file name whose second part is only a label).

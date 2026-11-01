@@ -394,6 +394,12 @@ struct Report {
     restarted_names: usize,
     /// One new file after a restart: the index of names is built again.
     restarted_one: (Decided, Summary, Duration),
+    /// How many files' keys that run worked out, not read as stored.
+    restarted_worked_out: u64,
+    /// One file due on a library upgraded from before the keys were stored:
+    /// every present file's keys are worked out, once.
+    upgraded: (Decided, Summary, Duration),
+    upgraded_worked_out: u64,
     idle_pass: (Summary, Duration),
     db: Db,
 }
@@ -452,7 +458,21 @@ fn steps(n: usize, len: usize) -> Report {
     }]);
     group(&db);
     compare_fingerprints(&matcher, &db);
-    let restarted_one = decide(&mut Names::default(), &db);
+    let mut fresh = Names::default();
+    let restarted_one = decide(&mut fresh, &db);
+    let restarted_worked_out = fresh.worked_out();
+    db.writer
+        .call(|c| {
+            c.execute_batch(
+                "DELETE FROM grouping_names;
+                 UPDATE grouping_file SET decided_as = NULL
+                 WHERE file_id = (SELECT min(file_id) FROM grouping_file);",
+            )
+        })
+        .unwrap();
+    let mut fresh = Names::default();
+    let upgraded = decide(&mut fresh, &db);
+    let upgraded_worked_out = fresh.worked_out();
     let idle_pass = group(&db);
     Report {
         files: files.len(),
@@ -467,6 +487,9 @@ fn steps(n: usize, len: usize) -> Report {
         restarted,
         restarted_names,
         restarted_one,
+        restarted_worked_out,
+        upgraded,
+        upgraded_worked_out,
         idle_pass,
         db,
     }
@@ -533,6 +556,7 @@ fn print(report: &Report) {
     run("deciding job, nothing due", &report.idle);
     run("  the same after a restart", &report.restarted);
     run("one new file after a restart", &report.restarted_one);
+    run("one file due after an upgrade", &report.upgraded);
     pass("grouping pass, nothing to do", &report.idle_pass);
     println!(
         "  tracks: {}   pairs stored: {}   version links: {}   stored comparisons: {}",
@@ -681,6 +705,10 @@ fn check(report: &Report) {
     assert!(!report.idle.1.changed_tracks() && !report.restarted.1.changed_tracks());
     assert_eq!(report.restarted_names, 0, "no names read with nothing due");
     assert_eq!(report.restarted_one.0.files, 1);
+    // A restart parses the one new file's tags, and an upgrade everyone's.
+    assert_eq!(report.restarted_worked_out, 1);
+    assert_eq!(report.upgraded.0.files, 1);
+    assert!(report.upgraded_worked_out >= report.files as u64);
     // Every held set is one of the planted ones: three files.
     let held = held_sets(db);
     assert_eq!(held.len(), report.planted.disagreeing.len());

@@ -19,4 +19,5 @@ mod job;
 mod plan;
 mod removals;
 mod steps;
+mod stored_names;
 pub(crate) mod support;
