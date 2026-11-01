@@ -35,8 +35,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::Promoted;
-use crate::quality::verdict::Finding;
 use crate::quality::store::CHUNK;
+use crate::quality::verdict::Finding;
 use crate::quality::{settle_files, stored_verdict, stored_verdicts};
 
 /// Why an add needs the user's go-ahead first. A code and its numbers; the
