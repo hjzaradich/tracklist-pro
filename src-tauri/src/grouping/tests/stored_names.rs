@@ -49,7 +49,7 @@ fn kept(db: &Db, decided: Decided) -> Vec<String> {
             )?;
             let pairs = pairs.query_map([], |r| r.get::<_, String>(0))?;
             let pairs: rusqlite::Result<Vec<String>> = pairs.collect();
-            Ok(pairs?)
+            pairs
         })
         .map(|pairs| out.extend(pairs))
         .unwrap();
