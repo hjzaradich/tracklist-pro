@@ -9,14 +9,14 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use super::support::{wait, Library, TempVolume, PATIENCE};
-use super::{audio, shaped, source, split};
+use super::{audio, join_library_for_test, shaped, source, split, track_of_for_test};
 use crate::db::DbError;
 use crate::hash::{hash_job, Hasher};
 use crate::jobs::{JobContext, JobError, JobId, JobKind, JobQueue, JobStatus, NewJob, Priority};
 use crate::scan::walk::{scan_job, Walker};
 use crate::waveform::{
-    join_library_for_test, ledger, peaks, request, request_first, track_of_for_test, waveform_job,
-    waveform_job_for, waveform_of, Wanted, Waveform, Waveformer, PRIORITY, VERSION,
+    ledger, peaks, request, request_first, waveform_job, waveform_job_for, waveform_of, Wanted,
+    Waveform, Waveformer, PRIORITY, VERSION,
 };
 
 const RATE: u32 = 44_100;

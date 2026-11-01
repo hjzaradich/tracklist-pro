@@ -652,7 +652,7 @@ fn waveforms_of_library_tracks_are_drawn_at_the_lowest_priority_and_not_again_fo
     assert_eq!(stored(), 0);
     // It joins the Library, and the job is asked for at the lowest priority.
     writer
-        .call(|c| crate::waveform::join_library_for_test(c))
+        .call(|c| crate::waveform::tests::join_library_for_test(c))
         .unwrap();
     crate::waveform::ask_after_library_change_with(&writer, None, |job| queue.enqueue(job));
     wait_idle(&queue);

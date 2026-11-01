@@ -358,7 +358,7 @@ fn waveforms_not_drawn_yet_are_asked_for_at_the_next_start_once_the_fingerprints
     // leaves them owed:
     writer
         .call(|c| {
-            crate::waveform::join_library_for_test(c)?;
+            crate::waveform::tests::join_library_for_test(c)?;
             c.execute("DELETE FROM file_waveform", [])
         })
         .unwrap();
@@ -384,7 +384,7 @@ fn waveforms_wait_while_the_fingerprints_are_owed_and_for_a_drive_that_is_back()
     let (_dir, volume, _db, writer) = scanned();
     writer
         .call(|c| {
-            crate::waveform::join_library_for_test(c)?;
+            crate::waveform::tests::join_library_for_test(c)?;
             c.execute("DELETE FROM file_waveform", [])
         })
         .unwrap();
@@ -400,7 +400,7 @@ fn waveforms_wait_while_the_fingerprints_are_owed_and_for_a_drive_that_is_back()
     let (_dir, volume, _db, writer) = scanned();
     writer
         .call(|c| {
-            crate::waveform::join_library_for_test(c)?;
+            crate::waveform::tests::join_library_for_test(c)?;
             c.execute("DELETE FROM file_waveform", [])
         })
         .unwrap();

@@ -1,7 +1,7 @@
 //! The waveform job: decodes each file once and stores its peaks
 //! (ROADMAP 1.11 "Audio"; 1cB-9).
 //!
-//! The job works through every present file that is due (see [`ledger`]),
+//! The job works through every Library track's shown file that is due (see [`ledger`]),
 //! **one file at a time**, on one thread taken from the fingerprint jobs'
 //! shared budget ([`FirstUp`]) at below-normal priority. It is the
 //! lowest-priority job there is ([`PRIORITY`]) and stays behind everything

@@ -59,7 +59,7 @@ mod ledger;
 pub mod peaks;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -186,7 +186,7 @@ pub fn waveform_first(
     })?)
 }
 
-/// Queues a waveform job if any file is due, unless one is already queued
+/// Queues a waveform job if any Library track's shown file is due, unless one is already queued
 /// (a running one is asked to run once more). Called when the scan chain
 /// has its hashes in, like the quality job.
 ///
@@ -235,47 +235,6 @@ pub(crate) fn ask_after_library_change_with<E: From<DbError> + std::fmt::Debug>(
     if let Err(e) = request(writer, reach, enqueue) {
         eprintln!("waveform: couldn't ask for the job: {e:?}");
     }
-}
-
-/// Test setup: the track `file_id` is a file of (made if it has none).
-#[cfg(test)]
-pub(crate) fn track_of_for_test(conn: &Connection, file_id: i64) -> rusqlite::Result<i64> {
-    let found: Option<i64> = conn
-        .query_row(
-            "SELECT recording_id FROM recording_file WHERE file_id = ?1",
-            [file_id],
-            |r| r.get(0),
-        )
-        .ok();
-    if let Some(track) = found {
-        return Ok(track);
-    }
-    conn.execute("INSERT INTO recording DEFAULT VALUES", [])?;
-    let track = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO recording_file (recording_id, file_id, role) VALUES (?1, ?2, 'best')",
-        [track, file_id],
-    )?;
-    Ok(track)
-}
-
-/// Test setup: every file becomes a Library track's linked file (a file that
-/// already is one stays so).
-#[cfg(test)]
-pub(crate) fn join_library_for_test(conn: &Connection) -> rusqlite::Result<()> {
-    let files: Vec<i64> = conn
-        .prepare("SELECT id FROM file")?
-        .query_map([], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    for file in files {
-        let track = track_of_for_test(conn, file)?;
-        conn.execute(
-            "INSERT OR IGNORE INTO library_track (recording_id, kind, linked_file_id)
-             VALUES (?1, 'linked', ?2)",
-            [track, file],
-        )?;
-    }
-    Ok(())
 }
 
 /// Whether any file of a Library track is due a waveform that can be
