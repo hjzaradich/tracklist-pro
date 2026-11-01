@@ -52,6 +52,28 @@
 //! still too many (or the files name no artist) the pairs are skipped:
 //! not asked about, not recorded, left apart, and counted in [`Decided`].
 //!
+//! # The index of names
+//!
+//! The index ([`Names`]) lives in memory, and each file's keys in it are
+//! worked out from its tags once: they are kept in the database
+//! ([`super::stored_names`]), so after a restart a run reads those instead
+//! of every file's tags. A file with no current keys (new, retagged, renamed,
+//! or a library upgraded from before the table, or under other rules) has
+//! them worked out, and that is the only part that parses tags for the index.
+//! On a whole library that takes a minute, so it reports its progress
+//! ([`NAMES_SHARE`]), keeps what it did page by page, and makes way between
+//! pages like the deciding does.
+//!
+//! # Which connection
+//!
+//! Everything a run reads goes through a read connection of its own, because
+//! nothing it reads needs to be one view with what it writes: what makes that
+//! safe is the last step, which marks a file decided only if its `rev` is the
+//! one that was listed. Two things stay on the writer, and both write:
+//! [`known_settled`], because a verdict brought up to date has to be read
+//! with no write in between (out of date, it would read as none), and the
+//! page's own transaction.
+//!
 //! Pairs the rules call "different" aren't stored, except inside a set of
 //! duplicates that waits for them (the grouping pass lists those,
 //! [`super::store::Step::undecided`]): [`complete`] decides them, compared
@@ -99,7 +121,7 @@ use std::sync::Arc;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::db::{DbError, Writer};
+use crate::db::{DbError, ReadPool, Writer};
 use crate::fingerprint::Fingerprint;
 use crate::matching::{self, Comparison};
 use crate::quality::verdict::Verdict as QualityVerdict;
@@ -108,6 +130,7 @@ use crate::versions::{self, CreditRole, ParsedName};
 use super::plan::{Key, Outcome};
 use super::rules::{self, Audio, FileFacts, Measured, Pair, Reason, Side};
 use super::store::CONTENT_KEY;
+use super::stored_names::{self, Present, WorkedOut};
 
 /// A title shared by more files than this isn't compared pair by pair: see
 /// the module docs. Also how many files holding the very same audio are
@@ -119,6 +142,10 @@ pub const PAGE: usize = 200;
 
 /// How many files' names are read per query when the index is built.
 const NAMES_PAGE: usize = 1000;
+
+/// How much of the job's progress working out a whole library's keys takes:
+/// about what it takes of a first run (1cC-M1: 58 s of 198 s).
+const NAMES_SHARE: f64 = 0.3;
 
 /// What one deciding run did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -156,16 +183,16 @@ fn lookup_key(text: &str) -> Option<String> {
 
 /// What one file's names are looked up by.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Entry {
+pub(super) struct Entry {
     /// Every title its title tag or its file name can be read as.
-    titles: Vec<String>,
+    pub(super) titles: Vec<String>,
     /// The titles it names as a mashup's parts.
-    parts: Vec<String>,
-    artists: Vec<String>,
+    pub(super) parts: Vec<String>,
+    pub(super) artists: Vec<String>,
 }
 
 impl Entry {
-    fn new(title_tag: Option<&str>, artist_tag: Option<&str>, file_name: &str) -> Entry {
+    pub(super) fn new(title_tag: Option<&str>, artist_tag: Option<&str>, file_name: &str) -> Entry {
         let mut entry = Entry::default();
         let mut take = |name: &ParsedName| {
             for reading in name.readings() {
@@ -210,7 +237,8 @@ struct Narrowed {
 /// handler, and brought up to date by each run that has a file to decide,
 /// before it decides the first ([`Names::catch_up`]); a run with nothing
 /// due never builds it. It's only what candidates are found by, never what
-/// a decision is made on, which is read from the database each time.
+/// a decision is made on, which is read from the database each time. Built
+/// from the keys stored per file: see the module docs.
 #[derive(Debug, Default)]
 pub struct Names {
     of_file: HashMap<i64, Entry>,
@@ -225,6 +253,8 @@ pub struct Names {
     narrowed: HashMap<String, Narrowed>,
     /// What this run already counted as skipped.
     counted: HashSet<String>,
+    /// How many files' keys were worked out from their tags.
+    worked_out: u64,
 }
 
 impl Names {
@@ -232,6 +262,18 @@ impl Names {
     /// decide.
     pub fn files(&self) -> usize {
         self.of_file.len()
+    }
+
+    /// How many files' keys this index had to work out from their tags,
+    /// rather than read as stored.
+    pub fn worked_out(&self) -> u64 {
+        self.worked_out
+    }
+
+    /// What the index holds for `file`.
+    #[cfg(test)]
+    pub(super) fn entry_of(&self, file: i64) -> Option<&Entry> {
+        self.of_file.get(&file)
     }
 
     fn remove(&mut self, file: i64) {
@@ -275,38 +317,65 @@ impl Names {
         self.read_at.get(&file) == Some(&rev)
     }
 
-    /// Reads the names of `files` (each with its record's `rev` now) into
-    /// the index.
-    fn read(&mut self, writer: &Writer, files: Vec<(i64, Option<i64>)>) -> Result<(), DbError> {
+    /// Reads the names of `files` (each with its record's `rev`, read before
+    /// this) into the index: the stored keys of those that have them, and
+    /// the others' worked out from their tags and stored. Returns how many
+    /// were worked out.
+    fn read(
+        &mut self,
+        writer: &Writer,
+        reads: &ReadPool,
+        files: Vec<(i64, Option<i64>)>,
+    ) -> Result<usize, DbError> {
         let ids: Vec<i64> = files.iter().map(|(file, _)| *file).collect();
         let revs: HashMap<i64, Option<i64>> = files.into_iter().collect();
-        let named = writer.call(move |c| names_of(c, &ids))?;
-        for (file, names) in named {
-            self.set(file, names.entry(), revs.get(&file).copied().flatten());
+        let rev_of = |file: i64| revs.get(&file).copied().flatten();
+        let stored = reads.read(|c| stored_names::current(c, &ids))?;
+        let missing: Vec<i64> = ids
+            .iter()
+            .filter(|file| !stored.contains_key(file))
+            .copied()
+            .collect();
+        let named = match missing.is_empty() {
+            true => Vec::new(),
+            false => reads.read(|c| names_of(c, &missing))?,
+        };
+        for (file, entry) in stored {
+            self.set(file, entry, rev_of(file));
         }
-        Ok(())
+        let worked_out = named.len();
+        self.worked_out += worked_out as u64;
+        let mut to_keep = Vec::with_capacity(worked_out);
+        for (file, names) in named {
+            let (entry, rev) = (names.entry(), rev_of(file));
+            // A file with no record yet has no `rev` to keep them at.
+            if let (Some(rev), Some(entry)) = (rev, stored_names::encode(&entry)) {
+                to_keep.push(WorkedOut { file, rev, entry });
+            }
+            self.set(file, entry, rev);
+        }
+        if !to_keep.is_empty() {
+            writer.call(move |c| stored_names::keep(c, &to_keep))?;
+        }
+        Ok(worked_out)
     }
 
     /// Brings the index up to date with the file table: every present
     /// file, and the names of each file that is new to it or whose names
-    /// may have changed since they were read.
-    fn catch_up<E: From<DbError>>(
+    /// may have changed since they were read. `stop_here` is called between
+    /// two pages once keys were worked out: what's stored isn't worked out
+    /// again, so a run stopped there leaves the next one less to do.
+    pub(super) fn catch_up<E: From<DbError>>(
         &mut self,
         writer: &Writer,
+        reads: &ReadPool,
         tick: &mut dyn FnMut(f64) -> Result<(), E>,
+        stop_here: &mut dyn FnMut() -> Result<(), E>,
     ) -> Result<(), E> {
         self.narrowed.clear();
         self.counted.clear();
-        let present = writer.call(|c| {
-            let mut stmt = c.prepare(
-                "SELECT f.id, g.rev
-                 FROM file f LEFT JOIN grouping_file g ON g.file_id = f.id
-                 WHERE f.present = 1 ORDER BY f.id",
-            )?;
-            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
-            rows.collect::<rusqlite::Result<Vec<(i64, Option<i64>)>>>()
-        })?;
-        let now: HashSet<i64> = present.iter().map(|(file, _)| *file).collect();
+        let present = reads.read(stored_names::present)?;
+        let now: HashSet<i64> = present.iter().map(|known| known.file).collect();
         let gone: Vec<i64> = self
             .of_file
             .keys()
@@ -316,13 +385,19 @@ impl Names {
         for file in gone {
             self.remove(file);
         }
-        let stale: Vec<(i64, Option<i64>)> = present
+        let stale: Vec<Present> = present
             .into_iter()
-            .filter(|&(file, rev)| !self.has(file, rev))
+            .filter(|known| !self.has(known.file, known.rev))
             .collect();
-        for page in stale.chunks(NAMES_PAGE) {
-            tick(0.0)?;
-            self.read(writer, page.to_vec())?;
+        let to_work_out = stale.iter().filter(|known| !known.stored).count().max(1);
+        let mut worked_out = 0;
+        for (n, page) in stale.chunks(NAMES_PAGE).enumerate() {
+            if n > 0 && worked_out > 0 {
+                stop_here()?;
+            }
+            tick(NAMES_SHARE * (worked_out as f64 / to_work_out as f64).min(1.0))?;
+            let files = page.iter().map(|known| (known.file, known.rev)).collect();
+            worked_out += self.read(writer, reads, files)?;
         }
         Ok(())
     }
@@ -331,16 +406,21 @@ impl Names {
     /// they have now, before candidates are found for them: a file that
     /// arrived, or was renamed, after the run caught up is never decided
     /// without them.
-    fn catch_up_page(&mut self, writer: &Writer, due: &[(i64, i64)]) -> Result<(), DbError> {
+    fn catch_up_page(
+        &mut self,
+        writer: &Writer,
+        reads: &ReadPool,
+        due: &[(i64, i64)],
+    ) -> Result<(), DbError> {
         let stale: Vec<(i64, Option<i64>)> = due
             .iter()
             .map(|&(file, rev)| (file, Some(rev)))
             .filter(|&(file, rev)| !self.has(file, rev))
             .collect();
-        if stale.is_empty() {
-            return Ok(());
+        if !stale.is_empty() {
+            self.read(writer, reads, stale)?;
         }
-        self.read(writer, stale)
+        Ok(())
     }
 
     /// The files of title `key` that `file` is compared with: all of them,
@@ -483,10 +563,17 @@ fn names_of(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Stored
          WHERE id IN (SELECT value FROM json_each(?1)) AND present = 1",
     )?;
     let rows = stmt.query_map([ids], |r| {
-        let (rel_path, raw_tags): (String, Option<String>) = (r.get(1)?, r.get(2)?);
-        Ok((r.get(0)?, StoredNames::new(&rel_path, raw_tags.as_deref())))
+        let rel_path: String = r.get(1)?;
+        Ok((r.get(0)?, StoredNames::new(&rel_path, tags_at(r, 2)?)))
     })?;
     rows.collect()
+}
+
+/// The `raw_tags` in `column`: none where they aren't text, as for tags that
+/// can't be parsed (the file goes by its name), so one file's bytes never
+/// stop a page of others.
+fn tags_at<'a>(row: &'a rusqlite::Row, column: usize) -> rusqlite::Result<Option<&'a str>> {
+    Ok(row.get_ref(column)?.as_str().ok())
 }
 
 /// Whether file `f`'s fingerprint is of the audio it holds now, as SQL.
@@ -563,14 +650,14 @@ fn known(conn: &Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Known>
          WHERE f.id IN (SELECT value FROM json_each(?1)) AND f.present = 1"
     ))?;
     let rows = stmt.query_map([ids], |r| {
-        let (rel_path, raw_tags): (String, Option<String>) = (r.get(1)?, r.get(2)?);
+        let rel_path: String = r.get(1)?;
         let content: Option<Key> = r.get(3)?;
         let (fingerprinted, current): (bool, bool) = (r.get(4)?, r.get(5)?);
         let id: i64 = r.get(0)?;
         Ok((
             id,
             Known {
-                facts: StoredNames::new(&rel_path, raw_tags.as_deref()).facts(),
+                facts: StoredNames::new(&rel_path, tags_at(r, 2)?).facts(),
                 content: content.filter(|key| !key.is_empty()),
                 has_fingerprint: fingerprinted && current,
                 stale: fingerprinted && !current,
@@ -829,7 +916,7 @@ impl AudioKnown {
 
 /// Reads the stored comparisons of each of `pairs` (files standing for
 /// fingerprints, the lower first) that isn't known yet.
-fn look_up(writer: &Writer, audio: &mut AudioKnown, pairs: Vec<(i64, i64)>) -> Result<(), DbError> {
+fn look_up(reads: &ReadPool, audio: &mut AudioKnown, pairs: Vec<(i64, i64)>) -> Result<(), DbError> {
     let unknown: Vec<(i64, i64)> = pairs
         .into_iter()
         .filter(|pair| !audio.stored.contains_key(pair) && !audio.never.contains(pair))
@@ -837,7 +924,7 @@ fn look_up(writer: &Writer, audio: &mut AudioKnown, pairs: Vec<(i64, i64)>) -> R
     if unknown.is_empty() {
         return Ok(());
     }
-    let found = writer.call(move |c| {
+    let found = reads.read(|c| {
         let mut found = Vec::with_capacity(unknown.len());
         for (low, high) in unknown {
             found.push(((low, high), matching::store::of_pair(c, low, high)?));
@@ -863,7 +950,7 @@ fn look_up(writer: &Writer, audio: &mut AudioKnown, pairs: Vec<(i64, i64)>) -> R
 /// unknown. Each file's fingerprint is read once and shared by every pair
 /// it's in (an hour-long file's is megabytes).
 fn compare_directly(
-    writer: &Writer,
+    reads: &ReadPool,
     audio: &mut AudioKnown,
     pairs: BTreeSet<(i64, i64)>,
     run: &mut Decided,
@@ -874,8 +961,8 @@ fn compare_directly(
     let mut ids: Vec<i64> = pairs.iter().flat_map(|&(low, high)| [low, high]).collect();
     ids.sort_unstable();
     ids.dedup();
-    let blobs: HashMap<i64, Arc<[u8]>> = writer
-        .call(move |c| matching::store::fingerprints_of(c, &ids))?
+    let blobs: HashMap<i64, Arc<[u8]>> = reads
+        .read(|c| matching::store::fingerprints_of(c, &ids))?
         .into_iter()
         .map(|(file, blob, _)| (file, Arc::from(blob)))
         .collect();
@@ -1000,6 +1087,7 @@ pub fn run<E: From<DbError>>(
     let mut run = Decided::default();
     let page = page.max(1);
     tick(0.0)?;
+    let reads = read_connection(writer)?;
     let mut after = 0;
     let mut seen = 0u64;
     let mut total = 1.0;
@@ -1009,7 +1097,7 @@ pub fn run<E: From<DbError>>(
         if run.files > 0 {
             stop_here()?;
         }
-        let listed = writer.call(move |c| due_page(c, after, page))?;
+        let listed = reads.read(|c| due_page(c, after, page))?;
         let Some(last) = listed.last() else {
             break;
         };
@@ -1017,11 +1105,12 @@ pub fn run<E: From<DbError>>(
         seen += listed.len() as u64;
         // What is only needed to decide a file is read by the first page
         // that has one: the index of names (after a restart that is every
-        // present file's names read again), and how many files are due.
+        // present file's stored keys read again), and how many files are
+        // due.
         if standing.is_none() {
-            names.catch_up(writer, tick)?;
-            total = writer
-                .call(|c| {
+            names.catch_up(writer, &reads, tick, stop_here)?;
+            total = reads
+                .read(|c| {
                     c.query_row(
                         "SELECT count(*) FROM grouping_file WHERE decided_as IS NOT ?1",
                         [super::decided_as()],
@@ -1038,15 +1127,20 @@ pub fn run<E: From<DbError>>(
                 .any(|due| due.fingerprinted && !standing.stands.contains_key(&due.file))
         });
         if behind {
-            standing = Some(writer.call(|c| Standing::read(c))?);
+            standing = Some(reads.read(Standing::read)?);
         }
         // Always there by now.
         let Some(standing) = &standing else { break };
         let due: Vec<(i64, i64)> = listed.iter().map(|due| (due.file, due.rev)).collect();
-        names.catch_up_page(writer, &due)?;
-        decide_page(writer, names, standing, &due, &mut run)?;
+        names.catch_up_page(writer, &reads, &due)?;
+        decide_page(writer, &reads, names, standing, &due, &mut run)?;
     }
     Ok(run)
+}
+
+/// The read connection a run reads through: its own, closed with it.
+fn read_connection(writer: &Writer) -> Result<ReadPool, DbError> {
+    ReadPool::with_size(writer.guarded_path(), 1)
 }
 
 /// Makes each of `files` due, if it isn't: its fingerprint isn't of the
@@ -1067,6 +1161,7 @@ fn postpone(conn: &Connection, files: &[i64]) -> rusqlite::Result<()> {
 /// each file decided if nothing about it changed since it was read.
 fn decide_page(
     writer: &Writer,
+    reads: &ReadPool,
     names: &mut Names,
     standing: &Standing,
     due: &[(i64, i64)],
@@ -1077,7 +1172,7 @@ fn decide_page(
     stood.sort_unstable();
     stood.dedup();
     let mut audio = AudioKnown::default();
-    let stored = writer.call(move |c| {
+    let stored = reads.read(|c| {
         let mut all = Vec::new();
         for file in stood {
             all.extend(matching::store::of_file(c, file)?);
@@ -1125,7 +1220,7 @@ fn decide_page(
         .iter()
         .filter_map(|(file, _)| known.get(file)?.content.clone())
         .collect();
-    let twins = writer.call(move |c| identical(c, &contents))?;
+    let twins = reads.read(|c| identical(c, &contents))?;
     let mut extra: Vec<i64> = Vec::new();
     for &(file, _) in due {
         let Some(content) = known.get(&file).and_then(|k| k.content.as_ref()) else {
@@ -1156,7 +1251,7 @@ fn decide_page(
     // names call for it are compared directly and asked about again.
     let stands_of = |&(a, b): &(i64, i64)| ordered(standing.of(a), standing.of(b));
     look_up(
-        writer,
+        reads,
         &mut audio,
         pairs
             .iter()
@@ -1179,7 +1274,7 @@ fn decide_page(
             decisions.push((a, b, decision));
         }
     }
-    let compared = compare_directly(writer, &mut audio, to_compare, run)?;
+    let compared = compare_directly(reads, &mut audio, to_compare, run)?;
     for (a, b) in again {
         if let Some((_, decision)) = ask(standing, &audio, &known, a, b) {
             decisions.push((a, b, decision));
@@ -1296,19 +1391,21 @@ pub fn complete<E: From<DbError>>(
     if pairs.is_empty() {
         return Ok(());
     }
-    let standing = writer.call(|c| Standing::read(c))?;
+    let reads = read_connection(writer)?;
+    let standing = reads.read(Standing::read)?;
     for pairs in pairs.chunks(page.max(1)) {
         tick(0.97)?;
         if run.wrote() {
             stop_here()?;
         }
-        complete_page(writer, &standing, pairs, run)?;
+        complete_page(writer, &reads, &standing, pairs, run)?;
     }
     Ok(())
 }
 
 fn complete_page(
     writer: &Writer,
+    reads: &ReadPool,
     standing: &Standing,
     pairs: &[(i64, i64)],
     run: &mut Decided,
@@ -1334,7 +1431,7 @@ fn complete_page(
     let stands_of = |&(a, b): &(i64, i64)| ordered(standing.of(a), standing.of(b));
     let mut audio = AudioKnown::default();
     look_up(
-        writer,
+        reads,
         &mut audio,
         pairs
             .iter()
@@ -1350,7 +1447,7 @@ fn complete_page(
         })
         .map(stands_of)
         .collect();
-    let compared = compare_directly(writer, &mut audio, to_compare, run)?;
+    let compared = compare_directly(reads, &mut audio, to_compare, run)?;
     let rows: Vec<Row> = pairs
         .iter()
         .filter_map(|&(a, b)| {

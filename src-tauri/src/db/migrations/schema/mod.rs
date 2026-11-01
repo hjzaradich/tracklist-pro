@@ -21,6 +21,7 @@ mod fingerprint_match;
 mod fingerprint_matched;
 mod fingerprint_rev;
 mod grouping;
+mod grouping_names;
 mod library;
 mod library_upkeep;
 mod partial_hash;
@@ -298,6 +299,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0043_track_row_doors.sql", &[]),
     // The genre the Overview counts, in track_row: two columns and an index, no new tables (1cD-R1b).
     ("0044_track_row_genre.sql", &[]),
+    // The keys the deciding run looks names up by (derived state, 1cD-G1).
+    ("0045_grouping_names.sql", &["grouping_names"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

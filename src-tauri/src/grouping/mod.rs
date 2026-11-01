@@ -111,6 +111,7 @@ pub mod decide;
 pub mod plan;
 pub mod rules;
 mod store;
+mod stored_names;
 mod target;
 
 pub use decide::{Decided, Names, MAX_TITLE_BUCKET, PAGE};
