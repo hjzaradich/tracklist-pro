@@ -10,8 +10,8 @@ import { type PlayerFile, setAdvanceWhenEnded, usePlayer } from "./playerStore";
  *
  * A step starts from the row of the track that is playing, wherever the
  * table has put it (after a sort or a filter too), and from the table's
- * selected row only when the playing track is not in the table. It moves
- * the selection to the row it reaches, then plays that row's file from the
+ * selected row only when the playing track is not in the table. The
+ * buttons move the selection to the row they reach, then play that row's file from the
  * start. Next stops at the last row. Previous restarts the track when it is
  * more than {@link RESTART_AFTER} seconds in, and otherwise goes to the row
  * above. Rows that have no file are passed over; a row whose window has not
@@ -62,7 +62,7 @@ function anchorOf({ focus, playing }: Pick<Place, "focus" | "playing">): number 
 }
 
 /** Moves to the nearest row from `index` in `direction` that has a file, and plays it. */
-function walk(table: Offer, from: number, direction: 1 | -1): void {
+function walk(table: Offer, from: number, direction: 1 | -1, quiet = false): void {
   const { total } = useStepPlace.getState();
   for (let index = from; index >= 0 && index < total; index += direction) {
     const file = table.fileAt(index);
@@ -74,8 +74,9 @@ function walk(table: Offer, from: number, direction: 1 | -1): void {
     }
     if (file !== null) {
       pending = null;
-      table.select(index);
-      usePlayer.getState().select(file, { fresh: true });
+      // A track that ended on its own goes on without touching the selection.
+      if (!quiet) table.select(index);
+      usePlayer.getState().select(file);
       return;
     }
   }
@@ -100,7 +101,7 @@ export function useOfferStepList(list: StepList) {
     };
     offered = mine;
     // With "Play next" on, a track that ends goes on to the next row.
-    setAdvanceWhenEnded(playNext);
+    setAdvanceWhenEnded(advanceOnEnd);
     return () => {
       if (offered !== mine) return;
       offered = null;
@@ -173,7 +174,7 @@ export function canGoPrevious(place: Place, player: { status: string; position: 
   return hasRowAbove(place) || restartsTrack(player);
 }
 
-function step(direction: 1 | -1): void {
+function step(direction: 1 | -1, quiet = false): void {
   const table = offered;
   if (table === null) return;
   pending = null;
@@ -183,12 +184,21 @@ function step(direction: 1 | -1): void {
     const { focus } = useStepPlace.getState();
     // With no row to start from, Next starts at the top and Previous has nowhere to go.
     const from = found ?? focus ?? (direction === 1 ? -1 : 0);
-    walk(table, from + direction, direction);
+    walk(table, from + direction, direction, quiet);
   };
   const file = usePlayer.getState().file;
   const located = file === null ? null : table.locate(file);
   if (located instanceof Promise) located.then(go, () => go(null));
   else go(located);
+}
+
+/**
+ * A track ended with "Play next" on (owner, 2026-11-01): the next row's track
+ * plays, and the selection, the focus and the scroll stay where they are. Only
+ * a row whose window hasn't arrived yet is scrolled to, to fetch it.
+ */
+function advanceOnEnd(): void {
+  step(1, true);
 }
 
 /** The next row's track. */

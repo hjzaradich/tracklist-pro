@@ -7,9 +7,10 @@ import styles from "./PlayButton.module.css";
 /**
  * Plays `file` in the app's one player, or pauses it if it is the one
  * playing. Any list that shows a file can carry one. Choosing another file
- * while one plays carries the position over (see `playerStore.ts`).
+ * starts it from the beginning; `keepPosition` (Review's compare) carries
+ * the position over instead (see `playerStore.ts`).
  */
-export function PlayButton({ file }: { file: PlayerFile }) {
+export function PlayButton({ file, keepPosition = false }: { file: PlayerFile; keepPosition?: boolean }) {
   const { t } = useTranslation("player");
   const current = usePlayer((s) => s.file?.id === file.id);
   const playing = usePlayer((s) => s.playing);
@@ -30,7 +31,7 @@ export function PlayButton({ file }: { file: PlayerFile }) {
         aria-label={label}
         title={label}
         // Pressing a refused file again asks again.
-        onClick={() => (current && !refused ? toggle() : select(file))}
+        onClick={() => (current && !refused ? toggle() : select(file, { keepPosition }))}
       >
         <PlayPauseIcon playing={pause} />
       </button>

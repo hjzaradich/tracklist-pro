@@ -483,21 +483,37 @@ describe("Play next", () => {
     expect(playNextSwitch()).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("plays the next row when a track ends, if it is on", async () => {
+  it("plays the next row when a track ends, if it is on, from the start and playing", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 2);
+    await user.click(playNextSwitch());
+    ends();
+    await opens(3);
+    expect(usePlayer.getState()).toMatchObject({ position: 0, playing: true });
+  });
+
+  it("leaves the table's selection and focus alone when a track ends and the next one plays", async () => {
     const user = userEvent.setup();
     const shown = vi.fn();
     render(<Screen onSelectionChange={shown} />);
     await playRow(user, 2);
     await user.click(playNextSwitch());
+    await user.click(screen.getByText("Tune 1"));
+    const focused = document.activeElement;
+    const told = shown.mock.calls.length;
     ends();
     await opens(3);
-    // As Next does: from the start, playing, with the table's selection on the row.
-    expect(usePlayer.getState()).toMatchObject({ position: 0, playing: true });
-    expect(selectedTune()).toContain("Tune 3");
-    expect(shown.mock.calls.at(-1)?.[0]).toMatchObject({ title: "Tune 3" });
-    // And on again at the end of that one.
+    expect(usePlayer.getState().file?.id).toBe(3);
+    expect(selectedTune()).toContain("Tune 1");
+    expect(document.activeElement).toBe(focused);
+    // The Details panel is never told of another row.
+    expect(shown.mock.calls.slice(told).every((call) => call[0]?.title === "Tune 1")).toBe(true);
+    // And on again, down the list, from the playing track and not the selection.
     ends();
     await opens(4);
+    expect(selectedTune()).toContain("Tune 1");
+    expect(shown.mock.calls.slice(told).every((call) => call[0]?.title === "Tune 1")).toBe(true);
   });
 
   it("goes on from the playing row, in the table's order, whatever row is selected", async () => {
@@ -533,7 +549,6 @@ describe("Play next", () => {
     ends();
     expect(usePlayer.getState()).toMatchObject({ playing: false, position: 300 });
     expect(usePlayer.getState().file?.id).toBe(5);
-    expect(selectedTune()).toContain("Tune 5");
     expect(opened).toEqual([4, 5]);
   });
 

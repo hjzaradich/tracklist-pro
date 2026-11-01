@@ -77,11 +77,11 @@ function click(bar: HTMLElement, x: number) {
   fireEvent.pointerUp(bar, { clientX: x, button: 0, pointerId: 1 });
 }
 
-function renderPlayer() {
+function renderPlayer(keepPosition = false) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <PlayButton file={A} />
-      <PlayButton file={B} />
+      <PlayButton file={A} keepPosition={keepPosition} />
+      <PlayButton file={B} keepPosition={keepPosition} />
       <PlayerBar />
     </QueryClientProvider>,
   );
@@ -486,19 +486,45 @@ describe("seeking from the waveform", () => {
   });
 });
 
-describe("the position still carries to another file", () => {
-  it("keeps 1:30 when another file's play button is pressed, playing as it was", async () => {
+describe("choosing another file", () => {
+  async function playAThenB(keepPosition: boolean, pauseBetween = false) {
     const user = userEvent.setup();
-    renderPlayer();
+    renderPlayer(keepPosition);
     await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: A.name }) }));
     await waitFor(() => expect(element).not.toBeNull());
     loaded(300);
     click(seekBar(), 120);
+    if (pauseBetween) await user.click(screen.getByRole("button", { name: tx("player:pause") }));
 
     await user.click(screen.getByRole("button", { name: tx("player:playNamed", { name: B.name }) }));
     await waitFor(() => expect(asked).toEqual([A.id, B.id]));
     loaded(240);
-    const bar = screen.getByRole("region", { name: tx("shell:player.label") });
+    return screen.getByRole("region", { name: tx("shell:player.label") });
+  }
+
+  it("starts it from the beginning, playing as it was, when it is not a comparison", async () => {
+    const bar = await playAThenB(false);
+    expect(bar).toHaveTextContent(B.name);
+    expect(bar).toHaveTextContent("0:00 / 4:00");
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
+  });
+
+  it("plays it from the beginning after play A, pause, play B", async () => {
+    const bar = await playAThenB(false, true);
+    expect(bar).toHaveTextContent("0:00 / 4:00");
+    expect(usePlayer.getState().playing).toBe(true);
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
+  });
+
+  it("stays paused, at 1:30, when it is a comparison on Review and the player was paused", async () => {
+    const bar = await playAThenB(true, true);
+    expect(bar).toHaveTextContent("1:30 / 4:00");
+    expect(usePlayer.getState().playing).toBe(false);
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps 1:30 when it is a comparison on Review (keepPosition)", async () => {
+    const bar = await playAThenB(true);
     expect(bar).toHaveTextContent(B.name);
     expect(bar).toHaveTextContent("1:30 / 4:00");
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
