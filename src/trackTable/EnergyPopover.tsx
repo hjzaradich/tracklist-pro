@@ -72,6 +72,11 @@ export function EnergyPopover({
       onClose(true);
       return;
     }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      onClose(true);
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
     const energy = energyOfKey(event.key);
     if (energy === null) return;
@@ -83,7 +88,9 @@ export function EnergyPopover({
   const onBlur = (event: FocusEvent<HTMLDivElement>) => {
     const next = event.relatedTarget;
     if (next instanceof Node && (event.currentTarget.contains(next) || anchor.contains(next))) return;
-    onClose(true);
+    // Focus goes back to the cell only when it went nowhere (Esc and Tab return
+    // it themselves); a click on another control keeps it there.
+    onClose(next === null);
   };
 
   return createPortal(

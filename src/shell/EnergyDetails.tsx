@@ -30,6 +30,10 @@ export function EnergyDetails({ row }: { row: TableRow }) {
   const give = useSetEnergy();
   const many = selected.length > 1;
   const tracks = many ? selected : [row.recordingId];
+  // A pick only ever changes what is selected: when the focused row has been
+  // taken out of the selection (Ctrl+click) or nothing is selected, there is
+  // no single track the keys would change, so there is nothing to offer.
+  if (!many && !selected.includes(row.recordingId)) return null;
   const { energy, energySource } = row;
 
   let line: string;

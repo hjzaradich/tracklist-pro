@@ -95,6 +95,14 @@ describe("the Details panel's Energy section", () => {
     await waitFor(() => expect(asked).toEqual([{ recordings: [501, 502, 503], energy: 4 }]));
   });
 
+  it("offers nothing for a focused track that is not selected, or when nothing is selected", () => {
+    renderPanel(7, "user", [999]);
+    expect(screen.queryByRole("group", { name: tx("shell:details.energy.title") })).toBeNull();
+    cleanup();
+    renderPanel(7, "user", []);
+    expect(screen.queryByRole("group", { name: tx("shell:details.energy.title") })).toBeNull();
+  });
+
   it("says when the energy could not be set", async () => {
     refuse = true;
     renderPanel(null, null);

@@ -285,6 +285,19 @@ describe("the Energy column's popover", () => {
     expect(asked).toEqual([]);
   });
 
+  it("keeps the focus where the user put it when they click another control", async () => {
+    await table();
+    await userEvent.click(cellAt(1));
+    const other = screen.getByRole("button", {
+      name: tx("trackTable:editor.open"),
+    });
+    const toCell = vi.spyOn(cellAt(1), "focus");
+    await userEvent.click(other);
+    expect(popover()).toBeNull();
+    expect(toCell).not.toHaveBeenCalled();
+    expect(asked).toEqual([]);
+  });
+
   it("closes when the focus tabs out, without picking, and the cell has the focus", async () => {
     await table();
     await userEvent.click(cellAt(1));
@@ -390,6 +403,23 @@ describe("the Energy column with several tracks selected", () => {
         { recordings: [idAt(1), idAt(2), idAt(3)], energy: 8 },
       ]),
     );
+  });
+
+  it("offers the Details buttons nothing once Ctrl+click takes the focused row out of the selection", async () => {
+    await table();
+    clickRow(1);
+    clickRow(2, { ctrlKey: true });
+    clickRow(2, { ctrlKey: true });
+    expect(selected()).toEqual([1]);
+    const details = await screen.findByRole("complementary", {
+      name: tx("shell:details.label"),
+    });
+    expect(
+      within(details).queryByRole("group", {
+        name: tx("shell:details.energy.title"),
+      }),
+    ).toBeNull();
+    expect(asked).toEqual([]);
   });
 
   it("shows the Details panel the energy of the one selected track, and its new energy after a pick", async () => {
