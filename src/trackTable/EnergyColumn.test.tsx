@@ -1,5 +1,11 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderApp } from "../app/testApp";
@@ -7,6 +13,9 @@ import type { EnergySource, TablePage, TableQuery } from "../bindings";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { ALL_COLUMNS } from "./columnChoice";
+
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const ROW = 28;
 const TOTAL = 60;
@@ -43,7 +52,9 @@ beforeEach(() => {
   ]);
   asked = [];
   chosen = ["title", "energy"];
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(ROW * 11);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
+    ROW * 11,
+  );
   mockIPC(
     (cmd, rawArgs) => {
       const args = (rawArgs ?? {}) as Record<string, unknown>;
@@ -57,13 +68,23 @@ beforeEach(() => {
           return windowOf(query).rows.map((row) => row.recordingId);
         }
         case "set_energy": {
-          const { recordings, energy: given } = args as { recordings: number[]; energy: number };
+          const { recordings, energy: given } = args as {
+            recordings: number[];
+            energy: number;
+          };
           asked.push({ recordings, energy: given });
-          for (const id of recordings) energy.set(id, { energy: given, source: "user" });
-          return { changed: recordings.length, skipped: 0, operationId: asked.length };
+          for (const id of recordings)
+            energy.set(id, { energy: given, source: "user" });
+          return {
+            changed: recordings.length,
+            skipped: 0,
+            operationId: asked.length,
+          };
         }
         case "table_columns":
-          return chosen === null ? null : { shown: chosen, known: [...ALL_COLUMNS], widths: {} };
+          return chosen === null
+            ? null
+            : { shown: chosen, known: [...ALL_COLUMNS], widths: {} };
         case "next_undo_operation":
           return { operation: null, refusal: null };
         case "key_notation":
@@ -90,9 +111,21 @@ beforeEach(() => {
             sent: null,
           };
         case "rekordbox_offer":
-          return { toAdd: 0, alreadyInLibrary: 0, waitingInMissing: 0, waitingForConfirmation: 0 };
+          return {
+            toAdd: 0,
+            alreadyInLibrary: 0,
+            waitingInMissing: 0,
+            waitingForConfirmation: 0,
+          };
         case "rekordbox_xml_source":
-          return { path: null, watch: false, lastRead: null, lastFailure: null, newerExport: null, exportFolder: null };
+          return {
+            path: null,
+            watch: false,
+            lastRead: null,
+            lastFailure: null,
+            newerExport: null,
+            exportFolder: null,
+          };
         default:
           throw { kind: "internal", params: {} };
       }
@@ -107,8 +140,10 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-const rows = () => within(screen.getByRole("grid")).getAllByRole("row").slice(1);
-const indexOf = (row: HTMLElement) => Number(row.getAttribute("aria-rowindex")) - 2;
+const rows = () =>
+  within(screen.getByRole("grid")).getAllByRole("row").slice(1);
+const indexOf = (row: HTMLElement) =>
+  Number(row.getAttribute("aria-rowindex")) - 2;
 const rowAt = (index: number) => {
   const found = rows().find((row) => indexOf(row) === index);
   if (!found) throw new Error(`row ${index} is not drawn`);
@@ -119,10 +154,14 @@ const selected = () =>
     .filter((row) => row.getAttribute("aria-selected") === "true")
     .map(indexOf)
     .sort((a, b) => a - b);
-const cellAt = (index: number) => rowAt(index).querySelector<HTMLElement>("[data-energy-cell]")!;
-const popover = () => screen.queryByRole("dialog", { name: tx("trackTable:energyPopover.label") });
+const cellAt = (index: number) =>
+  rowAt(index).querySelector<HTMLElement>("[data-energy-cell]")!;
+const popover = () =>
+  screen.queryByRole("dialog", { name: tx("trackTable:energyPopover.label") });
 const buttonOf = (energyPicked: number) =>
-  within(popover()!).getByRole("button", { name: tx("shell:details.energy.set", { energy: energyPicked }) });
+  within(popover()!).getByRole("button", {
+    name: tx("shell:details.energy.set", { energy: energyPicked }),
+  });
 
 async function table() {
   renderApp("/library");
@@ -134,16 +173,26 @@ describe("the Energy column", () => {
   it("is not among the columns shown at first, and shows when the user chose it", async () => {
     chosen = null;
     await table();
-    expect(screen.queryByRole("columnheader", { name: tx("trackTable:columns.energy") })).toBeNull();
+    expect(
+      screen.queryByRole("columnheader", {
+        name: tx("trackTable:columns.energy"),
+      }),
+    ).toBeNull();
     cleanup();
     chosen = ["title", "energy"];
     await table();
-    expect(screen.getByRole("columnheader", { name: new RegExp(tx("trackTable:columns.energy")) })).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", {
+        name: new RegExp(escapeRegExp(tx("trackTable:columns.energy"))),
+      }),
+    ).toBeInTheDocument();
   });
 
   it("shows each track's energy in a button that names it, and a dash name for a track with none", async () => {
     await table();
-    expect(cellAt(1)).toHaveAccessibleName(tx("trackTable:energyCell.change", { energy: 7 }));
+    expect(cellAt(1)).toHaveAccessibleName(
+      tx("trackTable:energyCell.change", { energy: 7 }),
+    );
     expect(cellAt(1)).toHaveTextContent("7");
     expect(cellAt(0)).toHaveAccessibleName(tx("trackTable:energyCell.set"));
     expect(cellAt(0)).toHaveAttribute("aria-haspopup", "dialog");
@@ -186,7 +235,11 @@ describe("the Energy column's popover", () => {
     await userEvent.click(buttonOf(9));
     expect(asked).toEqual([{ recordings: [idAt(0)], energy: 9 }]);
     expect(popover()).toBeNull();
-    await waitFor(() => expect(cellAt(0)).toHaveAccessibleName(tx("trackTable:energyCell.change", { energy: 9 })));
+    await waitFor(() =>
+      expect(cellAt(0)).toHaveAccessibleName(
+        tx("trackTable:energyCell.change", { energy: 9 }),
+      ),
+    );
     expect(cellAt(0)).toHaveAttribute("data-source", "user");
     expect(cellAt(0)).toHaveFocus();
   });
@@ -252,7 +305,11 @@ describe("the Energy column's popover", () => {
     await table();
     await userEvent.click(cellAt(1));
     await userEvent.click(cellAt(2));
-    expect(screen.getAllByRole("dialog", { name: tx("trackTable:energyPopover.label") })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("dialog", {
+        name: tx("trackTable:energyPopover.label"),
+      }),
+    ).toHaveLength(1);
     expect(cellAt(2)).toHaveAttribute("aria-expanded", "true");
     expect(cellAt(1)).toHaveAttribute("aria-expanded", "false");
     await userEvent.dblClick(cellAt(1));
@@ -269,8 +326,10 @@ describe("the Energy column's popover", () => {
 });
 
 describe("the Energy column with several tracks selected", () => {
-  const clickRow = (index: number, modifiers: { shiftKey?: boolean; ctrlKey?: boolean } = {}) =>
-    fireEvent.click(rowAt(index), modifiers);
+  const clickRow = (
+    index: number,
+    modifiers: { shiftKey?: boolean; ctrlKey?: boolean } = {},
+  ) => fireEvent.click(rowAt(index), modifiers);
 
   it("keeps the selection on a plain click on the cell of a selected row, and a pick gives them all the energy", async () => {
     await table();
@@ -279,11 +338,19 @@ describe("the Energy column with several tracks selected", () => {
     expect(selected()).toEqual([1, 2, 3]);
     await userEvent.click(cellAt(2));
     expect(selected()).toEqual([1, 2, 3]);
-    expect(within(popover()!).getByText(tx("shell:details.energy.many", { count: 3 }))).toBeInTheDocument();
+    expect(
+      within(popover()!).getByText(
+        tx("shell:details.energy.many", { count: 3 }),
+      ),
+    ).toBeInTheDocument();
     // None is pressed: the tracks have no one energy.
-    expect(within(popover()!).queryAllByRole("button", { pressed: true })).toHaveLength(0);
+    expect(
+      within(popover()!).queryAllByRole("button", { pressed: true }),
+    ).toHaveLength(0);
     await userEvent.click(buttonOf(6));
-    expect(asked).toEqual([{ recordings: [idAt(1), idAt(2), idAt(3)], energy: 6 }]);
+    expect(asked).toEqual([
+      { recordings: [idAt(1), idAt(2), idAt(3)], energy: 6 },
+    ]);
   });
 
   it("gives only the row's track the energy when the cell is on a row that is not selected", async () => {
@@ -292,7 +359,11 @@ describe("the Energy column with several tracks selected", () => {
     clickRow(3, { shiftKey: true });
     await userEvent.click(cellAt(6));
     expect(selected()).toEqual([6]);
-    expect(within(popover()!).queryByText(tx("shell:details.energy.many", { count: 1 }))).toBeNull();
+    expect(
+      within(popover()!).queryByText(
+        tx("shell:details.energy.many", { count: 1 }),
+      ),
+    ).toBeNull();
     await userEvent.click(buttonOf(2));
     expect(asked).toEqual([{ recordings: [idAt(6)], energy: 2 }]);
   });
@@ -301,27 +372,58 @@ describe("the Energy column with several tracks selected", () => {
     await table();
     clickRow(1);
     clickRow(3, { shiftKey: true });
-    const details = await screen.findByRole("complementary", { name: tx("shell:details.label") });
-    expect(await within(details).findByText(tx("shell:details.energy.many", { count: 3 }))).toBeInTheDocument();
-    await userEvent.click(within(details).getByRole("button", { name: tx("shell:details.energy.set", { energy: 8 }) }));
-    await waitFor(() => expect(asked).toEqual([{ recordings: [idAt(1), idAt(2), idAt(3)], energy: 8 }]));
+    const details = await screen.findByRole("complementary", {
+      name: tx("shell:details.label"),
+    });
+    expect(
+      await within(details).findByText(
+        tx("shell:details.energy.many", { count: 3 }),
+      ),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(details).getByRole("button", {
+        name: tx("shell:details.energy.set", { energy: 8 }),
+      }),
+    );
+    await waitFor(() =>
+      expect(asked).toEqual([
+        { recordings: [idAt(1), idAt(2), idAt(3)], energy: 8 },
+      ]),
+    );
   });
 
   it("shows the Details panel the energy of the one selected track, and its new energy after a pick", async () => {
     await table();
     await userEvent.click(cellAt(2));
-    const details = await screen.findByRole("complementary", { name: tx("shell:details.label") });
+    const details = await screen.findByRole("complementary", {
+      name: tx("shell:details.label"),
+    });
     const source = tx("shell:details.energy.source.mik");
-    expect(await within(details).findByText(tx("shell:details.energy.from", { energy: 5, source }))).toBeInTheDocument();
-    await userEvent.click(within(popover()!).getByRole("button", { name: tx("shell:details.energy.set", { energy: 9 }) }));
-    const group = within(details).getByRole("group", { name: tx("shell:details.energy.title") });
-    await waitFor(() =>
-      expect(within(group).getByRole("button", { name: tx("shell:details.energy.set", { energy: 9 }) })).toHaveAttribute(
-        "aria-pressed",
-        "true",
+    expect(
+      await within(details).findByText(
+        tx("shell:details.energy.from", { energy: 5, source }),
       ),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(popover()!).getByRole("button", {
+        name: tx("shell:details.energy.set", { energy: 9 }),
+      }),
     );
-    expect(within(details).queryByText(tx("shell:details.energy.from", { energy: 5, source }))).toBeNull();
+    const group = within(details).getByRole("group", {
+      name: tx("shell:details.energy.title"),
+    });
+    await waitFor(() =>
+      expect(
+        within(group).getByRole("button", {
+          name: tx("shell:details.energy.set", { energy: 9 }),
+        }),
+      ).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(
+      within(details).queryByText(
+        tx("shell:details.energy.from", { energy: 5, source }),
+      ),
+    ).toBeNull();
   });
 
   it("opens nothing on a Shift or Ctrl click on the cell, which select rows as anywhere else", async () => {
