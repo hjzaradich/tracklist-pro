@@ -1076,6 +1076,7 @@ pub async fn promote_track(
         if let Err(e) = crate::file_roles::request(&writer, |j| jobs.enqueue(j)) {
             eprintln!("promote_track: couldn't ask for the roles: {e:?}");
         }
+        crate::waveform::ask_after_library_change(&writer, |j| jobs.enqueue(j));
     }
     Ok(outcome)
 }

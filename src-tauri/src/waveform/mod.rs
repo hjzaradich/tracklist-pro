@@ -23,8 +23,18 @@
 //!   again: a job put back does only what is still due.
 //! - **Only in the app database.** Nothing is written next to the music; the
 //!   audio is opened read-only.
+//! - **Library tracks only, in the background** (owner, 2026-10-31). The job
+//!   takes the file each Library track shows (its linked file; the one
+//!   definition is [`crate::search::shown_file_sql`]), not every file the app
+//!   has scanned: at 100,000 files that would be hours of one thread. A file
+//!   outside the Library gets its waveform when it is played. Adding a track
+//!   to the Library, a relink, a merge or an undo that changes a Library
+//!   track's file asks for the job ([`ask_after_library_change`]). Rows
+//!   already stored are kept: a file that leaves the Library just stops being
+//!   due.
 //! - **The loaded file first.** The player asks for the file it has loaded
-//!   ([`waveform_first`]); a job for that one file, at user priority, draws
+//!   ([`waveform_first`]), whatever file it is, in the Library or not; a job
+//!   for that one file, at user priority, draws
 //!   it without waiting for the budget or for other jobs. Only the file asked
 //!   for last counts: a job for a file the player has moved on from drops
 //!   out, so skipping through tracks piles up nothing.
@@ -49,7 +59,7 @@ mod ledger;
 pub mod peaks;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -176,7 +186,7 @@ pub fn waveform_first(
     })?)
 }
 
-/// Queues a waveform job if any file is due, unless one is already queued
+/// Queues a waveform job if any Library track's shown file is due, unless one is already queued
 /// (a running one is asked to run once more). Called when the scan chain
 /// has its hashes in, like the quality job.
 ///
@@ -202,9 +212,34 @@ pub(crate) fn request<E: From<DbError>>(
     Ok(())
 }
 
-/// Whether any file is due a waveform that can be computed now, in the
-/// `reachable` music folders if given: the question [`request`] asks, for a
-/// caller that asks it on a read connection.
+/// Asks for the background job after something changed which files the
+/// Library has: a track added (from the Library screen, a crate, the start
+/// from rekordbox, or an undo), a file linked by a relink, a merge or a
+/// follow. A failure to ask is not the change's: the next job to end, or
+/// the next launch, asks again.
+pub(crate) fn ask_after_library_change<E: From<DbError> + std::fmt::Debug>(
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+) {
+    let reach = chain::reach_by(crate::scan::system_volumes);
+    ask_after_library_change_with(writer, Some(&reach), enqueue);
+}
+
+/// [`ask_after_library_change`], judging which drives are plugged in by
+/// `reach`.
+pub(crate) fn ask_after_library_change_with<E: From<DbError> + std::fmt::Debug>(
+    writer: &Writer,
+    reach: Option<&Reach>,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+) {
+    if let Err(e) = request(writer, reach, enqueue) {
+        eprintln!("waveform: couldn't ask for the job: {e:?}");
+    }
+}
+
+/// Whether any file of a Library track is due a waveform that can be
+/// computed now, in the `reachable` music folders if given: the question
+/// [`request`] asks, for a caller that asks it on a read connection.
 pub(crate) fn due(conn: &Connection, reachable: Option<&[i64]>) -> rusqlite::Result<bool> {
     let gate = ReadGate::for_job(conn)?;
     ledger::any_due(conn, gate.allows(true), reachable)

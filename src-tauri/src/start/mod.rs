@@ -282,9 +282,14 @@ pub async fn rekordbox_offer(
 #[specta::specta]
 pub async fn add_rekordbox_tracks(
     writer: State<'_, Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
     playlists: Option<Vec<PlaylistPath>>,
 ) -> Result<AddSummary, IpcError> {
-    Ok(writer.call(move |conn| Ok(add_offered(conn, playlists.as_deref())))??)
+    let summary = writer.call(move |conn| Ok(add_offered(conn, playlists.as_deref())))??;
+    if summary.added > 0 {
+        crate::waveform::ask_after_library_change(&writer, |j| jobs.enqueue(j));
+    }
+    Ok(summary)
 }
 
 /// The rekordbox playlists that hold tracks, for narrowing the offer.

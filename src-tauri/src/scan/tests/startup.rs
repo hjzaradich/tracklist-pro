@@ -350,41 +350,67 @@ fn quality_and_matching_wait_while_the_fingerprints_are_owed() {
 #[test]
 fn waveforms_not_drawn_yet_are_asked_for_at_the_next_start_once_the_fingerprints_are_in() {
     let (_dir, volume, _db, writer) = scanned();
-    // The chain drew every file's waveform: nothing is due (the test above
-    // that nothing is due covers it). A run that died before drawing them:
+    // No file is a Library track's, so no waveform is owed (the background
+    // job covers Library tracks only).
+    let (_, queued) = ask(&writer, &volume);
+    assert!(!kinds(&queued).contains(&"waveform"));
+    // The files join the Library, and a run that died before drawing them
+    // leaves them owed:
     writer
-        .call(|c| c.execute("DELETE FROM file_waveform", []))
+        .call(|c| {
+            crate::waveform::tests::join_library_for_test(c)?;
+            c.execute("DELETE FROM file_waveform", [])
+        })
         .unwrap();
     let (failed, queued) = ask(&writer, &volume);
-    assert_eq!((failed, kinds(&queued)), (0, vec!["waveform"]));
-    assert_eq!(queued[0].1, None);
+    // (Joining the Library also makes the index and roles stages due.)
+    assert_eq!(failed, 0);
+    let waveforms: Vec<_> = queued
+        .iter()
+        .filter(|q| q.0.as_str() == "waveform")
+        .collect();
+    assert_eq!(waveforms.len(), 1);
+    assert_eq!(waveforms[0].1, None);
     // Asked again with that job waiting: still one.
     let (_, queued) = ask(&writer, &volume);
-    assert_eq!(kinds(&queued), ["waveform"]);
+    assert_eq!(
+        kinds(&queued).iter().filter(|k| **k == "waveform").count(),
+        1
+    );
 }
 
 #[test]
 fn waveforms_wait_while_the_fingerprints_are_owed_and_for_a_drive_that_is_back() {
     let (_dir, volume, _db, writer) = scanned();
     writer
-        .call(|c| c.execute("DELETE FROM file_waveform", []))
+        .call(|c| {
+            crate::waveform::tests::join_library_for_test(c)?;
+            c.execute("DELETE FROM file_waveform", [])
+        })
         .unwrap();
     bump(&writer, "fingerprint");
     let (failed, queued) = ask(&writer, &volume);
-    assert_eq!((failed, kinds(&queued)), (0, vec!["fingerprint"]));
+    // (The Library join also makes other stages due; only these two matter.)
+    assert_eq!(failed, 0);
+    assert!(kinds(&queued).contains(&"fingerprint"));
+    assert!(!kinds(&queued).contains(&"waveform"));
 
     // The fingerprints are in, but the drive is unplugged: no job to
     // queue; it is asked for when the drive is back.
     let (_dir, volume, _db, writer) = scanned();
     writer
-        .call(|c| c.execute("DELETE FROM file_waveform", []))
+        .call(|c| {
+            crate::waveform::tests::join_library_for_test(c)?;
+            c.execute("DELETE FROM file_waveform", [])
+        })
         .unwrap();
     volume.set_online(false);
     let (failed, queued) = ask(&writer, &volume);
-    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+    assert_eq!(failed, 0);
+    assert!(!kinds(&queued).contains(&"waveform"));
     volume.set_online(true);
     let (_, queued) = ask(&writer, &volume);
-    assert_eq!(kinds(&queued), ["waveform"]);
+    assert!(kinds(&queued).contains(&"waveform"));
 }
 
 #[test]

@@ -182,6 +182,19 @@ fn in_rekordbox_sql(track: &str) -> String {
     )
 }
 
+/// The id of the file a track shows, as SQL: its Library track's linked file
+/// (`linked`, NULL for a track with none), else its best file, else its
+/// lowest file id (`recording` is the track's id). The one definition: the
+/// table's rows read it, and so does the waveform job to name the files of
+/// Library tracks ([`crate::waveform`]).
+pub(crate) fn shown_file_sql(linked: &str, recording: &str) -> String {
+    format!(
+        "COALESCE({linked},
+             (SELECT rf.file_id FROM recording_file rf WHERE rf.recording_id = {recording}
+              ORDER BY (rf.role = 'best') DESC, rf.file_id LIMIT 1))"
+    )
+}
+
 /// The facts of the tracks `ids`, in one query.
 pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<HashMap<i64, Facts>> {
     let json = serde_json::to_string(ids).expect("numbers always serialize");
@@ -195,13 +208,11 @@ pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Hash
                 coalesce({in_a_crate}, 0)
          FROM recording r
          LEFT JOIN library_track lt ON lt.recording_id = r.id
-         LEFT JOIN file f ON f.id = COALESCE(
-             lt.linked_file_id,
-             (SELECT rf.file_id FROM recording_file rf WHERE rf.recording_id = r.id
-              ORDER BY (rf.role = 'best') DESC, rf.file_id LIMIT 1))
+         LEFT JOIN file f ON f.id = {shown}
          LEFT JOIN music_folder mf ON mf.id = f.music_folder_id
          WHERE r.id IN (SELECT value FROM json_each(?1))",
         in_rekordbox = in_rekordbox_sql("r.id"),
+        shown = shown_file_sql("lt.linked_file_id", "r.id"),
         // The Overview's own text for "in a crate", so its count and the
         // table's filter can't mean different things (1cC-4).
         in_a_crate = crate::overview::IN_A_CRATE,

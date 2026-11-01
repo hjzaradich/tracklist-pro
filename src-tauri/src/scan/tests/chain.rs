@@ -622,7 +622,7 @@ fn quality_is_measured_when_the_hashes_are_in_even_if_no_fingerprints_are_due() 
 }
 
 #[test]
-fn waveforms_are_drawn_once_the_hashes_are_in_at_the_lowest_priority_and_not_again_for_an_unchanged_file(
+fn waveforms_of_library_tracks_are_drawn_at_the_lowest_priority_and_not_again_for_an_unchanged_file(
 ) {
     let (_dir, volume, music) = drive();
     put(&music, "a.mp3", &audio::mp3());
@@ -647,6 +647,15 @@ fn waveforms_are_drawn_once_the_hashes_are_in_at_the_lowest_priority_and_not_aga
             .call(|c| c.query_row("SELECT COUNT(*) FROM file_waveform", [], |r| r.get(0)))
             .unwrap()
     };
+    // The file is no Library track's, so the chain draws nothing for it.
+    assert_eq!(waveform_jobs(), []);
+    assert_eq!(stored(), 0);
+    // It joins the Library, and the job is asked for at the lowest priority.
+    writer
+        .call(|c| crate::waveform::tests::join_library_for_test(c))
+        .unwrap();
+    crate::waveform::ask_after_library_change_with(&writer, None, |job| queue.enqueue(job));
+    wait_idle(&queue);
     let first = waveform_jobs();
     assert!(!first.is_empty());
     assert!(first

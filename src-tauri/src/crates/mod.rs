@@ -1203,10 +1203,15 @@ pub async fn add_tracks_to_crate(
 #[specta::specta]
 pub async fn add_recordings_to_crate(
     writer: State<'_, Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
     id: CrateId,
     recordings: Vec<i64>,
 ) -> Result<AddedToCrate, IpcError> {
-    Ok(writer.call(move |conn| Ok(add_recordings_on(conn, id, &recordings)))???)
+    let added = writer.call(move |conn| Ok(add_recordings_on(conn, id, &recordings)))???;
+    if added.also_added_to_library > 0 {
+        crate::waveform::ask_after_library_change(&writer, |j| jobs.enqueue(j));
+    }
+    Ok(added)
 }
 
 /// Makes a crate at the top of the tree and adds tracks to it, as
@@ -1215,11 +1220,16 @@ pub async fn add_recordings_to_crate(
 #[specta::specta]
 pub async fn add_recordings_to_new_crate(
     writer: State<'_, Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
     name: String,
     recordings: Vec<i64>,
 ) -> Result<AddedToNewCrate, IpcError> {
-    Ok(writer
-        .call(move |conn| Ok(add_recordings_to_new_crate_on(conn, &name, &recordings)))???)
+    let made = writer
+        .call(move |conn| Ok(add_recordings_to_new_crate_on(conn, &name, &recordings)))???;
+    if made.added.also_added_to_library > 0 {
+        crate::waveform::ask_after_library_change(&writer, |j| jobs.enqueue(j));
+    }
+    Ok(made)
 }
 
 /// The crates a track is in, for the Details panel.
