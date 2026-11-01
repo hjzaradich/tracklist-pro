@@ -87,8 +87,13 @@ const C = { id: 3, name: "Track C" };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** Opens `file` and loads it as the browser would, `duration` seconds long. */
-async function open(t: ReturnType<typeof setup>, file: typeof A, duration: number) {
-  t.state().select(file);
+async function open(
+  t: ReturnType<typeof setup>,
+  file: typeof A,
+  duration: number,
+  options?: { keepPosition?: boolean },
+) {
+  t.state().select(file, options);
   await settle();
   t.audio.loaded(duration);
 }
@@ -175,12 +180,36 @@ describe("the player", () => {
   });
 });
 
-describe("switching files while listening", () => {
-  it("carries the position by time: 1:30 stays 1:30", async () => {
+describe("switching to another track", () => {
+  it("starts it at 0 while the last one was playing", async () => {
     const t = setup();
     await open(t, A, 300);
     t.audio.playTo(90);
     await open(t, B, 400);
+    expect(t.audio.currentTime).toBe(0);
+    expect(t.state()).toMatchObject({ file: B, status: "ready", position: 0, playing: true });
+  });
+
+  it("plays it from 0 after play A, pause, play B: a play press always plays", async () => {
+    const t = setup();
+    await open(t, A, 300);
+    t.state().seek(75);
+    t.state().toggle();
+    expect(t.state().playing).toBe(false);
+    t.audio.plays = 0;
+    await open(t, B, 300);
+    expect(t.audio.currentTime).toBe(0);
+    expect(t.state()).toMatchObject({ file: B, status: "ready", position: 0, playing: true });
+    expect(t.audio.plays).toBe(1);
+  });
+});
+
+describe("comparing files on Review (keepPosition)", () => {
+  it("carries the position by time: 1:30 stays 1:30", async () => {
+    const t = setup();
+    await open(t, A, 300);
+    t.audio.playTo(90);
+    await open(t, B, 400, { keepPosition: true });
     expect(t.audio.currentTime).toBe(90);
     expect(t.state()).toMatchObject({ status: "ready", position: 90, duration: 400 });
   });
@@ -189,12 +218,12 @@ describe("switching files while listening", () => {
     const t = setup();
     await open(t, A, 300);
     t.audio.playTo(200);
-    await open(t, B, 120);
+    await open(t, B, 120, { keepPosition: true });
     expect(t.audio.currentTime).toBe(0);
     expect(t.state().position).toBe(0);
     // A file exactly as long as the position is shorter than it, too.
     t.audio.playTo(60);
-    await open(t, C, 60);
+    await open(t, C, 60, { keepPosition: true });
     expect(t.audio.currentTime).toBe(0);
   });
 
@@ -203,7 +232,7 @@ describe("switching files while listening", () => {
     await open(t, A, 300);
     t.audio.playTo(10);
     t.audio.plays = 0;
-    await open(t, B, 300);
+    await open(t, B, 300, { keepPosition: true });
     expect(t.state().playing).toBe(true);
     expect(t.audio.plays).toBe(1);
   });
@@ -214,7 +243,7 @@ describe("switching files while listening", () => {
     t.audio.playTo(10);
     t.state().toggle();
     t.audio.plays = 0;
-    await open(t, B, 300);
+    await open(t, B, 300, { keepPosition: true });
     expect(t.state()).toMatchObject({ playing: false, status: "ready", position: 10 });
     expect(t.audio.plays).toBe(0);
   });
@@ -224,7 +253,7 @@ describe("switching files while listening", () => {
     await open(t, A, 300);
     t.state().seek(75);
     t.state().toggle();
-    await open(t, B, 300);
+    await open(t, B, 300, { keepPosition: true });
     expect(t.audio.currentTime).toBe(75);
   });
 
@@ -232,11 +261,11 @@ describe("switching files while listening", () => {
     const t = setup({ 2: "missing" });
     await open(t, A, 300);
     t.audio.playTo(90);
-    t.state().select(B);
+    t.state().select(B, { keepPosition: true });
     await settle();
     expect(t.state()).toMatchObject({ status: "refused", refusal: "missing", position: 90, playing: true });
     expect(t.audio.src).toBe("");
-    await open(t, C, 300);
+    await open(t, C, 300, { keepPosition: true });
     expect(t.audio.currentTime).toBe(90);
     expect(t.state().playing).toBe(true);
   });
@@ -338,7 +367,7 @@ describe("a file that can't be played", () => {
     await settle();
     t.state().toggle();
     expect(t.state().playing).toBe(false);
-    await open(t, B, 100);
+    await open(t, B, 100, { keepPosition: true });
     expect(t.state()).toMatchObject({ status: "ready", playing: false });
     expect(t.audio.plays).toBe(0);
   });
@@ -365,7 +394,7 @@ describe("stepping to another track", () => {
     t.state().seek(90);
     t.state().toggle();
     expect(t.state()).toMatchObject({ playing: false, position: 90 });
-    t.state().select(B, { fresh: true });
+    t.state().select(B);
     await settle();
     t.audio.loaded(300);
     expect(t.state()).toMatchObject({ file: B, status: "ready", position: 0, playing: true });
@@ -373,14 +402,14 @@ describe("stepping to another track", () => {
     expect(t.audio.plays).toBe(2);
   });
 
-  it("leaves switching between the files of one track as it was: the position carries", async () => {
+  it("starts from the beginning, playing, unless the position is asked to be kept", async () => {
     const t = setup();
     await open(t, A, 300);
     t.state().seek(90);
     t.state().select(B);
     await settle();
     t.audio.loaded(300);
-    expect(t.state()).toMatchObject({ file: B, position: 90, playing: true });
+    expect(t.state()).toMatchObject({ file: B, position: 0, playing: true });
   });
 });
 

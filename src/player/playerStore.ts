@@ -51,18 +51,16 @@ export interface PlayerState {
    */
   playNext: boolean;
   /**
-   * Plays `file`. The first file starts playing; after that a new file
-   * keeps what the last one was doing: the same position (by time; a file
-   * shorter than that starts from its beginning), and playing or paused as
-   * it was. The file already loaded is left as it is; one that couldn't be
-   * played is checked again.
+   * Plays `file` from its beginning, playing, whatever the last file was
+   * doing (owner, 2026-11-01): a play press always plays. The file already
+   * loaded is left as it is; one that couldn't be played is checked again.
    *
-   * `fresh` is for stepping to another track (the player bar's next and
-   * previous, 1cB-10): it starts the file from its beginning, playing,
-   * whatever the last file was doing. Carrying the position is for
-   * comparing the files of one track, not for moving on to the next one.
+   * `keepPosition` is for comparing files on Review (owner, 2026-10-13):
+   * the new file starts at the same time (by time; a file shorter than that
+   * starts from its beginning) and keeps playing or paused as the last one
+   * was. Only Review's play buttons pass it.
    */
-  select: (file: PlayerFile, options?: { fresh?: boolean }) => void;
+  select: (file: PlayerFile, options?: { keepPosition?: boolean }) => void;
   /** Play or pause. */
   toggle: () => void;
   /** Moves to `seconds` in the loaded file. */
@@ -222,9 +220,9 @@ export function createPlayer(deps: PlayerDeps) {
         if (before.file?.id === file.id && before.status !== "refused") return;
         const a = audio();
         const first = before.file === null;
-        const fresh = options?.fresh === true;
-        const position = fresh ? 0 : before.status === "ready" ? a.currentTime : before.position;
-        const playing = first || fresh ? true : before.playing;
+        const keep = options?.keepPosition === true;
+        const position = !keep ? 0 : before.status === "ready" ? a.currentTime : before.position;
+        const playing = first || !keep ? true : before.playing;
         const mine = ++choice;
         startAt = position;
         // One file is audible at a time: the old one stops at once.

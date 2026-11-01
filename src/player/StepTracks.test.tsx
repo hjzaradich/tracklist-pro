@@ -67,12 +67,14 @@ function Screen({
   resetKey = "a",
   onSelectionChange,
   positionOf,
+  rowAt,
 }: {
   rows?: (index: number) => TableRow | undefined;
   total?: number;
   resetKey?: string;
   onSelectionChange?: (row: TableRow | null) => void;
   positionOf?: (recordingId: number) => Promise<number | null>;
+  rowAt?: (index: number) => Promise<TableRow | undefined>;
 }) {
   return (
     <QueryClientProvider client={createQueryClient()}>
@@ -87,6 +89,7 @@ function Screen({
         resetKey={resetKey}
         onSelectionChange={onSelectionChange}
         positionOf={positionOf}
+        rowAt={rowAt}
       />
       <PlayerBar />
     </QueryClientProvider>
@@ -483,21 +486,88 @@ describe("Play next", () => {
     expect(playNextSwitch()).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("plays the next row when a track ends, if it is on", async () => {
+  it("plays the next row when a track ends, if it is on, from the start and playing", async () => {
+    const user = userEvent.setup();
+    render(<Screen />);
+    await playRow(user, 2);
+    await user.click(playNextSwitch());
+    ends();
+    await opens(3);
+    expect(usePlayer.getState()).toMatchObject({ position: 0, playing: true });
+  });
+
+  it("leaves the table's selection and focus alone when a track ends and the next one plays", async () => {
     const user = userEvent.setup();
     const shown = vi.fn();
     render(<Screen onSelectionChange={shown} />);
     await playRow(user, 2);
     await user.click(playNextSwitch());
+    await user.click(screen.getByText("Tune 1"));
+    const focused = document.activeElement;
+    const told = shown.mock.calls.length;
     ends();
     await opens(3);
-    // As Next does: from the start, playing, with the table's selection on the row.
-    expect(usePlayer.getState()).toMatchObject({ position: 0, playing: true });
-    expect(selectedTune()).toContain("Tune 3");
-    expect(shown.mock.calls.at(-1)?.[0]).toMatchObject({ title: "Tune 3" });
-    // And on again at the end of that one.
+    expect(usePlayer.getState().file?.id).toBe(3);
+    expect(selectedTune()).toContain("Tune 1");
+    expect(document.activeElement).toBe(focused);
+    // The Details panel is never told of another row.
+    expect(shown.mock.calls.slice(told).every((call) => call[0]?.title === "Tune 1")).toBe(true);
+    // And on again, down the list, from the playing track and not the selection.
     ends();
     await opens(4);
+    expect(selectedTune()).toContain("Tune 1");
+    expect(shown.mock.calls.slice(told).every((call) => call[0]?.title === "Tune 1")).toBe(true);
+  });
+
+  it("crosses the edge of a window with the selection and scroll left alone: the row is fetched on its own", async () => {
+    const user = userEvent.setup();
+    const shown = vi.fn();
+    // Rows 1 to 3 are held; the window holding row 4 has not arrived.
+    const rowAt = vi.fn(async (index: number) => tableRow(index + 1, { title: `Tune ${index + 1}` }));
+    render(<Screen rows={tunes(3)} total={6} onSelectionChange={shown} rowAt={rowAt} />);
+    await playRow(user, 3);
+    await user.click(playNextSwitch());
+    await user.click(screen.getByText("Tune 1"));
+    const top = screen.getByRole("grid").scrollTop;
+    const told = shown.mock.calls.length;
+    ends();
+    await opens(4);
+    expect(rowAt).toHaveBeenCalledWith(3);
+    expect(usePlayer.getState()).toMatchObject({ position: 0, playing: true });
+    expect(selectedTune()).toContain("Tune 1");
+    expect(shown.mock.calls.slice(told).every((call) => call[0]?.title === "Tune 1")).toBe(true);
+    expect(screen.getByRole("grid").scrollTop).toBe(top);
+  });
+
+  it("drops a late fetched row when another track was chosen meanwhile", async () => {
+    const user = userEvent.setup();
+    let release: (row: TableRow) => void = () => {};
+    const rowAt = vi.fn(() => new Promise<TableRow | undefined>((resolve) => (release = resolve)));
+    render(<Screen rows={tunes(3)} total={6} rowAt={rowAt} />);
+    await playRow(user, 3);
+    await user.click(playNextSwitch());
+    ends();
+    await waitFor(() => expect(rowAt).toHaveBeenCalled());
+    await user.click(play(1));
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(1));
+    release(tableRow(4, { title: "Tune 4" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(usePlayer.getState().file?.id).toBe(1);
+  });
+
+  it("drops a late fetched row when the table was sorted or filtered meanwhile", async () => {
+    const user = userEvent.setup();
+    let release: (row: TableRow) => void = () => {};
+    const rowAt = vi.fn(() => new Promise<TableRow | undefined>((resolve) => (release = resolve)));
+    const view = render(<Screen rows={tunes(3)} total={6} rowAt={rowAt} />);
+    await playRow(user, 3);
+    await user.click(playNextSwitch());
+    ends();
+    await waitFor(() => expect(rowAt).toHaveBeenCalled());
+    view.rerender(<Screen rows={tunes(3)} total={6} rowAt={rowAt} resetKey="b" />);
+    release(tableRow(4, { title: "Tune 4" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(usePlayer.getState().file?.id).toBe(3);
   });
 
   it("goes on from the playing row, in the table's order, whatever row is selected", async () => {
@@ -533,7 +603,6 @@ describe("Play next", () => {
     ends();
     expect(usePlayer.getState()).toMatchObject({ playing: false, position: 300 });
     expect(usePlayer.getState().file?.id).toBe(5);
-    expect(selectedTune()).toContain("Tune 5");
     expect(opened).toEqual([4, 5]);
   });
 

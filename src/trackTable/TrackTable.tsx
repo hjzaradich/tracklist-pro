@@ -74,6 +74,8 @@ export interface TrackTableProps {
    * clears the selection.
    */
   positionOf?: (recordingId: number) => Promise<number | null>;
+  /** The row at an index, fetched on its own, for Play next to reach a row whose window isn't held. */
+  rowAt?: (index: number) => Promise<TableRow | undefined>;
   /** The rows of the current `resetKey` have arrived, so an index can be scrolled to. Default: yes. */
   settled?: boolean;
   /** The focused row changed (or went); `null` for none. */
@@ -151,6 +153,7 @@ export function TrackTable({
   actionsWidth = 200,
   resetKey,
   positionOf,
+  rowAt,
   settled = true,
   onSelectionChange,
   onSelectedChange,
@@ -406,16 +409,15 @@ export function TrackTable({
       }
     : undefined;
   useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy, addToCrate });
+  const fileOf = (row: TableRow | undefined) =>
+    row === undefined ? undefined : row.file === null ? null : { id: row.file.id, name: shownName(row), recordingId: row.recordingId };
   // The player bar's previous and next step through these rows (1cB-10).
   useOfferStepList({
     total,
     focus: active,
     listKey: resetKey,
-    fileAt: (index) => {
-      const row = getRow(index);
-      if (row === undefined) return undefined;
-      return row.file === null ? null : { id: row.file.id, name: shownName(row), recordingId: row.recordingId };
-    },
+    fileAt: (index) => fileOf(getRow(index)),
+    fetchFileAt: rowAt && ((index) => rowAt(index).then(fileOf)),
     select,
     // The playing track's row: among the rows held, else where the backend
     // says it is in this order (the track may be far off screen).

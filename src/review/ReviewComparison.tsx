@@ -205,7 +205,7 @@ export function ReviewComparison({
                 <span className={styles.nameLine}>
                   {row.fileId !== null && (
                     <span className={styles.play}>
-                      <PlayButton file={{ id: row.fileId, name: row.name }} />
+                      <PlayButton file={{ id: row.fileId, name: row.name }} keepPosition />
                     </span>
                   )}
                   <span className={styles.name} title={row.path ?? row.name}>
