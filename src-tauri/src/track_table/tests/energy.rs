@@ -133,7 +133,12 @@ fn the_rows_energy_is_what_the_overview_counts_for_each_level() {
         match n % 3 {
             0 => {
                 give(&lib, track, sources[(n % 4) as usize], 1 + n % 10);
-                give(&lib, track, sources[((n + 1) % 4) as usize], 1 + (n * 7) % 10);
+                give(
+                    &lib,
+                    track,
+                    sources[((n + 1) % 4) as usize],
+                    1 + (n * 7) % 10,
+                );
             }
             1 => give(&lib, track, sources[(n % 4) as usize], 1 + n % 10),
             _ => {}
