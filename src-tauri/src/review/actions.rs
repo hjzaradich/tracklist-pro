@@ -985,6 +985,8 @@ pub(crate) fn ask_for_follow_up_work(writer: &Writer, jobs: &JobQueue) {
     if let Err(e) = crate::search::request(writer, |j| jobs.enqueue(j)) {
         eprintln!("review: couldn't ask for the search index: {e:?}");
     }
+    // A relink, a merge or an undo can change which file a Library track shows.
+    crate::waveform::ask_after_library_change(writer, |j| jobs.enqueue(j));
 }
 
 /// Asks for a relink run: a confirmation, a "not the same" or their undo

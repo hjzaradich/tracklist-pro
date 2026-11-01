@@ -55,7 +55,7 @@ pub use job::{index_job, indexer, indexer_with, request};
 pub use query::{find, match_expression, pending, Found, HiddenFile, Why};
 pub(crate) use settle::fields_of;
 pub use settle::{file_name_text, rebuild, settle, settle_if_small, settle_page};
-pub(crate) use table_row::BPM_AND_KEY;
+pub(crate) use table_row::{shown_file_sql, BPM_AND_KEY};
 pub use table_row::{camelot_order, flag, time_ms};
 
 /// The most words of a query that count.

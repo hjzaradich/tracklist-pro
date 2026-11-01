@@ -127,6 +127,8 @@ impl<V: Volumes + 'static> JobHandler for Relinker<V> {
         if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
             eprintln!("relink: couldn't queue the search index: {e}");
         }
+        // The follow may have moved a Library track to another file.
+        crate::waveform::ask_after_library_change(job.writer(), |j| job.enqueue(j));
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }

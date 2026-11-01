@@ -14,6 +14,11 @@
 //!   file's row still has the audio hash, size and modified time the job
 //!   read. A file that couldn't be reached gets no row, so it's tried again
 //!   next time.
+//! - **The background job covers Library tracks only:** the file each Library
+//!   track shows ([`in_library`]). [`due`] for one file takes any file, so
+//!   the player's request ([`super::waveform_first`]) draws a file outside
+//!   the Library. Stored rows are never deleted: a file that leaves the
+//!   Library stops being due and keeps its row.
 //! - **Due means checkable now:** a file in a music folder whose volume
 //!   isn't mounted isn't due, and neither is an online-only OneDrive file
 //!   unless the user opted in to reading them.
@@ -33,6 +38,17 @@ const NOT_COMPUTED: &str = "NOT EXISTS (SELECT 1 FROM file_waveform w
                 WHERE w.file_id = f.id AND w.audio_hash = f.audio_hash
                   AND w.method_version = ?VERSION)";
 
+/// The condition that `f` is the file a Library track shows (its linked
+/// file; the one definition is [`crate::search::shown_file_sql`]). The
+/// background job draws these and nothing else: a file outside the Library
+/// is drawn only when it's played ([`due`] for one file takes any).
+fn in_library() -> String {
+    format!(
+        "f.id IN (SELECT {} FROM library_track lt)",
+        crate::search::shown_file_sql("lt.linked_file_id", "lt.recording_id")
+    )
+}
+
 fn sql(template: &str) -> String {
     template
         .replace("?HASH", &i64::from(HASH_DEFINITION).to_string())
@@ -45,21 +61,25 @@ fn ids_json(ids: &[i64]) -> String {
 }
 
 /// The files due, lowest id first, one page after `after`; only file `only`
-/// if given, and only those in the `reachable` music folders if given.
+/// if given, only those in the `reachable` music folders if given, and only
+/// the files of Library tracks if `library`.
 fn page(
     conn: &Connection,
     only: Option<i64>,
     reachable: Option<&[i64]>,
+    library: bool,
     after: i64,
     limit: usize,
 ) -> rusqlite::Result<Vec<Due>> {
     let reachable = reachable.map(ids_json);
+    let scope = if library { in_library() } else { "1".into() };
     let mut stmt = conn.prepare_cached(&sql(&format!(
         "SELECT f.id, f.music_folder_id, f.rel_path, f.size, f.mtime, f.online_only, f.audio_hash
          FROM file f
          WHERE f.present = 1 AND f.id > ?1
            AND (?3 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?3)))
            AND (?4 IS NULL OR f.id = ?4)
+           AND {scope}
            AND {HASH_CURRENT}
            AND {NOT_COMPUTED}
          ORDER BY f.id LIMIT ?2"
@@ -78,13 +98,14 @@ fn page(
     rows.collect()
 }
 
-/// The ids of every file that's due, lowest first; only files in the
-/// `reachable` music folders if given.
+/// The ids of every file of a Library track that's due, lowest first; only
+/// files in the `reachable` music folders if given. A file outside the
+/// Library isn't listed: it gets its waveform when it's played.
 pub(crate) fn due_ids(conn: &Connection, reachable: Option<&[i64]>) -> rusqlite::Result<Vec<i64>> {
     let mut ids = Vec::new();
     let mut after = 0;
     loop {
-        let files = page(conn, None, reachable, after, PAGE)?;
+        let files = page(conn, None, reachable, true, after, PAGE)?;
         let Some(last) = files.last() else {
             return Ok(ids);
         };
@@ -93,27 +114,43 @@ pub(crate) fn due_ids(conn: &Connection, reachable: Option<&[i64]>) -> rusqlite:
     }
 }
 
-/// File `id` as it stands now, if it's present and due.
+/// File `id` as it stands now, if it's present and due: any file, in the
+/// Library or not (the file the player asked for is drawn either way).
 pub(crate) fn due(conn: &Connection, id: i64) -> rusqlite::Result<Option<Due>> {
     // `id - 1`: the page starts after it, so only `id` itself can come back.
-    Ok(page(conn, Some(id), None, id - 1, 1)?.into_iter().next())
+    Ok(page(conn, Some(id), None, false, id - 1, 1)?
+        .into_iter()
+        .next())
 }
 
-/// Whether any file is due a waveform that can be computed now: one the
-/// OneDrive gate allows, in the `reachable` music folders if given.
+/// Whether any file of a Library track is due a waveform that can be
+/// computed now: one the OneDrive gate allows, in the `reachable` music
+/// folders if given.
 pub(crate) fn any_due(
     conn: &Connection,
     allows_online_only: bool,
     reachable: Option<&[i64]>,
 ) -> rusqlite::Result<bool> {
     let reachable = reachable.map(ids_json);
-    conn.prepare_cached(&sql(&format!(
+    conn.prepare_cached(&sql(&any_due_sql()))?
+        .query_row(params![allows_online_only, reachable], |r| r.get(0))
+}
+
+/// The statement behind [`any_due`].
+fn any_due_sql() -> String {
+    let library = in_library();
+    format!(
         "SELECT EXISTS (SELECT 1 FROM file f
                         WHERE f.present = 1 AND (f.online_only = 0 OR ?1)
                           AND (?2 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?2)))
+                          AND {library}
                           AND {HASH_CURRENT} AND {NOT_COMPUTED})"
-    )))?
-    .query_row(params![allows_online_only, reachable], |r| r.get(0))
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn any_due_statement() -> String {
+    sql(&any_due_sql())
 }
 
 /// What the job found in a file.
