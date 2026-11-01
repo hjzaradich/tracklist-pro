@@ -105,13 +105,14 @@ function walk(table: Offer, from: number, direction: 1 | -1, quiet = false): voi
  */
 export function useOfferStepList(list: StepList) {
   const latest = useRef(list);
+  const canFetch = list.fetchFileAt !== undefined;
   useEffect(() => {
     latest.current = list;
   });
   useEffect(() => {
     const mine: Offer = {
       fileAt: (index) => latest.current.fileAt(index),
-      fetchFileAt: list.fetchFileAt && ((index) => latest.current.fetchFileAt!(index)),
+      fetchFileAt: canFetch ? ((index) => latest.current.fetchFileAt!(index)) : undefined,
       select: (index) => latest.current.select(index),
       locate: (file) => latest.current.locate(file),
       listKey: () => latest.current.listKey,
@@ -126,7 +127,7 @@ export function useOfferStepList(list: StepList) {
       pending = null;
       useStepPlace.setState(NO_PLACE);
     };
-  }, []);
+  }, [canFetch]);
   const { total, focus, listKey } = list;
   useEffect(() => {
     useStepPlace.setState({ total, focus });
