@@ -350,10 +350,17 @@ fn quality_and_matching_wait_while_the_fingerprints_are_owed() {
 #[test]
 fn waveforms_not_drawn_yet_are_asked_for_at_the_next_start_once_the_fingerprints_are_in() {
     let (_dir, volume, _db, writer) = scanned();
-    // The chain drew every file's waveform: nothing is due (the test above
-    // that nothing is due covers it). A run that died before drawing them:
+    // No file is a Library track's, so no waveform is owed (the background
+    // job covers Library tracks only).
+    let (_, queued) = ask(&writer, &volume);
+    assert!(!kinds(&queued).contains(&"waveform"));
+    // The files join the Library, and a run that died before drawing them
+    // leaves them owed:
     writer
-        .call(|c| c.execute("DELETE FROM file_waveform", []))
+        .call(|c| {
+            crate::waveform::join_library_for_test(c)?;
+            c.execute("DELETE FROM file_waveform", [])
+        })
         .unwrap();
     let (failed, queued) = ask(&writer, &volume);
     assert_eq!((failed, kinds(&queued)), (0, vec!["waveform"]));
