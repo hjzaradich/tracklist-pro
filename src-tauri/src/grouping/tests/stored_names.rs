@@ -91,12 +91,13 @@ fn every_step(db: &Db, between: fn(&Db)) -> Vec<Vec<String>> {
         4,
         Some(reencoded(&velo[300..700], 3, 7)),
     ));
-    // Empty tags, no `raw_tags` at all, and `raw_tags` that can't be read.
+    // Empty tags, no `raw_tags` at all, and `raw_tags` of a shape nobody
+    // wrote (the table takes any JSON object).
     let empty = db.add(song("Deja Vu.ogg", Some(""), Some("   "), 5, None));
     let unread = db.add(song("Paper Harbor.wav", None, None, 6, None));
     db.sql(&format!(
         "UPDATE file SET raw_tags = NULL WHERE id = {empty};
-         UPDATE file SET raw_tags = '{{\"id3v2\": [' WHERE id = {unread};"
+         UPDATE file SET raw_tags = '{{\"id3v2\": 7}}' WHERE id = {unread};"
     ));
     let none_at_all = db.add(song("Nightdrive.aiff", None, None, 7, None));
     db.sql(&format!(
@@ -142,7 +143,11 @@ fn every_step(db: &Db, between: fn(&Db)) -> Vec<Vec<String>> {
     assert!(first.pairs > 0 && first.recorded > 0, "{first:?}");
     assert!(first.compared_directly > 0, "only the names found it");
     assert!(first.skipped_buckets > 0, "a title too many files share");
-    assert_eq!(db.track(accents), db.track(capitals), "one title, one track");
+    assert_eq!(
+        db.track(accents),
+        db.track(capitals),
+        "one title, one track"
+    );
 
     db.retag(nightdrive, Some("Déjà Vu"), Some("Halden Rook"));
     decide("retagged");
@@ -429,8 +434,8 @@ fn tags_that_cant_be_read_go_by_the_file_name_and_their_neighbours_go_through() 
         db.add(lone("Nightdrive.mp3", "Nightdrive", 4)),
     ];
     db.sql(&format!(
-        "UPDATE file SET raw_tags = '{{\"id3v2\": [' WHERE id = {};
-         UPDATE file SET raw_tags = CAST(x'ff' AS TEXT) WHERE id = {};",
+        "UPDATE file SET raw_tags = '{{\"id3v2\": 7}}' WHERE id = {};
+         UPDATE file SET raw_tags = CAST(x'7B2261223A22FF227D' AS TEXT) WHERE id = {};",
         files[1], files[2]
     ));
     let (decided, _) = db.decide();
@@ -512,10 +517,9 @@ fn working_out_keys_stops_between_pages_and_the_next_run_goes_on_from_there() {
     a_library(&db, 2500);
     let reads = ReadPool::with_size(db.writer.guarded_path(), 1).unwrap();
     let mut names = Names::default();
-    let stopped =
-        names.catch_up::<DbError>(&db.writer, &reads, &mut |_| Ok(()), &mut || {
-            Err(DbError::WriterGone)
-        });
+    let stopped = names.catch_up::<DbError>(&db.writer, &reads, &mut |_| Ok(()), &mut || {
+        Err(DbError::WriterGone)
+    });
     assert!(stopped.is_err());
     assert_eq!(db.count("SELECT count(*) FROM grouping_names"), 1000);
     let next = index(&db);
@@ -569,7 +573,7 @@ fn a_change_to_what_the_keys_are_needs_a_new_rules_version() {
             Some("Halden Rook feat. Quill Ashby"),
             "03 Halden Rook - Velo.mp3"
         ),
-        entry(&["velo"], &[], &["halden rook"])
+        entry(&["velo", "velo radio edit"], &[], &["halden rook"])
     );
     assert_eq!(
         Entry::new(Some("Velo x Paper Harbor"), None, "Velo x Paper Harbor.mp3"),

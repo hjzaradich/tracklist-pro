@@ -916,7 +916,11 @@ impl AudioKnown {
 
 /// Reads the stored comparisons of each of `pairs` (files standing for
 /// fingerprints, the lower first) that isn't known yet.
-fn look_up(reads: &ReadPool, audio: &mut AudioKnown, pairs: Vec<(i64, i64)>) -> Result<(), DbError> {
+fn look_up(
+    reads: &ReadPool,
+    audio: &mut AudioKnown,
+    pairs: Vec<(i64, i64)>,
+) -> Result<(), DbError> {
     let unknown: Vec<(i64, i64)> = pairs
         .into_iter()
         .filter(|pair| !audio.stored.contains_key(pair) && !audio.never.contains(pair))
