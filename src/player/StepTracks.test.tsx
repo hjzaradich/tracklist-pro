@@ -67,12 +67,14 @@ function Screen({
   resetKey = "a",
   onSelectionChange,
   positionOf,
+  rowAt,
 }: {
   rows?: (index: number) => TableRow | undefined;
   total?: number;
   resetKey?: string;
   onSelectionChange?: (row: TableRow | null) => void;
   positionOf?: (recordingId: number) => Promise<number | null>;
+  rowAt?: (index: number) => Promise<TableRow | undefined>;
 }) {
   return (
     <QueryClientProvider client={createQueryClient()}>
@@ -87,6 +89,7 @@ function Screen({
         resetKey={resetKey}
         onSelectionChange={onSelectionChange}
         positionOf={positionOf}
+        rowAt={rowAt}
       />
       <PlayerBar />
     </QueryClientProvider>
@@ -514,6 +517,26 @@ describe("Play next", () => {
     await opens(4);
     expect(selectedTune()).toContain("Tune 1");
     expect(shown.mock.calls.slice(told).every((call) => call[0]?.title === "Tune 1")).toBe(true);
+  });
+
+  it("crosses the edge of a window with the selection and scroll left alone: the row is fetched on its own", async () => {
+    const user = userEvent.setup();
+    const shown = vi.fn();
+    // Rows 1 to 3 are held; the window holding row 4 has not arrived.
+    const rowAt = vi.fn(async (index: number) => tableRow(index + 1, { title: `Tune ${index + 1}` }));
+    render(<Screen rows={tunes(3)} total={6} onSelectionChange={shown} rowAt={rowAt} />);
+    await playRow(user, 3);
+    await user.click(playNextSwitch());
+    await user.click(screen.getByText("Tune 1"));
+    const top = screen.getByRole("grid").scrollTop;
+    const told = shown.mock.calls.length;
+    ends();
+    await opens(4);
+    expect(rowAt).toHaveBeenCalledWith(3);
+    expect(usePlayer.getState()).toMatchObject({ position: 0, playing: true });
+    expect(selectedTune()).toContain("Tune 1");
+    expect(shown.mock.calls.slice(told).every((call) => call[0]?.title === "Tune 1")).toBe(true);
+    expect(screen.getByRole("grid").scrollTop).toBe(top);
   });
 
   it("goes on from the playing row, in the table's order, whatever row is selected", async () => {

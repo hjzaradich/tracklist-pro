@@ -158,6 +158,9 @@ export function TrackTableView({
   // the order or the filters change: the same source, search, filters and sort.
   const positionOf = (recordingId: number) =>
     unwrap(commands.trackTablePosition({ ...query, recordingId }));
+  // One row on its own, without a window: for Play next at the edge of one.
+  const rowAt = (index: number) =>
+    unwrap(commands.trackTablePage({ ...query, offset: index, limit: 1, withTotal: false })).then((page) => page.rows[0]);
   // The ids of rows first to last, for a range or all of the rows to select.
   const idsInRange = (first: number, last: number) =>
     unwrap(commands.trackTableIds({ ...query, offset: first, limit: last - first + 1, withTotal: false }));
@@ -285,6 +288,7 @@ export function TrackTableView({
           actionsWidth={actionsWidth}
           resetKey={JSON.stringify(query)}
           positionOf={positionOf}
+          rowAt={rowAt}
           settled={!rows.loading}
           onSelectionChange={reportSelection}
           onSelectedChange={onSelectedChange}

@@ -29,6 +29,8 @@ export interface StepList {
   listKey: string;
   /** The file the row at `index` plays: `null` for a row with no file, `undefined` for a row that hasn't arrived. */
   fileAt: (index: number) => PlayerFile | null | undefined;
+  /** The file of the row at `index`, fetched on its own: no selecting, no scrolling. Without it a row not held is scrolled to. */
+  fetchFileAt?: (index: number) => Promise<PlayerFile | null | undefined>;
   /** Selects the row at `index` and brings it into view (so its window is fetched). */
   select: (index: number) => void;
   /** Where the track that `file` was chosen from is in the rows now; `null` if it is not one of them. */
@@ -49,7 +51,7 @@ export const useStepPlace = create<Place>(() => ({ total: 0, focus: null, playin
 const NO_PLACE: Place = { total: 0, focus: null, playing: null };
 
 /** The table's own functions: read when a step is made, so not state. */
-type Offer = Pick<StepList, "fileAt" | "select" | "locate"> & { listKey: () => string };
+type Offer = Pick<StepList, "fileAt" | "fetchFileAt" | "select" | "locate"> & { listKey: () => string };
 let offered: Offer | null = null;
 /** Goes up with every step, so an answer for an older one is dropped. */
 let stepping = 0;
@@ -66,6 +68,20 @@ function walk(table: Offer, from: number, direction: 1 | -1, quiet = false): voi
   const { total } = useStepPlace.getState();
   for (let index = from; index >= 0 && index < total; index += direction) {
     const file = table.fileAt(index);
+    if (file === undefined && quiet && table.fetchFileAt) {
+      // A track that ended on its own: fetch the row alone, the table stays as it is.
+      const token = stepping;
+      table.fetchFileAt(index).then(
+        (found) => {
+          if (token !== stepping || offered !== table) return;
+          if (found === undefined) return;
+          if (found === null) walk(table, index + direction, direction, true);
+          else usePlayer.getState().select(found);
+        },
+        () => {},
+      );
+      return;
+    }
     if (file === undefined) {
       // Not fetched yet: scrolling to the row fetches it, and it is played on arrival.
       pending = { index, direction, listKey: table.listKey() };
@@ -95,6 +111,7 @@ export function useOfferStepList(list: StepList) {
   useEffect(() => {
     const mine: Offer = {
       fileAt: (index) => latest.current.fileAt(index),
+      fetchFileAt: list.fetchFileAt && ((index) => latest.current.fetchFileAt!(index)),
       select: (index) => latest.current.select(index),
       locate: (file) => latest.current.locate(file),
       listKey: () => latest.current.listKey,
