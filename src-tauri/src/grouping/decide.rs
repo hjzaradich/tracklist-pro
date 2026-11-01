@@ -365,13 +365,15 @@ impl Names {
     /// may have changed since they were read. `stop_here` is called between
     /// two pages once keys were worked out: what's stored isn't worked out
     /// again, so a run stopped there leaves the next one less to do.
+    /// Returns the share of the run's progress it used: [`NAMES_SHARE`] if
+    /// any keys were worked out, else 0.
     pub(super) fn catch_up<E: From<DbError>>(
         &mut self,
         writer: &Writer,
         reads: &ReadPool,
         tick: &mut dyn FnMut(f64) -> Result<(), E>,
         stop_here: &mut dyn FnMut() -> Result<(), E>,
-    ) -> Result<(), E> {
+    ) -> Result<f64, E> {
         self.narrowed.clear();
         self.counted.clear();
         let present = reads.read(stored_names::present)?;
@@ -399,7 +401,7 @@ impl Names {
             let files = page.iter().map(|known| (known.file, known.rev)).collect();
             worked_out += self.read(writer, reads, files)?;
         }
-        Ok(())
+        Ok(if worked_out > 0 { NAMES_SHARE } else { 0.0 })
     }
 
     /// Makes sure the files of one page are in the index with the names
@@ -1096,8 +1098,9 @@ pub fn run<E: From<DbError>>(
     let mut seen = 0u64;
     let mut total = 1.0;
     let mut standing: Option<Standing> = None;
+    let mut share = 0.0;
     loop {
-        tick((seen as f64 / total).min(0.95))?;
+        tick((share + (1.0 - share) * (seen as f64 / total)).min(0.95))?;
         if run.files > 0 {
             stop_here()?;
         }
@@ -1112,7 +1115,7 @@ pub fn run<E: From<DbError>>(
         // present file's stored keys read again), and how many files are
         // due.
         if standing.is_none() {
-            names.catch_up(writer, &reads, tick, stop_here)?;
+            share = names.catch_up(writer, &reads, tick, stop_here)?;
             total = reads
                 .read(|c| {
                     c.query_row(

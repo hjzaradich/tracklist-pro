@@ -486,6 +486,36 @@ fn working_out_a_whole_library_moves_the_progress_forward_page_by_page() {
 }
 
 #[test]
+fn deciding_progress_keeps_rising_after_the_keys_were_worked_out() {
+    let db = db();
+    a_library(&db, 2500);
+    let reads = ReadPool::with_size(db.writer.guarded_path(), 1).unwrap();
+    let mut names = Names::default();
+    let mut ticks = Vec::new();
+    let share = names
+        .catch_up::<DbError>(
+            &db.writer,
+            &reads,
+            &mut |fraction| {
+                ticks.push(fraction);
+                Ok(())
+            },
+            &mut || Ok(()),
+        )
+        .unwrap();
+    assert_eq!(share, 0.3);
+    let last_of_the_fill = ticks.last().copied().unwrap();
+    // The deciding loop's first tick, as the loop computes it.
+    let first_of_deciding = share + (1.0 - share) * (1.0 / 2500.0);
+    assert!(first_of_deciding > last_of_the_fill, "{ticks:?}");
+    // With nothing to work out the whole bar is the deciding's.
+    let again = names
+        .catch_up::<DbError>(&db.writer, &reads, &mut |_| Ok(()), &mut || Ok(()))
+        .unwrap();
+    assert_eq!(again, 0.0);
+}
+
+#[test]
 fn reading_stored_keys_is_no_progress_and_never_stops_between_pages() {
     let db = db();
     a_library(&db, 1500);
@@ -580,4 +610,74 @@ fn a_change_to_what_the_keys_are_needs_a_new_rules_version() {
         entry(&["velo x paper harbor"], &["paper harbor", "velo"], &[])
     );
     assert_eq!(Entry::new(Some(""), None, "---.mp3"), entry(&[], &[], &[]));
+}
+
+/// A snapshot of the keys of many spellings (separators, mashups, brackets,
+/// features, accents, dots, numbering, empty names), as one hash. A change
+/// to what any key is fails this: bump `grouping::RULES_VERSION`, then pin
+/// the new hash.
+#[test]
+fn a_change_to_any_key_needs_a_new_rules_version() {
+    let inputs: [(Option<&str>, Option<&str>, &str); 24] = [
+        (Some("Déjà Vu"), Some("Halden Rook"), "Déjà Vu.mp3"),
+        (
+            Some("Velo (Radio Edit)"),
+            Some("Halden Rook feat. Quill Ashby"),
+            "03 Halden Rook - Velo.mp3",
+        ),
+        (Some("Velo x Paper Harbor"), None, "Velo x Paper Harbor.mp3"),
+        (
+            Some("Velo vs. Paper Harbor"),
+            None,
+            "Velo vs. Paper Harbor.mp3",
+        ),
+        (Some("Velo & Paper Harbor (Mashup)"), None, "a.mp3"),
+        (Some("Velo / Paper Harbor"), None, "a.mp3"),
+        (None, None, "Halden Rook - Velo (Extended Mix).flac"),
+        (None, None, "01. Halden Rook - Velo [Remix].mp3"),
+        (
+            None,
+            None,
+            "Halden Rook, Quill Ashby - Velo ft. Mira Dale.mp3",
+        ),
+        (
+            Some("Velo (Quill Ashby Remix)"),
+            Some("Halden Rook & Quill Ashby"),
+            "x.mp3",
+        ),
+        (Some("Velo - Original Mix"), Some("Halden Rook"), "x.mp3"),
+        (
+            Some("Velo [Free Download]"),
+            Some("DJ Halden Rook"),
+            "x.mp3",
+        ),
+        (Some("V.e.l.o"), Some("H. Rook"), "x.mp3"),
+        (Some("VELO"), Some("HALDEN ROOK"), "x.mp3"),
+        (
+            Some("Velo  Paper   Harbor"),
+            Some(" Halden  Rook "),
+            "x.mp3",
+        ),
+        (Some("Ça va"), Some("Zoë Åkesson"), "x.mp3"),
+        (Some("Straße"), Some("Ørjan"), "x.mp3"),
+        (Some("Velo (feat. Quill Ashby)"), None, "x.mp3"),
+        (Some("Velo (Halden Rook Remix) (Radio Edit)"), None, "x.mp3"),
+        (Some("The Velo"), Some("The Halden Rook"), "x.mp3"),
+        (Some("Velo – Paper Harbor"), None, "Velo – Paper Harbor.mp3"),
+        (Some("Velo + Paper Harbor"), None, "x.mp3"),
+        (Some("  "), Some(""), "folder - 12 - Velo.mp3"),
+        (Some(""), None, "---.mp3"),
+    ];
+    // FNV-1a over the keys, in a fixed order: stable across runs and builds.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for (title, artist, file) in inputs {
+        for byte in format!("{:?}", Entry::new(title, artist, file)).bytes() {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    assert_eq!(RULES_VERSION, 3);
+    assert_eq!(
+        hash, 17_724_384_926_676_626_428,
+        "the keys changed: bump RULES_VERSION, pin this hash"
+    );
 }
