@@ -212,9 +212,16 @@ pub(crate) fn clear_in(rec: &mut Recorder<'_>, recording: i64) -> Result<bool, O
     }
 }
 
+/// The most tracks due that a key press works out before it returns (PR 156
+/// review, nit 3). An add may wait for 50, but this runs on a key press, and
+/// working out a Library track's row reads its tags; a longer list is the
+/// index job's, whose end reloads the lists (`useSetEnergy`).
+const SETTLE_NOW_LIMIT: usize = 10;
+
 /// Gives tracks an energy from 1 to 10: one operation, one Undo. The
 /// Overview and its doors read the energy from the track table's rows, so a
-/// few tracks' rows are worked out now, for the lists read right after it.
+/// few tracks' rows (at most [`SETTLE_NOW_LIMIT`] due) are worked out now,
+/// for the lists read right after it.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn set_energy(
@@ -225,7 +232,7 @@ pub fn set_energy(
 ) -> Result<EnergySet, IpcError> {
     let set = writer.call(move |conn| Ok(set_energy_on(conn, &recordings, energy)))??;
     if set.changed > 0 {
-        crate::library::settle_now(&writer, &jobs);
+        crate::library::settle_now_up_to(&writer, &jobs, SETTLE_NOW_LIMIT);
     }
     Ok(set)
 }

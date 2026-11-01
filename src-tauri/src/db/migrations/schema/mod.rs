@@ -35,6 +35,7 @@ mod track_merge;
 mod track_row;
 mod track_row_doors;
 mod track_row_gaps;
+mod track_row_genre;
 mod tracks;
 mod user_energy;
 mod workspace;
@@ -295,6 +296,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0042_track_row_gaps.sql", &[]),
     // Two more answers in track_row's flags and the triggers that mark a track due for them, no new tables (1cD-R1a).
     ("0043_track_row_doors.sql", &[]),
+    // The genre the Overview counts, in track_row: two columns and an index, no new tables (1cD-R1b).
+    ("0044_track_row_genre.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

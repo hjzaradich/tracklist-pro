@@ -146,6 +146,16 @@ const DOORS: Door[] = [
     word: "energy-7",
   },
   {
+    name: "genre bar",
+    overview: { genres: [{ name: "House", tracks: 5 }], noGenre: 2 },
+    open: async () =>
+      screen.findByRole("link", { name: tx("overview:charts.genres.door", { genre: "House", count: 5 }) }),
+    chip: { kind: "genre", name: "House" },
+    label: tx("trackTable:filters.genre", { genre: "House" }),
+    number: 5,
+    word: "genre-House",
+  },
+  {
     name: "no energy bar",
     overview: { energy: [0, 0, 0, 0, 0, 0, 5, 0, 0, 0], noEnergy: 2 },
     open: async () => screen.findByRole("link", { name: tx("overview:charts.energy.noneDoor", { count: 2 }) }),
@@ -254,14 +264,86 @@ describe("the energy bars as doors", () => {
   });
 });
 
+describe("the genre bars as doors", () => {
+  /** Names a DJ's tags really hold: free text, so the address has to carry any of them. */
+  const AWKWARD = [
+    "Drum & Bass",
+    "R&B / Soul",
+    "100% Pure",
+    "50/50",
+    "a+b",
+    "#1 Hits",
+    "Rock?filter=lowQuality",
+    "Caf\u00e9",
+    "\u30c6\u30af\u30ce",
+    "\u{1f3b5} Mix",
+    "Hip  Hop",
+    "%20",
+    "x'; DROP TABLE track_row; --",
+  ];
+
+  it.each(AWKWARD)("carry the name %j through the address to the chip and the query, as it is", async (name) => {
+    const { asked } = libraryWith({ genres: [{ name, tracks: 3 }], noGenre: 0 }, { kind: "genre", name }, 3);
+    const { router } = renderApp("/overview");
+    await userEvent.click(
+      // The accessible name collapses runs of spaces; the name in the address does not.
+      await screen.findByRole("link", {
+        name: tx("overview:charts.genres.door", { genre: name, count: 3 }).replace(/\s+/g, " ").trim(),
+      }),
+    );
+    await waitFor(() => expect(router.state.location.pathname).toBe("/library"));
+    // The address names the genre, and only the genre.
+    expect(Object.keys(router.state.location.search)).toEqual(["filter"]);
+    const chips = await chipsList();
+    // The text matcher collapses runs of spaces in the page; the query below is the exact check.
+    expect(
+      within(chips).getByText(tx("trackTable:filters.genre", { genre: name }).replace(/\s+/g, " ")),
+    ).toBeInTheDocument();
+    expect(within(chips).getAllByRole("listitem")).toHaveLength(1);
+    expect(await screen.findByText(tx("library:trackCount", { count: 3 }))).toBeInTheDocument();
+    expect(asked.find((query) => query.filters.length > 0)?.filters).toEqual([{ kind: "genre", name }]);
+  });
+
+  it("open the Library from an address typed or shared, whatever the name holds", async () => {
+    const name = "R&B / Soul 100%";
+    const { asked } = libraryWith({}, { kind: "genre", name }, 4);
+    renderApp(`/library?filter=${encodeURIComponent(`genre-${encodeURIComponent(name)}`)}`);
+    const chips = await chipsList();
+    expect(within(chips).getByText(tx("trackTable:filters.genre", { genre: name }))).toBeInTheDocument();
+    expect(asked[0]?.filters).toEqual([{ kind: "genre", name }]);
+  });
+
+  it.each(["genre-", "genre-%20", "genre-%E0%A4%A", "genre"])(
+    "open the Library as it is for the word %j, which names no genre",
+    async (word) => {
+      const { asked } = libraryWith({}, null, 0);
+      renderApp(`/library?filter=${encodeURIComponent(word)}`);
+      expect(await screen.findByText(tx("library:trackCount", { count: LIBRARY_TRACKS }))).toBeInTheDocument();
+      expect(screen.queryByRole("list", { name: tx("trackTable:filters.label") })).toBeNull();
+      expect(asked[0]?.filters).toEqual([]);
+    },
+  );
+
+  it("leave Other and No genre as plain bars: they are not one genre", async () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ name: `Genre ${i + 1}`, tracks: 20 - i }));
+    fakeBackend({ overview: { genres: many, noGenre: 4 } });
+    renderApp("/overview");
+    const region = await screen.findByRole("region", { name: tx("overview:charts.genres.title") });
+    const rows = within(region).getAllByRole("listitem");
+    // Eight genres, Other and No genre.
+    expect(rows).toHaveLength(10);
+    expect(rows.filter((row) => within(row).queryByRole("link") !== null)).toHaveLength(8);
+    for (const row of rows.slice(8)) expect(within(row).queryByRole("link")).toBeNull();
+  });
+});
+
 describe("the numbers that open nothing in the Library", () => {
-  it("are the genre bars, the length and the last send", async () => {
+  it("are the length and the last send", async () => {
     fakeBackend({
       overview: { genres: [{ name: "House", tracks: 2 }], noGenre: 1 },
     });
     renderApp("/overview");
-    const region = await screen.findByRole("region", { name: tx("overview:charts.genres.title") });
-    expect(within(region).queryAllByRole("link")).toEqual([]);
+    await screen.findByRole("region", { name: tx("overview:charts.genres.title") });
     const list = screen.getByText(tx("overview:numbers.inCrates")).closest("ul") as HTMLElement;
     // The four numbers: tracks, in crates and analyzed are doors; the last send is not.
     expect(within(list).getAllByRole("link")).toHaveLength(3);

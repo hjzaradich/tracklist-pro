@@ -14,8 +14,9 @@ export type FilterKind = TableFilter["kind"];
  * screen what makes sense"):
  * - the Library: missing, in or not in rekordbox, a format, a quality
  *   problem, in a crate or in no crate, from a low-quality file, analyzed or
- *   not analyzed by rekordbox, with missing tags, with missing art. The energy filters are not on offer: they
- *   come only from the Overview's energy bars (1cC-4), one level at a time;
+ *   not analyzed by rekordbox, with missing tags, with missing art. The energy
+ *   filters and the genre filter are not on offer: they come only from the
+ *   Overview's bars (1cC-4, 1cD-R1b), one level or one genre at a time;
  * - All music: the same except the crate filters, which mean nothing for a
  *   track that isn't in the Library, and in or not in the Library instead;
  * - a crate: missing, in or not in rekordbox, a format, a quality problem
@@ -63,6 +64,7 @@ export function sameFilter(a: TableFilter, b: TableFilter): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "format") return a.format === (b as typeof a).format;
   if (a.kind === "energy") return a.level === (b as typeof a).level;
+  if (a.kind === "genre") return a.name === (b as typeof a).name;
   return true;
 }
 
@@ -149,5 +151,7 @@ export function filterLabel(filter: TableFilter, t: TFunction<"trackTable">): st
       return t("filters.missingTags");
     case "missingArt":
       return t("filters.missingArt");
+    case "genre":
+      return t("filters.genre", { genre: filter.name });
   }
 }

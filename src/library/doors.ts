@@ -9,6 +9,13 @@ import type { TableFilter } from "../bindings";
  * Only a filter the Overview has a number for has a word. The chip is the
  * Library's own (src/trackTable): it is taken off with its ×, works with the
  * other filters and the search, and isn't remembered, like every chip.
+ *
+ * A genre bar's word is `genre-` and the genre's name, percent-encoded
+ * (1cD-R1b): a genre is free text (spaces, `&`, `#`, `%`, accents, other
+ * scripts), so the word holds only letters, digits and `-_.!~*'()%` whatever
+ * the name is, and the router's own encoding of the address goes on top of
+ * that. A name that is blank, or an encoding that doesn't decode, stands for
+ * no filter.
  */
 const PLAIN_DOORS = [
   "lowQuality",
@@ -24,6 +31,7 @@ const PLAIN_DOORS = [
 type PlainDoor = (typeof PLAIN_DOORS)[number];
 
 const ENERGY_PREFIX = "energy-";
+const GENRE_PREFIX = "genre-";
 /** Energy runs from 1 to 10 (`ENERGY_LEVELS` in the backend). */
 const ENERGY_LEVELS = 10;
 
@@ -34,6 +42,9 @@ function isPlainDoor(word: string): word is PlainDoor {
 /** The word a filter is written as in the address; `null` for a filter no number opens. */
 export function doorWord(filter: TableFilter): string | null {
   if (filter.kind === "energy") return `${ENERGY_PREFIX}${filter.level}`;
+  if (filter.kind === "genre") {
+    return filter.name.trim() === "" ? null : `${GENRE_PREFIX}${encodeURIComponent(filter.name)}`;
+  }
   return isPlainDoor(filter.kind) ? filter.kind : null;
 }
 
@@ -44,6 +55,14 @@ export function filterOfDoor(word: unknown): TableFilter | null {
   if (word.startsWith(ENERGY_PREFIX)) {
     const level = Number(word.slice(ENERGY_PREFIX.length));
     if (Number.isInteger(level) && level >= 1 && level <= ENERGY_LEVELS) return { kind: "energy", level };
+  }
+  if (word.startsWith(GENRE_PREFIX)) {
+    try {
+      const name = decodeURIComponent(word.slice(GENRE_PREFIX.length));
+      if (name.trim() !== "") return { kind: "genre", name };
+    } catch {
+      // Not an encoding this app wrote: it stands for nothing.
+    }
   }
   return null;
 }

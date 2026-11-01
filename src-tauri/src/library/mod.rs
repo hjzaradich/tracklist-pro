@@ -1099,8 +1099,17 @@ pub async fn remove_library_track(
 /// and don't wait for the index job. A failure is not the change's: the job
 /// does it later.
 pub(crate) fn settle_now(writer: &Writer, jobs: &crate::jobs::JobQueue) {
+    settle_now_up_to(writer, jobs, 50);
+}
+
+/// [`settle_now`] with its own limit: the most tracks that are due for it to
+/// work out before the command returns. Working out a Library track's row
+/// reads its tags (the gaps and the genre), so a key press on a selection is
+/// given a smaller limit than an add (PR 156 review, nit 3); a longer list
+/// is left to the index job, whose end reloads the lists.
+pub(crate) fn settle_now_up_to(writer: &Writer, jobs: &crate::jobs::JobQueue, limit: usize) {
     let volumes = system_volumes();
-    let settled = writer.call(move |conn| crate::search::settle_if_small(conn, &volumes, 50));
+    let settled = writer.call(move |conn| crate::search::settle_if_small(conn, &volumes, limit));
     if let Err(e) = settled {
         eprintln!("library: couldn't update the track table's rows: {e:?}");
     }

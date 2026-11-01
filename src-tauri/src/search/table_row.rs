@@ -35,6 +35,14 @@
 //!   every index holds `flags`. Migration 0043 marks a track due when an
 //!   input of either answer changes, and the quality job makes the verdicts
 //!   of a new rules version.
+//! - **The Overview's genre** (1cD-R1b, migration 0044): `genre` (as the track
+//!   spells it) and `genre_group` (the same in lower case, what a bar counts
+//!   and its door filters by) are a Library track's, from
+//!   `overview::door_answers_of`, the one definition of the genre the
+//!   Overview counts. They are not `genre_key`, the sort key of the genre
+//!   the lists show, which differs on edge cases (the best file's tags,
+//!   accents folded) and keeps no spelling. A track outside the Library, and
+//!   a Library track with no genre, have NULL in both.
 //! - **BPM and key** are `recording_display`'s, the analysis the app keeps
 //!   (rekordbox's for a track rekordbox knows). The key is stored as its
 //!   position on the Camelot wheel ([`camelot_order`]), so the table sorts
@@ -108,6 +116,9 @@ pub(super) struct Facts {
     pub bpm: Option<f64>,
     pub key: Option<String>,
     pub added_at: Option<String>,
+    /// A Library track's genre for the Overview ([`crate::overview::door_answers_of`]),
+    /// without outer blanks; `None` for none and outside the Library.
+    pub genre: Option<String>,
 }
 
 /// A track's BPM and key as two scalar subqueries, for a query with the
@@ -222,6 +233,7 @@ pub(super) fn facts_for(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Hash
                 bpm: r.get(8)?,
                 key: r.get(9)?,
                 added_at: Some(added_at.unwrap_or(created_at)),
+                genre: None,
             },
         ))
     })?;
@@ -263,6 +275,8 @@ struct Values {
     rating: Option<i64>,
     added_at: Option<String>,
     text_hash: i64,
+    genre: Option<String>,
+    genre_group: Option<String>,
 }
 
 /// What [`write`] found.
@@ -304,11 +318,14 @@ pub(super) fn write(
         rating: fields.stars.map(i64::from),
         added_at: facts.added_at.clone(),
         text_hash,
+        genre: facts.genre.clone(),
+        genre_group: facts.genre.as_deref().map(crate::overview::genre_group),
     };
     let stored = tx
         .prepare_cached(
             "SELECT flags, format, file_id, title_key, artist_key, genre_key, file_key,
-                    folder_key, bpm, key_order, time_ms, rating, added_at, text_hash
+                    folder_key, bpm, key_order, time_ms, rating, added_at, text_hash,
+                    genre, genre_group
              FROM track_row WHERE recording_id = ?1",
         )?
         .query_row([id], |r| {
@@ -327,6 +344,8 @@ pub(super) fn write(
                 rating: r.get(11)?,
                 added_at: r.get(12)?,
                 text_hash: r.get(13)?,
+                genre: r.get(14)?,
+                genre_group: r.get(15)?,
             })
         })
         .optional()?;
@@ -336,8 +355,9 @@ pub(super) fn write(
     tx.prepare_cached(
         "INSERT OR REPLACE INTO track_row
              (recording_id, flags, format, file_id, title_key, artist_key, genre_key,
-              file_key, folder_key, bpm, key_order, time_ms, rating, added_at, text_hash)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+              file_key, folder_key, bpm, key_order, time_ms, rating, added_at, text_hash,
+              genre, genre_group)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
     )?
     .execute(params![
         id,
@@ -355,6 +375,8 @@ pub(super) fn write(
         new.rating,
         new.added_at,
         new.text_hash,
+        new.genre,
+        new.genre_group,
     ])?;
     Ok(Written::Changed {
         text: stored.is_none_or(|old| old.text_hash != new.text_hash),

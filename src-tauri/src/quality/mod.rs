@@ -91,7 +91,11 @@ pub fn qualifier<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
 ///
 /// A stale verdict alone queues nothing: the job settles every one when it
 /// starts, and whoever reads verdicts calls [`settle`] first, which costs
-/// one query when nothing is stale.
+/// one query when nothing is stale. The exception is a verdict of other
+/// rules ([`store::any_other_rules`]): the track table's rows hold the
+/// Overview's low-quality number, and only a verdict being written can tell
+/// a row that a new build's rules changed what it holds, so [`due`] asks for
+/// a job while one is stored.
 ///
 /// A file is due only if it can be checked now: files in the folders `reach`
 /// doesn't name (their drive is unplugged) don't count, so no job is queued

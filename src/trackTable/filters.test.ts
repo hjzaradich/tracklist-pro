@@ -30,6 +30,20 @@ describe("filters that say the opposite of each other", () => {
   });
 });
 
+describe("the genre filter", () => {
+  it("is the same filter only for the same genre, and a second genre does not take the first off", () => {
+    const house: TableFilter = { kind: "genre", name: "House" };
+    expect(addFilter([house], { kind: "genre", name: "House" })).toEqual([house]);
+    expect(removeFilter([house], { kind: "genre", name: "Techno" })).toEqual([house]);
+    expect(removeFilter([house], { kind: "genre", name: "House" })).toEqual([]);
+    expect(addFilter([{ kind: "lowQuality" }, house], { kind: "inNoCrate" })).toEqual([
+      { kind: "lowQuality" },
+      house,
+      { kind: "inNoCrate" },
+    ]);
+  });
+});
+
 describe("the energy filters", () => {
   it("are one at a time: another level, or no energy, takes the one before off", () => {
     const seven: TableFilter = { kind: "energy", level: 7 };

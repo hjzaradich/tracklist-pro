@@ -38,13 +38,19 @@
 //!   holds the two definitions, the index job keeps a Library track's answers
 //!   in `search::flag::LOW_QUALITY` and `ENERGY`, and the Overview's numbers
 //!   and the Library's doors both read those ([`stored_counts`]).
+//! - **Genre** goes the same way (1cD-R1b): [`door_answers_of`] also works out
+//!   a Library track's genre ([`genres_of`], the one place that says what it
+//!   is), the index job keeps it in `track_row.genre` and `genre_group`
+//!   (migration 0044), and the Overview's genre bars ([`genres`]) and the
+//!   Library's genre door (`TableFilter::Genre`) both read those.
 //!
 //! **Cost.** Every number is an aggregate SQL statement on the read pool.
 //! The Library's numbers come from one pass over `library_track` that looks
 //! the rest up by primary key or index; a test reads each statement's query
 //! plan to prove nothing else is scanned. The genres statement groups the
 //! tracks by what their tags say and Rust reads the *distinct* groups only
-//! ([`genres`]). The two tag gaps are the index job's work, not the
+//! ([`genres_of`], for a page of the index job); the Overview itself counts
+//! the stored genres, one row per distinct spelling ([`genres`]). The two tag gaps are the index job's work, not the
 //! Overview's: [`gaps_of`] hands Rust one small row per Library track of a
 //! page of the index, and `shown_tags` is asked only about the tracks those
 //! rows can't settle.
@@ -142,8 +148,8 @@ pub struct Counting {
     /// A quality job is queued or running: the low-quality count.
     pub quality: bool,
     /// The search index is behind (a track is due): the low-quality, energy,
-    /// missing-tags and missing-art counts, which are read from the rows the
-    /// index job writes.
+    /// genre, missing-tags and missing-art counts, which are read from the
+    /// rows the index job writes.
     pub index: bool,
 }
 
@@ -308,23 +314,16 @@ fn decisions_sql() -> String {
     )
 }
 
-/// Each Library track's genre source, grouped: what rekordbox says (`NULL`
+/// Each Library track's genre source: what rekordbox says (`NULL`
 /// for a track rekordbox doesn't know) and, only where the file's tag is
 /// needed, the genre frames of the linked file as a `raw_tags` object, one
 /// array per block, in the file's own order. Rust then reads each distinct
-/// group with the send's own tag rules ([`crate::send_values::tag_values`]),
-/// so a tag means the same here as in a send.
+/// pair with the send's own tag rules ([`crate::send_values::tag_values`]),
+/// so a tag means the same here as in a send ([`genres_of`]).
 ///
 /// The frames kept are the ones `send_values::tag_fields` maps to `Genre`:
 /// `TCON` (ID3v2), `©gen` (MP4), `GENRE` in any case (Vorbis, APE) and
 /// `IGNR` (RIFF INFO). Nothing else in a tag is looked at.
-fn genres_sql() -> String {
-    format!(
-        "SELECT rb, digest, count(*) FROM ({}) GROUP BY rb, digest",
-        genre_source_sql()
-    )
-}
-
 /// The frames of a file's tags that `send_values::tag_fields` maps to
 /// `Genre` (and, with `more`, to `Name` and `Artist`), as a condition on a
 /// block (`blk.key`) and an item (`i.value`) of `raw_tags`. Keys are the ones
@@ -369,8 +368,15 @@ const REKORDBOX_GENRE: &str =
                        LIMIT 1)";
 
 /// Each Library track's `id`, what rekordbox says (`rb`) and the file's
-/// genre frames (`digest`), as [`genres_sql`] describes.
-fn genre_source_sql() -> String {
+/// genre frames (`digest`), as [`genres_of`] reads them. `scoped` limits it
+/// to the Library tracks of `?1`, a JSON array of their ids (a page of the
+/// index job).
+fn genre_source_sql(scoped: bool) -> String {
+    let scope = if scoped {
+        "WHERE lt.id IN (SELECT value FROM json_each(?1))"
+    } else {
+        ""
+    };
     // `rb` is `''` for a known track whose genre is blank.
     let tag_needed = if BLANK_GENRE_FALLS_BACK {
         "g.rb IS NULL OR trim(g.rb) = ''"
@@ -387,7 +393,8 @@ fn genre_source_sql() -> String {
                         GROUP BY blk.key) b) END AS digest
          FROM (SELECT lt.id AS id, lt.linked_file_id AS fid,
                       {rekordbox_genre} AS rb
-               FROM library_track lt) g",
+               FROM library_track lt
+               {scope}) g",
         frames = frame_filter(false),
         rekordbox_genre = REKORDBOX_GENRE
             .replace("{order}", crate::attach::PICK_ORDER)
@@ -406,21 +413,87 @@ fn genre_of(rekordbox: Option<&str>, digest: Option<&str>) -> Option<String> {
     }
 }
 
-/// Every genre with its track count, and the tracks without one.
-fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, u32)> {
-    let mut stmt = conn.prepare(&genres_sql())?;
-    // Capitals don't make another genre; its name is the spelling most of
-    // its tracks use (then the smallest, so the answer never wobbles).
-    let mut by_name: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
-    let mut rows = stmt.query([])?;
+/// The genre of each of the Library tracks `ids`, by Library track id, for
+/// those that have one: **the one definition** of a track's genre, as
+/// [`gaps_of`] is for the gaps. The index job calls it through
+/// [`door_answers_of`] for each page of tracks it writes and keeps the
+/// answer in `track_row.genre` and `genre_group`; the Overview's genre bars
+/// count those and the Library's genre door lists them.
+///
+/// The genre is rekordbox's for a track rekordbox knows (blank there means
+/// none, [`BLANK_GENRE_FALLS_BACK`]), else the linked file's tag, read with
+/// the send's own rules; outer blanks are dropped.
+pub(crate) fn genres_of(
+    conn: &Connection,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<HashMap<i64, String>> {
+    let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+        .expect("numbers always serialize");
+    // Most tracks of a page share a source (a few hundred distinct frames at
+    // most), and parsing one is the cost, so each is read once.
+    let mut known: HashMap<(Option<String>, Option<String>), Option<String>> = HashMap::new();
+    let mut stmt = conn.prepare_cached(&genre_source_sql(true))?;
+    let mut rows = stmt.query([json])?;
+    let mut out = HashMap::new();
     while let Some(row) = rows.next()? {
-        let (rekordbox, digest): (Option<String>, Option<String>) = (row.get(0)?, row.get(1)?);
-        let n = u32::try_from(row.get::<_, i64>(2)?).unwrap_or(u32::MAX);
-        if let Some(genre) = genre_of(rekordbox.as_deref(), digest.as_deref()) {
-            let spellings = by_name.entry(genre.to_lowercase()).or_default();
-            let count = spellings.entry(genre).or_default();
-            *count = count.saturating_add(n);
+        let id: i64 = row.get(0)?;
+        let source: (Option<String>, Option<String>) = (row.get(1)?, row.get(2)?);
+        let genre = known
+            .entry(source)
+            .or_insert_with_key(|(rb, digest)| genre_of(rb.as_deref(), digest.as_deref()));
+        if let Some(genre) = genre {
+            out.insert(id, genre.clone());
         }
+    }
+    Ok(out)
+}
+
+/// The key a genre is counted and filtered by: capitals don't make a genre
+/// of its own. Used for `track_row.genre_group` and by the genre door.
+pub(crate) fn genre_group(genre: &str) -> String {
+    genre.trim().to_lowercase()
+}
+
+/// Every genre with its track count, and the tracks without one, from the
+/// genres the index job keeps (`track_row.genre`, `genre_group`): one row per
+/// distinct spelling, read from the index. While the index is behind the
+/// counts are behind (`counting.index`).
+fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, u32)> {
+    let mut stmt = conn.prepare_cached(stored_genres_sql())?;
+    let spellings = stmt
+        .query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, count(r.get::<_, i64>(1)?)))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let genres = rank_genres(spellings);
+    let with_genre = genres
+        .iter()
+        .fold(0u32, |sum, g| sum.saturating_add(g.tracks));
+    Ok((genres, tracks.saturating_sub(with_genre)))
+}
+
+/// How many Library tracks spell their genre each way (`track_row.genre`),
+/// from the index on `genre_group` and `genre`. Only a Library track's row
+/// has a genre (see [`door_answers_of`]).
+fn stored_genres_sql() -> &'static str {
+    "SELECT genre, count(*) FROM track_row
+     WHERE genre_group IS NOT NULL
+     GROUP BY genre_group, genre"
+}
+
+/// Genres with their tracks, from `(spelling, tracks)` pairs: most tracks
+/// first, then by name. Capitals don't make another genre; its name is the
+/// spelling most of its tracks use (then the smallest, so the answer never
+/// wobbles).
+fn rank_genres(spellings: impl IntoIterator<Item = (String, u32)>) -> Vec<GenreCount> {
+    let mut by_name: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
+    for (genre, n) in spellings {
+        let count = by_name
+            .entry(genre_group(&genre))
+            .or_default()
+            .entry(genre)
+            .or_default();
+        *count = count.saturating_add(n);
     }
     let mut genres: Vec<GenreCount> = by_name
         .into_values()
@@ -436,10 +509,7 @@ fn genres(conn: &Connection, tracks: u32) -> rusqlite::Result<(Vec<GenreCount>, 
         })
         .collect();
     genres.sort_by(|a, b| b.tracks.cmp(&a.tracks).then_with(|| a.name.cmp(&b.name)));
-    let with_genre = genres
-        .iter()
-        .fold(0u32, |sum, g| sum.saturating_add(g.tracks));
-    Ok((genres, tracks.saturating_sub(with_genre)))
+    genres
 }
 
 /// A condition on a Library track's linked file `f`: it has tags and no
@@ -557,8 +627,22 @@ pub(crate) fn gaps_of(
     if ids.is_empty() {
         return Ok(Gaps::default());
     }
+    gaps_given(conn, volumes, ids, &genres_of(conn, ids)?)
+}
+
+/// [`gaps_of`] with the genres of `ids` ([`genres_of`]) already at hand, so a
+/// caller that needs both works the genre out once.
+pub(crate) fn gaps_given(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+    genres: &HashMap<i64, String>,
+) -> rusqlite::Result<Gaps> {
+    if ids.is_empty() {
+        return Ok(Gaps::default());
+    }
     Ok(Gaps {
-        tags: missing_tag_ids(conn, volumes, false, Some(ids))?
+        tags: missing_tag_ids_given(conn, volumes, false, Some(ids), Some(genres))?
             .into_iter()
             .collect(),
         art: missing_art_ids(conn, ids)?.into_iter().collect(),
@@ -579,20 +663,24 @@ fn door_answers_sql() -> String {
 }
 
 /// What the Overview's doors ask of one Library track, besides its gaps.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct DoorAnswer {
     /// Made from a low-quality file ([`low_quality_sql`]).
     pub low_quality: bool,
     /// The energy it shows, 1 to 10 ([`shown_energy!`]).
     pub energy: Option<u8>,
+    /// Its genre, without outer blanks ([`genres_of`]); `None` for none.
+    pub genre: Option<String>,
 }
 
 /// The doors' answers of the Library tracks `ids`, by Library track id:
 /// **the one definition**, as [`gaps_of`] is for the gaps. The index job
 /// calls it for each page of tracks it writes and keeps the answers in the
-/// flags of the track's `track_row`; the Overview counts them and the
-/// Library's doors list them. Another definition that costs too much per
-/// row to run in a table filter belongs here, in the same way.
+/// flags (and the genre columns) of the track's `track_row`; the Overview
+/// counts them and the Library's doors list them. Another definition that
+/// costs too much per row to run in a table filter belongs here, in the same
+/// way.
+#[cfg(test)]
 pub(crate) fn door_answers_of(
     conn: &Connection,
     ids: &[LibraryTrackId],
@@ -600,19 +688,39 @@ pub(crate) fn door_answers_of(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
+    door_answers_given(conn, ids, genres_of(conn, ids)?)
+}
+
+/// [`door_answers_of`] with the genres of `ids` ([`genres_of`]) already at hand.
+pub(crate) fn door_answers_given(
+    conn: &Connection,
+    ids: &[LibraryTrackId],
+    genres: HashMap<i64, String>,
+) -> rusqlite::Result<HashMap<i64, DoorAnswer>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
     let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
         .expect("numbers always serialize");
-    conn.prepare_cached(&door_answers_sql())?
+    let mut answers: HashMap<i64, DoorAnswer> = conn
+        .prepare_cached(&door_answers_sql())?
         .query_map([json], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 DoorAnswer {
                     low_quality: r.get(1)?,
                     energy: r.get(2)?,
+                    genre: None,
                 },
             ))
         })?
-        .collect()
+        .collect::<rusqlite::Result<_>>()?;
+    for (id, genre) in genres {
+        if let Some(answer) = answers.get_mut(&id) {
+            answer.genre = Some(genre);
+        }
+    }
+    Ok(answers)
 }
 
 /// The ids (among `ids`) of the Library tracks with a linked file that has tags
@@ -649,11 +757,25 @@ fn missing_art_ids(conn: &Connection, ids: &[LibraryTrackId]) -> rusqlite::Resul
 /// (the index job's page); `ask_all` sends every track to `shown_tags`
 /// instead of settling some by the values at hand; the tests use it to prove
 /// the short way agrees.
+#[cfg(test)]
 pub(crate) fn missing_tag_ids(
     conn: &Connection,
     volumes: &impl Volumes,
     ask_all: bool,
     only: Option<&[LibraryTrackId]>,
+) -> rusqlite::Result<Vec<i64>> {
+    missing_tag_ids_given(conn, volumes, ask_all, only, None)
+}
+
+/// [`missing_tag_ids`], with the genres of the tracks ([`genres_of`]) when the
+/// caller has them: a track has a genre when they name one, so the genre is
+/// not worked out a second time. `None` works it out here, the same way.
+pub(crate) fn missing_tag_ids_given(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ask_all: bool,
+    only: Option<&[LibraryTrackId]>,
+    genres: Option<&HashMap<i64, String>>,
 ) -> rusqlite::Result<Vec<i64>> {
     let mut genre_known: HashMap<(Option<String>, Option<String>), bool> = HashMap::new();
     // What the linked file's frames give: (a title, an artist).
@@ -676,12 +798,14 @@ pub(crate) fn missing_tag_ids(
         let id: i64 = row.get(0)?;
         let rb: Option<String> = row.get(1)?;
         let digest: Option<String> = row.get(8)?;
-        let has_genre =
-            *genre_known
+        let has_genre = match genres {
+            Some(genres) => genres.contains_key(&id),
+            None => *genre_known
                 .entry((rb, digest.clone()))
                 .or_insert_with_key(|(rb, digest)| {
                     genre_of(rb.as_deref(), digest.as_deref()).is_some()
-                });
+                }),
+        };
         if !has_genre {
             missing.push(id);
             continue;
@@ -894,8 +1018,8 @@ pub fn overview_at(conn: &Connection, now_ms: i64) -> rusqlite::Result<Overview>
 
 /// Every number the Overview screen shows, as of now. When the index is
 /// behind (`counting.index`), it asks for the index job, as the track table
-/// does: the low-quality, energy, missing-tags and missing-art counts come
-/// from the rows that job writes, and the screen asks again while it runs.
+/// does: the low-quality, energy, genre, missing-tags and missing-art counts
+/// come from the rows that job writes, and the screen asks again while it runs.
 #[tauri::command]
 #[specta::specta]
 pub async fn overview(

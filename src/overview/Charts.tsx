@@ -26,16 +26,25 @@ export interface Bar {
  * The genre bars (ROADMAP 1.13): the biggest {@link TOP_GENRES} genres, most
  * tracks first, then "Other" (the rest added up) and "No genre". "Other" is
  * only made when it would add up two genres or more; one genre too many
- * keeps its own bar. A bar with no tracks isn't drawn.
+ * keeps its own bar. A bar with no tracks isn't drawn. A bar of one genre is
+ * a door to the Library with that genre as a chip (1cD-R1b); "Other" adds up
+ * several genres and "No genre" is no genre, so neither is a door.
  */
 export function genreBars(
   overview: Pick<Overview, "genres" | "noGenre">,
   labels: { other: string; none: string },
+  doorName?: (genre: string, tracks: number) => string,
 ): Bar[] {
   const { genres, noGenre } = overview;
   const grouped = genres.length > TOP_GENRES + 1;
   const own = grouped ? genres.slice(0, TOP_GENRES) : genres;
-  const bars: Bar[] = own.map((genre) => ({ id: `genre:${genre.name}`, label: genre.name, tracks: genre.tracks }));
+  const bars: Bar[] = own.map((genre) => ({
+    id: `genre:${genre.name}`,
+    label: genre.name,
+    tracks: genre.tracks,
+    filter: { kind: "genre", name: genre.name },
+    doorName: doorName?.(genre.name, genre.tracks),
+  }));
   if (grouped) {
     const other = genres.slice(TOP_GENRES).reduce((sum, genre) => sum + genre.tracks, 0);
     bars.push({ id: "other", label: labels.other, tracks: other });
@@ -47,10 +56,8 @@ export function genreBars(
 /**
  * The energy bars: energy 1 to 10, always all ten, then "No energy" when a
  * track has none. Each is a door to the Library, filtered to that energy
- * (1cC-4). The genre bars are not doors: the Overview's genre is worked out in
- * Rust from the tags, and no filter of the Library's table can give the same
- * rows (see {@link genreBars}). (When no track has any energy the chart draws
- * none of them and says so instead: see {@link Charts}.)
+ * (1cC-4). (When no track has any energy the chart draws none of them and
+ * says so instead: see {@link Charts}.)
  */
 export function energyBars(
   overview: Pick<Overview, "energy" | "noEnergy">,
@@ -85,10 +92,14 @@ export function energyBars(
 export function Charts({ overview }: { overview: Overview }) {
   const { t } = useTranslation("overview");
   const hasEnergy = overview.energy.some((tracks) => tracks > 0);
-  const genres = genreBars(overview, {
-    other: t("charts.genres.other"),
-    none: t("charts.genres.none"),
-  });
+  const genres = genreBars(
+    overview,
+    {
+      other: t("charts.genres.other"),
+      none: t("charts.genres.none"),
+    },
+    (genre, count) => t("charts.genres.door", { genre, count }),
+  );
   const hasGenre = overview.genres.length > 0;
 
   return (
@@ -103,7 +114,7 @@ export function Charts({ overview }: { overview: Overview }) {
       />
       <Chart
         title={t("charts.genres.title")}
-        counting={overview.counting.files || overview.counting.rekordbox}
+        counting={overview.counting.files || overview.counting.rekordbox || overview.counting.index}
         empty={hasGenre ? null : t("charts.genres.empty")}
         bars={genres}
       />

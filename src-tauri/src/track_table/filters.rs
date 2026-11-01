@@ -29,6 +29,13 @@
 //! `overview::door_answers_of`). The index job works each Library track's
 //! answer out with the Overview's own function and keeps it in the row's
 //! flags, which the Overview counts and these filters list.
+//!
+//! **The genre door** (1cD-R1b, [`TableFilter::Genre`]) reads `track_row`'s
+//! `genre_group`, the lower-cased genre the index job keeps from the
+//! Overview's own definition (`overview::door_answers_of`), under the same
+//! rule the Overview counts it by (`overview::genre_group`): capitals don't
+//! make another genre. The name is a value, bound as a parameter, never part
+//! of the SQL, so any text is safe in it.
 
 use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
@@ -87,6 +94,11 @@ pub enum TableFilter {
     /// Overview's "tracks with missing art"; `track_row` flag
     /// [`flag::MISSING_ART`]).
     MissingArt,
+    /// The Library track's genre is this one, however it is capitalized (the
+    /// Overview's genre bars; `track_row.genre_group`). Free text: it is
+    /// bound as a parameter. A name that is blank, or that no track has,
+    /// lists nothing.
+    Genre { name: String },
 }
 
 /// The ids of the tracks Review lists as quality problems, as the JSON array
@@ -168,6 +180,10 @@ pub(super) fn conditions(
             ),
             TableFilter::MissingTags => has(flag::MISSING_TAGS),
             TableFilter::MissingArt => has(flag::MISSING_ART),
+            TableFilter::Genre { name } => {
+                params.push(Value::Text(crate::overview::genre_group(name)));
+                format!("tr.genre_group = ?{}", params.len())
+            }
         };
         out.push(sql);
     }

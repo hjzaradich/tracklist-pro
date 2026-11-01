@@ -2,6 +2,7 @@
 //! folders, files, titles and artists in a migrated database in a temp dir.
 
 mod door_answers;
+mod genre;
 mod job;
 mod query;
 mod settle;

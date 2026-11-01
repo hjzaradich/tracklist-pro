@@ -364,8 +364,8 @@ export const commands = {
 	/**
 	 *  Every number the Overview screen shows, as of now. When the index is
 	 *  behind (`counting.index`), it asks for the index job, as the track table
-	 *  does: the low-quality, energy, missing-tags and missing-art counts come
-	 *  from the rows that job writes, and the screen asks again while it runs.
+	 *  does: the low-quality, energy, genre, missing-tags and missing-art counts
+	 *  come from the rows that job writes, and the screen asks again while it runs.
 	 */
 	overview: () => typedError<Overview, IpcError>(__TAURI_INVOKE("overview")),
 	/**
@@ -490,7 +490,8 @@ export const commands = {
 	/**
 	 *  Gives tracks an energy from 1 to 10: one operation, one Undo. The
 	 *  Overview and its doors read the energy from the track table's rows, so a
-	 *  few tracks' rows are worked out now, for the lists read right after it.
+	 *  few tracks' rows (at most [`SETTLE_NOW_LIMIT`] due) are worked out now,
+	 *  for the lists read right after it.
 	 */
 	setEnergy: (recordings: number[], energy: number) => typedError<EnergySet, IpcError>(__TAURI_INVOKE("set_energy", { recordings, energy })),
 	/**
@@ -805,8 +806,8 @@ export type Counting = {
 	quality: boolean,
 	/**
 	 *  The search index is behind (a track is due): the low-quality, energy,
-	 *  missing-tags and missing-art counts, which are read from the rows the
-	 *  index job writes.
+	 *  genre, missing-tags and missing-art counts, which are read from the
+	 *  rows the index job writes.
 	 */
 	index: boolean,
 };
@@ -2564,7 +2565,14 @@ export type TableFilter =
  *  Overview's "tracks with missing art"; `track_row` flag
  *  [`flag::MISSING_ART`]).
  */
-{ kind: "missingArt" };
+{ kind: "missingArt" } | 
+/**
+ *  The Library track's genre is this one, however it is capitalized (the
+ *  Overview's genre bars; `track_row.genre_group`). Free text: it is
+ *  bound as a parameter. A name that is blank, or that no track has,
+ *  lists nothing.
+ */
+{ kind: "genre"; name: string };
 
 /**  A window of rows. */
 export type TablePage = {
