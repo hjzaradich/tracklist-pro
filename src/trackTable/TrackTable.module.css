@@ -330,3 +330,39 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* The Energy column's cell (1cD): a button that fills the cell. Muted when the
+ * energy isn't the user's own; a track with none shows its dash only while
+ * the row is hovered or the cell is focused, so the cell can be found. */
+.energyButton {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: pointer;
+}
+
+.energyButton:focus-visible {
+  outline-offset: -2px;
+}
+
+.energyMuted,
+.energyEmpty {
+  color: var(--color-text-muted);
+}
+
+.energyEmpty {
+  opacity: 0;
+}
+
+.row:hover .energyEmpty,
+.energyEmpty:focus-visible,
+.energyEmpty[aria-expanded="true"] {
+  opacity: 1;
+}

@@ -462,5 +462,21 @@
   "fit.noTarget": {
     "purpose": "The selected track has neither key nor BPM.",
     "where": "Track table, the Fit column."
+  },
+  "columns.energy": {
+    "purpose": "Column heading for a track's energy.",
+    "where": "Track table header; the column is added in the Columns panel."
+  },
+  "energyCell.set": {
+    "purpose": "Name of the energy cell's button for a track with no energy; it opens the energy buttons.",
+    "where": "Track table, Energy column (screen readers only)."
+  },
+  "energyCell.change": {
+    "purpose": "Name of the energy cell's button for a track with an energy; {{energy}} is the number. It opens the energy buttons.",
+    "where": "Track table, Energy column (screen readers only)."
+  },
+  "energyPopover.label": {
+    "purpose": "Name of the small window holding the ten energy buttons.",
+    "where": "Track table, opened from the Energy column (screen readers only)."
   }
 }

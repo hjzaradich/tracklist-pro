@@ -635,7 +635,7 @@ describe("the column editor", () => {
     await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:editor.open") }));
     return screen.getByRole("dialog", { name: tx("trackTable:editor.title") });
   };
-  const everyColumn = ["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded", "file", "folder"];
+  const everyColumn = ["title", "artist", "bpm", "key", "time", "genre", "energy", "rating", "dateAdded", "file", "folder"];
   const named = (key: string, column: string) => tx(`trackTable:editor.${key}`, { column: tx(`trackTable:columns.${column}`) });
 
   it("shows each screen's default columns until a choice is made", async () => {
@@ -772,7 +772,7 @@ describe("dragging the headings (1cB-21)", () => {
   // The six every screen shows at first, and the eight a user who also showed Rating and Date added has.
   const six = ["title", "artist", "bpm", "key", "time", "genre"];
   const library = [...six, "rating", "dateAdded"];
-  const everyColumn = [...library, "file", "folder"];
+  const everyColumn = [...six, "energy", "rating", "dateAdded", "file", "folder"];
   const defaultTemplate = "minmax(120px, 3fr) minmax(80px, 2fr) 48px 42px 46px minmax(52px, 1fr)";
   const openEditor = async () => {
     await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:editor.open") }));

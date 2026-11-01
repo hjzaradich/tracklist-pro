@@ -7,6 +7,7 @@
     "key": "Key",
     "time": "Time",
     "genre": "Genre",
+    "energy": "Energy",
     "rating": "Rating",
     "dateAdded": "Date added",
     "file": "File",
@@ -107,6 +108,13 @@
   },
   "energySet_one": "Energy {{energy}} set on {{count, number}} track",
   "energySet_other": "Energy {{energy}} set on {{count, number}} tracks",
+  "energyCell": {
+    "set": "No energy, set",
+    "change": "Energy {{energy}}, change"
+  },
+  "energyPopover": {
+    "label": "Energy"
+  },
   "fit": {
     "button": "Sort by fit",
     "action": "Sort by fit after the selected track",

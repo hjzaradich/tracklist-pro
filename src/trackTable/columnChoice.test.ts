@@ -72,8 +72,8 @@ describe("the columns a screen shows", () => {
   });
 
   it("hide a column added later that is not a default column of the screen", () => {
-    // No screen shows file or folder by default; a version that adds them leaves them hidden.
-    const known = ALL_COLUMNS.filter((id) => id !== "file" && id !== "folder");
+    // No screen shows file, folder or energy by default; a version that adds them leaves them hidden.
+    const known = ALL_COLUMNS.filter((id) => id !== "file" && id !== "folder" && id !== "energy");
     const stored = { shown: [...known], known };
     expect(resolveColumns("library", stored)).toEqual(EIGHT);
     expect(resolveColumns("allMusic", stored)).toEqual(EIGHT);
@@ -105,7 +105,7 @@ describe("changing the columns", () => {
   });
 
   it("lists the hidden columns in the editor's order", () => {
-    expect(hiddenColumns(EIGHT)).toEqual(["file", "folder"]);
+    expect(hiddenColumns(EIGHT)).toEqual(["energy", "file", "folder"]);
     expect(hiddenColumns(["title"])).toEqual(ALL_COLUMNS.slice(1));
   });
 

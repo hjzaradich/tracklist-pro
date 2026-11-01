@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { SortColumn, TableRow, TableScreen } from "../bindings";
 import { formatKey, type KeyNotation } from "../keys/keyNotation";
@@ -20,7 +20,7 @@ import styles from "./TrackTable.module.css";
  * chooses (`useTableColumns`).
  *
  * Left out for now, because the app has no data for them yet: Album, Year,
- * Energy, Comment, Label, Play count, Last played, Colour and the other
+ * Comment, Label, Play count, Last played, Colour and the other
  * columns a DJ library has. Each joins by a line here and a field of
  * `TableRow`.
  */
@@ -31,17 +31,28 @@ export type ColumnId =
   | "key"
   | "time"
   | "genre"
+  | "energy"
   | "rating"
   | "dateAdded"
   | "file"
   | "folder"
   | "fit";
 
+/** What the Energy column's cell needs of the table (1cD). */
+export interface EnergyCellContext {
+  /** The track whose energy popover is open, if any. */
+  openFor: number | null;
+  /** The cell was clicked: the table opens or closes the popover (or leaves a Shift or Ctrl click to the row). */
+  toggle: (row: TableRow, anchor: HTMLButtonElement, event: MouseEvent) => void;
+}
+
 /** What a cell needs to be worked out. */
 export interface CellContext {
   t: TFunction<"trackTable">;
   keyNotation: KeyNotation;
   language: string;
+  /** Without it (a table that cannot set energy) the Energy cell is plain text. */
+  energy?: EnergyCellContext;
 }
 
 export interface ColumnDef {
@@ -158,6 +169,33 @@ function FitCell({ row, ctx }: { row: TableRow; ctx: CellContext }) {
   );
 }
 
+/**
+ * The Energy column's cell (1cD): a button showing the number, muted when it
+ * isn't the user's own, that opens the energy buttons. A track with none
+ * shows a dash while the row is hovered or focused, so the cell can be found.
+ */
+function EnergyCell({ row, ctx }: { row: TableRow; ctx: CellContext }) {
+  const { energy, energySource } = row;
+  const shown = energy === null ? "-" : String(energy);
+  const classes = [styles.energyButton, energy === null ? styles.energyEmpty : "", energy !== null && energySource !== "user" ? styles.energyMuted : ""];
+  if (ctx.energy === undefined) return energy === null ? null : <>{energy}</>;
+  const { openFor, toggle } = ctx.energy;
+  return (
+    <button
+      type="button"
+      data-energy-cell=""
+      data-source={energySource ?? undefined}
+      className={classes.filter(Boolean).join(" ")}
+      aria-haspopup="dialog"
+      aria-expanded={openFor === row.recordingId}
+      aria-label={energy === null ? ctx.t("energyCell.set") : ctx.t("energyCell.change", { energy })}
+      onClick={(event) => toggle(row, event.currentTarget, event)}
+    >
+      {shown}
+    </button>
+  );
+}
+
 export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   title: {
     id: "title",
@@ -207,6 +245,15 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     min: 48,
     grow: 1,
     text: (row) => row.genre ?? "",
+  },
+  energy: {
+    id: "energy",
+    sort: null,
+    width: 52,
+    min: 44,
+    numeric: true,
+    text: (row) => (row.energy === null ? "" : String(row.energy)),
+    cell: (row, ctx) => <EnergyCell row={row} ctx={ctx} />,
   },
   rating: {
     id: "rating",

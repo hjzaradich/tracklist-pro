@@ -4,6 +4,7 @@ import { errorMessage } from "../api/errors";
 import type { FieldSources, SourcedValue, TableRow, TagField } from "../bindings";
 import { useUndoneCount } from "./undoneStore";
 import { useWithdrawRelink } from "../review/useReviewActions";
+import { EnergyDetails } from "./EnergyDetails";
 import { TrackCrates } from "./TrackCrates";
 import { useTrackTagSources } from "./useTrackTagSources";
 import styles from "./TrackDetails.module.css";
@@ -109,6 +110,7 @@ export function TrackDetails({ row }: { row: TableRow }) {
           <p className={styles.path}>{row.file.path}</p>
         </div>
       )}
+      <EnergyDetails row={row} />
       {sources.isError && (
         <p role="alert" className={styles.error}>
           {errorMessage(sources.error)}

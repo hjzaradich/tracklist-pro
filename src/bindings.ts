@@ -871,6 +871,20 @@ export type EnergySet = {
 	operationId: number | null,
 };
 
+/**
+ *  Where a shown energy comes from, in the order they rank
+ *  ([`crate::overview::energy_source_order!`]).
+ */
+export type EnergySource = 
+/**  Set by the user. */
+"user" | 
+/**  Mixed In Key's. */
+"mik" | 
+/**  The local estimate's. */
+"local" | 
+/**  The audio model's. */
+"ml";
+
 /**  What rekordbox holds for a Library track: the entry it is sent as. */
 export type EntryFacts = {
 	/**  How many cues (hot cues and memory cues). */
@@ -2670,6 +2684,14 @@ export type TableRow = {
 	 *  a [`TableSource::CrateByFit`] table.
 	 */
 	fit: RowFit | null,
+	/**
+	 *  The energy the track shows, 1 to 10: the Overview's answer
+	 *  ([`crate::overview::shown_energy!`]), read from the same `analysis`
+	 *  row as [`TableRow::energy_source`], so the two can't disagree.
+	 */
+	energy: number | null,
+	/**  Whose word the shown energy is. `None` with no energy. */
+	energySource: EnergySource | null,
 };
 
 /**
