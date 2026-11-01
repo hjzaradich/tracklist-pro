@@ -539,6 +539,37 @@ describe("Play next", () => {
     expect(screen.getByRole("grid").scrollTop).toBe(top);
   });
 
+  it("drops a late fetched row when another track was chosen meanwhile", async () => {
+    const user = userEvent.setup();
+    let release: (row: TableRow) => void = () => {};
+    const rowAt = vi.fn(() => new Promise<TableRow | undefined>((resolve) => (release = resolve)));
+    render(<Screen rows={tunes(3)} total={6} rowAt={rowAt} />);
+    await playRow(user, 3);
+    await user.click(playNextSwitch());
+    ends();
+    await waitFor(() => expect(rowAt).toHaveBeenCalled());
+    await user.click(play(1));
+    await waitFor(() => expect(usePlayer.getState().file?.id).toBe(1));
+    release(tableRow(4, { title: "Tune 4" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(usePlayer.getState().file?.id).toBe(1);
+  });
+
+  it("drops a late fetched row when the table was sorted or filtered meanwhile", async () => {
+    const user = userEvent.setup();
+    let release: (row: TableRow) => void = () => {};
+    const rowAt = vi.fn(() => new Promise<TableRow | undefined>((resolve) => (release = resolve)));
+    const view = render(<Screen rows={tunes(3)} total={6} rowAt={rowAt} />);
+    await playRow(user, 3);
+    await user.click(playNextSwitch());
+    ends();
+    await waitFor(() => expect(rowAt).toHaveBeenCalled());
+    view.rerender(<Screen rows={tunes(3)} total={6} rowAt={rowAt} resetKey="b" />);
+    release(tableRow(4, { title: "Tune 4" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(usePlayer.getState().file?.id).toBe(3);
+  });
+
   it("goes on from the playing row, in the table's order, whatever row is selected", async () => {
     const user = userEvent.setup();
     const order = [4, 9, 2];

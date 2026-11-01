@@ -70,10 +70,15 @@ function walk(table: Offer, from: number, direction: 1 | -1, quiet = false): voi
     const file = table.fileAt(index);
     if (file === undefined && quiet && table.fetchFileAt) {
       // A track that ended on its own: fetch the row alone, the table stays as it is.
+      // A late answer is dropped if anything moved on meanwhile: another step or
+      // restart, another track chosen, or another order of the rows.
       const token = stepping;
+      const playing = usePlayer.getState().file?.id;
+      const order = table.listKey();
       table.fetchFileAt(index).then(
         (found) => {
           if (token !== stepping || offered !== table) return;
+          if (usePlayer.getState().file?.id !== playing || table.listKey() !== order) return;
           if (found === undefined) return;
           if (found === null) walk(table, index + direction, direction, true);
           else usePlayer.getState().select(found);
@@ -228,6 +233,7 @@ export function playNext(): void {
 export function playPrevious(): void {
   const player = usePlayer.getState();
   if (restartsTrack(player)) {
+    stepping++;
     player.seek(0);
     return;
   }
