@@ -220,7 +220,9 @@ fn a_track_whose_tags_cannot_be_read_does_not_stop_its_page_and_has_no_gaps() {
     let (good, good_file) = lib.track(Some("Good"), Some("Someone"), "good.mp3");
     lib.library(bad, bad_file);
     lib.library(good, good_file);
-    // "Good" has no genre, so it is missing tags; "Bad" would be too.
+    // "Good" has a genre of its own (rekordbox's), so the page's genre read
+    // must go on past "Bad", whose tags are about to be unreadable.
+    lib.trusted_entry(good_file, "House");
     lib.writer
         .call(move |c| {
             c.execute_batch("PRAGMA ignore_check_constraints = ON")?;
@@ -269,10 +271,31 @@ fn a_track_whose_tags_cannot_be_read_does_not_stop_its_page_and_has_no_gaps() {
         "the unreadable track has no gaps recorded"
     );
     assert_ne!(flags(bad) & flag::IN_LIBRARY, 0, "but its row is written");
-    // No genre and no cover: the other track keeps its own answer.
+    // No cover: the other track keeps its own answer.
     assert_eq!(
-        flags(good) & gaps,
-        gaps,
+        flags(good) & flag::MISSING_ART,
+        flag::MISSING_ART,
         "the other track keeps its own answer"
+    );
+    let genre = |track: i64| -> Option<String> {
+        lib.writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT genre FROM track_row WHERE recording_id = ?1",
+                    [track],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    assert_eq!(
+        genre(bad),
+        None,
+        "the unreadable track has no genre recorded"
+    );
+    assert_eq!(
+        genre(good).as_deref(),
+        Some("House"),
+        "its neighbour on the page keeps its genre"
     );
 }

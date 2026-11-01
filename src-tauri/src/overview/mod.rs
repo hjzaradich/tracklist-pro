@@ -423,7 +423,10 @@ fn genre_of(rekordbox: Option<&str>, digest: Option<&str>) -> Option<String> {
 /// The genre is rekordbox's for a track rekordbox knows (blank there means
 /// none, [`BLANK_GENRE_FALLS_BACK`]), else the linked file's tag, read with
 /// the send's own rules; outer blanks are dropped.
-fn genres_of(conn: &Connection, ids: &[LibraryTrackId]) -> rusqlite::Result<HashMap<i64, String>> {
+pub(crate) fn genres_of(
+    conn: &Connection,
+    ids: &[LibraryTrackId],
+) -> rusqlite::Result<HashMap<i64, String>> {
     let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
         .expect("numbers always serialize");
     // Most tracks of a page share a source (a few hundred distinct frames at
@@ -624,8 +627,22 @@ pub(crate) fn gaps_of(
     if ids.is_empty() {
         return Ok(Gaps::default());
     }
+    gaps_given(conn, volumes, ids, &genres_of(conn, ids)?)
+}
+
+/// [`gaps_of`] with the genres of `ids` ([`genres_of`]) already at hand, so a
+/// caller that needs both works the genre out once.
+pub(crate) fn gaps_given(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[LibraryTrackId],
+    genres: &HashMap<i64, String>,
+) -> rusqlite::Result<Gaps> {
+    if ids.is_empty() {
+        return Ok(Gaps::default());
+    }
     Ok(Gaps {
-        tags: missing_tag_ids(conn, volumes, false, Some(ids))?
+        tags: missing_tag_ids_given(conn, volumes, false, Some(ids), Some(genres))?
             .into_iter()
             .collect(),
         art: missing_art_ids(conn, ids)?.into_iter().collect(),
@@ -663,9 +680,22 @@ pub(crate) struct DoorAnswer {
 /// counts them and the Library's doors list them. Another definition that
 /// costs too much per row to run in a table filter belongs here, in the same
 /// way.
+#[cfg(test)]
 pub(crate) fn door_answers_of(
     conn: &Connection,
     ids: &[LibraryTrackId],
+) -> rusqlite::Result<HashMap<i64, DoorAnswer>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    door_answers_given(conn, ids, genres_of(conn, ids)?)
+}
+
+/// [`door_answers_of`] with the genres of `ids` ([`genres_of`]) already at hand.
+pub(crate) fn door_answers_given(
+    conn: &Connection,
+    ids: &[LibraryTrackId],
+    genres: HashMap<i64, String>,
 ) -> rusqlite::Result<HashMap<i64, DoorAnswer>> {
     if ids.is_empty() {
         return Ok(HashMap::new());
@@ -685,7 +715,7 @@ pub(crate) fn door_answers_of(
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    for (id, genre) in genres_of(conn, ids)? {
+    for (id, genre) in genres {
         if let Some(answer) = answers.get_mut(&id) {
             answer.genre = Some(genre);
         }
@@ -727,11 +757,25 @@ fn missing_art_ids(conn: &Connection, ids: &[LibraryTrackId]) -> rusqlite::Resul
 /// (the index job's page); `ask_all` sends every track to `shown_tags`
 /// instead of settling some by the values at hand; the tests use it to prove
 /// the short way agrees.
+#[cfg(test)]
 pub(crate) fn missing_tag_ids(
     conn: &Connection,
     volumes: &impl Volumes,
     ask_all: bool,
     only: Option<&[LibraryTrackId]>,
+) -> rusqlite::Result<Vec<i64>> {
+    missing_tag_ids_given(conn, volumes, ask_all, only, None)
+}
+
+/// [`missing_tag_ids`], with the genres of the tracks ([`genres_of`]) when the
+/// caller has them: a track has a genre when they name one, so the genre is
+/// not worked out a second time. `None` works it out here, the same way.
+pub(crate) fn missing_tag_ids_given(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ask_all: bool,
+    only: Option<&[LibraryTrackId]>,
+    genres: Option<&HashMap<i64, String>>,
 ) -> rusqlite::Result<Vec<i64>> {
     let mut genre_known: HashMap<(Option<String>, Option<String>), bool> = HashMap::new();
     // What the linked file's frames give: (a title, an artist).
@@ -754,12 +798,14 @@ pub(crate) fn missing_tag_ids(
         let id: i64 = row.get(0)?;
         let rb: Option<String> = row.get(1)?;
         let digest: Option<String> = row.get(8)?;
-        let has_genre =
-            *genre_known
+        let has_genre = match genres {
+            Some(genres) => genres.contains_key(&id),
+            None => *genre_known
                 .entry((rb, digest.clone()))
                 .or_insert_with_key(|(rb, digest)| {
                     genre_of(rb.as_deref(), digest.as_deref()).is_some()
-                });
+                }),
+        };
         if !has_genre {
             missing.push(id);
             continue;

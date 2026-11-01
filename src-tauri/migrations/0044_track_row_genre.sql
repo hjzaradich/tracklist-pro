@@ -36,6 +36,7 @@ ALTER TABLE track_row ADD COLUMN genre TEXT;
 ALTER TABLE track_row ADD COLUMN genre_group TEXT;
 
 CREATE INDEX track_row_in_genre
-    ON track_row (genre_group, genre, title_key, artist_key, recording_id, flags, format);
+    ON track_row (genre_group, genre, title_key, artist_key, recording_id, flags, format)
+    WHERE genre_group IS NOT NULL;
 
 INSERT OR IGNORE INTO search_due (recording_id) SELECT recording_id FROM library_track;

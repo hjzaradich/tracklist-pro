@@ -202,9 +202,11 @@ fn rows_for(
         .iter()
         .filter_map(|id| library.get(id).copied())
         .collect();
-    let gaps = gaps_or_none(conn, volumes, &library_tracks);
+    // The genre is worked out once and shared by the gaps and the doors.
+    let genres = genres_or_none(conn, &library_tracks);
+    let gaps = gaps_or_none(conn, volumes, &library_tracks, &genres);
     // And so are their doors' two answers.
-    let answers = crate::overview::door_answers_of(conn, &library_tracks)?;
+    let answers = crate::overview::door_answers_given(conn, &library_tracks, genres)?;
     let mut rows = HashMap::new();
     for id in wanted {
         // A track the lists can't name yet (no row) is skipped; it is due
@@ -248,12 +250,39 @@ fn rows_for(
 /// job (it would stay due, and the Overview would say "still counting" for
 /// ever). If the page errors, each track is asked alone; a track that still
 /// errors is logged and has no gaps, and its row is written like any other.
+/// The genres of a page of Library tracks. A track whose tags can't be read
+/// (a damaged `raw_tags`) must not stop its page: it is logged and has no
+/// genre, and the rest of the page goes on, as for [`gaps_or_none`].
+fn genres_or_none(conn: &Connection, tracks: &[LibraryTrackId]) -> HashMap<i64, String> {
+    match crate::overview::genres_of(conn, tracks) {
+        Ok(genres) => genres,
+        Err(error) => {
+            eprintln!(
+                "index: the genres of a page of {} tracks failed: {error}",
+                tracks.len()
+            );
+            let mut all = HashMap::new();
+            for track in tracks {
+                match crate::overview::genres_of(conn, &[*track]) {
+                    Ok(genres) => all.extend(genres),
+                    Err(error) => eprintln!(
+                        "index: Library track {} has no genre recorded, its tags can't be read: {error}",
+                        track.0
+                    ),
+                }
+            }
+            all
+        }
+    }
+}
+
 fn gaps_or_none(
     conn: &Connection,
     volumes: &impl Volumes,
     tracks: &[LibraryTrackId],
+    genres: &HashMap<i64, String>,
 ) -> crate::overview::Gaps {
-    match crate::overview::gaps_of(conn, volumes, tracks) {
+    match crate::overview::gaps_given(conn, volumes, tracks, genres) {
         Ok(gaps) => gaps,
         Err(error) => {
             eprintln!(
