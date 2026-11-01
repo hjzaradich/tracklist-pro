@@ -197,6 +197,83 @@ pub struct TableRow {
     /// How well the track follows the selected one, with the reason; only in
     /// a [`TableSource::CrateByFit`] table.
     pub fit: Option<RowFit>,
+    /// The energy the track shows, 1 to 10: the Overview's answer
+    /// ([`crate::overview::shown_energy!`]), read from the same `analysis`
+    /// row as [`TableRow::energy_source`], so the two can't disagree.
+    pub energy: Option<u8>,
+    /// Whose word the shown energy is. `None` with no energy.
+    pub energy_source: Option<EnergySource>,
+}
+
+/// Where a shown energy comes from, in the order they rank
+/// ([`crate::overview::energy_source_order!`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum EnergySource {
+    /// Set by the user.
+    User,
+    /// Mixed In Key's.
+    Mik,
+    /// The local estimate's.
+    Local,
+    /// The audio model's.
+    Ml,
+}
+
+impl EnergySource {
+    fn parse(text: &str) -> Option<Self> {
+        match text {
+            "user" => Some(Self::User),
+            "mik" => Some(Self::Mik),
+            "local" => Some(Self::Local),
+            "ml" => Some(Self::Ml),
+            _ => None,
+        }
+    }
+}
+
+/// The shown energy and its source for the tracks in a window, one row per
+/// track that has one: the first `analysis` row by the Overview's order of
+/// sources. `?1` is the window's ids as JSON. It reads the window's tracks
+/// by `analysis`'s index on the track, never the whole table.
+const WINDOW_ENERGY: &str = concat!(
+    "SELECT recording_id, source, energy FROM (
+         SELECT a.recording_id AS recording_id, a.source AS source, a.energy AS energy,
+                row_number() OVER (PARTITION BY a.recording_id ORDER BY ",
+    crate::overview::energy_source_order!(),
+    ") AS n
+         FROM analysis a
+         WHERE a.recording_id IN (SELECT value FROM json_each(?1)) AND a.energy IS NOT NULL)
+     WHERE n = 1"
+);
+
+/// What [`WINDOW_ENERGY`] finds for the tracks `ids`. A value that isn't an
+/// energy (not a whole number from 1 to 10) is no energy, and a source this
+/// version doesn't know shows the energy without one: a row with unusual
+/// data still loads.
+fn energies_for(
+    conn: &Connection,
+    ids_json: &str,
+) -> rusqlite::Result<HashMap<i64, (u8, Option<EnergySource>)>> {
+    let mut found = HashMap::new();
+    let mut stmt = conn.prepare_cached(WINDOW_ENERGY)?;
+    let mut rows = stmt.query([ids_json])?;
+    while let Some(r) = rows.next()? {
+        let level = match r.get::<_, Value>(2)? {
+            Value::Integer(n) => u8::try_from(n).ok(),
+            Value::Real(x) if x.fract() == 0.0 && (0.0..=255.0).contains(&x) => Some(x as u8),
+            _ => None,
+        };
+        let Some(level) = level.filter(|n| (1..=10).contains(n)) else {
+            continue;
+        };
+        let source = match r.get::<_, Value>(1)? {
+            Value::Text(text) => EnergySource::parse(&text),
+            _ => None,
+        };
+        found.insert(r.get::<_, i64>(0)?, (level, source));
+    }
+    Ok(found)
 }
 
 /// A window of rows.
@@ -558,6 +635,8 @@ fn rows_for(
         unconfirmed.insert(row?);
     }
 
+    let mut energies = energies_for(conn, &json)?;
+
     let mut rows = Vec::with_capacity(ids.len());
     for &id in ids {
         let library_track = stored.get(&id);
@@ -593,6 +672,8 @@ fn rows_for(
                 open_conflicts: library_track.map_or(0, |t| t.open_conflicts),
                 better_file: library_track.and_then(|t| t.better_file),
                 fit: None,
+                energy: energies.get(&id).map(|(level, _)| *level),
+                energy_source: energies.remove(&id).and_then(|(_, source)| source),
             },
             file,
         });

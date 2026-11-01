@@ -271,6 +271,20 @@ const ALL_MUSIC: &str = concat!(
     crate::hidden::has_shown_file!("r.id")
 );
 
+/// SQL for the order the sources of energy rank in, for `ORDER BY` over
+/// `analysis a`: the user's, Mixed In Key's, the local estimate's, the audio
+/// model's. The one place that says it: [`shown_energy!`] takes the first, and
+/// the track table's rows (`track_table`) say which source it came from by
+/// the same order.
+macro_rules! energy_source_order {
+    () => {
+        "CASE a.source
+                   WHEN 'user' THEN 1 WHEN 'mik' THEN 2 WHEN 'local' THEN 3 WHEN 'ml' THEN 4
+               END"
+    };
+}
+pub(crate) use energy_source_order;
+
 /// SQL for "the energy a track shows": the energy of the `analysis` row that
 /// ranks first among those with an energy, the user's, then Mixed In Key's,
 /// then the local estimate's, then the audio model's (the order of the
@@ -288,9 +302,9 @@ macro_rules! shown_energy {
                WHERE a.recording_id = ",
             $recording,
             " AND a.energy IS NOT NULL
-               ORDER BY CASE a.source
-                   WHEN 'user' THEN 1 WHEN 'mik' THEN 2 WHEN 'local' THEN 3 WHEN 'ml' THEN 4
-               END
+               ORDER BY ",
+            crate::overview::energy_source_order!(),
+            "
                LIMIT 1)"
         )
     };

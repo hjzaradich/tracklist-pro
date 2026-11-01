@@ -3,6 +3,7 @@
 //! temp dir.
 
 mod doors;
+mod energy;
 mod fit;
 mod folders;
 mod genre_door;
