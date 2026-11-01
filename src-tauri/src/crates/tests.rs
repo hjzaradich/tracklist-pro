@@ -663,6 +663,161 @@ fn tracks_add_to_library_refuses_are_left_out_of_both_and_counted_with_the_reaso
     assert_eq!(lib.everything(), before);
 }
 
+/// A track outside the Library whose file is `kbps` mp3, with its quality
+/// verdict stored while it was that.
+fn outside_mp3(lib: &Lib, title: &'static str, kbps: i64) -> i64 {
+    let recording = lib.outside_with_file(title, true);
+    let file = lib.best_file(recording);
+    lib.run(
+        "UPDATE file SET codec = 'mp3', bitrate = ?2 WHERE id = ?1",
+        (file, kbps),
+    );
+    recording
+}
+
+fn settle_now(lib: &Lib, recording: i64) {
+    let file = lib.best_file(recording);
+    lib.writer
+        .call(move |c| crate::quality::settle_files(c, &[file]).map(|_| ()))
+        .unwrap();
+}
+
+#[test]
+fn a_varied_selection_adds_and_leaves_out_exactly_the_same_tracks_with_the_same_counts() {
+    let lib = Lib::new();
+    let in_library = lib.track("In Library");
+    let in_library = lib.recording_of(in_library);
+    let no_file = lib.outside("No file");
+    let missing = lib.outside_with_file("Missing", false);
+    let unsure = lib.outside_with_file("Unsure", true);
+    let unsure_file = lib.best_file(unsure);
+    lib.run(
+        r#"INSERT INTO rekordbox_track
+             (attributes, location_key, read_at, file_id, relink_method, relink_probable)
+         VALUES ('{"TrackID": "1", "Location": "file://localhost/E:/Music/Unsure.mp3"}', 'E:/Music/unsure.mp3', '2026-09-30T10:00:00.000Z', ?1, 'filename_only', 1)"#,
+        (unsure_file,),
+    );
+    let good = outside_mp3(&lib, "Good", 320);
+    // Never settled: its verdict is made during the add.
+    let thin_unsettled = outside_mp3(&lib, "Thin unsettled", 128);
+    // Settled as low, still low: stored and current.
+    let thin_stored = outside_mp3(&lib, "Thin stored", 128);
+    settle_now(&lib, thin_stored);
+    // Settled as low, then the file was read as good: the stored verdict is stale.
+    let stale_but_fine = outside_mp3(&lib, "Stale but fine", 128);
+    settle_now(&lib, stale_but_fine);
+    let file = lib.best_file(stale_but_fine);
+    lib.run("UPDATE file SET bitrate = 320 WHERE id = ?1", (file,));
+    // Settled as good, then the file was read as low: stale the other way.
+    let stale_but_thin = outside_mp3(&lib, "Stale but thin", 320);
+    settle_now(&lib, stale_but_thin);
+    let file = lib.best_file(stale_but_thin);
+    lib.run("UPDATE file SET bitrate = 128 WHERE id = ?1", (file,));
+
+    let id = lib.made("Warm up");
+    let operations = lib.operations();
+    let selection = [
+        good,
+        in_library,
+        no_file,
+        thin_unsettled,
+        good,
+        missing,
+        stale_but_fine,
+        thin_stored,
+        unsure,
+        in_library,
+        stale_but_thin,
+    ];
+    let done = lib.add_recordings(id, &selection).unwrap();
+
+    // Joined: the Library track, "Good" and "Stale but fine" (two of them
+    // came into the Library too).
+    assert_eq!(added(done), (3, 0, 2));
+    // No file 1, file missing 1, not confirmed 1, low bitrate 3.
+    assert_eq!(left_out(done), (1, 1, 1, 3));
+    assert_eq!(lib.operations(), operations + 1);
+    for joined in [in_library, good, stale_but_fine] {
+        assert!(lib.in_library(joined));
+        assert_eq!(lib.crates_of(joined), vec![id]);
+    }
+    for refused in [
+        no_file,
+        missing,
+        unsure,
+        thin_unsettled,
+        thin_stored,
+        stale_but_thin,
+    ] {
+        assert!(!lib.in_library(refused));
+        assert_eq!(lib.crates_of(refused), Vec::<CrateId>::new());
+    }
+    // The tracks went into the crate in the order given.
+    let order: Vec<i64> = lib
+        .writer
+        .call(move |c| {
+            let mut stmt = c.prepare(
+                "SELECT lt.recording_id FROM crate_entry ce
+                 JOIN library_track lt ON lt.id = ce.library_track_id
+                 WHERE ce.crate_id = ?1 ORDER BY ce.id",
+            )?;
+            let rows = stmt.query_map([id.0], |r| r.get(0))?;
+            rows.collect::<rusqlite::Result<Vec<i64>>>()
+        })
+        .unwrap();
+    assert_eq!(order, vec![good, in_library, stale_but_fine]);
+
+    // One Undo takes it all away again.
+    lib.undo();
+    assert_eq!(lib.ids(id), Vec::<LibraryTrackId>::new());
+    assert!(!lib.in_library(good));
+    assert!(!lib.in_library(stale_but_fine));
+    assert!(lib.in_library(in_library));
+}
+
+#[test]
+fn adding_an_empty_selection_changes_nothing_and_records_nothing() {
+    let lib = Lib::new();
+    let id = lib.made("Warm up");
+    let before = lib.everything();
+    let done = lib.add_recordings(id, &[]).unwrap();
+    assert_eq!((added(done), done.operation_id), ((0, 0, 0), None));
+    assert_eq!(left_out(done), (0, 0, 0, 0));
+    assert_eq!(lib.everything(), before);
+}
+
+#[test]
+fn warnings_for_many_files_answer_as_warning_for_answers_one_file_at_a_time() {
+    let lib = Lib::new();
+    let fine = outside_mp3(&lib, "Fine", 320);
+    let thin = outside_mp3(&lib, "Thin", 128);
+    let stale = outside_mp3(&lib, "Stale", 128);
+    settle_now(&lib, stale);
+    let stale_file = lib.best_file(stale);
+    lib.run("UPDATE file SET bitrate = 320 WHERE id = ?1", (stale_file,));
+    let files: Vec<i64> = [fine, thin, stale].map(|r| lib.best_file(r)).to_vec();
+    let asked = files.clone();
+    let (together, one_by_one) = lib
+        .writer
+        .call(move |c| {
+            let together = library::warnings_for(c, &asked)?;
+            let mut one_by_one = std::collections::HashMap::new();
+            for file in &asked {
+                if let Some(w) = library::warning_for(c, *file)? {
+                    one_by_one.insert(*file, w);
+                }
+            }
+            Ok((together, one_by_one))
+        })
+        .unwrap();
+    assert_eq!(together, one_by_one);
+    assert_eq!(together.len(), 1);
+    assert!(together.contains_key(&files[1]));
+    // Asking for nothing answers nothing.
+    let none = lib.writer.call(|c| library::warnings_for(c, &[])).unwrap();
+    assert!(none.is_empty());
+}
+
 #[test]
 fn adding_an_outside_track_to_a_crate_writes_and_copies_no_file() {
     let lib = Lib::new();

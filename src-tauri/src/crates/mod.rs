@@ -835,20 +835,37 @@ fn prepare(conn: &mut Connection, recordings: &[i64]) -> Result<Done<Prepared>, 
                 prepared.items.push(Item::InLibrary(track.0));
             }
             Ok(library::Plan::Link(choice)) => {
-                if library::warning_for(conn, choice.file_id)?.is_some() {
-                    prepared.left_out.low_bitrate += 1;
-                } else {
-                    prepared.items.push(Item::Link {
-                        recording,
-                        file: choice.file_id,
-                    });
-                }
+                // Whether it carries the low-bitrate warning is asked for
+                // all of them at once, below.
+                prepared.items.push(Item::Link {
+                    recording,
+                    file: choice.file_id,
+                });
             }
             Err(library::Refusal::TrackNotFound) => return Ok(Err(CratesError::TrackNotFound)),
             Err(library::Refusal::NoFile) => prepared.left_out.no_file += 1,
             Err(library::Refusal::FileMissing { .. }) => prepared.left_out.file_missing += 1,
             Err(library::Refusal::MatchNotConfirmed) => prepared.left_out.match_not_confirmed += 1,
         }
+    }
+    // One settle and one read of the findings for the whole list, not one of
+    // each per track. A track whose file has the warning is left out.
+    let files: Vec<i64> = prepared
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Link { file, .. } => Some(*file),
+            Item::InLibrary(_) => None,
+        })
+        .collect();
+    let warned = library::warnings_for(conn, &files)?;
+    if !warned.is_empty() {
+        let before = prepared.items.len();
+        prepared.items.retain(|item| match item {
+            Item::Link { file, .. } => !warned.contains_key(file),
+            Item::InLibrary(_) => true,
+        });
+        prepared.left_out.low_bitrate += (before - prepared.items.len()) as u32;
     }
     Ok(Ok(prepared))
 }

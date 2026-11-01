@@ -28,13 +28,16 @@
 //!   [`insert_linked`](super::insert_linked); a test fails if a fourth
 //!   appears.
 
+use std::collections::HashMap;
+
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use super::Promoted;
+use crate::quality::store::CHUNK;
 use crate::quality::verdict::Finding;
-use crate::quality::{settle_files, stored_verdict};
+use crate::quality::{settle_files, stored_verdict, stored_verdicts};
 
 /// Why an add needs the user's go-ahead first. A code and its numbers; the
 /// words come with the screen.
@@ -81,10 +84,38 @@ pub struct Confirmed {
 pub fn warning_for(conn: &mut Connection, file_id: i64) -> rusqlite::Result<Option<AddWarning>> {
     settle_files(conn, &[file_id])?;
     let found = stored_verdict(conn, file_id)?;
-    Ok(found.findings.iter().find_map(|finding| match finding {
+    Ok(low_bitrate_in(&found.findings))
+}
+
+/// [`warning_for`] for many files at once: the warning each of `file_ids`
+/// calls for, among those that call for one. Settles the stale verdicts a
+/// page of files at a time and reads the findings of the whole page in one
+/// query, instead of a settle and a read per file; the answers are the same.
+pub fn warnings_for(
+    conn: &mut Connection,
+    file_ids: &[i64],
+) -> rusqlite::Result<HashMap<i64, AddWarning>> {
+    let mut asked: Vec<i64> = file_ids.to_vec();
+    asked.sort_unstable();
+    asked.dedup();
+    let mut warnings = HashMap::new();
+    for page in asked.chunks(CHUNK) {
+        settle_files(conn, page)?;
+        for (file_id, found) in stored_verdicts(conn, page)? {
+            if let Some(warning) = low_bitrate_in(&found.findings) {
+                warnings.insert(file_id, warning);
+            }
+        }
+    }
+    Ok(warnings)
+}
+
+/// The warning a file's findings call for, if any.
+fn low_bitrate_in(findings: &[Finding]) -> Option<AddWarning> {
+    findings.iter().find_map(|finding| match finding {
         Finding::LowBitrate { kbps } => Some(AddWarning::LowBitrate { kbps: *kbps }),
         _ => None,
-    }))
+    })
 }
 
 /// Whether `warning` has been agreed to.
