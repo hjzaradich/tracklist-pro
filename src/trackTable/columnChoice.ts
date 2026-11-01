@@ -30,6 +30,7 @@ export const ALL_COLUMNS: readonly ColumnId[] = [
   "key",
   "time",
   "genre",
+  "energy",
   "rating",
   "dateAdded",
   "file",

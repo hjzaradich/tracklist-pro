@@ -7,6 +7,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -17,6 +18,7 @@ import { useOfferStepList } from "../player/stepList";
 import { ColumnHeadings } from "./ColumnHeadings";
 import { moveColumnTo, tableLayout, type ColumnWidths } from "./columnChoice";
 import { COLUMNS, shownName, type CellContext, type ColumnDef, type ColumnId } from "./columns";
+import { EnergyPopover } from "./EnergyPopover";
 import styles from "./TrackTable.module.css";
 import { useTrackDrag } from "./trackDrag";
 import { useTrackKeys } from "./useTrackKeys";
@@ -92,8 +94,13 @@ export interface TrackTableProps {
    */
   idsInRange?: (first: number, last: number) => Promise<readonly number[]>;
   /**
-   * The energy keys (1 to 0, 1cB-8) gave these tracks this energy. Without it
-   * the keys are unavailable.
+   * The ids of the selected tracks changed (the Details panel acts on them).
+   */
+  onSelectedIds?: (ids: readonly number[]) => void;
+  /**
+   * The energy keys (1 to 0, 1cB-8), or the Energy column's popover (1cD),
+   * gave these tracks this energy. Without it the keys are unavailable and the
+   * Energy column is plain text.
    */
   onSetEnergy?: (recordingIds: readonly number[], energy: number) => void;
   /**
@@ -157,6 +164,7 @@ export function TrackTable({
   settled = true,
   onSelectionChange,
   onSelectedChange,
+  onSelectedIds,
   idsInRange,
   onSetEnergy,
   onAddToCrate,
@@ -191,6 +199,13 @@ export function TrackTable({
   const [found, setFound] = useState<{ key: string; index: number | null } | null>(null);
   // Where to scroll to once a track is found again.
   const [reveal, setReveal] = useState<{ top: number } | null>(null);
+  // The Energy column's popover (1cD): the cell it opened from, the row, and
+  // the tracks a pick gives energy to (fixed when it opened).
+  const [energyOpen, setEnergyOpen] = useState<{
+    row: TableRow;
+    anchor: HTMLButtonElement;
+    ids: readonly number[];
+  } | null>(null);
 
   // Another order or list: back to the top, and the selected track, if
   // there is one, is looked for in the new rows. (Adjusting state while
@@ -206,6 +221,7 @@ export function TrackTable({
     setFound(null);
     setLooking(positionOf && carried !== null ? { id: carried, key: resetKey } : null);
     setScrollTop(0);
+    setEnergyOpen(null);
   }
   useLayoutEffect(() => {
     if (viewport.current) viewport.current.scrollTop = 0;
@@ -242,7 +258,6 @@ export function TrackTable({
   }, []);
 
   const defs = columns.map((column) => COLUMNS[column]);
-  const context: CellContext = { t, keyNotation, language: i18n.language };
 
   // The header is a row in the scroll area, so the rows' room is what is left.
   const room = Math.max(
@@ -395,7 +410,14 @@ export function TrackTable({
     onSelectedChange?.({ count: selectedCount, focus: active });
   }, [selectedCount, active, onSelectedChange]);
   // The selected tracks' ids: the picked ones, else the focused row's track.
-  const selectedIds = () => (picked !== null ? [...picked] : activeId === null ? [] : [activeId]);
+  const selection = useMemo(
+    () => (picked !== null ? [...picked] : activeId === null ? [] : [activeId]),
+    [picked, activeId],
+  );
+  const selectedIds = () => selection;
+  useEffect(() => {
+    onSelectedIds?.(selection);
+  }, [selection, onSelectedIds]);
   const setEnergy = onSetEnergy
     ? (energy: number) => {
         const ids = selectedIds();
@@ -411,6 +433,33 @@ export function TrackTable({
   useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy, addToCrate });
   const fileOf = (row: TableRow | undefined) =>
     row === undefined ? undefined : row.file === null ? null : { id: row.file.id, name: shownName(row), recordingId: row.recordingId };
+
+  // The Energy column (1cD). A click opens the popover for the cell's row; on
+  // a row that is one of several selected it is for all of them (and the row
+  // keeps the selection, see the row's click), else for that row alone. Shift
+  // and Ctrl clicks are for the row's selection and open nothing.
+  const closeEnergy = (restoreFocus: boolean) => {
+    if (restoreFocus) energyOpen?.anchor.focus();
+    setEnergyOpen(null);
+  };
+  const several = (recordingId: number) => picked !== null && picked.size > 1 && picked.has(recordingId);
+  const context: CellContext = {
+    t,
+    keyNotation,
+    language: i18n.language,
+    energy: onSetEnergy && {
+      openFor: energyOpen?.row.recordingId ?? null,
+      toggle: (row, anchor, event) => {
+        if (event.shiftKey || event.ctrlKey || event.metaKey) return;
+        if (energyOpen?.row.recordingId === row.recordingId) {
+          setEnergyOpen(null);
+          return;
+        }
+        const ids = several(row.recordingId) && picked !== null ? [...picked] : [row.recordingId];
+        setEnergyOpen({ row, anchor, ids });
+      },
+    },
+  };
   // The player bar's previous and next step through these rows (1cB-10).
   useOfferStepList({
     total,
@@ -562,6 +611,8 @@ export function TrackTable({
           }
           if (event.shiftKey) extendTo(index);
           else if (event.ctrlKey || event.metaKey) toggle(index);
+          // The Energy cell of a row among several selected keeps them: its pick is for them all.
+          else if (row !== undefined && several(row.recordingId) && (event.target as HTMLElement).closest("[data-energy-cell]")) return;
           else select(index);
         }}
         onPointerDown={(event) => startDrag(event, index)}
@@ -595,7 +646,10 @@ export function TrackTable({
         aria-activedescendant={activeIndexRendered ? `${id}-row-${active}` : undefined}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        onScroll={(event) => {
+          setScrollTop(event.currentTarget.scrollTop);
+          setEnergyOpen(null);
+        }}
       >
         <div role="rowgroup" className={styles.header}>
           <ColumnHeadings
@@ -613,6 +667,16 @@ export function TrackTable({
           {rows}
         </div>
       </div>
+      {energyOpen !== null && onSetEnergy && (
+        <EnergyPopover
+          anchor={energyOpen.anchor}
+          count={energyOpen.ids.length}
+          current={energyOpen.ids.length === 1 && energyOpen.row.energySource === "user" ? energyOpen.row.energy : null}
+          start={energyOpen.ids.length === 1 ? energyOpen.row.energy : null}
+          onPick={(energy) => onSetEnergy(energyOpen.ids, energy)}
+          onClose={closeEnergy}
+        />
+      )}
     </div>
   );
 }

@@ -6,12 +6,12 @@ import { CRATE_SUMMARY_QUERY_KEY } from "../crates/useCrateSummary";
 
 /**
  * Gives tracks an energy from 1 to 10 (1cB-8; ROADMAP 1.11): one operation
- * for all of them, so one Undo, in the top bar, puts them all back. No table
- * shows energy yet, but the Energy and No energy doors list by it and the
- * Overview counts it (ROADMAP 1.13), so those are asked for again, and a
- * crate's summary line shows the range (1cB-15). A long list is the index
- * job's: its end reloads them. The top bar's Undo asks for itself after any
- * action.
+ * for all of them, so one Undo, in the top bar, puts them all back. The
+ * track table's rows show it (the Energy column, 1cD) and the Details panel
+ * too, and the Energy and No energy doors list by it and the Overview counts
+ * it (ROADMAP 1.13), so those are asked for again, and a crate's summary
+ * line shows the range (1cB-15). A long list is the index job's: its end
+ * reloads them. The top bar's Undo asks for itself after any action.
  */
 export function useSetEnergy() {
   const queryClient = useQueryClient();

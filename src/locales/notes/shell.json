@@ -430,5 +430,41 @@
   "undo.action.setEnergy_other": {
     "purpose": "Undo button naming what it takes back: an energy given to several tracks at once.",
     "where": "Top bar, Undo button, when the next step to undo is giving tracks an energy."
+  },
+  "details.energy.title": {
+    "purpose": "Name of the group of ten energy buttons, and the heading over them.",
+    "where": "Details panel, Energy section."
+  },
+  "details.energy.keys": {
+    "purpose": "Tells the keys that give the selected tracks an energy.",
+    "where": "Details panel, under the energy buttons."
+  },
+  "details.energy.none": {
+    "purpose": "Says the track has no energy yet.",
+    "where": "Details panel, over the energy buttons."
+  },
+  "details.energy.from": {
+    "purpose": "Says the track's energy and whose it is when it is not the user's; {{energy}} is the number and {{source}} one of the three words below.",
+    "where": "Details panel, over the energy buttons."
+  },
+  "details.energy.source.mik": {
+    "purpose": "Names Mixed In Key as where an energy comes from.",
+    "where": "Details panel, inside the energy line."
+  },
+  "details.energy.source.local": {
+    "purpose": "Names the app's own estimate as where an energy comes from.",
+    "where": "Details panel, inside the energy line."
+  },
+  "details.energy.source.ml": {
+    "purpose": "Names the audio model as where an energy comes from.",
+    "where": "Details panel, inside the energy line."
+  },
+  "details.energy.many": {
+    "purpose": "Says how many tracks the energy buttons act on when several are selected; {{count}} is how many.",
+    "where": "Details panel, over the energy buttons; also in the energy popover of the track table."
+  },
+  "details.energy.set": {
+    "purpose": "Name of one energy button; {{energy}} is its number, 1 to 10.",
+    "where": "Details panel and the energy popover (screen readers only)."
   }
 }

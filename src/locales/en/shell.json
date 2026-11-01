@@ -115,6 +115,19 @@
       "action": "Withdraw confirmation",
       "hint": "rekordbox's entry is matched to a file again.",
       "done": "Confirmation withdrawn"
+    },
+    "energy": {
+      "title": "Energy",
+      "keys": "Keys 1 to 0 (0 is 10)",
+      "none": "No energy",
+      "from": "Energy {{energy}} ({{source}})",
+      "source": {
+        "mik": "Mixed In Key",
+        "local": "estimate",
+        "ml": "audio model"
+      },
+      "many": "{{count, number}} tracks",
+      "set": "Energy {{energy}}"
     }
   },
   "player": {

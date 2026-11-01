@@ -12,7 +12,7 @@ import {
   type TableSource,
 } from "../bindings";
 import { type PaletteAction, useRegisterActions } from "../palette/registry";
-import { useReportSelection } from "../shell/selectedTrack";
+import { useReportSelectedIds, useReportSelection } from "../shell/selectedTrack";
 import { useWhenUndone } from "../shell/undoneStore";
 import { ColumnEditor } from "./ColumnEditor";
 import { FilterChips } from "./FilterChips";
@@ -109,6 +109,7 @@ export function TrackTableView({
     [onSelectionChange],
   );
   const reportSelection = useReportSelection(followSelection);
+  const reportSelectedIds = useReportSelectedIds();
   // How many tracks are selected, and the line saying what the energy keys last did.
   const [selectedCount, setSelectedCount] = useState(0);
   const [energyGiven, setEnergyGiven] = useState<{ energy: number; count: number } | null>(null);
@@ -292,6 +293,7 @@ export function TrackTableView({
           settled={!rows.loading}
           onSelectionChange={reportSelection}
           onSelectedChange={onSelectedChange}
+          onSelectedIds={reportSelectedIds}
           idsInRange={idsInRange}
           onSetEnergy={onSetEnergy}
           onAddToCrate={setAdding}

@@ -69,7 +69,7 @@ describe("the column editor", () => {
     const hidden = within(within(panel()).getByRole("list", { name: tx("trackTable:editor.hidden") })).getAllByRole(
       "listitem",
     );
-    expect(hidden.map((li) => li.getAttribute("data-column"))).toEqual(["file", "folder"]);
+    expect(hidden.map((li) => li.getAttribute("data-column"))).toEqual(["energy", "file", "folder"]);
   });
 
   it("moves a column up and down with buttons, and keeps the focus on the button used", async () => {
@@ -134,7 +134,7 @@ describe("the column editor", () => {
 
   it("says when no column is hidden", async () => {
     render(
-      <Editor start={["title", "artist", "bpm", "key", "time", "genre", "rating", "dateAdded", "file", "folder"]} />,
+      <Editor start={["title", "artist", "bpm", "key", "time", "genre", "energy", "rating", "dateAdded", "file", "folder"]} />,
     );
     await open();
     expect(within(panel()).getByText(tx("trackTable:editor.noneHidden"))).toBeInTheDocument();

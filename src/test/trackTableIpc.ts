@@ -27,6 +27,8 @@ export function tableRow(id: number, fields: Partial<TableRow> = {}): TableRow {
     openConflicts: 0,
     betterFile: null,
     fit: null,
+    energy: null,
+    energySource: null,
     ...fields,
   };
 }
