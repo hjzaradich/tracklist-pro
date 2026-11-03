@@ -530,10 +530,10 @@ pub fn run(job: &JobContext) -> Result<(), JobError> {
         Err(Stop::Job(e)) => return Err(e),
     }
     eprintln!("roles job {} done: {total:?}", job.id());
-    // Which rekordbox entry gives a track its BPM and key is decided on its
-    // best file: attach again where a best file changed (a no-op without
-    // rekordbox data).
-    if total.best_changed > 0 {
+    // Which rekordbox entry a track outside the Library shows is decided on
+    // its files' roles and on which are on disk, the inputs that made these
+    // tracks due: attach again (a no-op without rekordbox data).
+    if total.ranked > 0 {
         if let Err(e) = crate::attach::request(writer, |j| job.enqueue(j)) {
             eprintln!("roles job {}: couldn't ask for an attach: {e:?}", job.id());
         }

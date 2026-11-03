@@ -77,6 +77,11 @@ impl JobHandler for Attacher {
         // One transaction: all or nothing.
         let summary = job.writer().call(attach)?;
         eprintln!("attach job {} done: {summary:?}", job.id());
+        // The rows of what changed are the index's to write (the analysis
+        // marks its tracks due; a new rule marks every Library track).
+        if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
+            eprintln!("attach job {}: couldn't ask for the index: {e:?}", job.id());
+        }
         if let Some(hook) = &self.on_summary {
             hook(summary);
         }

@@ -100,6 +100,18 @@ impl Track {
             "{what}: the row"
         );
     }
+
+    /// As [`Self::follows`], for a change that leaves the genre as it was
+    /// (whether or not it marks the track due).
+    fn stays(&self, what: &str, genre: Option<&str>) {
+        self.lib.settle();
+        assert_eq!(self.defined().as_deref(), genre, "{what}: the definition");
+        assert_eq!(
+            self.stored().map(|(genre, _)| genre).as_deref(),
+            genre,
+            "{what}: the row"
+        );
+    }
 }
 
 #[test]
@@ -185,16 +197,11 @@ fn a_relink_that_trusts_unmatches_or_moves_an_entry_reaches_the_row() {
 }
 
 #[test]
-fn which_of_two_entries_a_track_takes_follows_the_files_role() {
+fn which_of_two_entries_a_track_takes_follows_its_link_not_the_files_roles() {
+    // The entry a Library track shows is the one the send uses: on its
+    // linked file (1cD-X2).
     let t = track(Some("Tag House"));
     let second = t.lib.file(t.recording, "b.mp3", "extra");
-    t.lib.insert(
-        "UPDATE recording_file SET role = 'best' WHERE file_id = ?1",
-        (t.file,),
-    );
-    t.entry(t.file, "On the best file");
-    t.entry(second, "On the other file");
-    t.follows("two entries", Some("On the best file"));
     t.lib.insert(
         "UPDATE recording_file SET role = 'extra' WHERE file_id = ?1",
         (t.file,),
@@ -203,7 +210,23 @@ fn which_of_two_entries_a_track_takes_follows_the_files_role() {
         "UPDATE recording_file SET role = 'best' WHERE file_id = ?1",
         (second,),
     );
-    t.follows("the other file became the best", Some("On the other file"));
+    t.entry(t.file, "On the linked file");
+    t.entry(second, "On the best file");
+    t.follows("two entries", Some("On the linked file"));
+    t.lib.insert(
+        "UPDATE recording_file SET role = 'extra' WHERE file_id = ?1",
+        (second,),
+    );
+    t.lib.insert(
+        "UPDATE recording_file SET role = 'best' WHERE file_id = ?1",
+        (t.file,),
+    );
+    t.stays("the roles changed", Some("On the linked file"));
+    t.lib.insert(
+        "UPDATE library_track SET linked_file_id = ?2 WHERE id = ?1",
+        (t.library, second),
+    );
+    t.follows("linked to the other file", Some("On the best file"));
 }
 
 #[test]
@@ -234,22 +257,23 @@ fn a_track_that_leaves_the_library_loses_its_genre_and_one_that_joins_gains_it()
 }
 
 #[test]
-fn a_merge_that_makes_an_entry_unpickable_reaches_the_row_and_taking_it_back_restores_it() {
-    // The entry sits on a file that is not the linked one: it counts only
-    // while no merge into the track says otherwise.
+fn an_entry_on_another_file_of_the_track_is_never_its_own_merge_or_not() {
+    // A trusted entry on a file that is not the linked one isn't the entry
+    // the track is sent as, so it never gives the genre, whether or not a
+    // merge into the track says whose it is (1cD-X2).
     let t = track(Some("Tag House"));
     let other = t.lib.file(t.recording, "b.mp3", "extra");
     t.entry(other, "Merged in");
-    t.follows("a trusted entry on another file", Some("Merged in"));
+    t.stays("a trusted entry on another file", Some("Tag House"));
     let merged = t.lib.insert("INSERT INTO recording DEFAULT VALUES", ());
     let merge = t.lib.insert(
         "INSERT INTO track_merge (recording_id, into_id) VALUES (?1, ?2)",
         (merged, t.recording),
     );
-    t.follows("a merge into the track", Some("Tag House"));
+    t.stays("a merge into the track", Some("Tag House"));
     t.lib
         .insert("DELETE FROM track_merge WHERE id = ?1", (merge,));
-    t.follows("the merge taken back", Some("Merged in"));
+    t.stays("the merge taken back", Some("Tag House"));
 }
 
 #[test]

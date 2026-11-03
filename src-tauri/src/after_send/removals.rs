@@ -221,16 +221,14 @@ fn removed_from_library(
     // the removed track (a trusted or probable match to one of its files).
     let mut held_by_track =
         conn.prepare("SELECT 1 FROM rekordbox_track WHERE recording_id = ?1 LIMIT 1")?;
-    // For a track that was never sent: rekordbox's own entry for it, found
-    // through a trusted match to one of the track's files (the lowest
-    // TrackID if it holds several). A probable match doesn't count: it
-    // isn't known to be this track.
-    let mut own_entry = conn.prepare(
-        "SELECT rt.location FROM rekordbox_track rt
-         JOIN recording_file rf ON rf.file_id = rt.file_id
-         WHERE rf.recording_id = ?1 AND rt.relink_probable = 0
-         ORDER BY rt.track_id, rt.id LIMIT 1",
-    )?;
+    // For a track that was never sent: rekordbox's own entry for it, the
+    // one the track shows ([`crate::attach::SHOWN_FROM`]), found through a
+    // trusted match to one of the track's files. A probable match doesn't
+    // count: it isn't known to be this track.
+    let mut own_entry = conn.prepare(&format!(
+        "SELECT rt.location FROM rekordbox_track rt WHERE rt.id = {}",
+        crate::attach::shown_entry_sql("?1")
+    ))?;
     let mut out = Vec::new();
     // What to name each row by, asked of [`shown_removed`] for all at once.
     let mut asked = Vec::new();

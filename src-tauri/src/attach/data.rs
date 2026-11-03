@@ -46,28 +46,24 @@ pub struct RekordboxEntry {
 }
 
 /// Every trusted rekordbox entry attached to `recording`, the one the
-/// track's analysis comes from first, then by `TrackID`.
+/// track shows ([`super::SHOWN_FROM`]) first, then by `TrackID`.
 pub fn for_recording(conn: &Connection, recording: i64) -> rusqlite::Result<Vec<RekordboxEntry>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT rt.track_id, rt.file_id, rt.relink_method, rt.relink_confidence,
                 rt.bpm, rt.tonality, rt.play_count,
                 json_extract(rt.attributes, '$.LastPlayed'),
                 rt.rating, rt.colour, rt.comments, rt.my_tags, rt.tempo,
-                rt.position_marks, rt.playlists, {}
+                rt.position_marks, rt.playlists, rt.id IS {} AS shown
          FROM rekordbox_track rt
-         LEFT JOIN recording_file rf
-                ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
          WHERE rt.recording_id = ?1 AND rt.relink_probable = 0
-         ORDER BY {} DESC, {}",
-        super::PICKABLE,
-        super::PICKABLE,
-        super::PICK_ORDER
+         ORDER BY shown DESC, rt.track_id",
+        super::shown_entry_sql("?1"),
     ))?;
     let rows = stmt.query_map([recording], |r| {
         let tonality: Option<String> = r.get(5)?;
         let comments: Option<String> = r.get(10)?;
         let my_tags: String = r.get(11)?;
-        let pickable: bool = r.get(15)?;
+        let shown: bool = r.get(15)?;
         Ok((
             RekordboxEntry {
                 track_id: r.get(0)?,
@@ -92,15 +88,15 @@ pub fn for_recording(conn: &Connection, recording: i64) -> rusqlite::Result<Vec<
                 position_marks: r.get(13)?,
                 playlists: r.get(14)?,
             },
-            pickable,
+            shown,
         ))
     })?;
     let mut entries: Vec<(RekordboxEntry, bool)> = rows.collect::<rusqlite::Result<_>>()?;
-    // The first one is the pick, and it's the pick only if it may be one
-    // and gives a row.
-    if let Some((first, pickable)) = entries.first_mut() {
+    // The first one is the one shown, if any, and the analysis comes from
+    // it only if it gives a row.
+    if let Some((first, shown)) = entries.first_mut() {
         first.is_analysis_source =
-            *pickable && (super::bpm_value(first.bpm).is_some() || first.key.is_some());
+            *shown && (super::bpm_value(first.bpm).is_some() || first.key.is_some());
     }
     Ok(entries.into_iter().map(|(entry, _)| entry).collect())
 }

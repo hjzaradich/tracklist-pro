@@ -16,18 +16,20 @@
 //!   unmatched or lands on another track, the next run removes what it
 //!   contributed. Every run decides every track again.
 //! - **One rekordbox row per track.** Several entries can point at one
-//!   track (a track imported twice into rekordbox). The row comes from
-//!   the entry matched to the track's best file if there is one, else the
-//!   entry with the highest play count, else the lowest `TrackID` (ties
-//!   at each step fall to the next). The other entries stay in
-//!   `rekordbox_track` for Review (1b). A track another Library track was
-//!   merged into takes it only from the entry it is sent as ([`PICKABLE`]).
+//!   track (a track imported twice into rekordbox). The row comes from the
+//!   entry the track shows, the app's one rule for it ([`SHOWN_FROM`]): for
+//!   a Library track, the entry the send uses. The other entries stay in
+//!   `rekordbox_track` for Review (1b).
 //! - **Running again with nothing changed changes nothing:** a row that
 //!   already holds the values is left alone, `analyzed_at` included.
 //! - Only the database is touched, and only `analysis` rows from
 //!   rekordbox. It runs as a background job ([`Attacher`]) asked for
 //!   through [`request`] after every grouping run and after every relink
-//!   run.
+//!   run, and wherever a Library track's link or the Library itself changes
+//!   (Review, Undo, a removal) or a file's place among its track's files
+//!   does (the roles job), since those change which entry a track shows.
+//!   Startup asks for it once after an upgrade that changed that rule
+//!   ([`SHOWN_VERSION`]). Each run asks for the search index after it.
 
 mod data;
 mod job;
@@ -41,28 +43,81 @@ use rusqlite::{params, Connection};
 
 use crate::tags::key;
 
-/// How a track's entries are ranked, the pick first: matched to the
-/// track's best file, then most played, then lowest `TrackID`. Needs `rt`
-/// (`rekordbox_track`) and `rf` (its file's `recording_file`).
-pub(crate) const PICK_ORDER: &str = "COALESCE(rf.role = 'best', 0) DESC,
-                          COALESCE(rt.play_count, 0) DESC,
-                          rt.track_id";
+/// The rekordbox entry a track shows (1cD-X2, audit C12; ROADMAP 1.3): the
+/// one rule for every place that picks one entry for a track. Attach (the
+/// table's BPM and key), the track's rekordbox panel ([`for_recording`]),
+/// the Overview's genre and gaps and the removal list all use it.
+///
+/// - **Trusted matches only** (`relink_probable = 0`).
+/// - **A Library track shows the entry the send uses** for it
+///   (`send_values`, step 4): of the entries on its linked file, the most
+///   played, then the lowest `TrackID`. With none there it shows none, and
+///   its files' own values stand, as the send makes a new track of the
+///   file. An entry on another of its files is not its own, so nothing is
+///   combined from two entries (foreman's ruling, 2026-10-16). The send's
+///   two last resorts for a gone linked file (rekordbox's entry at the
+///   file's own Location, a byte-identical copy's entry) are the send's
+///   alone: which one applies depends on the drives plugged in when it runs.
+/// - **A track outside the Library shows the entry on the file adding it
+///   would link** ([`crate::library::linked_file_for`]: of the files with a
+///   trusted entry, the one on disk, then its best file, then the lowest
+///   file id), and of that file's entries the most played, then the lowest
+///   `TrackID`. So adding a track never changes the entry it shows.
+///
+/// [`SHOWN_FROM`] names the entry `se`, its file's `recording_file` row
+/// `se_rf` (`se_rf.recording_id` is the track), its file `se_f` and the
+/// track's Library track `se_lt` (if any); [`SHOWN_WHERE`] keeps the
+/// entries the track may show; [`SHOWN_ORDER`] puts the one it shows first
+/// within a track. [`shown_entry_sql`] is the three as one expression.
+pub(crate) const SHOWN_FROM: &str = "rekordbox_track se
+         JOIN recording_file se_rf ON se_rf.file_id = se.file_id
+         JOIN file se_f ON se_f.id = se.file_id
+         LEFT JOIN library_track se_lt ON se_lt.recording_id = se_rf.recording_id";
 
-/// Which of a track's entries may give it its rekordbox row (needs `rt`,
-/// `rekordbox_track`). Every trusted entry, except on a track another
-/// Library track was merged into (Review, 1bE-9) while it is in the
-/// Library: that one keeps its own analysis, so only the entry it is sent
-/// as counts, the one on its linked file, never an entry of the track that
-/// left (foreman's ruling, 2026-10-16: nothing is combined field by field).
-/// With no entry on its linked file it has no rekordbox row, and its files'
-/// own values stand, as for any track rekordbox doesn't know. A track
-/// outside the Library the user called the same as it (Review, 1bE-2,
-/// `track_merge` kind `same`) changes nothing here: the two are one track as
-/// if the grouping job had merged them.
-pub(crate) const PICKABLE: &str = "NOT EXISTS (
-        SELECT 1 FROM track_merge m JOIN library_track mlt ON mlt.recording_id = m.into_id
-        WHERE m.into_id = rt.recording_id AND m.kind = 'library'
-          AND rt.file_id IS NOT mlt.linked_file_id)";
+/// Which entries a track may show (see [`SHOWN_FROM`]).
+pub(crate) const SHOWN_WHERE: &str = "se.relink_probable = 0
+         AND (se_lt.id IS NULL OR se.file_id = se_lt.linked_file_id)";
+
+/// The entry a track shows first (see [`SHOWN_FROM`]). For a Library track
+/// every entry left is on its linked file, so only the last two keys count.
+pub(crate) const SHOWN_ORDER: &str = "se_f.present DESC, (se_rf.role = 'best') DESC, se_f.id,
+         COALESCE(se.play_count, 0) DESC, se.track_id";
+
+/// The `rekordbox_track.id` of the entry track `recording` (an SQL
+/// expression) shows, `NULL` for none: [`SHOWN_FROM`] as one expression.
+pub(crate) fn shown_entry_sql(recording: &str) -> String {
+    format!(
+        "(SELECT se.id FROM {SHOWN_FROM}
+          WHERE se_rf.recording_id = {recording} AND {SHOWN_WHERE}
+          ORDER BY {SHOWN_ORDER} LIMIT 1)"
+    )
+}
+
+/// The version of the rule for the entry a track shows ([`SHOWN_FROM`]).
+/// Bump it when the rule changes: the first attach run of a build with
+/// another version marks every Library track due for the index (the genre
+/// and the names the index stores come from that entry), and startup asks
+/// for that run. 1: the send's rule (1cD-X2).
+pub const SHOWN_VERSION: u32 = 1;
+
+/// The setting that remembers which [`SHOWN_VERSION`] the stored values are
+/// of.
+const VERSION_KEY: &str = "attach_shown_version";
+
+/// Whether the stored values are of this build's [`SHOWN_VERSION`].
+/// Read-only.
+pub(crate) fn version_is_current(conn: &Connection) -> rusqlite::Result<bool> {
+    use rusqlite::OptionalExtension;
+    let stored: Option<i64> = conn
+        .query_row(
+            "SELECT json_extract(value, '$') FROM setting WHERE key = ?1",
+            [VERSION_KEY],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(stored == Some(i64::from(SHOWN_VERSION)))
+}
 
 /// What one attach run did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -104,15 +159,12 @@ fn key_value(tonality: Option<&str>) -> Option<String> {
 /// docs), with the values it gives. Tracks whose entry has neither a BPM
 /// nor a key are left out: a row must say something.
 fn picks(conn: &Connection) -> rusqlite::Result<Vec<Candidate>> {
-    // The best candidate first within each track: on the track's best
-    // file, then most played, then lowest TrackID.
+    // The entry each track shows first within the track.
     let mut stmt = conn.prepare(&format!(
-        "SELECT rt.recording_id, rt.bpm, rt.tonality
-         FROM rekordbox_track rt
-         LEFT JOIN recording_file rf
-                ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
-         WHERE rt.recording_id IS NOT NULL AND rt.relink_probable = 0 AND {PICKABLE}
-         ORDER BY rt.recording_id, {PICK_ORDER}"
+        "SELECT se_rf.recording_id, se.bpm, se.tonality
+         FROM {SHOWN_FROM}
+         WHERE {SHOWN_WHERE}
+         ORDER BY se_rf.recording_id, {SHOWN_ORDER}"
     ))?;
     let mut rows = stmt.query([])?;
     let mut picked = Vec::new();
@@ -195,6 +247,22 @@ pub fn attach(conn: &mut Connection) -> rusqlite::Result<Summary> {
                 summary.removed += 1;
             }
         }
+    }
+    // A build with a new rule for the entry a track shows: every Library
+    // track's stored values are worked out again (`-1` stands for all of
+    // them), once, if rekordbox has given anything.
+    if !version_is_current(&tx)? {
+        tx.execute(
+            "INSERT OR IGNORE INTO search_due (recording_id)
+             SELECT -1 WHERE EXISTS (SELECT 1 FROM rekordbox_track)",
+            [],
+        )?;
+        tx.execute(
+            "INSERT INTO setting (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            params![VERSION_KEY, SHOWN_VERSION.to_string()],
+        )?;
     }
     tx.commit()?;
     Ok(summary)

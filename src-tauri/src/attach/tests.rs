@@ -393,11 +393,31 @@ fn of_duplicate_entries_the_one_on_the_best_file_wins_over_a_higher_play_count()
 }
 
 #[test]
-fn with_no_entry_on_the_best_file_the_most_played_entry_wins() {
+fn with_no_entry_on_the_best_file_the_entry_on_the_file_an_add_would_link_wins() {
+    // A track outside the Library shows the entry on the file adding it
+    // would link (the lowest file id here), however played the other is.
     let db = db();
     let (_, second, third) = three_files(&db);
     db.entry(1, Some(second), "100.00", "Am", 3);
     db.entry(2, Some(third), "128.00", "Cm", 9);
+    db.group();
+    db.attach();
+    assert_eq!(db.rekordbox_row(db.track(second)), row(100.0, "8A"));
+    let track = db.track(second);
+    let linked = db
+        .writer
+        .call(move |c| crate::library::linked_file_for(c, track))
+        .unwrap()
+        .map(|f| f.file_id);
+    assert_eq!(linked, Some(second));
+}
+
+#[test]
+fn of_two_entries_on_one_file_the_most_played_wins() {
+    let db = db();
+    let (_, second, _) = three_files(&db);
+    db.entry(1, Some(second), "100.00", "Am", 3);
+    db.entry(2, Some(second), "128.00", "Cm", 9);
     db.group();
     db.attach();
     assert_eq!(db.rekordbox_row(db.track(second)), row(128.0, "5A"));
@@ -406,8 +426,8 @@ fn with_no_entry_on_the_best_file_the_most_played_entry_wins() {
 #[test]
 fn with_equal_play_counts_the_lowest_track_id_wins() {
     let db = db();
-    let (_, second, third) = three_files(&db);
-    db.entry(7, Some(third), "128.00", "Cm", 2);
+    let (_, second, _) = three_files(&db);
+    db.entry(7, Some(second), "128.00", "Cm", 2);
     db.entry(5, Some(second), "100.00", "Am", 2);
     db.group();
     db.attach();
@@ -417,10 +437,10 @@ fn with_equal_play_counts_the_lowest_track_id_wins() {
 #[test]
 fn an_entry_with_no_play_count_counts_as_never_played() {
     let db = db();
-    let (_, second, third) = three_files(&db);
+    let (_, second, _) = three_files(&db);
     // Equal at zero plays, so the lowest TrackID wins; a missing count
     // must not sort below (or above) a zero.
-    db.entry(2, Some(third), "128.00", "Cm", 0);
+    db.entry(2, Some(second), "128.00", "Cm", 0);
     db.entry(1, Some(second), "100.00", "Am", NO_PLAYS);
     db.group();
     db.attach();
@@ -464,6 +484,38 @@ fn the_other_duplicate_entries_stay_readable_for_review() {
         .map(|e| (e.track_id, e.is_analysis_source))
         .collect();
     assert_eq!(ids, [(2, true), (1, false)]);
+}
+
+// ---- a new rule ---------------------------------------------------------------
+
+/// Whether the index is asked to work every Library track out again.
+fn all_due(db: &Db) -> bool {
+    db.sql_one::<bool>("SELECT EXISTS (SELECT 1 FROM search_due WHERE recording_id = -1)")
+}
+
+#[test]
+fn the_first_run_of_a_new_rule_for_the_entry_a_track_shows_makes_every_library_track_due_once() {
+    let db = db();
+    let file = db.file("a.mp3", A);
+    db.entry(1, Some(file), "128.00", "Cm", 0);
+    db.group();
+    db.sql("DELETE FROM search_due");
+    let current = |db: &Db| db.writer.call(|c| version_is_current(c)).unwrap();
+    assert!(!current(&db), "a database from before the rule has no version");
+    db.attach();
+    assert!(all_due(&db) && current(&db));
+    db.sql("DELETE FROM search_due");
+    db.attach();
+    assert!(!all_due(&db), "once only");
+}
+
+#[test]
+fn a_library_with_no_rekordbox_data_has_nothing_to_work_out_again() {
+    let db = db();
+    db.sql("DELETE FROM search_due");
+    db.attach();
+    assert!(!all_due(&db));
+    assert!(db.writer.call(|c| version_is_current(c)).unwrap());
 }
 
 // ---- reading per track ----------------------------------------------------------
