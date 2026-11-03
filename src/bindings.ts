@@ -495,6 +495,17 @@ export const commands = {
 	 */
 	setEnergy: (recordings: number[], energy: number) => typedError<EnergySet, IpcError>(__TAURI_INVOKE("set_energy", { recordings, energy })),
 	/**
+	 *  Takes the user's own energy away from tracks: one operation, one Undo.
+	 *  Another source's energy then shows (the ranking in `recording_display`).
+	 *  The track table's rows are worked out again as for [`set_energy`].
+	 */
+	clearEnergy: (recordings: number[]) => typedError<EnergySet, IpcError>(__TAURI_INVOKE("clear_energy", { recordings })),
+	/**
+	 *  How many of these tracks have an energy of the user's own (what "Clear"
+	 *  would take away).
+	 */
+	userEnergyCount: (recordings: number[]) => typedError<number, IpcError>(__TAURI_INVOKE("user_energy_count", { recordings })),
+	/**
 	 *  Whether energy is sent as rekordbox's star rating. Off until the user
 	 *  turns it on.
 	 */
@@ -2367,7 +2378,7 @@ export type SnapshotSummary = {
 };
 
 /**  A column the table can be sorted by. */
-export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre" | "rating" | "dateAdded" | "file" | "folder";
+export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre" | "rating" | "energy" | "dateAdded" | "file" | "folder";
 
 /**  A value and the place it comes from. */
 export type SourcedValue = {

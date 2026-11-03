@@ -104,8 +104,8 @@ pub enum SortColumn {
     Time,
     Genre,
     Rating,
-    /// The energy the track shows, stored in `track_row.flags`
-    /// ([`flag::ENERGY`]); a track with none is blank.
+    // The energy the track shows, stored in `track_row.flags`
+    // (`flag::ENERGY`); a track with none is blank.
     Energy,
     DateAdded,
     File,
