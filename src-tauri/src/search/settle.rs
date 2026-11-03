@@ -362,7 +362,8 @@ impl Bulk {
 
     pub(crate) fn start(conn: &Connection) -> rusqlite::Result<Bulk> {
         let cache_size = conn.pragma_query_value(None, "cache_size", |r| r.get(0))?;
-        let wal_autocheckpoint = conn.pragma_query_value(None, "wal_autocheckpoint", |r| r.get(0))?;
+        let wal_autocheckpoint =
+            conn.pragma_query_value(None, "wal_autocheckpoint", |r| r.get(0))?;
         conn.pragma_update(None, "cache_size", -Self::CACHE_KB)?;
         conn.pragma_update(None, "wal_autocheckpoint", Self::CHECKPOINT_PAGES)?;
         Ok(Bulk {
