@@ -323,10 +323,13 @@ fn after_an_upgrade_that_changed_which_entry_a_track_shows_the_next_start_asks_f
         .call(|c| {
             c.execute(
                 "INSERT INTO rekordbox_track (attributes, location_key, read_at)
-                 VALUES ('{\"TrackID\":\"1\"}', 'k', '2026-09-30T10:00:00.000Z')",
+                 VALUES ('{\"TrackID\":\"1\",\"Location\":\"file://localhost/E:/1.mp3\"}', 'k', '2026-09-30T10:00:00.000Z')",
                 [],
             )
         })
+        .unwrap();
+    writer
+        .call(|c| c.execute("DELETE FROM search_due", []))
         .unwrap();
     let (failed, queued) = ask(&writer, &volume);
     assert_eq!((failed, kinds(&queued)), (0, vec!["attach"]));
@@ -511,7 +514,7 @@ fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_el
         }
     });
     assert_eq!(asked.failed, 0);
-    assert_eq!(asked.took.len(), 9, "every stage was asked");
+    assert_eq!(asked.took.len(), 10, "every stage was asked");
     release.send(()).unwrap();
     holder.join().unwrap().unwrap();
 }
