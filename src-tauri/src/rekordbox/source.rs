@@ -456,6 +456,9 @@ pub struct XmlReader {
     /// How far along its job the read ends: `None` when the read is the
     /// whole job. A step the read is only the start of sets this.
     up_to: Option<f64>,
+    /// Set by a caller that matches the tracks itself right after the read
+    /// (a send's prepare): the read then queues no relink of its own.
+    relink_left_to_caller: bool,
     /// Called as the read passes each [`Stage`], so tests can act there.
     #[cfg(test)]
     pub(crate) hook: Option<std::sync::Arc<dyn Fn(Stage) + Send + Sync>>,
@@ -477,9 +480,17 @@ impl XmlReader {
     pub fn up_to(end: f64) -> XmlReader {
         XmlReader {
             up_to: Some(end),
+            relink_left_to_caller: false,
             #[cfg(test)]
             hook: None,
         }
+    }
+
+    /// This reader queues no relink after storing: its caller matches the
+    /// tracks right away, and asks for a relink itself if it stops before.
+    pub fn relink_left_to_caller(mut self) -> XmlReader {
+        self.relink_left_to_caller = true;
+        self
     }
 
     fn end(&self) -> f64 {
@@ -602,9 +613,12 @@ impl XmlReader {
         // Stored: a cancel now changes nothing.
         let _ = job.progress(self.end());
         // Match the fresh snapshot's tracks to files. The read stands if
-        // this fails; the next read or scan asks again.
-        if let Err(e) = crate::relink::request(job.writer(), |j| job.enqueue(j)) {
-            eprintln!("rekordbox read: couldn't queue a relink: {e}");
+        // this fails; the next read or scan asks again. Not when the caller
+        // matches them itself (a send's prepare).
+        if !self.relink_left_to_caller {
+            if let Err(e) = crate::relink::request(job.writer(), |j| job.enqueue(j)) {
+                eprintln!("rekordbox read: couldn't queue a relink: {e}");
+            }
         }
         // The titles of Library tracks rekordbox knows may have changed.
         if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {

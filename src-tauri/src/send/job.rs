@@ -118,7 +118,7 @@ impl<V: Volumes + 'static> Sender<V> {
     pub fn new(flow: SendFlow, volumes: impl Fn() -> V + Send + Sync + 'static) -> Sender<V> {
         Sender {
             flow,
-            reader: XmlReader::up_to(progress::MATCHING),
+            reader: XmlReader::up_to(progress::MATCHING).relink_left_to_caller(),
             volumes: Arc::new(volumes),
             record: Arc::new(record_send),
             #[cfg(test)]
@@ -298,28 +298,18 @@ impl<V: Volumes + 'static> Sender<V> {
         if let Some(hook) = &self.after_read {
             hook();
         }
-        self.part(job, SendWork::Matching, progress::MATCHING)?;
-        let known = job.writer().call(|c| relink::identities(c))?;
-        let mounted = Mounted::ask(&known, &(self.volumes)());
-        if job.is_cancelled() {
-            return Err(Stop::cancelled());
-        }
-        // The read replaced every rekordbox row, unmatched, and any other
-        // read does the same. So the review reads the moment the matching
-        // ended, held in the matching's own writer job: no read can land
-        // between them, and a track rekordbox has never goes out as new.
-        let moment = Moment::open(job.writer().guarded_path())?;
-        #[cfg(test)]
-        let after_relink = self.after_relink.clone();
-        let (moment, mounted) = job.writer().call(move |c| {
-            relink::relink(c, &mounted)?;
-            #[cfg(test)]
-            if let Some(hook) = &after_relink {
-                hook();
+        // The read queued no relink: this step matches the tracks itself. If
+        // it stops before that, a relink is asked for, so nothing is left
+        // unmatched.
+        let (moment, mounted) = match self.match_after_read(job) {
+            Ok(matched) => matched,
+            Err(stop) => {
+                if let Err(e) = relink::request(job.writer(), |j| job.enqueue(j)) {
+                    eprintln!("send: couldn't queue a relink: {e}");
+                }
+                return Err(stop);
             }
-            moment.hold()?;
-            Ok((moment, mounted))
-        })?;
+        };
         self.part(job, SendWork::Merging, progress::MERGING)?;
         let volumes = (self.volumes)();
         let (merging, moment) = self.merged(job, &volumes, moment, Some(mounted))?;
@@ -350,6 +340,34 @@ impl<V: Volumes + 'static> Sender<V> {
             steps.review = Some(preflight);
         });
         Ok(())
+    }
+
+    /// Matches the tracks the read stored, and holds the moment the
+    /// preflight reads.
+    fn match_after_read(&self, job: &JobContext) -> Result<(Moment, Mounted), Stop> {
+        self.part(job, SendWork::Matching, progress::MATCHING)?;
+        let known = job.writer().call(|c| relink::identities(c))?;
+        let mounted = Mounted::ask(&known, &(self.volumes)());
+        if job.is_cancelled() {
+            return Err(Stop::cancelled());
+        }
+        // The read replaced every rekordbox row, unmatched, and any other
+        // read does the same. So the review reads the moment the matching
+        // ended, held in the matching's own writer job: no read can land
+        // between them, and a track rekordbox has never goes out as new.
+        let moment = Moment::open(job.writer().guarded_path())?;
+        #[cfg(test)]
+        let after_relink = self.after_relink.clone();
+        let matched = job.writer().call(move |c| {
+            relink::relink(c, &mounted)?;
+            #[cfg(test)]
+            if let Some(hook) = &after_relink {
+                hook();
+            }
+            moment.hold()?;
+            Ok((moment, mounted))
+        })?;
+        Ok(matched)
     }
 
     /// A part of a step begins, `done` of the way through its job. A report

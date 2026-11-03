@@ -21,6 +21,7 @@ mod changed_after_export;
 mod membership;
 mod merge;
 mod one_moment;
+mod one_relink;
 mod same_as_before;
 
 fn volume_id() -> VolumeId {
