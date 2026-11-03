@@ -94,6 +94,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::relink::job::relink_rekordbox_tracks,
             crate::grouping::group_files,
             crate::missing::missing_tracks,
+            crate::missing::missing_track_page,
             crate::review::review_counts,
             crate::review::review_items,
             crate::review::review_item,

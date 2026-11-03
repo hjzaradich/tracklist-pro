@@ -1,32 +1,64 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MissingGroup, MissingList as Missing } from "../bindings";
 import "../i18n";
-import { MissingList } from "./MissingList";
+import { MissingList as MissingListView } from "./MissingList";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { tx } from "../test/tx";
 
 function group(folder: string | null, fields: Partial<MissingGroup> = {}): MissingGroup {
-  return {
-    folder,
-    canAdd: false,
-    tracks: [
-      {
-        id: 1,
-        title: "Song",
-        artist: "Artist",
-        lastKnownPath: folder === null ? null : String.raw`${folder}\song.mp3`,
-      },
-    ],
-    ...fields,
-  };
+  const tracks = fields.tracks ?? [
+    {
+      id: 1,
+      title: "Song",
+      artist: "Artist",
+      lastKnownPath: folder === null ? null : String.raw`${folder}\song.mp3`,
+    },
+  ];
+  return { folder, canAdd: false, trackIds: tracks.map((track) => track.id), ...fields, tracks };
 }
 
 function list(groups: MissingGroup[]): Missing {
-  return { total: groups.reduce((n, g) => n + g.tracks.length, 0), groups };
+  return { total: groups.reduce((n, g) => n + g.trackIds.length, 0), groups };
 }
 
-afterEach(cleanup);
+/** `n` tracks of one group, ids from `from`. */
+function songs(from: number, n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    id: from + i,
+    title: `Song ${from + i}`,
+    artist: "",
+    lastKnownPath: null,
+  }));
+}
+
+function queryClient() {
+  return new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+}
+
+const client = queryClient();
+const invoke = vi.fn();
+
+/** The list inside the query client its "Show more" needs. */
+function MissingList(props: React.ComponentProps<typeof MissingListView>) {
+  return (
+    <QueryClientProvider client={client}>
+      <MissingListView {...props} />
+    </QueryClientProvider>
+  );
+}
+
+beforeEach(() => {
+  invoke.mockReset();
+  mockIPC((cmd, args) => invoke(cmd, args) as unknown);
+});
+
+afterEach(() => {
+  cleanup();
+  clearMocks();
+});
 
 /** The line with a folder's name, its count and its button (the summary line also counts). */
 function folderRow(folder: string): HTMLElement {
@@ -122,5 +154,67 @@ describe("the Missing list", () => {
     rerender(<MissingList list={list([group(String.raw`D:\Old`)])} problem="It failed" />);
     expect((container.querySelector("details") as HTMLDetailsElement).open).toBe(true);
     expect(screen.getByRole("alert")).toHaveTextContent("It failed");
+  });
+
+  describe("with a group too big to load at once", () => {
+    const folder = String.raw`D:\Big`;
+    const big = () =>
+      group(folder, {
+        canAdd: true,
+        tracks: songs(1, 100),
+        trackIds: Array.from({ length: 250 }, (_, i) => i + 1),
+      });
+
+    it("counts every track in the group, though only the first page is drawn", () => {
+      render(<MissingList list={list([big()])} />);
+      expect(within(folderRow(folder)).getByText(tx("review:missing.tracksCount", { count: 250 }))).toBeInTheDocument();
+      expect(screen.getAllByRole("listitem")).toHaveLength(100);
+    });
+
+    it("still adds the folder, which is about the whole group and not the rows loaded", async () => {
+      const onAddFolder = vi.fn();
+      render(<MissingList list={list([big()])} onAddFolder={onAddFolder} />);
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.addFolder") }));
+      expect(onAddFolder).toHaveBeenCalledOnce();
+      expect(onAddFolder).toHaveBeenCalledWith(folder);
+    });
+
+    it("loads the next page of ids, in order, when asked to show more", async () => {
+      invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.map((id) => songs(id, 1)[0]));
+      render(<MissingList list={list([big()])} />);
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(200));
+      expect(invoke).toHaveBeenCalledWith("missing_track_page", { ids: Array.from({ length: 100 }, (_, i) => i + 101) });
+    });
+
+    it("stops offering more once every track is shown, and keeps the count", async () => {
+      invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.map((id) => songs(id, 1)[0]));
+      render(<MissingList list={list([big()])} />);
+      for (let page = 0; page < 2; page++) {
+        await userEvent.click(await screen.findByRole("button", { name: tx("review:missing.showMore") }));
+        await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(200 + page * 50));
+      }
+      expect(screen.queryByRole("button", { name: tx("review:missing.showMore") })).toBeNull();
+      expect(within(folderRow(folder)).getByText(tx("review:missing.tracksCount", { count: 250 }))).toBeInTheDocument();
+    });
+
+    it("does not ask again for tracks the last page left out because they were matched since", async () => {
+      invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.slice(1).map((id) => songs(id, 1)[0]));
+      render(<MissingList list={list([big()])} />);
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(199));
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      expect(invoke).toHaveBeenLastCalledWith("missing_track_page", { ids: Array.from({ length: 100 }, (_, i) => i + 201).slice(0, 50) });
+    });
+
+    it("says so when a page fails to load, and offers it again", async () => {
+      invoke.mockImplementation(() => {
+        throw { kind: "internal", params: {} };
+      });
+      render(<MissingList list={list([big()])} />);
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(tx("errors:internal"));
+      expect(screen.getByRole("button", { name: tx("review:missing.showMore") })).toBeEnabled();
+    });
   });
 });

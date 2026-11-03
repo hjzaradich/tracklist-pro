@@ -8,6 +8,13 @@
 //! stores (§5.3). A probable match has a file, so it isn't here; 1bE reviews
 //! those.
 //!
+//! The list is sent a page at a time (X3): each group carries its count (the
+//! length of `track_ids`), every track's id in the order shown, and only the
+//! first [`FIRST_PAGE`] tracks in full. [`missing_track_page`] fills in the
+//! rest, a bounded number of ids at a time. The group's one action, "add
+//! folder", is about the folder, so it doesn't depend on which rows are
+//! loaded.
+//!
 //! A group offers "add folder" when that folder exists on the disk now and
 //! isn't inside (or around) a music folder. The check is made through
 //! [`DiskProbe`], which never opens a file, skips drives that aren't
@@ -68,6 +75,11 @@ pub struct MissingGroup {
     /// Whether the folder exists now and is outside every music folder, so
     /// adding it as a music folder (`add_music_folder`) makes sense.
     pub can_add: bool,
+    /// Every missing track in the group, in the order shown. Its length is
+    /// the group's count.
+    pub track_ids: Vec<i64>,
+    /// The first tracks of the group, in full; the rest come from
+    /// `missing_track_page`.
     pub tracks: Vec<MissingTrack>,
 }
 
@@ -77,6 +89,12 @@ pub struct MissingList {
     /// By folder, in folder order; tracks with no known folder last.
     pub groups: Vec<MissingGroup>,
 }
+
+/// How many tracks of each group come with the list.
+pub const FIRST_PAGE: usize = 100;
+
+/// The most ids one `missing_track_page` call answers; more are ignored.
+pub const MAX_PAGE: usize = 200;
 
 /// A last known folder.
 struct Folder {
@@ -138,9 +156,9 @@ pub struct Gathered {
 /// Reads the rows that have no file, and the music folders.
 pub fn gather(conn: &Connection) -> rusqlite::Result<Gathered> {
     let mut stmt = conn.prepare(
-        "SELECT id, location,
-                coalesce(json_extract(attributes, '$.Name'), ''),
-                coalesce(json_extract(attributes, '$.Artist'), '')
+        "SELECT id, CAST(location AS TEXT),
+                coalesce(CAST(json_extract(attributes, '$.Name') AS TEXT), ''),
+                coalesce(CAST(json_extract(attributes, '$.Artist') AS TEXT), '')
          FROM rekordbox_track WHERE file_id IS NULL ORDER BY id",
     )?;
     let rows = stmt
@@ -160,21 +178,9 @@ pub fn group(gathered: Gathered, volumes: &impl Volumes, disk: &impl DiskProbe) 
     let mut unknown = Vec::new();
     let mut total = 0;
     for (id, location, title, artist) in gathered.rows {
-        let mut track = MissingTrack {
-            id,
-            title,
-            artist,
-            last_known_path: None,
-        };
-        match decode(&location) {
-            Ok(Location::Streaming(_)) => continue,
-            Ok(Location::File(path)) => {
-                track.last_known_path = Some(shown(&path));
-                // Like every list: the file's name stands in for a
-                // missing title.
-                if track.title.trim().is_empty() {
-                    track.title = crate::send_values::file_name(path.as_str()).to_owned();
-                }
+        match read(id, &location, title, artist) {
+            None => continue,
+            Some((track, Some(path))) => {
                 let folder = Folder::of(&path);
                 groups
                     .entry(folder.key())
@@ -182,7 +188,7 @@ pub fn group(gathered: Gathered, volumes: &impl Volumes, disk: &impl DiskProbe) 
                     .1
                     .push(track);
             }
-            Err(_) => unknown.push(track),
+            Some((track, None)) => unknown.push(track),
         }
         total += 1;
     }
@@ -193,19 +199,60 @@ pub fn group(gathered: Gathered, volumes: &impl Volumes, disk: &impl DiskProbe) 
         list.push(MissingGroup {
             folder: Some(folder.shown),
             can_add,
-            tracks: sorted(tracks),
+            ..page_of(sorted(tracks))
         });
     }
     if !unknown.is_empty() {
         list.push(MissingGroup {
             folder: None,
             can_add: false,
-            tracks: sorted(unknown),
+            ..page_of(sorted(unknown))
         });
     }
     MissingList {
         total,
         groups: list,
+    }
+}
+
+/// One missing row as the list shows it: the track, and its decoded file
+/// path (`None` when the Location can't be decoded). `None` for a streaming
+/// entry, which is never listed. Bad data in the row only leaves the path
+/// out; it never fails.
+fn read(
+    id: i64,
+    location: &str,
+    title: String,
+    artist: String,
+) -> Option<(MissingTrack, Option<FilePath>)> {
+    let mut track = MissingTrack {
+        id,
+        title,
+        artist,
+        last_known_path: None,
+    };
+    match decode(location) {
+        Ok(Location::Streaming(_)) => None,
+        Ok(Location::File(path)) => {
+            track.last_known_path = Some(shown(&path));
+            // Like every list: the file's name stands in for a missing title.
+            if track.title.trim().is_empty() {
+                track.title = crate::send_values::file_name(path.as_str()).to_owned();
+            }
+            Some((track, Some(path)))
+        }
+        Err(_) => Some((track, None)),
+    }
+}
+
+/// A group's ids and first page; the folder and the offer are filled in by
+/// the caller.
+fn page_of(tracks: Vec<MissingTrack>) -> MissingGroup {
+    MissingGroup {
+        folder: None,
+        can_add: false,
+        track_ids: tracks.iter().map(|t| t.id).collect(),
+        tracks: tracks.into_iter().take(FIRST_PAGE).collect(),
     }
 }
 
@@ -235,6 +282,34 @@ fn offer(
     !music_folders
         .iter()
         .any(|m| m.volume == *stored.volume() && overlap(stored.rel(), &m.rel).is_some())
+}
+
+/// The rows for a page: the given ids (a JSON array, `?1`) that still have
+/// no file. Each id is found through the primary key.
+const PAGE_SQL: &str = "SELECT id, CAST(location AS TEXT),
+        coalesce(CAST(json_extract(attributes, '$.Name') AS TEXT), ''),
+        coalesce(CAST(json_extract(attributes, '$.Artist') AS TEXT), '')
+ FROM rekordbox_track
+ WHERE id IN (SELECT value FROM json_each(?1)) AND file_id IS NULL";
+
+/// The tracks for `ids`, in the order given. An id that is no longer
+/// missing (it was matched since the list was read) is left out, and so is
+/// any beyond [`MAX_PAGE`].
+pub fn page(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<MissingTrack>> {
+    let ids = &ids[..ids.len().min(MAX_PAGE)];
+    let wanted = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+    let mut stmt = conn.prepare(PAGE_SQL)?;
+    let mut found: BTreeMap<i64, MissingTrack> = BTreeMap::new();
+    let rows = stmt.query_map([wanted], |r| {
+        Ok((r.get(0)?, r.get::<_, String>(1)?, r.get(2)?, r.get(3)?))
+    })?;
+    for row in rows {
+        let (id, location, title, artist) = row?;
+        if let Some((track, _)) = read(id, &location, title, artist) {
+            found.insert(id, track);
+        }
+    }
+    Ok(ids.iter().filter_map(|id| found.remove(id)).collect())
 }
 
 /// The real disk. Only attribute reads; drives and shares that could stall
@@ -319,4 +394,19 @@ pub async fn missing_tracks(reads: State<'_, ReadPool>) -> Result<MissingList, I
     .await
     .map_err(|_| IpcError::new(ErrorKind::Internal))??;
     Ok(list)
+}
+
+/// The next tracks of a group: the ones with these ids (from the list's
+/// `track_ids`), in that order. At most [`MAX_PAGE`] are answered.
+#[tauri::command]
+#[specta::specta]
+pub async fn missing_track_page(
+    ids: Vec<i64>,
+    reads: State<'_, ReadPool>,
+) -> Result<Vec<MissingTrack>, IpcError> {
+    let reads = reads.inner().clone();
+    let tracks = tauri::async_runtime::spawn_blocking(move || reads.read(|c| page(c, &ids)))
+        .await
+        .map_err(|_| IpcError::new(ErrorKind::Internal))??;
+    Ok(tracks)
 }
