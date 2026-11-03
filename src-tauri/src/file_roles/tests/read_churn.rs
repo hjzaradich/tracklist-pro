@@ -202,6 +202,37 @@ fn a_hold_nobody_can_read_makes_every_track_due() {
 }
 
 #[test]
+fn a_second_read_over_a_hold_nobody_can_read_clears_it_so_later_reads_start_afresh() {
+    let (rig, tracks, _) = Rig::matched();
+    // A read, as `replace_snapshot` does it: `begin`, the statements, `hold`.
+    let read_losing = |rig: &Rig, track_id: i64| {
+        rig.writer
+            .call(move |c| {
+                let tx = c.transaction()?;
+                let churn = churn::begin(&tx)?;
+                tx.execute(
+                    "UPDATE rekordbox_track SET file_id = NULL, relink_method = NULL WHERE track_id = ?1",
+                    [track_id],
+                )?;
+                churn::hold(&tx, churn)?;
+                tx.commit()
+            })
+            .unwrap();
+    };
+    read_losing(&rig, 1);
+    assert!(rig.held());
+    rig.exec("UPDATE setting SET value = '\"not a hold\"' WHERE key = 'file_roles_churn'");
+    read_losing(&rig, 2);
+    assert_eq!(rig.due(), tracks.to_vec(), "every track is due");
+    assert!(!rig.held(), "the unreadable row is gone");
+    // Ranked now; the next read holds afresh, and only what it changed.
+    rig.exec("DELETE FROM best_file_due");
+    read_losing(&rig, 3);
+    assert!(rig.held());
+    assert_eq!(rig.due(), Vec::<i64>::new());
+}
+
+#[test]
 fn two_reads_before_a_relink_compare_with_the_links_before_the_first() {
     let (rig, tracks, _) = Rig::matched();
     rig.read_only(&["a.mp3", "b.mp3", "c.mp3"]);

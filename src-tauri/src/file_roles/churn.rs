@@ -111,7 +111,8 @@ fn due_these(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<()> {
     let ids = serde_json::to_string(recordings).unwrap_or_else(|_| "[]".into());
     conn.execute(
         "INSERT OR IGNORE INTO best_file_due (recording_id)
-         SELECT value FROM json_each(?1)",
+         SELECT value FROM json_each(?1)
+         WHERE value IN (SELECT id FROM recording)",
         [ids],
     )?;
     Ok(())
@@ -161,7 +162,10 @@ pub(crate) fn hold(conn: &Connection, before: Before) -> rusqlite::Result<()> {
         (None, Some(json)) => match serde_json::from_str(&json) {
             Ok(held) => held,
             Err(_) => {
+                // Every track is due; forget the row so later reads don't
+                // make every track due again.
                 due_every_track(conn)?;
+                conn.execute("DELETE FROM setting WHERE key = ?1", [KEY])?;
                 return Ok(());
             }
         },
@@ -239,13 +243,7 @@ pub(crate) fn settle(conn: &Connection, taken: Option<Taken>) -> rusqlite::Resul
         })
         .collect();
     let files = serde_json::to_string(&changed).unwrap_or_else(|_| "[]".into());
-    conn.execute(
-        "INSERT OR IGNORE INTO best_file_due (recording_id)
-         SELECT recording_id FROM recording_file
-         WHERE file_id IN (SELECT value FROM json_each(?1))",
-        [&files],
-    )?;
-    // The tracks that hold a changed file stay due; the others the relink's
+    // The tracks that hold a changed file are due; the others the relink's
     // updates added are taken back. One that was due before is not touched.
     let keep: HashSet<i64> = {
         let mut stmt = conn.prepare_cached(
@@ -255,6 +253,7 @@ pub(crate) fn settle(conn: &Connection, taken: Option<Taken>) -> rusqlite::Resul
         let rows = stmt.query_map([&files], |r| r.get(0))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
+    due_these(conn, &keep.iter().copied().collect::<Vec<_>>())?;
     let taken_back: Vec<i64> = due_set(conn)?
         .into_iter()
         .filter(|r| !due.contains(r) && !keep.contains(r))
