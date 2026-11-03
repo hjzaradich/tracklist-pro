@@ -91,8 +91,11 @@ where
         let volumes = Arc::new((self.volumes)());
         let page = self.page;
         // A long job gets a bigger cache and a rarer checkpoint (see `Bulk`).
-        let bulk = writer.call(|c| Bulk::start(c))?;
-        let result = (|| -> Result<(), JobError> {
+        let _bulk = JobBulk {
+            writer: writer.clone(),
+            bulk: Some(writer.call(|c| Bulk::start(c))?),
+        };
+        {
             let (mut done, mut left) = (0usize, writer.call(|c| due(c))?);
             while left > 0 {
                 job.check_cancelled()?;
@@ -113,12 +116,28 @@ where
                 job.progress(done as f64 / (done + left).max(1) as f64)?;
             }
             Ok(())
-        })();
-        writer.call(move |c| {
-            bulk.end(c);
-            Ok(())
-        })?;
-        result
+        }
+    }
+}
+
+/// [`Bulk`] on the writer's connection, put back when this is dropped: after
+/// success, an error, a cancel, giving way, or a panic. A failure to put
+/// back is logged, so the job's own result stands (a cancel stays a cancel).
+struct JobBulk {
+    writer: Writer,
+    bulk: Option<Bulk>,
+}
+
+impl Drop for JobBulk {
+    fn drop(&mut self) {
+        let Some(bulk) = self.bulk.take() else { return };
+        let put_back = self.writer.call(move |c| Ok(bulk.end(c)));
+        if let Err(e) = put_back
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.map_err(|e| e.to_string()))
+        {
+            eprintln!("search: could not put the cache and checkpoint settings back: {e}");
+        }
     }
 }
 

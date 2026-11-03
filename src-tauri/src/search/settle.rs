@@ -373,11 +373,26 @@ impl Bulk {
     }
 
     /// Puts the settings back and lets the log be checkpointed again at the
-    /// next commit over the usual size. A failure to restore only leaves a
-    /// larger cache, which does no harm.
-    pub(crate) fn end(self, conn: &Connection) {
-        let _ = conn.pragma_update(None, "cache_size", self.cache_size);
-        let _ = conn.pragma_update(None, "wal_autocheckpoint", self.wal_autocheckpoint);
+    /// next commit over the usual size.
+    pub(crate) fn end(self, conn: &Connection) -> rusqlite::Result<()> {
+        conn.pragma_update(None, "cache_size", self.cache_size)?;
+        conn.pragma_update(None, "wal_autocheckpoint", self.wal_autocheckpoint)
+    }
+}
+
+/// [`Bulk`] on a connection in hand, put back when this is dropped, on an
+/// error or a panic too. A failure to put back is logged: it only leaves a
+/// larger cache, which does no harm, and must not hide the caller's result.
+struct BulkOn<'a> {
+    conn: &'a mut Connection,
+    bulk: Option<Bulk>,
+}
+
+impl Drop for BulkOn<'_> {
+    fn drop(&mut self) {
+        if let Some(Err(e)) = self.bulk.take().map(|b| b.end(self.conn)) {
+            eprintln!("search: could not put the cache and checkpoint settings back: {e}");
+        }
     }
 }
 
@@ -389,15 +404,14 @@ pub fn settle(
     page: usize,
 ) -> rusqlite::Result<usize> {
     let bulk = Bulk::start(conn)?;
+    let on = BulkOn {
+        conn,
+        bulk: Some(bulk),
+    };
     let mut settled = 0;
-    let done = (|| -> rusqlite::Result<()> {
-        while super::pending(conn)? {
-            settled += settle_page(conn, volumes, page)?;
-        }
-        Ok(())
-    })();
-    bulk.end(conn);
-    done?;
+    while super::pending(on.conn)? {
+        settled += settle_page(on.conn, volumes, page)?;
+    }
     Ok(settled)
 }
 
