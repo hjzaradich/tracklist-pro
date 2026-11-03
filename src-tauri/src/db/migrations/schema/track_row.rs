@@ -102,7 +102,8 @@ fn every_sort_has_an_index_that_holds_the_flags_and_the_format_and_a_descending_
         .collect::<Result<_, _>>()
         .unwrap();
     for column in [
-        "title", "artist", "genre", "bpm", "key", "time", "rating", "added", "file", "folder",
+        "title", "artist", "genre", "bpm", "key", "time", "rating", "energy", "added", "file",
+        "folder",
     ] {
         let name = format!("track_row_{column}");
         assert!(names.contains(&name), "{name} in {names:?}");
@@ -110,7 +111,12 @@ fn every_sort_has_an_index_that_holds_the_flags_and_the_format_and_a_descending_
             &conn,
             &format!("SELECT sql FROM sqlite_master WHERE name = '{name}'"),
         );
-        assert!(sql.ends_with("recording_id, flags, format)"), "{sql}");
+        let sql = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            sql.ends_with("recording_id, flags, format )")
+                || sql.ends_with("recording_id, flags, format)"),
+            "{sql}"
+        );
         // A descending sort reads this index backwards.
         assert!(!sql.contains("DESC"), "{sql}");
     }
@@ -118,7 +124,7 @@ fn every_sort_has_an_index_that_holds_the_flags_and_the_format_and_a_descending_
     assert!(names.contains(&"track_row_flags".to_owned()));
     // And one for the Overview's genre and its door (migration 0044).
     assert!(names.contains(&"track_row_in_genre".to_owned()));
-    assert_eq!(names.len(), 12, "{names:?}");
+    assert_eq!(names.len(), 13, "{names:?}");
 }
 
 #[test]
