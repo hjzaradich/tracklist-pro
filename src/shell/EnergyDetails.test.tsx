@@ -125,6 +125,12 @@ describe("the Details panel's Energy section", () => {
       expect(asked).toEqual([]);
     });
 
+    it("moves the focus to the first energy button, since the Clear button goes with the energy", async () => {
+      renderPanel(7, "user");
+      await userEvent.click(clearButton()!);
+      await waitFor(() => expect(button(1)).toHaveFocus());
+    });
+
     it.each([
       ["another source's energy", 6, "mik"],
       ["no energy", null, null],

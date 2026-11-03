@@ -32,7 +32,7 @@
 //! (Mixed In Key, the estimate, the audio model) then shows, as the ranking
 //! says, and a track with no energy of the user's is left alone. It is
 //! undoable as one step. It does not touch `stars_held`: a track that shows
-//! no energy afterwards has no rating of the app's own, so a send keeps
+//! no energy afterwards (no other source's shows) has no rating of the app's own, so a send keeps
 //! rekordbox's stars, as for any track with no energy
 //! (`crate::energy_stars`).
 

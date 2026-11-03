@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { TableRow } from "../bindings";
@@ -31,6 +31,7 @@ import styles from "./TrackDetails.module.css";
 export function EnergyDetails({ row }: { row: TableRow }) {
   const { t } = useTranslation("shell");
   const headingId = useId();
+  const section = useRef<HTMLElement>(null);
   const selected = useSelectedTrack((state) => state.ids);
   const give = useSetEnergy();
   const clear = useClearEnergy();
@@ -51,7 +52,7 @@ export function EnergyDetails({ row }: { row: TableRow }) {
   else line = t("details.energy.from", { energy, source: t(`details.energy.source.${energySource}`) });
 
   return (
-    <section aria-labelledby={headingId} className={styles.energy}>
+    <section ref={section} aria-labelledby={headingId} className={styles.energy}>
       <h3 id={headingId} className={styles.heading}>
         {t("details.energy.title")}
       </h3>
@@ -62,7 +63,13 @@ export function EnergyDetails({ row }: { row: TableRow }) {
       />
       <p className={styles.quiet}>{t("details.energy.keys")}</p>
       {canClear && (
-        <button type="button" className={styles.withdraw} onClick={() => clear.mutate({ recordingIds: tracks })}>
+        <button type="button" className={styles.withdraw} onClick={() =>
+            clear.mutate(
+              { recordingIds: tracks },
+              // The button goes when the user's energy does: keep the keyboard's place.
+              { onSuccess: () => section.current?.querySelector("button")?.focus() },
+            )
+          }>
           {t("details.energy.clear")}
         </button>
       )}
