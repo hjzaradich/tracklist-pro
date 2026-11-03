@@ -94,7 +94,11 @@ fn read_as_job(writer: &Writer, path: &Path) -> (JobStatus, Option<String>) {
 /// Relink jobs in the table, whatever their status.
 fn relink_job_count(writer: &Writer) -> i64 {
     writer
-        .call(|c| c.query_row("SELECT count(*) FROM job WHERE kind = 'relink'", [], |r| r.get(0)))
+        .call(|c| {
+            c.query_row("SELECT count(*) FROM job WHERE kind = 'relink'", [], |r| {
+                r.get(0)
+            })
+        })
         .unwrap()
 }
 
