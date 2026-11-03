@@ -30,6 +30,12 @@
 //! ranked or still due. Nothing fires on `recording_file.role`, so the step
 //! never makes a track due.
 //!
+//! A rekordbox read deletes and inserts every rekordbox row and the relink
+//! after it matches them again, which the triggers see as every matched
+//! file's link lost and made. [`churn`] takes those tracks back out and makes
+//! due only the tracks holding a file whose link (none, probable, trusted)
+//! is not what it was before the read.
+//!
 //! Bumping [`ROLES_VERSION`] (when the ranking's rules change) makes every
 //! track due.
 //!
@@ -59,6 +65,7 @@
 //! field, apart from the audio. A tie is not better either.
 
 pub(crate) mod choice;
+pub(crate) mod churn;
 pub(crate) mod facts;
 #[cfg(test)]
 mod tests;
@@ -184,6 +191,9 @@ pub struct Batch {
 /// those tracks' files first (a stale verdict reads as none). Safe to run at
 /// any time; with nothing due it writes nothing.
 pub fn settle_batch(conn: &mut Connection, batch: usize) -> rusqlite::Result<Batch> {
+    // Tracks a read held back are ranked on the links as they stand now only
+    // once they are due again ([`churn`]).
+    churn::restore(conn)?;
     let due: Vec<i64> = {
         let mut stmt = conn.prepare_cached(
             "SELECT recording_id FROM best_file_due ORDER BY recording_id LIMIT ?1",
@@ -211,6 +221,7 @@ pub fn settle_tracks(conn: &mut Connection, recordings: &[i64]) -> rusqlite::Res
     if recordings.is_empty() {
         return Ok(Summary::default());
     }
+    churn::restore(conn)?;
     let mut wanted = recordings.to_vec();
     wanted.sort_unstable();
     wanted.dedup();

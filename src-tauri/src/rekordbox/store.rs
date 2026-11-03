@@ -244,6 +244,9 @@ pub fn replace_snapshot(
         tx.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |r| {
             r.get(0)
         })?;
+    // The roles read only whether each file has a link; a read that leaves
+    // the links as they were must not make every matched track due.
+    let churn = crate::file_roles::churn::begin(&tx)?;
     let kept = if rows.complete {
         // `WHERE 1`: the Library's change stamp counts the rows a statement
         // reports, and SQLite reports none for a DELETE with no WHERE clause.
@@ -270,6 +273,7 @@ pub fn replace_snapshot(
             ])?;
         }
     }
+    crate::file_roles::churn::hold(&tx, churn)?;
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let summary = SnapshotSummary {
         tracks: count(rows.rows.len()),

@@ -540,6 +540,66 @@ pub(crate) fn any_to_try(
     )
 }
 
+/// [`any_to_try`] for several stages at once, in a single pass over the
+/// files: the answer for each of `stages` (a stage and its version), in
+/// order, exactly as `any_to_try` would give it for that stage alone. A
+/// caller that wants more than one answer pays for one look at every file,
+/// not one per stage; it can't stop at a first due file, so it is for a
+/// library where most of them are asked.
+pub(crate) fn any_to_try_each(
+    conn: &Connection,
+    stages: &[(Stage, i64)],
+    scope: &Scope,
+    gate: ReadGate,
+    rescan: bool,
+) -> rusqlite::Result<Vec<bool>> {
+    let json = |ids: &[i64]| serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+    let (folders, files) = match scope {
+        Scope::All => (None, None),
+        Scope::Folders(ids) => (Some(json(ids)), None),
+        Scope::Files(ids) => (None, Some(json(ids))),
+    };
+    // ?1 folders, ?2 files, ?3 online-only allowed, ?4 rescan, ?5 the
+    // unreachable reason; then each stage's name and version.
+    let mut joins = String::new();
+    let mut columns = Vec::new();
+    for i in 0..stages.len() {
+        let (name, version) = (6 + 2 * i, 7 + 2 * i);
+        joins +=
+            &format!(" LEFT JOIN file_stage s{i} ON s{i}.file_id = f.id AND s{i}.stage = ?{name}");
+        columns.push(format!(
+            "COALESCE(MAX(s{i}.file_id IS NULL
+                          OR s{i}.version <> ?{version}
+                          OR s{i}.size IS NOT f.size
+                          OR s{i}.mtime IS NOT f.mtime
+                          OR (s{i}.status = 'skipped' AND NOT (?4 AND s{i}.reason = ?5))), 0)"
+        ));
+    }
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![
+        Box::new(folders),
+        Box::new(files),
+        Box::new(gate.allows(true)),
+        Box::new(rescan),
+        Box::new(crate::scan_state::UNREACHABLE),
+    ];
+    for (stage, version) in stages {
+        params.push(Box::new(stage.as_str()));
+        params.push(Box::new(*version));
+    }
+    let sql = format!(
+        "SELECT {} FROM file f{joins}
+         WHERE f.present = 1
+           AND (?1 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?1)))
+           AND (?2 IS NULL OR f.id IN (SELECT value FROM json_each(?2)))
+           AND (f.online_only = 0 OR ?3)",
+        columns.join(", ")
+    );
+    conn.prepare_cached(&sql)?
+        .query_row(rusqlite::params_from_iter(params.iter()), |r| {
+            (0..stages.len()).map(|i| r.get::<_, bool>(i)).collect()
+        })
+}
+
 /// Queues `job` with `enqueue`, unless a job of the same kind and target
 /// is queued or running. Queued: its id is returned, and it takes `job`'s
 /// priority if that's higher (workers take jobs by their stored priority).

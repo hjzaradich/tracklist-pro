@@ -128,6 +128,8 @@ pub use compare::{compare, item_seconds, Comparison, Segment};
 pub use index::BlockIndex;
 pub(crate) use job::request;
 pub use job::{matching_job, refresh, Matcher, Summary, KEEP_INDEX_UP_TO, PRIORITY};
+#[cfg(test)]
+pub(crate) use store::any_due_by_one_scan;
 pub use store::{any_due, StoredMatch};
 
 /// The version of the comparison's definition, stored with every result.

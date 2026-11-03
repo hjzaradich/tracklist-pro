@@ -133,19 +133,49 @@ pub(crate) fn due(conn: &Connection, id: i64) -> rusqlite::Result<Option<Due>> {
 /// OneDrive gate allows (online-only files count only if the user opted
 /// in), in the `reachable` music folders if given. For the chain to judge
 /// whether a job is worth queuing.
+///
+/// The measurement is looked for first: with nothing due, most files have
+/// one, and that one lookup ends the file's turn (the hash row is looked up
+/// only for a file with none).
 pub(crate) fn any_due(
     conn: &Connection,
     allows_online_only: bool,
     reachable: Option<&[i64]>,
 ) -> rusqlite::Result<bool> {
+    any_due_in_order(conn, allows_online_only, reachable, false)
+}
+
+/// [`any_due`], with the hash row looked up before the measurement when
+/// `hash_first`: the order it used to ask in. The answer is the same.
+fn any_due_in_order(
+    conn: &Connection,
+    allows_online_only: bool,
+    reachable: Option<&[i64]>,
+    hash_first: bool,
+) -> rusqlite::Result<bool> {
     let reachable = reachable.map(ids_json);
+    let (first, second) = match hash_first {
+        true => (HASH_CURRENT, NOT_MEASURED),
+        false => (NOT_MEASURED, HASH_CURRENT),
+    };
     conn.prepare_cached(&sql(&format!(
         "SELECT EXISTS (SELECT 1 FROM file f
                         WHERE f.present = 1 AND (f.online_only = 0 OR ?1)
                           AND (?2 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?2)))
-                          AND {HASH_CURRENT} AND {NOT_MEASURED})"
+                          AND {first} AND {second})"
     )))?
     .query_row(params![allows_online_only, reachable], |r| r.get(0))
+}
+
+/// [`any_due`] in its old order, for a test that holds the two to the same
+/// answer.
+#[cfg(test)]
+pub(crate) fn any_due_hash_first(
+    conn: &Connection,
+    allows_online_only: bool,
+    reachable: Option<&[i64]>,
+) -> rusqlite::Result<bool> {
+    any_due_in_order(conn, allows_online_only, reachable, true)
 }
 
 /// What a measurement says about a file, as one row.
