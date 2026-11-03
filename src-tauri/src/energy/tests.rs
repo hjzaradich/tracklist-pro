@@ -336,7 +336,13 @@ fn clearing_takes_away_only_the_users_energy_and_the_next_source_shows_again() {
     assert_eq!(shown(&lib, tracks[1]), None, "no other source: no energy");
     let others: i64 = lib
         .writer
-        .call(|c| c.query_row("SELECT count(*) FROM analysis WHERE source <> 'user'", [], |r| r.get(0)))
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM analysis WHERE source <> 'user'",
+                [],
+                |r| r.get(0),
+            )
+        })
         .unwrap();
     assert_eq!(others, 2, "no other source's row was touched");
 }
@@ -354,7 +360,11 @@ fn undoing_a_clear_brings_the_users_energy_back_in_one_step() {
     let done = clear(&lib, &tracks);
     assert_eq!(done.changed, 2);
     assert_eq!(energies(&lib, &tracks), [Some(4), None, None]);
-    assert_eq!(cleared_operations(&lib), 1, "one operation for all the tracks");
+    assert_eq!(
+        cleared_operations(&lib),
+        1,
+        "one operation for all the tracks"
+    );
 
     undo(&lib);
     assert_eq!(energies(&lib, &tracks), [Some(8), Some(3), None]);
@@ -362,14 +372,18 @@ fn undoing_a_clear_brings_the_users_energy_back_in_one_step() {
 }
 
 #[test]
-fn a_track_with_no_energy_of_the_users_is_left_alone_and_nothing_is_recorded_when_nothing_changes() {
+fn a_track_with_no_energy_of_the_users_is_left_alone_and_nothing_is_recorded_when_nothing_changes()
+{
     let (lib, tracks) = three();
     lib.insert(
         "INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'mik', 4)",
         (),
     );
     let done = clear(&lib, &tracks);
-    assert_eq!((done.changed, done.skipped, done.operation_id), (0, 3, None));
+    assert_eq!(
+        (done.changed, done.skipped, done.operation_id),
+        (0, 3, None)
+    );
     assert_eq!(cleared_operations(&lib), 0);
     assert_eq!(shown(&lib, tracks[0]), Some((4, "mik".to_owned())));
 
@@ -394,7 +408,11 @@ fn the_tracks_with_an_energy_of_the_users_are_counted_for_the_clear_button() {
     };
     assert_eq!(among(tracks.to_vec()), 2);
     assert_eq!(among(vec![tracks[0], tracks[0]]), 1);
-    assert_eq!(among(vec![tracks[2]]), 0, "another source's energy is not the user's");
+    assert_eq!(
+        among(vec![tracks[2]]),
+        0,
+        "another source's energy is not the user's"
+    );
     assert_eq!(among(vec![]), 0);
 }
 

@@ -233,16 +233,21 @@ pub(crate) fn clear_in(rec: &mut Recorder<'_>, recording: i64) -> Result<bool, O
 /// recorded.
 pub fn clear_energy_on(conn: &mut Connection, recordings: &[i64]) -> Result<EnergySet, OpsError> {
     let mut asked = std::collections::HashSet::new();
-    let recorded = ops::record(conn, CLEAR_ENERGY_OPERATION, &serde_json::json!({}), |rec| {
-        let mut cleared = 0u32;
-        for &recording in recordings {
-            if asked.insert(recording) && clear_in(rec, recording)? {
-                cleared += 1;
+    let recorded = ops::record(
+        conn,
+        CLEAR_ENERGY_OPERATION,
+        &serde_json::json!({}),
+        |rec| {
+            let mut cleared = 0u32;
+            for &recording in recordings {
+                if asked.insert(recording) && clear_in(rec, recording)? {
+                    cleared += 1;
+                }
             }
-        }
-        rec.detail("tracks", cleared);
-        Ok(cleared)
-    })?;
+            rec.detail("tracks", cleared);
+            Ok(cleared)
+        },
+    )?;
     Ok(EnergySet {
         changed: recorded.value,
         skipped: (asked.len() as u32).saturating_sub(recorded.value),

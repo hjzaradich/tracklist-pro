@@ -251,11 +251,19 @@ fn energies_to_sort() -> (Lib, Vec<i64>) {
 }
 
 #[test]
-fn sorting_by_energy_goes_lowest_first_and_highest_first_with_the_tracks_with_none_last_either_way() {
+fn sorting_by_energy_goes_lowest_first_and_highest_first_with_the_tracks_with_none_last_either_way()
+{
     let (lib, t) = energies_to_sort();
     for source in [TableSource::Library, TableSource::AllMusic] {
-        let up = ids(&run(&lib, sorted(source.clone(), SortColumn::Energy, false)));
-        assert_eq!(up, [t[1], t[0], t[2], t[4], t[3], t[5]], "ascending, ties by id");
+        let up = ids(&run(
+            &lib,
+            sorted(source.clone(), SortColumn::Energy, false),
+        ));
+        assert_eq!(
+            up,
+            [t[1], t[0], t[2], t[4], t[3], t[5]],
+            "ascending, ties by id"
+        );
         let down = ids(&run(&lib, sorted(source, SortColumn::Energy, true)));
         assert_eq!(
             down,
@@ -268,13 +276,24 @@ fn sorting_by_energy_goes_lowest_first_and_highest_first_with_the_tracks_with_no
 #[test]
 fn sorting_by_energy_follows_a_new_energy_once_the_index_has_caught_up() {
     let (lib, t) = energies_to_sort();
-    let order = |lib: &Lib| ids(&run(lib, sorted(TableSource::Library, SortColumn::Energy, false)));
+    let order = |lib: &Lib| {
+        ids(&run(
+            lib,
+            sorted(TableSource::Library, SortColumn::Energy, false),
+        ))
+    };
     assert_eq!(order(&lib)[0], t[1]);
     give(&lib, t[3], "user", 1);
     assert_eq!(order(&lib)[0], t[3], "the new energy 1 comes first");
-    lib.insert("DELETE FROM analysis WHERE recording_id = ?1 AND source = 'user'", (t[3],));
+    lib.insert(
+        "DELETE FROM analysis WHERE recording_id = ?1 AND source = 'user'",
+        (t[3],),
+    );
     assert_eq!(order(&lib).last(), Some(&t[5]));
-    assert!(order(&lib).ends_with(&[t[3], t[5]]), "and with none it goes last again");
+    assert!(
+        order(&lib).ends_with(&[t[3], t[5]]),
+        "and with none it goes last again"
+    );
 }
 
 #[test]
@@ -302,11 +321,21 @@ fn a_window_of_an_energy_sort_is_the_same_rows_as_the_plain_sort_whichever_way_i
                         let q = q.clone();
                         move |c| {
                             let built = build(&q, None);
-                            select_ids(c, &built.from_where, &built.order_by, &built.params, q.limit, q.offset)
+                            select_ids(
+                                c,
+                                &built.from_where,
+                                &built.order_by,
+                                &built.params,
+                                q.limit,
+                                q.offset,
+                            )
                         }
                     })
                     .unwrap();
-                assert_eq!(planned, plain, "descending {descending} offset {offset} limit {limit}");
+                assert_eq!(
+                    planned, plain,
+                    "descending {descending} offset {offset} limit {limit}"
+                );
             }
         }
     }

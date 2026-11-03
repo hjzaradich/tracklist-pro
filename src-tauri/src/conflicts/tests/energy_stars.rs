@@ -294,7 +294,11 @@ fn a_track_whose_energy_is_cleared_sends_the_stars_of_the_next_source_if_there_i
 
     assert_eq!(lib.shown(id), Some(5));
     let (_, sent) = lib.sent_after_merge(&[id]);
-    assert_eq!(attribute(&sent[0], "Rating"), Some(THREE), "energy 5 is three stars");
+    assert_eq!(
+        attribute(&sent[0], "Rating"),
+        Some(THREE),
+        "energy 5 is three stars"
+    );
 }
 
 #[test]
