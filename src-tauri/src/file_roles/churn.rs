@@ -130,7 +130,11 @@ pub(crate) fn begin(conn: &Connection) -> rusqlite::Result<Before> {
     let waiting = stored(conn)?.is_some();
     Ok(Before {
         due: due_set(conn)?,
-        statuses: if waiting { None } else { Some(status_of(conn)?) },
+        statuses: if waiting {
+            None
+        } else {
+            Some(status_of(conn)?)
+        },
     })
 }
 
@@ -230,7 +234,9 @@ pub(crate) fn settle(conn: &Connection, taken: Option<Taken>) -> rusqlite::Resul
         .copied()
         .collect::<HashSet<i64>>()
         .into_iter()
-        .filter(|file| before.get(file).copied().unwrap_or(0) != now.get(file).copied().unwrap_or(0))
+        .filter(|file| {
+            before.get(file).copied().unwrap_or(0) != now.get(file).copied().unwrap_or(0)
+        })
         .collect();
     let files = serde_json::to_string(&changed).unwrap_or_else(|_| "[]".into());
     conn.execute(

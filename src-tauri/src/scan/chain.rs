@@ -565,9 +565,8 @@ pub(crate) fn any_to_try_each(
     let mut columns = Vec::new();
     for i in 0..stages.len() {
         let (name, version) = (6 + 2 * i, 7 + 2 * i);
-        joins += &format!(
-            " LEFT JOIN file_stage s{i} ON s{i}.file_id = f.id AND s{i}.stage = ?{name}"
-        );
+        joins +=
+            &format!(" LEFT JOIN file_stage s{i} ON s{i}.file_id = f.id AND s{i}.stage = ?{name}");
         columns.push(format!(
             "COALESCE(MAX(s{i}.file_id IS NULL
                           OR s{i}.version <> ?{version}

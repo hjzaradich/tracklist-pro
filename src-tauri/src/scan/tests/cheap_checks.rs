@@ -72,15 +72,24 @@ fn changes() -> Vec<(&'static str, String)> {
     let unreachable = crate::scan_state::UNREACHABLE;
     vec![
         ("nothing", "SELECT 1".into()),
-        ("a file goes missing", "UPDATE file SET present = 0 WHERE id = 1".into()),
-        ("a file's record is gone", "DELETE FROM grouping_file WHERE file_id = 2".into()),
+        (
+            "a file goes missing",
+            "UPDATE file SET present = 0 WHERE id = 1".into(),
+        ),
+        (
+            "a file's record is gone",
+            "DELETE FROM grouping_file WHERE file_id = 2".into(),
+        ),
         (
             "a missing file's record is gone",
             "UPDATE file SET present = 0 WHERE id = 2;
              DELETE FROM grouping_file WHERE file_id = 2"
                 .into(),
         ),
-        ("a record is undecided", "UPDATE grouping_file SET decided_as = NULL WHERE file_id = 3".into()),
+        (
+            "a record is undecided",
+            "UPDATE grouping_file SET decided_as = NULL WHERE file_id = 3".into(),
+        ),
         (
             "a record is of other rules",
             "UPDATE grouping_file SET decided_as = decided_as + 1 WHERE file_id = 3".into(),
@@ -95,7 +104,10 @@ fn changes() -> Vec<(&'static str, String)> {
             "an undecided file has no fingerprint",
             "UPDATE grouping_file SET decided_as = NULL WHERE file_id = 6".into(),
         ),
-        ("a match is gone", "DELETE FROM fingerprint_matched WHERE file_id = 2".into()),
+        (
+            "a match is gone",
+            "DELETE FROM fingerprint_matched WHERE file_id = 2".into(),
+        ),
         (
             "a match is of another version",
             "UPDATE fingerprint_matched SET version = version + 1 WHERE file_id = 2".into(),
@@ -108,21 +120,30 @@ fn changes() -> Vec<(&'static str, String)> {
             "the file a match stands on holds another fingerprint",
             "UPDATE file SET fingerprint = randomblob(64) WHERE id = 4".into(),
         ),
-        ("a copy loses its fingerprint", "UPDATE file SET fingerprint = NULL WHERE id = 5".into()),
+        (
+            "a copy loses its fingerprint",
+            "UPDATE file SET fingerprint = NULL WHERE id = 5".into(),
+        ),
         (
             "a match stands on another file that goes missing",
             "UPDATE fingerprint_matched SET stands = 3 WHERE file_id = 5;
              UPDATE file SET present = 0 WHERE id = 3"
                 .into(),
         ),
-        ("a file is in no track", "DELETE FROM recording_file WHERE file_id = 3".into()),
+        (
+            "a file is in no track",
+            "DELETE FROM recording_file WHERE file_id = 3".into(),
+        ),
         (
             "a missing file is in no track",
             "UPDATE file SET present = 0 WHERE id = 3;
              DELETE FROM recording_file WHERE file_id = 3"
                 .into(),
         ),
-        ("a measurement is gone", "DELETE FROM file_quality WHERE file_id = 2".into()),
+        (
+            "a measurement is gone",
+            "DELETE FROM file_quality WHERE file_id = 2".into(),
+        ),
         (
             "a measurement is of other audio",
             "UPDATE file_quality SET audio_hash = randomblob(34) WHERE file_id = 2".into(),
@@ -133,16 +154,23 @@ fn changes() -> Vec<(&'static str, String)> {
         ),
         (
             "a hash is of another version",
-            "UPDATE file_stage SET version = version + 1 WHERE stage = 'hash' AND file_id = 2".into(),
+            "UPDATE file_stage SET version = version + 1 WHERE stage = 'hash' AND file_id = 2"
+                .into(),
         ),
-        ("a file changed size", "UPDATE file SET size = 1001 WHERE id = 3".into()),
+        (
+            "a file changed size",
+            "UPDATE file SET size = 1001 WHERE id = 3".into(),
+        ),
         (
             "a file has no mtime on either side",
             "UPDATE file SET mtime = NULL WHERE id = 3;
              UPDATE file_stage SET mtime = NULL WHERE file_id = 3"
                 .into(),
         ),
-        ("a file has no mtime now", "UPDATE file SET mtime = NULL WHERE id = 3".into()),
+        (
+            "a file has no mtime now",
+            "UPDATE file SET mtime = NULL WHERE id = 3".into(),
+        ),
         (
             "a file has no read row",
             "DELETE FROM file_stage WHERE stage = 'read' AND file_id = 1".into(),
@@ -157,10 +185,22 @@ fn changes() -> Vec<(&'static str, String)> {
             "a file has no fingerprint row",
             "DELETE FROM file_stage WHERE stage = 'fingerprint' AND file_id = 4".into(),
         ),
-        ("a file has a NULL hash", "UPDATE file SET audio_hash = NULL WHERE id = 2".into()),
-        ("a hash was skipped as unreachable", skipped("hash", 2, unreachable)),
-        ("a read was skipped, for another reason", skipped("read", 2, "online_only")),
-        ("a fingerprint was skipped as unreachable", skipped("fingerprint", 5, unreachable)),
+        (
+            "a file has a NULL hash",
+            "UPDATE file SET audio_hash = NULL WHERE id = 2".into(),
+        ),
+        (
+            "a hash was skipped as unreachable",
+            skipped("hash", 2, unreachable),
+        ),
+        (
+            "a read was skipped, for another reason",
+            skipped("read", 2, "online_only"),
+        ),
+        (
+            "a fingerprint was skipped as unreachable",
+            skipped("fingerprint", 5, unreachable),
+        ),
         (
             "an online-only file is unmeasured",
             "UPDATE file SET online_only = 1 WHERE id = 2;
@@ -174,7 +214,10 @@ fn changes() -> Vec<(&'static str, String)> {
                 .into(),
         ),
         ("no file is present", "UPDATE file SET present = 0".into()),
-        ("another stage version", "UPDATE file_stage SET version = version + 1 WHERE file_id = 3".into()),
+        (
+            "another stage version",
+            "UPDATE file_stage SET version = version + 1 WHERE file_id = 3".into(),
+        ),
     ]
 }
 
@@ -204,7 +247,11 @@ fn every_cheaper_startup_check_gives_the_answer_it_gave_before() {
         }
     }
     for (what, [no, yes]) in seen {
-        assert!(no && yes, "{what} was only ever {}", if yes { "yes" } else { "no" });
+        assert!(
+            no && yes,
+            "{what} was only ever {}",
+            if yes { "yes" } else { "no" }
+        );
     }
 }
 

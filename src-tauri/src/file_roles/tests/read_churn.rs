@@ -133,11 +133,9 @@ fn a_link_that_turns_probable_makes_its_track_due_and_no_other() {
         .call(move |c| {
             let tx = c.transaction()?;
             let taken = churn::take(&tx)?;
-            for (file, name, probable) in [
-                (files[0], "A", 0),
-                (files[1], "B", 1),
-                (files[2], "C", 0),
-            ] {
+            for (file, name, probable) in
+                [(files[0], "A", 0), (files[1], "B", 1), (files[2], "C", 0)]
+            {
                 tx.execute(
                     "UPDATE rekordbox_track SET file_id = ?1, relink_probable = ?2,
                          relink_method = CASE WHEN ?2 THEN 'filename_only' ELSE 'path' END
