@@ -235,7 +235,27 @@ fn members(conn: &Connection, scope: Option<&Scope>) -> rusqlite::Result<Vec<Mem
 }
 
 /// Whether a present file has no track yet.
+///
+/// A file is in at most one track (`recording_file.file_id` is its key, and
+/// the foreign key keeps every row to a real file), so as many rows as files
+/// means every file has one: that is answered from the two row counts, with
+/// no look at a file. Only when some file has none is each present file
+/// looked at ([`any_ungrouped_by_scan`]).
 pub fn any_ungrouped(conn: &Connection) -> rusqlite::Result<bool> {
+    let some_without: bool = conn.query_row(
+        "SELECT (SELECT count(*) FROM file) > (SELECT count(*) FROM recording_file)",
+        [],
+        |r| r.get(0),
+    )?;
+    if !some_without {
+        return Ok(false);
+    }
+    any_ungrouped_by_scan(conn)
+}
+
+/// [`any_ungrouped`] by looking at every present file: the answer for any
+/// state, and what it said before the count shortcut.
+pub(crate) fn any_ungrouped_by_scan(conn: &Connection) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM file f
                         WHERE f.present = 1

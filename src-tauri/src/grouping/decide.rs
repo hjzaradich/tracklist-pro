@@ -703,6 +703,46 @@ fn due_page(conn: &Connection, after: i64, limit: usize) -> rusqlite::Result<Vec
 /// doesn't count: whatever makes it ready (the fingerprint stage, then
 /// matching) asks for a deciding job when it's done.
 pub fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
+    // The same question as one `file LEFT JOIN grouping_file` scan, asked in
+    // two halves so a library with nothing due reads the narrow record table
+    // instead of every file: the files whose record is due (driven from the
+    // records, which are checked before any file row is looked up), and the
+    // files with no record at all. A file's record is `ON DELETE CASCADE` and
+    // one per file, so as many records as files means no file lacks one.
+    let recorded_due = conn
+        .prepare_cached(&format!(
+            "SELECT EXISTS (
+                 SELECT 1 FROM grouping_file g CROSS JOIN file f ON f.id = g.file_id
+                 WHERE g.decided_as IS NOT ?1 AND f.present = 1 AND {})",
+            ready()
+        ))?
+        .query_row([super::decided_as()], |r| r.get::<_, bool>(0))?;
+    if recorded_due {
+        return Ok(true);
+    }
+    let some_unrecorded: bool = conn.query_row(
+        "SELECT (SELECT count(*) FROM file) > (SELECT count(*) FROM grouping_file)",
+        [],
+        |r| r.get(0),
+    )?;
+    if !some_unrecorded {
+        return Ok(false);
+    }
+    conn.prepare_cached(&format!(
+        "SELECT EXISTS (
+             SELECT 1 FROM file f
+             WHERE f.present = 1
+               AND NOT EXISTS (SELECT 1 FROM grouping_file g WHERE g.file_id = f.id)
+               AND {})",
+        ready()
+    ))?
+    .query_row([], |r| r.get(0))
+}
+
+/// [`any_due`] as one scan of `file` with a `LEFT JOIN`: what it answered
+/// before it was split. Kept so a test can hold the two to the same answer.
+#[cfg(test)]
+pub(crate) fn any_due_by_one_scan(conn: &Connection) -> rusqlite::Result<bool> {
     conn.prepare_cached(&format!(
         "SELECT EXISTS (
              SELECT 1 FROM file f LEFT JOIN grouping_file g ON g.file_id = f.id

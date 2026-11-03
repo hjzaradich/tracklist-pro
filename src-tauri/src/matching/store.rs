@@ -247,6 +247,48 @@ pub(crate) fn fingerprint_of(conn: &Connection, id: i64) -> rusqlite::Result<Opt
 /// row names a file that no longer stands for it (gone, missing, or
 /// holding another fingerprint now).
 pub fn any_due(conn: &Connection) -> rusqlite::Result<bool> {
+    // Asked in two halves so a library with nothing due reads the narrow
+    // `fingerprint_matched` table, not every file: a row whose standing file
+    // is no longer good (driven from the rows), and a fingerprinted file with
+    // no row of this version. Rows are one per file and keep to real files,
+    // so as many rows of this version as files means no file lacks one.
+    let stands_gone = conn
+        .prepare_cached(
+            "SELECT EXISTS (
+                 SELECT 1 FROM fingerprint_matched m CROSS JOIN file f ON f.id = m.file_id
+                 WHERE m.version = ?1 AND f.present = 1 AND f.fingerprint IS NOT NULL
+                   AND m.stands <> f.id AND NOT EXISTS (
+                            SELECT 1 FROM file s
+                            WHERE s.id = m.stands AND s.present = 1
+                              AND s.fingerprint = f.fingerprint))",
+        )?
+        .query_row([VERSION], |r| r.get::<_, bool>(0))?;
+    if stands_gone {
+        return Ok(true);
+    }
+    let some_without: bool = conn
+        .prepare_cached(
+            "SELECT (SELECT count(*) FROM file)
+                  > (SELECT count(*) FROM fingerprint_matched WHERE version = ?1)",
+        )?
+        .query_row([VERSION], |r| r.get(0))?;
+    if !some_without {
+        return Ok(false);
+    }
+    conn.prepare_cached(
+        "SELECT EXISTS (
+             SELECT 1 FROM file f
+             WHERE f.present = 1 AND f.fingerprint IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM fingerprint_matched m
+                               WHERE m.file_id = f.id AND m.version = ?1))",
+    )?
+    .query_row([VERSION], |r| r.get(0))
+}
+
+/// [`any_due`] as one scan of `file` with a `LEFT JOIN`: what it answered
+/// before it was split. Kept so a test can hold the two to the same answer.
+#[cfg(test)]
+pub(crate) fn any_due_by_one_scan(conn: &Connection) -> rusqlite::Result<bool> {
     conn.prepare_cached(
         "SELECT EXISTS (
              SELECT 1 FROM file f

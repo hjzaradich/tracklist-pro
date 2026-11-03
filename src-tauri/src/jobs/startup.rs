@@ -10,9 +10,13 @@
 //!
 //! - **It queues jobs, it does no work,** and it runs on a thread of its own:
 //!   the window doesn't wait for it. Each check is one `EXISTS` query that
-//!   stops at the first due row; when nothing is due it looks at each file
-//!   once, so a library with nothing due costs a few passes over the file
-//!   table.
+//!   stops at the first due row, and the cheap ones don't look at the file
+//!   table when nothing is due: the grouping, matching and deciding checks
+//!   read the narrow record tables (a file with a record is not a file
+//!   without one, by two row counts), and the read, hash and fingerprint
+//!   stages are answered together by one pass over the files
+//!   ([`any_to_try_each`]), not one pass each (1cD-X4). What is left is the
+//!   quality check's pass.
 //! - **Every check runs on a read connection** (the read pool), never on the
 //!   database writer, so a user's first write doesn't wait behind them. The
 //!   writer is taken only for the short statements of a stage that has work:
@@ -55,7 +59,7 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use super::{JobId, JobQueue, NewJob};
 use crate::db::{DbError, ReadPool, Writer};
-use crate::scan::chain::{any_to_try, queue_once, reach_by, Reach};
+use crate::scan::chain::{any_to_try_each, queue_once, reach_by, Reach};
 use crate::scan::folders::{self, MusicFolderId};
 use crate::scan::ReadGate;
 use crate::scan_state::{Scope, Stage};
@@ -91,9 +95,10 @@ pub(crate) struct Asking<'a> {
     /// Called inside every check, on its read connection, before the check
     /// runs. Tests hold a check open here.
     in_check: &'a dyn Fn(),
-    read_due: OnceCell<bool>,
-    hash_due: OnceCell<bool>,
-    fingerprint_due: OnceCell<bool>,
+    /// Whether the read, hash and fingerprint stages have a file worth
+    /// trying, in that order: asked for all three in one pass over the files
+    /// the first time any is needed ([`Asking::stages_due`]).
+    stages_due: OnceCell<[bool; 3]>,
 }
 
 impl Asking<'_> {
@@ -108,35 +113,43 @@ impl Asking<'_> {
         })
     }
 
-    /// Whether `stage` has a file worth trying in the reachable folders, as
-    /// a scan of them would judge it (not a watcher's rescan).
-    fn due(&self, stage: Stage, version: i64) -> Result<bool, DbError> {
-        if self.reachable.is_empty() {
-            return Ok(false);
+    /// Whether the read, hash and fingerprint stages each have a file worth
+    /// trying in the reachable folders, as a scan of them would judge it
+    /// (not a watcher's rescan). The three come from one pass over the
+    /// files: each ask wants at least two of them, and a pass is most of
+    /// what a library with nothing due costs.
+    fn stages_due(&self) -> Result<[bool; 3], DbError> {
+        if let Some(answers) = self.stages_due.get() {
+            return Ok(*answers);
         }
-        let scope = Scope::Folders(self.reachable.clone());
-        self.read(|c| {
-            let gate = ReadGate::for_job(c)?;
-            any_to_try(c, stage, version, &scope, gate, false)
-        })
+        let answers = if self.reachable.is_empty() {
+            [false; 3]
+        } else {
+            let scope = Scope::Folders(self.reachable.clone());
+            let stages = [
+                (Stage::Read, crate::read::READ_VERSION),
+                (Stage::Hash, i64::from(crate::hash::DEFINITION)),
+                (Stage::Fingerprint, i64::from(crate::fingerprint::VERSION)),
+            ];
+            let found = self.read(|c| {
+                let gate = ReadGate::for_job(c)?;
+                any_to_try_each(c, &stages, &scope, gate, false)
+            })?;
+            [found[0], found[1], found[2]]
+        };
+        Ok(*self.stages_due.get_or_init(|| answers))
     }
 
     fn read_due(&self) -> Result<bool, DbError> {
-        remembered(&self.read_due, || {
-            self.due(Stage::Read, crate::read::READ_VERSION)
-        })
+        Ok(self.stages_due()?[0])
     }
 
     fn hash_due(&self) -> Result<bool, DbError> {
-        remembered(&self.hash_due, || {
-            self.due(Stage::Hash, i64::from(crate::hash::DEFINITION))
-        })
+        Ok(self.stages_due()?[1])
     }
 
     fn fingerprint_due(&self) -> Result<bool, DbError> {
-        remembered(&self.fingerprint_due, || {
-            self.due(Stage::Fingerprint, i64::from(crate::fingerprint::VERSION))
-        })
+        Ok(self.stages_due()?[2])
     }
 
     /// Whether the files still have to be read or hashed: the grouping waits.
@@ -155,18 +168,6 @@ impl Asking<'_> {
     fn queue(&self, job: NewJob) -> Result<(), DbError> {
         queue_once(self.writer, job, |j| (self.enqueue)(j)).map(|_| ())
     }
-}
-
-/// `cell`'s answer, asked for once.
-fn remembered(
-    cell: &OnceCell<bool>,
-    ask: impl FnOnce() -> Result<bool, DbError>,
-) -> Result<bool, DbError> {
-    if let Some(answer) = cell.get() {
-        return Ok(*answer);
-    }
-    let answer = ask()?;
-    Ok(*cell.get_or_init(|| answer))
 }
 
 /// The read comes first: a walk queues it, and it chains on to the hashes.
@@ -309,9 +310,7 @@ pub(crate) fn ask_with(
         enqueue,
         reachable: reach(&folders),
         in_check,
-        read_due: OnceCell::new(),
-        hash_due: OnceCell::new(),
-        fingerprint_due: OnceCell::new(),
+        stages_due: OnceCell::new(),
     };
     for (stage, ask) in ASKS {
         let started = Instant::now();
