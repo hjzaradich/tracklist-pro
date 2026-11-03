@@ -231,6 +231,11 @@ fn ask_decide(a: &Asking) -> Result<(), DbError> {
 /// read on a read connection. The job is the lowest priority, so it needs no
 /// waiting for the stages before it.
 fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
+    // A read the last run ended before its relink did: the tracks it held
+    // back from the roles are due again (the links are as the read left them).
+    if a.read(crate::file_roles::churn::is_held)? {
+        a.writer.call(|c| crate::file_roles::churn::restore(c))?;
+    }
     if !a.read(crate::file_roles::version_is_current)? {
         a.writer.call(|c| crate::file_roles::ensure_version(c))?;
     }

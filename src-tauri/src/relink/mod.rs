@@ -478,6 +478,9 @@ pub struct Summary {
 /// loaded.
 pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summary> {
     let tx = conn.transaction()?;
+    // A read waiting for this relink: which tracks it held back from the
+    // roles (`file_roles::churn`).
+    let churn = crate::file_roles::churn::take(&tx)?;
     // Nothing to match: a library that doesn't use rekordbox is asked for a
     // relink after every grouping run, and mustn't load every file for it.
     let any_tracks: bool =
@@ -485,6 +488,9 @@ pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summ
             r.get(0)
         })?;
     if !any_tracks {
+        // A read that left no rows: every link is gone.
+        crate::file_roles::churn::settle(&tx, churn)?;
+        tx.commit()?;
         return Ok(Summary::default());
     }
     let input = load(&tx, mounted)?;
@@ -539,6 +545,7 @@ pub fn relink(conn: &mut Connection, mounted: &Mounted) -> rusqlite::Result<Summ
                 d.evidence,
             ])?;
         }
+        crate::file_roles::churn::settle(&tx, churn)?;
         // Never over a hash that's already recorded.
         let mut record = tx.prepare(
             "UPDATE relink SET audio_hash = ?2
