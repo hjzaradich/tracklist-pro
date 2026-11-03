@@ -301,6 +301,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0044_track_row_genre.sql", &[]),
     // The keys the deciding run looks names up by (derived state, 1cD-G1).
     ("0045_grouping_names.sql", &["grouping_names"]),
+    // An index to sort the track table by energy, no new tables (1cD-XE).
+    ("0046_track_row_energy_sort.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

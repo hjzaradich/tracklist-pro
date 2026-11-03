@@ -288,3 +288,137 @@ fn setting_energy_on_100000_tracks_and_undoing_it_cost() {
         again.changed
     );
 }
+
+// ---- Clearing (1cD-XE) ------------------------------------------------------
+
+fn clear(lib: &Lib, tracks: &[i64]) -> EnergySet {
+    let tracks = tracks.to_vec();
+    lib.writer
+        .call(move |c| Ok(clear_energy_on(c, &tracks)))
+        .unwrap()
+        .unwrap()
+}
+
+fn cleared_operations(lib: &Lib) -> i64 {
+    lib.writer
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM operation WHERE kind = ?1",
+                [CLEAR_ENERGY_OPERATION],
+                |r| r.get(0),
+            )
+        })
+        .unwrap()
+}
+
+#[test]
+fn clearing_takes_away_only_the_users_energy_and_the_next_source_shows_again() {
+    let (lib, tracks) = three();
+    lib.insert(
+        "INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'mik', 4)",
+        (),
+    );
+    lib.insert(
+        "INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'local', 6)",
+        (),
+    );
+    set(&lib, &tracks[..2], 9).unwrap();
+    assert_eq!(shown(&lib, tracks[0]), Some((9, "user".to_owned())));
+
+    let done = clear(&lib, &tracks[..2]);
+
+    assert_eq!((done.changed, done.skipped), (2, 0));
+    assert_eq!(
+        shown(&lib, tracks[0]),
+        Some((4, "mik".to_owned())),
+        "Mixed In Key's energy ranks next, the estimate's stays behind it"
+    );
+    assert_eq!(shown(&lib, tracks[1]), None, "no other source: no energy");
+    let others: i64 = lib
+        .writer
+        .call(|c| c.query_row("SELECT count(*) FROM analysis WHERE source <> 'user'", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(others, 2, "no other source's row was touched");
+}
+
+#[test]
+fn undoing_a_clear_brings_the_users_energy_back_in_one_step() {
+    let (lib, tracks) = three();
+    lib.insert(
+        "INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'mik', 4)",
+        (),
+    );
+    set(&lib, &tracks[..1], 8).unwrap();
+    set(&lib, &tracks[1..2], 3).unwrap();
+
+    let done = clear(&lib, &tracks);
+    assert_eq!(done.changed, 2);
+    assert_eq!(energies(&lib, &tracks), [Some(4), None, None]);
+    assert_eq!(cleared_operations(&lib), 1, "one operation for all the tracks");
+
+    undo(&lib);
+    assert_eq!(energies(&lib, &tracks), [Some(8), Some(3), None]);
+    assert_eq!(shown(&lib, tracks[0]), Some((8, "user".to_owned())));
+}
+
+#[test]
+fn a_track_with_no_energy_of_the_users_is_left_alone_and_nothing_is_recorded_when_nothing_changes() {
+    let (lib, tracks) = three();
+    lib.insert(
+        "INSERT INTO analysis (recording_id, source, energy) VALUES (1, 'mik', 4)",
+        (),
+    );
+    let done = clear(&lib, &tracks);
+    assert_eq!((done.changed, done.skipped, done.operation_id), (0, 3, None));
+    assert_eq!(cleared_operations(&lib), 0);
+    assert_eq!(shown(&lib, tracks[0]), Some((4, "mik".to_owned())));
+
+    // A track listed twice counts once; one that is gone is skipped.
+    set(&lib, &tracks[..1], 2).unwrap();
+    let done = clear(&lib, &[tracks[0], tracks[0], 999]);
+    assert_eq!((done.changed, done.skipped), (1, 1));
+}
+
+#[test]
+fn the_tracks_with_an_energy_of_the_users_are_counted_for_the_clear_button() {
+    let (lib, tracks) = three();
+    lib.insert(
+        "INSERT INTO analysis (recording_id, source, energy) VALUES (3, 'mik', 4)",
+        (),
+    );
+    set(&lib, &tracks[..2], 5).unwrap();
+    let among = |ids: Vec<i64>| {
+        lib.writer
+            .call(move |c| user_energy_among(c, &ids))
+            .unwrap()
+    };
+    assert_eq!(among(tracks.to_vec()), 2);
+    assert_eq!(among(vec![tracks[0], tracks[0]]), 1);
+    assert_eq!(among(vec![tracks[2]]), 0, "another source's energy is not the user's");
+    assert_eq!(among(vec![]), 0);
+}
+
+#[test]
+fn clearing_a_library_tracks_energy_marks_it_for_the_index_as_setting_one_does() {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("One"), Some("Ann"), "a.mp3");
+    lib.library(track, file);
+    set(&lib, &[track], 6).unwrap();
+    lib.settle();
+    assert!(!lib.pending());
+
+    clear(&lib, &[track]);
+    assert!(lib.pending(), "its row holds the energy it shows");
+    lib.settle();
+    let stored: i64 = lib
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT (flags & ?2) FROM track_row WHERE recording_id = ?1",
+                (track, crate::search::flag::ENERGY),
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(stored, 0, "the stored energy is gone");
+}

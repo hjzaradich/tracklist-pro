@@ -4,7 +4,7 @@
 //! setting itself are tested in `energy_stars/tests.rs`.
 
 use super::*;
-use crate::energy::set_energy_on;
+use crate::energy::{clear_energy_on, set_energy_on};
 use crate::energy_stars;
 use crate::ops::{UndoOutcome, UndoRefusal};
 use crate::rekordbox_write::{build, gather, gather_merged, Node};
@@ -39,6 +39,21 @@ impl Lib {
                     |r| r.get(0),
                 )?;
                 Ok(set_energy_on(c, &[recording], energy))
+            })
+            .unwrap()
+            .unwrap();
+    }
+
+    /// The user takes their own energy away, as Clear does (an operation).
+    fn clear_user_energy(&self, track: LibraryTrackId) {
+        self.writer
+            .call(move |c| {
+                let recording: i64 = c.query_row(
+                    "SELECT recording_id FROM library_track WHERE id = ?1",
+                    [track.0],
+                    |r| r.get(0),
+                )?;
+                Ok(clear_energy_on(c, &[recording]))
             })
             .unwrap()
             .unwrap();
@@ -246,6 +261,40 @@ fn a_send_with_the_setting_on_writes_the_derived_rating_and_keeps_the_stars_of_a
 
     assert_eq!(attribute(&attributes[0], "Rating"), Some(FOUR));
     assert_eq!(attribute(&attributes[1], "Rating"), Some(THREE));
+}
+
+#[test]
+fn a_track_whose_energy_is_cleared_keeps_rekordboxs_stars_on_the_next_send() {
+    let lib = Lib::new();
+    lib.stars_follow_energy(true);
+    // The user's 8 would send 4 stars over rekordbox's 1.
+    let id = rated(&lib, ONE, 8);
+    let (_, before) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&before[0], "Rating"), Some(FOUR));
+
+    lib.clear_user_energy(id);
+
+    assert_eq!(lib.shown(id), None);
+    let (_, after) = lib.sent_after_merge(&[id]);
+    assert_eq!(
+        attribute(&after[0], "Rating"),
+        Some(ONE),
+        "no energy, so no rating of the app's own"
+    );
+}
+
+#[test]
+fn a_track_whose_energy_is_cleared_sends_the_stars_of_the_next_source_if_there_is_one() {
+    let lib = Lib::new();
+    lib.stars_follow_energy(true);
+    let id = rated(&lib, ONE, 8);
+    lib.source_energy(id, "mik", 5);
+
+    lib.clear_user_energy(id);
+
+    assert_eq!(lib.shown(id), Some(5));
+    let (_, sent) = lib.sent_after_merge(&[id]);
+    assert_eq!(attribute(&sent[0], "Rating"), Some(THREE), "energy 5 is three stars");
 }
 
 #[test]

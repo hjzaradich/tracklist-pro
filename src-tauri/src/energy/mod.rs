@@ -23,6 +23,18 @@
 //! nothing changes nothing is recorded. A track that is gone is skipped too
 //! (it was merged away or removed since the screen listed it); it is not an
 //! error, because the rest were asked for.
+//!
+//! # Clearing
+//!
+//! [`clear_energy_on`] is one operation ([`CLEAR_ENERGY_OPERATION`]) that
+//! takes the user's own row away from every track given that has one
+//! ([`clear_in`]). Only the user's word goes: another source's energy
+//! (Mixed In Key, the estimate, the audio model) then shows, as the ranking
+//! says, and a track with no energy of the user's is left alone. It is
+//! undoable as one step. It does not touch `stars_held`: a track that shows
+//! no energy afterwards has no rating of the app's own, so a send keeps
+//! rekordbox's stars, as for any track with no energy
+//! (`crate::energy_stars`).
 
 use std::collections::HashMap;
 
@@ -32,13 +44,16 @@ use serde::Serialize;
 use specta::Type;
 use tauri::State;
 
-use crate::db::Writer;
+use crate::db::{ReadPool, Writer};
 use crate::ipc::{ErrorKind, IpcError};
 use crate::jobs::JobQueue;
 use crate::ops::{self, OpsError, Recorder};
 
 /// The operation setting energy records.
 pub const SET_ENERGY_OPERATION: &str = "set_energy";
+
+/// The operation clearing the user's energy records.
+pub const CLEAR_ENERGY_OPERATION: &str = "clear_energy";
 
 /// The lowest and highest energy (ROADMAP §1.1, "Energy").
 pub const LOWEST: i64 = 1;
@@ -212,6 +227,41 @@ pub(crate) fn clear_in(rec: &mut Recorder<'_>, recording: i64) -> Result<bool, O
     }
 }
 
+/// Takes the user's own energy away from the tracks `recordings`
+/// (`recording` ids), as one operation. A track with none, or that is gone,
+/// is left alone (counted in `skipped`); when nothing changes nothing is
+/// recorded.
+pub fn clear_energy_on(conn: &mut Connection, recordings: &[i64]) -> Result<EnergySet, OpsError> {
+    let mut asked = std::collections::HashSet::new();
+    let recorded = ops::record(conn, CLEAR_ENERGY_OPERATION, &serde_json::json!({}), |rec| {
+        let mut cleared = 0u32;
+        for &recording in recordings {
+            if asked.insert(recording) && clear_in(rec, recording)? {
+                cleared += 1;
+            }
+        }
+        rec.detail("tracks", cleared);
+        Ok(cleared)
+    })?;
+    Ok(EnergySet {
+        changed: recorded.value,
+        skipped: (asked.len() as u32).saturating_sub(recorded.value),
+        operation_id: recorded.operation_id,
+    })
+}
+
+/// How many of the tracks `recordings` have an energy of the user's own, for
+/// the screen to offer "Clear" only when there is something to clear.
+pub fn user_energy_among(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<u32> {
+    let wanted = serde_json::to_string(recordings).expect("numbers always serialize");
+    conn.query_row(
+        "SELECT count(DISTINCT recording_id) FROM analysis
+         WHERE source = 'user' AND recording_id IN (SELECT value FROM json_each(?1))",
+        [wanted.as_str()],
+        |r| r.get(0),
+    )
+}
+
 /// The most tracks due that a key press works out before it returns (PR 156
 /// review, nit 3). An add may wait for 50, but this runs on a key press, and
 /// working out a Library track's row reads its tags; a longer list is the
@@ -235,6 +285,34 @@ pub fn set_energy(
         crate::library::settle_now_up_to(&writer, &jobs, SETTLE_NOW_LIMIT);
     }
     Ok(set)
+}
+
+/// Takes the user's own energy away from tracks: one operation, one Undo.
+/// Another source's energy then shows (the ranking in `recording_display`).
+/// The track table's rows are worked out again as for [`set_energy`].
+#[tauri::command(async)]
+#[specta::specta]
+pub fn clear_energy(
+    writer: State<'_, Writer>,
+    jobs: State<'_, JobQueue>,
+    recordings: Vec<i64>,
+) -> Result<EnergySet, IpcError> {
+    let cleared = writer.call(move |conn| Ok(clear_energy_on(conn, &recordings)))??;
+    if cleared.changed > 0 {
+        crate::library::settle_now_up_to(&writer, &jobs, SETTLE_NOW_LIMIT);
+    }
+    Ok(cleared)
+}
+
+/// How many of these tracks have an energy of the user's own (what "Clear"
+/// would take away).
+#[tauri::command]
+#[specta::specta]
+pub async fn user_energy_count(
+    reads: State<'_, ReadPool>,
+    recordings: Vec<i64>,
+) -> Result<u32, IpcError> {
+    Ok(reads.read(move |conn| user_energy_among(conn, &recordings))?)
 }
 
 #[cfg(test)]

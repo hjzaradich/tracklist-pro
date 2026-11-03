@@ -106,7 +106,7 @@ fn a_descending_sort_is_the_ascending_one_backwards_with_the_blanks_moved_to_the
                     return Ok(0);
                 }
                 c.query_row(
-                    &format!("SELECT count(*) FROM track_row WHERE {name} IS NULL"),
+                    &format!("SELECT count(*) FROM track_row tr WHERE {name} IS NULL"),
                     [],
                     |r| r.get::<_, i64>(0).map(|n| n as usize),
                 )
@@ -135,6 +135,7 @@ fn every_sort_either_way_round_is_read_from_its_index_with_nothing_to_sort() {
         (SortColumn::Key, "track_row_key"),
         (SortColumn::Time, "track_row_time"),
         (SortColumn::Rating, "track_row_rating"),
+        (SortColumn::Energy, "track_row_energy"),
         (SortColumn::DateAdded, "track_row_added"),
         (SortColumn::File, "track_row_file"),
         (SortColumn::Folder, "track_row_folder"),
