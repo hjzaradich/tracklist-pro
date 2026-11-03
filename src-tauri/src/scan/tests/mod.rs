@@ -4,6 +4,8 @@
 #[cfg(windows)]
 mod chain;
 #[cfg(windows)]
+mod cheap_checks;
+#[cfg(windows)]
 mod file_id;
 mod folders;
 #[cfg(windows)]

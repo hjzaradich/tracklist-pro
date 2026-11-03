@@ -129,6 +129,8 @@ pub use index::BlockIndex;
 pub(crate) use job::request;
 pub use job::{matching_job, refresh, Matcher, Summary, KEEP_INDEX_UP_TO, PRIORITY};
 pub use store::{any_due, StoredMatch};
+#[cfg(test)]
+pub(crate) use store::any_due_by_one_scan;
 
 /// The version of the comparison's definition, stored with every result.
 /// Bump it when [`compare()`] would give other numbers for the same

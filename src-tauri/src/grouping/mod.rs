@@ -123,6 +123,8 @@ pub use store::{
 pub use target::GroupTarget;
 
 pub(crate) use store::{regroup_files, sync_rekordbox};
+#[cfg(test)]
+pub(crate) use store::any_ungrouped_by_scan;
 
 pub(crate) use store::CONTENT_KEY;
 
