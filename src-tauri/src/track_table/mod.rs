@@ -104,27 +104,39 @@ pub enum SortColumn {
     Time,
     Genre,
     Rating,
+    // The energy the track shows, stored in `track_row.flags`
+    // (`flag::ENERGY`); a track with none is blank.
+    Energy,
     DateAdded,
     File,
     Folder,
 }
 
 impl SortColumn {
-    /// The `track_row` column the order is by, whether it can be blank
-    /// (blanks sort last), and what ties fall back to. Each of these is one
-    /// of the table's indexes (migration 0032).
-    fn column(self) -> (&'static str, bool, &'static [&'static str]) {
+    /// The SQL the order is by (on `tr`, the `track_row`), whether it can be
+    /// blank (blanks sort last), and what ties fall back to. Each of these
+    /// is one of the table's indexes (migrations 0032 and 0046).
+    fn column(self) -> (String, bool, &'static [&'static str]) {
+        let plain = |name: &str| format!("tr.{name}");
         match self {
-            SortColumn::Title => ("title_key", false, &["artist_key", "recording_id"]),
-            SortColumn::Artist => ("artist_key", true, &["title_key", "recording_id"]),
-            SortColumn::Genre => ("genre_key", true, &["title_key", "recording_id"]),
-            SortColumn::Bpm => ("bpm", true, &["recording_id"]),
-            SortColumn::Key => ("key_order", true, &["recording_id"]),
-            SortColumn::Time => ("time_ms", true, &["recording_id"]),
-            SortColumn::Rating => ("rating", true, &["recording_id"]),
-            SortColumn::DateAdded => ("added_at", true, &["recording_id"]),
-            SortColumn::File => ("file_key", true, &["recording_id"]),
-            SortColumn::Folder => ("folder_key", true, &["recording_id"]),
+            SortColumn::Title => (plain("title_key"), false, &["artist_key", "recording_id"]),
+            SortColumn::Artist => (plain("artist_key"), true, &["title_key", "recording_id"]),
+            SortColumn::Genre => (plain("genre_key"), true, &["title_key", "recording_id"]),
+            SortColumn::Bpm => (plain("bpm"), true, &["recording_id"]),
+            SortColumn::Key => (plain("key_order"), true, &["recording_id"]),
+            SortColumn::Time => (plain("time_ms"), true, &["recording_id"]),
+            SortColumn::Rating => (plain("rating"), true, &["recording_id"]),
+            // The shown energy sits in four bits of `flags`; 0 is none, which
+            // reads as blank here so it sorts last. Index `track_row_energy`
+            // holds exactly this expression (0046).
+            SortColumn::Energy => (
+                format!("NULLIF(tr.flags & {}, 0)", flag::ENERGY),
+                true,
+                &["recording_id"],
+            ),
+            SortColumn::DateAdded => (plain("added_at"), true, &["recording_id"]),
+            SortColumn::File => (plain("file_key"), true, &["recording_id"]),
+            SortColumn::Folder => (plain("folder_key"), true, &["recording_id"]),
         }
     }
 }
@@ -355,13 +367,13 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
         .collect::<Vec<_>>()
         .join(", ");
     let ordered = match nullable {
-        true => format!("(tr.{name} IS NULL), tr.{name}{direction}, {tie_order}"),
-        false => format!("tr.{name}{direction}, {tie_order}"),
+        true => format!("({name} IS NULL), {name}{direction}, {tie_order}"),
+        false => format!("{name}{direction}, {tie_order}"),
     };
     let backwards = (descending && nullable).then(|| Backwards {
-        filled: format!("(tr.{name} IS NULL) = 0 AND tr.{name} IS NOT NULL"),
-        blank: format!("(tr.{name} IS NULL) = 1 AND tr.{name} IS NULL"),
-        filled_order: format!("tr.{name} DESC, {tie_order}"),
+        filled: format!("({name} IS NULL) = 0 AND {name} IS NOT NULL"),
+        blank: format!("({name} IS NULL) = 1 AND {name} IS NULL"),
+        filled_order: format!("{name} DESC, {tie_order}"),
         blank_order: tie_order,
     });
     (ordered, backwards)

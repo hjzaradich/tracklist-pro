@@ -99,6 +99,9 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "set_energy":
       if (tracks !== null) return t("undo.action.setEnergy", { count: tracks });
       break;
+    case "clear_energy":
+      if (tracks !== null) return t("undo.action.clearEnergy", { count: tracks });
+      break;
     case "resolve_conflict":
       return t("undo.action.resolveConflict");
     case "resolve_conflicts":

@@ -3,6 +3,7 @@ import { unwrap } from "../api/errors";
 import { reloadLists } from "../app/lists";
 import { commands, type EnergySet } from "../bindings";
 import { CRATE_SUMMARY_QUERY_KEY } from "../crates/useCrateSummary";
+import { USER_ENERGY_COUNT_KEY } from "./useClearEnergy";
 
 /**
  * Gives tracks an energy from 1 to 10 (1cB-8; ROADMAP 1.11): one operation
@@ -19,6 +20,7 @@ export function useSetEnergy() {
     mutationFn: ({ recordingIds, energy }) => unwrap(commands.setEnergy([...recordingIds], energy)),
     onSuccess: () =>
       Promise.all([
+        queryClient.invalidateQueries({ queryKey: USER_ENERGY_COUNT_KEY }),
         queryClient.invalidateQueries({ queryKey: CRATE_SUMMARY_QUERY_KEY }),
         reloadLists(queryClient, "library", "crates", "overview"),
       ]),

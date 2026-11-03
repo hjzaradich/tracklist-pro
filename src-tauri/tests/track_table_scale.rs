@@ -490,6 +490,18 @@ fn run(tracks: u64, check: bool) {
         secs(reread)
     );
 
+    // Give each Library track an energy from 1 to 10 (a track's own tag in life;
+    // the sort reads it from the flags), so the energy sort has values to order.
+    db.writer
+        .call(|c| {
+            c.execute(
+                "UPDATE track_row SET flags = flags | (((recording_id % 10) + 1) << 8)
+                 WHERE recording_id IN (SELECT recording_id FROM library_track)",
+                [],
+            )
+        })
+        .unwrap();
+
     // The Details panel's tag sources (1cB-17) for one selected track: a
     // fixed handful of SELECTs however big the library is, counted as they
     // are prepared (a time is no gate), for a Library track rekordbox knows
@@ -567,6 +579,14 @@ fn run(tracks: u64, check: bool) {
         (
             "Library, sort by rating, descending",
             sorted(TableSource::Library, SortColumn::Rating, true),
+        ),
+        (
+            "Library, sort by energy",
+            sorted(TableSource::Library, SortColumn::Energy, false),
+        ),
+        (
+            "Library, sort by energy, descending",
+            sorted(TableSource::Library, SortColumn::Energy, true),
         ),
         (
             "All music, scroll to the middle",

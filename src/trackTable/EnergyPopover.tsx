@@ -23,7 +23,9 @@ function energyOfKey(key: string): number | null {
  * (`anchor`). A pick closes it too.
  *
  * `count` is how many tracks the pick applies to; with more than one the
- * window says so. `current` is the energy to show as pressed and `start` where
+ * window says so. `onClear` is given only when there is a user's own energy to
+ * clear on them (the track's, or any of the selected ones); the window then
+ * ends with a quiet "Clear", which takes it away and closes. `current` is the energy to show as pressed and `start` where
  * the focus begins when none is. It is drawn in a portal, so a click inside
  * it is not a click on a row.
  */
@@ -33,6 +35,7 @@ export function EnergyPopover({
   current,
   start,
   onPick,
+  onClear,
   onClose,
 }: {
   anchor: HTMLElement;
@@ -40,12 +43,14 @@ export function EnergyPopover({
   current: number | null;
   start: number | null;
   onPick: (energy: number) => void;
+  onClear?: () => void;
   /** `restoreFocus` is whether the focus goes back to the cell. */
   onClose: (restoreFocus: boolean) => void;
 }) {
   const { t } = useTranslation("trackTable");
   const { t: tShell } = useTranslation("shell");
   const box = useRef<HTMLDivElement>(null);
+  const clearButton = useRef<HTMLButtonElement>(null);
   const from = anchor.getBoundingClientRect();
 
   // Under the cell, or above it when it would not fit; kept inside the window sideways.
@@ -73,6 +78,9 @@ export function EnergyPopover({
       return;
     }
     if (event.key === "Tab") {
+      // Between the buttons and "Clear" the focus moves on its own; Tab out of either end closes.
+      const onClearButton = event.target === clearButton.current;
+      if (onClear && (onClearButton ? event.shiftKey : !event.shiftKey)) return;
       event.preventDefault();
       onClose(true);
       return;
@@ -106,6 +114,19 @@ export function EnergyPopover({
     >
       {count > 1 && <p className={styles.count}>{tShell("details.energy.many", { count })}</p>}
       <EnergyButtons current={current} start={start} onPick={pick} autoFocus />
+      {onClear && (
+        <button
+          ref={clearButton}
+          type="button"
+          className={styles.clear}
+          onClick={() => {
+            onClear();
+            onClose(true);
+          }}
+        >
+          {tShell("details.energy.clear")}
+        </button>
+      )}
     </div>,
     document.body,
   );

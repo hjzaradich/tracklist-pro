@@ -138,6 +138,8 @@ describe("the top bar's Undo", () => {
     [operation(1, "use_this_file"), "shell:undo.action.useThisFile", {}],
     [operation(1, "resolve_conflict"), "shell:undo.action.resolveConflict", {}],
     [operation(1, "resolve_conflicts"), "shell:undo.action.resolveConflicts", {}],
+    [operation(1, "clear_energy", { tracks: 1 }), "shell:undo.action.clearEnergy", { count: 1 }],
+    [operation(1, "clear_energy", { tracks: 12 }), "shell:undo.action.clearEnergy", { count: 12 }],
     [operation(1, "add_rekordbox_tracks", { tracks: 1 }), "shell:undo.action.addFromRekordbox", { count: 1 }],
     [operation(1, "add_rekordbox_tracks", { tracks: 240 }), "shell:undo.action.addFromRekordbox", { count: 240 }],
     [operation(1, "create_crate", { name: "House" }), "shell:undo.action.createCrate", { name: "House" }],

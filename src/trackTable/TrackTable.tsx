@@ -19,6 +19,7 @@ import { ColumnHeadings } from "./ColumnHeadings";
 import { moveColumnTo, tableLayout, type ColumnWidths } from "./columnChoice";
 import { COLUMNS, shownName, type CellContext, type ColumnDef, type ColumnId } from "./columns";
 import { EnergyPopover } from "./EnergyPopover";
+import { useUserEnergyCount } from "./useClearEnergy";
 import styles from "./TrackTable.module.css";
 import { useTrackDrag } from "./trackDrag";
 import { useTrackKeys } from "./useTrackKeys";
@@ -103,6 +104,8 @@ export interface TrackTableProps {
    * Energy column is plain text.
    */
   onSetEnergy?: (recordingIds: readonly number[], energy: number) => void;
+  /** Takes the user's own energy away from the tracks (the popover's "Clear"). */
+  onClearEnergy?: (recordingIds: readonly number[]) => void;
   /**
    * The C key (or the palette's "Add to crate or playlist", 1cB-13) was used
    * on these tracks. Without it the key is unavailable.
@@ -167,6 +170,7 @@ export function TrackTable({
   onSelectedIds,
   idsInRange,
   onSetEnergy,
+  onClearEnergy,
   onAddToCrate,
 }: TrackTableProps) {
   const { t, i18n } = useTranslation("trackTable");
@@ -206,6 +210,10 @@ export function TrackTable({
     anchor: HTMLButtonElement;
     ids: readonly number[];
   } | null>(null);
+  // "Clear" is offered when the track has an energy of the user's own (for several, any of them).
+  const ownAmongOpen = useUserEnergyCount(energyOpen !== null && energyOpen.ids.length > 1 ? energyOpen.ids : []);
+  const canClearOpen =
+    energyOpen !== null && (energyOpen.ids.length > 1 ? ownAmongOpen > 0 : energyOpen.row.energySource === "user");
 
   // Another order or list: back to the top, and the selected track, if
   // there is one, is looked for in the new rows. (Adjusting state while
@@ -674,6 +682,7 @@ export function TrackTable({
           current={energyOpen.ids.length === 1 && energyOpen.row.energySource === "user" ? energyOpen.row.energy : null}
           start={energyOpen.ids.length === 1 ? energyOpen.row.energy : null}
           onPick={(energy) => onSetEnergy(energyOpen.ids, energy)}
+          onClear={onClearEnergy && canClearOpen ? () => onClearEnergy(energyOpen.ids) : undefined}
           onClose={closeEnergy}
         />
       )}

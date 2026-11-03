@@ -68,7 +68,9 @@
       "resolveConflict": "Undo (conflict resolved)",
       "resolveConflicts": "Undo (conflicts resolved)",
       "setEnergy_one": "Undo (energy set on {{count, number}} track)",
-      "setEnergy_other": "Undo (energy set on {{count, number}} tracks)"
+      "setEnergy_other": "Undo (energy set on {{count, number}} tracks)",
+      "clearEnergy_one": "Undo (energy cleared on {{count, number}} track)",
+      "clearEnergy_other": "Undo (energy cleared on {{count, number}} tracks)"
     },
     "refused": {
       "sentSince": "Can't undo: tracks have been sent to rekordbox since",
@@ -127,7 +129,8 @@
         "ml": "audio model"
       },
       "many": "{{count, number}} tracks",
-      "set": "Energy {{energy}}"
+      "set": "Energy {{energy}}",
+      "clear": "Clear"
     }
   },
   "player": {
