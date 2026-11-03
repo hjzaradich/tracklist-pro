@@ -15,6 +15,23 @@
   outline: none;
 }
 
+.clear {
+  display: block;
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.clear:hover {
+  color: var(--color-text);
+}
+
 .count {
   margin: 0 0 var(--space-2);
   font-size: var(--font-size-sm);

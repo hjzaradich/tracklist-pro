@@ -12,10 +12,15 @@ import { DetailsPanel } from "./DetailsPanel";
 import { useSelectedTrack } from "./selectedTrack";
 
 let asked: { recordings: number[]; energy: number }[];
+let cleared: number[][];
+/** How many of the tracks asked about have an energy of the user's own, for "Clear" with several selected. */
+let ownAmongMany: number;
 let refuse: boolean;
 
 beforeEach(() => {
   asked = [];
+  cleared = [];
+  ownAmongMany = 0;
   refuse = false;
   mockIPC((cmd, args) => {
     if (cmd === "track_tag_sources") return { inRekordbox: false, fields: [], confirmedEntry: null };
@@ -26,6 +31,13 @@ beforeEach(() => {
       if (refuse) throw { kind: "database", params: {} };
       return { changed: recordings.length, skipped: 0, operationId: 1 };
     }
+    if (cmd === "clear_energy") {
+      const { recordings } = args as { recordings: number[] };
+      cleared.push(recordings);
+      if (refuse) throw { kind: "database", params: {} };
+      return { changed: recordings.length, skipped: 0, operationId: 2 };
+    }
+    if (cmd === "user_energy_count") return ownAmongMany;
     return null;
   });
 });
@@ -101,6 +113,44 @@ describe("the Details panel's Energy section", () => {
     cleanup();
     renderPanel(7, "user", []);
     expect(screen.queryByRole("group", { name: tx("shell:details.energy.title") })).toBeNull();
+  });
+
+  describe("Clear", () => {
+    const clearButton = () => screen.queryByRole("button", { name: tx("shell:details.energy.clear") });
+
+    it("is offered for a track whose energy is the user's own, and takes it away from that track only", async () => {
+      const row = renderPanel(7, "user");
+      await userEvent.click(clearButton()!);
+      await waitFor(() => expect(cleared).toEqual([[row.recordingId]]));
+      expect(asked).toEqual([]);
+    });
+
+    it.each([
+      ["another source's energy", 6, "mik"],
+      ["no energy", null, null],
+    ] as const)("is not offered for a track with %s", (_what, energy, source) => {
+      renderPanel(energy, source);
+      expect(clearButton()).toBeNull();
+    });
+
+    it("is offered for several tracks only when some of them have an energy of the user's own", async () => {
+      ownAmongMany = 0;
+      renderPanel(7, "user", [501, 502, 503]);
+      await waitFor(() => expect(screen.getByText(tx("shell:details.energy.many", { count: 3 }))).toBeInTheDocument());
+      expect(clearButton()).toBeNull();
+      cleanup();
+      ownAmongMany = 2;
+      renderPanel(null, null, [501, 502, 503]);
+      await userEvent.click(await screen.findByRole("button", { name: tx("shell:details.energy.clear") }));
+      await waitFor(() => expect(cleared).toEqual([[501, 502, 503]]));
+    });
+
+    it("says when the energy could not be cleared", async () => {
+      refuse = true;
+      renderPanel(7, "user");
+      await userEvent.click(clearButton()!);
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+    });
   });
 
   it("says when the energy could not be set", async () => {

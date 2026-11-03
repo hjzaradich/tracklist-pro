@@ -116,6 +116,10 @@
   cursor: pointer;
 }
 
+.energy > .withdraw {
+  align-self: flex-start;
+}
+
 .withdraw:disabled {
   color: var(--color-text-disabled);
   cursor: default;

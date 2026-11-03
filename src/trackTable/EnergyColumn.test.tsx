@@ -24,6 +24,11 @@ const idAt = (index: number) => index + 100;
 /** Stands in for the Rust side: a table whose tracks have the energy in `energy`, and set_energy. */
 let energy: Map<number, { energy: number; source: EnergySource }>;
 let asked: { recordings: number[]; energy: number }[];
+let cleared: number[][];
+/** What shows once the user's own energy is taken away, by track. */
+let fallback: Map<number, { energy: number; source: EnergySource }>;
+/** The queries the table asked with. */
+let queries: TableQuery[];
 /** The columns the user chose: Title and Energy, or nothing chosen. */
 let chosen: string[] | null;
 
@@ -51,6 +56,9 @@ beforeEach(() => {
     [idAt(2), { energy: 5, source: "mik" }],
   ]);
   asked = [];
+  cleared = [];
+  fallback = new Map([[idAt(1), { energy: 5, source: "mik" }]]);
+  queries = [];
   chosen = ["title", "energy"];
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
     ROW * 11,
@@ -62,6 +70,7 @@ beforeEach(() => {
         case "library_summary":
           return { tracks: 3, changeStamp: 3 };
         case "track_table_page":
+          queries.push(args.query as TableQuery);
           return windowOf(args.query as TableQuery);
         case "track_table_ids": {
           const query = args.query as TableQuery;
@@ -80,6 +89,21 @@ beforeEach(() => {
             skipped: 0,
             operationId: asked.length,
           };
+        }
+        case "clear_energy": {
+          const { recordings } = args as { recordings: number[] };
+          cleared.push(recordings);
+          for (const id of recordings) {
+            if (energy.get(id)?.source !== "user") continue;
+            const next = fallback.get(id);
+            if (next) energy.set(id, next);
+            else energy.delete(id);
+          }
+          return { changed: recordings.length, skipped: 0, operationId: 9 };
+        }
+        case "user_energy_count": {
+          const { recordings } = args as { recordings: number[] };
+          return recordings.filter((id) => energy.get(id)?.source === "user").length;
         }
         case "table_columns":
           return chosen === null
@@ -158,6 +182,10 @@ const cellAt = (index: number) =>
   rowAt(index).querySelector<HTMLElement>("[data-energy-cell]")!;
 const popover = () =>
   screen.queryByRole("dialog", { name: tx("trackTable:energyPopover.label") });
+const clearIn = () =>
+  within(popover()!).queryByRole("button", {
+    name: tx("shell:details.energy.clear"),
+  });
 const buttonOf = (energyPicked: number) =>
   within(popover()!).getByRole("button", {
     name: tx("shell:details.energy.set", { energy: energyPicked }),
@@ -300,10 +328,24 @@ describe("the Energy column's popover", () => {
 
   it("closes when the focus tabs out, without picking, and the cell has the focus", async () => {
     await table();
-    await userEvent.click(cellAt(1));
+    await userEvent.click(cellAt(2));
     await userEvent.tab();
     expect(popover()).toBeNull();
     expect(asked).toEqual([]);
+    expect(cellAt(2)).toHaveFocus();
+  });
+
+  it("reaches Clear with Tab, and Tab out of Clear closes without clearing", async () => {
+    await table();
+    await userEvent.click(cellAt(1));
+    await userEvent.tab();
+    expect(clearIn()).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(buttonOf(7)).toHaveFocus();
+    await userEvent.tab();
+    await userEvent.tab();
+    expect(popover()).toBeNull();
+    expect(cleared).toEqual([]);
     expect(cellAt(1)).toHaveFocus();
   });
 
@@ -465,5 +507,89 @@ describe("the Energy column with several tracks selected", () => {
     fireEvent.click(cellAt(8), { ctrlKey: true });
     expect(popover()).toBeNull();
     expect(selected()).toEqual([1, 2, 3, 4, 8]);
+  });
+});
+
+describe("Clear in the Energy popover", () => {
+  it("is offered for a track whose energy is the user's own, and not for another source's or none", async () => {
+    await table();
+    await userEvent.click(cellAt(1));
+    expect(clearIn()).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(cellAt(2));
+    expect(clearIn()).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(cellAt(0));
+    expect(clearIn()).toBeNull();
+  });
+
+  it("takes the user's energy away, closes, returns the focus and shows the next source's energy", async () => {
+    await table();
+    await userEvent.click(cellAt(1));
+    await userEvent.click(clearIn()!);
+    expect(cleared).toEqual([[idAt(1)]]);
+    expect(asked).toEqual([]);
+    expect(popover()).toBeNull();
+    await waitFor(() =>
+      expect(cellAt(1)).toHaveAccessibleName(
+        tx("trackTable:energyCell.change", { energy: 5 }),
+      ),
+    );
+    expect(cellAt(1)).toHaveAttribute("data-source", "mik");
+    expect(cellAt(1)).toHaveFocus();
+  });
+
+  it("leaves a track with no other source with no energy", async () => {
+    await table();
+    fallback.clear();
+    await userEvent.click(cellAt(1));
+    await userEvent.click(clearIn()!);
+    await waitFor(() =>
+      expect(cellAt(1)).toHaveAccessibleName(tx("trackTable:energyCell.set")),
+    );
+  });
+
+  it("is offered for several selected tracks only when one of them has an energy of the user's own, and clears them all", async () => {
+    await table();
+    fireEvent.click(rowAt(3));
+    fireEvent.click(rowAt(5), { shiftKey: true });
+    await userEvent.click(cellAt(4));
+    expect(selected()).toEqual([3, 4, 5]);
+    expect(
+      within(popover()!).getByText(tx("shell:details.energy.many", { count: 3 })),
+    ).toBeInTheDocument();
+    // None of the three has one of the user's own: nothing to clear.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(clearIn()).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    cleanup();
+    await table();
+    fireEvent.click(rowAt(1));
+    fireEvent.click(rowAt(3), { shiftKey: true });
+    await userEvent.click(cellAt(2));
+    expect(selected()).toEqual([1, 2, 3]);
+    await userEvent.click(await within(popover()!).findByRole("button", { name: tx("shell:details.energy.clear") }));
+    expect(cleared).toEqual([[idAt(1), idAt(2), idAt(3)]]);
+  });
+});
+
+describe("sorting by the Energy column", () => {
+  const heading = () =>
+    screen.getByRole("columnheader", {
+      name: new RegExp(escapeRegExp(tx("trackTable:columns.energy"))),
+    });
+
+  it("sorts by energy ascending on the first click and descending on the second", async () => {
+    await table();
+    await userEvent.click(within(heading()).getByRole("button"));
+    await waitFor(() =>
+      expect(queries.at(-1)?.sort).toEqual({ column: "energy", descending: false }),
+    );
+    expect(heading()).toHaveAttribute("aria-sort", "ascending");
+    await userEvent.click(within(heading()).getByRole("button"));
+    await waitFor(() =>
+      expect(queries.at(-1)?.sort).toEqual({ column: "energy", descending: true }),
+    );
+    expect(heading()).toHaveAttribute("aria-sort", "descending");
   });
 });

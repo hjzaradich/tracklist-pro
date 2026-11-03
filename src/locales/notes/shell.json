@@ -431,6 +431,14 @@
     "purpose": "Undo button naming what it takes back: an energy given to several tracks at once.",
     "where": "Top bar, Undo button, when the next step to undo is giving tracks an energy."
   },
+  "undo.action.clearEnergy_one": {
+    "purpose": "Undo button naming what it takes back: the user's own energy taken away from one track.",
+    "where": "Top bar, Undo button, when the next step to undo is clearing energy."
+  },
+  "undo.action.clearEnergy_other": {
+    "purpose": "Undo button naming what it takes back: the user's own energy taken away from several tracks at once.",
+    "where": "Top bar, Undo button, when the next step to undo is clearing energy."
+  },
   "details.energy.title": {
     "purpose": "Name of the group of ten energy buttons, and the heading over them.",
     "where": "Details panel, Energy section."
@@ -462,6 +470,10 @@
   "details.energy.many": {
     "purpose": "Says how many tracks the energy buttons act on when several are selected; {{count}} is how many.",
     "where": "Details panel, over the energy buttons; also in the energy popover of the track table."
+  },
+  "details.energy.clear": {
+    "purpose": "Quiet button that takes the user's own energy away from the selected tracks; another source's energy, if any, shows again.",
+    "where": "Details panel, Energy section, after the keys line; also at the end of the energy popover in the track table. Only when there is an energy of the user's own to clear."
   },
   "details.energy.set": {
     "purpose": "Name of one energy button; {{energy}} is its number, 1 to 10.",

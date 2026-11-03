@@ -19,6 +19,7 @@ import { FilterChips } from "./FilterChips";
 import { TrackTable } from "./TrackTable";
 import styles from "./TrackTableView.module.css";
 import { shownName, type ColumnId, type TableScreen } from "./columns";
+import { useClearEnergy } from "./useClearEnergy";
 import { useSetEnergy } from "./useSetEnergy";
 import { useTableColumns } from "./useTableColumns";
 import { useTrackRows, type RowsQuery } from "./useTrackRows";
@@ -114,6 +115,7 @@ export function TrackTableView({
   const [selectedCount, setSelectedCount] = useState(0);
   const [energyGiven, setEnergyGiven] = useState<{ energy: number; count: number } | null>(null);
   const giveEnergy = useSetEnergy();
+  const clearEnergy = useClearEnergy();
   // The tracks "Add to crate or playlist" (the C key) is open for, and what
   // the last add to a crate did (1cB-13; the sidebar's drop reports the same way).
   const [adding, setAdding] = useState<readonly number[] | null>(null);
@@ -173,6 +175,9 @@ export function TrackTableView({
         onSuccess: (done) => setEnergyGiven(done.changed > 0 ? { energy, count: done.changed } : null),
       },
     );
+
+  // "Clear" in the Energy popover: the user's own energy goes; the top bar's Undo says so and takes it back.
+  const onClearEnergy = (recordingIds: readonly number[]) => clearEnergy.mutate({ recordingIds });
 
   // The Fit column joins the user's columns after the title while sorted by fit.
   const shownColumns = useMemo<readonly ColumnId[]>(() => {
@@ -238,9 +243,9 @@ export function TrackTableView({
               <span role="status">{t("energySet", { energy: energyGiven.energy, count: energyGiven.count })}</span>
             )}
             {addReport !== null && <AddReportLine report={addReport} />}
-            {giveEnergy.isError && (
+            {(giveEnergy.isError || clearEnergy.isError) && (
               <span role="alert" className={styles.failed}>
-                {errorMessage(giveEnergy.error)}
+                {errorMessage(giveEnergy.isError ? giveEnergy.error : clearEnergy.error)}
               </span>
             )}
           </p>
@@ -296,6 +301,7 @@ export function TrackTableView({
           onSelectedIds={reportSelectedIds}
           idsInRange={idsInRange}
           onSetEnergy={onSetEnergy}
+          onClearEnergy={onClearEnergy}
           onAddToCrate={setAdding}
         />
       )}

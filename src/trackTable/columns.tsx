@@ -248,7 +248,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
   },
   energy: {
     id: "energy",
-    sort: null,
+    sort: "energy",
     width: 52,
     min: 44,
     numeric: true,
