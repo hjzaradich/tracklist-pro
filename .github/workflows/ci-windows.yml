@@ -200,7 +200,7 @@ jobs:
       # cache per part (key): the shards build the tests' dependencies, the
       # build part the app's and clippy's, and two parts saving to one key
       # would leave only the first one's.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: runner.environment == 'github-hosted'
         with:
           workspaces: src-tauri
@@ -282,7 +282,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         run: rustup toolchain install --profile minimal
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         if: runner.environment == 'github-hosted'
         with:
           workspaces: tools/fixture-gen
