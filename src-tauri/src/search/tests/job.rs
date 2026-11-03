@@ -5,7 +5,7 @@ use super::support::{Lib, Mount};
 use crate::db::Writer;
 use crate::jobs::{self, JobKind, JobQueue, JobRecord, JobStatus, Priority};
 use crate::scan::chain::after_index;
-use crate::search::{index_job, indexer_with, request, settle_page};
+use crate::search::{index_job, indexer_with, request, settle, settle_page};
 
 fn queue(lib: &Lib) -> JobQueue {
     JobQueue::builder(lib.writer.clone())
@@ -215,5 +215,38 @@ fn the_index_job_gives_way_to_a_waiting_job_of_a_higher_priority_and_finishes_af
         [JobStatus::Done, JobStatus::Done]
     );
     assert!(!lib.pending());
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 6);
+}
+
+/// The cache and checkpoint settings a long job borrows from the writer's
+/// connection (`Bulk`) go back as they were, on the
+/// job's way out and after a plain `settle`; the same rows come out.
+#[test]
+fn the_writers_cache_and_checkpoint_settings_are_back_after_the_index_job_and_a_settle() {
+    let settings = |lib: &Lib| -> (i64, i64) {
+        lib.writer
+            .call(|c| {
+                Ok((
+                    c.pragma_query_value(None, "cache_size", |r| r.get(0))?,
+                    c.pragma_query_value(None, "wal_autocheckpoint", |r| r.get(0))?,
+                ))
+            })
+            .unwrap()
+    };
+    let lib = Lib::new();
+    for n in 0..5 {
+        lib.track(Some(&format!("Track {n}")), None, &format!("{n}.mp3"));
+    }
+    let before = settings(&lib);
+    let queue = queue(&lib);
+    request_now(&lib, &queue);
+    wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+    assert_eq!(settings(&lib), before);
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 5);
+
+    lib.track(Some("Track five"), None, "5.mp3");
+    assert_eq!(lib.writer.call(|c| settle(c, &Mount, 2)).unwrap(), 1);
+    assert_eq!(settings(&lib), before);
     assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 6);
 }

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::pending;
-use super::settle::{forget_everything, settle_page};
+use super::settle::{forget_everything, settle_page, Bulk};
 use crate::db::{DbError, Writer};
 use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, NewJob, Priority};
 use crate::paths::Volumes;
@@ -90,26 +90,35 @@ where
         }
         let volumes = Arc::new((self.volumes)());
         let page = self.page;
-        let (mut done, mut left) = (0usize, writer.call(|c| due(c))?);
-        while left > 0 {
-            job.check_cancelled()?;
-            if writer.call(|c| higher_priority_waiting(c))? {
-                // What was written stays; one more run, after the waiting
-                // job, does the rest.
-                crate::scan::chain::queue_once(writer, index_job(false), |j| job.enqueue(j))?;
-                return Ok(());
+        // A long job gets a bigger cache and a rarer checkpoint (see `Bulk`).
+        let bulk = writer.call(|c| Bulk::start(c))?;
+        let result = (|| -> Result<(), JobError> {
+            let (mut done, mut left) = (0usize, writer.call(|c| due(c))?);
+            while left > 0 {
+                job.check_cancelled()?;
+                if writer.call(|c| higher_priority_waiting(c))? {
+                    // What was written stays; one more run, after the waiting
+                    // job, does the rest.
+                    crate::scan::chain::queue_once(writer, index_job(false), |j| job.enqueue(j))?;
+                    return Ok(());
+                }
+                let volumes = Arc::clone(&volumes);
+                let settled = writer.call(move |c| settle_page(c, &*volumes, page))?;
+                done += settled;
+                left = writer.call(|c| due(c))?;
+                if settled == 0 && left > 0 {
+                    // Only rows the page step turned into tracks: look again.
+                    continue;
+                }
+                job.progress(done as f64 / (done + left).max(1) as f64)?;
             }
-            let volumes = Arc::clone(&volumes);
-            let settled = writer.call(move |c| settle_page(c, &*volumes, page))?;
-            done += settled;
-            left = writer.call(|c| due(c))?;
-            if settled == 0 && left > 0 {
-                // Only rows the page step turned into tracks: look again.
-                continue;
-            }
-            job.progress(done as f64 / (done + left).max(1) as f64)?;
-        }
-        Ok(())
+            Ok(())
+        })();
+        writer.call(move |c| {
+            bulk.end(c);
+            Ok(())
+        })?;
+        result
     }
 }
 
