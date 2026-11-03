@@ -253,9 +253,8 @@ fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
 /// data has nothing to redo. Otherwise the jobs that change what it reads
 /// ask for it (the known limit above).
 fn ask_attach(a: &Asking) -> Result<(), DbError> {
-    let owed = a.read(|c| {
-        Ok(!crate::attach::version_is_current(c)? && crate::attach::any_to_attach(c)?)
-    })?;
+    let owed =
+        a.read(|c| Ok(!crate::attach::version_is_current(c)? && crate::attach::any_to_attach(c)?))?;
     if owed {
         a.queue(crate::attach::attach_job())?;
     }

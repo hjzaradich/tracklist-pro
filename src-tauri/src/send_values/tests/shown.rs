@@ -73,7 +73,12 @@ impl Lib {
             .flatten();
         out.push((
             "attach (table BPM, key)",
-            bpm.and_then(|b| self.row_where("SELECT id FROM rekordbox_track WHERE bpm = CAST(?1 AS REAL)", b.to_string())),
+            bpm.and_then(|b| {
+                self.row_where(
+                    "SELECT id FROM rekordbox_track WHERE bpm = CAST(?1 AS REAL)",
+                    b.to_string(),
+                )
+            }),
         ));
         // The track's rekordbox panel: the entry it says the analysis is from.
         let source = self
@@ -85,7 +90,10 @@ impl Lib {
         out.push((
             "for_recording",
             source.and_then(|e| {
-                self.row_where("SELECT id FROM rekordbox_track WHERE track_id = ?1", e.track_id.to_string())
+                self.row_where(
+                    "SELECT id FROM rekordbox_track WHERE track_id = ?1",
+                    e.track_id.to_string(),
+                )
             }),
         ));
         match case.library {
@@ -161,9 +169,10 @@ impl Lib {
         }
     }
 }
+type Probes = Vec<(&'static str, Option<i64>)>;
 
 /// A varied library, grouped and attached as the jobs leave it.
-fn varied_library() -> (Lib, Vec<Case>, Vec<(&'static str, Option<i64>)>) {
+fn varied_library() -> (Lib, Vec<Case>, Probes) {
     let lib = Lib::new();
     let mut cases = Vec::new();
     let mut expected = Vec::new();
@@ -176,21 +185,33 @@ fn varied_library() -> (Lib, Vec<Case>, Vec<(&'static str, Option<i64>)>) {
     lib.entry("two-best.mp3", Some(best), false, READ, 0, 120);
     let busier = lib.entry("two-linked.mp3", Some(linked), false, READ, 50, 128);
     let library = lib.library(track, Some(linked));
-    cases.push(Case { what: "two entries", track, library: Some(library) });
+    cases.push(Case {
+        what: "two entries",
+        track,
+        library: Some(library),
+    });
     expected.push(("two entries", Some(busier)));
 
     // One trusted entry and a probable one, more played, on the same file.
     let (library, file) = lib.linked("probable.mp3", Spec::default());
     let trusted = lib.entry("probable.mp3", Some(file), false, READ, 1, 121);
     lib.entry("probable-dup.mp3", Some(file), true, READ, 99, 122);
-    cases.push(Case { what: "trusted and probable", track: file_track(&lib, file), library: Some(library) });
+    cases.push(Case {
+        what: "trusted and probable",
+        track: file_track(&lib, file),
+        library: Some(library),
+    });
     expected.push(("trusted and probable", Some(trusted)));
 
     // An entry kept from an older read beside one of the latest read.
     let (library, file) = lib.linked("older.mp3", Spec::default());
     let kept = lib.entry("older-kept.mp3", Some(file), false, OLDER_READ, 3, 123);
     lib.entry("older.mp3", Some(file), false, READ, 0, 124);
-    cases.push(Case { what: "older read", track: file_track(&lib, file), library: Some(library) });
+    cases.push(Case {
+        what: "older read",
+        track: file_track(&lib, file),
+        library: Some(library),
+    });
     expected.push(("older read", Some(kept)));
 
     // A moved file, as the relink job leaves it: the old file is gone,
@@ -201,12 +222,19 @@ fn varied_library() -> (Lib, Vec<Case>, Vec<(&'static str, Option<i64>)>) {
         track,
         "moved-old.mp3",
         "undecided",
-        Spec { present: Some(false), ..Spec::default() },
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
     );
     let new = lib.file(track, "moved-new.mp3", "best", Spec::default());
     let moved = lib.entry("moved-old.mp3", Some(new), false, READ, 0, 125);
     let library = lib.library(track, Some(new));
-    cases.push(Case { what: "moved file", track, library: Some(library) });
+    cases.push(Case {
+        what: "moved file",
+        track,
+        library: Some(library),
+    });
     expected.push(("moved file", Some(moved)));
 
     // A track outside the Library, removed from it before it was ever sent:
@@ -217,13 +245,24 @@ fn varied_library() -> (Lib, Vec<Case>, Vec<(&'static str, Option<i64>)>) {
     let best = lib.file(track, "outside-best.mp3", "best", Spec::default());
     lib.entry("outside-other.mp3", Some(other), false, READ, 0, 131);
     let on_best = lib.entry("outside-best.mp3", Some(best), false, READ, 50, 130);
-    lib.insert("INSERT INTO library_removal (recording_id) VALUES (?1)", [track]);
-    cases.push(Case { what: "outside the Library", track, library: None });
+    lib.insert(
+        "INSERT INTO library_removal (recording_id) VALUES (?1)",
+        [track],
+    );
+    cases.push(Case {
+        what: "outside the Library",
+        track,
+        library: None,
+    });
     expected.push(("outside the Library", Some(on_best)));
 
     // A Library track rekordbox has no entry for.
     let (library, file) = lib.linked("none.mp3", Spec::default());
-    cases.push(Case { what: "no entry", track: file_track(&lib, file), library: Some(library) });
+    cases.push(Case {
+        what: "no entry",
+        track: file_track(&lib, file),
+        library: Some(library),
+    });
     expected.push(("no entry", None));
 
     // A Library track whose only entry is on another file of its track: the
@@ -233,7 +272,11 @@ fn varied_library() -> (Lib, Vec<Case>, Vec<(&'static str, Option<i64>)>) {
     let copy = lib.file(track, "elsewhere-copy.mp3", "best", Spec::default());
     lib.entry("elsewhere-copy.mp3", Some(copy), false, READ, 0, 127);
     let library = lib.library(track, Some(linked));
-    cases.push(Case { what: "entry on another file", track, library: Some(library) });
+    cases.push(Case {
+        what: "entry on another file",
+        track,
+        library: Some(library),
+    });
     expected.push(("entry on another file", None));
 
     // Grouping gives each matched entry its file's track; then attach runs.
@@ -277,7 +320,10 @@ fn every_place_that_picks_a_tracks_rekordbox_entry_picks_the_one_the_send_uses()
         let sent = lib.sent(case);
         for (place, picked) in lib.picks(case) {
             if picked != sent {
-                disagree.push(format!("{}: {place} picks {picked:?}, the send {sent:?}", case.what));
+                disagree.push(format!(
+                    "{}: {place} picks {picked:?}, the send {sent:?}",
+                    case.what
+                ));
             }
         }
     }

@@ -406,7 +406,8 @@ fn genre_source_sql(scoped: bool) -> String {
                FROM library_track lt
                {scope}) g",
         frames = frame_filter(false),
-        rekordbox_genre = rekordbox_says("Genre", &crate::attach::shown_entry_sql("lt.recording_id")),
+        rekordbox_genre =
+            rekordbox_says("Genre", &crate::attach::shown_entry_sql("lt.recording_id")),
     )
 }
 

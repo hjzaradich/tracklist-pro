@@ -501,7 +501,10 @@ fn the_first_run_of_a_new_rule_for_the_entry_a_track_shows_makes_every_library_t
     db.group();
     db.sql("DELETE FROM search_due");
     let current = |db: &Db| db.writer.call(|c| version_is_current(c)).unwrap();
-    assert!(!current(&db), "a database from before the rule has no version");
+    assert!(
+        !current(&db),
+        "a database from before the rule has no version"
+    );
     db.attach();
     assert!(all_due(&db) && current(&db));
     db.sql("DELETE FROM search_due");

@@ -334,7 +334,11 @@ fn after_an_upgrade_that_changed_which_entry_a_track_shows_the_next_start_asks_f
     let (failed, queued) = ask(&writer, &volume);
     assert_eq!((failed, kinds(&queued)), (0, vec!["attach"]));
     let (_, queued) = ask(&writer, &volume);
-    assert_eq!(kinds(&queued), ["attach"], "asked again with it waiting: still one");
+    assert_eq!(
+        kinds(&queued),
+        ["attach"],
+        "asked again with it waiting: still one"
+    );
     // Its run is of this build's rule: nothing is asked for after it but
     // the index the run made due.
     writer.call(|c| c.execute("DELETE FROM job", [])).unwrap();
