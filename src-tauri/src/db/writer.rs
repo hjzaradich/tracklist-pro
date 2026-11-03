@@ -33,7 +33,9 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// With this limit SQLite cuts the file back to it whenever the log
 /// starts again, and [`Writer::checkpoint`] empties it at quiet points.
 /// While one transaction is still being written the log can be larger;
-/// nothing can bound that from here.
+/// nothing can bound that from here. An index job raises the checkpoint
+/// interval to 20 000 pages while it runs, so the log can reach about 80 MB
+/// then.
 pub const LOG_SIZE_LIMIT: i64 = 32 * 1024 * 1024;
 
 /// What [`Writer::checkpoint`] did.

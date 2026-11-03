@@ -341,6 +341,61 @@ pub(crate) fn fields_of(
     Ok(out)
 }
 
+/// The writer connection's cache and checkpoint settings for the length of a
+/// long index job. A track's row lands in a dozen indexes at places spread
+/// all over them, so with SQLite's default 2 MB cache a page of rows spills
+/// dirty pages to the log and reads the same pages back again, and every
+/// commit checkpoints the log (a sync each time) though most of the pages it
+/// copies are written again by the next page. A larger cache and a rarer
+/// checkpoint write each page of the indexes far fewer times. Both are
+/// memory and timing only: the rows written are the same. Put back by
+/// [`Bulk::end`].
+pub(crate) struct Bulk {
+    cache_size: i64,
+    wal_autocheckpoint: i64,
+}
+
+impl Bulk {
+    /// 64 MB of cache and a checkpoint every 20 000 pages (80 MB of log).
+    const CACHE_KB: i64 = 64 * 1024;
+    const CHECKPOINT_PAGES: i64 = 20_000;
+
+    pub(crate) fn start(conn: &Connection) -> rusqlite::Result<Bulk> {
+        let cache_size = conn.pragma_query_value(None, "cache_size", |r| r.get(0))?;
+        let wal_autocheckpoint =
+            conn.pragma_query_value(None, "wal_autocheckpoint", |r| r.get(0))?;
+        conn.pragma_update(None, "cache_size", -Self::CACHE_KB)?;
+        conn.pragma_update(None, "wal_autocheckpoint", Self::CHECKPOINT_PAGES)?;
+        Ok(Bulk {
+            cache_size,
+            wal_autocheckpoint,
+        })
+    }
+
+    /// Puts the settings back and lets the log be checkpointed again at the
+    /// next commit over the usual size.
+    pub(crate) fn end(self, conn: &Connection) -> rusqlite::Result<()> {
+        conn.pragma_update(None, "cache_size", self.cache_size)?;
+        conn.pragma_update(None, "wal_autocheckpoint", self.wal_autocheckpoint)
+    }
+}
+
+/// [`Bulk`] on a connection in hand, put back when this is dropped, on an
+/// error or a panic too. A failure to put back is logged: it only leaves a
+/// larger cache, which does no harm, and must not hide the caller's result.
+struct BulkOn<'a> {
+    conn: &'a mut Connection,
+    bulk: Option<Bulk>,
+}
+
+impl Drop for BulkOn<'_> {
+    fn drop(&mut self) {
+        if let Some(Err(e)) = self.bulk.take().map(|b| b.end(self.conn)) {
+            eprintln!("search: could not put the cache and checkpoint settings back: {e}");
+        }
+    }
+}
+
 /// Settles every track that is due, `page` tracks per transaction, and
 /// returns how many tracks that was.
 pub fn settle(
@@ -348,9 +403,14 @@ pub fn settle(
     volumes: &impl Volumes,
     page: usize,
 ) -> rusqlite::Result<usize> {
+    let bulk = Bulk::start(conn)?;
+    let on = BulkOn {
+        conn,
+        bulk: Some(bulk),
+    };
     let mut settled = 0;
-    while super::pending(conn)? {
-        settled += settle_page(conn, volumes, page)?;
+    while super::pending(on.conn)? {
+        settled += settle_page(on.conn, volumes, page)?;
     }
     Ok(settled)
 }

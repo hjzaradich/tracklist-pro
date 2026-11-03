@@ -5,7 +5,7 @@ use super::support::{Lib, Mount};
 use crate::db::Writer;
 use crate::jobs::{self, JobKind, JobQueue, JobRecord, JobStatus, Priority};
 use crate::scan::chain::after_index;
-use crate::search::{index_job, indexer_with, request, settle_page};
+use crate::search::{index_job, indexer_with, request, settle, settle_page};
 
 fn queue(lib: &Lib) -> JobQueue {
     JobQueue::builder(lib.writer.clone())
@@ -171,6 +171,7 @@ fn the_index_job_gives_way_to_a_waiting_job_of_a_higher_priority_and_finishes_af
     for n in 0..6 {
         lib.track(Some(&format!("Track {n}")), None, &format!("{n}.mp3"));
     }
+    let before = settings(&lib);
     // When the first index job starts, a job of a higher priority is waiting.
     let writer = lib.writer.clone();
     let once = std::sync::atomic::AtomicBool::new(false);
@@ -216,4 +217,77 @@ fn the_index_job_gives_way_to_a_waiting_job_of_a_higher_priority_and_finishes_af
     );
     assert!(!lib.pending());
     assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 6);
+    assert_eq!(settings(&lib), before);
+}
+
+/// The cache and checkpoint settings a long job borrows from the writer's
+/// connection (`Bulk`) go back as they were, on the
+/// job's way out and after a plain `settle`; the same rows come out.
+#[test]
+fn the_writers_cache_and_checkpoint_settings_are_back_after_the_index_job_and_a_settle() {
+    let lib = Lib::new();
+    for n in 0..5 {
+        lib.track(Some(&format!("Track {n}")), None, &format!("{n}.mp3"));
+    }
+    let before = settings(&lib);
+    let queue = queue(&lib);
+    request_now(&lib, &queue);
+    wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+    assert_eq!(settings(&lib), before);
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 5);
+
+    lib.track(Some("Track five"), None, "5.mp3");
+    assert_eq!(lib.writer.call(|c| settle(c, &Mount, 2)).unwrap(), 1);
+    assert_eq!(settings(&lib), before);
+    assert_eq!(lib.found_as_is("track").unwrap().tracks.len(), 6);
+}
+
+fn settings(lib: &Lib) -> (i64, i64) {
+    lib.writer
+        .call(|c| {
+            Ok((
+                c.pragma_query_value(None, "cache_size", |r| r.get(0))?,
+                c.pragma_query_value(None, "wal_autocheckpoint", |r| r.get(0))?,
+            ))
+        })
+        .unwrap()
+}
+
+/// A job cancelled while it runs ends cancelled, with the settings back.
+#[test]
+fn a_cancelled_index_job_ends_cancelled_with_the_cache_and_checkpoint_settings_back() {
+    let lib = Lib::new();
+    for n in 0..4 {
+        lib.track(Some(&format!("Track {n}")), None, &format!("{n}.mp3"));
+    }
+    let before = settings(&lib);
+    let slot: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<JobQueue>>>> =
+        Default::default();
+    let (in_job, writer) = (slot.clone(), lib.writer.clone());
+    let volumes = move || {
+        let id: i64 = writer
+            .call(|c| c.query_row("SELECT id FROM job WHERE kind = 'index'", [], |r| r.get(0)))
+            .unwrap();
+        in_job
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .cancel(jobs::JobId(id))
+            .unwrap();
+        Mount
+    };
+    let queue = JobQueue::builder(lib.writer.clone())
+        .workers(1)
+        .handler(JobKind::Index, indexer_with(volumes, 2))
+        .start()
+        .unwrap();
+    let queue = std::sync::Arc::new(queue);
+    *slot.lock().unwrap() = Some(queue.clone());
+    request_now(&lib, &queue);
+    let jobs = wait_idle(&queue, &lib.writer);
+    queue.shutdown();
+    assert_eq!(jobs[0].status, JobStatus::Cancelled);
+    assert_eq!(settings(&lib), before);
 }
