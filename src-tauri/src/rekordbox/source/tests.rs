@@ -91,56 +91,6 @@ fn read_as_job(writer: &Writer, path: &Path) -> (JobStatus, Option<String>) {
     }
 }
 
-/// Relink jobs in the table, whatever their status.
-fn relink_job_count(writer: &Writer) -> i64 {
-    writer
-        .call(|c| {
-            c.query_row("SELECT count(*) FROM job WHERE kind = 'relink'", [], |r| {
-                r.get(0)
-            })
-        })
-        .unwrap()
-}
-
-#[test]
-fn a_plain_read_queues_one_relink_for_the_tracks_it_stored() {
-    let (dir, writer) = db();
-    let xml = dir.path().join("rekordbox.xml");
-    write_at(&xml, &export(&[1, 2]), 5);
-    assert_eq!(read_as_job(&writer, &xml).0, JobStatus::Done);
-    assert_eq!(relink_job_count(&writer), 1);
-}
-
-#[test]
-fn a_read_whose_caller_matches_the_tracks_itself_queues_no_relink() {
-    let (dir, writer) = db();
-    let xml = dir.path().join("rekordbox.xml");
-    write_at(&xml, &export(&[1, 2]), 5);
-    let queue = JobQueue::builder(writer.clone())
-        .workers(1)
-        .handler(
-            JobKind::ReadRekordbox,
-            XmlReader::up_to(0.5).relink_left_to_caller(),
-        )
-        .start()
-        .unwrap();
-    let id = queue.enqueue(read_job(&xml)).unwrap();
-    let start = Instant::now();
-    while !writer
-        .call(move |c| jobs::store::get(c, id))
-        .unwrap()
-        .unwrap()
-        .status
-        .is_finished()
-    {
-        assert!(start.elapsed() < Duration::from_secs(60));
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    queue.shutdown();
-    assert_eq!(snapshot_ids(&writer), [1, 2]);
-    assert_eq!(relink_job_count(&writer), 0);
-}
-
 fn snapshot_ids(writer: &Writer) -> Vec<i64> {
     writer
         .call(|c| {

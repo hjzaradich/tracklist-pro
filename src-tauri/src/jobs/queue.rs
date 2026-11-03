@@ -203,6 +203,14 @@ impl JobContext {
         Ok(())
     }
 
+    /// Withdraws a job this one queued, if it hasn't started: it is
+    /// cancelled at once. False if it already started or finished, and then
+    /// it runs as queued.
+    pub fn withdraw(&self, id: JobId) -> Result<bool, JobError> {
+        let mut state = self.shared.lock()?;
+        Ok(self.shared.cancel_queued(&mut state, id)?)
+    }
+
     /// Enqueues a follow-up job, e.g. a scan asking for hashes.
     pub fn enqueue(&self, job: NewJob) -> Result<JobId, JobError> {
         Ok(self.shared.enqueue(job)?)
@@ -349,18 +357,11 @@ impl JobQueue {
             }
             return Ok(CancelOutcome::Stopping);
         }
-        if !self
-            .shared
-            .writer
-            .call(move |c| store::cancel_queued(c, id))?
-        {
-            return Ok(CancelOutcome::NotActive);
+        if self.shared.cancel_queued(&mut state, id)? {
+            Ok(CancelOutcome::Cancelled)
+        } else {
+            Ok(CancelOutcome::NotActive)
         }
-        if let Some(mut job) = state.active.remove(&id) {
-            job.status = JobStatus::Cancelled;
-            self.shared.send(&mut state, job);
-        }
-        Ok(CancelOutcome::Cancelled)
     }
 
     /// Every queued and running job right now.
@@ -488,6 +489,19 @@ impl Shared {
         // Only fails once the dispatch thread is gone, i.e. never while
         // the queue is alive.
         let _ = self.outbox.send(job);
+    }
+
+    /// Cancels `id` if it is still queued; false if it already started or
+    /// finished.
+    fn cancel_queued(&self, state: &mut State, id: JobId) -> Result<bool, DbError> {
+        if !self.writer.call(move |c| store::cancel_queued(c, id))? {
+            return Ok(false);
+        }
+        if let Some(mut job) = state.active.remove(&id) {
+            job.status = JobStatus::Cancelled;
+            self.send(state, job);
+        }
+        Ok(true)
     }
 
     fn enqueue(&self, job: NewJob) -> Result<JobId, DbError> {

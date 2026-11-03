@@ -16,7 +16,7 @@ use super::preflight::{
 use super::{SendFailure, SendFlow, SendStep, SendWork, Sent};
 use crate::conflicts::open_at_send;
 use crate::db::Moment;
-use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
+use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, NewJob, Priority};
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
 use crate::rekordbox::source::{stored_source, XmlReader};
@@ -118,7 +118,7 @@ impl<V: Volumes + 'static> Sender<V> {
     pub fn new(flow: SendFlow, volumes: impl Fn() -> V + Send + Sync + 'static) -> Sender<V> {
         Sender {
             flow,
-            reader: XmlReader::up_to(progress::MATCHING).relink_left_to_caller(),
+            reader: XmlReader::up_to(progress::MATCHING),
             volumes: Arc::new(volumes),
             record: Arc::new(record_send),
             #[cfg(test)]
@@ -288,6 +288,8 @@ impl<V: Volumes + 'static> Sender<V> {
             .unwrap_or_default()
             .to_owned();
         self.flow.working_on(SendWork::Reading);
+        // Relinks already waiting aren't this read's: they are never withdrawn.
+        let waiting_before = waiting_relinks(job);
         // The read job itself, run here: it reads the file the job's
         // target names, and records a failure for the rekordbox source.
         self.reader.run(job).map_err(|e| match e {
@@ -298,18 +300,46 @@ impl<V: Volumes + 'static> Sender<V> {
         if let Some(hook) = &self.after_read {
             hook();
         }
-        // The read queued no relink: this step matches the tracks itself. If
-        // it stops before that, a relink is asked for, so nothing is left
-        // unmatched.
-        let (moment, mounted) = match self.match_after_read(job) {
-            Ok(matched) => matched,
-            Err(stop) => {
-                if let Err(e) = relink::request(job.writer(), |j| job.enqueue(j)) {
-                    eprintln!("send: couldn't queue a relink: {e}");
-                }
-                return Err(stop);
-            }
+        // The relink the read queued stays queued until the matching below
+        // has succeeded, so a stop, a panic or a crash in between leaves it
+        // to run. Only one that appeared during the read is the read's.
+        let queued_by_read: Vec<i64> = match waiting_before {
+            Some(before) => waiting_relinks(job)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|id| !before.contains(id))
+                .collect(),
+            None => Vec::new(),
         };
+        self.part(job, SendWork::Matching, progress::MATCHING)?;
+        let known = job.writer().call(|c| relink::identities(c))?;
+        let mounted = Mounted::ask(&known, &(self.volumes)());
+        if job.is_cancelled() {
+            return Err(Stop::cancelled());
+        }
+        // The read replaced every rekordbox row, unmatched, and any other
+        // read does the same. So the review reads the moment the matching
+        // ended, held in the matching's own writer job: no read can land
+        // between them, and a track rekordbox has never goes out as new.
+        let moment = Moment::open(job.writer().guarded_path())?;
+        #[cfg(test)]
+        let after_relink = self.after_relink.clone();
+        let (moment, mounted) = job.writer().call(move |c| {
+            relink::relink(c, &mounted)?;
+            #[cfg(test)]
+            if let Some(hook) = &after_relink {
+                hook();
+            }
+            moment.hold()?;
+            Ok((moment, mounted))
+        })?;
+        // The matching is done, so the read's relink is redundant: withdraw it
+        // if it hasn't started (if it has, it runs, harmlessly).
+        for id in queued_by_read {
+            if let Err(e) = job.withdraw(JobId(id)) {
+                eprintln!("send: couldn't withdraw the read's relink: {e}");
+            }
+        }
         self.part(job, SendWork::Merging, progress::MERGING)?;
         let volumes = (self.volumes)();
         let (merging, moment) = self.merged(job, &volumes, moment, Some(mounted))?;
@@ -340,34 +370,6 @@ impl<V: Volumes + 'static> Sender<V> {
             steps.review = Some(preflight);
         });
         Ok(())
-    }
-
-    /// Matches the tracks the read stored, and holds the moment the
-    /// preflight reads.
-    fn match_after_read(&self, job: &JobContext) -> Result<(Moment, Mounted), Stop> {
-        self.part(job, SendWork::Matching, progress::MATCHING)?;
-        let known = job.writer().call(|c| relink::identities(c))?;
-        let mounted = Mounted::ask(&known, &(self.volumes)());
-        if job.is_cancelled() {
-            return Err(Stop::cancelled());
-        }
-        // The read replaced every rekordbox row, unmatched, and any other
-        // read does the same. So the review reads the moment the matching
-        // ended, held in the matching's own writer job: no read can land
-        // between them, and a track rekordbox has never goes out as new.
-        let moment = Moment::open(job.writer().guarded_path())?;
-        #[cfg(test)]
-        let after_relink = self.after_relink.clone();
-        let matched = job.writer().call(move |c| {
-            relink::relink(c, &mounted)?;
-            #[cfg(test)]
-            if let Some(hook) = &after_relink {
-                hook();
-            }
-            moment.hold()?;
-            Ok((moment, mounted))
-        })?;
-        Ok(matched)
     }
 
     /// A part of a step begins, `done` of the way through its job. A report
@@ -617,4 +619,15 @@ fn modified_ms(path: &str) -> Option<i64> {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)),
     )
+}
+
+/// The ids of the relink jobs waiting to run. `None` if they can't be read.
+fn waiting_relinks(job: &JobContext) -> Option<Vec<i64>> {
+    job.writer()
+        .call(|c| {
+            c.prepare("SELECT id FROM job WHERE kind = ?1 AND status = 'queued'")?
+                .query_map([JobKind::Relink.as_str()], |r| r.get(0))?
+                .collect()
+        })
+        .ok()
 }
