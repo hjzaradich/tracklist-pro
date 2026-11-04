@@ -182,28 +182,56 @@ describe("the Missing list", () => {
     it("loads the next page of ids, in order, when asked to show more", async () => {
       invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.map((id) => songs(id, 1)[0]));
       render(<MissingList list={list([big()])} />);
-      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
       await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(200));
       expect(invoke).toHaveBeenCalledWith("missing_track_page", { ids: Array.from({ length: 100 }, (_, i) => i + 101) });
+    });
+
+    it("moves focus to the first new row and announces the page", async () => {
+      invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.map((id) => songs(id, 1)[0]));
+      render(<MissingList list={list([big()])} />);
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(200));
+      expect(screen.getAllByRole("listitem")[100]).toHaveFocus();
+      expect(screen.getByRole("status")).toHaveTextContent(tx("review:missing.moreShown", { count: 100 }));
+    });
+
+    it("keeps each row in the group's order when the list refetches with a row that comes back", async () => {
+      invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.map((id) => songs(id, 1)[0]));
+      const ids = Array.from({ length: 250 }, (_, i) => i + 1);
+      const { rerender } = render(<MissingList list={list([big()])} />);
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(200));
+      // Track 999 sorts first: the list's own rows shift by one, so row 100 is no longer among them.
+      const trackIds = [999, ...ids];
+      rerender(<MissingList list={list([group(folder, { canAdd: true, tracks: [songs(999, 1)[0], ...songs(1, 99)], trackIds })])} />);
+      const titles = screen.getAllByRole("listitem").map((li) => li.textContent);
+      expect(titles.slice(0, 3)).toEqual(["Song 999", "Song 1", "Song 2"]);
+      expect(titles).toHaveLength(200);
+      // Row 100 fell out of the list's first rows; when it comes back it takes its own place.
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
+      await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(251));
+      const after = screen.getAllByRole("listitem").map((li) => li.textContent);
+      expect(after.slice(99, 102)).toEqual(["Song 99", "Song 100", "Song 101"]);
     });
 
     it("stops offering more once every track is shown, and keeps the count", async () => {
       invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.map((id) => songs(id, 1)[0]));
       render(<MissingList list={list([big()])} />);
       for (let page = 0; page < 2; page++) {
-        await userEvent.click(await screen.findByRole("button", { name: tx("review:missing.showMore") }));
+        await userEvent.click(await screen.findByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
         await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(200 + page * 50));
       }
-      expect(screen.queryByRole("button", { name: tx("review:missing.showMore") })).toBeNull();
+      expect(screen.queryByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) })).toBeNull();
       expect(within(folderRow(folder)).getByText(tx("review:missing.tracksCount", { count: 250 }))).toBeInTheDocument();
     });
 
     it("does not ask again for tracks the last page left out because they were matched since", async () => {
       invoke.mockImplementation((_cmd, args: { ids: number[] }) => args.ids.slice(1).map((id) => songs(id, 1)[0]));
       render(<MissingList list={list([big()])} />);
-      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
       await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(199));
-      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
       expect(invoke).toHaveBeenLastCalledWith("missing_track_page", { ids: Array.from({ length: 100 }, (_, i) => i + 201).slice(0, 50) });
     });
 
@@ -212,9 +240,9 @@ describe("the Missing list", () => {
         throw { kind: "internal", params: {} };
       });
       render(<MissingList list={list([big()])} />);
-      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMore") }));
+      await userEvent.click(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) }));
       expect(await screen.findByRole("alert")).toHaveTextContent(tx("errors:internal"));
-      expect(screen.getByRole("button", { name: tx("review:missing.showMore") })).toBeEnabled();
+      expect(screen.getByRole("button", { name: tx("review:missing.showMoreIn", { group: folder }) })).toBeEnabled();
     });
   });
 });

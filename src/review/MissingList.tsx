@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
 import { commands, type MissingGroup, type MissingList as Missing, type MissingTrack } from "../bindings";
@@ -81,7 +81,7 @@ export function MissingList({
                 </button>
               )}
             </div>
-            <GroupTracks group={group} />
+            <GroupTracks group={group} name={group.folder ?? t("missing.unknownFolder")} />
           </div>
         );
       })}
@@ -90,36 +90,52 @@ export function MissingList({
 }
 
 /** A group's tracks: those it came with, then each page "Show more" fetched. */
-function GroupTracks({ group }: { group: MissingGroup }) {
+function GroupTracks({ group, name }: { group: MissingGroup; name: string }) {
   const { t } = useTranslation("review");
   const [fetched, setFetched] = useState<MissingTrack[]>([]);
   // Asked for but not returned: matched since, so there is nothing to show.
   const [gone, setGone] = useState<number[]>([]);
-  // What the list holds now wins: a fetched track that was matched since
-  // (it is gone from `trackIds`) or that the list now carries is dropped.
-  const ids = new Set(group.trackIds);
-  const shown = [...group.tracks];
-  const have = new Set(shown.map((track) => track.id));
-  for (const track of fetched) {
-    if (ids.has(track.id) && !have.has(track.id)) shown.push(track);
-    have.add(track.id);
-  }
+  // The last page that landed: its first row takes focus and its size is announced.
+  const [landed, setLanded] = useState<{ first: number; count: number } | null>(null);
+  const rows = useRef(new Map<number, HTMLLIElement>());
+  // Every row loaded so far, by id; the list's own copy wins. Rows are shown
+  // in the group's order (`trackIds`), whatever order they were fetched in,
+  // and one that is gone from `trackIds` (matched since) is dropped.
+  const loaded = new Map<number, MissingTrack>();
+  for (const track of fetched) loaded.set(track.id, track);
+  for (const track of group.tracks) loaded.set(track.id, track);
+  const shown = group.trackIds.flatMap((id) => loaded.get(id) ?? []);
+  const have = new Set(loaded.keys());
   for (const id of gone) have.add(id);
-  const next = group.trackIds.filter((id) => !have.has(id)).slice(0, MORE);
+  const pending = group.trackIds.filter((id) => !have.has(id));
+  const next = pending.slice(0, MORE);
   const more = useMutation({
     mutationFn: () => unwrap(commands.missingTrackPage(next)),
     onSuccess: (tracks) => {
       setFetched((before) => [...before, ...tracks]);
       const returned = new Set(tracks.map((track) => track.id));
       setGone((before) => [...before, ...next.filter((id) => !returned.has(id))]);
+      const first = next.find((id) => returned.has(id));
+      setLanded(first === undefined ? null : { first, count: tracks.length });
     },
   });
-  const left = group.trackIds.filter((id) => !have.has(id)).length;
+  // Focus moves to the first new row, so it isn't lost when the button goes.
+  useEffect(() => {
+    if (landed !== null) rows.current.get(landed.first)?.focus();
+  }, [landed]);
   return (
     <>
       <ul className={styles.tracks}>
         {shown.map((track) => (
-          <li key={track.id} className={styles.track}>
+          <li
+            key={track.id}
+            className={styles.track}
+            tabIndex={-1}
+            ref={(el) => {
+              if (el) rows.current.set(track.id, el);
+              else rows.current.delete(track.id);
+            }}
+          >
             <span>
               {track.artist === ""
                 ? track.title
@@ -133,13 +149,24 @@ function GroupTracks({ group }: { group: MissingGroup }) {
           </li>
         ))}
       </ul>
+      <p role="status" className={styles.announce}>
+        {landed !== null && t("missing.moreShown", { count: landed.count })}
+      </p>
       {more.error && (
         <p role="alert" className={styles.problem}>
           {errorMessage(more.error)}
         </p>
       )}
-      {left > 0 && (
-        <button type="button" className={styles.more} disabled={more.isPending} onClick={() => more.mutate()}>
+      {pending.length > 0 && (
+        <button
+          type="button"
+          className={styles.more}
+          aria-label={t("missing.showMoreIn", { group: name })}
+          aria-disabled={more.isPending}
+          onClick={() => {
+            if (!more.isPending) more.mutate();
+          }}
+        >
           {t("missing.showMore")}
         </button>
       )}
