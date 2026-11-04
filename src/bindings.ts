@@ -161,6 +161,11 @@ export const commands = {
 	 *  offer to add each folder that exists now (1aD-5).
 	 */
 	missingTracks: () => typedError<MissingList, IpcError>(__TAURI_INVOKE("missing_tracks")),
+	/**
+	 *  The next tracks of a group: the ones with these ids (from the list's
+	 *  `track_ids`), in that order. At most [`MAX_PAGE`] are answered.
+	 */
+	missingTrackPage: (ids: number[]) => typedError<MissingTrack[], IpcError>(__TAURI_INVOKE("missing_track_page", { ids })),
 	/**  How many items wait, by group. */
 	reviewCounts: () => typedError<ReviewCounts, IpcError>(__TAURI_INVOKE("review_counts")),
 	/**  A page of one group's items, the oldest first. */
@@ -1580,6 +1585,15 @@ export type MissingGroup = {
 	 *  adding it as a music folder (`add_music_folder`) makes sense.
 	 */
 	canAdd: boolean,
+	/**
+	 *  Every missing track in the group, in the order shown. Its length is
+	 *  the group's count.
+	 */
+	trackIds: number[],
+	/**
+	 *  The first tracks of the group, in full; the rest come from
+	 *  `missing_track_page`.
+	 */
 	tracks: MissingTrack[],
 };
 

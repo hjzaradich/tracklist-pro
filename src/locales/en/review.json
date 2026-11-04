@@ -7,7 +7,11 @@
     "trackName": "{{artist}} - {{title}}",
     "unknownFolder": "Unknown folder",
     "lastKnown": "Last known location",
-    "addFolder": "Add folder"
+    "addFolder": "Add folder",
+    "showMore": "Show more",
+    "showMoreIn": "Show more in {{group}}",
+    "moreShown_one": "{{count}} more track shown",
+    "moreShown_other": "{{count}} more tracks shown"
   },
   "group": {
     "needsCloserLook": "Needs a closer look",

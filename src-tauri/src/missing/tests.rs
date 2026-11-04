@@ -167,6 +167,34 @@ impl Lib {
         );
     }
 
+    /// `n` more tracks in one folder.
+    fn many(&self, n: usize) -> Vec<i64> {
+        (0..n)
+            .map(|i| self.track(&format!("{OLD}{i:04}.mp3"), &format!("Song {i:04}"), "A"))
+            .collect()
+    }
+
+    /// A track whose attributes are odd: a number for its name, and a
+    /// Location that can't be decoded.
+    fn odd_track(&self) -> i64 {
+        let id = self.next.get();
+        self.next.set(id + 1);
+        self.exec(
+            "INSERT INTO rekordbox_track (attributes, location_key, read_at)
+             VALUES ('{\"TrackID\":\"900\",\"Name\":5,\"Artist\":true,\"Location\":\"%%\"}',
+                     'odd', '2026-09-30T12:00:00.000Z')",
+            vec![],
+        )
+    }
+
+    fn page(&self, ids: &[i64]) -> Vec<MissingTrack> {
+        let path = crate::write_guard::test_path(self._dir.path(), crate::db::DB_FILE_NAME);
+        crate::db::ReadPool::open(&path)
+            .unwrap()
+            .read(|c| page(c, ids))
+            .unwrap()
+    }
+
     fn list(&self, disk: &Disk) -> MissingList {
         let path = crate::write_guard::test_path(self._dir.path(), crate::db::DB_FILE_NAME);
         let gathered = crate::db::ReadPool::open(&path)
@@ -350,4 +378,118 @@ fn a_track_rekordbox_has_no_name_for_is_listed_under_its_files_name() {
     let list = lib.list(&Disk::default());
     let track = &list.groups[0].tracks[0];
     assert_eq!((track.id, track.title.as_str()), (id, "a.mp3"));
+}
+
+// Paging (X3).
+
+const OLD_FOLDER: &str = r"D:\Old Music\Set";
+
+#[test]
+fn a_big_group_sends_every_id_but_only_the_first_page_of_tracks() {
+    let lib = Lib::new();
+    let ids = lib.many(FIRST_PAGE * 2 + 50);
+    let list = lib.list(&Disk::default());
+    assert_eq!(
+        list.total as usize,
+        ids.len(),
+        "the total counts every track"
+    );
+    let group = &list.groups[0];
+    assert_eq!(group.track_ids, ids, "every id, in the order shown");
+    assert_eq!(group.tracks.len(), FIRST_PAGE);
+    assert_eq!(group.tracks[0].id, ids[0]);
+}
+
+#[test]
+fn a_big_groups_add_folder_offer_covers_the_whole_group_not_the_rows_loaded() {
+    let lib = Lib::new();
+    lib.many(FIRST_PAGE + 5);
+    let list = lib.list(&Disk::with(&['D'], &[OLD_FOLDER]));
+    let group = &list.groups[0];
+    assert!(
+        group.can_add,
+        "offered for the folder, whatever rows are loaded"
+    );
+    assert_eq!(group.folder.as_deref(), Some(OLD_FOLDER));
+    assert!(group.tracks.len() < group.track_ids.len());
+}
+
+#[test]
+fn the_pages_together_hold_every_track_once_in_the_groups_order() {
+    let lib = Lib::new();
+    lib.many(FIRST_PAGE + 130);
+    let group = lib.list(&Disk::default()).groups.remove(0);
+    let mut shown = group.tracks.clone();
+    for ids in group.track_ids[shown.len()..].chunks(MAX_PAGE) {
+        shown.extend(lib.page(ids));
+    }
+    let shown: Vec<i64> = shown.iter().map(|t| t.id).collect();
+    assert_eq!(shown, group.track_ids);
+}
+
+#[test]
+fn a_page_comes_in_the_order_asked_and_leaves_out_a_track_matched_since() {
+    let lib = Lib::new();
+    let ids = lib.many(4);
+    lib.match_to_file(ids[1], false);
+    let page = lib.page(&[ids[3], ids[1], ids[0]]);
+    assert_eq!(
+        page.iter().map(|t| t.id).collect::<Vec<_>>(),
+        [ids[3], ids[0]]
+    );
+    assert_eq!(
+        page[0].last_known_path.as_deref(),
+        Some(r"D:\Old Music\Set\0003.mp3")
+    );
+}
+
+#[test]
+fn a_page_answers_at_most_the_page_limit() {
+    let lib = Lib::new();
+    let ids = lib.many(MAX_PAGE + 20);
+    assert_eq!(lib.page(&ids).len(), MAX_PAGE);
+    assert!(lib.page(&[]).is_empty());
+}
+
+#[test]
+fn odd_data_in_one_row_leaves_its_fields_out_without_failing_the_list_or_a_page() {
+    let lib = Lib::new();
+    let good = lib.track(&format!("{OLD}a.mp3"), "Song", "Artist");
+    let odd = lib.odd_track();
+    let list = lib.list(&Disk::default());
+    assert_eq!(list.total, 2);
+    let unknown = list.groups.iter().find(|g| g.folder.is_none()).unwrap();
+    assert_eq!(unknown.track_ids, [odd]);
+    let page = lib.page(&[odd, good]);
+    assert_eq!(page.iter().map(|t| t.id).collect::<Vec<_>>(), [odd, good]);
+    assert_eq!(page[0].last_known_path, None);
+    assert_eq!(page[0].title, "5");
+}
+
+#[test]
+fn no_statement_scans_the_tracks_to_fill_a_page() {
+    let lib = Lib::new();
+    let path = crate::write_guard::test_path(lib._dir.path(), crate::db::DB_FILE_NAME);
+    crate::db::ReadPool::open(&path)
+        .unwrap()
+        .read(|c| {
+            {
+                let (what, sql) = ("a page", PAGE_SQL);
+                let plan: Vec<String> = c
+                    .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?
+                    .query_map(["[1,2]"], |r| r.get(3))?
+                    .collect::<rusqlite::Result<_>>()?;
+                assert!(
+                    plan.iter()
+                        .any(|p| p.starts_with("SEARCH rekordbox_track") && p.contains("rowid=?")),
+                    "{what}: each id is searched by its row id: {plan:?}"
+                );
+                assert!(
+                    !plan.iter().any(|p| p.starts_with("SCAN rekordbox_track")),
+                    "{what}: no pass over the tracks: {plan:?}"
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
 }
