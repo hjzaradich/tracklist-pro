@@ -43,7 +43,8 @@
 //! - A library with no music folders queues nothing, and a check that fails
 //!   is logged and the rest are still asked: startup never fails over it.
 //!
-//! **Known limit:** relink and attach are not asked for. Their requests
+//! **Known limit:** relink and attach are not asked for, except attach once
+//! after an upgrade that changed which entry a track shows. Their requests
 //! queue a job whenever there is rekordbox data, whether or not anything is
 //! due, so asking at every start would run both every time. An app that
 //! dies after a rekordbox read ends but before the relink or attach job it
@@ -81,6 +82,7 @@ const ASKS: &[(&str, Ask)] = &[
     ("matching", ask_matching),
     ("decide", ask_decide),
     ("file roles", ask_file_roles),
+    ("attach", ask_attach),
     ("search index", ask_search_index),
     ("waveforms", ask_waveforms),
 ];
@@ -241,6 +243,20 @@ fn ask_file_roles(a: &Asking) -> Result<(), DbError> {
     }
     if a.read(crate::file_roles::any_due)? {
         a.queue(crate::file_roles::roles_job())?;
+    }
+    Ok(())
+}
+
+/// Attach is asked for here only after an upgrade that changed which
+/// rekordbox entry a track shows ([`crate::attach::SHOWN_VERSION`]); its run
+/// marks every Library track due for the index. A library with no rekordbox
+/// data has nothing to redo. Otherwise the jobs that change what it reads
+/// ask for it (the known limit above).
+fn ask_attach(a: &Asking) -> Result<(), DbError> {
+    let owed =
+        a.read(|c| Ok(!crate::attach::version_is_current(c)? && crate::attach::any_to_attach(c)?))?;
+    if owed {
+        a.queue(crate::attach::attach_job())?;
     }
     Ok(())
 }

@@ -1092,6 +1092,11 @@ pub async fn remove_library_track(
 ) -> Result<(), IpcError> {
     remove(&writer, id)?;
     settle_now(&writer, &jobs);
+    // Outside the Library a track shows the entry an add would link, not
+    // necessarily its linked file's (1cD-X2).
+    if let Err(e) = crate::attach::request(&writer, |j| jobs.enqueue(j)) {
+        eprintln!("library: couldn't ask for attach: {e:?}");
+    }
     Ok(())
 }
 

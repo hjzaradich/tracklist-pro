@@ -310,6 +310,44 @@ fn after_an_upgrade_that_left_every_track_due_the_next_start_asks_for_the_roles_
 }
 
 #[test]
+fn after_an_upgrade_that_changed_which_entry_a_track_shows_the_next_start_asks_for_attach_once() {
+    let (_dir, volume, _db, writer) = scanned();
+    writer
+        .call(|c| c.execute("DELETE FROM search_due", []))
+        .unwrap();
+    // No rekordbox data: nothing to redo.
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, Vec::<&str>::new()));
+    // rekordbox data from a build with another rule (1cD-X2).
+    writer
+        .call(|c| {
+            c.execute(
+                "INSERT INTO rekordbox_track (attributes, location_key, read_at)
+                 VALUES ('{\"TrackID\":\"1\",\"Location\":\"file://localhost/E:/1.mp3\"}', 'k', '2026-09-30T10:00:00.000Z')",
+                [],
+            )
+        })
+        .unwrap();
+    writer
+        .call(|c| c.execute("DELETE FROM search_due", []))
+        .unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, vec!["attach"]));
+    let (_, queued) = ask(&writer, &volume);
+    assert_eq!(
+        kinds(&queued),
+        ["attach"],
+        "asked again with it waiting: still one"
+    );
+    // Its run is of this build's rule: nothing is asked for after it but
+    // the index the run made due.
+    writer.call(|c| c.execute("DELETE FROM job", [])).unwrap();
+    writer.call(crate::attach::attach).unwrap();
+    let (failed, queued) = ask(&writer, &volume);
+    assert_eq!((failed, kinds(&queued)), (0, vec!["index"]));
+}
+
+#[test]
 fn a_search_index_that_is_behind_is_asked_for_at_the_next_start_and_a_current_one_is_not() {
     let (_dir, volume, _db, writer) = scanned();
     writer
@@ -480,7 +518,7 @@ fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_el
         }
     });
     assert_eq!(asked.failed, 0);
-    assert_eq!(asked.took.len(), 9, "every stage was asked");
+    assert_eq!(asked.took.len(), 10, "every stage was asked");
     release.send(()).unwrap();
     holder.join().unwrap().unwrap();
 }

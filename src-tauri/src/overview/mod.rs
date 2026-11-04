@@ -6,8 +6,8 @@
 //! - A track's **genre** is rekordbox's for a track rekordbox knows, else
 //!   the file's tag ([`GenreCount`]). "Knows" is what attach means by a
 //!   trusted entry: one relink matched to the track and didn't mark
-//!   probable, picked among several by the same order as attach's BPM and
-//!   key ([`crate::attach::PICK_ORDER`]).
+//!   probable. Of several, the one the track shows, by the same rule as
+//!   attach's BPM and key and the send ([`crate::attach::shown_entry_sql`]).
 //! - **Analyzed** means rekordbox supplied a BPM or a key: the track has an
 //!   `analysis` row from rekordbox, which attach writes only then.
 //! - **Decisions made** counts the operations in the undo log.
@@ -367,19 +367,15 @@ fn frame_filter(more: bool) -> String {
     keys
 }
 
-/// What rekordbox says a Library track's genre is, from the trusted entry
-/// attach would pick (`{order}` is [`crate::attach::PICK_ORDER`]): `NULL`
-/// for a track rekordbox doesn't know, `''` for a known track whose genre
-/// is blank. Needs `lt` (`library_track`).
-const REKORDBOX_GENRE: &str =
-    "(SELECT coalesce(CAST(json_extract(rt.attributes, '$.Genre') AS TEXT), '')
-                       FROM rekordbox_track rt
-                       LEFT JOIN recording_file rf
-                              ON rf.file_id = rt.file_id AND rf.recording_id = rt.recording_id
-                       WHERE rt.recording_id = lt.recording_id AND rt.relink_probable = 0
-                         AND {pickable}
-                       ORDER BY {order}
-                       LIMIT 1)";
+/// What the rekordbox entry `entry` (an SQL expression for its id, as
+/// [`crate::attach::shown_entry_sql`] gives) says `attribute` is: `NULL`
+/// for no entry, `''` for an entry whose value is blank.
+fn rekordbox_says(attribute: &str, entry: &str) -> String {
+    format!(
+        "(SELECT coalesce(CAST(json_extract(k.attributes, '$.{attribute}') AS TEXT), '')
+          FROM rekordbox_track k WHERE k.id = {entry})"
+    )
+}
 
 /// Each Library track's `id`, what rekordbox says (`rb`) and the file's
 /// genre frames (`digest`), as [`genres_of`] reads them. `scoped` limits it
@@ -410,9 +406,8 @@ fn genre_source_sql(scoped: bool) -> String {
                FROM library_track lt
                {scope}) g",
         frames = frame_filter(false),
-        rekordbox_genre = REKORDBOX_GENRE
-            .replace("{order}", crate::attach::PICK_ORDER)
-            .replace("{pickable}", crate::attach::PICKABLE),
+        rekordbox_genre =
+            rekordbox_says("Genre", &crate::attach::shown_entry_sql("lt.recording_id")),
     )
 }
 
@@ -586,6 +581,8 @@ fn missing_tags_sql(scoped: bool) -> String {
     } else {
         "s.rb IS NULL OR s.ka IS NULL"
     };
+    // The entry the track shows, one rule with attach and the send.
+    let shown = crate::attach::shown_entry_sql("lt.recording_id");
     format!(
         "SELECT s.id, s.rb, s.title, s.artist, s.fid, s.present, s.kn, s.ka,
                 CASE WHEN s.fid IS NOT NULL AND ({tag_needed}) THEN (
@@ -596,25 +593,15 @@ fn missing_tags_sql(scoped: bool) -> String {
                         GROUP BY blk.key) b) END AS digest
          FROM (SELECT lt.id AS id, lt.linked_file_id AS fid, r.title AS title,
                       r.artist AS artist, f.present AS present,
-                      {rekordbox_genre} AS rb,
-                      (SELECT coalesce(CAST(json_extract(k.attributes, '$.Name') AS TEXT), '')
-                       FROM rekordbox_track k
-                       WHERE k.file_id = lt.linked_file_id AND k.relink_probable = 0
-                       ORDER BY COALESCE(k.play_count, 0) DESC, k.track_id
-                       LIMIT 1) AS kn,
-                      (SELECT coalesce(CAST(json_extract(k.attributes, '$.Artist') AS TEXT), '')
-                       FROM rekordbox_track k
-                       WHERE k.file_id = lt.linked_file_id AND k.relink_probable = 0
-                       ORDER BY COALESCE(k.play_count, 0) DESC, k.track_id
-                       LIMIT 1) AS ka
+                      {rekordbox_genre} AS rb, {rekordbox_name} AS kn, {rekordbox_artist} AS ka
                FROM library_track lt
                LEFT JOIN recording r ON r.id = lt.recording_id
                LEFT JOIN file f ON f.id = lt.linked_file_id
                {scope}) s",
         frames = frame_filter(true),
-        rekordbox_genre = REKORDBOX_GENRE
-            .replace("{order}", crate::attach::PICK_ORDER)
-            .replace("{pickable}", crate::attach::PICKABLE),
+        rekordbox_genre = rekordbox_says("Genre", &shown),
+        rekordbox_name = rekordbox_says("Name", &shown),
+        rekordbox_artist = rekordbox_says("Artist", &shown),
     )
 }
 

@@ -975,8 +975,8 @@ pub(super) fn mounted(reads: &ReadPool) -> Result<Mounted, DbError> {
 }
 
 /// Asks for the background work a changed link needs: the roles of every
-/// track that is due, and the search index (a Library track's shown names
-/// follow its link). A failure to ask is not the action's: the next job to
+/// track that is due, the search index (a Library track's shown names
+/// follow its link) and attach (so does its rekordbox entry). A failure to ask is not the action's: the next job to
 /// end asks again.
 pub(crate) fn ask_for_follow_up_work(writer: &Writer, jobs: &JobQueue) {
     if let Err(e) = crate::file_roles::request(writer, |j| jobs.enqueue(j)) {
@@ -987,6 +987,10 @@ pub(crate) fn ask_for_follow_up_work(writer: &Writer, jobs: &JobQueue) {
     }
     // A relink, a merge or an undo can change which file a Library track shows.
     crate::waveform::ask_after_library_change(writer, |j| jobs.enqueue(j));
+    // A changed link changes which rekordbox entry a track shows (1cD-X2).
+    if let Err(e) = crate::attach::request(writer, |j| jobs.enqueue(j)) {
+        eprintln!("review: couldn't ask for attach: {e:?}");
+    }
 }
 
 /// Asks for a relink run: a confirmation, a "not the same" or their undo
