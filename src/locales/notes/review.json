@@ -39,6 +39,10 @@
     "where": "Review screen, Missing list, on a group whose folder exists and isn't a music folder yet.",
     "approved": "Add folder"
   },
+  "missing.showMore": {
+    "purpose": "Button that shows the next tracks of a long group.",
+    "where": "Review screen, Missing list, under a group with more tracks than are shown."
+  },
   "group.needsCloserLook": {
     "purpose": "Heading of the queue group for decisions that take thought.",
     "where": "Review screen, queue on the left, group heading.",

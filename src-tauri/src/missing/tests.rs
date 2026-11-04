@@ -473,7 +473,8 @@ fn no_statement_scans_the_tracks_to_fill_a_page() {
     crate::db::ReadPool::open(&path)
         .unwrap()
         .read(|c| {
-            for (what, sql) in [("a page", PAGE_SQL)] {
+            {
+                let (what, sql) = ("a page", PAGE_SQL);
                 let plan: Vec<String> = c
                     .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))?
                     .query_map(["[1,2]"], |r| r.get(3))?
