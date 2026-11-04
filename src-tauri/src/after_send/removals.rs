@@ -222,7 +222,7 @@ fn removed_from_library(
     let mut held_by_track =
         conn.prepare("SELECT 1 FROM rekordbox_track WHERE recording_id = ?1 LIMIT 1")?;
     // For a track that was never sent: rekordbox's own entry for it, the
-    // one the track shows ([`crate::attach::SHOWN_FROM`]), found through a
+    // one the track shows ([`crate::attach::shown_entry_sql`]), found through a
     // trusted match to one of the track's files. A probable match doesn't
     // count: it isn't known to be this track.
     let mut own_entry = conn.prepare(&format!(

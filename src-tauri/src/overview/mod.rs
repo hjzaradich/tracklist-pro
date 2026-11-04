@@ -7,7 +7,7 @@
 //!   the file's tag ([`GenreCount`]). "Knows" is what attach means by a
 //!   trusted entry: one relink matched to the track and didn't mark
 //!   probable. Of several, the one the track shows, by the same rule as
-//!   attach's BPM and key and the send ([`crate::attach::SHOWN_FROM`]).
+//!   attach's BPM and key and the send ([`crate::attach::shown_entry_sql`]).
 //! - **Analyzed** means rekordbox supplied a BPM or a key: the track has an
 //!   `analysis` row from rekordbox, which attach writes only then.
 //! - **Decisions made** counts the operations in the undo log.

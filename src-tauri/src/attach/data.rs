@@ -45,8 +45,10 @@ pub struct RekordboxEntry {
     pub playlists: String,
 }
 
-/// Every trusted rekordbox entry attached to `recording`, the one the
-/// track shows ([`super::SHOWN_FROM`]) first, then by `TrackID`.
+/// Every trusted rekordbox entry on `recording`'s files, the one the track
+/// shows ([`super::shown_entry_sql`]) first, then by `TrackID`. Found
+/// through each entry's file, as the rule finds them, so the list and the
+/// rule never disagree about whose an entry is.
 pub fn for_recording(conn: &Connection, recording: i64) -> rusqlite::Result<Vec<RekordboxEntry>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT rt.track_id, rt.file_id, rt.relink_method, rt.relink_confidence,
@@ -55,7 +57,8 @@ pub fn for_recording(conn: &Connection, recording: i64) -> rusqlite::Result<Vec<
                 rt.rating, rt.colour, rt.comments, rt.my_tags, rt.tempo,
                 rt.position_marks, rt.playlists, rt.id IS {} AS shown
          FROM rekordbox_track rt
-         WHERE rt.recording_id = ?1 AND rt.relink_probable = 0
+         JOIN recording_file rf ON rf.file_id = rt.file_id
+         WHERE rf.recording_id = ?1 AND rt.relink_probable = 0
          ORDER BY shown DESC, rt.track_id",
         super::shown_entry_sql("?1"),
     ))?;

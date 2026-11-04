@@ -44,6 +44,28 @@ impl Lib {
         )
     }
 
+    /// Makes `files` byte-identical (the same `blake3`, `byte` repeated),
+    /// each with its hash stage current.
+    fn identical(&self, files: &[i64], byte: u8) {
+        let files = files.to_vec();
+        self.writer
+            .call(move |c| {
+                for file in files {
+                    c.execute(
+                        "UPDATE file SET blake3 = ?2 WHERE id = ?1",
+                        rusqlite::params![file, vec![byte; 32]],
+                    )?;
+                    c.execute(
+                        "INSERT OR REPLACE INTO file_stage (file_id, stage, version, size, mtime, status)
+                         SELECT id, 'hash', ?2, size, mtime, 'done' FROM file WHERE id = ?1",
+                        rusqlite::params![file, crate::relink::hash_version()],
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+
     fn row_where(&self, sql: &'static str, value: String) -> Option<i64> {
         self.writer
             .call(move |c| {
@@ -278,6 +300,58 @@ fn varied_library() -> (Lib, Vec<Case>, Probes) {
         library: Some(library),
     });
     expected.push(("entry on another file", None));
+
+    // Byte-identical copies (1bE-11): the send uses the copy's entry when
+    // the linked file has none, whether the linked file is on disk or gone.
+    let track = lib.track();
+    let linked = lib.file(track, "copy-present.mp3", "best", Spec::default());
+    let copy = lib.file(track, "copy-present-2.mp3", "undecided", Spec::default());
+    lib.identical(&[linked, copy], 0xC1);
+    let of_copy = lib.entry("copy-present-2.mp3", Some(copy), false, READ, 0, 140);
+    let library = lib.library(track, Some(linked));
+    cases.push(Case {
+        what: "copy of a present file",
+        track,
+        library: Some(library),
+    });
+    expected.push(("copy of a present file", Some(of_copy)));
+
+    let track = lib.track();
+    let linked = lib.file(
+        track,
+        "copy-gone.mp3",
+        "undecided",
+        Spec {
+            present: Some(false),
+            ..Spec::default()
+        },
+    );
+    let copy = lib.file(track, "copy-gone-2.mp3", "best", Spec::default());
+    lib.identical(&[linked, copy], 0xC2);
+    let of_copy = lib.entry("copy-gone-2.mp3", Some(copy), false, READ, 0, 141);
+    let library = lib.library(track, Some(linked));
+    cases.push(Case {
+        what: "copy of a gone file",
+        track,
+        library: Some(library),
+    });
+    expected.push(("copy of a gone file", Some(of_copy)));
+
+    // Two copies with an entry each: neither is used.
+    let track = lib.track();
+    let linked = lib.file(track, "copies.mp3", "best", Spec::default());
+    let one = lib.file(track, "copies-1.mp3", "undecided", Spec::default());
+    let two = lib.file(track, "copies-2.mp3", "undecided", Spec::default());
+    lib.identical(&[linked, one, two], 0xC3);
+    lib.entry("copies-1.mp3", Some(one), false, READ, 0, 142);
+    lib.entry("copies-2.mp3", Some(two), false, READ, 0, 143);
+    let library = lib.library(track, Some(linked));
+    cases.push(Case {
+        what: "two copies",
+        track,
+        library: Some(library),
+    });
+    expected.push(("two copies", None));
 
     // Grouping gives each matched entry its file's track; then attach runs.
     lib.writer

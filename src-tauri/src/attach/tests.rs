@@ -413,6 +413,18 @@ fn with_no_entry_on_the_best_file_the_entry_on_the_file_an_add_would_link_wins()
 }
 
 #[test]
+fn outside_the_library_an_entry_on_a_file_on_disk_wins_over_one_on_a_gone_best_file() {
+    let db = db();
+    let (best, second, _) = three_files(&db);
+    db.entry(1, Some(best), "128.00", "Cm", 50);
+    db.entry(2, Some(second), "100.00", "Am", 0);
+    db.group();
+    db.sql(&format!("UPDATE file SET present = 0 WHERE id = {best}"));
+    db.attach();
+    assert_eq!(db.rekordbox_row(db.track(second)), row(100.0, "8A"));
+}
+
+#[test]
 fn of_two_entries_on_one_file_the_most_played_wins() {
     let db = db();
     let (_, second, _) = three_files(&db);
