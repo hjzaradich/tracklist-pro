@@ -39,6 +39,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
 
+pub mod add_progress;
 pub mod fit;
 pub mod summary;
 
@@ -47,6 +48,7 @@ use crate::ipc::{ErrorKind, ErrorParam, IpcError};
 use crate::library::{self, LibraryTrackId};
 use crate::ops::{self, OpsError};
 use crate::rekordbox_write::{build, sibling_key, BuildError, Node, SendInput, MAX_DEPTH};
+use add_progress::{AddPhase, AddProgress};
 
 /// The operation kinds, as the operation log stores them.
 pub const CREATE_OPERATION: &str = "create_crate";
@@ -820,13 +822,19 @@ struct Prepared {
 /// unless the Library add refuses it or asks the user to agree to a warning
 /// first (then it is left out, counted by reason). A track that doesn't exist
 /// refuses the whole call. Changes nothing the log records.
-fn prepare(conn: &mut Connection, recordings: &[i64]) -> Result<Done<Prepared>, OpsError> {
+fn prepare(
+    conn: &mut Connection,
+    recordings: &[i64],
+    progress: &AddProgress,
+) -> Result<Done<Prepared>, OpsError> {
+    progress.phase(AddPhase::Checking, recordings.len());
     let mut seen = HashSet::new();
     let mut prepared = Prepared {
         items: Vec::new(),
         left_out: LeftOutOfCrate::default(),
     };
-    for &recording in recordings {
+    for (at, &recording) in recordings.iter().enumerate() {
+        progress.at(at);
         if !seen.insert(recording) {
             continue;
         }
@@ -848,6 +856,7 @@ fn prepare(conn: &mut Connection, recordings: &[i64]) -> Result<Done<Prepared>, 
             Err(library::Refusal::MatchNotConfirmed) => prepared.left_out.match_not_confirmed += 1,
         }
     }
+    progress.all_done();
     // One settle and one read of the findings for the whole list, not one of
     // each per track. A track whose file has the warning is left out.
     let files: Vec<i64> = prepared
@@ -878,7 +887,9 @@ fn put_in(
     id: CrateId,
     name: String,
     prepared: &Prepared,
+    progress: &AddProgress,
 ) -> Result<AddedToCrate, OpsError> {
+    progress.phase(AddPhase::Adding, prepared.items.len());
     let mut present: HashSet<i64> = rec
         .read_rows(
             "SELECT library_track_id FROM crate_entry WHERE crate_id = ?1",
@@ -888,7 +899,8 @@ fn put_in(
         .into_iter()
         .collect();
     let (mut added, mut also_added_to_library, mut already_there) = (0, 0, 0);
-    for item in &prepared.items {
+    for (at, item) in prepared.items.iter().enumerate() {
+        progress.at(at);
         let track = match item {
             Item::InLibrary(track) => *track,
             Item::Link { recording, file } => {
@@ -909,6 +921,7 @@ fn put_in(
             already_there += 1;
         }
     }
+    progress.all_done();
     rec.detail("name", name);
     rec.detail("tracks", added);
     // What the Undo button names (1cB-23): how many came into the Library.
@@ -936,10 +949,20 @@ pub fn add_recordings_on(
     id: CrateId,
     recordings: &[i64],
 ) -> Result<Done<AddedToCrate>, OpsError> {
+    add_recordings_tracked(conn, id, recordings, &AddProgress::default())
+}
+
+/// [`add_recordings_on`], telling `progress` how far it has got.
+pub fn add_recordings_tracked(
+    conn: &mut Connection,
+    id: CrateId,
+    recordings: &[i64],
+    progress: &AddProgress,
+) -> Result<Done<AddedToCrate>, OpsError> {
     if kind_of(conn, id)? != Some(CrateKind::Static) {
         return Ok(Err(CratesError::NotFound));
     }
-    let prepared = match prepare(conn, recordings)? {
+    let prepared = match prepare(conn, recordings, progress)? {
         Ok(prepared) => prepared,
         Err(refusal) => return Ok(Err(refusal)),
     };
@@ -951,7 +974,7 @@ pub fn add_recordings_on(
             let Some(name) = static_name(rec, id)? else {
                 return Ok(Err(CratesError::NotFound));
             };
-            put_in(rec, id, name, &prepared).map(Ok)
+            put_in(rec, id, name, &prepared, progress).map(Ok)
         },
     )?;
     Ok(recorded.value.map(|done| AddedToCrate {
@@ -970,7 +993,17 @@ pub fn add_recordings_to_new_crate_on(
     name: &str,
     recordings: &[i64],
 ) -> Result<Done<AddedToNewCrate>, OpsError> {
-    let prepared = match prepare(conn, recordings)? {
+    add_recordings_to_new_crate_tracked(conn, name, recordings, &AddProgress::default())
+}
+
+/// [`add_recordings_to_new_crate_on`], telling `progress` how far it has got.
+pub fn add_recordings_to_new_crate_tracked(
+    conn: &mut Connection,
+    name: &str,
+    recordings: &[i64],
+    progress: &AddProgress,
+) -> Result<Done<AddedToNewCrate>, OpsError> {
+    let prepared = match prepare(conn, recordings, progress)? {
         Ok(prepared) => prepared,
         Err(refusal) => return Ok(Err(refusal)),
     };
@@ -985,7 +1018,7 @@ pub fn add_recordings_to_new_crate_on(
                 Err(refusal) => return Ok(Err(refusal)),
             };
             let stored = static_name(rec, id)?.unwrap_or_else(|| name.clone());
-            let added = put_in(rec, id, stored.clone(), &prepared)?;
+            let added = put_in(rec, id, stored.clone(), &prepared, progress)?;
             Ok(Ok(AddedToNewCrate {
                 crate_id: id,
                 name: stored,
@@ -1204,10 +1237,14 @@ pub async fn add_tracks_to_crate(
 pub async fn add_recordings_to_crate(
     writer: State<'_, Writer>,
     jobs: State<'_, crate::jobs::JobQueue>,
+    progress: State<'_, AddProgress>,
     id: CrateId,
     recordings: Vec<i64>,
 ) -> Result<AddedToCrate, IpcError> {
-    let added = writer.call(move |conn| Ok(add_recordings_on(conn, id, &recordings)))???;
+    let progress = progress.inner().clone();
+    let _tracking = progress.begin();
+    let added = writer
+        .call(move |conn| Ok(add_recordings_tracked(conn, id, &recordings, &progress)))???;
     if added.also_added_to_library > 0 {
         crate::waveform::ask_after_library_change(&writer, |j| jobs.enqueue(j));
     }
@@ -1221,11 +1258,20 @@ pub async fn add_recordings_to_crate(
 pub async fn add_recordings_to_new_crate(
     writer: State<'_, Writer>,
     jobs: State<'_, crate::jobs::JobQueue>,
+    progress: State<'_, AddProgress>,
     name: String,
     recordings: Vec<i64>,
 ) -> Result<AddedToNewCrate, IpcError> {
-    let made = writer
-        .call(move |conn| Ok(add_recordings_to_new_crate_on(conn, &name, &recordings)))???;
+    let progress = progress.inner().clone();
+    let _tracking = progress.begin();
+    let made = writer.call(move |conn| {
+        Ok(add_recordings_to_new_crate_tracked(
+            conn,
+            &name,
+            &recordings,
+            &progress,
+        ))
+    })???;
     if made.added.also_added_to_library > 0 {
         crate::waveform::ask_after_library_change(&writer, |j| jobs.enqueue(j));
     }

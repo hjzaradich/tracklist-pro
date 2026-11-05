@@ -349,6 +349,14 @@
     "where": "Above the track table, after tracks were dropped on a folder in the sidebar.",
     "approved": "Can't add to a folder: it holds crates, not tracks"
   },
+  "addProgress.checking": {
+    "purpose": "Says an add of many tracks is still checking them (the same checks Add to Library makes) and how far it has got. Shown only when the add takes more than about a second.",
+    "where": "In the add-to-crate dialog while it works, and above the track table after a drop on a crate."
+  },
+  "addProgress.adding": {
+    "purpose": "Says an add of many tracks is now putting them in the crate (and in the Library) and how far it has got. Shown only when the add takes more than about a second.",
+    "where": "In the add-to-crate dialog while it works, and above the track table after a drop on a crate."
+  },
   "done.created": {
     "purpose": "Says the crate was made.",
     "where": "Crates screen, status strip.",

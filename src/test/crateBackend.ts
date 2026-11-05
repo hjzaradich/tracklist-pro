@@ -1,5 +1,5 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { AddedToCrate, Crate, OperationInfo, TableQuery, TableRow } from "../bindings";
+import type { AddedToCrate, AddProgressState, Crate, OperationInfo, TableQuery, TableRow } from "../bindings";
 import { pageOf, tableRow } from "./trackTableIpc";
 
 /**
@@ -36,6 +36,8 @@ export function crateBackend(options: {
     nextId: 100,
     nextLibraryTrack: 1000,
     holds: new Map<string, Promise<void>>(),
+    /** What `crate_add_progress` answers: a test sets it while an add is held. */
+    addProgress: { phase: "idle", done: 0, total: 0 } as AddProgressState,
   };
   const called = (cmd: string) => state.calls.filter((call) => call.cmd === cmd);
   const refuse = (kind: string, params: Record<string, string> = {}) => {
@@ -212,6 +214,8 @@ export function crateBackend(options: {
         return [];
       case "read_online_only_files":
         return false;
+      case "crate_add_progress":
+        return state.addProgress;
       case "key_notation":
         return "camelot";
       case "table_columns":

@@ -28,12 +28,20 @@ export const useAddReport = create<{
 }));
 
 /**
+ * The crate an add is under way for, until it settles (1cE-P2). The track
+ * table says how far it has got when the add has no dialog of its own (a drop
+ * on the sidebar).
+ */
+export const useAddUnderWay = create<{ crate: string | null }>(() => ({ crate: null }));
+
+/**
  * Adds tracks (`TableRow.recordingId`) to a crate as one operation, and puts
  * what happened in {@link useAddReport}. Resolves to whether it worked.
  */
 export function useAddSelectionToCrate() {
   const add = useAddRecordingsToCrate();
   return async (crate: { id: number; name: string }, recordings: readonly number[]): Promise<boolean> => {
+    useAddUnderWay.setState({ crate: crate.name });
     try {
       const done = await add.mutateAsync({ id: crate.id, recordings });
       showAdded(crate.name, done);
@@ -41,6 +49,8 @@ export function useAddSelectionToCrate() {
     } catch (error) {
       useAddReport.getState().show({ kind: "failed", message: errorMessage(error) });
       return false;
+    } finally {
+      useAddUnderWay.setState({ crate: null });
     }
   };
 }

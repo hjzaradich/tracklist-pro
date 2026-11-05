@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
 import { AddToCrateDialog } from "../crates/AddToCrateDialog";
-import { type AddReport, useAddReport } from "../crates/addSelection";
+import { AddProgressLine } from "../crates/AddProgressLine";
+import { type AddReport, useAddReport, useAddUnderWay } from "../crates/addSelection";
+import { useAddProgress } from "../crates/useAddProgress";
 import {
   commands,
   type SortColumn,
@@ -120,6 +122,9 @@ export function TrackTableView({
   // the last add to a crate did (1cB-13; the sidebar's drop reports the same way).
   const [adding, setAdding] = useState<readonly number[] | null>(null);
   const addReport = useAddReport((state) => state.report);
+  // A drop on a crate has no dialog: its progress goes where its report will.
+  const addingTo = useAddUnderWay((state) => state.crate);
+  const addProgress = useAddProgress(addingTo !== null && adding === null);
   // The line describes a change that stands: a move, another selection or an Undo drops it.
   const onSelectedChange = useCallback((selection: { count: number }) => {
     setSelectedCount(selection.count);
@@ -242,7 +247,8 @@ export function TrackTableView({
             {energyGiven !== null && (
               <span role="status">{t("energySet", { energy: energyGiven.energy, count: energyGiven.count })}</span>
             )}
-            {addReport !== null && <AddReportLine report={addReport} />}
+            {addProgress !== null && addingTo !== null && <AddProgressLine crate={addingTo} progress={addProgress} />}
+            {addProgress === null && addReport !== null && <AddReportLine report={addReport} />}
             {(giveEnergy.isError || clearEnergy.isError) && (
               <span role="alert" className={styles.failed}>
                 {errorMessage(giveEnergy.isError ? giveEnergy.error : clearEnergy.error)}

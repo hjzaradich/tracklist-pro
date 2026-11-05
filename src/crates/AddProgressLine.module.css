@@ -1,0 +1,23 @@
+/* The progress of an add to a crate: text and a bar. The bar is the one the
+ * Overview's charts use (same tokens), a little shorter to sit in a line. */
+.line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  display: inline-block;
+  width: 8rem;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-border);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--color-text-muted);
+}
