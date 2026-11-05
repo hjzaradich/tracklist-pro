@@ -265,19 +265,23 @@
   },
   "details.file": {
     "purpose": "Labels the full path of the selected track's file.",
-    "where": "Details panel, above the track's path."
+    "where": "Details panel, above the track's path.",
+    "approved": "File"
   },
   "details.tags": {
     "purpose": "Heading over the list of the track's tag fields.",
-    "where": "Details panel, above the tag list."
+    "where": "Details panel, above the tag list.",
+    "approved": "Tags"
   },
   "details.moreDetails": {
     "purpose": "Switch that shows the other values a field has in other places.",
-    "where": "Details panel, above the tag list; the same wording as Review's switch."
+    "where": "Details panel, above the tag list; the same wording as Review's switch.",
+    "approved": "More details"
   },
   "details.loadingTags": {
     "purpose": "Says the tag list is being read.",
-    "where": "Details panel, while a track's tag sources load."
+    "where": "Details panel, while a track's tag sources load.",
+    "approved": "Reading tags"
   },
   "details.field.title": {
     "purpose": "Names the title field.",
@@ -317,7 +321,8 @@
   },
   "details.source.rekordbox": {
     "purpose": "Says a value is rekordbox's.",
-    "where": "Details panel, under a field's value, for a Library track rekordbox knows."
+    "where": "Details panel, under a field's value, for a Library track rekordbox knows.",
+    "approved": "rekordbox"
   },
   "details.source.file": {
     "purpose": "Says a value is the tag of a named file.",

@@ -25,7 +25,8 @@
   },
   "searchAllMusic": {
     "purpose": "A command that opens All music with the cursor in its search box.",
-    "where": "Command palette, list."
+    "where": "Command palette, list.",
+    "approved": "Search All music"
   },
   "openSettings": {
     "purpose": "A command that opens the Settings screen. Always listed.",

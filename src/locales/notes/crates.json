@@ -48,7 +48,8 @@
   },
   "path.root": {
     "purpose": "The top folder every crate and folder is sent under in rekordbox.",
-    "where": "Crates screen, first part of the path under the chosen crate's name."
+    "where": "Crates screen, first part of the path under the chosen crate's name.",
+    "approved": "Crates"
   },
   "new.button": {
     "purpose": "Starts making a crate.",
@@ -80,11 +81,13 @@
   },
   "newFolder.confirm": {
     "purpose": "Makes the folder with the typed name.",
-    "where": "Crates screen, the new-folder form."
+    "where": "Crates screen, the new-folder form.",
+    "approved": "Create"
   },
   "newFolder.cancel": {
     "purpose": "Closes the new-folder form without making a folder.",
-    "where": "Crates screen, the new-folder form."
+    "where": "Crates screen, the new-folder form.",
+    "approved": "Go back"
   },
   "newInside.button": {
     "purpose": "Starts making a crate inside the chosen folder.",
@@ -140,7 +143,8 @@
   },
   "move.cancel": {
     "purpose": "Closes the move form without moving anything.",
-    "where": "Crates screen, the move form."
+    "where": "Crates screen, the move form.",
+    "approved": "Go back"
   },
   "delete.button": {
     "purpose": "Starts deleting the chosen crate.",
@@ -260,7 +264,8 @@
   },
   "addDialog.cancel": {
     "purpose": "Closes the dialog without adding.",
-    "where": "Add to crate or playlist dialog, the quiet button at the bottom."
+    "where": "Add to crate or playlist dialog, the quiet button at the bottom.",
+    "approved": "Go back"
   },
   "addSelection.newCrateEmpty": {
     "purpose": "Says the crate asked for in the add dialog was created but no track was added to it, because none could be. The reasons follow in parentheses.",

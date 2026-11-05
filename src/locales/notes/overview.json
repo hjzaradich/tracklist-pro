@@ -106,15 +106,18 @@
   },
   "outside.tracks_zero": {
     "purpose": "Says no track in All music is outside the Library.",
-    "where": "Overview, Outside your Library."
+    "where": "Overview, Outside your Library.",
+    "approved": "No tracks"
   },
   "outside.tracks_one": {
     "purpose": "Counts the tracks in All music that are not in the Library.",
-    "where": "Overview, Outside your Library."
+    "where": "Overview, Outside your Library.",
+    "approved": "{{count, number}} track"
   },
   "outside.tracks_other": {
     "purpose": "Counts the tracks in All music that are not in the Library.",
-    "where": "Overview, Outside your Library."
+    "where": "Overview, Outside your Library.",
+    "approved": "{{count, number}} tracks"
   },
   "outside.decisions_zero": {
     "purpose": "Says Review holds nothing that waits for a decision.",

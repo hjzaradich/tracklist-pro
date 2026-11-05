@@ -61,7 +61,8 @@
   },
   "field.Rating": {
     "purpose": "Names the rating field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Rating"
   },
   "field.Colour": {
     "purpose": "Names the color field of a conflict.",
@@ -69,7 +70,8 @@
   },
   "field.DateAdded": {
     "purpose": "Names the date added field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Date added"
   },
   "field.Location": {
     "purpose": "Names the file location field of a conflict.",
@@ -81,7 +83,8 @@
   },
   "col.track": {
     "purpose": "Column heading: the track the conflict is about.",
-    "where": "Review screen, Conflicts pane, table heading."
+    "where": "Review screen, Conflicts pane, table heading.",
+    "approved": "Track"
   },
   "col.app": {
     "purpose": "Column heading: the app's value.",
@@ -89,7 +92,8 @@
   },
   "col.rekordbox": {
     "purpose": "Column heading: rekordbox's value.",
-    "where": "Review screen, Conflicts pane, table heading."
+    "where": "Review screen, Conflicts pane, table heading.",
+    "approved": "rekordbox"
   },
   "col.base": {
     "purpose": "Column heading: the value at the last send to rekordbox.",
@@ -97,7 +101,8 @@
   },
   "col.actions": {
     "purpose": "Column heading for the buttons of each conflict (not drawn, read by screen readers).",
-    "where": "Review screen, Conflicts pane, table heading."
+    "where": "Review screen, Conflicts pane, table heading.",
+    "approved": "Actions"
   },
   "membership.field": {
     "purpose": "Names a crate-membership conflict by its crate ({{name}} is the crate's name, inside the names of its folders): the field's name in the Conflicts group and above its conflicts.",
@@ -125,11 +130,13 @@
   },
   "stars_one": {
     "purpose": "A rating in stars (one).",
-    "where": "Review screen, Conflicts pane, a Rating value and the rating choice."
+    "where": "Review screen, Conflicts pane, a Rating value and the rating choice.",
+    "approved": "{{count}} star"
   },
   "stars_other": {
     "purpose": "A rating in stars (several).",
-    "where": "Review screen, Conflicts pane, a Rating value and the rating choice."
+    "where": "Review screen, Conflicts pane, a Rating value and the rating choice.",
+    "approved": "{{count}} stars"
   },
   "action.keepApp": {
     "purpose": "Settles one conflict with the app's value.",
@@ -149,7 +156,8 @@
   },
   "action.goBack": {
     "purpose": "Leaves editing without settling the conflict.",
-    "where": "Review screen, Conflicts pane, row being edited."
+    "where": "Review screen, Conflicts pane, row being edited.",
+    "approved": "Go back"
   },
   "action.keepAppAll": {
     "purpose": "Settles every conflict of the field with the app's value.",

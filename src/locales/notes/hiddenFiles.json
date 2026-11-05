@@ -61,7 +61,8 @@
   },
   "showMore": {
     "purpose": "Button that lists the next hidden files. Same wording as Review's (review:more).",
-    "where": "All music, Hidden filter, under the table, when more files wait."
+    "where": "All music, Hidden filter, under the table, when more files wait.",
+    "approved": "Show more"
   },
   "matches_one": {
     "purpose": "Says one hidden file matches the search and its track is not in the results (ROADMAP 1.11, owner decision 2026-10-12). Followed by a dot and the Show them link.",

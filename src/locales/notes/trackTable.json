@@ -29,15 +29,18 @@
   },
   "columns.rating": {
     "purpose": "Column heading for a track's star rating.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "Rating"
   },
   "columns.dateAdded": {
     "purpose": "Column heading for when a track was added: to the Library, or in All music for a track not in the Library, when it was first found.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "Date added"
   },
   "columns.file": {
     "purpose": "Column heading for a track's file name.",
-    "where": "Track table header, All music."
+    "where": "Track table header, All music.",
+    "approved": "File"
   },
   "columns.folder": {
     "purpose": "Column heading for the folder a track's file is in.",
@@ -45,7 +48,8 @@
   },
   "columns.actions": {
     "purpose": "Accessible name of the actions column (visually hidden).",
-    "where": "Track table header, last column (screen readers only)."
+    "where": "Track table header, last column (screen readers only).",
+    "approved": "Actions"
   },
   "sortBy": {
     "purpose": "Hover text and accessible name of a column heading that sorts the table.",
@@ -57,11 +61,13 @@
   },
   "rating_one": {
     "purpose": "A star rating, for screen readers and hover text, when it is one star.",
-    "where": "Track table, Rating column."
+    "where": "Track table, Rating column.",
+    "approved": "{{count}} star"
   },
   "rating_other": {
     "purpose": "A star rating, for screen readers and hover text, when it is several stars.",
-    "where": "Track table, Rating column."
+    "where": "Track table, Rating column.",
+    "approved": "{{count}} stars"
   },
   "updating": {
     "purpose": "Says the table may be out of date for a moment, because the background work that sorts and filters it hasn't caught up with a change.",
@@ -117,7 +123,8 @@
   },
   "editor.hideShort": {
     "purpose": "Button that takes a column out of the table.",
-    "where": "Column editor panel, each shown column."
+    "where": "Column editor panel, each shown column.",
+    "approved": "Hide"
   },
   "editor.show": {
     "purpose": "Accessible name of the Show button of a hidden column.",
@@ -133,7 +140,8 @@
   },
   "editor.done": {
     "purpose": "Button that closes the column editor. The choice is already saved.",
-    "where": "Column editor panel, bottom right; the one filled button."
+    "where": "Column editor panel, bottom right; the one filled button.",
+    "approved": "Done"
   },
   "filters.label": {
     "purpose": "Accessible name of the row of filters above the table.",
@@ -149,7 +157,8 @@
   },
   "filters.formats": {
     "purpose": "Heading over the file formats the table can be filtered to.",
-    "where": "The menu opened by Add filter, over the formats."
+    "where": "The menu opened by Add filter, over the formats.",
+    "approved": "Format"
   },
   "filters.none": {
     "purpose": "Says every filter on offer is already in use.",
@@ -161,7 +170,8 @@
   },
   "filters.missing": {
     "purpose": "Filter: tracks whose file isn't on disk.",
-    "where": "Filter chip and its menu entry."
+    "where": "Filter chip and its menu entry.",
+    "approved": "Missing"
   },
   "filters.inRekordbox": {
     "purpose": "Filter: tracks rekordbox has. rekordbox is written as rekordbox shows it.",
@@ -169,7 +179,8 @@
   },
   "filters.notInRekordbox": {
     "purpose": "Filter: tracks rekordbox doesn't have.",
-    "where": "Filter chip and its menu entry."
+    "where": "Filter chip and its menu entry.",
+    "approved": "Not in rekordbox"
   },
   "filters.format": {
     "purpose": "Filter: tracks whose file is in one format.",
@@ -177,7 +188,8 @@
   },
   "filters.qualityProblem": {
     "purpose": "Filter: the tracks Review lists under Quality problems (a Library track whose linked file is flagged with no better copy and no answer, or one with a better file available).",
-    "where": "Filter chip and its menu entry."
+    "where": "Filter chip and its menu entry.",
+    "approved": "Quality problem"
   },
   "filters.inCrate": {
     "purpose": "Filter: tracks that are in at least one crate.",
@@ -189,7 +201,8 @@
   },
   "filters.inLibrary": {
     "purpose": "Filter: tracks in the Library. Same wording as allMusic:inLibrary.",
-    "where": "Filter chip and its menu entry, All music."
+    "where": "Filter chip and its menu entry, All music.",
+    "approved": "In Library"
   },
   "filters.notInLibrary": {
     "purpose": "Filter: tracks not in the Library.",
@@ -413,7 +426,8 @@
   },
   "fit.separator": {
     "purpose": "Goes between the key part and the BPM part of a fit reason.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": ", "
   },
   "fit.sameKey": {
     "purpose": "The track has the selected track's key.",
