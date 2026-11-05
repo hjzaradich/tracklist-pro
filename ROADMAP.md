@@ -186,8 +186,8 @@ In the UI, **All music** shows the tracks layer and **Library** shows Library tr
 | `play_event` | recording_id (nullable), raw artist/title/path, play_source_id, position, played_at (nullable), prev_play_event_id | A null `recording_id` means a partner's track you don't own. |
 | `session` | name, date, venue?, notes; many play_sources | The UI calls it "gig" or "set". |
 | `wishlist` / `wish_item` | source (Spotify / CSV / paste / session), raw artist/title, matched recording_id, source_play_event_id (nullable), status | |
-| `inbox_batch` | kind (store order / pool pack / zip / loose), label, arrived_at | 2.1 grouping and "Add all". |
-| `inbox_item` | file_id, batch_id, status (new / not_now / hidden / added), label (new / better_file / other_cut / rework / on_wishlist / already_have), reason, arrived_at | |
+| `inbox_batch` | music_folder_id, kind (`already_there` / `folder` / `loose`; store order, pool pack and zip later), label (a `folder` batch's subfolder path), arrived_at | 2.1 grouping and "Add all". A folder's first complete walk after it is added puts what is already there into one `already_there` batch, which also marks that walk as the baseline. |
+| `inbox_item` | file_id, batch_id, status (new / not_now / hidden / added), arrived_at, decided_at | The label (new / better_file / other_cut / rework / on_wishlist / already_have) and its reason are worked out when read, not stored. |
 | `job` | kind, target, priority, status, progress, error, attempts, timestamps | Persisted so a job the last run left running starts again after a crash (0.1; 1cA-13). |
 | `setting` / `service_optin` | key/value; service, enabled, enabled_at | The network gate checks `service_optin`. |
 | `ui_setting` | key (`table_columns.<screen>`), JSON value | How the app looks, not what it holds (1cA-5, 1cB-21): the columns each track table shows, in order, and the widths the user dragged them to (`{shown, known, widths}`; a value saved without `widths` has none). Not in the operation log, not undoable. |
@@ -586,7 +586,7 @@ Each feature is tagged with its sub-phase.
 - **Batches:** grouped the way files arrived (store order, pool pack, zip), with "Add all". Pool packs show one row per song, with its versions as checkboxes.
 - **Previews start about a third of the way in**, only in the Inbox.
 - **Read-only:** files stay where they landed.
-- **How:** the `notify` crate. Wait until a file is stable, and ignore `.crdownload`, `.part` and `.tmp`. Zips are read in place, or extracted into the app's own staging area.
+- **How:** the `notify` crate. A file counts as arrived only when it held still: the walk's look and the hash stage's before-and-after look agree on its size and modification time (online-only files, which nothing reads, arrive with their walk). `.crdownload`, `.part` and `.tmp` are ignored. Files that arrive in one walk and one subfolder form a batch. Zips (read in place, or extracted into the app's own staging area) come later.
 - **Complexity:** M.
 
 #### 2.2 Identification & tag cleanup
