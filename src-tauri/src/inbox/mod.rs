@@ -92,6 +92,9 @@ pub struct InboxItem {
     pub id: i64,
     /// The `file` row (file.id).
     pub file_id: i64,
+    /// The file's own name (the last part of its stored relative path), not
+    /// a full path.
+    pub file_name: String,
     pub music_folder_id: i64,
     pub batch_id: i64,
     pub batch_kind: BatchKind,
@@ -187,7 +190,7 @@ pub struct InboxCount {
 pub fn items(conn: &Connection, filter: &InboxFilter) -> rusqlite::Result<Vec<InboxItem>> {
     let mut sql = String::from(
         "SELECT i.id, i.file_id, f.music_folder_id, i.batch_id, b.kind, b.label, i.status,
-                i.arrived_at, i.decided_at, f.present, f.online_only
+                i.arrived_at, i.decided_at, f.present, f.online_only, f.rel_path
          FROM inbox_item i
          JOIN inbox_batch b ON b.id = i.batch_id
          JOIN file f ON f.id = i.file_id
@@ -221,6 +224,10 @@ pub fn items(conn: &Connection, filter: &InboxFilter) -> rusqlite::Result<Vec<In
         Ok(Some(InboxItem {
             id: r.get(0)?,
             file_id: r.get(1)?,
+            file_name: {
+                let rel: String = r.get(11)?;
+                rel.rsplit(['/', '\\']).next().unwrap_or(&rel).to_string()
+            },
             music_folder_id: r.get(2)?,
             batch_id: r.get(3)?,
             batch_kind,

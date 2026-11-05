@@ -15,12 +15,9 @@ export function refusalText(t: TFunction<"inbox">, refusal: InboxRefusal): strin
   return t(`refusal.${refusal}`);
 }
 
-/**
- * The file's name. The Inbox list does not carry one yet (the backend sends
- * the file's id only); this is the one place to read it from once it does.
- */
+/** The file's own name, as the backend sends it (no folders). */
 export function fileNameOf(item: InboxItem): string {
-  return (item as InboxItem & { fileName?: string }).fileName ?? "";
+  return item.fileName;
 }
 
 /** What the last action on a row or a group came to, when it is worth showing. */
