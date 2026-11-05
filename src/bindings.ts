@@ -1336,7 +1336,9 @@ export type InboxOutcome =
 /**  Done, as one operation (`None` when nothing changed). */
 { outcome: "done"; operationId: number | null; 
 /**  The items it changed. */
-items: number[] } | 
+items: number[]; 
+/**  "Add all" only: the items it left as they were, each with why. */
+skipped: Skipped[] } | 
 /**  Nothing was written: this item can't be acted on. */
 { outcome: "refused"; itemId: number; reason: InboxRefusal } | 
 /**
@@ -1373,7 +1375,12 @@ export type InboxRefusal =
  */
 "matchNotConfirmed" | 
 /**  Another item of this add is a file of the same track. */
-"sameTrackTwice";
+"sameTrackTwice" | 
+/**
+ *  The file is the linked file of a Library track: hiding it would take
+ *  the Library track's own file out of All music.
+ */
+"isLibraryFile";
 
 /**
  *  Why a command failed, as the frontend receives it: a kind and the
@@ -2568,6 +2575,12 @@ export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetL
  *  the one the screen showed.
  */
 "itemGone";
+
+/**  An item "Add all" left as it was, and why. */
+export type Skipped = {
+	itemId: number,
+	reason: InboxRefusal,
+};
 
 /**  An item "Accept all" left in the queue. */
 export type SkippedItem = {
