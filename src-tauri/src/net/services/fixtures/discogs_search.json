@@ -1,0 +1,24 @@
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 4, "items": 4 },
+  "results": [
+    {
+      "title": "Test Artist - Test Track",
+      "year": "2003",
+      "style": ["Deep House", "Tech House"],
+      "genre": ["Electronic"],
+      "label": ["Test Label", "Other Label"],
+      "uri": "/release/1-test-track"
+    },
+    {
+      "title": "Test Artist - Second - Remix",
+      "year": 1999,
+      "genre": ["Electronic", "Funk"],
+      "label": [""],
+      "uri": "/release/2-second"
+    },
+    {
+      "title": "No Separator Here",
+      "year": "unknown"
+    }
+  ]
+}

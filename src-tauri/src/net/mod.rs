@@ -26,6 +26,7 @@ mod limiter;
 pub mod navigation;
 mod optin;
 mod service;
+pub mod services;
 #[cfg(test)]
 mod tests;
 
@@ -47,6 +48,9 @@ pub const USER_AGENT: &str = concat!(
     " ( https://github.com/hjzaradich/tracklist-pro )"
 );
 
+/// Why a request to a host the service doesn't own is refused.
+const HOST_NOT_PINNED: &str = "the host isn't one this service may use";
+
 /// How long to wait for a connection to open.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -55,13 +59,34 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 static LIMITER: LazyLock<Arc<RateLimiter>> = LazyLock::new(Arc::default);
 
 /// A request to send through the gate.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Request {
     service: Service,
     url: String,
     headers: Vec<(String, String)>,
     /// `Some` for a POST.
     body: Option<Vec<u8>>,
+}
+
+/// Shows the method, host and header names only. Header values can hold a
+/// token, so they are never printed.
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let after_scheme = self.url.split_once("://").map_or(&*self.url, |(_, r)| r);
+        let authority = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+        let host = authority.rsplit('@').next().unwrap_or("");
+        let headers: Vec<(&str, &str)> = self
+            .headers
+            .iter()
+            .map(|(name, _)| (name.as_str(), "<redacted>"))
+            .collect();
+        f.debug_struct("Request")
+            .field("method", &if self.body.is_some() { "POST" } else { "GET" })
+            .field("service", &self.service)
+            .field("host", &host)
+            .field("headers", &headers)
+            .finish()
+    }
 }
 
 impl Request {
@@ -102,6 +127,9 @@ pub struct Response {
     pub status: u16,
     /// The media type, without parameters, e.g. `application/json`.
     pub content_type: Option<String>,
+    /// Where a redirect (3xx) points. Redirects are never followed here; a
+    /// caller that follows one sends a new request through the gate.
+    pub location: Option<String>,
     pub body: Vec<u8>,
 }
 
@@ -151,6 +179,11 @@ pub struct Net {
     limiter: Arc<RateLimiter>,
     /// Replaces every service's overall timeout. Only tests set it.
     timeout_override: Option<Duration>,
+    /// Hosts that pass host pinning for every service, besides the
+    /// service's own. Tests use it for the loopback server; it doesn't
+    /// exist outside tests.
+    #[cfg(test)]
+    extra_hosts: Vec<String>,
 }
 
 impl Net {
@@ -161,6 +194,8 @@ impl Net {
             agent: agent(true),
             limiter: Arc::clone(&LIMITER),
             timeout_override: None,
+            #[cfg(test)]
+            extra_hosts: Vec::new(),
         }
     }
 
@@ -169,6 +204,8 @@ impl Net {
     pub fn send(&self, request: Request) -> Result<Response, NetError> {
         let service = request.service;
         self.check_opt_in(service)?;
+        // Before taking a turn: a request to the wrong host never goes out.
+        self.check_host(&request)?;
         self.limiter.wait(service, service.min_interval());
         // The user may have opted out while this request waited its turn.
         self.check_opt_in(service)?;
@@ -186,9 +223,41 @@ impl Net {
         }
     }
 
+    /// Host pinning: each service talks only to its own hosts
+    /// ([`Service::hosts`]), so a URL built from a server's reply, or a
+    /// caller's mistake, can't send a request (or a user's key) elsewhere.
+    fn check_host(&self, request: &Request) -> Result<(), NetError> {
+        let host = host_of(&request.url);
+        let pinned = host
+            .as_deref()
+            .is_some_and(|h| request.service.allows_host(h) || self.allows_extra_host(h));
+        if pinned {
+            Ok(())
+        } else {
+            Err(NetError::Failed {
+                host,
+                reason: HOST_NOT_PINNED,
+            })
+        }
+    }
+
+    #[cfg(test)]
+    fn allows_extra_host(&self, host: &str) -> bool {
+        self.extra_hosts
+            .iter()
+            .any(|h| h.eq_ignore_ascii_case(host))
+    }
+
+    #[cfg(not(test))]
+    fn allows_extra_host(&self, _host: &str) -> bool {
+        false
+    }
+
     /// Sends a request that has passed the gate. The only place a
     /// connection is made.
     fn transmit(&self, request: Request) -> Result<Response, NetError> {
+        // Checked again here, the one place a connection is made.
+        self.check_host(&request)?;
         let Request {
             service,
             url,
@@ -225,6 +294,11 @@ impl Net {
         }
         .map_err(failed)?;
         let status = response.status().as_u16();
+        let location = response
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
         let body = response.into_body();
         let content_type = body.mime_type().map(str::to_owned);
         let body = body
@@ -235,6 +309,7 @@ impl Net {
         Ok(Response {
             status,
             content_type,
+            location,
             body,
         })
     }

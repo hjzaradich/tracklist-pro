@@ -453,6 +453,26 @@ fn a_fresh_database_is_opted_in_to_no_service() {
 }
 
 #[test]
+fn discogs_and_cover_art_are_off_on_a_fresh_database() {
+    let (_dir, conn) = db();
+    let on: i64 = one(
+        &conn,
+        "SELECT COUNT(*) FROM service_optin \
+         WHERE service IN ('discogs', 'cover_art') AND enabled <> 0",
+    );
+    assert_eq!(on, 0);
+    accepts(
+        &conn,
+        "INSERT INTO service_optin (service) VALUES ('discogs'), ('cover_art')",
+    );
+    let on: i64 = one(
+        &conn,
+        "SELECT COUNT(*) FROM service_optin WHERE enabled <> 0",
+    );
+    assert_eq!(on, 0);
+}
+
+#[test]
 fn a_service_is_not_opted_in_unless_the_user_opts_in() {
     let (_dir, conn) = db();
     accepts(
