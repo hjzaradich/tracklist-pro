@@ -10,8 +10,8 @@
     "addFolder": "Add folder",
     "showMore": "Show more",
     "showMoreIn": "Show more in {{group}}",
-    "moreShown_one": "{{count}} more track shown",
-    "moreShown_other": "{{count}} more tracks shown"
+    "moreShown_one": "{{count, number}} more track shown",
+    "moreShown_other": "{{count, number}} more tracks shown"
   },
   "group": {
     "needsCloserLook": "Needs a closer look",
@@ -185,9 +185,9 @@
     "creditedToRemixer": "credited to the remixer"
   },
   "held": {
-    "pair": "{{file}} and {{other}} don't fit",
-    "pairOne": "{{file}} and {{other}} don't fit: $t(review:doubt.{{first}})",
-    "pairTwo": "{{file}} and {{other}} don't fit: $t(review:doubt.{{first}}), $t(review:doubt.{{second}})",
+    "pair": "{{file}} and {{other}} don't match",
+    "pairOne": "{{file}} and {{other}} don't match ($t(review:doubt.{{first}}))",
+    "pairTwo": "{{file}} and {{other}} don't match ($t(review:doubt.{{first}}), $t(review:doubt.{{second}}))",
     "library": "{{file}} and {{other}} are both in your Library",
     "keptSeparate": "{{file}} and {{other}} were kept separate",
     "linked": "{{file}} and {{other}} are linked as versions",

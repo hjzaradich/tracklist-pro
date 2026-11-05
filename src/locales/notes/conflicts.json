@@ -1,63 +1,78 @@
 {
   "group": {
     "purpose": "Heading of the group of conflicts in the Review queue.",
-    "where": "Review screen, queue, above the list of fields that have conflicts."
+    "where": "Review screen, queue, above the list of fields that have conflicts.",
+    "approved": "Conflicts"
   },
   "fieldCount_one": {
     "purpose": "How many conflicts one field has (one).",
-    "where": "Review screen, queue, beside a field's name in the Conflicts group."
+    "where": "Review screen, queue, beside a field's name in the Conflicts group.",
+    "approved": "{{count, number}} conflict"
   },
   "fieldCount_other": {
     "purpose": "How many conflicts one field has (several).",
-    "where": "Review screen, queue, beside a field's name in the Conflicts group."
+    "where": "Review screen, queue, beside a field's name in the Conflicts group.",
+    "approved": "{{count, number}} conflicts"
   },
   "field.Name": {
     "purpose": "Names the track title field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Title"
   },
   "field.Artist": {
     "purpose": "Names the artist field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Artist"
   },
   "field.Composer": {
     "purpose": "Names the composer field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Composer"
   },
   "field.Album": {
     "purpose": "Names the album field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Album"
   },
   "field.Genre": {
     "purpose": "Names the genre field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Genre"
   },
   "field.Comments": {
     "purpose": "Names the comment field of a conflict (rekordbox's Comments, My Tags included).",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Comment"
   },
   "field.Remixer": {
     "purpose": "Names the remixer field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Remixer"
   },
   "field.Label": {
     "purpose": "Names the record label field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Label"
   },
   "field.Year": {
     "purpose": "Names the year field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Year"
   },
   "field.DiscNumber": {
     "purpose": "Names the disc number field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Disc number"
   },
   "field.TrackNumber": {
     "purpose": "Names the track number field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Track number"
   },
   "field.PlayCount": {
     "purpose": "Names the play count field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Play count"
   },
   "field.Rating": {
     "purpose": "Names the rating field of a conflict.",
@@ -66,7 +81,8 @@
   },
   "field.Colour": {
     "purpose": "Names the color field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "Color"
   },
   "field.DateAdded": {
     "purpose": "Names the date added field of a conflict.",
@@ -75,11 +91,13 @@
   },
   "field.Location": {
     "purpose": "Names the file location field of a conflict.",
-    "where": "Review screen, Conflicts group and the pane of that field."
+    "where": "Review screen, Conflicts group and the pane of that field.",
+    "approved": "File location"
   },
   "label": {
     "purpose": "Accessible name of the table of one field's conflicts.",
-    "where": "Review screen, Conflicts pane, the table (read by screen readers)."
+    "where": "Review screen, Conflicts pane, the table (read by screen readers).",
+    "approved": "Conflicts"
   },
   "col.track": {
     "purpose": "Column heading: the track the conflict is about.",
@@ -88,7 +106,8 @@
   },
   "col.app": {
     "purpose": "Column heading: the app's value.",
-    "where": "Review screen, Conflicts pane, table heading."
+    "where": "Review screen, Conflicts pane, table heading.",
+    "approved": "Library"
   },
   "col.rekordbox": {
     "purpose": "Column heading: rekordbox's value.",
@@ -97,7 +116,8 @@
   },
   "col.base": {
     "purpose": "Column heading: the value at the last send to rekordbox.",
-    "where": "Review screen, Conflicts pane, table heading."
+    "where": "Review screen, Conflicts pane, table heading.",
+    "approved": "Last sent"
   },
   "col.actions": {
     "purpose": "Column heading for the buttons of each conflict (not drawn, read by screen readers).",
@@ -106,27 +126,33 @@
   },
   "membership.field": {
     "purpose": "Names a crate-membership conflict by its crate ({{name}} is the crate's name, inside the names of its folders): the field's name in the Conflicts group and above its conflicts.",
-    "where": "Review screen, Conflicts group and the pane of that crate."
+    "where": "Review screen, Conflicts group and the pane of that crate.",
+    "approved": "In {{name}}"
   },
   "membership.in": {
     "purpose": "Says the crate holds the track (a side's value of a crate-membership conflict).",
-    "where": "Review screen, Conflicts pane, App, rekordbox and Last sent columns of a crate."
+    "where": "Review screen, Conflicts pane, App, rekordbox and Last sent columns of a crate.",
+    "approved": "In crate"
   },
   "membership.out": {
     "purpose": "Says the crate does not hold the track (a side's value of a crate-membership conflict).",
-    "where": "Review screen, Conflicts pane, App, rekordbox and Last sent columns of a crate."
+    "where": "Review screen, Conflicts pane, App, rekordbox and Last sent columns of a crate.",
+    "approved": "Not in crate"
   },
   "neverSent": {
     "purpose": "Says the field was never sent, so there is no earlier value.",
-    "where": "Review screen, Conflicts pane, Last sent column."
+    "where": "Review screen, Conflicts pane, Last sent column.",
+    "approved": "Never sent"
   },
   "noValue": {
     "purpose": "Says a side holds no value for the field.",
-    "where": "Review screen, Conflicts pane, any value column."
+    "where": "Review screen, Conflicts pane, any value column.",
+    "approved": "No value"
   },
   "noRating": {
     "purpose": "Says a track has no rating (zero stars).",
-    "where": "Review screen, Conflicts pane, a Rating value."
+    "where": "Review screen, Conflicts pane, a Rating value.",
+    "approved": "No rating"
   },
   "stars_one": {
     "purpose": "A rating in stars (one).",
@@ -140,19 +166,23 @@
   },
   "action.keepApp": {
     "purpose": "Settles one conflict with the app's value.",
-    "where": "Review screen, Conflicts pane, button at the end of a conflict's row."
+    "where": "Review screen, Conflicts pane, button at the end of a conflict's row.",
+    "approved": "Keep Library's"
   },
   "action.keepRekordbox": {
     "purpose": "Settles one conflict with rekordbox's value.",
-    "where": "Review screen, Conflicts pane, button at the end of a conflict's row."
+    "where": "Review screen, Conflicts pane, button at the end of a conflict's row.",
+    "approved": "Keep rekordbox's"
   },
   "action.edit": {
     "purpose": "Opens a field to give the value by hand.",
-    "where": "Review screen, Conflicts pane, button at the end of a conflict's row."
+    "where": "Review screen, Conflicts pane, button at the end of a conflict's row.",
+    "approved": "Edit"
   },
   "action.save": {
     "purpose": "Settles the conflict with the value given by hand.",
-    "where": "Review screen, Conflicts pane, row being edited. Greyed out while the value doesn't fit the field."
+    "where": "Review screen, Conflicts pane, row being edited. Greyed out while the value doesn't fit the field.",
+    "approved": "Save"
   },
   "action.goBack": {
     "purpose": "Leaves editing without settling the conflict.",
@@ -161,30 +191,37 @@
   },
   "action.keepAppAll": {
     "purpose": "Settles every conflict of the field with the app's value.",
-    "where": "Review screen, Conflicts pane, under the table ({{count}} is how many conflicts the field has)."
+    "where": "Review screen, Conflicts pane, under the table ({{count}} is how many conflicts the field has).",
+    "approved": "Keep Library's for all {{count, number}}"
   },
   "action.keepRekordboxAll": {
     "purpose": "Settles every conflict of the field with rekordbox's value.",
-    "where": "Review screen, Conflicts pane, under the table ({{count}} is how many conflicts the field has)."
+    "where": "Review screen, Conflicts pane, under the table ({{count}} is how many conflicts the field has).",
+    "approved": "Keep rekordbox's for all {{count, number}}"
   },
   "edit.label": {
     "purpose": "Names the field where a value is given by hand.",
-    "where": "Review screen, Conflicts pane, row being edited (read by screen readers)."
+    "where": "Review screen, Conflicts pane, row being edited (read by screen readers).",
+    "approved": "New value"
   },
   "edit.noColor": {
     "purpose": "Chooses to give the field no color.",
-    "where": "Review screen, Conflicts pane, row being edited, Color field."
+    "where": "Review screen, Conflicts pane, row being edited, Color field.",
+    "approved": "No color"
   },
   "error.gone": {
     "purpose": "Says the conflict was resolved already, so nothing was changed.",
-    "where": "Review screen, Conflicts pane, shown when a resolve is refused."
+    "where": "Review screen, Conflicts pane, shown when a resolve is refused.",
+    "approved": "Already resolved"
   },
   "error.badValue": {
     "purpose": "Says the value given by hand doesn't fit the field, so nothing was changed, and what to do.",
-    "where": "Review screen, Conflicts pane, shown when a resolve is refused."
+    "where": "Review screen, Conflicts pane, shown when a resolve is refused.",
+    "approved": "Can't save: that value doesn't fit this field"
   },
   "error.changed": {
     "purpose": "Says the number of conflicts changed since the screen showed it, so a bulk resolve settled nothing.",
-    "where": "Review screen, Conflicts pane, shown when \"Keep ... for all\" is refused because conflicts were added or settled meanwhile."
+    "where": "Review screen, Conflicts pane, shown when \"Keep ... for all\" is refused because conflicts were added or settled meanwhile.",
+    "approved": "Can't apply: the conflicts have changed since. Check the list again."
   }
 }

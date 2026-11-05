@@ -41,19 +41,23 @@
   },
   "missing.showMore": {
     "purpose": "Button that shows the next tracks of a long group.",
-    "where": "Review screen, Missing list, under a group with more tracks than are shown."
+    "where": "Review screen, Missing list, under a group with more tracks than are shown.",
+    "approved": "Show more"
   },
   "missing.showMoreIn": {
     "purpose": "Spoken name of a group's Show more button, so each one says which folder it opens.",
-    "where": "Review screen, Missing list, read by a screen reader for the Show more button of a group ({{group}} is the folder or the unknown-folder name)."
+    "where": "Review screen, Missing list, read by a screen reader for the Show more button of a group ({{group}} is the folder or the unknown-folder name).",
+    "approved": "Show more in {{group}}"
   },
   "missing.moreShown_one": {
     "purpose": "Announces that one more track was added to a group (one).",
-    "where": "Review screen, Missing list, read aloud after Show more loads a single track."
+    "where": "Review screen, Missing list, read aloud after Show more loads a single track.",
+    "approved": "{{count, number}} more track shown"
   },
   "missing.moreShown_other": {
     "purpose": "Announces how many more tracks were added to a group (several).",
-    "where": "Review screen, Missing list, read aloud after Show more loads several tracks."
+    "where": "Review screen, Missing list, read aloud after Show more loads several tracks.",
+    "approved": "{{count, number}} more tracks shown"
   },
   "group.needsCloserLook": {
     "purpose": "Heading of the queue group for decisions that take thought.",
@@ -432,7 +436,8 @@
   },
   "reason.chosen": {
     "purpose": "Why a file is its track's best file when the user chose it with \"Use this file instead\" (ROADMAP 1.11, 1cB-22); the ranking's reason for its first step. A fragment, per docs/copy-style.md. Proposal.",
-    "where": "Review, comparison, the reason line of the best file."
+    "where": "Review, comparison, the reason line of the best file.",
+    "approved": "your choice"
   },
   "reason.notOnDisk": {
     "purpose": "Reason: the suggested file is there and the other is gone.",
@@ -686,31 +691,38 @@
   },
   "held.pair": {
     "purpose": "Why an Unclear duplicates item is held: two of its files disagree, and the rules gave no reason that has words. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows).",
+    "approved": "{{file}} and {{other}} don't match"
   },
   "held.pairOne": {
     "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the reason the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows).",
+    "approved": "{{file}} and {{other}} don't match ($t(review:doubt.{{first}}))"
   },
   "held.pairTwo": {
     "purpose": "Why an Unclear duplicates item is held: two of its files disagree, with the first two reasons the rules gave for that pair, in the words a possible version mix-up uses. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows)."
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment naming the two files by the names the table shows).",
+    "approved": "{{file}} and {{other}} don't match ($t(review:doubt.{{first}}), $t(review:doubt.{{second}}))"
   },
   "held.library": {
     "purpose": "Why an Unclear duplicates item is held: two of its tracks are in the Library, and two Library tracks are never merged without a decision. Names the Library file of each. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment)."
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment).",
+    "approved": "{{file}} and {{other}} are both in your Library"
   },
   "held.keptSeparate": {
     "purpose": "Why an Unclear duplicates item is held: the user said two of its tracks aren't the same. Names a file of each. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment)."
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment).",
+    "approved": "{{file}} and {{other}} were kept separate"
   },
   "held.linked": {
     "purpose": "Why an Unclear duplicates item is held: two of its tracks are linked as versions, which are never merged. Names a file of each. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment)."
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment).",
+    "approved": "{{file}} and {{other}} are linked as versions"
   },
   "held.tooMany": {
     "purpose": "Why an Unclear duplicates item is held: it has more files, with different audio among them, than the app compares. Proposal.",
-    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment with the number of files first)."
+    "where": "Review screen, comparison on the right, after \"Why it's here:\" on Unclear duplicates (a fragment with the number of files first).",
+    "approved": "{{files, number}} files with different audio (up to {{most, number}} are compared)"
   },
   "error.itemGone": {
     "purpose": "Says an action did nothing because the item left the queue in the meantime (answered in another step, or the files changed).",
@@ -839,27 +851,33 @@
   },
   "same.confirmValues_one": {
     "purpose": "Warns what a merge of two Library tracks does, now that ratings, colors, comments and the user's edits can carry over (they are picked above it): the track that leaves, its files and crates, what is lost in rekordbox (cues and plays), the remove list, and that it can be undone. Replaces same.confirm_one, which says the rating won't carry over.",
-    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choices."
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choices.",
+    "approved": "The other track's files and crates move to the track that stays, and it leaves your Library. Its cues and plays in rekordbox won't carry over, and it will be listed under Tracks to remove in rekordbox. This action can be undone."
   },
   "same.confirmValues_other": {
     "purpose": "The same warning when several tracks leave ({{count}} is how many). Replaces same.confirm_other.",
-    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choices."
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, under the choices.",
+    "approved": "The files and crates of the other {{count}} tracks move to the track that stays, and those tracks leave your Library. Their cues and plays in rekordbox won't carry over, and they will be listed under Tracks to remove in rekordbox. This action can be undone."
   },
   "same.values.heading": {
     "purpose": "Introduces the rows where the two tracks hold different values and the user picks which one stays (the user's edits, and rekordbox's rating, color and comments).",
-    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, above the table of values; shown only when some field differs."
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, above the table of values; shown only when some field differs.",
+    "approved": "Choose the value to keep"
   },
   "same.values.field": {
     "purpose": "Column heading: the field a row is about (Rating, Genre, ...).",
-    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values."
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values.",
+    "approved": "Field"
   },
   "same.values.stays": {
     "purpose": "Marks the column of the track that stays in the merge, whose values are picked at first.",
-    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values, column heading."
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values, column heading.",
+    "approved": "Stays"
   },
   "same.values.use": {
     "purpose": "Names one choice of a row for screen readers: {{field}} is the field, {{name}} the track whose value it keeps.",
-    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values, each radio button (read by screen readers)."
+    "where": "Review screen, \"Same track twice in your Library\" item, the merge confirmation, table of values, each radio button (read by screen readers).",
+    "approved": "Use {{field}} from {{name}}"
   },
   "keep.moreCues": {
     "purpose": "Reason: the suggested track to keep has more cues in rekordbox ({{count}}) than the next one ({{other}}).",
@@ -913,6 +931,7 @@
   },
   "error.splitTwoLibraryTracks": {
     "purpose": "Why a split was refused: the selected file's identical copies, which go along with it, are the linked files of two Library tracks, and a split never makes two Library tracks one. Proposal (1bF-2).",
-    "where": "Review screen, under the action row, after Split off or S."
+    "where": "Review screen, under the action row, after Split off or S.",
+    "approved": "Can't split: copies of this file belong to two Library tracks"
   }
 }

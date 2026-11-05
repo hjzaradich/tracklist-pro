@@ -36,15 +36,18 @@
   },
   "sidebar.treeLabel": {
     "purpose": "Names the tree of crates and folders for screen readers.",
-    "where": "Sidebar, under the Crates link (not shown)."
+    "where": "Sidebar, under the Crates link (not shown).",
+    "approved": "Crates and folders"
   },
   "sidebar.expand": {
     "purpose": "Names the button that opens a folder in the tree for screen readers.",
-    "where": "Sidebar, arrow beside a closed folder (not shown)."
+    "where": "Sidebar, arrow beside a closed folder (not shown).",
+    "approved": "Open {{name}}"
   },
   "sidebar.collapse": {
     "purpose": "Names the button that closes a folder in the tree for screen readers.",
-    "where": "Sidebar, arrow beside an open folder (not shown)."
+    "where": "Sidebar, arrow beside an open folder (not shown).",
+    "approved": "Close {{name}}"
   },
   "search.label": {
     "purpose": "Name of the search box.",
@@ -63,7 +66,8 @@
   },
   "settings.button": {
     "purpose": "Name and hover text of the gear that opens the Settings screen. Same wording as the palette's Open Settings.",
-    "where": "Top bar, gear button (accessible name and tooltip)."
+    "where": "Top bar, gear button (accessible name and tooltip).",
+    "approved": "Settings"
   },
   "undo.button": {
     "purpose": "The Undo button when there is nothing to undo.",
@@ -112,23 +116,28 @@
   },
   "undo.action.createFolder": {
     "purpose": "Undo button naming what it takes back: a folder that was created.",
-    "where": "Top bar, Undo button, when the next step to undo is a new folder."
+    "where": "Top bar, Undo button, when the next step to undo is a new folder.",
+    "approved": "Undo (folder “{{name}}” created)"
   },
   "undo.action.renameFolder": {
     "purpose": "Undo button naming what it takes back: a folder rename, with the old and new names.",
-    "where": "Top bar, Undo button, when the next step to undo is a folder rename."
+    "where": "Top bar, Undo button, when the next step to undo is a folder rename.",
+    "approved": "Undo (folder “{{from}}” renamed to “{{name}}”)"
   },
   "undo.action.deleteFolder": {
     "purpose": "Undo button naming what it takes back: a folder deleted with what was in it.",
-    "where": "Top bar, Undo button, when the next step to undo is a folder delete."
+    "where": "Top bar, Undo button, when the next step to undo is a folder delete.",
+    "approved": "Undo (folder “{{name}}” deleted)"
   },
   "undo.action.moveCrate": {
     "purpose": "Undo button naming what it takes back: a crate or folder that was moved.",
-    "where": "Top bar, Undo button, when the next step to undo is a move."
+    "where": "Top bar, Undo button, when the next step to undo is a move.",
+    "approved": "Undo (“{{name}}” moved)"
   },
   "undo.action.setCrateNotes": {
     "purpose": "Undo button naming what it takes back: a crate's note was edited or cleared.",
-    "where": "Top bar, Undo button, when the next step to undo is a change to a crate's note."
+    "where": "Top bar, Undo button, when the next step to undo is a change to a crate's note.",
+    "approved": "Undo (note on “{{name}}” changed)"
   },
   "undo.action.addToCrate_one": {
     "purpose": "Undo button naming what it takes back: one track added to a crate.",
@@ -142,31 +151,38 @@
   },
   "undo.action.addToCrateLibrary_one": {
     "purpose": "Undo button naming what it takes back: one track added to a crate, which also came into the Library.",
-    "where": "Top bar, Undo button, when the next step to undo is an add to a crate that also added tracks to the Library."
+    "where": "Top bar, Undo button, when the next step to undo is an add to a crate that also added tracks to the Library.",
+    "approved": "Undo ({{count, number}} track added to “{{name}}”, {{library, number}} new to your Library)"
   },
   "undo.action.addToCrateLibrary_other": {
     "purpose": "Undo button naming what it takes back: several tracks added to a crate, some of which also came into the Library.",
-    "where": "Top bar, Undo button, when the next step to undo is an add to a crate that also added tracks to the Library."
+    "where": "Top bar, Undo button, when the next step to undo is an add to a crate that also added tracks to the Library.",
+    "approved": "Undo ({{count, number}} tracks added to “{{name}}”, {{library, number}} new to your Library)"
   },
   "undo.action.addToNewCrate_zero": {
     "purpose": "Undo button naming what it takes back: a crate made from the add dialog when every track was left out.",
-    "where": "Top bar, Undo button, when the next step to undo made a new crate and added nothing to it."
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added nothing to it.",
+    "approved": "Undo (crate “{{name}}” created)"
   },
   "undo.action.addToNewCrate_one": {
     "purpose": "Undo button naming what it takes back: a crate made from the add dialog, with one track in it.",
-    "where": "Top bar, Undo button, when the next step to undo made a new crate and added a track to it."
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added a track to it.",
+    "approved": "Undo (crate “{{name}}” created, {{count, number}} track added)"
   },
   "undo.action.addToNewCrate_other": {
     "purpose": "Undo button naming what it takes back: a crate made from the add dialog, with several tracks in it.",
-    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks to it."
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks to it.",
+    "approved": "Undo (crate “{{name}}” created, {{count, number}} tracks added)"
   },
   "undo.action.addToNewCrateLibrary_one": {
     "purpose": "Undo button naming what it takes back: a new crate with one track, which also came into the Library.",
-    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks that were not in the Library."
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks that were not in the Library.",
+    "approved": "Undo (crate “{{name}}” created, {{count, number}} track added, {{library, number}} new to your Library)"
   },
   "undo.action.addToNewCrateLibrary_other": {
     "purpose": "Undo button naming what it takes back: a new crate with several tracks, some of which also came into the Library.",
-    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks that were not in the Library."
+    "where": "Top bar, Undo button, when the next step to undo made a new crate and added tracks that were not in the Library.",
+    "approved": "Undo (crate “{{name}}” created, {{count, number}} tracks added, {{library, number}} new to your Library)"
   },
   "undo.action.removeFromCrate_one": {
     "purpose": "Undo button naming what it takes back: one track removed from a crate.",
@@ -285,39 +301,48 @@
   },
   "details.field.title": {
     "purpose": "Names the title field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Title"
   },
   "details.field.artist": {
     "purpose": "Names the artist field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Artist"
   },
   "details.field.album": {
     "purpose": "Names the album field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Album"
   },
   "details.field.genre": {
     "purpose": "Names the genre field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Genre"
   },
   "details.field.composer": {
     "purpose": "Names the composer field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Composer"
   },
   "details.field.remixer": {
     "purpose": "Names the remixer field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Remixer"
   },
   "details.field.label": {
     "purpose": "Names the record label field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Label"
   },
   "details.field.year": {
     "purpose": "Names the year field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Year"
   },
   "details.field.comment": {
     "purpose": "Names the comment field.",
-    "where": "Details panel, tag list."
+    "where": "Details panel, tag list.",
+    "approved": "Comment"
   },
   "details.source.rekordbox": {
     "purpose": "Says a value is rekordbox's.",
@@ -326,51 +351,63 @@
   },
   "details.source.file": {
     "purpose": "Says a value is the tag of a named file.",
-    "where": "Details panel, under a field's value (or an other value), naming the file."
+    "where": "Details panel, under a field's value (or an other value), naming the file.",
+    "approved": "Tag in {{file}}"
   },
   "details.source.blankInRekordbox": {
     "purpose": "Says rekordbox has no value for the field; the files' values are listed below.",
-    "where": "Details panel, in place of a value, for a track rekordbox knows."
+    "where": "Details panel, in place of a value, for a track rekordbox knows.",
+    "approved": "Blank in rekordbox"
   },
   "details.source.other_one": {
     "purpose": "Says one other value exists for the field.",
-    "where": "Details panel, after a field's source, while More details is off."
+    "where": "Details panel, after a field's source, while More details is off.",
+    "approved": "(1 other value)"
   },
   "details.source.other_other": {
     "purpose": "Says several other values exist for the field.",
-    "where": "Details panel, after a field's source, while More details is off."
+    "where": "Details panel, after a field's source, while More details is off.",
+    "approved": "({{count, number}} other values)"
   },
   "details.crates.title": {
     "purpose": "Heads the list of crates the selected track is in.",
-    "where": "Details panel, below the tags."
+    "where": "Details panel, below the tags.",
+    "approved": "In crates"
   },
   "details.crates.none": {
     "purpose": "Says the selected Library track is in no crate.",
-    "where": "Details panel, under the crates heading."
+    "where": "Details panel, under the crates heading.",
+    "approved": "In no crate"
   },
   "details.crates.remove": {
     "purpose": "Takes the selected track out of the crate beside it; the track stays in the Library.",
-    "where": "Details panel, a plain text action beside each crate the track is in."
+    "where": "Details panel, a plain text action beside each crate the track is in.",
+    "approved": "Remove from this crate"
   },
   "details.crates.removed": {
     "purpose": "Says the track was removed from the crate; {{crate}} is its place in the tree.",
-    "where": "Details panel, status line under the crates after a removal."
+    "where": "Details panel, status line under the crates after a removal.",
+    "approved": "Removed from {{crate}}"
   },
   "details.withdraw.confirmed": {
     "purpose": "Says the user confirmed the track's file as rekordbox's.",
-    "where": "Details panel, a Library track whose rekordbox entry was confirmed to its file."
+    "where": "Details panel, a Library track whose rekordbox entry was confirmed to its file.",
+    "approved": "Confirmed as the file rekordbox has"
   },
   "details.withdraw.action": {
     "purpose": "Takes back the confirmation (one undoable step).",
-    "where": "Details panel, quiet text button beside the confirmed line."
+    "where": "Details panel, quiet text button beside the confirmed line.",
+    "approved": "Withdraw confirmation"
   },
   "details.withdraw.hint": {
     "purpose": "Says what withdrawing does.",
-    "where": "Details panel, under the withdraw button."
+    "where": "Details panel, under the withdraw button.",
+    "approved": "rekordbox's entry will be matched to a file again"
   },
   "details.withdraw.done": {
     "purpose": "Says the confirmation was withdrawn.",
-    "where": "Details panel, status line after a withdrawal."
+    "where": "Details panel, status line after a withdrawal.",
+    "approved": "Confirmation withdrawn"
   },
   "player.label": {
     "purpose": "Accessible name of the player.",
@@ -414,74 +451,92 @@
   },
   "undo.action.showFileAgain": {
     "purpose": "Undo button naming what it takes back: \"Show again\" on a hidden file in All music (Undo hides the file again). Proposal.",
-    "where": "Top bar, Undo button, when the next step to undo is a \"Show again\"."
+    "where": "Top bar, Undo button, when the next step to undo is a \"Show again\".",
+    "approved": "Undo (file shown again)"
   },
   "undo.action.useThisFile": {
     "purpose": "Undo button naming what it takes back: \"Use this file instead\" on an extra copy in the Hidden filter (Undo brings back the file the ranking chose). Proposal.",
-    "where": "Top bar, Undo button, when the next step to undo is a \"Use this file instead\"."
+    "where": "Top bar, Undo button, when the next step to undo is a \"Use this file instead\".",
+    "approved": "Undo (file chosen)"
   },
   "undo.action.resolveConflict": {
     "purpose": "Undo button naming what it takes back: one conflict resolved in Review (Undo opens it again). Proposal.",
-    "where": "Top bar, Undo button, when the next step to undo is one conflict resolved."
+    "where": "Top bar, Undo button, when the next step to undo is one conflict resolved.",
+    "approved": "Undo (conflict resolved)"
   },
   "undo.action.resolveConflicts": {
     "purpose": "Undo button naming what it takes back: every conflict of a field resolved at once in Review (Undo opens them all again). Proposal.",
-    "where": "Top bar, Undo button, when the next step to undo is a bulk resolve of a field's conflicts."
+    "where": "Top bar, Undo button, when the next step to undo is a bulk resolve of a field's conflicts.",
+    "approved": "Undo (conflicts resolved)"
   },
   "undo.action.setEnergy_one": {
     "purpose": "Undo button naming what it takes back: an energy given to one track.",
-    "where": "Top bar, Undo button, when the next step to undo is giving a track an energy."
+    "where": "Top bar, Undo button, when the next step to undo is giving a track an energy.",
+    "approved": "Undo (energy set on {{count, number}} track)"
   },
   "undo.action.setEnergy_other": {
     "purpose": "Undo button naming what it takes back: an energy given to several tracks at once.",
-    "where": "Top bar, Undo button, when the next step to undo is giving tracks an energy."
+    "where": "Top bar, Undo button, when the next step to undo is giving tracks an energy.",
+    "approved": "Undo (energy set on {{count, number}} tracks)"
   },
   "undo.action.clearEnergy_one": {
     "purpose": "Undo button naming what it takes back: the user's own energy taken away from one track.",
-    "where": "Top bar, Undo button, when the next step to undo is clearing energy."
+    "where": "Top bar, Undo button, when the next step to undo is clearing energy.",
+    "approved": "Undo (energy cleared on {{count, number}} track)"
   },
   "undo.action.clearEnergy_other": {
     "purpose": "Undo button naming what it takes back: the user's own energy taken away from several tracks at once.",
-    "where": "Top bar, Undo button, when the next step to undo is clearing energy."
+    "where": "Top bar, Undo button, when the next step to undo is clearing energy.",
+    "approved": "Undo (energy cleared on {{count, number}} tracks)"
   },
   "details.energy.title": {
     "purpose": "Name of the group of ten energy buttons, and the heading over them.",
-    "where": "Details panel, Energy section."
+    "where": "Details panel, Energy section.",
+    "approved": "Energy"
   },
   "details.energy.keys": {
     "purpose": "Tells the keys that give the selected tracks an energy.",
-    "where": "Details panel, under the energy buttons."
+    "where": "Details panel, under the energy buttons.",
+    "approved": "Keys 1 to 0 (0 is 10)"
   },
   "details.energy.none": {
     "purpose": "Says the track has no energy yet.",
-    "where": "Details panel, over the energy buttons."
+    "where": "Details panel, over the energy buttons.",
+    "approved": "No energy"
   },
   "details.energy.from": {
     "purpose": "Says the track's energy and whose it is when it is not the user's; {{energy}} is the number and {{source}} one of the three words below.",
-    "where": "Details panel, over the energy buttons."
+    "where": "Details panel, over the energy buttons.",
+    "approved": "Energy {{energy}} ({{source}})"
   },
   "details.energy.source.mik": {
     "purpose": "Names Mixed In Key as where an energy comes from.",
-    "where": "Details panel, inside the energy line."
+    "where": "Details panel, inside the energy line.",
+    "approved": "Mixed In Key"
   },
   "details.energy.source.local": {
     "purpose": "Names the app's own estimate as where an energy comes from.",
-    "where": "Details panel, inside the energy line."
+    "where": "Details panel, inside the energy line.",
+    "approved": "estimate"
   },
   "details.energy.source.ml": {
     "purpose": "Names the audio model as where an energy comes from.",
-    "where": "Details panel, inside the energy line."
+    "where": "Details panel, inside the energy line.",
+    "approved": "audio model"
   },
   "details.energy.many": {
     "purpose": "Says how many tracks the energy buttons act on when several are selected; {{count}} is how many.",
-    "where": "Details panel, over the energy buttons; also in the energy popover of the track table."
+    "where": "Details panel, over the energy buttons; also in the energy popover of the track table.",
+    "approved": "{{count, number}} tracks"
   },
   "details.energy.clear": {
     "purpose": "Quiet button that takes the user's own energy away from the selected tracks; another source's energy, if any, shows again.",
-    "where": "Details panel, Energy section, after the keys line; also at the end of the energy popover in the track table. Only when there is an energy of the user's own to clear."
+    "where": "Details panel, Energy section, after the keys line; also at the end of the energy popover in the track table. Only when there is an energy of the user's own to clear.",
+    "approved": "Clear"
   },
   "details.energy.set": {
     "purpose": "Name of one energy button; {{energy}} is its number, 1 to 10.",
-    "where": "Details panel and the energy popover (screen readers only)."
+    "where": "Details panel and the energy popover (screen readers only).",
+    "approved": "Energy {{energy}}"
   }
 }

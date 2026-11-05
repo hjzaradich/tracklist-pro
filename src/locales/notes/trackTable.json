@@ -1,31 +1,38 @@
 {
   "label": {
     "purpose": "Accessible name of the track table.",
-    "where": "Library, All music and crate screens, the track table (screen readers only)."
+    "where": "Library, All music and crate screens, the track table (screen readers only).",
+    "approved": "Tracks"
   },
   "columns.title": {
     "purpose": "Column heading for a track's title.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "Title"
   },
   "columns.artist": {
     "purpose": "Column heading for a track's artist.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "Artist"
   },
   "columns.bpm": {
     "purpose": "Column heading for a track's tempo.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "BPM"
   },
   "columns.key": {
     "purpose": "Column heading for a track's musical key.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "Key"
   },
   "columns.time": {
     "purpose": "Column heading for a track's length.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "Time"
   },
   "columns.genre": {
     "purpose": "Column heading for a track's genre.",
-    "where": "Track table header."
+    "where": "Track table header.",
+    "approved": "Genre"
   },
   "columns.rating": {
     "purpose": "Column heading for a track's star rating.",
@@ -44,7 +51,8 @@
   },
   "columns.folder": {
     "purpose": "Column heading for the folder a track's file is in.",
-    "where": "Track table header, All music."
+    "where": "Track table header, All music.",
+    "approved": "Folder"
   },
   "columns.actions": {
     "purpose": "Accessible name of the actions column (visually hidden).",
@@ -53,11 +61,13 @@
   },
   "sortBy": {
     "purpose": "Hover text and accessible name of a column heading that sorts the table.",
-    "where": "Track table header buttons ({{column}} is the column's name)."
+    "where": "Track table header buttons ({{column}} is the column's name).",
+    "approved": "Sort by {{column}}"
   },
   "resize": {
     "purpose": "Hover text and accessible name of the line after a column heading, which is dragged (or moved with the arrow keys) to change the column's width.",
-    "where": "Track table header, the right edge of each heading ({{column}} is the column's name)."
+    "where": "Track table header, the right edge of each heading ({{column}} is the column's name).",
+    "approved": "Resize {{column}}"
   },
   "rating_one": {
     "purpose": "A star rating, for screen readers and hover text, when it is one star.",
@@ -71,55 +81,68 @@
   },
   "updating": {
     "purpose": "Says the table may be out of date for a moment, because the background work that sorts and filters it hasn't caught up with a change.",
-    "where": "Above the track table, only while that work is running."
+    "where": "Above the track table, only while that work is running.",
+    "approved": "Updating the list"
   },
   "noMatch": {
     "purpose": "Says no track fits the search and the filters. Same wording as All music's (allMusic:noMatch).",
-    "where": "Track table, in place of the rows."
+    "where": "Track table, in place of the rows.",
+    "approved": "No tracks match"
   },
   "editor.open": {
     "purpose": "Button above the track table that opens the column editor.",
-    "where": "Above the track table, beside the filter chips and the track count."
+    "where": "Above the track table, beside the filter chips and the track count.",
+    "approved": "Columns"
   },
   "editor.title": {
     "purpose": "Accessible name of the column editor panel.",
-    "where": "Column editor panel (screen readers only)."
+    "where": "Column editor panel (screen readers only).",
+    "approved": "Columns"
   },
   "editor.help": {
     "purpose": "Opening line of the column editor, on the Library and All music: what the panel does.",
-    "where": "Top of the column editor panel."
+    "where": "Top of the column editor panel.",
+    "approved": "Choose the columns this list shows"
   },
   "editor.helpCrate": {
     "purpose": "Opening line of the column editor on a crate: says the choice is shared by every crate.",
-    "where": "Top of the column editor panel, on the crate screen."
+    "where": "Top of the column editor panel, on the crate screen.",
+    "approved": "Choose the columns all crates show"
   },
   "editor.shown": {
     "purpose": "Heading of the list of columns the table shows, in order.",
-    "where": "Column editor panel."
+    "where": "Column editor panel.",
+    "approved": "Shown"
   },
   "editor.hidden": {
     "purpose": "Heading of the list of columns the table does not show.",
-    "where": "Column editor panel."
+    "where": "Column editor panel.",
+    "approved": "Not shown"
   },
   "editor.noneHidden": {
     "purpose": "Says there is no hidden column to add back.",
-    "where": "Column editor panel, under Not shown."
+    "where": "Column editor panel, under Not shown.",
+    "approved": "Every column is shown"
   },
   "editor.alwaysShown": {
     "purpose": "Says why Title has no working Hide button.",
-    "where": "Column editor panel, beside Title in the Shown list."
+    "where": "Column editor panel, beside Title in the Shown list.",
+    "approved": "Always shown"
   },
   "editor.moveUp": {
     "purpose": "Accessible name and hover text of the arrow that moves a shown column one place up.",
-    "where": "Column editor panel, each shown column."
+    "where": "Column editor panel, each shown column.",
+    "approved": "Move {{column}} up"
   },
   "editor.moveDown": {
     "purpose": "Accessible name and hover text of the arrow that moves a shown column one place down.",
-    "where": "Column editor panel, each shown column."
+    "where": "Column editor panel, each shown column.",
+    "approved": "Move {{column}} down"
   },
   "editor.hide": {
     "purpose": "Accessible name of the Hide button of a shown column.",
-    "where": "Column editor panel, each shown column."
+    "where": "Column editor panel, each shown column.",
+    "approved": "Hide {{column}}"
   },
   "editor.hideShort": {
     "purpose": "Button that takes a column out of the table.",
@@ -128,15 +151,18 @@
   },
   "editor.show": {
     "purpose": "Accessible name of the Show button of a hidden column.",
-    "where": "Column editor panel, each column under Not shown."
+    "where": "Column editor panel, each column under Not shown.",
+    "approved": "Show {{column}}"
   },
   "editor.showShort": {
     "purpose": "Button that adds a hidden column to the end of the table.",
-    "where": "Column editor panel, each column under Not shown."
+    "where": "Column editor panel, each column under Not shown.",
+    "approved": "Show"
   },
   "editor.reset": {
     "purpose": "Button that puts back the columns this screen shows at first, in their first order and widths. Greyed out when they already are.",
-    "where": "Column editor panel, bottom left."
+    "where": "Column editor panel, bottom left.",
+    "approved": "Reset to default"
   },
   "editor.done": {
     "purpose": "Button that closes the column editor. The choice is already saved.",
@@ -145,15 +171,18 @@
   },
   "filters.label": {
     "purpose": "Accessible name of the row of filters above the table.",
-    "where": "Above the track table (screen readers only)."
+    "where": "Above the track table (screen readers only).",
+    "approved": "Filters"
   },
   "filters.add": {
     "purpose": "Button that opens the list of filters that can be added.",
-    "where": "Above the track table, after the filter chips."
+    "where": "Above the track table, after the filter chips.",
+    "approved": "Add filter"
   },
   "filters.menu": {
     "purpose": "Accessible name of the list of filters that can be added.",
-    "where": "The menu opened by Add filter (screen readers only)."
+    "where": "The menu opened by Add filter (screen readers only).",
+    "approved": "Filter by"
   },
   "filters.formats": {
     "purpose": "Heading over the file formats the table can be filtered to.",
@@ -162,11 +191,13 @@
   },
   "filters.none": {
     "purpose": "Says every filter on offer is already in use.",
-    "where": "The menu opened by Add filter, when nothing is left to add."
+    "where": "The menu opened by Add filter, when nothing is left to add.",
+    "approved": "No more filters"
   },
   "filters.remove": {
     "purpose": "Accessible name of the × on a filter chip, naming the filter.",
-    "where": "Above the track table, each filter chip's × ({{filter}} is the chip's text)."
+    "where": "Above the track table, each filter chip's × ({{filter}} is the chip's text).",
+    "approved": "Remove filter: {{filter}}"
   },
   "filters.missing": {
     "purpose": "Filter: tracks whose file isn't on disk.",
@@ -175,7 +206,8 @@
   },
   "filters.inRekordbox": {
     "purpose": "Filter: tracks rekordbox has. rekordbox is written as rekordbox shows it.",
-    "where": "Filter chip and its menu entry."
+    "where": "Filter chip and its menu entry.",
+    "approved": "In rekordbox"
   },
   "filters.notInRekordbox": {
     "purpose": "Filter: tracks rekordbox doesn't have.",
@@ -184,7 +216,8 @@
   },
   "filters.format": {
     "purpose": "Filter: tracks whose file is in one format.",
-    "where": "Filter chip ({{format}} is the format's name, e.g. FLAC)."
+    "where": "Filter chip ({{format}} is the format's name, e.g. FLAC).",
+    "approved": "Format: {{format}}"
   },
   "filters.qualityProblem": {
     "purpose": "Filter: the tracks Review lists under Quality problems (a Library track whose linked file is flagged with no better copy and no answer, or one with a better file available).",
@@ -193,11 +226,13 @@
   },
   "filters.inCrate": {
     "purpose": "Filter: tracks that are in at least one crate.",
-    "where": "Filter chip and its menu entry, Library."
+    "where": "Filter chip and its menu entry, Library.",
+    "approved": "In a crate"
   },
   "filters.inNoCrate": {
     "purpose": "Filter: tracks that are in no crate.",
-    "where": "Filter chip and its menu entry, Library."
+    "where": "Filter chip and its menu entry, Library.",
+    "approved": "In no crate"
   },
   "filters.inLibrary": {
     "purpose": "Filter: tracks in the Library. Same wording as allMusic:inLibrary.",
@@ -206,223 +241,278 @@
   },
   "filters.notInLibrary": {
     "purpose": "Filter: tracks not in the Library.",
-    "where": "Filter chip and its menu entry, All music."
+    "where": "Filter chip and its menu entry, All music.",
+    "approved": "Not in Library"
   },
   "filters.lowQuality": {
     "purpose": "Filter: Library tracks whose linked file has a current quality verdict that flags it (the Overview's \"tracks from low-quality files\"). Not the same as Quality problem, which is Review's group.",
-    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu.",
+    "approved": "From a low-quality file"
   },
   "filters.analyzedByRekordbox": {
     "purpose": "Filter: Library tracks rekordbox supplied a BPM or a key for (the Overview's \"analyzed by rekordbox\"). rekordbox is written as rekordbox shows it.",
-    "where": "Filter chip, opened from the Overview's number; also in the Library's Add filter menu."
+    "where": "Filter chip, opened from the Overview's number; also in the Library's Add filter menu.",
+    "approved": "Analyzed by rekordbox"
   },
   "filters.notAnalyzedByRekordbox": {
     "purpose": "Filter: Library tracks rekordbox supplied no BPM or key for (the Overview's \"tracks rekordbox hasn't analyzed\").",
-    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu.",
+    "approved": "Not analyzed by rekordbox"
   },
   "filters.energy": {
     "purpose": "Filter: Library tracks whose energy is one level, 1 to 10 ({{level}}). Same word as the Overview's Energy chart.",
-    "where": "Filter chip, opened from an energy bar on the Overview. Not in the Add filter menu."
+    "where": "Filter chip, opened from an energy bar on the Overview. Not in the Add filter menu.",
+    "approved": "Energy {{level}}"
   },
   "filters.noEnergy": {
     "purpose": "Filter: Library tracks with no energy. Same wording as overview:charts.energy.none.",
-    "where": "Filter chip, opened from the \"No energy\" bar on the Overview. Not in the Add filter menu."
+    "where": "Filter chip, opened from the \"No energy\" bar on the Overview. Not in the Add filter menu.",
+    "approved": "No energy"
   },
   "filters.missingTags": {
     "purpose": "Filter: Library tracks with no title, no artist or no genre (the Overview's \"tracks with missing tags\"). Same wording as overview:todo.missingTags, without the count.",
-    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu.",
+    "approved": "With missing tags"
   },
   "filters.missingArt": {
     "purpose": "Filter: Library tracks whose linked file has tags and no embedded cover (the Overview's \"tracks with missing art\"). Same wording as overview:todo.missingArt, without the count.",
-    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu."
+    "where": "Filter chip, opened from the Overview's to-do line; also in the Library's Add filter menu.",
+    "approved": "With missing art"
   },
   "filters.genre": {
     "purpose": "Filter: Library tracks whose genre is one genre ({{genre}} is its name as most tracks spell it, free text). Same word as the Overview's genre bars.",
-    "where": "Filter chip, opened from a genre bar on the Overview. Not in the Add filter menu."
+    "where": "Filter chip, opened from a genre bar on the Overview. Not in the Add filter menu.",
+    "approved": "Genre: {{genre}}"
   },
   "format.mp3": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "MP3"
   },
   "format.wav": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "WAV"
   },
   "format.rf64": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "RF64"
   },
   "format.aiff": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "AIFF"
   },
   "format.aifc": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "AIFC"
   },
   "format.flac": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "FLAC"
   },
   "format.mp4": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "M4A"
   },
   "format.adts": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "AAC"
   },
   "format.ogg_vorbis": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "Ogg Vorbis"
   },
   "format.ogg_opus": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "Opus"
   },
   "format.ogg": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "Ogg"
   },
   "format.asf": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "WMA"
   },
   "format.wavpack": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "WavPack"
   },
   "format.musepack": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "Musepack"
   },
   "format.ape": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "APE"
   },
   "format.unknown": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
-    "where": "Filter chip and the Add filter menu, the formats."
+    "where": "Filter chip and the Add filter menu, the formats.",
+    "approved": "Unknown"
   },
   "selected": {
     "purpose": "Says how many tracks are selected, when more than one is.",
-    "where": "Above the track table, after the number of tracks."
+    "where": "Above the track table, after the number of tracks.",
+    "approved": "({{selected, number}} selected)"
   },
   "keys.next": {
     "purpose": "A command that moves to the next track in the list (the J key).",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Next track"
   },
   "keys.previous": {
     "purpose": "A command that moves to the previous track in the list (the K key).",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Previous track"
   },
   "keys.extendNext": {
     "purpose": "A command that moves to the next track and selects every track between (Shift and J).",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Add next track to selection"
   },
   "keys.extendPrevious": {
     "purpose": "A command that moves to the previous track and selects every track between (Shift and K).",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Add previous track to selection"
   },
   "keys.selectAll": {
     "purpose": "A command that selects every track in the list, including those not on screen.",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Select all tracks"
   },
   "keys.clearSelection": {
     "purpose": "A command that leaves no track selected. Listed only while a track is selected.",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Clear selection"
   },
   "keys.energy": {
     "purpose": "A command that gives every selected track an energy from 1 to 10 (keys 1 to 9 and 0 for 10); {{energy}} is the number. Listed only while a track is selected.",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Set energy to {{energy}}"
   },
   "keys.playPause": {
     "purpose": "A command that plays or pauses the preview (the Space key). Listed only while a file is loaded in the player.",
-    "where": "Command palette, list; Library, All music and crate screens."
+    "where": "Command palette, list; Library, All music and crate screens.",
+    "approved": "Play or pause"
   },
   "keys.tag": {
     "purpose": "A command that tags the selected tracks (the T key). Not listed until tags exist (Phase 3).",
-    "where": "Command palette, list (not yet shown)."
+    "where": "Command palette, list (not yet shown).",
+    "approved": "Tag"
   },
   "keys.addToCrate": {
     "purpose": "A command that adds the selected tracks to a crate (the C key).",
-    "where": "Command palette, list."
+    "where": "Command palette, list.",
+    "approved": "Add to crate or playlist"
   },
   "keys.shortcut.next": {
     "purpose": "The key shown beside the command that moves to the next track.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "J"
   },
   "keys.shortcut.previous": {
     "purpose": "The key shown beside the command that moves to the previous track.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "K"
   },
   "keys.shortcut.extendNext": {
     "purpose": "The keys shown beside the command that extends the selection down.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "Shift J"
   },
   "keys.shortcut.extendPrevious": {
     "purpose": "The keys shown beside the command that extends the selection up.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "Shift K"
   },
   "keys.shortcut.selectAll": {
     "purpose": "The keys shown beside the command that selects every track.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "Ctrl A"
   },
   "keys.shortcut.clearSelection": {
     "purpose": "The key shown beside the command that clears the selection.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "Esc"
   },
   "keys.shortcut.playPause": {
     "purpose": "The key shown beside the command that plays or pauses.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "Space"
   },
   "keys.shortcut.tag": {
     "purpose": "The key shown beside the command that tags.",
-    "where": "Command palette, beside the command (not yet shown)."
+    "where": "Command palette, beside the command (not yet shown).",
+    "approved": "T"
   },
   "keys.shortcut.addToCrate": {
     "purpose": "The key shown beside the command that adds to a crate.",
-    "where": "Command palette, beside the command."
+    "where": "Command palette, beside the command.",
+    "approved": "C"
   },
   "energySet_one": {
     "purpose": "Says what an energy key did, for one track; {{energy}} is the number given.",
-    "where": "Above the track table, after the keys 1 to 0 gave a track an energy."
+    "where": "Above the track table, after the keys 1 to 0 gave a track an energy.",
+    "approved": "Energy {{energy}} set on {{count, number}} track"
   },
   "energySet_other": {
     "purpose": "Says what an energy key did, for several tracks; {{energy}} is the number given.",
-    "where": "Above the track table, after the keys 1 to 0 gave tracks an energy."
+    "where": "Above the track table, after the keys 1 to 0 gave tracks an energy.",
+    "approved": "Energy {{energy}} set on {{count, number}} tracks"
   },
   "columns.fit": {
     "purpose": "The Fit column's heading.",
-    "where": "Track table of a crate sorted by fit."
+    "where": "Track table of a crate sorted by fit.",
+    "approved": "Fit"
   },
   "fit.button": {
     "purpose": "Sorts a crate's tracks by how well they follow the selected track.",
-    "where": "Crates screen, above the track table."
+    "where": "Crates screen, above the track table.",
+    "approved": "Sort by fit"
   },
   "fit.action": {
     "purpose": "The same, as the command palette lists it.",
-    "where": "Command palette."
+    "where": "Command palette.",
+    "approved": "Sort by fit after the selected track"
   },
   "fit.needsSelection": {
     "purpose": "Says why the Sort by fit button is greyed out.",
-    "where": "Crates screen, beside the Sort by fit button, while no track is selected."
+    "where": "Crates screen, beside the Sort by fit button, while no track is selected.",
+    "approved": "Select a track to sort by fit"
   },
   "fit.sortedAfter": {
     "purpose": "Says the table is sorted by fit, after which track.",
-    "where": "Crates screen, in the line over the track table."
+    "where": "Crates screen, in the line over the track table.",
+    "approved": "Sorted by fit after {{track}}"
   },
   "fit.sortNormally": {
     "purpose": "Hover text of the Fit heading: clicking it goes back to normal sorting.",
-    "where": "Track table, the Fit heading (hover)."
+    "where": "Track table, the Fit heading (hover).",
+    "approved": "Sort normally"
   },
   "fit.selected": {
     "purpose": "Says the row is the selected track the others are sorted after.",
-    "where": "Track table, the Fit column of the first row."
+    "where": "Track table, the Fit column of the first row.",
+    "approved": "selected track"
   },
   "fit.dots": {
     "purpose": "Names the dots of the Fit column for screen readers and hover.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "Fit {{count}} of {{most}}"
   },
   "fit.separator": {
     "purpose": "Goes between the key part and the BPM part of a fit reason.",
@@ -431,66 +521,82 @@
   },
   "fit.sameKey": {
     "purpose": "The track has the selected track's key.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "same key ({{key}})"
   },
   "fit.keyChange": {
     "purpose": "The track's key is a neighbor of the selected track's (from the selected track's to the track's).",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "{{from}} → {{to}}"
   },
   "fit.keyFar": {
     "purpose": "The track's key is not the selected track's or a neighbor of it.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "{{from}} → {{to}} (not neighbors)"
   },
   "fit.noKey": {
     "purpose": "The track has no key.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "no key"
   },
   "fit.noTargetKey": {
     "purpose": "The selected track has no key, so keys can't be compared.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "selected track has no key"
   },
   "fit.bpm": {
     "purpose": "The track's BPM minus the selected track's, with its sign.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "{{delta}} BPM"
   },
   "fit.sameBpm": {
     "purpose": "The track has the selected track's BPM.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "same BPM"
   },
   "fit.halfTime": {
     "purpose": "The BPM was compared at half the selected track's tempo.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "{{bpm}} (half time)"
   },
   "fit.doubleTime": {
     "purpose": "The BPM was compared at double the selected track's tempo.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "{{bpm}} (double time)"
   },
   "fit.noBpm": {
     "purpose": "The track has no BPM.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "no BPM"
   },
   "fit.noTargetBpm": {
     "purpose": "The selected track has no BPM, so tempos can't be compared.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "selected track has no BPM"
   },
   "fit.noTarget": {
     "purpose": "The selected track has neither key nor BPM.",
-    "where": "Track table, the Fit column."
+    "where": "Track table, the Fit column.",
+    "approved": "selected track has no key or BPM"
   },
   "columns.energy": {
     "purpose": "Column heading for a track's energy.",
-    "where": "Track table header; the column is added in the Columns panel."
+    "where": "Track table header; the column is added in the Columns panel.",
+    "approved": "Energy"
   },
   "energyCell.set": {
     "purpose": "Name of the energy cell's button for a track with no energy; it opens the energy buttons.",
-    "where": "Track table, Energy column (screen readers only)."
+    "where": "Track table, Energy column (screen readers only).",
+    "approved": "No energy, set"
   },
   "energyCell.change": {
     "purpose": "Name of the energy cell's button for a track with an energy; {{energy}} is the number. It opens the energy buttons.",
-    "where": "Track table, Energy column (screen readers only)."
+    "where": "Track table, Energy column (screen readers only).",
+    "approved": "Energy {{energy}}, change"
   },
   "energyPopover.label": {
     "purpose": "Name of the small window holding the ten energy buttons.",
-    "where": "Track table, opened from the Energy column (screen readers only)."
+    "where": "Track table, opened from the Energy column (screen readers only).",
+    "approved": "Energy"
   }
 }

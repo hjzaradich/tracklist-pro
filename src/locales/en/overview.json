@@ -11,7 +11,7 @@
     "lengthMinutes": "{{minutes}} min",
     "inCrates": "in crates",
     "analyzed": "analyzed by rekordbox",
-    "analyzedUnread": "analyzed (rekordbox not read yet)",
+    "analyzedUnread": "analyzed (no rekordbox export read yet)",
     "lastSent": "last sent",
     "neverSent": "Not sent yet"
   },

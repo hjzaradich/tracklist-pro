@@ -86,7 +86,8 @@
   },
   "task.waveform": {
     "purpose": "Names the job that works out each file's waveform for the player.",
-    "where": "Top bar, Activity status and list rows, in the background after a scan, while each file's audio is read once and its waveform is kept."
+    "where": "Top bar, Activity status and list rows, in the background after a scan, while each file's audio is read once and its waveform is kept.",
+    "approved": "Drawing waveforms"
   },
   "percent": {
     "purpose": "A task name with its progress.",
