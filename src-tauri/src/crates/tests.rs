@@ -14,6 +14,9 @@ use crate::rekordbox_write::record_send;
 use crate::send::crate_tree;
 use crate::volume::{Volume, VolumeId};
 
+#[path = "progress_tests.rs"]
+mod progress;
+
 #[path = "folder_tests.rs"]
 mod folders;
 
@@ -1232,7 +1235,7 @@ fn crate_add_check_cost_at_100000_tracks() {
     let started = std::time::Instant::now();
     let prepared = lib
         .writer
-        .call(move |c| Ok(prepare(c, &outside)))
+        .call(move |c| Ok(prepare(c, &outside, &AddProgress::default())))
         .unwrap()
         .unwrap()
         .unwrap();
@@ -1258,7 +1261,7 @@ fn crate_add_by_track_id_with_verdicts_stored_cost_at_100000_tracks() {
         let started = Instant::now();
         let prepared = lib
             .writer
-            .call(move |c| Ok(prepare(c, &again)))
+            .call(move |c| Ok(prepare(c, &again, &AddProgress::default())))
             .unwrap()
             .unwrap()
             .unwrap();

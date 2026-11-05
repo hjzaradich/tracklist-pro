@@ -163,6 +163,7 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
                 eprintln!("startup: jobs an earlier run left running: {recovered:?}");
             }
             app.manage(send::SendFlow::new(guard.clone()));
+            app.manage(crates::add_progress::AddProgress::default());
             app.manage(jobs::start(app.handle(), writer.clone())?);
             // Work that is due while no job is queued (1cA-13), after the
             // queue is in the state and the dropped and recovered jobs are
