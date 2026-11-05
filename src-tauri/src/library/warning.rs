@@ -24,9 +24,13 @@
 //!   Library to a crate (`crates::add_recordings_on`) links them in the same
 //!   operation, but it leaves out any track that has this warning, because
 //!   there is nobody to agree to it; the track is counted, with its reason,
-//!   and is added by hand. These are the only other callers of
-//!   [`insert_linked`](super::insert_linked); a test fails if a fourth
-//!   appears.
+//!   and is added by hand.
+//! - **The Inbox's add** (`inbox::actions::add`, 2.1) links the item's own
+//!   file, not the one [`check`](super::check) would pick, and asks first
+//!   as `promote` does.
+//!
+//! These are the only other callers of
+//! [`insert_linked`](super::insert_linked); a test fails if a fifth appears.
 
 use std::collections::HashMap;
 

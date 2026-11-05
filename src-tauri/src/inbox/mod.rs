@@ -12,6 +12,7 @@
 //! modified time come from the `file` row the walk wrote, and whether it
 //! holds still from the hash stage's own look at it (see [`intake`]).
 
+pub mod actions;
 pub mod intake;
 #[cfg(test)]
 mod label_tests;

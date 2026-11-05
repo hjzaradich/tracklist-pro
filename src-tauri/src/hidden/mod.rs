@@ -19,15 +19,16 @@
 //! One row per file the app isn't showing ([`page`]):
 //! - a file with a `hidden_reason`: `user` (hidden by the user; way back
 //!   "Show again", [`show_again`]) or `inbox_cleared` (a cleared Inbox file;
-//!   Phase 2 adds "Put back in Inbox", nothing writes this reason yet);
+//!   way back "Put back in Inbox", also [`show_again`]). Both are written by
+//!   the Inbox's actions (`inbox::actions`);
 //! - an extra copy of a track (`recording_file.role = 'extra'`), whose reason
 //!   names the track and the file that was chosen as its best (by the ranking,
 //!   or by the user). Its way back is "Use this file instead" (`choose`,
 //!   1cB-22), for a track outside the Library; a Library track's extra file
 //!   has the reason and no button.
 //!
-//! Nothing in the app hides a file yet: [`show_again`] is the way back, built
-//! and tested against a file whose reason a test sets.
+//! The Inbox hides files (Hide and Clear, `inbox::actions`); [`show_again`]
+//! is the way back for both, and puts the file's Inbox item back as new.
 
 use std::collections::HashMap;
 
@@ -94,6 +95,9 @@ pub enum WayBack {
     /// Makes the file the one its track shows ("Use this file instead",
     /// `hidden::choose`).
     UseThisFile,
+    /// Clears the file's `inbox_cleared` and puts it back in the Inbox ("Put
+    /// back in Inbox"): the same command as "Show again".
+    PutBack,
 }
 
 impl WayBack {
@@ -102,8 +106,7 @@ impl WayBack {
     pub fn of(why: Why, choosable: bool) -> Option<WayBack> {
         match why {
             Why::UserHid => Some(WayBack::ShowAgain),
-            // Phase 2: "Put back in Inbox" (the Inbox doesn't exist yet).
-            Why::ClearedInbox => None,
+            Why::ClearedInbox => Some(WayBack::PutBack),
             Why::ExtraFile => choosable.then_some(WayBack::UseThisFile),
         }
     }
@@ -317,14 +320,16 @@ pub async fn hidden_files_page(
 #[serde(rename_all = "camelCase")]
 pub struct ShownAgain {
     /// The operation to offer Undo for. `None` if the file wasn't hidden by
-    /// the user (shown already, or gone): nothing changed.
+    /// the user or cleared from the Inbox (shown already, or gone): nothing
+    /// changed.
     pub operation_id: Option<i64>,
 }
 
-/// Shows a file the user hid again: clears its `hidden_reason`, as one
-/// operation, so Undo hides it again exactly as it was. Only a file hidden
-/// by the user is touched; a cleared Inbox file goes back through the Inbox
-/// (Phase 2).
+/// Shows a file the user hid again, or puts a cleared Inbox file back:
+/// clears its `hidden_reason`, and puts its Inbox item back as new if the
+/// Inbox hid it, as one operation, so Undo hides it again exactly as it
+/// was. Only a file hidden by the user or cleared from the Inbox is
+/// touched.
 pub fn show_again(conn: &mut Connection, file: i64) -> Result<ShownAgain, ops::OpsError> {
     let recorded = ops::record(
         conn,
@@ -339,8 +344,9 @@ pub fn show_again(conn: &mut Connection, file: i64) -> Result<ShownAgain, ops::O
                 )?
                 .pop()
                 .flatten();
-            if reason.as_deref() == Some("user") {
+            if matches!(reason.as_deref(), Some("user" | "inbox_cleared")) {
                 rec.set("file", file, "hidden_reason", Option::<String>::None)?;
+                crate::inbox::actions::put_back(rec, file)?;
             }
             Ok(())
         },
@@ -350,7 +356,8 @@ pub fn show_again(conn: &mut Connection, file: i64) -> Result<ShownAgain, ops::O
     })
 }
 
-/// "Show again" for a file the user hid.
+/// "Show again" for a file the user hid, and "Put back in Inbox" for a
+/// cleared one.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn show_file_again(writer: State<'_, Writer>, file_id: i64) -> Result<ShownAgain, IpcError> {
