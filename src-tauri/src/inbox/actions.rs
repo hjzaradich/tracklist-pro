@@ -76,6 +76,17 @@ pub enum InboxRefusal {
     MatchNotConfirmed,
     /// Another item of this add is a file of the same track.
     SameTrackTwice,
+    /// The file is the linked file of a Library track: hiding it would take
+    /// the Library track's own file out of All music.
+    IsLibraryFile,
+}
+
+/// An item "Add all" left as it was, and why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Skipped {
+    pub item_id: i64,
+    pub reason: InboxRefusal,
 }
 
 /// What an Inbox action came to.
@@ -88,6 +99,8 @@ pub enum InboxOutcome {
         operation_id: Option<i64>,
         /// The items it changed.
         items: Vec<i64>,
+        /// "Add all" only: the items it left as they were, each with why.
+        skipped: Vec<Skipped>,
     },
     /// Nothing was written: this item can't be acted on.
     #[serde(rename_all = "camelCase")]
@@ -114,6 +127,8 @@ struct Item {
     hidden: bool,
     recording: Option<i64>,
     in_library: bool,
+    /// The file is the linked file of a Library track.
+    is_library_file: bool,
 }
 
 impl Item {
@@ -129,7 +144,8 @@ fn load(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Result<Vec<Item>, i6
     let mut stmt = conn.prepare_cached(
         "SELECT i.id, i.file_id, i.status, f.present, f.hidden_reason IS NOT NULL,
                 rf.recording_id,
-                EXISTS (SELECT 1 FROM library_track lt WHERE lt.recording_id = rf.recording_id)
+                EXISTS (SELECT 1 FROM library_track lt WHERE lt.recording_id = rf.recording_id),
+                EXISTS (SELECT 1 FROM library_track lt WHERE lt.linked_file_id = f.id)
          FROM inbox_item i
          JOIN file f ON f.id = i.file_id
          LEFT JOIN recording_file rf ON rf.file_id = f.id
@@ -145,6 +161,7 @@ fn load(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Result<Vec<Item>, i6
                 hidden: r.get(4)?,
                 recording: r.get(5)?,
                 in_library: r.get(6)?,
+                is_library_file: r.get(7)?,
             })
         })?
         .map(|item| item.map(|item| (item.id, item)))
@@ -281,7 +298,46 @@ pub fn add(
     Ok(done(recorded.operation_id, ids))
 }
 
-/// The items "Add all" adds for `batch`: its new items whose track has no
+/// "Add all" for `batch`: adds the items of [`batch_to_add`] that [`add`]
+/// would not refuse, as one operation, and leaves the others as they are,
+/// listing each in `skipped` with its reason. Nothing addable records no
+/// operation.
+pub fn add_batch(
+    conn: &mut Connection,
+    batch: i64,
+    confirm_low_bitrate: bool,
+) -> Result<InboxOutcome, OpsError> {
+    let wanted = batch_to_add(conn, batch)?;
+    let loaded = match load(conn, &wanted)? {
+        Ok(items) => items,
+        Err(gone) => return Ok(InboxOutcome::refused(gone, InboxRefusal::ItemGone)),
+    };
+    let mut addable = Vec::new();
+    let mut skipped = Vec::new();
+    for item in &loaded {
+        match add_refusal(conn, item)? {
+            Some(reason) => skipped.push(Skipped {
+                item_id: item.id,
+                reason,
+            }),
+            None => addable.push(item.id),
+        }
+    }
+    Ok(match add(conn, &addable, confirm_low_bitrate)? {
+        InboxOutcome::Done {
+            operation_id,
+            items,
+            ..
+        } => InboxOutcome::Done {
+            operation_id,
+            items,
+            skipped,
+        },
+        other => other,
+    })
+}
+
+/// The items "Add all" considers for `batch`: its new items whose track has no
 /// Library track (those have their own actions), one per track (the
 /// track's best file if it is one of them, else the first that arrived).
 /// Anything else that stands in the way is [`add`]'s to refuse.
@@ -316,6 +372,7 @@ fn done(operation_id: Option<i64>, items: Vec<i64>) -> InboxOutcome {
     InboxOutcome::Done {
         operation_id,
         items,
+        skipped: Vec::new(),
     }
 }
 
@@ -368,6 +425,8 @@ fn hide_as(
     for item in &items {
         let refusal = if !item.open() || item.hidden {
             Some(InboxRefusal::AlreadyDecided)
+        } else if item.is_library_file {
+            Some(InboxRefusal::IsLibraryFile)
         } else if in_library_only && item.recording.is_none() {
             Some(InboxRefusal::NotIdentified)
         } else if in_library_only && !item.in_library {
@@ -456,12 +515,20 @@ fn add_and_follow_up(
     jobs: &crate::jobs::JobQueue,
     outcome: InboxOutcome,
 ) -> Result<InboxOutcome, IpcError> {
-    if added(&outcome) {
+    Ok(follow_up_if_added(outcome, || {
         library::settle_now(writer, jobs);
         let reach = crate::scan::chain::reach_by(crate::scan::system_volumes);
         ask_after_add(writer, Some(&reach), |j| jobs.enqueue(j));
+    }))
+}
+
+/// Runs `follow_up` only if `outcome` added something: a refused add, a
+/// go-ahead to ask for, or an add that changed nothing asks for no jobs.
+fn follow_up_if_added(outcome: InboxOutcome, follow_up: impl FnOnce()) -> InboxOutcome {
+    if added(&outcome) {
+        follow_up();
     }
-    Ok(outcome)
+    outcome
 }
 
 /// Add to Library, for Inbox items.
@@ -486,10 +553,7 @@ pub async fn inbox_add_batch(
     batch_id: i64,
     confirm_low_bitrate: bool,
 ) -> Result<InboxOutcome, IpcError> {
-    let outcome = writer.call(move |c| {
-        let items = batch_to_add(c, batch_id)?;
-        Ok(add(c, &items, confirm_low_bitrate))
-    })??;
+    let outcome = writer.call(move |c| Ok(add_batch(c, batch_id, confirm_low_bitrate)))??;
     add_and_follow_up(&writer, &jobs, outcome)
 }
 

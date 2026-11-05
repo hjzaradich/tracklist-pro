@@ -152,6 +152,8 @@ fn add_links_the_items_own_file_even_when_another_file_ranks_higher_and_undo_tak
     assert_ne!(best, download);
 
     assert!(is_done(&add_items(&lib, &[it])));
+    // ROADMAP 1.12: ranking again does not move a Library link to the best file.
+    rank(&lib);
     assert_eq!(linked(&lib, track), Some(download));
     assert_eq!(state(&lib, it), decided("added"));
 
@@ -282,7 +284,8 @@ fn not_now_keeps_the_file_shown_and_undo_makes_the_item_new_again() {
         run(&lib, not_now, &[it]),
         InboxOutcome::Done {
             operation_id: None,
-            items: Vec::new()
+            items: Vec::new(),
+            skipped: Vec::new()
         }
     );
 
@@ -402,4 +405,238 @@ fn an_add_asks_for_the_roles_and_the_waveform_jobs() {
     });
     assert!(asked.contains(&JobKind::Group), "{asked:?}");
     assert!(asked.contains(&JobKind::Waveform), "{asked:?}");
+}
+
+fn add_batch_of(lib: &Lib, batch: i64) -> InboxOutcome {
+    lib.writer
+        .call(move |c| Ok(add_batch(c, batch, false)))
+        .unwrap()
+        .unwrap()
+}
+
+fn library_tracks(lib: &Lib) -> i64 {
+    lib.writer
+        .call(|c| c.query_row("SELECT COUNT(*) FROM library_track", [], |r| r.get(0)))
+        .unwrap()
+}
+
+#[test]
+fn add_all_adds_what_can_be_added_and_lists_each_item_it_skipped_with_why() {
+    let lib = Lib::new();
+    let batch = new_batch(&lib);
+    let (ok, ok_file) = lib.track(Some("Oscar"), None, "oscar.mp3");
+    let (_, gone_file) = lib.track(Some("Papa"), None, "papa.mp3");
+    lib.insert("UPDATE file SET present = 0 WHERE id = ?1", (gone_file,));
+    let loose_file = lib.insert(
+        "INSERT INTO file (music_folder_id, rel_path, rel_path_key) VALUES (1, 'q.mp3', 'q.mp3')",
+        (),
+    );
+    let good = item(&lib, ok_file, Some(batch));
+    let gone = item(&lib, gone_file, Some(batch));
+    let loose = item(&lib, loose_file, Some(batch));
+    let before = operations(&lib);
+
+    let outcome = add_batch_of(&lib, batch);
+    let InboxOutcome::Done {
+        operation_id,
+        items,
+        skipped,
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert!(operation_id.is_some());
+    assert_eq!(items, vec![good]);
+    assert_eq!(operations(&lib), before + 1);
+    assert_eq!(linked(&lib, ok), Some(ok_file));
+    let mut skipped: Vec<(i64, InboxRefusal)> =
+        skipped.iter().map(|s| (s.item_id, s.reason)).collect();
+    skipped.sort_by_key(|s| s.0);
+    assert_eq!(
+        skipped,
+        vec![
+            (gone, InboxRefusal::FileMissing),
+            (loose, InboxRefusal::NotIdentified)
+        ]
+    );
+    assert_eq!(state(&lib, gone), new());
+    assert_eq!(state(&lib, loose), new());
+
+    undo(&lib);
+    assert_eq!(linked(&lib, ok), None);
+    assert_eq!(state(&lib, good), new());
+}
+
+#[test]
+fn add_all_with_nothing_addable_records_no_operation_and_lists_the_skipped() {
+    let lib = Lib::new();
+    let batch = new_batch(&lib);
+    let (_, gone_file) = lib.track(Some("Quebec"), None, "quebec.mp3");
+    lib.insert("UPDATE file SET present = 0 WHERE id = ?1", (gone_file,));
+    let gone = item(&lib, gone_file, Some(batch));
+    let before = operations(&lib);
+
+    assert_eq!(
+        add_batch_of(&lib, batch),
+        InboxOutcome::Done {
+            operation_id: None,
+            items: Vec::new(),
+            skipped: vec![Skipped {
+                item_id: gone,
+                reason: InboxRefusal::FileMissing
+            }]
+        }
+    );
+    assert_eq!(operations(&lib), before);
+}
+
+#[test]
+fn add_is_refused_while_the_rekordbox_match_cannot_be_confirmed() {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("Romeo"), None, "romeo.mp3");
+    let entry = lib.rekordbox_entry(file, &[]);
+    lib.insert(
+        "UPDATE rekordbox_track SET relink_probable = 1 WHERE id = ?1",
+        (entry,),
+    );
+    let it = item(&lib, file, None);
+    assert_eq!(
+        add_items(&lib, &[it]),
+        InboxOutcome::refused(it, InboxRefusal::MatchNotConfirmed)
+    );
+    assert_eq!(linked(&lib, track), None);
+}
+
+#[test]
+fn two_items_of_one_track_in_one_add_make_one_track_and_the_second_is_reported() {
+    let lib = Lib::new();
+    let (track, a) = lib.track(Some("Sierra"), None, "sierra.mp3");
+    let b = lib.file(track, "sierra (copy).mp3", "extra");
+    let first = item(&lib, a, None);
+    let second = item(&lib, b, None);
+    let before = operations(&lib);
+    assert_eq!(
+        add_items(&lib, &[first, second]),
+        InboxOutcome::refused(second, InboxRefusal::SameTrackTwice)
+    );
+    assert_eq!(library_tracks(&lib), 0);
+    assert_eq!(operations(&lib), before);
+}
+
+#[test]
+fn a_low_bitrate_file_needs_the_go_ahead_and_is_added_with_it() {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("Tango"), None, "tango.mp3");
+    lib.insert(
+        "UPDATE file SET codec = 'mp3', bitrate = 128 WHERE id = ?1",
+        (file,),
+    );
+    let it = item(&lib, file, None);
+    let before = operations(&lib);
+
+    assert_eq!(
+        add_items(&lib, &[it]),
+        InboxOutcome::NeedsConfirmation {
+            item_id: it,
+            warning: AddWarning::LowBitrate { kbps: 128 }
+        }
+    );
+    assert_eq!(linked(&lib, track), None);
+    assert_eq!(operations(&lib), before);
+
+    let confirmed = lib
+        .writer
+        .call(move |c| Ok(add(c, &[it], true)))
+        .unwrap()
+        .unwrap();
+    assert!(is_done(&confirmed));
+    assert_eq!(linked(&lib, track), Some(file));
+}
+
+#[test]
+fn adding_an_item_twice_is_refused_the_second_time_and_leaves_one_track() {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("Uniform"), None, "uniform.mp3");
+    let it = item(&lib, file, None);
+    assert!(is_done(&add_items(&lib, &[it])));
+    let before = operations(&lib);
+    assert_eq!(
+        add_items(&lib, &[it]),
+        InboxOutcome::refused(it, InboxRefusal::AlreadyDecided)
+    );
+    assert_eq!(library_tracks(&lib), 1);
+    assert_eq!(linked(&lib, track), Some(file));
+    assert_eq!(operations(&lib), before);
+}
+
+#[test]
+fn an_add_cannot_be_undone_out_of_order_after_a_later_operation() {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("Victor"), None, "victor.mp3");
+    let (_, other) = lib.track(Some("Whiskey"), None, "whiskey.mp3");
+    let it = item(&lib, file, None);
+    let later = item(&lib, other, None);
+    let InboxOutcome::Done {
+        operation_id: Some(add_id),
+        ..
+    } = add_items(&lib, &[it])
+    else {
+        panic!("not added");
+    };
+    assert!(is_done(&run(&lib, not_now, &[later])));
+
+    let undone = lib
+        .writer
+        .call(move |c| Ok(ops::undo_for_user(c, Some(add_id))))
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(undone, ops::UndoOutcome::NothingToUndo),
+        "{undone:?}"
+    );
+    assert_eq!(linked(&lib, track), Some(file));
+    assert_eq!(state(&lib, it), decided("added"));
+}
+
+#[test]
+fn hide_and_clear_refuse_a_file_that_is_a_library_track_own_linked_file() {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("Xray"), None, "xray.mp3");
+    let it = item(&lib, file, None);
+    lib.library(track, file);
+    for action in [hide, clear] {
+        assert_eq!(
+            run(&lib, action, &[it]),
+            InboxOutcome::refused(it, InboxRefusal::IsLibraryFile)
+        );
+    }
+    assert_eq!(reason_of(&lib, file), None);
+    assert_eq!(state(&lib, it), new());
+}
+
+#[test]
+fn follow_up_jobs_are_asked_for_only_when_something_was_added() {
+    let done_with = |operation_id| InboxOutcome::Done {
+        operation_id,
+        items: Vec::new(),
+        skipped: Vec::new(),
+    };
+    let outcomes = [
+        (InboxOutcome::refused(1, InboxRefusal::FileMissing), 0),
+        (
+            InboxOutcome::NeedsConfirmation {
+                item_id: 1,
+                warning: AddWarning::LowBitrate { kbps: 128 },
+            },
+            0,
+        ),
+        (done_with(None), 0),
+        (done_with(Some(7)), 1),
+    ];
+    for (outcome, asked) in outcomes {
+        let mut calls = 0;
+        let back = follow_up_if_added(outcome.clone(), || calls += 1);
+        assert_eq!(back, outcome);
+        assert_eq!(calls, asked, "{outcome:?}");
+    }
 }
