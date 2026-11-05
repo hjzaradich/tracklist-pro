@@ -556,3 +556,12 @@ fn client_errors_never_carry_a_url() {
         assert!(!shown.contains("://") && !shown.contains('?'), "{shown}");
     }
 }
+
+#[test]
+fn printing_a_discogs_request_does_not_show_the_token() {
+    let request = crate::net::Request::get(Service::Discogs, "https://api.discogs.com/x?q=a")
+        .header("Authorization", "Discogs token=fake-token-123");
+    let shown = format!("{request:?}");
+    assert!(!shown.contains("fake-token-123"));
+    assert!(shown.contains("Authorization") && shown.contains("api.discogs.com"));
+}

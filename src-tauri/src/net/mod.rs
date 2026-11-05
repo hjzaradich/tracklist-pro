@@ -59,13 +59,34 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 static LIMITER: LazyLock<Arc<RateLimiter>> = LazyLock::new(Arc::default);
 
 /// A request to send through the gate.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Request {
     service: Service,
     url: String,
     headers: Vec<(String, String)>,
     /// `Some` for a POST.
     body: Option<Vec<u8>>,
+}
+
+/// Shows the method, host and header names only. Header values can hold a
+/// token, so they are never printed.
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let after_scheme = self.url.split_once("://").map_or(&*self.url, |(_, r)| r);
+        let authority = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
+        let host = authority.rsplit('@').next().unwrap_or("");
+        let headers: Vec<(&str, &str)> = self
+            .headers
+            .iter()
+            .map(|(name, _)| (name.as_str(), "<redacted>"))
+            .collect();
+        f.debug_struct("Request")
+            .field("method", &if self.body.is_some() { "POST" } else { "GET" })
+            .field("service", &self.service)
+            .field("host", &host)
+            .field("headers", &headers)
+            .finish()
+    }
 }
 
 impl Request {
