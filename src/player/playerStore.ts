@@ -59,8 +59,13 @@ export interface PlayerState {
    * the new file starts at the same time (by time; a file shorter than that
    * starts from its beginning) and keeps playing or paused as the last one
    * was. Only Review's play buttons pass it.
+   *
+   * `startAtFraction` (0 to 1) starts the file that far into its length,
+   * once the length is known (the Inbox starts a preview about a third of
+   * the way in, ROADMAP 2.1). Only the Inbox passes it. It wins over
+   * `keepPosition`.
    */
-  select: (file: PlayerFile, options?: { keepPosition?: boolean }) => void;
+  select: (file: PlayerFile, options?: { keepPosition?: boolean; startAtFraction?: number }) => void;
   /** Play or pause. */
   toggle: () => void;
   /** Moves to `seconds` in the loaded file. */
@@ -125,6 +130,8 @@ export function createPlayer(deps: PlayerDeps) {
   let choice = 0;
   /** Where to start in the file being opened. */
   let startAt = 0;
+  /** Set when the file is to start part of the way in; its length is needed to know where. */
+  let startFraction: number | null = null;
 
   const store = create<PlayerState>()((set, get) => {
     const audio = (): AudioLike => {
@@ -160,7 +167,12 @@ export function createPlayer(deps: PlayerDeps) {
         if (status !== "loading") return;
         const duration = Number.isFinite(a.duration) ? a.duration : 0;
         // Time carries over; a file shorter than that starts at the beginning.
-        const position = duration > 0 && startAt < duration ? startAt : 0;
+        const position =
+          duration > 0 && startFraction !== null
+            ? duration * startFraction
+            : duration > 0 && startAt < duration
+              ? startAt
+              : 0;
         a.currentTime = position;
         set({ status: "ready", duration, position });
         if (playing) play();
@@ -225,6 +237,8 @@ export function createPlayer(deps: PlayerDeps) {
         const playing = first || !keep ? true : before.playing;
         const mine = ++choice;
         startAt = position;
+        const fraction = options?.startAtFraction;
+        startFraction = fraction === undefined ? null : Math.min(Math.max(fraction, 0), 1);
         // One file is audible at a time: the old one stops at once.
         a.pause();
         set({ file, status: "loading", refusal: null, position, duration: 0, playing });
