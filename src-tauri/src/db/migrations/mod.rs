@@ -92,6 +92,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0044_track_row_genre"),
     migration!("0045_grouping_names"),
     migration!("0046_track_row_energy_sort"),
+    migration!("0047_inbox"),
 ];
 
 /// The table that records which migrations a database has had.
