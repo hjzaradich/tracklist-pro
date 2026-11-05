@@ -183,7 +183,7 @@ pub struct Intaking<H> {
 impl<H: JobHandler> JobHandler for Intaking<H> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let result = self.inner.run(job);
-        if let Err(e) = job.writer().call(|c| run(c)) {
+        if let Err(e) = job.writer().call(run) {
             eprintln!("inbox intake after a hash job failed: {e}");
         }
         result
