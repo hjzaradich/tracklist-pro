@@ -23,7 +23,7 @@
   "label": "Conflicts",
   "col": {
     "track": "Track",
-    "app": "App",
+    "app": "Library",
     "rekordbox": "rekordbox",
     "base": "Last sent",
     "actions": "Actions"
@@ -39,12 +39,12 @@
   "stars_one": "{{count}} star",
   "stars_other": "{{count}} stars",
   "action": {
-    "keepApp": "Keep app's",
+    "keepApp": "Keep Library's",
     "keepRekordbox": "Keep rekordbox's",
     "edit": "Edit",
     "save": "Save",
     "goBack": "Go back",
-    "keepAppAll": "Keep app's for all {{count, number}}",
+    "keepAppAll": "Keep Library's for all {{count, number}}",
     "keepRekordboxAll": "Keep rekordbox's for all {{count, number}}"
   },
   "edit": {
@@ -53,7 +53,7 @@
   },
   "error": {
     "gone": "Already resolved",
-    "badValue": "That value does not fit this field. Enter a value of the same kind.",
-    "changed": "Conflicts changed. Check the list and try again."
+    "badValue": "Can't save: that value doesn't fit this field",
+    "changed": "Can't apply: the conflicts have changed since. Check the list again."
   }
 }

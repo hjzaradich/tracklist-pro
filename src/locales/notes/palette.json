@@ -1,38 +1,47 @@
 {
   "title": {
     "purpose": "Names the command palette for screen readers.",
-    "where": "Command palette (Ctrl K), dialog (not shown)."
+    "where": "Command palette (Ctrl K), dialog (not shown).",
+    "approved": "Commands"
   },
   "input.label": {
     "purpose": "Names the palette's text box for screen readers.",
-    "where": "Command palette, text box (not shown)."
+    "where": "Command palette, text box (not shown).",
+    "approved": "Command"
   },
   "input.placeholder": {
     "purpose": "Hint inside the palette's text box.",
-    "where": "Command palette, text box, while empty."
+    "where": "Command palette, text box, while empty.",
+    "approved": "Type a command"
   },
   "list.label": {
     "purpose": "Names the palette's list of commands for screen readers.",
-    "where": "Command palette, list (not shown)."
+    "where": "Command palette, list (not shown).",
+    "approved": "Commands"
   },
   "empty": {
     "purpose": "Says no command matches what was typed.",
-    "where": "Command palette, under the text box, when the list is empty."
+    "where": "Command palette, under the text box, when the list is empty.",
+    "approved": "No matching commands"
   },
   "goTo": {
     "purpose": "A command that opens a screen; {{name}} is the screen's name.",
-    "where": "Command palette, one row per screen (Go to Library)."
+    "where": "Command palette, one row per screen (Go to Library).",
+    "approved": "Go to {{name}}"
   },
   "searchAllMusic": {
     "purpose": "A command that opens All music with the cursor in its search box.",
-    "where": "Command palette, list."
+    "where": "Command palette, list.",
+    "approved": "Search All music"
   },
   "openSettings": {
     "purpose": "A command that opens the Settings screen. Always listed.",
-    "where": "Command palette, list."
+    "where": "Command palette, list.",
+    "approved": "Open Settings"
   },
   "theme": {
     "purpose": "A command that switches the theme; {{name}} is the theme (Dark or Light). Listed only for the theme not in use.",
-    "where": "Command palette, list."
+    "where": "Command palette, list.",
+    "approved": "Theme: {{name}}"
   }
 }

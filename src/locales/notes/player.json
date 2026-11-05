@@ -26,39 +26,48 @@
   },
   "previous": {
     "purpose": "Button that goes to the track above in the list; after the first 3 seconds of a track it starts the track over instead.",
-    "where": "Player bar along the bottom, left of play/pause (hover text and screen-reader name); also the Previous track command in the palette (Ctrl+K)."
+    "where": "Player bar along the bottom, left of play/pause (hover text and screen-reader name); also the Previous track command in the palette (Ctrl+K).",
+    "approved": "Previous track"
   },
   "next": {
     "purpose": "Button that goes to the track below in the list.",
-    "where": "Player bar along the bottom, right of play/pause (hover text and screen-reader name); also the Next track command in the palette (Ctrl+K)."
+    "where": "Player bar along the bottom, right of play/pause (hover text and screen-reader name); also the Next track command in the palette (Ctrl+K).",
+    "approved": "Next track"
   },
   "playNext": {
     "purpose": "Switch that, when on, plays the next track in the list when a track ends. Off by default.",
-    "where": "Player bar along the bottom, right of Next track (screen-reader name; the button shows it is on by its colour and as pressed)."
+    "where": "Player bar along the bottom, right of Next track (screen-reader name; the button shows it is on by its colour and as pressed).",
+    "approved": "Play next"
   },
   "playNextTip": {
     "purpose": "Hover text of the Play next switch: says what it does.",
-    "where": "Player bar along the bottom, on the Play next switch (hover text)."
+    "where": "Player bar along the bottom, on the Play next switch (hover text).",
+    "approved": "Play the next track when this one ends"
   },
   "playNextTurnOn": {
     "purpose": "Palette command that turns Play next on (shown while it is off).",
-    "where": "Command palette (Ctrl+K)."
+    "where": "Command palette (Ctrl+K).",
+    "approved": "Turn on Play next"
   },
   "playNextTurnOff": {
     "purpose": "Palette command that turns Play next off (shown while it is on).",
-    "where": "Command palette (Ctrl+K)."
+    "where": "Command palette (Ctrl+K).",
+    "approved": "Turn off Play next"
   },
   "mute": {
     "purpose": "Button that turns the sound off, keeping the volume.",
-    "where": "Player bar along the bottom, left of the volume slider (hover text and screen-reader name)."
+    "where": "Player bar along the bottom, left of the volume slider (hover text and screen-reader name).",
+    "approved": "Mute"
   },
   "unmute": {
     "purpose": "Button that turns the sound back on.",
-    "where": "Player bar along the bottom, left of the volume slider while the sound is off (hover text and screen-reader name)."
+    "where": "Player bar along the bottom, left of the volume slider while the sound is off (hover text and screen-reader name).",
+    "approved": "Unmute"
   },
   "volume": {
     "purpose": "Screen-reader name of the volume slider.",
-    "where": "Player bar along the bottom, at the right end (screen-reader label)."
+    "where": "Player bar along the bottom, at the right end (screen-reader label).",
+    "approved": "Volume"
   },
   "refused.missing": {
     "purpose": "Says why a file isn't played: it isn't on disk.",
@@ -82,14 +91,17 @@
   },
   "waveform.label": {
     "purpose": "Screen-reader name of the waveform drawing of the loaded file.",
-    "where": "Player bar along the bottom, beside the scrub bar (screen-reader label)."
+    "where": "Player bar along the bottom, beside the scrub bar (screen-reader label).",
+    "approved": "Waveform"
   },
   "waveform.notReady": {
     "purpose": "Says the waveform of the loaded file is not drawn yet: a background task draws them after a scan.",
-    "where": "Player bar along the bottom, in place of the waveform, until the background task has reached the file (screen-reader label)."
+    "where": "Player bar along the bottom, in place of the waveform, until the background task has reached the file (screen-reader label).",
+    "approved": "No waveform yet"
   },
   "waveform.unavailable": {
     "purpose": "Says no waveform will come for the loaded file because its audio can't be decoded.",
-    "where": "Player bar along the bottom, in place of the waveform, for a file that can't be decoded (screen-reader label)."
+    "where": "Player bar along the bottom, in place of the waveform, for a file that can't be decoded (screen-reader label).",
+    "approved": "No waveform for this file"
   }
 }

@@ -71,31 +71,38 @@
   },
   "working.reading": {
     "purpose": "The send is reading rekordbox's export (same words as export.reading).",
-    "where": "Send checklist, under the step that is running, with how far along it is."
+    "where": "Send checklist, under the step that is running, with how far along it is.",
+    "approved": "Reading export"
   },
   "working.matching": {
     "purpose": "The send is matching rekordbox's tracks to files.",
-    "where": "Send checklist, under the step that is running, with how far along it is."
+    "where": "Send checklist, under the step that is running, with how far along it is.",
+    "approved": "Matching tracks to files"
   },
   "working.merging": {
     "purpose": "The send is comparing the app's values with rekordbox's (the merge before a send).",
-    "where": "Send checklist, under the step that is running, with how far along it is."
+    "where": "Send checklist, under the step that is running, with how far along it is.",
+    "approved": "Comparing with rekordbox"
   },
   "working.building": {
     "purpose": "The send is building its file in memory and reading it back.",
-    "where": "Send checklist, under the step that is running, with how far along it is."
+    "where": "Send checklist, under the step that is running, with how far along it is.",
+    "approved": "Building the send"
   },
   "working.lookingAtFiles": {
     "purpose": "The send is looking at the files on disk for changes after the export.",
-    "where": "Send checklist, under the step that is running, with how far along it is."
+    "where": "Send checklist, under the step that is running, with how far along it is.",
+    "approved": "Checking files on disk"
   },
   "working.writing": {
     "purpose": "The send is writing its file (same words as write.writing).",
-    "where": "Send checklist, under the step that is running, with how far along it is."
+    "where": "Send checklist, under the step that is running, with how far along it is.",
+    "approved": "Writing file"
   },
   "working.recording": {
     "purpose": "The file is in place and the send is being recorded.",
-    "where": "Send checklist, under the step that is running, with how far along it is."
+    "where": "Send checklist, under the step that is running, with how far along it is.",
+    "approved": "Recording the send"
   },
   "export.saved": {
     "purpose": "Says when the export file was saved.",
@@ -239,43 +246,53 @@
   },
   "review.conflictsWaiting_one": {
     "purpose": "Says one field of a track being sent has an open conflict (edited in the app and in rekordbox). Until the user settles it in Review > Conflicts, the send carries rekordbox's value for it, so nothing in rekordbox is lost, and the app's value waits.",
-    "where": "Send checklist, step 2, a line under the counts of tracks."
+    "where": "Send checklist, step 2, a line under the counts of tracks.",
+    "approved": "{{count, number}} field waiting in Conflicts (sent with rekordbox's value until you decide)"
   },
   "review.conflictsWaiting_other": {
     "purpose": "The same line for several fields.",
-    "where": "Send checklist, step 2, a line under the counts of tracks."
+    "where": "Send checklist, step 2, a line under the counts of tracks.",
+    "approved": "{{count, number}} fields waiting in Conflicts (sent with rekordbox's values until you decide)"
   },
   "review.starsOn": {
     "purpose": "Read-only line saying energy is sent to rekordbox as the star rating, shown only while that setting is on.",
-    "where": "Send checklist, step 2 (review), a line under the counts of tracks, before its link."
+    "where": "Send checklist, step 2 (review), a line under the counts of tracks, before its link.",
+    "approved": "Energy is sent as Rating"
   },
   "review.starsLink": {
     "purpose": "A link beside the line about energy as stars; opens the Settings screen, where the switch is.",
-    "where": "Send checklist, step 2 (review), link at the end of the energy-as-stars line."
+    "where": "Send checklist, step 2 (review), link at the end of the energy-as-stars line.",
+    "approved": "Change in Settings"
   },
   "review.starsChange_zero": {
     "purpose": "Says no track's stars in rekordbox will change in this send (exact, from the fresh read); shown only while energy is sent as stars.",
-    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (none)."
+    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (none).",
+    "approved": "No stars will change in rekordbox"
   },
   "review.starsChange_one": {
     "purpose": "Says one track's stars in rekordbox will change in this send (exact, from the fresh read).",
-    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (one)."
+    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (one).",
+    "approved": "{{count, number}} track's stars will change in rekordbox"
   },
   "review.starsChange_other": {
     "purpose": "Says how many tracks' stars in rekordbox will change in this send (exact, from the fresh read).",
-    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (several)."
+    "where": "Send checklist, step 2 (review), a line under the energy-as-stars line (several).",
+    "approved": "{{count, number}} tracks' stars will change in rekordbox"
   },
   "review.changedAfterExport_one": {
     "purpose": "Warns that one track rekordbox has, sent with the export's values, has a file changed after the export was saved. rekordbox writes a DJ's edits into the file, so an edit made in rekordbox after the export may be in it, and the send would overwrite it on import. Asks the user to export again first. A warning only: the send can still go (ROADMAP 1.10, Second channel).",
-    "where": "Send checklist, step 2, a line under the counts of tracks."
+    "where": "Send checklist, step 2, a line under the counts of tracks.",
+    "approved": "{{count, number}} track's file changed after this export. Export the collection again from rekordbox, or edits made there since will be lost."
   },
   "review.changedAfterExport_other": {
     "purpose": "The same warning for several tracks.",
-    "where": "Send checklist, step 2, a line under the counts of tracks."
+    "where": "Send checklist, step 2, a line under the counts of tracks.",
+    "approved": "{{count, number}} tracks' files changed after this export. Export the collection again from rekordbox, or edits made there since will be lost."
   },
   "review.changedAfterExportList": {
     "purpose": "Opens the list of the tracks the warning above counts.",
-    "where": "Send checklist, step 2, a disclosure under the warning about files changed after the export."
+    "where": "Send checklist, step 2, a disclosure under the warning about files changed after the export.",
+    "approved": "Show tracks"
   },
   "review.losesEntries": {
     "purpose": "Warns that sending replaces rekordbox playlists that will lose tracks.",

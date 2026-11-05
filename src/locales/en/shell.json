@@ -36,16 +36,16 @@
       "renameFolder": "Undo (folder “{{from}}” renamed to “{{name}}”)",
       "deleteFolder": "Undo (folder “{{name}}” deleted)",
       "moveCrate": "Undo (“{{name}}” moved)",
-      "setCrateNotes": "Undo (note of “{{name}}” changed)",
+      "setCrateNotes": "Undo (note on “{{name}}” changed)",
       "addToCrate_one": "Undo ({{count}} track added to “{{name}}”)",
       "addToCrate_other": "Undo ({{count}} tracks added to “{{name}}”)",
-      "addToCrateLibrary_one": "Undo ({{count}} track added to “{{name}}”, {{library, number}} new to your Library)",
-      "addToCrateLibrary_other": "Undo ({{count}} tracks added to “{{name}}”, {{library, number}} new to your Library)",
-      "addToNewCrate_zero": "Undo (new crate “{{name}}” with no tracks)",
-      "addToNewCrate_one": "Undo (new crate “{{name}}” with {{count}} track)",
-      "addToNewCrate_other": "Undo (new crate “{{name}}” with {{count}} tracks)",
-      "addToNewCrateLibrary_one": "Undo (new crate “{{name}}” with {{count}} track, {{library, number}} new to your Library)",
-      "addToNewCrateLibrary_other": "Undo (new crate “{{name}}” with {{count}} tracks, {{library, number}} new to your Library)",
+      "addToCrateLibrary_one": "Undo ({{count, number}} track added to “{{name}}”, {{library, number}} new to your Library)",
+      "addToCrateLibrary_other": "Undo ({{count, number}} tracks added to “{{name}}”, {{library, number}} new to your Library)",
+      "addToNewCrate_zero": "Undo (crate “{{name}}” created)",
+      "addToNewCrate_one": "Undo (crate “{{name}}” created, {{count, number}} track added)",
+      "addToNewCrate_other": "Undo (crate “{{name}}” created, {{count, number}} tracks added)",
+      "addToNewCrateLibrary_one": "Undo (crate “{{name}}” created, {{count, number}} track added, {{library, number}} new to your Library)",
+      "addToNewCrateLibrary_other": "Undo (crate “{{name}}” created, {{count, number}} tracks added, {{library, number}} new to your Library)",
       "removeFromCrate_one": "Undo ({{count}} track removed from “{{name}}”)",
       "removeFromCrate_other": "Undo ({{count}} tracks removed from “{{name}}”)",
       "dismissBetterFile": "Undo (better file dismissed)",
@@ -104,7 +104,7 @@
       "file": "Tag in {{file}}",
       "blankInRekordbox": "Blank in rekordbox",
       "other_one": "(1 other value)",
-      "other_other": "({{count}} other values)"
+      "other_other": "({{count, number}} other values)"
     },
     "crates": {
       "title": "In crates",
@@ -115,7 +115,7 @@
     "withdraw": {
       "confirmed": "Confirmed as the file rekordbox has",
       "action": "Withdraw confirmation",
-      "hint": "rekordbox's entry is matched to a file again.",
+      "hint": "rekordbox's entry will be matched to a file again",
       "done": "Confirmation withdrawn"
     },
     "energy": {

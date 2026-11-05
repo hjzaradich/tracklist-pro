@@ -36,19 +36,23 @@
   },
   "folder.empty": {
     "purpose": "Says the chosen folder holds nothing yet.",
-    "where": "Crates screen, right side, in place of the track list."
+    "where": "Crates screen, right side, in place of the track list.",
+    "approved": "This folder is empty"
   },
   "folder.select": {
     "purpose": "Tells the user a folder shows no tracks itself; its crates do.",
-    "where": "Crates screen, right side, for a chosen folder that holds something."
+    "where": "Crates screen, right side, for a chosen folder that holds something.",
+    "approved": "Select a crate in this folder to see its tracks"
   },
   "path.label": {
     "purpose": "Names the line that gives the crate's place in rekordbox for screen readers.",
-    "where": "Crates screen, header of the chosen crate or folder (not shown)."
+    "where": "Crates screen, header of the chosen crate or folder (not shown).",
+    "approved": "Where rekordbox shows it"
   },
   "path.root": {
     "purpose": "The top folder every crate and folder is sent under in rekordbox.",
-    "where": "Crates screen, first part of the path under the chosen crate's name."
+    "where": "Crates screen, first part of the path under the chosen crate's name.",
+    "approved": "Crates"
   },
   "new.button": {
     "purpose": "Starts making a crate.",
@@ -72,35 +76,43 @@
   },
   "newFolder.button": {
     "purpose": "Starts making a folder for crates.",
-    "where": "Crates screen, above the crate list."
+    "where": "Crates screen, above the crate list.",
+    "approved": "Create folder"
   },
   "newFolder.label": {
     "purpose": "Names the field for the new folder's name.",
-    "where": "Crates screen, the new-folder form."
+    "where": "Crates screen, the new-folder form.",
+    "approved": "Folder name"
   },
   "newFolder.confirm": {
     "purpose": "Makes the folder with the typed name.",
-    "where": "Crates screen, the new-folder form."
+    "where": "Crates screen, the new-folder form.",
+    "approved": "Create"
   },
   "newFolder.cancel": {
     "purpose": "Closes the new-folder form without making a folder.",
-    "where": "Crates screen, the new-folder form."
+    "where": "Crates screen, the new-folder form.",
+    "approved": "Go back"
   },
   "newInside.button": {
     "purpose": "Starts making a crate inside the chosen folder.",
-    "where": "Crates screen, header of the chosen folder."
+    "where": "Crates screen, header of the chosen folder.",
+    "approved": "Create crate inside"
   },
   "newInside.label": {
     "purpose": "Names the field for the new crate's name and says which folder it goes in.",
-    "where": "Crates screen, the new-crate form opened from a folder."
+    "where": "Crates screen, the new-crate form opened from a folder.",
+    "approved": "Crate name (inside “{{name}}”)"
   },
   "newFolderInside.button": {
     "purpose": "Starts making a folder inside the chosen folder.",
-    "where": "Crates screen, header of the chosen folder."
+    "where": "Crates screen, header of the chosen folder.",
+    "approved": "Create folder inside"
   },
   "newFolderInside.label": {
     "purpose": "Names the field for the new folder's name and says which folder it goes in.",
-    "where": "Crates screen, the new-folder form opened from a folder."
+    "where": "Crates screen, the new-folder form opened from a folder.",
+    "approved": "Folder name (inside “{{name}}”)"
   },
   "rename.button": {
     "purpose": "Starts renaming the chosen crate.",
@@ -124,23 +136,28 @@
   },
   "move.button": {
     "purpose": "Starts moving the chosen crate or folder into another folder or to the top.",
-    "where": "Crates screen, header of the chosen crate or folder."
+    "where": "Crates screen, header of the chosen crate or folder.",
+    "approved": "Move to folder"
   },
   "move.label": {
     "purpose": "Names the choice of where the crate or folder goes.",
-    "where": "Crates screen, the move form."
+    "where": "Crates screen, the move form.",
+    "approved": "Move “{{name}}” to"
   },
   "move.top": {
     "purpose": "Choice that puts the crate or folder at the top of the tree, outside any folder.",
-    "where": "Crates screen, the move form."
+    "where": "Crates screen, the move form.",
+    "approved": "Top level"
   },
   "move.confirm": {
     "purpose": "Moves the crate or folder to the chosen place.",
-    "where": "Crates screen, the move form."
+    "where": "Crates screen, the move form.",
+    "approved": "Move"
   },
   "move.cancel": {
     "purpose": "Closes the move form without moving anything.",
-    "where": "Crates screen, the move form."
+    "where": "Crates screen, the move form.",
+    "approved": "Go back"
   },
   "delete.button": {
     "purpose": "Starts deleting the chosen crate.",
@@ -159,43 +176,53 @@
   },
   "delete.folderTitle": {
     "purpose": "Asks whether to delete the chosen folder and everything in it.",
-    "where": "Crates screen, delete confirmation for a folder."
+    "where": "Crates screen, delete confirmation for a folder.",
+    "approved": "Delete the folder “{{name}}”?"
   },
   "delete.counting": {
     "purpose": "Says the confirmation is still counting what the folder holds.",
-    "where": "Crates screen, delete confirmation for a folder, for a moment."
+    "where": "Crates screen, delete confirmation for a folder, for a moment.",
+    "approved": "Counting what is in it…"
   },
   "delete.holds": {
     "purpose": "Introduces what else goes with the folder.",
-    "where": "Crates screen, delete confirmation for a folder that holds something."
+    "where": "Crates screen, delete confirmation for a folder that holds something.",
+    "approved": "This also deletes:"
   },
   "delete.holdsNothing": {
     "purpose": "Says the folder holds no crates or folders.",
-    "where": "Crates screen, delete confirmation for an empty folder."
+    "where": "Crates screen, delete confirmation for an empty folder.",
+    "approved": "The folder is empty"
   },
   "delete.crates_one": {
     "purpose": "Says how many crates go with the folder.",
-    "where": "Crates screen, delete confirmation for a folder, in the list."
+    "where": "Crates screen, delete confirmation for a folder, in the list.",
+    "approved": "{{count, number}} crate"
   },
   "delete.crates_other": {
     "purpose": "Says how many crates go with the folder.",
-    "where": "Crates screen, delete confirmation for a folder, in the list."
+    "where": "Crates screen, delete confirmation for a folder, in the list.",
+    "approved": "{{count, number}} crates"
   },
   "delete.folders_one": {
     "purpose": "Says how many folders inside it go with the folder.",
-    "where": "Crates screen, delete confirmation for a folder, in the list."
+    "where": "Crates screen, delete confirmation for a folder, in the list.",
+    "approved": "{{count, number}} folder"
   },
   "delete.folders_other": {
     "purpose": "Says how many folders inside it go with the folder.",
-    "where": "Crates screen, delete confirmation for a folder, in the list."
+    "where": "Crates screen, delete confirmation for a folder, in the list.",
+    "approved": "{{count, number}} folders"
   },
   "delete.tracks_one": {
     "purpose": "Says how many different tracks those crates hold, and that the track is not deleted.",
-    "where": "Crates screen, delete confirmation for a folder, in the list."
+    "where": "Crates screen, delete confirmation for a folder, in the list.",
+    "approved": "{{count, number}} track in those crates (it stays in your Library)"
   },
   "delete.tracks_other": {
     "purpose": "Says how many different tracks those crates hold, and that the tracks are not deleted.",
-    "where": "Crates screen, delete confirmation for a folder, in the list."
+    "where": "Crates screen, delete confirmation for a folder, in the list.",
+    "approved": "{{count, number}} tracks in those crates (they stay in your Library)"
   },
   "delete.confirm": {
     "purpose": "Deletes the crate.",
@@ -244,67 +271,83 @@
   },
   "addDialog.title": {
     "purpose": "Names the dialog that adds the selected tracks to a crate.",
-    "where": "Dialog opened by the C key or the command palette over a track table, heading."
+    "where": "Dialog opened by the C key or the command palette over a track table, heading.",
+    "approved": "Add to crate or playlist"
   },
   "addDialog.search": {
     "purpose": "Names the box that finds crates, and says what it is for.",
-    "where": "Add to crate or playlist dialog, the text box (label and placeholder)."
+    "where": "Add to crate or playlist dialog, the text box (label and placeholder).",
+    "approved": "Search crates"
   },
   "addDialog.create": {
     "purpose": "Offers to make a new crate from the typed name and add the tracks to it; {{name}} is what was typed.",
-    "where": "Add to crate or playlist dialog, last row of the list while something is typed."
+    "where": "Add to crate or playlist dialog, last row of the list while something is typed.",
+    "approved": "Create crate “{{name}}”"
   },
   "addDialog.none": {
     "purpose": "Says no crate matches what was typed.",
-    "where": "Add to crate or playlist dialog, under the box when the list is empty."
+    "where": "Add to crate or playlist dialog, under the box when the list is empty.",
+    "approved": "No crates match"
   },
   "addDialog.cancel": {
     "purpose": "Closes the dialog without adding.",
-    "where": "Add to crate or playlist dialog, the quiet button at the bottom."
+    "where": "Add to crate or playlist dialog, the quiet button at the bottom.",
+    "approved": "Go back"
   },
   "addSelection.newCrateEmpty": {
     "purpose": "Says the crate asked for in the add dialog was created but no track was added to it, because none could be. The reasons follow in parentheses.",
-    "where": "Above the track table, after tracks were added to a new crate from the dialog and every one was left out."
+    "where": "Above the track table, after tracks were added to a new crate from the dialog and every one was left out.",
+    "approved": "Crate “{{crate}}” created, nothing added"
   },
   "addSelection.added_zero": {
     "purpose": "Says nothing was added to the crate, because every track was in it already or was left out. The reasons follow in parentheses.",
-    "where": "Above the track table, after tracks were dropped on a crate or added with the C key."
+    "where": "Above the track table, after tracks were dropped on a crate or added with the C key.",
+    "approved": "Nothing added to {{crate}}"
   },
   "addSelection.added_one": {
     "purpose": "Says one track was added to the crate.",
-    "where": "Above the track table, after tracks were dropped on a crate or added with the C key."
+    "where": "Above the track table, after tracks were dropped on a crate or added with the C key.",
+    "approved": "Added {{count, number}} track to {{crate}}"
   },
   "addSelection.added_other": {
     "purpose": "Says how many tracks were added to the crate.",
-    "where": "Above the track table, after tracks were dropped on a crate or added with the C key."
+    "where": "Above the track table, after tracks were dropped on a crate or added with the C key.",
+    "approved": "Added {{count, number}} tracks to {{crate}}"
   },
   "addSelection.alreadyThere": {
     "purpose": "Says how many of the tracks were in the crate already, so were not added again.",
-    "where": "Above the track table, in parentheses after the number added."
+    "where": "Above the track table, in parentheses after the number added.",
+    "approved": "({{count, number}} already in it)"
   },
   "addSelection.alsoInLibrary": {
     "purpose": "Says how many of the tracks added to the crate were not in the Library and were added to it too, in the same step.",
-    "where": "Above the track table, in parentheses after the number added."
+    "where": "Above the track table, in parentheses after the number added.",
+    "approved": "({{count, number}} also added to your Library)"
   },
   "addSelection.leftOut.noFile": {
     "purpose": "Says how many tracks outside the Library were left out of the add because they have no file (the reason Add to Library refuses them).",
-    "where": "Above the track table, in parentheses after the number added."
+    "where": "Above the track table, in parentheses after the number added.",
+    "approved": "({{count, number}} left out: no file)"
   },
   "addSelection.leftOut.fileMissing": {
     "purpose": "Says how many tracks outside the Library were left out of the add because their file is missing from disk.",
-    "where": "Above the track table, in parentheses after the number added."
+    "where": "Above the track table, in parentheses after the number added.",
+    "approved": "({{count, number}} left out: file missing)"
   },
   "addSelection.leftOut.matchNotConfirmed": {
     "purpose": "Says how many tracks outside the Library were left out of the add because their only rekordbox match is uncertain. Same words as the row in All music.",
-    "where": "Above the track table, in parentheses after the number added."
+    "where": "Above the track table, in parentheses after the number added.",
+    "approved": "({{count, number}} left out: rekordbox match uncertain)"
   },
   "addSelection.leftOut.lowBitrate": {
     "purpose": "Says how many tracks outside the Library were left out of the add because their file has a low bitrate, which Add to Library asks about first.",
-    "where": "Above the track table, in parentheses after the number added."
+    "where": "Above the track table, in parentheses after the number added.",
+    "approved": "({{count, number}} left out: low bitrate)"
   },
   "addSelection.folder": {
     "purpose": "Refuses a drop on a folder and says why.",
-    "where": "Above the track table, after tracks were dropped on a folder in the sidebar."
+    "where": "Above the track table, after tracks were dropped on a folder in the sidebar.",
+    "approved": "Can't add to a folder: it holds crates, not tracks"
   },
   "done.created": {
     "purpose": "Says the crate was made.",
@@ -323,19 +366,23 @@
   },
   "done.createdFolder": {
     "purpose": "Says the folder was made.",
-    "where": "Crates screen, status strip."
+    "where": "Crates screen, status strip.",
+    "approved": "Folder created"
   },
   "done.renamedFolder": {
     "purpose": "Says the folder was renamed.",
-    "where": "Crates screen, status strip."
+    "where": "Crates screen, status strip.",
+    "approved": "Folder renamed"
   },
   "done.deletedFolder": {
     "purpose": "Says the folder and what was in it were deleted.",
-    "where": "Crates screen, status strip."
+    "where": "Crates screen, status strip.",
+    "approved": "Folder deleted"
   },
   "done.moved": {
     "purpose": "Says the crate or folder was moved.",
-    "where": "Crates screen, status strip."
+    "where": "Crates screen, status strip.",
+    "approved": "Moved"
   },
   "done.removed": {
     "purpose": "Says the track was taken out of the crate.",
@@ -364,90 +411,112 @@
   },
   "error.notAFolder": {
     "purpose": "Says the place chosen for a crate or folder is a crate, not a folder.",
-    "where": "Crates screen, new-crate, new-folder and move forms."
+    "where": "Crates screen, new-crate, new-folder and move forms.",
+    "approved": "That isn't a folder"
   },
   "error.moveIntoItself": {
     "purpose": "Says why a folder can't be moved there.",
-    "where": "Crates screen, move form."
+    "where": "Crates screen, move form.",
+    "approved": "A folder can't go inside itself or one of its own folders"
   },
   "error.tooDeep": {
     "purpose": "Says the folders would be nested deeper than a send to rekordbox can write.",
-    "where": "Crates screen, new-folder and move forms."
+    "where": "Crates screen, new-folder and move forms.",
+    "approved": "Folders can't be nested this deep"
   },
   "error.folderNotFound": {
     "purpose": "Says the folder doesn't exist.",
-    "where": "Any folder action on a folder that is gone."
+    "where": "Any folder action on a folder that is gone.",
+    "approved": "Folder not found"
   },
   "error.folderNameEmpty": {
     "purpose": "Says the folder's name was empty.",
-    "where": "Crates screen, new-folder and rename forms, for a folder."
+    "where": "Crates screen, new-folder and rename forms, for a folder.",
+    "approved": "Folder needs a name"
   },
   "error.folderNameTaken": {
     "purpose": "Says another crate or folder in the same folder already has the name.",
-    "where": "Crates screen, new-folder, rename and move forms, for a folder."
+    "where": "Crates screen, new-folder, rename and move forms, for a folder.",
+    "approved": "Folder name already used (“{{name}}”)"
   },
   "notes.label": {
     "purpose": "Names the note's box for screen readers.",
-    "where": "Crates screen, under a crate's name, while the note is being edited (not shown)."
+    "where": "Crates screen, under a crate's name, while the note is being edited (not shown).",
+    "approved": "Note"
   },
   "notes.add": {
     "purpose": "Stands where a crate's note would be, when it has none; click it to write one.",
-    "where": "Crates screen, under a crate's name."
+    "where": "Crates screen, under a crate's name.",
+    "approved": "Add a note"
   },
   "notes.edit": {
     "purpose": "Hover text of the note, saying a click edits it.",
-    "where": "Crates screen, under a crate's name (hover)."
+    "where": "Crates screen, under a crate's name (hover).",
+    "approved": "Edit note"
   },
   "summary.separator": {
     "purpose": "Goes between the parts of a crate's summary line.",
-    "where": "Crates screen, the line under a crate's path."
+    "where": "Crates screen, the line under a crate's path.",
+    "approved": " · "
   },
   "summary.empty": {
     "purpose": "Says a crate has no tracks, so there is nothing to sum up.",
-    "where": "Crates screen, the summary line of a crate with no tracks."
+    "where": "Crates screen, the summary line of a crate with no tracks.",
+    "approved": "No tracks to sum up"
   },
   "summary.nothing": {
     "purpose": "Says a crate has tracks but none has a BPM, energy, key or genre.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "No BPM, energy, key or genre on these tracks"
   },
   "summary.bpm": {
     "purpose": "The slowest and fastest BPM in a crate.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "BPM {{min}} to {{max}}"
   },
   "summary.bpmOne": {
     "purpose": "The one BPM every track with a BPM in a crate has.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "BPM {{bpm}}"
   },
   "summary.energy": {
     "purpose": "The lowest and highest energy in a crate.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "energy {{min}} to {{max}}"
   },
   "summary.energyOne": {
     "purpose": "The one energy every track with an energy in a crate has.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "energy {{energy}}"
   },
   "summary.keys_one": {
     "purpose": "The key of a crate's tracks, when there is one.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "key {{keys}}"
   },
   "summary.keys_other": {
     "purpose": "The keys of a crate's tracks in Camelot order, written in the user's notation.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "keys {{keys}}"
   },
   "summary.keysMore": {
     "purpose": "The first five keys of a crate's tracks and how many more there are.",
-    "where": "Crates screen, the summary line."
+    "where": "Crates screen, the summary line.",
+    "approved": "keys {{keys}} +{{more}}"
   },
   "done.notesSaved": {
     "purpose": "Says a crate's note was saved.",
-    "where": "Crates screen, the line above the crate after saving a note."
+    "where": "Crates screen, the line above the crate after saving a note.",
+    "approved": "Note saved"
   },
   "done.notesCleared": {
     "purpose": "Says a crate's note was cleared.",
-    "where": "Crates screen, the line above the crate after clearing a note."
+    "where": "Crates screen, the line above the crate after clearing a note.",
+    "approved": "Note cleared"
   },
   "error.notesTooLong": {
     "purpose": "Says the note is longer than a note can be.",
-    "where": "Crates screen, above the crate, after saving a long note."
+    "where": "Crates screen, above the crate, after saving a long note.",
+    "approved": "Note is too long. Shorten it and try again."
   }
 }

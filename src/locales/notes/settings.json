@@ -1,70 +1,87 @@
 {
   "title": {
     "purpose": "Heading of the Settings screen.",
-    "where": "Settings screen, page title."
+    "where": "Settings screen, page title.",
+    "approved": "Settings"
   },
   "rekordbox.title": {
     "purpose": "Heading of the panel that holds the settings about rekordbox.",
-    "where": "Settings screen, panel heading."
+    "where": "Settings screen, panel heading.",
+    "approved": "rekordbox"
   },
   "energyStars.label": {
     "purpose": "Label of the switch that sends energy to rekordbox as the star rating. It never changes with the state.",
-    "where": "Settings screen, rekordbox panel, the switch's label."
+    "where": "Settings screen, rekordbox panel, the switch's label.",
+    "approved": "Send energy to rekordbox as Rating"
   },
   "energyStars.helpOff": {
     "purpose": "Help under the switch while it is off: how energy maps to stars, and that energy stays in the app.",
-    "where": "Settings screen, rekordbox panel, under the switch while off."
+    "where": "Settings screen, rekordbox panel, under the switch while off.",
+    "approved": "Each send will set Rating in rekordbox from your tracks' energy (1 and 2 are one star, up to 9 and 10 for five)"
   },
   "energyStars.helpOn": {
     "purpose": "Help under the switch while it is on: each send sets the stars from energy; tracks with no energy keep theirs.",
-    "where": "Settings screen, rekordbox panel, under the switch while on."
+    "where": "Settings screen, rekordbox panel, under the switch while on.",
+    "approved": "Each send sets Rating in rekordbox from your tracks' energy (1 and 2 are one star, up to 9 and 10 for five). Tracks with no energy keep their stars."
   },
   "energyStars.offNote": {
     "purpose": "Says what turning the switch off leaves behind: stars stay as last sent and rekordbox's rating counts again.",
-    "where": "Settings screen, rekordbox panel, under the help, right after the switch is turned off (until the user leaves the screen)."
+    "where": "Settings screen, rekordbox panel, under the help, right after the switch is turned off (until the user leaves the screen).",
+    "approved": "Stars in rekordbox stay as last sent. Your Library's rating follows rekordbox again."
   },
   "energyStars.counting": {
     "purpose": "Says the tracks are being counted before the confirm opens.",
-    "where": "Settings screen, rekordbox panel, under the switch, while counting."
+    "where": "Settings screen, rekordbox panel, under the switch, while counting.",
+    "approved": "Counting tracks"
   },
   "energyStars.confirmTitle": {
     "purpose": "Title of the confirm that opens when the switch is turned on. A question whose verb the filled button restates.",
-    "where": "Settings screen, rekordbox panel, confirm under the switch (title)."
+    "where": "Settings screen, rekordbox panel, confirm under the switch (title).",
+    "approved": "Send energy to rekordbox as Rating?"
   },
   "energyStars.changes_zero": {
     "purpose": "Says no track's stars in rekordbox would change; {{when}} is the date and time of the export read it counts from.",
-    "where": "Settings screen, rekordbox panel, confirm, count line (none)."
+    "where": "Settings screen, rekordbox panel, confirm, count line (none).",
+    "approved": "No stars in rekordbox would change (export read {{when}})"
   },
   "energyStars.changes_one": {
     "purpose": "Says one track's stars in rekordbox would change; {{when}} is the date and time of the export read it counts from.",
-    "where": "Settings screen, rekordbox panel, confirm, count line (one)."
+    "where": "Settings screen, rekordbox panel, confirm, count line (one).",
+    "approved": "{{count, number}} track's stars in rekordbox would change (export read {{when}})"
   },
   "energyStars.changes_other": {
     "purpose": "Says how many tracks' stars in rekordbox would change; {{when}} is the date and time of the export read it counts from.",
-    "where": "Settings screen, rekordbox panel, confirm, count line (several)."
+    "where": "Settings screen, rekordbox panel, confirm, count line (several).",
+    "approved": "{{count, number}} tracks' stars in rekordbox would change (export read {{when}})"
   },
   "energyStars.noRead": {
     "purpose": "Says there is nothing to count because rekordbox's export has never been read, and that the send review shows the number before anything is written.",
-    "where": "Settings screen, rekordbox panel, confirm, in place of the count line."
+    "where": "Settings screen, rekordbox panel, confirm, in place of the count line.",
+    "approved": "Can't count yet (no rekordbox export read). The send checklist shows the number before anything is written."
   },
   "energyStars.confirmDetail": {
     "purpose": "Says tracks with no energy keep their stars, and that a star rating changed in rekordbox later waits in Review as a conflict.",
-    "where": "Settings screen, rekordbox panel, confirm, body under the count line."
+    "where": "Settings screen, rekordbox panel, confirm, body under the count line.",
+    "approved": "Tracks with no energy keep their stars. If you change a Rating in rekordbox later, you'll choose which to keep in Review under Conflicts. Turning this off later stops the sending, but stars already sent stay in rekordbox."
   },
   "energyStars.confirm": {
     "purpose": "The confirm's filled button; restates the verb of the question.",
-    "where": "Settings screen, rekordbox panel, confirm, button."
+    "where": "Settings screen, rekordbox panel, confirm, button.",
+    "approved": "Turn on"
   },
   "energyStars.back": {
     "purpose": "The confirm's other button; leaves the switch off.",
-    "where": "Settings screen, rekordbox panel, confirm, button."
+    "where": "Settings screen, rekordbox panel, confirm, button.",
+    "approved": "Go back"
   },
   "energyStars.error": {
     "purpose": "Says the setting could not be saved and the switch is as it was.",
-    "where": "Settings screen, rekordbox panel, error line under the switch (alert)."
+    "where": "Settings screen, rekordbox panel, error line under the switch (alert).",
+    "approved": "Couldn't save the setting. Try again."
   },
   "energyStars.countError": {
     "purpose": "Says the tracks could not be counted, so the confirm did not open and the switch is as it was.",
-    "where": "Settings screen, rekordbox panel, error line under the switch (alert), after turning it on."
+    "where": "Settings screen, rekordbox panel, error line under the switch (alert), after turning it on.",
+    "approved": "Couldn't count the tracks. Try again."
   }
 }

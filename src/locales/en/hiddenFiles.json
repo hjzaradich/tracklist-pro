@@ -24,6 +24,6 @@
   "showThem": "Show them",
   "error": {
     "inLibrary": "Can't use this file: the track is in your Library",
-    "changed": "Can't use this file: it is no longer an extra copy on disk"
+    "changed": "Can't use this file: it's no longer an extra copy on disk"
   }
 }

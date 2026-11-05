@@ -11,11 +11,13 @@
   },
   "trackCount_one": {
     "purpose": "How many tracks All music lists, when it lists one. Same wording as the Library's count (library:trackCount_one).",
-    "where": "All music screen, above the track table."
+    "where": "All music screen, above the track table.",
+    "approved": "{{count, number}} track"
   },
   "trackCount_other": {
     "purpose": "How many tracks All music lists (all of them, or those the search and the filters leave). Same wording as the Library's count (library:trackCount_other).",
-    "where": "All music screen, above the track table."
+    "where": "All music screen, above the track table.",
+    "approved": "{{count, number}} tracks"
   },
   "add": {
     "purpose": "Button that adds a track to the Library.",

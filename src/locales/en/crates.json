@@ -61,8 +61,8 @@
     "crates_other": "{{count, number}} crates",
     "folders_one": "{{count, number}} folder",
     "folders_other": "{{count, number}} folders",
-    "tracks_one": "{{count, number}} different track in those crates (it stays in the Library)",
-    "tracks_other": "{{count, number}} different tracks in those crates (they stay in the Library)",
+    "tracks_one": "{{count, number}} track in those crates (it stays in your Library)",
+    "tracks_other": "{{count, number}} tracks in those crates (they stay in your Library)",
     "confirm": "Delete",
     "cancel": "Go back"
   },
