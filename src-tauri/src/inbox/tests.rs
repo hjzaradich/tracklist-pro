@@ -3,19 +3,19 @@
 //! the walk's own writes. Files are synthetic: rows, no audio on disk.
 
 use super::intake::{baseline, run};
-use super::{count, items, BatchKind, InboxCount, InboxFilter, ItemStatus};
+use super::{count, items, BatchKind, InboxFilter, ItemStatus};
 use crate::db::Writer;
 use crate::paths::RelPath;
 use crate::scan::folders::{remove, MusicFolderId};
 use crate::scan::walk::{finish, upsert_with, Found, Unread};
 
-const START: &str = "2026-01-01T00:00:00.000Z";
-const INBOX: MusicFolderId = MusicFolderId(1);
+pub(super) const START: &str = "2026-01-01T00:00:00.000Z";
+pub(super) const INBOX: MusicFolderId = MusicFolderId(1);
 const MUSIC: MusicFolderId = MusicFolderId(2);
 
 /// An Inbox folder (id 1) and a scan folder (id 2) on one volume, never
 /// walked.
-fn library() -> (tempfile::TempDir, Writer) {
+pub(super) fn library() -> (tempfile::TempDir, Writer) {
     let dir = tempfile::tempdir().unwrap();
     let writer = Writer::open(&crate::write_guard::test_path(
         dir.path(),
@@ -36,7 +36,7 @@ fn library() -> (tempfile::TempDir, Writer) {
     (dir, writer)
 }
 
-fn found(rel: &str, size: i64) -> Found {
+pub(super) fn found(rel: &str, size: i64) -> Found {
     Found {
         rel: RelPath::parse(rel).unwrap(),
         size,
@@ -47,7 +47,7 @@ fn found(rel: &str, size: i64) -> Found {
 }
 
 /// A walk of `folder` that sees `files` and reaches its end.
-fn walk(writer: &Writer, folder: MusicFolderId, files: Vec<Found>) {
+pub(super) fn walk(writer: &Writer, folder: MusicFolderId, files: Vec<Found>) {
     writer
         .call(move |c| {
             upsert_with(c, folder, &files, START, &[])?;
@@ -57,7 +57,7 @@ fn walk(writer: &Writer, folder: MusicFolderId, files: Vec<Found>) {
 }
 
 /// The hash stage has opened `rel` and found it as the walk stored it.
-fn hashed(writer: &Writer, rel: &str) {
+pub(super) fn hashed(writer: &Writer, rel: &str) {
     let rel = rel.to_owned();
     writer
         .call(move |c| {
@@ -70,11 +70,17 @@ fn hashed(writer: &Writer, rel: &str) {
         .unwrap();
 }
 
-fn intake(writer: &Writer) -> usize {
+/// The badge: `new` and `already_there`.
+fn counts(writer: &Writer) -> (i64, i64) {
+    let c = writer.call(|c| count(c)).unwrap();
+    (c.new, c.already_there)
+}
+
+pub(super) fn intake(writer: &Writer) -> usize {
     writer.call(run).unwrap()
 }
 
-fn all(writer: &Writer) -> Vec<super::InboxItem> {
+pub(super) fn all(writer: &Writer) -> Vec<super::InboxItem> {
     let every = InboxFilter {
         include_already_there: true,
         ..Default::default()
@@ -119,13 +125,7 @@ fn the_first_walk_of_a_new_inbox_folder_puts_what_is_there_in_one_already_there_
         .call(|c| items(c, &InboxFilter::default()))
         .unwrap()
         .is_empty());
-    assert_eq!(
-        writer.call(|c| count(c)).unwrap(),
-        InboxCount {
-            new: 0,
-            already_there: 3
-        }
-    );
+    assert_eq!(counts(&writer), (0, 3));
     let hidden: i64 = writer
         .call(|c| {
             c.query_row(
@@ -173,13 +173,7 @@ fn a_later_file_becomes_an_item_in_a_loose_batch_once_it_holds_still() {
     assert_eq!(fresh[0].batch_kind, BatchKind::Loose);
     assert_eq!(fresh[0].status, ItemStatus::New);
     assert!(fresh[0].present && !fresh[0].online_only);
-    assert_eq!(
-        writer.call(|c| count(c)).unwrap(),
-        InboxCount {
-            new: 1,
-            already_there: 1
-        }
-    );
+    assert_eq!(counts(&writer), (1, 1));
     // Once an item, always the same one.
     assert_eq!(intake(&writer), 0);
 }
@@ -368,13 +362,7 @@ fn a_walk_that_skipped_a_folder_takes_no_baseline_and_the_next_complete_one_does
     assert!(there
         .iter()
         .all(|i| i.batch_kind == BatchKind::AlreadyThere));
-    assert_eq!(
-        writer.call(|c| count(c)).unwrap(),
-        InboxCount {
-            new: 0,
-            already_there: 2
-        }
-    );
+    assert_eq!(counts(&writer), (0, 2));
 }
 
 #[test]

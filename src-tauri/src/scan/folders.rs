@@ -466,7 +466,14 @@ pub fn remove(
     crate::grouping::release_folder_files(&tx, id.0)?;
     let deleted = tx
         .execute("DELETE FROM file WHERE music_folder_id = ?1", [id.0])
-        .and_then(|_| tx.execute("DELETE FROM music_folder WHERE id = ?1", [id.0]));
+        .and_then(|_| tx.execute("DELETE FROM music_folder WHERE id = ?1", [id.0]))
+        // The Inbox's count of incomplete walks goes with the folder.
+        .and_then(|_| {
+            tx.execute(
+                "DELETE FROM setting WHERE key = ?1",
+                [format!("inbox.incompleteWalks.{}", id.0)],
+            )
+        });
     match deleted {
         Ok(_) => {
             tx.commit()?;

@@ -5,7 +5,9 @@
 //!   walk of a new Inbox folder puts what is already there into one
 //!   `already_there` batch ([`baseline`]), and online-only files get their
 //!   items ([`online_only`]). A walk that skipped an unreadable folder takes
-//!   no baseline; the next complete one does.
+//!   no baseline; the next complete one does, or the third incomplete one in
+//!   a row ([`INCOMPLETE_WALKS`]), so a folder with a permanently unreadable
+//!   corner is not left without one for ever.
 //! - [`after_hash`] wraps the hash job: when it ends, [`run`] makes items
 //!   for the files that have held still since.
 //!
@@ -33,7 +35,7 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::jobs::{JobContext, JobError, JobHandler};
 use crate::scan::MusicFolderId;
@@ -50,13 +52,21 @@ pub(crate) fn after_walk(conn: &mut Connection, folder: MusicFolderId, complete:
     }
 }
 
+/// How many walks in a row may fail to list everything before the baseline
+/// is taken anyway. A folder with a subfolder that is never readable, or a
+/// name that can't be stored, would otherwise never get one and never make
+/// an item.
+pub const INCOMPLETE_WALKS: i64 = 3;
+
 /// Takes the baseline of an Inbox folder: puts the files already there into
 /// one `already_there` batch, on its first complete walk. A walk that could
 /// not list everything takes none, so what it missed is in the baseline of
-/// a later walk and does not count as an arrival then. The batch (empty, if
-/// the folder had no files) is the record that the baseline is taken. A
-/// folder that isn't an Inbox folder, or has its baseline, does nothing.
-/// Returns how many items it made.
+/// a later walk and does not count as an arrival then; but the
+/// [`INCOMPLETE_WALKS`]th incomplete walk in a row takes it anyway (what is
+/// there is not news; what the walks never see stays unseen). The batch
+/// (empty, if the folder had no files) is the record that the baseline is
+/// taken. A folder that isn't an Inbox folder, or has its baseline, does
+/// nothing. Returns how many items it made.
 pub(crate) fn baseline(
     conn: &mut Connection,
     folder: MusicFolderId,
@@ -68,9 +78,17 @@ pub(crate) fn baseline(
         [folder.0],
         |r| r.get(0),
     )?;
-    if !inbox || !complete || taken(&tx, folder.0)? {
+    if !inbox || taken(&tx, folder.0)? {
         return Ok(0);
     }
+    if !complete && count_incomplete(&tx, folder.0)? < INCOMPLETE_WALKS {
+        tx.commit()?;
+        return Ok(0);
+    }
+    tx.execute(
+        "DELETE FROM setting WHERE key = ?1",
+        [incomplete_key(folder.0)],
+    )?;
     tx.execute(
         "INSERT INTO inbox_batch (music_folder_id, kind) VALUES (?1, 'already_there')",
         [folder.0],
@@ -87,8 +105,38 @@ pub(crate) fn baseline(
     Ok(made)
 }
 
+fn incomplete_key(folder: i64) -> String {
+    format!("inbox.incompleteWalks.{folder}")
+}
+
+/// Counts this incomplete walk of a folder without its baseline, and
+/// returns how many in a row that makes. The count is a `setting` row (app
+/// state, not in the operation log). A row older than the folder is a left-over
+/// of an earlier folder that had the same id, and counts for nothing.
+fn count_incomplete(conn: &Connection, folder: i64) -> rusqlite::Result<i64> {
+    let key = incomplete_key(folder);
+    let before: Option<i64> = conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM setting
+             WHERE key = ?1
+               AND updated_at >= (SELECT added_at FROM music_folder WHERE id = ?2)",
+            (&key, folder),
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let now = before.unwrap_or(0).saturating_add(1);
+    conn.execute(
+        "INSERT INTO setting (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        (key, now.to_string()),
+    )?;
+    Ok(now)
+}
+
 /// Whether the folder has its baseline.
-fn taken(conn: &Connection, folder: i64) -> rusqlite::Result<bool> {
+pub(super) fn taken(conn: &Connection, folder: i64) -> rusqlite::Result<bool> {
     conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM inbox_batch
                         WHERE music_folder_id = ?1 AND kind = 'already_there')",

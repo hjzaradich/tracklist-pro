@@ -1251,6 +1251,10 @@ export type InboxCount = {
 	 *  `new`.
 	 */
 	alreadyThere: number,
+	/**  The arrivals counted in `new`, by label. They add up to `new`. */
+	byLabel: LabelCounts,
+	/**  Every Inbox folder. */
+	folders: InboxFolder[],
 };
 
 /**  Which items [`items`] returns. */
@@ -1267,6 +1271,19 @@ export type InboxFilter = {
 	 *  Left out unless asked for: they aren't arrivals.
 	 */
 	includeAlreadyThere?: boolean,
+	/**  Only items with this label. */
+	label?: Label | null,
+};
+
+/**  An Inbox folder, as far as intake is concerned. */
+export type InboxFolder = {
+	musicFolderId: number,
+	/**
+	 *  Its first look (the baseline: what was there is not news) isn't
+	 *  taken yet, so nothing arrives from it. It waits for a walk that
+	 *  lists everything, or the third that doesn't.
+	 */
+	waitingForFirstLook: boolean,
 };
 
 /**  One file in the Inbox, as the frontend sees it. */
@@ -1293,6 +1310,12 @@ export type InboxItem = {
 	 *  nothing reads it without the user's opt-in.
 	 */
 	onlineOnly: boolean,
+	/**  What the file is to the user, worked out now (see [`labels`]). */
+	label: Label,
+	/**  Why, as an i18n key with parameters. */
+	reason: Reason,
+	/**  The Library track the label is about, if it is about one. */
+	libraryTrackId: number | null,
 };
 
 /**
@@ -1440,6 +1463,31 @@ export type KeyNotation =
 "musical_sharps" | 
 /**  Every black key as a flat: `Db`, `Ebm`, `Bb`. */
 "musical_flats";
+
+/**  What an Inbox file is to the user. */
+export type Label = 
+/**  Not through fingerprint, matching and deciding yet. */
+"checking" | 
+/**  Its track isn't in the Library, and no version link leads to one. */
+"new_to_you" | 
+/**  Its track is in the Library, and this file adds nothing. */
+"already_have" | 
+/**  Its track is in the Library, and this file ranks above the linked one. */
+"better_file" | 
+/**  Another cut of a track in the Library (Radio Edit of your Extended). */
+"other_cut" | 
+/**  A rework of a track in the Library. */
+"rework";
+
+/**  How many of the `new` arrivals have each label. */
+export type LabelCounts = {
+	checking: number,
+	newToYou: number,
+	alreadyHave: number,
+	betterFile: number,
+	otherCut: number,
+	rework: number,
+};
 
 /**  The last export read into the snapshot. */
 export type LastRead = {
