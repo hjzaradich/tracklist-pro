@@ -151,7 +151,7 @@ fn the_baseline_is_made_once_a_later_walk_of_the_folder_adds_no_already_there_ba
         .unwrap();
     assert_eq!(batches, 1);
     // Called again by hand, it still makes nothing.
-    assert_eq!(writer.call(|c| baseline(c, INBOX)).unwrap(), 0);
+    assert_eq!(writer.call(|c| baseline(c, INBOX, true)).unwrap(), 0);
 }
 
 #[test]
@@ -304,9 +304,10 @@ fn an_online_only_file_gets_an_item_without_anything_reading_its_content() {
     let mut placeholder = found("cloud.mp3", 5);
     placeholder.online_only = true;
     walk(&writer, INBOX, vec![placeholder]);
-    // Intake takes a connection and nothing else: it can't open a file.
-    // No stage has touched the file either.
-    assert_eq!(intake(&writer), 1);
+    // The walk alone gave it an item: no hash job runs for a placeholder.
+    // Intake takes a connection and nothing else, so it can't open a file,
+    // and no stage has touched this one either.
+    assert_eq!(intake(&writer), 0, "made by the walk already");
     let stages: i64 = writer
         .call(|c| c.query_row("SELECT count(*) FROM file_stage", [], |r| r.get(0)))
         .unwrap();
@@ -331,4 +332,78 @@ fn a_file_gone_from_disk_keeps_its_item_but_leaves_the_badge() {
     let fresh = writer.call(|c| items(c, &InboxFilter::default())).unwrap();
     assert_eq!(fresh.len(), 1);
     assert!(!fresh[0].present);
+}
+
+/// A walk that could not list everything (an unreadable folder).
+fn walk_missing_a_folder(writer: &Writer, folder: MusicFolderId, files: Vec<Found>) {
+    writer
+        .call(move |c| {
+            upsert_with(c, folder, &files, START, &[])?;
+            let unread = Unread {
+                folders: 1,
+                ..Default::default()
+            };
+            finish(c, folder, &unread, START).map(|_| ())
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_walk_that_skipped_a_folder_takes_no_baseline_and_the_next_complete_one_does() {
+    let (_dir, writer) = library();
+    walk_missing_a_folder(&writer, INBOX, vec![found("a.mp3", 1)]);
+    assert!(all(&writer).is_empty());
+    // Held still, but with no baseline nothing is an arrival yet.
+    hashed(&writer, "a.mp3");
+    assert_eq!(intake(&writer), 0);
+
+    // The folder is readable now: what was in it was always there.
+    walk(
+        &writer,
+        INBOX,
+        vec![found("a.mp3", 1), found("Locked/b.mp3", 2)],
+    );
+    let there = all(&writer);
+    assert_eq!(there.len(), 2);
+    assert!(there
+        .iter()
+        .all(|i| i.batch_kind == BatchKind::AlreadyThere));
+    assert_eq!(
+        writer.call(|c| count(c)).unwrap(),
+        InboxCount {
+            new: 0,
+            already_there: 2
+        }
+    );
+}
+
+#[test]
+fn a_baseline_that_fails_leaves_the_walk_recorded_and_is_taken_by_the_next_walk() {
+    let (_dir, writer) = library();
+    writer
+        .call(|c| {
+            c.execute_batch(
+                "CREATE TRIGGER no_batches BEFORE INSERT ON inbox_batch
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+            )
+        })
+        .unwrap();
+    walk(&writer, INBOX, vec![found("a.mp3", 1)]);
+    let walked: bool = writer
+        .call(|c| {
+            c.query_row(
+                "SELECT walked_at IS NOT NULL FROM music_folder WHERE id = 1",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert!(walked, "the walk's own record stands");
+    assert!(all(&writer).is_empty());
+
+    writer
+        .call(|c| c.execute_batch("DROP TRIGGER no_batches"))
+        .unwrap();
+    walk(&writer, INBOX, vec![found("a.mp3", 1)]);
+    assert_eq!(all(&writer).len(), 1);
 }

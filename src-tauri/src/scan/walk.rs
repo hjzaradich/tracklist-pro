@@ -442,8 +442,6 @@ pub(crate) fn finish(
             missing += mark.execute([id])?;
         }
     }
-    // The first walk of an Inbox folder: what is there is not news.
-    crate::inbox::intake::baseline(&tx, folder)?;
     tx.execute(
         "UPDATE music_folder SET
              walked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
@@ -453,6 +451,10 @@ pub(crate) fn finish(
         (folder.0, unread.folders, unread.files),
     )?;
     tx.commit()?;
+    // An Inbox folder's first complete walk is its baseline: what is there
+    // is not news. Apart from the walk's own bookkeeping, which stands
+    // whatever happens here (the next walk tries again).
+    crate::inbox::intake::after_walk(conn, folder, unread.folders == 0 && unread.files == 0);
     Ok(missing)
 }
 
