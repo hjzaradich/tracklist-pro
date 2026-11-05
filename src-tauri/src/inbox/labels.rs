@@ -148,7 +148,8 @@ pub fn label_files(conn: &Connection, files: &[i64]) -> rusqlite::Result<HashMap
     } else {
         facts::load(conn, &to_rank).ok()
     };
-    let links = links_to_library(conn, &to_link).unwrap_or_default();
+    // Unreadable links are `None`: a file that would need them is `checking`.
+    let links = links_to_library(conn, &to_link).ok();
 
     for f in found {
         let labeled = if !f.decided || f.recording.is_none() {
@@ -163,7 +164,12 @@ pub fn label_files(conn: &Connection, files: &[i64]) -> rusqlite::Result<HashMap
             )
         } else if let (Some(rec), Some(track)) = (f.recording, f.library_track) {
             in_library(f.file, rec, track, f.linked_file, ranked.as_ref())
-        } else if let Some(link) = f.recording.and_then(|rec| links.get(&rec)) {
+        } else if links.is_none() {
+            Labeled::checking()
+        } else if let Some(link) = f
+            .recording
+            .and_then(|rec| links.as_ref().and_then(|l| l.get(&rec)))
+        {
             let (label, key) = if link.cut {
                 (Label::OtherCut, keys::OTHER_CUT)
             } else {
@@ -264,7 +270,8 @@ fn links_to_library(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<H
         ))
     })?;
     let mut out = HashMap::new();
-    for (recording, link) in rows.filter_map(Result::ok) {
+    for row in rows {
+        let (recording, link) = row?;
         out.entry(recording).or_insert(link);
     }
     Ok(out)

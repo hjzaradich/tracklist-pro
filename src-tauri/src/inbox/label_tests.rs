@@ -277,6 +277,19 @@ fn a_broken_row_gets_checking_or_is_left_out_and_the_rest_of_the_page_returns() 
 }
 
 #[test]
+fn links_that_cannot_be_read_give_checking_not_new_to_you() {
+    let w = World::new();
+    let [file] = w.arrive(&["a.mp3"])[..] else {
+        panic!()
+    };
+    let rec = w.recording();
+    w.decide(file, rec);
+    assert_eq!(w.item(file).label, Label::NewToYou);
+    w.exec("ALTER TABLE version_link RENAME COLUMN recording_a TO gone;");
+    assert_eq!(w.item(file).label, Label::Checking);
+}
+
+#[test]
 fn the_filter_and_the_counts_go_by_label_and_the_counts_add_up_to_new() {
     let w = World::new();
     let (_, lib_rec, _) = w.library_track("lib.mp3");
@@ -402,4 +415,26 @@ fn a_complete_walk_takes_the_baseline_and_the_count_of_incomplete_ones_starts_ov
     // A scan folder is never waiting for a first look: it is not listed.
     let folders = writer.call(|c| count(c)).unwrap().folders;
     assert_eq!(folders.len(), 1);
+}
+
+#[test]
+fn removing_a_folder_removes_its_count_of_incomplete_walks() {
+    let (_dir, writer) = library();
+    walk_incomplete(&writer, &["a.mp3"]);
+    let key = format!("inbox.incompleteWalks.{}", INBOX.0);
+    let rows = |w: &Writer| -> i64 {
+        let key = key.clone();
+        w.call(move |c| {
+            c.query_row("SELECT COUNT(*) FROM setting WHERE key = ?1", [key], |r| {
+                r.get(0)
+            })
+        })
+        .unwrap()
+    };
+    assert_eq!(rows(&writer), 1);
+    writer
+        .call(|c| crate::scan::folders::remove(c, INBOX))
+        .unwrap()
+        .unwrap();
+    assert_eq!(rows(&writer), 0);
 }
