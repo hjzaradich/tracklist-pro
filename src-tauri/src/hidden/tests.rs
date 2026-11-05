@@ -61,7 +61,7 @@ fn every_reason_is_listed_with_its_own_way_back() {
         rows,
         vec![
             (hidden_by_user, Why::UserHid, Some(WayBack::ShowAgain)),
-            (cleared, Why::ClearedInbox, None),
+            (cleared, Why::ClearedInbox, Some(WayBack::PutBack)),
             // "Use this file instead" is not built (see the module docs).
             (extra, Why::ExtraFile, None),
         ]
@@ -124,13 +124,11 @@ fn show_again_clears_the_reason_and_undo_hides_the_file_again_exactly() {
 }
 
 #[test]
-fn show_again_leaves_a_cleared_inbox_file_and_a_shown_file_alone() {
+fn show_again_leaves_a_shown_file_and_a_missing_one_alone() {
     let lib = Lib::new();
-    let (_, cleared) = lib.track(Some("Hotel"), None, "hotel.mp3");
     let (_, shown) = lib.track(Some("India"), None, "india.mp3");
-    hide(&lib, cleared, "inbox_cleared");
 
-    for file in [cleared, shown, 9999] {
+    for file in [shown, 9999] {
         let outcome = lib
             .writer
             .call(move |c| Ok(show_again(c, file)))
@@ -138,6 +136,26 @@ fn show_again_leaves_a_cleared_inbox_file_and_a_shown_file_alone() {
             .unwrap();
         assert_eq!(outcome.operation_id, None);
     }
+    assert_eq!(reason_of(&lib, shown), None);
+}
+
+#[test]
+fn show_again_puts_a_cleared_inbox_file_back_and_undo_clears_it_again() {
+    let lib = Lib::new();
+    let (_, cleared) = lib.track(Some("Hotel"), None, "hotel.mp3");
+    hide(&lib, cleared, "inbox_cleared");
+
+    let outcome = lib
+        .writer
+        .call(move |c| Ok(show_again(c, cleared)))
+        .unwrap()
+        .unwrap();
+    assert!(outcome.operation_id.is_some());
+    assert_eq!(reason_of(&lib, cleared), None);
+    lib.writer
+        .call(|c| Ok(ops::undo_for_user(c, None)))
+        .unwrap()
+        .unwrap();
     assert_eq!(reason_of(&lib, cleared).as_deref(), Some("inbox_cleared"));
 }
 

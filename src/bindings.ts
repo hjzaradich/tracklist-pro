@@ -488,7 +488,10 @@ export const commands = {
 	trackTableIds: (query: TableQuery) => typedError<number[], IpcError>(__TAURI_INVOKE("track_table_ids", { query })),
 	/**  A window of the hidden files (the Hidden filter in All music). */
 	hiddenFilesPage: (query: HiddenQuery) => typedError<HiddenPage, IpcError>(__TAURI_INVOKE("hidden_files_page", { query })),
-	/**  "Show again" for a file the user hid. */
+	/**
+	 *  "Show again" for a file the user hid, and "Put back in Inbox" for a
+	 *  cleared one.
+	 */
 	showFileAgain: (fileId: number) => typedError<ShownAgain, IpcError>(__TAURI_INVOKE("show_file_again", { fileId })),
 	/**  "Use this file instead" for an extra file of a track outside the Library. */
 	useThisFileInstead: (fileId: number) => typedError<Chosen, IpcError>(__TAURI_INVOKE("use_this_file_instead", { fileId })),
@@ -534,6 +537,16 @@ export const commands = {
 	inboxItems: (filter: InboxFilter) => typedError<InboxItem[], IpcError>(__TAURI_INVOKE("inbox_items", { filter })),
 	/**  How many Inbox items are new: the sidebar badge. */
 	inboxCount: () => typedError<InboxCount, IpcError>(__TAURI_INVOKE("inbox_count")),
+	/**  Add to Library, for Inbox items. */
+	inboxAdd: (itemIds: number[], confirmLowBitrate: boolean) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_add", { itemIds, confirmLowBitrate })),
+	/**  "Add all" for an Inbox batch ([`batch_to_add`]). */
+	inboxAddBatch: (batchId: number, confirmLowBitrate: boolean) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_add_batch", { batchId, confirmLowBitrate })),
+	/**  Not now, for Inbox items. */
+	inboxNotNow: (itemIds: number[]) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_not_now", { itemIds })),
+	/**  Hide, for Inbox items. */
+	inboxHide: (itemIds: number[]) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_hide", { itemIds })),
+	/**  Clear, for Inbox items whose track is in the Library already. */
+	inboxClear: (itemIds: number[]) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_clear", { itemIds })),
 };
 
 /** Events */
@@ -1317,6 +1330,50 @@ export type InboxItem = {
 	/**  The Library track the label is about, if it is about one. */
 	libraryTrackId: number | null,
 };
+
+/**  What an Inbox action came to. */
+export type InboxOutcome = 
+/**  Done, as one operation (`None` when nothing changed). */
+{ outcome: "done"; operationId: number | null; 
+/**  The items it changed. */
+items: number[] } | 
+/**  Nothing was written: this item can't be acted on. */
+{ outcome: "refused"; itemId: number; reason: InboxRefusal } | 
+/**
+ *  Nothing was written: adding this item's file needs the user's
+ *  go-ahead first. Ask again with it confirmed.
+ */
+{ outcome: "needsConfirmation"; itemId: number; warning: AddWarning };
+
+/**  Why an item can't be acted on. Nothing was written. */
+export type InboxRefusal = 
+/**  There is no such item (its folder was removed). */
+"itemGone" | 
+/**  It was added, hidden or cleared already. */
+"alreadyDecided" | 
+/**  Its file isn't in a track yet: it is still being identified. */
+"notIdentified" | 
+/**  Its track is in the Library already (it has its own actions). */
+"hasLibraryTrack" | 
+/**
+ *  Clear is for a file whose track is in the Library, and this one's
+ *  isn't.
+ */
+"noLibraryTrack" | 
+/**  The file isn't on disk. */
+"fileMissing" | 
+/**
+ *  rekordbox has this track as another file: linked to this one it
+ *  would arrive as a second entry, without the first one's cues.
+ */
+"inRekordboxAsAnotherFile" | 
+/**
+ *  The file is the probable match of a rekordbox entry, and nothing
+ *  can confirm it yet (`library::match_not_confirmed`).
+ */
+"matchNotConfirmed" | 
+/**  Another item of this add is a file of the same track. */
+"sameTrackTwice";
 
 /**
  *  Why a command failed, as the frontend receives it: a kind and the
@@ -2488,7 +2545,8 @@ export type Settled = {
 export type ShownAgain = {
 	/**
 	 *  The operation to offer Undo for. `None` if the file wasn't hidden by
-	 *  the user (shown already, or gone): nothing changed.
+	 *  the user or cleared from the Inbox (shown already, or gone): nothing
+	 *  changed.
 	 */
 	operationId: number | null,
 };
@@ -3038,7 +3096,12 @@ export type WayBack =
  *  Makes the file the one its track shows ("Use this file instead",
  *  `hidden::choose`).
  */
-"useThisFile";
+"useThisFile" | 
+/**
+ *  Clears the file's `inbox_cleared` and puts it back in the Inbox ("Put
+ *  back in Inbox"): the same command as "Show again".
+ */
+"putBack";
 
 /**  Why a file is hidden (ROADMAP 1.11). */
 export type Why = 
