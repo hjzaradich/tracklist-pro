@@ -14,25 +14,36 @@ use crate::db::Writer;
 impl Net {
     /// The gate with its own rate limiter, so tests don't wait on each
     /// other, and plain HTTP allowed, for the local test server.
-    fn for_tests(reads: ReadPool) -> Net {
+    pub(super) fn for_tests(reads: ReadPool) -> Net {
         Net {
             reads,
             agent: agent(false),
             limiter: Arc::default(),
             timeout_override: None,
+            // Loopback stands in for every service's hosts.
+            extra_hosts: vec!["127.0.0.1".to_owned()],
+        }
+    }
+
+    /// Like `for_tests`, but with host pinning exactly as in the app: only
+    /// the service's own hosts are allowed, so loopback is refused.
+    pub(super) fn for_tests_pinned(reads: ReadPool) -> Net {
+        Net {
+            extra_hosts: Vec::new(),
+            ..Net::for_tests(reads)
         }
     }
 }
 
 /// A fresh database in a temp folder. Keep it alive as long as the handles.
-struct TestDb {
-    writer: Writer,
-    reads: ReadPool,
+pub(super) struct TestDb {
+    pub(super) writer: Writer,
+    pub(super) reads: ReadPool,
     // Last: fields drop in order, so the connections close before the folder goes.
     _dir: tempfile::TempDir,
 }
 
-fn test_db() -> TestDb {
+pub(super) fn test_db() -> TestDb {
     let dir = tempfile::tempdir().unwrap();
     let writer = Writer::open(&crate::write_guard::test_path(dir.path(), "test.db")).unwrap();
     let reads = ReadPool::open(writer.guarded_path()).unwrap();
@@ -45,7 +56,7 @@ fn test_db() -> TestDb {
 
 /// A URL on the local test server. Refuses anything but loopback, so a
 /// test can't reach the internet by mistake.
-fn local_url(addr: SocketAddr, path: &str) -> String {
+pub(super) fn local_url(addr: SocketAddr, path: &str) -> String {
     assert!(addr.ip().is_loopback(), "tests only talk to 127.0.0.1");
     format!("http://{addr}{path}")
 }
@@ -53,23 +64,23 @@ fn local_url(addr: SocketAddr, path: &str) -> String {
 /// A listening socket that never answers. It counts connection attempts:
 /// a connect finishes in the OS before the app would send anything, so an
 /// attempt shows up here even if the request was abandoned.
-struct Probe {
+pub(super) struct Probe {
     listener: TcpListener,
 }
 
 impl Probe {
-    fn new() -> Probe {
+    pub(super) fn new() -> Probe {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         Probe { listener }
     }
 
-    fn addr(&self) -> SocketAddr {
+    pub(super) fn addr(&self) -> SocketAddr {
         self.listener.local_addr().unwrap()
     }
 
     /// How many connections were attempted since the last call.
-    fn connections(&self) -> usize {
+    pub(super) fn connections(&self) -> usize {
         let mut n = 0;
         loop {
             match self.listener.accept() {
@@ -83,7 +94,7 @@ impl Probe {
 
 /// What the test server answers.
 #[derive(Clone)]
-enum Reply {
+pub(super) enum Reply {
     /// 200 with this body.
     Body(Vec<u8>),
     /// This status, empty body.
@@ -92,20 +103,24 @@ enum Reply {
     Redirect(String),
     /// Reads the request and never answers.
     Silent,
+    /// This status and media type with this body.
+    Typed(u16, &'static str, Vec<u8>),
+    /// The nth reply to the nth request; the last repeats.
+    Sequence(Vec<Reply>),
 }
 
 /// A request the test server received.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-struct Hit {
-    at: Instant,
-    request_line: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(super) struct Hit {
+    pub(super) at: Instant,
+    pub(super) request_line: String,
+    pub(super) headers: Vec<(String, String)>,
+    pub(super) body: Vec<u8>,
 }
 
 impl Hit {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(super) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
@@ -114,15 +129,15 @@ impl Hit {
 }
 
 /// A tiny HTTP/1.1 server on 127.0.0.1 that records every request.
-struct TestServer {
-    addr: SocketAddr,
+pub(super) struct TestServer {
+    pub(super) addr: SocketAddr,
     hits: Arc<Mutex<Vec<Hit>>>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
 
 impl TestServer {
-    fn start(reply: Reply) -> TestServer {
+    pub(super) fn start(reply: Reply) -> TestServer {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let hits = Arc::new(Mutex::new(Vec::new()));
@@ -148,11 +163,11 @@ impl TestServer {
         }
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(super) fn url(&self, path: &str) -> String {
         local_url(self.addr, path)
     }
 
-    fn hits(&self) -> Vec<Hit> {
+    pub(super) fn hits(&self) -> Vec<Hit> {
         self.hits.lock().unwrap().clone()
     }
 }
@@ -210,7 +225,20 @@ fn serve(mut stream: TcpStream, hits: &Mutex<Vec<Hit>>, reply: &Reply) {
         body,
     });
     let mut extra = String::new();
+    let mut content_type = "text/plain; charset=utf-8";
+    let reply = match reply {
+        Reply::Sequence(replies) => {
+            let n = hits.lock().unwrap().len();
+            &replies[n.saturating_sub(1).min(replies.len() - 1)]
+        }
+        other => other,
+    };
     let (status, body) = match reply {
+        Reply::Typed(s, ct, b) => {
+            content_type = ct;
+            (*s, b.clone())
+        }
+        Reply::Sequence(_) => unreachable!("sequences don't nest"),
         Reply::Body(b) => (200, b.clone()),
         Reply::Status(s) => (*s, Vec::new()),
         Reply::Redirect(location) => {
@@ -223,7 +251,7 @@ fn serve(mut stream: TcpStream, hits: &Mutex<Vec<Hit>>, reply: &Reply) {
         }
     };
     let head = format!(
-        "HTTP/1.1 {status} X\r\nContent-Type: text/plain; charset=utf-8\r\n{extra}\
+        "HTTP/1.1 {status} X\r\nContent-Type: {content_type}\r\n{extra}\
          Content-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
@@ -857,4 +885,87 @@ fn a_request_held_up_after_its_turn_still_pushes_the_next_one_back() {
 
     // Verify all requests reached the server.
     assert_eq!(server.hits().len(), 2);
+}
+
+// --- Host pinning ---
+
+#[test]
+fn a_request_to_a_host_the_service_doesnt_own_is_refused_before_connecting() {
+    let db = test_db();
+    let net = Net::for_tests_pinned(db.reads.clone());
+    let probe = Probe::new();
+    for service in Service::ALL {
+        set_opt_in(&db.writer, service, true).unwrap();
+        let result = net.send(Request::get(service, local_url(probe.addr(), "/")));
+        assert!(
+            matches!(&result, Err(NetError::Failed { host: Some(h), reason }) if h == "127.0.0.1" && *reason == HOST_NOT_PINNED),
+            "{service}: {result:?}"
+        );
+    }
+    assert_eq!(probe.connections(), 0);
+}
+
+#[test]
+fn pinning_looks_at_the_host_that_would_be_connected_to() {
+    // `user@host` puts the real host after the `@`.
+    let db = test_db();
+    let net = Net::for_tests_pinned(db.reads.clone());
+    set_opt_in(&db.writer, Service::MusicBrainz, true).unwrap();
+    let probe = Probe::new();
+    let url = format!("http://musicbrainz.org@{}/", probe.addr());
+    let result = net.send(Request::get(Service::MusicBrainz, url));
+    assert!(matches!(result, Err(NetError::Failed { .. })), "{result:?}");
+    assert_eq!(probe.connections(), 0);
+}
+
+#[test]
+fn a_refused_host_is_checked_after_the_opt_in_so_a_closed_gate_still_says_so() {
+    let db = test_db();
+    let net = Net::for_tests_pinned(db.reads.clone());
+    let probe = Probe::new();
+    let result = net.send(Request::get(Service::Discogs, local_url(probe.addr(), "/")));
+    assert!(
+        matches!(result, Err(NetError::NotOptedIn(Service::Discogs))),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn a_service_allows_whole_host_names_only() {
+    let table = [
+        (Service::MusicBrainz, "musicbrainz.org", true),
+        (Service::MusicBrainz, "MusicBrainz.org", true),
+        (Service::MusicBrainz, "evilmusicbrainz.org", false),
+        (Service::MusicBrainz, "musicbrainz.org.example.test", false),
+        (Service::MusicBrainz, "coverartarchive.org", false),
+        (Service::Discogs, "api.discogs.com", true),
+        (Service::Discogs, "discogs.com", false),
+        (Service::Discogs, "musicbrainz.org", false),
+        (Service::CoverArt, "coverartarchive.org", true),
+        (Service::CoverArt, "archive.org", true),
+        (Service::CoverArt, "ia800000.us.archive.org", true),
+        (Service::CoverArt, "evilarchive.org", false),
+        (Service::CoverArt, "archive.org.example.test", false),
+        (Service::CoverArt, "api.discogs.com", false),
+        (Service::UpdateCheck, "github.com", false),
+        (Service::ModelDownload, "huggingface.co", false),
+    ];
+    for (service, host, allowed) in table {
+        assert_eq!(service.allows_host(host), allowed, "{service} {host}");
+    }
+}
+
+#[test]
+fn pinned_hosts_are_plain_lowercase_names() {
+    for service in Service::ALL {
+        for host in service.hosts() {
+            let name = host.strip_prefix('.').unwrap_or(host);
+            assert!(!name.is_empty(), "{service}");
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-'),
+                "{service}: {host}"
+            );
+        }
+    }
 }
