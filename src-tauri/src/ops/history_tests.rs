@@ -67,11 +67,12 @@ pub(super) const LOGGED_TABLES: [&str; 15] = [
 
 /// The tables an action changes through the log only by setting fields of
 /// rows that are there, never by inserting or deleting one: `recording_file`
-/// (a merge of two Library tracks moves files between tracks, 1bE-9). Code
+/// (a merge of two Library tracks moves files between tracks, 1bE-9) and
+/// `inbox_item` (the Inbox actions set its status; the scan inserts rows). Code
 /// outside the log inserts into them (grouping places files), and that
 /// can't trip an Undo: undoing a set checks the value the field holds,
 /// whatever made the row.
-pub(super) const SET_ONLY_TABLES: [&str; 1] = ["recording_file"];
+pub(super) const SET_ONLY_TABLES: [&str; 2] = ["recording_file", "inbox_item"];
 
 /// `file`, whose `hidden_reason` "Show again" sets through the log (1cB-5).
 /// Only a field of a row that is there is set; the app inserts files outside
@@ -1572,13 +1573,13 @@ fn every_table_a_logged_table_points_at_never_reuses_ids_or_is_written_through_t
              reuses ids. Give it AUTOINCREMENT in a migration."
         );
     }
-    // What this sees, so it isn't passing by blindness: the two tables the
+    // What this sees, so it isn't passing by blindness: the tables the
     // log points at but never inserts into.
     let outside: Vec<&String> = targets
         .iter()
         .filter(|t| !LOGGED_TABLES.contains(&t.as_str()))
         .collect();
-    assert_eq!(outside, ["file", "recording"]);
+    assert_eq!(outside, ["file", "inbox_batch", "recording"]);
     // Ids of these tables stored without a foreign key are tracks too
     // (`replaced_entry.recording_id`, `track_merge.into_id`), covered by
     // `recording`.

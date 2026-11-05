@@ -248,7 +248,8 @@ fn a_refusal_that_is_not_the_warning_still_comes_first() {
 }
 
 #[test]
-fn only_the_library_add_the_rekordbox_offer_the_crate_add_and_the_inbox_add_insert_linked_library_tracks() {
+fn only_the_library_add_the_rekordbox_offer_the_crate_add_and_the_inbox_add_insert_linked_library_tracks(
+) {
     // The low-bitrate rule is in `promote`. This fails if another code path
     // starts adding linked tracks without going through it; the rekordbox
     // offer (`start::add_offered`) is a named exception, and the crate add

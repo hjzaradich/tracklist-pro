@@ -108,7 +108,13 @@ fn add_one(c: &mut Connection, items: &[i64]) -> Result<InboxOutcome, OpsError> 
 }
 
 fn is_done(outcome: &InboxOutcome) -> bool {
-    matches!(outcome, InboxOutcome::Done { operation_id: Some(_), .. })
+    matches!(
+        outcome,
+        InboxOutcome::Done {
+            operation_id: Some(_),
+            ..
+        }
+    )
 }
 
 fn undo(lib: &Lib) {
@@ -292,7 +298,10 @@ fn hide_of_a_chosen_file_ends_the_choice_and_undo_brings_both_back() {
     hashes(&lib, a, 1, 1);
     hashes(&lib, b, 2, 2);
     rank(&lib);
-    lib.writer.call(move |c| Ok(use_this_file(c, b))).unwrap().unwrap();
+    lib.writer
+        .call(move |c| Ok(use_this_file(c, b)))
+        .unwrap()
+        .unwrap();
     assert_eq!(choices(&lib), 1);
     let it = item(&lib, b, None);
 
@@ -315,13 +324,19 @@ fn hide_leaves_the_choice_of_another_copy_alone_and_show_again_puts_the_item_bac
     hashes(&lib, a, 1, 1);
     hashes(&lib, b, 1, 2);
     rank(&lib);
-    lib.writer.call(move |c| Ok(use_this_file(c, b))).unwrap().unwrap();
+    lib.writer
+        .call(move |c| Ok(use_this_file(c, b)))
+        .unwrap()
+        .unwrap();
     // `a` holds the same audio, other bytes: the choice names `b`.
     let it = item(&lib, a, None);
 
     assert!(is_done(&run(&lib, hide, &[it])));
     assert_eq!(choices(&lib), 1);
-    lib.writer.call(move |c| Ok(show_again(c, a))).unwrap().unwrap();
+    lib.writer
+        .call(move |c| Ok(show_again(c, a)))
+        .unwrap()
+        .unwrap();
     assert_eq!(reason_of(&lib, a), None);
     assert_eq!(state(&lib, it), new());
 }
@@ -338,7 +353,11 @@ fn clear_and_put_back_and_undo_of_each() {
     assert_eq!(reason_of(&lib, have).as_deref(), Some("inbox_cleared"));
     assert_eq!(state(&lib, it), decided("hidden"));
 
-    let put_back = lib.writer.call(move |c| Ok(show_again(c, have))).unwrap().unwrap();
+    let put_back = lib
+        .writer
+        .call(move |c| Ok(show_again(c, have)))
+        .unwrap()
+        .unwrap();
     assert!(put_back.operation_id.is_some());
     assert_eq!(reason_of(&lib, have), None);
     assert_eq!(state(&lib, it), new());

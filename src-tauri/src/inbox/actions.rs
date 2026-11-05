@@ -334,17 +334,12 @@ pub fn not_now(conn: &mut Connection, items: &[i64]) -> Result<InboxOutcome, Ops
         .filter(|i| i.status == "new")
         .map(|i| i.id)
         .collect();
-    let recorded = ops::record(
-        conn,
-        NOT_NOW_OPERATION,
-        &json!({ "items": ids }),
-        |rec| {
-            for id in &ids {
-                decide(rec, *id, "not_now")?;
-            }
-            Ok(())
-        },
-    )?;
+    let recorded = ops::record(conn, NOT_NOW_OPERATION, &json!({ "items": ids }), |rec| {
+        for id in &ids {
+            decide(rec, *id, "not_now")?;
+        }
+        Ok(())
+    })?;
     Ok(done(recorded.operation_id, ids))
 }
 
@@ -447,7 +442,13 @@ pub(crate) fn ask_after_add<E: From<DbError> + Debug>(
 
 /// Whether `outcome` added anything.
 fn added(outcome: &InboxOutcome) -> bool {
-    matches!(outcome, InboxOutcome::Done { operation_id: Some(_), .. })
+    matches!(
+        outcome,
+        InboxOutcome::Done {
+            operation_id: Some(_),
+            ..
+        }
+    )
 }
 
 fn add_and_follow_up(
@@ -495,7 +496,10 @@ pub async fn inbox_add_batch(
 /// Not now, for Inbox items.
 #[tauri::command(async)]
 #[specta::specta]
-pub fn inbox_not_now(writer: State<'_, Writer>, item_ids: Vec<i64>) -> Result<InboxOutcome, IpcError> {
+pub fn inbox_not_now(
+    writer: State<'_, Writer>,
+    item_ids: Vec<i64>,
+) -> Result<InboxOutcome, IpcError> {
     Ok(writer.call(move |c| Ok(not_now(c, &item_ids)))??)
 }
 
@@ -509,7 +513,10 @@ pub fn inbox_hide(writer: State<'_, Writer>, item_ids: Vec<i64>) -> Result<Inbox
 /// Clear, for Inbox items whose track is in the Library already.
 #[tauri::command(async)]
 #[specta::specta]
-pub fn inbox_clear(writer: State<'_, Writer>, item_ids: Vec<i64>) -> Result<InboxOutcome, IpcError> {
+pub fn inbox_clear(
+    writer: State<'_, Writer>,
+    item_ids: Vec<i64>,
+) -> Result<InboxOutcome, IpcError> {
     Ok(writer.call(move |c| Ok(clear(c, &item_ids)))??)
 }
 
