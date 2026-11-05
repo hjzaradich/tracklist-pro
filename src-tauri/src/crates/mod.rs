@@ -43,12 +43,12 @@ pub mod add_progress;
 pub mod fit;
 pub mod summary;
 
-use add_progress::{AddPhase, AddProgress};
 use crate::db::{DbError, ReadPool, Writer};
 use crate::ipc::{ErrorKind, ErrorParam, IpcError};
 use crate::library::{self, LibraryTrackId};
 use crate::ops::{self, OpsError};
 use crate::rekordbox_write::{build, sibling_key, BuildError, Node, SendInput, MAX_DEPTH};
+use add_progress::{AddPhase, AddProgress};
 
 /// The operation kinds, as the operation log stores them.
 pub const CREATE_OPERATION: &str = "create_crate";

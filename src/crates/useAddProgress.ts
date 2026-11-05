@@ -18,10 +18,7 @@ export function useAddProgress(active: boolean): AddProgressState | null {
   const [reading, setReading] = useState<AddProgressState | null>(null);
 
   useEffect(() => {
-    if (!active) {
-      setReading(null);
-      return;
-    }
+    if (!active) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
     const ask = async () => {
@@ -37,6 +34,7 @@ export function useAddProgress(active: boolean): AddProgressState | null {
     return () => {
       live = false;
       clearTimeout(timer);
+      setReading(null);
     };
   }, [active]);
 

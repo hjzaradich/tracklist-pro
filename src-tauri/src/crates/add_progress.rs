@@ -55,12 +55,15 @@ impl Default for AddProgressState {
     }
 }
 
+#[cfg(test)]
+type PublishHook = Arc<dyn Fn(AddProgressState) + Send + Sync>;
+
 #[derive(Default)]
 struct Inner {
     state: Mutex<AddProgressState>,
     /// A test's way to stop the add at a publish, to look from outside.
     #[cfg(test)]
-    on_publish: Mutex<Option<Arc<dyn Fn(AddProgressState) + Send + Sync>>>,
+    on_publish: Mutex<Option<PublishHook>>,
 }
 
 /// The sink. Cloning shares it.
@@ -129,7 +132,7 @@ impl AddProgress {
     /// `done` tracks of the phase are behind it. Publishes every [`EVERY`]
     /// tracks (and at the first).
     pub(super) fn at(&self, done: usize) {
-        if done % EVERY == 0 {
+        if done.is_multiple_of(EVERY) {
             self.set(|s| s.done = done.try_into().unwrap_or(u32::MAX));
         }
     }

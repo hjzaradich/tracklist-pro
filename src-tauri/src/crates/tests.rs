@@ -14,7 +14,6 @@ use crate::rekordbox_write::record_send;
 use crate::send::crate_tree;
 use crate::volume::{Volume, VolumeId};
 
-#[path = "progress_tests.rs"]
 mod progress;
 
 #[path = "folder_tests.rs"]
