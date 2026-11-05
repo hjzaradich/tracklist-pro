@@ -1,13 +1,14 @@
 /**
  * The workflow stages, in order (ROADMAP 1.11). The sidebar lists them in
- * this order, and each has its own route and screen. Inbox (Phase 2) and
- * Playlists (Phase 3) join the list when their phase arrives.
+ * this order, and each has its own route and screen. Playlists (Phase 3) joins
+ * the list when its phase arrives.
  *
  * Each stage's name lives once, in the shell namespace (`stages.<id>`), and
  * both the sidebar and the stage's screen read it from there.
  */
 export const STAGES = [
   { id: "overview", path: "/overview" },
+  { id: "inbox", path: "/inbox" },
   { id: "review", path: "/review" },
   { id: "allMusic", path: "/all-music" },
   { id: "library", path: "/library" },

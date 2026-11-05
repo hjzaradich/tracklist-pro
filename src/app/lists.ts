@@ -3,6 +3,7 @@ import { AFTER_SEND_LISTS_QUERY_KEY } from "../afterSend/useAfterSendLists";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
+import { INBOX_QUERY_KEY } from "../inbox/useInbox";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
@@ -39,6 +40,8 @@ const GROUPS = {
   folders: () => [MUSIC_FOLDERS_QUERY_KEY],
   /** What is left to do in rekordbox after a send. */
   afterSend: () => [AFTER_SEND_LISTS_QUERY_KEY],
+  /** The Inbox: its items, its count (the sidebar badge) and its folders. */
+  inbox: () => [INBOX_QUERY_KEY],
   /** The Overview's numbers. */
   overview: () => [OVERVIEW_QUERY_KEY],
 } satisfies Record<string, () => Keys>;

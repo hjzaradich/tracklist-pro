@@ -13,6 +13,7 @@ import { CratesScreen } from "../crates/CratesScreen";
 import { launchScreen, type RouterContext } from "../launch/launchContext";
 import { LaunchWatcher } from "../launch/LaunchWatcher";
 import { isCrateId } from "../launch/savedScreen";
+import { InboxScreen } from "../inbox/InboxScreen";
 import { filterOfDoor, validateLibrarySearch } from "../library/doors";
 import { LibraryScreen } from "../library/LibraryScreen";
 import { OverviewScreen } from "../overview/OverviewScreen";
@@ -52,6 +53,12 @@ const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/overview",
   component: OverviewScreen,
+});
+
+const inboxRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/inbox",
+  component: InboxScreen,
 });
 
 const reviewRoute = createRoute({
@@ -136,6 +143,7 @@ const settingsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   overviewRoute,
+  inboxRoute,
   reviewRoute,
   allMusicRoute,
   libraryRoute,

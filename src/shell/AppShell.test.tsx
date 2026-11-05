@@ -17,7 +17,7 @@ import { ZONES } from "./zones";
 import { tx } from "../test/tx";
 import { quietAnswer } from "../test/quietCommands";
 
-const WORKFLOW_ORDER = ["overview", "review", "allMusic", "library", "crates"].map((id) =>
+const WORKFLOW_ORDER = ["overview", "inbox", "review", "allMusic", "library", "crates"].map((id) =>
   tx(`shell:stages.${id}`),
 );
 

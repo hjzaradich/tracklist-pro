@@ -1,0 +1,214 @@
+{
+  "label.checking": {
+    "purpose": "Label of an Inbox file the app is still fingerprinting and matching. It has no actions yet.",
+    "where": "Inbox, a row's label and its filter chip."
+  },
+  "label.new_to_you": {
+    "purpose": "Label of an Inbox file whose track is not in the Library.",
+    "where": "Inbox, a row's label and its filter chip."
+  },
+  "label.better_file": {
+    "purpose": "Label of an Inbox file that ranks above the file a Library track uses now.",
+    "where": "Inbox, a row's label and its filter chip."
+  },
+  "label.other_cut": {
+    "purpose": "Label of an Inbox file that is another cut of a Library track.",
+    "where": "Inbox, a row's label and its filter chip."
+  },
+  "label.rework": {
+    "purpose": "Label of an Inbox file that is a rework of a Library track.",
+    "where": "Inbox, a row's label and its filter chip."
+  },
+  "label.already_have": {
+    "purpose": "Label of an Inbox file whose track is in the Library and which adds nothing.",
+    "where": "Inbox, a row's label and its filter chip."
+  },
+  "filter.label": {
+    "purpose": "Accessible name of the row of filter chips.",
+    "where": "Inbox, above the list (screen readers only)."
+  },
+  "filter.all": {
+    "purpose": "Filter chip that shows every label.",
+    "where": "Inbox, first filter chip."
+  },
+  "reason.checking": {
+    "purpose": "Why a file has no real label yet.",
+    "where": "Inbox, beside a Checking row."
+  },
+  "reason.checkingOnlineOnly": {
+    "purpose": "Why a OneDrive-style online-only file is not read yet.",
+    "where": "Inbox, beside a Checking row."
+  },
+  "reason.newToYou": {
+    "purpose": "Why a file is New to you.",
+    "where": "Inbox, beside the label."
+  },
+  "reason.alreadyHave": {
+    "purpose": "Why a file is Already have.",
+    "where": "Inbox, beside the label."
+  },
+  "reason.otherCut": {
+    "purpose": "Why a file is an Other cut, when the link has no name.",
+    "where": "Inbox, beside the label."
+  },
+  "reason.otherCut_labeled": {
+    "purpose": "Why a file is an Other cut, with the link's name (for example radio).",
+    "where": "Inbox, beside the label."
+  },
+  "reason.rework": {
+    "purpose": "Why a file is a Rework, when the link has no name.",
+    "where": "Inbox, beside the label."
+  },
+  "reason.rework_labeled": {
+    "purpose": "Why a file is a Rework, with the link's name (for example remix).",
+    "where": "Inbox, beside the label."
+  },
+  "batch.loose": {
+    "purpose": "Heading of the group of files that landed in an Inbox folder itself, not in a subfolder.",
+    "where": "Inbox, group heading."
+  },
+  "batch.arrived": {
+    "purpose": "When a group of files arrived. The time is filled in.",
+    "where": "Inbox, group heading."
+  },
+  "batch.count_one": {
+    "purpose": "How many files a group holds, one.",
+    "where": "Inbox, group heading."
+  },
+  "batch.count_other": {
+    "purpose": "How many files a group holds.",
+    "where": "Inbox, group heading."
+  },
+  "action.add": {
+    "purpose": "Main button on a row: adds the file to the Library.",
+    "where": "Inbox, a row."
+  },
+  "action.addAll": {
+    "purpose": "Adds every file of a group to the Library that can be added.",
+    "where": "Inbox, group heading."
+  },
+  "action.addAnyway": {
+    "purpose": "Confirms an add that was held back because the file has a low bitrate.",
+    "where": "Inbox, a row or group heading, after the warning."
+  },
+  "action.notNow": {
+    "purpose": "Sets a file aside without deciding. Undo brings it back.",
+    "where": "Inbox, a row."
+  },
+  "action.hide": {
+    "purpose": "Hides a file from the app's lists. Plain text, hard to hit by accident. Undo brings it back.",
+    "where": "Inbox, a row."
+  },
+  "action.clear": {
+    "purpose": "Clears a file that is already in the Library from the Inbox.",
+    "where": "Inbox, Already have rows."
+  },
+  "action.clearAll": {
+    "purpose": "Clears every Already have file at once.",
+    "where": "Inbox, Already have heading."
+  },
+  "confirm.lowBitrate": {
+    "purpose": "Warning that a file has a low bitrate, shown before it is added.",
+    "where": "Inbox, a row or group heading."
+  },
+  "skipped.title_one": {
+    "purpose": "Heading of what Add all left out, when it is one file.",
+    "where": "Inbox, a group after Add all."
+  },
+  "skipped.title_other": {
+    "purpose": "Heading of what Add all left out.",
+    "where": "Inbox, a group after Add all."
+  },
+  "skipped.line": {
+    "purpose": "One file Add all left out with its reason. File name and reason are filled in.",
+    "where": "Inbox, a group after Add all."
+  },
+  "refusal.itemGone": {
+    "purpose": "Why an action was refused: the file is not in the Inbox any more.",
+    "where": "Inbox, beside a row or under Add all."
+  },
+  "refusal.alreadyDecided": {
+    "purpose": "Why an action was refused: the file was already added, hidden or cleared.",
+    "where": "Inbox, beside a row or under Add all."
+  },
+  "refusal.notIdentified": {
+    "purpose": "Why an action was refused: the file is still being identified.",
+    "where": "Inbox, beside a row or under Add all."
+  },
+  "refusal.hasLibraryTrack": {
+    "purpose": "Why an action was refused: the file's track is in the Library already.",
+    "where": "Inbox, beside a row or under Add all."
+  },
+  "refusal.noLibraryTrack": {
+    "purpose": "Why Clear was refused: the file's track is not in the Library.",
+    "where": "Inbox, beside a row."
+  },
+  "refusal.fileMissing": {
+    "purpose": "Why an action was refused: the file is not on disk.",
+    "where": "Inbox, beside a row or under Add all."
+  },
+  "refusal.inRekordboxAsAnotherFile": {
+    "purpose": "Why an add was refused: rekordbox has the track as another file, so it would arrive as a second entry.",
+    "where": "Inbox, beside a row or under Add all."
+  },
+  "refusal.matchNotConfirmed": {
+    "purpose": "Why an add was refused: the rekordbox match is only probable so far.",
+    "where": "Inbox, beside a row or under Add all."
+  },
+  "refusal.sameTrackTwice": {
+    "purpose": "Why an add was refused: another file of the same track is in the same add.",
+    "where": "Inbox, under Add all."
+  },
+  "refusal.isLibraryFile": {
+    "purpose": "Why Hide, Not now or Clear was refused: the file is the one a Library track uses.",
+    "where": "Inbox, beside a row."
+  },
+  "already.title": {
+    "purpose": "Heading of the collapsed group of files already in the Library. The count is filled in.",
+    "where": "Inbox, bottom of the list."
+  },
+  "already.show": {
+    "purpose": "Opens the Already have group.",
+    "where": "Inbox, bottom of the list."
+  },
+  "already.hide": {
+    "purpose": "Closes the Already have group.",
+    "where": "Inbox, bottom of the list."
+  },
+  "folders.title": {
+    "purpose": "Heading of the section that lists the Inbox folders.",
+    "where": "Inbox, below the list."
+  },
+  "folders.help": {
+    "purpose": "Says what an Inbox folder is and that its files are only read.",
+    "where": "Inbox, Inbox folders section."
+  },
+  "folders.none": {
+    "purpose": "Says no Inbox folder is set up.",
+    "where": "Inbox, Inbox folders section."
+  },
+  "folders.add": {
+    "purpose": "Button that opens the folder picker to add an Inbox folder.",
+    "where": "Inbox, Inbox folders section."
+  },
+  "folders.remove": {
+    "purpose": "Button that removes an Inbox folder (its files stay on disk).",
+    "where": "Inbox, Inbox folders section, on a folder."
+  },
+  "folders.removeNamed": {
+    "purpose": "Accessible name of the remove button, with the folder's path.",
+    "where": "Inbox, Inbox folders section (screen readers and hover)."
+  },
+  "folders.firstLook": {
+    "purpose": "Says a new Inbox folder has not been looked at yet, so nothing arrives from it.",
+    "where": "Inbox, Inbox folders section, on a folder."
+  },
+  "empty.noFolders": {
+    "purpose": "Tells the user what to do when no Inbox folder exists yet.",
+    "where": "Inbox, when there is nothing to show."
+  },
+  "empty.zero": {
+    "purpose": "Plain line when Inbox folders exist and nothing is new.",
+    "where": "Inbox, when there is nothing to show."
+  }
+}

@@ -17,6 +17,14 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
   switch (operation.kind) {
     case "promote":
       return t("undo.action.addToLibrary");
+    case "inbox_add":
+      return t("undo.action.inboxAdd");
+    case "inbox_not_now":
+      return t("undo.action.inboxNotNow");
+    case "inbox_hide":
+      return t("undo.action.inboxHide");
+    case "inbox_clear":
+      return t("undo.action.inboxClear");
     case "remove_from_library":
       return t("undo.action.removeFromLibrary");
     case "add_rekordbox_tracks":

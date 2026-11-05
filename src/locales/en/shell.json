@@ -2,6 +2,7 @@
   "stages": {
     "label": "Stages",
     "overview": "Overview",
+    "inbox": "Inbox",
     "review": "Review",
     "allMusic": "All music",
     "library": "Library",
@@ -26,6 +27,10 @@
     "shortcut": "Ctrl Z",
     "action": {
       "addToLibrary": "Undo (added to Library)",
+      "inboxAdd": "Undo (added from Inbox)",
+      "inboxNotNow": "Undo (set aside from Inbox)",
+      "inboxHide": "Undo (hidden from Inbox)",
+      "inboxClear": "Undo (cleared from Inbox)",
       "removeFromLibrary": "Undo (removed from Library)",
       "addFromRekordbox_one": "Undo ({{count}} rekordbox track added)",
       "addFromRekordbox_other": "Undo ({{count}} rekordbox tracks added)",
