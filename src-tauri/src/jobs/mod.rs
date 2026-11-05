@@ -67,7 +67,10 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         )
         .handler(
             JobKind::Hash,
-            crate::scan::chain::after_hash(crate::hash::hasher())
+            // Files that held still through the hash become Inbox items.
+            crate::scan::chain::after_hash(crate::inbox::intake::after_hash(
+                crate::hash::hasher(),
+            ))
                 .reaching(crate::scan::system_volumes),
         )
         .handler(

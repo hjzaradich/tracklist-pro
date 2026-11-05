@@ -9,6 +9,8 @@ mod cheap_checks;
 mod file_id;
 mod folders;
 #[cfg(windows)]
+mod inbox;
+#[cfg(windows)]
 mod ipc;
 #[cfg(windows)]
 mod online_only;

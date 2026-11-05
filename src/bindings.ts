@@ -530,6 +530,10 @@ export const commands = {
 	 *  again. Not an operation: it is the user's choice, not Library data.
 	 */
 	setEnergyAsStars: (on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_energy_as_stars", { on })),
+	/**  The items in the Inbox that match `filter`. */
+	inboxItems: (filter: InboxFilter) => typedError<InboxItem[], IpcError>(__TAURI_INVOKE("inbox_items", { filter })),
+	/**  How many Inbox items are new: the sidebar badge. */
+	inboxCount: () => typedError<InboxCount, IpcError>(__TAURI_INVOKE("inbox_count")),
 };
 
 /** Events */
@@ -669,6 +673,15 @@ export type AppInfo = {
 	version: string,
 	identifier: string,
 };
+
+/**  How a batch of Inbox files came in. Stored in `inbox_batch.kind`. */
+export type BatchKind = 
+/**  Files that landed in the Inbox folder itself. */
+"loose" | 
+/**  Files that landed in one of its subfolders (a pack, an album). */
+"folder" | 
+/**  What was in the folder when it was added. Not news. */
+"already_there";
 
 /**  A file of a Library track's that is ahead of its linked file, and why. */
 export type BetterFile = {
@@ -1229,6 +1242,59 @@ export type HiddenRow = {
 	trackInLibrary: boolean,
 };
 
+/**  What the sidebar badge counts: items still `new` whose file is present. */
+export type InboxCount = {
+	/**  Arrivals nobody has decided about: the badge. */
+	new: number,
+	/**
+	 *  New items that were already in a folder when it was added. Not in
+	 *  `new`.
+	 */
+	alreadyThere: number,
+};
+
+/**  Which items [`items`] returns. */
+export type InboxFilter = {
+	/**  Only items with this status. */
+	status?: ItemStatus | null,
+	/**
+	 *  Only items of this batch. A batch asked for by id is returned
+	 *  whatever its kind.
+	 */
+	batchId?: number | null,
+	/**
+	 *  Also the items that were already in a folder when it was added.
+	 *  Left out unless asked for: they aren't arrivals.
+	 */
+	includeAlreadyThere?: boolean,
+};
+
+/**  One file in the Inbox, as the frontend sees it. */
+export type InboxItem = {
+	id: number,
+	/**  The `file` row (file.id). */
+	fileId: number,
+	musicFolderId: number,
+	batchId: number,
+	batchKind: BatchKind,
+	/**  The subfolder of a `folder` batch, relative to the music folder. */
+	batchLabel: string | null,
+	status: ItemStatus,
+	/**  When it counted as arrived (UTC, ISO 8601). */
+	arrivedAt: string,
+	decidedAt: string | null,
+	/**
+	 *  The file is on disk as of the last walk. A file gone from disk keeps
+	 *  its item.
+	 */
+	present: boolean,
+	/**
+	 *  A OneDrive placeholder: its content isn't on this device, and
+	 *  nothing reads it without the user's opt-in.
+	 */
+	onlineOnly: boolean,
+};
+
 /**
  *  Why a command failed, as the frontend receives it: a kind and the
  *  parameters its message needs. Never error text.
@@ -1237,6 +1303,9 @@ export type IpcError = {
 	kind: ErrorKind,
 	params: { [key in string]: ErrorParam },
 };
+
+/**  What was decided about an Inbox file. Stored in `inbox_item.status`. */
+export type ItemStatus = "new" | "not_now" | "hidden" | "added";
 
 /**  A job's row id in the `job` table. */
 export type JobId = number;

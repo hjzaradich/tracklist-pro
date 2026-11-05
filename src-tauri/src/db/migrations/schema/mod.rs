@@ -22,6 +22,7 @@ mod fingerprint_matched;
 mod fingerprint_rev;
 mod grouping;
 mod grouping_names;
+mod inbox;
 mod library;
 mod library_upkeep;
 mod partial_hash;

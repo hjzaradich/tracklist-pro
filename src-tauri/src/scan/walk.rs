@@ -442,6 +442,8 @@ pub(crate) fn finish(
             missing += mark.execute([id])?;
         }
     }
+    // The first walk of an Inbox folder: what is there is not news.
+    crate::inbox::intake::baseline(&tx, folder)?;
     tx.execute(
         "UPDATE music_folder SET
              walked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),

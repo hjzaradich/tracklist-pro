@@ -161,6 +161,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::energy_stars::read_energy_as_stars,
             crate::energy_stars::energy_as_stars_would_change,
             crate::energy_stars::set_energy_as_stars,
+            crate::inbox::inbox_items,
+            crate::inbox::inbox_count,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,
