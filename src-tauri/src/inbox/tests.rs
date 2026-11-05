@@ -71,7 +71,7 @@ fn hashed(writer: &Writer, rel: &str) {
 }
 
 fn intake(writer: &Writer) -> usize {
-    writer.call(|c| run(c)).unwrap()
+    writer.call(run).unwrap()
 }
 
 fn all(writer: &Writer) -> Vec<super::InboxItem> {

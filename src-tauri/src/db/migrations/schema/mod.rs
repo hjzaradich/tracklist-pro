@@ -304,6 +304,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0045_grouping_names.sql", &["grouping_names"]),
     // An index to sort the track table by energy, no new tables (1cD-XE).
     ("0046_track_row_energy_sort.sql", &[]),
+    // Inbox batches and their items (2A-I1).
+    ("0047_inbox.sql", &["inbox_batch", "inbox_item"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
@@ -355,8 +357,6 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     // phase that first needs them.
     let (_dir, conn) = db();
     let later = [
-        "inbox_batch",
-        "inbox_item",
         "wishlist",
         "wish_item",
         "tag",

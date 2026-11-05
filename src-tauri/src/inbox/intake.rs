@@ -147,7 +147,7 @@ pub struct Intaking<H> {
 impl<H: JobHandler> JobHandler for Intaking<H> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let result = self.inner.run(job);
-        job.writer().call(|c| run(c))?;
+        job.writer().call(run)?;
         result
     }
 }
