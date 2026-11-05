@@ -440,6 +440,8 @@ export const commands = {
 	 *  `add_recordings_to_crate` does, as one operation (one Undo).
 	 */
 	addRecordingsToNewCrate: (name: string, recordings: number[]) => typedError<AddedToNewCrate, IpcError>(__TAURI_INVOKE("add_recordings_to_new_crate", { name, recordings })),
+	/**  How far the add under way has got. Never waits for the writer. */
+	crateAddProgress: () => typedError<AddProgressState, IpcError>(__TAURI_INVOKE("crate_add_progress")),
 	/**  The crates a track is in, for the Details panel. */
 	cratesOfTrack: (recordingId: number) => typedError<CrateId[], IpcError>(__TAURI_INVOKE("crates_of_track", { recordingId })),
 	/**  Takes tracks out of a crate. They stay in the Library. */
@@ -575,6 +577,27 @@ export type ActivitySnapshot = {
 	seq: number,
 	/**  Running jobs first, then queued; each in the order workers take them. */
 	jobs: JobUpdate[],
+};
+
+/**  What an add is doing. */
+export type AddPhase = 
+/**
+ *  No add has begun, or one has begun and its work hasn't started
+ *  (it may be waiting behind another write).
+ */
+"idle" | 
+/**  Judging each track the way "Add to Library" would, before any write. */
+"checking" | 
+/**  Writing: linking tracks into the Library and putting them in the crate. */
+"adding" | 
+/**  The last add is over. `done` and `total` are where it got to. */
+"done";
+
+/**  A reading of the sink: `done` of `total` tracks, in `phase`. */
+export type AddProgressState = {
+	phase: AddPhase,
+	done: number,
+	total: number,
 };
 
 /**  What an add did. */

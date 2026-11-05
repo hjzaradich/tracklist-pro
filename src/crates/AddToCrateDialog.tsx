@@ -4,8 +4,10 @@ import { errorMessage } from "../api/errors";
 import type { Crate } from "../bindings";
 import { matches } from "../palette/match";
 import { useAddSelectionToCrate, useAddSelectionToNewCrate } from "./addSelection";
+import { AddProgressLine } from "./AddProgressLine";
 import styles from "./AddToCrateDialog.module.css";
 import { crateChoices } from "./tree";
+import { useAddProgress } from "./useAddProgress";
 import { useCrates } from "./useCrates";
 
 /** How a name is compared with its siblings (ROADMAP 1.9): NFC, letter case and trailing space ignored. */
@@ -46,6 +48,9 @@ export function AddToCrateDialog({
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  // The crate being added to (the name typed, for a new one), for the progress line.
+  const [target, setTarget] = useState("");
+  const progress = useAddProgress(working);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const back = useRef<HTMLButtonElement>(null);
@@ -87,6 +92,7 @@ export function AddToCrateDialog({
   const run = async (option: Option) => {
     if (working) return;
     setWorking(true);
+    setTarget(option.kind === "crate" ? option.crate.name : option.name);
     setError(null);
     try {
       if (option.kind === "crate") await addSelection(option.crate, recordings);
@@ -220,6 +226,11 @@ export function AddToCrateDialog({
         {options.length === 0 && (
           <p role="status" className={styles.quiet}>
             {crates !== undefined && crates.length === 0 ? t("empty") : t("addDialog.none")}
+          </p>
+        )}
+        {progress !== null && (
+          <p className={styles.quiet}>
+            <AddProgressLine crate={target} progress={progress} />
           </p>
         )}
         {error !== null && (

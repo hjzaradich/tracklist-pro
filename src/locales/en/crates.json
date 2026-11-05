@@ -99,6 +99,10 @@
     },
     "folder": "Can't add to a folder: it holds crates, not tracks"
   },
+  "addProgress": {
+    "checking": "Checking tracks… {{percent}}%",
+    "adding": "Adding to {{crate}}… {{percent}}%"
+  },
   "done": {
     "created": "Crate created",
     "renamed": "Crate renamed",
