@@ -19,12 +19,16 @@
 //!   same transaction as the snapshot it made.
 //! - [`LAST_FAILURE`]: the last failed read ([`ReadFailure`]), cleared by
 //!   the next successful one.
+//!
+//! An optional feature can read the collection another way and join here,
+//! where an XML read enters ([`DatabaseSource`]). Its read is stored exactly
+//! like an XML read's, marked by [`LastRead::source`].
 
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::UNIX_EPOCH;
 
 use rusqlite::{Connection, OptionalExtension};
@@ -63,6 +67,31 @@ pub struct LastRead {
     /// When the snapshot was replaced (UTC, ISO 8601).
     pub read_at: String,
     pub summary: SnapshotSummary,
+    /// What was read. Reads stored before there was a choice were XML.
+    #[serde(default)]
+    pub source: ReadSource,
+}
+
+/// Where a read came from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReadSource {
+    /// rekordbox's XML export.
+    #[default]
+    Xml,
+    /// rekordbox's own library database (optional, ROADMAP 2.7).
+    Database,
+}
+
+/// Another way to read the collection than the XML export: an optional
+/// feature hands one to [`XmlReader::with_database`]. A read job whose
+/// target says `"source": "database"` asks it for the collection, then
+/// stores what it returns exactly as an XML read's. Its failures are its
+/// own: they never touch the XML source's [`LAST_FAILURE`].
+pub trait DatabaseSource: Send + Sync {
+    /// The collection at `path`, as the XML read would have produced it,
+    /// and the file's modified time in milliseconds since the Unix epoch.
+    fn read(&self, job: &JobContext, path: &Path) -> Result<(RekordboxXml, i64), JobError>;
 }
 
 /// Why a read failed, in terms the user can act on.
@@ -456,6 +485,8 @@ pub struct XmlReader {
     /// How far along its job the read ends: `None` when the read is the
     /// whole job. A step the read is only the start of sets this.
     up_to: Option<f64>,
+    /// The optional database read, when the feature is in this build.
+    database: Option<Arc<dyn DatabaseSource>>,
     /// Called as the read passes each [`Stage`], so tests can act there.
     #[cfg(test)]
     pub(crate) hook: Option<std::sync::Arc<dyn Fn(Stage) + Send + Sync>>,
@@ -477,9 +508,16 @@ impl XmlReader {
     pub fn up_to(end: f64) -> XmlReader {
         XmlReader {
             up_to: Some(end),
+            database: None,
             #[cfg(test)]
             hook: None,
         }
+    }
+
+    /// This reader, also reading from `database` when a job asks for it.
+    pub fn with_database(mut self, database: Arc<dyn DatabaseSource>) -> XmlReader {
+        self.database = Some(database);
+        self
     }
 
     fn end(&self) -> f64 {
@@ -504,6 +542,22 @@ impl JobHandler for XmlReader {
         else {
             return Err(JobError::failed("the job names no export"));
         };
+        let from_database = job
+            .target()
+            .and_then(|t| t.get("source"))
+            .and_then(|s| s.as_str())
+            == Some("database");
+        if from_database {
+            let Some(database) = &self.database else {
+                return Err(JobError::failed("no database reader in this build"));
+            };
+            let (xml, modified_ms) = database.read(job, &path)?;
+            return match self.store(job, xml, &path, modified_ms, ReadSource::Database) {
+                Ok(()) => Ok(()),
+                Err(Stop::Db(e)) => Err(e.into()),
+                Err(Stop::Cancelled | Stop::Failed(..)) => Err(JobError::Cancelled),
+            };
+        }
         match self.read(job, &path) {
             Ok(()) => Ok(()),
             Err(Stop::Cancelled) => Err(JobError::Cancelled),
@@ -574,6 +628,18 @@ impl XmlReader {
                 failed(FailureReason::NotAnExport, &e)
             }
         })?;
+        self.store(job, xml, path, modified_ms, ReadSource::Xml)
+    }
+
+    /// Stores what a read produced as the snapshot, and records the read.
+    fn store(
+        &self,
+        job: &JobContext,
+        xml: RekordboxXml,
+        path: &Path,
+        modified_ms: i64,
+        source: ReadSource,
+    ) -> Result<(), Stop> {
         let rows = SnapshotRows::from_xml(&xml);
         let tree = crate::after_send::RekordboxTree::from_xml(&xml);
         drop(xml);
@@ -584,16 +650,20 @@ impl XmlReader {
             .call(move |c| {
                 replace_snapshot(c, &rows, |tx, summary, read_at| {
                     // The file read becomes the chosen export only now, with
-                    // the snapshot it made.
-                    write_setting(tx, XML_PATH, &path)?;
+                    // the snapshot it made. A database read leaves the
+                    // export, and its last failure, as they were.
+                    if source == ReadSource::Xml {
+                        write_setting(tx, XML_PATH, &path)?;
+                        tx.execute("DELETE FROM setting WHERE key = ?1", [LAST_FAILURE])?;
+                    }
                     let last = LastRead {
                         path,
                         modified_ms,
                         read_at: read_at.to_owned(),
                         summary: *summary,
+                        source,
                     };
                     write_setting(tx, LAST_READ, &last)?;
-                    tx.execute("DELETE FROM setting WHERE key = ?1", [LAST_FAILURE])?;
                     crate::after_send::save_tree(tx, &tree)?;
                     Ok(())
                 })

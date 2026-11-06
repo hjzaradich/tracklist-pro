@@ -40,6 +40,7 @@ function fakeBackend({
     }
     // The send state is asked again when the setting changes; nothing here needs it.
     if (cmd === "send_state") return null;
+    // The optional database reader's row: off, as it is by default.
     if (cmd === "feature_enabled") return false;
     throw new Error(`unexpected command ${cmd}`);
   });
@@ -73,7 +74,8 @@ describe("the Settings screen", () => {
     await renderSettings();
     expect(screen.getByRole("heading", { level: 1, name: tx("settings:title") })).toBeInTheDocument();
     const panel = screen.getByRole("region", { name: tx("settings:rekordbox.title") });
-    expect(within(panel).getAllByRole("checkbox")).toHaveLength(1);
+    // Energy stars, and the optional database reader (off: its switch alone).
+    expect(within(panel).getAllByRole("checkbox")).toHaveLength(2);
     // No Save and no button at all: a change applies at once.
     expect(screen.queryAllByRole("button")).toEqual([]);
   });

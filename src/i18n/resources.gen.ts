@@ -20,6 +20,7 @@ export interface EnglishResources {
   "palette": typeof import("../locales/en/palette.json");
   "player": typeof import("../locales/en/player.json");
   "rekordbox": typeof import("../locales/en/rekordbox.json");
+  "rekordboxDb": typeof import("../locales/en/rekordboxDb.json");
   "rekordboxOffer": typeof import("../locales/en/rekordboxOffer.json");
   "review": typeof import("../locales/en/review.json");
   "send": typeof import("../locales/en/send.json");

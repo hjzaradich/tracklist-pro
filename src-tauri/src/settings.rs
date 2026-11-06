@@ -75,12 +75,15 @@ pub async fn set_key_notation(
 pub enum Feature {
     /// Wishlists (2.3 to 2.5).
     Wishlist,
+    /// Reading rekordbox's library database (2.7).
+    RekordboxDatabase,
 }
 
 impl Feature {
     fn key(self) -> &'static str {
         match self {
             Feature::Wishlist => "feature_wishlist",
+            Feature::RekordboxDatabase => "feature_rekordbox_database",
         }
     }
 }
