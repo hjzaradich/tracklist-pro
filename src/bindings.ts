@@ -16,6 +16,10 @@ export const commands = {
 	keyNotation: () => typedError<KeyNotation, IpcError>(__TAURI_INVOKE("key_notation")),
 	/**  Sets the key notation for the whole app. */
 	setKeyNotation: (notation: KeyNotation) => typedError<null, IpcError>(__TAURI_INVOKE("set_key_notation", { notation })),
+	/**  Whether the user turned an optional feature on. */
+	featureEnabled: (feature: Feature) => typedError<boolean, IpcError>(__TAURI_INVOKE("feature_enabled", { feature })),
+	/**  Turns an optional feature on or off. */
+	setFeatureEnabled: (feature: Feature, on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_feature_enabled", { feature, on })),
 	/**
 	 *  The columns the user chose for a screen's track table; `None` until they
 	 *  choose.
@@ -547,6 +551,28 @@ export const commands = {
 	inboxHide: (itemIds: number[]) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_hide", { itemIds })),
 	/**  Clear, for Inbox items whose track is in the Library already. */
 	inboxClear: (itemIds: number[]) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_clear", { itemIds })),
+	/**  The wishlists with a count per result. */
+	wishlistsList: () => typedError<WishlistsReply, IpcError>(__TAURI_INVOKE("wishlists_list")),
+	/**  The items of a wishlist, each with its result and reason. */
+	wishlistItems: (wishlistId: number) => typedError<WishItemsReply, IpcError>(__TAURI_INVOKE("wishlist_items", { wishlistId })),
+	/**  A new wishlist from a pasted tracklist. */
+	wishlistCreateFromPaste: (name: string, pasted: string) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_create_from_paste", { name, pasted })),
+	/**
+	 *  A new wishlist from a CSV file at `path` (picked by the user in the
+	 *  file dialog). The file is only read.
+	 */
+	wishlistCreateFromCsv: (name: string, path: string) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_create_from_csv", { name, path })),
+	/**  More tracks, pasted, for the end of a wishlist. */
+	wishlistAddFromPaste: (wishlistId: number, pasted: string) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_add_from_paste", { wishlistId, pasted })),
+	wishlistRename: (wishlistId: number, name: string) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_rename", { wishlistId, name })),
+	/**
+	 *  Not behind the feature switch: taking away your own data stays possible
+	 *  while wishlists are off.
+	 */
+	wishlistDelete: (wishlistId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_delete", { wishlistId })),
+	wishlistRemoveItem: (itemId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_remove_item", { itemId })),
+	wishlistSetBought: (itemId: number, bought: boolean) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_set_bought", { itemId, bought })),
+	wishlistSetNotes: (itemId: number, notes: string | null) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_set_notes", { itemId, notes })),
 };
 
 /** Events */
@@ -1141,6 +1167,16 @@ export type FailureReason =
 "damaged" | 
 /**  Well-formed XML, but not a rekordbox collection export. */
 "notAnExport";
+
+/**
+ *  An optional feature (ROADMAP §1.1, CLAUDE.md "Network and privacy"): off
+ *  until the user turns it on. Stored in `setting` as JSON `true` or
+ *  `false` under `feature_<name>`; no row means off. Like the other
+ *  settings, a write is not an operation in the log.
+ */
+export type Feature = 
+/**  Wishlists (2.3 to 2.5). */
+"wishlist";
 
 /**
  *  One field: the value the track shows and the other values the track's
@@ -3129,6 +3165,117 @@ export type Why =
 "clearedInbox" | 
 /**  An extra copy of a track whose best file is another file. */
 "extraFile";
+
+/**  One item of a wishlist with its result. */
+export type WishItem = {
+	id: number,
+	wishlistId: number,
+	position: number,
+	artist: string,
+	title: string,
+	version: string | null,
+	isrc: string | null,
+	bought: boolean,
+	notes: string | null,
+	/**  The Inbox file that answered it (auto tick-off, 2.5). */
+	acquiredFileId: number | null,
+	acquiredAt: string | null,
+	result: WishMatch,
+};
+
+/**  The items of a wishlist, or why they aren't given. */
+export type WishItemsReply = { outcome: "items"; items: WishItem[] } | { outcome: "refused"; reason: WishlistRefusal };
+
+/**  An item's result with its reason. */
+export type WishMatch = {
+	kind: WishMatchKind,
+	reason: Reason,
+	/**  The track it is about (the one owned, or the one reworked). */
+	recordingId: number | null,
+	/**  That track is in the Library (not only in All music). */
+	inLibrary: boolean,
+};
+
+/**  What an item comes to. */
+export type WishMatchKind = 
+/**  A track you have. */
+"owned" | 
+/**  Another cut of it; counts as owned. */
+"ownedOtherCut" | 
+/**  A rework of it: a hint, not owned. */
+"rework" | "missing";
+
+/**  Why a line or row wasn't taken. */
+export type WishSkipReason = 
+/**  A pasted line with no " - " between an artist and a title. */
+"noSeparator" | "missingArtist" | "missingTitle" | 
+/**  A CSV row that couldn't be read. */
+"unreadable";
+
+/**  A line or row that wasn't taken. */
+export type WishSkippedLine = {
+	/**
+	 *  Its line in the pasted text, or its row in the file (the header is
+	 *  row 1), counting from 1.
+	 */
+	line: number,
+	/**  What it said, cut to a short length. */
+	text: string,
+	reason: WishSkipReason,
+};
+
+/**  What a wishlist command came to. */
+export type WishlistOutcome = 
+/**  Done, as one operation (`None` when nothing changed). */
+{ outcome: "done"; operationId: number | null; 
+/**  The list it made or changed. */
+wishlistId: number | null; 
+/**  Items made. */
+added: number; 
+/**  Lines or rows an import couldn't take, each with where and why. */
+skipped: WishSkippedLine[]; 
+/**  How many in all; `skipped` keeps only the first few. */
+skippedTotal: number } | 
+/**  Nothing was written. */
+{ outcome: "refused"; reason: WishlistRefusal };
+
+/**  Why nothing was written. */
+export type WishlistRefusal = "nameEmpty" | "nameTooLong" | "notesTooLong" | "noSuchWishlist" | "noSuchItem" | 
+/**  The user hasn't turned wishlists on (Feature::Wishlist). */
+"notTurnedOn" | 
+/**  More items than [`MAX_ITEMS`]. */
+"tooManyItems" | 
+/**  The file couldn't be read, or isn't text. */
+"fileUnreadable" | 
+/**  The file is over [`MAX_FILE_BYTES`]. */
+"fileTooBig" | 
+/**  The pasted text is over [`MAX_TEXT_BYTES`]. */
+"textTooBig" | 
+/**  The CSV has no column naming the artist. */
+"noArtistColumn" | 
+/**  The CSV has no column naming the title. */
+"noTitleColumn";
+
+/**  Where a list came from, as stored. */
+export type WishlistSource = "paste" | "csv";
+
+/**  One wishlist with how its items come out. */
+export type WishlistSummary = {
+	id: number,
+	name: string,
+	source: WishlistSource,
+	createdAt: string,
+	total: number,
+	owned: number,
+	ownedOtherCut: number,
+	rework: number,
+	missing: number,
+	/**  Items marked bought. */
+	bought: number,
+};
+
+/**  The wishlists, or why they aren't given. */
+export type WishlistsReply = { outcome: "lists"; lists: WishlistSummary[] } | { outcome: "refused"; reason: WishlistRefusal };
 
 /**
  *  The answer to "how many tracks' stars would change", which the screen

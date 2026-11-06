@@ -40,6 +40,7 @@ mod track_row_gaps;
 mod track_row_genre;
 mod tracks;
 mod user_energy;
+mod wishlist;
 mod workspace;
 
 use rusqlite::{Connection, ErrorCode};
@@ -306,6 +307,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0046_track_row_energy_sort.sql", &[]),
     // Inbox batches and their items (2A-I1).
     ("0047_inbox.sql", &["inbox_batch", "inbox_item"]),
+    // Wishlists and their items (2B-W1).
+    ("0048_wishlist.sql", &["wishlist", "wish_item"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
@@ -357,8 +360,6 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     // phase that first needs them.
     let (_dir, conn) = db();
     let later = [
-        "wishlist",
-        "wish_item",
         "tag",
         "tag_group",
         "genre",

@@ -78,7 +78,7 @@ export const SHARDS = [
       "after_send", "attach", "audio_preview", "conflict_review", "energy", "energy_stars", "file_roles", "fragile", "hash",
       "hidden", "inbox", "ipc", "missing", "net", "ops", "paths", "preview", "read", "rekordbox_write", "relink", "review",
       "scan_state", "search", "send", "send_values", "settings", "sniff", "start", "suggest", "tags", "ui_setting",
-      "volume", "waveform",
+      "volume", "waveform", "wishlist",
       // The tests in lib.rs itself are named tests::..., which no filter can pick
       // out (every `scan::tests::x` contains "tests::"), so only the catch-all can run them.
       "tests",

@@ -6,6 +6,8 @@
 //! default.
 
 use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+use specta::Type;
 use tauri::State;
 
 use crate::db::{ReadPool, Writer};
@@ -62,6 +64,76 @@ pub async fn set_key_notation(
     notation: KeyNotation,
 ) -> Result<(), IpcError> {
     Ok(writer.call(move |c| write_key_notation(c, notation))?)
+}
+
+/// An optional feature (ROADMAP §1.1, CLAUDE.md "Network and privacy"): off
+/// until the user turns it on. Stored in `setting` as JSON `true` or
+/// `false` under `feature_<name>`; no row means off. Like the other
+/// settings, a write is not an operation in the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Feature {
+    /// Wishlists (2.3 to 2.5).
+    Wishlist,
+}
+
+impl Feature {
+    fn key(self) -> &'static str {
+        match self {
+            Feature::Wishlist => "feature_wishlist",
+        }
+    }
+}
+
+/// Whether the user turned `feature` on. Off for no row, or any value but
+/// `true`.
+pub fn read_feature_enabled(conn: &Connection, feature: Feature) -> rusqlite::Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT json_type(value) = 'true' FROM setting WHERE key = ?1",
+            [feature.key()],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// Turns `feature` on or off.
+pub fn write_feature_enabled(
+    conn: &Connection,
+    feature: Feature,
+    on: bool,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO setting (key, value) VALUES (?1, json(?2))
+         ON CONFLICT (key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        (feature.key(), if on { "true" } else { "false" }),
+    )?;
+    Ok(())
+}
+
+/// Whether the user turned an optional feature on.
+// Async, so the database call runs off the main thread.
+#[tauri::command]
+#[specta::specta]
+pub async fn feature_enabled(
+    reads: State<'_, ReadPool>,
+    feature: Feature,
+) -> Result<bool, IpcError> {
+    Ok(reads.read(move |c| read_feature_enabled(c, feature))?)
+}
+
+/// Turns an optional feature on or off.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_feature_enabled(
+    writer: State<'_, Writer>,
+    feature: Feature,
+    on: bool,
+) -> Result<(), IpcError> {
+    Ok(writer.call(move |c| write_feature_enabled(c, feature, on))?)
 }
 
 #[cfg(test)]
