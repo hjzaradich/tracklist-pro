@@ -489,18 +489,61 @@ fn the_key_is_never_shown_and_a_raw_key_is_read_as_one() {
 }
 
 #[test]
-fn a_user_with_only_the_database_is_refused_a_send_plainly_and_a_chosen_export_still_sends() {
+fn a_user_with_only_the_database_is_told_a_send_needs_an_export_and_a_chosen_export_still_sends() {
     let fx = Fixture::new();
     fx.turn_on();
     let (status, _) = fx.run(read_job(&fx.db));
     assert_eq!(status, JobStatus::Done);
     let refused = crate::send::export_to_send(&fx.stored(), None).unwrap_err();
-    assert_eq!(refused.kind(), crate::ipc::ErrorKind::NoRekordboxXml);
+    assert_eq!(refused.kind(), crate::ipc::ErrorKind::SendNeedsExport);
     let chosen = export(fx._dir.path());
     let chosen = chosen.to_string_lossy().into_owned();
     assert_eq!(
         crate::send::export_to_send(&fx.stored(), Some(chosen.clone())).unwrap(),
         chosen
+    );
+}
+
+#[test]
+fn a_newer_database_read_refuses_a_send_rather_than_reading_the_older_export_over_it() {
+    let fx = Fixture::new();
+    fx.turn_on();
+    let xml = export(fx.db.parent().unwrap());
+    assert_eq!(fx.run(source::read_job(&xml)).0, JobStatus::Done);
+    assert_eq!(fx.run(read_job(&fx.db)).0, JobStatus::Done);
+    let from_database = fx.snapshot();
+    let stored = fx.stored();
+    assert_eq!(stored.path.as_deref(), Some(&*xml.to_string_lossy()));
+
+    let refused = crate::send::export_to_send(&stored, None).unwrap_err();
+    assert_eq!(refused.kind(), crate::ipc::ErrorKind::SendNeedsExport);
+    // Refused before any read: the database read is still the newest, and
+    // its snapshot stands.
+    assert_eq!(fx.snapshot(), from_database);
+    let last = fx.stored().last_read.unwrap();
+    assert_eq!(last.source, source::ReadSource::Database);
+}
+
+#[test]
+fn a_newer_export_read_after_a_database_read_sends_from_that_export_as_before() {
+    let fx = Fixture::new();
+    fx.turn_on();
+    assert_eq!(fx.run(read_job(&fx.db)).0, JobStatus::Done);
+    let xml = export(fx.db.parent().unwrap());
+    let xml = xml.to_string_lossy().into_owned();
+    // A path chosen in the checklist is an export, read as one.
+    assert_eq!(
+        crate::send::export_to_send(&fx.stored(), Some(xml.clone())).unwrap(),
+        xml
+    );
+    assert_eq!(fx.run(source::read_job(Path::new(&xml))).0, JobStatus::Done);
+    assert_eq!(
+        fx.stored().last_read.unwrap().source,
+        source::ReadSource::Xml
+    );
+    assert_eq!(
+        crate::send::export_to_send(&fx.stored(), None).unwrap(),
+        xml
     );
 }
 

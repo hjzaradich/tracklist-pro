@@ -118,5 +118,9 @@
     "purpose": "Error: no rekordbox export is chosen.",
     "where": "Shown where Read again or a send starts with no export chosen.",
     "approved": "No rekordbox export chosen"
+  },
+  "error.sendNeedsExport": {
+    "purpose": "Error: a send can't start from a read of rekordbox's database; it needs an XML export.",
+    "where": "Send checklist, when a send starts and the newest rekordbox read is from its database."
   }
 }

@@ -476,20 +476,28 @@ pub async fn send_state(
     Ok(flow.state(export))
 }
 
-/// The export a send starts from: `path` if given, else the chosen XML
-/// export. A library read from rekordbox's database doesn't count: a send
-/// still reads an XML export, so with none chosen it's refused plainly.
+/// The export a send starts from: `path` if given (an XML export the user
+/// chose, read as one), else the chosen XML export. A send still reads an
+/// XML export: a database read lacks fields every sent track carries
+/// (`rekordbox_db::library`, ROADMAP 2.7). So when the newest read is a
+/// database read the send is refused, rather than reading the older
+/// export, which would put that export's values back over the newer read.
+/// With no read and no export chosen, it's refused as having none.
 pub(crate) fn export_to_send(
     stored: &crate::rekordbox::source::XmlSource,
     path: Option<String>,
 ) -> Result<String, IpcError> {
-    match path {
-        Some(path) => Ok(path),
-        None => stored
-            .path
-            .clone()
-            .ok_or_else(|| IpcError::new(ErrorKind::NoRekordboxXml)),
+    if let Some(path) = path {
+        return Ok(path);
     }
+    let newest = stored.last_read.as_ref().map(|read| read.source);
+    if newest == Some(crate::rekordbox::source::ReadSource::Database) {
+        return Err(IpcError::new(ErrorKind::SendNeedsExport));
+    }
+    stored
+        .path
+        .clone()
+        .ok_or_else(|| IpcError::new(ErrorKind::NoRekordboxXml))
 }
 
 /// Starts a send: reads rekordbox's export again and builds the preflight,
