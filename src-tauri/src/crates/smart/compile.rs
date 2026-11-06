@@ -130,7 +130,8 @@ pub(super) fn condition(condition: &Condition, params: &mut Vec<Value>) -> Strin
 
 /// A tag condition. `exists` finds the tag (or group) itself and `applied`
 /// the track's tags among it: a tag or group that is gone matches no track,
-/// "doesn't have" included.
+/// "doesn't have" included. A group that exists but holds no tags is "has
+/// none" for every track and "has any" for none.
 fn has_tag(op: TagOp, exists: &str, applied: &str) -> String {
     match op {
         TagOp::Has => format!("EXISTS ({applied})"),

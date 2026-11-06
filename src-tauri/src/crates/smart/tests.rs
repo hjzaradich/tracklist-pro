@@ -764,6 +764,22 @@ fn a_deleted_tag_or_group_matches_no_track_and_the_rule_stays_readable() {
 }
 
 #[test]
+fn an_empty_tag_group_has_no_tag_to_have_so_any_in_it_matches_nothing_and_none_in_it_matches_every_track(
+) {
+    let w = world();
+    let (group, _) = w.lib.tags("Empty", vec![]);
+    let in_group = |op| Condition::TagGroup {
+        op,
+        group_id: group,
+    };
+    assert!(matched(&w.lib, one(in_group(TagOp::Has))).is_empty());
+    assert_eq!(
+        matched(&w.lib, one(in_group(TagOp::HasNot))),
+        vec![w.rec[0], w.rec[1], w.rec[2], w.rec[3], w.rec[4]]
+    );
+}
+
+#[test]
 fn tag_conditions_combine_with_other_fields_as_all_or_any() {
     let w = world();
     let r = w.rec;
