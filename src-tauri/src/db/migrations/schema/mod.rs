@@ -313,6 +313,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0049_genre.sql", &["genre", "genre_alias"]),
     // The custom tag vocabulary: groups, tags and the tags applied to tracks (3A-T).
     ("0050_vocab.sql", &["tag", "tag_applied", "tag_group"]),
+    // Play history: sessions and their plays (3B-H1).
+    ("0051_play_history.sql", &["play_event", "session"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
@@ -363,14 +365,7 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     // ROADMAP §2 "When tables arrive": Phase 2 and 3 tables come with the
     // phase that first needs them.
     let (_dir, conn) = db();
-    let later = [
-        "playlist",
-        "playlist_entry",
-        "play_source",
-        "play_event",
-        "session",
-        "embedding",
-    ];
+    let later = ["playlist", "playlist_entry", "play_source", "embedding"];
     let present = tables(&conn);
     for table in later {
         assert!(!present.iter().any(|t| t == table), "{table} arrived early");

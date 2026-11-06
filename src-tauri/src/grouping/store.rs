@@ -102,7 +102,8 @@ impl Summary {
 }
 
 /// A track is unreferenced when nothing but its files (`recording_file`)
-/// points at it. Everything that names a track by id is listed here, so
+/// points at it (and plays: `play_event.recording_id` is `ON DELETE SET NULL`,
+/// see [`settle_plays`], so a play neither blocks a delete nor appears here). Everything that names a track by id is listed here, so
 /// deleting one never trips a foreign key (a test compares this list with
 /// the schema's foreign keys).
 ///
@@ -643,6 +644,7 @@ fn step_in(conn: &mut Connection, batch: usize, scope: Option<&Scope>) -> rusqli
     sync_rekordbox(&tx)?;
     settle_analysis(&tx, &heirs)?;
     settle_removals(&tx, &heirs)?;
+    settle_plays(&tx, &heirs)?;
     if done {
         // With every file where the plan puts it: the links the pairs ask
         // for, and where each pair stands.
@@ -848,6 +850,31 @@ fn settle_removals(
                 "UPDATE library_removal SET recording_id = ?2 WHERE recording_id = ?1",
                 [old, heir],
             )?;
+        }
+    }
+    Ok(())
+}
+
+/// Moves the plays (`play_event`, History) of tracks that lost all their
+/// files to a merge over to the track most of their files went to, so a
+/// regroup keeps what was played. A play never keeps a track alive: it is
+/// not in [`UNREFERENCED`], and when the sweep deletes a track nothing took
+/// over, `play_event.recording_id` goes to NULL (`ON DELETE SET NULL`) and the
+/// play stays as an unmatched one with its raw path, artist and title.
+fn settle_plays(
+    conn: &Connection,
+    heirs: &BTreeMap<i64, BTreeMap<i64, u32>>,
+) -> rusqlite::Result<()> {
+    let mut has_files = conn
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM recording_file WHERE recording_id = ?1)")?;
+    let mut hand_over =
+        conn.prepare_cached("UPDATE play_event SET recording_id = ?2 WHERE recording_id = ?1")?;
+    for (&old, went_to) in heirs {
+        if has_files.query_row([old], |r| r.get::<_, bool>(0))? {
+            continue;
+        }
+        if let Some(heir) = heir_of(went_to) {
+            hand_over.execute([old, heir])?;
         }
     }
     Ok(())

@@ -96,6 +96,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0048_wishlist"),
     migration!("0049_genre"),
     migration!("0050_vocab"),
+    migration!("0051_play_history"),
 ];
 
 /// The table that records which migrations a database has had.

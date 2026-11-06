@@ -153,6 +153,10 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "remove_tag":
     case "import_tags":
       return t("undo.action.tags");
+    case "history_import":
+      return t("undo.action.historyImport");
+    case "history_set_date":
+      return t("undo.action.historySetDate");
   }
   return t("undo.action.other");
 }

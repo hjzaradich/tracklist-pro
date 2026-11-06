@@ -1,0 +1,44 @@
+{
+  "title": "History",
+  "import": {
+    "choose": "Import m3u8 file",
+    "filter": "Playlist files",
+    "hint": "In rekordbox, right-click a list under History and choose “Export a playlist to a file”. Each file becomes one set.",
+    "done_one": "Imported {{count, number}} play, {{matched, number}} of them in your music.",
+    "done_other": "Imported {{count, number}} plays, {{matched, number}} of them in your music.",
+    "skippedLines_one": "{{count, number}} line couldn't be read and was skipped.",
+    "skippedLines_other": "{{count, number}} lines couldn't be read and were skipped."
+  },
+  "refusal": {
+    "fileUnreadable": "Couldn't read that file.",
+    "fileTooBig": "That file is too big for a playlist (over 5 MB).",
+    "noPlays": "That file lists no tracks.",
+    "alreadyImported": "This set is already imported: the same tracks in the same order.",
+    "noSuchSession": "That set isn't here anymore.",
+    "badDate": "That isn't a date."
+  },
+  "sessions": {
+    "label": "Sets",
+    "none": "No sets yet. Import an m3u8 file from rekordbox's History.",
+    "summary_one": "{{date}} · {{count, number}} play, {{matched, number}} in your music",
+    "summary_other": "{{date}} · {{count, number}} plays, {{matched, number}} in your music"
+  },
+  "plays": {
+    "label": "Plays",
+    "choose": "Choose a set to see its plays.",
+    "track": "{{artist}} – {{title}}",
+    "notOwned": "Not in your music",
+    "date": "Played on",
+    "saveDate": "Save date"
+  },
+  "wishlist": {
+    "label": "Wishlist",
+    "add": "Add the tracks you don't have to this wishlist",
+    "noLists": "Make a wishlist first to add the tracks you don't have.",
+    "openWishlists": "Open Wishlists",
+    "added_one": "{{count, number}} track added to the wishlist.",
+    "added_other": "{{count, number}} tracks added to the wishlist.",
+    "skipped_one": "{{count, number}} track was left out: the file gives it no artist and title.",
+    "skipped_other": "{{count, number}} tracks were left out: the file gives them no artist and title."
+  }
+}

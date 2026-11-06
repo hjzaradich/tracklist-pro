@@ -1,0 +1,130 @@
+{
+  "title": {
+    "purpose": "Name of the play history screen and its sidebar entry.",
+    "where": "Sidebar, and the heading of the History screen."
+  },
+  "import.choose": {
+    "purpose": "Button that opens the file dialog to import an m3u8 playlist exported from rekordbox's History as one set.",
+    "where": "History screen, top."
+  },
+  "import.filter": {
+    "purpose": "Name of the file type filter in the file dialog (m3u8 and m3u files).",
+    "where": "File dialog opened from the History screen's import button."
+  },
+  "import.hint": {
+    "purpose": "Explains where the m3u8 file comes from and that each file is one set.",
+    "where": "History screen, under the import button."
+  },
+  "import.done_one": {
+    "purpose": "Says an m3u8 file was imported: how many plays, and how many matched a track the user has (one play).",
+    "where": "History screen, after an import."
+  },
+  "import.done_other": {
+    "purpose": "Says an m3u8 file was imported: how many plays, and how many matched a track the user has.",
+    "where": "History screen, after an import."
+  },
+  "import.skippedLines_one": {
+    "purpose": "Says how many lines of the imported file couldn't be read (one line). The import still happened.",
+    "where": "History screen, after an import with unreadable lines."
+  },
+  "import.skippedLines_other": {
+    "purpose": "Says how many lines of the imported file couldn't be read. The import still happened.",
+    "where": "History screen, after an import with unreadable lines."
+  },
+  "refusal.fileUnreadable": {
+    "purpose": "The picked file couldn't be read; nothing was imported.",
+    "where": "History screen, after an import."
+  },
+  "refusal.fileTooBig": {
+    "purpose": "The picked file is over the 5 MB limit; nothing was imported.",
+    "where": "History screen, after an import."
+  },
+  "refusal.noPlays": {
+    "purpose": "The picked file names no track; nothing was imported.",
+    "where": "History screen, after an import."
+  },
+  "refusal.alreadyImported": {
+    "purpose": "The file holds the same tracks in the same order as a set already imported, so it was not imported again.",
+    "where": "History screen, after an import."
+  },
+  "refusal.noSuchSession": {
+    "purpose": "The set the user acted on was removed meanwhile (for example by Undo).",
+    "where": "History screen, after changing a set."
+  },
+  "refusal.badDate": {
+    "purpose": "The date the user typed for a set isn't a real calendar day.",
+    "where": "History screen, after saving a set's date."
+  },
+  "sessions.label": {
+    "purpose": "Accessible name of the list of imported sets.",
+    "where": "History screen, list of sets."
+  },
+  "sessions.none": {
+    "purpose": "Shown when no set has been imported yet; says how to get one.",
+    "where": "History screen, list of sets, when empty."
+  },
+  "sessions.summary_one": {
+    "purpose": "Line under a set's name: the day it was played, how many plays (one), how many matched a track the user has.",
+    "where": "History screen, each set in the list."
+  },
+  "sessions.summary_other": {
+    "purpose": "Line under a set's name: the day it was played, how many plays, how many matched a track the user has.",
+    "where": "History screen, each set in the list."
+  },
+  "plays.label": {
+    "purpose": "Accessible name of the chosen set's plays.",
+    "where": "History screen, plays of the chosen set."
+  },
+  "plays.choose": {
+    "purpose": "Asks the user to pick a set to see its plays.",
+    "where": "History screen, when no set is chosen."
+  },
+  "plays.track": {
+    "purpose": "A play as the file named it: artist, then title.",
+    "where": "History screen, each play of the chosen set."
+  },
+  "plays.notOwned": {
+    "purpose": "Marks a play that matched no track the user has (a partner's track, or a file not in the music folders).",
+    "where": "History screen, next to such a play."
+  },
+  "plays.date": {
+    "purpose": "Label of the field that corrects the day a set was played.",
+    "where": "History screen, above the chosen set's plays."
+  },
+  "plays.saveDate": {
+    "purpose": "Button that saves the corrected date of a set (undoable).",
+    "where": "History screen, next to the date field."
+  },
+  "wishlist.label": {
+    "purpose": "Label of the choice of wishlist to add the set's unmatched tracks to.",
+    "where": "History screen, chosen set, while wishlists are on."
+  },
+  "wishlist.add": {
+    "purpose": "Button that adds the set's plays the user doesn't have to the chosen wishlist, in one undoable step.",
+    "where": "History screen, chosen set, while wishlists are on."
+  },
+  "wishlist.noLists": {
+    "purpose": "Shown instead of the add button when the user has no wishlist yet.",
+    "where": "History screen, chosen set, while wishlists are on."
+  },
+  "wishlist.openWishlists": {
+    "purpose": "Link to the Wishlists screen, to make a list.",
+    "where": "History screen, chosen set, when there is no wishlist."
+  },
+  "wishlist.added_one": {
+    "purpose": "Says how many tracks were added to the wishlist (one).",
+    "where": "History screen, after adding to a wishlist."
+  },
+  "wishlist.added_other": {
+    "purpose": "Says how many tracks were added to the wishlist.",
+    "where": "History screen, after adding to a wishlist."
+  },
+  "wishlist.skipped_one": {
+    "purpose": "Says how many unmatched plays weren't added because the file gave no artist or title (one).",
+    "where": "History screen, after adding to a wishlist."
+  },
+  "wishlist.skipped_other": {
+    "purpose": "Says how many unmatched plays weren't added because the file gave no artist or title.",
+    "where": "History screen, after adding to a wishlist."
+  }
+}
