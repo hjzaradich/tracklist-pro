@@ -17,7 +17,13 @@
 //! **Order.** Energy known first, then the higher score, then the lower id.
 //! Reasons (at most [`MOST_REASONS`]) are the signals that contributed most.
 //!
-//! Genre and tags are not here yet: see [`ExtraSignal`].
+//! **Genre** (3.2). The same canonical node is a full fit; a node that shares
+//! a parent with the chosen track's (or is its parent or child) is half. A
+//! track with no mapped genre gives the candidate nothing, and the chosen
+//! track having none leaves the signal unused. **Tags** (3.1) count the tags
+//! both have, against the chosen track's own (at most three): sharing all of
+//! up to three is a full fit. None on the chosen track leaves it unused.
+//! Neither says anything when it counts for nothing.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -38,6 +44,32 @@ pub struct Facts {
     pub key: Option<Camelot>,
     /// The energy the track shows, 1 to 10.
     pub energy: Option<u8>,
+    /// The track's canonical genre, if it maps to one.
+    pub genre: Option<GenreRef>,
+}
+
+/// A canonical genre node and its parent (3.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GenreRef {
+    pub node: i64,
+    pub parent: Option<i64>,
+}
+
+/// The names and shared tags the reasons need; filled only for the signals
+/// that count.
+#[derive(Debug, Clone, Default)]
+pub struct Vocab {
+    /// Genre node names.
+    pub genre_names: HashMap<i64, String>,
+    /// The chosen track's tags by name, in a fixed order.
+    pub target_tags: Vec<String>,
+    /// For each track sharing a tag with the chosen one, which of
+    /// `target_tags` (by position, ascending) it shares.
+    pub shared_tags: HashMap<i64, Vec<usize>>,
+    /// Whether any track has a tag at all. A user with none has nothing to
+    /// be told is missing, so tags are then left out of the "not used" list.
+    /// Read only when the chosen track has no tags.
+    pub any_tags: bool,
 }
 
 /// A track to rank: its id and what it is compared by.
@@ -80,6 +112,13 @@ pub enum ReasonCode {
     EnergyNone,
     /// Played right after the chosen track `count` times.
     PlayedAfter,
+    /// The same genre (`from`).
+    GenreSame,
+    /// A genre next to the chosen track's: a sibling, parent or child
+    /// (`from`, `to`).
+    GenreRelated,
+    /// `tags` in common (`count` of them).
+    TagsShared,
 }
 
 /// One reason a candidate ranks where it does, as data for the screen to
@@ -97,6 +136,8 @@ pub struct Reason {
     pub delta: Option<f64>,
     pub step: Option<i32>,
     pub count: Option<u32>,
+    /// The tags in common, for `TagsShared`.
+    pub tags: Option<Vec<String>>,
 }
 
 impl Reason {
@@ -109,18 +150,14 @@ impl Reason {
             delta: None,
             step: None,
             count: None,
+            tags: None,
         }
     }
 }
 
-/// A signal beyond the four built in, to be weighed with them.
-///
-/// TODO(3A-G, 3A-T): genre (`stage/3A-G`, `genre` and `track_row.genre_node`)
-/// and tags (`stage/3A-T`, `tag_applied`) are not on this branch's base.
-/// When they merge, implement this for each (a genre match or neighbor, tags
-/// in common), add their codes to [`ReasonCode`], their weights to
-/// [`Weights`] and the settings panel, and pass the implementations to
-/// `next_for`.
+/// A signal beyond the six built in, to be weighed with them (a hook for a
+/// later one, such as the audio model's similarity, 3.8). Genre and tags are
+/// built in, because they are reported as not used and need a weight setting.
 pub trait ExtraSignal {
     /// How the candidate fits the chosen track on this signal, or `None`
     /// when it does not apply to the pair.
@@ -146,6 +183,7 @@ pub struct Ask<'a> {
     /// How often each track was played right after the chosen one.
     pub played_after: &'a HashMap<i64, u32>,
     pub extras: &'a [&'a dyn ExtraSignal],
+    pub vocab: &'a Vocab,
 }
 
 /// A ranked candidate.
@@ -253,6 +291,8 @@ struct Plan {
     bpm: Option<f64>,
     energy: Option<u8>,
     played: bool,
+    genre: Option<GenreRef>,
+    tags: bool,
     ignored: Vec<Signal>,
 }
 
@@ -275,11 +315,27 @@ fn plan(ask: &Ask) -> Plan {
         .then_some(ask.target.energy)
         .flatten();
     let played = want(Signal::Played, w.played, !ask.played_after.is_empty());
+    let genre = want(Signal::Genre, w.genre, ask.target.genre.is_some())
+        .then_some(ask.target.genre)
+        .flatten();
+    let tags = if w.tags == 0 {
+        false
+    } else if ask.vocab.target_tags.is_empty() {
+        // Not used; said so only to a user who has tags somewhere.
+        if ask.vocab.any_tags {
+            ignored.push(Signal::Tags);
+        }
+        false
+    } else {
+        true
+    };
     Plan {
         key,
         bpm,
         energy,
         played,
+        genre,
+        tags,
         ignored,
     }
 }
@@ -290,12 +346,66 @@ thread_local! {
     pub(super) static NAMED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// How a candidate's genre fits the chosen track's: the same node, a node
+/// beside it, or nothing.
+fn genre_part(ask: &Ask, target: GenreRef, c: &Candidate, names: bool) -> Part {
+    let w = ask.settings.weights.genre;
+    let name = |node: i64| ask.vocab.genre_names.get(&node).cloned();
+    let (code, fitness) = match c.facts.genre {
+        None => (None, 0.0),
+        Some(g) if g.node == target.node => (Some(ReasonCode::GenreSame), 1.0),
+        Some(g)
+            if (g.parent.is_some() && g.parent == target.parent)
+                || g.parent == Some(target.node)
+                || target.parent == Some(g.node) =>
+        {
+            (Some(ReasonCode::GenreRelated), 0.5)
+        }
+        Some(_) => (None, 0.0),
+    };
+    let mut reason = Reason::new(code.unwrap_or(ReasonCode::GenreRelated), fitness);
+    if names && code.is_some() {
+        reason.from = name(target.node);
+        reason.to = c.facts.genre.and_then(|g| name(g.node));
+    }
+    Part {
+        signal: Some(Signal::Genre),
+        weight: w,
+        fitness,
+        reason,
+    }
+}
+
+/// How many of the chosen track's tags the candidate has.
+fn tags_part(ask: &Ask, c: &Candidate, names: bool) -> Part {
+    let vocab = ask.vocab;
+    let shared = vocab.shared_tags.get(&c.id).map_or(&[][..], Vec::as_slice);
+    let most = vocab.target_tags.len().clamp(1, 3);
+    let fitness = (shared.len() as f64 / most as f64).min(1.0);
+    let mut reason = Reason::new(ReasonCode::TagsShared, fitness);
+    reason.count = u32::try_from(shared.len()).ok();
+    if names {
+        reason.tags = Some(
+            shared
+                .iter()
+                .filter_map(|&n| vocab.target_tags.get(n).cloned())
+                .collect(),
+        );
+    }
+    Part {
+        signal: Some(Signal::Tags),
+        weight: ask.settings.weights.tags,
+        fitness,
+        reason,
+    }
+}
+
 /// The parts for one candidate. `names` says whether the reason text fields
 /// (the key names) are filled; the order needs only the fitness.
 fn parts(ask: &Ask, plan: &Plan, c: &Candidate, names: bool) -> Vec<Part> {
     let w: &Weights = &ask.settings.weights;
     let tolerance = ask.settings.tolerance;
-    let mut out = Vec::with_capacity(4);
+    let mut out = Vec::with_capacity(6);
     if let Some(target) = plan.key {
         out.push(match c.facts.key {
             None => Part {
@@ -395,6 +505,12 @@ fn parts(ask: &Ask, plan: &Plan, c: &Candidate, names: bool) -> Vec<Part> {
             });
         }
     }
+    if let Some(target) = plan.genre {
+        out.push(genre_part(ask, target, c, names));
+    }
+    if plan.tags {
+        out.push(tags_part(ask, c, names));
+    }
     for extra in ask.extras {
         if let Some(p) = extra.part(ask.target_id, c.id) {
             // A bad extra is "not used": NaN or a fitness outside 0..=1 is
@@ -431,7 +547,8 @@ fn score_of(parts: &[Part]) -> f64 {
 }
 
 /// The reasons to show: energy missing first, then by contribution; what
-/// counted for nothing (nothing played) is never a reason.
+/// counted for nothing (nothing played, no genre or tag in common) is never a
+/// reason.
 fn reasons_of(plan: &Plan, c: &Candidate, parts: Vec<Part>) -> Vec<Reason> {
     let mut out = Vec::with_capacity(MOST_REASONS);
     if lacks_energy(plan, c) {
@@ -439,7 +556,11 @@ fn reasons_of(plan: &Plan, c: &Candidate, parts: Vec<Part>) -> Vec<Reason> {
     }
     let mut rest: Vec<Part> = parts
         .into_iter()
-        .filter(|p| !(p.signal == Some(Signal::Played) && p.reason.count.is_none()))
+        .filter(|p| match p.signal {
+            Some(Signal::Played) => p.reason.count.is_some(),
+            Some(Signal::Genre | Signal::Tags) => p.fitness > 0.0,
+            _ => true,
+        })
         .collect();
     // Stable: equal contributions keep the signals' order.
     rest.sort_by(|a, b| {

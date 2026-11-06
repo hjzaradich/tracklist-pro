@@ -2199,6 +2199,8 @@ export type NextReason = {
 	delta: number | null,
 	step: number | null,
 	count: number | null,
+	/**  The tags in common, for `TagsShared`. */
+	tags: string[] | null,
 };
 
 /**  The best next tracks. */
@@ -2242,17 +2244,14 @@ export type NextUndo = {
 	refusal: UndoRefusal | null,
 };
 
-/**
- *  How much each signal counts, 0 (off) to [`MOST_WEIGHT`].
- * 
- *  TODO(3A-G, 3A-T): `genre` and `tags` join these when those features merge
- *  (see [`score::ExtraSignal`]).
- */
+/**  How much each signal counts, 0 (off) to [`MOST_WEIGHT`]. */
 export type NextWeights = {
 	key: number,
 	bpm: number,
 	energy: number,
 	played: number,
+	genre: number,
+	tags: number,
 };
 
 /**  A Library track that has no genre. */
@@ -2625,7 +2624,16 @@ export type ReasonCode =
 /**  The candidate has no energy, which is why it is last. */
 "energyNone" | 
 /**  Played right after the chosen track `count` times. */
-"playedAfter";
+"playedAfter" | 
+/**  The same genre (`from`). */
+"genreSame" | 
+/**
+ *  A genre next to the chosen track's: a sibling, parent or child
+ *  (`from`, `to`).
+ */
+"genreRelated" | 
+/**  `tags` in common (`count` of them). */
+"tagsShared";
 
 /**
  *  A value filled into a reason's text, e.g. `bpm` = 2 or `tag` = "Peak Time".
@@ -3052,7 +3060,7 @@ export type ShownAgain = {
 export type Side = "app" | "rekordbox";
 
 /**  The signals that carry a weight. */
-export type Signal = "key" | "bpm" | "energy" | "played";
+export type Signal = "key" | "bpm" | "energy" | "played" | "genre" | "tags";
 
 /**  Why "Accept all" left an item as it is. */
 export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetLinked" | "entryOfAnotherTrack" | 
