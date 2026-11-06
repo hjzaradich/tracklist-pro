@@ -565,6 +565,10 @@ export const commands = {
 	/**  More tracks, pasted, for the end of a wishlist. */
 	wishlistAddFromPaste: (wishlistId: number, pasted: string) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_add_from_paste", { wishlistId, pasted })),
 	wishlistRename: (wishlistId: number, name: string) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_rename", { wishlistId, name })),
+	/**
+	 *  Not behind the feature switch: taking away your own data stays possible
+	 *  while wishlists are off.
+	 */
 	wishlistDelete: (wishlistId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_delete", { wishlistId })),
 	wishlistRemoveItem: (itemId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_remove_item", { itemId })),
 	wishlistSetBought: (itemId: number, bought: boolean) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_set_bought", { itemId, bought })),
@@ -3229,7 +3233,9 @@ wishlistId: number | null;
 /**  Items made. */
 added: number; 
 /**  Lines or rows an import couldn't take, each with where and why. */
-skipped: WishSkippedLine[] } | 
+skipped: WishSkippedLine[]; 
+/**  How many in all; `skipped` keeps only the first few. */
+skippedTotal: number } | 
 /**  Nothing was written. */
 { outcome: "refused"; reason: WishlistRefusal };
 
@@ -3240,7 +3246,11 @@ export type WishlistRefusal = "nameEmpty" | "nameTooLong" | "notesTooLong" | "no
 /**  More items than [`MAX_ITEMS`]. */
 "tooManyItems" | 
 /**  The file couldn't be read, or isn't text. */
-"fileUnreadable" | "fileTooBig" | 
+"fileUnreadable" | 
+/**  The file is over [`MAX_FILE_BYTES`]. */
+"fileTooBig" | 
+/**  The pasted text is over [`MAX_TEXT_BYTES`]. */
+"textTooBig" | 
 /**  The CSV has no column naming the artist. */
 "noArtistColumn" | 
 /**  The CSV has no column naming the title. */

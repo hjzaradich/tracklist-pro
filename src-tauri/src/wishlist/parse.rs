@@ -47,7 +47,22 @@ pub struct WishSkippedLine {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Parsed {
     pub tracks: Vec<WishTrack>,
+    /// The first [`MAX_SKIPPED_SHOWN`] lines or rows not taken.
     pub skipped: Vec<WishSkippedLine>,
+    /// How many were not taken in all.
+    pub skipped_total: u32,
+}
+
+/// How many skipped lines are kept to show; the rest are only counted.
+pub const MAX_SKIPPED_SHOWN: usize = 100;
+
+impl Parsed {
+    fn skip(&mut self, line: WishSkippedLine) {
+        self.skipped_total = self.skipped_total.saturating_add(1);
+        if self.skipped.len() < MAX_SKIPPED_SHOWN {
+            self.skipped.push(line);
+        }
+    }
 }
 
 /// Why a CSV file can't be read as a wishlist.
@@ -68,23 +83,50 @@ fn tidy(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The row a record starts on. The reader leaves blank lines out and
-/// reports a record at the end of the one before, so the blank lines in
-/// front are counted here.
-fn row_at(text: &str, position: &::csv::Position) -> u32 {
-    let bytes = text.as_bytes();
-    let at = usize::try_from(position.byte())
-        .unwrap_or(usize::MAX)
-        .min(bytes.len());
-    let mut row = bytes[..at].iter().filter(|b| **b == b'\n').count() + 1;
-    for b in &bytes[at..] {
-        match b {
-            b'\n' => row += 1,
-            b'\r' => {}
-            _ => break,
+/// Turns a record's byte position into its row, in one pass over the file:
+/// positions only move forward, so the newlines are counted from where the
+/// last count stopped. The reader leaves blank lines out and reports a record
+/// at the end of the one before, so the blank lines in front are counted too.
+struct Rows<'a> {
+    bytes: &'a [u8],
+    at: usize,
+    newlines: usize,
+    /// Bytes looked at, in all.
+    scanned: usize,
+}
+
+impl<'a> Rows<'a> {
+    fn new(text: &'a str) -> Self {
+        Rows {
+            bytes: text.as_bytes(),
+            at: 0,
+            newlines: 0,
+            scanned: 0,
         }
     }
-    line_number(row - 1)
+
+    fn row_at(&mut self, position: &::csv::Position) -> u32 {
+        let at = usize::try_from(position.byte())
+            .unwrap_or(usize::MAX)
+            .min(self.bytes.len());
+        if at < self.at {
+            (self.at, self.newlines) = (0, 0);
+        }
+        let new = &self.bytes[self.at..at];
+        self.scanned += new.len();
+        self.newlines += new.iter().filter(|b| **b == b'\n').count();
+        self.at = at;
+        let mut row = self.newlines + 1;
+        for b in &self.bytes[at..] {
+            self.scanned += 1;
+            match b {
+                b'\n' => row += 1,
+                b'\r' => {}
+                _ => break,
+            }
+        }
+        line_number(row - 1)
+    }
 }
 
 fn line_number(index: usize) -> u32 {
@@ -111,14 +153,14 @@ pub fn paste(text: &str) -> Parsed {
         };
         let body = strip_lead(line);
         let Some((artist, title)) = split_artist_title(body) else {
-            out.skipped.push(skipped(WishSkipReason::NoSeparator));
+            out.skip(skipped(WishSkipReason::NoSeparator));
             continue;
         };
         let (artist, title) = (tidy(artist), tidy(title));
         if artist.is_empty() {
-            out.skipped.push(skipped(WishSkipReason::MissingArtist));
+            out.skip(skipped(WishSkipReason::MissingArtist));
         } else if title.is_empty() {
-            out.skipped.push(skipped(WishSkipReason::MissingTitle));
+            out.skip(skipped(WishSkipReason::MissingTitle));
         } else {
             let (title, version) = split_version(&title);
             out.tracks.push(WishTrack {
@@ -208,20 +250,20 @@ fn split_artist_title(body: &str) -> Option<(&str, &str)> {
 /// only a bracket.
 fn split_version(title: &str) -> (String, Option<String>) {
     let unsplit = || (title.to_owned(), None);
-    let Some(opener) = title
+    let Some(open_char) = title
         .strip_suffix(')')
         .map(|_| '(')
         .or_else(|| title.strip_suffix(']').map(|_| '['))
     else {
         return unsplit();
     };
-    let closer = if opener == '(' { ')' } else { ']' };
+    let closer = if open_char == '(' { ')' } else { ']' };
     let mut depth = 0usize;
     let mut open_at = None;
     for (at, c) in title.char_indices().rev() {
         if c == closer {
             depth += 1;
-        } else if c == opener {
+        } else if c == open_char {
             depth -= 1;
             if depth == 0 {
                 open_at = Some(at);
@@ -276,6 +318,11 @@ fn column(headers: &[String], names: &[&str]) -> Option<usize> {
 /// (Exportify's "Track Name" and "Artist Name(s)", or just "artist" and
 /// "title"; "ISRC" and "Version" are used when there); others are ignored.
 pub fn csv(text: &str) -> Result<Parsed, CsvProblem> {
+    csv_counting(text).map(|(parsed, _)| parsed)
+}
+
+/// [`csv`], and how many bytes the row counting looked at.
+pub(super) fn csv_counting(text: &str) -> Result<(Parsed, usize), CsvProblem> {
     let text = text.trim_start_matches('\u{feff}');
     let mut reader = ::csv::ReaderBuilder::new()
         .flexible(true)
@@ -291,6 +338,7 @@ pub fn csv(text: &str) -> Result<Parsed, CsvProblem> {
     let version_at = column(&headers, &VERSION_NAMES);
     let isrc_at = column(&headers, &ISRC_NAMES);
 
+    let mut rows = Rows::new(text);
     let mut out = Parsed::default();
     for (index, record) in reader.records().enumerate() {
         // The header is row 1; blank lines are not records but are rows.
@@ -298,15 +346,15 @@ pub fn csv(text: &str) -> Result<Parsed, CsvProblem> {
         let record = match record {
             Ok(record) => record,
             Err(error) => {
-                out.skipped.push(WishSkippedLine {
-                    line: error.position().map_or(fallback, |p| row_at(text, p)),
+                out.skip(WishSkippedLine {
+                    line: error.position().map_or(fallback, |p| rows.row_at(p)),
                     text: String::new(),
                     reason: WishSkipReason::Unreadable,
                 });
                 continue;
             }
         };
-        let row = record.position().map_or(fallback, |p| row_at(text, p));
+        let row = record.position().map_or(fallback, |p| rows.row_at(p));
         let cell = |at: usize| tidy(record.get(at).unwrap_or(""));
         let optional = |at: Option<usize>| at.map(cell).filter(|text| !text.is_empty());
         let (artist, title) = (cell(artist_at).replace(';', ", "), cell(title_at));
@@ -321,7 +369,7 @@ pub fn csv(text: &str) -> Result<Parsed, CsvProblem> {
             if record.iter().all(|c| c.trim().is_empty()) {
                 continue;
             }
-            out.skipped.push(WishSkippedLine {
+            out.skip(WishSkippedLine {
                 line: row,
                 text: shown(&record.iter().collect::<Vec<_>>().join(", ")),
                 reason,
@@ -335,5 +383,5 @@ pub fn csv(text: &str) -> Result<Parsed, CsvProblem> {
             isrc: optional(isrc_at).and_then(|isrc| normalize_isrc(&isrc)),
         });
     }
-    Ok(out)
+    Ok((out, rows.scanned))
 }

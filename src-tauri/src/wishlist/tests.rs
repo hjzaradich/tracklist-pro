@@ -719,6 +719,7 @@ fn a_paste_with_nothing_readable_makes_no_wishlist_and_says_what_it_skipped() {
         wishlist_id,
         added,
         skipped,
+        ..
     } = outcome
     else {
         panic!("refused");
@@ -896,6 +897,12 @@ fn every_wishlist_command_refuses_over_ipc_while_wishlists_are_off() {
     ] {
         assert_eq!(invoke(&app, command, args), Ok(off.clone()), "{command}");
     }
+    // Deleting is the one command that stays allowed: with no such list it
+    // says so, rather than that wishlists are off.
+    assert_eq!(
+        invoke(&app, "wishlist_delete", json!({"wishlistId": 1})),
+        Ok(json!({"outcome": "refused", "reason": "noSuchWishlist"}))
+    );
     assert_eq!(
         invoke(
             &app,
@@ -914,4 +921,64 @@ fn every_wishlist_command_refuses_over_ipc_while_wishlists_are_off() {
         json!({"name": "n", "pasted": "A - B"}),
     );
     assert_eq!(made.unwrap()["outcome"], "done");
+}
+
+#[test]
+fn twenty_thousand_csv_rows_are_read_in_one_pass() {
+    let mut text = String::from("artist,title\n");
+    for i in 0..20_000 {
+        text.push_str(&format!("Artist {i},Title {i}\n"));
+    }
+    text.push_str("Only artist,\n,No artist\n");
+    let (parsed, scanned) = parse::csv_counting(&text).unwrap();
+    assert_eq!(parsed.tracks.len(), 20_000);
+    assert_eq!(parsed.skipped_total, 2);
+    assert_eq!(parsed.skipped[0].line, 20_002);
+    // Counted in bytes looked at, not time: each is seen about once.
+    assert!(scanned <= text.len() * 2, "{scanned} of {}", text.len());
+}
+
+#[test]
+fn only_the_first_hundred_skipped_lines_are_kept_and_all_are_counted() {
+    let pasted = "no separator\n".repeat(250);
+    let parsed = parse::paste(&pasted);
+    assert_eq!(parsed.skipped.len(), 100);
+    assert_eq!(parsed.skipped_total, 250);
+    assert_eq!(parsed.skipped[99].line, 100);
+}
+
+#[test]
+fn csv_is_utf8_with_or_without_a_bom_and_nothing_else() {
+    let lib = lib_on();
+    let mut bom = vec![0xEF, 0xBB, 0xBF];
+    bom.extend_from_slice("artist,title\nCaf\u{e9},B".as_bytes());
+    let outcome = run(&lib, move |c| create_from_csv(c, "x", &bom));
+    assert_eq!(made(&outcome).2, 1);
+    let latin1 = b"artist,title\nCaf\xe9,B".to_vec();
+    assert_eq!(
+        run(&lib, move |c| create_from_csv(c, "y", &latin1)),
+        WishlistOutcome::Refused {
+            reason: WishlistRefusal::FileUnreadable
+        }
+    );
+}
+
+#[test]
+fn input_over_five_megabytes_is_refused() {
+    let lib = lib_on();
+    let big = "a".repeat(MAX_TEXT_BYTES + 1);
+    let text = big.clone();
+    assert_eq!(
+        run(&lib, move |c| create_from_paste(c, "x", &text)),
+        WishlistOutcome::Refused {
+            reason: WishlistRefusal::TextTooBig
+        }
+    );
+    let bytes = big.into_bytes();
+    assert_eq!(
+        run(&lib, move |c| create_from_csv(c, "x", &bytes)),
+        WishlistOutcome::Refused {
+            reason: WishlistRefusal::FileTooBig
+        }
+    );
 }

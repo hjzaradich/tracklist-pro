@@ -47,7 +47,9 @@ pub const NOTES_OPERATION: &str = "wishlist_notes";
 pub const MAX_ITEMS: usize = 20_000;
 pub const MAX_NAME_CHARS: usize = 200;
 pub const MAX_NOTES_CHARS: usize = 2_000;
-pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
+/// The most pasted text taken, in bytes.
+pub const MAX_TEXT_BYTES: usize = 5 * 1024 * 1024;
 
 /// Why nothing was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -64,7 +66,10 @@ pub enum WishlistRefusal {
     TooManyItems,
     /// The file couldn't be read, or isn't text.
     FileUnreadable,
+    /// The file is over [`MAX_FILE_BYTES`].
     FileTooBig,
+    /// The pasted text is over [`MAX_TEXT_BYTES`].
+    TextTooBig,
     /// The CSV has no column naming the artist.
     NoArtistColumn,
     /// The CSV has no column naming the title.
@@ -85,6 +90,8 @@ pub enum WishlistOutcome {
         added: u32,
         /// Lines or rows an import couldn't take, each with where and why.
         skipped: Vec<WishSkippedLine>,
+        /// How many in all; `skipped` keeps only the first few.
+        skipped_total: u32,
     },
     /// Nothing was written.
     #[serde(rename_all = "camelCase")]
@@ -101,6 +108,7 @@ fn done(operation_id: Option<i64>, wishlist_id: i64) -> WishlistOutcome {
         wishlist_id: Some(wishlist_id),
         added: 0,
         skipped: Vec::new(),
+        skipped_total: 0,
     }
 }
 
@@ -226,6 +234,7 @@ fn create(
             wishlist_id: None,
             added: 0,
             skipped: parsed.skipped,
+            skipped_total: parsed.skipped_total,
         });
     }
     let recorded = ops::record(
@@ -246,6 +255,7 @@ fn create(
         wishlist_id: Some(recorded.value),
         added,
         skipped: parsed.skipped,
+        skipped_total: parsed.skipped_total,
     })
 }
 
@@ -257,6 +267,9 @@ pub fn create_from_paste(
 ) -> Result<WishlistOutcome, OpsError> {
     if !enabled(conn)? {
         return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
+    if pasted.len() > MAX_TEXT_BYTES {
+        return Ok(refused(WishlistRefusal::TextTooBig));
     }
     create(conn, name, WishlistSource::Paste, parse::paste(pasted))
 }
@@ -270,7 +283,14 @@ pub fn create_from_csv(
     if !enabled(conn)? {
         return Ok(refused(WishlistRefusal::NotTurnedOn));
     }
-    let parsed = match parse::csv(&String::from_utf8_lossy(bytes)) {
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Ok(refused(WishlistRefusal::FileTooBig));
+    }
+    // UTF-8 only (a byte order mark is dropped); anything else is not guessed at.
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return Ok(refused(WishlistRefusal::FileUnreadable));
+    };
+    let parsed = match parse::csv(text) {
         Ok(parsed) => parsed,
         Err(parse::CsvProblem::NoArtistColumn) => {
             return Ok(refused(WishlistRefusal::NoArtistColumn))
@@ -295,6 +315,9 @@ pub fn add_from_paste(
     if !wishlist_exists(conn, wishlist)? {
         return Ok(refused(WishlistRefusal::NoSuchWishlist));
     }
+    if pasted.len() > MAX_TEXT_BYTES {
+        return Ok(refused(WishlistRefusal::TextTooBig));
+    }
     let parsed = parse::paste(pasted);
     let held: i64 = conn.query_row(
         "SELECT count(*) FROM wish_item WHERE wishlist_id = ?1",
@@ -311,6 +334,7 @@ pub fn add_from_paste(
             wishlist_id: Some(wishlist),
             added: 0,
             skipped: parsed.skipped,
+            skipped_total: parsed.skipped_total,
         });
     }
     let recorded = ops::record(
@@ -334,6 +358,7 @@ pub fn add_from_paste(
         wishlist_id: Some(wishlist),
         added,
         skipped: parsed.skipped,
+        skipped_total: parsed.skipped_total,
     })
 }
 
@@ -732,6 +757,8 @@ pub fn wishlist_rename(
     Ok(writer.call(move |c| Ok(rename(c, wishlist_id, &name)))??)
 }
 
+/// Not behind the feature switch: taking away your own data stays possible
+/// while wishlists are off.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn wishlist_delete(
