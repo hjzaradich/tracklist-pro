@@ -163,6 +163,58 @@ pub(super) enum Action {
     RemoveTag(usize, Vec<usize>),
     /// Copy rekordbox's My Tags in.
     ImportTags,
+    /// A smart crate (3.3) named from [`NAMES`], with the n-th of [`rules`].
+    CreateSmartCrate(usize, usize),
+    /// The n-th smart crate gets the m-th of [`rules`].
+    SetSmartRule(usize, usize),
+    /// Tracks on the n-th smart crate's always-include list.
+    AlwaysInclude(usize, Vec<usize>),
+    /// Tracks on the n-th smart crate's never-include list.
+    NeverInclude(usize, Vec<usize>),
+}
+
+/// A few smart crate rules, each made of fixed values.
+fn rules(n: usize) -> crates::smart::SmartRule {
+    use crates::smart::{ChoiceOp, Combine, Condition, NumberOp, SmartRule, TextOp};
+    let all = [
+        SmartRule {
+            combine: Combine::All,
+            conditions: vec![Condition::Energy {
+                op: NumberOp::AtLeast,
+                value: 7,
+                to: None,
+            }],
+        },
+        SmartRule {
+            combine: Combine::Any,
+            conditions: vec![
+                Condition::Bpm {
+                    op: NumberOp::Between,
+                    value: 120,
+                    to: Some(126),
+                    half_double: true,
+                },
+                Condition::Genre {
+                    op: TextOp::Contains,
+                    value: "house".to_owned(),
+                },
+            ],
+        },
+        SmartRule {
+            combine: Combine::All,
+            conditions: vec![
+                Condition::Key {
+                    op: ChoiceOp::IsNot,
+                    value: "8A".to_owned(),
+                },
+                Condition::InCrate {
+                    op: ChoiceOp::Is,
+                    crate_id: CrateId(1),
+                },
+            ],
+        },
+    ];
+    all[n % all.len()].clone()
 }
 
 /// Every row of every logged table, each value as text.
@@ -290,6 +342,10 @@ impl Lib {
 
     pub fn tag_ids(&self) -> Vec<i64> {
         self.ids("SELECT id FROM tag ORDER BY id")
+    }
+
+    pub fn smart_crate_ids(&self) -> Vec<i64> {
+        self.ids("SELECT id FROM crate WHERE kind = 'smart' ORDER BY id")
     }
 
     /// Operations made and not undone.
@@ -537,6 +593,47 @@ impl Lib {
                     .unwrap()
                     .unwrap();
             }
+            Action::CreateSmartCrate(name, rule) => {
+                let name = NAMES[name % NAMES.len()];
+                let rule = rules(*rule);
+                // A taken name is refused, which is fine here.
+                let _ = self
+                    .writer
+                    .call(move |c| Ok(crates::smart::create_smart_on(c, None, name, &rule)))
+                    .unwrap()
+                    .unwrap();
+            }
+            Action::SetSmartRule(n, rule) => {
+                if let Some(id) = pick(&self.smart_crate_ids(), *n) {
+                    let rule = rules(*rule);
+                    self.writer
+                        .call(move |c| Ok(crates::smart::set_rule_on(c, CrateId(id), &rule)))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::AlwaysInclude(n, tracks) | Action::NeverInclude(n, tracks) => {
+                let inclusion = match action {
+                    Action::AlwaysInclude(..) => crates::smart::Inclusion::Always,
+                    _ => crates::smart::Inclusion::Never,
+                };
+                if let Some(id) = pick(&self.smart_crate_ids(), *n) {
+                    let tracks = pick_tracks(&self.library_tracks(), tracks);
+                    self.writer
+                        .call(move |c| {
+                            Ok(crates::smart::include_on(
+                                c,
+                                CrateId(id),
+                                &tracks,
+                                inclusion,
+                            ))
+                        })
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
         }
         self.operations() > before
     }
@@ -770,6 +867,10 @@ pub(super) fn action() -> impl Strategy<Value = Action> {
         3 => (0..4usize, tracks()).prop_map(|(n, t)| Action::ApplyTag(n, t)),
         2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::RemoveTag(n, t)),
         1 => Just(Action::ImportTags),
+        2 => (0..NAMES.len(), 0..3usize).prop_map(|(name, r)| Action::CreateSmartCrate(name, r)),
+        1 => (0..4usize, 0..3usize).prop_map(|(n, r)| Action::SetSmartRule(n, r)),
+        2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::AlwaysInclude(n, t)),
+        2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::NeverInclude(n, t)),
     ]
 }
 

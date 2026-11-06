@@ -27,6 +27,7 @@ export interface EnglishResources {
   "send": typeof import("../locales/en/send.json");
   "settings": typeof import("../locales/en/settings.json");
   "shell": typeof import("../locales/en/shell.json");
+  "smartCrates": typeof import("../locales/en/smartCrates.json");
   "suggest": typeof import("../locales/en/suggest.json");
   "theme": typeof import("../locales/en/theme.json");
   "trackTable": typeof import("../locales/en/trackTable.json");

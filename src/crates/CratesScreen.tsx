@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Crate, FolderContents } from "../bindings";
+import type { Crate, FolderContents, SmartRule } from "../bindings";
 import { libraryRow, type LibraryRow } from "../library/libraryRow";
 import { shownTitle } from "../library/RemoveFromLibrary";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
@@ -10,6 +10,9 @@ import { TrackTableView } from "../trackTable/TrackTableView";
 import { ConfirmDelete, MoveForm, NameForm } from "./CrateForms";
 import { CrateNotes, CrateSummaryLine } from "./CrateInfo";
 import styles from "./CratesScreen.module.css";
+import { EMPTY_RULE, SMART_ICON } from "./smart/rule";
+import { SmartCrateView } from "./smart/SmartCrateView";
+import { useCreateSmartCrate, useSetSmartRule } from "./smart/useSmartCrates";
 import { buildTree, PATH_SEPARATOR, pathOf, type TreeNode } from "./tree";
 import {
   CRATES_QUERY_KEY,
@@ -35,7 +38,9 @@ type Done =
   | "moved"
   | "removed"
   | "notesSaved"
-  | "notesCleared";
+  | "notesCleared"
+  | "createdSmart"
+  | "ruleSaved";
 
 /**
  * What the screen is asking for, if anything. The first four make something
@@ -43,6 +48,7 @@ type Done =
  */
 type Asking =
   | "new"
+  | "newSmart"
   | "newFolder"
   | "newInside"
   | "newFolderInside"
@@ -67,6 +73,7 @@ export function CratesScreen({
   onChoose: (id: number | null) => void;
 }) {
   const { t } = useTranslation("crates");
+  const { t: ts } = useTranslation("smartCrates");
   const crates = useCrates();
   const [asking, setAsking] = useState<Asking>(null);
   const [done, setDone] = useState<Done | null>(null);
@@ -77,6 +84,8 @@ export function CratesScreen({
   const move = useMoveCrate();
   const take = useRemoveFromCrate();
   const setNotes = useSetCrateNotes();
+  const createSmart = useCreateSmartCrate();
+  const setRule = useSetSmartRule();
 
   const list = crates.data ?? [];
   // The crate or folder the right side shows: the chosen one, if it exists.
@@ -109,8 +118,12 @@ export function CratesScreen({
     move.reset();
     take.reset();
     setNotes.reset();
+    createSmart.reset();
+    setRule.reset();
   };
-  const failure = [create, createFolder, rename, remove, move, take, setNotes].find((m) => m.isError);
+  const failure = [create, createFolder, rename, remove, move, take, setNotes, createSmart, setRule].find(
+    (m) => m.isError,
+  );
   const ask = (what: Asking) => {
     clearErrors();
     setAsking(what);
@@ -123,7 +136,7 @@ export function CratesScreen({
       <div className={styles.content}>
         {done !== null && (
           <p role="status" className={styles.status}>
-            {t(`done.${done}`)}
+            {done === "createdSmart" || done === "ruleSaved" ? ts(`done.${done}`) : t(`done.${done}`)}
           </p>
         )}
         {failure !== undefined && (
@@ -145,7 +158,33 @@ export function CratesScreen({
                 <button type="button" className={styles.button} onClick={() => ask("newFolder")}>
                   {t("newFolder.button")}
                 </button>
+                <button type="button" className={styles.button} onClick={() => ask("newSmart")}>
+                  {ts("new.button")}
+                </button>
               </div>
+              {asking === "newSmart" && (
+                <NameForm
+                  key={asking}
+                  label={ts("new.label")}
+                  confirm={ts("new.confirm")}
+                  cancel={ts("new.cancel")}
+                  initial=""
+                  pending={createSmart.isPending}
+                  onSubmit={(name) => {
+                    clearErrors();
+                    createSmart.mutate(
+                      { name, parent: null, rule: EMPTY_RULE },
+                      {
+                        onSuccess: (id) => {
+                          onChoose(id);
+                          finished("createdSmart");
+                        },
+                      },
+                    );
+                  }}
+                  onCancel={() => ask(null)}
+                />
+              )}
               {(asking === "new" || asking === "newInside") && (
                 <NameForm
                   key={asking}
@@ -276,6 +315,19 @@ export function CratesScreen({
                       },
                     );
                   }}
+                  savingRule={setRule.isPending}
+                  onSaveRule={(rule) => {
+                    clearErrors();
+                    setRule.mutate(
+                      { id: current.id, rule },
+                      {
+                        // The rule it has: nothing is recorded, so nothing is said.
+                        onSuccess: (operation) => {
+                          if (operation !== null) finished("ruleSaved");
+                        },
+                      },
+                    );
+                  }}
                   onRemoveTrack={(track) => {
                     clearErrors();
                     take.mutate(
@@ -309,6 +361,7 @@ function TreeRows({
   onChoose: (id: number) => void;
 }) {
   const { t } = useTranslation("crates");
+  const { t: ts } = useTranslation("smartCrates");
   return nodes.map(({ crate, children }) => (
     <li key={crate.id}>
       <button
@@ -317,8 +370,15 @@ function TreeRows({
         aria-pressed={crate.id === chosen}
         onClick={() => onChoose(crate.id)}
       >
-        <span className={styles.name}>{crate.name}</span>
-        {crate.kind === "static" && (
+        <span className={styles.name}>
+          {crate.kind === "smart" && (
+            <span role="img" aria-label={ts("icon")}>
+              {SMART_ICON}{" "}
+            </span>
+          )}
+          {crate.name}
+        </span>
+        {crate.kind !== "folder" && (
           <span className={styles.count}>{t("trackCount", { count: crate.trackCount })}</span>
         )}
       </button>
@@ -345,6 +405,8 @@ function CrateView({
   onMove,
   onDelete,
   onSaveNotes,
+  savingRule,
+  onSaveRule,
   onRemoveTrack,
 }: {
   crate: Crate;
@@ -360,22 +422,26 @@ function CrateView({
   onMove: (folder: number | null) => void;
   onDelete: () => void;
   onSaveNotes: (notes: string) => void;
+  savingRule: boolean;
+  onSaveRule: (rule: SmartRule) => void;
   onRemoveTrack: (track: LibraryRow) => void;
 }) {
   const { t } = useTranslation("crates");
   const folder = crate.kind === "folder";
+  // Notes and the summary line are a hand-made crate's (for now).
+  const handMade = crate.kind === "static";
   return (
     <>
       <div className={styles.header}>
         <div className={styles.titles}>
           <h2 className={styles.crateName}>{crate.name}</h2>
           {/* A folder holds crates, so it has no notes or summary (ROADMAP 1.14). */}
-          {!folder && <CrateNotes key={crate.id} id={crate.id} onSave={onSaveNotes} />}
+          {handMade && <CrateNotes key={crate.id} id={crate.id} onSave={onSaveNotes} />}
           {/* Where rekordbox will show it after a send (ROADMAP 1.9 and 1.14). */}
           <p className={styles.path} aria-label={t("path.label")}>
             {[t("path.root"), ...pathOf(all, crate.id)].join(PATH_SEPARATOR)}
           </p>
-          {!folder && <CrateSummaryLine id={crate.id} />}
+          {handMade && <CrateSummaryLine id={crate.id} />}
         </div>
         <div className={styles.actions}>
           {folder && (
@@ -437,6 +503,14 @@ function CrateView({
         <EmptyState>
           {all.some((c) => c.parentId === crate.id) ? t("folder.select") : t("folder.empty")}
         </EmptyState>
+      ) : crate.kind === "smart" ? (
+        <SmartCrateView
+          crate={crate}
+          all={all}
+          saving={savingRule}
+          onSaveRule={onSaveRule}
+          onRemoveTrack={onRemoveTrack}
+        />
       ) : (
         <TrackTableView
           key={crate.id}

@@ -13,6 +13,7 @@ mod order;
 mod position;
 mod quality;
 mod tag_filter;
+mod smart;
 
 use super::*;
 use crate::search::tests::support::{Lib, Mount};

@@ -1,8 +1,9 @@
 //! Crates: hand-made groups of Library tracks, and the folders they live in
 //! (1aG-7 and 1cA-9/10; ROADMAP 1.14, §2 `crate` and `crate_entry`). A
-//! crate is static; a folder holds crates and folders, never tracks; the
-//! tree is as deep as the XML writer allows. Notes and the summary line
-//! are in [`summary`], sorting by fit in [`fit`]; smart crates come later.
+//! crate is static or smart; a folder holds crates and folders, never
+//! tracks; the tree is as deep as the XML writer allows. Notes and the
+//! summary line are in [`summary`], sorting by fit in [`fit`], smart crates
+//! (rules, always and never include; 3.3) in [`smart`].
 //!
 //! - **Every change is one recorded operation** ([`crate::ops`]), so
 //!   `undo_last_operation` puts the earlier state back exactly, the entries'
@@ -41,6 +42,7 @@ use tauri::State;
 
 pub mod add_progress;
 pub mod fit;
+pub mod smart;
 pub mod summary;
 
 use crate::db::{DbError, ReadPool, Writer};
@@ -76,6 +78,8 @@ pub enum CrateKind {
     Folder,
     /// A hand-made crate of Library tracks.
     Static,
+    /// A crate whose tracks come from a rule ([`smart`]).
+    Smart,
 }
 
 /// A crate or a folder, as the Crates screen and the sidebar list it.
@@ -186,6 +190,9 @@ pub enum CratesError {
     NameUnsendable,
     /// A note is longer than a note can be.
     NotesTooLong,
+    /// A smart crate's rule has more conditions, or longer text, than a
+    /// rule holds ([`smart::MAX_CONDITIONS`]).
+    RuleTooLong,
     /// The place to put a crate or folder isn't a folder.
     NotAFolder,
     /// A folder can't go inside itself or one of its own subfolders.
@@ -254,6 +261,7 @@ impl From<CratesError> for IpcError {
             ),
             CratesError::NameUnsendable => IpcError::new(ErrorKind::CrateNameUnsendable),
             CratesError::NotesTooLong => IpcError::new(ErrorKind::CrateNotesTooLong),
+            CratesError::RuleTooLong => IpcError::new(ErrorKind::SmartRuleTooLong),
             CratesError::NotAFolder => IpcError::new(ErrorKind::CrateNotAFolder),
             CratesError::MoveIntoItself => IpcError::new(ErrorKind::CrateMoveIntoItself),
             CratesError::TooDeep => IpcError::new(ErrorKind::CrateTooDeep),
@@ -325,20 +333,18 @@ struct Found {
 }
 
 fn kind_from(stored: &str) -> CrateKind {
-    if stored == "folder" {
-        CrateKind::Folder
-    } else {
-        CrateKind::Static
+    match stored {
+        "folder" => CrateKind::Folder,
+        "smart" => CrateKind::Smart,
+        _ => CrateKind::Static,
     }
 }
 
-/// The crate or folder `id`, or `None` if there is none (a smart crate
-/// counts as none: nothing here handles it).
+/// The crate or folder `id`, or `None` if there is none.
 fn found(rec: &ops::Recorder<'_>, id: CrateId) -> Result<Option<Found>, OpsError> {
     Ok(rec
         .read_rows(
-            "SELECT kind, parent_id, name FROM crate
-             WHERE id = ?1 AND kind IN ('folder', 'static')",
+            "SELECT kind, parent_id, name FROM crate WHERE id = ?1",
             [id.0],
             |r| {
                 Ok(Found {
@@ -360,8 +366,7 @@ fn static_name(rec: &ops::Recorder<'_>, id: CrateId) -> Result<Option<String>, O
 
 /// The kind of crate `id` is, read before the operation is named.
 fn kind_of(conn: &Connection, id: CrateId) -> rusqlite::Result<Option<CrateKind>> {
-    let mut stmt = conn
-        .prepare_cached("SELECT kind FROM crate WHERE id = ?1 AND kind IN ('folder', 'static')")?;
+    let mut stmt = conn.prepare_cached("SELECT kind FROM crate WHERE id = ?1")?;
     let mut rows = stmt.query([id.0])?;
     match rows.next()? {
         Some(row) => Ok(Some(kind_from(&row.get::<_, String>(0)?))),
@@ -492,7 +497,7 @@ pub(crate) fn put_in_named(
     let (id, made) = match top.iter().find(|(_, other, _)| sibling_key(other) == key) {
         Some((id, _, kind)) if kind == "static" => (CrateId(*id), false),
         Some(_) => return Ok(None),
-        None => match make_in(rec, CrateKind::Static, None, name)? {
+        None => match make_in(rec, CrateKind::Static, None, name, None)? {
             Ok(id) => (id, true),
             Err(_) => return Ok(None),
         },
@@ -550,27 +555,31 @@ fn make_on(
     let operation = match kind {
         CrateKind::Static => CREATE_OPERATION,
         CrateKind::Folder => CREATE_FOLDER_OPERATION,
+        CrateKind::Smart => smart::CREATE_SMART_OPERATION,
     };
     ops::record(
         conn,
         operation,
         &serde_json::json!({ "name": name, "parentId": parent.map(|p| p.0) }),
-        |rec| make_in(rec, kind, parent, &name),
+        |rec| make_in(rec, kind, parent, &name, None),
     )
     .map(|recorded| worded(recorded.value, Some(kind)))
 }
 
 /// The writes of [`make_on`], inside the operation `rec` is recording. Every
-/// refusal comes before the first write.
+/// refusal comes before the first write. `rules` is a smart crate's rule
+/// as JSON, and only a smart crate's.
 fn make_in(
     rec: &mut ops::Recorder<'_>,
     kind: CrateKind,
     parent: Option<CrateId>,
     name: &str,
+    rules: Option<String>,
 ) -> Result<Done<CrateId>, OpsError> {
     let stored_kind = match kind {
         CrateKind::Static => "static",
         CrateKind::Folder => "folder",
+        CrateKind::Smart => "smart",
     };
     let levels = usize::from(kind == CrateKind::Folder);
     let parent = match room_in(rec, parent, levels)? {
@@ -588,6 +597,7 @@ fn make_in(
             ("parent_id", parent.into()),
             ("kind", stored_kind.to_owned().into()),
             ("name", name.into()),
+            ("rules", rules.into()),
             ("position", position.into()),
         ],
     )?;
@@ -800,6 +810,10 @@ pub fn add_on(
     id: CrateId,
     tracks: &[LibraryTrackId],
 ) -> Result<Done<Changed>, OpsError> {
+    // Dropped on a smart crate: always included (3.3).
+    if kind_of(conn, id)? == Some(CrateKind::Smart) {
+        return smart::include_on(conn, id, tracks, smart::Inclusion::Always);
+    }
     ops::record(
         conn,
         ADD_OPERATION,
@@ -923,23 +937,42 @@ fn prepare(
 
 /// The writes of an add by track id, inside the operation `rec` is
 /// recording: links the tracks outside the Library (the file is only linked,
-/// never written), then puts every track not in the crate yet into it.
+/// never written), then puts every track not in the crate yet into it. In a
+/// smart crate (`smart`) the tracks go on the always-include list, and one
+/// on the never-include list moves to it.
 fn put_in(
     rec: &mut ops::Recorder<'_>,
     id: CrateId,
     name: String,
     prepared: &Prepared,
     progress: &AddProgress,
+    smart: bool,
 ) -> Result<AddedToCrate, OpsError> {
     progress.phase(AddPhase::Adding, prepared.items.len());
-    let mut present: HashSet<i64> = rec
-        .read_rows(
-            "SELECT library_track_id FROM crate_entry WHERE crate_id = ?1",
-            [id.0],
-            |r| r.get(0),
-        )?
-        .into_iter()
-        .collect();
+    let entry_kind = match smart {
+        true => smart::Inclusion::Always.entry_kind(),
+        false => "member",
+    };
+    // The tracks on the other list of a smart crate, by entry id.
+    let mut elsewhere: HashMap<i64, i64> = HashMap::new();
+    let mut present: HashSet<i64> = HashSet::new();
+    for (track, entry, kind) in rec.read_rows(
+        "SELECT library_track_id, id, kind FROM crate_entry WHERE crate_id = ?1",
+        [id.0],
+        |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        },
+    )? {
+        if kind == entry_kind {
+            present.insert(track);
+        } else {
+            elsewhere.insert(track, entry);
+        }
+    }
     let (mut added, mut also_added_to_library, mut already_there) = (0, 0, 0);
     for (at, item) in prepared.items.iter().enumerate() {
         progress.at(at);
@@ -950,17 +983,21 @@ fn put_in(
                 library::insert_linked(rec, *recording, *file)?.0
             }
         };
-        if present.insert(track) {
+        if !present.insert(track) {
+            already_there += 1;
+        } else if let Some(entry) = elsewhere.remove(&track) {
+            rec.set("crate_entry", entry, "kind", entry_kind)?;
+            added += 1;
+        } else {
             rec.insert(
                 "crate_entry",
                 &[
                     ("crate_id", id.0.into()),
                     ("library_track_id", track.into()),
+                    ("kind", entry_kind.to_owned().into()),
                 ],
             )?;
             added += 1;
-        } else {
-            already_there += 1;
         }
     }
     progress.all_done();
@@ -1001,22 +1038,35 @@ pub fn add_recordings_tracked(
     recordings: &[i64],
     progress: &AddProgress,
 ) -> Result<Done<AddedToCrate>, OpsError> {
-    if kind_of(conn, id)? != Some(CrateKind::Static) {
-        return Ok(Err(CratesError::NotFound));
-    }
+    // Dropped on a smart crate: always included (3.3).
+    let smart = match kind_of(conn, id)? {
+        Some(CrateKind::Static) => false,
+        Some(CrateKind::Smart) => true,
+        _ => return Ok(Err(CratesError::NotFound)),
+    };
     let prepared = match prepare(conn, recordings, progress)? {
         Ok(prepared) => prepared,
         Err(refusal) => return Ok(Err(refusal)),
     };
+    let operation = match smart {
+        true => smart::ALWAYS_OPERATION,
+        false => ADD_OPERATION,
+    };
     let recorded = ops::record(
         conn,
-        ADD_OPERATION,
+        operation,
         &serde_json::json!({ "crateId": id.0 }),
         |rec| {
-            let Some(name) = static_name(rec, id)? else {
+            let named = match smart {
+                true => found(rec, id)?
+                    .filter(|f| f.kind == CrateKind::Smart)
+                    .map(|f| f.name),
+                false => static_name(rec, id)?,
+            };
+            let Some(name) = named else {
                 return Ok(Err(CratesError::NotFound));
             };
-            put_in(rec, id, name, &prepared, progress).map(Ok)
+            put_in(rec, id, name, &prepared, progress, smart).map(Ok)
         },
     )?;
     Ok(recorded.value.map(|done| AddedToCrate {
@@ -1055,12 +1105,12 @@ pub fn add_recordings_to_new_crate_tracked(
         ADD_OPERATION,
         &serde_json::json!({ "newCrate": true }),
         |rec| {
-            let id = match make_in(rec, CrateKind::Static, None, &name)? {
+            let id = match make_in(rec, CrateKind::Static, None, &name, None)? {
                 Ok(id) => id,
                 Err(refusal) => return Ok(Err(refusal)),
             };
             let stored = static_name(rec, id)?.unwrap_or_else(|| name.clone());
-            let added = put_in(rec, id, stored.clone(), &prepared, progress)?;
+            let added = put_in(rec, id, stored.clone(), &prepared, progress, false)?;
             Ok(Ok(AddedToNewCrate {
                 crate_id: id,
                 name: stored,
@@ -1100,6 +1150,10 @@ pub fn remove_on(
     id: CrateId,
     tracks: &[LibraryTrackId],
 ) -> Result<Done<Changed>, OpsError> {
+    // Removed from a smart crate: never included (3.3).
+    if kind_of(conn, id)? == Some(CrateKind::Smart) {
+        return smart::include_on(conn, id, tracks, smart::Inclusion::Never);
+    }
     ops::record(
         conn,
         REMOVE_OPERATION,
@@ -1145,15 +1199,15 @@ fn with_operation(recorded: ops::Recorded<Done<Changed>>) -> Done<Changed> {
     })
 }
 
-/// Every folder and crate with its track count. Each folder's own are in
-/// the order a send writes them (`position`, then id); the caller builds the
-/// tree from `parent_id`.
+/// Every folder and crate with its track count (a smart crate's as it
+/// evaluates now). Each folder's own are in the order a send writes them
+/// (`position`, then id); the caller builds the tree from `parent_id`.
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Crate>> {
     let mut stmt = conn.prepare(
         "SELECT c.id, c.parent_id, c.kind, c.name,
                 (SELECT count(*) FROM crate_entry e
                  WHERE e.crate_id = c.id AND e.kind = 'member')
-         FROM crate c WHERE c.kind IN ('folder', 'static')
+         FROM crate c
          ORDER BY ifnull(c.parent_id, 0), c.position, c.id",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -1165,7 +1219,11 @@ pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Crate>> {
             track_count: r.get(4)?,
         })
     })?;
-    rows.collect()
+    let mut crates = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    for c in crates.iter_mut().filter(|c| c.kind == CrateKind::Smart) {
+        c.track_count = smart::membership::count(conn, c.id)?;
+    }
+    Ok(crates)
 }
 
 /// The Library tracks in a crate, in the order they were added, or `None`
