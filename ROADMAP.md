@@ -603,7 +603,7 @@ Each feature is tagged with its sub-phase.
 - **Complexity:** M. **Reuse:** the `integrations/spotify.rs` harness.
 
 #### 2.4 Missing list + store links
-- One-click search links to Beatport, Bandcamp, Traxsource and Juno (URL templates only; the app makes no network calls), a "bought" toggle, and notes. No prices.
+- Search links to Beatport, Bandcamp, Traxsource and Juno (URL templates only; the app makes no network calls), a "bought" toggle, and notes. No prices. **Copy only** (owner decision, 2026-11-05): each link is shown with a Copy link button, and the app never opens a browser. Built in 2B (PR 183).
 - **Complexity:** S.
 
 #### 2.5 Auto tick-off
