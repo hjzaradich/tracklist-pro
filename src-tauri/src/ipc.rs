@@ -168,6 +168,16 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::inbox::actions::inbox_not_now,
             crate::inbox::actions::inbox_hide,
             crate::inbox::actions::inbox_clear,
+            crate::wishlist::wishlists_list,
+            crate::wishlist::wishlist_items,
+            crate::wishlist::wishlist_create_from_paste,
+            crate::wishlist::wishlist_create_from_csv,
+            crate::wishlist::wishlist_add_from_paste,
+            crate::wishlist::wishlist_rename,
+            crate::wishlist::wishlist_delete,
+            crate::wishlist::wishlist_remove_item,
+            crate::wishlist::wishlist_set_bought,
+            crate::wishlist::wishlist_set_notes,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

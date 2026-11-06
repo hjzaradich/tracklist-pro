@@ -51,6 +51,7 @@ pub mod ui_setting;
 pub mod versions;
 pub mod volume;
 pub mod waveform;
+pub mod wishlist;
 pub mod write_guard;
 
 /// The bundle ID. It also names the app data folder,
