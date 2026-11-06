@@ -185,7 +185,7 @@ In the UI, **All music** shows the tracks layer and **Library** shows Library tr
 | `play_source` | kind (rekordbox_db / history_m3u8 / usb_pdb / xml_playcount), label, device, imported_at, dated (bool) | USB sessions are numbered but undated (§5.4). |
 | `play_event` | recording_id (nullable), raw artist/title/path, play_source_id, position, played_at (nullable), prev_play_event_id | A null `recording_id` means a partner's track you don't own. |
 | `session` | name, date, venue?, notes; many play_sources | The UI calls it "gig" or "set". |
-| `wishlist` / `wish_item` | source (Spotify / CSV / paste / session), raw artist/title, matched recording_id, source_play_event_id (nullable), status | |
+| `wishlist` / `wish_item` | wishlist: name, source (paste / csv; Spotify and session later), created_at. wish_item: wishlist_id, position (the source's order, never renumbered), raw artist / title / version / ISRC, bought, notes, acquired_file_id, acquired_at | Built in 2B (migration 0048). Matching is worked out when read, not stored: owned / owned, other cut / you have a rework / missing, each with its reason. Off until the user turns the wishlist on (setting `feature_wishlist`); while off every wishlist command refuses except deleting a wishlist. |
 | `inbox_batch` | music_folder_id, kind (`already_there` / `folder` / `loose`; store order, pool pack and zip later), label (a `folder` batch's subfolder path), arrived_at | 2.1 grouping and "Add all". A folder's first complete walk after it is added puts what is already there into one `already_there` batch, which also marks that walk as the baseline. |
 | `inbox_item` | file_id, batch_id, status (new / not_now / hidden / added), arrived_at, decided_at | The label (new / better_file / other_cut / rework / on_wishlist / already_have) and its reason are worked out when read, not stored. |
 | `job` | kind, target, priority, status, progress, error, attempts, timestamps | Persisted so a job the last run left running starts again after a crash (0.1; 1cA-13). |
@@ -599,6 +599,7 @@ Each feature is tagged with its sub-phase.
 - **Inputs, most reliable first:** a pasted tracklist → CSV (e.g. Exportify) → the Spotify API with your own client ID (opt-in). SoundCloud and Apple are CSV or paste only.
 - **Matching:** normalized fuzzy matching, the version parser and ISRC. Results are *owned*, *owned, other cut* (counts as owned), *you have a rework* (a hint, not owned) or *missing*, each with its reason.
 - **B2B:** partner tracks from a session (3.6) go to a wishlist in one step.
+- **How (built, 2B):** CSV columns are found by their header names (artist, title, version, ISRC), so an Exportify-style export works without setup; pasted lines are one track each. Files and pastes over 5 MB are refused, and only the first 100 skipped rows are listed, with the total. ISRC is read from the files' own tags. "Owned" means a present, not hidden file; the reason says whether it is in the Library or only in All music.
 - **Complexity:** M. **Reuse:** the `integrations/spotify.rs` harness.
 
 #### 2.4 Missing list + store links
