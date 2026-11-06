@@ -68,11 +68,22 @@ impl Lib {
     /// `recording` (or to none). `my_tags` is JSON: rows are made the way a
     /// read makes them, so a value that isn't a name can be put in.
     fn rekordbox(&self, id: i64, my_tags: &'static str, recording: Option<i64>) {
+        self.rekordbox_at(id, my_tags, recording, "2026-01-01T00:00:00.000Z");
+    }
+
+    /// [`Lib::rekordbox`], in the read made at `read_at`.
+    fn rekordbox_at(
+        &self,
+        id: i64,
+        my_tags: &'static str,
+        recording: Option<i64>,
+        read_at: &'static str,
+    ) {
         self.run(
             "INSERT INTO rekordbox_track (attributes, location_key, my_tags, read_at, recording_id)
              VALUES (json_object('TrackID', CAST(?1 AS TEXT), 'Location', 'file://localhost/E:/x.mp3'),
-                     'e:/x' || ?1, ?2, '2026-01-01T00:00:00.000Z', ?3)",
-            (id, my_tags, recording),
+                     'e:/x' || ?1, ?2, ?4, ?3)",
+            (id, my_tags, recording, read_at),
         );
     }
 
@@ -469,4 +480,134 @@ fn a_send_writes_one_playlist_per_tag_under_playlists_tags_for_library_tracks_on
         .call(|c| crate::send::tag_playlists(c))
         .unwrap()
         .is_empty());
+}
+
+#[test]
+fn the_import_reads_only_the_newest_rekordbox_read() {
+    let lib = Lib::new();
+    let (a, b) = (lib.track("One", true), lib.track("Two", true));
+    // A row kept from an older read has a My Tag the newest read lacks.
+    lib.rekordbox_at(1, r#"["Old"]"#, Some(a), "2026-01-01T00:00:00.000Z");
+    lib.rekordbox_at(2, r#"["Sunrise"]"#, Some(b), "2026-02-01T00:00:00.000Z");
+    let done = lib.import();
+    assert_eq!((done.added, done.applied), (1, 1));
+    assert_eq!(lib.names(), ["Sunrise"]);
+
+    // One imported while the older read was the newest is flagged gone once a
+    // newer read no longer has it, though the older row is still kept.
+    let lib = Lib::new();
+    let (a, b) = (lib.track("One", true), lib.track("Two", true));
+    lib.rekordbox_at(
+        1,
+        r#"["Old","Sunrise"]"#,
+        Some(a),
+        "2026-01-01T00:00:00.000Z",
+    );
+    assert_eq!(lib.import().added, 2);
+    lib.rekordbox_at(2, r#"["Sunrise"]"#, Some(b), "2026-02-01T00:00:00.000Z");
+    let done = lib.import();
+    assert_eq!((done.added, done.gone), (0, 1));
+    assert!(lib.tag_named("Old").gone_from_rekordbox);
+    assert!(!lib.tag_named("Sunrise").gone_from_rekordbox);
+
+    // With only one read, its rows are the newest.
+    let lib = Lib::new();
+    let a = lib.track("One", true);
+    lib.rekordbox_at(1, r#"["Old"]"#, Some(a), "2026-01-01T00:00:00.000Z");
+    assert_eq!(lib.import().added, 1);
+}
+
+#[test]
+fn a_send_with_tags_keeps_comments_records_the_tag_playlists_and_lists_a_dropped_one_as_stale() {
+    use crate::after_send::RekordboxTree;
+    use crate::after_send::{app_tree, load_recorded, save_tree, stale_playlists, StaleKind};
+    use crate::library::LibraryTrackId;
+    use crate::rekordbox_write::{record_send, TrackInput, Values};
+
+    let lib = Lib::new();
+    let group = lib.group("Vibe");
+    let (warm, quiet) = (lib.tag(group, "Warm"), lib.tag(group, "Quiet"));
+    let (a, b) = (lib.track("One", true), lib.track("Two", true));
+    lib.apply(warm, &[a]);
+    lib.apply(quiet, &[b]);
+    let ids: Vec<LibraryTrackId> = lib
+        .writer
+        .call(|c| {
+            c.prepare("SELECT id FROM library_track ORDER BY recording_id")?
+                .query_map([], |r| r.get(0).map(LibraryTrackId))?
+                .collect()
+        })
+        .unwrap();
+
+    // The send: the tracks' values as they are (a Comments value that ends in
+    // a My Tags block among them), and the tags' playlists.
+    let comments = "note /* Warm / Quiet */ x /* TLP */";
+    let tracks: Vec<TrackInput> = ids
+        .iter()
+        .enumerate()
+        .map(|(at, id)| TrackInput {
+            library_track: *id,
+            values: Values::Ready {
+                in_rekordbox: false,
+                attributes: vec![
+                    ("Name".into(), format!("Track {at}")),
+                    ("Comments".into(), comments.into()),
+                    ("Location".into(), format!(r"C:\Music\{at}.mp3")),
+                ],
+                rekordbox_holds_other_file: None,
+                file_missing: false,
+            },
+        })
+        .collect();
+    let playlists = lib.writer.call(|c| crate::send::tag_playlists(c)).unwrap();
+    let input = SendInput {
+        tracks,
+        playlists,
+        ..SendInput::default()
+    };
+    let built = build(&input).unwrap();
+    let xml = String::from_utf8(built.xml().to_vec()).unwrap();
+    // Comments goes out as it was, twice, and no My Tags block is added.
+    assert_eq!(xml.matches(&format!("Comments=\"{comments}\"")).count(), 2);
+    assert_eq!(xml.matches("/*").count(), 4);
+    let written: Vec<Vec<String>> = built.paths().iter().map(|p| p.path.clone()).collect();
+    let path = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+    assert!(written.contains(&path(&["Playlists", "Tags"])));
+    assert!(written.contains(&path(&["Playlists", "Tags", "Warm"])));
+    assert!(written.contains(&path(&["Playlists", "Tags", "Quiet"])));
+
+    // Recorded like a crate, so the Tags playlists can be told from the
+    // user's own.
+    let (sent, paths) = (built.sent.clone(), built.paths().to_vec());
+    lib.writer
+        .call(move |c| record_send(c, &sent, &paths))
+        .unwrap();
+    // rekordbox imports the file and a read shows what it holds.
+    let read = lib
+        .writer
+        .call(|c| {
+            Ok(RekordboxTree::from_nodes(
+                &crate::send::crate_tree(c)?,
+                &crate::send::tag_playlists(c)?,
+            ))
+        })
+        .unwrap();
+    let shown = read.clone();
+    lib.writer.call(move |c| save_tree(c, &shown)).unwrap();
+    let recorded = lib.writer.call(|c| load_recorded(c)).unwrap();
+    let app = lib.writer.call(|c| app_tree(c)).unwrap();
+    assert!(stale_playlists(&read, &app, &recorded).is_empty());
+
+    // Quiet loses its last Library track: rekordbox still has the playlist,
+    // the app no longer sends it.
+    lib.writer
+        .call(move |c| Ok(remove_on(c, quiet, &[b])))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let app = lib.writer.call(|c| app_tree(c)).unwrap();
+    let stale = stale_playlists(&read, &app, &recorded);
+    assert_eq!(stale.len(), 1);
+    assert_eq!(stale[0].path, path(&["Playlists", "Tags", "Quiet"]));
+    assert_eq!(stale[0].kind, StaleKind::Playlist);
 }

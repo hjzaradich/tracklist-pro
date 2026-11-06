@@ -84,7 +84,9 @@ pub fn import_on(conn: &mut Connection, group_name: &str) -> Result<Done<TagsImp
         let rows = rec.read_rows(
             "SELECT j.value, rt.recording_id
              FROM rekordbox_track rt, json_each(rt.my_tags) j
-             WHERE j.type = 'text' ORDER BY rt.id",
+             WHERE j.type = 'text'
+               AND rt.read_at = (SELECT max(read_at) FROM rekordbox_track)
+             ORDER BY rt.id",
             [],
             |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)),
         )?;
@@ -101,9 +103,12 @@ pub fn import_on(conn: &mut Connection, group_name: &str) -> Result<Done<TagsImp
             }
         }
         let snapshot_has_tracks = !rec
-            .read_rows("SELECT 1 FROM rekordbox_track LIMIT 1", [], |r| {
-                r.get::<_, i64>(0)
-            })?
+            .read_rows(
+                "SELECT 1 FROM rekordbox_track
+                 WHERE read_at = (SELECT max(read_at) FROM rekordbox_track) LIMIT 1",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?
             .is_empty();
 
         // rekordbox name -> (tag, flagged gone); sibling key -> (tag, linked).

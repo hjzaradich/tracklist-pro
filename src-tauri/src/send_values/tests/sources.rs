@@ -373,3 +373,47 @@ fn the_file_a_track_shows_is_read_even_when_it_is_gone_or_hidden_as_the_lists_do
         ("Linked Title", Some("linked.mp3"))
     );
 }
+
+#[test]
+fn the_details_panel_hides_the_my_tags_block_of_a_comment_but_a_send_keeps_it() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(track, "a.mp3", "best", id3(&[("TIT2", "Title")]));
+    lib.rekordbox(
+        file,
+        &[("Name", "Title"), ("Comments", "note /* A / B */")],
+        false,
+    );
+    let library = lib.library(track, Some(file));
+
+    // Shown without the block, as rekordbox's own value.
+    let sources = lib.sources(track);
+    let shown = field(&sources, TagField::Comment).shown.as_ref().unwrap();
+    assert_eq!(plain(shown), ("note", None));
+    assert_eq!(shown.origin, ValueOrigin::RekordboxEntry);
+    // What a send writes is as rekordbox wrote it.
+    assert_eq!(
+        value(&lib.ready(library), "Comments"),
+        Some("note /* A / B */")
+    );
+}
+
+#[test]
+fn a_comment_that_is_only_the_my_tags_block_shows_no_value() {
+    let lib = Lib::new();
+    let track = lib.track();
+    let file = lib.file(track, "a.mp3", "best", id3(&[("TIT2", "Title")]));
+    lib.rekordbox(
+        file,
+        &[("Name", "Title"), ("Comments", "/* A / B */")],
+        false,
+    );
+    let library = lib.library(track, Some(file));
+
+    assert!(lib
+        .sources(track)
+        .fields
+        .iter()
+        .all(|f| f.field != TagField::Comment));
+    assert_eq!(value(&lib.ready(library), "Comments"), Some("/* A / B */"));
+}

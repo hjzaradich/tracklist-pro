@@ -138,6 +138,8 @@ const wishlistsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/wishlists",
   component: WishlistScreen,
+});
+
 // The tag vocabulary (3A-T), reached from the sidebar's Tags link.
 const tagsRoute = createRoute({
   getParentRoute: () => rootRoute,
