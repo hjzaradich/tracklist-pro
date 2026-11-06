@@ -1,0 +1,131 @@
+/* The wishlist screen: plain lists in the existing tokens, nothing new in
+ * the look (docs/design-style.md): outlined buttons, one filled button per panel. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 40rem;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.buttons,
+.itemMain,
+.inline,
+.linkRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.action,
+.primary,
+.listButton {
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--color-accent);
+}
+
+.action:hover,
+.primary:hover,
+.listButton:hover {
+  background: var(--color-surface-hover);
+}
+
+.action:disabled,
+.primary:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.lists,
+.items,
+.linkList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.listButton {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.listButton[aria-pressed="true"] {
+  border-color: var(--color-accent);
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.name {
+  font-weight: 600;
+}
+
+.kind {
+  font-size: var(--font-size-sm);
+}
+
+.notes {
+  min-width: 20rem;
+}
+
+.url {
+  overflow-wrap: anywhere;
+  font-size: var(--font-size-sm);
+}
+
+.store {
+  min-width: 6rem;
+}
+
+.muted {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.problem {
+  margin: 0;
+  color: var(--color-danger, var(--color-text));
+}

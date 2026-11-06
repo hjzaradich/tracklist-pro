@@ -20,6 +20,7 @@ import { OverviewScreen } from "../overview/OverviewScreen";
 import { ReviewScreen } from "../review/ReviewScreen";
 import { SettingsScreen } from "../settings/SettingsScreen";
 import { AppShell } from "../shell/AppShell";
+import { WishlistScreen } from "../wishlist/WishlistScreen";
 
 // Code-based routes (no file-based route generation). Every screen renders
 // inside the layout shell. Stage paths match STAGES in src/shell/stages.ts.
@@ -130,6 +131,13 @@ const afterSendRoute = createRoute({
   component: AfterSendScreen,
 });
 
+// Not a stage: Wishlists (2.3), listed in the sidebar only while the feature is on.
+const wishlistsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/wishlists",
+  component: WishlistScreen,
+});
+
 // Not a stage and not in the sidebar: Settings, reached from the top bar's gear
 // and the palette (1cC-2).
 const settingsRoute = createRoute({
@@ -150,6 +158,7 @@ const routeTree = rootRoute.addChildren([
   cratesRoute,
   afterSendRoute,
   settingsRoute,
+  wishlistsRoute,
 ]);
 
 /**

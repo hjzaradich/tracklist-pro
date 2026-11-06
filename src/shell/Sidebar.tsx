@@ -7,6 +7,7 @@ import { ancestorIds, buildTree, type TreeNode } from "../crates/tree";
 import { useCrates } from "../crates/useCrates";
 import { useInboxCount } from "../inbox/useInbox";
 import { useTrackDrag } from "../trackTable/trackDrag";
+import { useWishlistFeature } from "../wishlist/useWishlist";
 import { STAGES, type StageId } from "./stages";
 import styles from "./Sidebar.module.css";
 
@@ -27,8 +28,11 @@ interface SidebarProps {
  */
 export function Sidebar({ className = "", counts = {} }: SidebarProps) {
   const { t } = useTranslation("shell");
+  const { t: tw } = useTranslation("wishlist");
   const workflow = STAGES.filter((stage) => stage.id !== "crates");
   const all = useCrates().data;
+  // Wishlists are optional: the entry is there only once the user has turned them on (2.3).
+  const wishlists = useWishlistFeature().data === true;
   // What is new in the Inbox; no badge while it is unknown or nothing is new.
   const inboxNew = useInboxCount().data?.new;
   // How many crates there are (folders don't count); unknown until loaded.
@@ -46,6 +50,13 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
             <StageLink to={stage.path} label={t(`stages.${stage.id}`)} count={counts[stage.id] ?? (stage.id === "inbox" && inboxNew ? inboxNew : undefined)} />
           </li>
         ))}
+        {wishlists && (
+          <li>
+            <Link to="/wishlists" className={styles.link}>
+              <span className={styles.label}>{tw("title")}</span>
+            </Link>
+          </li>
+        )}
       </ul>
       <div className={styles.section}>
         <StageLink

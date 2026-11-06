@@ -259,6 +259,34 @@
     "where": "Top bar, Undo button, when the next step to undo is a withdrawn relink confirmation (no screen withdraws one yet).",
     "approved": "Undo (rekordbox match confirmation withdrawn)"
   },
+  "undo.action.wishlistCreate": {
+    "purpose": "Undo button naming what it takes back: a wishlist made from a pasted list or a CSV file.",
+    "where": "Top bar, Undo button, after making a wishlist."
+  },
+  "undo.action.wishlistRename": {
+    "purpose": "Undo button naming what it takes back: a wishlist renamed.",
+    "where": "Top bar, Undo button, after renaming a wishlist."
+  },
+  "undo.action.wishlistDelete": {
+    "purpose": "Undo button naming what it takes back: a wishlist deleted.",
+    "where": "Top bar, Undo button, after deleting a wishlist."
+  },
+  "undo.action.wishlistAddItems": {
+    "purpose": "Undo button naming what it takes back: tracks added to a wishlist.",
+    "where": "Top bar, Undo button, after adding tracks to a wishlist."
+  },
+  "undo.action.wishlistRemoveItem": {
+    "purpose": "Undo button naming what it takes back: a track removed from a wishlist.",
+    "where": "Top bar, Undo button, after removing a track from a wishlist."
+  },
+  "undo.action.wishlistBought": {
+    "purpose": "Undo button naming what it takes back: a wishlist track marked bought or not bought.",
+    "where": "Top bar, Undo button, after ticking Bought."
+  },
+  "undo.action.wishlistNotes": {
+    "purpose": "Undo button naming what it takes back: a note on a wishlist track.",
+    "where": "Top bar, Undo button, after editing a note on a wishlist track."
+  },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",
     "where": "Top bar, Undo button, for an action this version has no wording for, or one recorded by an older version without its details.",

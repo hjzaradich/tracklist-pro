@@ -1,0 +1,92 @@
+{
+  "title": "Wishlists",
+  "off": {
+    "message": "Wishlists are turned off.",
+    "settings": "Open Settings"
+  },
+  "feature": {
+    "panel": "Optional features",
+    "label": "Wishlists",
+    "helpOff": "Turn on to keep lists of tracks you want and see which you already own.",
+    "helpOn": "Shows Wishlists in the sidebar. Turning this off hides it; your lists are kept.",
+    "error": "Couldn't save the setting. Try again."
+  },
+  "import": {
+    "title": "New wishlist",
+    "name": "Name",
+    "paste": "Paste a tracklist, one track per line as Artist - Title",
+    "makeFromPaste": "Make wishlist",
+    "chooseCsv": "Choose CSV file",
+    "csvFilter": "CSV files",
+    "csvNameHint": "A wishlist from a CSV file is named after the Name field, or after the file if that is empty.",
+    "added_one": "Made the wishlist with {{count, number}} track.",
+    "added_other": "Made the wishlist with {{count, number}} tracks.",
+    "skippedTitle_one": "{{count, number}} line was not taken:",
+    "skippedTitle_other": "{{count, number}} lines were not taken:",
+    "skippedLine": "Line {{line, number}}: {{text}} ({{reason}})"
+  },
+  "skip": {
+    "noSeparator": "no “ - ” between artist and title",
+    "missingArtist": "no artist",
+    "missingTitle": "no title",
+    "unreadable": "couldn't be read"
+  },
+  "lists": {
+    "label": "Your wishlists",
+    "none": "No wishlists yet",
+    "summary_one": "{{count, number}} track: {{owned, number}} owned, {{cut, number}} other cut, {{rework, number}} rework, {{missing, number}} missing, {{bought, number}} bought",
+    "summary_other": "{{count, number}} tracks: {{owned, number}} owned, {{cut, number}} other cut, {{rework, number}} rework, {{missing, number}} missing, {{bought, number}} bought",
+    "delete": "Delete wishlist"
+  },
+  "items": {
+    "label": "Tracks in this wishlist",
+    "none": "This wishlist has no tracks",
+    "choose": "Choose a wishlist to see its tracks"
+  },
+  "kind": {
+    "owned": "Owned",
+    "ownedOtherCut": "Owned, other cut",
+    "rework": "Rework",
+    "missing": "Missing"
+  },
+  "reason": {
+    "ownedLibrary": "In your Library as {{have}}",
+    "ownedAllMusic": "In All music as {{have}}, not in your Library yet",
+    "ownedIsrcLibrary": "Same ISRC as {{have}} in your Library",
+    "ownedIsrcAllMusic": "Same ISRC as {{have}} in All music, not in your Library yet",
+    "otherCutLibrary": "Another cut of it, {{have}}, is in your Library",
+    "otherCutAllMusic": "Another cut of it, {{have}}, is in All music, not in your Library yet",
+    "rework": "You have a rework of it, {{have}}",
+    "missing": "Not in your Library or All music"
+  },
+  "item": {
+    "bought": "Bought",
+    "notes": "Notes",
+    "remove": "Remove"
+  },
+  "links": {
+    "title": "Store links",
+    "copy": "Copy link",
+    "copied": "Copied",
+    "failed": "Couldn't copy"
+  },
+  "store": {
+    "beatport": "Beatport",
+    "bandcamp": "Bandcamp",
+    "traxsource": "Traxsource",
+    "juno": "Juno"
+  },
+  "refusal": {
+    "nameEmpty": "Give the wishlist a name.",
+    "nameTooLong": "That name is too long.",
+    "notesTooLong": "That note is too long.",
+    "noSuchWishlist": "That wishlist is gone.",
+    "noSuchItem": "That track is gone from the wishlist.",
+    "notTurnedOn": "Wishlists are turned off.",
+    "tooManyItems": "That is too many tracks for one wishlist.",
+    "fileUnreadable": "Couldn't read that file as text.",
+    "fileTooBig": "That file is too big.",
+    "noArtistColumn": "The file has no artist column.",
+    "noTitleColumn": "The file has no title column."
+  }
+}

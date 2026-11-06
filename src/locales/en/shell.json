@@ -62,7 +62,6 @@
       "confirmRelink": "Undo (rekordbox match confirmed)",
       "rejectRelink": "Undo (rekordbox match rejected)",
       "withdrawRelink": "Undo (rekordbox match confirmation withdrawn)",
-      "other": "Undo (last change)",
       "keepBoth": "Undo (both tracks kept)",
       "mergeTracks": "Undo (tracks merged)",
       "sameTrack": "Undo (made one track)",
@@ -75,7 +74,15 @@
       "setEnergy_one": "Undo (energy set on {{count, number}} track)",
       "setEnergy_other": "Undo (energy set on {{count, number}} tracks)",
       "clearEnergy_one": "Undo (energy cleared on {{count, number}} track)",
-      "clearEnergy_other": "Undo (energy cleared on {{count, number}} tracks)"
+      "clearEnergy_other": "Undo (energy cleared on {{count, number}} tracks)",
+      "wishlistCreate": "Undo (wishlist made)",
+      "wishlistRename": "Undo (wishlist renamed)",
+      "wishlistDelete": "Undo (wishlist deleted)",
+      "wishlistAddItems": "Undo (tracks added to wishlist)",
+      "wishlistRemoveItem": "Undo (track removed from wishlist)",
+      "wishlistBought": "Undo (wishlist track bought)",
+      "wishlistNotes": "Undo (wishlist note changed)",
+      "other": "Undo (last change)"
     },
     "refused": {
       "sentSince": "Can't undo: tracks have been sent to rekordbox since",

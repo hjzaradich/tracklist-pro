@@ -40,6 +40,7 @@ function fakeBackend({
     }
     // The send state is asked again when the setting changes; nothing here needs it.
     if (cmd === "send_state") return null;
+    if (cmd === "feature_enabled") return false;
     throw new Error(`unexpected command ${cmd}`);
   });
   return backend;
