@@ -658,6 +658,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **Rules read like a sentence:** "energy is at least 7 and tag includes peak", built from dropdowns, with a live count. A text version is available, and smart crates get their own sidebar icon.
 - **Always include / Never include** lists (`crate_entry.kind`). Dragging a track onto a smart crate always-includes it; removing one never-includes it.
 - **Library tracks only.**
+- **Built (3A, PR 189):** rules on energy, BPM (half and double time optional), key, genre, rating and crate membership, all or any, up to 32 conditions, with a live count; a track with no value never matches, even "is not", and rating 0 means unrated. An empty or unreadable rule matches nothing. Each send evaluates the crate ((rule plus always) minus never) and sends it like a static crate; rekordbox-side edits to a smart crate's playlist are ignored, since the app owns it. Always and never include are their own undoable operations. Tag rules come next (tags merged in PR 186); a text form of the rules isn't built.
 - **Complexity:** M.
 
 #### 3.4 Harmonic "what's next"
