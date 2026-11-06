@@ -282,6 +282,9 @@ function backend({
       if (answered !== undefined) return answered;
       return COMPARISONS.find((c) => c.id.kind === id.kind && c.id.a === id.a) ?? null;
     }
+    // The unmapped-genre group (3.2): nothing to map here.
+    if (cmd === "genre_unmapped") return { noGenre: 0, noGenreSample: [], spellings: [] };
+    if (cmd === "genre_tree") return { nodes: [], aliases: [] };
     throw new Error(`unexpected command ${cmd}`);
   }, { shouldMockEvents: true });
   return { calls, lists };

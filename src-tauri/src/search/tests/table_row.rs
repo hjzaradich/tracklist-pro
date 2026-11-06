@@ -145,7 +145,16 @@ fn stored(conn: &Connection, column: &str) -> Value {
 }
 
 fn write_inputs(tx: &Transaction<'_>, i: &Inputs) -> Written {
-    write(tx, TRACK, &i.fields, &i.facts, i.has_file, i.text_hash).unwrap()
+    write(
+        tx,
+        TRACK,
+        &i.fields,
+        &i.facts,
+        i.has_file,
+        i.text_hash,
+        &crate::genre::Catalog::default(),
+    )
+    .unwrap()
 }
 
 /// How many rows of `track_row` `run` inserts, updates or deletes.

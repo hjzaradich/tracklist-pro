@@ -15,6 +15,7 @@ pub mod energy_stars;
 pub mod file_roles;
 pub mod fingerprint;
 pub mod fragile;
+pub mod genre;
 pub mod grouping;
 pub mod hash;
 pub mod hidden;

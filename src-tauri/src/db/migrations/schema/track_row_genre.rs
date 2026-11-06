@@ -72,7 +72,7 @@ fn the_row_gets_the_genre_and_its_group_and_an_index_to_count_and_filter_by() {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
-    assert_eq!(columns, ["genre", "genre_group", "genre_key"]);
+    assert_eq!(columns, ["genre", "genre_group", "genre_key", "genre_node"]);
     // The Overview's count and the door's rows are read from the index alone.
     for sql in [
         "SELECT genre, count(*) FROM track_row WHERE genre_group IS NOT NULL GROUP BY genre_group, genre",

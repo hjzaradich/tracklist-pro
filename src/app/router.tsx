@@ -10,6 +10,7 @@ import {
 import { AfterSendScreen } from "../afterSend/AfterSendScreen";
 import { AllMusicScreen } from "../allMusic/AllMusicScreen";
 import { CratesScreen } from "../crates/CratesScreen";
+import { GenreScreen } from "../genre/GenreScreen";
 import { launchScreen, type RouterContext } from "../launch/launchContext";
 import { LaunchWatcher } from "../launch/LaunchWatcher";
 import { isCrateId } from "../launch/savedScreen";
@@ -146,6 +147,14 @@ const settingsRoute = createRoute({
   component: SettingsScreen,
 });
 
+// Not a stage and not in the sidebar: the genre tree and its aliases, reached
+// from Review's unmapped-genre group (3.2).
+const genresRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/genres",
+  component: GenreScreen,
+});
+
 // One route per line, with a trailing comma, so lanes adding routes each add
 // a line and don't conflict.
 const routeTree = rootRoute.addChildren([
@@ -159,6 +168,7 @@ const routeTree = rootRoute.addChildren([
   afterSendRoute,
   settingsRoute,
   wishlistsRoute,
+  genresRoute,
 ]);
 
 /**

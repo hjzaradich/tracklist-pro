@@ -8,6 +8,7 @@ import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { AcceptedLine } from "./AcceptedLine";
 import { ConflictsGroup, sortedFields } from "./ConflictsGroup";
 import { ConflictsPane } from "./ConflictsPane";
+import { UnmappedGenres } from "../genre/UnmappedGenres";
 import { MissingList } from "./MissingList";
 import { ReviewComparison } from "./ReviewComparison";
 import { ReviewQueue, type QueueGroup } from "./ReviewQueue";
@@ -187,6 +188,7 @@ export function ReviewScreen() {
             </div>
           </div>
         )}
+        <UnmappedGenres />
         <MissingList
           list={missing.data}
           problem={failure ? errorMessage(failure) : undefined}
