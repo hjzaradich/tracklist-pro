@@ -66,6 +66,10 @@ pub struct Vocab {
     /// For each track sharing a tag with the chosen one, which of
     /// `target_tags` (by position, ascending) it shares.
     pub shared_tags: HashMap<i64, Vec<usize>>,
+    /// Whether any track has a tag at all. A user with none has nothing to
+    /// be told is missing, so tags are then left out of the "not used" list.
+    /// Read only when the chosen track has no tags.
+    pub any_tags: bool,
 }
 
 /// A track to rank: its id and what it is compared by.
@@ -314,7 +318,17 @@ fn plan(ask: &Ask) -> Plan {
     let genre = want(Signal::Genre, w.genre, ask.target.genre.is_some())
         .then_some(ask.target.genre)
         .flatten();
-    let tags = want(Signal::Tags, w.tags, !ask.vocab.target_tags.is_empty());
+    let tags = if w.tags == 0 {
+        false
+    } else if ask.vocab.target_tags.is_empty() {
+        // Not used; said so only to a user who has tags somewhere.
+        if ask.vocab.any_tags {
+            ignored.push(Signal::Tags);
+        }
+        false
+    } else {
+        true
+    };
     Plan {
         key,
         bpm,

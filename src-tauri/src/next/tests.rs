@@ -253,13 +253,7 @@ fn what_the_chosen_track_lacks_is_ignored_and_reported() {
     );
     assert_eq!(
         r.ignored,
-        [
-            Signal::Key,
-            Signal::Bpm,
-            Signal::Energy,
-            Signal::Played,
-            Signal::Tags
-        ]
+        [Signal::Key, Signal::Bpm, Signal::Energy, Signal::Played]
     );
     assert!(r.results[0].reasons.is_empty());
 

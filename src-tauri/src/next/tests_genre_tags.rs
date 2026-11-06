@@ -268,15 +268,44 @@ fn a_chosen_track_with_one_tag_is_fully_matched_by_sharing_it() {
 }
 
 #[test]
-fn a_chosen_track_with_no_tags_leaves_tags_unused() {
+fn a_chosen_track_with_no_tags_leaves_tags_unused_and_says_so_to_a_user_who_has_tags() {
+    let vocab = Vocab {
+        any_tags: true,
+        ..Vocab::default()
+    };
+    let r = run(Facts::default(), &vocab, TAGS_ONLY, &[plain(1), plain(2)]);
+    assert_eq!(r.ignored, [Signal::Tags]);
+    assert!(r.results.iter().all(|s| s.reasons.is_empty()));
+}
+
+#[test]
+fn a_user_with_no_tags_at_all_is_not_told_tags_are_unused() {
     let r = run(
         Facts::default(),
         &Vocab::default(),
         TAGS_ONLY,
         &[plain(1), plain(2)],
     );
-    assert_eq!(r.ignored, [Signal::Tags]);
+    assert!(r.ignored.is_empty());
     assert!(r.results.iter().all(|s| s.reasons.is_empty()));
+}
+
+#[test]
+fn tags_decide_between_candidates_that_tie_on_every_other_signal() {
+    let same = Facts {
+        bpm: Some(124.0),
+        key: Camelot::parse("8A"),
+        energy: Some(5),
+        genre: None,
+    };
+    let twin = |id| Candidate { id, facts: same };
+    let vocab = tagged(&["peak", "vocal"], &[(2, &[0]), (3, &[0, 1])]);
+    let all = [twin(1), twin(2), twin(3)];
+    // At the default weights; without tags the lower id would come first.
+    let r = run(same, &vocab, Weights::default(), &all);
+    assert_eq!(ids(&r.results), [3, 2, 1]);
+    let r = run(same, &Vocab::default(), Weights::default(), &all);
+    assert_eq!(ids(&r.results), [1, 2, 3]);
 }
 
 #[test]
@@ -453,7 +482,7 @@ fn tags_in_common_are_read_in_one_pass_and_ranked_with_their_names() {
     assert!(found.ranked[2].reasons.is_empty());
     assert!(!found.ignored.contains(&Signal::Tags));
 
-    // A chosen track with no tags: not used.
+    // A chosen track with no tags, in a library that has some: not used.
     let found = rank_db(&lib, nothing, Weights::default());
     assert!(found.ignored.contains(&Signal::Tags));
 }
@@ -495,9 +524,9 @@ fn the_default_ranking_for_a_library_with_genres_but_no_tags_is_the_old_one() {
         },
     );
     assert_eq!(now.ranked, before.ranked);
-    // Only the report differs: tags are not used by a track without any.
-    assert_eq!(now.ignored, [Signal::Played, Signal::Tags]);
-    assert_eq!(before.ignored, [Signal::Played]);
+    // A library with no tags at all is not told tags are unused.
+    assert_eq!(now.ignored, before.ignored);
+    assert_eq!(now.ignored, [Signal::Played]);
 }
 
 #[test]

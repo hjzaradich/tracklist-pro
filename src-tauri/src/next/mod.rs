@@ -344,7 +344,12 @@ fn vocab_for(
             position.insert(id, vocab.target_tags.len());
             vocab.target_tags.push(name);
         }
-        if !position.is_empty() {
+        if position.is_empty() {
+            vocab.any_tags =
+                conn.query_row("SELECT EXISTS (SELECT 1 FROM tag_applied)", [], |r| {
+                    r.get(0)
+                })?;
+        } else {
             // Only the chosen track's own tags are looked for, through the
             // tag index, so a library of many tags costs no more.
             let mut stmt = conn.prepare_cached(
