@@ -36,6 +36,9 @@
 //! rule the Overview counts it by (`overview::genre_group`): capitals don't
 //! make another genre. The name is a value, bound as a parameter, never part
 //! of the SQL, so any text is safe in it.
+//!
+//! **The tag filter** (3A-T, [`TableFilter::Tag`]) asks `tag_applied` for the
+//! row's track; the tag's id is bound, never part of the SQL.
 
 use rusqlite::types::Value;
 use serde::{Deserialize, Serialize};
@@ -99,6 +102,9 @@ pub enum TableFilter {
     /// bound as a parameter. A name that is blank, or that no track has,
     /// lists nothing.
     Genre { name: String },
+    /// The track has this tag (`tag_applied`). The tag's id is bound as a
+    /// parameter. A tag that doesn't exist lists nothing.
+    Tag { id: i64 },
 }
 
 /// The ids of the tracks Review lists as quality problems, as the JSON array
@@ -183,6 +189,13 @@ pub(super) fn conditions(
             TableFilter::Genre { name } => {
                 params.push(Value::Text(crate::overview::genre_group(name)));
                 format!("tr.genre_group = ?{}", params.len())
+            }
+            TableFilter::Tag { id } => {
+                params.push(Value::Integer(*id));
+                format!(
+                    "EXISTS (SELECT 1 FROM tag_applied ta WHERE ta.recording_id = tr.recording_id AND ta.tag_id = ?{})",
+                    params.len()
+                )
             }
         };
         out.push(sql);

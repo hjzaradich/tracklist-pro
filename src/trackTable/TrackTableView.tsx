@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
 import { AddToCrateDialog } from "../crates/AddToCrateDialog";
+import { TagPicker } from "../vocab/TagPicker";
 import { AddProgressLine } from "../crates/AddProgressLine";
 import { type AddReport, useAddReport, useAddUnderWay } from "../crates/addSelection";
 import { useAddProgress } from "../crates/useAddProgress";
@@ -96,6 +97,8 @@ export function TrackTableView({
 }) {
   const { t } = useTranslation("trackTable");
   const [sort, setSort] = useState<TableSort | null>(null);
+  // The tracks the tag picker (the T key) is open for (3A-T).
+  const [tagging, setTagging] = useState<readonly number[] | null>(null);
   // A crate can be sorted by fit after its selected track (1cB-16); the
   // selected track is the one in focus. Any heading goes back to normal.
   const [fitTarget, setFitTarget] = useState<FitTarget | null>(null);
@@ -309,9 +312,11 @@ export function TrackTableView({
           onSetEnergy={onSetEnergy}
           onClearEnergy={onClearEnergy}
           onAddToCrate={setAdding}
+          onTag={setTagging}
         />
       )}
       {adding !== null && <AddToCrateDialog recordings={adding} onClose={() => setAdding(null)} />}
+      {tagging !== null && <TagPicker recordings={tagging} onClose={() => setTagging(null)} />}
     </div>
   );
 }

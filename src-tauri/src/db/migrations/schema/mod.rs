@@ -311,6 +311,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0048_wishlist.sql", &["wishlist", "wish_item"]),
     // The genre tree and its aliases, and the canonical node in track_row (3A-G).
     ("0049_genre.sql", &["genre", "genre_alias"]),
+    // The custom tag vocabulary: groups, tags and the tags applied to tracks (3A-T).
+    ("0050_vocab.sql", &["tag", "tag_applied", "tag_group"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
@@ -362,8 +364,6 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     // phase that first needs them.
     let (_dir, conn) = db();
     let later = [
-        "tag",
-        "tag_group",
         "playlist",
         "playlist_entry",
         "play_source",

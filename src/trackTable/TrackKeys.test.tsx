@@ -495,15 +495,18 @@ describe("Space and T", () => {
     expect(toggle).not.toHaveBeenCalled();
   });
 
-  it("T is not listed and does nothing until there are tags to apply", async () => {
+  it("T opens the tag picker for the selected track, and is listed in the palette", async () => {
     const backend = await library();
     clickRow(1);
     await userEvent.keyboard("t");
+    expect(await screen.findByRole("dialog", { name: tx("vocab:picker.title") })).toBeInTheDocument();
     expect(backend.energyAsked).toEqual([]);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(selected()).toEqual([1]);
     await openPalette();
     await userEvent.keyboard(tx("trackTable:keys.tag"));
-    expect(optionNames()).toEqual([]);
+    expect(optionNames()).toEqual([tx("trackTable:keys.tag") + tx("trackTable:keys.shortcut.tag")]);
   });
 });
 

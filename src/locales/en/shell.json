@@ -12,7 +12,8 @@
     "noCrates": "No crates",
     "treeLabel": "Crates and folders",
     "expand": "Open {{name}}",
-    "collapse": "Close {{name}}"
+    "collapse": "Close {{name}}",
+    "tags": "Tags"
   },
   "search": {
     "label": "Search",
@@ -63,6 +64,7 @@
       "confirmRelink": "Undo (rekordbox match confirmed)",
       "rejectRelink": "Undo (rekordbox match rejected)",
       "withdrawRelink": "Undo (rekordbox match confirmation withdrawn)",
+      "tags": "Undo (tag change)",
       "keepBoth": "Undo (both tracks kept)",
       "mergeTracks": "Undo (tracks merged)",
       "sameTrack": "Undo (made one track)",

@@ -6,6 +6,7 @@ import { useUndoneCount } from "./undoneStore";
 import { useWithdrawRelink } from "../review/useReviewActions";
 import { EnergyDetails } from "./EnergyDetails";
 import { TrackCrates } from "./TrackCrates";
+import { TrackTags } from "../vocab/TrackTags";
 import { useTrackTagSources } from "./useTrackTagSources";
 import styles from "./TrackDetails.module.css";
 
@@ -136,6 +137,7 @@ export function TrackDetails({ row }: { row: TableRow }) {
         </section>
       )}
       <TrackCrates row={row} />
+      <TrackTags row={row} />
       {entry !== null && (
         <div className={styles.confirmed}>
           <p className={styles.quiet}>{t("details.withdraw.confirmed")}</p>

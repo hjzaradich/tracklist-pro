@@ -212,6 +212,9 @@ export function crateBackend(options: {
         return { tracks: 0, changeStamp: 0 };
       case "music_folders":
         return [];
+      case "list_tags":
+      case "tags_of_track":
+        return [];
       case "read_online_only_files":
         return false;
       case "crate_add_progress":

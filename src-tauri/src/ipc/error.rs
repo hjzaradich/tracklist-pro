@@ -131,6 +131,18 @@ error_kinds! {
     /// Another crate or folder in the folder already has the name; `name` is
     /// that one's.
     FolderNameTaken => "crates:error.folderNameTaken", params: ["name"];
+    /// There is no tag group with that id.
+    TagGroupNotFound => "vocab:error.groupNotFound", params: [];
+    /// There is no tag with that id.
+    TagNotFound => "vocab:error.tagNotFound", params: [];
+    /// A tag or group name is empty.
+    TagNameEmpty => "vocab:error.nameEmpty", params: [];
+    /// Another tag (or group) already has the name; `name` is that one's.
+    TagNameTaken => "vocab:error.nameTaken", params: ["name"];
+    /// The tag name has a character that can't be sent to rekordbox.
+    TagNameUnsendable => "vocab:error.nameUnsendable", params: [];
+    /// A colour isn't `#rrggbb`.
+    TagColourInvalid => "vocab:error.colourInvalid", params: [];
     /// A crate or folder was to go where there is no folder.
     CrateNotAFolder => "crates:error.notAFolder", params: [];
     /// A folder was to go inside itself or one of its own subfolders.

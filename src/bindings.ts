@@ -311,27 +311,6 @@ export const commands = {
 	 *  settled and the screen asks again. Answers how many were settled.
 	 */
 	reviewResolveConflicts: (field: string, side: Side, expected: number) => typedError<number, IpcError>(__TAURI_INVOKE("review_resolve_conflicts", { field, side, expected })),
-	/**  The genre tree with its aliases and the Library tracks per genre. */
-	genreTree: () => typedError<GenreTree, IpcError>(__TAURI_INVOKE("genre_tree")),
-	/**
-	 *  Every genre spelling the Library uses, with the genre and the rule it
-	 *  resolves by (none: unmapped).
-	 */
-	genreSpellings: () => typedError<Spelling[], IpcError>(__TAURI_INVOKE("genre_spellings")),
-	/**  Review's group: tracks with no genre, then unmapped spellings. */
-	genreUnmapped: () => typedError<UnmappedGenres, IpcError>(__TAURI_INVOKE("genre_unmapped")),
-	/**  Adds a genre under `parent`, or as a branch of its own. */
-	genreAdd: (name: string, parent: number | null) => typedError<number, IpcError>(__TAURI_INVOKE("genre_add", { name, parent })),
-	/**  Renames a genre. Answers the operation recorded, none if nothing changed. */
-	genreRename: (id: number, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("genre_rename", { id, name })),
-	/**  Moves a genre and everything below it under `parent` (none: the top). */
-	genreMove: (id: number, parent: number | null) => typedError<number | null, IpcError>(__TAURI_INVOKE("genre_move", { id, parent })),
-	/**  Makes a spelling an alias of a genre. */
-	genreAddAlias: (genreId: number, alias: string, kind: AliasKind) => typedError<number, IpcError>(__TAURI_INVOKE("genre_add_alias", { genreId, alias, kind })),
-	/**  Removes an alias. */
-	genreRemoveAlias: (id: number) => typedError<number | null, IpcError>(__TAURI_INVOKE("genre_remove_alias", { id })),
-	/**  Adds the proposed starter genres that aren't there yet; answers how many. */
-	genreLoadSeed: () => typedError<number, IpcError>(__TAURI_INVOKE("genre_load_seed")),
 	/**
 	 *  How many Library tracks there are, and a stamp that moves when the list
 	 *  of them would come back different. Cheap at any size: no list is read.
@@ -489,6 +468,27 @@ export const commands = {
 	 *  recorded, or none when the note is the one it has.
 	 */
 	setCrateNotes: (id: CrateId, notes: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_crate_notes", { id, notes })),
+	/**  Makes a tag group. */
+	createTagGroup: (name: string) => typedError<TagGroupId, IpcError>(__TAURI_INVOKE("create_tag_group", { name })),
+	/**  Makes a tag in a group. */
+	createTag: (group: TagGroupId, name: string) => typedError<TagId, IpcError>(__TAURI_INVOKE("create_tag", { group, name })),
+	/**  Renames a group or tag. Answers the operation recorded, or none. */
+	renameTagItem: (item: VocabItem, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("rename_tag_item", { item, name })),
+	/**  Sets or clears (`null`) a group's or tag's colour. */
+	colourTagItem: (item: VocabItem, colour: string | null) => typedError<number | null, IpcError>(__TAURI_INVOKE("colour_tag_item", { item, colour })),
+	/**  Applies a tag to tracks. */
+	applyTag: (tag: TagId, recordings: number[]) => typedError<TagsChanged, IpcError>(__TAURI_INVOKE("apply_tag", { tag, recordings })),
+	/**  Takes a tag off tracks. */
+	removeTag: (tag: TagId, recordings: number[]) => typedError<TagsChanged, IpcError>(__TAURI_INVOKE("remove_tag", { tag, recordings })),
+	/**  Every group with its tags. */
+	listTags: () => typedError<TagGroup[], IpcError>(__TAURI_INVOKE("list_tags")),
+	/**  The tags a track has. */
+	tagsOfTrack: (recordingId: number) => typedError<TagId[], IpcError>(__TAURI_INVOKE("tags_of_track", { recordingId })),
+	/**
+	 *  Copies rekordbox's My Tags into the vocabulary, as one operation. New tags
+	 *  go in the group of the earlier import, else in a group called `group_name`.
+	 */
+	importRekordboxTags: (groupName: string) => typedError<TagsImported, IpcError>(__TAURI_INVOKE("import_rekordbox_tags", { groupName })),
 	/**
 	 *  A window of the track table: the rows of a source, searched, filtered
 	 *  and sorted, with how many there are in all when asked.
@@ -618,7 +618,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -741,13 +741,6 @@ export type AfterSendLists = {
 	stalePlaylists: StalePlaylist[],
 	manualRemovals: ManualRemoval[],
 };
-
-/**  How an alias is compared with a spelling. */
-export type AliasKind = 
-/**  The same text. */
-"exact" | 
-/**  The same once case and accents are folded. */
-"folded";
 
 /**  The app's name, version and bundle ID, as the frontend sees them. */
 export type AppInfo = {
@@ -1151,6 +1144,18 @@ export type ErrorKind =
  *  that one's.
  */
 "folderNameTaken" | 
+/**  There is no tag group with that id. */
+"tagGroupNotFound" | 
+/**  There is no tag with that id. */
+"tagNotFound" | 
+/**  A tag or group name is empty. */
+"tagNameEmpty" | 
+/**  Another tag (or group) already has the name; `name` is that one's. */
+"tagNameTaken" | 
+/**  The tag name has a character that can't be sent to rekordbox. */
+"tagNameUnsendable" | 
+/**  A colour isn't `#rrggbb`. */
+"tagColourInvalid" | 
 /**  A crate or folder was to go where there is no folder. */
 "crateNotAFolder" | 
 /**  A folder was to go inside itself or one of its own subfolders. */
@@ -1209,19 +1214,7 @@ export type ErrorKind =
  *  The number of open conflicts a bulk resolve was asked about is not the
  *  number there is now.
  */
-"conflictsChanged" | 
-/**  The genre or alias was not found (it was removed meanwhile). */
-"genreNotFound" | 
-/**  A genre or alias name is empty once trimmed. */
-"genreNameEmpty" | 
-/**  Another genre has the name (ignoring case and accents); `name` is that genre's. */
-"genreNameTaken" | 
-/**  A genre was to go inside itself or one of its own descendants. */
-"genreMoveIntoItself" | 
-/**  The spelling is already a genre's name or an alias; `name` is the genre it goes to. */
-"genreAliasTaken" | 
-/**  A genre name or alias is longer than 200 characters. */
-"genreTextTooLong";
+"conflictsChanged";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -1325,14 +1318,6 @@ export type FolderContents = {
  */
 export type FragileReason = "downloads" | "temp" | "external" | "network";
 
-/**  An alias of a genre. */
-export type GenreAlias = {
-	id: number,
-	genreId: number,
-	alias: string,
-	kind: AliasKind,
-};
-
 /**  One genre and how many Library tracks have it. */
 export type GenreCount = {
 	/**
@@ -1341,20 +1326,6 @@ export type GenreCount = {
 	 */
 	name: string,
 	tracks: number,
-};
-
-/**  A genre, with the Library tracks the index maps to it. */
-export type GenreNode = {
-	id: number,
-	parentId: number | null,
-	name: string,
-	tracks: number,
-};
-
-/**  The whole taxonomy, nodes in tree order. */
-export type GenreTree = {
-	nodes: GenreNode[],
-	aliases: GenreAlias[],
 };
 
 /**
@@ -2052,13 +2023,6 @@ export type NextUndo = {
 	refusal: UndoRefusal | null,
 };
 
-/**  A Library track that has no genre. */
-export type NoGenreTrack = {
-	recordingId: number,
-	title: string,
-	artist: string,
-};
-
 /**  What S did. */
 export type NotSame = {
 	operationId: number | null,
@@ -2466,12 +2430,6 @@ export type RemovalReason =
  */
 "merged";
 
-/**  The node a spelling resolved to, and why. */
-export type Resolution = {
-	node: number,
-	rule: Rule,
-};
-
 /**  The comparison for one item: its files, the suggested one first. */
 export type ReviewComparison = {
 	id: ReviewItemId,
@@ -2623,17 +2581,6 @@ export type RowFit = {
 export type RowSource = "file" | 
 /**  rekordbox's own entry (a relink item): the file it names is gone. */
 "rekordboxEntry";
-
-/**  Which rule mapped a spelling to a node. Tried in this order. */
-export type Rule = 
-/**  The spelling is the node's name, letter for letter. */
-"exact" | 
-/**  The same once case and accents are folded. */
-"folded" | 
-/**  `Parent (Sub)`: a node `Sub` that sits under a node `Parent`. */
-"parentSub" | 
-/**  An alias the user made. */
-"alias";
 
 /**
  *  What a "Same track twice" item offers: its Library tracks, the one the
@@ -2826,16 +2773,6 @@ export type SourcedValue = {
 	origin: ValueOrigin,
 	/**  The file the value is the tag of; `None` for rekordbox's. */
 	file: NamedFile | null,
-};
-
-/**
- *  A genre spelling as tracks have it, and where it goes. `resolution` is
- *  `None` for an unmapped spelling.
- */
-export type Spelling = {
-	spelling: string,
-	tracks: number,
-	resolution: Resolution | null,
 };
 
 /**  Whether a stale entry is a folder or a playlist. */
@@ -3047,7 +2984,12 @@ export type TableFilter =
  *  bound as a parameter. A name that is blank, or that no track has,
  *  lists nothing.
  */
-{ kind: "genre"; name: string };
+{ kind: "genre"; name: string } | 
+/**
+ *  The track has this tag (`tag_applied`). The tag's id is bound as a
+ *  parameter. A tag that doesn't exist lists nothing.
+ */
+{ kind: "tag"; id: number };
 
 /**  A window of rows. */
 export type TablePage = {
@@ -3183,8 +3125,39 @@ export type TableSource =
  */
 { kind: "crateByFit"; id: CrateId; after: number };
 
+/**  A tag, as the vocabulary panel lists it. */
+export type Tag = {
+	id: TagId,
+	groupId: TagGroupId,
+	name: string,
+	colour: string | null,
+	/**  The rekordbox My Tag it was copied from, as rekordbox spells it. */
+	rekordboxName: string | null,
+	/**
+	 *  The last import didn't find that My Tag in rekordbox any more. The
+	 *  tag stays; the app never deletes one by itself.
+	 */
+	goneFromRekordbox: boolean,
+	/**  How many tracks have it. */
+	trackCount: number,
+};
+
 /**  A tag field the panel lists, in the order it lists them. */
 export type TagField = "title" | "artist" | "album" | "genre" | "composer" | "remixer" | "label" | "year" | "comment";
+
+/**  A group and its tags. */
+export type TagGroup = {
+	id: TagGroupId,
+	name: string,
+	colour: string | null,
+	tags: Tag[],
+};
+
+/**  A tag group's row id. */
+export type TagGroupId = number;
+
+/**  A tag's row id. */
+export type TagId = number;
 
 /**  What the Details panel lists for one track. */
 export type TagSources = {
@@ -3201,6 +3174,38 @@ export type TagSources = {
 	 *  is one to withdraw.
 	 */
 	confirmedEntry: number | null,
+};
+
+/**  What applying a tag to tracks, or removing it, did. */
+export type TagsChanged = {
+	/**  How many tracks gained or lost the tag. */
+	changed: number,
+	/**
+	 *  How many were left alone: they had it already (applying), didn't have
+	 *  it (removing), or no longer exist.
+	 */
+	skipped: number,
+	/**  The operation this recorded; `None` when nothing changed. */
+	operationId: number | null,
+};
+
+/**  What an import did. */
+export type TagsImported = {
+	/**  Tags made, or linked to a My Tag. */
+	added: number,
+	/**  Tags newly flagged as gone from rekordbox. */
+	gone: number,
+	/**  Flagged tags that rekordbox has again. */
+	back: number,
+	/**  Tracks given a tag. */
+	applied: number,
+	/**
+	 *  My Tags left out: a name the writer can't carry, or one equal to
+	 *  another My Tag's.
+	 */
+	skipped: number,
+	/**  The operation this recorded; `None` when nothing changed. */
+	operationId: number | null,
 };
 
 /**  Which way the tempo was read. */
@@ -3280,16 +3285,6 @@ export type UndoRefusal =
 { code: "mergeLinkChanged" };
 
 /**
- *  Review's group: tracks with no genre first, then the spellings no rule
- *  maps, most tracks first.
- */
-export type UnmappedGenres = {
-	noGenre: number,
-	noGenreSample: NoGenreTrack[],
-	spellings: Spelling[],
-};
-
-/**
  *  How a field's values are read and shown (and what a value given by hand
  *  looks like). The engine's own `Kind`, without its two never-listed
  *  members (an analysis field and `TrackID` never conflict).
@@ -3318,6 +3313,9 @@ export type ValueOrigin =
  *  (`clipped` is held back).
  */
 export type Verdict = "ok" | "lowBitrate" | "suspectTranscode" | "truncated" | "broken";
+
+/**  A group or a tag, for the commands that treat both alike. */
+export type VocabItem = { kind: "group"; id: TagGroupId } | { kind: "tag"; id: TagId };
 
 /**  Drives came or went: the music folders' `online` may have changed. */
 export type VolumesChanged = null;

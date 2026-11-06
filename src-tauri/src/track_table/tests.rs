@@ -12,6 +12,7 @@ mod ids;
 mod order;
 mod position;
 mod quality;
+mod tag_filter;
 
 use super::*;
 use crate::search::tests::support::{Lib, Mount};

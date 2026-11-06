@@ -1,0 +1,57 @@
+{
+  "title": "Tags",
+  "empty": "No tags yet. Make a group below, or copy your My Tags from rekordbox.",
+  "cancel": "Go back",
+  "trackCount_zero": "No tracks",
+  "trackCount_one": "{{count, number}} track",
+  "trackCount_other": "{{count, number}} tracks",
+  "goneFromRekordbox": "No longer in rekordbox",
+  "colour": {
+    "label": "Colour of {{name}}",
+    "default": "Default colour"
+  },
+  "rename": {
+    "action": "Rename",
+    "label": "New name for {{name}}",
+    "confirm": "Rename"
+  },
+  "group": {
+    "empty": "No tags in this group"
+  },
+  "newGroup": {
+    "label": "New group name",
+    "action": "Add group"
+  },
+  "newTag": {
+    "label": "New tag in {{group}}",
+    "action": "Add tag"
+  },
+  "import": {
+    "action": "Copy from rekordbox",
+    "group": "From rekordbox",
+    "nothing": "Nothing new to copy.",
+    "done": "Copied from rekordbox: {{added}} added, {{gone}} no longer in rekordbox, {{back}} back, {{skipped}} left out."
+  },
+  "track": {
+    "title": "Tags",
+    "none": "No tags yet. Make some on the Tags screen."
+  },
+  "picker": {
+    "title": "Tag tracks",
+    "search": "Find a tag",
+    "list": "Tags",
+    "trackCount_one": "{{count, number}} track",
+    "trackCount_other": "{{count, number}} tracks",
+    "empty": "No tags yet. Make some on the Tags screen.",
+    "none": "No tag matches",
+    "cancel": "Go back"
+  },
+  "error": {
+    "groupNotFound": "That tag group is gone.",
+    "tagNotFound": "That tag is gone.",
+    "nameEmpty": "A name can't be empty.",
+    "nameTaken": "\"{{name}}\" is already used.",
+    "nameUnsendable": "That name has a character rekordbox can't read.",
+    "colourInvalid": "That isn't a colour."
+  }
+}

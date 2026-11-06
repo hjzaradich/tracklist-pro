@@ -186,8 +186,9 @@ pub fn describe(
     let mut crates = tree::crate_tree(conn)?;
     tree::as_merged(&mut crates, &merged.membership);
     let membership = merged.membership.clone();
-    // Playlists arrive in Phase 3; the folder is still written (rule 6).
-    let input = rekordbox_write::gather_merged(conn, merged, crates.clone(), Vec::new())?;
+    // The playlists are the tags' (3A-T); the folder is written either way (rule 6).
+    let input =
+        rekordbox_write::gather_merged(conn, merged, crates.clone(), tree::tag_playlists(conn)?)?;
     let gone = Gone::of(&input);
     let mut built = rekordbox_write::build(&input);
     drop(input);
