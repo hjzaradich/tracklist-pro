@@ -609,7 +609,8 @@ Each feature is tagged with its sub-phase.
 #### 2.5 Auto tick-off
 - **What:** when an Inbox file matches a wishlist item, the item is marked acquired and the track goes straight into the Library.
 - **"Done for you":** these are listed at the top of the Inbox, saying which wishlist item matched and how. Undo returns the file to the Inbox.
-- **Optional:** add it to a crate named after the wishlist.
+- **Optional:** add it to a crate named after the wishlist (off by default, per wishlist; an existing crate with that name is reused).
+- **Built (2B, PR 185):** only an exact-cut match ticks off, never "other cut" or "rework"; an ambiguous match (two wishes or two files) or a refused add does nothing automatically, and the item just shows as matched. The check runs after each grouping pass. Undo of the operation returns the file to the Inbox as new and clears the acquired mark, and an Inbox item the user has acted on is never ticked off again.
 - **Complexity:** S.
 
 #### 2.6 Managed copies & upgrades
