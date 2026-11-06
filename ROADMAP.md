@@ -632,6 +632,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **One removable module.** It joins the core only where an XML read enters, so it can be switched off or taken out as a single feature. With it off, or when a read fails, the XML path works exactly as before.
 - **Beyond the XML:** what else it reads is decided when the feature is broken down. Candidates: My Tags (3.1) and play history (3.6).
 - **Not covered:** OneLibrary's `exportLibrary.db` on gig USBs isn't read.
+- **Built (2C, PR 187):** turned on in Settings, where the user picks the database file and types the key; the key is kept in memory for the session only (remembering it waits for the credentials decision, 2.2). Each read copies the database into the app's staging folder, reads the copy and deletes it, success or failure. It reads what an XML read gives (tracks, playlists); cues, beat grids and intelligent playlists aren't read yet. **Sending still needs an XML export:** the send re-reads the user's XML export, so a database-only user gets a plain refusal; reading the database for the send is a follow-up. Not yet tried against a real rekordbox library: the owner's hands-on test comes first.
 - **Complexity:** M. **Reuse:** none; new.
 
 ---
