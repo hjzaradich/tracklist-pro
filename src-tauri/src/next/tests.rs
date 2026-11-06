@@ -656,7 +656,7 @@ struct Odd {
 
 impl ExtraSignal for Odd {
     fn part(&self, _target: i64, candidate: i64) -> Option<ExtraPart> {
-        (candidate == 2).then(|| ExtraPart {
+        (candidate == 2).then_some(ExtraPart {
             weight: self.weight,
             fitness: self.fitness,
             reason: Reason {

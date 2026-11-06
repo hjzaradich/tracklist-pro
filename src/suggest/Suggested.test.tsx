@@ -20,8 +20,8 @@ beforeAll(() => {
       nearBpm: "+{{bpm}} BPM",
       tagged: "tagged {{tag}}",
       soundsDark: "sounds dark",
-      played_one: "follows this track in your history once",
-      played_other: "follows this track in your history {{count}} times",
+      played_one: "played after it once",
+      played_other: "played after it {{count}} times",
       withFormat: "{{bpm, number}} BPM",
     },
   });
@@ -79,9 +79,9 @@ describe("a suggestion is shown with its reasons", () => {
 
   it("picks the plural form from a count parameter", () => {
     renderSuggested(suggestion([fact("played", { count: 1 })]));
-    expect(line("follows this track in your history once")).toBeInTheDocument();
+    expect(line("played after it once")).toBeInTheDocument();
     renderSuggested(suggestion([fact("played", { count: 4 })]));
-    expect(line("follows this track in your history 4 times")).toBeInTheDocument();
+    expect(line("played after it 4 times")).toBeInTheDocument();
   });
 
   it("fills parameters only into the text, even when named like an i18next option", () => {
