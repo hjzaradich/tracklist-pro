@@ -52,7 +52,8 @@ pub(super) fn condition(condition: &Condition, params: &mut Vec<Value>) -> Strin
         }
         Condition::Rating { op, value, to } => numeric(
             "tr.rating",
-            "tr.rating IS NOT NULL",
+            // 0 stars is "no rating" (rekordbox's unrated), like a missing one.
+            "tr.rating > 0",
             *op,
             Value::Integer(i64::from(*value)),
             to.map(|t| Value::Integer(i64::from(t))),
@@ -77,6 +78,11 @@ pub(super) fn condition(condition: &Condition, params: &mut Vec<Value>) -> Strin
             None => "0".to_owned(),
         },
         Condition::Genre { op, value } => {
+            // Nothing typed yet matches nothing (`instr(x, '')` is 1 for every
+            // track that has a genre).
+            if *op == TextOp::Contains && value.trim().is_empty() {
+                return "0".to_owned();
+            }
             let mark = bind(params, Value::Text(crate::overview::genre_group(value)));
             match op {
                 TextOp::Is => format!("(tr.genre_group = {mark})"),
@@ -86,15 +92,15 @@ pub(super) fn condition(condition: &Condition, params: &mut Vec<Value>) -> Strin
         }
         Condition::InCrate { op, crate_id } => {
             let mark = bind(params, Value::Integer(crate_id.0));
+            // Uncorrelated, so SQLite builds the crate's recordings once.
             let held = format!(
-                "EXISTS (SELECT 1 FROM crate_entry ice
-                         JOIN library_track ilt ON ilt.id = ice.library_track_id
-                         WHERE ice.crate_id = {mark} AND ice.kind = 'member'
-                           AND ilt.recording_id = tr.recording_id)"
+                "(SELECT ilt.recording_id FROM crate_entry ice
+                  JOIN library_track ilt ON ilt.id = ice.library_track_id
+                  WHERE ice.crate_id = {mark} AND ice.kind = 'member')"
             );
             match op {
-                ChoiceOp::Is => format!("({held})"),
-                ChoiceOp::IsNot => format!("(NOT {held})"),
+                ChoiceOp::Is => format!("(tr.recording_id IN {held})"),
+                ChoiceOp::IsNot => format!("(tr.recording_id NOT IN {held})"),
             }
         }
     }

@@ -119,6 +119,10 @@
     "purpose": "Explains always include (adding) and never include (taking out).",
     "where": "Crates screen, a smart crate's rule builder."
   },
+  "builder.textEmpty": {
+    "purpose": "Says why Save is off: a genre \"contains\" condition has no text yet.",
+    "where": "Crates screen, a smart crate's rule builder, under the conditions."
+  },
   "builder.save": {
     "purpose": "Button that saves the rule.",
     "where": "Crates screen, a smart crate's rule builder."

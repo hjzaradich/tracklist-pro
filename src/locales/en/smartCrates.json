@@ -36,6 +36,7 @@
     "count_one": "{{count, number}} track matches",
     "count_other": "{{count, number}} tracks match",
     "lists": "Tracks you add to this crate are always in it; tracks you take out never are.",
+    "textEmpty": "Type a genre for the “contains” condition, or remove it. It can’t be saved empty.",
     "save": "Save rule",
     "discard": "Discard changes"
   },

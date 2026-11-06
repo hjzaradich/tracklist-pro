@@ -963,8 +963,12 @@ export type Crate = {
 	parentId: CrateId | null,
 	kind: CrateKind,
 	name: string,
-	/**  The tracks in a crate; 0 for a folder. */
-	trackCount: number,
+	/**
+	 *  The tracks in a crate; 0 for a folder. `None` for a smart crate: its
+	 *  count is its rule run over the Library, so whoever shows it asks for
+	 *  that (a table of the crate, no rows, with the total), not every list.
+	 */
+	trackCount: number | null,
 };
 
 /**  A crate's row id. */

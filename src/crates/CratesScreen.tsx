@@ -12,7 +12,7 @@ import { CrateNotes, CrateSummaryLine } from "./CrateInfo";
 import styles from "./CratesScreen.module.css";
 import { EMPTY_RULE, SMART_ICON } from "./smart/rule";
 import { SmartCrateView } from "./smart/SmartCrateView";
-import { useCreateSmartCrate, useSetSmartRule } from "./smart/useSmartCrates";
+import { useCreateSmartCrate, useSetSmartRule, useSmartCount } from "./smart/useSmartCrates";
 import { buildTree, PATH_SEPARATOR, pathOf, type TreeNode } from "./tree";
 import {
   CRATES_QUERY_KEY,
@@ -379,7 +379,9 @@ function TreeRows({
           {crate.name}
         </span>
         {crate.kind !== "folder" && (
-          <span className={styles.count}>{t("trackCount", { count: crate.trackCount })}</span>
+          <span className={styles.count}>
+            {crate.kind === "smart" ? <SmartCount id={crate.id} /> : t("trackCount", { count: crate.trackCount ?? 0 })}
+          </span>
         )}
       </button>
       {children.length > 0 && (
@@ -389,6 +391,13 @@ function TreeRows({
       )}
     </li>
   ));
+}
+
+/** A smart crate's count in the list: the list carries none, so it asks for its own. */
+function SmartCount({ id }: { id: number }) {
+  const { t } = useTranslation("crates");
+  const count = useSmartCount(id);
+  return count.data === undefined ? null : t("trackCount", { count: count.data });
 }
 
 function CrateView({

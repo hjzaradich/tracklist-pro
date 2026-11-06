@@ -6,6 +6,7 @@ import { crateChoices } from "../tree";
 import {
   clampNumber,
   FIELDS,
+  hasEmptyText,
   KEYS,
   MAX_CONDITIONS,
   newCondition,
@@ -44,6 +45,7 @@ export function RuleBuilder({
   const count = useRuleCount(crateId, draft);
   const handMade = crateChoices(all).filter(({ crate }) => crate.kind === "static");
   const changed = !sameRule(draft, saved);
+  const unfinished = hasEmptyText(draft);
   const full = draft.conditions.length >= MAX_CONDITIONS;
 
   const setAt = (at: number, condition: Condition) =>
@@ -103,9 +105,15 @@ export function RuleBuilder({
         {count.data === undefined ? t("builder.counting") : t("builder.count", { count: count.data })}
       </p>
       <p>{t("builder.lists")}</p>
+      {unfinished && <p role="alert">{t("builder.textEmpty")}</p>}
       {changed && (
         <div className={styles.actions}>
-          <button type="button" className={styles.primary} disabled={pending} onClick={() => onSave(draft)}>
+          <button
+            type="button"
+            className={styles.primary}
+            disabled={pending || unfinished}
+            onClick={() => onSave(draft)}
+          >
             {t("builder.save")}
           </button>
           <button type="button" className={styles.button} onClick={() => setDraft(saved)}>

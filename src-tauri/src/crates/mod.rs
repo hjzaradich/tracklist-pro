@@ -91,8 +91,10 @@ pub struct Crate {
     pub parent_id: Option<CrateId>,
     pub kind: CrateKind,
     pub name: String,
-    /// The tracks in a crate; 0 for a folder.
-    pub track_count: u32,
+    /// The tracks in a crate; 0 for a folder. `None` for a smart crate: its
+    /// count is its rule run over the Library, so whoever shows it asks for
+    /// that (a table of the crate, no rows, with the total), not every list.
+    pub track_count: Option<u32>,
 }
 
 /// What deleting a folder would delete, below the folder itself.
@@ -1199,8 +1201,8 @@ fn with_operation(recorded: ops::Recorded<Done<Changed>>) -> Done<Changed> {
     })
 }
 
-/// Every folder and crate with its track count (a smart crate's as it
-/// evaluates now). Each folder's own are in the order a send writes them
+/// Every folder and crate with its track count (none for a smart crate; see
+/// [`Crate::track_count`]). Each folder's own are in the order a send writes them
 /// (`position`, then id); the caller builds the tree from `parent_id`.
 pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Crate>> {
     let mut stmt = conn.prepare(
@@ -1216,12 +1218,12 @@ pub fn list(conn: &Connection) -> rusqlite::Result<Vec<Crate>> {
             parent_id: r.get::<_, Option<i64>>(1)?.map(CrateId),
             kind: kind_from(&r.get::<_, String>(2)?),
             name: r.get(3)?,
-            track_count: r.get(4)?,
+            track_count: Some(r.get(4)?),
         })
     })?;
     let mut crates = rows.collect::<rusqlite::Result<Vec<_>>>()?;
     for c in crates.iter_mut().filter(|c| c.kind == CrateKind::Smart) {
-        c.track_count = smart::membership::count(conn, c.id)?;
+        c.track_count = None;
     }
     Ok(crates)
 }

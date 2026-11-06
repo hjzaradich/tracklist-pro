@@ -34,7 +34,8 @@ export const KEYS: readonly string[] = Array.from({ length: 12 }, (_, i) => i + 
 export const RANGES: Record<"energy" | "bpm" | "rating", [number, number]> = {
   energy: [1, 10],
   bpm: [1, 999],
-  rating: [0, 5],
+  // 0 stars is no rating, which no rule compares with.
+  rating: [1, 5],
 };
 
 /** A new condition on `field`, with a value that makes sense for it. */
@@ -77,6 +78,11 @@ export function clampNumber(field: "energy" | "bpm" | "rating", typed: string): 
 
 /** An empty rule: matches nothing until a condition is added. */
 export const EMPTY_RULE: SmartRule = { combine: "all", conditions: [] };
+
+/** Whether a genre condition still has no text to compare with (it would match nothing). */
+export function hasEmptyText(rule: SmartRule): boolean {
+  return rule.conditions.some((c) => c.field === "genre" && c.op === "contains" && c.value.trim() === "");
+}
 
 /** Whether two rules say the same thing. */
 export function sameRule(a: SmartRule, b: SmartRule): boolean {

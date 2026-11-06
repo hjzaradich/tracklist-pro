@@ -45,7 +45,7 @@ impl Lib {
         &self,
         f: impl FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,
     ) -> T {
-        self.writer.call(move |c| Ok(f(c)?)).unwrap()
+        self.writer.call(f).unwrap()
     }
 
     /// A track with an index row; a Library track too when `library`.
@@ -312,13 +312,46 @@ fn each_field_and_operator_matches_the_library_tracks_it_says() {
             },
             r(&[0, 1, 4]),
         ),
+        // 0 stars is unrated: no value, so nothing is "0", and "is not" and
+        // "at most" leave it out like a missing one.
         (
             Condition::Rating {
                 op: NumberOp::Is,
                 value: 0,
                 to: None,
             },
-            r(&[2]),
+            vec![],
+        ),
+        (
+            Condition::Rating {
+                op: NumberOp::IsNot,
+                value: 5,
+                to: None,
+            },
+            r(&[1, 4]),
+        ),
+        (
+            Condition::Rating {
+                op: NumberOp::AtMost,
+                value: 2,
+                to: None,
+            },
+            vec![],
+        ),
+        // Nothing typed yet is nothing to contain, not "every track with a genre".
+        (
+            Condition::Genre {
+                op: TextOp::Contains,
+                value: String::new(),
+            },
+            vec![],
+        ),
+        (
+            Condition::Genre {
+                op: TextOp::Contains,
+                value: "  ".to_owned(),
+            },
+            vec![],
         ),
     ];
     for (condition, expected) in cases {
@@ -384,6 +417,48 @@ fn in_crate_reads_a_hand_made_crates_members() {
         matched(&w.lib, one(is_not)),
         vec![w.rec[0], w.rec[2], w.rec[3]]
     );
+}
+
+#[test]
+fn a_bpm_of_zero_is_no_bpm_so_bpm_is_not_leaves_it_out() {
+    let lib = Lib::new();
+    let facts = |bpm: f64| Facts {
+        bpm: Some(bpm),
+        ..Facts::default()
+    };
+    let (zero, _) = lib.track("a zero", true, facts(0.0));
+    let (same, _) = lib.track("b same", true, facts(118.0));
+    let (other, _) = lib.track("c other", true, facts(130.0));
+    let (none, _) = lib.track("d none", true, Facts::default());
+    let bpm = |op, half_double| Condition::Bpm {
+        op,
+        value: 118,
+        to: None,
+        half_double,
+    };
+    assert_eq!(matched(&lib, one(bpm(NumberOp::IsNot, false))), vec![other]);
+    assert_eq!(matched(&lib, one(bpm(NumberOp::IsNot, true))), vec![other]);
+    assert_eq!(matched(&lib, one(bpm(NumberOp::Is, false))), vec![same]);
+    let _ = (zero, none);
+}
+
+#[test]
+fn in_crate_is_an_uncorrelated_list_not_a_lookup_per_track() {
+    for op in [ChoiceOp::Is, ChoiceOp::IsNot] {
+        let mut params = Vec::new();
+        let sql = compile(
+            &one(Condition::InCrate {
+                op,
+                crate_id: CrateId(7),
+            }),
+            &mut params,
+        );
+        assert!(sql.contains("IN (SELECT"), "{sql}");
+        assert!(!sql.contains("EXISTS"), "{sql}");
+        // The subquery never names the outer row, so it is built once.
+        let inner = &sql[sql.find("(SELECT").unwrap()..];
+        assert!(!inner.contains("tr."), "{sql}");
+    }
 }
 
 #[test]
@@ -554,11 +629,13 @@ fn a_send_writes_a_smart_crate_as_it_evaluates_and_the_merge_never_compares_it()
             .with(move |c| crate::conflicts::membership::crate_of(c, &field)),
         None
     );
-    // The list shows it with its evaluated count.
+    // The list names it without counting it (a count is a scan of the Library
+    // per smart crate); the count is asked for on its own.
     let listed = w.lib.with(|c| crate::crates::list(c));
     assert_eq!(listed[0].kind, CrateKind::Smart);
     assert_eq!(listed[0].id, id);
-    assert_eq!(listed[0].track_count, 3);
+    assert_eq!(listed[0].track_count, None);
+    assert_eq!(w.lib.with(move |c| count(c, id)), 3);
 }
 
 /// Text the user could type, with a marker that appears in no SQL here.
@@ -627,6 +704,13 @@ fn any_rule() -> impl Strategy<Value = SmartRule> {
 #[test]
 fn any_rule_compiles_to_sql_that_runs_with_every_value_bound() {
     let w = world();
+    let saved = w.lib.create(
+        "Random",
+        SmartRule {
+            combine: Combine::All,
+            conditions: vec![],
+        },
+    );
     let mut runner = TestRunner::new(Config {
         cases: 300,
         failure_persistence: None,
@@ -656,6 +740,17 @@ fn any_rule_compiles_to_sql_that_runs_with_every_value_bound() {
                     )
                 });
                 prop_assert!((0..=6).contains(&n));
+                // Saved, the same rule is what a send, the list and the count read.
+                let json = rule.to_json();
+                let (held, counted) = w.lib.with(move |c| {
+                    c.execute(
+                        "UPDATE crate SET rules = ?1 WHERE id = ?2",
+                        rusqlite::params![json, saved.0],
+                    )?;
+                    Ok((evaluate(c, saved)?, count(c, saved)?))
+                });
+                prop_assert_eq!(held.len(), counted as usize);
+                prop_assert!(held.len() <= 5);
                 Ok(())
             },
         )

@@ -8,7 +8,7 @@ import type { Crate, SmartRule, TableQuery } from "../../bindings";
 import "../../i18n";
 import { tx } from "../../test/tx";
 import { RuleBuilder } from "./RuleBuilder";
-import { EMPTY_RULE, MAX_CONDITIONS, newCondition } from "./rule";
+import { clampNumber, EMPTY_RULE, MAX_CONDITIONS, newCondition, RANGES } from "./rule";
 
 const CRATES: Crate[] = [
   { id: 1, parentId: null, kind: "static", name: "Picked", trackCount: 3 },
@@ -99,5 +99,42 @@ describe("RuleBuilder", () => {
     show(full);
     expect(screen.getByRole("button", { name: tx("smartCrates:builder.add") }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText(tx("smartCrates:builder.full", { count: MAX_CONDITIONS }))).toBeTruthy();
+  });
+
+  it("asks for the live count once the rule has rested, not on every keystroke", async () => {
+    const user = userEvent.setup();
+    show({ combine: "all", conditions: [{ field: "bpm", op: "is", value: 1, to: null, halfDouble: false }] });
+    await screen.findByText(tx("smartCrates:builder.count", { count: 1 }));
+    const before = asked.length;
+    const box = screen.getByRole("spinbutton", { name: tx("smartCrates:builder.valueFor", { n: 1 }) });
+    await user.type(box, "26");
+    // Each keystroke changed the draft; none of them asked.
+    expect(asked.length).toBe(before);
+    await waitFor(() => expect(asked.length).toBe(before + 1));
+    const last = asked.at(-1)?.conditions[0];
+    expect(last && "value" in last ? last.value : null).toBe(126);
+  });
+
+  it("refuses to save a genre “contains” with nothing typed", async () => {
+    const user = userEvent.setup();
+    const onSave = show(EMPTY_RULE);
+    await user.click(screen.getByRole("button", { name: tx("smartCrates:builder.add") }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: tx("smartCrates:builder.fieldFor", { n: 1 }) }),
+      "genre",
+    );
+    expect(screen.getByText(tx("smartCrates:builder.textEmpty"))).toBeTruthy();
+    const save = screen.getByRole("button", { name: tx("smartCrates:builder.save") });
+    expect(save).toBeDisabled();
+    await user.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    await user.type(screen.getByRole("textbox", { name: tx("smartCrates:builder.valueFor", { n: 1 }) }), "house");
+    expect(screen.queryByText(tx("smartCrates:builder.textEmpty"))).toBeNull();
+    expect(save).toBeEnabled();
+  });
+
+  it("offers ratings from one star: no star is no rating", () => {
+    expect(RANGES.rating).toEqual([1, 5]);
+    expect(clampNumber("rating", "0")).toBe(1);
   });
 });

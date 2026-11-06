@@ -245,7 +245,7 @@ impl Lib {
             .call(|c| list(c))
             .unwrap()
             .into_iter()
-            .map(|c| (c.name, c.track_count))
+            .map(|c| (c.name, c.track_count.unwrap_or(0)))
             .collect()
     }
 
