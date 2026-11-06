@@ -1,5 +1,6 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import type { AddedToCrate, AddProgressState, Crate, OperationInfo, TableQuery, TableRow } from "../bindings";
+import { quietAnswer } from "./quietCommands";
 import { pageOf, tableRow } from "./trackTableIpc";
 
 /**
@@ -221,6 +222,10 @@ export function crateBackend(options: {
         return state.addProgress;
       case "key_notation":
         return "camelot";
+      case "next_for":
+      case "next_settings":
+        // "What's next" in the Details panel: nothing to suggest.
+        return quietAnswer(cmd);
       case "table_columns":
         return null;
       default:

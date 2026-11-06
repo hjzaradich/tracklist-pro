@@ -1,0 +1,174 @@
+{
+  "title": {
+    "purpose": "Heading of the section in Details that suggests which Library tracks to play after the selected one.",
+    "where": "Details panel, below the crates."
+  },
+  "loading": {
+    "purpose": "Says the suggestions are being worked out.",
+    "where": "What's next section, while loading."
+  },
+  "none": {
+    "purpose": "Says no Library track can be suggested after the selected one, so it isn't read as a fault.",
+    "where": "What's next section, when the list is empty."
+  },
+  "considered_one": {
+    "purpose": "Says how many Library tracks were compared (one).",
+    "where": "What's next section, under the list."
+  },
+  "considered_other": {
+    "purpose": "Says how many Library tracks were compared.",
+    "where": "What's next section, under the list."
+  },
+  "direction.label": {
+    "purpose": "Name of the choice of which way the energy should go from the selected track.",
+    "where": "What's next section, beside the Up, Same and Down choices."
+  },
+  "direction.up": {
+    "purpose": "Choice: suggest tracks with higher energy.",
+    "where": "What's next section, energy direction."
+  },
+  "direction.same": {
+    "purpose": "Choice: suggest tracks with about the same energy.",
+    "where": "What's next section, energy direction."
+  },
+  "direction.down": {
+    "purpose": "Choice: suggest tracks with lower energy.",
+    "where": "What's next section, energy direction."
+  },
+  "reason.separator": {
+    "purpose": "Joins a suggestion's reasons into one line.",
+    "where": "What's next section, after each suggested track."
+  },
+  "reason.keySame": {
+    "purpose": "Reason: the suggested track has the same key as the selected one. {{key}} is the key.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.keyAdjacent": {
+    "purpose": "Reason: the key is one number up or down on the Camelot wheel, same letter. {{from}} and {{to}} are keys.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.keyRelative": {
+    "purpose": "Reason: the key is the relative major or minor (same number, other letter). {{from}} and {{to}} are keys.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.keyTwoSteps": {
+    "purpose": "Reason (wide tolerance only): the key is two numbers away on the wheel. {{from}} and {{to}} are keys.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.keyDiagonal": {
+    "purpose": "Reason (wide tolerance only): the key is one number away and the other letter. {{from}} and {{to}} are keys.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.keyFar": {
+    "purpose": "Reason: the key is not next to the selected track's. {{from}} and {{to}} are keys.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.keyNone": {
+    "purpose": "Reason: the suggested track has no key.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.bpm": {
+    "purpose": "Reason: the BPM difference from the selected track, with sign. {{delta}} is the signed number.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.bpmSame": {
+    "purpose": "Reason: the BPM is the same as the selected track's.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.bpmHalf": {
+    "purpose": "Reason: the BPM counts at half the selected track's tempo. {{bpm}} is the BPM reason.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.bpmDouble": {
+    "purpose": "Reason: the BPM counts at double the selected track's tempo. {{bpm}} is the BPM reason.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.bpmNone": {
+    "purpose": "Reason: the suggested track has no BPM.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.energyStep": {
+    "purpose": "Reason: the energy step from the selected track, with sign. {{step}} is the signed number.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.energySame": {
+    "purpose": "Reason: the energy is the same as the selected track's.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.energyNone": {
+    "purpose": "Reason: the suggested track has no energy, which is why it comes after tracks that have one.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.playedAfter_one": {
+    "purpose": "Reason: the user has played this track right after the selected one, once.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.playedAfter_other": {
+    "purpose": "Reason: the user has played this track right after the selected one, several times. {{count}} is how many.",
+    "where": "Reason line of a suggestion."
+  },
+  "ignored.label": {
+    "purpose": "Says which signals could not be used because the selected track lacks that information. {{signals}} is a list.",
+    "where": "What's next section, under the list."
+  },
+  "ignored.separator": {
+    "purpose": "Joins the names of the signals that could not be used.",
+    "where": "What's next section, under the list."
+  },
+  "signal.key": {
+    "purpose": "Name of the key signal, in the list of signals not used.",
+    "where": "What's next section."
+  },
+  "signal.bpm": {
+    "purpose": "Name of the BPM signal, in the list of signals not used.",
+    "where": "What's next section."
+  },
+  "signal.energy": {
+    "purpose": "Name of the energy signal, in the list of signals not used.",
+    "where": "What's next section."
+  },
+  "signal.played": {
+    "purpose": "Name of the play history signal, in the list of signals not used.",
+    "where": "What's next section."
+  },
+  "weights.title": {
+    "purpose": "Heading of the panel where the weights and the tolerance are shown and changed.",
+    "where": "What's next section, a collapsed panel."
+  },
+  "weights.hint": {
+    "purpose": "Explains the weights: 0 turns a signal off, 10 is the most, changes apply at once.",
+    "where": "What's next section, in the weights panel."
+  },
+  "weights.key": {
+    "purpose": "Label of the weight for key compatibility.",
+    "where": "Weights panel."
+  },
+  "weights.bpm": {
+    "purpose": "Label of the weight for BPM closeness.",
+    "where": "Weights panel."
+  },
+  "weights.energy": {
+    "purpose": "Label of the weight for the energy step.",
+    "where": "Weights panel."
+  },
+  "weights.played": {
+    "purpose": "Label of the weight for tracks the user has played after the selected one.",
+    "where": "Weights panel."
+  },
+  "weights.tolerance.label": {
+    "purpose": "Name of the choice between tight and wide tolerance.",
+    "where": "Weights panel."
+  },
+  "weights.tolerance.tight": {
+    "purpose": "Choice: only close matches count (the same limits as Sort by fit).",
+    "where": "Weights panel, tolerance."
+  },
+  "weights.tolerance.wide": {
+    "purpose": "Choice: bigger jumps in key, BPM and energy still count.",
+    "where": "Weights panel, tolerance."
+  },
+  "weights.tolerance.hint": {
+    "purpose": "Explains tight and wide tolerance.",
+    "where": "Weights panel, under the tolerance choice."
+  }
+}

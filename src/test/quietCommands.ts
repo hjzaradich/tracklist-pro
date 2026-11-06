@@ -39,6 +39,8 @@ const IDLE_SEND: SendState = {
   sent: null,
 };
 
+const NEXT_SETTINGS = { weights: { key: 4, bpm: 4, energy: 2, played: 2 }, tolerance: "tight" };
+
 const ANSWERS: Record<string, unknown> = {
   list_crates: [],
   list_tags: [],
@@ -76,6 +78,8 @@ const ANSWERS: Record<string, unknown> = {
   missing_tracks: { total: 0, groups: [] },
   review_conflict_fields: [],
   waveform_peaks: { state: "notReady" },
+  next_for: { results: [], considered: 0, ignored: [], settings: NEXT_SETTINGS },
+  next_settings: NEXT_SETTINGS,
 };
 
 /** Whether `cmd` has a quiet answer. */

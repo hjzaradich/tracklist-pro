@@ -1,0 +1,57 @@
+{
+  "title": "What's next",
+  "loading": "Finding tracks",
+  "none": "No tracks in your Library to follow this one",
+  "considered_one": "Compared with 1 track",
+  "considered_other": "Compared with {{count, number}} tracks",
+  "direction": {
+    "label": "Energy direction",
+    "up": "Up",
+    "same": "Same",
+    "down": "Down"
+  },
+  "reason": {
+    "separator": ", ",
+    "keySame": "same key ({{key}})",
+    "keyAdjacent": "{{from}} → {{to}} (next to it)",
+    "keyRelative": "{{from}} → {{to}} (relative major or minor)",
+    "keyTwoSteps": "{{from}} → {{to}} (two steps)",
+    "keyDiagonal": "{{from}} → {{to}} (a step and the other letter)",
+    "keyFar": "{{from}} → {{to}} (not neighbors)",
+    "keyNone": "no key",
+    "bpm": "{{delta}} BPM",
+    "bpmSame": "same BPM",
+    "bpmHalf": "{{bpm}} (half time)",
+    "bpmDouble": "{{bpm}} (double time)",
+    "bpmNone": "no BPM",
+    "energyStep": "energy {{step}}",
+    "energySame": "same energy",
+    "energyNone": "no energy (comes last)",
+    "playedAfter_one": "follows this track in your history once",
+    "playedAfter_other": "follows this track in your history {{count}} times"
+  },
+  "ignored": {
+    "label": "Not used (this track has none): {{signals}}",
+    "separator": ", "
+  },
+  "signal": {
+    "key": "key",
+    "bpm": "BPM",
+    "energy": "energy",
+    "played": "history"
+  },
+  "weights": {
+    "title": "Weights and tolerance",
+    "hint": "Set how much each counts, from 0 (off) to 10. A change applies at once.",
+    "key": "Key",
+    "bpm": "BPM",
+    "energy": "Energy step",
+    "played": "Your history",
+    "tolerance": {
+      "label": "Tolerance",
+      "tight": "Tight",
+      "wide": "Wide",
+      "hint": "Tight is close blending, as Sort by fit does. Wide also allows bigger jumps in key, BPM and energy."
+    }
+  }
+}

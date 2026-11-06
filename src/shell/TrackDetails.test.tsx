@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type { FieldSources, SourcedValue, TagField, TagSources } from "../bindings";
 import "../i18n";
+import { quietAnswer } from "../test/quietCommands";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { DetailsPanel } from "./DetailsPanel";
@@ -47,6 +48,7 @@ beforeEach(() => {
       return answer;
     }
     if (cmd === "list_crates" || cmd === "crates_of_track" || cmd === "list_tags" || cmd === "tags_of_track") return [];
+    if (cmd === "key_notation" || cmd === "next_for" || cmd === "next_settings") return quietAnswer(cmd);
     if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
     if (cmd === "review_withdraw_relink") {
       withdrawn.push((args as { entryId: number }).entryId);
