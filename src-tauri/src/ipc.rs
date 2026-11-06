@@ -212,6 +212,9 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::play_history::history_import_m3u8,
             crate::play_history::history_set_date,
             crate::play_history::history_add_to_wishlist,
+            crate::next::next_for,
+            crate::next::next_settings,
+            crate::next::next_set_settings,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

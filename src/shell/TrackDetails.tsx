@@ -7,6 +7,7 @@ import { useWithdrawRelink } from "../review/useReviewActions";
 import { EnergyDetails } from "./EnergyDetails";
 import { TrackCrates } from "./TrackCrates";
 import { TrackTags } from "../vocab/TrackTags";
+import { WhatsNext } from "../whatsNext/WhatsNext";
 import { useTrackTagSources } from "./useTrackTagSources";
 import styles from "./TrackDetails.module.css";
 
@@ -77,7 +78,8 @@ function Field({ field, more }: { field: FieldSources; more: boolean }) {
  * The Details panel's content for the selected track (1cB-17): its full
  * title and the full path of its file, wrapped and never cut off, then each
  * tag field with its value and where the value comes from, then the crates
- * the track is in (1cB-14, {@link TrackCrates}). "More details"
+ * the track is in (1cB-14, {@link TrackCrates}), then "What's next" (3.4,
+ * {@link WhatsNext}). "More details"
  * (as in Review's comparison) lists the values that differ, each naming its
  * file. For a Library track whose rekordbox entry the user confirmed to its
  * file, a quiet text button withdraws the confirmation: one undoable step
@@ -138,6 +140,7 @@ export function TrackDetails({ row }: { row: TableRow }) {
       )}
       <TrackCrates row={row} />
       <TrackTags row={row} />
+      <WhatsNext row={row} />
       {entry !== null && (
         <div className={styles.confirmed}>
           <p className={styles.quiet}>{t("details.withdraw.confirmed")}</p>

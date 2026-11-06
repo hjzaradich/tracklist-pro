@@ -26,6 +26,7 @@ pub mod library;
 pub mod matching;
 pub mod missing;
 pub mod net;
+pub mod next;
 pub mod ops;
 pub mod overview;
 pub mod paths;

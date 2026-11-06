@@ -1,0 +1,496 @@
+//! "What's next" scoring (ROADMAP 3.4): how well each candidate follows the
+//! chosen track. Pure: no database, no clock, no files.
+//!
+//! Each signal gives a fitness from 0 to 1; the score is the weighted
+//! average of the signals that apply, as a percent. A signal does not apply,
+//! and is left out of the average, when its weight is 0 or when the chosen
+//! track has nothing to compare (no key, no BPM, no energy, no played
+//! transitions at all); those are reported as `ignored`. A candidate that
+//! lacks what the chosen track has scores 0 on that signal and says so.
+//!
+//! **Energy.** The step is the candidate's shown energy minus the chosen
+//! track's. The ideal step is +1 going up, 0 staying, -1 going down; the
+//! fitness falls with the distance from it. A candidate with no energy, while
+//! energy is weighed and the chosen track has one, comes after every
+//! candidate that has one, and `energyNone` is its first reason.
+//!
+//! **Order.** Energy known first, then the higher score, then the lower id.
+//! Reasons (at most [`MOST_REASONS`]) are the signals that contributed most.
+//!
+//! Genre and tags are not here yet: see [`ExtraSignal`].
+
+use std::cmp::Ordering;
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+use specta::Type;
+
+use super::{Direction, Settings, Signal, Tolerance, Weights, MOST_WEIGHT};
+use crate::crates::fit::{tempo_gap, Camelot, TimeFeel, TEMPO_STEPS};
+
+/// The most reasons a result carries.
+pub const MOST_REASONS: usize = 3;
+
+/// What a track is compared by.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Facts {
+    pub bpm: Option<f64>,
+    pub key: Option<Camelot>,
+    /// The energy the track shows, 1 to 10.
+    pub energy: Option<u8>,
+}
+
+/// A track to rank: its id and what it is compared by.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Candidate {
+    pub id: i64,
+    pub facts: Facts,
+}
+
+/// Which reason, as the key the screen words it by: `next:reason.<code>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReasonCode {
+    /// The same key (`from`).
+    KeySame,
+    /// One number up or down, the same letter (`from`, `to`).
+    KeyAdjacent,
+    /// The same number, the other letter: relative major or minor.
+    KeyRelative,
+    /// Two numbers up or down, the same letter. Counted only when wide.
+    KeyTwoSteps,
+    /// One number up or down, the other letter. Counted only when wide.
+    KeyDiagonal,
+    /// Any other key.
+    KeyFar,
+    /// The candidate has no key.
+    KeyNone,
+    /// `delta` BPM above or below, read as it is.
+    Bpm,
+    /// `delta` BPM, the candidate at half the chosen track's tempo.
+    BpmHalf,
+    /// `delta` BPM, the candidate at double the chosen track's tempo.
+    BpmDouble,
+    /// The candidate has no BPM.
+    BpmNone,
+    /// The shown energy is `step` above (positive) or below the chosen
+    /// track's.
+    EnergyStep,
+    /// The candidate has no energy, which is why it is last.
+    EnergyNone,
+    /// Played right after the chosen track `count` times.
+    PlayedAfter,
+}
+
+/// One reason a candidate ranks where it does, as data for the screen to
+/// word. Only the fields its `code` names are set.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[serde(rename = "NextReason")]
+pub struct Reason {
+    pub code: ReasonCode,
+    /// Counts for the candidate (a fitness of at least a half).
+    pub good: bool,
+    /// Keys as Camelot (`8A`); the screen shows them in the user's notation.
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub delta: Option<f64>,
+    pub step: Option<i32>,
+    pub count: Option<u32>,
+}
+
+impl Reason {
+    fn new(code: ReasonCode, fitness: f64) -> Reason {
+        Reason {
+            code,
+            good: fitness >= 0.5,
+            from: None,
+            to: None,
+            delta: None,
+            step: None,
+            count: None,
+        }
+    }
+}
+
+/// A signal beyond the four built in, to be weighed with them.
+///
+/// TODO(3A-G, 3A-T): genre (`stage/3A-G`, `genre` and `track_row.genre_node`)
+/// and tags (`stage/3A-T`, `tag_applied`) are not on this branch's base.
+/// When they merge, implement this for each (a genre match or neighbor, tags
+/// in common), add their codes to [`ReasonCode`], their weights to
+/// [`Weights`] and the settings panel, and pass the implementations to
+/// `next_for`.
+pub trait ExtraSignal {
+    /// How the candidate fits the chosen track on this signal, or `None`
+    /// when it does not apply to the pair.
+    fn part(&self, target: i64, candidate: i64) -> Option<ExtraPart>;
+}
+
+/// What an [`ExtraSignal`] says about one candidate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraPart {
+    /// Counts like the weights, 0 to 10.
+    pub weight: u8,
+    /// 0 to 1.
+    pub fitness: f64,
+    pub reason: Reason,
+}
+
+/// What to rank for.
+pub struct Ask<'a> {
+    pub target_id: i64,
+    pub target: Facts,
+    pub direction: Direction,
+    pub settings: &'a Settings,
+    /// How often each track was played right after the chosen one.
+    pub played_after: &'a HashMap<i64, u32>,
+    pub extras: &'a [&'a dyn ExtraSignal],
+}
+
+/// A ranked candidate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scored {
+    pub id: i64,
+    /// 0 to 100.
+    pub score: u8,
+    pub reasons: Vec<Reason>,
+}
+
+/// The best candidates, and what could not be compared.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ranking {
+    pub results: Vec<Scored>,
+    pub ignored: Vec<Signal>,
+}
+
+/// The relation of a candidate's key to the chosen track's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyRelation {
+    Same,
+    Adjacent,
+    Relative,
+    TwoSteps,
+    Diagonal,
+    Far,
+}
+
+fn key_relation(target: Camelot, key: Camelot) -> KeyRelation {
+    match target.distance(key) {
+        (0, true) => KeyRelation::Same,
+        (1, true) => KeyRelation::Adjacent,
+        (0, false) => KeyRelation::Relative,
+        (2, true) => KeyRelation::TwoSteps,
+        (1, false) => KeyRelation::Diagonal,
+        _ => KeyRelation::Far,
+    }
+}
+
+fn key_fitness(relation: KeyRelation, tolerance: Tolerance) -> f64 {
+    use KeyRelation::*;
+    match (tolerance, relation) {
+        (_, Same) => 1.0,
+        // As Sort by fit: a neighbor is two points of three.
+        (Tolerance::Tight, Adjacent | Relative) => 2.0 / 3.0,
+        (Tolerance::Wide, Adjacent | Relative) => 0.8,
+        (Tolerance::Wide, TwoSteps) => 0.5,
+        (Tolerance::Wide, Diagonal) => 0.4,
+        _ => 0.0,
+    }
+}
+
+/// Within this many BPM, a tempo has this fitness, when wide.
+const WIDE_TEMPO_STEPS: [(f64, f64); 4] = [(3.0, 1.0), (6.0, 0.75), (12.0, 0.5), (20.0, 0.25)];
+
+fn bpm_fitness(gap: f64, tolerance: Tolerance) -> f64 {
+    let gap = gap.abs();
+    match tolerance {
+        // As Sort by fit: 3, 2 and 1 points of 3.
+        Tolerance::Tight => TEMPO_STEPS
+            .iter()
+            .find(|(within, _)| gap <= *within)
+            .map_or(0.0, |(_, points)| f64::from(*points) / 3.0),
+        Tolerance::Wide => WIDE_TEMPO_STEPS
+            .iter()
+            .find(|(within, _)| gap <= *within)
+            .map_or(0.0, |(_, fitness)| *fitness),
+    }
+}
+
+fn energy_fitness(step: i32, direction: Direction, tolerance: Tolerance) -> f64 {
+    let ideal = match direction {
+        Direction::Up => 1,
+        Direction::Same => 0,
+        Direction::Down => -1,
+    };
+    let falloff: &[f64] = match tolerance {
+        Tolerance::Tight => &[1.0, 0.5],
+        Tolerance::Wide => &[1.0, 0.75, 0.5, 0.25],
+    };
+    falloff
+        .get((step - ideal).unsigned_abs() as usize)
+        .copied()
+        .unwrap_or(0.0)
+}
+
+/// How a played count scores: once is half, twice three quarters, and so on.
+fn played_fitness(count: u32) -> f64 {
+    1.0 - 0.5_f64.powi(i32::try_from(count.min(30)).unwrap_or(30))
+}
+
+/// One signal's weight, fitness and reason for a candidate; the reason is
+/// text fields are filled only for the results that are shown.
+struct Part {
+    signal: Option<Signal>,
+    weight: u8,
+    fitness: f64,
+    reason: Reason,
+}
+
+/// Which signals apply, from the chosen track and the settings.
+struct Plan {
+    key: Option<Camelot>,
+    bpm: Option<f64>,
+    energy: Option<u8>,
+    played: bool,
+    ignored: Vec<Signal>,
+}
+
+fn plan(ask: &Ask) -> Plan {
+    let w = &ask.settings.weights;
+    let mut ignored = Vec::new();
+    let mut want = |signal: Signal, weight: u8, has: bool| {
+        if weight > 0 && !has {
+            ignored.push(signal);
+        }
+        weight > 0 && has
+    };
+    let key = want(Signal::Key, w.key, ask.target.key.is_some())
+        .then_some(ask.target.key)
+        .flatten();
+    let bpm = want(Signal::Bpm, w.bpm, ask.target.bpm.is_some())
+        .then_some(ask.target.bpm)
+        .flatten();
+    let energy = want(Signal::Energy, w.energy, ask.target.energy.is_some())
+        .then_some(ask.target.energy)
+        .flatten();
+    let played = want(Signal::Played, w.played, !ask.played_after.is_empty());
+    Plan {
+        key,
+        bpm,
+        energy,
+        played,
+        ignored,
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many key reasons had their names written (tests count these).
+    pub(super) static NAMED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The parts for one candidate. `names` says whether the reason text fields
+/// (the key names) are filled; the order needs only the fitness.
+fn parts(ask: &Ask, plan: &Plan, c: &Candidate, names: bool) -> Vec<Part> {
+    let w: &Weights = &ask.settings.weights;
+    let tolerance = ask.settings.tolerance;
+    let mut out = Vec::with_capacity(4);
+    if let Some(target) = plan.key {
+        out.push(match c.facts.key {
+            None => Part {
+                signal: Some(Signal::Key),
+                weight: w.key,
+                fitness: 0.0,
+                reason: Reason::new(ReasonCode::KeyNone, 0.0),
+            },
+            Some(key) => {
+                let relation = key_relation(target, key);
+                let fitness = key_fitness(relation, tolerance);
+                let code = match relation {
+                    KeyRelation::Same => ReasonCode::KeySame,
+                    KeyRelation::Adjacent => ReasonCode::KeyAdjacent,
+                    KeyRelation::Relative => ReasonCode::KeyRelative,
+                    KeyRelation::TwoSteps => ReasonCode::KeyTwoSteps,
+                    KeyRelation::Diagonal => ReasonCode::KeyDiagonal,
+                    KeyRelation::Far => ReasonCode::KeyFar,
+                };
+                let mut reason = Reason::new(code, fitness);
+                if names {
+                    #[cfg(test)]
+                    NAMED.with(|n| n.set(n.get() + 1));
+                    reason.from = Some(target.name());
+                    reason.to = Some(key.name());
+                }
+                Part {
+                    signal: Some(Signal::Key),
+                    weight: w.key,
+                    fitness,
+                    reason,
+                }
+            }
+        });
+    }
+    if let Some(target) = plan.bpm {
+        out.push(match c.facts.bpm {
+            None => Part {
+                signal: Some(Signal::Bpm),
+                weight: w.bpm,
+                fitness: 0.0,
+                reason: Reason::new(ReasonCode::BpmNone, 0.0),
+            },
+            Some(bpm) => {
+                let (delta, time) = tempo_gap(target, bpm);
+                let fitness = bpm_fitness(delta, tolerance);
+                let code = match time {
+                    TimeFeel::Straight => ReasonCode::Bpm,
+                    TimeFeel::Half => ReasonCode::BpmHalf,
+                    TimeFeel::Double => ReasonCode::BpmDouble,
+                };
+                let mut reason = Reason::new(code, fitness);
+                reason.delta = Some(delta);
+                Part {
+                    signal: Some(Signal::Bpm),
+                    weight: w.bpm,
+                    fitness,
+                    reason,
+                }
+            }
+        });
+    }
+    if let Some(target) = plan.energy {
+        if let Some(energy) = c.facts.energy {
+            let step = i32::from(energy) - i32::from(target);
+            let fitness = energy_fitness(step, ask.direction, tolerance);
+            let mut reason = Reason::new(ReasonCode::EnergyStep, fitness);
+            reason.step = Some(step);
+            out.push(Part {
+                signal: Some(Signal::Energy),
+                weight: w.energy,
+                fitness,
+                reason,
+            });
+        }
+        // No energy: left out of the average, and the candidate goes last.
+    }
+    if plan.played {
+        let count = ask.played_after.get(&c.id).copied().unwrap_or(0);
+        if count > 0 {
+            let fitness = played_fitness(count);
+            let mut reason = Reason::new(ReasonCode::PlayedAfter, fitness);
+            reason.count = Some(count);
+            out.push(Part {
+                signal: Some(Signal::Played),
+                weight: w.played,
+                fitness,
+                reason,
+            });
+        } else {
+            // Nothing played: counts for nothing, and has nothing to say.
+            out.push(Part {
+                signal: Some(Signal::Played),
+                weight: w.played,
+                fitness: 0.0,
+                reason: Reason::new(ReasonCode::PlayedAfter, 0.0),
+            });
+        }
+    }
+    for extra in ask.extras {
+        if let Some(p) = extra.part(ask.target_id, c.id) {
+            // A bad extra is "not used": NaN or a fitness outside 0..=1 is
+            // skipped, and the weight is capped like the settings are.
+            let usable = p.fitness.is_finite() && (0.0..=1.0).contains(&p.fitness);
+            if p.weight > 0 && usable {
+                out.push(Part {
+                    signal: None,
+                    weight: p.weight.min(MOST_WEIGHT),
+                    fitness: p.fitness,
+                    reason: p.reason,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Whether the candidate goes last for lacking energy.
+fn lacks_energy(plan: &Plan, c: &Candidate) -> bool {
+    plan.energy.is_some() && c.facts.energy.is_none()
+}
+
+fn score_of(parts: &[Part]) -> f64 {
+    let weights: f64 = parts.iter().map(|p| f64::from(p.weight)).sum();
+    if weights <= 0.0 {
+        return 0.0;
+    }
+    parts
+        .iter()
+        .map(|p| f64::from(p.weight) * p.fitness)
+        .sum::<f64>()
+        / weights
+}
+
+/// The reasons to show: energy missing first, then by contribution; what
+/// counted for nothing (nothing played) is never a reason.
+fn reasons_of(plan: &Plan, c: &Candidate, parts: Vec<Part>) -> Vec<Reason> {
+    let mut out = Vec::with_capacity(MOST_REASONS);
+    if lacks_energy(plan, c) {
+        out.push(Reason::new(ReasonCode::EnergyNone, 0.0));
+    }
+    let mut rest: Vec<Part> = parts
+        .into_iter()
+        .filter(|p| !(p.signal == Some(Signal::Played) && p.reason.count.is_none()))
+        .collect();
+    // Stable: equal contributions keep the signals' order.
+    rest.sort_by(|a, b| {
+        (f64::from(b.weight) * b.fitness).total_cmp(&(f64::from(a.weight) * a.fitness))
+    });
+    out.extend(
+        rest.into_iter()
+            .map(|p| p.reason)
+            .take(MOST_REASONS.saturating_sub(out.len())),
+    );
+    out
+}
+
+/// The `most` candidates that best follow the chosen track, best first. The
+/// chosen track itself is never among them.
+pub fn rank(ask: &Ask, candidates: &[Candidate], most: usize) -> Ranking {
+    let plan = plan(ask);
+    // The order needs only a number per candidate; reasons are worked out for
+    // the few that are kept.
+    let mut order: Vec<(bool, f64, usize)> = candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.id != ask.target_id)
+        .map(|(n, c)| {
+            let p = parts(ask, &plan, c, false);
+            (lacks_energy(&plan, c), score_of(&p), n)
+        })
+        .collect();
+    let by_rank = |a: &(bool, f64, usize), b: &(bool, f64, usize)| -> Ordering {
+        a.0.cmp(&b.0)
+            .then_with(|| b.1.total_cmp(&a.1))
+            .then_with(|| candidates[a.2].id.cmp(&candidates[b.2].id))
+    };
+    if order.len() > most {
+        order.select_nth_unstable_by(most, by_rank);
+        order.truncate(most);
+    }
+    order.sort_by(by_rank);
+    let results = order
+        .into_iter()
+        .map(|(_, score, n)| {
+            let c = &candidates[n];
+            Scored {
+                id: c.id,
+                score: (score * 100.0).round().clamp(0.0, 100.0) as u8,
+                reasons: reasons_of(&plan, c, parts(ask, &plan, c, true)),
+            }
+        })
+        .collect();
+    Ranking {
+        results,
+        ignored: plan.ignored,
+    }
+}

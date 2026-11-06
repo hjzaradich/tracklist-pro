@@ -32,7 +32,7 @@ use specta::Type;
 mod tests;
 
 /// Within this many BPM, a tempo scores these points.
-const TEMPO_STEPS: [(f64, u8); 3] = [(2.0, 3), (4.0, 2), (8.0, 1)];
+pub(crate) const TEMPO_STEPS: [(f64, u8); 3] = [(2.0, 3), (4.0, 2), (8.0, 1)];
 
 /// A key on the Camelot wheel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +90,15 @@ impl Camelot {
             (false, 1) => 12,
             (false, n) => n - 1,
         }
+    }
+
+    /// How far `other` is round the wheel: the steps between the numbers
+    /// (0 to 6, the short way) and whether the letter is the same. Used by
+    /// "what's next" (3.4), which tells apart a relative key (0 steps, other
+    /// letter) from a neighbor (1 step, same letter).
+    pub(crate) fn distance(self, other: Camelot) -> (u8, bool) {
+        let apart = self.number.abs_diff(other.number);
+        (apart.min(12 - apart), self.major == other.major)
     }
 
     /// Whether `other` is a neighbor: not the same key, but next to it on
@@ -230,15 +239,11 @@ fn key_fit(target: Option<Camelot>, track: Option<Camelot>) -> (u8, KeyFit) {
     }
 }
 
-fn bpm_fit(target: Option<f64>, track: Option<f64>) -> (u8, Option<f64>, BpmFit) {
-    let Some(target) = target else {
-        return (0, None, BpmFit::NoTargetBpm);
-    };
-    let Some(track) = track else {
-        return (0, None, BpmFit::NoBpm);
-    };
-    // The straight reading first, so it wins a tie.
-    let (delta, time) = [
+/// The tempo difference, track minus target, read the way that makes it
+/// smallest: as it is, at double the target's tempo, or at half of it. The
+/// plain reading wins a tie. Shared with "what's next" (3.4).
+pub(crate) fn tempo_gap(target: f64, track: f64) -> (f64, TimeFeel) {
+    [
         (track - target, TimeFeel::Straight),
         (track - target * 2.0, TimeFeel::Double),
         (track - target / 2.0, TimeFeel::Half),
@@ -251,7 +256,18 @@ fn bpm_fit(target: Option<f64>, track: Option<f64>) -> (u8, Option<f64>, BpmFit)
             best
         }
     })
-    .expect("three readings");
+    .expect("three readings")
+}
+
+fn bpm_fit(target: Option<f64>, track: Option<f64>) -> (u8, Option<f64>, BpmFit) {
+    let Some(target) = target else {
+        return (0, None, BpmFit::NoTargetBpm);
+    };
+    let Some(track) = track else {
+        return (0, None, BpmFit::NoBpm);
+    };
+    // The straight reading first, so it wins a tie.
+    let (delta, time) = tempo_gap(target, track);
     let points = TEMPO_STEPS
         .iter()
         .find(|(within, _)| delta.abs() <= *within)

@@ -584,6 +584,20 @@ fn window_ids_up_to(
     Ok((ids, total))
 }
 
+/// The rows for the tracks `ids`, as the table shows them, in that order
+/// (the file's path as stored, not yet made readable). For "what's next"
+/// (3.4), which shows a few rows beside the table.
+pub fn rows_of(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    ids: &[i64],
+) -> rusqlite::Result<Vec<TableRow>> {
+    Ok(rows_for(conn, volumes, ids)?
+        .into_iter()
+        .map(|stored| stored.row)
+        .collect())
+}
+
 /// The rows for the tracks `ids`, in that order.
 fn rows_for(
     conn: &Connection,
