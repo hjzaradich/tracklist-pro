@@ -30,6 +30,7 @@ interface SidebarProps {
 export function Sidebar({ className = "", counts = {} }: SidebarProps) {
   const { t } = useTranslation("shell");
   const { t: tw } = useTranslation("wishlist");
+  const { t: th } = useTranslation("history");
   const workflow = STAGES.filter((stage) => stage.id !== "crates");
   const all = useCrates().data;
   // Wishlists are optional: the entry is there only once the user has turned them on (2.3).
@@ -51,6 +52,11 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
             <StageLink to={stage.path} label={t(`stages.${stage.id}`)} count={counts[stage.id] ?? (stage.id === "inbox" && inboxNew ? inboxNew : undefined)} />
           </li>
         ))}
+        <li>
+          <Link to="/history" className={styles.link}>
+            <span className={styles.label}>{th("title")}</span>
+          </Link>
+        </li>
         {wishlists && (
           <li>
             <Link to="/wishlists" className={styles.link}>

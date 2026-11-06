@@ -327,7 +327,41 @@ pub fn add_from_paste(
     if pasted.len() > MAX_TEXT_BYTES {
         return Ok(refused(WishlistRefusal::TextTooBig));
     }
-    let parsed = parse::paste(pasted);
+    add_parsed(conn, wishlist, parse::paste(pasted))
+}
+
+/// Adds tracks another feature already has as data (the unmatched plays of
+/// a played set, 3.6 B2B) to the end of a wishlist: one operation, refused
+/// like a paste while wishlists are off. `skipped` are the ones it couldn't
+/// make a track of, passed back as they are.
+pub(crate) fn add_tracks(
+    conn: &mut Connection,
+    wishlist: i64,
+    tracks: Vec<WishTrack>,
+    skipped: Vec<WishSkippedLine>,
+    skipped_total: u32,
+) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
+    if !wishlist_exists(conn, wishlist)? {
+        return Ok(refused(WishlistRefusal::NoSuchWishlist));
+    }
+    let parsed = parse::Parsed {
+        tracks,
+        skipped,
+        skipped_total,
+    };
+    add_parsed(conn, wishlist, parsed)
+}
+
+/// The shared end of [`add_from_paste`] and [`add_tracks`], once the list
+/// is known to exist and the feature to be on.
+fn add_parsed(
+    conn: &mut Connection,
+    wishlist: i64,
+    parsed: parse::Parsed,
+) -> Result<WishlistOutcome, OpsError> {
     let held: i64 = conn.query_row(
         "SELECT count(*) FROM wish_item WHERE wishlist_id = ?1",
         [wishlist],

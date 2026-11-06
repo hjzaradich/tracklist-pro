@@ -4,6 +4,7 @@ import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
 import { GENRE_QUERY_KEY } from "../genre/useGenre";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
+import { HISTORY_QUERY_KEY } from "../history/useHistory";
 import { INBOX_QUERY_KEY } from "../inbox/useInbox";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
 import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
@@ -46,6 +47,8 @@ const GROUPS = {
   inbox: () => [INBOX_QUERY_KEY],
   /** The wishlists and their items. */
   wishlists: () => [WISHLIST_QUERY_KEY],
+  /** Played sets and their plays (History). */
+  history: () => [HISTORY_QUERY_KEY],
   /** The Overview's numbers. */
   overview: () => [OVERVIEW_QUERY_KEY],
   /** The genre tree, its aliases, and Review's unmapped-genre group. */

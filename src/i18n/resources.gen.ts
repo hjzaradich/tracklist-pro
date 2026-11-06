@@ -12,6 +12,7 @@ export interface EnglishResources {
   "firstRun": typeof import("../locales/en/firstRun.json");
   "genre": typeof import("../locales/en/genre.json");
   "hiddenFiles": typeof import("../locales/en/hiddenFiles.json");
+  "history": typeof import("../locales/en/history.json");
   "inbox": typeof import("../locales/en/inbox.json");
   "library": typeof import("../locales/en/library.json");
   "musicFolderStatus": typeof import("../locales/en/musicFolderStatus.json");

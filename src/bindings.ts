@@ -645,6 +645,19 @@ export const commands = {
 	wishlistAutoCrate: (wishlistId: number) => typedError<boolean, IpcError>(__TAURI_INVOKE("wishlist_auto_crate", { wishlistId })),
 	/**  Turns the crate of a wishlist on or off. */
 	wishlistSetAutoCrate: (wishlistId: number, on: boolean) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_set_auto_crate", { wishlistId, on })),
+	/**  Every session with its counts. */
+	historySessions: () => typedError<SessionSummary[], IpcError>(__TAURI_INVOKE("history_sessions")),
+	/**  The plays of a session, in order. */
+	historyPlays: (sessionId: number) => typedError<PlaysReply, IpcError>(__TAURI_INVOKE("history_plays", { sessionId })),
+	/**
+	 *  Imports an m3u8 file at `path` (picked by the user in the file dialog)
+	 *  as a session. The file is only read.
+	 */
+	historyImportM3u8: (path: string) => typedError<HistoryOutcome, IpcError>(__TAURI_INVOKE("history_import_m3u8", { path })),
+	/**  Corrects the day a session was played. */
+	historySetDate: (sessionId: number, playedOn: string) => typedError<HistoryOutcome, IpcError>(__TAURI_INVOKE("history_set_date", { sessionId, playedOn })),
+	/**  Adds a session's unmatched plays to a wishlist. */
+	historyAddToWishlist: (sessionId: number, wishlistId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("history_add_to_wishlist", { sessionId, wishlistId })),
 };
 
 /** Events */
@@ -1506,6 +1519,33 @@ export type HiddenRow = {
 	trackInLibrary: boolean,
 };
 
+/**  What a history command came to. */
+export type HistoryOutcome = 
+/**  Done, as one operation (`None` when nothing changed). */
+{ outcome: "done"; operationId: number | null; sessionId: number; 
+/**  Plays the session holds, and how many of them matched a track. */
+plays: number; matched: number; 
+/**  Lines of the file that couldn't be read. */
+skippedLines: number } | 
+/**
+ *  Nothing was written. `session_id` names the session it already is,
+ *  for [`HistoryRefusal::AlreadyImported`].
+ */
+{ outcome: "refused"; reason: HistoryRefusal; sessionId: number | null; skippedLines: number };
+
+/**  Why nothing was written. */
+export type HistoryRefusal = 
+/**  The file couldn't be read. */
+"fileUnreadable" | 
+/**  The file is over [`m3u8::MAX_BYTES`]. */
+"fileTooBig" | 
+/**  The file names no play. */
+"noPlays" | 
+/**  The same plays, in the same order, are already a session. */
+"alreadyImported" | "noSuchSession" | 
+/**  Not a day of the calendar as `YYYY-MM-DD`. */
+"badDate";
+
 /**  What the sidebar badge counts: items still `new` whose file is present. */
 export type InboxCount = {
 	/**  Arrivals nobody has decided about: the badge. */
@@ -2295,6 +2335,18 @@ export type Overview = {
 	counting: Counting,
 };
 
+/**  One play of a session. */
+export type Play = {
+	id: number,
+	/**  Its place in the session, from 0. */
+	position: number,
+	/**  The track it matched, if any. */
+	recordingId: number | null,
+	artist: string | null,
+	title: string | null,
+	path: string,
+};
+
 /**
  *  A rekordbox playlist to pick, with how many of its entries are tracks
  *  with a file or a last known path (streaming entries aren't counted).
@@ -2302,6 +2354,13 @@ export type Overview = {
 export type PlaylistChoice = {
 	path: string[],
 	tracks: number,
+};
+
+/**  The plays of a session, and whether "Add to a wishlist" is offered. */
+export type PlaysReply = {
+	plays: Play[],
+	/**  Wishlists are on: the unmatched plays can go to one. */
+	wishlistOffer: boolean,
 };
 
 /**  What a send would do, worked out without writing a file. */
@@ -2849,6 +2908,19 @@ export type Sent = {
 	newTracks: number,
 	/**  How many Yes/No dialogs to expect in rekordbox. */
 	knownTracks: number,
+};
+
+/**  A session, with its counts. */
+export type SessionSummary = {
+	id: number,
+	/**  `m3u8` (later also `stick`). */
+	source: string,
+	name: string,
+	/**  `YYYY-MM-DD`. */
+	playedOn: string,
+	importedAt: string,
+	plays: number,
+	matched: number,
 };
 
 /**  The settled conflict, as the screen needs to know it. */

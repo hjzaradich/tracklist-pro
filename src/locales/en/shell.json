@@ -91,6 +91,8 @@
       "wishlistRemoveItem": "Undo (track removed from wishlist)",
       "wishlistBought": "Undo (wishlist track bought)",
       "wishlistNotes": "Undo (wishlist note changed)",
+      "historyImport": "Undo (set imported to History)",
+      "historySetDate": "Undo (set date changed)",
       "other": "Undo (last change)"
     },
     "refused": {

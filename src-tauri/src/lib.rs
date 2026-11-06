@@ -29,6 +29,7 @@ pub mod net;
 pub mod ops;
 pub mod overview;
 pub mod paths;
+pub mod play_history;
 #[cfg(debug_assertions)]
 pub mod preview;
 pub mod quality;

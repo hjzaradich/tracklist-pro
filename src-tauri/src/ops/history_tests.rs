@@ -49,7 +49,7 @@ pub(crate) fn peak_working_set_mib() -> u64 {
 }
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 22] = [
+pub(super) const LOGGED_TABLES: [&str; 24] = [
     "library_track",
     "library_removal",
     "crate",
@@ -72,6 +72,8 @@ pub(super) const LOGGED_TABLES: [&str; 22] = [
     "tag_group",
     "tag",
     "tag_applied",
+    "session",
+    "play_event",
 ];
 
 /// The tables an action changes through the log only by setting fields of
@@ -1783,7 +1785,8 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // `crate_entry` since 0038 (the merge before a send takes playlist
     // changes made in rekordbox into crates), `wishlist` and `wish_item`
     // since 0048 (every write goes through the log; AUTOINCREMENT because
-    // the 2.5 tick-off may write outside it).
+    // the 2.5 tick-off may write outside it), `session` and `play_event`
+    // since 0051 (every write goes through the log).
     assert_eq!(
         never_reused,
         [
@@ -1795,7 +1798,9 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
             "relink",
             "analysis",
             "wishlist",
-            "wish_item"
+            "wish_item",
+            "session",
+            "play_event"
         ]
     );
 

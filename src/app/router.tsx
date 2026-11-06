@@ -14,6 +14,7 @@ import { GenreScreen } from "../genre/GenreScreen";
 import { launchScreen, type RouterContext } from "../launch/launchContext";
 import { LaunchWatcher } from "../launch/LaunchWatcher";
 import { isCrateId } from "../launch/savedScreen";
+import { HistoryScreen } from "../history/HistoryScreen";
 import { InboxScreen } from "../inbox/InboxScreen";
 import { filterOfDoor, validateLibrarySearch } from "../library/doors";
 import { LibraryScreen } from "../library/LibraryScreen";
@@ -147,6 +148,13 @@ const tagsRoute = createRoute({
   component: VocabScreen,
 });
 
+// Not a stage: play history (3.6), in the sidebar under the stages.
+const historyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/history",
+  component: HistoryScreen,
+});
+
 // Not a stage and not in the sidebar: Settings, reached from the top bar's gear
 // and the palette (1cC-2).
 const settingsRoute = createRoute({
@@ -178,6 +186,7 @@ const routeTree = rootRoute.addChildren([
   wishlistsRoute,
   genresRoute,
   tagsRoute,
+  historyRoute,
 ]);
 
 /**
