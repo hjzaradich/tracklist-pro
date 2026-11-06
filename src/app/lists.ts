@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { AFTER_SEND_LISTS_QUERY_KEY } from "../afterSend/useAfterSendLists";
 import { ALL_MUSIC_QUERY_KEY } from "../allMusic/useAllMusic";
 import { CRATES_QUERY_KEY } from "../crates/useCrates";
+import { GENRE_QUERY_KEY } from "../genre/useGenre";
 import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { INBOX_QUERY_KEY } from "../inbox/useInbox";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
@@ -47,6 +48,8 @@ const GROUPS = {
   wishlists: () => [WISHLIST_QUERY_KEY],
   /** The Overview's numbers. */
   overview: () => [OVERVIEW_QUERY_KEY],
+  /** The genre tree, its aliases, and Review's unmapped-genre group. */
+  genre: () => [GENRE_QUERY_KEY],
 } satisfies Record<string, () => Keys>;
 
 /** A group of lists that are asked for again together. */

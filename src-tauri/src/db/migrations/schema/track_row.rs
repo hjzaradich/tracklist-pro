@@ -124,7 +124,9 @@ fn every_sort_has_an_index_that_holds_the_flags_and_the_format_and_a_descending_
     assert!(names.contains(&"track_row_flags".to_owned()));
     // And one for the Overview's genre and its door (migration 0044).
     assert!(names.contains(&"track_row_in_genre".to_owned()));
-    assert_eq!(names.len(), 13, "{names:?}");
+    // And one to find the tracks of a genre node (migration 0049).
+    assert!(names.contains(&"track_row_genre_node".to_owned()));
+    assert_eq!(names.len(), 14, "{names:?}");
 }
 
 #[test]

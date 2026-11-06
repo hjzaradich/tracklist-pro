@@ -1,0 +1,178 @@
+{
+  "title": {
+    "purpose": "Heading of the screen where the genre tree and its aliases are edited.",
+    "where": "Genres screen, the heading."
+  },
+  "tree.title": {
+    "purpose": "Heading of the panel with the genre tree.",
+    "where": "Genres screen, the genre tree panel."
+  },
+  "tree.branchLabel": {
+    "purpose": "Accessible name of the field for a new top-level genre.",
+    "where": "Genres screen, the genre tree panel."
+  },
+  "tree.addBranch": {
+    "purpose": "Button that adds the typed name as a top-level genre.",
+    "where": "Genres screen, the genre tree panel."
+  },
+  "tree.loadSeed": {
+    "purpose": "Button that adds the proposed starter genres to an empty tree.",
+    "where": "Genres screen, the genre tree panel."
+  },
+  "tree.empty": {
+    "purpose": "Line shown while the tree has no genres.",
+    "where": "Genres screen, the genre tree panel."
+  },
+  "picker.choose": {
+    "purpose": "First choice of a genre picker before one is chosen.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "details.renameLabel": {
+    "purpose": "Accessible name of the field holding the chosen genre's name.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "details.rename": {
+    "purpose": "Button that renames the chosen genre.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "details.top": {
+    "purpose": "Choice in the Move picker for putting a genre at the top level.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "details.moveLabel": {
+    "purpose": "Accessible name of the picker that moves the chosen genre under another.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "details.childLabel": {
+    "purpose": "Accessible name of the field for a new genre below the chosen one.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "details.addChild": {
+    "purpose": "Button that adds the typed name below the chosen genre.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.title": {
+    "purpose": "Heading of the chosen genre's alias list.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.none": {
+    "purpose": "Line shown while the chosen genre has no aliases.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.kind.folded": {
+    "purpose": "Says an alias matches whatever its case and accents.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.kind.exact": {
+    "purpose": "Says an alias matches only the same text.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.removeLabel": {
+    "purpose": "Accessible name of an alias's Remove button; {{alias}} is the alias.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.remove": {
+    "purpose": "Button that removes an alias.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.addLabel": {
+    "purpose": "Accessible name of the field for a new alias.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.kindLabel": {
+    "purpose": "Accessible name of the picker for how a new alias is matched.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "aliases.add": {
+    "purpose": "Button that adds the typed alias to the chosen genre.",
+    "where": "Genres screen, the details of the chosen genre."
+  },
+  "spellings.title": {
+    "purpose": "Heading of the list of genre spellings the Library's tracks use.",
+    "where": "Genres screen, the list of spellings from the Library."
+  },
+  "spellings.none": {
+    "purpose": "Line shown when no track has a genre.",
+    "where": "Genres screen, the list of spellings from the Library."
+  },
+  "spelling.tracks": {
+    "purpose": "How many tracks have a spelling or a genre; {{n}} is the number.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "spelling.goesTo": {
+    "purpose": "Says where a spelling goes and which rule sent it there; {{name}} is the genre, {{rule}} the rule's wording.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "spelling.pickLabel": {
+    "purpose": "Accessible name of the picker that chooses a genre for an unmapped spelling; {{spelling}} is the spelling.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "spelling.map": {
+    "purpose": "Button that makes an unmapped spelling an alias of the chosen genre.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "rule.exact": {
+    "purpose": "Rule wording: the spelling is the genre's name.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "rule.folded": {
+    "purpose": "Rule wording: the same name once case and accents are ignored.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "rule.parentSub": {
+    "purpose": "Rule wording: the spelling is written Parent (Sub) and Sub is below Parent.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "rule.alias": {
+    "purpose": "Rule wording: an alias made by the user.",
+    "where": "Genres screen and Review's unmapped-genre group, a genre spelling's row."
+  },
+  "unmapped.title": {
+    "purpose": "Heading of Review's unmapped-genre group.",
+    "where": "Review, the unmapped-genre group."
+  },
+  "unmapped.summary": {
+    "purpose": "One line after the heading: how many tracks have no genre and how many spellings are unmapped.",
+    "where": "Review, the unmapped-genre group."
+  },
+  "settingsPanel.title": {
+    "purpose": "Heading of the Settings panel that links to the Genres screen.",
+    "where": "Settings screen, panel heading."
+  },
+  "unmapped.openGenres": {
+    "purpose": "Link to the Genres screen.",
+    "where": "Review, the unmapped-genre group."
+  },
+  "unmapped.noGenre": {
+    "purpose": "Heading of the list of Library tracks with no genre; {{n}} is how many.",
+    "where": "Review, the unmapped-genre group."
+  },
+  "unmapped.spellings": {
+    "purpose": "Heading of the list of spellings no rule maps to a genre.",
+    "where": "Review, the unmapped-genre group."
+  },
+  "error.notFound": {
+    "purpose": "Refusal: the genre or alias is gone.",
+    "where": "Shown when a genre edit is refused."
+  },
+  "error.nameEmpty": {
+    "purpose": "Refusal: a genre or alias name is empty.",
+    "where": "Shown when a genre edit is refused."
+  },
+  "error.nameTaken": {
+    "purpose": "Refusal: a genre with this name exists; {{name}} is that genre.",
+    "where": "Shown when a genre edit is refused."
+  },
+  "error.moveIntoItself": {
+    "purpose": "Refusal: a genre was to go inside itself or one of its own genres.",
+    "where": "Shown when a genre edit is refused."
+  },
+  "error.textTooLong": {
+    "purpose": "Refusal: a genre name or alias is over 200 characters.",
+    "where": "Shown when a genre edit is refused."
+  },
+  "error.aliasTaken": {
+    "purpose": "Refusal: the spelling is already a name or an alias; {{name}} is the genre it goes to.",
+    "where": "Shown when a genre edit is refused."
+  }
+}

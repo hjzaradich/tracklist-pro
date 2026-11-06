@@ -43,6 +43,9 @@
 //!   the lists show, which differs on edge cases (the best file's tags,
 //!   accents folded) and keeps no spelling. A track outside the Library, and
 //!   a Library track with no genre, have NULL in both.
+//! - **The canonical genre** (3A-G, migration 0049): `genre_node`, the node of
+//!   the genre tree that `genre` resolves to (`genre::Catalog::resolve`), or
+//!   NULL when no rule applies. The spelling stays as it is.
 //! - **BPM and key** are `recording_display`'s, the analysis the app keeps
 //!   (rekordbox's for a track rekordbox knows). The key is stored as its
 //!   position on the Camelot wheel ([`camelot_order`]), so the table sorts
@@ -288,6 +291,8 @@ struct Values {
     text_hash: i64,
     genre: Option<String>,
     genre_group: Option<String>,
+    /// The canonical node of `genre` ([`crate::genre::Catalog::resolve`]).
+    genre_node: Option<i64>,
 }
 
 /// What [`write`] found.
@@ -312,6 +317,7 @@ pub(super) fn write(
     facts: &Facts,
     has_file: bool,
     text_hash: i64,
+    genres: &crate::genre::Catalog,
 ) -> rusqlite::Result<Written> {
     let key_of = |text: &str| filled(text).map(sort_key);
     let new = Values {
@@ -331,12 +337,17 @@ pub(super) fn write(
         text_hash,
         genre: facts.genre.clone(),
         genre_group: facts.genre.as_deref().map(crate::overview::genre_group),
+        genre_node: facts
+            .genre
+            .as_deref()
+            .and_then(|g| genres.resolve(g))
+            .map(|r| r.node),
     };
     let stored = tx
         .prepare_cached(
             "SELECT flags, format, file_id, title_key, artist_key, genre_key, file_key,
                     folder_key, bpm, key_order, time_ms, rating, added_at, text_hash,
-                    genre, genre_group
+                    genre, genre_group, genre_node
              FROM track_row WHERE recording_id = ?1",
         )?
         .query_row([id], |r| {
@@ -357,6 +368,7 @@ pub(super) fn write(
                 text_hash: r.get(13)?,
                 genre: r.get(14)?,
                 genre_group: r.get(15)?,
+                genre_node: r.get(16)?,
             })
         })
         .optional()?;
@@ -367,8 +379,8 @@ pub(super) fn write(
         "INSERT OR REPLACE INTO track_row
              (recording_id, flags, format, file_id, title_key, artist_key, genre_key,
               file_key, folder_key, bpm, key_order, time_ms, rating, added_at, text_hash,
-              genre, genre_group)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+              genre, genre_group, genre_node)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
     )?
     .execute(params![
         id,
@@ -388,6 +400,7 @@ pub(super) fn write(
         new.text_hash,
         new.genre,
         new.genre_group,
+        new.genre_node,
     ])?;
     Ok(Written::Changed {
         text: stored.is_none_or(|old| old.text_hash != new.text_hash),

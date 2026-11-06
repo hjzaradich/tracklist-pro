@@ -289,3 +289,56 @@ fn a_rebuild_comes_out_with_the_same_genres() {
     t.lib.writer.call(|c| rebuild(c, &Mount, 2)).unwrap();
     assert_eq!(t.stored(), before, "the rows are derived data");
 }
+
+impl Track {
+    /// The canonical node `track_row` holds for the track.
+    fn node(&self) -> Option<i64> {
+        let recording = self.recording;
+        self.lib
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT genre_node FROM track_row WHERE recording_id = ?1",
+                    [recording],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    }
+}
+
+#[test]
+fn the_canonical_node_follows_the_tree_and_its_undo_while_the_spelling_stays() {
+    use crate::genre::{edit, AliasKind};
+    let t = track(Some("deep HOUSE"));
+    assert_eq!(t.node(), None, "no tree yet: unmapped");
+
+    let house = t
+        .lib
+        .writer
+        .call(|c| Ok(edit::add_node(c, None, "House")))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    // The edit marked every Library track due; the node arrives with the
+    // next index run, and the spelling is untouched.
+    assert!(t.due());
+    t.lib.settle();
+    assert_eq!(t.node(), None, "`deep HOUSE` is not `House`");
+
+    // Case and accents don't matter to a folded alias.
+    t.lib
+        .writer
+        .call(move |c| Ok(edit::add_alias(c, house, "Deep House", AliasKind::Folded)))
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    t.lib.settle();
+    assert_eq!(t.node(), Some(house));
+    assert_eq!(t.stored().map(|(g, _)| g).as_deref(), Some("deep HOUSE"));
+
+    // Undo takes the alias back; the row follows without a rebuild.
+    crate::ops::undo_last_via(&t.lib.writer).unwrap();
+    t.lib.settle();
+    assert_eq!(t.node(), None);
+}

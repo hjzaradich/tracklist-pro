@@ -1,0 +1,68 @@
+{
+  "title": "Genres",
+  "tree": {
+    "title": "Genre tree",
+    "branchLabel": "Name of a new top-level genre",
+    "addBranch": "Add genre",
+    "loadSeed": "Add starter genres",
+    "empty": "No genres yet. Add one, or start from the starter genres."
+  },
+  "picker": {
+    "choose": "Choose a genre"
+  },
+  "details": {
+    "renameLabel": "Genre name",
+    "rename": "Rename",
+    "top": "Top level",
+    "moveLabel": "Move under",
+    "childLabel": "Name of a new genre below this one",
+    "addChild": "Add below"
+  },
+  "aliases": {
+    "title": "Aliases",
+    "none": "No aliases. Add the spellings that should go to this genre.",
+    "kind": {
+      "folded": "ignoring case and accents",
+      "exact": "exact text"
+    },
+    "removeLabel": "Remove alias {{alias}}",
+    "remove": "Remove",
+    "addLabel": "New alias",
+    "kindLabel": "How the alias is matched",
+    "add": "Add alias"
+  },
+  "spellings": {
+    "title": "Genres in your tracks",
+    "none": "None of your tracks has a genre yet."
+  },
+  "spelling": {
+    "tracks": "Tracks: {{n}}",
+    "goesTo": "goes to {{name}} ({{rule}})",
+    "pickLabel": "Genre for {{spelling}}",
+    "map": "Map to this genre"
+  },
+  "rule": {
+    "exact": "same name",
+    "folded": "same name, ignoring case and accents",
+    "parentSub": "Parent (Sub) style",
+    "alias": "alias"
+  },
+  "settingsPanel": {
+    "title": "Genres"
+  },
+  "unmapped": {
+    "title": "Unmapped genres",
+    "summary": "No genre: {{noGenre}}. Spellings to map: {{spellings}}.",
+    "openGenres": "Open the genre tree",
+    "noGenre": "Tracks with no genre: {{n}}",
+    "spellings": "Spellings no rule maps"
+  },
+  "error": {
+    "notFound": "Genre not found",
+    "nameEmpty": "A genre needs a name",
+    "nameTaken": "A genre with that name already exists (“{{name}}”)",
+    "moveIntoItself": "A genre can't go inside itself or one of its own genres",
+    "aliasTaken": "That spelling already goes to “{{name}}”",
+    "textTooLong": "That is too long. Keep it under 200 characters."
+  }
+}

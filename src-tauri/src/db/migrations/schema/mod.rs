@@ -309,6 +309,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0047_inbox.sql", &["inbox_batch", "inbox_item"]),
     // Wishlists and their items (2B-W1).
     ("0048_wishlist.sql", &["wishlist", "wish_item"]),
+    // The genre tree and its aliases, and the canonical node in track_row (3A-G).
+    ("0049_genre.sql", &["genre", "genre_alias"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
@@ -362,8 +364,6 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     let later = [
         "tag",
         "tag_group",
-        "genre",
-        "genre_alias",
         "playlist",
         "playlist_entry",
         "play_source",

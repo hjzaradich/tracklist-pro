@@ -16,6 +16,7 @@ use super::{
 use crate::crates::{self, CrateId};
 use crate::db::Writer;
 use crate::fragile::FragileDirs;
+use crate::genre;
 use crate::library::{self, LibraryTrackId};
 use crate::paths::Volumes;
 use crate::rekordbox_write::{build, gather, record_send, Outgoing};
@@ -47,7 +48,7 @@ pub(crate) fn peak_working_set_mib() -> u64 {
 }
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 17] = [
+pub(super) const LOGGED_TABLES: [&str; 19] = [
     "library_track",
     "library_removal",
     "crate",
@@ -65,6 +66,8 @@ pub(super) const LOGGED_TABLES: [&str; 17] = [
     "analysis",
     "wishlist",
     "wish_item",
+    "genre",
+    "genre_alias",
 ];
 
 /// The tables an action changes through the log only by setting fields of
@@ -93,6 +96,11 @@ const RESERVED: [i64; 2] = [7, 8];
 /// Crate names to draw from. Some equal each other by the writer's sibling
 /// rule (letter case, trailing space), so refusals happen too.
 const NAMES: [&str; 5] = ["House", "house", "Techno", "Warm up", "Warm up "];
+
+/// Genre names and alias spellings the genre actions pick from. Some differ
+/// only by case or accents, so the refusals are met too.
+const GENRES: [&str; 5] = ["Electronic", "Rock", "Pop", "electronic", "Pöp"];
+const ALIAS_SPELLINGS: [&str; 4] = ["Dance", "dance", "Guitar", "Rap"];
 
 /// The one test volume, plugged in at `E:\`.
 struct Plugged;
@@ -133,6 +141,13 @@ pub(super) enum Action {
     /// The wishlist tick-off of the n-th track's Inbox file, once grouping
     /// has decided it (2.5). Nothing without [`Lib::wishes`].
     TickOff(usize),
+    /// A genre (name picked from `GENRES`) under the n-th genre, or at the top.
+    AddGenre(usize, Option<usize>),
+    RenameGenre(usize, usize),
+    MoveGenre(usize, Option<usize>),
+    AddGenreAlias(usize, usize),
+    RemoveGenreAlias(usize),
+    LoadGenreSeed,
 }
 
 /// Every row of every logged table, each value as text.
@@ -250,6 +265,14 @@ impl Lib {
         self.ids("SELECT id FROM crate ORDER BY id")
     }
 
+    pub fn genre_ids(&self) -> Vec<i64> {
+        self.ids("SELECT id FROM genre ORDER BY id")
+    }
+
+    pub fn genre_alias_ids(&self) -> Vec<i64> {
+        self.ids("SELECT id FROM genre_alias ORDER BY id")
+    }
+
     /// Operations made and not undone.
     pub fn operations(&self) -> i64 {
         self.writer
@@ -359,6 +382,70 @@ impl Lib {
                         )?;
                         crate::wishlist::tick_off::run(c)
                     })
+                    .unwrap();
+            }
+            // The genre edits: a refusal (a taken name, a move into itself)
+            // changes nothing, like a crate's.
+            Action::AddGenre(name, parent) => {
+                let name = GENRES[name % GENRES.len()];
+                let parent = parent.and_then(|n| pick(&self.genre_ids(), n));
+                let _ = self
+                    .writer
+                    .call(move |c| Ok(genre::edit::add_node(c, parent, name)))
+                    .unwrap()
+                    .unwrap();
+            }
+            Action::RenameGenre(n, name) => {
+                if let Some(id) = pick(&self.genre_ids(), *n) {
+                    let name = GENRES[name % GENRES.len()];
+                    let _ = self
+                        .writer
+                        .call(move |c| Ok(genre::edit::rename_node(c, id, name)))
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::MoveGenre(n, parent) => {
+                if let Some(id) = pick(&self.genre_ids(), *n) {
+                    let parent = parent.and_then(|p| pick(&self.genre_ids(), p));
+                    let _ = self
+                        .writer
+                        .call(move |c| Ok(genre::edit::move_node(c, id, parent)))
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::AddGenreAlias(n, alias) => {
+                if let Some(id) = pick(&self.genre_ids(), *n) {
+                    let alias = ALIAS_SPELLINGS[alias % ALIAS_SPELLINGS.len()];
+                    let _ = self
+                        .writer
+                        .call(move |c| {
+                            Ok(genre::edit::add_alias(
+                                c,
+                                id,
+                                alias,
+                                genre::AliasKind::Folded,
+                            ))
+                        })
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::RemoveGenreAlias(n) => {
+                if let Some(id) = pick(&self.genre_alias_ids(), *n) {
+                    let _ = self
+                        .writer
+                        .call(move |c| Ok(genre::edit::remove_alias(c, id)))
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::LoadGenreSeed => {
+                let _ = self
+                    .writer
+                    .call(|c| Ok(genre::edit::load_seed(c)))
+                    .unwrap()
                     .unwrap();
             }
         }
@@ -578,6 +665,15 @@ pub(super) fn action() -> impl Strategy<Value = Action> {
         3 => (0..4usize, tracks()).prop_map(|(n, t)| Action::AddToCrate(n, t)),
         2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::RemoveFromCrate(n, t)),
         2 => (0..TRACKS).prop_map(Action::TickOff),
+        2 => (0..GENRES.len(), proptest::option::of(0..4usize))
+            .prop_map(|(name, parent)| Action::AddGenre(name, parent)),
+        1 => (0..4usize, 0..GENRES.len()).prop_map(|(n, name)| Action::RenameGenre(n, name)),
+        1 => (0..4usize, proptest::option::of(0..4usize))
+            .prop_map(|(n, parent)| Action::MoveGenre(n, parent)),
+        2 => (0..4usize, 0..ALIAS_SPELLINGS.len())
+            .prop_map(|(n, alias)| Action::AddGenreAlias(n, alias)),
+        1 => (0..4usize).prop_map(Action::RemoveGenreAlias),
+        1 => Just(Action::LoadGenreSeed),
     ]
 }
 

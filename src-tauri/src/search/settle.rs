@@ -96,6 +96,8 @@ pub fn settle_page(
         return Ok(0);
     }
     let rows = rows_for(&tx, volumes, &page)?;
+    // The genre tree, read once for the page (3.2).
+    let genres = crate::genre::Catalog::load(&tx)?;
     for id in &page {
         let Some(row) = rows.get(id) else {
             // No row to write (the track is gone, or has neither a file nor
@@ -132,6 +134,7 @@ pub fn settle_page(
             &row.facts,
             row.has_file,
             text_hash(&text),
+            &genres,
         )?;
         if written != (table_row::Written::Changed { text: true }) {
             continue;

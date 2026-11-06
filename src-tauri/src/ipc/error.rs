@@ -176,6 +176,18 @@ error_kinds! {
     /// The number of open conflicts a bulk resolve was asked about is not the
     /// number there is now.
     ConflictsChanged => "conflicts:error.changed", params: [];
+    /// The genre or alias was not found (it was removed meanwhile).
+    GenreNotFound => "genre:error.notFound", params: [];
+    /// A genre or alias name is empty once trimmed.
+    GenreNameEmpty => "genre:error.nameEmpty", params: [];
+    /// Another genre has the name (ignoring case and accents); `name` is that genre's.
+    GenreNameTaken => "genre:error.nameTaken", params: ["name"];
+    /// A genre was to go inside itself or one of its own descendants.
+    GenreMoveIntoItself => "genre:error.moveIntoItself", params: [];
+    /// The spelling is already a genre's name or an alias; `name` is the genre it goes to.
+    GenreAliasTaken => "genre:error.aliasTaken", params: ["name"];
+    /// A genre name or alias is longer than 200 characters.
+    GenreTextTooLong => "genre:error.textTooLong", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

@@ -122,6 +122,11 @@ const CHANGES: &[(&str, &str, Change)] = &[
         i.facts.genre = Some("Another Genre".into())
     }),
     ("genre_group", "no genre", |i| i.facts.genre = None),
+    // The canonical genre (3A-G): the node the spelling resolves to.
+    ("genre_node", "another genre", |i| {
+        i.facts.genre = Some("Another Genre".into())
+    }),
+    ("genre_node", "no genre", |i| i.facts.genre = None),
 ];
 
 /// The columns of `track_row` that are values: all but the track's id.
@@ -144,8 +149,27 @@ fn stored(conn: &Connection, column: &str) -> Value {
     .unwrap()
 }
 
+/// A tree with the two genres the cases use, so `genre_node` has values.
+fn catalog() -> crate::genre::Catalog {
+    let node = |id, name: &str| crate::genre::Node {
+        id,
+        parent_id: None,
+        name: name.into(),
+    };
+    crate::genre::Catalog::new(&[node(7, "A Genre"), node(8, "Another Genre")], &[])
+}
+
 fn write_inputs(tx: &Transaction<'_>, i: &Inputs) -> Written {
-    write(tx, TRACK, &i.fields, &i.facts, i.has_file, i.text_hash).unwrap()
+    write(
+        tx,
+        TRACK,
+        &i.fields,
+        &i.facts,
+        i.has_file,
+        i.text_hash,
+        &catalog(),
+    )
+    .unwrap()
 }
 
 /// How many rows of `track_row` `run` inserts, updates or deletes.

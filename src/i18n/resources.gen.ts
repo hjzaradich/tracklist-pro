@@ -10,6 +10,7 @@ export interface EnglishResources {
   "crates": typeof import("../locales/en/crates.json");
   "errors": typeof import("../locales/en/errors.json");
   "firstRun": typeof import("../locales/en/firstRun.json");
+  "genre": typeof import("../locales/en/genre.json");
   "hiddenFiles": typeof import("../locales/en/hiddenFiles.json");
   "inbox": typeof import("../locales/en/inbox.json");
   "library": typeof import("../locales/en/library.json");
