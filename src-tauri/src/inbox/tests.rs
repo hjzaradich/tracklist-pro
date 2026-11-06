@@ -179,6 +179,17 @@ fn a_later_file_becomes_an_item_in_a_loose_batch_once_it_holds_still() {
 }
 
 #[test]
+fn an_item_carries_the_file_name_without_its_folders() {
+    let (_dir, writer) = library();
+    walk(&writer, INBOX, vec![]);
+    walk(&writer, INBOX, vec![found("Pool Pack/one.mp3", 1)]);
+    hashed(&writer, "Pool Pack/one.mp3");
+    assert_eq!(intake(&writer), 1);
+    let fresh = writer.call(|c| items(c, &InboxFilter::default())).unwrap();
+    assert_eq!(fresh[0].file_name, "one.mp3");
+}
+
+#[test]
 fn files_that_arrive_together_in_a_subfolder_form_one_folder_batch() {
     let (_dir, writer) = library();
     walk(&writer, INBOX, vec![]);

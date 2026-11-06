@@ -1304,6 +1304,11 @@ export type InboxItem = {
 	id: number,
 	/**  The `file` row (file.id). */
 	fileId: number,
+	/**
+	 *  The file's own name (the last part of its stored relative path), not
+	 *  a full path.
+	 */
+	fileName: string,
 	musicFolderId: number,
 	batchId: number,
 	batchKind: BatchKind,

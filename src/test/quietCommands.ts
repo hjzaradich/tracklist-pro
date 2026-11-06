@@ -44,6 +44,13 @@ const ANSWERS: Record<string, unknown> = {
   crate_summary: EMPTY_SUMMARY,
   library_summary: { tracks: 0, changeStamp: 0 },
   next_undo_operation: { operation: null, refusal: null },
+  inbox_items: [],
+  inbox_count: {
+    new: 0,
+    alreadyThere: 0,
+    byLabel: { checking: 0, newToYou: 0, alreadyHave: 0, betterFile: 0, otherCut: 0, rework: 0 },
+    folders: [],
+  },
   review_counts: { needsCloserLook: 0, clearBestFile: 0, qualityProblems: 0, conflicts: 0, total: 0 },
   send_state: IDLE_SEND,
   rekordbox_xml_source: {

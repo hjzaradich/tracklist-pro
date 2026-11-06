@@ -91,7 +91,7 @@ async function open(
   t: ReturnType<typeof setup>,
   file: typeof A,
   duration: number,
-  options?: { keepPosition?: boolean },
+  options?: { keepPosition?: boolean; startAtFraction?: number },
 ) {
   t.state().select(file, options);
   await settle();
@@ -639,5 +639,32 @@ describe("Play next", () => {
     const setItem = vi.spyOn(storage, "setItem");
     setup({}, undefined, { playNext: playNextPrefs(() => storage) });
     expect(setItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("previews that start part of the way in (startAtFraction)", () => {
+  it("starts a third of the way in once the length is known, and only for that file", async () => {
+    const t = setup();
+    await open(t, A, 300, { startAtFraction: 1 / 3 });
+    expect(t.audio.currentTime).toBeCloseTo(100);
+    expect(t.state().position).toBeCloseTo(100);
+    // The next file, chosen the usual way, starts from its beginning.
+    await open(t, B, 300);
+    expect(t.audio.currentTime).toBe(0);
+  });
+
+  it("starts at the beginning when the file is chosen without it", async () => {
+    const t = setup();
+    await open(t, A, 300);
+    expect(t.audio.currentTime).toBe(0);
+  });
+
+  it("waits for the length: nothing moves before the file's header is read", async () => {
+    const t = setup();
+    t.state().select(A, { startAtFraction: 1 / 3 });
+    await settle();
+    expect(t.audio.currentTime).toBe(0);
+    t.audio.loaded(90);
+    expect(t.audio.currentTime).toBeCloseTo(30);
   });
 });

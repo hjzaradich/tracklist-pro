@@ -9,6 +9,7 @@ import { quietAnswer } from "../test/quietCommands";
 // Each stage's name and what its screen says with an empty Library.
 const SCREENS = [
   { path: "/overview", name: tx("shell:stages.overview"), empty: tx("firstRun:title") },
+  { path: "/inbox", name: tx("shell:stages.inbox"), empty: tx("inbox:empty.noFolders") },
   { path: "/review", name: tx("shell:stages.review"), empty: tx("review:queue.empty") },
   { path: "/all-music", name: tx("shell:stages.allMusic"), empty: tx("allMusic:empty") },
   { path: "/library", name: tx("shell:stages.library"), empty: tx("library:empty") },

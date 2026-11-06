@@ -132,6 +132,10 @@ describe("the top bar's Undo", () => {
   });
 
   it.each([
+    [operation(1, "inbox_add"), "shell:undo.action.inboxAdd", {}],
+    [operation(1, "inbox_not_now"), "shell:undo.action.inboxNotNow", {}],
+    [operation(1, "inbox_hide"), "shell:undo.action.inboxHide", {}],
+    [operation(1, "inbox_clear"), "shell:undo.action.inboxClear", {}],
     [operation(1, "promote"), "shell:undo.action.addToLibrary", {}],
     [operation(1, "remove_from_library"), "shell:undo.action.removeFromLibrary", {}],
     [operation(1, "show_file_again"), "shell:undo.action.showFileAgain", {}],

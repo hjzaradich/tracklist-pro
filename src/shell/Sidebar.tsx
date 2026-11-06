@@ -5,13 +5,14 @@ import type { Crate } from "../bindings";
 import { useAddReport, useAddSelectionToCrate } from "../crates/addSelection";
 import { ancestorIds, buildTree, type TreeNode } from "../crates/tree";
 import { useCrates } from "../crates/useCrates";
+import { useInboxCount } from "../inbox/useInbox";
 import { useTrackDrag } from "../trackTable/trackDrag";
 import { STAGES, type StageId } from "./stages";
 import styles from "./Sidebar.module.css";
 
 interface SidebarProps {
   className?: string;
-  /** Count badges per stage. Nothing feeds them yet. */
+  /** Count badges per stage. The Inbox's comes from the Inbox when not given. */
   counts?: Partial<Record<StageId, number>>;
 }
 
@@ -28,6 +29,8 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
   const { t } = useTranslation("shell");
   const workflow = STAGES.filter((stage) => stage.id !== "crates");
   const all = useCrates().data;
+  // What is new in the Inbox; no badge while it is unknown or nothing is new.
+  const inboxNew = useInboxCount().data?.new;
   // How many crates there are (folders don't count); unknown until loaded.
   const crates = all?.filter((c) => c.kind === "static").length;
   const { pathname, search } = useLocation({
@@ -40,7 +43,7 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
       <ul className={styles.list}>
         {workflow.map((stage) => (
           <li key={stage.id}>
-            <StageLink to={stage.path} label={t(`stages.${stage.id}`)} count={counts[stage.id]} />
+            <StageLink to={stage.path} label={t(`stages.${stage.id}`)} count={counts[stage.id] ?? (stage.id === "inbox" && inboxNew ? inboxNew : undefined)} />
           </li>
         ))}
       </ul>

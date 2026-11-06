@@ -10,7 +10,16 @@ import styles from "./PlayButton.module.css";
  * starts it from the beginning; `keepPosition` (Review's compare) carries
  * the position over instead (see `playerStore.ts`).
  */
-export function PlayButton({ file, keepPosition = false }: { file: PlayerFile; keepPosition?: boolean }) {
+export function PlayButton({
+  file,
+  keepPosition = false,
+  startAtFraction,
+}: {
+  file: PlayerFile;
+  keepPosition?: boolean;
+  /** Starts the file this far into its length (0 to 1); the Inbox passes it. */
+  startAtFraction?: number;
+}) {
   const { t } = useTranslation("player");
   const current = usePlayer((s) => s.file?.id === file.id);
   const playing = usePlayer((s) => s.playing);
@@ -31,7 +40,7 @@ export function PlayButton({ file, keepPosition = false }: { file: PlayerFile; k
         aria-label={label}
         title={label}
         // Pressing a refused file again asks again.
-        onClick={() => (current && !refused ? toggle() : select(file, { keepPosition }))}
+        onClick={() => (current && !refused ? toggle() : select(file, { keepPosition, startAtFraction }))}
       >
         <PlayPauseIcon playing={pause} />
       </button>

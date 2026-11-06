@@ -1,0 +1,77 @@
+{
+  "label": {
+    "checking": "Checking…",
+    "new_to_you": "New to you",
+    "better_file": "Better file",
+    "other_cut": "Other cut",
+    "rework": "Rework",
+    "already_have": "Already have"
+  },
+  "filter": {
+    "label": "Filter by label",
+    "all": "All"
+  },
+  "reason": {
+    "checking": "Still being looked at",
+    "checkingOnlineOnly": "Online-only: not read until you ask",
+    "newToYou": "Not in your Library",
+    "alreadyHave": "Already in your Library",
+    "otherCut": "Another cut of a Library track",
+    "otherCut_labeled": "Another cut of a Library track ({{label}})",
+    "rework": "A rework of a Library track",
+    "rework_labeled": "A rework of a Library track ({{label}})"
+  },
+  "batch": {
+    "loose": "Loose files",
+    "arrived": "Arrived {{when}}",
+    "count_one": "{{count, number}} file",
+    "count_other": "{{count, number}} files"
+  },
+  "action": {
+    "add": "Add to Library",
+    "addAll": "Add all",
+    "addAnyway": "Add anyway",
+    "notNow": "Not now",
+    "hide": "Hide",
+    "clear": "Clear",
+    "clearAll": "Clear all"
+  },
+  "confirm": {
+    "lowBitrate": "This file is only {{kbps, number}} kbps."
+  },
+  "skipped": {
+    "title_one": "{{count, number}} file was not added:",
+    "title_other": "{{count, number}} files were not added:",
+    "line": "{{file}}: {{reason}}"
+  },
+  "refusal": {
+    "itemGone": "This file is no longer in the Inbox",
+    "alreadyDecided": "Already dealt with",
+    "notIdentified": "Still being looked at",
+    "hasLibraryTrack": "Its track is in your Library already",
+    "noLibraryTrack": "Its track is not in your Library, so there is nothing to clear",
+    "fileMissing": "The file is not on disk",
+    "inRekordboxAsAnotherFile": "rekordbox has this track as another file",
+    "matchNotConfirmed": "Its rekordbox match is not confirmed yet",
+    "sameTrackTwice": "Another file of the same track is in this add",
+    "isLibraryFile": "This is the file your Library track uses"
+  },
+  "already": {
+    "title": "Already have ({{count, number}})",
+    "show": "Show",
+    "hide": "Hide list"
+  },
+  "folders": {
+    "title": "Inbox folders",
+    "help": "New music that lands in these folders shows up here. Files are only read, never moved.",
+    "none": "No Inbox folders yet",
+    "add": "Add an Inbox folder",
+    "remove": "Remove",
+    "removeNamed": "Remove {{path}}",
+    "firstLook": "Still taking a first look"
+  },
+  "empty": {
+    "noFolders": "Add a folder where new music lands, such as Downloads. New files will show up here.",
+    "zero": "Inbox zero. Nothing new."
+  }
+}

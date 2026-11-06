@@ -9,6 +9,10 @@
     "where": "Sidebar link and the Overview screen's heading.",
     "approved": "Overview"
   },
+  "stages.inbox": {
+    "purpose": "Name of the Inbox stage: new music from the watched folders, waiting for a decision.",
+    "where": "Sidebar link and the Inbox screen's heading."
+  },
   "stages.review": {
     "purpose": "Name of the Review stage.",
     "where": "Sidebar link and the Review screen's heading.",
@@ -83,6 +87,22 @@
     "purpose": "Undo button naming what it takes back: one track added to the Library.",
     "where": "Top bar, Undo button, when the next step to undo is an \"Add to Library\".",
     "approved": "Undo (added to Library)"
+  },
+  "undo.action.inboxAdd": {
+    "purpose": "Undo button naming what it takes back: files added to the Library from the Inbox.",
+    "where": "Top bar, Undo button, after Add to Library or Add all in the Inbox."
+  },
+  "undo.action.inboxNotNow": {
+    "purpose": "Undo button naming what it takes back: Inbox files set aside with Not now.",
+    "where": "Top bar, Undo button, after Not now in the Inbox."
+  },
+  "undo.action.inboxHide": {
+    "purpose": "Undo button naming what it takes back: Inbox files hidden.",
+    "where": "Top bar, Undo button, after Hide in the Inbox."
+  },
+  "undo.action.inboxClear": {
+    "purpose": "Undo button naming what it takes back: Inbox files cleared because they were already in the Library.",
+    "where": "Top bar, Undo button, after Clear in the Inbox."
   },
   "undo.action.removeFromLibrary": {
     "purpose": "Undo button naming what it takes back: one track removed from the Library.",

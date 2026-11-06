@@ -74,6 +74,7 @@ function reloadAfterUndo(queryClient: QueryClient) {
     "tagSources",
     "overview",
     "review",
+    "inbox",
   );
 }
 

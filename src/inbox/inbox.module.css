@@ -1,0 +1,187 @@
+/* The Inbox: quiet lists in the existing tokens, nothing new in the look
+ * (docs/design-style.md): outlined buttons, one filled button per row. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--color-accent);
+}
+
+.chip:hover {
+  background: var(--color-surface-hover);
+}
+
+.count {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.batch,
+.folders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.batchHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.list,
+.folderList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.row,
+.folder {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+
+.folder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rowMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.name {
+  flex: 1;
+  min-width: 8rem;
+  overflow-wrap: anywhere;
+}
+
+.label {
+  font-weight: 600;
+}
+
+.reason,
+.muted {
+  color: var(--color-text-muted);
+}
+
+.muted {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.action,
+.primary,
+.quiet {
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+/* Hide: plain text, hard to hit by accident. */
+.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.action:hover:not(:disabled),
+.quiet:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.action:disabled,
+.primary:disabled,
+.quiet:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.action:focus-visible,
+.primary:focus-visible,
+.quiet:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.problem {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.skipped {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.skipped p,
+.skipped ul {
+  margin: 0;
+}
