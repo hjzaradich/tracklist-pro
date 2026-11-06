@@ -23,6 +23,11 @@ impl From<GenreError> for IpcError {
                 ErrorKind::GenreAliasTaken,
                 [("name", ErrorParam::from(genre))],
             ),
+            GenreError::NameIsAlias { genre } => IpcError::with(
+                ErrorKind::GenreAliasTaken,
+                [("name", ErrorParam::from(genre))],
+            ),
+            GenreError::TextTooLong => IpcError::new(ErrorKind::GenreTextTooLong),
             GenreError::Ops(e) => IpcError::from(e),
         }
     }

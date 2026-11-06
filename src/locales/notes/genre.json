@@ -167,6 +167,10 @@
     "purpose": "Refusal: a genre was to go inside itself or one of its own genres.",
     "where": "Shown when a genre edit is refused."
   },
+  "error.textTooLong": {
+    "purpose": "Refusal: a genre name or alias is over 200 characters.",
+    "where": "Shown when a genre edit is refused."
+  },
   "error.aliasTaken": {
     "purpose": "Refusal: the spelling is already a name or an alias; {{name}} is the genre it goes to.",
     "where": "Shown when a genre edit is refused."

@@ -1,4 +1,4 @@
--- 0050: the genre taxonomy (ROADMAP 3.2): `genre` (a tree you control),
+-- 0049: the genre taxonomy (ROADMAP 3.2): `genre` (a tree you control),
 -- `genre_alias` (a spelling that maps to a node), and the canonical node in
 -- `track_row`.
 --
@@ -41,17 +41,22 @@ ALTER TABLE track_row ADD COLUMN genre_node INTEGER;
 
 CREATE INDEX track_row_genre_node ON track_row (genre_node) WHERE genre_node IS NOT NULL;
 
--- Any edit of the tree or the aliases, undo included, marks every Library
--- track due (-1 stands for all of them), so `genre_node` follows.
+-- An edit that can change how a spelling resolves, undo included, marks every
+-- Library track due (-1 stands for all of them), so `genre_node` follows. SQL
+-- can't cheaply tell which tracks resolve through a node (folded, "Parent
+-- (Sub)" and alias rules all apply), so these edits mark all of them; a
+-- change of position, which resolves nothing differently, marks none.
 CREATE TRIGGER genre_marks_due_insert AFTER INSERT ON genre
 BEGIN INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1); END;
-CREATE TRIGGER genre_marks_due_update AFTER UPDATE ON genre
+CREATE TRIGGER genre_marks_due_update AFTER UPDATE OF name_key, parent_id ON genre
+WHEN OLD.name_key IS NOT NEW.name_key OR OLD.parent_id IS NOT NEW.parent_id
 BEGIN INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1); END;
 CREATE TRIGGER genre_marks_due_delete AFTER DELETE ON genre
 BEGIN INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1); END;
 CREATE TRIGGER genre_alias_marks_due_insert AFTER INSERT ON genre_alias
 BEGIN INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1); END;
-CREATE TRIGGER genre_alias_marks_due_update AFTER UPDATE ON genre_alias
+CREATE TRIGGER genre_alias_marks_due_update AFTER UPDATE OF genre_id, alias_key, kind ON genre_alias
+WHEN OLD.genre_id IS NOT NEW.genre_id OR OLD.alias_key IS NOT NEW.alias_key OR OLD.kind IS NOT NEW.kind
 BEGIN INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1); END;
 CREATE TRIGGER genre_alias_marks_due_delete AFTER DELETE ON genre_alias
 BEGIN INSERT OR IGNORE INTO search_due (recording_id) VALUES (-1); END;

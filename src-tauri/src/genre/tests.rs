@@ -131,6 +131,8 @@ fn refused<T>(done: edit::Done<T>) -> Result<T, &'static str> {
         GenreError::NameTaken { .. } => "taken",
         GenreError::MoveIntoItself => "into itself",
         GenreError::AliasTaken { .. } => "alias taken",
+        GenreError::NameIsAlias { .. } => "name is alias",
+        GenreError::TextTooLong => "too long",
         GenreError::Ops(_) => "ops",
     })
 }
@@ -361,4 +363,104 @@ fn review_lists_tracks_with_no_genre_first_then_the_spellings_no_rule_maps() {
     );
     let exact = all.iter().find(|s| s.spelling == "House").unwrap();
     assert_eq!(exact.resolution.map(|r| r.rule), Some(Rule::Exact));
+}
+
+fn alias_to(w: &Writer, genre: i64, text: &'static str) -> Result<i64, &'static str> {
+    refused(
+        w.call(move |c| Ok(edit::add_alias(c, genre, text, AliasKind::Folded)))
+            .unwrap()
+            .unwrap(),
+    )
+}
+
+/// Empties the due list, runs `act`, and says whether tracks are due after.
+fn due_after(w: &Writer, act: impl FnOnce(&Writer)) -> bool {
+    w.call(|c| c.execute("DELETE FROM search_due", [])).unwrap();
+    act(w);
+    w.call(|c| {
+        c.query_row(
+            "SELECT count(*) FROM search_due WHERE recording_id = -1",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+    })
+    .unwrap()
+        == 1
+}
+
+#[test]
+fn edits_that_change_resolution_mark_tracks_due_and_a_position_change_marks_none() {
+    let (_dir, w) = writer();
+    let a = add(&w, None, "Electronic").unwrap();
+    let b = add(&w, None, "Rock").unwrap();
+    let alias = alias_to(&w, a, "EDM").unwrap();
+    // Insert.
+    assert!(due_after(&w, |w| {
+        add(w, None, "Jazz").unwrap();
+    }));
+    assert!(due_after(&w, |w| {
+        alias_to(w, b, "Rawk").unwrap();
+    }));
+    // Update: a rename and a move.
+    assert!(due_after(&w, |w| {
+        w.call(move |c| Ok(edit::rename_node(c, b, "Hard Rock")))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }));
+    assert!(due_after(&w, |w| {
+        w.call(move |c| Ok(edit::move_node(c, b, Some(a))))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }));
+    // Delete: an alias, and a node (through undoing its add).
+    assert!(due_after(&w, |w| {
+        w.call(move |c| Ok(edit::remove_alias(c, alias)))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }));
+    assert!(due_after(&w, |w| {
+        add(w, None, "Folk").unwrap();
+        w.call(|c| c.execute("DELETE FROM search_due", [])).unwrap();
+        undo(w);
+    }));
+    // A change of position alone and a display-name-only change resolve nothing differently.
+    assert!(!due_after(&w, |w| {
+        w.call(move |c| {
+            c.execute(
+                "UPDATE genre SET position = position + 5 WHERE id = ?1",
+                [a],
+            )
+        })
+        .unwrap();
+    }));
+    assert!(!due_after(&w, |w| {
+        w.call(move |c| c.execute("UPDATE genre SET name = 'ELECTRONIC' WHERE id = ?1", [a]))
+            .unwrap();
+    }));
+}
+
+#[test]
+fn a_name_and_an_alias_cannot_share_a_spelling_and_text_is_capped() {
+    let (_dir, w) = writer();
+    let a = add(&w, None, "Electronic").unwrap();
+    let b = add(&w, None, "Rock").unwrap();
+    alias_to(&w, a, "EDM").unwrap();
+    assert_eq!(add(&w, None, "edm"), Err("name is alias"));
+    assert_eq!(
+        refused(
+            w.call(move |c| Ok(edit::rename_node(c, b, "Édm")))
+                .unwrap()
+                .unwrap()
+        ),
+        Err("name is alias")
+    );
+    assert_eq!(alias_to(&w, b, "rock"), Err("alias taken"));
+    let long: &'static str = Box::leak("x".repeat(201).into_boxed_str());
+    assert_eq!(add(&w, None, long), Err("too long"));
+    assert_eq!(alias_to(&w, b, long), Err("too long"));
+    let ok: &'static str = Box::leak("x".repeat(200).into_boxed_str());
+    assert!(add(&w, None, ok).is_ok());
 }

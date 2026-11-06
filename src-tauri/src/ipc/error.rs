@@ -186,6 +186,8 @@ error_kinds! {
     GenreMoveIntoItself => "genre:error.moveIntoItself", params: [];
     /// The spelling is already a genre's name or an alias; `name` is the genre it goes to.
     GenreAliasTaken => "genre:error.aliasTaken", params: ["name"];
+    /// A genre name or alias is longer than 200 characters.
+    GenreTextTooLong => "genre:error.textTooLong", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

@@ -1,4 +1,4 @@
-//! The genre taxonomy (ROADMAP 3.2; migration 0050): a tree of genres you
+//! The genre taxonomy (ROADMAP 3.2; migration 0049): a tree of genres you
 //! control, and aliases that map the mess of real spellings onto its nodes.
 //!
 //! - The resolver here is pure: [`Catalog::resolve`] takes a spelling and

@@ -15,6 +15,9 @@ pub const ADD_ALIAS_OPERATION: &str = "add_genre_alias";
 pub const REMOVE_ALIAS_OPERATION: &str = "remove_genre_alias";
 pub const SEED_OPERATION: &str = "load_genre_seed";
 
+/// The most characters a genre name or an alias may have.
+pub const MAX_TEXT_CHARS: usize = 200;
+
 /// Why an edit was refused. Nothing was changed.
 #[derive(Debug)]
 pub enum GenreError {
@@ -30,6 +33,11 @@ pub enum GenreError {
     /// The spelling is already a genre's name or another alias; `genre` is
     /// the name of the genre it goes to.
     AliasTaken { genre: String },
+    /// A new or renamed genre's name is already an alias; `genre` is the
+    /// name of the genre that alias goes to.
+    NameIsAlias { genre: String },
+    /// The text is longer than [`MAX_TEXT_CHARS`].
+    TextTooLong,
     /// The database or the log failed.
     Ops(OpsError),
 }
@@ -57,6 +65,20 @@ fn checked_name(rec: &Recorder<'_>, name: &str, except: i64) -> Result<Done<Stri
     let key = fold(name);
     if key.is_empty() {
         return Ok(Err(GenreError::NameEmpty));
+    }
+    if name.chars().count() > MAX_TEXT_CHARS {
+        return Ok(Err(GenreError::TextTooLong));
+    }
+    if let Some(genre) = rec
+        .read_rows(
+            "SELECT g.name FROM genre_alias a JOIN genre g ON g.id = a.genre_id
+             WHERE a.alias_key = ?1",
+            [&key],
+            |r| r.get::<_, String>(0),
+        )?
+        .pop()
+    {
+        return Ok(Err(GenreError::NameIsAlias { genre }));
     }
     let existing = rec
         .read_rows(
@@ -268,6 +290,9 @@ fn insert_alias(
     let key = fold(alias);
     if key.is_empty() {
         return Ok(Err(GenreError::NameEmpty));
+    }
+    if alias.chars().count() > MAX_TEXT_CHARS {
+        return Ok(Err(GenreError::TextTooLong));
     }
     if let Some(genre) = taken_by(rec, &key)? {
         return Ok(Err(GenreError::AliasTaken { genre }));

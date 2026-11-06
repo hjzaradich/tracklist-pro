@@ -43,7 +43,7 @@
 //!   the lists show, which differs on edge cases (the best file's tags,
 //!   accents folded) and keeps no spelling. A track outside the Library, and
 //!   a Library track with no genre, have NULL in both.
-//! - **The canonical genre** (3A-G, migration 0050): `genre_node`, the node of
+//! - **The canonical genre** (3A-G, migration 0049): `genre_node`, the node of
 //!   the genre tree that `genre` resolves to (`genre::Catalog::resolve`), or
 //!   NULL when no rule applies. The spelling stays as it is.
 //! - **BPM and key** are `recording_display`'s, the analysis the app keeps
