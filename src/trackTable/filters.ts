@@ -118,7 +118,12 @@ export function formatName(format: string, t: TFunction<"trackTable">): string {
 }
 
 /** A chip's text. */
-export function filterLabel(filter: TableFilter, t: TFunction<"trackTable">): string {
+export function filterLabel(
+  filter: TableFilter,
+  t: TFunction<"trackTable">,
+  /** The tag names by id, once read; a tag filter names its tag from these. */
+  tagNames?: ReadonlyMap<number, string>,
+): string {
   switch (filter.kind) {
     case "format":
       return t("filters.format", { format: formatName(filter.format, t) });
@@ -154,7 +159,10 @@ export function filterLabel(filter: TableFilter, t: TFunction<"trackTable">): st
       return t("filters.missingArt");
     case "genre":
       return t("filters.genre", { genre: filter.name });
-    case "tag":
-      return t("filters.tag");
+    case "tag": {
+      if (tagNames === undefined) return t("filters.tag");
+      const name = tagNames.get(filter.id);
+      return name === undefined ? t("filters.tagGone") : t("filters.tagNamed", { tag: name });
+    }
   }
 }

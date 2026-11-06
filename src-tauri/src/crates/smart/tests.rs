@@ -95,6 +95,25 @@ impl Lib {
         self.with(move |c| evaluate(c, id))
     }
 
+    /// A tag group and its tags (made in order), each applied to the given
+    /// recordings. Answers the group and the tags.
+    fn tags(
+        &self,
+        group: &'static str,
+        tags: Vec<(&'static str, Vec<i64>)>,
+    ) -> (TagGroupId, Vec<TagId>) {
+        self.with(move |c| {
+            let g = crate::vocab::create_group_on(c, group).unwrap().unwrap();
+            let mut made = Vec::new();
+            for (name, recordings) in tags {
+                let t = crate::vocab::create_tag_on(c, g, name).unwrap().unwrap();
+                crate::vocab::apply_on(c, t, &recordings).unwrap().unwrap();
+                made.push(t);
+            }
+            Ok((g, made))
+        })
+    }
+
     fn undo(&self) {
         match undo_last_via(&self.writer).unwrap() {
             UndoOutcome::Undone { .. } => {}
@@ -638,6 +657,211 @@ fn a_send_writes_a_smart_crate_as_it_evaluates_and_the_merge_never_compares_it()
     assert_eq!(w.lib.with(move |c| count(c, id)), 3);
 }
 
+fn has(tag: TagId) -> Condition {
+    Condition::Tag {
+        op: TagOp::Has,
+        tag_id: tag,
+    }
+}
+
+fn has_not(tag: TagId) -> Condition {
+    Condition::Tag {
+        op: TagOp::HasNot,
+        tag_id: tag,
+    }
+}
+
+#[test]
+fn has_a_tag_and_does_not_have_a_tag_match_the_library_tracks_they_say() {
+    let w = world();
+    let r = w.rec;
+    // peak: a, c, and the outside track f; warm: b.
+    let (_, tags) = w.lib.tags(
+        "Role",
+        vec![("peak", vec![r[0], r[2], r[5]]), ("warm", vec![r[1]])],
+    );
+    let (peak, warm) = (tags[0], tags[1]);
+    assert_eq!(matched(&w.lib, one(has(peak))), vec![r[0], r[2]]);
+    assert_eq!(matched(&w.lib, one(has(warm))), vec![r[1]]);
+    // A track with no tag at all doesn't have the tag.
+    assert_eq!(matched(&w.lib, one(has_not(peak))), vec![r[1], r[3], r[4]]);
+    assert_eq!(
+        matched(&w.lib, one(has_not(warm))),
+        vec![r[0], r[2], r[3], r[4]]
+    );
+}
+
+#[test]
+fn has_any_tag_in_a_group_matches_a_track_with_one_of_its_tags_and_not_another_groups() {
+    let w = world();
+    let r = w.rec;
+    let (role, _) = w.lib.tags(
+        "Role",
+        vec![("peak", vec![r[0]]), ("warm", vec![r[1], r[0]])],
+    );
+    let (vocal, _) = w.lib.tags("Vocal", vec![("acapella", vec![r[4]])]);
+    let in_group = |op, group_id| Condition::TagGroup { op, group_id };
+    assert_eq!(
+        matched(&w.lib, one(in_group(TagOp::Has, role))),
+        vec![r[0], r[1]]
+    );
+    assert_eq!(
+        matched(&w.lib, one(in_group(TagOp::Has, vocal))),
+        vec![r[4]]
+    );
+    assert_eq!(
+        matched(&w.lib, one(in_group(TagOp::HasNot, role))),
+        vec![r[2], r[3], r[4]]
+    );
+}
+
+#[test]
+fn a_deleted_tag_or_group_matches_no_track_and_the_rule_stays_readable() {
+    let w = world();
+    let r = w.rec;
+    let (group, tags) = w
+        .lib
+        .tags("Role", vec![("peak", vec![r[0]]), ("warm", vec![r[1]])]);
+    let (peak, warm) = (tags[0], tags[1]);
+    let rule = SmartRule {
+        combine: Combine::Any,
+        conditions: vec![has(peak), has_not(peak)],
+    };
+    let saved = w.lib.create("Tagged", rule.clone());
+    assert_eq!(w.lib.held(saved).len(), 5);
+    // The vocabulary can't delete a tag yet; take it out of the database.
+    w.lib.with(move |c| {
+        c.execute("DELETE FROM tag_applied WHERE tag_id = ?1", [peak.0])?;
+        c.execute("DELETE FROM tag WHERE id = ?1", [peak.0])?;
+        Ok(())
+    });
+    for condition in [has(peak), has_not(peak)] {
+        assert!(matched(&w.lib, one(condition)).is_empty());
+    }
+    assert!(w.lib.held(saved).is_empty());
+    // The other tag is untouched.
+    assert_eq!(matched(&w.lib, one(has(warm))), vec![r[1]]);
+    // The stored rule reads back as it was saved.
+    let stored = w
+        .lib
+        .with(move |c| membership::stored_rule(c, saved))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored, rule);
+    // With the group gone too, nothing has a tag of it and nothing lacks one.
+    w.lib.with(move |c| {
+        c.execute("DELETE FROM tag_applied", [])?;
+        c.execute("DELETE FROM tag", [])?;
+        c.execute("DELETE FROM tag_group WHERE id = ?1", [group.0])?;
+        Ok(())
+    });
+    let in_group = |op| Condition::TagGroup {
+        op,
+        group_id: group,
+    };
+    assert!(matched(&w.lib, one(in_group(TagOp::Has))).is_empty());
+    assert!(matched(&w.lib, one(in_group(TagOp::HasNot))).is_empty());
+}
+
+#[test]
+fn an_empty_tag_group_has_no_tag_to_have_so_any_in_it_matches_nothing_and_none_in_it_matches_every_track(
+) {
+    let w = world();
+    let (group, _) = w.lib.tags("Empty", vec![]);
+    let in_group = |op| Condition::TagGroup {
+        op,
+        group_id: group,
+    };
+    assert!(matched(&w.lib, one(in_group(TagOp::Has))).is_empty());
+    assert_eq!(
+        matched(&w.lib, one(in_group(TagOp::HasNot))),
+        vec![w.rec[0], w.rec[1], w.rec[2], w.rec[3], w.rec[4]]
+    );
+}
+
+#[test]
+fn tag_conditions_combine_with_other_fields_as_all_or_any() {
+    let w = world();
+    let r = w.rec;
+    let (_, tags) = w.lib.tags("Role", vec![("peak", vec![r[0], r[2], r[3]])]);
+    let peak = tags[0];
+    // Energy at least 7 (a, c, e) and tagged peak (a, c, d).
+    let both = |combine| SmartRule {
+        combine,
+        conditions: vec![has(peak), energy(NumberOp::AtLeast, 7)],
+    };
+    assert_eq!(matched(&w.lib, both(Combine::All)), vec![r[0], r[2]]);
+    assert_eq!(
+        matched(&w.lib, both(Combine::Any)),
+        vec![r[0], r[2], r[3], r[4]]
+    );
+    // Not tagged peak, with energy at most 8: b only (d is tagged, e is 10).
+    let rule = SmartRule {
+        combine: Combine::All,
+        conditions: vec![has_not(peak), energy(NumberOp::AtMost, 8)],
+    };
+    assert_eq!(matched(&w.lib, rule), vec![r[1]]);
+}
+
+#[test]
+fn a_rule_in_the_stored_json_form_reads_a_tag_condition_by_id() {
+    let rule = SmartRule::from_json(
+        r#"{"combine":"all","conditions":[{"field":"tag","op":"has","tagId":4},
+            {"field":"tagGroup","op":"hasNot","groupId":2}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        rule.conditions,
+        vec![
+            has(TagId(4)),
+            Condition::TagGroup {
+                op: TagOp::HasNot,
+                group_id: TagGroupId(2)
+            }
+        ]
+    );
+}
+
+#[test]
+fn a_send_evaluates_a_tag_rule_with_the_always_and_never_lists() {
+    let w = world();
+    let r = w.rec;
+    let lt = |i: usize| w.lt[i].unwrap();
+    let (_, tags) = w.lib.tags("Role", vec![("peak", vec![r[0], r[1], r[5]])]);
+    let peak = tags[0];
+    let id = w.lib.create("Peak tag", one(has(peak)));
+    // The outside track f has the tag and isn't a Library track.
+    let tree = w.lib.with(|c| crate::send::crate_tree(c));
+    assert_eq!(
+        tree,
+        vec![crate::rekordbox_write::Node::Playlist {
+            name: "Peak tag".to_owned(),
+            entries: vec![lt(0), lt(1)],
+        }]
+    );
+    // Tagging another track puts it in at the next send; the lists still apply.
+    let (always, never) = (lt(4), lt(0));
+    w.lib.with(move |c| {
+        include_on(c, id, &[always], Inclusion::Always)
+            .unwrap()
+            .unwrap();
+        include_on(c, id, &[never], Inclusion::Never)
+            .unwrap()
+            .unwrap();
+        crate::vocab::apply_on(c, peak, &[r[2]]).unwrap().unwrap();
+        Ok(())
+    });
+    let tree = w.lib.with(|c| crate::send::crate_tree(c));
+    assert_eq!(
+        tree,
+        vec![crate::rekordbox_write::Node::Playlist {
+            name: "Peak tag".to_owned(),
+            entries: vec![lt(1), lt(2), lt(4)],
+        }]
+    );
+    assert_eq!(w.lib.with(move |c| count(c, id)), 3);
+}
+
 /// Text the user could type, with a marker that appears in no SQL here.
 fn user_text() -> impl Strategy<Value = String> {
     ".{0,12}".prop_map(|s| format!("Zq{s}'\"; --"))
@@ -655,6 +879,10 @@ fn number_op() -> impl Strategy<Value = NumberOp> {
 
 fn choice_op() -> impl Strategy<Value = ChoiceOp> {
     prop_oneof![Just(ChoiceOp::Is), Just(ChoiceOp::IsNot)]
+}
+
+fn tag_op() -> impl Strategy<Value = TagOp> {
+    prop_oneof![Just(TagOp::Has), Just(TagOp::HasNot)]
 }
 
 fn any_condition() -> impl Strategy<Value = Condition> {
@@ -686,6 +914,14 @@ fn any_condition() -> impl Strategy<Value = Condition> {
         (choice_op(), any::<i64>()).prop_map(|(op, id)| Condition::InCrate {
             op,
             crate_id: CrateId(id)
+        }),
+        (tag_op(), any::<i64>()).prop_map(|(op, id)| Condition::Tag {
+            op,
+            tag_id: TagId(id)
+        }),
+        (tag_op(), any::<i64>()).prop_map(|(op, id)| Condition::TagGroup {
+            op,
+            group_id: TagGroupId(id)
         }),
     ]
 }

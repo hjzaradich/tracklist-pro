@@ -33,6 +33,7 @@ use crate::db::{ReadPool, Writer};
 use crate::ipc::IpcError;
 use crate::library::LibraryTrackId;
 use crate::ops::{self, OpsError};
+use crate::vocab::{TagGroupId, TagId};
 
 pub mod compile;
 pub mod membership;
@@ -97,13 +98,22 @@ pub enum TextOp {
     Contains,
 }
 
+/// Comparing tags: the track has one, or it doesn't.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TagOp {
+    Has,
+    HasNot,
+}
+
 /// One condition of a rule. A track with no value for the field (no energy,
 /// no BPM, no key, no genre, no rating) matches no condition on it, "is
-/// not" included.
+/// not" included. Tags are the exception: a track with no tags has none, so
+/// "doesn't have" holds for it. A tag or tag group that was deleted matches
+/// no track, "doesn't have" included; the rule stays readable.
 ///
-/// To add a field (the tag job's "tag includes", after 3.1 merges): a
-/// variant here, its SQL in [`compile::condition`], and its dropdown in
-/// `src/crates/smart/`. Nothing else changes.
+/// To add a field: a variant here, its SQL in [`compile::condition`], and
+/// its dropdown in `src/crates/smart/`. Nothing else changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "field", rename_all = "camelCase")]
 pub enum Condition {
@@ -137,6 +147,18 @@ pub enum Condition {
         op: ChoiceOp,
         #[serde(rename = "crateId")]
         crate_id: CrateId,
+    },
+    /// Has a tag (by id), or doesn't.
+    Tag {
+        op: TagOp,
+        #[serde(rename = "tagId")]
+        tag_id: TagId,
+    },
+    /// Has any tag of a tag group (by id), or has none of them.
+    TagGroup {
+        op: TagOp,
+        #[serde(rename = "groupId")]
+        group_id: TagGroupId,
     },
 }
 

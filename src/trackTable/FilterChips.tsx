@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
 import { commands, type TableFilter, type TableSource } from "../bindings";
+import { useVocab } from "../vocab/useVocab";
 import type { TableScreen } from "./columns";
 import {
   addFilter,
@@ -39,7 +40,9 @@ const chipKey = (filter: TableFilter) =>
       ? `energy:${filter.level}`
       : filter.kind === "genre"
         ? `genre:${filter.name}`
-        : filter.kind;
+        : filter.kind === "tag"
+          ? `tag:${filter.id}`
+          : filter.kind;
 
 /**
  * The filter chips above the track table (1cA-4): the filters in use, each
@@ -72,6 +75,12 @@ export function FilterChips({
   const removeButtons = useRef(new Map<string, HTMLButtonElement>());
   // Where the focus goes once the chip that was taken off is gone.
   const focusAfterRemoval = useRef<string | null>(null);
+
+  // The tag names are read only when a tag filter is on.
+  const vocab = useVocab(filters.some((f) => f.kind === "tag"));
+  const tagNames = vocab.data
+    ? new Map(vocab.data.flatMap((group) => group.tags.map((tag) => [tag.id, tag.name] as const)))
+    : undefined;
 
   const offered = FILTERS_BY_SCREEN[screen];
   const formats = useQuery({
@@ -125,7 +134,7 @@ export function FilterChips({
       {filters.length > 0 && (
         <ul className={styles.chips} aria-label={t("filters.label")}>
           {filters.map((filter) => {
-            const label = filterLabel(filter, t);
+            const label = filterLabel(filter, t, tagNames);
             return (
               <li key={chipKey(filter)} className={styles.chip}>
                 <span>{label}</span>

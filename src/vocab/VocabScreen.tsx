@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Tag, TagGroup, VocabItem } from "../bindings";
+import { LibraryDoor } from "../overview/LibraryDoor";
 import stage from "../shell/StageScreen.module.css";
 import { colourOf, DEFAULT_COLOUR, PALETTE } from "./colours";
 import styles from "./vocab.module.css";
@@ -141,6 +142,13 @@ function TagRow({ tag, group }: { tag: Tag; group: TagGroup }) {
     <li>
       <ItemRow item={{ kind: "tag", id: tag.id }} name={tag.name} colour={tag.colour} shown={colourOf(tag, group)}>
         <span className={styles.quiet}>{t("trackCount", { count: tag.trackCount })}</span>
+        <LibraryDoor
+          filter={{ kind: "tag", id: tag.id }}
+          className={`${styles.button} ${styles.link}`}
+          name={t("showTracks.for", { name: tag.name })}
+        >
+          {t("showTracks.action")}
+        </LibraryDoor>
         {tag.goneFromRekordbox && <span className={styles.flag}>{t("goneFromRekordbox")}</span>}
       </ItemRow>
     </li>

@@ -35,6 +35,14 @@
     "purpose": "The colour choice that clears a colour. (PROPOSED, 3A-T)",
     "where": "Tags screen, the colour drop-down of a group or tag."
   },
+  "showTracks.action": {
+    "purpose": "Link that opens the Library with only the tracks that have this tag. (PROPOSED, 3C-F)",
+    "where": "Tags screen, beside a tag."
+  },
+  "showTracks.for": {
+    "purpose": "Spoken name of the Show tracks link, which says which tag ({{name}} is the tag's name). (PROPOSED, 3C-F)",
+    "where": "Tags screen, beside a tag; read by screen readers only."
+  },
   "rename.action": {
     "purpose": "Button that starts renaming a group or tag. (PROPOSED, 3A-T)",
     "where": "Tags screen, beside a group or tag."
