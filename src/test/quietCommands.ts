@@ -45,6 +45,7 @@ const ANSWERS: Record<string, unknown> = {
   library_summary: { tracks: 0, changeStamp: 0 },
   next_undo_operation: { operation: null, refusal: null },
   inbox_items: [],
+  inbox_done_for_you: [],
   inbox_count: {
     new: 0,
     alreadyThere: 0,

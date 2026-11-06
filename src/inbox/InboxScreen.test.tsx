@@ -8,6 +8,7 @@ import { createQueryClient } from "../app/queryClient";
 import "../i18n";
 import { usePlayer } from "../player/playerStore";
 import { Sidebar } from "../shell/Sidebar";
+import type { DoneForYou as DoneForYouEntry } from "../bindings";
 import { inboxBackend, inboxFolder, inboxItem, labeled } from "../test/inboxBackend";
 import { tx } from "../test/tx";
 import { InboxScreen } from "./InboxScreen";
@@ -318,5 +319,61 @@ describe("previews from the Inbox", () => {
     const [file, options] = select.mock.calls[0] as [{ id: number }, { startAtFraction: number }];
     expect(file.id).toBe(1001);
     expect(options.startAtFraction).toBeCloseTo(1 / 3);
+  });
+});
+
+/** A Done for you entry the way the Rust side sends it; every name is made up. */
+function done(id: number, fields: Partial<DoneForYouEntry>): DoneForYouEntry {
+  return {
+    inboxItemId: id,
+    fileId: id + 1000,
+    fileName: `file ${id}.mp3`,
+    wishlistId: 1,
+    wishlistName: "Friday",
+    wishItemId: id + 100,
+    wishArtist: "Quill Ashby",
+    wishTitle: "Paper Harbor",
+    wishVersion: "Extended Mix",
+    reason: { key: "wishlist:reason.ownedLibrary", params: {}, source: "fact" },
+    added: true,
+    refusal: null,
+    ...fields,
+  } as DoneForYouEntry;
+}
+
+describe("Done for you", () => {
+  it("comes first and says which wishlist item each file matched, and whether it was added for you", async () => {
+    inboxBackend({
+      folders: [FOLDER],
+      items: [labeled(1, "new_to_you")],
+      doneForYou: [
+        done(5, { fileName: "wanted.mp3" }),
+        done(6, { fileName: "held.mp3", added: false, refusal: "matchNotConfirmed", wishVersion: null }),
+        done(7, { fileName: "asks.mp3", added: false }),
+      ],
+    });
+    renderScreen();
+
+    const group = await screen.findByRole("region", { name: tx("inbox:doneForYou.title", { count: 3 }) });
+    expect(screen.getAllByRole("region")[0]).toBe(group);
+    const added = within(group).getByText("wanted.mp3").closest("li")!;
+    expect(within(added).getByText(tx("inbox:doneForYou.added"))).toBeInTheDocument();
+    const wish = { wishlist: "Friday", artist: "Quill Ashby" };
+    expect(
+      within(added).getByText(tx("inbox:doneForYou.wish", { ...wish, title: "Paper Harbor (Extended Mix)" })),
+    ).toBeInTheDocument();
+    const held = within(group).getByText("held.mp3").closest("li")!;
+    expect(within(held).getByText(tx("inbox:refusal.matchNotConfirmed"))).toBeInTheDocument();
+    expect(within(held).getByText(tx("inbox:doneForYou.wish", { ...wish, title: "Paper Harbor" }))).toBeInTheDocument();
+    const asks = within(group).getByText("asks.mp3").closest("li")!;
+    expect(within(asks).getByText(tx("inbox:doneForYou.leftToYou"))).toBeInTheDocument();
+  });
+
+  it("is not there when nothing was matched", async () => {
+    inboxBackend({ folders: [FOLDER], items: [labeled(1, "new_to_you", { fileName: "plain.mp3" })] });
+    renderScreen();
+    await screen.findByText("plain.mp3");
+    expect(screen.queryByRole("heading", { name: /\(\d+\)$/ })).toBeNull();
+    expect(screen.queryByText(tx("inbox:doneForYou.added"))).toBeNull();
   });
 });

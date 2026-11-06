@@ -1,5 +1,6 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import type {
+  DoneForYou,
   InboxCount,
   InboxFilter,
   InboxItem,
@@ -88,6 +89,7 @@ export function inboxBackend(options: {
   refused?: Record<number, InboxRefusal>;
   lowBitrate?: Record<number, number>;
   skipOnAddAll?: Skipped[];
+  doneForYou?: DoneForYou[];
 }) {
   const state = {
     items: options.items,
@@ -129,6 +131,8 @@ export function inboxBackend(options: {
           const filter = args.filter as InboxFilter;
           return fresh().filter((item) => filter.label == null || item.label === filter.label);
         }
+        case "inbox_done_for_you":
+          return options.doneForYou ?? [];
         case "inbox_count":
           return count();
         case "music_folders":

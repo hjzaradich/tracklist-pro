@@ -104,6 +104,10 @@
     "purpose": "Undo button naming what it takes back: Inbox files cleared because they were already in the Library.",
     "where": "Top bar, Undo button, after Clear in the Inbox."
   },
+  "undo.action.wishlistTickOff": {
+    "purpose": "Undo button naming what it takes back: a new Inbox file the app added to the Library on its own because it was on a wishlist ({{name}}: the wishlist). Undo puts the file back in the Inbox and the track back on the wishlist as wanted.",
+    "where": "Top bar, Undo button, after the app added a wishlist track for you."
+  },
   "undo.action.removeFromLibrary": {
     "purpose": "Undo button naming what it takes back: one track removed from the Library.",
     "where": "Top bar, Undo button, when the next step to undo is a \"Remove from Library\".",

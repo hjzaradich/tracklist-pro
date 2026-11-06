@@ -573,6 +573,12 @@ export const commands = {
 	wishlistRemoveItem: (itemId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_remove_item", { itemId })),
 	wishlistSetBought: (itemId: number, bought: boolean) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_set_bought", { itemId, bought })),
 	wishlistSetNotes: (itemId: number, notes: string | null) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_set_notes", { itemId, notes })),
+	/**  The Inbox's "Done for you" group ([`done_for_you`]). */
+	inboxDoneForYou: () => typedError<DoneForYou[], IpcError>(__TAURI_INVOKE("inbox_done_for_you")),
+	/**  Whether ticked-off tracks of a wishlist go into its crate. */
+	wishlistAutoCrate: (wishlistId: number) => typedError<boolean, IpcError>(__TAURI_INVOKE("wishlist_auto_crate", { wishlistId })),
+	/**  Turns the crate of a wishlist on or off. */
+	wishlistSetAutoCrate: (wishlistId: number, on: boolean) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_set_auto_crate", { wishlistId, on })),
 };
 
 /** Events */
@@ -944,6 +950,29 @@ export type CrateSummary = {
 	 *  no track has a genre.
 	 */
 	genres: string[],
+};
+
+/**  A file the tick-off added for you, or matched and left to you. */
+export type DoneForYou = {
+	inboxItemId: number,
+	fileId: number,
+	/**  The file's own name (no folders). */
+	fileName: string,
+	wishlistId: number,
+	wishlistName: string,
+	wishItemId: number,
+	wishArtist: string,
+	wishTitle: string,
+	wishVersion: string | null,
+	/**  How it matched (a `wishlist:reason.*` key). */
+	reason: Reason,
+	/**  Added to the Library for you. False: matched, and left to you. */
+	added: boolean,
+	/**
+	 *  Why "Add to Library" refuses it, when it does. None on a match left
+	 *  to you: a warning to agree to, or a tick-off undone.
+	 */
+	refusal: InboxRefusal | null,
 };
 
 /**  The lowest and highest energy (1 to 10) in a crate. */

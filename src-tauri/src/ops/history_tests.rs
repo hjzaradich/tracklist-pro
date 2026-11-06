@@ -130,6 +130,9 @@ pub(super) enum Action {
     DeleteCrate(usize),
     AddToCrate(usize, Vec<usize>),
     RemoveFromCrate(usize, Vec<usize>),
+    /// The wishlist tick-off of the n-th track's Inbox file, once grouping
+    /// has decided it (2.5). Nothing without [`Lib::wishes`].
+    TickOff(usize),
 }
 
 /// Every row of every logged table, each value as text.
@@ -344,8 +347,55 @@ impl Lib {
                         .unwrap();
                 }
             }
+            Action::TickOff(n) => {
+                // Grouping decides the file (outside the log, as the job
+                // does), then the pass runs as it does after the job.
+                let file = (n % TRACKS) as i64 + 1;
+                self.writer
+                    .call(move |c| {
+                        c.execute(
+                            "UPDATE grouping_file SET decided_as = 1 WHERE file_id = ?1",
+                            [file],
+                        )?;
+                        crate::wishlist::tick_off::run(c)
+                    })
+                    .unwrap();
+            }
         }
         self.operations() > before
+    }
+
+    /// Wishlists on, and a wishlist named like a crate ("House", its crate
+    /// on) with one item per track that the track's file answers by ISRC;
+    /// each file a new Inbox item, not decided by grouping yet. Outside the
+    /// log, before any action: the start of a history.
+    pub fn wishes(&self) {
+        self.writer
+            .call(|c| {
+                crate::settings::write_feature_enabled(c, crate::settings::Feature::Wishlist, true)?;
+                c.execute_batch(
+                    "INSERT INTO wishlist (name, source) VALUES ('House', 'paste');
+                     INSERT INTO setting (key, value) VALUES ('wishlist_crate_1', 'true');
+                     INSERT INTO inbox_batch (music_folder_id, kind) VALUES (1, 'loose');",
+                )?;
+                for n in 1..=TRACKS as i64 {
+                    let isrc = format!("ZZ0002600{n:03}");
+                    let tags = serde_json::json!({ "id3v2": [
+                        {"key": "TSRC", "value": {"type": "text", "text": isrc}},
+                    ]})
+                    .to_string();
+                    c.execute("UPDATE file SET raw_tags = ?1 WHERE id = ?2", (tags, n))?;
+                    c.execute(
+                        "INSERT INTO wish_item (wishlist_id, position, raw_artist, raw_title, raw_isrc)
+                         VALUES (1, ?1, 'Someone', 'Something', ?2)",
+                        (n, isrc),
+                    )?;
+                    c.execute("INSERT INTO inbox_item (file_id, batch_id) VALUES (?1, 1)", [n])?;
+                    c.execute("INSERT INTO grouping_file (file_id) VALUES (?1)", [n])?;
+                }
+                Ok(())
+            })
+            .unwrap();
     }
 
     pub fn undo(&self) -> UndoOutcome {
@@ -527,6 +577,7 @@ pub(super) fn action() -> impl Strategy<Value = Action> {
         1 => (0..4usize).prop_map(Action::DeleteCrate),
         3 => (0..4usize, tracks()).prop_map(|(n, t)| Action::AddToCrate(n, t)),
         2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::RemoveFromCrate(n, t)),
+        2 => (0..TRACKS).prop_map(Action::TickOff),
     ]
 }
 
@@ -576,6 +627,30 @@ proptest! {
         }
         prop_assert_eq!(lib.undo(), UndoOutcome::NothingToUndo);
         prop_assert_eq!(lib.next().operation, None);
+    }
+
+    #[test]
+    fn with_wishlist_tick_offs_among_the_actions_as_many_undos_restore_the_tables_step_by_step(
+        actions in proptest::collection::vec(action(), 1..14),
+    ) {
+        let lib = Lib::new();
+        lib.wishes();
+        let mut before = Vec::new();
+        for action in &actions {
+            let state = lib.state();
+            if lib.apply(action) {
+                before.push(state);
+            } else {
+                prop_assert_eq!(lib.state(), state, "{:?} recorded nothing", action);
+            }
+        }
+        while let Some(state) = before.pop() {
+            let outcome = lib.undo();
+            let undone = matches!(outcome, UndoOutcome::Undone { .. });
+            prop_assert!(undone, "got {:?}", outcome);
+            prop_assert_eq!(lib.state(), state);
+        }
+        prop_assert_eq!(lib.undo(), UndoOutcome::NothingToUndo);
     }
 
     #[test]

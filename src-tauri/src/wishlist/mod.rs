@@ -29,6 +29,7 @@ pub use parse::{WishSkipReason, WishSkippedLine, WishTrack};
 
 pub mod matching;
 pub mod parse;
+pub mod tick_off;
 
 #[cfg(test)]
 mod tests;
@@ -154,16 +155,24 @@ pub fn enabled(conn: &Connection) -> rusqlite::Result<bool> {
     read_feature_enabled(conn, Feature::Wishlist)
 }
 
-/// The joining point for the Inbox (2.5, W3): the wish item a file in the
-/// Inbox answers. The one place intake and labels ask; nothing in the core
-/// calls the rest of this module. Nothing while wishlists are off.
-/// A stub: W3 fills in the match.
+/// The joining point for the Inbox (2.5): the wish item a file in the
+/// Inbox answers, owned as the very same version (not another cut, not a
+/// rework). None when it answers none, or more than one, or another new
+/// Inbox file answers the same item: the auto tick-off ([`tick_off`])
+/// acts on none of those. Nothing while wishlists are off. One file at a
+/// time: for a list of files use [`matching_wishes_for`].
 pub fn matching_wish_for(conn: &Connection, file_id: i64) -> rusqlite::Result<Option<WishFor>> {
-    let _ = file_id;
-    if !enabled(conn)? {
-        return Ok(None);
-    }
-    Ok(None)
+    tick_off::wish_for(conn, file_id)
+}
+
+/// [`matching_wish_for`] for many files at once: one pass over the Inbox
+/// and the open items, not one per file. What a screen labelling its files
+/// calls, once per screen. Files that answer none are left out.
+pub fn matching_wishes_for(
+    conn: &Connection,
+    file_ids: &[i64],
+) -> rusqlite::Result<std::collections::HashMap<i64, WishFor>> {
+    tick_off::wishes_for(conn, file_ids)
 }
 
 /// The wish item an Inbox file answers, and the list it is on.

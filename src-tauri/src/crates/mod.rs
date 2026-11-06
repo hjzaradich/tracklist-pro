@@ -472,6 +472,48 @@ pub fn name_clash(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Option<(i6
     Ok(None)
 }
 
+/// Puts Library `track` in the static crate at the top of the tree called
+/// `name`, as changes of `rec`: the one there is, when a crate's name
+/// equals it by the writer's rule (the rule of [`name_clash`]), else a new
+/// one, last among its siblings. The wishlist tick-off's crate (2.5). The
+/// crate, and whether it is new; `None` when that name is a folder's, or
+/// a name a send can't carry, so nothing was written.
+pub(crate) fn put_in_named(
+    rec: &mut ops::Recorder<'_>,
+    name: &str,
+    track: LibraryTrackId,
+) -> Result<Option<(CrateId, bool)>, OpsError> {
+    let key = sibling_key(name.trim());
+    let top: Vec<(i64, String, String)> = rec.read_rows(
+        "SELECT id, name, kind FROM crate WHERE parent_id IS NULL ORDER BY id",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    let (id, made) = match top.iter().find(|(_, other, _)| sibling_key(other) == key) {
+        Some((id, _, kind)) if kind == "static" => (CrateId(*id), false),
+        Some(_) => return Ok(None),
+        None => match make_in(rec, CrateKind::Static, None, name)? {
+            Ok(id) => (id, true),
+            Err(_) => return Ok(None),
+        },
+    };
+    let there = rec.read_rows(
+        "SELECT 1 FROM crate_entry WHERE crate_id = ?1 AND library_track_id = ?2",
+        (id.0, track.0),
+        |_| Ok(()),
+    )?;
+    if there.is_empty() {
+        rec.insert(
+            "crate_entry",
+            &[
+                ("crate_id", id.0.into()),
+                ("library_track_id", track.0.into()),
+            ],
+        )?;
+    }
+    Ok(Some((id, made)))
+}
+
 /// Makes a static crate at the top of the tree, last among its siblings.
 /// Recorded as one operation.
 pub fn create_on(conn: &mut Connection, name: &str) -> Result<Done<CrateId>, OpsError> {

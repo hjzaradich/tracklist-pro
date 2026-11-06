@@ -31,6 +31,7 @@
       "inboxNotNow": "Undo (set aside from Inbox)",
       "inboxHide": "Undo (hidden from Inbox)",
       "inboxClear": "Undo (cleared from Inbox)",
+      "wishlistTickOff": "Undo (added for you from wishlist “{{name}}”)",
       "removeFromLibrary": "Undo (removed from Library)",
       "addFromRekordbox_one": "Undo ({{count}} rekordbox track added)",
       "addFromRekordbox_other": "Undo ({{count}} rekordbox tracks added)",

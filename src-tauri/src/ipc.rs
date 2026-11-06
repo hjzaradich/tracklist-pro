@@ -180,6 +180,9 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::wishlist::wishlist_remove_item,
             crate::wishlist::wishlist_set_bought,
             crate::wishlist::wishlist_set_notes,
+            crate::wishlist::tick_off::inbox_done_for_you,
+            crate::wishlist::tick_off::wishlist_auto_crate,
+            crate::wishlist::tick_off::wishlist_set_auto_crate,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

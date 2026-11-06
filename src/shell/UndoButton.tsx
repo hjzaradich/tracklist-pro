@@ -25,6 +25,9 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.inboxHide");
     case "inbox_clear":
       return t("undo.action.inboxClear");
+    case "wishlist_tick_off":
+      if (name !== null) return t("undo.action.wishlistTickOff", { name });
+      break;
     case "remove_from_library":
       return t("undo.action.removeFromLibrary");
     case "add_rekordbox_tracks":

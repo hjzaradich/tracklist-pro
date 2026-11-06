@@ -61,6 +61,12 @@
     "show": "Show",
     "hide": "Hide list"
   },
+  "doneForYou": {
+    "title": "Done for you ({{count, number}})",
+    "wish": "Wishlist “{{wishlist}}”: {{artist}} – {{title}}",
+    "added": "Added to Library for you",
+    "leftToYou": "On a wishlist, left for you to add"
+  },
   "folders": {
     "title": "Inbox folders",
     "help": "New music that lands in these folders shows up here. Files are only read, never moved.",
