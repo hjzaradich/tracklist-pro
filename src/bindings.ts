@@ -658,6 +658,12 @@ export const commands = {
 	historySetDate: (sessionId: number, playedOn: string) => typedError<HistoryOutcome, IpcError>(__TAURI_INVOKE("history_set_date", { sessionId, playedOn })),
 	/**  Adds a session's unmatched plays to a wishlist. */
 	historyAddToWishlist: (sessionId: number, wishlistId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("history_add_to_wishlist", { sessionId, wishlistId })),
+	/**  The tracks that best follow `recording_id` going `direction`, with why. */
+	nextFor: (recordingId: number, direction: Direction) => typedError<NextReply, IpcError>(__TAURI_INVOKE("next_for", { recordingId, direction })),
+	/**  The weights and the tolerance. */
+	nextSettings: () => typedError<NextSettings, IpcError>(__TAURI_INVOKE("next_settings")),
+	/**  Stores the weights and the tolerance; returns what is stored. */
+	nextSetSettings: (settings: NextSettings) => typedError<NextSettings, IpcError>(__TAURI_INVOKE("next_set_settings", { settings })),
 };
 
 /** Events */
@@ -1097,6 +1103,9 @@ export type DbFailure =
 "notALibrary" | 
 /**  The read was cancelled. */
 "stopped";
+
+/**  Which way the energy should go from the chosen track. */
+export type Direction = "up" | "same" | "down";
 
 /**  A file the tick-off added for you, or matched and left to you. */
 export type DoneForYou = {
@@ -2171,6 +2180,51 @@ export type NamedFile = {
 	name: string,
 };
 
+/**
+ *  One reason a candidate ranks where it does, as data for the screen to
+ *  word. Only the fields its `code` names are set.
+ */
+export type NextReason = {
+	code: ReasonCode,
+	/**  Counts for the candidate (a fitness of at least a half). */
+	good: boolean,
+	/**  Keys as Camelot (`8A`); the screen shows them in the user's notation. */
+	from: string | null,
+	to: string | null,
+	delta: number | null,
+	step: number | null,
+	count: number | null,
+};
+
+/**  The best next tracks. */
+export type NextReply = {
+	results: NextResult[],
+	/**  How many Library tracks were weighed. */
+	considered: number,
+	/**
+	 *  Signals that count but could not be used, because the chosen track
+	 *  has nothing to compare.
+	 */
+	ignored: Signal[],
+	settings: NextSettings,
+};
+
+/**  One suggestion. */
+export type NextResult = {
+	/**  The track, as the track table shows it. */
+	row: TableRow,
+	/**  0 to 100. */
+	score: number,
+	/**  The top reasons, strongest first, for the screen to word. */
+	reasons: NextReason[],
+};
+
+/**  The weights and the tolerance. */
+export type NextSettings = {
+	weights: NextWeights,
+	tolerance: Tolerance,
+};
+
 /**  What Undo would do now. */
 export type NextUndo = {
 	/**  The operation Undo would take back; none when nothing is left. */
@@ -2181,6 +2235,19 @@ export type NextUndo = {
 	 *  (see [`TRIED_AHEAD_UP_TO`]).
 	 */
 	refusal: UndoRefusal | null,
+};
+
+/**
+ *  How much each signal counts, 0 (off) to [`MOST_WEIGHT`].
+ * 
+ *  TODO(3A-G, 3A-T): `genre` and `tags` join these when those features merge
+ *  (see [`score::ExtraSignal`]).
+ */
+export type NextWeights = {
+	key: number,
+	bpm: number,
+	energy: number,
+	played: number,
 };
 
 /**  A Library track that has no genre. */
@@ -2520,6 +2587,40 @@ export type Reason = {
 	params: { [key in string]: ReasonParam },
 	source: ReasonSource,
 };
+
+/**  Which reason, as the key the screen words it by: `next:reason.<code>`. */
+export type ReasonCode = 
+/**  The same key (`from`). */
+"keySame" | 
+/**  One number up or down, the same letter (`from`, `to`). */
+"keyAdjacent" | 
+/**  The same number, the other letter: relative major or minor. */
+"keyRelative" | 
+/**  Two numbers up or down, the same letter. Counted only when wide. */
+"keyTwoSteps" | 
+/**  One number up or down, the other letter. Counted only when wide. */
+"keyDiagonal" | 
+/**  Any other key. */
+"keyFar" | 
+/**  The candidate has no key. */
+"keyNone" | 
+/**  `delta` BPM above or below, read as it is. */
+"bpm" | 
+/**  `delta` BPM, the candidate at half the chosen track's tempo. */
+"bpmHalf" | 
+/**  `delta` BPM, the candidate at double the chosen track's tempo. */
+"bpmDouble" | 
+/**  The candidate has no BPM. */
+"bpmNone" | 
+/**
+ *  The shown energy is `step` above (positive) or below the chosen
+ *  track's.
+ */
+"energyStep" | 
+/**  The candidate has no energy, which is why it is last. */
+"energyNone" | 
+/**  Played right after the chosen track `count` times. */
+"playedAfter";
 
 /**
  *  A value filled into a reason's text, e.g. `bpm` = 2 or `tag` = "Peak Time".
@@ -2944,6 +3045,9 @@ export type ShownAgain = {
 
 /**  What a bulk settling keeps. */
 export type Side = "app" | "rekordbox";
+
+/**  The signals that carry a weight. */
+export type Signal = "key" | "bpm" | "energy" | "played";
 
 /**  Why "Accept all" left an item as it is. */
 export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetLinked" | "entryOfAnotherTrack" | 
@@ -3468,6 +3572,13 @@ export type TimeFeel =
 "half" | 
 /**  The track is at double the selected track's tempo. */
 "double";
+
+/**  How far from the chosen track a fit may stray. */
+export type Tolerance = 
+/**  Sort by fit's thresholds: close blending. */
+"tight" | 
+/**  Bigger tempo, key and energy jumps still count. */
+"wide";
 
 /**  A Library track, as the preflight's lists name it. */
 export type TrackLabel = {
