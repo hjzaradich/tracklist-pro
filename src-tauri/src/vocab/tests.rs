@@ -411,6 +411,23 @@ fn the_import_links_a_same_named_tag_and_skips_names_that_clash_or_cannot_be_sen
 }
 
 #[test]
+fn linking_a_tag_already_on_a_track_rekordbox_has_it_on_applies_it_only_to_the_others() {
+    let lib = Lib::new();
+    let (a, b) = (lib.track("One", true), lib.track("Two", true));
+    let mine = lib.tag(lib.group("Mine"), "Sunrise");
+    lib.apply(mine, &[a]);
+    lib.rekordbox(1, r#"["Sunrise"]"#, Some(a));
+    lib.rekordbox(2, r#"["Sunrise"]"#, Some(b));
+    let done = lib.import();
+    assert_eq!((done.added, done.applied), (1, 1));
+    assert_eq!(lib.tag_named("Sunrise").track_count, 2);
+    // One Undo takes back the link and the one tag it applied, not the user's.
+    lib.undo();
+    assert_eq!(lib.tag_named("Sunrise").track_count, 1);
+    assert_eq!(lib.tag_named("Sunrise").rekordbox_name, None);
+}
+
+#[test]
 fn a_blank_group_name_is_refused_before_anything_is_written() {
     let lib = Lib::new();
     let a = lib.track("One", true);
