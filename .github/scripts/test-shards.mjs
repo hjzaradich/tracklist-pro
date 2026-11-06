@@ -63,7 +63,9 @@ export const SHARDS = [
     // file_quality, grouping and library, so the filters "conflicts::",
     // "quality::", "grouping::" and "library::" (and the modules "quality::"
     // matches, best_file and track_table) run with db.
-    lib: ["db", "grouping", "conflicts", "quality", "best_file", "track_table", "versions", "crates", "rekordbox", "overview", "library"],
+    // rekordbox_db runs here too: its tests are named rekordbox_db::..., which the
+    // filters "db::" and "library::" match, so only this shard can run them once.
+    lib: ["db", "grouping", "conflicts", "quality", "best_file", "track_table", "versions", "crates", "rekordbox", "rekordbox_db", "overview", "library"],
   },
   {
     // scan:: also matches write_guard's, and matching:: fingerprint's.
@@ -76,7 +78,7 @@ export const SHARDS = [
     catchAll: true,
     lib: [
       "after_send", "attach", "audio_preview", "conflict_review", "energy", "energy_stars", "file_roles", "fragile", "hash",
-      "hidden", "inbox", "ipc", "missing", "net", "ops", "paths", "preview", "read", "rekordbox_db", "rekordbox_write", "relink", "review",
+      "hidden", "inbox", "ipc", "missing", "net", "ops", "paths", "preview", "read", "rekordbox_write", "relink", "review",
       "scan_state", "search", "send", "send_values", "settings", "sniff", "start", "suggest", "tags", "ui_setting",
       "volume", "waveform", "wishlist",
       // The tests in lib.rs itself are named tests::..., which no filter can pick
