@@ -63,7 +63,12 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         )
         .handler(
             JobKind::ReadRekordbox,
-            crate::scan::chain::after_other(crate::rekordbox::source::XmlReader::default()),
+            // The optional database read (ROADMAP 2.7) joins the XML read
+            // here; it refuses every job while the feature is off.
+            crate::scan::chain::after_other(
+                crate::rekordbox::source::XmlReader::default()
+                    .with_database(crate::rekordbox_db::reader(app)),
+            ),
         )
         .handler(
             JobKind::Hash,

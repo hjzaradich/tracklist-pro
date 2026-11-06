@@ -33,6 +33,7 @@ pub mod preview;
 pub mod quality;
 pub mod read;
 pub mod rekordbox;
+pub mod rekordbox_db;
 pub mod rekordbox_write;
 pub mod relink;
 pub mod review;

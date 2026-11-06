@@ -383,6 +383,93 @@ impl WriteGuard {
     }
 }
 
+/// The folder in app data that holds every [`Staging`] folder.
+pub const STAGING_DIR: &str = "staging";
+
+/// A folder of files that live only while one task runs: `staging\<name>`
+/// in app data. Made empty (anything a crash left is deleted first), and
+/// deleted with everything in it by [`Staging::close`], or when dropped.
+pub struct Staging {
+    guard: WriteGuard,
+    dir: PathBuf,
+    closed: bool,
+}
+
+impl WriteGuard {
+    /// An empty staging folder called `name` (one plain name, no
+    /// separators).
+    pub fn staging(&self, name: &str) -> Result<Staging, GuardError> {
+        let dir = self
+            .app_data_dir()
+            .join(STAGING_DIR)
+            .join(plain_name(name)?);
+        let checked = self.check_entry(&dir)?;
+        if fs::symlink_metadata(&checked.path).is_ok() {
+            fs::remove_dir_all(&checked.path).map_err(|e| checked.io(e))?;
+        }
+        let dir = self.create_dir_all(&dir)?.path;
+        Ok(Staging {
+            guard: self.clone(),
+            dir,
+            closed: false,
+        })
+    }
+}
+
+impl Staging {
+    pub fn path(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Streams everything `from` reads into a new file `name` in this
+    /// folder, atomically: the file appears whole, flushed to disk, or not
+    /// at all ([`WriteGuard::write_then_rename`]). Returns its path.
+    pub fn copy_in(&self, name: &str, from: &mut dyn io::Read) -> Result<PathBuf, GuardError> {
+        let path = self.dir.join(plain_name(name)?);
+        self.guard.write_then_rename_with(
+            &path,
+            |file| {
+                let mut out = io::BufWriter::with_capacity(1 << 16, file);
+                io::copy(from, &mut out)?;
+                io::Write::flush(&mut out)
+            },
+            || Ok(()),
+        )?;
+        Ok(path)
+    }
+
+    /// Creates the file `name` in this folder and opens it for writing.
+    pub fn create(&self, name: &str) -> Result<(PathBuf, File), GuardError> {
+        let path = self.dir.join(plain_name(name)?);
+        let file = self.guard.create_file(&path)?;
+        Ok((path, file))
+    }
+
+    /// Deletes the folder and everything in it. Anything still open in it
+    /// must be closed first.
+    pub fn close(mut self) -> Result<(), GuardError> {
+        self.closed = true;
+        self.guard.remove_dir_all(&self.dir)
+    }
+}
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        if !self.closed {
+            let _ = self.guard.remove_dir_all(&self.dir);
+        }
+    }
+}
+
+/// `name` if it's one plain file or folder name.
+fn plain_name(name: &str) -> Result<&str, GuardError> {
+    let mut parts = Path::new(name).components();
+    match (parts.next(), parts.next()) {
+        (Some(std::path::Component::Normal(_)), None) if !name.contains(['/', '\\']) => Ok(name),
+        _ => Err(GuardError::NotAbsolute(PathBuf::from(name))),
+    }
+}
+
 impl GuardedPath {
     pub fn as_path(&self) -> &Path {
         &self.path

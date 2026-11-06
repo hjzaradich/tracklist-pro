@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import stage from "../shell/StageScreen.module.css";
 import { EnergyStarsRow } from "./EnergyStarsRow";
+import { RekordboxDatabaseRow } from "./RekordboxDatabaseRow";
 import { WishlistFeatureRow } from "./WishlistFeatureRow";
 import styles from "./settings.module.css";
 
@@ -27,6 +28,7 @@ export function SettingsScreen() {
               {t("rekordbox.title")}
             </h2>
             <EnergyStarsRow />
+            <RekordboxDatabaseRow />
           </section>
           <section className={styles.panel} aria-labelledby={featuresId}>
             <h2 id={featuresId} className={styles.panelTitle}>

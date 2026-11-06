@@ -1298,3 +1298,56 @@ fn link_file(link: &Path, target: &Path) -> bool {
         std::os::windows::fs::symlink_file(target, link).is_ok()
     }
 }
+
+// ---- staging ----------------------------------------------------------------
+
+#[test]
+fn a_staging_folder_starts_empty_takes_streamed_copies_and_is_deleted_when_closed_or_dropped() {
+    let sb = Sandbox::new();
+    let dir = sb.data().join(STAGING_DIR).join("job");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("left.part"), b"from a crash").unwrap();
+
+    let staging = sb.guard.staging("job").unwrap();
+    assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 0);
+    let big: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+    let copy = staging.copy_in("copy.bin", &mut big.as_slice()).unwrap();
+    assert_eq!(fs::read(&copy).unwrap(), big);
+    let names: Vec<_> = fs::read_dir(staging.path()).unwrap().collect();
+    assert_eq!(names.len(), 1, "no .part file is left beside the copy");
+    {
+        use std::io::Write;
+        let (_, mut file) = staging.create("plain.bin").unwrap();
+        file.write_all(b"plain").unwrap();
+    }
+    staging.close().unwrap();
+    assert!(!dir.exists());
+
+    // A failed copy leaves nothing, and dropping the folder deletes it.
+    struct Broken;
+    impl io::Read for Broken {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("cut off"))
+        }
+    }
+    let staging = sb.guard.staging("job").unwrap();
+    assert!(staging.copy_in("copy.bin", &mut Broken).is_err());
+    assert_eq!(fs::read_dir(staging.path()).unwrap().count(), 0);
+    drop(staging);
+    assert!(!dir.exists());
+    assert_eq!(
+        fs::read(sb.base.join("outside").join("keep.txt")).unwrap(),
+        b"keep"
+    );
+}
+
+#[test]
+fn a_staging_name_must_be_one_plain_name() {
+    let sb = Sandbox::new();
+    for name in ["", "..", "a/b", r"a\b", "../outside"] {
+        assert!(sb.guard.staging(name).is_err(), "{name}");
+    }
+    let staging = sb.guard.staging("job").unwrap();
+    assert!(staging.copy_in("../x", &mut &b"x"[..]).is_err());
+    assert!(staging.create("..").is_err());
+}

@@ -1,0 +1,86 @@
+{
+  "label": {
+    "purpose": "Label of the switch that turns on reading rekordbox's library database. It never changes with the state.",
+    "where": "Settings screen, rekordbox panel, database row, the switch's label."
+  },
+  "helpOff": {
+    "purpose": "Help under the switch while it is off: the collection comes from the XML export.",
+    "where": "Settings screen, rekordbox panel, database row, under the switch while off."
+  },
+  "helpOn": {
+    "purpose": "Help under the switch while it is on: a copy is read, the database is never changed, and sending still needs an XML export.",
+    "where": "Settings screen, rekordbox panel, database row, under the switch while on."
+  },
+  "keyLabel": {
+    "purpose": "Label of the password field where the user types the database key.",
+    "where": "Settings screen, rekordbox panel, database row, above the key field while on."
+  },
+  "keySet": {
+    "purpose": "Says a key was typed in this run of the app; the key itself is never shown.",
+    "where": "Settings screen, rekordbox panel, database row, under the key field once a key is kept."
+  },
+  "pick": {
+    "purpose": "Button that opens the file picker to choose rekordbox's database file.",
+    "where": "Settings screen, rekordbox panel, database row, button while on."
+  },
+  "fileFilter": {
+    "purpose": "Name of the file type filter in the picker.",
+    "where": "File picker opened from the database row."
+  },
+  "picked": {
+    "purpose": "Shows which database file was picked.",
+    "where": "Settings screen, rekordbox panel, database row, under the buttons once a file is picked."
+  },
+  "read": {
+    "purpose": "Button that reads the picked database now.",
+    "where": "Settings screen, rekordbox panel, database row, button while on."
+  },
+  "reading": {
+    "purpose": "Status while the read runs.",
+    "where": "Settings screen, rekordbox panel, database row, status line during a read."
+  },
+  "done_one": {
+    "purpose": "Status after a read: how many tracks were read.",
+    "where": "Settings screen, rekordbox panel, database row, status line after a successful read."
+  },
+  "done_other": {
+    "purpose": "Status after a read: how many tracks were read.",
+    "where": "Settings screen, rekordbox panel, database row, status line after a successful read."
+  },
+  "error": {
+    "purpose": "A change to the switch failed.",
+    "where": "Settings screen, rekordbox panel, database row, under the row after a failed save."
+  },
+  "failure.turnedOff": {
+    "purpose": "Why the newest read failed or did not start (turnedOff).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  },
+  "failure.noKey": {
+    "purpose": "Why the newest read failed or did not start (noKey).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  },
+  "failure.notFound": {
+    "purpose": "Why the newest read failed or did not start (notFound).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  },
+  "failure.cantRead": {
+    "purpose": "Why the newest read failed or did not start (cantRead).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  },
+  "failure.wrongKey": {
+    "purpose": "Why the newest read failed or did not start (wrongKey).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  },
+  "failure.damaged": {
+    "purpose": "Why the newest read failed or did not start (damaged).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  },
+  "failure.notALibrary": {
+    "purpose": "Why the newest read failed or did not start (notALibrary).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  },
+  "failure.stopped": {
+    "purpose": "Why the newest read failed or did not start (stopped).",
+    "where": "Settings screen, rekordbox panel, database row, status line after a failed read."
+  }
+}

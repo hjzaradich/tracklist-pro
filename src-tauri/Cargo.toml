@@ -40,6 +40,12 @@ serde_json = "1"
 quick-xml = "0.42"
 # Wishlist CSV files, such as Exportify's (2B-W1). Unlicense OR MIT.
 csv = "1"
+# The optional rekordbox library database reader (ROADMAP 2.7) decrypts its
+# own staged copy in pure Rust. MIT OR Apache-2.0.
+aes = "0.8"
+cbc = "0.1"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 # The rekordbox XML file picker (1aB-11); the webview may only open it.
 tauri-plugin-dialog = "2"
 # Whole-file and audio-only hashes (1aB-5, 1aB-6).

@@ -375,6 +375,7 @@ fn last_read_at(path: &Path, modified_ms: i64) -> LastRead {
             not_stored: 0,
             complete: true,
         },
+        source: ReadSource::Xml,
     }
 }
 
