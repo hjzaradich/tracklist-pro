@@ -643,6 +643,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **What:** tag groups you define (vibe, role, vocal, situation), colored, applied from the keyboard and filterable.
 - **Import first, don't start empty:** the vocabulary starts as a one-to-one copy of your existing rekordbox My Tags.
 - **Into rekordbox:** reading works (1.2). The app hides the `/* … */` block when showing comments and never writes inside it. Writing My Tags is untested (T5). The fallback is comment text plus per-tag playlists under the app's folder.
+- **Built (3A, PR 186):** groups and tags with colours, imported one-to-one from the newest rekordbox read's My Tags (into a group "From rekordbox", applied once to the matched tracks; a tag the user removes is never re-added, and a My Tag gone from rekordbox stays, flagged). Tags attach to the recording; names are unique. The `t` key opens a tag picker, and the track list can filter by tag. The send writes one playlist per tag under the app's Playlists folder, in "Tags", Library tracks only; it writes no comment text and no My Tags (T5 untested), so the sent Comments are unchanged. Every change is one undoable operation.
 - **Complexity:** M.
 
 #### 3.2 Genre taxonomy with aliases
