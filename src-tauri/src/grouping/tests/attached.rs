@@ -240,6 +240,9 @@ fn every_table_that_points_at_a_track_is_in_the_reference_list() {
         ("better_file", "recording_id"),
         ("library_removal", "recording_id"),
         ("library_track", "recording_id"),
+        // A play (History) never keeps a track alive: a merge hands it to the
+        // surviving track, and a delete sets it to NULL (an unmatched play).
+        ("play_event", "recording_id"),
         ("recording_file", "recording_id"),
         ("rekordbox_track", "recording_id"),
         ("tag_applied", "recording_id"),
@@ -336,5 +339,63 @@ fn a_merge_keeps_the_track_something_refers_to_not_just_the_lowest_id() {
     assert_eq!(
         db.count(&format!("SELECT count(*) FROM recording WHERE id = {low}")),
         0
+    );
+}
+
+const SESSION_AND_PLAYS: &str =
+    "INSERT INTO session (source, name, played_on) VALUES ('m3u8', 'Set', '2026-05-03')";
+
+#[test]
+fn a_play_follows_its_track_when_a_regroup_merges_it_into_another() {
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    let b = db.file(1, "b.mp3", Some(B));
+    db.group();
+    let (low, high) = (db.track(a).unwrap(), db.track(b).unwrap());
+    assert!(low < high);
+    // The higher track survives because the Library holds it.
+    db.sql(&format!(
+        "INSERT INTO library_track (recording_id, linked_file_id) VALUES ({high}, {b})"
+    ));
+    db.sql(SESSION_AND_PLAYS);
+    db.sql(&format!(
+        "INSERT INTO play_event (session_id, position, recording_id, raw_path, raw_artist, raw_title)
+         VALUES (1, 0, {low}, 'E:/a.mp3', 'Artist A', 'Title A'), (1, 1, {high}, 'E:/b.mp3', 'Artist B', 'Title B')"
+    ));
+    db.set_hash(b, Some(A));
+    db.group();
+    assert_eq!(db.tracks(), 1);
+    assert_eq!(
+        db.count(&format!(
+            "SELECT count(*) FROM play_event WHERE recording_id = {high}"
+        )),
+        2,
+        "both plays are of the surviving track"
+    );
+}
+
+#[test]
+fn a_play_never_keeps_a_track_alive_and_stays_as_an_unmatched_play() {
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    db.group();
+    let track = db.track(a).unwrap();
+    db.sql(SESSION_AND_PLAYS);
+    db.sql(&format!(
+        "INSERT INTO play_event (session_id, position, recording_id, raw_path, raw_artist, raw_title)
+         VALUES (1, 0, {track}, 'E:/a.mp3', 'Artist A', 'Title A')"
+    ));
+    db.writer
+        .call(|c| crate::grouping::release_folder_files(c, 1))
+        .unwrap();
+    db.set_present(a, false);
+    db.group();
+    assert_eq!(db.tracks(), 0, "the sweep still removes it");
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM play_event
+             WHERE recording_id IS NULL AND raw_artist = 'Artist A' AND raw_title = 'Title A'"
+        ),
+        1
     );
 }
