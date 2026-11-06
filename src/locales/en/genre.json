@@ -47,6 +47,9 @@
     "parentSub": "Parent (Sub) style",
     "alias": "alias"
   },
+  "settingsPanel": {
+    "title": "Genres"
+  },
   "unmapped": {
     "title": "Unmapped genres",
     "summary": "No genre: {{noGenre}}. Spellings to map: {{spellings}}.",

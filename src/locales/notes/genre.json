@@ -135,6 +135,10 @@
     "purpose": "One line after the heading: how many tracks have no genre and how many spellings are unmapped.",
     "where": "Review, the unmapped-genre group."
   },
+  "settingsPanel.title": {
+    "purpose": "Heading of the Settings panel that links to the Genres screen.",
+    "where": "Settings screen, panel heading."
+  },
   "unmapped.openGenres": {
     "purpose": "Link to the Genres screen.",
     "where": "Review, the unmapped-genre group."

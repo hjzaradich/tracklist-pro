@@ -48,7 +48,7 @@ pub(crate) fn peak_working_set_mib() -> u64 {
 }
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 17] = [
+pub(super) const LOGGED_TABLES: [&str; 19] = [
     "library_track",
     "library_removal",
     "crate",

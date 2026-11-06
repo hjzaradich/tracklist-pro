@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import stage from "../shell/StageScreen.module.css";
@@ -13,9 +14,11 @@ import styles from "./settings.module.css";
  */
 export function SettingsScreen() {
   const { t } = useTranslation("settings");
+  const { t: tg } = useTranslation("genre");
   const rekordboxId = useId();
   const { t: tw } = useTranslation("wishlist");
   const featuresId = useId();
+  const genresId = useId();
   return (
     <div className={stage.screen}>
       <div className={stage.header}>
@@ -35,6 +38,12 @@ export function SettingsScreen() {
               {tw("feature.panel")}
             </h2>
             <WishlistFeatureRow />
+          </section>
+          <section className={styles.panel} aria-labelledby={genresId}>
+            <h2 id={genresId} className={styles.panelTitle}>
+              {tg("settingsPanel.title")}
+            </h2>
+            <Link to="/genres">{tg("unmapped.openGenres")}</Link>
           </section>
         </div>
       </div>
