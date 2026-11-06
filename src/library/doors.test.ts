@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { TableFilter } from "../bindings";
 import { doorWord, filterOfDoor, validateLibrarySearch } from "./doors";
 
+describe("a tag's door word", () => {
+  it.each(["tag-", "tag-0", "tag--3", "tag-1.5", "tag-abc"])("stands for no filter: %s", (word) => {
+    expect(filterOfDoor(word)).toBeNull();
+  });
+});
+
 describe("the words a door is written as in the Library's address", () => {
   const FILTERS: TableFilter[] = [
     { kind: "lowQuality" },
@@ -14,6 +20,7 @@ describe("the words a door is written as in the Library's address", () => {
     { kind: "missingArt" },
     { kind: "energy", level: 1 },
     { kind: "energy", level: 10 },
+    { kind: "tag", id: 10 },
   ];
 
   it.each(FILTERS)("stand for the filter they were made from: %j", (filter) => {

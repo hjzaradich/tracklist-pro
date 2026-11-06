@@ -167,4 +167,18 @@ describe("tagging tracks", () => {
     await userEvent.keyboard("t");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("Show tracks opens the Library filtered by the tag, the chip names it, and its × takes it off", async () => {
+    const fake = backend();
+    renderApp("/tags");
+    await screen.findByText("Sunny");
+    await userEvent.click(screen.getByRole("link", { name: tx("vocab:showTracks.for", { name: "Sunny" }) }));
+    const chip = tx("trackTable:filters.tagNamed", { tag: "Sunny" });
+    expect(await screen.findByText(chip)).toBeInTheDocument();
+    const filtersOf = () => fake.called("track_table_page").map((call) => (call.args.query as TableQuery).filters);
+    await waitFor(() => expect(filtersOf().at(-1)).toEqual([{ kind: "tag", id: 10 }]));
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.remove", { filter: chip }) }));
+    await waitFor(() => expect(screen.queryByText(chip)).toBeNull());
+    await waitFor(() => expect(filtersOf().at(-1)).toEqual([]));
+  });
 });

@@ -16,6 +16,10 @@ import type { TableFilter } from "../bindings";
  * the name is, and the router's own encoding of the address goes on top of
  * that. A name that is blank, or an encoding that doesn't decode, stands for
  * no filter.
+ *
+ * A tag's word is `tag-` and its id (3C-F): the Tags screen's "Show tracks".
+ * A tag since deleted still opens the Library, whose chip then says the tag
+ * is gone.
  */
 const PLAIN_DOORS = [
   "lowQuality",
@@ -32,6 +36,7 @@ type PlainDoor = (typeof PLAIN_DOORS)[number];
 
 const ENERGY_PREFIX = "energy-";
 const GENRE_PREFIX = "genre-";
+const TAG_PREFIX = "tag-";
 /** Energy runs from 1 to 10 (`ENERGY_LEVELS` in the backend). */
 const ENERGY_LEVELS = 10;
 
@@ -42,6 +47,7 @@ function isPlainDoor(word: string): word is PlainDoor {
 /** The word a filter is written as in the address; `null` for a filter no number opens. */
 export function doorWord(filter: TableFilter): string | null {
   if (filter.kind === "energy") return `${ENERGY_PREFIX}${filter.level}`;
+  if (filter.kind === "tag") return `${TAG_PREFIX}${filter.id}`;
   if (filter.kind === "genre") {
     return filter.name.trim() === "" ? null : `${GENRE_PREFIX}${encodeURIComponent(filter.name)}`;
   }
@@ -55,6 +61,10 @@ export function filterOfDoor(word: unknown): TableFilter | null {
   if (word.startsWith(ENERGY_PREFIX)) {
     const level = Number(word.slice(ENERGY_PREFIX.length));
     if (Number.isInteger(level) && level >= 1 && level <= ENERGY_LEVELS) return { kind: "energy", level };
+  }
+  if (word.startsWith(TAG_PREFIX)) {
+    const id = Number(word.slice(TAG_PREFIX.length));
+    if (Number.isSafeInteger(id) && id > 0) return { kind: "tag", id };
   }
   if (word.startsWith(GENRE_PREFIX)) {
     try {

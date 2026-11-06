@@ -77,6 +77,13 @@
   cursor: pointer;
 }
 
+/* A link that looks like a button. */
+.link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .button:hover:not(:disabled) {
   background: var(--color-surface-hover);
 }
