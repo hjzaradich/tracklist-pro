@@ -131,6 +131,16 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.wishlistBought");
     case "wishlist_notes":
       return t("undo.action.wishlistNotes");
+    case "create_tag_group":
+    case "create_tag":
+    case "rename_tag_group":
+    case "rename_tag":
+    case "colour_tag_group":
+    case "colour_tag":
+    case "apply_tag":
+    case "remove_tag":
+    case "import_tags":
+      return t("undo.action.tags");
   }
   return t("undo.action.other");
 }

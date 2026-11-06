@@ -1,0 +1,150 @@
+{
+  "title": {
+    "purpose": "Heading of the tag vocabulary screen. (PROPOSED, 3A-T)",
+    "where": "Tags screen, page heading."
+  },
+  "empty": {
+    "purpose": "Says the vocabulary is empty and how to start. (PROPOSED, 3A-T)",
+    "where": "Tags screen, in place of the list."
+  },
+  "cancel": {
+    "purpose": "Button that closes a rename form without changing anything. (PROPOSED, 3A-T)",
+    "where": "Tags screen, beside a rename form's confirm button."
+  },
+  "trackCount_zero": {
+    "purpose": "Says no track has this tag. (PROPOSED, 3A-T)",
+    "where": "Tags screen, next to a tag's name."
+  },
+  "trackCount_one": {
+    "purpose": "Says one track has this tag. (PROPOSED, 3A-T)",
+    "where": "Tags screen, next to a tag's name."
+  },
+  "trackCount_other": {
+    "purpose": "Says how many tracks have this tag. (PROPOSED, 3A-T)",
+    "where": "Tags screen, next to a tag's name."
+  },
+  "goneFromRekordbox": {
+    "purpose": "Marks a tag copied from a My Tag that rekordbox no longer has. The tag stays. (PROPOSED, 3A-T)",
+    "where": "Tags screen, next to a tag's name."
+  },
+  "colour.label": {
+    "purpose": "Names the colour choice of a group or tag for screen readers. (PROPOSED, 3A-T)",
+    "where": "Tags screen, the colour drop-down beside a group or tag (not shown)."
+  },
+  "colour.default": {
+    "purpose": "The colour choice that clears a colour. (PROPOSED, 3A-T)",
+    "where": "Tags screen, the colour drop-down of a group or tag."
+  },
+  "rename.action": {
+    "purpose": "Button that starts renaming a group or tag. (PROPOSED, 3A-T)",
+    "where": "Tags screen, beside a group or tag."
+  },
+  "rename.label": {
+    "purpose": "Names the box a group or tag is renamed in. (PROPOSED, 3A-T)",
+    "where": "Tags screen, the rename box."
+  },
+  "rename.confirm": {
+    "purpose": "Button that saves the new name. (PROPOSED, 3A-T)",
+    "where": "Tags screen, beside the rename box."
+  },
+  "group.empty": {
+    "purpose": "Says a group has no tags. (PROPOSED, 3A-T)",
+    "where": "Tags screen, under a group's name."
+  },
+  "newGroup.label": {
+    "purpose": "Names the box a new group is named in. (PROPOSED, 3A-T)",
+    "where": "Tags screen, below the last group."
+  },
+  "newGroup.action": {
+    "purpose": "Button that makes the group. (PROPOSED, 3A-T)",
+    "where": "Tags screen, beside the new group box."
+  },
+  "newTag.label": {
+    "purpose": "Names the box a new tag is named in. (PROPOSED, 3A-T)",
+    "where": "Tags screen, under a group's tags."
+  },
+  "newTag.action": {
+    "purpose": "Button that makes the tag. (PROPOSED, 3A-T)",
+    "where": "Tags screen, beside the new tag box."
+  },
+  "import.action": {
+    "purpose": "Button that copies rekordbox's My Tags into the vocabulary as tags. One step to undo. (PROPOSED, 3A-T)",
+    "where": "Tags screen, page header."
+  },
+  "import.group": {
+    "purpose": "Name of the group the copied tags go in the first time. (PROPOSED, 3A-T)",
+    "where": "Becomes a group's name when the first copy is made."
+  },
+  "import.nothing": {
+    "purpose": "Says copying from rekordbox changed nothing. (PROPOSED, 3A-T)",
+    "where": "Tags screen, under the page heading after copying."
+  },
+  "import.done": {
+    "purpose": "Says what copying from rekordbox did. (PROPOSED, 3A-T)",
+    "where": "Tags screen, under the page heading after copying."
+  },
+  "track.title": {
+    "purpose": "Heading of the tag buttons in a track's details. (PROPOSED, 3A-T)",
+    "where": "Details panel, between the crates and the withdraw line."
+  },
+  "track.none": {
+    "purpose": "Says there are no tags to give the track. (PROPOSED, 3A-T)",
+    "where": "Details panel, under the Tags heading."
+  },
+  "picker.title": {
+    "purpose": "Title of the tag picker. (PROPOSED, 3A-T)",
+    "where": "Tag picker (the T key)."
+  },
+  "picker.search": {
+    "purpose": "Names and prompts the picker's search box. (PROPOSED, 3A-T)",
+    "where": "Tag picker, search box."
+  },
+  "picker.list": {
+    "purpose": "Names the picker's list for screen readers. (PROPOSED, 3A-T)",
+    "where": "Tag picker, the list (not shown)."
+  },
+  "picker.trackCount_one": {
+    "purpose": "Says how many tracks the picked tag goes to. (PROPOSED, 3A-T)",
+    "where": "Tag picker, top right."
+  },
+  "picker.trackCount_other": {
+    "purpose": "Says how many tracks the picked tag goes to. (PROPOSED, 3A-T)",
+    "where": "Tag picker, top right."
+  },
+  "picker.empty": {
+    "purpose": "Says there are no tags to pick. (PROPOSED, 3A-T)",
+    "where": "Tag picker, in place of the list."
+  },
+  "picker.none": {
+    "purpose": "Says nothing matches what was typed. (PROPOSED, 3A-T)",
+    "where": "Tag picker, in place of the list."
+  },
+  "picker.cancel": {
+    "purpose": "Button that closes the picker. (PROPOSED, 3A-T)",
+    "where": "Tag picker, footer."
+  },
+  "error.groupNotFound": {
+    "purpose": "Error: the group was not found. (PROPOSED, 3A-T)",
+    "where": "Wherever a tag command fails."
+  },
+  "error.tagNotFound": {
+    "purpose": "Error: the tag was not found. (PROPOSED, 3A-T)",
+    "where": "Wherever a tag command fails."
+  },
+  "error.nameEmpty": {
+    "purpose": "Error: the name is empty. (PROPOSED, 3A-T)",
+    "where": "Wherever a tag or group is named."
+  },
+  "error.nameTaken": {
+    "purpose": "Error: another tag or group has this name. (PROPOSED, 3A-T)",
+    "where": "Wherever a tag or group is named."
+  },
+  "error.nameUnsendable": {
+    "purpose": "Error: the tag name can't be written to rekordbox as a playlist name. (PROPOSED, 3A-T)",
+    "where": "Wherever a tag is named."
+  },
+  "error.colourInvalid": {
+    "purpose": "Error: the colour is not #rrggbb. (PROPOSED, 3A-T)",
+    "where": "Wherever a colour is set."
+  }
+}

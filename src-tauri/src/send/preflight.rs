@@ -186,8 +186,9 @@ pub fn describe(
     let mut crates = tree::crate_tree(conn)?;
     tree::as_merged(&mut crates, &merged.membership);
     let membership = merged.membership.clone();
-    // Playlists arrive in Phase 3; the folder is still written (rule 6).
-    let input = rekordbox_write::gather_merged(conn, merged, crates.clone(), Vec::new())?;
+    // The playlists are the tags' (3A-T); the folder is written either way (rule 6).
+    let playlists = tree::tag_playlists(conn)?;
+    let input = rekordbox_write::gather_merged(conn, merged, crates.clone(), playlists.clone())?;
     let gone = Gone::of(&input);
     let mut built = rekordbox_write::build(&input);
     drop(input);
@@ -271,7 +272,8 @@ pub fn describe(
                 .filter(|sent| has_no_kind(sent))
                 .map(|sent| label(sent.library_track))
                 .collect();
-            preflight.loses_entries = loses_entries(&out, &crates, &membership.outside_library);
+            preflight.loses_entries =
+                loses_entries(&out, &crates, &playlists, &membership.outside_library);
             // Fields of the tracks sent that wait in Review → Conflicts:
             // they go with rekordbox's value until the user decides. A crate
             // membership waits whether or not its track is sent (one the
@@ -771,6 +773,7 @@ fn left_out_reason(reason: &Reason) -> (LeftOutReason, Option<String>) {
 fn loses_entries(
     out: &Outgoing,
     crates: &[Node],
+    playlists: &[Node],
     outside: &HashMap<Vec<String>, u32>,
 ) -> Vec<LosesEntries> {
     let mut lost: HashMap<&[String], u32> = HashMap::new();
@@ -823,7 +826,7 @@ fn loses_entries(
         &mut found,
     );
     visit(
-        &[],
+        playlists,
         &mut vec![PLAYLISTS_FOLDER.to_owned()],
         TreeKind::Playlist,
         &counts,

@@ -51,7 +51,7 @@ pub(crate) use preflight::last_send_ms;
 #[cfg(test)]
 pub use preflight::review;
 pub use preflight::Reviewed;
-pub use tree::crate_tree;
+pub use tree::{crate_tree, tag_playlists};
 
 /// A Library track, as the preflight's lists name it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

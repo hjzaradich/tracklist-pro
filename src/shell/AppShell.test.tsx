@@ -217,7 +217,7 @@ describe("sidebar", () => {
   it("lists the stages in workflow order", async () => {
     renderApp("/overview");
     await screen.findByRole("navigation", { name: tx("shell:stages.label") });
-    expect(stageLinks().map((link) => link.textContent)).toEqual(WORKFLOW_ORDER);
+    expect(stageLinks().map((link) => link.textContent)).toEqual([...WORKFLOW_ORDER, tx("shell:sidebar.tags")]);
   });
 
   it("marks only the current stage with aria-current", async () => {

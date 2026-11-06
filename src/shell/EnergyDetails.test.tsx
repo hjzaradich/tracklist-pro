@@ -24,7 +24,7 @@ beforeEach(() => {
   refuse = false;
   mockIPC((cmd, args) => {
     if (cmd === "track_tag_sources") return { inRekordbox: false, fields: [], confirmedEntry: null };
-    if (cmd === "list_crates" || cmd === "crates_of_track") return [];
+    if (cmd === "list_crates" || cmd === "crates_of_track" || cmd === "list_tags" || cmd === "tags_of_track") return [];
     if (cmd === "set_energy") {
       const { recordings, energy } = args as { recordings: number[]; energy: number };
       asked.push({ recordings, energy });

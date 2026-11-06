@@ -854,6 +854,37 @@ fn every_crate_that_loses_entries_is_named_with_its_count() {
 }
 
 #[test]
+fn a_tag_playlist_that_loses_entries_is_named_like_a_crate() {
+    let w = World::new();
+    let (gone, _) = w.library_track("gone.mp3", "Gone", false);
+    let (here, _) = w.library_track("here.mp3", "Here", true);
+    let group = w.insert("INSERT INTO tag_group (name) VALUES ('Vibe')", ());
+    let tag = w.insert(
+        "INSERT INTO tag (group_id, name) VALUES (?1, 'Warm')",
+        (group,),
+    );
+    for track in [gone, here] {
+        w.insert(
+            "INSERT INTO tag_applied (recording_id, tag_id)
+             SELECT recording_id, ?2 FROM library_track WHERE id = ?1",
+            (track.0, tag),
+        );
+    }
+    w.save_export(&[]);
+
+    let preflight = w.prepare().unwrap();
+    assert_eq!(
+        preflight.loses_entries,
+        [LosesEntries {
+            kind: TreeKind::Playlist,
+            path: vec!["Tags".into(), "Warm".into()],
+            lost: 1,
+            entries: 2,
+        }]
+    );
+}
+
+#[test]
 fn two_crates_rekordbox_may_take_for_one_refuse_the_send_and_the_preflight_says_which() {
     let (w, ..) = world_with_a_send_waiting();
     w.crate_of("warm UP", &[]);

@@ -65,6 +65,7 @@ export function sameFilter(a: TableFilter, b: TableFilter): boolean {
   if (a.kind === "format") return a.format === (b as typeof a).format;
   if (a.kind === "energy") return a.level === (b as typeof a).level;
   if (a.kind === "genre") return a.name === (b as typeof a).name;
+  if (a.kind === "tag") return a.id === (b as typeof a).id;
   return true;
 }
 
@@ -153,5 +154,7 @@ export function filterLabel(filter: TableFilter, t: TFunction<"trackTable">): st
       return t("filters.missingArt");
     case "genre":
       return t("filters.genre", { genre: filter.name });
+    case "tag":
+      return t("filters.tag");
   }
 }

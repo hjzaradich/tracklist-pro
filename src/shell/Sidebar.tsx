@@ -71,6 +71,9 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
           <CrateTree nodes={buildTree(all)} all={all} chosen={chosen} />
         )}
       </div>
+      <div className={styles.section}>
+        <StageLink to="/tags" label={t("sidebar.tags")} />
+      </div>
     </nav>
   );
 }
@@ -198,7 +201,7 @@ function TreeItems({
 }
 
 interface StageLinkProps {
-  to: (typeof STAGES)[number]["path"];
+  to: (typeof STAGES)[number]["path"] | "/tags";
   label: string;
   count?: number;
 }

@@ -291,6 +291,14 @@
     "purpose": "Undo button naming what it takes back: a note on a wishlist track.",
     "where": "Top bar, Undo button, after editing a note on a wishlist track."
   },
+  "undo.action.tags": {
+    "purpose": "Undo button naming what it takes back: a change to the tag vocabulary or to the tags on tracks (PROPOSED, 3A-T).",
+    "where": "Top bar, Undo button, when the next step to undo makes, renames or colours a tag or group, tags tracks, takes a tag off, or copies rekordbox's My Tags."
+  },
+  "sidebar.tags": {
+    "purpose": "Name of the link to the tag vocabulary (PROPOSED, 3A-T).",
+    "where": "Sidebar, under the Crates section."
+  },
   "undo.action.other": {
     "purpose": "Undo button when the action it takes back has no name of its own.",
     "where": "Top bar, Undo button, for an action this version has no wording for, or one recorded by an older version without its details.",

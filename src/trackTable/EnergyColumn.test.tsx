@@ -116,6 +116,8 @@ beforeEach(() => {
         case "list_crates":
         case "music_folders":
         case "crates_of_track":
+        case "list_tags":
+        case "tags_of_track":
           return [];
         case "track_tag_sources":
           return { inRekordbox: false, fields: [], confirmedEntry: null };

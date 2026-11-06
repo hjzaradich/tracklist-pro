@@ -22,6 +22,7 @@ import { ReviewScreen } from "../review/ReviewScreen";
 import { SettingsScreen } from "../settings/SettingsScreen";
 import { AppShell } from "../shell/AppShell";
 import { WishlistScreen } from "../wishlist/WishlistScreen";
+import { VocabScreen } from "../vocab/VocabScreen";
 
 // Code-based routes (no file-based route generation). Every screen renders
 // inside the layout shell. Stage paths match STAGES in src/shell/stages.ts.
@@ -139,6 +140,13 @@ const wishlistsRoute = createRoute({
   component: WishlistScreen,
 });
 
+// The tag vocabulary (3A-T), reached from the sidebar's Tags link.
+const tagsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tags",
+  component: VocabScreen,
+});
+
 // Not a stage and not in the sidebar: Settings, reached from the top bar's gear
 // and the palette (1cC-2).
 const settingsRoute = createRoute({
@@ -169,6 +177,7 @@ const routeTree = rootRoute.addChildren([
   settingsRoute,
   wishlistsRoute,
   genresRoute,
+  tagsRoute,
 ]);
 
 /**

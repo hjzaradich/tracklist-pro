@@ -30,5 +30,6 @@ export interface EnglishResources {
   "suggest": typeof import("../locales/en/suggest.json");
   "theme": typeof import("../locales/en/theme.json");
   "trackTable": typeof import("../locales/en/trackTable.json");
+  "vocab": typeof import("../locales/en/vocab.json");
   "wishlist": typeof import("../locales/en/wishlist.json");
 }

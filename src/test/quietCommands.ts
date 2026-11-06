@@ -41,6 +41,8 @@ const IDLE_SEND: SendState = {
 
 const ANSWERS: Record<string, unknown> = {
   list_crates: [],
+  list_tags: [],
+  tags_of_track: [],
   crate_summary: EMPTY_SUMMARY,
   library_summary: { tracks: 0, changeStamp: 0 },
   next_undo_operation: { operation: null, refusal: null },

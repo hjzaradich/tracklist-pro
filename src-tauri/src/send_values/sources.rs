@@ -137,6 +137,17 @@ pub struct TagSources {
     pub confirmed_entry: Option<i64>,
 }
 
+/// What a rekordbox value shows as (3A-T; T3): a Comments value without the
+/// `/* ... */` block rekordbox puts its My Tags in. The stored value, and what
+/// a send writes, stay as rekordbox wrote it (ROADMAP 1.9 rule 1).
+fn shown_comment(field: TagField, value: &str) -> &str {
+    if field == TagField::Comment {
+        crate::rekordbox::my_tags::without_tags(value)
+    } else {
+        value
+    }
+}
+
 /// A value with something in it: blank text says nothing.
 fn text(value: &str) -> Option<&str> {
     Some(value).filter(|v| !v.trim().is_empty())
@@ -170,7 +181,8 @@ fn fields_from(
                 let value = entry
                     .iter()
                     .find(|(name, _)| name == attribute)
-                    .and_then(|(_, value)| text(value))
+                    .map(|(_, value)| shown_comment(field, value))
+                    .and_then(text)
                     // rekordbox writes 0 for a track with no year.
                     .filter(|value| field != TagField::Year || value.trim() != "0");
                 let shown = value.map(|value| SourcedValue {

@@ -242,6 +242,7 @@ fn every_table_that_points_at_a_track_is_in_the_reference_list() {
         ("library_track", "recording_id"),
         ("recording_file", "recording_id"),
         ("rekordbox_track", "recording_id"),
+        ("tag_applied", "recording_id"),
         ("track_merge", "recording_id"),
         ("version_link", "recording_a"),
         ("version_link", "recording_b"),
@@ -277,6 +278,30 @@ fn a_track_kept_for_a_reference_is_swept_once_the_reference_goes() {
     db.sql("DELETE FROM version_link");
     let summary = db.group();
     assert_eq!(db.tracks(), 1);
+    assert_eq!(summary.recordings_removed, 1);
+}
+
+#[test]
+fn a_track_with_a_tag_is_kept_without_files_and_swept_once_the_tag_is_taken_off() {
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    db.group();
+    let track = db.track(a).unwrap();
+    db.sql("INSERT INTO tag_group (name) VALUES ('Vibe')");
+    db.sql("INSERT INTO tag (group_id, name) VALUES (1, 'Warm')");
+    db.sql(&format!(
+        "INSERT INTO tag_applied (recording_id, tag_id) VALUES ({track}, 1)"
+    ));
+    // Its only folder goes: no files, but the tag on it stays.
+    db.writer
+        .call(|c| crate::grouping::release_folder_files(c, 1))
+        .unwrap();
+    db.set_present(a, false);
+    db.group();
+    assert_eq!(db.tracks(), 1, "kept for its tag");
+    db.sql("DELETE FROM tag_applied");
+    let summary = db.group();
+    assert_eq!(db.tracks(), 0);
     assert_eq!(summary.recordings_removed, 1);
 }
 

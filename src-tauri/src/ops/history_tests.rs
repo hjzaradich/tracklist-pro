@@ -22,6 +22,7 @@ use crate::paths::Volumes;
 use crate::rekordbox_write::{build, gather, record_send, Outgoing};
 use crate::send::crate_tree;
 use crate::start;
+use crate::vocab;
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 /// This test process's peak working set so far, in MiB (a helper for the
@@ -48,7 +49,7 @@ pub(crate) fn peak_working_set_mib() -> u64 {
 }
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 19] = [
+pub(super) const LOGGED_TABLES: [&str; 22] = [
     "library_track",
     "library_removal",
     "crate",
@@ -68,6 +69,9 @@ pub(super) const LOGGED_TABLES: [&str; 19] = [
     "wish_item",
     "genre",
     "genre_alias",
+    "tag_group",
+    "tag",
+    "tag_applied",
 ];
 
 /// The tables an action changes through the log only by setting fields of
@@ -148,6 +152,17 @@ pub(super) enum Action {
     AddGenreAlias(usize, usize),
     RemoveGenreAlias(usize),
     LoadGenreSeed,
+    /// A tag group, named from [`NAMES`].
+    CreateTagGroup(usize),
+    /// A tag in the n-th group, named from [`NAMES`].
+    CreateTag(usize, usize),
+    RenameTag(usize, usize),
+    /// Colours the n-th tag (the second number picks the colour, past the end: none).
+    ColourTag(usize, usize),
+    ApplyTag(usize, Vec<usize>),
+    RemoveTag(usize, Vec<usize>),
+    /// Copy rekordbox's My Tags in.
+    ImportTags,
 }
 
 /// Every row of every logged table, each value as text.
@@ -229,8 +244,8 @@ impl Lib {
                         c.execute(
                             "INSERT INTO rekordbox_track
                                  (attributes, location_key, read_at, file_id, relink_method,
-                                  relink_probable)
-                             VALUES (?1, ?2, '2026-09-30T10:00:00.000Z', ?3, 'path', 0)",
+                                  relink_probable, my_tags)
+                             VALUES (?1, ?2, '2026-09-30T10:00:00.000Z', ?3, 'path', 0, json_array('Alpha', 'Beta'))",
                             (attributes, format!("E:/Music/{name}"), n as i64),
                         )?;
                     }
@@ -271,6 +286,10 @@ impl Lib {
 
     pub fn genre_alias_ids(&self) -> Vec<i64> {
         self.ids("SELECT id FROM genre_alias ORDER BY id")
+    }
+
+    pub fn tag_ids(&self) -> Vec<i64> {
+        self.ids("SELECT id FROM tag ORDER BY id")
     }
 
     /// Operations made and not undone.
@@ -405,12 +424,44 @@ impl Lib {
                         .unwrap();
                 }
             }
+            Action::CreateTagGroup(name) => {
+                let name = NAMES[name % NAMES.len()];
+                let _ = self
+                    .writer
+                    .call(move |c| Ok(vocab::create_group_on(c, name)))
+                    .unwrap()
+                    .unwrap();
+            }
+            Action::CreateTag(group, name) => {
+                let groups = self.ids("SELECT id FROM tag_group ORDER BY id");
+                if let Some(group) = pick(&groups, *group) {
+                    let name = NAMES[name % NAMES.len()];
+                    let _ = self
+                        .writer
+                        .call(move |c| Ok(vocab::create_tag_on(c, vocab::TagGroupId(group), name)))
+                        .unwrap()
+                        .unwrap();
+                }
+            }
             Action::MoveGenre(n, parent) => {
                 if let Some(id) = pick(&self.genre_ids(), *n) {
                     let parent = parent.and_then(|p| pick(&self.genre_ids(), p));
                     let _ = self
                         .writer
                         .call(move |c| Ok(genre::edit::move_node(c, id, parent)))
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::RenameTag(n, name) => {
+                if let Some(id) = pick(&self.tag_ids(), *n) {
+                    let name = NAMES[name % NAMES.len()];
+                    let item = vocab::VocabItem::Tag {
+                        id: vocab::TagId(id),
+                    };
+                    let _ = self
+                        .writer
+                        .call(move |c| Ok(vocab::rename_on(c, item, name)))
                         .unwrap()
                         .unwrap();
                 }
@@ -441,10 +492,48 @@ impl Lib {
                         .unwrap();
                 }
             }
+            Action::ColourTag(n, colour) => {
+                if let Some(id) = pick(&self.tag_ids(), *n) {
+                    let colour = ["#e05a47", "#3b82f6"].get(*colour).copied();
+                    let item = vocab::VocabItem::Tag {
+                        id: vocab::TagId(id),
+                    };
+                    self.writer
+                        .call(move |c| Ok(vocab::colour_on(c, item, colour)))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::ApplyTag(n, tracks) | Action::RemoveTag(n, tracks) => {
+                if let Some(id) = pick(&self.tag_ids(), *n) {
+                    let recordings: Vec<i64> =
+                        tracks.iter().map(|t| (t % TRACKS) as i64 + 1).collect();
+                    let apply = matches!(action, Action::ApplyTag(..));
+                    self.writer
+                        .call(move |c| {
+                            Ok(if apply {
+                                vocab::apply_on(c, vocab::TagId(id), &recordings)
+                            } else {
+                                vocab::remove_on(c, vocab::TagId(id), &recordings)
+                            })
+                        })
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
             Action::LoadGenreSeed => {
                 let _ = self
                     .writer
                     .call(|c| Ok(genre::edit::load_seed(c)))
+                    .unwrap()
+                    .unwrap();
+            }
+            Action::ImportTags => {
+                self.writer
+                    .call(|c| Ok(vocab::import::import_on(c, "Imported")))
+                    .unwrap()
                     .unwrap()
                     .unwrap();
             }
@@ -674,6 +763,13 @@ pub(super) fn action() -> impl Strategy<Value = Action> {
             .prop_map(|(n, alias)| Action::AddGenreAlias(n, alias)),
         1 => (0..4usize).prop_map(Action::RemoveGenreAlias),
         1 => Just(Action::LoadGenreSeed),
+        2 => (0..NAMES.len()).prop_map(Action::CreateTagGroup),
+        3 => (0..3usize, 0..NAMES.len()).prop_map(|(g, name)| Action::CreateTag(g, name)),
+        1 => (0..4usize, 0..NAMES.len()).prop_map(|(n, name)| Action::RenameTag(n, name)),
+        1 => (0..4usize, 0..3usize).prop_map(|(n, c)| Action::ColourTag(n, c)),
+        3 => (0..4usize, tracks()).prop_map(|(n, t)| Action::ApplyTag(n, t)),
+        2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::RemoveTag(n, t)),
+        1 => Just(Action::ImportTags),
     ]
 }
 

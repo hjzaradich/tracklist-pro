@@ -284,6 +284,10 @@
     "where": "Filter chip, opened from a genre bar on the Overview. Not in the Add filter menu.",
     "approved": "Genre: {{genre}}"
   },
+  "filters.tag": {
+    "purpose": "Filter: tracks that have one tag (PROPOSED, 3A-T). The chip does not name the tag yet.",
+    "where": "Filter chip, once a screen adds a tag filter. Not in the Add filter menu."
+  },
   "format.mp3": {
     "purpose": "The name of a file format (a technical name, as the format is known), for a filter chip and the formats menu.",
     "where": "Filter chip and the Add filter menu, the formats.",
@@ -410,8 +414,8 @@
     "approved": "Play or pause"
   },
   "keys.tag": {
-    "purpose": "A command that tags the selected tracks (the T key). Not listed until tags exist (Phase 3).",
-    "where": "Command palette, list (not yet shown).",
+    "purpose": "A command that tags the selected tracks (the T key). Opens the tag picker (3A-T).",
+    "where": "Command palette, list, when tracks are selected.",
     "approved": "Tag"
   },
   "keys.addToCrate": {

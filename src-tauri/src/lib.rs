@@ -51,6 +51,7 @@ pub mod tags;
 pub mod track_table;
 pub mod ui_setting;
 pub mod versions;
+pub mod vocab;
 pub mod volume;
 pub mod waveform;
 pub mod wishlist;

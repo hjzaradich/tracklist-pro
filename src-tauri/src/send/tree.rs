@@ -110,3 +110,69 @@ pub fn as_merged(nodes: &mut [Node], merged: &Memberships) {
     }
     walk(nodes, &mut vec![sibling_key(CRATES_FOLDER)], merged);
 }
+
+/// The folder under `Playlists` that holds one playlist per tag (3A-T; T5).
+pub const TAGS_FOLDER: &str = "Tags";
+
+/// The playlists a send writes under [`PLAYLISTS_FOLDER`]: one folder,
+/// `Tags`, with one playlist per tag that has Library tracks, in the order of
+/// the vocabulary (groups, then tags), each playlist's tracks in the order
+/// they were tagged. Library tracks only (the tracks a send carries).
+///
+/// Only playlists: nothing is written into a track's comment, and no My Tags
+/// block (ROADMAP 1.9 rule 1; writing My Tags is untested, T5).
+///
+/// A tag the writer can't carry as a name, or whose name equals an earlier
+/// tag's by the sibling rule, is left out, so a tag is never the reason a
+/// send is refused. With no such tag there is no `Tags` folder.
+pub fn tag_playlists(conn: &Connection) -> rusqlite::Result<Vec<Node>> {
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name, l.id
+         FROM tag t
+         JOIN tag_group g ON g.id = t.group_id
+         JOIN tag_applied a ON a.tag_id = t.id
+         JOIN library_track l ON l.recording_id = a.recording_id
+         ORDER BY g.position, g.id, t.position, t.id, a.id",
+    )?;
+    let mut playlists: Vec<(i64, Node)> = Vec::new();
+    for row in stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, i64>(2)?,
+        ))
+    })? {
+        let (tag, name, track) = row?;
+        match playlists.last_mut() {
+            Some((last, Node::Playlist { entries, .. })) if *last == tag => {
+                entries.push(LibraryTrackId(track))
+            }
+            _ => playlists.push((
+                tag,
+                Node::Playlist {
+                    name,
+                    entries: vec![LibraryTrackId(track)],
+                },
+            )),
+        }
+    }
+    let mut taken = std::collections::HashSet::new();
+    let children: Vec<Node> = playlists
+        .into_iter()
+        .map(|(_, node)| node)
+        .filter(|node| match node {
+            Node::Playlist { name, .. } => {
+                crate::vocab::sendable(name) && taken.insert(sibling_key(name))
+            }
+            Node::Folder { .. } => false,
+        })
+        .collect();
+    Ok(if children.is_empty() {
+        Vec::new()
+    } else {
+        vec![Node::Folder {
+            name: TAGS_FOLDER.to_owned(),
+            children,
+        }]
+    })
+}

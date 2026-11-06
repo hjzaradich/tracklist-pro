@@ -46,7 +46,7 @@ beforeEach(() => {
       asked.push(args as { recordingId: number; shownFile: number | null });
       return answer;
     }
-    if (cmd === "list_crates" || cmd === "crates_of_track") return [];
+    if (cmd === "list_crates" || cmd === "crates_of_track" || cmd === "list_tags" || cmd === "tags_of_track") return [];
     if (cmd === "undo_last_operation") return { status: "nothingToUndo" };
     if (cmd === "review_withdraw_relink") {
       withdrawn.push((args as { entryId: number }).entryId);

@@ -111,6 +111,11 @@ export interface TrackTableProps {
    * on these tracks. Without it the key is unavailable.
    */
   onAddToCrate?: (recordingIds: readonly number[]) => void;
+  /**
+   * The T key (or the palette's "Tag") was used on these tracks (3A-T). Without
+   * it the key is unavailable.
+   */
+  onTag?: (recordingIds: readonly number[]) => void;
 }
 
 const NO_WIDTHS: ColumnWidths = {};
@@ -172,6 +177,7 @@ export function TrackTable({
   onSetEnergy,
   onClearEnergy,
   onAddToCrate,
+  onTag,
 }: TrackTableProps) {
   const { t, i18n } = useTranslation("trackTable");
   const keyNotation = useKeyNotation();
@@ -438,7 +444,13 @@ export function TrackTable({
         if (ids.length > 0) onAddToCrate(ids);
       }
     : undefined;
-  useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy, addToCrate });
+  const tag = onTag
+    ? () => {
+        const ids = selectedIds();
+        if (ids.length > 0) onTag(ids);
+      }
+    : undefined;
+  useTrackKeys({ move, selectAll, clear, selected: selectedCount, setEnergy, addToCrate, tag });
   const fileOf = (row: TableRow | undefined) =>
     row === undefined ? undefined : row.file === null ? null : { id: row.file.id, name: shownName(row), recordingId: row.recordingId };
 

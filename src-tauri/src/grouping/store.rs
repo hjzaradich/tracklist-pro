@@ -117,7 +117,8 @@ const UNREFERENCED: &str =
      AND NOT EXISTS (SELECT 1 FROM version_link
                      WHERE recording_a = recording.id OR recording_b = recording.id)
      AND NOT EXISTS (SELECT 1 FROM rekordbox_track WHERE recording_id = recording.id)
-     AND NOT EXISTS (SELECT 1 FROM track_merge WHERE recording_id = recording.id)";
+     AND NOT EXISTS (SELECT 1 FROM track_merge WHERE recording_id = recording.id)
+     AND NOT EXISTS (SELECT 1 FROM tag_applied WHERE recording_id = recording.id)";
 
 /// The audio file `f` holds, as SQL: its `audio_hash`, or its `blake3` when
 /// it has none (an empty hash says nothing, like none). The one name for a

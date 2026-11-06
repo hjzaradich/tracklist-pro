@@ -18,6 +18,8 @@ export interface TrackKeyHandlers {
   setEnergy?: (energy: number) => void;
   /** Opens "Add to crate or playlist" for the selected tracks (1cB-13). Without it the C key is unavailable. */
   addToCrate?: () => void;
+  /** Opens the tag picker for the selected tracks (3A-T). Without it the T key is unavailable. */
+  tag?: () => void;
 }
 
 /** The energy each key gives: 1 to 9, and 0 for 10 (ROADMAP 1.11). */
@@ -54,19 +56,19 @@ function isControl(target: EventTarget | null): boolean {
  * The track table's hotkeys (1cB-8; ROADMAP 1.11): J and K move the focus
  * down and up (Shift extends the selection), Ctrl+A selects all, Escape
  * clears, 1 to 0 give the selected tracks an energy, C opens "Add to crate
- * or playlist", Space plays or pauses and T tags.
+ * or playlist", Space plays or pauses and T opens the tag picker.
  *
  * Every key is an action in the palette's registry (`useRegisterActions`),
  * shown there with its shortcut, so the palette runs the very handler the key
  * runs. An action that can't run now is not listed and its key does nothing:
  * Clear and the energy keys need a selected track, Space needs a file in the
- * player, and T waits for tags (Phase 3, ROADMAP 3.1).
+ * player, and T needs a selection and a table that can tag.
  *
  * The keys stand aside while the focus is in a text field, while a dialog is
  * open (the palette is one), and for a key another handler already used. Space
  * is also left to a button or link that has the focus.
  */
-export function useTrackKeys({ move, selectAll, clear, selected, setEnergy, addToCrate }: TrackKeyHandlers) {
+export function useTrackKeys({ move, selectAll, clear, selected, setEnergy, addToCrate, tag }: TrackKeyHandlers) {
   const { t } = useTranslation("trackTable");
   const playing = usePlayer((state) => state.file !== null);
   const toggle = usePlayer((state) => state.toggle);
@@ -142,8 +144,13 @@ export function useTrackKeys({ move, selectAll, clear, selected, setEnergy, addT
       repeats: false,
     },
     {
-      // Tags arrive with the custom vocabulary (ROADMAP 3.1): nothing to tag with yet.
-      action: { id: "tracks:tag", label: t("keys.tag"), shortcut: t("keys.shortcut.tag"), available: false, run: () => {} },
+      action: {
+        id: "tracks:tag",
+        label: t("keys.tag"),
+        shortcut: t("keys.shortcut.tag"),
+        available: tag !== undefined && selected > 0,
+        run: () => tag?.(),
+      },
       matches: press("t"),
       repeats: false,
     },
