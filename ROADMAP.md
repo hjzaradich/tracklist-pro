@@ -649,6 +649,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **What:** a genre tree you control, with aliases mapping the mess to canonical nodes. Unmapped genres go to a review queue, and each mapping says which alias rule applied.
 - **Seed:** broad and genre-neutral, with real branches across electronic, hip-hop, R&B, pop, rock, Latin, throwbacks and more. The `Parent (Sub)` convention (e.g. `Drum & Bass (Neuro)`) is supported as a style, not assumed as the tree's shape. Files with no genre are the first review queue.
 - **Genre belongs to the track, not the song.** A dubstep VIP of a house tune keeps "dubstep".
+- **Built (3A, PR 184):** a genre tree with aliases; a spelling resolves to a node by exact name, by case and accents folded, by the `Parent (Sub)` style, or by a user alias, and the result names the rule. The canonical node is kept app-side next to the spelling: the send and the conflicts still use rekordbox's spelling (1.9 rule 1). Unmapped genres are a section at the bottom of Review; the Genres screen opens from there and from Settings. The seed is small, loads only on a button press as one undoable operation, and is a proposal for the owner. Editing the tree rechecks every Library track's genre.
 - **Complexity:** M.
 
 #### 3.3 Smart crates
