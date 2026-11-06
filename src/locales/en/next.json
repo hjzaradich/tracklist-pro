@@ -28,7 +28,11 @@
     "energySame": "same energy",
     "energyNone": "no energy (comes last)",
     "playedAfter_one": "follows this track in your history once",
-    "playedAfter_other": "follows this track in your history {{count}} times"
+    "playedAfter_other": "follows this track in your history {{count}} times",
+    "genreSame": "same genre ({{genre}})",
+    "genreRelated": "{{from}} → {{to}} (related genre)",
+    "tagsShared_one": "shares the tag {{tags}}",
+    "tagsShared_other": "shares tags: {{tags}}"
   },
   "ignored": {
     "label": "Not used (this track has none): {{signals}}",
@@ -38,7 +42,9 @@
     "key": "key",
     "bpm": "BPM",
     "energy": "energy",
-    "played": "history"
+    "played": "history",
+    "genre": "genre",
+    "tags": "tags"
   },
   "weights": {
     "title": "Weights and tolerance",
@@ -47,6 +53,8 @@
     "bpm": "BPM",
     "energy": "Energy step",
     "played": "Your history",
+    "genre": "Genre match",
+    "tags": "Shared tags",
     "tolerance": {
       "label": "Tolerance",
       "tight": "Tight",

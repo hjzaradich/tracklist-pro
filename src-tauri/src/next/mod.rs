@@ -7,8 +7,9 @@
 //!   major or minor), BPM closeness (half and double time count, as in Sort
 //!   by fit, 1.14, whose tempo reading and thresholds this reuses), the
 //!   energy step in the direction the user chose, and the transitions the
-//!   user played (3.6, [`crate::play_history::transitions`]). Genre and tags
-//!   are a hook only for now ([`score::ExtraSignal`]).
+//!   user played (3.6, [`crate::play_history::transitions`]), the canonical
+//!   genre (3.2: the same node, or one beside it) and the tags both tracks
+//!   have (3.1). [`score::ExtraSignal`] stays as a hook for a later signal.
 //! - **Weights and tolerance** are settings (`next_weights`,
 //!   `next_tolerance` in the `setting` table), visible and adjustable. The
 //!   defaults are genre-neutral. Changing them is not an operation, like
@@ -16,9 +17,11 @@
 //!   *Tight* uses Sort by fit's thresholds (a tempo within 2, 4 or 8 BPM,
 //!   only neighbor keys); *wide* also takes bigger tempo gaps, keys two
 //!   steps or diagonally away, and bigger energy steps.
-//! - **Cost:** one query reads every Library track's facts, which are scored
-//!   in memory; only the shown few have their reasons worked out and their
-//!   rows read.
+//! - **Cost:** one query reads every Library track's facts (the genre node
+//!   and its parent come in the same query, and only while genre counts);
+//!   one more reads the tags the chosen track shares with others, and only
+//!   while tags count. All is scored in memory; only the shown few have their
+//!   reasons worked out and their rows read.
 //! - **Bad data** in one track (a BPM that is not a number or not positive,
 //!   a key or energy out of range) reads as missing for that track alone.
 
@@ -39,8 +42,10 @@ use crate::track_table::{self, TableRow};
 pub mod score;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_genre_tags;
 
-use score::{Ask, Candidate, ExtraSignal, Facts, Reason};
+use score::{Ask, Candidate, ExtraSignal, Facts, GenreRef, Reason, Vocab};
 
 /// How many results the Details panel shows.
 pub const SHOWN: usize = 10;
@@ -80,12 +85,11 @@ pub enum Signal {
     Bpm,
     Energy,
     Played,
+    Genre,
+    Tags,
 }
 
 /// How much each signal counts, 0 (off) to [`MOST_WEIGHT`].
-///
-/// TODO(3A-G, 3A-T): `genre` and `tags` join these when those features merge
-/// (see [`score::ExtraSignal`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[serde(rename = "NextWeights")]
@@ -94,10 +98,14 @@ pub struct Weights {
     pub bpm: u8,
     pub energy: u8,
     pub played: u8,
+    pub genre: u8,
+    pub tags: u8,
 }
 
 /// Genre-neutral defaults (proposed): key and tempo count most, then the
-/// energy step and what the user has played.
+/// energy step and what the user has played. Genre is off (3.4: genre-neutral
+/// until the user turns it up); tags count a little, and only when the chosen
+/// track has some.
 impl Default for Weights {
     fn default() -> Weights {
         Weights {
@@ -105,6 +113,8 @@ impl Default for Weights {
             bpm: 4,
             energy: 2,
             played: 2,
+            genre: 0,
+            tags: 1,
         }
     }
 }
@@ -126,6 +136,8 @@ impl Weights {
             bpm: c(self.bpm),
             energy: c(self.energy),
             played: c(self.played),
+            genre: c(self.genre),
+            tags: c(self.tags),
         }
     }
 }
@@ -162,6 +174,8 @@ pub fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
             bpm: weight("bpm", default.weights.bpm)?,
             energy: weight("energy", default.weights.energy)?,
             played: weight("played", default.weights.played)?,
+            genre: weight("genre", default.weights.genre)?,
+            tags: weight("tags", default.weights.tags)?,
         },
         tolerance: match name.flatten().as_deref() {
             Some("wide") => Tolerance::Wide,
@@ -217,21 +231,32 @@ fn facts_of(bpm: Option<f64>, key_order: Option<i64>, flags: i64) -> Facts {
         bpm: clean_bpm(bpm),
         key: key_order.and_then(Camelot::from_order),
         energy: (1..=10).contains(&energy).then_some(energy as u8),
+        genre: None,
     }
+}
+
+/// A genre node (one that still exists) and its parent.
+fn genre_of(node: Option<i64>, parent: Option<i64>) -> Option<GenreRef> {
+    node.map(|node| GenreRef { node, parent })
 }
 
 /// The chosen track's facts; none for every one if the index has no row.
 fn target_facts(conn: &Connection, id: i64) -> rusqlite::Result<Facts> {
     let found = conn
         .query_row(
-            "SELECT bpm, key_order, flags FROM track_row WHERE recording_id = ?1",
+            "SELECT t.bpm, t.key_order, t.flags, g.id, g.parent_id
+             FROM track_row t LEFT JOIN genre g ON g.id = t.genre_node
+             WHERE t.recording_id = ?1",
             [id],
             |r| {
-                Ok(facts_of(
-                    r.get(0).ok().flatten(),
-                    r.get(1).ok().flatten(),
-                    r.get(2).unwrap_or(0),
-                ))
+                Ok(Facts {
+                    genre: genre_of(r.get(3).ok().flatten(), r.get(4).ok().flatten()),
+                    ..facts_of(
+                        r.get(0).ok().flatten(),
+                        r.get(1).ok().flatten(),
+                        r.get(2).unwrap_or(0),
+                    )
+                })
             },
         )
         .optional()?;
@@ -240,23 +265,35 @@ fn target_facts(conn: &Connection, id: i64) -> rusqlite::Result<Facts> {
 
 /// Every Library track but the chosen one, with its facts: the one query.
 /// A row that cannot be read as a track is skipped, and a fact that cannot be
-/// read is missing; neither stops the rest.
-pub fn candidates(conn: &Connection, except: i64) -> rusqlite::Result<Vec<Candidate>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT recording_id, bpm, key_order, flags FROM track_row
-         WHERE flags & ?2 <> 0 AND recording_id <> ?1",
-    )?;
+/// read is missing; neither stops the rest. The genre is read only when
+/// `with_genre` says it counts.
+pub fn candidates(
+    conn: &Connection,
+    except: i64,
+    with_genre: bool,
+) -> rusqlite::Result<Vec<Candidate>> {
+    let mut stmt = conn.prepare_cached(if with_genre {
+        "SELECT t.recording_id, t.bpm, t.key_order, t.flags, g.id, g.parent_id
+         FROM track_row t LEFT JOIN genre g ON g.id = t.genre_node
+         WHERE t.flags & ?2 <> 0 AND t.recording_id <> ?1"
+    } else {
+        "SELECT recording_id, bpm, key_order, flags, NULL, NULL FROM track_row
+         WHERE flags & ?2 <> 0 AND recording_id <> ?1"
+    })?;
     let rows = stmt.query_map((except, flag::IN_LIBRARY), |r| {
         let Ok(id) = r.get::<_, i64>(0) else {
             return Ok(None);
         };
         Ok(Some(Candidate {
             id,
-            facts: facts_of(
-                r.get(1).ok().flatten(),
-                r.get(2).ok().flatten(),
-                r.get(3).unwrap_or(0),
-            ),
+            facts: Facts {
+                genre: genre_of(r.get(4).ok().flatten(), r.get(5).ok().flatten()),
+                ..facts_of(
+                    r.get(1).ok().flatten(),
+                    r.get(2).ok().flatten(),
+                    r.get(3).unwrap_or(0),
+                )
+            },
         }))
     })?;
     let mut out = Vec::new();
@@ -272,6 +309,63 @@ fn played_after(conn: &Connection, target: i64) -> rusqlite::Result<HashMap<i64,
         .into_iter()
         .map(|t| (t.to, t.count))
         .collect())
+}
+
+/// The names the reasons need, and which of the chosen track's tags each other
+/// track has: one query for the tags, one for the genre names, each only for a
+/// signal that counts (a weight above 0, and the chosen track having
+/// something to compare).
+fn vocab_for(
+    conn: &Connection,
+    target: i64,
+    settings: &Settings,
+    target_genre: Option<GenreRef>,
+) -> rusqlite::Result<Vocab> {
+    let mut vocab = Vocab::default();
+    if settings.weights.genre > 0 && target_genre.is_some() {
+        let mut stmt = conn.prepare_cached("SELECT id, name FROM genre")?;
+        let names = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        for name in names {
+            let (id, name) = name?;
+            vocab.genre_names.insert(id, name);
+        }
+    }
+    if settings.weights.tags > 0 {
+        let mut stmt = conn.prepare_cached(
+            "SELECT t.id, t.name FROM tag_applied a JOIN tag t ON t.id = a.tag_id
+             WHERE a.recording_id = ?1 ORDER BY t.name, t.id",
+        )?;
+        let mine = stmt.query_map([target], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut position: HashMap<i64, usize> = HashMap::new();
+        for tag in mine {
+            let (id, name) = tag?;
+            position.insert(id, vocab.target_tags.len());
+            vocab.target_tags.push(name);
+        }
+        if !position.is_empty() {
+            // Only the chosen track's own tags are looked for, through the
+            // tag index, so a library of many tags costs no more.
+            let mut stmt = conn.prepare_cached(
+                "SELECT recording_id, tag_id FROM tag_applied
+                 WHERE recording_id <> ?1 AND tag_id IN
+                       (SELECT tag_id FROM tag_applied WHERE recording_id = ?1)",
+            )?;
+            let others =
+                stmt.query_map([target], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
+            for pair in others {
+                let (recording, tag) = pair?;
+                if let Some(&n) = position.get(&tag) {
+                    vocab.shared_tags.entry(recording).or_default().push(n);
+                }
+            }
+            for shared in vocab.shared_tags.values_mut() {
+                shared.sort_unstable();
+            }
+        }
+    }
+    Ok(vocab)
 }
 
 /// One suggestion.
@@ -315,15 +409,19 @@ pub fn rank_for(
     extras: &[&dyn ExtraSignal],
 ) -> rusqlite::Result<Found> {
     let settings = read_settings(conn)?;
-    let candidates = candidates(conn, target)?;
+    let target_facts = target_facts(conn, target)?;
+    let counts_genre = settings.weights.genre > 0 && target_facts.genre.is_some();
+    let candidates = candidates(conn, target, counts_genre)?;
     let played = played_after(conn, target)?;
+    let vocab = vocab_for(conn, target, &settings, target_facts.genre)?;
     let ask = Ask {
         target_id: target,
-        target: target_facts(conn, target)?,
+        target: target_facts,
         direction,
         settings: &settings,
         played_after: &played,
         extras,
+        vocab: &vocab,
     };
     let ranking = score::rank(&ask, &candidates, SHOWN);
     Ok(Found {

@@ -12,10 +12,10 @@ import { quietAnswer } from "../test/quietCommands";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 
-const SETTINGS: NextSettings = { weights: { key: 4, bpm: 4, energy: 2, played: 2 }, tolerance: "tight" };
+const SETTINGS: NextSettings = { weights: { key: 4, bpm: 4, energy: 2, played: 2, genre: 0, tags: 1 }, tolerance: "tight" };
 
 function reason(code: NextReason["code"], fields: Partial<NextReason> = {}): NextReason {
-  return { code, good: true, from: null, to: null, delta: null, step: null, count: null, ...fields };
+  return { code, good: true, from: null, to: null, delta: null, step: null, count: null, tags: null, ...fields };
 }
 
 let asked: { recordingId: number; direction: Direction }[];
@@ -101,6 +101,48 @@ describe("What's next in the Details panel", () => {
     expect(asked[0]).toEqual({ recordingId: row.recordingId, direction: "same" });
   });
 
+  it("words the genre and tag reasons, and names the shared tags and the genres", async () => {
+    reply = {
+      ...reply,
+      results: [
+        {
+          row: tableRow(2, { artist: "Made Up Artist 2", title: "Synthetic Tune 2" }),
+          score: 80,
+          reasons: [
+            reason("genreSame", { from: "Deep House" }),
+            reason("tagsShared", { count: 2, tags: ["peak", "vocal"] }),
+          ],
+        },
+        {
+          row: tableRow(3, { artist: null, title: "Synthetic Tune 3" }),
+          score: 50,
+          reasons: [
+            reason("genreRelated", { good: false, from: "Deep House", to: "Tech House" }),
+            reason("tagsShared", { count: 1, tags: ["warm"] }),
+          ],
+        },
+      ],
+      ignored: ["genre", "tags"],
+    };
+    renderPanel();
+    const next = within(await section());
+    const items = await next.findAllByRole("listitem");
+    expect(items[0]).toHaveTextContent(
+      [
+        tx("next:reason.genreSame", { genre: "Deep House" }),
+        tx("next:reason.tagsShared", { count: 2, tags: ["peak", "vocal"].join(tx("next:reason.separator")) }),
+      ].join(tx("next:reason.separator")),
+    );
+    expect(items[1]).toHaveTextContent(
+      [
+        tx("next:reason.genreRelated", { from: "Deep House", to: "Tech House" }),
+        tx("next:reason.tagsShared", { count: 1, tags: "warm" }),
+      ].join(tx("next:reason.separator")),
+    );
+    const signals = [tx("next:signal.genre"), tx("next:signal.tags")].join(tx("next:ignored.separator"));
+    expect(next.getByText(tx("next:ignored.label", { signals }))).toBeInTheDocument();
+  });
+
   it("asks again when the energy direction changes", async () => {
     const row = renderPanel();
     const next = within(await section());
@@ -129,6 +171,22 @@ describe("What's next in the Details panel", () => {
     await userEvent.selectOptions(next.getByLabelText(tx("next:weights.tolerance.label")), "wide");
     await waitFor(() => expect(saved).toHaveLength(2));
     expect(saved[1]?.tolerance).toBe("wide");
+  });
+
+  it("shows the genre and tag weights and saves a change to either", async () => {
+    renderPanel();
+    const next = within(await section());
+    await userEvent.click(await next.findByText(tx("next:weights.title")));
+    const genre = next.getByLabelText(tx("next:weights.genre"));
+    const tags = next.getByLabelText(tx("next:weights.tags"));
+    expect(genre).toHaveValue(0);
+    expect(tags).toHaveValue(1);
+    fireEvent.change(genre, { target: { value: "5" } });
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]).toEqual({ ...SETTINGS, weights: { ...SETTINGS.weights, genre: 5 } });
+    fireEvent.change(tags, { target: { value: "0" } });
+    await waitFor(() => expect(saved).toHaveLength(2));
+    expect(saved[1]?.weights.tags).toBe(0);
   });
 
   it("does not save a weight outside 0 to 10", async () => {

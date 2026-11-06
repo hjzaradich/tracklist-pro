@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use super::score::{
-    rank, Ask, Candidate, ExtraPart, ExtraSignal, Facts, Reason, ReasonCode, Scored,
+    rank, Ask, Candidate, ExtraPart, ExtraSignal, Facts, Reason, ReasonCode, Scored, Vocab,
 };
 use super::*;
 use crate::search::tests::support::{Lib, Mount};
@@ -20,6 +20,7 @@ fn facts(bpm: Option<f64>, k: Option<&str>, energy: Option<u8>) -> Facts {
         bpm,
         key: k.and_then(Camelot::parse),
         energy,
+        genre: None,
     }
 }
 
@@ -44,6 +45,7 @@ fn run(
         settings: &settings,
         played_after: played,
         extras: &[],
+        vocab: &Vocab::default(),
     };
     rank(&ask, candidates, SHOWN)
 }
@@ -68,6 +70,8 @@ const KEY_ONLY: Weights = Weights {
     bpm: 0,
     energy: 0,
     played: 0,
+    genre: 0,
+    tags: 0,
 };
 
 #[test]
@@ -124,6 +128,8 @@ fn half_and_double_time_count_and_the_reason_says_which() {
         bpm: 5,
         energy: 0,
         played: 0,
+        genre: 0,
+        tags: 0,
     };
     let target = facts(Some(140.0), None, None);
     let all = [
@@ -155,6 +161,8 @@ fn a_tight_tempo_scores_as_sort_by_fit_does() {
         bpm: 5,
         energy: 0,
         played: 0,
+        genre: 0,
+        tags: 0,
     };
     let target = facts(Some(120.0), None, None);
     let all = [
@@ -182,6 +190,8 @@ fn the_energy_step_follows_the_direction() {
         bpm: 0,
         energy: 5,
         played: 0,
+        genre: 0,
+        tags: 0,
     };
     let target = facts(None, None, Some(5));
     let all = [
@@ -243,7 +253,13 @@ fn what_the_chosen_track_lacks_is_ignored_and_reported() {
     );
     assert_eq!(
         r.ignored,
-        [Signal::Key, Signal::Bpm, Signal::Energy, Signal::Played]
+        [
+            Signal::Key,
+            Signal::Bpm,
+            Signal::Energy,
+            Signal::Played,
+            Signal::Tags
+        ]
     );
     assert!(r.results[0].reasons.is_empty());
 
@@ -253,6 +269,8 @@ fn what_the_chosen_track_lacks_is_ignored_and_reported() {
         bpm: 0,
         energy: 0,
         played: 0,
+        genre: 0,
+        tags: 0,
     });
     assert!(run(target, Direction::Same, off, &HashMap::new(), &all)
         .ignored
@@ -273,6 +291,8 @@ fn played_transitions_lift_a_track_and_the_reason_counts_them() {
         bpm: 1,
         energy: 0,
         played: 10,
+        genre: 0,
+        tags: 0,
     });
     let r = run(target, Direction::Same, heavy, &played, &all);
     assert_eq!(ids(&r.results), [2, 1]);
@@ -294,6 +314,8 @@ fn wide_counts_keys_two_steps_away_and_bigger_tempo_gaps() {
         bpm: 5,
         energy: 0,
         played: 0,
+        genre: 0,
+        tags: 0,
     };
     let tight = run(
         target,
@@ -355,6 +377,7 @@ impl ExtraSignal for Always {
                 delta: None,
                 step: None,
                 count: Some(9),
+                tags: None,
             },
         })
     }
@@ -378,6 +401,7 @@ fn an_extra_signal_is_weighed_with_the_rest_and_can_give_a_reason() {
         settings: &settings,
         played_after: &none,
         extras: &extras,
+        vocab: &Vocab::default(),
     };
     let r = rank(&ask, &all, SHOWN);
     assert_eq!(r.results[0].id, 2);
@@ -425,6 +449,8 @@ fn settings_default_to_genre_neutral_weights_and_tight_and_read_back_what_was_st
             bpm: 0,
             energy: 3,
             played: 10,
+            genre: 0,
+            tags: 0,
         },
         tolerance: Tolerance::Wide,
     };
@@ -578,6 +604,8 @@ fn the_library_is_ranked_from_the_index_and_the_plays_and_a_bad_row_stops_nothin
             bpm: 1,
             energy: 0,
             played: 10,
+            genre: 0,
+            tags: 0,
         },
         ..Settings::default()
     };
@@ -667,6 +695,7 @@ impl ExtraSignal for Odd {
                 delta: None,
                 step: None,
                 count: Some(1),
+                tags: None,
             },
         })
     }
@@ -689,6 +718,7 @@ fn with_extra(weight: u8, fitness: f64) -> score::Ranking {
         settings: &settings,
         played_after: &none,
         extras: &extras,
+        vocab: &Vocab::default(),
     };
     rank(&ask, &all, SHOWN)
 }

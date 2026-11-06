@@ -107,6 +107,22 @@
     "purpose": "Reason: the user has played this track right after the selected one, several times. {{count}} is how many.",
     "where": "Reason line of a suggestion."
   },
+  "reason.genreSame": {
+    "purpose": "Reason: the suggested track has the same genre as the selected one. {{genre}} is the genre.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.genreRelated": {
+    "purpose": "Reason: the suggested track's genre sits next to the selected track's in the genre tree (same parent, or one is the other's parent). {{from}} and {{to}} are genres.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.tagsShared_one": {
+    "purpose": "Reason: the suggested track has the one tag of the selected track's that is named. {{tags}} is the tag.",
+    "where": "Reason line of a suggestion."
+  },
+  "reason.tagsShared_other": {
+    "purpose": "Reason: the suggested track shares several tags with the selected one. {{tags}} is the list of tags.",
+    "where": "Reason line of a suggestion."
+  },
   "ignored.label": {
     "purpose": "Says which signals could not be used because the selected track lacks that information. {{signals}} is a list.",
     "where": "What's next section, under the list."
@@ -131,6 +147,14 @@
     "purpose": "Name of the play history signal, in the list of signals not used.",
     "where": "What's next section."
   },
+  "signal.genre": {
+    "purpose": "Name of the genre signal, in the list of signals not used.",
+    "where": "What's next section."
+  },
+  "signal.tags": {
+    "purpose": "Name of the tags signal, in the list of signals not used.",
+    "where": "What's next section."
+  },
   "weights.title": {
     "purpose": "Heading of the panel where the weights and the tolerance are shown and changed.",
     "where": "What's next section, a collapsed panel."
@@ -153,6 +177,14 @@
   },
   "weights.played": {
     "purpose": "Label of the weight for tracks the user has played after the selected one.",
+    "where": "Weights panel."
+  },
+  "weights.genre": {
+    "purpose": "Label of the weight for tracks in the same genre, or one next to it, as the selected track. Off (0) until the user turns it up.",
+    "where": "Weights panel."
+  },
+  "weights.tags": {
+    "purpose": "Label of the weight for tags the suggested track shares with the selected one.",
     "where": "Weights panel."
   },
   "weights.tolerance.label": {

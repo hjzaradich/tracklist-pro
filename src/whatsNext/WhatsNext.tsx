@@ -9,7 +9,7 @@ import styles from "./WhatsNext.module.css";
 
 const DIRECTIONS: readonly Direction[] = ["up", "same", "down"];
 const TOLERANCES: readonly Tolerance[] = ["tight", "wide"];
-const WEIGHTS: readonly (keyof NextWeights)[] = ["key", "bpm", "energy", "played"];
+const WEIGHTS: readonly (keyof NextWeights)[] = ["key", "bpm", "energy", "played", "genre", "tags"];
 const MOST_WEIGHT = 10;
 
 /** The weights and the tolerance, shown and changeable; a change applies at once and is not an operation. */

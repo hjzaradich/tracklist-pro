@@ -39,7 +39,7 @@ const IDLE_SEND: SendState = {
   sent: null,
 };
 
-const NEXT_SETTINGS = { weights: { key: 4, bpm: 4, energy: 2, played: 2 }, tolerance: "tight" };
+const NEXT_SETTINGS = { weights: { key: 4, bpm: 4, energy: 2, played: 2, genre: 0, tags: 1 }, tolerance: "tight" };
 
 const ANSWERS: Record<string, unknown> = {
   list_crates: [],

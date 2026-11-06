@@ -39,6 +39,12 @@ export function reasonText(reason: NextReason, t: TFunction<"next">, notation: K
         : t("reason.energyStep", { step: signedStep(reason.step) });
     case "playedAfter":
       return t("reason.playedAfter", { count: reason.count ?? 0 });
+    case "genreSame":
+      return t("reason.genreSame", { genre: reason.from ?? "" });
+    case "genreRelated":
+      return t("reason.genreRelated", { from: reason.from ?? "", to: reason.to ?? "" });
+    case "tagsShared":
+      return t("reason.tagsShared", { count: reason.count ?? 0, tags: (reason.tags ?? []).join(t("reason.separator")) });
     case "keyNone":
     case "bpmNone":
     case "energyNone":
