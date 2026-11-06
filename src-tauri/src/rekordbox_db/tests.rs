@@ -123,7 +123,7 @@ impl Fixture {
                 .unwrap(),
         )
         .unwrap();
-        let library = base.join("library");
+        let library = base.join("library"); // ci-reads: not a frontend read
         fs::create_dir(&library).unwrap();
         let key = DbKey::from_text(key_text(1)).unwrap();
         let encrypted =
@@ -384,7 +384,7 @@ fn turned_off_the_commands_show_nothing_keep_no_key_and_start_no_read() {
     let reads = fx.read_pool();
     let session = Session::default();
     let folder = tempfile::tempdir().unwrap();
-    fs::create_dir_all(folder.path().join("Pioneer").join("rekordbox")).unwrap();
+    fs::create_dir_all(folder.path().join("Pioneer").join("rekordbox")).unwrap(); // ci-reads: not a frontend read
     assert_eq!(
         status(&reads, &session, Some(folder.path())).unwrap(),
         RekordboxDatabase::default()
@@ -434,7 +434,7 @@ fn turned_off_the_commands_show_nothing_keep_no_key_and_start_no_read() {
             folder
                 .path()
                 .join("Pioneer")
-                .join("rekordbox")
+                .join("rekordbox") // ci-reads: not a frontend read
                 .to_string_lossy()
                 .into_owned()
         )

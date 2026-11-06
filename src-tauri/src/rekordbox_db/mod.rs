@@ -351,7 +351,7 @@ pub struct RekordboxDatabase {
 /// rekordbox's usual folder inside `base` (the user's roaming app data),
 /// if it's there. Only looked at, never opened.
 fn usual_folder_in(base: &Path) -> Option<PathBuf> {
-    let folder = base.join("Pioneer").join("rekordbox");
+    let folder = base.join("Pioneer").join("rekordbox"); // ci-reads: not a frontend read
     folder.is_dir().then_some(folder)
 }
 
