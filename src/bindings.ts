@@ -116,6 +116,15 @@ export const commands = {
 	readRekordboxXml: (path: string | null) => typedError<JobId, IpcError>(__TAURI_INVOKE("read_rekordbox_xml", { path })),
 	/**  Turns the watch for newer exports on or off. */
 	setRekordboxXmlWatch: (watch: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_rekordbox_xml_watch", { watch })),
+	/**  The database reader's state for Settings. */
+	rekordboxDatabase: () => typedError<RekordboxDatabase, IpcError>(__TAURI_INVOKE("rekordbox_database")),
+	/**
+	 *  Keeps the typed key for this run of the app; an empty one forgets it.
+	 *  With the feature off, nothing is kept. Returns whether a key is kept.
+	 */
+	setRekordboxDatabaseKey: (key: string) => typedError<boolean, IpcError>(__TAURI_INVOKE("set_rekordbox_database_key", { key })),
+	/**  Reads the database at `path` into the snapshot, as a job. */
+	readRekordboxDatabase: (path: string) => typedError<DatabaseReadStart, IpcError>(__TAURI_INVOKE("read_rekordbox_database", { path })),
 	/**
 	 *  Whether the app may read (and so download) online-only files. Off until
 	 *  the user turns it on.
@@ -952,6 +961,28 @@ export type CrateSummary = {
 	genres: string[],
 };
 
+/**  Whether a read began. */
+export type DatabaseReadStart = { kind: "started"; job: JobId } | { kind: "refused"; reason: DbFailure };
+
+/**  Why a read didn't happen, or failed. */
+export type DbFailure = 
+/**  The feature is off. */
+"turnedOff" | 
+/**  No key has been typed in this run of the app. */
+"noKey" | 
+/**  The database file isn't there. */
+"notFound" | 
+/**  It couldn't be read, or copied into staging. */
+"cantRead" | 
+/**  The key isn't this database's. */
+"wrongKey" | 
+/**  The file is cut off or damaged. */
+"damaged" | 
+/**  The file opened, but isn't a rekordbox library. */
+"notALibrary" | 
+/**  The read was cancelled. */
+"stopped";
+
 /**  A file the tick-off added for you, or matched and left to you. */
 export type DoneForYou = {
 	inboxItemId: number,
@@ -1205,7 +1236,9 @@ export type FailureReason =
  */
 export type Feature = 
 /**  Wishlists (2.3 to 2.5). */
-"wishlist";
+"wishlist" | 
+/**  Reading rekordbox's library database (2.7). */
+"rekordboxDatabase";
 
 /**
  *  One field: the value the track shows and the other values the track's
@@ -1634,6 +1667,8 @@ export type LastRead = {
 	/**  When the snapshot was replaced (UTC, ISO 8601). */
 	readAt: string,
 	summary: SnapshotSummary,
+	/**  What was read. Reads stored before there was a choice were XML. */
+	source?: ReadSource,
 };
 
 /**  A Library track a send leaves out. */
@@ -2246,6 +2281,13 @@ export type ReadFailure = {
 	at: string,
 };
 
+/**  Where a read came from. */
+export type ReadSource = 
+/**  rekordbox's XML export. */
+"xml" | 
+/**  rekordbox's own library database (optional, ROADMAP 2.7). */
+"database";
+
 /**  One reason for a suggestion: an i18n key, its parameters and its source. */
 export type Reason = {
 	/**  An i18n key with its namespace, e.g. `crates:reason.sameKey`. */
@@ -2303,6 +2345,23 @@ export type RefusalReason =
 "tooDeep" | 
 /**  The file couldn't be made (a bug; nothing is written). */
 "internal";
+
+/**  What the Settings row shows. With the feature off, nothing. */
+export type RekordboxDatabase = {
+	/**  Whether a key was typed in this run of the app. */
+	keySet: boolean,
+	/**
+	 *  How many reads have failed in this run: changes exactly when one
+	 *  does, so a read has ended when this or `last_read` changes.
+	 */
+	failures: number,
+	/**  Why the newest read failed, until one works. */
+	failure: DbFailure | null,
+	/**  The newest read, when it was of the database. */
+	lastRead: LastRead | null,
+	/**  rekordbox's usual folder, where the picker opens, if it's there. */
+	usualFolder: string | null,
+};
 
 /**  Whether rekordbox knows a file. */
 export type RekordboxUse = "unknown" | "probable" | "trusted";

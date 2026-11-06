@@ -40,7 +40,7 @@ function fakeBackend({
     }
     // The send state is asked again when the setting changes; nothing here needs it.
     if (cmd === "send_state") return null;
-    // The optional database reader's row: off, as it is by default.
+    // The optional features' rows: off, as they are by default.
     if (cmd === "feature_enabled") return false;
     throw new Error(`unexpected command ${cmd}`);
   });
