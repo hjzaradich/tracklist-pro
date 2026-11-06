@@ -60,6 +60,11 @@ INSERT INTO djmdSongPlaylist VALUES
 /// The synthetic library as a plain SQLite file laid out as SQLCipher
 /// lays out its pages: 4096 bytes, the last 80 reserved.
 fn plain_library(dir: &Path) -> Vec<u8> {
+    plain_library_with(dir, "")
+}
+
+/// The same, with `extra` SQL run on it first.
+fn plain_library_with(dir: &Path, extra: &str) -> Vec<u8> {
     let path = dir.join("plain-fixture.db");
     let conn = Connection::open(&path).unwrap();
     conn.pragma_update(None, "page_size", 4096).unwrap();
@@ -76,6 +81,7 @@ fn plain_library(dir: &Path) -> Vec<u8> {
     };
     assert_eq!(rc, ffi::SQLITE_OK);
     conn.execute_batch(SCHEMA).unwrap();
+    conn.execute_batch(extra).unwrap();
     drop(conn);
     let bytes = fs::read(&path).unwrap();
     assert_eq!(bytes[20], 80, "the fixture reserves SQLCipher's bytes");
@@ -102,6 +108,11 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Fixture {
+        Fixture::with_rows("")
+    }
+
+    /// A fixture whose database also holds the rows `extra` inserts.
+    fn with_rows(extra: &str) -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let base = fs::canonicalize(dir.path()).unwrap();
         let app_data = base.join("data");
@@ -115,7 +126,8 @@ impl Fixture {
         let library = base.join("library");
         fs::create_dir(&library).unwrap();
         let key = DbKey::from_text(key_text(1)).unwrap();
-        let encrypted = cipher::inverse::encrypt(&key, b"synthetic salt!!", &plain_library(&base));
+        let encrypted =
+            cipher::inverse::encrypt(&key, b"synthetic salt!!", &plain_library_with(&base, extra));
         let db = library.join("master.db");
         fs::write(&db, encrypted).unwrap();
         Fixture {
@@ -216,7 +228,7 @@ fn a_read_stores_the_library_like_an_xml_read_and_marks_it_as_the_database() {
     let fx = Fixture::new();
     fx.turn_on();
     let before = fs::read(&fx.db).unwrap();
-    // A -wal with no valid header holds nothing, and a -shm is only copied.
+    // A -wal with no valid header holds nothing; a -shm is never opened.
     fs::write(
         PathBuf::from(format!("{}-wal", fx.db.display())),
         b"no frames",
@@ -474,4 +486,50 @@ fn the_key_is_never_shown_and_a_raw_key_is_read_as_one() {
     assert_eq!(raw.raw().unwrap()[1], 13);
     assert!(!format!("{:?}", Some(&raw)).contains("x'"));
     assert_eq!(DbKey::from_text("x'12'".into()).unwrap().raw(), None);
+}
+
+#[test]
+fn a_user_with_only_the_database_is_refused_a_send_plainly_and_a_chosen_export_still_sends() {
+    let fx = Fixture::new();
+    fx.turn_on();
+    let (status, _) = fx.run(read_job(&fx.db));
+    assert_eq!(status, JobStatus::Done);
+    let refused = crate::send::export_to_send(&fx.stored(), None).unwrap_err();
+    assert_eq!(refused.kind(), crate::ipc::ErrorKind::NoRekordboxXml);
+    let chosen = export(fx._dir.path());
+    let chosen = chosen.to_string_lossy().into_owned();
+    assert_eq!(
+        crate::send::export_to_send(&fx.stored(), Some(chosen.clone())).unwrap(),
+        chosen
+    );
+}
+
+#[test]
+fn one_bad_row_is_left_out_and_counted_and_the_rest_is_still_read() {
+    // A track with no id and no file, one with text where numbers go and an
+    // unknown file type, an entry for a track that isn't there, and a
+    // playlist that is its own parent.
+    let fx = Fixture::with_rows(
+        "
+INSERT INTO djmdContent (ID, FolderPath, Title, FileType, BPM, Length)
+  VALUES ('104', 'C:/Kit/odd.mp3', 'Odd Values', 99, 'fast', 'long'),
+         (NULL, NULL, 'No Id, No Path', 1, 12000, 200);
+INSERT INTO djmdPlaylist VALUES ('14', 3, 'Loop', 0, '14', 0);
+INSERT INTO djmdSongPlaylist VALUES ('4', '11', '999', 4, 0), ('5', NULL, '101', 5, 0);
+",
+    );
+    fx.turn_on();
+    let (status, error) = fx.run(read_job(&fx.db));
+    assert_eq!(status, JobStatus::Done, "{error:?}");
+    let ids: Vec<i64> = fx.snapshot().into_iter().map(|(id, _)| id).collect();
+    assert_eq!(
+        ids,
+        [101, 102, 104],
+        "the good rows and the odd-valued one are read; the row with no id is not"
+    );
+    let last = fx.stored().last_read.unwrap();
+    assert_eq!(last.source, ReadSource::Database);
+    assert_eq!(last.summary.tracks, 3);
+    assert_eq!(last.summary.not_stored, 1, "the bad row is counted");
+    assert!(fx.staging_is_gone());
 }

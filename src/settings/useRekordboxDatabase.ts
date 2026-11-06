@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useState } from "react";
 import { unwrap } from "../api/errors";
 import { commands, type RekordboxDatabase } from "../bindings";
 
@@ -50,13 +51,27 @@ export function useDatabaseState(on: boolean, readingSince: string | null) {
   });
 }
 
-/** Keeps a typed key for this run of the app. */
+/**
+ * Keeps a typed key for this run of the app. Deliberately not a mutation: a
+ * mutation's cache holds on to what it was called with, and the key must not
+ * outlive the call anywhere in the frontend.
+ */
 export function useSetDatabaseKey() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (key: string) => unwrap(commands.setRekordboxDatabaseKey(key)),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: DATABASE_QUERY_KEY }),
-  });
+  const [isPending, setPending] = useState(false);
+  const send = useCallback(
+    async (key: string) => {
+      setPending(true);
+      try {
+        return await unwrap(commands.setRekordboxDatabaseKey(key));
+      } finally {
+        setPending(false);
+        void queryClient.invalidateQueries({ queryKey: DATABASE_QUERY_KEY });
+      }
+    },
+    [queryClient],
+  );
+  return { send, isPending };
 }
 
 /** Reads the database at `path`, as a job, unless the backend refuses. */

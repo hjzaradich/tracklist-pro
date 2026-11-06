@@ -476,6 +476,22 @@ pub async fn send_state(
     Ok(flow.state(export))
 }
 
+/// The export a send starts from: `path` if given, else the chosen XML
+/// export. A library read from rekordbox's database doesn't count: a send
+/// still reads an XML export, so with none chosen it's refused plainly.
+pub(crate) fn export_to_send(
+    stored: &crate::rekordbox::source::XmlSource,
+    path: Option<String>,
+) -> Result<String, IpcError> {
+    match path {
+        Some(path) => Ok(path),
+        None => stored
+            .path
+            .clone()
+            .ok_or_else(|| IpcError::new(ErrorKind::NoRekordboxXml)),
+    }
+}
+
 /// Starts a send: reads rekordbox's export again and builds the preflight,
 /// as a job. With a `path`, that file is read and becomes the chosen
 /// export; without one, the chosen export is read. Any earlier preflight
@@ -488,13 +504,7 @@ pub async fn prepare_send(
     flow: State<'_, SendFlow>,
     path: Option<String>,
 ) -> Result<JobId, IpcError> {
-    let path = match path {
-        Some(path) => path,
-        None => reads
-            .read(stored_source)?
-            .path
-            .ok_or_else(|| IpcError::new(ErrorKind::NoRekordboxXml))?,
-    };
+    let path = export_to_send(&reads.read(stored_source)?, path)?;
     flow.start_over();
     Ok(jobs.enqueue(flow.prepare_job(&path))?)
 }

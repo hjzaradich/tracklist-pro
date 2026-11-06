@@ -1,7 +1,7 @@
 {
   "label": "Read rekordbox's library database",
   "helpOff": "Off. Your rekordbox collection is read from its XML export.",
-  "helpOn": "Reads a copy of rekordbox's library database. The database itself is never changed.",
+  "helpOn": "Reads a copy of rekordbox's library database. The database itself is never changed. Sending to rekordbox still uses an XML export, so export again before you send.",
   "keyLabel": "Database key",
   "keySet": "Key entered for this session",
   "pick": "Pick database",
@@ -17,7 +17,7 @@
     "noKey": "Enter the database key first.",
     "notFound": "The database file isn't there.",
     "cantRead": "Couldn't read the database file.",
-    "wrongKey": "That key doesn't open this database.",
+    "wrongKey": "Wrong key, or a database format this app doesn't read.",
     "damaged": "The database file is cut off or damaged.",
     "notALibrary": "That file isn't a rekordbox library.",
     "stopped": "The read was stopped."

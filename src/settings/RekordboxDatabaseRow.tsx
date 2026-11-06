@@ -63,7 +63,7 @@ export function RekordboxDatabaseRow() {
     const typed = key;
     setKeyText("");
     try {
-      if (typed !== "") await setKey.mutateAsync(typed);
+      if (typed !== "") await setKey.send(typed);
       const since = databaseReadMarker(data);
       const start = await read.mutateAsync(path);
       if (start.kind === "refused") setRefused(start.reason);

@@ -8,7 +8,7 @@
     "where": "Settings screen, rekordbox panel, database row, under the switch while off."
   },
   "helpOn": {
-    "purpose": "Help under the switch while it is on: a copy is read, the database is never changed.",
+    "purpose": "Help under the switch while it is on: a copy is read, the database is never changed, and sending still needs an XML export.",
     "where": "Settings screen, rekordbox panel, database row, under the switch while on."
   },
   "keyLabel": {

@@ -58,9 +58,9 @@ function fakeBackend({ on = false, outcome = "read" }: { on?: boolean; outcome?:
   return backend;
 }
 
-function renderRow() {
+function renderRow(client = createQueryClient()) {
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <RekordboxDatabaseRow />
     </QueryClientProvider>,
   );
@@ -109,6 +109,25 @@ describe("the rekordbox database row", () => {
     await user.click(box);
     await waitFor(() => expect(screen.queryByLabelText(tx("rekordboxDb:keyLabel"))).toBeNull());
     expect(backend.keys).toEqual(["made-up words", ""]);
+  });
+
+  it("keeps the typed key nowhere in the frontend once it is handed over", async () => {
+    fakeBackend({ on: true });
+    const user = userEvent.setup();
+    const client = createQueryClient();
+    renderRow(client);
+    const field = await screen.findByLabelText(tx("rekordboxDb:keyLabel"));
+    expect(screen.getByText(tx("rekordboxDb:helpOn"))).toBeInTheDocument();
+    await user.type(field, "made-up words");
+    await user.click(screen.getByRole("button", { name: tx("rekordboxDb:pick") }));
+    await user.click(screen.getByRole("button", { name: tx("rekordboxDb:read") }));
+    expect(await screen.findByText(tx("rekordboxDb:done", { count: 2 }))).toBeInTheDocument();
+    const held = JSON.stringify([
+      client.getMutationCache().getAll().map((m) => m.state.variables ?? null),
+      client.getQueryCache().getAll().map((q) => q.state.data ?? null),
+    ]);
+    expect(held).not.toContain("made-up words");
+    expect(field).toHaveValue("");
   });
 
   it("says why a read failed", async () => {

@@ -6,8 +6,8 @@
 //! this run of the app only ([`DbKey`]): never written to disk, a log, an
 //! error or a job's target, and never shown back. The user picks the
 //! database file, and a read is a job, as an XML read is:
-//! 1. `master.db`, and its `-wal` and `-shm` files if there are any, are
-//!    copied into a staging folder in app data ([`WriteGuard::staging`]).
+//! 1. `master.db`, and its `-wal` file if there is one, are copied into a
+//!    staging folder in app data ([`WriteGuard::staging`]).
 //!    rekordbox's own files are only ever opened for reading.
 //! 2. The copy is decrypted into a plain SQLite file there ([`cipher`]).
 //! 3. That file is opened read-only, and its tracks and playlists are read
@@ -277,23 +277,18 @@ fn read_database(
     let staging = guard.staging(STAGING).map_err(staging_failed)?;
     let copy = staging.copy_in(COPY, &mut source).map_err(staging_failed)?;
     drop(source);
-    let mut wal_copy = None;
-    for suffix in ["-wal", "-shm"] {
-        let mut name = open.clone().into_os_string();
-        name.push(suffix);
-        match File::open(PathBuf::from(name)) {
-            Ok(mut sidecar) => {
-                let staged = staging
-                    .copy_in(&format!("{COPY}{suffix}"), &mut sidecar)
-                    .map_err(staging_failed)?;
-                if suffix == "-wal" {
-                    wal_copy = Some(staged);
-                }
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(io_failed(e)),
-        }
-    }
+    // The decryptor folds the `-wal` in itself, so `-shm` is never opened.
+    let mut name = open.clone().into_os_string();
+    name.push("-wal");
+    let wal_copy = match File::open(PathBuf::from(name)) {
+        Ok(mut sidecar) => Some(
+            staging
+                .copy_in(&format!("{COPY}-wal"), &mut sidecar)
+                .map_err(staging_failed)?,
+        ),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(io_failed(e)),
+    };
     job.progress(0.2).map_err(stopped)?;
 
     let (plain, out) = staging.create(PLAIN).map_err(staging_failed)?;
