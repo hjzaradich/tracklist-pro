@@ -31,6 +31,9 @@
     "to": "and",
     "halfDouble": "or half/double time",
     "noCrates": "no crates to choose",
+    "noTags": "no tags to choose",
+    "tagGone": "Removed tag (matches no tracks)",
+    "groupGone": "Removed tag group (matches no tracks)",
     "counting": "Counting…",
     "count_zero": "No tracks match",
     "count_one": "{{count, number}} track matches",
@@ -46,7 +49,9 @@
     "key": "Key",
     "genre": "Genre",
     "rating": "Rating",
-    "inCrate": "In crate"
+    "inCrate": "In crate",
+    "tag": "Tag",
+    "tagGroup": "Tag group"
   },
   "op": {
     "is": "is",
@@ -54,7 +59,13 @@
     "atLeast": "is at least",
     "atMost": "is at most",
     "between": "is between",
-    "contains": "contains"
+    "contains": "contains",
+    "has": "has",
+    "hasNot": "doesn’t have"
+  },
+  "opTagGroup": {
+    "has": "has any tag in",
+    "hasNot": "has no tag in"
   },
   "unreadable": "This rule was saved by another version of the app and can't be read, so it matches no tracks.",
   "trackCount_zero": "No tracks",

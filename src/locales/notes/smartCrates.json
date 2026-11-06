@@ -155,6 +155,42 @@
     "purpose": "Field dropdown choice: whether the track is in a hand-made crate.",
     "where": "Crates screen, a smart crate's rule builder."
   },
+  "builder.noTags": {
+    "purpose": "Shown in place of the tag dropdown when there are no tags yet.",
+    "where": "Crates screen, a smart crate's rule builder, on a tag condition (PROPOSED, 3C-F)."
+  },
+  "builder.tagGone": {
+    "purpose": "The choice shown for a tag the rule names but that has been removed; such a condition matches no tracks.",
+    "where": "Crates screen, a smart crate's rule builder, on a tag condition (PROPOSED, 3C-F)."
+  },
+  "builder.groupGone": {
+    "purpose": "The choice shown for a tag group the rule names but that has been removed; such a condition matches no tracks.",
+    "where": "Crates screen, a smart crate's rule builder, on a tag group condition (PROPOSED, 3C-F)."
+  },
+  "field.tag": {
+    "purpose": "Field dropdown choice: whether the track has a given tag.",
+    "where": "Crates screen, a smart crate's rule builder (PROPOSED, 3C-F)."
+  },
+  "field.tagGroup": {
+    "purpose": "Field dropdown choice: whether the track has any tag of a given tag group.",
+    "where": "Crates screen, a smart crate's rule builder (PROPOSED, 3C-F)."
+  },
+  "op.has": {
+    "purpose": "Comparison dropdown choice for a tag: the track has it.",
+    "where": "Crates screen, a smart crate's rule builder (PROPOSED, 3C-F)."
+  },
+  "op.hasNot": {
+    "purpose": "Comparison dropdown choice for a tag: the track does not have it (a track with no tags qualifies).",
+    "where": "Crates screen, a smart crate's rule builder (PROPOSED, 3C-F)."
+  },
+  "opTagGroup.has": {
+    "purpose": "Comparison dropdown choice for a tag group: the track has at least one tag of the group.",
+    "where": "Crates screen, a smart crate's rule builder (PROPOSED, 3C-F)."
+  },
+  "opTagGroup.hasNot": {
+    "purpose": "Comparison dropdown choice for a tag group: the track has none of the group's tags.",
+    "where": "Crates screen, a smart crate's rule builder (PROPOSED, 3C-F)."
+  },
   "op.is": {
     "purpose": "Comparison dropdown choice: equals.",
     "where": "Crates screen, a smart crate's rule builder."

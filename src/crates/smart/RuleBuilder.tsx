@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Condition, Crate, SmartRule } from "../../bindings";
+import type { Condition, Crate, SmartRule, TagGroup } from "../../bindings";
+import { useVocab } from "../../vocab/useVocab";
 import styles from "../CratesScreen.module.css";
 import { crateChoices } from "../tree";
 import {
@@ -13,6 +14,7 @@ import {
   OPS,
   RANGES,
   sameRule,
+  tagIsGone,
   withOp,
   type Field,
 } from "./rule";
@@ -43,6 +45,7 @@ export function RuleBuilder({
   const { t } = useTranslation("smartCrates");
   const [draft, setDraft] = useState<SmartRule>(saved);
   const count = useRuleCount(crateId, draft);
+  const groups = useVocab().data;
   const handMade = crateChoices(all).filter(({ crate }) => crate.kind === "static");
   const changed = !sameRule(draft, saved);
   const unfinished = hasEmptyText(draft);
@@ -76,6 +79,7 @@ export function RuleBuilder({
                 n={at + 1}
                 condition={condition}
                 crates={handMade.map(({ crate, label }) => ({ id: crate.id, label }))}
+                groups={groups}
                 onChange={(next) => setAt(at, next)}
                 onRemove={() =>
                   setDraft({ ...draft, conditions: draft.conditions.filter((_, i) => i !== at) })
@@ -130,12 +134,15 @@ function ConditionRow({
   n,
   condition,
   crates,
+  groups,
   onChange,
   onRemove,
 }: {
   n: number;
   condition: Condition;
   crates: { id: number; label: string }[];
+  /** The tag groups with their tags; `undefined` until read. */
+  groups: TagGroup[] | undefined;
   onChange: (condition: Condition) => void;
   onRemove: () => void;
 }) {
@@ -146,7 +153,11 @@ function ConditionRow({
         className={styles.input}
         aria-label={t("builder.fieldFor", { n })}
         value={condition.field}
-        onChange={(event) => onChange(newCondition(event.target.value as Field, crates[0]?.id ?? null))}
+        onChange={(event) =>
+          onChange(
+            newCondition(event.target.value as Field, crates[0]?.id ?? null, firstTag(groups)),
+          )
+        }
       >
         {FIELDS.map((field) => (
           <option key={field} value={field}>
@@ -162,11 +173,11 @@ function ConditionRow({
       >
         {OPS[condition.field].map((op) => (
           <option key={op} value={op}>
-            {t(`op.${op}`)}
+            {condition.field === "tagGroup" ? t(`opTagGroup.${op as "has" | "hasNot"}`) : t(`op.${op}`)}
           </option>
         ))}
       </select>
-      <Value n={n} condition={condition} crates={crates} onChange={onChange} />
+      <Value n={n} condition={condition} crates={crates} groups={groups} onChange={onChange} />
       <button
         type="button"
         className={styles.button}
@@ -179,15 +190,23 @@ function ConditionRow({
   );
 }
 
+/** The first tag, and the first tag group, a new tag condition starts on. */
+function firstTag(groups: TagGroup[] | undefined) {
+  const group = groups?.find((g) => g.tags.length > 0);
+  return group ? { tag: group.tags[0]!.id, group: group.id } : null;
+}
+
 function Value({
   n,
   condition,
   crates,
+  groups,
   onChange,
 }: {
   n: number;
   condition: Condition;
   crates: { id: number; label: string }[];
+  groups: TagGroup[] | undefined;
   onChange: (condition: Condition) => void;
 }) {
   const { t } = useTranslation("smartCrates");
@@ -258,6 +277,42 @@ function Value({
           onChange={(event) => onChange({ ...condition, value: event.target.value })}
         />
       );
+    case "tag":
+    case "tagGroup": {
+      const isTag = condition.field === "tag";
+      const current = condition.field === "tag" ? condition.tagId : condition.groupId;
+      const gone = groups !== undefined && tagIsGone(condition, groups);
+      const nothing = isTag ? !groups?.some((g) => g.tags.length > 0) : groups?.length === 0;
+      if (groups !== undefined && nothing && !gone) return <span>{t("builder.noTags")}</span>;
+      return (
+        <select
+          className={styles.input}
+          aria-label={label}
+          value={current}
+          onChange={(event) => {
+            const id = Number(event.target.value);
+            onChange(condition.field === "tag" ? { ...condition, tagId: id } : { ...condition, groupId: id });
+          }}
+        >
+          {gone && <option value={current}>{t(isTag ? "builder.tagGone" : "builder.groupGone")}</option>}
+          {isTag
+            ? (groups ?? []).map((group) => (
+                <optgroup key={group.id} label={group.name}>
+                  {group.tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))
+            : (groups ?? []).map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+        </select>
+      );
+    }
     case "inCrate":
       return crates.length === 0 ? (
         <span>{t("builder.noCrates")}</span>

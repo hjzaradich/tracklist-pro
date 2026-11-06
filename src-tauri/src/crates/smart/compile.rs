@@ -6,7 +6,7 @@
 
 use rusqlite::types::Value;
 
-use super::{ChoiceOp, Combine, Condition, NumberOp, SmartRule, TextOp, MAX_CONDITIONS};
+use super::{ChoiceOp, Combine, Condition, NumberOp, SmartRule, TagOp, TextOp, MAX_CONDITIONS};
 use crate::crates::fit::Camelot;
 use crate::search::flag;
 
@@ -103,6 +103,38 @@ pub(super) fn condition(condition: &Condition, params: &mut Vec<Value>) -> Strin
                 ChoiceOp::IsNot => format!("(tr.recording_id NOT IN {held})"),
             }
         }
+        Condition::Tag { op, tag_id } => {
+            let mark = bind(params, Value::Integer(tag_id.0));
+            has_tag(
+                *op,
+                &format!("SELECT 1 FROM tag t WHERE t.id = {mark}"),
+                &format!(
+                    "SELECT 1 FROM tag_applied ta WHERE ta.recording_id = tr.recording_id
+                     AND ta.tag_id = {mark}"
+                ),
+            )
+        }
+        Condition::TagGroup { op, group_id } => {
+            let mark = bind(params, Value::Integer(group_id.0));
+            has_tag(
+                *op,
+                &format!("SELECT 1 FROM tag_group g WHERE g.id = {mark}"),
+                &format!(
+                    "SELECT 1 FROM tag_applied ta JOIN tag t ON t.id = ta.tag_id
+                     WHERE ta.recording_id = tr.recording_id AND t.group_id = {mark}"
+                ),
+            )
+        }
+    }
+}
+
+/// A tag condition. `exists` finds the tag (or group) itself and `applied`
+/// the track's tags among it: a tag or group that is gone matches no track,
+/// "doesn't have" included.
+fn has_tag(op: TagOp, exists: &str, applied: &str) -> String {
+    match op {
+        TagOp::Has => format!("EXISTS ({applied})"),
+        TagOp::HasNot => format!("(EXISTS ({exists}) AND NOT EXISTS ({applied}))"),
     }
 }
 

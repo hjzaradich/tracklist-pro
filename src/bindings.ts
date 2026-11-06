@@ -917,11 +917,12 @@ export type Combine = "all" | "any";
 /**
  *  One condition of a rule. A track with no value for the field (no energy,
  *  no BPM, no key, no genre, no rating) matches no condition on it, "is
- *  not" included.
+ *  not" included. Tags are the exception: a track with no tags has none, so
+ *  "doesn't have" holds for it. A tag or tag group that was deleted matches
+ *  no track, "doesn't have" included; the rule stays readable.
  * 
- *  To add a field (the tag job's "tag includes", after 3.1 merges): a
- *  variant here, its SQL in [`compile::condition`], and its dropdown in
- *  `src/crates/smart/`. Nothing else changes.
+ *  To add a field: a variant here, its SQL in [`compile::condition`], and
+ *  its dropdown in `src/crates/smart/`. Nothing else changes.
  */
 export type Condition = 
 /**  The energy the track shows, 1 to 10. */
@@ -938,7 +939,11 @@ export type Condition =
 /**  The rating in stars, 0 to 5. */
 { field: "rating"; op: NumberOp; value: number; to: number | null } | 
 /**  In a hand-made crate (by id). */
-{ field: "inCrate"; op: ChoiceOp; crateId: CrateId };
+{ field: "inCrate"; op: ChoiceOp; crateId: CrateId } | 
+/**  Has a tag (by id), or doesn't. */
+{ field: "tag"; op: TagOp; tagId: TagId } | 
+/**  Has any tag of a tag group (by id), or has none of them. */
+{ field: "tagGroup"; op: TagOp; groupId: TagGroupId };
 
 /**  A field with open conflicts. */
 export type ConflictField = {
@@ -3511,6 +3516,9 @@ export type TagGroupId = number;
 
 /**  A tag's row id. */
 export type TagId = number;
+
+/**  Comparing tags: the track has one, or it doesn't. */
+export type TagOp = "has" | "hasNot";
 
 /**  What the Details panel lists for one track. */
 export type TagSources = {

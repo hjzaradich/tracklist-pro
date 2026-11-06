@@ -10,7 +10,7 @@ export type Field = Condition["field"];
 export type Op = Condition["op"];
 
 /** The fields the builder offers, in its dropdown's order. */
-export const FIELDS: readonly Field[] = ["energy", "bpm", "key", "genre", "rating", "inCrate"];
+export const FIELDS: readonly Field[] = ["energy", "bpm", "key", "genre", "rating", "inCrate", "tag", "tagGroup"];
 
 const NUMBER_OPS = ["atLeast", "atMost", "between", "is", "isNot"] as const;
 
@@ -22,6 +22,8 @@ export const OPS: Record<Field, readonly Op[]> = {
   key: ["is", "isNot"],
   genre: ["is", "isNot", "contains"],
   inCrate: ["is", "isNot"],
+  tag: ["has", "hasNot"],
+  tagGroup: ["has", "hasNot"],
 };
 
 /** Every Camelot key, for the key dropdown. */
@@ -39,7 +41,12 @@ export const RANGES: Record<"energy" | "bpm" | "rating", [number, number]> = {
 };
 
 /** A new condition on `field`, with a value that makes sense for it. */
-export function newCondition(field: Field, firstCrate: number | null): Condition {
+export function newCondition(
+  field: Field,
+  firstCrate: number | null,
+  /** The first tag and the first tag group, for the tag fields. */
+  firstTag: { tag: number; group: number } | null = null,
+): Condition {
   switch (field) {
     case "energy":
       return { field, op: "atLeast", value: 7, to: null };
@@ -53,6 +60,10 @@ export function newCondition(field: Field, firstCrate: number | null): Condition
       return { field, op: "contains", value: "" };
     case "inCrate":
       return { field, op: "is", crateId: firstCrate ?? 0 };
+    case "tag":
+      return { field, op: "has", tagId: firstTag?.tag ?? 0 };
+    case "tagGroup":
+      return { field, op: "has", groupId: firstTag?.group ?? 0 };
   }
 }
 
@@ -65,7 +76,17 @@ export function withOp(condition: Condition, op: string): Condition {
     return { ...condition, op: op_, to: op_ === "between" ? (condition.to ?? condition.value) : null };
   }
   if (condition.field === "genre") return { ...condition, op: op as typeof condition.op };
+  if (condition.field === "tag" || condition.field === "tagGroup") {
+    return { ...condition, op: op as "has" | "hasNot" };
+  }
   return { ...condition, op: op as "is" | "isNot" };
+}
+
+/** Which tags and groups the vocabulary has now: a tag condition names one that isn't there as gone. */
+export function tagIsGone(condition: Condition, groups: readonly { id: number; tags: readonly { id: number }[] }[]) {
+  if (condition.field === "tag") return !groups.some((g) => g.tags.some((t) => t.id === condition.tagId));
+  if (condition.field === "tagGroup") return !groups.some((g) => g.id === condition.groupId);
+  return false;
 }
 
 /** A whole number from what was typed, kept in `field`'s range; `null` for nothing usable. */

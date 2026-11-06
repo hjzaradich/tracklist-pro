@@ -23,9 +23,10 @@ export function invalidateVocab(queryClient: QueryClient): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: VOCAB_QUERY_KEY });
 }
 
-/** Every group with its tags. */
-export function useVocab() {
+/** Every group with its tags. `enabled: false` reads nothing (for a screen that may not need it). */
+export function useVocab(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: [...VOCAB_QUERY_KEY, "list"] as const,
     queryFn: (): Promise<TagGroup[]> => unwrap(commands.listTags()),
   });

@@ -285,7 +285,15 @@
     "approved": "Genre: {{genre}}"
   },
   "filters.tag": {
-    "purpose": "Filter: tracks that have one tag (PROPOSED, 3A-T). The chip does not name the tag yet.",
+    "purpose": "Filter: tracks that have one tag (PROPOSED, 3A-T). Shown only while the tag names are still being read.",
+    "where": "Filter chip, once a screen adds a tag filter. Not in the Add filter menu."
+  },
+  "filters.tagNamed": {
+    "purpose": "Filter: tracks that have one tag; {{tag}} is the tag's name (free text). Same pattern as filters.genre (PROPOSED, 3C-F).",
+    "where": "Filter chip, once a screen adds a tag filter. Not in the Add filter menu."
+  },
+  "filters.tagGone": {
+    "purpose": "Filter: the tag this filter asks for no longer exists, so no track matches (PROPOSED, 3C-F).",
     "where": "Filter chip, once a screen adds a tag filter. Not in the Add filter menu."
   },
   "format.mp3": {
