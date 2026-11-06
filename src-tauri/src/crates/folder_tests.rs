@@ -721,15 +721,15 @@ fn a_smart_crate_counts_as_a_sibling_so_a_name_the_app_takes_is_one_the_database
     );
     let other = lib.made("Other");
     assert_eq!(worded_as(lib.rename(other, "HOT")), "crate name taken");
-    // A name free in a different folder is fine, and a smart crate is not
-    // listed as a static crate or folder.
+    // A name free in a different folder is fine, and a smart crate is
+    // listed as one (3.3).
     lib.crate_in_ok(Some(sets), "Hot");
     assert!(lib
         .writer
         .call(|c| list(c))
         .unwrap()
         .iter()
-        .all(|c| c.name != "Fresh" || c.parent_id.is_none()));
+        .any(|c| c.name == "Fresh" && c.parent_id == Some(sets) && c.kind == CrateKind::Smart));
 }
 
 /// The names in a send's tree, folders marked with a slash, in the order sent.

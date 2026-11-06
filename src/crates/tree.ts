@@ -97,11 +97,15 @@ export interface CrateChoice {
   label: string;
 }
 
-/** Hand-made crates in tree order, each named by where it is ("Friday residency › Warmup"). */
+/**
+ * Crates in tree order, each named by where it is ("Friday residency ›
+ * Warmup"): hand-made ones, and smart ones, which always include what is
+ * added to them (3.3).
+ */
 export function crateChoices(list: Crate[]): CrateChoice[] {
   const pathTo = pathFinder(list);
   return walk(list)
-    .filter(({ crate }) => crate.kind === "static")
+    .filter(({ crate }) => crate.kind !== "folder")
     .map(({ crate }) => ({ crate, label: pathTo(crate.id).join(PATH_SEPARATOR) }));
 }
 

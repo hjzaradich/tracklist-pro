@@ -1,0 +1,214 @@
+{
+  "icon": {
+    "purpose": "Accessible name of the mark shown before a smart crate's name.",
+    "where": "Crates screen list and the sidebar's crate tree."
+  },
+  "new.button": {
+    "purpose": "Button that starts making a smart crate.",
+    "where": "Crates screen, above the crate list."
+  },
+  "new.label": {
+    "purpose": "Label of the box the new smart crate's name is typed in.",
+    "where": "Crates screen, new smart crate form."
+  },
+  "new.confirm": {
+    "purpose": "Button that makes the smart crate.",
+    "where": "Crates screen, new smart crate form."
+  },
+  "new.cancel": {
+    "purpose": "Button that closes the new smart crate form.",
+    "where": "Crates screen, new smart crate form."
+  },
+  "done.createdSmart": {
+    "purpose": "Says the smart crate was made and empty until a condition is added.",
+    "where": "Crates screen, status line after making a smart crate."
+  },
+  "done.ruleSaved": {
+    "purpose": "Says the smart crate's rule was saved.",
+    "where": "Crates screen, status line after saving a rule."
+  },
+  "builder.label": {
+    "purpose": "Accessible name of the rule builder.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.matchBefore": {
+    "purpose": "Start of the sentence before the all/any dropdown.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.matchAfter": {
+    "purpose": "End of the sentence after the all/any dropdown.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.combineLabel": {
+    "purpose": "Accessible name of the all/any dropdown.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.combine.all": {
+    "purpose": "Dropdown choice: a track must match every condition.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.combine.any": {
+    "purpose": "Dropdown choice: a track matching one condition is enough.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.none": {
+    "purpose": "Says the rule has no conditions, so it holds only added tracks.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.add": {
+    "purpose": "Button that adds a condition to the rule.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.full": {
+    "purpose": "Says the rule holds the most conditions it can.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.fieldFor": {
+    "purpose": "Accessible name of a condition's field dropdown.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.opFor": {
+    "purpose": "Accessible name of a condition's comparison dropdown.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.valueFor": {
+    "purpose": "Accessible name of a condition's value.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.toFor": {
+    "purpose": "Accessible name of the upper value of a 'between' condition.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.removeFor": {
+    "purpose": "Accessible name of the button that removes a condition.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.remove": {
+    "purpose": "Button that removes a condition.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.to": {
+    "purpose": "Word between the two values of a 'between' condition.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.halfDouble": {
+    "purpose": "Checkbox: a BPM condition also matches tracks at half or double the BPM.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.noCrates": {
+    "purpose": "Says there is no hand-made crate to pick for 'In crate'.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.counting": {
+    "purpose": "Shown while the live count is worked out.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.count_zero": {
+    "purpose": "Live count: no track matches the rule.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.count_one": {
+    "purpose": "Live count: one track matches.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.count_other": {
+    "purpose": "Live count: how many tracks match.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.lists": {
+    "purpose": "Explains always include (adding) and never include (taking out).",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.textEmpty": {
+    "purpose": "Says why Save is off: a genre \"contains\" condition has no text yet.",
+    "where": "Crates screen, a smart crate's rule builder, under the conditions."
+  },
+  "builder.save": {
+    "purpose": "Button that saves the rule.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "builder.discard": {
+    "purpose": "Button that drops the rule's unsaved changes.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "field.energy": {
+    "purpose": "Field dropdown choice: the track's energy, 1 to 10.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "field.bpm": {
+    "purpose": "Field dropdown choice: the track's BPM.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "field.key": {
+    "purpose": "Field dropdown choice: the track's key (Camelot).",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "field.genre": {
+    "purpose": "Field dropdown choice: the track's genre.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "field.rating": {
+    "purpose": "Field dropdown choice: the track's star rating.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "field.inCrate": {
+    "purpose": "Field dropdown choice: whether the track is in a hand-made crate.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "op.is": {
+    "purpose": "Comparison dropdown choice: equals.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "op.isNot": {
+    "purpose": "Comparison dropdown choice: does not equal.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "op.atLeast": {
+    "purpose": "Comparison dropdown choice: this value or more.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "op.atMost": {
+    "purpose": "Comparison dropdown choice: this value or less.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "op.between": {
+    "purpose": "Comparison dropdown choice: between two values.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "op.contains": {
+    "purpose": "Comparison dropdown choice: the genre contains this text.",
+    "where": "Crates screen, a smart crate's rule builder."
+  },
+  "unreadable": {
+    "purpose": "Says the stored rule can't be read, so it matches nothing.",
+    "where": "Crates screen, above a smart crate's rule builder."
+  },
+  "trackCount_zero": {
+    "purpose": "Says a smart crate has no tracks.",
+    "where": "Crates screen, smart crate's table header."
+  },
+  "trackCount_one": {
+    "purpose": "Says a smart crate has one track.",
+    "where": "Crates screen, smart crate's table header."
+  },
+  "trackCount_other": {
+    "purpose": "Says how many tracks a smart crate has.",
+    "where": "Crates screen, smart crate's table header."
+  },
+  "noTracks": {
+    "purpose": "Says a smart crate holds no tracks.",
+    "where": "Crates screen, an empty smart crate's table."
+  },
+  "never.button": {
+    "purpose": "Button on a row that keeps the track out of the smart crate.",
+    "where": "Crates screen, a smart crate's table rows."
+  },
+  "never.buttonFor": {
+    "purpose": "Accessible name of the never-include button, naming the track.",
+    "where": "Crates screen, a smart crate's table rows."
+  },
+  "error.ruleTooLong": {
+    "purpose": "Error: the rule has too many conditions or too much text.",
+    "where": "Crates screen, error line when saving a rule."
+  }
+}

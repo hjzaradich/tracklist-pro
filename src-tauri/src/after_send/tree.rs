@@ -169,9 +169,9 @@ pub struct StalePlaylist {
 }
 
 /// The app's own tree: what a send would write, from the `crate` table
-/// ([`crate::send::crate_tree`]): folders and hand-made crates. A smart crate
-/// isn't sent yet (3.3), so it isn't here. The app's playlists are the tag
-/// playlists under `Playlists/Tags` ([`crate::send::tag_playlists`], 3A-T).
+/// ([`crate::send::crate_tree`]): folders, hand-made crates and smart crates.
+/// The app's other playlists are the tag playlists under `Playlists/Tags`
+/// ([`crate::send::tag_playlists`], 3A-T).
 pub fn app_tree(conn: &Connection) -> rusqlite::Result<AppTree> {
     Ok(RekordboxTree::from_nodes(
         &crate::send::crate_tree(conn)?,

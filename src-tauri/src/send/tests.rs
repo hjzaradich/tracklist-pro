@@ -1920,7 +1920,7 @@ fn a_send_clears_a_crashed_sends_leftovers_and_only_those() {
 // --- the crate tree ----------------------------------------------------------------
 
 #[test]
-fn the_crate_tree_is_sent_as_folders_and_hand_made_crates_in_their_stored_order() {
+fn the_crate_tree_is_sent_as_folders_hand_made_and_smart_crates_in_their_stored_order() {
     let w = World::new();
     let (a, _) = w.library_track("a.mp3", "A", true);
     let (b, _) = w.library_track("b.mp3", "B", true);
@@ -1935,10 +1935,15 @@ fn the_crate_tree_is_sent_as_folders_and_hand_made_crates_in_their_stored_order(
     );
     let first = w.crate_of("Opening", &[a]);
     w.insert("UPDATE crate SET position = 0 WHERE id = ?1", (first,));
-    // A smart crate's tracks come from rules nothing evaluates yet.
-    w.insert(
+    // A smart crate goes out as it evaluates (3.3): this one's rule doesn't
+    // read, so it holds its always-include list.
+    let clever = w.insert(
         "INSERT INTO crate (kind, name, rules, position) VALUES ('smart', 'Clever', '{}', 2)",
         (),
+    );
+    w.insert(
+        "INSERT INTO crate_entry (crate_id, library_track_id, kind) VALUES (?1, ?2, 'always_include')",
+        (clever, b.0),
     );
     w.save_export(&[]);
     w.prepare().unwrap();
@@ -1970,6 +1975,11 @@ fn the_crate_tree_is_sent_as_folders_and_hand_made_crates_in_their_stored_order(
                 "Peak".to_owned(),
                 vec!["2".to_owned(), "1".to_owned()]
             ),
+            (
+                vec!["Crates".to_owned()],
+                "Clever".to_owned(),
+                vec!["2".to_owned()]
+            ),
         ]
     );
 
@@ -1992,6 +2002,7 @@ fn the_crate_tree_is_sent_as_folders_and_hand_made_crates_in_their_stored_order(
                 r#"["Crates","Friday","Peak"]"#.to_owned(),
                 "playlist".to_owned()
             ),
+            (r#"["Crates","Clever"]"#.to_owned(), "playlist".to_owned()),
         ]
     );
 }

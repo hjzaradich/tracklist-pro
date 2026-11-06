@@ -8,12 +8,11 @@ use crate::conflicts::membership::Memberships;
 use crate::library::LibraryTrackId;
 use crate::rekordbox_write::{sibling_key, Node, CRATES_FOLDER};
 
-/// The crate tree, for the `Crates` folder of a send: folders and
-/// hand-made crates, siblings in their stored order, a crate's tracks in
-/// the order they were added.
-///
-/// A smart crate isn't sent: its tracks come from rules nothing evaluates
-/// until 3.3.
+/// The crate tree, for the `Crates` folder of a send: folders, hand-made
+/// crates and smart crates, siblings in their stored order, a hand-made
+/// crate's tracks in the order they were added. A smart crate is evaluated
+/// now and goes out as a plain playlist of what it holds
+/// ([`crate::crates::smart::membership`]), so each send refreshes it.
 pub fn crate_tree(conn: &Connection) -> rusqlite::Result<Vec<Node>> {
     let mut entries: HashMap<i64, Vec<LibraryTrackId>> = HashMap::new();
     let mut stmt = conn.prepare(
@@ -27,6 +26,7 @@ pub fn crate_tree(conn: &Connection) -> rusqlite::Result<Vec<Node>> {
             .or_default()
             .push(LibraryTrackId(track));
     }
+    entries.extend(crate::crates::smart::membership::evaluated(conn)?);
 
     struct Row {
         id: i64,
@@ -37,7 +37,7 @@ pub fn crate_tree(conn: &Connection) -> rusqlite::Result<Vec<Node>> {
     let mut children: HashMap<i64, Vec<Row>> = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT id, ifnull(parent_id, 0), kind, name FROM crate
-         WHERE kind IN ('folder', 'static') ORDER BY position, id",
+         ORDER BY position, id",
     )?;
     for row in stmt.query_map([], |r| {
         Ok((

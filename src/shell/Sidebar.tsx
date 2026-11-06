@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { Crate } from "../bindings";
 import { useAddReport, useAddSelectionToCrate } from "../crates/addSelection";
 import { ancestorIds, buildTree, type TreeNode } from "../crates/tree";
+import { SMART_ICON } from "../crates/smart/rule";
 import { useCrates } from "../crates/useCrates";
 import { useInboxCount } from "../inbox/useInbox";
 import { useTrackDrag } from "../trackTable/trackDrag";
@@ -153,6 +154,7 @@ function TreeItems({
   dropOn: DropOn;
 }) {
   const { t } = useTranslation("shell");
+  const { t: ts } = useTranslation("smartCrates");
   return nodes.map(({ crate, children }) => {
     const folder = crate.kind === "folder";
     const open = !closed.has(crate.id) || forcedOpen.has(crate.id);
@@ -181,7 +183,14 @@ function TreeItems({
             <span className={styles.toggle} aria-hidden="true" />
           )}
           <Link to="/crates" search={{ crate: crate.id }} className={styles.link}>
-            <span className={styles.label}>{crate.name}</span>
+            <span className={styles.label}>
+              {crate.kind === "smart" && (
+                <span role="img" aria-label={ts("icon")}>
+                  {SMART_ICON}{" "}
+                </span>
+              )}
+              {crate.name}
+            </span>
           </Link>
         </div>
         {folder && open && children.length > 0 && (

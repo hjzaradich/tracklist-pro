@@ -795,7 +795,7 @@ fn a_folder_holding_only_subfolders_has_no_playlists_but_is_not_empty() {
 }
 
 #[test]
-fn a_smart_crate_is_not_in_the_apps_tree_since_a_send_does_not_write_it() {
+fn a_smart_crate_is_in_the_apps_tree_since_a_send_writes_it() {
     let lib = Lib::new();
     lib.sent(&[(&["Crates", "Clever"], false)]);
     lib.run(
@@ -803,9 +803,8 @@ fn a_smart_crate_is_not_in_the_apps_tree_since_a_send_does_not_write_it() {
         (),
     );
     lib.read_tree(crates(vec![playlist("Clever")]));
-    // It was sent while hand-made; it isn't sent now, so rekordbox's copy is
-    // one the app no longer has.
-    assert_eq!(paths(&lib.lists().stale_playlists), ["Crates / Clever"]);
+    // Every send writes it (3.3), so rekordbox's copy is the app's own.
+    assert!(paths(&lib.lists().stale_playlists).is_empty());
 }
 
 // ---- the title and artist shown (1aG-9) --------------------------------------

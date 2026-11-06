@@ -7,8 +7,9 @@
 //! query and a fixed number of small ones for its rows.
 //!
 //! - **Sources:** the Library, All music (every track that has a file that
-//!   isn't hidden, `crate::hidden`) and
-//!   one crate (in the order the tracks were added, unless sorted).
+//!   isn't hidden, `crate::hidden`),
+//!   one crate (in the order the tracks were added, unless sorted) and one
+//!   smart crate or a rule not saved yet (3.3; for the live count).
 //! - **The order and the filters** read `track_row`, the derived table the
 //!   index job keeps (`search::table_row`): SQL sorts and filters, never
 //!   Rust. A blank value always sorts last, whichever way the column is sorted, and ties fall
@@ -50,6 +51,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::crates::fit::RowFit;
+use crate::crates::smart::{membership as smart_membership, SmartRule};
 use crate::crates::{CrateId, CratesError};
 use crate::db::{ReadPool, Writer};
 use crate::fragile::{self, FragileDirs, FragileReason, Located};
@@ -81,6 +83,15 @@ pub enum TableSource {
     /// rest, best fit first. A sort is ignored: this source has its own order
     /// ([`crate::crates::fit`]), and its rows carry a `fit`.
     CrateByFit { id: CrateId, after: i64 },
+    /// A smart crate's tracks (3.3): the Library tracks its rule matches,
+    /// with its always-include list and without its never-include list
+    /// ([`crate::crates::smart::membership`]), in the Library list's order.
+    /// `rule`, when given, stands in for the stored one: the rule builder's
+    /// draft, for its live count. With no `id`, the draft's own tracks.
+    Smart {
+        id: Option<CrateId>,
+        rule: Option<SmartRule>,
+    },
 }
 
 impl TableSource {
@@ -88,7 +99,7 @@ impl TableSource {
     fn crate_id(&self) -> Option<CrateId> {
         match self {
             TableSource::Crate { id } | TableSource::CrateByFit { id, .. } => Some(*id),
-            TableSource::Library | TableSource::AllMusic => None,
+            TableSource::Library | TableSource::AllMusic | TableSource::Smart { .. } => None,
         }
     }
 }
@@ -399,6 +410,10 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
             ));
             "track_row tr"
         }
+        TableSource::Smart { id, rule } => {
+            conditions.push(smart_membership::condition(*id, rule.as_ref(), &mut params));
+            "track_row tr"
+        }
         TableSource::Crate { id } | TableSource::CrateByFit { id, .. } => {
             params.push(Value::Integer(id.0));
             conditions.push(format!(
@@ -441,6 +456,31 @@ fn crate_exists(conn: &Connection, id: CrateId) -> rusqlite::Result<bool> {
         [id.0],
         |r| r.get(0),
     )
+}
+
+/// The query as it is read, or `None` if the crate it asks for doesn't
+/// exist: a smart crate's stored rule filled in when no draft stands in for
+/// it (a rule that doesn't read stays none, which matches no track).
+/// Every read goes through here before [`build`].
+fn resolved(conn: &Connection, query: &TableQuery) -> rusqlite::Result<Option<TableQuery>> {
+    if let Some(id) = query.source.crate_id() {
+        if !crate_exists(conn, id)? {
+            return Ok(None);
+        }
+    }
+    if let TableSource::Smart { id: Some(id), rule } = &query.source {
+        let Some(stored) = smart_membership::stored_rule(conn, *id)? else {
+            return Ok(None);
+        };
+        return Ok(Some(TableQuery {
+            source: TableSource::Smart {
+                id: Some(*id),
+                rule: rule.clone().or(stored),
+            },
+            ..query.clone()
+        }));
+    }
+    Ok(Some(query.clone()))
 }
 
 /// The ids a `SELECT` of `from_where` gives, in `order_by`, from `offset`.
@@ -707,15 +747,13 @@ pub fn read(
     volumes: &impl Volumes,
     query: &TableQuery,
 ) -> rusqlite::Result<Option<Read>> {
-    if let Some(id) = query.source.crate_id() {
-        if !crate_exists(conn, id)? {
-            return Ok(None);
-        }
-    }
-    let (ids, total, fits) = match fit_order::window(conn, query, MAX_WINDOW)? {
+    let Some(query) = resolved(conn, query)? else {
+        return Ok(None);
+    };
+    let (ids, total, fits) = match fit_order::window(conn, &query, MAX_WINDOW)? {
         Some((ids, total, fits)) => (ids, total, Some(fits)),
         None => {
-            let (ids, total) = window_ids(conn, query)?;
+            let (ids, total) = window_ids(conn, &query)?;
             (ids, total, None)
         }
     };
@@ -749,14 +787,12 @@ pub const MAX_IDS: u32 = 1_000_000;
 /// tracks (Shift+click, Ctrl+A; 1cB-8), which it can't do from the windows
 /// it holds. Holds [`MAX_IDS`] at most.
 pub fn ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<Option<Vec<i64>>> {
-    if let Some(id) = query.source.crate_id() {
-        if !crate_exists(conn, id)? {
-            return Ok(None);
-        }
-    }
+    let Some(query) = resolved(conn, query)? else {
+        return Ok(None);
+    };
     let query = TableQuery {
         with_total: false,
-        ..query.clone()
+        ..query
     };
     Ok(Some(window_ids_up_to(conn, &query, MAX_IDS)?.0))
 }
@@ -855,11 +891,6 @@ pub fn position(
     conn: &Connection,
     asked: &TablePositionQuery,
 ) -> rusqlite::Result<Option<Option<u32>>> {
-    if let Some(id) = asked.source.crate_id() {
-        if !crate_exists(conn, id)? {
-            return Ok(None);
-        }
-    }
     let query = TableQuery {
         source: asked.source.clone(),
         search: asked.search.clone(),
@@ -868,6 +899,9 @@ pub fn position(
         offset: 0,
         limit: 0,
         with_total: false,
+    };
+    let Some(query) = resolved(conn, &query)? else {
+        return Ok(None);
     };
     if let Some(ids) = fit_order::ids(conn, &query)? {
         return Ok(Some(
@@ -940,11 +974,9 @@ pub fn formats(conn: &Connection, source: &TableSource) -> rusqlite::Result<Opti
         limit: 0,
         with_total: false,
     };
-    if let Some(id) = source.crate_id() {
-        if !crate_exists(conn, id)? {
-            return Ok(None);
-        }
-    }
+    let Some(query) = resolved(conn, &query)? else {
+        return Ok(None);
+    };
     let built = build(&query, None);
     let sql = format!(
         "SELECT DISTINCT tr.format {} AND tr.format IS NOT NULL ORDER BY 1",

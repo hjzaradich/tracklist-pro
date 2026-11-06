@@ -149,6 +149,9 @@ error_kinds! {
     CrateMoveIntoItself => "crates:error.moveIntoItself", params: [];
     /// The folders would nest deeper than a send can write.
     CrateTooDeep => "crates:error.tooDeep", params: [];
+    /// A smart crate's rule has more conditions, or longer text, than a
+    /// rule holds.
+    SmartRuleTooLong => "smartCrates:error.ruleTooLong", params: [];
     /// The Review item was answered already, or isn't in the queue any more.
     ReviewItemGone => "review:error.itemGone", params: [];
     /// A decision is remembered by what a file holds, and the file hasn't

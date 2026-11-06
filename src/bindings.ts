@@ -482,6 +482,21 @@ export const commands = {
 	removeTracksFromCrate: (id: CrateId, tracks: LibraryTrackId[]) => typedError<Changed, IpcError>(__TAURI_INVOKE("remove_tracks_from_crate", { id, tracks })),
 	/**  Every folder and crate with its track count. */
 	listCrates: () => typedError<Crate[], IpcError>(__TAURI_INVOKE("list_crates")),
+	/**  Makes a smart crate, in `parent` or at the top. The name is trimmed. */
+	createSmartCrate: (name: string, parent: number | null, rule: SmartRule) => typedError<CrateId, IpcError>(__TAURI_INVOKE("create_smart_crate", { name, parent, rule })),
+	/**
+	 *  Gives a smart crate a new rule. Answers the operation recorded, or none
+	 *  when the rule is the one it has.
+	 */
+	setSmartCrateRule: (id: CrateId, rule: SmartRule) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_smart_crate_rule", { id, rule })),
+	/**
+	 *  A smart crate's rule; none when the stored rule doesn't read (it then
+	 *  matches no track).
+	 */
+	smartCrateRule: (id: CrateId) => typedError<{
+	combine: Combine,
+	conditions: Condition[],
+} | null, IpcError>(__TAURI_INVOKE("smart_crate_rule", { id })),
 	/**  A crate's notes and summary line. */
 	crateSummary: (id: CrateId) => typedError<CrateSummary, IpcError>(__TAURI_INVOKE("crate_summary", { id })),
 	/**
@@ -639,7 +654,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -868,11 +883,43 @@ export type Choice = { choice: "keepApp" } | { choice: "keepRekordbox" } |
  */
 { choice: "edit"; value: string };
 
+/**  Comparing a choice (a key, a crate). */
+export type ChoiceOp = "is" | "isNot";
+
 /**  What "Use this file instead" did. */
 export type Chosen = {
 	/**  The operation to offer Undo for. */
 	operationId: number | null,
 };
+
+/**  How a rule's conditions combine. */
+export type Combine = "all" | "any";
+
+/**
+ *  One condition of a rule. A track with no value for the field (no energy,
+ *  no BPM, no key, no genre, no rating) matches no condition on it, "is
+ *  not" included.
+ * 
+ *  To add a field (the tag job's "tag includes", after 3.1 merges): a
+ *  variant here, its SQL in [`compile::condition`], and its dropdown in
+ *  `src/crates/smart/`. Nothing else changes.
+ */
+export type Condition = 
+/**  The energy the track shows, 1 to 10. */
+{ field: "energy"; op: NumberOp; value: number; to: number | null } | 
+/**
+ *  The BPM, in whole beats as rounded. With `halfDouble`, a track at
+ *  half or double the BPM matches too.
+ */
+{ field: "bpm"; op: NumberOp; value: number; to: number | null; halfDouble?: boolean } | 
+/**  The key, in Camelot notation (`8A`). Any other text matches nothing. */
+{ field: "key"; op: ChoiceOp; value: string } | 
+/**  The genre as the track shows it. */
+{ field: "genre"; op: TextOp; value: string } | 
+/**  The rating in stars, 0 to 5. */
+{ field: "rating"; op: NumberOp; value: number; to: number | null } | 
+/**  In a hand-made crate (by id). */
+{ field: "inCrate"; op: ChoiceOp; crateId: CrateId };
 
 /**  A field with open conflicts. */
 export type ConflictField = {
@@ -974,8 +1021,12 @@ export type Crate = {
 	parentId: CrateId | null,
 	kind: CrateKind,
 	name: string,
-	/**  The tracks in a crate; 0 for a folder. */
-	trackCount: number,
+	/**
+	 *  The tracks in a crate; 0 for a folder. `None` for a smart crate: its
+	 *  count is its rule run over the Library, so whoever shows it asks for
+	 *  that (a table of the crate, no rows, with the total), not every list.
+	 */
+	trackCount: number | null,
 };
 
 /**  A crate's row id. */
@@ -986,7 +1037,9 @@ export type CrateKind =
 /**  Holds crates and folders, never tracks. */
 "folder" | 
 /**  A hand-made crate of Library tracks. */
-"static";
+"static" | 
+/**  A crate whose tracks come from a rule ([`smart`]). */
+"smart";
 
 /**  What the crate view shows under a crate's name. */
 export type CrateSummary = {
@@ -1190,6 +1243,11 @@ export type ErrorKind =
 "crateMoveIntoItself" | 
 /**  The folders would nest deeper than a send can write. */
 "crateTooDeep" | 
+/**
+ *  A smart crate's rule has more conditions, or longer text, than a
+ *  rule holds.
+ */
+"smartRuleTooLong" | 
 /**  The Review item was answered already, or isn't in the queue any more. */
 "reviewItemGone" | 
 /**
@@ -2103,6 +2161,12 @@ export type NotSame = {
 	itemStays: boolean,
 };
 
+/**
+ *  Comparing a number. `Between` takes `value` and `to`, either way round;
+ *  with no `to` it is `Is`.
+ */
+export type NumberOp = "is" | "isNot" | "atLeast" | "atMost" | "between";
+
 /**  What the offer holds now. */
 export type Offer = {
 	/**  Tracks the add would put in the Library. */
@@ -2836,6 +2900,15 @@ export type SkippedItem = {
 	reason: SkipReason,
 };
 
+/**
+ *  A smart crate's rule: its conditions, all of them or any of them. No
+ *  condition matches no track (the crate holds its always-include list only).
+ */
+export type SmartRule = {
+	combine: Combine,
+	conditions: Condition[],
+};
+
 /**  What a read did to the snapshot. */
 export type SnapshotSummary = {
 	/**  Tracks stored from this read, streaming ones included. */
@@ -3219,7 +3292,15 @@ export type TableSource =
  *  rest, best fit first. A sort is ignored: this source has its own order
  *  ([`crate::crates::fit`]), and its rows carry a `fit`.
  */
-{ kind: "crateByFit"; id: CrateId; after: number };
+{ kind: "crateByFit"; id: CrateId; after: number } | 
+/**
+ *  A smart crate's tracks (3.3): the Library tracks its rule matches,
+ *  with its always-include list and without its never-include list
+ *  ([`crate::crates::smart::membership`]), in the Library list's order.
+ *  `rule`, when given, stands in for the stored one: the rule builder's
+ *  draft, for its live count. With no `id`, the draft's own tracks.
+ */
+{ kind: "smart"; id: CrateId | null; rule: SmartRule | null };
 
 /**  A tag, as the vocabulary panel lists it. */
 export type Tag = {
@@ -3303,6 +3384,9 @@ export type TagsImported = {
 	/**  The operation this recorded; `None` when nothing changed. */
 	operationId: number | null,
 };
+
+/**  Comparing text (a genre), letter case and outer spaces ignored. */
+export type TextOp = "is" | "isNot" | "contains";
 
 /**  Which way the tempo was read. */
 export type TimeFeel = 

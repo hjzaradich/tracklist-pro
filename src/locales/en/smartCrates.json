@@ -1,0 +1,71 @@
+{
+  "icon": "Smart crate",
+  "new": {
+    "button": "Create smart crate",
+    "label": "Smart crate name",
+    "confirm": "Create",
+    "cancel": "Go back"
+  },
+  "done": {
+    "createdSmart": "Smart crate created. Add a condition to fill it.",
+    "ruleSaved": "Rule saved"
+  },
+  "builder": {
+    "label": "Rule",
+    "matchBefore": "Library tracks that match",
+    "matchAfter": "of these",
+    "combineLabel": "Match all or any of the conditions",
+    "combine": {
+      "all": "all",
+      "any": "any"
+    },
+    "none": "No conditions yet, so only tracks you add are in this crate.",
+    "add": "Add a condition",
+    "full": "A rule holds at most {{count, number}} conditions.",
+    "fieldFor": "Field of condition {{n}}",
+    "opFor": "Comparison of condition {{n}}",
+    "valueFor": "Value of condition {{n}}",
+    "toFor": "Upper value of condition {{n}}",
+    "removeFor": "Remove condition {{n}}",
+    "remove": "Remove",
+    "to": "and",
+    "halfDouble": "or half/double time",
+    "noCrates": "no crates to choose",
+    "counting": "Counting…",
+    "count_zero": "No tracks match",
+    "count_one": "{{count, number}} track matches",
+    "count_other": "{{count, number}} tracks match",
+    "lists": "Tracks you add to this crate are always in it; tracks you take out never are.",
+    "textEmpty": "Type a genre for the “contains” condition, or remove it. It can’t be saved empty.",
+    "save": "Save rule",
+    "discard": "Discard changes"
+  },
+  "field": {
+    "energy": "Energy",
+    "bpm": "BPM",
+    "key": "Key",
+    "genre": "Genre",
+    "rating": "Rating",
+    "inCrate": "In crate"
+  },
+  "op": {
+    "is": "is",
+    "isNot": "is not",
+    "atLeast": "is at least",
+    "atMost": "is at most",
+    "between": "is between",
+    "contains": "contains"
+  },
+  "unreadable": "This rule was saved by another version of the app and can't be read, so it matches no tracks.",
+  "trackCount_zero": "No tracks",
+  "trackCount_one": "{{count, number}} track",
+  "trackCount_other": "{{count, number}} tracks",
+  "noTracks": "No tracks in this smart crate",
+  "never": {
+    "button": "Never include",
+    "buttonFor": "Never include {{title}}"
+  },
+  "error": {
+    "ruleTooLong": "This rule is too long. Use at most 32 conditions and shorter text."
+  }
+}

@@ -212,6 +212,18 @@ describe("the top bar's Undo", () => {
       "shell:undo.action.removeFromCrate",
       { count: 2, name: "House" },
     ],
+    [operation(1, "create_smart_crate", { name: "Peak" }), "shell:undo.action.createSmartCrate", { name: "Peak" }],
+    [operation(1, "edit_smart_crate", { name: "Peak" }), "shell:undo.action.editSmartCrate", { name: "Peak" }],
+    [
+      operation(1, "always_include", { name: "Peak", tracks: 2 }),
+      "shell:undo.action.alwaysInclude",
+      { count: 2, name: "Peak" },
+    ],
+    [
+      operation(1, "never_include", { name: "Peak", tracks: 1 }),
+      "shell:undo.action.neverInclude",
+      { count: 1, name: "Peak" },
+    ],
   ] as const)("names the action it will undo: %o", async (next, key, params) => {
     history([{ operation: next }]);
     renderBar();

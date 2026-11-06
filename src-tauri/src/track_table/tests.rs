@@ -12,6 +12,7 @@ mod ids;
 mod order;
 mod position;
 mod quality;
+mod smart;
 mod tag_filter;
 
 use super::*;
