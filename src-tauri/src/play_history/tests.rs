@@ -160,6 +160,45 @@ fn relative_paths_are_taken_from_the_playlist_folder() {
     assert_eq!(absolute("../../../a.mp3", base), None);
 }
 
+#[test]
+fn dot_dot_climbs_to_the_top_of_a_slash_root_but_not_above_a_drive_or_share() {
+    // One folder deep on a POSIX-style mount.
+    assert_eq!(absolute("/Music/../x.mp3", None).as_deref(), Some("/x.mp3"));
+    assert_eq!(
+        absolute("../x.mp3", Some("/Music")).as_deref(),
+        Some("/x.mp3")
+    );
+    assert_eq!(absolute("/../x.mp3", None), None);
+    // The server and share of a UNC path stay.
+    assert_eq!(
+        absolute("//server/share/a/../x.mp3", None).as_deref(),
+        Some("//server/share/x.mp3")
+    );
+    assert_eq!(absolute("//server/share/../x.mp3", None), None);
+    assert_eq!(absolute("//server/../x.mp3", None), None);
+    // The drive stays.
+    assert_eq!(
+        absolute("E:/Music/../x.mp3", None).as_deref(),
+        Some("E:/x.mp3")
+    );
+    assert_eq!(absolute("E:/../x.mp3", None), None);
+}
+
+#[test]
+fn a_skipped_line_does_not_pass_its_description_to_the_next_play() {
+    let mut bytes = b"#EXTINF:1,Artist X - Title X\nbad\x01path.mp3\nclean.mp3\n".to_vec();
+    bytes.extend_from_slice(b"#EXTINF:1,Artist Y - Title Y\n\xFF\xFE not text\nclean2.mp3\n");
+    let parsed = m3u8::parse(&bytes);
+    assert_eq!(
+        parsed.entries,
+        vec![
+            entry("clean.mp3", None, None),
+            entry("clean2.mp3", None, None)
+        ]
+    );
+    assert_eq!(parsed.skipped, 2);
+}
+
 // ---- importing -------------------------------------------------------------------
 
 const SET: &str = "#EXTM3U\n\
@@ -276,6 +315,26 @@ fn the_same_plays_in_the_same_order_are_refused_as_already_imported() {
         "E:/Music/b.mp3\nE:/Music/a.mp3\nE:/Elsewhere/partner.mp3\n",
     ));
     assert_eq!(operations(&lib), 2);
+}
+
+#[test]
+fn the_same_plays_on_another_date_are_a_new_session_and_on_the_same_date_are_refused() {
+    let (lib, _, _) = library();
+    let (first, ..) = done(&import(&lib, r"E:\Exports\HISTORY 2026-05-03.m3u8", SET));
+    let (second, ..) = done(&import(&lib, r"E:\Exports\HISTORY 2026-05-10.m3u8", SET));
+    assert_ne!(first, second);
+    assert_eq!(read(&lib, sessions).len(), 2);
+    // The first night's set again, from another file name.
+    let again = import(&lib, r"E:\Exports\copy 2026-05-03 (2).m3u8", SET);
+    assert_eq!(
+        again,
+        HistoryOutcome::Refused {
+            reason: HistoryRefusal::AlreadyImported,
+            session_id: Some(first),
+            skipped_lines: 1,
+        }
+    );
+    assert_eq!(read(&lib, sessions).len(), 2);
 }
 
 #[test]
@@ -457,4 +516,48 @@ fn unmatched_plays_go_to_a_wishlist_in_one_undoable_step_only_while_wishlists_ar
         c.query_row("SELECT count(*) FROM wish_item", [], |r| r.get(0))
     });
     assert_eq!(left, 0);
+}
+
+#[test]
+fn a_long_artist_or_title_is_cut_before_it_goes_to_a_wishlist() {
+    let (lib, _, _) = library();
+    let text = format!(
+        "#EXTINF:1,{} - {}\nE:/x/1.mp3\n",
+        "A".repeat(1500),
+        "T".repeat(1500)
+    );
+    let (session, ..) = done(&run(&lib, move |c| {
+        let m = mounted(c);
+        import_m3u8(c, &m, r"E:\set.m3u8", text.as_bytes())
+    }));
+    let list: i64 = read(&lib, |c| {
+        c.execute(
+            "INSERT INTO wishlist (name, source) VALUES ('Wants', 'paste')",
+            [],
+        )?;
+        Ok(c.last_insert_rowid())
+    });
+    lib.writer
+        .call(|c| write_feature_enabled(c, Feature::Wishlist, true))
+        .unwrap();
+    run(&lib, move |c| add_unmatched_to_wishlist(c, session, list));
+    let (artist, title): (String, String) = read(&lib, |c| {
+        c.query_row("SELECT raw_artist, raw_title FROM wish_item", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+    });
+    assert_eq!(
+        (artist.chars().count(), title.chars().count()),
+        (MAX_WISH_TEXT_CHARS, MAX_WISH_TEXT_CHARS)
+    );
+}
+
+#[test]
+fn a_tab_in_a_title_is_a_space_and_the_play_is_kept() {
+    let parsed = m3u8::parse(b"#EXTINF:1,Artist\tZ - Title\tZ\nsong.mp3\n");
+    assert_eq!(
+        parsed.entries,
+        vec![entry("song.mp3", Some("Artist Z"), Some("Title Z"))]
+    );
+    assert_eq!(parsed.skipped, 0);
 }

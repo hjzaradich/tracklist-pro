@@ -44,6 +44,8 @@ pub const SET_DATE_OPERATION: &str = "history_set_date";
 
 /// The longest session name kept, in characters.
 const MAX_NAME_CHARS: usize = 200;
+/// The longest artist or title a play adds to a wishlist, in characters.
+const MAX_WISH_TEXT_CHARS: usize = 200;
 
 /// Why nothing was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -208,7 +210,7 @@ pub fn import_m3u8(
             entry,
         })
         .collect();
-    if let Some(existing) = same_session(conn, &plays)? {
+    if let Some(existing) = same_session(conn, &plays, &played_on)? {
         return Ok(HistoryOutcome::Refused {
             reason: HistoryRefusal::AlreadyImported,
             session_id: Some(existing),
@@ -259,19 +261,29 @@ pub fn import_m3u8(
     })
 }
 
-/// The session whose plays are `plays`, in order, if there is one.
-fn same_session(conn: &Connection, plays: &[NewPlay]) -> rusqlite::Result<Option<i64>> {
+/// The session played on `played_on` whose plays are `plays`, in order, if
+/// there is one. The same set played on another day is a new session. Limit:
+/// a file with no date in its name takes the import day, so importing it
+/// again on a later day comes in again.
+fn same_session(
+    conn: &Connection,
+    plays: &[NewPlay],
+    played_on: &str,
+) -> rusqlite::Result<Option<i64>> {
     let wanted: Vec<(Option<i64>, String)> = plays
         .iter()
         .map(|p| (p.recording, play_key(&p.entry.path)))
         .collect();
     let mut stmt = conn.prepare(
         "SELECT s.id FROM session s
-         WHERE (SELECT count(*) FROM play_event p WHERE p.session_id = s.id) = ?1
+         WHERE s.played_on = ?2
+           AND (SELECT count(*) FROM play_event p WHERE p.session_id = s.id) = ?1
          ORDER BY s.id",
     )?;
     let candidates = stmt
-        .query_map([wanted.len() as i64], |r| r.get::<_, i64>(0))?
+        .query_map(rusqlite::params![wanted.len() as i64, played_on], |r| {
+            r.get::<_, i64>(0)
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut plays_of = conn.prepare(
         "SELECT recording_id, raw_path FROM play_event WHERE session_id = ?1 ORDER BY position",
@@ -434,8 +446,8 @@ pub fn add_unmatched_to_wishlist(
         }
         match (play.artist, play.title) {
             (Some(artist), Some(title)) => tracks.push(WishTrack {
-                artist,
-                title,
+                artist: artist.chars().take(MAX_WISH_TEXT_CHARS).collect(),
+                title: title.chars().take(MAX_WISH_TEXT_CHARS).collect(),
                 version: None,
                 isrc: None,
             }),

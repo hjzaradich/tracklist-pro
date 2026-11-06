@@ -45,14 +45,19 @@ pub fn parse(bytes: &[u8]) -> Parsed {
         let raw = raw.strip_suffix(b"\r").unwrap_or(raw);
         let Ok(line) = std::str::from_utf8(raw) else {
             parsed.skipped += 1;
+            described = None;
             continue;
         };
+        // A tab inside a title is a space, not a reason to drop the line.
+        let line = line.replace('\t', " ");
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
         if line.len() > MAX_LINE_BYTES || line.chars().any(char::is_control) {
             parsed.skipped += 1;
+            // A skipped line may have been the path the description was for.
+            described = None;
             continue;
         }
         if let Some(info) = strip_prefix_ignore_case(line, "#EXTINF:") {

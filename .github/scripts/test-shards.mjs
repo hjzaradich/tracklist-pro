@@ -78,7 +78,7 @@ export const SHARDS = [
     catchAll: true,
     lib: [
       "after_send", "attach", "audio_preview", "conflict_review", "energy", "energy_stars", "file_roles", "fragile", "genre", "genre", "hash",
-      "hidden", "inbox", "ipc", "missing", "net", "ops", "paths", "preview", "read", "rekordbox_write", "relink", "review",
+      "hidden", "inbox", "ipc", "missing", "net", "ops", "paths", "play_history", "preview", "read", "rekordbox_write", "relink", "review",
       "scan_state", "search", "send", "send_values", "settings", "sniff", "start", "suggest", "tags", "ui_setting",
       "vocab", "volume", "waveform", "wishlist",
       // The tests in lib.rs itself are named tests::..., which no filter can pick

@@ -98,13 +98,19 @@ pub fn absolute(path: &str, base: Option<&str>) -> Option<String> {
             None => ("", joined.as_str()),
         },
     };
+    // How many leading parts `..` may never remove: the server and share of
+    // a `//` path, the drive (`E:`) of a drive path; a plain `/` has none.
+    let floor = match head {
+        "//" => 2,
+        "" => 1,
+        _ => 0,
+    };
     let mut parts: Vec<&str> = Vec::new();
     for part in rest.split('/') {
         match part {
             "" | "." => {}
             ".." => {
-                // Never above the drive (`E:`) or the share.
-                if parts.len() <= 1 {
+                if parts.len() <= floor {
                     return None;
                 }
                 parts.pop();
