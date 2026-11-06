@@ -146,7 +146,7 @@ fn wal_sum(big_endian: bool, data: &[u8], mut s: (u32, u32)) -> (u32, u32) {
             u32::from_le_bytes(b)
         }
     };
-    for pair in data.chunks_exact(8) {
+    for pair in data.as_chunks::<8>().0 {
         s.0 = s.0.wrapping_add(word(&pair[..4])).wrapping_add(s.1);
         s.1 = s.1.wrapping_add(word(&pair[4..])).wrapping_add(s.0);
     }
