@@ -75,6 +75,7 @@ function reloadAfterUndo(queryClient: QueryClient) {
     "overview",
     "review",
     "inbox",
+    "wishlists",
   );
 }
 

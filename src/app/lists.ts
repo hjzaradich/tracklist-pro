@@ -10,6 +10,7 @@ import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
 import { MUSIC_FOLDERS_QUERY_KEY } from "../scan/useMusicFolders";
 import { TRACK_TAG_SOURCES_QUERY_KEY } from "../shell/useTrackTagSources";
+import { WISHLIST_QUERY_KEY } from "../wishlist/useWishlist";
 
 /**
  * The one place that names the lists a change can leave out of date, in
@@ -42,6 +43,8 @@ const GROUPS = {
   afterSend: () => [AFTER_SEND_LISTS_QUERY_KEY],
   /** The Inbox: its items, its count (the sidebar badge) and its folders. */
   inbox: () => [INBOX_QUERY_KEY],
+  /** The wishlists and their items. */
+  wishlists: () => [WISHLIST_QUERY_KEY],
   /** The Overview's numbers. */
   overview: () => [OVERVIEW_QUERY_KEY],
 } satisfies Record<string, () => Keys>;

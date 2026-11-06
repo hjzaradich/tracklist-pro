@@ -1,0 +1,270 @@
+{
+  "title": {
+    "purpose": "Name of the wishlist screen and its sidebar entry.",
+    "where": "Sidebar, and the heading of the Wishlists screen."
+  },
+  "off.message": {
+    "purpose": "Says the wishlist feature is off, so the screen has nothing to show.",
+    "where": "Wishlist screen, when the feature is off."
+  },
+  "off.settings": {
+    "purpose": "Link from the turned-off wishlist screen to Settings, where the feature is turned on.",
+    "where": "Wishlist screen, when the feature is off."
+  },
+  "feature.panel": {
+    "purpose": "Heading of the Settings panel that holds switches for optional features.",
+    "where": "Settings screen, panel heading."
+  },
+  "feature.label": {
+    "purpose": "Label of the Settings switch that turns the wishlist feature on or off.",
+    "where": "Settings screen, Wishlists row."
+  },
+  "feature.helpOff": {
+    "purpose": "Help under the Wishlists switch while it is off.",
+    "where": "Settings screen, Wishlists row."
+  },
+  "feature.helpOn": {
+    "purpose": "Help under the Wishlists switch while it is on.",
+    "where": "Settings screen, Wishlists row."
+  },
+  "feature.error": {
+    "purpose": "Says the Wishlists switch could not be saved.",
+    "where": "Settings screen, Wishlists row."
+  },
+  "import.title": {
+    "purpose": "Heading of the panel where a wishlist is made from a pasted list or a CSV file.",
+    "where": "Wishlist screen, import panel."
+  },
+  "import.name": {
+    "purpose": "Label of the field for the new wishlist's name.",
+    "where": "Wishlist screen, import panel."
+  },
+  "import.paste": {
+    "purpose": "Label of the box where a tracklist is pasted.",
+    "where": "Wishlist screen, import panel."
+  },
+  "import.makeFromPaste": {
+    "purpose": "Button that makes a wishlist from the pasted text.",
+    "where": "Wishlist screen, import panel."
+  },
+  "import.chooseCsv": {
+    "purpose": "Button that picks a CSV file (for example from Exportify) and makes a wishlist from it.",
+    "where": "Wishlist screen, import panel."
+  },
+  "import.csvFilter": {
+    "purpose": "Name of the file type in the file picker.",
+    "where": "Wishlist screen, file picker."
+  },
+  "import.csvNameHint": {
+    "purpose": "Explains how the wishlist from a CSV file is named.",
+    "where": "Wishlist screen, import panel."
+  },
+  "import.added_one": {
+    "purpose": "Says how many tracks the new wishlist took (one).",
+    "where": "Wishlist screen, after an import."
+  },
+  "import.added_other": {
+    "purpose": "Says how many tracks the new wishlist took (other numbers).",
+    "where": "Wishlist screen, after an import."
+  },
+  "import.skippedTitle_one": {
+    "purpose": "Heading over the lines an import could not take (one).",
+    "where": "Wishlist screen, after an import."
+  },
+  "import.skippedTitle_other": {
+    "purpose": "Heading over the lines an import could not take (other numbers).",
+    "where": "Wishlist screen, after an import."
+  },
+  "import.skippedLine": {
+    "purpose": "One line or row an import could not take, with where it was and why.",
+    "where": "Wishlist screen, after an import."
+  },
+  "skip.noSeparator": {
+    "purpose": "Why a pasted line was not taken.",
+    "where": "Wishlist screen, after an import."
+  },
+  "skip.missingArtist": {
+    "purpose": "Why a line or row was not taken.",
+    "where": "Wishlist screen, after an import."
+  },
+  "skip.missingTitle": {
+    "purpose": "Why a line or row was not taken.",
+    "where": "Wishlist screen, after an import."
+  },
+  "skip.unreadable": {
+    "purpose": "Why a CSV row was not taken.",
+    "where": "Wishlist screen, after an import."
+  },
+  "lists.label": {
+    "purpose": "Label of the list of wishlists.",
+    "where": "Wishlist screen, list of wishlists."
+  },
+  "lists.none": {
+    "purpose": "Says there are no wishlists.",
+    "where": "Wishlist screen, list of wishlists."
+  },
+  "lists.summary_one": {
+    "purpose": "Counts under a wishlist's name when it has one track.",
+    "where": "Wishlist screen, list of wishlists."
+  },
+  "lists.summary_other": {
+    "purpose": "Counts under a wishlist's name when it has other numbers of tracks.",
+    "where": "Wishlist screen, list of wishlists."
+  },
+  "lists.delete": {
+    "purpose": "Button that deletes the chosen wishlist (Undo takes it back).",
+    "where": "Wishlist screen, above the items."
+  },
+  "items.label": {
+    "purpose": "Label of the list of a wishlist's tracks.",
+    "where": "Wishlist screen, items."
+  },
+  "items.none": {
+    "purpose": "Says the chosen wishlist is empty.",
+    "where": "Wishlist screen, items."
+  },
+  "items.choose": {
+    "purpose": "Prompt shown before a wishlist is chosen.",
+    "where": "Wishlist screen, items."
+  },
+  "kind.owned": {
+    "purpose": "Result of a wishlist track you have.",
+    "where": "Wishlist screen, a track's result."
+  },
+  "kind.ownedOtherCut": {
+    "purpose": "Result of a wishlist track you have as another cut; it counts as owned.",
+    "where": "Wishlist screen, a track's result."
+  },
+  "kind.rework": {
+    "purpose": "Result of a wishlist track you only have a rework of; it is not owned.",
+    "where": "Wishlist screen, a track's result."
+  },
+  "kind.missing": {
+    "purpose": "Result of a wishlist track you don't have.",
+    "where": "Wishlist screen, a track's result."
+  },
+  "reason.ownedLibrary": {
+    "purpose": "Why a track counts as owned: it is in the Library.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "reason.ownedAllMusic": {
+    "purpose": "Why a track counts as owned: it is in All music only.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "reason.ownedIsrcLibrary": {
+    "purpose": "Why a track counts as owned: the ISRC matches a Library track.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "reason.ownedIsrcAllMusic": {
+    "purpose": "Why a track counts as owned: the ISRC matches a track in All music only.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "reason.otherCutLibrary": {
+    "purpose": "Why a track counts as owned: another cut is in the Library.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "reason.otherCutAllMusic": {
+    "purpose": "Why a track counts as owned: another cut is in All music only.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "reason.rework": {
+    "purpose": "Why a track is a hint and not owned: only a rework is there.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "reason.missing": {
+    "purpose": "Why a track is missing.",
+    "where": "Wishlist screen, beside a track's result."
+  },
+  "item.bought": {
+    "purpose": "Label of the checkbox that marks a wishlist track as bought.",
+    "where": "Wishlist screen, on a track."
+  },
+  "item.notes": {
+    "purpose": "Label of the box for a note on a wishlist track.",
+    "where": "Wishlist screen, on a track."
+  },
+  "item.remove": {
+    "purpose": "Button that removes a track from its wishlist (Undo takes it back).",
+    "where": "Wishlist screen, on a track."
+  },
+  "links.title": {
+    "purpose": "Heading over the search links for a track.",
+    "where": "Wishlist screen, on a track."
+  },
+  "links.copy": {
+    "purpose": "Button that copies a store's search address; the app never opens it.",
+    "where": "Wishlist screen, on a track, store links."
+  },
+  "links.copied": {
+    "purpose": "Says the address was copied.",
+    "where": "Wishlist screen, on a track, store links."
+  },
+  "links.failed": {
+    "purpose": "Says the address could not be copied.",
+    "where": "Wishlist screen, on a track, store links."
+  },
+  "store.beatport": {
+    "purpose": "Name of a store the search link is for.",
+    "where": "Wishlist screen, store links."
+  },
+  "store.bandcamp": {
+    "purpose": "Name of a store the search link is for.",
+    "where": "Wishlist screen, store links."
+  },
+  "store.traxsource": {
+    "purpose": "Name of a store the search link is for.",
+    "where": "Wishlist screen, store links."
+  },
+  "store.juno": {
+    "purpose": "Name of a store the search link is for.",
+    "where": "Wishlist screen, store links."
+  },
+  "refusal.nameEmpty": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.nameTooLong": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.notesTooLong": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.noSuchWishlist": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.noSuchItem": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.notTurnedOn": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.tooManyItems": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.fileUnreadable": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.fileTooBig": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.textTooBig": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.noArtistColumn": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
+  "refusal.noTitleColumn": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  }
+}

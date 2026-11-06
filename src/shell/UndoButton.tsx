@@ -114,6 +114,20 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       return t("undo.action.resolveConflict");
     case "resolve_conflicts":
       return t("undo.action.resolveConflicts");
+    case "wishlist_create":
+      return t("undo.action.wishlistCreate");
+    case "wishlist_rename":
+      return t("undo.action.wishlistRename");
+    case "wishlist_delete":
+      return t("undo.action.wishlistDelete");
+    case "wishlist_add_items":
+      return t("undo.action.wishlistAddItems");
+    case "wishlist_remove_item":
+      return t("undo.action.wishlistRemoveItem");
+    case "wishlist_bought":
+      return t("undo.action.wishlistBought");
+    case "wishlist_notes":
+      return t("undo.action.wishlistNotes");
   }
   return t("undo.action.other");
 }

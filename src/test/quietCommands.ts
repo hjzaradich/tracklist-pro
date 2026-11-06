@@ -65,6 +65,7 @@ const ANSWERS: Record<string, unknown> = {
   music_folders: [],
   read_online_only_files: false,
   read_energy_as_stars: false,
+  feature_enabled: false,
   key_notation: "camelot",
   table_columns: null,
   track_table_formats: [],
