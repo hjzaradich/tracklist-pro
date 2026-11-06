@@ -83,7 +83,7 @@ function ColourSelect({ item, colour, name }: { item: VocabItem; colour: string 
       onChange={(event) => set.mutate({ item, colour: event.target.value === "" ? null : event.target.value })}
     >
       <option value="">{t("colour.default")}</option>
-      {colour !== null && !PALETTE.includes(colour) && <option value={colour}>{colour}</option>}
+      {colour !== null && !(PALETTE as readonly string[]).includes(colour) && <option value={colour}>{colour}</option>}
       {PALETTE.map((hex) => (
         <option key={hex} value={hex}>
           {hex}

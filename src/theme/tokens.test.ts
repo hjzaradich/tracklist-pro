@@ -326,9 +326,10 @@ describe("color literal detection", () => {
 });
 
 describe("no hardcoded colors", () => {
-  // Every source and stylesheet under src, except the token file itself and tests.
+  // Every source and stylesheet under src, except the token file itself, tests,
+  // and one named exception: tag colours are the user's data, stored as #rrggbb, not theme colours.
   const sources = import.meta.glob<string>(
-    ["../**/*.{ts,tsx,css}", "!./tokens.css", "!../**/*.test.{ts,tsx}"],
+    ["../**/*.{ts,tsx,css}", "!./tokens.css", "!../**/*.test.{ts,tsx}", "!../vocab/colours.ts"],
     { query: "?raw", import: "default", eager: true },
   );
 
