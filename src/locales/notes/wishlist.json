@@ -255,6 +255,10 @@
     "purpose": "Says why a wishlist action was refused.",
     "where": "Wishlist screen, under the import panel or the items."
   },
+  "refusal.textTooBig": {
+    "purpose": "Says why a wishlist action was refused.",
+    "where": "Wishlist screen, under the import panel or the items."
+  },
   "refusal.noArtistColumn": {
     "purpose": "Says why a wishlist action was refused.",
     "where": "Wishlist screen, under the import panel or the items."

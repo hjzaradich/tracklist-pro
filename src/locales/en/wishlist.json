@@ -86,6 +86,7 @@
     "tooManyItems": "That is too many tracks for one wishlist.",
     "fileUnreadable": "Couldn't read that file as text.",
     "fileTooBig": "That file is too big.",
+    "textTooBig": "That text is too big.",
     "noArtistColumn": "The file has no artist column.",
     "noTitleColumn": "The file has no title column."
   }

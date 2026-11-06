@@ -101,6 +101,7 @@ export function wishlistBackend(
     wishlistId,
     added,
     skipped,
+    skippedTotal: skipped.length,
   });
   const find = (itemId: unknown) =>
     state.lists.flatMap((list) => list.items).find((item) => item.id === itemId);
