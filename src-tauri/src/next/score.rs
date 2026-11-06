@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use super::{Direction, Settings, Signal, Tolerance, Weights};
+use super::{Direction, Settings, Signal, Tolerance, Weights, MOST_WEIGHT};
 use crate::crates::fit::{tempo_gap, Camelot, TimeFeel, TEMPO_STEPS};
 
 /// The most reasons a result carries.
@@ -239,7 +239,7 @@ fn played_fitness(count: u32) -> f64 {
 }
 
 /// One signal's weight, fitness and reason for a candidate; the reason is
-/// worked out only for the results that are shown.
+/// text fields are filled only for the results that are shown.
 struct Part {
     signal: Option<Signal>,
     weight: u8,
@@ -284,7 +284,15 @@ fn plan(ask: &Ask) -> Plan {
     }
 }
 
-fn parts(ask: &Ask, plan: &Plan, c: &Candidate) -> Vec<Part> {
+#[cfg(test)]
+thread_local! {
+    /// How many key reasons had their names written (tests count these).
+    pub(super) static NAMED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The parts for one candidate. `names` says whether the reason text fields
+/// (the key names) are filled; the order needs only the fitness.
+fn parts(ask: &Ask, plan: &Plan, c: &Candidate, names: bool) -> Vec<Part> {
     let w: &Weights = &ask.settings.weights;
     let tolerance = ask.settings.tolerance;
     let mut out = Vec::with_capacity(4);
@@ -308,8 +316,12 @@ fn parts(ask: &Ask, plan: &Plan, c: &Candidate) -> Vec<Part> {
                     KeyRelation::Far => ReasonCode::KeyFar,
                 };
                 let mut reason = Reason::new(code, fitness);
-                reason.from = Some(target.name());
-                reason.to = Some(key.name());
+                if names {
+                    #[cfg(test)]
+                    NAMED.with(|n| n.set(n.get() + 1));
+                    reason.from = Some(target.name());
+                    reason.to = Some(key.name());
+                }
                 Part {
                     signal: Some(Signal::Key),
                     weight: w.key,
@@ -385,11 +397,14 @@ fn parts(ask: &Ask, plan: &Plan, c: &Candidate) -> Vec<Part> {
     }
     for extra in ask.extras {
         if let Some(p) = extra.part(ask.target_id, c.id) {
-            if p.weight > 0 {
+            // A bad extra is "not used": NaN or a fitness outside 0..=1 is
+            // skipped, and the weight is capped like the settings are.
+            let usable = p.fitness.is_finite() && (0.0..=1.0).contains(&p.fitness);
+            if p.weight > 0 && usable {
                 out.push(Part {
                     signal: None,
-                    weight: p.weight,
-                    fitness: p.fitness.clamp(0.0, 1.0),
+                    weight: p.weight.min(MOST_WEIGHT),
+                    fitness: p.fitness,
                     reason: p.reason,
                 });
             }
@@ -449,7 +464,7 @@ pub fn rank(ask: &Ask, candidates: &[Candidate], most: usize) -> Ranking {
         .enumerate()
         .filter(|(_, c)| c.id != ask.target_id)
         .map(|(n, c)| {
-            let p = parts(ask, &plan, c);
+            let p = parts(ask, &plan, c, false);
             (lacks_energy(&plan, c), score_of(&p), n)
         })
         .collect();
@@ -470,7 +485,7 @@ pub fn rank(ask: &Ask, candidates: &[Candidate], most: usize) -> Ranking {
             Scored {
                 id: c.id,
                 score: (score * 100.0).round().clamp(0.0, 100.0) as u8,
-                reasons: reasons_of(&plan, c, parts(ask, &plan, c)),
+                reasons: reasons_of(&plan, c, parts(ask, &plan, c, true)),
             }
         })
         .collect();

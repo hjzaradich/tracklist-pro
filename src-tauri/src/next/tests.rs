@@ -648,3 +648,89 @@ fn the_reply_has_each_result_as_the_table_row_with_its_reasons() {
     assert_eq!(reply.results[0].reasons[0].code, ReasonCode::KeySame);
     assert_eq!(reply.considered, 1);
 }
+
+struct Odd {
+    weight: u8,
+    fitness: f64,
+}
+
+impl ExtraSignal for Odd {
+    fn part(&self, _target: i64, candidate: i64) -> Option<ExtraPart> {
+        (candidate == 2).then(|| ExtraPart {
+            weight: self.weight,
+            fitness: self.fitness,
+            reason: Reason {
+                code: ReasonCode::PlayedAfter,
+                good: true,
+                from: None,
+                to: None,
+                delta: None,
+                step: None,
+                count: Some(1),
+            },
+        })
+    }
+}
+
+fn with_extra(weight: u8, fitness: f64) -> score::Ranking {
+    let target = facts(Some(120.0), Some("8A"), None);
+    let all = [
+        cand(1, Some(124.0), Some("8A"), None),
+        cand(2, Some(124.0), Some("9A"), None),
+    ];
+    let settings = Settings::default();
+    let none = HashMap::new();
+    let odd = Odd { weight, fitness };
+    let extras: [&dyn ExtraSignal; 1] = [&odd];
+    let ask = Ask {
+        target_id: 0,
+        target,
+        direction: Direction::Same,
+        settings: &settings,
+        played_after: &none,
+        extras: &extras,
+    };
+    rank(&ask, &all, SHOWN)
+}
+
+#[test]
+fn a_bad_extra_signal_is_not_used_and_its_weight_is_capped() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 2.0, -0.5] {
+        let r = with_extra(10, bad);
+        assert_eq!(ids(&r.results), vec![1, 2], "{bad}");
+        assert!(
+            r.results[1].reasons.iter().all(|x| x.count != Some(1)),
+            "{bad}"
+        );
+        let plain = with_extra(0, 1.0);
+        assert_eq!(r.results[1].score, plain.results[1].score, "{bad}");
+    }
+    // 255 counts as 10.
+    assert_eq!(
+        with_extra(255, 1.0).results[0].score,
+        with_extra(10, 1.0).results[0].score
+    );
+    assert_eq!(
+        with_extra(255, 1.0).results[1].score,
+        with_extra(10, 1.0).results[1].score
+    );
+}
+
+#[test]
+fn reasons_are_named_only_for_the_results_shown() {
+    let target = facts(Some(120.0), Some("8A"), None);
+    let all: Vec<Candidate> = (1..=200)
+        .map(|n| cand(n, Some(120.0), Some("9A"), None))
+        .collect();
+    score::NAMED.with(|n| n.set(0));
+    let r = run(
+        target,
+        Direction::Same,
+        Settings::default(),
+        &HashMap::new(),
+        &all,
+    );
+    assert_eq!(r.results.len(), SHOWN);
+    assert_eq!(score::NAMED.with(std::cell::Cell::get), SHOWN);
+    assert!(r.results[0].reasons.iter().any(|x| x.from.is_some()));
+}
