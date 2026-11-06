@@ -8,6 +8,16 @@ use super::matching::{isrcs_in, keys};
 use super::parse::{self, CsvProblem, WishSkipReason};
 use super::*;
 use crate::search::tests::support::Lib;
+use crate::settings::{write_feature_enabled, Feature};
+
+/// A library with wishlists turned on, as the tests below need it.
+fn lib_on() -> Lib {
+    let lib = Lib::new();
+    lib.writer
+        .call(|c| write_feature_enabled(c, Feature::Wishlist, true))
+        .unwrap();
+    lib
+}
 
 // ---- paste ----------------------------------------------------------------
 
@@ -263,7 +273,7 @@ fn key_of(m: &WishMatch) -> String {
 
 #[test]
 fn a_track_you_have_is_owned_and_the_reason_says_library_or_all_music() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (in_library, file) = track(&lib, "Paper Harbor", "Quill Ashby", None);
     lib.library(in_library, file);
     let (elsewhere, _) = track(&lib, "Lantern", "Nova Reed", None);
@@ -285,7 +295,7 @@ fn a_track_you_have_is_owned_and_the_reason_says_library_or_all_music() {
 
 #[test]
 fn a_track_you_dont_have_or_by_someone_else_is_missing() {
-    let lib = Lib::new();
+    let lib = lib_on();
     track(&lib, "Paper Harbor", "Quill Ashby", None);
     for w in [
         wish("Quill Ashby", "Lantern", None, None),
@@ -299,7 +309,7 @@ fn a_track_you_dont_have_or_by_someone_else_is_missing() {
 
 #[test]
 fn a_hidden_or_missing_file_does_not_make_a_track_owned_but_another_file_does() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (_, hidden_file) = track(&lib, "Paper Harbor", "Quill Ashby", None);
     let (_, gone_file) = track(&lib, "Lantern", "Nova Reed", None);
     let (two_files, _) = track(&lib, "Quiet Hours", "Dune Moth", None);
@@ -323,7 +333,7 @@ fn a_hidden_or_missing_file_does_not_make_a_track_owned_but_another_file_does() 
 
 #[test]
 fn another_cut_counts_as_owned_and_a_rework_is_only_a_hint() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (cut, _) = track(&lib, "Paper Harbor (Extended Mix)", "Quill Ashby", None);
     let (rework, _) = track(&lib, "Lantern (Dune Moth Remix)", "Nova Reed", None);
 
@@ -359,7 +369,7 @@ fn another_cut_counts_as_owned_and_a_rework_is_only_a_hint() {
 
 #[test]
 fn the_same_version_beats_another_cut_and_a_library_track_beats_one_in_all_music() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (_cut, _) = track(&lib, "Paper Harbor (Extended Mix)", "Quill Ashby", None);
     let (exact, _) = track(&lib, "Paper Harbor (Radio Edit)", "Quill Ashby", None);
     let wanted = wish("Quill Ashby", "Paper Harbor", Some("Radio Edit"), None);
@@ -377,7 +387,7 @@ fn the_same_version_beats_another_cut_and_a_library_track_beats_one_in_all_music
 
 #[test]
 fn an_isrc_match_wins_over_a_name_match() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (by_name, _) = track(&lib, "Paper Harbor (Extended Mix)", "Quill Ashby", None);
     let (by_isrc, _) = track(
         &lib,
@@ -421,7 +431,7 @@ fn an_isrc_match_wins_over_a_name_match() {
 
 #[test]
 fn an_isrc_of_a_hidden_file_does_not_count() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (_, file) = track(&lib, "Lantern", "Nova Reed", Some("ZZ0000000002"));
     lib.insert(
         "UPDATE file SET hidden_reason = 'user' WHERE id = ?1",
@@ -462,7 +472,7 @@ fn tags_that_are_not_shaped_like_tags_give_no_isrc_and_dont_fail_the_match() {
         ]
     );
 
-    let lib = Lib::new();
+    let lib = lib_on();
     let (bad, bad_file) = track(&lib, "Lantern", "Nova Reed", None);
     lib.insert(
         "UPDATE file SET raw_tags = ?1 WHERE id = ?2",
@@ -561,7 +571,7 @@ fn listed(lib: &Lib) -> i64 {
 
 #[test]
 fn creating_a_wishlist_is_one_operation_and_undo_removes_it_with_its_items() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (before, ops_before) = (dump(&lib), operations(&lib));
     let outcome = run(&lib, |c| {
         create_from_paste(
@@ -595,7 +605,7 @@ fn creating_a_wishlist_is_one_operation_and_undo_removes_it_with_its_items() {
 
 #[test]
 fn creating_from_a_csv_file_is_one_operation_with_a_csv_source() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let before = dump(&lib);
     let outcome = run(&lib, |c| {
         create_from_csv(
@@ -628,7 +638,7 @@ fn creating_from_a_csv_file_is_one_operation_with_a_csv_source() {
 
 #[test]
 fn every_other_write_is_one_operation_and_one_undo_puts_it_back() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let list = listed(&lib);
     let first = lib.writer.call(move |c| items(c, list)).unwrap()[0].id;
     one_operation(&lib, move |c| rename(c, list, "Saturday"));
@@ -643,7 +653,7 @@ fn every_other_write_is_one_operation_and_one_undo_puts_it_back() {
 
 #[test]
 fn a_write_that_changes_nothing_records_no_operation_and_a_bad_one_is_refused() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let list = listed(&lib);
     let item = lib.writer.call(move |c| items(c, list)).unwrap()[0].id;
     let (before, ops_before) = (dump(&lib), operations(&lib));
@@ -702,7 +712,7 @@ fn a_write_that_changes_nothing_records_no_operation_and_a_bad_one_is_refused() 
 
 #[test]
 fn a_paste_with_nothing_readable_makes_no_wishlist_and_says_what_it_skipped() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let outcome = run(&lib, |c| create_from_paste(c, "Empty", "words\nmore words"));
     let WishlistOutcome::Done {
         operation_id,
@@ -722,7 +732,7 @@ fn a_paste_with_nothing_readable_makes_no_wishlist_and_says_what_it_skipped() {
 
 #[test]
 fn the_list_counts_each_result_and_the_bought_items() {
-    let lib = Lib::new();
+    let lib = lib_on();
     let (owned, file) = track(&lib, "Paper Harbor (Extended Mix)", "Quill Ashby", None);
     lib.library(owned, file);
     track(&lib, "Lantern (Dune Moth Remix)", "Nova Reed", None);
@@ -757,4 +767,151 @@ fn the_list_counts_each_result_and_the_bought_items() {
             WishMatchKind::Missing
         ]
     );
+}
+
+// ---- the switch -----------------------------------------------------------
+
+fn switch(lib: &Lib, on: bool) {
+    lib.writer
+        .call(move |c| write_feature_enabled(c, Feature::Wishlist, on))
+        .unwrap();
+}
+
+fn is_on(lib: &Lib) -> bool {
+    lib.writer.call(|c| enabled(c)).unwrap()
+}
+
+#[test]
+fn wishlists_are_off_in_a_new_database_and_only_a_true_value_turns_them_on() {
+    let lib = Lib::new();
+    assert!(!is_on(&lib));
+    switch(&lib, true);
+    assert!(is_on(&lib));
+    switch(&lib, false);
+    assert!(!is_on(&lib));
+    for odd in ["\"true\"", "1", "null"] {
+        lib.writer
+            .call(move |c| {
+                c.execute(
+                    "UPDATE setting SET value = ?1 WHERE key = 'feature_wishlist'",
+                    [odd],
+                )
+            })
+            .unwrap();
+        assert!(!is_on(&lib), "{odd}");
+    }
+}
+
+#[test]
+fn the_joining_point_for_the_inbox_returns_nothing_while_wishlists_are_off() {
+    let lib = lib_on();
+    let (_, file) = track(&lib, "Paper Harbor", "Quill Ashby", None);
+    listed(&lib);
+    assert_eq!(
+        lib.writer
+            .call(move |c| matching_wish_for(c, file))
+            .unwrap(),
+        None
+    );
+    switch(&lib, false);
+    assert_eq!(
+        lib.writer
+            .call(move |c| matching_wish_for(c, file))
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn every_wishlist_function_refuses_while_wishlists_are_off_except_deleting() {
+    let lib = lib_on();
+    let list = listed(&lib);
+    let item = lib.writer.call(move |c| items(c, list)).unwrap()[0].id;
+    switch(&lib, false);
+    let (before, ops_before) = (dump(&lib), operations(&lib));
+    let off = WishlistOutcome::Refused {
+        reason: WishlistRefusal::NotTurnedOn,
+    };
+    assert_eq!(run(&lib, |c| create_from_paste(c, "x", "A - B")), off);
+    assert_eq!(
+        run(&lib, |c| create_from_csv(c, "x", b"artist,title\nA,B")),
+        off
+    );
+    assert_eq!(run(&lib, move |c| add_from_paste(c, list, "A - B")), off);
+    assert_eq!(run(&lib, move |c| rename(c, list, "y")), off);
+    assert_eq!(run(&lib, move |c| remove_item(c, item)), off);
+    assert_eq!(run(&lib, move |c| set_bought(c, item, true)), off);
+    assert_eq!(run(&lib, move |c| set_notes(c, item, Some("n"))), off);
+    assert_eq!(
+        lib.writer.call(|c| wishlists_reply(c)).unwrap(),
+        WishlistsReply::Refused {
+            reason: WishlistRefusal::NotTurnedOn
+        }
+    );
+    assert_eq!(
+        lib.writer.call(move |c| items_reply(c, list)).unwrap(),
+        WishItemsReply::Refused {
+            reason: WishlistRefusal::NotTurnedOn
+        }
+    );
+    assert_eq!((dump(&lib), operations(&lib)), (before, ops_before));
+
+    // Deleting what is there still works, and Undo puts it back.
+    let before = dump(&lib);
+    let outcome = run(&lib, move |c| delete(c, list));
+    assert!(made(&outcome).0.is_some());
+    assert_eq!(dump(&lib), Vec::<String>::new());
+    undo(&lib);
+    assert_eq!(dump(&lib), before);
+}
+
+#[test]
+fn every_wishlist_command_refuses_over_ipc_while_wishlists_are_off() {
+    use crate::ipc::testing::{app, invoke};
+    let (_data, app) = app();
+    let off = json!({"outcome": "refused", "reason": "notTurnedOn"});
+    assert_eq!(
+        invoke(&app, "feature_enabled", json!({"feature": "wishlist"})),
+        Ok(json!(false))
+    );
+    for (command, args) in [
+        ("wishlists_list", json!({})),
+        ("wishlist_items", json!({"wishlistId": 1})),
+        (
+            "wishlist_create_from_paste",
+            json!({"name": "n", "pasted": "A - B"}),
+        ),
+        (
+            "wishlist_create_from_csv",
+            json!({"name": "n", "path": "no/such.csv"}),
+        ),
+        (
+            "wishlist_add_from_paste",
+            json!({"wishlistId": 1, "pasted": "A - B"}),
+        ),
+        ("wishlist_rename", json!({"wishlistId": 1, "name": "n"})),
+        ("wishlist_remove_item", json!({"itemId": 1})),
+        ("wishlist_set_bought", json!({"itemId": 1, "bought": true})),
+        ("wishlist_set_notes", json!({"itemId": 1, "notes": "n"})),
+    ] {
+        assert_eq!(invoke(&app, command, args), Ok(off.clone()), "{command}");
+    }
+    assert_eq!(
+        invoke(
+            &app,
+            "set_feature_enabled",
+            json!({"feature": "wishlist", "on": true})
+        ),
+        Ok(json!(null))
+    );
+    assert_eq!(
+        invoke(&app, "feature_enabled", json!({"feature": "wishlist"})),
+        Ok(json!(true))
+    );
+    let made = invoke(
+        &app,
+        "wishlist_create_from_paste",
+        json!({"name": "n", "pasted": "A - B"}),
+    );
+    assert_eq!(made.unwrap()["outcome"], "done");
 }

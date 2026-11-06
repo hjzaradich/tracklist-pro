@@ -23,6 +23,7 @@ use tauri::State;
 use crate::db::{ReadPool, Writer};
 use crate::ipc::IpcError;
 use crate::ops::{self, OpsError, Recorder};
+use crate::settings::{read_feature_enabled, Feature};
 pub use matching::{Matcher, WishMatch, WishMatchKind};
 pub use parse::{WishSkipReason, WishSkippedLine, WishTrack};
 
@@ -57,6 +58,8 @@ pub enum WishlistRefusal {
     NotesTooLong,
     NoSuchWishlist,
     NoSuchItem,
+    /// The user hasn't turned wishlists on (Feature::Wishlist).
+    NotTurnedOn,
     /// More items than [`MAX_ITEMS`].
     TooManyItems,
     /// The file couldn't be read, or isn't text.
@@ -136,6 +139,31 @@ fn text(value: &str) -> Value {
 
 fn optional(value: &Option<String>) -> Value {
     value.as_deref().map_or(Value::Null, text)
+}
+
+/// Whether the user turned wishlists on. Off for a new database.
+pub fn enabled(conn: &Connection) -> rusqlite::Result<bool> {
+    read_feature_enabled(conn, Feature::Wishlist)
+}
+
+/// The joining point for the Inbox (2.5, W3): the wish item a file in the
+/// Inbox answers. The one place intake and labels ask; nothing in the core
+/// calls the rest of this module. Nothing while wishlists are off.
+/// A stub: W3 fills in the match.
+pub fn matching_wish_for(conn: &Connection, file_id: i64) -> rusqlite::Result<Option<WishFor>> {
+    let _ = file_id;
+    if !enabled(conn)? {
+        return Ok(None);
+    }
+    Ok(None)
+}
+
+/// The wish item an Inbox file answers, and the list it is on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WishFor {
+    pub wishlist_id: i64,
+    pub item_id: i64,
+    pub result: WishMatch,
 }
 
 fn wishlist_exists(conn: &Connection, id: i64) -> rusqlite::Result<bool> {
@@ -227,6 +255,9 @@ pub fn create_from_paste(
     name: &str,
     pasted: &str,
 ) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     create(conn, name, WishlistSource::Paste, parse::paste(pasted))
 }
 
@@ -236,6 +267,9 @@ pub fn create_from_csv(
     name: &str,
     bytes: &[u8],
 ) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     let parsed = match parse::csv(&String::from_utf8_lossy(bytes)) {
         Ok(parsed) => parsed,
         Err(parse::CsvProblem::NoArtistColumn) => {
@@ -255,6 +289,9 @@ pub fn add_from_paste(
     wishlist: i64,
     pasted: &str,
 ) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     if !wishlist_exists(conn, wishlist)? {
         return Ok(refused(WishlistRefusal::NoSuchWishlist));
     }
@@ -302,6 +339,9 @@ pub fn add_from_paste(
 
 /// Renames a wishlist. No operation when the name is the one it has.
 pub fn rename(conn: &mut Connection, id: i64, name: &str) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     let name = match clean_name(name) {
         Ok(name) => name,
         Err(reason) => return Ok(refused(reason)),
@@ -346,6 +386,9 @@ pub fn delete(conn: &mut Connection, id: i64) -> Result<WishlistOutcome, OpsErro
 
 /// Takes one item off its wishlist.
 pub fn remove_item(conn: &mut Connection, item: i64) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     let Some(wishlist) = item_wishlist(conn, item)? else {
         return Ok(refused(WishlistRefusal::NoSuchItem));
     };
@@ -364,6 +407,9 @@ pub fn set_bought(
     item: i64,
     bought: bool,
 ) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     let Some(wishlist) = item_wishlist(conn, item)? else {
         return Ok(refused(WishlistRefusal::NoSuchItem));
     };
@@ -383,6 +429,9 @@ pub fn set_notes(
     item: i64,
     notes: Option<&str>,
 ) -> Result<WishlistOutcome, OpsError> {
+    if !enabled(conn)? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     let notes = notes.map(str::trim).filter(|n| !n.is_empty());
     if notes.is_some_and(|n| n.chars().count() > MAX_NOTES_CHARS) {
         return Ok(refused(WishlistRefusal::NotesTooLong));
@@ -554,6 +603,52 @@ pub fn items(conn: &Connection, wishlist: i64) -> rusqlite::Result<Vec<WishItem>
         .collect())
 }
 
+/// The wishlists, or why they aren't given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub enum WishlistsReply {
+    #[serde(rename_all = "camelCase")]
+    Lists { lists: Vec<WishlistSummary> },
+    #[serde(rename_all = "camelCase")]
+    Refused { reason: WishlistRefusal },
+}
+
+/// The items of a wishlist, or why they aren't given.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub enum WishItemsReply {
+    #[serde(rename_all = "camelCase")]
+    Items { items: Vec<WishItem> },
+    #[serde(rename_all = "camelCase")]
+    Refused { reason: WishlistRefusal },
+}
+
+/// [`wishlists`], refused while wishlists are off.
+pub fn wishlists_reply(conn: &Connection) -> rusqlite::Result<WishlistsReply> {
+    Ok(if enabled(conn)? {
+        WishlistsReply::Lists {
+            lists: wishlists(conn)?,
+        }
+    } else {
+        WishlistsReply::Refused {
+            reason: WishlistRefusal::NotTurnedOn,
+        }
+    })
+}
+
+/// [`items`], refused while wishlists are off.
+pub fn items_reply(conn: &Connection, wishlist: i64) -> rusqlite::Result<WishItemsReply> {
+    Ok(if enabled(conn)? {
+        WishItemsReply::Items {
+            items: items(conn, wishlist)?,
+        }
+    } else {
+        WishItemsReply::Refused {
+            reason: WishlistRefusal::NotTurnedOn,
+        }
+    })
+}
+
 // ---- commands -------------------------------------------------------------
 
 /// The CSV file the user picked, read in full. Only read, never written.
@@ -571,8 +666,8 @@ fn read_file(path: &str) -> Result<Vec<u8>, WishlistRefusal> {
 /// The wishlists with a count per result.
 #[tauri::command]
 #[specta::specta]
-pub async fn wishlists_list(reads: State<'_, ReadPool>) -> Result<Vec<WishlistSummary>, IpcError> {
-    Ok(reads.read(wishlists)?)
+pub async fn wishlists_list(reads: State<'_, ReadPool>) -> Result<WishlistsReply, IpcError> {
+    Ok(reads.read(wishlists_reply)?)
 }
 
 /// The items of a wishlist, each with its result and reason.
@@ -581,8 +676,8 @@ pub async fn wishlists_list(reads: State<'_, ReadPool>) -> Result<Vec<WishlistSu
 pub async fn wishlist_items(
     reads: State<'_, ReadPool>,
     wishlist_id: i64,
-) -> Result<Vec<WishItem>, IpcError> {
-    Ok(reads.read(move |c| items(c, wishlist_id))?)
+) -> Result<WishItemsReply, IpcError> {
+    Ok(reads.read(move |c| items_reply(c, wishlist_id))?)
 }
 
 /// A new wishlist from a pasted tracklist.
@@ -605,6 +700,10 @@ pub fn wishlist_create_from_csv(
     name: String,
     path: String,
 ) -> Result<WishlistOutcome, IpcError> {
+    // Off: refused before the file is touched.
+    if !writer.call(|c| enabled(c))? {
+        return Ok(refused(WishlistRefusal::NotTurnedOn));
+    }
     let bytes = match read_file(&path) {
         Ok(bytes) => bytes,
         Err(reason) => return Ok(refused(reason)),

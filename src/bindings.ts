@@ -16,6 +16,10 @@ export const commands = {
 	keyNotation: () => typedError<KeyNotation, IpcError>(__TAURI_INVOKE("key_notation")),
 	/**  Sets the key notation for the whole app. */
 	setKeyNotation: (notation: KeyNotation) => typedError<null, IpcError>(__TAURI_INVOKE("set_key_notation", { notation })),
+	/**  Whether the user turned an optional feature on. */
+	featureEnabled: (feature: Feature) => typedError<boolean, IpcError>(__TAURI_INVOKE("feature_enabled", { feature })),
+	/**  Turns an optional feature on or off. */
+	setFeatureEnabled: (feature: Feature, on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_feature_enabled", { feature, on })),
 	/**
 	 *  The columns the user chose for a screen's track table; `None` until they
 	 *  choose.
@@ -548,9 +552,9 @@ export const commands = {
 	/**  Clear, for Inbox items whose track is in the Library already. */
 	inboxClear: (itemIds: number[]) => typedError<InboxOutcome, IpcError>(__TAURI_INVOKE("inbox_clear", { itemIds })),
 	/**  The wishlists with a count per result. */
-	wishlistsList: () => typedError<WishlistSummary[], IpcError>(__TAURI_INVOKE("wishlists_list")),
+	wishlistsList: () => typedError<WishlistsReply, IpcError>(__TAURI_INVOKE("wishlists_list")),
 	/**  The items of a wishlist, each with its result and reason. */
-	wishlistItems: (wishlistId: number) => typedError<WishItem[], IpcError>(__TAURI_INVOKE("wishlist_items", { wishlistId })),
+	wishlistItems: (wishlistId: number) => typedError<WishItemsReply, IpcError>(__TAURI_INVOKE("wishlist_items", { wishlistId })),
 	/**  A new wishlist from a pasted tracklist. */
 	wishlistCreateFromPaste: (name: string, pasted: string) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("wishlist_create_from_paste", { name, pasted })),
 	/**
@@ -1159,6 +1163,16 @@ export type FailureReason =
 "damaged" | 
 /**  Well-formed XML, but not a rekordbox collection export. */
 "notAnExport";
+
+/**
+ *  An optional feature (ROADMAP §1.1, CLAUDE.md "Network and privacy"): off
+ *  until the user turns it on. Stored in `setting` as JSON `true` or
+ *  `false` under `feature_<name>`; no row means off. Like the other
+ *  settings, a write is not an operation in the log.
+ */
+export type Feature = 
+/**  Wishlists (2.3 to 2.5). */
+"wishlist";
 
 /**
  *  One field: the value the track shows and the other values the track's
@@ -3165,6 +3179,9 @@ export type WishItem = {
 	result: WishMatch,
 };
 
+/**  The items of a wishlist, or why they aren't given. */
+export type WishItemsReply = { outcome: "items"; items: WishItem[] } | { outcome: "refused"; reason: WishlistRefusal };
+
 /**  An item's result with its reason. */
 export type WishMatch = {
 	kind: WishMatchKind,
@@ -3218,6 +3235,8 @@ skipped: WishSkippedLine[] } |
 
 /**  Why nothing was written. */
 export type WishlistRefusal = "nameEmpty" | "nameTooLong" | "notesTooLong" | "noSuchWishlist" | "noSuchItem" | 
+/**  The user hasn't turned wishlists on (Feature::Wishlist). */
+"notTurnedOn" | 
 /**  More items than [`MAX_ITEMS`]. */
 "tooManyItems" | 
 /**  The file couldn't be read, or isn't text. */
@@ -3244,6 +3263,9 @@ export type WishlistSummary = {
 	/**  Items marked bought. */
 	bought: number,
 };
+
+/**  The wishlists, or why they aren't given. */
+export type WishlistsReply = { outcome: "lists"; lists: WishlistSummary[] } | { outcome: "refused"; reason: WishlistRefusal };
 
 /**
  *  The answer to "how many tracks' stars would change", which the screen

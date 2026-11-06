@@ -71,6 +71,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             app_info,
             crate::settings::key_notation,
             crate::settings::set_key_notation,
+            crate::settings::feature_enabled,
+            crate::settings::set_feature_enabled,
             crate::ui_setting::table_columns,
             crate::ui_setting::set_table_columns,
             crate::jobs::commands::activity,
