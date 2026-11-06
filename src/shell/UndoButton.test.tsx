@@ -143,6 +143,11 @@ describe("the top bar's Undo", () => {
     [operation(1, "wishlist_remove_item"), "shell:undo.action.wishlistRemoveItem", {}],
     [operation(1, "wishlist_bought"), "shell:undo.action.wishlistBought", {}],
     [operation(1, "wishlist_notes"), "shell:undo.action.wishlistNotes", {}],
+    [
+      operation(1, "wishlist_tick_off", { name: "Friday" }),
+      "shell:undo.action.wishlistTickOff",
+      { name: "Friday" },
+    ],
     [operation(1, "promote"), "shell:undo.action.addToLibrary", {}],
     [operation(1, "remove_from_library"), "shell:undo.action.removeFromLibrary", {}],
     [operation(1, "show_file_again"), "shell:undo.action.showFileAgain", {}],
@@ -393,6 +398,17 @@ describe("keeping the top bar's Undo current", () => {
     );
     expect(await screen.findByRole("status")).toHaveTextContent(tx("shell:undo.refused.sentSince"));
     expect(screen.getByRole("button", { name: LABEL.add() })).toBeDisabled();
+  });
+
+  it("names a tick-off a background task recorded, once that task ends", async () => {
+    const backend = history([{ operation: ADD }]);
+    renderBar();
+    expect(await undoButton(LABEL.add())).toBeEnabled();
+    backend.steps.push({ operation: operation(4, "wishlist_tick_off", { name: "Friday" }) });
+    await act(() =>
+      emit("job-updates", [{ seq: 1, id: 1, kind: "group", status: "done", progress: null, priority: 0 }]),
+    );
+    expect(await undoButton(tx("shell:undo.action.wishlistTickOff", { name: "Friday" }))).toBeEnabled();
   });
 });
 

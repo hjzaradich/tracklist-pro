@@ -5,10 +5,11 @@ import type { InboxItem, Label, LabelCounts } from "../bindings";
 import { StageScreen } from "../shell/StageScreen";
 import { useMusicFolders } from "../scan/useMusicFolders";
 import { fileNameOf, type Result } from "./inboxText";
+import { DoneForYou } from "./DoneForYou";
 import { InboxFolders } from "./InboxFolders";
 import { InboxRow, type RowAction } from "./InboxRow";
 import { ResultLine } from "./ResultLine";
-import { useInboxAction, useInboxCount, useInboxItems, type InboxAction } from "./useInbox";
+import { useDoneForYou, useInboxAction, useInboxCount, useInboxItems, type InboxAction } from "./useInbox";
 import styles from "./inbox.module.css";
 
 /** The labels that have a filter chip, in the order the chips show them. */
@@ -53,7 +54,8 @@ export function batchesOf(items: readonly InboxItem[]): Batch[] {
  * how it arrived, each file with its label and the reason for it. Files
  * already in the Library wait in a collapsed group at the bottom with one
  * Clear. Every action is one operation the top bar's Undo takes back. The
- * Inbox folders are managed below the list.
+ * Inbox folders are managed below the list. Files a wishlist asked for come
+ * first, in Done for you (2.5).
  */
 export function InboxScreen() {
   const { t, i18n } = useTranslation("inbox");
@@ -63,6 +65,7 @@ export function InboxScreen() {
   const [results, setResults] = useState<Record<string, Result>>({});
   const count = useInboxCount();
   const items = useInboxItems(label);
+  const doneForYou = useDoneForYou();
   const folders = useMusicFolders();
   const action = useInboxAction();
 
@@ -116,6 +119,7 @@ export function InboxScreen() {
             {errorMessage(failure)}
           </p>
         )}
+        <DoneForYou entries={doneForYou.data ?? []} />
         {counts && total > 0 && (
           <ul className={styles.chips} aria-label={t("filter.label")}>
             <Chip text={t("filter.all")} count={total} active={label === null} onClick={() => setLabel(null)} />

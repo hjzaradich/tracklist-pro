@@ -175,6 +175,22 @@
     "purpose": "Closes the Already have group.",
     "where": "Inbox, bottom of the list."
   },
+  "doneForYou.title": {
+    "purpose": "Heading of the group of new files that were on a wishlist: added to the Library by the app on its own, or matched and left for the user.",
+    "where": "Inbox, top of the list, only when such files are there."
+  },
+  "doneForYou.wish": {
+    "purpose": "Which wishlist item a file matched: the wishlist's name, then the artist and title as the wishlist has them (all data).",
+    "where": "Inbox, Done for you group, each row."
+  },
+  "doneForYou.added": {
+    "purpose": "Says the app added this file to the Library on its own because it was the exact track on a wishlist. Undo in the top bar takes it back.",
+    "where": "Inbox, Done for you group, a row's label."
+  },
+  "doneForYou.leftToYou": {
+    "purpose": "Says the file matched a wishlist track but the app did not add it on its own (it needs the user's OK first, or the user undid the automatic add).",
+    "where": "Inbox, Done for you group, a row's label."
+  },
   "folders.title": {
     "purpose": "Heading of the section that lists the Inbox folders.",
     "where": "Inbox, below the list."

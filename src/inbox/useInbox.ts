@@ -1,13 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { reloadLists } from "../app/lists";
 import { unwrap } from "../api/errors";
-import { commands, type InboxCount, type InboxItem, type InboxOutcome, type Label } from "../bindings";
+import {
+  commands,
+  type DoneForYou,
+  type InboxCount,
+  type InboxItem,
+  type InboxOutcome,
+  type Label,
+} from "../bindings";
 import { MUSIC_FOLDERS_QUERY_KEY } from "../scan/useMusicFolders";
 
 /** Everything the Inbox shows starts with this, so one invalidation reaches it all. */
 export const INBOX_QUERY_KEY = ["inbox"] as const;
 const COUNT_KEY = [...INBOX_QUERY_KEY, "count"] as const;
 const ITEMS_KEY = [...INBOX_QUERY_KEY, "items"] as const;
+const DONE_FOR_YOU_KEY = [...INBOX_QUERY_KEY, "doneForYou"] as const;
 
 /** How many items are new (the sidebar badge), by label, and the Inbox folders. */
 export function useInboxCount() {
@@ -19,6 +27,14 @@ export function useInboxItems(label: Label | null) {
   return useQuery({
     queryKey: [...ITEMS_KEY, label],
     queryFn: (): Promise<InboxItem[]> => unwrap(commands.inboxItems({ status: "new", label })),
+  });
+}
+
+/** The files the wishlist tick-off added for you, or matched and left to you (empty while wishlists are off). */
+export function useDoneForYou() {
+  return useQuery({
+    queryKey: DONE_FOR_YOU_KEY,
+    queryFn: (): Promise<DoneForYou[]> => unwrap(commands.inboxDoneForYou()),
   });
 }
 

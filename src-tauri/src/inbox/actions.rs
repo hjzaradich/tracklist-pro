@@ -250,6 +250,38 @@ fn add_refusal(conn: &Connection, item: &Item) -> rusqlite::Result<Option<InboxR
     })
 }
 
+/// Whether [`add`] would take `item` on its own, by the same rules, before
+/// the low-bitrate question: its track and file when it would, else why
+/// not. The wishlist tick-off asks this (2.5); it reads only.
+pub(crate) fn add_check(
+    conn: &Connection,
+    item: i64,
+) -> rusqlite::Result<Result<(i64, i64), InboxRefusal>> {
+    let item = match load(conn, &[item])? {
+        Ok(mut items) if !items.is_empty() => items.swap_remove(0),
+        _ => return Ok(Err(InboxRefusal::ItemGone)),
+    };
+    Ok(match (add_refusal(conn, &item)?, item.recording) {
+        (Some(reason), _) => Err(reason),
+        (None, Some(recording)) => Ok((recording, item.file)),
+        (None, None) => Err(InboxRefusal::NotIdentified),
+    })
+}
+
+/// The writes of [`add`] for one item, as changes of `rec`: its file
+/// becomes the linked file of a new Library track of `recording`, and the
+/// item is `added`. The caller checked it first ([`add_check`]).
+pub(crate) fn add_in(
+    rec: &mut Recorder<'_>,
+    item: i64,
+    recording: i64,
+    file: i64,
+) -> Result<library::LibraryTrackId, OpsError> {
+    let track = library::insert_linked(rec, recording, file)?;
+    decide(rec, item, "added")?;
+    Ok(track)
+}
+
 /// Adds the files of `items` to the Library, each as a new linked Library
 /// track of its own track, as one operation. A file with the `low bitrate`
 /// finding is added only if `confirm_low_bitrate` says the user agreed.
@@ -289,8 +321,7 @@ pub fn add(
         |rec| {
             for item in &items {
                 let recording = item.recording.expect("checked above");
-                library::insert_linked(rec, recording, item.file)?;
-                decide(rec, item.id, "added")?;
+                add_in(rec, item.id, recording, item.file)?;
             }
             Ok(())
         },

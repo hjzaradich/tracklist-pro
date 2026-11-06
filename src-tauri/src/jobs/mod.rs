@@ -95,7 +95,9 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
         )
         .handler(
             JobKind::Group,
-            crate::scan::chain::after_group(crate::grouping::Grouper::default()),
+            crate::scan::chain::after_group(crate::wishlist::tick_off::after(
+                crate::grouping::Grouper::default(),
+            )),
         )
         .handler(
             JobKind::Match,

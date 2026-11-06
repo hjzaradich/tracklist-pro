@@ -219,6 +219,10 @@ fn make(conn: &mut Connection, folder: Option<i64>, online_only: bool) -> rusqli
 /// Intake is a side effect and never changes the hash job's result: if it
 /// fails, the failure is logged and the job's own result stands, so the
 /// chain goes on as it would have.
+///
+/// Then the wishlist tick-off looks at the new files that are in a decided
+/// track already (`wishlist::tick_off`, 2.5), as its own write: most get
+/// there with the grouping job, which runs the same pass when it ends.
 pub fn after_hash<H: JobHandler>(hasher: H) -> Intaking<H> {
     Intaking { inner: hasher }
 }
@@ -234,6 +238,7 @@ impl<H: JobHandler> JobHandler for Intaking<H> {
         if let Err(e) = job.writer().call(run) {
             eprintln!("inbox intake after a hash job failed: {e}");
         }
+        crate::wishlist::tick_off::after_job(job);
         result
     }
 }

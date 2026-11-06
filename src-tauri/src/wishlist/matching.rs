@@ -162,6 +162,14 @@ struct Candidate {
     artists: Vec<String>,
 }
 
+/// The item's title with its version, as a file's title would carry it.
+fn wish_name(wish: &WishTrack) -> String {
+    match &wish.version {
+        Some(version) => format!("{} ({version})", wish.title),
+        None => wish.title.clone(),
+    }
+}
+
 pub struct Matcher {
     candidates: Vec<Candidate>,
     by_title: HashMap<String, Vec<usize>>,
@@ -173,6 +181,18 @@ impl Matcher {
     /// Reads the owned tracks: one query for which they are, one for their
     /// names, one for the ISRCs of their files.
     pub fn build(conn: &Connection) -> rusqlite::Result<Matcher> {
+        Matcher::build_among(conn, None)
+    }
+
+    /// [`Matcher::build`] over `recordings` only (those of them that are
+    /// owned): what the Inbox tick-off asks about its new files (2.5).
+    pub fn build_for(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<Matcher> {
+        Matcher::build_among(conn, Some(recordings))
+    }
+
+    fn build_among(conn: &Connection, among: Option<&[i64]>) -> rusqlite::Result<Matcher> {
+        // NULL: every track.
+        let among = among.map(|ids| serde_json::to_string(ids).unwrap_or_else(|_| "[]".into()));
         let owned: Vec<(i64, bool)> = conn
             .prepare_cached(
                 "SELECT rf.recording_id,
@@ -181,10 +201,12 @@ impl Matcher {
                  FROM recording_file rf
                  JOIN file f ON f.id = rf.file_id
                  WHERE f.present = 1 AND f.hidden_reason IS NULL
+                   AND (?1 IS NULL
+                        OR rf.recording_id IN (SELECT value FROM json_each(?1)))
                  GROUP BY rf.recording_id
                  ORDER BY rf.recording_id",
             )?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map([&among], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         let ids: Vec<i64> = owned.iter().map(|(id, _)| *id).collect();
         let mut names = if ids.is_empty() {
@@ -219,9 +241,10 @@ impl Matcher {
              FROM file f JOIN recording_file rf ON rf.file_id = f.id
              WHERE f.present = 1 AND f.hidden_reason IS NULL
                AND (f.raw_tags LIKE '%TSRC%' OR f.raw_tags LIKE '%ISRC%')
+               AND (?1 IS NULL OR rf.recording_id IN (SELECT value FROM json_each(?1)))
              ORDER BY f.id DESC",
         )?;
-        let mut rows = files.query([])?;
+        let mut rows = files.query([&among])?;
         while let Some(row) = rows.next()? {
             let (recording, raw): (i64, String) = (row.get(0)?, row.get(1)?);
             for isrc in isrcs_in(&raw) {
@@ -254,20 +277,49 @@ impl Matcher {
         }
     }
 
-    /// What `wish` comes to.
-    pub fn find(&self, wish: &WishTrack) -> WishMatch {
-        if let Some(isrc) = wish.isrc.as_deref().and_then(normalize_isrc) {
-            if let Some(&recording) = self.by_isrc.get(&isrc) {
-                if self.by_recording.contains_key(&recording) {
-                    return self.owned(recording, true);
+    /// The track an owned file's ISRC names, when `wish` has that ISRC.
+    fn by_isrc_of(&self, wish: &WishTrack) -> Option<i64> {
+        let isrc = wish.isrc.as_deref().and_then(normalize_isrc)?;
+        let recording = *self.by_isrc.get(&isrc)?;
+        self.by_recording
+            .contains_key(&recording)
+            .then_some(recording)
+    }
+
+    /// Every track `wish` is owned as, the very same version (not another
+    /// cut, not a rework), each with its reason, the lowest id first. An
+    /// ISRC an owned file carries decides alone, as in [`Matcher::find`].
+    pub fn owners(&self, wish: &WishTrack) -> Vec<WishMatch> {
+        if let Some(recording) = self.by_isrc_of(wish) {
+            return vec![self.owned(recording, true)];
+        }
+        let parsed = versions::parse_title(&wish_name(wish));
+        let artists = artist_keys(&wish.artist);
+        let mut found: Vec<i64> = Vec::new();
+        for key in title_keys(&parsed) {
+            for &at in self.by_title.get(&key).into_iter().flatten() {
+                let candidate = &self.candidates[at];
+                if found.contains(&candidate.recording)
+                    || !candidate.artists.iter().any(|a| artists.contains(a))
+                {
+                    continue;
+                }
+                let theirs = versions::parse_title(&candidate.title);
+                if versions::compare(&parsed, &theirs).outcome == Outcome::SameVersion {
+                    found.push(candidate.recording);
                 }
             }
         }
-        let name = match &wish.version {
-            Some(version) => format!("{} ({version})", wish.title),
-            None => wish.title.clone(),
-        };
-        let parsed = versions::parse_title(&name);
+        found.sort_unstable();
+        found.into_iter().map(|r| self.owned(r, false)).collect()
+    }
+
+    /// What `wish` comes to.
+    pub fn find(&self, wish: &WishTrack) -> WishMatch {
+        if let Some(recording) = self.by_isrc_of(wish) {
+            return self.owned(recording, true);
+        }
+        let parsed = versions::parse_title(&wish_name(wish));
         let artists = artist_keys(&wish.artist);
         // Same version, other cut, other rework: 3, 2, 1.
         let mut best: Option<(u8, bool, std::cmp::Reverse<i64>, usize)> = None;
