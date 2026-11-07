@@ -219,6 +219,11 @@ function GapSuggestions({
   const notation = useKeyNotation();
   const found = useFillGap(playlistId, gap.after, true);
   const insert = useInsertAt();
+  // No reason, no suggestion: one whose reasons have no words is left out.
+  const shown = (found.data?.suggestions ?? []).flatMap(({ row, reasons }) => {
+    const why = reasons.flatMap((reason) => reasonText(t, reason, notation) ?? []);
+    return why.length === 0 ? [] : [{ row, why }];
+  });
   return (
     <div className={styles.gap} role="region" aria-label={t("timeline.fill.title")}>
       <div className={styles.gapLine}>
@@ -241,16 +246,16 @@ function GapSuggestions({
         </p>
       )}
       {found.data !== undefined &&
-        (found.data.suggestions.length === 0 ? (
+        (shown.length === 0 ? (
           <p className={styles.note}>{t("timeline.fill.none")}</p>
         ) : (
           <ul className={styles.suggestions} aria-label={t("timeline.fill.list")}>
-            {found.data.suggestions.map(({ row, reasons }) => {
+            {shown.map(({ row, why }) => {
               const name = entryName({ artist: row.artist, title: shownName(row) }) || t("timeline.untitled");
               return (
                 <li key={row.recordingId} className={styles.suggestion}>
                   <span className={styles.suggestionName}>{name}</span>
-                  <span className={styles.reasons}>{reasons.map((reason) => reasonText(t, reason, notation)).join(", ")}</span>
+                  <span className={styles.reasons}>{why.join(", ")}</span>
                   <button
                     type="button"
                     className={styles.small}

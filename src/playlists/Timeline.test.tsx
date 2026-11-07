@@ -193,6 +193,16 @@ describe("the target shape", () => {
     fireEvent.keyDown(await waitFor(() => within(chart()).getByRole("slider")), { key: "Delete" });
     await waitFor(() => expect(backend.called("clear_playlist_target")).toHaveLength(1));
     expect(backend.called("set_playlist_target")).toHaveLength(0);
+     expect(await screen.findByRole("button", { name: tx("shell:undo.action.clearPlaylistTarget", { name: "Arc" }) })).toBeInTheDocument();
+  });
+
+  it("shows the error when a change cannot be saved, and the picture goes back to what is saved", async () => {
+    const backend = await openTimeline({ refusing: ["set_playlist_target"] });
+    fireEvent.pointerDown(plot(), pointer(xOf(0.5), yOf(8)));
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("playlists:error.notFound"));
+    expect(backend.called("set_playlist_target")).toHaveLength(1);
+    await waitFor(() => expect(handles()).toHaveLength(0));
+    expect(screen.queryByText(tx("playlists:done.targetSet"))).not.toBeInTheDocument();
   });
 
   it("clears the whole target as one change with a named Undo, and Undo brings it back", async () => {
@@ -256,6 +266,30 @@ describe("fill the gap", () => {
     expect(backend.state.playlists[0]?.entries.map(([, recording]) => recording)).toEqual([100, 103, 101, 102]);
   });
 
+  it("shows the inserted track in the timeline and in the playlist's table", async () => {
+    await openTimeline();
+    await userEvent.click(screen.getByRole("button", { name: tx("playlists:timeline.fill.between", { from: "Tune 0", to: "Tune 1" }) }));
+    await suggestions();
+    await userEvent.click(screen.getByRole("button", { name: tx("playlists:timeline.fill.insertFor", { title: "Some Artist - Bridge" }) }));
+
+    await waitFor(() => expect(document.querySelectorAll("[data-entry-row]")).toHaveLength(4));
+    const order = Array.from(document.querySelectorAll("[data-entry-row]")).map((entry) => within(entry as HTMLElement).getAllByRole("cell")[2]?.textContent);
+    expect(order).toEqual(["Tune 0", "Some Artist - Bridge", "Tune 1", "Tune 2"]);
+    await waitFor(() => {
+      const titles = within(screen.getByRole("grid")).getAllByRole("row").slice(1).map((r) => /Tune \d|Bridge/.exec(r.textContent ?? "")?.[0]);
+      expect(titles).toEqual(["Tune 0", "Bridge", "Tune 1", "Tune 2"]);
+    });
+    // The suggestions close once the track is in.
+    expect(screen.queryByRole("list", { name: tx("playlists:timeline.fill.list") })).not.toBeInTheDocument();
+  });
+
+  it("leaves out a suggestion whose only reason has no tempo to word", async () => {
+    const unnamed: GapSuggestion = { row: TUNES[3]!, score: 50, reasons: [{ code: "bpmFits", from: 120, via: null, to: 124 }] };
+    await openTimeline({ gap: () => [unnamed] });
+    await userEvent.click(screen.getByRole("button", { name: tx("playlists:timeline.fill.before") }));
+    expect(await screen.findByText(tx("playlists:timeline.fill.none"))).toBeInTheDocument();
+  });
+
   it("offers the start and the end of the playlist, inserting first and last", async () => {
     const asked: (number | null)[] = [];
     const backend = await openTimeline({
@@ -294,6 +328,14 @@ describe("the reasons", () => {
     expect(reasonText(t, fits("8A", null), "camelot")).toBe(tx("playlists:gap.keyFitsAfter", { from: "8A", via: "9A" }));
     expect(reasonText(t, fits(null, "10A"), "camelot")).toBe(tx("playlists:gap.keyFitsBefore", { via: "9A", to: "10A" }));
     expect(reasonText(t, fits(null, null), "camelot")).toBe(tx("playlists:gap.keyFitsOnly", { via: "9A" }));
+  });
+
+  it("leave out a tempo reason that has no tempo to word, instead of saying 0", () => {
+    expect(reasonText(t, { code: "bpmFits", from: 120, via: null, to: 124 }, "camelot")).toBeNull();
+    expect(reasonText(t, { code: "bpmStep", from: 120, via: 130, to: null }, "camelot")).toBeNull();
+    expect(reasonText(t, { code: "bpmFits", from: null, via: 130, to: 124 }, "camelot")).toBe(
+      tx("playlists:gap.bpmFitsBefore", { via: 130, to: 124 }),
+    );
   });
 
   it("show keys in the user's notation", () => {

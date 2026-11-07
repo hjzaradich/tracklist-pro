@@ -28,6 +28,8 @@ export function playlistBackend(options: {
   unmatched?: number;
   /** What "Fill the gap" offers after an entry (`null`: before the first). */
   gap?: (afterEntryId: number | null) => GapSuggestion[];
+  /** Commands the backend refuses (the playlist is "not found"). */
+  refusing?: string[];
 }) {
   const state = {
     playlists: options.playlists.map((p) => ({ ...p, entries: [...p.entries] })),
@@ -93,6 +95,7 @@ export function playlistBackend(options: {
   };
 
   const handle = (cmd: string, args: Record<string, unknown>): unknown => {
+    if (options.refusing?.includes(cmd)) return refuse("playlistNotFound");
     switch (cmd) {
       case "list_playlists":
         return state.playlists.map(({ entries, ...p }) => ({ ...p, trackCount: entries.length }));

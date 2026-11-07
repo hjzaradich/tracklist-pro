@@ -20,8 +20,10 @@ function ending(from: unknown, to: unknown): "" | "After" | "Before" | "Only" {
  * Why a track fills a gap, in words (`playlists:gap.<code>`, ROADMAP 3.5; the
  * backend sends the facts, never the sentence). Keys come in the user's
  * notation. A reason is a short fragment; the screen joins them with ", ".
+ * A reason that is missing a number it needs (a tempo that isn't there) has
+ * no words and gives `null`: it is left out, never worded with a made-up 0.
  */
-export function reasonText(t: TFunction<"playlists">, reason: BridgeReason, notation: KeyNotation): string {
+export function reasonText(t: TFunction<"playlists">, reason: BridgeReason, notation: KeyNotation): string | null {
   const key = (camelot: string | null) => formatKey(camelot, notation) ?? camelot ?? "";
   switch (reason.code) {
     case "keyBridge":
@@ -33,11 +35,13 @@ export function reasonText(t: TFunction<"playlists">, reason: BridgeReason, nota
         to: key(reason.to),
       });
     case "bpmStep":
-      return t("gap.bpmStep", { from: bpm(reason.from ?? 0), via: bpm(reason.via ?? 0), to: bpm(reason.to ?? 0) });
+      if (reason.from === null || reason.via === null || reason.to === null) return null;
+      return t("gap.bpmStep", { from: bpm(reason.from), via: bpm(reason.via), to: bpm(reason.to) });
     case "bpmFits":
+      if (reason.via === null) return null;
       return t(`gap.bpmFits${ending(reason.from, reason.to)}`, {
         from: reason.from === null ? "" : bpm(reason.from),
-        via: bpm(reason.via ?? 0),
+        via: bpm(reason.via),
         to: reason.to === null ? "" : bpm(reason.to),
       });
     case "energyStep":

@@ -95,7 +95,7 @@
       "energy": "Energy"
     },
     "chart": {
-      "label": "Energy curve and target shape",
+      "label": "Energy of each track against the target shape",
       "clash": "Clash or jump in this transition",
       "unknown": "Something unknown in this transition"
     },

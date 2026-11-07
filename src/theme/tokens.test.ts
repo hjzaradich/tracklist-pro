@@ -514,7 +514,7 @@ describe("chart bars (the Overview)", () => {
   });
 
   for (const theme of ["dark", "light"] as const) {
-    it(`the track shows against the panel, and the fill against the track (${theme})`, () => {
+    it(`the track stands out from the panel, and the fill from the track (${theme})`, () => {
       const tokens = colorTokens(themeBlock(theme));
       const get = (name: string) => tokens.get(name)!;
       const track = get("--color-border");
