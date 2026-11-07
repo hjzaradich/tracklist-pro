@@ -39,9 +39,12 @@ use crate::scan::system_volumes;
 use crate::search::flag;
 use crate::track_table::{self, TableRow};
 
+pub mod bridge;
 pub mod score;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_bridge;
 #[cfg(test)]
 mod tests_genre_tags;
 
@@ -221,7 +224,7 @@ pub fn write_settings(conn: &Connection, settings: Settings) -> rusqlite::Result
 }
 
 /// A value that is a usable BPM, else none.
-fn clean_bpm(bpm: Option<f64>) -> Option<f64> {
+pub(crate) fn clean_bpm(bpm: Option<f64>) -> Option<f64> {
     bpm.filter(|b| b.is_finite() && *b > 0.0 && *b < 1000.0)
 }
 
@@ -231,6 +234,18 @@ fn facts_of(bpm: Option<f64>, key_order: Option<i64>, flags: i64) -> Facts {
         bpm: clean_bpm(bpm),
         key: key_order.and_then(Camelot::from_order),
         energy: (1..=10).contains(&energy).then_some(energy as u8),
+        genre: None,
+    }
+}
+
+/// The facts of a track as the track table shows it (a playlist's row):
+/// the same BPM, key and energy the table gives, so a timeline and "fill the
+/// gap" read what the user sees. Bad data reads as missing.
+pub(crate) fn facts_of_shown(bpm: Option<f64>, key: Option<&str>, energy: Option<u8>) -> Facts {
+    Facts {
+        bpm: clean_bpm(bpm),
+        key: key.and_then(Camelot::parse),
+        energy: energy.filter(|e| (1..=10).contains(e)),
         genre: None,
     }
 }

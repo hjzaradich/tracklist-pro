@@ -38,6 +38,7 @@ use specta::Type;
 use tauri::State;
 
 pub mod import;
+pub mod timeline;
 
 use crate::crates::{CrateId, CrateKind, CratesError};
 use crate::db::{DbError, ReadPool, Writer};
@@ -878,3 +879,5 @@ pub async fn playlist_from_crate(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timeline_tests;

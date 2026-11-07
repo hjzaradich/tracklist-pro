@@ -204,7 +204,7 @@ pub struct Ranking {
 
 /// The relation of a candidate's key to the chosen track's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum KeyRelation {
+pub(crate) enum KeyRelation {
     Same,
     Adjacent,
     Relative,
@@ -213,7 +213,7 @@ enum KeyRelation {
     Far,
 }
 
-fn key_relation(target: Camelot, key: Camelot) -> KeyRelation {
+pub(crate) fn key_relation(target: Camelot, key: Camelot) -> KeyRelation {
     match target.distance(key) {
         (0, true) => KeyRelation::Same,
         (1, true) => KeyRelation::Adjacent,
@@ -224,7 +224,7 @@ fn key_relation(target: Camelot, key: Camelot) -> KeyRelation {
     }
 }
 
-fn key_fitness(relation: KeyRelation, tolerance: Tolerance) -> f64 {
+pub(crate) fn key_fitness(relation: KeyRelation, tolerance: Tolerance) -> f64 {
     use KeyRelation::*;
     match (tolerance, relation) {
         (_, Same) => 1.0,
@@ -240,7 +240,7 @@ fn key_fitness(relation: KeyRelation, tolerance: Tolerance) -> f64 {
 /// Within this many BPM, a tempo has this fitness, when wide.
 const WIDE_TEMPO_STEPS: [(f64, f64); 4] = [(3.0, 1.0), (6.0, 0.75), (12.0, 0.5), (20.0, 0.25)];
 
-fn bpm_fitness(gap: f64, tolerance: Tolerance) -> f64 {
+pub(crate) fn bpm_fitness(gap: f64, tolerance: Tolerance) -> f64 {
     let gap = gap.abs();
     match tolerance {
         // As Sort by fit: 3, 2 and 1 points of 3.
@@ -255,7 +255,7 @@ fn bpm_fitness(gap: f64, tolerance: Tolerance) -> f64 {
     }
 }
 
-fn energy_fitness(step: i32, direction: Direction, tolerance: Tolerance) -> f64 {
+pub(crate) fn energy_fitness(step: i32, direction: Direction, tolerance: Tolerance) -> f64 {
     let ideal = match direction {
         Direction::Up => 1,
         Direction::Same => 0,
