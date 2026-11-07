@@ -172,9 +172,9 @@ mod tests {
         for tonic in 0..SEMITONES {
             for (mode, profile) in [(Mode::Major, &MAJOR), (Mode::Minor, &MINOR)] {
                 let mut c = [0.0; BANDS];
-                for band in 0..BANDS {
+                for (band, slot) in c.iter_mut().enumerate() {
                     let k = band % SEMITONES;
-                    c[band] = profile[(k + SEMITONES - tonic) % SEMITONES];
+                    *slot = profile[(k + SEMITONES - tonic) % SEMITONES];
                 }
                 let Choice::Key { key, confidence } = classify(&c) else {
                     panic!("silence");

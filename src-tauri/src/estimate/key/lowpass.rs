@@ -64,8 +64,8 @@ fn design(rate: u32) -> (Vec<f64>, f64) {
     // The inverse transform at point `index`, normalised by its size: the
     // sum FFTW's complex-to-real transform makes of a Hermitian spectrum.
     let inverse = |index: usize| -> f64 {
-        let mut sum =
-            response[0] + response[DESIGN_SIZE / 2] * if index % 2 == 0 { 1.0 } else { -1.0 };
+        let mut sum = response[0]
+            + response[DESIGN_SIZE / 2] * if index.is_multiple_of(2) { 1.0 } else { -1.0 };
         for (k, &x) in response.iter().enumerate().take(DESIGN_SIZE / 2).skip(1) {
             if x != 0.0 {
                 sum += 2.0 * x * (2.0 * PI * (k * index) as f64 / n).cos();
