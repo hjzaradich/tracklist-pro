@@ -444,3 +444,51 @@ fn the_crate_switch_refuses_while_wishlists_are_off_or_for_no_such_list() {
         }
     );
 }
+
+/// How many matchers `work` builds, on the writer's thread.
+fn matchers_built<T: Send + 'static>(
+    lib: &Lib,
+    work: impl FnOnce(&mut rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+) -> (T, usize) {
+    lib.writer
+        .call(move |c| {
+            crate::wishlist::matching::BUILT.with(|n| n.set(0));
+            let out = work(c)?;
+            Ok((out, crate::wishlist::matching::BUILT.with(|n| n.get())))
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_pass_builds_no_matcher_while_wishlists_are_off_or_no_item_is_open() {
+    let lib = lib_on();
+    // New files, but no wishlist at all.
+    arrived(&lib, "Nova Reed", "Lantern");
+    arrived(&lib, "Quill Ashby", "Paper Harbor");
+    assert_eq!(matchers_built(&lib, run), (0, 0));
+    assert_eq!(
+        matchers_built(&lib, |c| done_for_you(c).map(|d| d.len())),
+        (0, 0)
+    );
+
+    // A list whose only item is ticked off already has no open item.
+    let list = wishlist(&lib, "Friday", "Nova Reed - Lantern");
+    assert_eq!(pass(&lib), 1);
+    arrived(&lib, "Mara Voss", "Salt and Pepper");
+    assert_eq!(acquired(&lib, list).len(), 1);
+    assert_eq!(matchers_built(&lib, run), (0, 0));
+
+    // With an open item the pass does build one (the count is live) ...
+    wishlist(&lib, "Saturday", "Mara Voss - Salt and Pepper (Dub Mix)");
+    arrived(&lib, "Dee Fen", "Another One");
+    assert_eq!(matchers_built(&lib, run), (0, 1));
+
+    // ... and with wishlists off it builds none, open item or not.
+    switch(&lib, false);
+    arrived(&lib, "Dee Fen", "Yet Another One");
+    assert_eq!(matchers_built(&lib, run), (0, 0));
+    assert_eq!(
+        matchers_built(&lib, |c| done_for_you(c).map(|d| d.len())),
+        (0, 0)
+    );
+}

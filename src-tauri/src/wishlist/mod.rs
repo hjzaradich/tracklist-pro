@@ -32,6 +32,8 @@ pub mod parse;
 pub mod tick_off;
 
 #[cfg(test)]
+mod matcher_equivalence_tests;
+#[cfg(test)]
 mod tests;
 
 /// The operation kinds, as the operation log stores them.
@@ -583,7 +585,7 @@ pub fn wishlists(conn: &Connection) -> rusqlite::Result<Vec<WishlistSummary>> {
     if items.is_empty() {
         return Ok(lists);
     }
-    let matcher = Matcher::build(conn)?;
+    let matcher = Matcher::build_wanting(conn, None, items.iter().map(|(_, track, _)| track))?;
     for (wishlist, track, bought) in items {
         let Some(&i) = at.get(&wishlist) else {
             continue;
@@ -656,16 +658,21 @@ pub fn items(conn: &Connection, wishlist: i64) -> rusqlite::Result<Vec<WishItem>
     if rows.is_empty() {
         return Ok(rows);
     }
-    let matcher = Matcher::build(conn)?;
+    let tracks: Vec<WishTrack> = rows
+        .iter()
+        .map(|item| WishTrack {
+            artist: item.artist.clone(),
+            title: item.title.clone(),
+            version: item.version.clone(),
+            isrc: item.isrc.clone(),
+        })
+        .collect();
+    let matcher = Matcher::build_wanting(conn, None, &tracks)?;
     Ok(rows
         .into_iter()
-        .map(|mut item| {
-            item.result = matcher.find(&WishTrack {
-                artist: item.artist.clone(),
-                title: item.title.clone(),
-                version: item.version.clone(),
-                isrc: item.isrc.clone(),
-            });
+        .zip(&tracks)
+        .map(|(mut item, track)| {
+            item.result = matcher.find(track);
             item
         })
         .collect())

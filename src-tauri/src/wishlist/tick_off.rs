@@ -139,11 +139,20 @@ fn answers(conn: &Connection, files: &[(i64, i64)]) -> rusqlite::Result<HashMap<
             of.push(file);
         }
     }
+    // Nothing is asked of a matcher while no item is open: don't build one.
+    let wishes = open_wishes(conn)?;
+    if wishes.is_empty() {
+        return Ok(out);
+    }
     let recordings: Vec<i64> = files_of.keys().copied().collect();
-    let matcher = Matcher::build_for(conn, &recordings)?;
+    let matcher = Matcher::build_wanting(
+        conn,
+        Some(&recordings),
+        wishes.iter().map(|(_, _, track)| track),
+    )?;
     let mut found: HashMap<i64, Vec<WishFor>> = HashMap::new();
     let mut several: HashSet<i64> = HashSet::new();
-    for (item, wishlist, track) in open_wishes(conn)? {
+    for (item, wishlist, track) in wishes {
         let mut by: Vec<(i64, WishFor)> = Vec::new();
         for owner in matcher.owners(&track) {
             let of = owner.recording_id.and_then(|r| files_of.get(&r));
@@ -518,8 +527,12 @@ pub fn done_for_you(conn: &Connection) -> rusqlite::Result<Vec<DoneForYou>> {
             rows.push((found, Some(wish)));
         }
     }
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
     let recordings: Vec<i64> = rows.iter().filter_map(|(r, _)| r.recording).collect();
-    let matcher = Matcher::build_for(conn, &recordings)?;
+    let matcher =
+        Matcher::build_wanting(conn, Some(&recordings), rows.iter().map(|(r, _)| &r.track))?;
     let mut out = Vec::with_capacity(rows.len());
     for (r, wish) in rows {
         let added = wish.is_none();

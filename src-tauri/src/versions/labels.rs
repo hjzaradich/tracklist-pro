@@ -82,36 +82,38 @@ fn words(text: &str) -> Vec<Word> {
     words
 }
 
-/// The kind a spelling stands for.
-fn lookup(spelling: &str) -> Option<MarkerKind> {
-    CUT_LABELS
-        .iter()
-        .chain(REWORK_LABELS)
-        .find(|(_, spellings)| spellings.iter().any(|s| table_spelling(s) == spelling))
-        .map(|&(kind, _)| kind)
-}
-
-/// The kind `text` stands for when all of it is one label spelling. The
-/// same answer as [`lookup`], from a map made once: this is asked for
-/// every word of every name.
-pub(super) fn kind_of(text: &str) -> Option<MarkerKind> {
+/// Every label spelling the tables hold, spelled as [`table_spelling`] spells
+/// it, with its kind; the first row to spell it wins. Made once: it is asked
+/// for every word of every name, and scanning the tables (spelling each row
+/// afresh) per ask made parsing a title cost most of a millisecond.
+fn spellings() -> &'static HashMap<String, MarkerKind> {
     static KINDS: OnceLock<HashMap<String, MarkerKind>> = OnceLock::new();
-    let kinds = KINDS.get_or_init(|| {
+    KINDS.get_or_init(|| {
         let mut kinds = HashMap::new();
         for (kind, spellings) in CUT_LABELS.iter().chain(REWORK_LABELS) {
             for spelling in spellings.iter() {
-                // The first row to spell it wins, as in `lookup`.
                 kinds.entry(table_spelling(spelling)).or_insert(*kind);
             }
         }
         kinds
-    });
+    })
+}
+
+/// The kind a spelling stands for.
+fn lookup(spelling: &str) -> Option<MarkerKind> {
+    spellings().get(spelling).copied()
+}
+
+/// The kind `text` stands for when all of it is one label spelling. The
+/// same answer as [`lookup`] once the text is spelled as [`words`] spells
+/// it.
+pub(super) fn kind_of(text: &str) -> Option<MarkerKind> {
     let spelling = text
         .split_whitespace()
         .map(plain)
         .collect::<Vec<_>>()
         .join(" ");
-    kinds.get(&spelling).copied()
+    lookup(&spelling)
 }
 
 /// A table row, spelled the way [`words`] spells text.
@@ -408,4 +410,56 @@ pub(super) fn mashup_parts(title: &str) -> Option<(Vec<String>, String)> {
     }
     parts.push(current.join(" "));
     Some((parts, separator?))
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+
+    /// The lookup as it was before the map: a scan of the tables, spelling
+    /// each row afresh.
+    fn scanned(spelling: &str) -> Option<MarkerKind> {
+        CUT_LABELS
+            .iter()
+            .chain(REWORK_LABELS)
+            .find(|(_, spellings)| spellings.iter().any(|s| table_spelling(s) == spelling))
+            .map(|&(kind, _)| kind)
+    }
+
+    /// What makes "the first row to spell it wins" the same as any other:
+    /// no spelling is in two rows of different kinds. Whoever adds a label
+    /// that clashes finds it out here.
+    #[test]
+    fn no_spelling_stands_for_two_kinds() {
+        let mut kind_of: HashMap<String, MarkerKind> = HashMap::new();
+        for (kind, spellings) in CUT_LABELS.iter().chain(REWORK_LABELS) {
+            for s in spellings.iter() {
+                let held = kind_of.entry(table_spelling(s)).or_insert(*kind);
+                assert_eq!(*held, *kind, "{s:?} is a label of two kinds");
+            }
+        }
+    }
+
+    #[test]
+    fn the_map_answers_as_the_scan_of_the_tables_did() {
+        let mut asked: Vec<String> = Vec::new();
+        for (_, spellings) in CUT_LABELS.iter().chain(REWORK_LABELS) {
+            for s in spellings.iter() {
+                asked.push(table_spelling(s));
+                asked.push(s.to_string());
+                asked.push(format!("{s} x"));
+                asked.push(table_spelling(s).to_uppercase());
+            }
+        }
+        asked.extend(
+            [
+                "", " ", "main", "the", "radio", "x y z", "v i p", "re fix", "!!",
+            ]
+            .map(str::to_owned),
+        );
+        assert!(asked.len() > 100);
+        for spelling in &asked {
+            assert_eq!(lookup(spelling), scanned(spelling), "{spelling:?}");
+        }
+    }
 }

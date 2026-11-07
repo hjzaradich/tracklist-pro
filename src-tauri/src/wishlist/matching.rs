@@ -17,6 +17,7 @@
 //!   music; then the lowest id.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -76,7 +77,7 @@ pub fn missing() -> WishMatch {
     }
 }
 
-fn fact(key: &str, have: Option<&str>) -> Reason {
+pub(super) fn fact(key: &str, have: Option<&str>) -> Reason {
     let reason = Reason::fact(key).unwrap_or_else(|e| panic!("bad reason key {key}: {e}"));
     match have {
         Some(have) => reason
@@ -131,7 +132,7 @@ fn lookup_key(text: &str) -> Option<String> {
 }
 
 /// The keys of the artists an artist tag names, and of the tag as a whole.
-fn artist_keys(artist: &str) -> Vec<String> {
+pub(super) fn artist_keys(artist: &str) -> Vec<String> {
     let mut keys: Vec<String> = versions::parse_artists(artist)
         .iter()
         .filter_map(|credit| lookup_key(&credit.name))
@@ -142,8 +143,51 @@ fn artist_keys(artist: &str) -> Vec<String> {
     keys
 }
 
+/// Below this many tracks, work is not worth spreading over threads.
+const PARALLEL_FROM: usize = 4096;
+
+/// For each of `artists`, its [`artist_keys`] that are in `wanted` (all of
+/// them for `None`), in order. The artist parser is most of what building
+/// a matcher over a big library costs once titles are left to be read on
+/// demand, so the artists are shared among the cores.
+pub(super) fn wanted_artist_keys(
+    artists: &[&str],
+    wanted: Option<&HashSet<String>>,
+) -> Vec<Vec<String>> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
+    wanted_artist_keys_with(artists, wanted, threads, PARALLEL_FROM)
+}
+
+/// [`wanted_artist_keys`] over `threads` threads from `parallel_from` artists
+/// on (a test runs the threaded branch on a few).
+pub(super) fn wanted_artist_keys_with(
+    artists: &[&str],
+    wanted: Option<&HashSet<String>>,
+    threads: usize,
+    parallel_from: usize,
+) -> Vec<Vec<String>> {
+    let keys_of = |artist: &&str| -> Vec<String> {
+        let mut keys = artist_keys(artist);
+        keys.retain(|key| wanted.is_none_or(|w| w.contains(key)));
+        keys
+    };
+    if artists.len() < parallel_from || threads < 2 {
+        return artists.iter().map(keys_of).collect();
+    }
+    let chunk = artists.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let parts: Vec<_> = artists
+            .chunks(chunk)
+            .map(|part| scope.spawn(move || part.iter().map(keys_of).collect::<Vec<_>>()))
+            .collect();
+        parts
+            .into_iter()
+            .flat_map(|part| part.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    })
+}
 /// The keys the base title can be read as.
-fn title_keys(name: &versions::ParsedName) -> Vec<String> {
+pub(super) fn title_keys(name: &versions::ParsedName) -> Vec<String> {
     let mut keys: Vec<String> = name
         .readings()
         .iter()
@@ -154,25 +198,56 @@ fn title_keys(name: &versions::ParsedName) -> Vec<String> {
     keys
 }
 
-struct Candidate {
-    recording: i64,
-    in_library: bool,
+/// A candidate's title read by the version parser, and the keys its base
+/// title can be read as.
+struct Read {
+    parsed: versions::ParsedName,
+    keys: Vec<String>,
+}
+
+pub(super) struct Candidate {
+    pub(super) recording: i64,
+    pub(super) in_library: bool,
     /// The title as the lists show it.
-    title: String,
-    artists: Vec<String>,
+    pub(super) title: String,
+    /// Read when an item first asks about the candidate: the parser costs
+    /// most of a millisecond a title, and most tracks have no artist an
+    /// item names (found at 100,000 tracks: building the matcher took a
+    /// minute with every title read up front).
+    read: OnceLock<Read>,
+}
+
+impl Candidate {
+    fn read(&self) -> &Read {
+        self.read.get_or_init(|| {
+            let parsed = versions::parse_title(&self.title);
+            let keys = title_keys(&parsed);
+            Read { parsed, keys }
+        })
+    }
 }
 
 /// The item's title with its version, as a file's title would carry it.
-fn wish_name(wish: &WishTrack) -> String {
+pub(super) fn wish_name(wish: &WishTrack) -> String {
     match &wish.version {
         Some(version) => format!("{} ({version})", wish.title),
         None => wish.title.clone(),
     }
 }
 
+// How many matchers this thread has built (tests of the early exits).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub struct Matcher {
-    candidates: Vec<Candidate>,
-    by_title: HashMap<String, Vec<usize>>,
+    /// What a matcher built for some items was built for (ISRCs, artist keys):
+    /// it answers for these only.
+    wanted: Option<(HashSet<String>, HashSet<String>)>,
+    pub(super) candidates: Vec<Candidate>,
+    /// The candidates each artist key names, in order.
+    pub(super) by_artist: HashMap<String, Vec<usize>>,
     by_recording: HashMap<i64, usize>,
     by_isrc: HashMap<String, i64>,
 }
@@ -181,16 +256,41 @@ impl Matcher {
     /// Reads the owned tracks: one query for which they are, one for their
     /// names, one for the ISRCs of their files.
     pub fn build(conn: &Connection) -> rusqlite::Result<Matcher> {
-        Matcher::build_among(conn, None)
+        Matcher::build_among(conn, None, None)
     }
 
-    /// [`Matcher::build`] over `recordings` only (those of them that are
-    /// owned): what the Inbox tick-off asks about its new files (2.5).
-    pub fn build_for(conn: &Connection, recordings: &[i64]) -> rusqlite::Result<Matcher> {
-        Matcher::build_among(conn, Some(recordings))
+    /// [`Matcher::build`] for looking up `wishes` only, over `recordings` only
+    /// (those of them that are owned) when given: what the Inbox tick-off
+    /// asks about its new files (2.5). The files' tags are read for ISRCs
+    /// only when a wish has one, and only those are kept; every answer for
+    /// these wishes is the same.
+    pub fn build_wanting<'a>(
+        conn: &Connection,
+        recordings: Option<&[i64]>,
+        wishes: impl IntoIterator<Item = &'a WishTrack>,
+    ) -> rusqlite::Result<Matcher> {
+        let wishes: Vec<&WishTrack> = wishes.into_iter().collect();
+        let isrcs: HashSet<String> = wishes
+            .iter()
+            .filter_map(|w| w.isrc.as_deref().and_then(normalize_isrc))
+            .collect();
+        let artists: HashSet<String> = wishes.iter().flat_map(|w| artist_keys(&w.artist)).collect();
+        Matcher::build_among(conn, recordings, Some((isrcs, artists)))
     }
 
-    fn build_among(conn: &Connection, among: Option<&[i64]>) -> rusqlite::Result<Matcher> {
+    /// `wanted`: the only ISRCs and artist keys worth keeping (`None`: all of
+    /// them).
+    fn build_among(
+        conn: &Connection,
+        among: Option<&[i64]>,
+        wanted: Option<(HashSet<String>, HashSet<String>)>,
+    ) -> rusqlite::Result<Matcher> {
+        #[cfg(test)]
+        BUILT.with(|n| n.set(n.get() + 1));
+        let (wanted_isrcs, wanted_artists) = match &wanted {
+            Some((isrcs, artists)) => (Some(isrcs), Some(artists)),
+            None => (None, None),
+        };
         // NULL: every track.
         let among = among.map(|ids| serde_json::to_string(ids).unwrap_or_else(|_| "[]".into()));
         let owned: Vec<(i64, bool)> = conn
@@ -215,26 +315,42 @@ impl Matcher {
             shown_recordings(conn, &ids)?
         };
         let mut matcher = Matcher {
+            wanted: wanted.clone(),
             candidates: Vec::with_capacity(owned.len()),
-            by_title: HashMap::new(),
+            by_artist: HashMap::new(),
             by_recording: HashMap::new(),
             by_isrc: HashMap::new(),
         };
+        let mut shown: Vec<(i64, bool, crate::send_values::Shown)> =
+            Vec::with_capacity(owned.len());
         for (recording, in_library) in owned {
-            let Some(shown) = names.remove(&recording) else {
-                continue;
-            };
+            if let Some(name) = names.remove(&recording) {
+                shown.push((recording, in_library, name));
+            }
+        }
+        // Only the artists an item names can ever be asked for.
+        let artists = wanted_artist_keys(
+            &shown
+                .iter()
+                .map(|(_, _, s)| s.artist.as_str())
+                .collect::<Vec<_>>(),
+            wanted_artists,
+        );
+        for ((recording, in_library, name), keys) in shown.into_iter().zip(artists) {
             let at = matcher.candidates.len();
-            for key in title_keys(&versions::parse_title(&shown.title)) {
-                matcher.by_title.entry(key).or_default().push(at);
+            for key in keys {
+                matcher.by_artist.entry(key).or_default().push(at);
             }
             matcher.by_recording.insert(recording, at);
             matcher.candidates.push(Candidate {
                 recording,
                 in_library,
-                artists: artist_keys(&shown.artist),
-                title: shown.title,
+                title: name.title,
+                read: OnceLock::new(),
             });
+        }
+        if wanted_isrcs.is_some_and(HashSet::is_empty) {
+            return Ok(matcher);
         }
         let mut files = conn.prepare_cached(
             "SELECT rf.recording_id, f.raw_tags
@@ -248,6 +364,9 @@ impl Matcher {
         while let Some(row) = rows.next()? {
             let (recording, raw): (i64, String) = (row.get(0)?, row.get(1)?);
             for isrc in isrcs_in(&raw) {
+                if wanted_isrcs.is_some_and(|w| !w.contains(&isrc)) {
+                    continue;
+                }
                 // The lowest track id keeps an ISRC two tracks carry.
                 matcher
                     .by_isrc
@@ -259,7 +378,21 @@ impl Matcher {
         Ok(matcher)
     }
 
-    fn owned(&self, recording: i64, by_isrc: bool) -> WishMatch {
+    /// The candidates that share an artist key with `artists`, in order,
+    /// each once.
+    fn by_artists(&self, artists: &[String]) -> Vec<usize> {
+        let mut at: Vec<usize> = artists
+            .iter()
+            .filter_map(|key| self.by_artist.get(key))
+            .flatten()
+            .copied()
+            .collect();
+        at.sort_unstable();
+        at.dedup();
+        at
+    }
+
+    pub(super) fn owned(&self, recording: i64, by_isrc: bool) -> WishMatch {
         let at = self.by_recording.get(&recording);
         let found = at.map(|&at| &self.candidates[at]);
         let in_library = found.is_some_and(|c| c.in_library);
@@ -278,7 +411,7 @@ impl Matcher {
     }
 
     /// The track an owned file's ISRC names, when `wish` has that ISRC.
-    fn by_isrc_of(&self, wish: &WishTrack) -> Option<i64> {
+    pub(super) fn by_isrc_of(&self, wish: &WishTrack) -> Option<i64> {
         let isrc = wish.isrc.as_deref().and_then(normalize_isrc)?;
         let recording = *self.by_isrc.get(&isrc)?;
         self.by_recording
@@ -286,68 +419,84 @@ impl Matcher {
             .then_some(recording)
     }
 
+    /// A matcher built for some items answers for those only: asking about
+    /// another is a mistake that would answer "missing" (debug builds only).
+    fn assert_asked(&self, wish: &WishTrack) {
+        if let Some((isrcs, artists)) = &self.wanted {
+            debug_assert!(
+                artist_keys(&wish.artist)
+                    .iter()
+                    .all(|k| artists.contains(k)),
+                "the matcher was not built for this artist: {wish:?}"
+            );
+            debug_assert!(
+                wish.isrc
+                    .as_deref()
+                    .and_then(normalize_isrc)
+                    .is_none_or(|i| isrcs.contains(&i)),
+                "the matcher was not built for this ISRC: {wish:?}"
+            );
+        }
+    }
+
     /// Every track `wish` is owned as, the very same version (not another
     /// cut, not a rework), each with its reason, the lowest id first. An
     /// ISRC an owned file carries decides alone, as in [`Matcher::find`].
     pub fn owners(&self, wish: &WishTrack) -> Vec<WishMatch> {
+        self.assert_asked(wish);
         if let Some(recording) = self.by_isrc_of(wish) {
             return vec![self.owned(recording, true)];
         }
         let parsed = versions::parse_title(&wish_name(wish));
         let artists = artist_keys(&wish.artist);
+        let wish_keys = title_keys(&parsed);
         let mut found: Vec<i64> = Vec::new();
-        for key in title_keys(&parsed) {
-            for &at in self.by_title.get(&key).into_iter().flatten() {
-                let candidate = &self.candidates[at];
-                if found.contains(&candidate.recording)
-                    || !candidate.artists.iter().any(|a| artists.contains(a))
-                {
-                    continue;
-                }
-                let theirs = versions::parse_title(&candidate.title);
-                if versions::compare(&parsed, &theirs).outcome == Outcome::SameVersion {
-                    found.push(candidate.recording);
-                }
+        for at in self.by_artists(&artists) {
+            let candidate = &self.candidates[at];
+            let read = candidate.read();
+            if !read.keys.iter().any(|k| wish_keys.contains(k)) {
+                continue;
+            }
+            if versions::compare(&parsed, &read.parsed).outcome == Outcome::SameVersion {
+                found.push(candidate.recording);
             }
         }
         found.sort_unstable();
+        found.dedup();
         found.into_iter().map(|r| self.owned(r, false)).collect()
     }
 
     /// What `wish` comes to.
     pub fn find(&self, wish: &WishTrack) -> WishMatch {
+        self.assert_asked(wish);
         if let Some(recording) = self.by_isrc_of(wish) {
             return self.owned(recording, true);
         }
         let parsed = versions::parse_title(&wish_name(wish));
         let artists = artist_keys(&wish.artist);
+        let wish_keys = title_keys(&parsed);
         // Same version, other cut, other rework: 3, 2, 1.
         let mut best: Option<(u8, bool, std::cmp::Reverse<i64>, usize)> = None;
-        let mut seen = HashSet::new();
-        for key in title_keys(&parsed) {
-            for &at in self.by_title.get(&key).into_iter().flatten() {
-                let candidate = &self.candidates[at];
-                if !seen.insert(at) || !candidate.artists.iter().any(|a| artists.contains(a)) {
-                    continue;
-                }
-                let rank =
-                    match versions::compare(&parsed, &versions::parse_title(&candidate.title))
-                        .outcome
-                    {
-                        Outcome::SameVersion => 3,
-                        Outcome::DifferentCut => 2,
-                        Outcome::DifferentRework => 1,
-                        Outcome::DifferentBase | Outcome::CantTell => continue,
-                    };
-                let ranked = (
-                    rank,
-                    candidate.in_library,
-                    std::cmp::Reverse(candidate.recording),
-                    at,
-                );
-                if best.is_none_or(|b| ranked > b) {
-                    best = Some(ranked);
-                }
+        for at in self.by_artists(&artists) {
+            let candidate = &self.candidates[at];
+            let read = candidate.read();
+            if !read.keys.iter().any(|k| wish_keys.contains(k)) {
+                continue;
+            }
+            let rank = match versions::compare(&parsed, &read.parsed).outcome {
+                Outcome::SameVersion => 3,
+                Outcome::DifferentCut => 2,
+                Outcome::DifferentRework => 1,
+                Outcome::DifferentBase | Outcome::CantTell => continue,
+            };
+            let ranked = (
+                rank,
+                candidate.in_library,
+                std::cmp::Reverse(candidate.recording),
+                at,
+            );
+            if best.is_none_or(|b| ranked > b) {
+                best = Some(ranked);
             }
         }
         let Some((rank, in_library, _, at)) = best else {
