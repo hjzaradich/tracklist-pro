@@ -32,6 +32,11 @@
 //! shown (and counted by the stale check) as it is, whatever its version,
 //! until the new measurement replaces it in place; the key switch applies to
 //! it as to any other.
+//!
+//! The ledger also keeps the energy features of a file's window (loudness,
+//! onset density, spectral flux) and the energy the app would suggest from
+//! them ([`super::suggest`]); the suggestion is worked out again whenever a
+//! file is measured again, so [`record`] clears it.
 
 use rusqlite::{params, Connection};
 
@@ -53,11 +58,11 @@ const NOT_MEASURED: &str = "NOT EXISTS (SELECT 1 FROM file_estimate e
                   AND e.method_version = ?VERSION)";
 
 /// The file a Library track `lt` shows, as SQL.
-fn shown() -> String {
+pub(super) fn shown() -> String {
     crate::search::shown_file_sql("lt.linked_file_id", "lt.recording_id")
 }
 
-fn sql(template: &str) -> String {
+pub(super) fn sql(template: &str) -> String {
     template
         .replace("?HASH", &i64::from(HASH_DEFINITION).to_string())
         .replace("?VERSION", &i64::from(VERSION).to_string())
@@ -213,6 +218,7 @@ pub enum Row {
 }
 
 /// A row's columns.
+#[derive(Default)]
 struct Columns {
     analysed_ms: Option<i64>,
     bpm: Option<f64>,
@@ -220,25 +226,24 @@ struct Columns {
     key_pitch_class: Option<u8>,
     key_mode: Option<&'static str>,
     key_confidence: Option<f64>,
+    loudness_lufs: Option<f64>,
+    onset_density: Option<f64>,
+    spectral_flux: Option<f64>,
     skipped: Option<&'static str>,
 }
 
 impl Row {
     fn columns(&self) -> Columns {
         let skipped = |why| Columns {
-            analysed_ms: None,
-            bpm: None,
-            bpm_confidence: None,
-            key_pitch_class: None,
-            key_mode: None,
-            key_confidence: None,
             skipped: Some(why),
+            ..Columns::default()
         };
         match self {
             Row::Measured(Measured::Window {
                 analysed_ms,
                 tempo,
                 key,
+                features,
             }) => {
                 let (key_pitch_class, key_mode, key_confidence) = match key {
                     Some(Choice::Key { key, confidence }) => (
@@ -259,6 +264,9 @@ impl Row {
                     key_pitch_class,
                     key_mode,
                     key_confidence,
+                    loudness_lufs: features.loudness_lufs,
+                    onset_density: Some(features.onset_density),
+                    spectral_flux: Some(features.spectral_flux),
                     skipped: None,
                 }
             }
@@ -310,15 +318,18 @@ pub(crate) fn record(
     tx.prepare_cached(
         "INSERT INTO file_estimate
              (file_id, audio_hash, method_version, analysed_ms, bpm, bpm_confidence,
-              key_pitch_class, key_mode, key_confidence, skipped)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+              key_pitch_class, key_mode, key_confidence,
+              loudness_lufs, onset_density, spectral_flux, skipped)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT (file_id) DO UPDATE SET
              audio_hash = excluded.audio_hash, method_version = excluded.method_version,
              analysed_ms = excluded.analysed_ms, bpm = excluded.bpm,
              bpm_confidence = excluded.bpm_confidence,
              key_pitch_class = excluded.key_pitch_class, key_mode = excluded.key_mode,
              key_confidence = excluded.key_confidence, skipped = excluded.skipped,
-             loudness_lufs = NULL, onset_density = NULL, spectral_flux = NULL,
+             loudness_lufs = excluded.loudness_lufs, onset_density = excluded.onset_density,
+             spectral_flux = excluded.spectral_flux,
+             -- worked out again across the Library (suggest.rs)
              energy_suggestion = NULL,
              analysed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
     )?
@@ -332,6 +343,9 @@ pub(crate) fn record(
         c.key_pitch_class,
         c.key_mode,
         c.key_confidence,
+        c.loudness_lufs,
+        c.onset_density,
+        c.spectral_flux,
         c.skipped,
     ])?;
     sync(&tx, Some(due.id), range)?;

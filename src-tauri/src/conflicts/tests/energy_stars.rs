@@ -337,6 +337,50 @@ fn an_estimate_is_no_energy_so_a_track_with_only_one_gets_no_rating_while_mixed_
     assert_eq!(attribute(&attributes[2], "Rating"), Some("102"));
 }
 
+/// The app's suggestion (ledger only, ROADMAP 3.7) is not an energy, so it
+/// is never turned into stars; the user's taking it is.
+#[test]
+fn an_energy_suggestion_gets_no_rating_until_the_user_takes_it() {
+    use crate::estimate::suggest::{refresh, suggestion_for};
+    use crate::estimate::support::plant_features;
+
+    let lib = Lib::new();
+    lib.stars_follow_energy(true);
+    let (suggested, file) = lib.linked();
+    let (_, other) = lib.linked();
+    lib.writer
+        .call(move |c| {
+            plant_features(c, file, Some(120.0), Some(-9.0), 3.0, 8.0)?;
+            plant_features(c, other, Some(100.0), Some(-15.0), 1.0, 4.0)
+        })
+        .unwrap();
+    assert_eq!(refresh(&lib.writer).unwrap(), 2);
+    let recording: i64 = lib
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT recording_id FROM library_track WHERE id = ?1",
+                [suggested.0],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    let value = lib
+        .writer
+        .call(move |c| suggestion_for(c, recording))
+        .unwrap()
+        .expect("a suggestion")
+        .value;
+
+    let (_, attributes) = lib.sent_after_merge(&[suggested]);
+    assert_eq!(attribute(&attributes[0], "Rating"), None);
+
+    lib.user_energy(suggested, i64::from(value));
+    let (_, attributes) = lib.sent_after_merge(&[suggested]);
+    let rating = energy_stars::rating_for(i64::from(value));
+    assert_eq!(attribute(&attributes[0], "Rating"), rating.as_deref());
+}
+
 #[test]
 fn the_rating_is_made_from_the_energy_the_overview_shows() {
     let lib = Lib::new();

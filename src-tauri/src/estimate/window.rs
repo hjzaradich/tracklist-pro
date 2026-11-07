@@ -13,14 +13,17 @@
 //! for the key, filtered and kept at about 4.4 kHz ([`key::Lowpass`]),
 //! about 5.3 MB more.
 //!
-//! E1b adds the energy features: [`Window`] is where they are fed (each
-//! packet's samples pass through [`Window::feed`]), and [`Measured`] where
-//! they come out.
+//! The energy features ([`features`]) are measured on the same window: the
+//! onset density and mean flux on the averaged-down audio, the loudness on
+//! the file's own samples, which [`Window::feed`] also hands to two meters,
+//! one from the start and one from the [`SKIP`], since whether the intro is
+//! dropped is known only when the window is full.
 
 use symphonia::core::io::MediaSource;
 
 use super::bpm::{self, Tempo};
 use super::key::{self, Lowpass};
+use super::features::{self, Features, Meter};
 use crate::fingerprint::decode::{self, End, Flow, Stopped, Unfingerprintable};
 
 /// How much of a file is decoded, in seconds from its start.
@@ -54,6 +57,7 @@ pub enum Measured {
         /// `None` when the file's sample rate is too low for the key's
         /// bands.
         key: Option<key::Choice>,
+        features: Features,
     },
     /// There was audio, but none worth measuring.
     Short(Short),
@@ -65,6 +69,7 @@ pub enum Measured {
 struct Window {
     key: Option<Lowpass>,
     rate: u32,
+    channels: usize,
     factor: usize,
     /// Frames to take from the file before the window is full.
     wanted: u64,
@@ -73,12 +78,20 @@ struct Window {
     sum: f32,
     in_sum: usize,
     interleaved: Vec<f32>,
+    /// Loudness of the whole window, and of what is left when the intro is
+    /// dropped.
+    whole: Option<Meter>,
+    after_skip: Option<Meter>,
 }
 
 impl Window {
-    fn start(rate: u32) -> Window {
+    fn start(rate: u32, channels: usize) -> Window {
+        let channels = channels.max(1);
         Window {
             rate,
+            channels,
+            whole: Some(Meter::new(channels, rate)),
+            after_skip: Some(Meter::new(channels, rate)),
             factor: bpm::decimation(rate),
             key: Lowpass::new(rate),
             wanted: (UP_TO * f64::from(rate)) as u64,
@@ -88,8 +101,9 @@ impl Window {
 
     /// Adds a packet's frames, as many as the window still wants. Returns
     /// whether it's full.
-    fn feed(&mut self, channels: usize) -> bool {
-        let channels = channels.max(1);
+    fn feed(&mut self) -> bool {
+        let channels = self.channels;
+        self.meter(channels);
         let mut frames = self.interleaved.chunks_exact(channels);
         for frame in frames.by_ref() {
             if self.taken >= self.wanted {
@@ -108,6 +122,24 @@ impl Window {
             }
         }
         self.taken >= self.wanted
+    }
+
+    /// Hands the frames of the packet that the window still wants to the
+    /// loudness meters.
+    fn meter(&mut self, channels: usize) {
+        let room = self.wanted.saturating_sub(self.taken) as usize;
+        let frames = (self.interleaved.len() / channels).min(room);
+        let samples = &self.interleaved[..frames * channels];
+        if let Some(meter) = &mut self.whole {
+            meter.add(samples);
+        }
+        let skipped = (SKIP * f64::from(self.rate)) as u64;
+        let past = (self.taken + frames as u64)
+            .saturating_sub(skipped)
+            .min(frames as u64) as usize;
+        if let Some(meter) = &mut self.after_skip {
+            meter.add(&samples[(frames - past) * channels..]);
+        }
     }
 
     /// The measurements, once the walk is over.
@@ -142,10 +174,22 @@ impl Window {
                 file_rate / factor as u32,
             )
         });
+        let raw = bpm::flux(window, bpm::FRAME, bpm::HOP);
+        let env = bpm::detrend(&raw);
+        let loudness = if skip {
+            &self.after_skip
+        } else {
+            &self.whole
+        };
         Measured::Window {
             analysed_ms: (analysed * 1000.0).round() as i64,
-            tempo: bpm::detect(window, rate),
+            tempo: bpm::detect_envelope(&env, rate),
             key,
+            features: Features {
+                loudness_lufs: loudness.as_ref().and_then(Meter::lufs),
+                onset_density: features::onset_density(&raw, &env, rate / bpm::HOP as f64),
+                spectral_flux: features::mean_flux(&raw),
+            },
         }
     }
 }
@@ -161,18 +205,14 @@ pub fn measure(
 ) -> Result<Measured, Stopped> {
     let mut window: Option<Window> = None;
     let walked = decode::walk(source, keep_going, &mut |block| {
-        let w = window.get_or_insert_with(|| Window::start(block.rate));
-        if block.rate != w.rate {
-            // The rest of the file is another stream: the window is of the
-            // first.
+        let w = window.get_or_insert_with(|| Window::start(block.rate, block.channels));
+        if block.rate != w.rate || block.channels.max(1) != w.channels {
+            // The rest of the file is another stream (another rate or channel
+            // count): the window is of the first.
             return Ok(Flow::Stop);
         }
         block.audio.copy_to_vec_interleaved(&mut w.interleaved);
-        Ok(if w.feed(block.channels) {
-            Flow::Stop
-        } else {
-            Flow::Continue
-        })
+        Ok(if w.feed() { Flow::Stop } else { Flow::Continue })
     })?;
     match window {
         Some(w) if w.taken > 0 => Ok(w.measure()),

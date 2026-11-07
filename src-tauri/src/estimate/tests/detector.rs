@@ -1,7 +1,8 @@
 //! The tempo detector and the window, on audio decoded from memory.
 
-use super::{audio, clicks, silence, source};
+use super::{audio, clicks, scaled, silence, source};
 use crate::estimate::bpm::{fold, Tempo};
+use crate::estimate::features::Features;
 use crate::estimate::window::{measure, Measured, Short};
 use crate::settings::{BpmRange, DEFAULT_BPM_RANGE};
 
@@ -113,4 +114,96 @@ fn a_cancel_stops_the_decode_and_measures_nothing() {
         stopped,
         Err(crate::fingerprint::decode::Stopped::Cancelled)
     ));
+}
+
+// ---- the energy features -----------------------------------------------------
+
+fn features(pcm: &audio::Pcm) -> Features {
+    match measured(pcm) {
+        Measured::Window { features, .. } => features,
+        other => panic!("not measured: {other:?}"),
+    }
+}
+
+fn lufs(pcm: &audio::Pcm) -> f64 {
+    features(pcm).loudness_lufs.expect("a loudness")
+}
+
+#[test]
+fn a_louder_signal_measures_more_loudness_by_about_the_gain() {
+    let loud = lufs(&clicks(128.0, 30.0, RATE));
+    let quiet = lufs(&scaled(clicks(128.0, 30.0, RATE), 0.1));
+    assert!(loud <= 0.0 && quiet < loud, "{loud} {quiet}");
+    assert!(
+        ((loud - quiet) - 20.0).abs() < 1.0,
+        "20 dB down measured {} LU down",
+        loud - quiet
+    );
+}
+
+#[test]
+fn two_channels_are_measured_together_not_as_mono() {
+    let mono = clicks(128.0, 30.0, RATE);
+    let stereo = audio::Pcm {
+        rate: RATE,
+        channels: 2,
+        samples: mono.samples.iter().flat_map(|s| [*s, *s]).collect(),
+    };
+    let more = lufs(&stereo) - lufs(&mono);
+    assert!(
+        (more - 3.01).abs() < 0.3,
+        "the same in both channels is {more} LU up"
+    );
+}
+
+#[test]
+fn a_denser_signal_has_more_onsets_a_second_and_more_spectral_flux() {
+    let slow = features(&clicks(90.0, 40.0, RATE));
+    let fast = features(&clicks(180.0, 40.0, RATE));
+    assert!(
+        (slow.onset_density - 1.5).abs() < 0.3 && (fast.onset_density - 3.0).abs() < 0.5,
+        "90 BPM clicks have {} onsets a second, 180 BPM {}",
+        slow.onset_density,
+        fast.onset_density
+    );
+    assert!(
+        fast.spectral_flux > slow.spectral_flux * 1.5,
+        "{slow:?} {fast:?}"
+    );
+}
+
+#[test]
+fn the_loudness_is_of_the_window_with_the_intro_dropped() {
+    // 100 s: a loud 30 s intro, then quiet clicks. The window drops the intro
+    // so it is as loud as the quiet part alone, not the whole.
+    let rate = 11_025;
+    let loud = clicks(128.0, 30.0, rate);
+    let quiet = scaled(clicks(128.0, 70.0, rate), 0.1);
+    let both = audio::Pcm {
+        rate,
+        channels: 1,
+        samples: [loud.samples.clone(), quiet.samples.clone()].concat(),
+    };
+    let (dropped, only_quiet, whole) = (lufs(&both), lufs(&quiet), lufs(&loud));
+    assert!(
+        (dropped - only_quiet).abs() < 1.0 && whole - dropped > 10.0,
+        "{dropped} {only_quiet} {whole}"
+    );
+}
+
+#[test]
+fn a_steady_tone_has_next_to_no_onsets_a_second() {
+    let tone = audio::Pcm {
+        rate: RATE,
+        channels: 1,
+        samples: (0..RATE * 20)
+            .map(|i| {
+                let t = f64::from(i) / f64::from(RATE);
+                (0.3 * (std::f64::consts::TAU * 440.0 * t).sin() * 32_767.0) as i16
+            })
+            .collect(),
+    };
+    // Only its start, against 1.5 or more for the slowest click track.
+    let density = features(&tone).onset_density;
+    assert!(density < 0.5, "{density} onsets a second");
 }

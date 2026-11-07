@@ -8,7 +8,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use super::support::{wait, Library, TempVolume};
-use super::{audio, clicks, silence};
+use super::{audio, clicks, scaled, silence};
 use crate::estimate::ledger::{self, Stored};
 use crate::estimate::support::{queued, store_row};
 use crate::estimate::{analyze_job, Analyzer, PRIORITY, VERSION};
@@ -161,6 +161,96 @@ fn each_library_track_gets_a_local_bpm_once_and_a_rerun_decodes_nothing() {
         .call(|c| crate::estimate::due(c, None))
         .unwrap());
     assert_eq!(local_row(&library, a).unwrap(), row_a);
+}
+
+#[test]
+fn a_run_stores_the_energy_features_and_works_the_suggestions_out_in_the_ledger_only() {
+    let library = Library::new();
+    library.put(
+        "slow quiet.wav",
+        &audio::wav(&scaled(clicks(90.0, 30.0, RATE), 0.1)),
+    );
+    library.put("fast loud.wav", &wav(180.0, 30.0));
+    library.put("mid.wav", &wav(128.0, 30.0));
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 3);
+
+    let suggestion = |name: &str| {
+        let track = track_of(&library, ids[name]);
+        library
+            .writer
+            .call(move |c| crate::estimate::suggest::suggestion_for(c, track))
+            .unwrap()
+            .expect("a suggestion")
+    };
+    let (slow, fast) = (suggestion("slow quiet.wav"), suggestion("fast loud.wav"));
+    assert!(slow.value < fast.value, "{slow:?} {fast:?}");
+    assert_eq!(slow.basis.len(), 4, "loudness, onsets, flux and tempo");
+
+    // In the ledger only: a measured file has its features, and no track has
+    // an energy of the app's anywhere.
+    let features: i64 = library
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM file_estimate
+                 WHERE loudness_lufs <= 0 AND onset_density > 0 AND spectral_flux > 0
+                   AND energy_suggestion BETWEEN 1 AND 10",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(features, 3);
+    let energies = count(
+        &library,
+        "SELECT count(*) FROM analysis WHERE energy IS NOT NULL",
+    );
+    assert_eq!(energies, 0);
+    // Nothing left to do.
+    assert_eq!(analyze_all(&library), 0);
+    assert!(!library
+        .writer
+        .call(|c| crate::estimate::due(c, None))
+        .unwrap());
+}
+
+#[test]
+fn a_file_measured_again_by_the_job_loses_its_old_suggestion_and_is_placed_afresh() {
+    let library = Library::new();
+    let path = library.put(
+        "swapped.wav",
+        &audio::wav(&scaled(clicks(90.0, 30.0, RATE), 0.1)),
+    );
+    library.put("fast loud.wav", &wav(180.0, 30.0));
+    library.put("mid.wav", &wav(128.0, 30.0));
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 3);
+    let track = track_of(&library, ids["swapped.wav"]);
+    let value = |library: &Library| -> u8 {
+        library
+            .writer
+            .call(move |c| crate::estimate::suggest::suggestion_for(c, track))
+            .unwrap()
+            .expect("a suggestion")
+            .value
+    };
+    let quiet = value(&library);
+
+    // The quiet file's audio is replaced by something louder and denser than
+    // the middle one: measured again, it is placed again among the same three.
+    fs::write(&path, wav(150.0, 30.0)).unwrap();
+    {
+        let queue = queue(&library, analyzer(&library));
+        for job in [scan_job(None), hash_job(None)] {
+            let job = queue.enqueue(job).unwrap();
+            assert_eq!(wait(&library.writer, job).status, JobStatus::Done);
+        }
+        queue.shutdown();
+    }
+    assert_eq!(analyze_all(&library), 1);
+    let loud = value(&library);
+    assert!(loud > quiet, "{quiet} then {loud}");
 }
 
 #[test]

@@ -24,8 +24,10 @@
 //! - **When the run is over** every Library track's `'local'` row is
 //!   brought in step with the ledger ([`super::sync_all`], a page of tracks
 //!   per writer call): a track whose file changed by a relink or a merge, or
-//!   a change of BPM range, is shown right without a decode. Then the search
-//!   index is asked for, since the track table reads that.
+//!   a change of BPM range, is shown right without a decode. Then the energy
+//!   suggestions are worked out ([`super::suggest`]: in the ledger only,
+//!   never an energy on a track), and the search index is asked for, since
+//!   the track table reads that.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -208,6 +210,10 @@ impl<V: Volumes + Sync + 'static> JobHandler for Analyzer<V> {
                 // Any track's row that no measurement of this run reached
                 // (a relink, a merge, a new range): a page per writer call.
                 super::sync_all(job.writer(), range)?;
+                // The energy suggestions, in the ledger only (the owner's
+                // rule): the first batch, one after the Library changed by
+                // more than 5%, or the newcomers' ([`super::suggest`]).
+                super::suggest::refresh(job.writer())?;
                 // The track table reads the index, which the 'local' rows
                 // (this run's, and the ones just put right) reach only when
                 // it is built again. It is asked for only if some track is

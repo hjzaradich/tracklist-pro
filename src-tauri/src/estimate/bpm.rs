@@ -67,7 +67,13 @@ pub fn decimation(rate: u32) -> usize {
 /// averaged down near [`TARGET_RATE`]. `None` when the envelope has no
 /// onsets (silence, a steady tone) or the audio is too short for a comb.
 pub fn detect(mono: &[f32], rate: f64) -> Option<Tempo> {
-    let env = onset_envelope(mono, FRAME, HOP);
+    detect_envelope(&onset_envelope(mono, FRAME, HOP), rate)
+}
+
+/// [`detect`] on an onset envelope already worked out from audio at `rate`
+/// ([`onset_envelope`], or [`flux`] then [`detrend`]), so a caller that
+/// wants the envelope for something else too computes it once.
+pub fn detect_envelope(env: &[f32], rate: f64) -> Option<Tempo> {
     let fps = rate / HOP as f64;
     // The longest comb reaches COMB periods of the slowest tempo.
     let longest = COMB as f64 * 60.0 * fps / SEARCH_MIN;
@@ -76,7 +82,7 @@ pub fn detect(mono: &[f32], rate: f64) -> Option<Tempo> {
     }
     let score = |bpm: f64| -> f64 {
         let period = 60.0 * fps / bpm;
-        (1..=COMB).map(|k| acf_at(&env, period * k as f64)).sum()
+        (1..=COMB).map(|k| acf_at(env, period * k as f64)).sum()
     };
     let mut best = (0.0, f64::MIN);
     let (mut sum, mut count) = (0.0, 0usize);
@@ -132,6 +138,13 @@ pub fn fold(bpm: f64, range: BpmRange) -> f64 {
 
 /// The spectral-flux onset envelope of `x`, one value per `hop` samples.
 pub fn onset_envelope(x: &[f32], frame: usize, hop: usize) -> Vec<f32> {
+    detrend(&flux(x, frame, hop))
+}
+
+/// The spectral flux of `x`: for each frame, how much the log magnitude
+/// spectrum rose since the frame before, summed over the bins; one value per
+/// `hop` samples. The energy features' mean flux is the mean of this.
+pub fn flux(x: &[f32], frame: usize, hop: usize) -> Vec<f32> {
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(frame);
     let window: Vec<f32> = (0..frame)
@@ -146,16 +159,22 @@ pub fn onset_envelope(x: &[f32], frame: usize, hop: usize) -> Vec<f32> {
             *b = Complex::new(x[i + k] * window[k], 0.0);
         }
         fft.process(&mut buf);
-        let mut flux = 0f32;
+        let mut rise = 0f32;
         for k in 1..frame / 2 {
             let m = (1.0 + 1000.0 * buf[k].norm()).ln();
-            flux += (m - prev[k]).max(0.0);
+            rise += (m - prev[k]).max(0.0);
             prev[k] = m;
         }
-        env.push(flux);
+        env.push(rise);
         i += hop;
     }
-    // Take away the slow trend and keep only what rises above it.
+    env
+}
+
+/// `env` with its slow trend (the local mean, [`TREND`] frames either side)
+/// taken away and what is left under zero dropped: only the onsets stand
+/// out.
+pub fn detrend(env: &[f32]) -> Vec<f32> {
     let mut out = vec![0f32; env.len()];
     for (t, o) in out.iter_mut().enumerate() {
         let lo = t.saturating_sub(TREND);

@@ -613,6 +613,16 @@ export const commands = {
 	 */
 	userEnergyCount: (recordings: number[]) => typedError<number, IpcError>(__TAURI_INVOKE("user_energy_count", { recordings })),
 	/**
+	 *  The energy the app suggests for a track, with why, or nothing. Only a
+	 *  suggestion (ROADMAP 3.7): the track has no energy from it. To use it, set
+	 *  the energy as the user would (`set_energy`), one undoable edit.
+	 */
+	energySuggestion: (recordingId: number) => typedError<{
+	/**  1 to 10. */
+	value: number,
+	basis: Basis[],
+} | null, IpcError>(__TAURI_INVOKE("energy_suggestion", { recordingId })),
+	/**
 	 *  Whether energy is sent as rekordbox's star rating. Off until the user
 	 *  turns it on.
 	 */
@@ -913,6 +923,29 @@ export type AppInfo = {
 	version: string,
 	identifier: string,
 };
+
+/**
+ *  One feature's rank in the Library: `percentile` is 0 to 100, the share
+ *  of the Library's files this one is above in `code`'s feature.
+ */
+export type Basis = {
+	code: BasisCode,
+	percentile: number,
+};
+
+/**  What a part of the basis is about. */
+export type BasisCode = 
+/**
+ *  Integrated loudness: the percentile is the share of the Library's
+ *  files this one is louder than.
+ */
+"loudness" | 
+/**  Onsets a second: denser than that share. */
+"onsets" | 
+/**  Spectral flux: moves more than that share. */
+"flux" | 
+/**  Tempo (folded into the user's range): faster than that share. */
+"tempo";
 
 /**  How a batch of Inbox files came in. Stored in `inbox_batch.kind`. */
 export type BatchKind = 
@@ -1299,6 +1332,13 @@ export type EnergySource =
 "user" | 
 /**  Mixed In Key's. */
 "mik";
+
+/**  The energy the app suggests for a track. */
+export type EnergySuggestion = {
+	/**  1 to 10. */
+	value: number,
+	basis: Basis[],
+};
 
 /**  What rekordbox holds for a Library track: the entry it is sent as. */
 export type EntryFacts = {

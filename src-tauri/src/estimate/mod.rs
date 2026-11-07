@@ -37,9 +37,11 @@
 
 pub mod bpm;
 pub mod compare;
+pub mod features;
 mod job;
 pub mod key;
 pub(crate) mod ledger;
+pub mod suggest;
 pub mod window;
 
 #[cfg(test)]
@@ -61,9 +63,10 @@ pub use job::{analyze_job, Analyzer, PRIORITY};
 
 /// The version of the method. Bump it when anything that shapes what is
 /// measured changes (the window, the detector, a feature added), and every
-/// file is measured again; the `'local'` rows are updated in place. 2: the
-/// key (3C-E2).
-pub const VERSION: u8 = 2;
+/// file is measured again; the `'local'` rows are kept until the new
+/// measurement replaces them in place. 2: the key (3C-E2). 3: the energy
+/// features (3C-E1b).
+pub const VERSION: u8 = 3;
 
 /// The analyze job's handler for the app, on the thread budget the
 /// fingerprint jobs share.
@@ -162,5 +165,5 @@ pub fn set_bpm_range<E: From<DbError> + std::fmt::Debug>(
 /// it on a read connection.
 pub(crate) fn due(conn: &Connection, reachable: Option<&[i64]>) -> rusqlite::Result<bool> {
     let gate = ReadGate::for_job(conn)?;
-    ledger::any_due(conn, gate.allows(true), reachable)
+    Ok(ledger::any_due(conn, gate.allows(true), reachable)? || suggest::needed(conn)?)
 }
