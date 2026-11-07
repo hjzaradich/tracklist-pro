@@ -703,12 +703,13 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
   - Genre and vibe **suggestions** (review only, never applied automatically).
   - A better energy estimate.
 - **Always labeled:** ML output is presented as the audio model's opinion ("Audio model: sounds similar", "Audio model: Dubstep, 84%"). It is never the only reason for a suggestion, and it can be switched off in settings. Nothing else depends on it.
-- **How:** ONNX Runtime via `ort` on the CPU. Embeddings are computed in the job queue and stored in `embedding`. Brute-force search is fine at 100k × 512 floats.
+- **How:** `tract` (pure Rust, no extra library or build-time download) on the CPU; ONNX Runtime via `ort` only as the fallback if `tract` is too slow. Embeddings are computed in the job queue and stored in `embedding`. Brute-force search is fine at 100k × 512 floats.
 - **Models:**
   - **EfficientAT `mn10_as`** (MIT) for every track: an embedding plus AudioSet genre and mood tags in one cheap pass.
   - **LAION-CLAP music** (Apache-2.0/CC0), run lazily: "sounds like" plus text search.
   - Later: small per-user heads trained on the user's own genres and tags.
-- **Constraints:** GPL-compatible weights; pinned model versions; credit for CC-BY models. The training-data licensing (AudioSet/LAION) goes to legal review.
+- **Constraints:** GPL-compatible weights; pinned model versions (sha256); each model's licence shipped with it; credit for CC-BY models.
+- **Owner decision 2026-11-07 (research: reviews 4B-R0):** EfficientAT `mn10_as` for every track, on `tract`; its weights are treated as MIT and its author is credited in the app. CED (Apache-2.0) is the alternative if a measurement favours it. LAION-CLAP and text search wait, as a later separate download. Not one free model labels fine DJ genres (tech house vs deep house); those come from the per-user heads. The first build step is a speed and quality check on public test audio, against CED. Where the model files are hosted is still open.
 - **Complexity:** L–XL. It's the last Phase 3 item, so nothing else depends on it.
 
 ---
