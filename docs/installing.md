@@ -50,6 +50,13 @@ An installer you built yourself on the same PC doesn't show the warning. A copy 
 
 Before SmartScreen, a browser may also hold back the download ("isn't commonly downloaded"). Choose to keep the file.
 
+### Check the download
+
+Only run an installer you built yourself or got from the project's releases page. Two quick checks before you run it:
+
+1. Right-click the file, choose **Properties**, and look at the **Digital Signatures** tab. There is none: the installer isn't signed (see above). That is expected.
+2. If the release page lists a checksum (a SHA-256 line), compare it. In PowerShell, run `Get-FileHash <path to the installer>` and check that the long `Hash` value is the same, letter for letter. If it differs, don't run the file.
+
 ### Installing over an older version
 
 **Not run on this build.** The steps below are read from the installer the build generates.

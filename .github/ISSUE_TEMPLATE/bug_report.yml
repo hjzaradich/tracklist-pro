@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in tracklist-pro doesn't work
+labels: ["bug"]
+body:
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      description: Shown under Settings, About.
+    validations:
+      required: true
+  - type: input
+    id: windows_version
+    attributes:
+      label: Windows version
+      description: For example, Windows 11 23H2.
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: What you did, one step per line.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics report (optional)
+      description: In Settings, open Diagnostics and copy the report. Read it first and take out anything you don't want to share. It holds counts and codes, not track names.
+      render: text
+    validations:
+      required: false

@@ -197,3 +197,9 @@
 .agreement thead th:first-child {
   text-align: start;
 }
+
+/* A licence text keeps its line breaks but wraps long lines. */
+.licenceText {
+  white-space: pre-wrap;
+  font-size: var(--font-size-sm);
+}

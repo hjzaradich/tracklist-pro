@@ -2,6 +2,7 @@
 // `npm run dev` regenerates it; `npm run build` and the tests fail when it's stale.
 
 export interface EnglishResources {
+  "about": typeof import("../locales/en/about.json");
   "activity": typeof import("../locales/en/activity.json");
   "afterSend": typeof import("../locales/en/afterSend.json");
   "allMusic": typeof import("../locales/en/allMusic.json");
