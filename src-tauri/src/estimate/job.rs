@@ -236,10 +236,7 @@ impl<V: Volumes + Sync + 'static> Analyzer<V> {
             return Ok(());
         };
         let same = due.clone();
-        if job
-            .writer()
-            .call(move |c| ledger::reuse(c, &same, range))?
-        {
+        if job.writer().call(move |c| ledger::reuse(c, &same, range))? {
             return Ok(());
         }
         let Some(path) = run.path(&due.folder, &due.rel_path) else {

@@ -166,7 +166,9 @@ impl Row {
                 tempo.map(|t| t.confidence),
                 None,
             ),
-            Row::Measured(Measured::Short(Short::TooShort)) => (None, None, None, Some("too_short")),
+            Row::Measured(Measured::Short(Short::TooShort)) => {
+                (None, None, None, Some("too_short"))
+            }
             Row::Measured(Measured::Short(Short::Silent)) => (None, None, None, Some("silent")),
             Row::Failed(why) => (None, None, None, Some(why.as_str())),
         }
@@ -276,7 +278,11 @@ struct Step {
 /// each BPM into `range`. Writes only what differs: a row is inserted,
 /// updated in place (its id kept) or, when its BPM goes and it holds
 /// nothing else, deleted. Returns how many rows it wrote.
-pub(crate) fn sync(conn: &Connection, only: Option<i64>, range: BpmRange) -> rusqlite::Result<usize> {
+pub(crate) fn sync(
+    conn: &Connection,
+    only: Option<i64>,
+    range: BpmRange,
+) -> rusqlite::Result<usize> {
     let steps: Vec<Step> = {
         let mut stmt = conn.prepare_cached(&sql(&format!(
             "SELECT lt.recording_id, e.bpm, e.bpm_confidence,

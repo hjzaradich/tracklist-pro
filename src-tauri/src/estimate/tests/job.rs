@@ -58,7 +58,10 @@ fn analyze_all(library: &Library) -> usize {
 }
 
 fn stored(library: &Library, file: i64) -> Option<Stored> {
-    library.writer.call(move |c| ledger::current(c, file)).unwrap()
+    library
+        .writer
+        .call(move |c| ledger::current(c, file))
+        .unwrap()
 }
 
 /// The track file `file` belongs to.
@@ -76,7 +79,10 @@ fn track_of(library: &Library, file: i64) -> i64 {
 }
 
 /// The track's `'local'` row: its id, BPM, key and energy.
-fn local_row(library: &Library, track: i64) -> Option<(i64, Option<f64>, Option<String>, Option<i64>)> {
+fn local_row(
+    library: &Library,
+    track: i64,
+) -> Option<(i64, Option<f64>, Option<String>, Option<i64>)> {
     use rusqlite::OptionalExtension;
     library
         .writer
@@ -125,7 +131,10 @@ fn each_library_track_gets_a_local_bpm_once_and_a_rerun_decodes_nothing() {
     library.put("Folder/b.wav", &wav(87.0, 30.0));
     let ids = walk_and_hash(&library);
     assert_eq!(analyze_all(&library), 2);
-    let (a, b) = (track_of(&library, ids["a.wav"]), track_of(&library, ids["Folder/b.wav"]));
+    let (a, b) = (
+        track_of(&library, ids["a.wav"]),
+        track_of(&library, ids["Folder/b.wav"]),
+    );
     let row_a = local_row(&library, a).unwrap();
     assert!(near(row_a.1, 128.0), "{row_a:?}");
     // The ledger keeps the detector's answer; the track shows it folded.
@@ -219,14 +228,17 @@ fn a_bpm_from_rekordbox_hides_the_local_one_which_stays() {
     analyze_all(&library);
     assert!(near(local_row(&library, track).unwrap().1, 128.0));
     let (bpm, source, table) = shown_bpm(&library, track);
-    assert_eq!((bpm, source.as_deref(), table), (Some(120.0), Some("rekordbox"), Some(120.0)));
+    assert_eq!(
+        (bpm, source.as_deref(), table),
+        (Some(120.0), Some("rekordbox"), Some(120.0))
+    );
 }
 
 #[test]
 fn a_cancel_mid_run_keeps_only_whole_results() {
     let library = Library::new();
-    for name in ["a.wav", "b.wav", "c.wav"] {
-        library.put(name, &wav(128.0, 30.0));
+    for (name, bpm) in [("a.wav", 120.0), ("b.wav", 128.0), ("c.wav", 140.0)] {
+        library.put(name, &wav(bpm, 30.0));
     }
     let ids = walk_and_hash(&library);
     let (at_second, second) = mpsc::channel();
@@ -247,11 +259,20 @@ fn a_cancel_mid_run_keeps_only_whole_results() {
     go.send(()).unwrap();
     assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
     queue.shutdown();
-    let measured = ids.values().filter(|&&id| stored(&library, id).is_some()).count();
+    let measured = ids
+        .values()
+        .filter(|&&id| stored(&library, id).is_some())
+        .count();
     assert_eq!(measured, 1, "the first file only");
     let rows: i64 = library
         .writer
-        .call(|c| c.query_row("SELECT count(*) FROM analysis WHERE source = 'local'", [], |r| r.get(0)))
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM analysis WHERE source = 'local'",
+                [],
+                |r| r.get(0),
+            )
+        })
         .unwrap();
     assert_eq!(rows, 1);
     // What was stored stays: the next run does the other two.

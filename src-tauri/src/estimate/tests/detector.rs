@@ -23,7 +23,12 @@ fn tempo(pcm: &audio::Pcm) -> Tempo {
 
 #[test]
 fn click_tracks_at_known_tempos_are_found_within_half_a_bpm_once_folded_into_the_range() {
-    for (bpm, shown) in [(100.0, 100.0), (128.0, 128.0), (174.0, 174.0), (87.0, 174.0)] {
+    for (bpm, shown) in [
+        (100.0, 100.0),
+        (128.0, 128.0),
+        (174.0, 174.0),
+        (87.0, 174.0),
+    ] {
         let found = tempo(&clicks(bpm, 30.0, RATE));
         let folded = fold(found.bpm, DEFAULT_BPM_RANGE);
         assert!(

@@ -339,20 +339,39 @@ mod tests {
         let (_dir, writer, _reads) = db();
         let read = |w: &Writer| w.call(|c| read_bpm_range(c)).unwrap();
         assert_eq!(read(&writer), DEFAULT_BPM_RANGE);
-        assert_eq!((DEFAULT_BPM_RANGE.min, DEFAULT_BPM_RANGE.max), (98.0, 195.0));
+        assert_eq!(
+            (DEFAULT_BPM_RANGE.min, DEFAULT_BPM_RANGE.max),
+            (98.0, 195.0)
+        );
         let range = BpmRange::new(70.0, 140.0).unwrap();
         writer.call(move |c| write_bpm_range(c, range)).unwrap();
         assert_eq!(read(&writer), range);
         let raw: String = writer
-            .call(|c| c.query_row("SELECT value FROM setting WHERE key = 'bpm_range'", [], |r| r.get(0)))
+            .call(|c| {
+                c.query_row(
+                    "SELECT value FROM setting WHERE key = 'bpm_range'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
             .unwrap();
-        assert_eq!(serde_json::from_str::<Value>(&raw).unwrap(), json!([70.0, 140.0]));
+        assert_eq!(
+            serde_json::from_str::<Value>(&raw).unwrap(),
+            json!([70.0, 140.0])
+        );
     }
 
     #[test]
     fn a_stored_bpm_range_that_is_not_a_range_reads_as_the_default() {
         let (_dir, writer, _reads) = db();
-        for bad in ["[140, 70]", "[0, 100]", "\"fast\"", "[98]", "[98, 195, 3]", "{}"] {
+        for bad in [
+            "[140, 70]",
+            "[0, 100]",
+            "\"fast\"",
+            "[98]",
+            "[98, 195, 3]",
+            "{}",
+        ] {
             writer
                 .call(move |c| {
                     c.execute(
@@ -362,7 +381,11 @@ mod tests {
                     )
                 })
                 .unwrap();
-            assert_eq!(writer.call(|c| read_bpm_range(c)).unwrap(), DEFAULT_BPM_RANGE, "{bad}");
+            assert_eq!(
+                writer.call(|c| read_bpm_range(c)).unwrap(),
+                DEFAULT_BPM_RANGE,
+                "{bad}"
+            );
         }
     }
 }

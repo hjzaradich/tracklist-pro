@@ -45,7 +45,10 @@ pub enum Short {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Measured {
     /// The window was measured: `tempo` is `None` when no beat stood out.
-    Window { analysed_ms: i64, tempo: Option<Tempo> },
+    Window {
+        analysed_ms: i64,
+        tempo: Option<Tempo>,
+    },
     /// There was audio, but none worth measuring.
     Short(Short),
 }

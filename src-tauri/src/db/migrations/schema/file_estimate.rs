@@ -52,16 +52,32 @@ fn an_estimate_belongs_to_one_file_and_names_the_audio_and_method_it_came_from()
          VALUES (99, zeroblob(34), 1, 'silent')",
         "FOREIGN KEY",
     );
-    refuses(&conn, "UPDATE file_estimate SET method_version = 0", "CHECK");
-    refuses(&conn, "UPDATE file_estimate SET audio_hash = zeroblob(32)", "CHECK");
+    refuses(
+        &conn,
+        "UPDATE file_estimate SET method_version = 0",
+        "CHECK",
+    );
+    refuses(
+        &conn,
+        "UPDATE file_estimate SET audio_hash = zeroblob(32)",
+        "CHECK",
+    );
 }
 
 #[test]
 fn a_bpm_comes_with_its_confidence_and_a_skipped_file_has_no_measurements() {
     let (_dir, conn) = with_a_file();
     refuses(&conn, &measured(", bpm", ", 128.0"), "CHECK");
-    refuses(&conn, &measured(", bpm, bpm_confidence", ", 128.0, 1.5"), "CHECK");
-    refuses(&conn, &measured(", bpm, bpm_confidence", ", 0, 0.5"), "CHECK");
+    refuses(
+        &conn,
+        &measured(", bpm, bpm_confidence", ", 128.0, 1.5"),
+        "CHECK",
+    );
+    refuses(
+        &conn,
+        &measured(", bpm, bpm_confidence", ", 0, 0.5"),
+        "CHECK",
+    );
     refuses(&conn, &measured(", energy_suggestion", ", 11"), "CHECK");
     refuses(&conn, &skipped("unreadable"), "CHECK");
     // Neither a window nor a reason.

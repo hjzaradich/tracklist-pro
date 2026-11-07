@@ -538,6 +538,7 @@ fn the_apps_own_bpm_estimate_is_never_sent_for_a_new_track_or_one_rekordbox_has(
          SELECT recording_id, 'local', 133.33, 0.9 FROM library_track",
         (),
     );
+    assert!(w.prepare().is_some());
     assert_eq!(w.go(false), None);
     assert_eq!(w.sent_titles().len(), 2);
     let text = fs::read_to_string(w.send_file()).unwrap();

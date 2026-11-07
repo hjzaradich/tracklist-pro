@@ -107,6 +107,7 @@ pub(super) fn chained_queue_with(
         looked.fingerprinted.clone(),
     );
     let v7 = volume.clone();
+    let v8 = volume.clone();
     let (m1, m2, m3, m4, m5) = (
         looked.marks.clone(),
         looked.marks.clone(),
@@ -202,13 +203,20 @@ pub(super) fn chained_queue_with(
             JobKind::Match,
             after_matching(crate::matching::Matcher::new()),
         )
-        // The waveforms follow the chain like the quality checks (1cB-9);
-        // the tests below look at the stages, so they are left out of the
-        // lists of jobs (`jobs`).
+        // The waveforms follow the chain like the quality checks (1cB-9),
+        // and the estimates beside them (3.7); the tests below look at the
+        // stages, so they are left out of the lists of jobs (`jobs`).
         .handler(
             JobKind::Waveform,
             crate::scan::chain::after_waveform(crate::waveform::Waveformer::new(
                 move || v7.clone(),
+                FirstUp::default(),
+            )),
+        )
+        .handler(
+            JobKind::Analyze,
+            crate::scan::chain::after_analyze(crate::estimate::Analyzer::new(
+                move || v8.clone(),
                 FirstUp::default(),
             )),
         );
@@ -275,7 +283,7 @@ fn all_jobs(writer: &Writer) -> Vec<JobRow> {
             // has a test of its own below.
             let mut s = c.prepare(
                 "SELECT kind, target, priority, status FROM job
-                 WHERE kind NOT IN ('relink', 'index', 'waveform')
+                 WHERE kind NOT IN ('relink', 'index', 'waveform', 'analyze')
                    AND NOT (kind = 'group' AND target IS NOT NULL)
                  ORDER BY id",
             )?;
@@ -292,7 +300,7 @@ fn relinks(writer: &Writer) -> Vec<(String, String)> {
         .call(|c| {
             let mut s = c.prepare(
                 "SELECT r.status, (SELECT kind FROM job p
-                                   WHERE p.id < r.id AND p.kind NOT IN ('index', 'waveform')
+                                   WHERE p.id < r.id AND p.kind NOT IN ('index', 'waveform', 'analyze')
                                      AND NOT (p.kind = 'group'
                                               AND COALESCE(json_extract(p.target, '$.roles'), 0) = 1)
                                    ORDER BY p.id DESC)
@@ -1612,7 +1620,7 @@ fn the_deciding_job_follows_matching_at_its_priority_and_a_scan_with_nothing_new
         .call(|c| {
             let mut s = c.prepare(
                 "SELECT kind, target IS NOT NULL FROM job
-                 WHERE kind NOT IN ('relink', 'index', 'waveform')
+                 WHERE kind NOT IN ('relink', 'index', 'waveform', 'analyze')
                    AND NOT (kind = 'group' AND COALESCE(json_extract(target, '$.roles'), 0) = 1)
                  ORDER BY id DESC LIMIT 2",
             )?;
