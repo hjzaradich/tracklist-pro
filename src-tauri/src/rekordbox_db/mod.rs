@@ -36,6 +36,7 @@ use specta::Type;
 use tauri::{AppHandle, Manager, Runtime, State};
 
 use crate::db::ReadPool;
+use crate::diagnostics::{EventKind, LogEvent};
 use crate::ipc::IpcError;
 use crate::jobs::{JobContext, JobError, JobId, JobKind, JobQueue, NewJob, Priority};
 use crate::rekordbox::source::{stored_source, DatabaseSource, LastRead, ReadSource};
@@ -207,8 +208,16 @@ pub fn reader<R: Runtime>(app: &AppHandle<R>) -> Arc<dyn DatabaseSource> {
 
 impl DatabaseSource for DatabaseReader {
     fn read(&self, job: &JobContext, path: &Path) -> Result<(RekordboxXml, i64), JobError> {
+        let began = std::time::Instant::now();
         let read = self.attempt(job, path);
         self.session.ended(read.as_ref().err().map(|f| f.0));
+        // The reason code only; the failure's detail names the file.
+        let event = match &read {
+            Ok(_) => LogEvent::new(EventKind::DatabaseReadOk),
+            Err(Failed(reason, _)) => LogEvent::new(EventKind::DatabaseReadFailed).reason(*reason),
+        };
+        job.events()
+            .record(event.job(job.kind()).took(began.elapsed()));
         read.map_err(|Failed(reason, detail)| match reason {
             DbFailure::Stopped => JobError::Cancelled,
             _ => JobError::failed(detail),

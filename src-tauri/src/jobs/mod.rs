@@ -30,7 +30,7 @@ mod queue;
 pub mod startup;
 pub mod store;
 
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_specta::Event;
 
 use crate::db::{DbError, Writer};
@@ -49,6 +49,10 @@ pub use queue::{
 /// need them arrive (scan in 1a, fingerprint in 1b, …).
 pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue, DbError> {
     JobQueue::builder(writer)
+        .events(
+            app.try_state::<crate::diagnostics::EventLog>()
+                .map_or_else(crate::diagnostics::EventLog::off, |e| e.inner().clone()),
+        )
         .on_updates(emitter(app))
         // The scan stages are chained (scan::chain): a finished walk
         // queues the read of its folders, a finished read their hashes,

@@ -8,6 +8,7 @@ export interface EnglishResources {
   "common": typeof import("../locales/en/common.json");
   "conflicts": typeof import("../locales/en/conflicts.json");
   "crates": typeof import("../locales/en/crates.json");
+  "diagnostics": typeof import("../locales/en/diagnostics.json");
   "errors": typeof import("../locales/en/errors.json");
   "estimate": typeof import("../locales/en/estimate.json");
   "firstRun": typeof import("../locales/en/firstRun.json");

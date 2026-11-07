@@ -10,6 +10,7 @@ pub mod conflict_review;
 pub mod conflicts;
 pub mod crates;
 pub mod db;
+pub mod diagnostics;
 pub mod energy;
 pub mod energy_stars;
 pub mod estimate;
@@ -151,9 +152,14 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
+            let started = std::time::Instant::now();
             specta.mount_events(app);
             let dir = resolve_data_dir(app, &data_dir)?;
             let guard = write_guard::WriteGuard::app_data(&dir)?;
+            // The event log (4.3), before anything that records to it.
+            let events = diagnostics::EventLog::open(&guard);
+            app.manage(events.clone());
+            app.manage(diagnostics::ReportDraft::default());
             let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
             app.manage(db::ReadPool::open(writer.guarded_path())?);
             // Watches the writer for changes to what the Library list is made of
@@ -186,6 +192,11 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
             app.manage(rekordbox::source::ExportFolder::new(export_folder(
                 app, &data_dir,
             )));
+            events.record(
+                diagnostics::LogEvent::new(diagnostics::EventKind::Startup)
+                    .count(recovered.cancelled + recovered.requeued + recovered.failed)
+                    .took(started.elapsed()),
+            );
             open_windows(app, &data_dir)?;
             Ok(())
         })

@@ -40,7 +40,7 @@
 use std::fmt;
 use std::fs::{self, File};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::{ffi, Connection, OpenFlags};
@@ -257,6 +257,19 @@ impl WriteGuard {
             .map_err(|e| checked.io(e))
     }
 
+    /// Adds `bytes` to the end of the file at `path`, creating it if needed.
+    /// The same checks as [`Self::write`]; nothing already in the file is
+    /// changed. A write cut short leaves a partial tail, which is the
+    /// caller's to tolerate.
+    pub fn append(&self, path: &Path, bytes: &[u8]) -> Result<(), GuardError> {
+        use std::io::{Seek, SeekFrom, Write};
+        let checked = self.check(path)?;
+        let mut file = checked.open_one_name(true)?;
+        file.seek(SeekFrom::End(0))
+            .and_then(|_| file.write_all(bytes))
+            .map_err(|e| checked.io(e))
+    }
+
     /// Writes `bytes` as the whole file at `path` without ever leaving a
     /// half-written file there: the bytes go to a new file beside it, are
     /// flushed to disk, and that file is then renamed over `path`. On any
@@ -372,6 +385,57 @@ impl WriteGuard {
     pub fn remove_file(&self, path: &Path) -> Result<(), GuardError> {
         let checked = self.check_entry(path)?;
         fs::remove_file(&checked.path).map_err(|e| checked.io(e))
+    }
+
+    /// Saves `bytes` as the file `name` in `folder` (made if missing), whole
+    /// or not at all ([`Self::write_then_rename`]), then deletes the oldest
+    /// plain files in `folder` that `is_ours` accepts until `keep` are left.
+    /// Names are compared as text, so they must sort oldest first (a
+    /// timestamp). A file `is_ours` doesn't accept, a folder and a link are
+    /// never deleted. Returns the saved file's path.
+    ///
+    /// `name` is one plain name, never a path, and `folder` must be inside a
+    /// root. The file just saved is never deleted, whatever the order of the
+    /// names. A file that can't be deleted is left; the next save tries again.
+    pub fn save_keeping_newest(
+        &self,
+        folder: &Path,
+        name: &str,
+        bytes: &[u8],
+        keep: usize,
+        is_ours: impl Fn(&str) -> bool,
+    ) -> Result<PathBuf, GuardError> {
+        let folder = self.create_dir_all(folder)?;
+        let path = folder.as_path().join(name);
+        // Exactly one plain name: not ".", "..", a drive, a root or a path.
+        if !matches!(
+            Path::new(name).components().collect::<Vec<_>>().as_slice(),
+            [Component::Normal(_)]
+        ) {
+            return Err(GuardError::Outside(path));
+        }
+        self.write_then_rename(&path, bytes)?;
+        let saved = name;
+        let mut names: Vec<String> = fs::read_dir(folder.as_path())
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| {
+                        let entry = entry.ok()?;
+                        let name = entry.file_name().into_string().ok()?;
+                        // The file just saved is never a candidate, whatever the clock says.
+                        (entry.file_type().ok()?.is_file() && is_ours(&name) && name != saved)
+                            .then_some(name)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        // The saved file counts as one of the `keep`.
+        let extra = names.len().saturating_sub(keep.saturating_sub(1));
+        for old in names.iter().take(extra) {
+            let _ = self.remove_file(&folder.as_path().join(old));
+        }
+        Ok(path)
     }
 
     /// Deletes a folder and everything in it. Links (the folder itself, or

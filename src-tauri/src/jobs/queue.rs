@@ -26,6 +26,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::db::{on_a_writer_thread, DbError, Writer};
+use crate::diagnostics::{EventKind, EventLog, EventReason, LogEvent};
 
 use super::dispatch::{self, EventSink};
 use super::events::{ActivitySnapshot, CancelOutcome, JobUpdate};
@@ -134,6 +135,12 @@ impl JobContext {
         self.kind
     }
 
+    /// The event log (4.3), where a handler records what it read or sent.
+    /// Recording never fails or waits on the handler.
+    pub fn events(&self) -> &EventLog {
+        &self.shared.events
+    }
+
     /// What the job works on, as given to [`NewJob::target`].
     pub fn target(&self) -> Option<&serde_json::Value> {
         self.target.as_ref()
@@ -216,9 +223,16 @@ pub struct JobQueueBuilder {
     workers: usize,
     sink: EventSink,
     shutdown_timeout: Duration,
+    events: EventLog,
 }
 
 impl JobQueueBuilder {
+    /// Records each job's start and end in `events` (4.3).
+    pub fn events(mut self, events: EventLog) -> Self {
+        self.events = events;
+        self
+    }
+
     /// Runs `kind` jobs with `handler`. A job whose kind has no handler
     /// fails when a worker takes it.
     pub fn handler(mut self, kind: JobKind, handler: impl JobHandler) -> Self {
@@ -258,6 +272,7 @@ impl JobQueueBuilder {
             writer: self.writer,
             handlers: self.handlers,
             outbox,
+            events: self.events,
             stopping: AtomicBool::new(false),
             state: Mutex::new(State {
                 seq: 0,
@@ -315,6 +330,7 @@ impl JobQueue {
             workers: default_workers(),
             sink: Box::new(|_| {}),
             shutdown_timeout: SHUTDOWN_TIMEOUT,
+            events: EventLog::off(),
         }
     }
 
@@ -440,6 +456,8 @@ struct Shared {
     handlers: HashMap<JobKind, Arc<dyn JobHandler>>,
     /// To the dispatch thread, which sends updates on to the sink.
     outbox: mpsc::Sender<JobUpdate>,
+    /// Where job starts and ends are recorded (4.3).
+    events: EventLog,
     /// Set once the queue is shutting down; workers take no more jobs.
     /// Atomic, so it can be set without the lock (see [`signal_stop`]).
     stopping: AtomicBool,
@@ -623,10 +641,24 @@ fn run(shared: &Arc<Shared>, job: Claimed, flag: Arc<AtomicU8>) {
     let id = job.id;
     let priority = job.priority;
     let kind = JobKind::parse(&job.kind);
+    let started = Instant::now();
+    if let Some(kind) = kind {
+        shared
+            .events
+            .record(LogEvent::new(EventKind::JobStarted).job(kind));
+    }
+    // Why it failed, as a code: the error's own text is never recorded.
+    let mut why = EventReason::JobFailed;
     let ending = match kind {
-        None => Ending::Failed(format!("unknown job kind {:?}", job.kind)),
+        None => {
+            why = EventReason::UnknownKind;
+            Ending::Failed(format!("unknown job kind {:?}", job.kind))
+        }
         Some(kind) => match shared.handlers.get(&kind) {
-            None => Ending::Failed(format!("no handler for {kind} jobs")),
+            None => {
+                why = EventReason::NoHandler;
+                Ending::Failed(format!("no handler for {kind} jobs"))
+            }
             Some(handler) => {
                 let context = JobContext {
                     id,
@@ -643,14 +675,31 @@ fn run(shared: &Arc<Shared>, job: Claimed, flag: Arc<AtomicU8>) {
                         Ending::Requeued
                     }
                     Ok(Err(JobError::Cancelled)) => Ending::Cancelled,
-                    Err(panic) => Ending::Failed(format!(
-                        "the job panicked: {}",
-                        panic_message(panic.as_ref())
-                    )),
+                    Err(panic) => {
+                        why = EventReason::Panicked;
+                        Ending::Failed(format!(
+                            "the job panicked: {}",
+                            panic_message(panic.as_ref())
+                        ))
+                    }
                 }
             }
         },
     };
+    let event = match ending {
+        Ending::Done => Some(LogEvent::new(EventKind::JobFinished)),
+        Ending::Failed(_) => Some(LogEvent::new(EventKind::JobFailed).reason(why)),
+        Ending::Cancelled => Some(LogEvent::new(EventKind::JobCancelled)),
+        // Back in the queue for the next launch: it has not ended.
+        Ending::Requeued => None,
+    };
+    if let Some(event) = event {
+        let event = event.took(started.elapsed());
+        shared.events.record(match kind {
+            Some(kind) => event.job(kind),
+            None => event,
+        });
+    }
 
     // Under the lock, so the database and the active list change together:
     // nobody sees the job finished in one and running in the other.

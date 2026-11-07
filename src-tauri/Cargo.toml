@@ -63,6 +63,9 @@ symphonia = { version = "0.6.1", default-features = false, features = ["opt-simd
 rustfft = "6.4.1"
 
 [target.'cfg(windows)'.dependencies]
+# The Windows version for the diagnostics report (4.3). Already in the tree
+# through tauri. MIT OR Apache-2.0.
+windows-version = "0.1.7"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_System_Diagnostics_Debug", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
