@@ -285,3 +285,125 @@ fn a_fit_sorted_crate_that_is_not_there_is_nothing_and_so_is_one_that_holds_no_t
     );
     assert_eq!((empty.total, empty.rows.len()), (Some(0), 0));
 }
+
+/// A playlist (id 1) of the tracks of `specs` (a crate is made too, as
+/// `crate_of` does), with the tracks at `order` (indexes) as its entries, in
+/// that order; a track may repeat. Returns the tracks' ids and the entries'.
+fn playlist_of(lib: &Lib, specs: &[Spec], order: &[usize]) -> (Vec<i64>, Vec<i64>) {
+    let t = crate_of(lib, specs);
+    lib.insert(
+        "INSERT INTO playlist (name, name_key) VALUES ('Set', 'set')",
+        (),
+    );
+    let mut entries = Vec::new();
+    for (at, &n) in order.iter().enumerate() {
+        let entry = 100 + at as i64;
+        lib.insert(
+            "INSERT INTO playlist_entry (id, playlist_id, library_track_id, position)
+             VALUES (?1, 1, (SELECT id FROM library_track WHERE recording_id = ?2), ?3)",
+            (entry, t[n], at as i64),
+        );
+        entries.push(entry);
+    }
+    (t, entries)
+}
+
+fn playlist_by_fit(after: i64) -> TableQuery {
+    query(TableSource::PlaylistByFit {
+        id: PlaylistId(1),
+        after,
+    })
+}
+
+fn entry_ids(page: &TablePage) -> Vec<Option<i64>> {
+    page.rows.iter().map(|r| r.entry_id.map(|e| e.0)).collect()
+}
+
+#[test]
+fn a_playlist_sorted_by_fit_lists_the_selected_track_first_then_the_best_fits_each_with_its_entry()
+{
+    let lib = Lib::new();
+    // The playlist holds them in the reverse of the crate's order.
+    let (t, e) = playlist_of(&lib, &TRACKS, &[5, 4, 3, 2, 1, 0]);
+    let page = run(&lib, playlist_by_fit(t[1]));
+    assert_eq!(page.total, Some(6));
+    // As the crate's: selected, 9A, 8A far tempo, then the 124 BPM ones (ties
+    // keep the playlist's own order, so the no-key track is first), nothing.
+    assert_eq!(ids(&page), [t[1], t[2], t[3], t[4], t[0], t[5]]);
+    assert_eq!(
+        entry_ids(&page),
+        [e[4], e[3], e[2], e[1], e[5], e[0]].map(Some)
+    );
+    assert_eq!(page.rows[0].fit.clone().unwrap().reason, None);
+    assert_eq!(page.rows[1].fit.clone().unwrap().dots, 3);
+}
+
+#[test]
+fn a_track_in_a_playlist_twice_keeps_both_entries_in_a_fit_sorted_playlist() {
+    let lib = Lib::new();
+    // The selected track and the close neighbour are each in twice.
+    let (t, e) = playlist_of(&lib, &TRACKS[..4], &[0, 1, 2, 3, 1, 2]);
+    let page = run(&lib, playlist_by_fit(t[1]));
+    assert_eq!(page.total, Some(6));
+    assert_eq!(ids(&page), [t[1], t[1], t[2], t[2], t[3], t[0]]);
+    assert_eq!(
+        entry_ids(&page),
+        [e[1], e[4], e[2], e[5], e[3], e[0]].map(Some)
+    );
+    // Both entries of the neighbour carry its fit.
+    assert_eq!(page.rows[2].fit, page.rows[3].fit);
+    assert!(page.rows[2].fit.is_some());
+}
+
+#[test]
+fn sorting_a_playlist_by_fit_does_not_change_the_playlist_and_the_search_still_narrows_it() {
+    let lib = Lib::new();
+    let (t, e) = playlist_of(&lib, &TRACKS, &[0, 1, 2, 3, 4, 5]);
+    let plain = |lib: &Lib| {
+        entry_ids(&run(
+            lib,
+            query(TableSource::Playlist { id: PlaylistId(1) }),
+        ))
+    };
+    let before = plain(&lib);
+    run(&lib, playlist_by_fit(t[1]));
+    assert_eq!(plain(&lib), before);
+    assert_eq!(before, e.iter().copied().map(Some).collect::<Vec<_>>());
+
+    let narrowed = TableQuery {
+        search: Some("close".to_owned()),
+        ..playlist_by_fit(t[1])
+    };
+    assert_eq!(ids(&run(&lib, narrowed)), [t[2]]);
+    // A playlist that is not there is nothing.
+    let missing = TableQuery {
+        source: TableSource::PlaylistByFit {
+            id: PlaylistId(99),
+            after: t[1],
+        },
+        ..playlist_by_fit(t[1])
+    };
+    lib.settle();
+    assert!(lib
+        .writer
+        .call(move |c| Ok(read(c, &Mount, &missing)?.is_none()))
+        .unwrap());
+}
+
+#[test]
+fn an_estimated_energy_never_changes_a_playlists_fit_order_or_its_fits() {
+    let lib = Lib::new();
+    let (t, _) = playlist_of(&lib, &TRACKS, &[0, 1, 2, 3, 4, 5]);
+    let before = run(&lib, playlist_by_fit(t[1]));
+    for (n, source) in [(0, "local"), (3, "ml"), (4, "local")] {
+        lib.insert(
+            "INSERT INTO analysis (recording_id, source, energy) VALUES (?1, ?2, 9)",
+            (t[n], source),
+        );
+    }
+    lib.settle();
+    let after = run(&lib, playlist_by_fit(t[1]));
+    assert_eq!(ids(&after), ids(&before));
+    let fits = |p: &TablePage| p.rows.iter().map(|r| r.fit.clone()).collect::<Vec<_>>();
+    assert_eq!(fits(&after), fits(&before));
+}

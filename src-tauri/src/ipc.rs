@@ -227,6 +227,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::playlists::add_recordings_to_playlist,
             crate::playlists::remove_from_playlist,
             crate::playlists::move_in_playlist,
+            crate::playlists::set_playlist_order,
             crate::playlists::save_playlist_as_crate,
             crate::playlists::playlist_from_crate,
             crate::playlists::timeline::playlist_timeline,

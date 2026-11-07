@@ -727,6 +727,8 @@ export const commands = {
 	removeFromPlaylist: (id: PlaylistId, entries: PlaylistEntryId[]) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("remove_from_playlist", { id, entries })),
 	/**  Moves entries before entry `before`, or to the end. */
 	moveInPlaylist: (id: PlaylistId, entries: PlaylistEntryId[], before: number | null) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("move_in_playlist", { id, entries, before })),
+	/**  "Keep this order": the playlist in the order of `entries`. */
+	setPlaylistOrder: (id: PlaylistId, entries: PlaylistEntryId[]) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("set_playlist_order", { id, entries })),
 	/**  "Save as crate": a new crate at the top of the tree. */
 	savePlaylistAsCrate: (id: PlaylistId, name: string) => typedError<CrateId, IpcError>(__TAURI_INVOKE("save_playlist_as_crate", { id, name })),
 	/**  "Start a playlist from this crate", in `order` (the view's sort). */
@@ -3955,7 +3957,14 @@ export type TableSource =
  *  ([`TableRow::entry_id`]). A sort orders by a column and keeps the
  *  playlist's order for ties.
  */
-{ kind: "playlist"; id: PlaylistId };
+{ kind: "playlist"; id: PlaylistId } | 
+/**
+ *  One playlist's tracks sorted by how well they follow the track `after`
+ *  (a `recording` id; 4B-FU): that track first (every entry of it, if it
+ *  is in twice), then the rest, best fit first. A sort is ignored, rows
+ *  carry a `fit` and their entry, and the playlist itself is not changed.
+ */
+{ kind: "playlistByFit"; id: PlaylistId; after: number };
 
 /**  A tag, as the vocabulary panel lists it. */
 export type Tag = {
@@ -4094,6 +4103,11 @@ export type TimelineEntry = {
 	bpm: number | null,
 	/**  Camelot (`8A`). */
 	key: string | null,
+	/**
+	 *  The key is the app's own estimate (the table's `key_estimated`), shown
+	 *  muted. Only marks the cell: the flags use `key` as it is.
+	 */
+	keyEstimated: boolean,
 	/**  The energy the track shows (tags or the user's), 1 to 10. */
 	energy: number | null,
 	/**  When it starts, from the start of the playlist, in milliseconds. */

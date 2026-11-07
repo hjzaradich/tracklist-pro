@@ -515,6 +515,14 @@
     "where": "Crates screen, in the line over the track table.",
     "approved": "Sorted by fit after {{track}}"
   },
+  "fit.keepOrder": {
+    "purpose": "Writes the order a playlist's fit sort shows to the playlist itself; one Undo. (PROPOSED, 4B-FU)",
+    "where": "Playlists screen, in the line over the track table, while the playlist is sorted by fit and nothing is searched or filtered."
+  },
+  "fit.keepAction": {
+    "purpose": "The same, as the command palette lists it. (PROPOSED, 4B-FU)",
+    "where": "Command palette, while a playlist is sorted by fit."
+  },
   "fit.sortNormally": {
     "purpose": "Hover text of the Fit heading: clicking it goes back to normal sorting.",
     "where": "Track table, the Fit heading (hover).",

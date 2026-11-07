@@ -1,3 +1,4 @@
+import type { MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../../api/errors";
 import type { Crate, SmartRule } from "../../bindings";
@@ -5,6 +6,7 @@ import { libraryRow, type LibraryRow } from "../../library/libraryRow";
 import { shownTitle } from "../../library/RemoveFromLibrary";
 import { EmptyState } from "../../shell/StageScreen";
 import { TrackTableView } from "../../trackTable/TrackTableView";
+import type { RowsQuery } from "../../trackTable/useTrackRows";
 import styles from "../CratesScreen.module.css";
 import { CRATES_QUERY_KEY } from "../useCrates";
 import { EMPTY_RULE } from "./rule";
@@ -22,12 +24,15 @@ export function SmartCrateView({
   saving,
   onSaveRule,
   onRemoveTrack,
+  viewRef,
 }: {
   crate: Crate;
   all: Crate[];
   saving: boolean;
   onSaveRule: (rule: SmartRule) => void;
   onRemoveTrack: (track: LibraryRow) => void;
+  /** Where the table reports its query, for "start a playlist from it". */
+  viewRef?: MutableRefObject<RowsQuery | null>;
 }) {
   const { t } = useTranslation("smartCrates");
   const rule = useSmartRule(crate.id);
@@ -58,6 +63,7 @@ export function SmartCrateView({
         screen="crate"
         source={{ kind: "smart", id: crate.id, rule: null }}
         keyPrefix={[...CRATES_QUERY_KEY, "table", crate.id]}
+        viewRef={viewRef}
         count={(total) => t("trackCount", { count: total })}
         empty={<EmptyState>{t("noTracks")}</EmptyState>}
         actionsWidth={120}

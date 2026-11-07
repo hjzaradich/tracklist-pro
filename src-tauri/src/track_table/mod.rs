@@ -98,6 +98,11 @@ pub enum TableSource {
     /// ([`TableRow::entry_id`]). A sort orders by a column and keeps the
     /// playlist's order for ties.
     Playlist { id: PlaylistId },
+    /// One playlist's tracks sorted by how well they follow the track `after`
+    /// (a `recording` id; 4B-FU): that track first (every entry of it, if it
+    /// is in twice), then the rest, best fit first. A sort is ignored, rows
+    /// carry a `fit` and their entry, and the playlist itself is not changed.
+    PlaylistByFit { id: PlaylistId, after: i64 },
 }
 
 impl TableSource {
@@ -108,7 +113,8 @@ impl TableSource {
             TableSource::Library
             | TableSource::AllMusic
             | TableSource::Smart { .. }
-            | TableSource::Playlist { .. } => None,
+            | TableSource::Playlist { .. }
+            | TableSource::PlaylistByFit { .. } => None,
         }
     }
 
@@ -121,6 +127,7 @@ impl TableSource {
             TableSource::Crate { .. }
                 | TableSource::CrateByFit { .. }
                 | TableSource::Playlist { .. }
+                | TableSource::PlaylistByFit { .. }
         )
     }
 }
@@ -396,7 +403,9 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
                 TableSource::Crate { .. } | TableSource::CrateByFit { .. } => {
                     "ce.added_at, ce.library_track_id".to_owned()
                 }
-                TableSource::Playlist { .. } => "pe.position, pe.id".to_owned(),
+                TableSource::Playlist { .. } | TableSource::PlaylistByFit { .. } => {
+                    "pe.position, pe.id".to_owned()
+                }
                 _ => "tr.title_key, tr.artist_key, tr.recording_id".to_owned(),
             },
             None,
@@ -413,7 +422,10 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
         true => format!("({name} IS NULL), {name}{direction}, {tie_order}"),
         false => format!("{name}{direction}, {tie_order}"),
     };
-    if matches!(source, TableSource::Playlist { .. }) {
+    if matches!(
+        source,
+        TableSource::Playlist { .. } | TableSource::PlaylistByFit { .. }
+    ) {
         ordered.push_str(", pe.position, pe.id");
     }
     let backwards = (descending && nullable).then(|| Backwards {
@@ -459,7 +471,7 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
              JOIN library_track lt ON lt.id = ce.library_track_id
              JOIN track_row tr ON tr.recording_id = lt.recording_id"
         }
-        TableSource::Playlist { id } => {
+        TableSource::Playlist { id } | TableSource::PlaylistByFit { id, .. } => {
             params.push(Value::Integer(id.0));
             conditions.push(format!("pe.playlist_id = ?{}", params.len()));
             "playlist_entry pe
@@ -487,7 +499,7 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
         order_by,
         backwards: backwards.filter(|_| indexed),
         entry: match query.source {
-            TableSource::Playlist { .. } => "pe.id",
+            TableSource::Playlist { .. } | TableSource::PlaylistByFit { .. } => "pe.id",
             _ => "NULL",
         },
         params,
@@ -514,7 +526,7 @@ fn resolved(conn: &Connection, query: &TableQuery) -> rusqlite::Result<Option<Ta
             return Ok(None);
         }
     }
-    if let TableSource::Playlist { id } = &query.source {
+    if let TableSource::Playlist { id } | TableSource::PlaylistByFit { id, .. } = &query.source {
         let exists: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM playlist WHERE id = ?1)",
             [id.0],
@@ -604,7 +616,7 @@ fn window_ids_up_to(
     query: &TableQuery,
     most: u32,
 ) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
-    if let Some((ids, total, _)) = fit_order::window(conn, query, most)? {
+    if let Some((ids, total, ..)) = fit_order::window(conn, query, most)? {
         return Ok((ids, total));
     }
     let (pairs, total) = window_pairs_up_to(conn, query, most)?;
@@ -893,7 +905,7 @@ pub fn read(
         return Ok(None);
     };
     let (ids, total, fits, entries) = match fit_order::window(conn, &query, MAX_WINDOW)? {
-        Some((ids, total, fits)) => (ids, total, Some(fits), Vec::new()),
+        Some((ids, total, fits, entries)) => (ids, total, Some(fits), entries),
         None => {
             let (pairs, total) = window_pairs_up_to(conn, &query, MAX_WINDOW)?;
             let ids = pairs.iter().map(|&(id, _)| id).collect();
@@ -905,9 +917,10 @@ pub fn read(
     for (stored, entry) in rows.iter_mut().zip(entries) {
         stored.row.entry_id = entry.map(PlaylistEntryId);
     }
-    if let Some(mut fits) = fits {
+    if let Some(fits) = fits {
         for stored in &mut rows {
-            stored.row.fit = fits.remove(&stored.row.recording_id);
+            // Not removed: a playlist can hold a track twice.
+            stored.row.fit = fits.get(&stored.row.recording_id).cloned();
         }
     }
     let files: Vec<i64> = rows

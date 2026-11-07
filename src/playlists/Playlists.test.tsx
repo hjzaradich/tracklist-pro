@@ -369,6 +369,25 @@ describe("converting between playlists, crates and rekordbox playlists", () => {
     ).toBeInTheDocument();
   });
 
+  it("Start a playlist from a smart crate takes the table's rows as listed, like a hand-made crate", async () => {
+    const backend = playlistBackend({
+      rows: TUNES,
+      playlists: [],
+      crates: [{ ...crate(8, "Warm"), kind: "smart" }],
+    });
+    renderApp("/crates?crate=8");
+    await screen.findByRole("grid");
+    await userEvent.click(await button("playlists:fromCrate.button"));
+    await userEvent.click(await button("playlists:fromCrate.confirm"));
+    await waitFor(() => expect(backend.called("playlist_from_crate")).toHaveLength(1));
+    expect(backend.called("playlist_from_crate")[0]?.args).toMatchObject({
+      crateId: 8,
+      name: "Warm",
+      order: [1, 2, 3, 4, 5],
+    });
+    expect(await screen.findByRole("heading", { level: 2, name: "Warm" })).toBeInTheDocument();
+  });
+
   it("a rekordbox playlist is picked from the last read and copied, saying how many entries could not be matched", async () => {
     const backend = await openPlaylist({
       playlists: [WARMUP],
@@ -396,5 +415,70 @@ describe("converting between playlists, crates and rekordbox playlists", () => {
     await openPlaylist({ playlists: [WARMUP], rekordbox: [] }, 2);
     await userEvent.click(await button("playlists:fromRekordbox.button"));
     expect(await screen.findByText(tx("playlists:fromRekordbox.none"))).toBeInTheDocument();
+  });
+});
+
+describe("a playlist sorted by fit", () => {
+  const sortByFit = () => screen.getByRole("button", { name: tx("trackTable:fit.button") });
+  const keepOrder = () => screen.queryByRole("button", { name: tx("trackTable:fit.keepOrder") });
+
+  async function sorted(backend: Awaited<ReturnType<typeof openPlaylist>>, index = 1) {
+    await userEvent.click(rowAt(index));
+    await waitFor(() => expect(sortByFit()).toBeEnabled());
+    await userEvent.click(sortByFit());
+    await waitFor(() =>
+      expect(backend.called("track_table_page").at(-1)?.args).toMatchObject({ query: { source: { kind: "playlistByFit", id: 1 } } }),
+    );
+  }
+
+  it("lists the playlist's own tracks after the selected one, which stays first, a repeat with both entries", async () => {
+    const backend = await openPlaylist();
+    await sorted(backend, 0);
+    expect(backend.called("track_table_page").at(-1)?.args).toMatchObject({
+      query: { source: { kind: "playlistByFit", id: 1, after: 100 } },
+    });
+    // Both entries of Tune 0 come first, then the rest.
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 0", "Tune 0", "Tune 2", "Tune 1"]));
+    expect(screen.getByText(tx("trackTable:fit.sortedAfter", { track: "Tune 0" }))).toBeInTheDocument();
+  });
+
+  it("cannot be dragged while sorted by fit, and nothing changes in the playlist", async () => {
+    const backend = await openPlaylist();
+    await sorted(backend);
+    dragRowTo(0, 3 * ROW, false);
+    expect(screen.queryByTestId("insert-line")).toBeNull();
+    fireEvent.pointerUp(document.body, { clientX: 320, clientY: 3 * ROW, pointerId: 1 });
+    expect(backend.called("move_in_playlist")).toHaveLength(0);
+    expect(backend.state.playlists[0]?.entries.map(([entry]) => entry)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("keeps the shown order as one step, goes back to the playlist's order and undoes in one", async () => {
+    const backend = await openPlaylist();
+    await sorted(backend, 1);
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 1", "Tune 0", "Tune 2", "Tune 0"]));
+    await userEvent.click(keepOrder() as HTMLElement);
+    await waitFor(() => expect(backend.called("set_playlist_order")).toHaveLength(1));
+    expect(backend.called("set_playlist_order")[0]?.args).toMatchObject({ id: 1, entries: [2, 4, 3, 1] });
+    expect(backend.state.playlists[0]?.entries.map(([entry]) => entry)).toEqual([2, 4, 3, 1]);
+    expect(await screen.findByText(tx("playlists:done.keptOrder"))).toBeInTheDocument();
+    // The table is the playlist's own order again, which is now that order.
+    await waitFor(() => expect(screen.queryByText(tx("trackTable:fit.sortedAfter", { track: "Tune 1" }))).toBeNull());
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 1", "Tune 0", "Tune 2", "Tune 0"]));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.moveInPlaylist", { count: 4, name: "Arc" }) }),
+    );
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 0", "Tune 1", "Tune 2", "Tune 0"]));
+  });
+
+  it("offers Keep this order only while sorted by fit and nothing narrows the list", async () => {
+    const backend = await openPlaylist();
+    expect(keepOrder()).toBeNull();
+    await sorted(backend);
+    expect(keepOrder()).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:filters.missing") }));
+    await screen.findByRole("list", { name: tx("trackTable:filters.label") });
+    await waitFor(() => expect(keepOrder()).toBeNull());
   });
 });

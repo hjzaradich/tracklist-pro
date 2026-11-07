@@ -183,6 +183,10 @@
     "purpose": "Line saying how many tracks a drag moved to another place. (PROPOSED, 3C-P1b)",
     "where": "Playlists screen, strip above the list."
   },
+  "done.keptOrder": {
+    "purpose": "Line saying the playlist now has the order its fit sort showed. (PROPOSED, 4B-FU)",
+    "where": "Playlists screen, strip above the list."
+  },
   "done.savedAsCrate": {
     "purpose": "Line saying the playlist was saved as a crate. (PROPOSED, 3C-P1b)",
     "where": "Playlists screen, strip above the list."

@@ -124,6 +124,8 @@
     "action": "Sort by fit after the selected track",
     "needsSelection": "Select a track to sort by fit",
     "sortedAfter": "Sorted by fit after {{track}}",
+    "keepOrder": "Keep this order",
+    "keepAction": "Keep this fit order in the playlist",
     "sortNormally": "Sort normally",
     "selected": "selected track",
     "dots": "Fit {{count}} of {{most}}",

@@ -494,7 +494,7 @@ function CrateView({
               </button>
             </>
           )}
-          {handMade && (
+          {(handMade || crate.kind === "smart") && (
             <button type="button" className={styles.button} onClick={() => onAsk("startPlaylist")}>
               {tp("fromCrate.button")}
             </button>
@@ -567,6 +567,7 @@ function CrateView({
           saving={savingRule}
           onSaveRule={onSaveRule}
           onRemoveTrack={onRemoveTrack}
+          viewRef={viewRef}
         />
       ) : (
         <TrackTableView

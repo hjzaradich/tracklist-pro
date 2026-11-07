@@ -67,6 +67,7 @@
     "copied_other": "Playlist “{{name}}” made with {{count, number}} tracks",
     "copiedLeftOut_one": "Playlist “{{name}}” made with {{count, number}} track ({{left, number}} entries couldn't be matched to your Library)",
     "copiedLeftOut_other": "Playlist “{{name}}” made with {{count, number}} tracks ({{left, number}} entries couldn't be matched to your Library)",
+    "keptOrder": "Playlist order kept",
     "targetSet": "Target shape set",
     "targetCleared": "Target shape cleared",
     "inserted": "Inserted {{title}} at position {{position}}"

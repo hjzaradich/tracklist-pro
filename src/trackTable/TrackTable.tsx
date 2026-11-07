@@ -1,3 +1,4 @@
+import { edgeScrollStep } from "./autoscroll";
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -543,7 +544,27 @@ export function TrackTable({
     // Whether every selected row is held, so the whole selection can be moved by entry.
     let movable = true;
     let place: number | null = null;
+    // Near the top or bottom edge the list scrolls on its own, a frame at a time,
+    // for as long as the pointer stays there (no pointer movement needed).
+    let pointer = { x: from.x, y: from.y };
+    let frame: number | null = null;
+    const scrollTick = () => {
+      frame = null;
+      const element = viewport.current;
+      if (!element || !begun) return;
+      const rect = element.getBoundingClientRect();
+      const inside = pointer.x >= rect.left && pointer.x <= rect.right;
+      // The header is a row of the scroll area and stays in view.
+      const step = inside ? edgeScrollStep(pointer.y, rect.top, rect.bottom, { inset: rowHeight }) : 0;
+      if (step === 0) return;
+      element.scrollTop += step;
+      place = movable ? placeOf(pointer.x, pointer.y) : null;
+      setInsertAt(place);
+      frame = requestAnimationFrame(scrollTick);
+    };
     const stop = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
@@ -580,6 +601,8 @@ export function TrackTable({
       useTrackDrag.getState().moveTo(move.clientX, move.clientY);
       place = begun && movable ? placeOf(move.clientX, move.clientY) : null;
       setInsertAt(place);
+      pointer = { x: move.clientX, y: move.clientY };
+      if (frame === null) frame = requestAnimationFrame(scrollTick);
     };
     // The pointer was released (`drop`) or the drag given up.
     const finish = (drop: boolean) => {

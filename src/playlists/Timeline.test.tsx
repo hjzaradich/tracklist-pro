@@ -3,7 +3,7 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderApp } from "../app/testApp";
-import type { BridgeReason, GapSuggestion } from "../bindings";
+import type { BridgeReason, GapSuggestion, TableRow } from "../bindings";
 import i18n from "../i18n";
 import { type FakePlaylist, playlistBackend } from "../test/playlistBackend";
 import { tableRow } from "../test/trackTableIpc";
@@ -78,6 +78,19 @@ describe("the timeline", () => {
     expect(entries.map((entry) => within(entry as HTMLElement).getAllByRole("cell")[2]?.textContent)).toEqual(["Tune 0", "Tune 1", "Tune 2"]);
     expect(entries.map((entry) => within(entry as HTMLElement).getAllByRole("cell")[1]?.textContent)).toEqual(["0:00", "3:00", "6:20"]);
     expect(screen.getByText(tx("playlists:timeline.total", { time: "10:20" }))).toBeInTheDocument();
+  });
+
+  it("marks a key that is the app's own estimate as muted with the same hint as the table, and no other", async () => {
+    const guessed = tableRow(1, { title: "Tune 1", artist: null, recordingId: 101, libraryTrackId: 2, energy: null, bpm: 124, key: "8A", keyEstimated: true, timeMs: 200_000 });
+    await openTimeline({ rows: [TUNES[0] as TableRow, guessed, TUNES[2] as TableRow, TUNES[3] as TableRow] });
+    const hint = tx("estimate:estimated.key");
+    const keyCell = (entry: number) => within(row(entry)).getAllByRole("cell")[5] as HTMLElement;
+    expect(keyCell(2)).toHaveAttribute("title", `8A. ${hint}`);
+    expect(keyCell(2).className).not.toBe("");
+    expect(within(keyCell(2)).getByText(`. ${hint}`)).toBeInTheDocument();
+    // A key from rekordbox or a tag is shown as it was.
+    expect(keyCell(1)).not.toHaveAttribute("title");
+    expect(keyCell(1).textContent).toBe("8A");
   });
 
   it("shows the timeline only after it is asked for", async () => {

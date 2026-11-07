@@ -1,8 +1,8 @@
-import { Fragment, useState } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { TimelineEntry, TimelineTransition } from "../bindings";
-import { formatKey } from "../keys/keyNotation";
+import { formatKey, type KeyNotation } from "../keys/keyNotation";
 import { useKeyNotation } from "../keys/useKeyNotation";
 import { formatTime } from "../player/formatTime";
 import { shownName } from "../trackTable/columns";
@@ -150,7 +150,7 @@ export function TimelinePanel({ playlistId, onDone }: { playlistId: number; onDo
                       <td>{nameOf(entry)}</td>
                       <td>{entry.durationMs === null ? unknown : formatTime(entry.durationMs / 1000)}</td>
                       <td>{entry.bpm === null ? unknown : Math.round(entry.bpm * 10) / 10}</td>
-                      <td>{formatKey(entry.key, notation) ?? unknown}</td>
+                      <KeyCell entry={entry} notation={notation} unknown={unknown} />
                       <td>
                         {entry.energy === null
                           ? unknown
@@ -277,5 +277,19 @@ function GapSuggestions({
           </ul>
         ))}
     </div>
+  );
+}
+
+/** The key cell: an estimate of the app's own is muted and says so, as in the track table (3.7). */
+function KeyCell({ entry, notation, unknown }: { entry: TimelineEntry; notation: KeyNotation; unknown: ReactNode }) {
+  const { t } = useTranslation("estimate");
+  const key = formatKey(entry.key, notation);
+  if (key === null || !entry.keyEstimated) return <td>{key ?? unknown}</td>;
+  const hint = t("estimated.key");
+  return (
+    <td className={styles.estimate} title={`${key}. ${hint}`}>
+      {key}
+      <span className={styles.hidden}>{`. ${hint}`}</span>
+    </td>
   );
 }

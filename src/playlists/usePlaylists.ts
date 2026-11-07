@@ -85,6 +85,31 @@ export function useMoveInPlaylist() {
   });
 }
 
+/** The most rows one table request can ask for (the backend's `MAX_WINDOW`). */
+const PAGE = 500;
+
+/** The playlist entries of a table's rows, in the order the table shows them (a track in twice gives both). */
+export async function shownEntries(query: RowsQuery): Promise<number[]> {
+  const order: number[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const page = await unwrap(commands.trackTablePage({ ...query, offset, limit: PAGE, withTotal: false }));
+    for (const row of page.rows) if (row.entryId !== null) order.push(row.entryId);
+    if (page.rows.length < PAGE) return order;
+  }
+}
+
+/**
+ * "Keep this order": the playlist in the order its table shows now (sorted by
+ * fit, say), one operation, so one Undo. `view` is what the table asks for.
+ */
+export function useKeepPlaylistOrder() {
+  const queryClient = useQueryClient();
+  return useMutation<PlaylistChanged, Error, { id: number; view: RowsQuery }>({
+    mutationFn: async ({ id, view }) => unwrap(commands.setPlaylistOrder(id, await shownEntries(view))),
+    onSettled: () => invalidatePlaylists(queryClient),
+  });
+}
+
 /** "Save as crate": resolves to the new crate's id. */
 export function useSavePlaylistAsCrate() {
   const queryClient = useQueryClient();
@@ -93,9 +118,6 @@ export function useSavePlaylistAsCrate() {
     onSettled: () => invalidateCrates(queryClient),
   });
 }
-
-/** The most rows one table request can ask for (the backend's `MAX_WINDOW`). */
-const PAGE = 500;
 
 /** The Library tracks of a table's rows, in the order the table shows them. */
 export async function libraryOrder(query: RowsQuery): Promise<number[]> {
