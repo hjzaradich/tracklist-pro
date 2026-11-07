@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import stage from "../shell/StageScreen.module.css";
+import { AboutPanel } from "./AboutPanel";
 import { EnergyStarsRow } from "./EnergyStarsRow";
 import { LocalKeyRow } from "./LocalKeyRow";
 import { RekordboxDatabaseRow } from "./RekordboxDatabaseRow";
@@ -55,6 +56,7 @@ export function SettingsScreen() {
             </h2>
             <Link to="/diagnostics">{td("open")}</Link>
           </section>
+          <AboutPanel />
         </div>
       </div>
     </div>

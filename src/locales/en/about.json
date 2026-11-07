@@ -1,0 +1,17 @@
+{
+  "panel": "About",
+  "version": "Version {{version}}",
+  "gpl": "tracklist-pro is free software under the GNU General Public License, version 3 or any later version (GPL-3.0-or-later). It comes with no warranty.",
+  "sourceLabel": "Source code (copy the address)",
+  "sourceUrl": "https://github.com/hjzaradich/tracklist-pro",
+  "credits.title": "Credits",
+  "credits.keyfinder": "The key estimate is a translation of libKeyFinder's method into Rust. libKeyFinder is Copyright 2011-2015 Ibrahim Sha'ath and the Mixxx contributors, GPL-3.0-or-later.",
+  "licences.title": "Third-party licences",
+  "licences.loading": "Loading the list",
+  "licences.missing": "The list comes with the installer",
+  "licences.count_one": "{{count, number}} package",
+  "licences.count_other": "{{count, number}} packages",
+  "licences.noText": "No licence text in the package. Source: {{url}}",
+  "licences.used_one": "Used by {{count, number}} package",
+  "licences.used_other": "Used by {{count, number}} packages"
+}

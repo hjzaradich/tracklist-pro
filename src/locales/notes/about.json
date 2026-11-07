@@ -1,0 +1,62 @@
+{
+  "panel": {
+    "purpose": "Heading of the About panel.",
+    "where": "Settings screen, last panel heading."
+  },
+  "version": {
+    "purpose": "The app's version.",
+    "where": "About panel, first line."
+  },
+  "gpl": {
+    "purpose": "The free-software notice: licence and no warranty.",
+    "where": "About panel."
+  },
+  "sourceLabel": {
+    "purpose": "Label for the source repository address, shown as text to copy (the app opens no links).",
+    "where": "About panel, above the address."
+  },
+  "sourceUrl": {
+    "purpose": "Address of the source repository.",
+    "where": "About panel, selectable text."
+  },
+  "credits.title": {
+    "purpose": "Heading of the credits.",
+    "where": "About panel."
+  },
+  "credits.keyfinder": {
+    "purpose": "Credit for the work the key estimate is translated from (NOTICE.md).",
+    "where": "About panel, credits."
+  },
+  "licences.title": {
+    "purpose": "Heading of the list of third-party licences.",
+    "where": "About panel."
+  },
+  "licences.loading": {
+    "purpose": "Shown while the list is being read.",
+    "where": "About panel, third-party licences."
+  },
+  "licences.missing": {
+    "purpose": "Shown when the list file isn't there (development builds).",
+    "where": "About panel, third-party licences."
+  },
+  "licences.count_one": {
+    "purpose": "How many packages the list has.",
+    "where": "About panel, third-party licences."
+  },
+  "licences.count_other": {
+    "purpose": "How many packages the list has.",
+    "where": "About panel, third-party licences."
+  },
+  "licences.noText": {
+    "purpose": "For a package with no licence text in it: where to read it.",
+    "where": "About panel, a licence entry."
+  },
+  "licences.used_one": {
+    "purpose": "How many packages share one licence text.",
+    "where": "About panel, a licence entry."
+  },
+  "licences.used_other": {
+    "purpose": "How many packages share one licence text.",
+    "where": "About panel, a licence entry."
+  }
+}
