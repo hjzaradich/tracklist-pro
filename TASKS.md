@@ -82,7 +82,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 - **4.4** ✅ W docs (PR 206): a user guide, issue templates, the non-affiliation and privacy notes, the GPL notice, the unsigned-install guide, and a third-party licence page generated from the dependencies.
 - **Follow-ups:**
   - ✅ FB, backend (PR 208): any_stale moves to a read connection; the stick's Contents folder gets a link check; "Read again" or an offered export says so before an older XML replaces a newer database read; diagnostics gets a disk-space line.
-  - FU, screens: playlist sort by fit, start a playlist from a smart crate, autoscroll while dragging, the timeline's estimated key marked.
+  - ✅ FU, screens (PR 210): playlist sort by fit, start a playlist from a smart crate, autoscroll while dragging, the timeline's estimated key marked.
 - All wording is proposed, for the owner's deep dive.
 
 ### Stage 1cE: Go public 👤
