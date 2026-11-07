@@ -12,6 +12,7 @@ mod job;
 mod key;
 #[cfg(windows)]
 mod key_job;
+mod suggest;
 // The quality tests' temporary music folder, volume and walk-and-hash.
 #[cfg(windows)]
 #[allow(dead_code, clippy::duplicate_mod)]
@@ -42,6 +43,14 @@ pub fn clicks(bpm: f64, seconds: f64, rate: u32) -> Pcm {
         channels: 1,
         samples,
     }
+}
+
+/// `pcm` with every sample multiplied by `gain`.
+fn scaled(mut pcm: audio::Pcm, gain: f64) -> audio::Pcm {
+    for s in &mut pcm.samples {
+        *s = (f64::from(*s) * gain).round() as i16;
+    }
+    pcm
 }
 
 /// `seconds` of digital silence.

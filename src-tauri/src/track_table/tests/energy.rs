@@ -353,12 +353,6 @@ fn a_window_of_an_energy_sort_is_the_same_rows_as_the_plain_sort_whichever_way_i
 /// "fill the gap". The user's and Mixed In Key's energy still count.
 #[test]
 fn an_estimate_is_no_ones_energy_in_the_index_sorting_a_smart_crate_whats_next_and_fill_the_gap() {
-    use crate::crates::smart::{Combine, Condition, NumberOp, SmartRule};
-    use crate::next::score::ReasonCode;
-    use crate::next::{self, Direction, Settings, Weights};
-    use crate::playlists::{self, timeline};
-    use crate::search::flag;
-
     let lib = Lib::new();
     let names = ["a", "b", "user", "mik", "local", "model"];
     let t: Vec<i64> = names.iter().map(|n| library_track(&lib, n)).collect();
@@ -369,6 +363,18 @@ fn an_estimate_is_no_ones_energy_in_the_index_sorting_a_smart_crate_whats_next_a
     give(&lib, t[4], "local", 6);
     give(&lib, t[5], "ml", 6);
     lib.settle();
+    every_reader_ignores_the_estimates(&lib, &t);
+}
+
+/// `t` are the six tracks of the test above: the user's energy on `t[0]`,
+/// `t[1]` and `t[2]`, Mixed In Key's on `t[3]`, and only an estimate on the
+/// last two.
+fn every_reader_ignores_the_estimates(lib: &Lib, t: &[i64]) {
+    use crate::crates::smart::{Combine, Condition, NumberOp, SmartRule};
+    use crate::next::score::ReasonCode;
+    use crate::next::{self, Direction, Settings, Weights};
+    use crate::playlists::{self, timeline};
+    use crate::search::flag;
 
     // The index.
     let flags: Vec<(i64, i64)> = lib
@@ -384,7 +390,7 @@ fn an_estimate_is_no_ones_energy_in_the_index_sorting_a_smart_crate_whats_next_a
 
     // Sorting: the two with only an estimate go with the ones with none.
     let up = ids(&run(
-        &lib,
+        lib,
         sorted(TableSource::Library, SortColumn::Energy, false),
     ));
     assert_eq!(up, [t[0], t[2], t[3], t[1], t[4], t[5]]);
@@ -399,7 +405,7 @@ fn an_estimate_is_no_ones_energy_in_the_index_sorting_a_smart_crate_whats_next_a
         }],
     };
     let page = run(
-        &lib,
+        lib,
         query(TableSource::Smart {
             id: None,
             rule: Some(rule),
@@ -479,4 +485,105 @@ fn an_estimate_is_no_ones_energy_in_the_index_sorting_a_smart_crate_whats_next_a
     // model's estimate has none, so nothing to say for it. (The local track
     // is in the playlist, so left out.)
     assert_eq!(offered, [t[2], t[3]]);
+}
+
+/// The app's own suggestion for a track (ROADMAP 3.7, owner decision
+/// 2026-11-06) is in the ledger and nowhere else: after a batch no
+/// `analysis` row holds an estimate's energy, every reader of energy still
+/// sees none for the track whose only energy is the suggestion, and the user
+/// taking it is an ordinary energy edit that one Undo takes back.
+#[test]
+fn the_suggested_energy_is_no_readers_energy_until_the_user_takes_it_and_undo_puts_back_none() {
+    use crate::estimate::suggest::{refresh, suggestion_for};
+    use crate::estimate::support::plant_features;
+
+    let lib = Lib::new();
+    let names = ["a", "b", "user", "mik", "suggested", "model"];
+    let t: Vec<i64> = names.iter().map(|n| library_track(&lib, n)).collect();
+    give(&lib, t[0], "user", 5);
+    give(&lib, t[1], "user", 7);
+    give(&lib, t[2], "user", 6);
+    give(&lib, t[3], "mik", 6);
+    give(&lib, t[5], "ml", 6);
+    let features: Vec<(i64, f64)> = t.iter().zip(0..).map(|(r, i)| (*r, f64::from(i))).collect();
+    lib.writer
+        .call(move |c| {
+            for (recording, i) in features {
+                let file: i64 = c.query_row(
+                    "SELECT linked_file_id FROM library_track WHERE recording_id = ?1",
+                    [recording],
+                    |r| r.get(0),
+                )?;
+                plant_features(
+                    c,
+                    file,
+                    Some(100.0 + 10.0 * i),
+                    Some(-20.0 + i),
+                    1.0 + i,
+                    5.0 + i,
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    let analysis_rows = |lib: &Lib| -> i64 {
+        lib.writer
+            .call(|c| c.query_row("SELECT count(*) FROM analysis", [], |r| r.get(0)))
+            .unwrap()
+    };
+    let before = analysis_rows(&lib);
+
+    assert_eq!(
+        refresh(&lib.writer).unwrap(),
+        6,
+        "every file got a suggestion"
+    );
+
+    assert_eq!(
+        analysis_rows(&lib),
+        before,
+        "the batch wrote no analysis row"
+    );
+    let estimates: i64 = lib
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM analysis WHERE source = 'local' AND energy IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(estimates, 0, "no local energy anywhere");
+    let suggested = t[4];
+    let suggestion = lib
+        .writer
+        .call(move |c| suggestion_for(c, suggested))
+        .unwrap()
+        .expect("the track has a suggestion");
+    lib.settle();
+    every_reader_ignores_the_estimates(&lib, &t);
+    assert_eq!(shown(&lib, suggested), (None, None));
+
+    // The user takes it: a plain energy edit of their own.
+    let value = i64::from(suggestion.value);
+    lib.writer
+        .call(move |c| Ok(crate::energy::set_energy_on(c, &[suggested], value)))
+        .unwrap()
+        .unwrap();
+    lib.settle();
+    assert_eq!(overviews_answer(&lib, suggested), Some(value));
+    assert_eq!(
+        shown(&lib, suggested),
+        (Some(suggestion.value), Some(EnergySource::User))
+    );
+    let undone = lib
+        .writer
+        .call(|c| Ok(crate::ops::undo_for_user(c, None)))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(undone, crate::ops::UndoOutcome::Undone { .. }));
+    lib.settle();
+    assert_eq!(overviews_answer(&lib, suggested), None);
+    assert_eq!(shown(&lib, suggested), (None, None));
 }

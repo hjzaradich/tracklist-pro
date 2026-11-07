@@ -188,6 +188,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::energy::set_energy,
             crate::energy::clear_energy,
             crate::energy::user_energy_count,
+            crate::estimate::suggest::energy_suggestion,
             crate::energy_stars::read_energy_as_stars,
             crate::energy_stars::energy_as_stars_would_change,
             crate::energy_stars::set_energy_as_stars,

@@ -61,6 +61,8 @@ rusty-chromaprint = "0.3.0"
 symphonia = { version = "0.6.1", default-features = false, features = ["opt-simd", "all-meta", "mp3", "aac", "alac", "flac", "pcm", "adpcm", "vorbis", "isomp4", "ogg", "wav", "aiff", "caf"] }
 # The spectral cutoff of a file's audio (ROADMAP 1.6). MIT OR Apache-2.0. Already in the tree through rusty-chromaprint.
 rustfft = "6.4.1"
+# Integrated loudness of a track (ROADMAP 3.7, the energy suggestion). MIT.
+ebur128 = "0.1.11"
 
 [target.'cfg(windows)'.dependencies]
 # The Windows version for the diagnostics report (4.3). Already in the tree

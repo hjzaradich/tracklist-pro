@@ -85,3 +85,36 @@ pub(crate) fn queued(writer: &Writer, kind: &'static str) -> i64 {
         })
         .unwrap()
 }
+
+/// File `file`'s ledger row as the job leaves it for a measured window with
+/// these energy features (the file gets an audio hash if it has none).
+pub(crate) fn plant_features(
+    conn: &Connection,
+    file: i64,
+    bpm: Option<f64>,
+    loudness_lufs: Option<f64>,
+    onset_density: f64,
+    spectral_flux: f64,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE file SET audio_hash = zeroblob(34) WHERE id = ?1 AND audio_hash IS NULL",
+        [file],
+    )?;
+    conn.execute(
+        "INSERT OR REPLACE INTO file_estimate
+             (file_id, audio_hash, method_version, analysed_ms, bpm, bpm_confidence,
+              loudness_lufs, onset_density, spectral_flux)
+         SELECT id, audio_hash, ?2, 1000, ?3, CASE WHEN ?3 IS NULL THEN NULL ELSE 0.5 END,
+                ?4, ?5, ?6
+         FROM file WHERE id = ?1",
+        rusqlite::params![
+            file,
+            i64::from(VERSION),
+            bpm,
+            loudness_lufs,
+            onset_density,
+            spectral_flux
+        ],
+    )?;
+    Ok(())
+}

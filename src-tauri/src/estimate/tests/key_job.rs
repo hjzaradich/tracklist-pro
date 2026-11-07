@@ -482,3 +482,71 @@ fn turning_the_switch_off_after_a_version_bump_takes_every_local_key_out_at_once
     );
     assert!(!any_stale(&library));
 }
+
+/// The energy features arrive with a new method version (3C-E1b): the files
+/// measured before have none, and wait to be measured again. Meanwhile the
+/// tracks keep the BPM and key they show, through the ask the scan chain and
+/// startup make, and the measuring again replaces both rows in place.
+#[test]
+fn a_new_method_version_keeps_every_local_bpm_and_key_through_the_ask_until_measured_again() {
+    let library = Library::new();
+    library.put("a.wav", &tonal(2, Mode::Major));
+    library.put("b.wav", &tonal(9, Mode::Minor));
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 2);
+    switch(&library, true);
+    let tracks = [
+        track_of(&library, ids["a.wav"]),
+        track_of(&library, ids["b.wav"]),
+    ];
+    let before: Vec<_> = tracks
+        .iter()
+        .map(|t| local_row(&library, *t).unwrap())
+        .collect();
+    assert!(before.iter().all(|r| r.1.is_some() && r.2.is_some()));
+
+    // As the build before this one left them: an older version, no energy
+    // features and no suggestion.
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE file_estimate SET method_version = ?1, loudness_lufs = NULL,
+                     onset_density = NULL, spectral_flux = NULL, energy_suggestion = NULL",
+                [i64::from(crate::estimate::VERSION) - 1],
+            )
+        })
+        .unwrap();
+    request(&library.writer, None, store_row(&library.writer)).unwrap();
+    let during: Vec<_> = tracks
+        .iter()
+        .map(|t| local_row(&library, *t).unwrap())
+        .collect();
+    assert_eq!(during, before, "BPM and key stay while they wait");
+    assert_eq!(
+        queued(&library.writer, "analyze"),
+        1,
+        "the job is asked for"
+    );
+
+    assert_eq!(analyze_all(&library), 2, "both measured again");
+    let after: Vec<_> = tracks
+        .iter()
+        .map(|t| local_row(&library, *t).unwrap())
+        .collect();
+    for (was, now) in before.iter().zip(&after) {
+        assert_eq!((was.0, &was.2), (now.0, &now.2), "the same row and key");
+    }
+    let measured: i64 = library
+        .writer
+        .call(|c| {
+            c.query_row(
+                "SELECT count(*) FROM file_estimate
+                 WHERE onset_density IS NOT NULL AND energy_suggestion IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(measured, 2, "the energy features and suggestions are in");
+}
