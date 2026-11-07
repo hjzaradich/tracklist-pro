@@ -115,6 +115,11 @@ export const commands = {
 	/**  Removes a music folder from the app. Its files stay on disk untouched. */
 	removeMusicFolder: (id: MusicFolderId) => typedError<null, IpcError>(__TAURI_INVOKE("remove_music_folder", { id })),
 	/**
+	 *  Points a missing music folder at its new place and scans it again, as
+	 *  something the user asked for. The folder's files keep their ids.
+	 */
+	relocateMusicFolder: (folderId: MusicFolderId, newPath: string) => typedError<Relocated, IpcError>(__TAURI_INVOKE("relocate_music_folder", { folderId, newPath })),
+	/**
 	 *  The music folders (scan or Inbox) that are in OneDrive. A folder whose
 	 *  drive isn't connected is left out: it can't be asked about.
 	 */
@@ -784,7 +789,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","playlistOrderStale":"playlists:error.orderStale","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","playlistOrderStale":"playlists:error.orderStale","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","relocateNoKnownFiles":"musicFolders:relocateNoKnownFiles","relocateNotMissing":"musicFolders:relocateNotMissing","relocateOverlaps":"musicFolders:relocateOverlaps","relocateTooFewFiles":"musicFolders:relocateTooFewFiles","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -1402,6 +1407,17 @@ export type ErrorKind =
  *  folder, so it can't be removed.
  */
 "musicFolderInUse" | 
+/**  A music folder can only be pointed at a new place while it is missing. */
+"relocateNotMissing" | 
+/**  The new place is inside, or around, the music folder `musicFolder`. */
+"relocateOverlaps" | 
+/**  The folder has no known files to recognise it by (never scanned). */
+"relocateNoKnownFiles" | 
+/**
+ *  Only `found` of the `checked` files known in the folder are at the
+ *  new place, at the same paths and sizes.
+ */
+"relocateTooFewFiles" | 
 /**  The rekordbox export isn't a file that exists. */
 "rekordboxXmlNotFound" | 
 /**  The file isn't a rekordbox collection export. */
@@ -3109,6 +3125,17 @@ export type RelinkOffer = {
 	 *  audio now: it is asked again.
 	 */
 	confirmedBefore: boolean,
+};
+
+/**  What a relocation did, for the screen to say. */
+export type Relocated = {
+	id: MusicFolderId,
+	/**  How many of the checked files were found at the new place. */
+	found: number,
+	/**  How many known files were looked for (at most [`SAMPLE_CAP`]). */
+	checked: number,
+	/**  The folder's new place as a person reads it. */
+	path: string,
 };
 
 /**  Why a track is to be removed in rekordbox. */
