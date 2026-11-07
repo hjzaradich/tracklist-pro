@@ -121,7 +121,8 @@ fn import(guard: &WriteGuard, zip: &Path, now: i64) -> BundleSummary {
 fn zip_of(path: &Path, entries: &[(&str, &[u8])]) -> PathBuf {
     let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
     for (name, bytes) in entries {
-        zip.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.start_file(*name, zip::write::SimpleFileOptions::default())
+            .unwrap();
         zip.write_all(bytes).unwrap();
     }
     zip.finish().unwrap();
@@ -150,7 +151,11 @@ fn manifest_json(format: u32) -> Vec<u8> {
 fn db_in(zip: &Path) -> Vec<u8> {
     let mut archive = zip::ZipArchive::new(File::open(zip).unwrap()).unwrap();
     let mut bytes = Vec::new();
-    archive.by_name(DB_ENTRY).unwrap().read_to_end(&mut bytes).unwrap();
+    archive
+        .by_name(DB_ENTRY)
+        .unwrap()
+        .read_to_end(&mut bytes)
+        .unwrap();
     bytes
 }
 
@@ -178,7 +183,10 @@ fn a_round_trip_keeps_every_user_table_and_the_id_counters() {
     let after = dump(&live(&b));
 
     assert_eq!(summary.counts.tracks, 1);
-    assert_eq!(summary.app_version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+    assert_eq!(
+        summary.app_version.as_deref(),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
     let machine = ["job", "service_optin", "setting", "volume"];
     for (table, rows) in &before {
         if !machine.contains(&table.as_str()) {
@@ -211,7 +219,10 @@ fn the_bundle_holds_none_of_this_pcs_settings_jobs_or_consents() {
     let rows = dump(&copy);
     let settings = rows["setting"].join("\n");
     for key in MACHINE_SETTINGS {
-        assert!(!settings.contains(&format!("\"{key}\"")), "{key} is in the bundle");
+        assert!(
+            !settings.contains(&format!("\"{key}\"")),
+            "{key} is in the bundle"
+        );
     }
     assert!(settings.contains("rekordbox_xml_last_read") && settings.contains("readAt"));
     assert!(settings.contains("key_notation"));
@@ -220,7 +231,9 @@ fn the_bundle_holds_none_of_this_pcs_settings_jobs_or_consents() {
     assert!(!rows["volume"][0].contains("E:/"));
     // The Library itself is untouched.
     writer.close();
-    assert!(dump(&live(&a))["setting"].join("\n").contains("rekordbox-secret-path"));
+    assert!(dump(&live(&a))["setting"]
+        .join("\n")
+        .contains("rekordbox-secret-path"));
 }
 
 #[test]
@@ -232,7 +245,10 @@ fn inspecting_a_bundle_reads_its_counts_and_stages_nothing() {
     assert_eq!((summary.created_ms, summary.counts.crates), (1_000, 1));
     assert_eq!(summary.schema_version, MIGRATIONS.last().unwrap().version());
     assert!(!Layout::of(&a).pending.exists());
-    assert!(matches!(confirm_staged(&a), Err(BundleError::NothingStaged)));
+    assert!(matches!(
+        confirm_staged(&a),
+        Err(BundleError::NothingStaged)
+    ));
 }
 
 /// `stage` must refuse with `kind`, leaving the live Library's bytes and
@@ -265,8 +281,16 @@ fn a_bundle_from_a_newer_schema_or_format_is_refused() {
     let newer = fs::read(&path).unwrap();
     let current = schema_db(&dir.path().join("current.db"), MIGRATIONS.len());
     let is_newer = |e: &BundleError| matches!(e, BundleError::Newer);
-    refused(&[(MANIFEST_ENTRY, &manifest_json(1)), (DB_ENTRY, &newer)], &check::CAPS, is_newer);
-    refused(&[(MANIFEST_ENTRY, &manifest_json(2)), (DB_ENTRY, &current)], &check::CAPS, is_newer);
+    refused(
+        &[(MANIFEST_ENTRY, &manifest_json(1)), (DB_ENTRY, &newer)],
+        &check::CAPS,
+        is_newer,
+    );
+    refused(
+        &[(MANIFEST_ENTRY, &manifest_json(2)), (DB_ENTRY, &current)],
+        &check::CAPS,
+        is_newer,
+    );
 }
 
 #[test]
@@ -283,10 +307,26 @@ fn a_damaged_or_foreign_file_is_refused_and_the_library_is_unchanged() {
     let manifest = manifest_json(1);
     let damaged = |e: &BundleError| matches!(e, BundleError::Damaged);
     let not_ours = |e: &BundleError| matches!(e, BundleError::NotOurs);
-    refused(&[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &garbage)], &check::CAPS, damaged);
-    refused(&[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &foreign)], &check::CAPS, not_ours);
-    refused(&[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, b"plain text")], &check::CAPS, not_ours);
-    refused(&[(MANIFEST_ENTRY, b"{}"), (DB_ENTRY, &foreign)], &check::CAPS, not_ours);
+    refused(
+        &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &garbage)],
+        &check::CAPS,
+        damaged,
+    );
+    refused(
+        &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &foreign)],
+        &check::CAPS,
+        not_ours,
+    );
+    refused(
+        &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, b"plain text")],
+        &check::CAPS,
+        not_ours,
+    );
+    refused(
+        &[(MANIFEST_ENTRY, b"{}"), (DB_ENTRY, &foreign)],
+        &check::CAPS,
+        not_ours,
+    );
     // Not a zip at all.
     let root = TempDir::new().unwrap();
     let b = closed_library(root.path(), "b", "");
@@ -304,7 +344,11 @@ fn a_zip_with_unexpected_paths_or_entries_is_refused() {
     for entries in [
         vec![(MANIFEST_ENTRY, &manifest[..]), ("../library.db", &db[..])],
         vec![(MANIFEST_ENTRY, &manifest[..]), ("sub/library.db", &db[..])],
-        vec![(MANIFEST_ENTRY, &manifest[..]), (DB_ENTRY, &db[..]), ("notes.txt", b"x")],
+        vec![
+            (MANIFEST_ENTRY, &manifest[..]),
+            (DB_ENTRY, &db[..]),
+            ("notes.txt", b"x"),
+        ],
         vec![(DB_ENTRY, &db[..])],
     ] {
         refused(&entries, &check::CAPS, not_ours);
@@ -318,9 +362,15 @@ fn an_entry_over_its_cap_is_refused() {
     let manifest = manifest_json(1);
     let too_large = |e: &BundleError| matches!(e, BundleError::TooLarge);
     let entries = [(MANIFEST_ENTRY, &manifest[..]), (DB_ENTRY, &db[..])];
-    let small_db = Caps { db: 4096, manifest: 64 << 10 };
+    let small_db = Caps {
+        db: 4096,
+        manifest: 64 << 10,
+    };
     refused(&entries, &small_db, too_large);
-    let small_manifest = Caps { db: 1 << 30, manifest: 8 };
+    let small_manifest = Caps {
+        db: 1 << 30,
+        manifest: 8,
+    };
     refused(&entries, &small_manifest, too_large);
 }
 
@@ -337,15 +387,26 @@ fn an_older_schema_bundle_is_migrated_on_the_staged_copy() {
     let summary = stage_bundle(&b, &zip).unwrap();
     assert_eq!(summary.schema_version, MIGRATIONS.last().unwrap().version());
     let staged = Connection::open(Layout::of(&b).pending).unwrap();
-    assert_eq!(migrations::applied(&staged).unwrap().len(), MIGRATIONS.len());
+    assert_eq!(
+        migrations::applied(&staged).unwrap().len(),
+        MIGRATIONS.len()
+    );
     drop(staged);
     assert_eq!(fs::read(live(&b)).unwrap(), before);
 }
 
 /// An app with Library "old" and a staged, confirmed Library "new".
 fn confirmed_swap(root: &Path) -> WriteGuard {
-    let guard = closed_library(root, "app", "INSERT INTO crate (id, kind, name) VALUES (1, 'static', 'old');");
-    let new = closed_library(root, "other", "INSERT INTO crate (id, kind, name) VALUES (1, 'static', 'new');");
+    let guard = closed_library(
+        root,
+        "app",
+        "INSERT INTO crate (id, kind, name) VALUES (1, 'static', 'old');",
+    );
+    let new = closed_library(
+        root,
+        "other",
+        "INSERT INTO crate (id, kind, name) VALUES (1, 'static', 'new');",
+    );
     let layout = Layout::of(&guard);
     fs::create_dir_all(&layout.import).unwrap();
     fs::copy(live(&new), &layout.pending).unwrap();
@@ -354,7 +415,9 @@ fn confirmed_swap(root: &Path) -> WriteGuard {
 }
 
 fn has_crate(path: &Path, name: &str) -> bool {
-    crate_names(path).iter().any(|row| row.contains(&format!("\"{name}\"")))
+    crate_names(path)
+        .iter()
+        .any(|row| row.contains(&format!("\"{name}\"")))
 }
 
 #[test]
@@ -376,13 +439,19 @@ fn a_crash_at_any_swap_step_recovers_to_one_whole_library() {
         assert!(matches!(result, Err(BundleError::Interrupted)));
         // The old Library is whole somewhere: in place, or moved aside.
         let aside = layout.swapping.join(DB_FILE_NAME);
-        assert!(live(&guard).exists() || aside.exists(), "step {crash_at}: no Library");
+        assert!(
+            live(&guard).exists() || aside.exists(),
+            "step {crash_at}: no Library"
+        );
         // The next start finishes the swap.
         finish(&guard, &layout, 200, &mut || false).unwrap();
         assert!(has_crate(&live(&guard), "new") && !has_crate(&live(&guard), "old"));
         let kept = kept_ids(&guard);
         assert_eq!(kept.len(), 1, "step {crash_at}: {kept:?}");
-        assert!(has_crate(&layout.backups.join(&kept[0]).join(DB_FILE_NAME), "old"));
+        assert!(has_crate(
+            &layout.backups.join(&kept[0]).join(DB_FILE_NAME),
+            "old"
+        ));
         assert!(!layout.marker.exists() && !layout.pending.exists() && !layout.swapping.exists());
         crash_at += 1;
     }
@@ -399,8 +468,11 @@ fn the_old_librarys_log_moves_with_it_and_never_joins_the_new_file() {
     fs::create_dir(&side).unwrap();
     let conn = Connection::open(&live).unwrap();
     conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
-    conn.execute("INSERT INTO crate (id, kind, name) VALUES (9, 'static', 'in-log')", [])
-        .unwrap();
+    conn.execute(
+        "INSERT INTO crate (id, kind, name) VALUES (9, 'static', 'in-log')",
+        [],
+    )
+    .unwrap();
     fs::copy(&live, side.join("db")).unwrap();
     fs::copy(swap_piece(&live, "-wal"), side.join("wal")).unwrap();
     drop(conn);
@@ -437,11 +509,19 @@ fn the_replaced_library_is_kept_and_can_be_restored() {
     let root = TempDir::new().unwrap();
     let guard = confirmed_swap(root.path());
     let layout = Layout::of(&guard);
-    let first = finish(&guard, &layout, 1_000, &mut || false).unwrap().unwrap();
+    let first = finish(&guard, &layout, 1_000, &mut || false)
+        .unwrap()
+        .unwrap();
     let kept = list_kept(&guard);
     assert_eq!(kept.len(), 1);
-    assert_eq!((kept[0].created_ms, kept[0].counts.unwrap().crates), (1_000, 1));
-    assert!(matches!(stage_kept(&guard, "nope"), Err(BundleError::NoSuchBackup)));
+    assert_eq!(
+        (kept[0].created_ms, kept[0].counts.unwrap().crates),
+        (1_000, 1)
+    );
+    assert!(matches!(
+        stage_kept(&guard, "nope"),
+        Err(BundleError::NoSuchBackup)
+    ));
     let summary = stage_kept(&guard, &first).unwrap();
     assert_eq!(summary.created_ms, 1_000);
     confirm_staged(&guard).unwrap();
@@ -449,7 +529,10 @@ fn the_replaced_library_is_kept_and_can_be_restored() {
     assert!(has_crate(&live(&guard), "old") && !has_crate(&live(&guard), "new"));
     // The Library it replaced is kept too, newest first.
     assert_eq!(kept_ids(&guard), [stamp_of(2_000), first]);
-    assert!(has_crate(&layout.backups.join(stamp_of(2_000)).join(DB_FILE_NAME), "new"));
+    assert!(has_crate(
+        &layout.backups.join(stamp_of(2_000)).join(DB_FILE_NAME),
+        "new"
+    ));
 }
 
 fn stamp_of(ms: i64) -> String {
@@ -512,13 +595,18 @@ fn broken_db(path: &Path, break_it: impl FnOnce(&Connection, &Path)) -> Vec<u8> 
 fn a_bundle_failing_only_its_integrity_or_foreign_key_check_is_refused() {
     let dir = TempDir::new().unwrap();
     let mut torn = broken_db(&dir.path().join("torn.db"), |c, _| {
-        c.execute_batch("CREATE TABLE zz (x); INSERT INTO zz VALUES (1);").unwrap();
+        c.execute_batch("CREATE TABLE zz (x); INSERT INTO zz VALUES (1);")
+            .unwrap();
     });
     // Tear the page of a table nothing else reads.
     let page = {
         let c = Connection::open(dir.path().join("torn.db")).unwrap();
         let root: i64 = c
-            .query_row("SELECT rootpage FROM sqlite_master WHERE name = 'zz'", [], |r| r.get(0))
+            .query_row(
+                "SELECT rootpage FROM sqlite_master WHERE name = 'zz'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         let size: i64 = c.query_row("PRAGMA page_size", [], |r| r.get(0)).unwrap();
         usize::try_from((root - 1) * size).unwrap()
@@ -532,15 +620,30 @@ fn a_bundle_failing_only_its_integrity_or_foreign_key_check_is_refused() {
         .unwrap();
     });
     let edited = broken_db(&dir.path().join("edited.db"), |c, _| {
-        c.execute("UPDATE schema_migration SET checksum = 'x' WHERE version = 2", [])
-            .unwrap();
+        c.execute(
+            "UPDATE schema_migration SET checksum = 'x' WHERE version = 2",
+            [],
+        )
+        .unwrap();
     });
     let manifest = manifest_json(1);
     let damaged = |e: &BundleError| matches!(e, BundleError::Damaged);
-    refused(&[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &torn)], &check::CAPS, damaged);
-    refused(&[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &dangling)], &check::CAPS, damaged);
+    refused(
+        &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &torn)],
+        &check::CAPS,
+        damaged,
+    );
+    refused(
+        &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &dangling)],
+        &check::CAPS,
+        damaged,
+    );
     let not_ours = |e: &BundleError| matches!(e, BundleError::NotOurs);
-    refused(&[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &edited)], &check::CAPS, not_ours);
+    refused(
+        &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &edited)],
+        &check::CAPS,
+        not_ours,
+    );
 }
 
 #[test]
@@ -567,7 +670,9 @@ fn only_the_newest_bundles_are_kept() {
         create(&a, &reads, now).unwrap();
     }
     let names = folders::ours(&a.app_data_dir().join("bundles"), |_| true);
-    let expected: Vec<String> = (3..=7).map(|n| format!("tracklist-pro-{}.zip", stamp_of(n))).collect();
+    let expected: Vec<String> = (3..=7)
+        .map(|n| format!("tracklist-pro-{}.zip", stamp_of(n)))
+        .collect();
     assert_eq!(names, expected);
 }
 
@@ -587,7 +692,10 @@ fn a_swap_that_fails_midway_puts_the_old_library_back_and_tries_again() {
     assert!(layout.marker.exists() && layout.pending.exists());
     start(&guard, &layout, 2, &mut || false).unwrap();
     assert!(has_crate(&live(&guard), "new"));
-    assert!(has_crate(&layout.backups.join(stamp_of(2)).join(DB_FILE_NAME), "old"));
+    assert!(has_crate(
+        &layout.backups.join(stamp_of(2)).join(DB_FILE_NAME),
+        "old"
+    ));
 }
 
 #[test]

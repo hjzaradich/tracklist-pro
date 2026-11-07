@@ -42,7 +42,12 @@ pub(super) fn ours(folder: &Path, is_ours: fn(&str) -> bool) -> Vec<String> {
 
 /// Deletes the oldest entries `is_ours` accepts in `folder` until `keep`
 /// are left. One that can't be deleted is left for the next time.
-pub(super) fn keep_newest(guard: &WriteGuard, folder: &Path, keep: usize, is_ours: fn(&str) -> bool) {
+pub(super) fn keep_newest(
+    guard: &WriteGuard,
+    folder: &Path,
+    keep: usize,
+    is_ours: fn(&str) -> bool,
+) {
     let names = ours(folder, is_ours);
     for old in names.iter().take(names.len().saturating_sub(keep)) {
         let _ = remove(guard, &folder.join(old));

@@ -57,7 +57,9 @@ pub(super) fn unpack(
     }
 
     let mut text = Vec::new();
-    let entry = archive.by_name(MANIFEST_ENTRY).map_err(|_| BundleError::NotOurs)?;
+    let entry = archive
+        .by_name(MANIFEST_ENTRY)
+        .map_err(|_| BundleError::NotOurs)?;
     entry
         .take(caps.manifest + 1)
         .read_to_end(&mut text)
@@ -74,7 +76,9 @@ pub(super) fn unpack(
     }
 
     // The header's size can lie: the stream itself is cut at the cap.
-    let entry = archive.by_name(DB_ENTRY).map_err(|_| BundleError::NotOurs)?;
+    let entry = archive
+        .by_name(DB_ENTRY)
+        .map_err(|_| BundleError::NotOurs)?;
     let mut reader = Capped {
         inner: entry.take(caps.db + 1),
         read: 0,
@@ -135,7 +139,11 @@ pub(super) fn database(path: &GuardedPath, migrate: bool) -> Result<Checked, Bun
         return Err(BundleError::Damaged);
     }
     let broken: bool = conn
-        .query_row("SELECT EXISTS (SELECT 1 FROM pragma_foreign_key_check)", [], |r| r.get(0))
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |r| r.get(0),
+        )
         .map_err(damaged)?;
     if broken {
         return Err(BundleError::Damaged);
@@ -165,9 +173,7 @@ pub(super) fn database(path: &GuardedPath, migrate: bool) -> Result<Checked, Bun
         }
         conn.pragma_update(None, "journal_mode", "DELETE")?;
     }
-    let schema_version = migrations::applied(&conn)?
-        .last()
-        .map_or(0, |a| a.version);
+    let schema_version = migrations::applied(&conn)?.last().map_or(0, |a| a.version);
     Ok(Checked {
         schema_version,
         counts: counts(&conn)?,

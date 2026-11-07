@@ -75,7 +75,12 @@ fn piece(base: &Path, suffix: &str) -> PathBuf {
 /// backup's id. On a failure with no Library in place, the old one is put
 /// back first; the marker stays, so the next start tries again.
 pub fn on_startup(guard: &WriteGuard) -> Result<Option<String>, BundleError> {
-    start(guard, &Layout::of(guard), crate::diagnostics::now_ms(), &mut || false)
+    start(
+        guard,
+        &Layout::of(guard),
+        crate::diagnostics::now_ms(),
+        &mut || false,
+    )
 }
 
 /// [`on_startup`], with [`finish`]'s crash points open to tests.
@@ -85,13 +90,12 @@ pub(super) fn start(
     now_ms: i64,
     crash: &mut dyn FnMut() -> bool,
 ) -> Result<Option<String>, BundleError> {
-    finish(guard, layout, now_ms, crash).map_err(|e| {
+    finish(guard, layout, now_ms, crash).inspect_err(|_| {
         if !exists(&layout.live) {
             if let Err(again) = put_back(guard, layout) {
                 eprintln!("startup: the old Library couldn't be put back: {again}");
             }
         }
-        e
     })
 }
 
@@ -103,7 +107,13 @@ pub(super) fn finish(
     now_ms: i64,
     crash: &mut dyn FnMut() -> bool,
 ) -> Result<Option<String>, BundleError> {
-    let mut step = || if crash() { Err(BundleError::Interrupted) } else { Ok(()) };
+    let mut step = || {
+        if crash() {
+            Err(BundleError::Interrupted)
+        } else {
+            Ok(())
+        }
+    };
     if !exists(&l.marker) {
         // Nothing confirmed: a staged file nobody confirmed goes.
         if exists(&l.pending) {
