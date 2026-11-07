@@ -9,6 +9,9 @@ pub mod audio;
 mod detector;
 #[cfg(windows)]
 mod job;
+mod key;
+#[cfg(windows)]
+mod key_job;
 // The quality tests' temporary music folder, volume and walk-and-hash.
 #[cfg(windows)]
 #[allow(dead_code, clippy::duplicate_mod)]

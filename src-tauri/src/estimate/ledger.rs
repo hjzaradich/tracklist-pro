@@ -20,20 +20,25 @@
 //! **The `'local'` rows** ([`sync`]): a Library track whose shown file has a
 //! BPM in the ledger, of its current audio and this [`VERSION`], has one
 //! `'local'` analysis row with that BPM folded into the user's range and its
-//! confidence. It is updated in place, so its id never changes; a track
-//! whose file has no BPM any more loses it. Nothing else is written there:
-//! no key (E2 adds it behind a switch), and never an energy (owner,
-//! 2026-11-06: energy comes from the user or tags only). Every other
-//! source wins over `'local'` by the precedence the table already has.
+//! confidence. While the owner's test switch for the key is on
+//! ([`Feature::LocalKey`]), the row also holds the file's key, in Camelot;
+//! with it off, no `'local'` row holds a key (turning it off takes them
+//! out). The row's confidence is the BPM's; the key's stays here. It is
+//! updated in place, so its id never changes; a track whose file has
+//! neither any more loses it. Never an energy (owner, 2026-11-06: energy
+//! comes from the user or tags only). Every other source wins over
+//! `'local'` by the precedence the table already has.
 
 use rusqlite::{params, Connection};
 
+use super::key::Choice;
 use super::window::{Measured, Short};
 use super::{bpm, VERSION};
 use crate::hash::DEFINITION as HASH_DEFINITION;
 use crate::quality::ledger::{Due, HASH_CURRENT};
 use crate::quality::Failure;
-use crate::settings::BpmRange;
+use crate::settings::{read_feature_enabled, BpmRange, Feature};
+use crate::tags::key::{Mode, MusicalKey};
 
 /// How many due files are listed per query.
 const PAGE: usize = 1000;
@@ -118,18 +123,20 @@ pub(crate) fn due(conn: &Connection, id: i64) -> rusqlite::Result<Option<Due>> {
 /// Whether the job has anything to do now: a Library track's file due a
 /// measurement (one the OneDrive gate allows, in the `reachable` music
 /// folders if given), or a Library track whose `'local'` row doesn't match
-/// what the ledger has for the file it shows ([`any_stale`]).
+/// what the ledger has for the file it shows ([`any_stale`]; the key counts
+/// only while [`Feature::LocalKey`] is on).
 pub(crate) fn any_due(
     conn: &Connection,
     allows_online_only: bool,
     reachable: Option<&[i64]>,
 ) -> rusqlite::Result<bool> {
     let reachable = reachable.map(ids_json);
-    conn.prepare_cached(&sql(&any_due_sql()))?
+    let local_key = read_feature_enabled(conn, Feature::LocalKey)?;
+    conn.prepare_cached(&sql(&any_due_sql(local_key)))?
         .query_row(params![allows_online_only, reachable], |r| r.get(0))
 }
 
-fn any_due_sql() -> String {
+fn any_due_sql(local_key: bool) -> String {
     let shown = shown();
     format!(
         "SELECT EXISTS (SELECT 1 FROM file f
@@ -138,40 +145,59 @@ fn any_due_sql() -> String {
                           AND f.id IN (SELECT {shown} FROM library_track lt)
                           AND {HASH_CURRENT} AND {NOT_MEASURED})
              OR {STALE}",
-        STALE = stale_sql()
+        STALE = stale_sql(local_key)
     )
 }
 
 /// Whether a Library track's `'local'` row disagrees with the ledger's
 /// entry for the file the track shows now: a BPM row where the file has
-/// none, no BPM row where it has one, or a BPM row of another measurement.
-/// A relink, a merge or an undo can leave any of these, since they change
-/// the file a track shows without touching its `'local'` row. The row is
-/// identified by its confidence, which is stored as the detector gave it
-/// and so tells one measurement from another (a change of the BPM range is
-/// not seen here: setting the range folds the rows again,
+/// none, no BPM row where it has one, a BPM row of another measurement, or
+/// (while [`Feature::LocalKey`] is on) a key that isn't the file's, and (off)
+/// any key at all. A relink, a merge or an undo can leave any of these,
+/// since they change the file a track shows without touching its `'local'`
+/// row. The BPM row is identified by its confidence, which is stored as the
+/// detector gave it and so tells one measurement from another (a change of
+/// the BPM range is not seen here: setting the range folds the rows again,
 /// [`super::set_bpm_range`]).
 pub(crate) fn any_stale(conn: &Connection) -> rusqlite::Result<bool> {
-    conn.prepare_cached(&sql(&format!("SELECT {}", stale_sql())))?
+    let local_key = read_feature_enabled(conn, Feature::LocalKey)?;
+    conn.prepare_cached(&sql(&format!("SELECT {}", stale_sql(local_key))))?
         .query_row([], |r| r.get(0))
 }
 
+/// The key of a ledger row in Camelot, as SQL (NULL for none or silence),
+/// built from [`MusicalKey::to_camelot`] so the two never differ.
+fn camelot_sql() -> String {
+    let mut sql = String::from("CASE e.key_mode");
+    for (mode, name) in [(Mode::Major, "major"), (Mode::Minor, "minor")] {
+        sql.push_str(&format!(" WHEN '{name}' THEN CASE e.key_pitch_class"));
+        for pitch_class in 0..12 {
+            let camelot = MusicalKey { pitch_class, mode }.to_camelot();
+            sql.push_str(&format!(" WHEN {pitch_class} THEN '{camelot}'"));
+        }
+        sql.push_str(" END");
+    }
+    sql.push_str(" END");
+    sql
+}
+
 /// The condition of [`any_stale`], as an `EXISTS (…)`.
-fn stale_sql() -> String {
+fn stale_sql(local_key: bool) -> String {
+    let wanted_key = if local_key {
+        camelot_sql()
+    } else {
+        "NULL".to_string()
+    };
     format!(
         "EXISTS (SELECT 1 FROM library_track lt
                  JOIN file f ON f.id = {shown}
                  LEFT JOIN file_estimate e ON e.file_id = f.id AND e.audio_hash = f.audio_hash
                                           AND e.method_version = ?VERSION
-                 WHERE CASE WHEN e.bpm IS NULL
-                            THEN EXISTS (SELECT 1 FROM analysis a
-                                         WHERE a.recording_id = lt.recording_id
-                                           AND a.source = 'local' AND a.bpm IS NOT NULL)
-                            ELSE NOT EXISTS (SELECT 1 FROM analysis a
-                                             WHERE a.recording_id = lt.recording_id
-                                               AND a.source = 'local' AND a.bpm IS NOT NULL
-                                               AND a.confidence IS e.bpm_confidence)
-                       END)",
+                 LEFT JOIN analysis a ON a.recording_id = lt.recording_id AND a.source = 'local'
+                 WHERE CASE WHEN e.bpm IS NULL THEN a.bpm IS NOT NULL
+                            ELSE a.bpm IS NULL OR a.confidence IS NOT e.bpm_confidence
+                       END
+                    OR a.key IS NOT ({wanted_key}))",
         shown = shown()
     )
 }
@@ -183,23 +209,72 @@ pub enum Row {
     Failed(Failure),
 }
 
+/// A row's columns.
+struct Columns {
+    analysed_ms: Option<i64>,
+    bpm: Option<f64>,
+    bpm_confidence: Option<f64>,
+    key_pitch_class: Option<u8>,
+    key_mode: Option<&'static str>,
+    key_confidence: Option<f64>,
+    skipped: Option<&'static str>,
+}
+
 impl Row {
-    /// The columns: `(analysed_ms, bpm, bpm_confidence, skipped)`.
-    fn columns(&self) -> (Option<i64>, Option<f64>, Option<f64>, Option<&'static str>) {
+    fn columns(&self) -> Columns {
+        let skipped = |why| Columns {
+            analysed_ms: None,
+            bpm: None,
+            bpm_confidence: None,
+            key_pitch_class: None,
+            key_mode: None,
+            key_confidence: None,
+            skipped: Some(why),
+        };
         match self {
-            Row::Measured(Measured::Window { analysed_ms, tempo }) => (
-                Some(*analysed_ms),
-                tempo.map(|t| t.bpm),
-                tempo.map(|t| t.confidence),
-                None,
-            ),
-            Row::Measured(Measured::Short(Short::TooShort)) => {
-                (None, None, None, Some("too_short"))
+            Row::Measured(Measured::Window {
+                analysed_ms,
+                tempo,
+                key,
+            }) => {
+                let (key_pitch_class, key_mode, key_confidence) = match key {
+                    Some(Choice::Key { key, confidence }) => (
+                        Some(key.pitch_class),
+                        Some(match key.mode {
+                            Mode::Major => "major",
+                            Mode::Minor => "minor",
+                        }),
+                        Some(*confidence),
+                    ),
+                    Some(Choice::Silence) => (None, Some("silence"), None),
+                    None => (None, None, None),
+                };
+                Columns {
+                    analysed_ms: Some(*analysed_ms),
+                    bpm: tempo.map(|t| t.bpm),
+                    bpm_confidence: tempo.map(|t| t.confidence),
+                    key_pitch_class,
+                    key_mode,
+                    key_confidence,
+                    skipped: None,
+                }
             }
-            Row::Measured(Measured::Short(Short::Silent)) => (None, None, None, Some("silent")),
-            Row::Failed(why) => (None, None, None, Some(why.as_str())),
+            Row::Measured(Measured::Short(Short::TooShort)) => skipped("too_short"),
+            Row::Measured(Measured::Short(Short::Silent)) => skipped("silent"),
+            Row::Failed(why) => skipped(why.as_str()),
         }
     }
+}
+
+/// The key a ledger row holds, from its columns.
+pub(crate) fn key_of(pitch_class: Option<i64>, mode: Option<&str>) -> Option<MusicalKey> {
+    let mode = match mode? {
+        "major" => Mode::Major,
+        "minor" => Mode::Minor,
+        _ => return None,
+    };
+    let pitch_class = u8::try_from(pitch_class?).ok().filter(|p| *p < 12)?;
+    Some(MusicalKey { pitch_class, mode })
 }
 
 /// Whether file `due.id`'s row is still the one `due` was read from.
@@ -228,15 +303,18 @@ pub(crate) fn record(
     if !unchanged(&tx, due)? {
         return Ok(false);
     }
-    let (analysed_ms, bpm, confidence, skipped) = row.columns();
+    let c = row.columns();
     tx.prepare_cached(
         "INSERT INTO file_estimate
-             (file_id, audio_hash, method_version, analysed_ms, bpm, bpm_confidence, skipped)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             (file_id, audio_hash, method_version, analysed_ms, bpm, bpm_confidence,
+              key_pitch_class, key_mode, key_confidence, skipped)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT (file_id) DO UPDATE SET
              audio_hash = excluded.audio_hash, method_version = excluded.method_version,
              analysed_ms = excluded.analysed_ms, bpm = excluded.bpm,
-             bpm_confidence = excluded.bpm_confidence, skipped = excluded.skipped,
+             bpm_confidence = excluded.bpm_confidence,
+             key_pitch_class = excluded.key_pitch_class, key_mode = excluded.key_mode,
+             key_confidence = excluded.key_confidence, skipped = excluded.skipped,
              loudness_lufs = NULL, onset_density = NULL, spectral_flux = NULL,
              energy_suggestion = NULL,
              analysed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
@@ -245,10 +323,13 @@ pub(crate) fn record(
         due.id,
         due.audio_hash,
         i64::from(VERSION),
-        analysed_ms,
-        bpm,
-        confidence,
-        skipped,
+        c.analysed_ms,
+        c.bpm,
+        c.bpm_confidence,
+        c.key_pitch_class,
+        c.key_mode,
+        c.key_confidence,
+        c.skipped,
     ])?;
     sync(&tx, Some(due.id), range)?;
     tx.commit()?;
@@ -267,8 +348,10 @@ pub(crate) fn reuse(conn: &mut Connection, due: &Due, range: BpmRange) -> rusqli
     let copied = tx
         .prepare_cached(&sql("INSERT INTO file_estimate
                  (file_id, audio_hash, method_version, analysed_ms, bpm, bpm_confidence,
+                  key_pitch_class, key_mode, key_confidence,
                   loudness_lufs, onset_density, spectral_flux, energy_suggestion, skipped)
              SELECT ?1, e.audio_hash, e.method_version, e.analysed_ms, e.bpm, e.bpm_confidence,
+                    e.key_pitch_class, e.key_mode, e.key_confidence,
                     e.loudness_lufs, e.onset_density, e.spectral_flux, e.energy_suggestion,
                     e.skipped
              FROM file_estimate e
@@ -277,7 +360,9 @@ pub(crate) fn reuse(conn: &mut Connection, due: &Due, range: BpmRange) -> rusqli
              ON CONFLICT (file_id) DO UPDATE SET
                  audio_hash = excluded.audio_hash, method_version = excluded.method_version,
                  analysed_ms = excluded.analysed_ms, bpm = excluded.bpm,
-                 bpm_confidence = excluded.bpm_confidence, loudness_lufs = excluded.loudness_lufs,
+                 bpm_confidence = excluded.bpm_confidence,
+                 key_pitch_class = excluded.key_pitch_class, key_mode = excluded.key_mode,
+                 key_confidence = excluded.key_confidence, loudness_lufs = excluded.loudness_lufs,
                  onset_density = excluded.onset_density, spectral_flux = excluded.spectral_flux,
                  energy_suggestion = excluded.energy_suggestion, skipped = excluded.skipped,
                  analysed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"))?
@@ -289,22 +374,38 @@ pub(crate) fn reuse(conn: &mut Connection, due: &Due, range: BpmRange) -> rusqli
     Ok(copied > 0)
 }
 
+/// What a Library track's `'local'` row holds.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct Shown {
+    bpm: Option<f64>,
+    /// The BPM's confidence.
+    confidence: Option<f64>,
+    /// In Camelot.
+    key: Option<String>,
+}
+
+impl Shown {
+    fn is_empty(&self) -> bool {
+        self.bpm.is_none() && self.key.is_none()
+    }
+}
+
 /// A Library track's `'local'` row as it is, and as the ledger says it
 /// should be.
 struct Step {
     recording: i64,
-    /// The folded BPM and confidence the ledger gives, if any.
-    wanted: Option<(f64, f64)>,
-    /// The row there is: its id, BPM and confidence, and whether it holds
-    /// anything but a BPM (a key, from E2).
-    row: Option<(i64, Option<f64>, Option<f64>, bool)>,
+    wanted: Shown,
+    /// The row there is: its id, what it holds, and whether it holds an
+    /// energy too (never written from here; a guard all the same).
+    row: Option<(i64, Shown, bool)>,
 }
 
 /// Brings the `'local'` analysis rows of the Library tracks showing file
 /// `only` (every Library track for `None`) in step with the ledger, folding
-/// each BPM into `range`. Writes only what differs: a row is inserted,
-/// updated in place (its id kept) or, when its BPM goes and it holds
-/// nothing else, deleted. Returns how many rows it wrote.
+/// each BPM into `range`, with the key only while [`Feature::LocalKey`] is
+/// on. Writes only what differs: a row is inserted, updated in place (its
+/// id kept) or, when it would hold nothing, deleted. Returns how many rows
+/// it wrote.
 pub(crate) fn sync(
     conn: &Connection,
     only: Option<i64>,
@@ -323,10 +424,11 @@ pub(crate) fn sync_page(
     limit: i64,
     range: BpmRange,
 ) -> rusqlite::Result<(usize, Option<i64>)> {
+    let local_key = read_feature_enabled(conn, Feature::LocalKey)?;
     let steps: Vec<Step> = {
         let mut stmt = conn.prepare_cached(&sql(&format!(
-            "SELECT lt.recording_id, e.bpm, e.bpm_confidence,
-                    a.id, a.bpm, a.confidence, a.key IS NOT NULL OR a.energy IS NOT NULL
+            "SELECT lt.recording_id, e.bpm, e.bpm_confidence, e.key_pitch_class, e.key_mode,
+                    a.id, a.bpm, a.confidence, a.key, a.energy IS NOT NULL
              FROM library_track lt
              JOIN file f ON f.id = {shown}
              LEFT JOIN file_estimate e ON e.file_id = f.id AND e.audio_hash = f.audio_hash
@@ -339,12 +441,31 @@ pub(crate) fn sync_page(
         let rows = stmt.query_map(params![only, after, limit], |r| {
             let bpm: Option<f64> = r.get(1)?;
             let confidence: Option<f64> = r.get(2)?;
-            let id: Option<i64> = r.get(3)?;
+            let tempo = bpm.zip(confidence).map(|(b, c)| (bpm::fold(b, range), c));
+            let key = if local_key {
+                key_of(r.get(3)?, r.get::<_, Option<String>>(4)?.as_deref())
+                    .map(MusicalKey::to_camelot)
+            } else {
+                None
+            };
+            let id: Option<i64> = r.get(5)?;
             Ok(Step {
                 recording: r.get(0)?,
-                wanted: bpm.zip(confidence).map(|(b, c)| (bpm::fold(b, range), c)),
+                wanted: Shown {
+                    bpm: tempo.map(|t| t.0),
+                    confidence: tempo.map(|t| t.1),
+                    key,
+                },
                 row: match id {
-                    Some(id) => Some((id, r.get(4)?, r.get(5)?, r.get::<_, bool>(6)?)),
+                    Some(id) => Some((
+                        id,
+                        Shown {
+                            bpm: r.get(6)?,
+                            confidence: r.get(7)?,
+                            key: r.get(8)?,
+                        },
+                        r.get::<_, bool>(9)?,
+                    )),
                     None => None,
                 },
             })
@@ -354,29 +475,29 @@ pub(crate) fn sync_page(
     let last = steps.last().map(|s| s.recording);
     let mut written = 0;
     for step in steps {
-        written += match (step.wanted, step.row) {
-            (Some((bpm, confidence)), None) => conn
+        let wanted = step.wanted;
+        written += match step.row {
+            None if !wanted.is_empty() => conn
                 .prepare_cached(
-                    "INSERT INTO analysis (recording_id, source, bpm, confidence)
-                     VALUES (?1, 'local', ?2, ?3)",
+                    "INSERT INTO analysis (recording_id, source, bpm, key, confidence)
+                     VALUES (?1, 'local', ?2, ?3, ?4)",
                 )?
-                .execute(params![step.recording, bpm, confidence])?,
-            (Some((bpm, confidence)), Some((id, had, had_confidence, _)))
-                if had != Some(bpm) || had_confidence != Some(confidence) =>
-            {
-                conn.prepare_cached(
-                    "UPDATE analysis SET bpm = ?2, confidence = ?3,
+                .execute(params![
+                    step.recording,
+                    wanted.bpm,
+                    wanted.key,
+                    wanted.confidence
+                ])?,
+            Some((id, _, false)) if wanted.is_empty() => conn
+                .prepare_cached("DELETE FROM analysis WHERE id = ?1")?
+                .execute([id])?,
+            Some((id, had, _)) if had != wanted => conn
+                .prepare_cached(
+                    "UPDATE analysis SET bpm = ?2, key = ?3, confidence = ?4,
                          analyzed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                      WHERE id = ?1",
                 )?
-                .execute(params![id, bpm, confidence])?
-            }
-            (None, Some((id, Some(_), _, false))) => conn
-                .prepare_cached("DELETE FROM analysis WHERE id = ?1")?
-                .execute([id])?,
-            (None, Some((id, Some(_), _, true))) => conn
-                .prepare_cached("UPDATE analysis SET bpm = NULL WHERE id = ?1")?
-                .execute([id])?,
+                .execute(params![id, wanted.bpm, wanted.key, wanted.confidence])?,
             _ => 0,
         };
     }
@@ -390,7 +511,8 @@ pub(crate) fn sync_page(
 pub(crate) fn current(conn: &Connection, id: i64) -> rusqlite::Result<Option<Stored>> {
     use rusqlite::OptionalExtension;
     conn.prepare_cached(&sql(
-        "SELECT e.bpm, e.bpm_confidence, e.skipped, e.analysed_ms
+        "SELECT e.bpm, e.bpm_confidence, e.skipped, e.analysed_ms,
+                e.key_pitch_class, e.key_mode, e.key_confidence
          FROM file f JOIN file_estimate e ON e.file_id = f.id
          WHERE f.id = ?1 AND e.audio_hash = f.audio_hash AND e.method_version = ?VERSION",
     ))?
@@ -400,6 +522,9 @@ pub(crate) fn current(conn: &Connection, id: i64) -> rusqlite::Result<Option<Sto
             confidence: r.get(1)?,
             skipped: r.get(2)?,
             analysed_ms: r.get(3)?,
+            key: key_of(r.get(4)?, r.get::<_, Option<String>>(5)?.as_deref()),
+            key_mode: r.get(5)?,
+            key_confidence: r.get(6)?,
         })
     })
     .optional()
@@ -413,4 +538,8 @@ pub(crate) struct Stored {
     pub confidence: Option<f64>,
     pub skipped: Option<String>,
     pub analysed_ms: Option<i64>,
+    pub key: Option<MusicalKey>,
+    /// `'major'`, `'minor'` or `'silence'`.
+    pub key_mode: Option<String>,
+    pub key_confidence: Option<f64>,
 }

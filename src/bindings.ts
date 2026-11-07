@@ -18,8 +18,21 @@ export const commands = {
 	setKeyNotation: (notation: KeyNotation) => typedError<null, IpcError>(__TAURI_INVOKE("set_key_notation", { notation })),
 	/**  Whether the user turned an optional feature on. */
 	featureEnabled: (feature: Feature) => typedError<boolean, IpcError>(__TAURI_INVOKE("feature_enabled", { feature })),
-	/**  Turns an optional feature on or off. */
+	/**
+	 *  Turns an optional feature on or off. Turning the local key on or off
+	 *  brings the `'local'` analysis rows in step at once, in the same
+	 *  transaction: the keys appear, or go.
+	 */
 	setFeatureEnabled: (feature: Feature, on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_feature_enabled", { feature, on })),
+	/**
+	 *  How the app's own key agrees with rekordbox's, for the owner's test;
+	 *  `None` while the local key is off.
+	 */
+	compareLocalKeys: () => typedError<{
+	overall: KeyAgreement,
+	/**  By node name; the tracks with no node last. */
+	genres: GenreAgreement[],
+} | null, IpcError>(__TAURI_INVOKE("compare_local_keys")),
 	/**
 	 *  The columns the user chose for a screen's track table; `None` until they
 	 *  choose.
@@ -1521,7 +1534,13 @@ export type Feature =
 /**  Wishlists (2.3 to 2.5). */
 "wishlist" | 
 /**  Reading rekordbox's library database (2.7). */
-"rekordboxDatabase";
+"rekordboxDatabase" | 
+/**
+ *  The app's own key estimates, shown as the weakest source of a key:
+ *  the owner's test switch (3.7, "Key"), until they reach the bar to be
+ *  shown by default.
+ */
+"localKey";
 
 /**
  *  One field: the value the track shows and the other values the track's
@@ -1592,6 +1611,13 @@ export type GapSuggestion = {
 	score: number,
 	/**  What gap it fills, strongest first; never empty. */
 	reasons: BridgeReason[],
+};
+
+/**  The counts for one genre node. */
+export type GenreAgreement = {
+	/**  The node's name; `None` for the tracks whose genre resolves to none. */
+	genre: string | null,
+	counts: KeyAgreement,
 };
 
 /**  An alias of a genre. */
@@ -1951,6 +1977,23 @@ export type JobUpdate = {
  *  changed since the last batch, in `seq` order.
  */
 export type JobUpdates = JobUpdate[];
+
+/**  How many pairs fell in each kind of agreement. */
+export type KeyAgreement = {
+	tracks: number,
+	exact: number,
+	relative: number,
+	oneStep: number,
+	parallel: number,
+	other: number,
+};
+
+/**  The whole comparison. */
+export type KeyComparison = {
+	overall: KeyAgreement,
+	/**  By node name; the tracks with no node last. */
+	genres: GenreAgreement[],
+};
 
 /**  How a track's key relates to the selected track's. */
 export type KeyFit = 

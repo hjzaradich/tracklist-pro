@@ -41,14 +41,14 @@ fn queue(library: &Library, analyzer: Analyzer<TempVolume>) -> JobQueue {
 }
 
 /// The real walk and hash, then every file is a Library track's file.
-fn walk_and_hash(library: &Library) -> BTreeMap<String, i64> {
+pub(super) fn walk_and_hash(library: &Library) -> BTreeMap<String, i64> {
     let ids = library.walk_and_hash();
     library.writer.call(|c| join_library_for_test(c)).unwrap();
     ids
 }
 
 /// Runs one analyze job to the end, returning how many files it decoded.
-fn analyze_all(library: &Library) -> usize {
+pub(super) fn analyze_all(library: &Library) -> usize {
     let decoded = Arc::new(AtomicUsize::new(0));
     let count = decoded.clone();
     let handler = analyzer(library).on_decode(move |_| {
@@ -61,7 +61,7 @@ fn analyze_all(library: &Library) -> usize {
     decoded.load(Ordering::SeqCst)
 }
 
-fn stored(library: &Library, file: i64) -> Option<Stored> {
+pub(super) fn stored(library: &Library, file: i64) -> Option<Stored> {
     library
         .writer
         .call(move |c| ledger::current(c, file))
@@ -69,7 +69,7 @@ fn stored(library: &Library, file: i64) -> Option<Stored> {
 }
 
 /// The track file `file` belongs to.
-fn track_of(library: &Library, file: i64) -> i64 {
+pub(super) fn track_of(library: &Library, file: i64) -> i64 {
     library
         .writer
         .call(move |c| {
@@ -83,10 +83,10 @@ fn track_of(library: &Library, file: i64) -> i64 {
 }
 
 /// A `'local'` analysis row: its id, BPM, key and energy.
-type LocalRow = (i64, Option<f64>, Option<String>, Option<i64>);
+pub(super) type LocalRow = (i64, Option<f64>, Option<String>, Option<i64>);
 
 /// The track's `'local'` row.
-fn local_row(library: &Library, track: i64) -> Option<LocalRow> {
+pub(super) fn local_row(library: &Library, track: i64) -> Option<LocalRow> {
     use rusqlite::OptionalExtension;
     library
         .writer

@@ -1,0 +1,23 @@
+{
+  "localKey": {
+    "label": "Local key estimates (test)",
+    "helpOff": "Turn on to show the app's own key for tracks with no key from rekordbox or a file tag, and to see how often it agrees with rekordbox.",
+    "helpOn": "Tracks with no key from rekordbox or a file tag show the app's own estimate. Turning this off hides those keys again.",
+    "error": "Couldn't save the setting. Try again.",
+    "compare": {
+      "title": "Agreement with rekordbox",
+      "empty": "No tracks with both a rekordbox key and an estimate",
+      "loadError": "Couldn't count the tracks. Try again.",
+      "genre": "Genre",
+      "all": "All tracks",
+      "noGenre": "No genre",
+      "tracks": "Tracks",
+      "exact": "Same key",
+      "relative": "Relative (8A and 8B)",
+      "oneStep": "One step (8A and 9A)",
+      "parallel": "Parallel (A minor and A major)",
+      "other": "Other",
+      "cell": "{{value, number}} ({{percent}}%)"
+    }
+  }
+}

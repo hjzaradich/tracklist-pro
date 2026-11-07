@@ -121,3 +121,34 @@ fn an_estimate_goes_with_its_file_and_the_same_audio_is_found_by_an_index() {
     accepts(&conn, "DELETE FROM file");
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM file_estimate"), 0);
 }
+
+#[test]
+fn a_key_has_its_tonic_and_confidence_and_silence_has_neither() {
+    let (_dir, conn) = with_a_file();
+    let key = ", key_pitch_class, key_mode, key_confidence";
+    accepts(&conn, &measured(key, ", 9, 'minor', 0.2"));
+    accepts(&conn, "DELETE FROM file_estimate");
+    accepts(&conn, &measured(", key_mode", ", 'silence'"));
+    accepts(&conn, "DELETE FROM file_estimate");
+    for (columns, values) in [
+        // A tonic without a mode, a mode without a tonic.
+        (", key_pitch_class, key_confidence", ", 9, 0.2"),
+        (", key_mode, key_confidence", ", 'major', 0.2"),
+        // Silence has no tonic and no confidence.
+        (key, ", 9, 'silence', 0.2"),
+        (", key_mode, key_confidence", ", 'silence', 0.2"),
+        // A key without its confidence, or out of range.
+        (", key_pitch_class, key_mode", ", 9, 'minor'"),
+        (key, ", 9, 'minor', 1.5"),
+        (key, ", 12, 'minor', 0.2"),
+        (key, ", 9, 'dorian', 0.2"),
+    ] {
+        refuses(&conn, &measured(columns, values), "CHECK");
+    }
+    refuses(
+        &conn,
+        "INSERT INTO file_estimate (file_id, audio_hash, method_version, skipped, key_mode)
+         VALUES (1, zeroblob(34), 1, 'silent', 'silence')",
+        "CHECK",
+    );
+}

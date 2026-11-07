@@ -135,6 +135,10 @@ pub enum Feature {
     Wishlist,
     /// Reading rekordbox's library database (2.7).
     RekordboxDatabase,
+    /// The app's own key estimates, shown as the weakest source of a key:
+    /// the owner's test switch (3.7, "Key"), until they reach the bar to be
+    /// shown by default.
+    LocalKey,
 }
 
 impl Feature {
@@ -142,6 +146,7 @@ impl Feature {
         match self {
             Feature::Wishlist => "feature_wishlist",
             Feature::RekordboxDatabase => "feature_rekordbox_database",
+            Feature::LocalKey => "feature_local_key",
         }
     }
 }
@@ -186,7 +191,9 @@ pub async fn feature_enabled(
     Ok(reads.read(move |c| read_feature_enabled(c, feature))?)
 }
 
-/// Turns an optional feature on or off.
+/// Turns an optional feature on or off. Turning the local key on or off
+/// brings the `'local'` analysis rows in step at once, in the same
+/// transaction: the keys appear, or go.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_feature_enabled(
@@ -194,7 +201,22 @@ pub async fn set_feature_enabled(
     feature: Feature,
     on: bool,
 ) -> Result<(), IpcError> {
-    Ok(writer.call(move |c| write_feature_enabled(c, feature, on))?)
+    Ok(writer.call(move |c| switch_feature(c, feature, on))?)
+}
+
+/// [`set_feature_enabled`]'s work.
+pub(crate) fn switch_feature(
+    conn: &mut Connection,
+    feature: Feature,
+    on: bool,
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    write_feature_enabled(&tx, feature, on)?;
+    if feature == Feature::LocalKey {
+        let range = read_bpm_range(&tx)?;
+        crate::estimate::ledger::sync(&tx, None, range)?;
+    }
+    tx.commit()
 }
 
 #[cfg(test)]
