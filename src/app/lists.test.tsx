@@ -26,6 +26,7 @@ const EVERY_GROUP: ListGroup[] = [
   "folders",
   "afterSend",
   "overview",
+  "estimates",
 ];
 
 /** A client that holds an answer for every list, as if every screen had been open. */
@@ -93,6 +94,7 @@ describe("a job ending", () => {
         "tagSources",
         "folders",
         "overview",
+        "estimates",
       ]),
     );
   });

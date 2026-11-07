@@ -1,10 +1,11 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { emit } from "@tauri-apps/api/event";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQueryClient } from "../app/queryClient";
-import type { EnergySuggestion, OperationInfo } from "../bindings";
+import type { EnergySuggestion, JobUpdate, OperationInfo } from "../bindings";
 import "../i18n";
 import { quietAnswer } from "../test/quietCommands";
 import { tableRow } from "../test/trackTableIpc";
@@ -12,6 +13,7 @@ import { tx } from "../test/tx";
 import { DetailsPanel } from "./DetailsPanel";
 import { useSelectedTrack } from "./selectedTrack";
 import { UndoButton } from "./UndoButton";
+import { useReloadListsWhenJobsEnd } from "./useReloadListsWhenJobsEnd";
 
 // The app's energy suggestion beside the Energy buttons (3C-E1c; ROADMAP 3.7).
 
@@ -56,7 +58,7 @@ beforeEach(() => {
     }
     if (cmd === "user_energy_count") return 0;
     return null;
-  });
+  }, { shouldMockEvents: true });
 });
 
 afterEach(() => {
@@ -65,13 +67,19 @@ afterEach(() => {
   useSelectedTrack.setState({ row: null, ids: [], tables: 0 });
 });
 
+/** The Details panel inside what the shell does for every screen. */
+function InTheShell() {
+  useReloadListsWhenJobsEnd();
+  return <DetailsPanel />;
+}
+
 function renderPanel(fields: Parameters<typeof tableRow>[1] = {}, ids?: number[]) {
   const row = tableRow(1, fields);
   useSelectedTrack.setState({ row, ids: ids ?? [row.recordingId] });
   render(
     <QueryClientProvider client={createQueryClient()}>
       <UndoButton />
-      <DetailsPanel />
+      <InTheShell />
     </QueryClientProvider>,
   );
   return row;
@@ -133,5 +141,19 @@ describe("the energy suggestion in the Details panel", () => {
     renderPanel();
     await screen.findByText(tx("estimate:suggestion.label", { energy: 3 }));
     expect(within(screen.getByTestId("energy-suggestion")).getAllByRole("paragraph")).toHaveLength(1);
+  });
+
+  it("asks again for the suggestion when a background job ends, so a finished Analyze run is not missed", async () => {
+    suggestion = null;
+    renderPanel();
+    await screen.findByText(tx("shell:details.energy.none"));
+    await waitFor(() => expect(suggestionAsked).toBe(1));
+    expect(screen.queryByTestId("energy-suggestion")).toBeNull();
+
+    suggestion = SUGGESTION;
+    const ended: JobUpdate = { seq: 9, id: 9, kind: "analyze", status: "done", progress: null, priority: 0 };
+    await act(() => emit("job-updates", [ended]));
+    expect(await screen.findByText(tx("estimate:suggestion.label", { energy: 7 }))).toBeInTheDocument();
+    expect(suggestionAsked).toBe(2);
   });
 });

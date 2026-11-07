@@ -7,12 +7,12 @@ import { listKeys, reloadLists } from "../app/lists";
  * scan makes All music's tracks and a folder's notes, a relink decides
  * what's Missing and what Review holds, and a scan marks a Library track's file missing. The track
  * tables (1cA-3) sort and filter by rows the index job writes, so its end reloads them too (a
- * crate's included). Only lists on screen are fetched again. Call it once, in the shell.
+ * crate's included). The energy suggestions are asked again as well (an Analyze run changes them). Only lists on screen are fetched again. Call it once, in the shell.
  */
 export function useReloadListsWhenJobsEnd() {
   const queryClient = useQueryClient();
   useWhenJobsEnd(() => {
-    void reloadLists(queryClient, "library", "missing", "crates", "playlists", "folders", "tagSources", "review", "inbox");
+    void reloadLists(queryClient, "library", "missing", "crates", "playlists", "folders", "tagSources", "review", "inbox", "estimates");
     // The Overview's numbers take long to work out on a big Library: a job
     // ending while they're on their way doesn't start them over (the numbers
     // are asked again every few seconds while jobs are counting).
