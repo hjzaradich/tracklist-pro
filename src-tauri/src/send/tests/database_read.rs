@@ -46,8 +46,10 @@ impl DatabaseSource for Database {
     }
 }
 
+type Rows = Vec<(i64, String, String)>;
+
 /// What the app holds of its own and what it last sent, and the conflicts.
-fn library_values(w: &World) -> (Vec<(i64, String, String)>, Vec<(i64, String, String)>, i64) {
+fn library_values(w: &World) -> (Rows, Rows, i64) {
     let rows = |sql: &'static str| {
         w.writer
             .call(move |c| {
