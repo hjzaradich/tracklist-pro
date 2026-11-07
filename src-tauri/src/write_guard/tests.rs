@@ -1661,7 +1661,7 @@ mod save_outside {
         let music = out.join("music");
         let pioneer = out.join("Pioneer");
         fs::create_dir_all(music.join("sub")).unwrap();
-        fs::create_dir_all(pioneer.join("rekordbox")).unwrap();
+        fs::create_dir_all(pioneer.join("inner")).unwrap();
         // One music folder as written, one that is offline (not on disk).
         let keep = KeepOut {
             music_folders: vec![music.clone(), out.join("offline")],
@@ -1671,7 +1671,7 @@ mod save_outside {
             (music.join("a.zip"), SaveRefusal::InMusicFolder),
             (music.join("sub").join("a.zip"), SaveRefusal::InMusicFolder),
             (
-                pioneer.join("rekordbox").join("a.zip"),
+                pioneer.join("inner").join("a.zip"),
                 SaveRefusal::InRekordboxFolder,
             ),
             (sb.data().join("a.zip"), SaveRefusal::InAppData),
