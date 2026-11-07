@@ -224,6 +224,16 @@ describe("the top bar's Undo", () => {
       "shell:undo.action.neverInclude",
       { count: 1, name: "Peak" },
     ],
+    [
+      operation(1, "set_playlist_target", { name: "Arc" }),
+      "shell:undo.action.setPlaylistTarget",
+      { name: "Arc" },
+    ],
+    [
+      operation(1, "clear_playlist_target", { name: "Arc" }),
+      "shell:undo.action.clearPlaylistTarget",
+      { name: "Arc" },
+    ],
   ] as const)("names the action it will undo: %o", async (next, key, params) => {
     history([{ operation: next }]);
     renderBar();

@@ -1,5 +1,5 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Crate, OperationInfo, Playlist, TableQuery, TableRow } from "../bindings";
+import type { Crate, Flow, GapSuggestion, OperationInfo, Playlist, TableQuery, TableRow, TargetPoint, Timeline } from "../bindings";
 import { quietAnswer } from "./quietCommands";
 import { pageOf } from "./trackTableIpc";
 
@@ -26,6 +26,8 @@ export function playlistBackend(options: {
   refused?: Record<number, "noFile" | "fileMissing" | "matchNotConfirmed" | "lowBitrate">;
   /** How many entries of a rekordbox playlist have no Library track. */
   unmatched?: number;
+  /** What "Fill the gap" offers after an entry (`null`: before the first). */
+  gap?: (afterEntryId: number | null) => GapSuggestion[];
 }) {
   const state = {
     playlists: options.playlists.map((p) => ({ ...p, entries: [...p.entries] })),
@@ -33,6 +35,8 @@ export function playlistBackend(options: {
     calls: [] as { cmd: string; args: Record<string, unknown> }[],
     history: [] as { info: OperationInfo; undo: () => void }[],
     nextId: 100,
+    /** Each playlist's target shape (3C-P2b). */
+    targets: {} as Record<number, TargetPoint[]>,
   };
   const called = (cmd: string) => state.calls.filter((call) => call.cmd === cmd);
   const refuse = (kind: string, params: Record<string, string> = {}): never => {
@@ -74,6 +78,19 @@ export function playlistBackend(options: {
     return id;
   };
   const newEntries = (recordings: number[]): [number, number][] => recordings.map((r) => [state.nextId++, r]);
+
+  /** The target at `at` (0 to 1): a straight line between the points, flat beyond the ends; none without points. */
+  const targetAt = (points: TargetPoint[], at: number): number | null => {
+    const known = points.flatMap((p) => (p.at === null || p.energy === null ? [] : [{ at: p.at, energy: p.energy }]));
+    const first = known[0];
+    const last = known.at(-1);
+    if (first === undefined || last === undefined) return null;
+    if (at <= first.at) return first.energy;
+    if (at >= last.at) return last.energy;
+    const right = known.findIndex((p) => p.at >= at);
+    const [a, b] = [known[right - 1], known[right]] as [(typeof known)[number], (typeof known)[number]];
+    return b.at === a.at ? b.energy : a.energy + ((b.energy - a.energy) * (at - a.at)) / (b.at - a.at);
+  };
 
   const handle = (cmd: string, args: Record<string, unknown>): unknown => {
     switch (cmd) {
@@ -217,6 +234,84 @@ export function playlistBackend(options: {
           state.playlists = state.playlists.filter((p) => p.id !== id);
         });
         return { playlistId: id, added: kept, notInLibrary: found.entries - kept };
+      }
+      case "playlist_timeline": {
+        const target = playlist(args.id);
+        const points = state.targets[target.id] ?? [];
+        const rowsOf = tableOf(target.id);
+        let startMs = 0;
+        const entries = rowsOf.map((row, position) => {
+          const at = rowsOf.length <= 1 ? 0.5 : position / (rowsOf.length - 1);
+          const wanted = targetAt(points, at);
+          const entry = {
+            entryId: row.entryId ?? 0,
+            position,
+            recordingId: row.recordingId,
+            title: row.title,
+            artist: row.artist,
+            durationMs: row.timeMs,
+            bpm: row.bpm,
+            key: row.key,
+            energy: row.energy,
+            startMs,
+            target: wanted,
+            gap: wanted === null || row.energy === null ? null : row.energy - wanted,
+          };
+          startMs += row.timeMs ?? 0;
+          return entry;
+        });
+        // A flag is unknown when either track lacks the value, a clash when the values differ much.
+        const flow = (a: number | string | null, b: number | string | null, far: (a: never, b: never) => boolean): Flow =>
+          a === null || b === null ? "unknown" : far(a as never, b as never) ? "clash" : "fine";
+        const transitions = rowsOf.slice(1).map((next, i) => {
+          const row = rowsOf[i] as TableRow;
+          return {
+            fromEntry: row.entryId ?? 0,
+            toEntry: next.entryId ?? 0,
+            key: flow(row.key, next.key, (a, b) => a !== b),
+            bpm: flow(row.bpm, next.bpm, (a: number, b: number) => Math.abs(b - a) > 6),
+            bpmDelta: row.bpm === null || next.bpm === null ? null : next.bpm - row.bpm,
+            energy: flow(row.energy, next.energy, (a: number, b: number) => Math.abs(b - a) >= 3),
+            energyStep: row.energy === null || next.energy === null ? null : next.energy - row.energy,
+          };
+        });
+        const timeline: Timeline = {
+          playlist: { ...target, trackCount: target.entries.length },
+          entries,
+          transitions,
+          totalMs: startMs,
+          unknownDurations: rowsOf.filter((row) => row.timeMs === null).length,
+          target: points,
+          tolerance: "tight",
+        };
+        return timeline;
+      }
+      case "set_playlist_target": {
+        const target = playlist(args.id);
+        const before = state.targets[target.id];
+        state.targets[target.id] = [...(args.points as TargetPoint[])].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+        return record("set_playlist_target", target.name, null, () => {
+          if (before === undefined) delete state.targets[target.id];
+          else state.targets[target.id] = before;
+        });
+      }
+      case "clear_playlist_target": {
+        const target = playlist(args.id);
+        const before = state.targets[target.id];
+        if (before === undefined) return null;
+        delete state.targets[target.id];
+        return record("clear_playlist_target", target.name, null, () => (state.targets[target.id] = before));
+      }
+      case "fill_gap":
+        return { suggestions: options.gap?.(args.afterEntryId as number | null) ?? [], considered: rows.length, target: null };
+      case "add_tracks_to_playlist": {
+        const target = playlist(args.id);
+        const recordings = (args.tracks as number[]).flatMap((track) => rows.find((r) => r.libraryTrackId === track)?.recordingId ?? []);
+        const before = [...target.entries];
+        const at = Math.min((args.at as number | null) ?? before.length, before.length);
+        target.entries = [...before.slice(0, at), ...newEntries(recordings), ...before.slice(at)];
+        const operationId = record("add_to_playlist", target.name, recordings.length, () => (target.entries = before));
+        return { changed: recordings.length, skipped: 0, operationId };
       }
       case "next_undo_operation":
         return { operation: state.history.at(-1)?.info ?? null, refusal: null };

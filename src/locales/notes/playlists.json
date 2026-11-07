@@ -238,5 +238,237 @@
   "error.rekordboxPlaylistNotFound": {
     "purpose": "Error: making an app playlist from a rekordbox playlist that the newest read doesn't have (or that is empty). (PROPOSED, 3C-P1a)",
     "where": "Making an app playlist from a rekordbox playlist."
+  },
+  "timeline.button": {
+    "purpose": "Button that shows or hides the timeline over a playlist's tracks. (PROPOSED, 3C-P2b)",
+    "where": "Playlists screen, over the chosen playlist."
+  },
+  "timeline.label": {
+    "purpose": "Accessible name of the timeline panel. (PROPOSED, 3C-P2b)",
+    "where": "Playlists screen, timeline panel."
+  },
+  "timeline.total": {
+    "purpose": "The playlist's total length (the known lengths added up). (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, top line."
+  },
+  "timeline.unknownLengths_one": {
+    "purpose": "Says how many tracks have no length, so the total leaves them out. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, next to the total."
+  },
+  "timeline.unknownLengths_other": {
+    "purpose": "Says how many tracks have no length, so the total leaves them out. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, next to the total."
+  },
+  "timeline.untitled": {
+    "purpose": "Stands in for a track with no artist or title. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table and gap suggestions."
+  },
+  "timeline.unknown": {
+    "purpose": "A value the track doesn't have (length, BPM, key, energy). Never shown as zero. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.energyTarget": {
+    "purpose": "A track's energy and the target shape's energy at its place. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table, Energy column."
+  },
+  "timeline.column.position": {
+    "purpose": "Column heading: the track's place in the playlist. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.column.start": {
+    "purpose": "Column heading: when the track starts, from the start of the playlist. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.column.track": {
+    "purpose": "Column heading: the track's artist and title. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.column.length": {
+    "purpose": "Column heading: the track's length. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.column.bpm": {
+    "purpose": "Column heading: the track's tempo. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.column.key": {
+    "purpose": "Column heading: the track's key. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.column.energy": {
+    "purpose": "Column heading: the track's energy (from tags or set by you) and the target. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel table."
+  },
+  "timeline.chart.label": {
+    "purpose": "Accessible name of the energy chart. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel chart."
+  },
+  "timeline.chart.clash": {
+    "purpose": "Hover text of the diamond mark over a transition with a key clash, BPM jump or energy step. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel chart."
+  },
+  "timeline.chart.unknown": {
+    "purpose": "Hover text of the hollow mark over a transition where a key, BPM or energy is unknown. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel chart."
+  },
+  "timeline.target.point": {
+    "purpose": "Accessible name of a draggable point of the target shape; its value is the energy (1 to 10). (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel chart."
+  },
+  "timeline.target.add": {
+    "purpose": "Button that adds a point to the target shape in the widest empty stretch. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, under the chart."
+  },
+  "timeline.target.clear": {
+    "purpose": "Button that removes the whole target shape. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, under the chart."
+  },
+  "timeline.target.none": {
+    "purpose": "Says the playlist has no target shape and how to start one. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, under the chart."
+  },
+  "timeline.target.hint": {
+    "purpose": "How to edit the target shape. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, under the chart."
+  },
+  "timeline.flag.key.clash": {
+    "purpose": "Mark on a transition whose keys clash. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, between two tracks."
+  },
+  "timeline.flag.key.unknown": {
+    "purpose": "Mark on a transition where one of the two tracks has no key. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, between two tracks."
+  },
+  "timeline.flag.bpm.clash": {
+    "purpose": "Mark on a transition whose tempo jumps (half and double time read as the closest); the change in BPM. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, between two tracks."
+  },
+  "timeline.flag.bpm.unknown": {
+    "purpose": "Mark on a transition where one of the two tracks has no BPM. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, between two tracks."
+  },
+  "timeline.flag.energy.clash": {
+    "purpose": "Mark on a transition whose energy jumps; the change in energy. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, between two tracks."
+  },
+  "timeline.flag.energy.unknown": {
+    "purpose": "Mark on a transition where one of the two tracks has no energy. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, between two tracks."
+  },
+  "timeline.fill.button": {
+    "purpose": "Button that lists tracks that fit the place between two tracks (or before the first, after the last). (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, at every place a track could go."
+  },
+  "timeline.fill.before": {
+    "purpose": "Accessible name of Fill the gap at the start of the playlist. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel."
+  },
+  "timeline.fill.between": {
+    "purpose": "Accessible name of Fill the gap between two tracks. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel."
+  },
+  "timeline.fill.after": {
+    "purpose": "Accessible name of Fill the gap at the end of the playlist. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel."
+  },
+  "timeline.fill.title": {
+    "purpose": "Heading of the suggestions for one gap. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, under Fill the gap."
+  },
+  "timeline.fill.target": {
+    "purpose": "The target shape's energy at the gap. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "timeline.fill.close": {
+    "purpose": "Button that closes the suggestions. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "timeline.fill.none": {
+    "purpose": "Says no Library track has a reason to fit the gap. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "timeline.fill.list": {
+    "purpose": "Accessible name of the list of suggestions. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "timeline.fill.insert": {
+    "purpose": "Button that adds the suggested track at this place in the playlist. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, each suggestion."
+  },
+  "timeline.fill.insertFor": {
+    "purpose": "Accessible name of Insert here for one suggestion. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, each suggestion."
+  },
+  "gap.keyBridge": {
+    "purpose": "Reason: the two neighbours' keys clash and this track's key sits between them. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.keyFits": {
+    "purpose": "Reason: the key fits both neighbours. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.keyFitsAfter": {
+    "purpose": "Reason: the key fits the track before (the gap is at the end). (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.keyFitsBefore": {
+    "purpose": "Reason: the key fits the track after (the gap is at the start). (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.keyFitsOnly": {
+    "purpose": "Reason: the track's key, when the neighbours have none. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.bpmStep": {
+    "purpose": "Reason: the two neighbours' tempos jump and this track's tempo sits between them. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.bpmFits": {
+    "purpose": "Reason: the tempo fits both neighbours. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.bpmFitsAfter": {
+    "purpose": "Reason: the tempo fits the track before. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.bpmFitsBefore": {
+    "purpose": "Reason: the tempo fits the track after. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.bpmFitsOnly": {
+    "purpose": "Reason: the track's tempo, when the neighbours have none. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.energyStep": {
+    "purpose": "Reason: the energy lies between the neighbours' energies. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.energyStepAfter": {
+    "purpose": "Reason: the energy follows the track before. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.energyStepBefore": {
+    "purpose": "Reason: the energy leads to the track after. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.energyStepOnly": {
+    "purpose": "Reason: the track's energy, when the neighbours have none. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "gap.energyTarget": {
+    "purpose": "Reason: the energy is near the target shape at this place. (PROPOSED, 3C-P2b)",
+    "where": "Timeline panel, suggestions."
+  },
+  "done.targetSet": {
+    "purpose": "Line over the screen after the target shape changes. (PROPOSED, 3C-P2b)",
+    "where": "Playlists screen, status line."
+  },
+  "done.targetCleared": {
+    "purpose": "Line over the screen after the target shape is cleared. (PROPOSED, 3C-P2b)",
+    "where": "Playlists screen, status line."
+  },
+  "done.inserted": {
+    "purpose": "Line over the screen after Insert here adds a suggested track. (PROPOSED, 3C-P2b)",
+    "where": "Playlists screen, status line."
   }
 }

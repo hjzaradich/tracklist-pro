@@ -11,6 +11,7 @@ import { useWhenUndone } from "../shell/undoneStore";
 import { shownName } from "../trackTable/columns";
 import { TrackTableView } from "../trackTable/TrackTableView";
 import { RekordboxPicker } from "./RekordboxPicker";
+import { TimelinePanel } from "./TimelinePanel";
 import {
   PLAYLISTS_QUERY_KEY,
   useCreatePlaylist,
@@ -179,6 +180,7 @@ export function PlaylistsScreen({
                     asking={asking}
                     pending={rename.isPending || remove.isPending || saveAsCrate.isPending}
                     onAsk={ask}
+                    onDone={finished}
                     onRename={(name) => {
                       clearErrors();
                       rename.mutate(
@@ -253,6 +255,7 @@ function PlaylistView({
   asking,
   pending,
   onAsk,
+  onDone,
   onRename,
   onDelete,
   onSaveAsCrate,
@@ -263,6 +266,7 @@ function PlaylistView({
   asking: Asking;
   pending: boolean;
   onAsk: (what: Asking) => void;
+  onDone: (message: string) => void;
   onRename: (name: string) => void;
   onDelete: () => void;
   onSaveAsCrate: (name: string) => void;
@@ -270,6 +274,7 @@ function PlaylistView({
   onMoveRows: (rows: readonly TableRow[], before: TableRow | null) => void;
 }) {
   const { t } = useTranslation("playlists");
+  const [timeline, setTimeline] = useState(false);
   return (
     <>
       <div className={styles.header}>
@@ -280,6 +285,9 @@ function PlaylistView({
           )}
         </div>
         <div className={styles.actions}>
+          <button type="button" className={styles.button} aria-pressed={timeline} onClick={() => setTimeline(!timeline)}>
+            {t("timeline.button")}
+          </button>
           <button type="button" className={styles.button} onClick={() => onAsk("saveAsCrate")}>
             {t("saveAsCrate.button")}
           </button>
@@ -329,6 +337,7 @@ function PlaylistView({
           </div>
         </div>
       )}
+      {timeline && <TimelinePanel key={`timeline-${playlist.id}`} playlistId={playlist.id} onDone={onDone} />}
       {/* A playlist's table starts afresh (its own sort and filters) for another playlist. */}
       <TrackTableView
         key={playlist.id}
