@@ -10,6 +10,9 @@ import { tx } from "../test/tx";
 import { SettingsScreen } from "./SettingsScreen";
 
 // The screen has a link to /genres; these tests mount it without a router.
+// The bundle panel asks its own commands and has its own tests (BundlePanel.test.tsx).
+vi.mock("./BundlePanel", () => ({ BundlePanel: () => null }));
+
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
 }));

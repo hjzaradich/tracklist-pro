@@ -1507,3 +1507,331 @@ fn listing(dir: &Path) -> Vec<String> {
     names.sort();
     names
 }
+
+// ---- save_new_bundle_outside (ROADMAP 4.1: the one write outside app data) ----
+
+mod save_outside {
+    use super::*;
+    use crate::write_guard::no_writes_elsewhere::snapshot;
+    use std::collections::BTreeMap;
+    use std::io::{Cursor, Read};
+
+    const BYTES: &[u8] = b"pretend this is a zip";
+
+    /// A sandbox plus a folder `out` to save in.
+    fn sandbox() -> (Sandbox, PathBuf) {
+        let sb = Sandbox::new();
+        let out = sb.base.join("out");
+        fs::create_dir(&out).unwrap();
+        (sb, out)
+    }
+
+    /// No drive is a gig stick, so a test doesn't depend on the real drive.
+    fn no_mark(_: &Path) -> Option<PathBuf> {
+        None
+    }
+
+    /// The folder named `stick` above the path stands in for a drive root.
+    fn stick_root(path: &Path) -> Option<PathBuf> {
+        path.ancestors()
+            .find(|a| a.file_name().is_some_and(|n| n == "stick"))
+            .map(Path::to_path_buf)
+    }
+
+    fn save(sb: &Sandbox, dest: &Path, keep: &KeepOut) -> Result<(), GuardError> {
+        sb.guard
+            .save_stream(&mut Cursor::new(BYTES), dest, keep, no_mark, &|_| {})
+    }
+
+    fn why(result: Result<(), GuardError>) -> SaveRefusal {
+        match result {
+            Err(GuardError::SaveRefused { why, .. }) => why,
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names = Vec::new();
+        list(dir, "", &mut names);
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn it_saves_a_new_file_and_writes_nothing_else_outside_app_data() {
+        let (sb, out) = sandbox();
+        let mut before = BTreeMap::new();
+        snapshot(&sb.base, &[&out], &mut before);
+        let dest = out.join("my bundle.ZIP");
+        save(&sb, &dest, &KeepOut::default()).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), BYTES);
+        assert_eq!(names(&out), ["my bundle.ZIP"]);
+        let mut after = BTreeMap::new();
+        snapshot(&sb.base, &[&out], &mut after);
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn the_public_rule_copies_a_bundle_from_bundles_and_refuses_any_other_source() {
+        let (sb, out) = sandbox();
+        let bundles = sb.data().join("bundles");
+        fs::create_dir_all(&bundles).unwrap();
+        let bundle = bundles.join("tracklist-pro-20261107-120000000.zip");
+        fs::write(&bundle, BYTES).unwrap();
+        let elsewhere = sb.outside().join("tracklist-pro-20261107-120000000.zip");
+        fs::write(&elsewhere, BYTES).unwrap();
+        let other = bundles.join("notes.zip");
+        fs::write(&other, BYTES).unwrap();
+        let keep = KeepOut::default();
+        for source in [&elsewhere, &other] {
+            let dest = out.join("a.zip");
+            let refused = sb.guard.save_new_bundle_outside(source, &dest, &keep);
+            assert_eq!(why(refused), SaveRefusal::SourceNotABundle);
+            assert!(!dest.exists());
+        }
+        // A source outside app data isn't even checked as a bundle.
+        let dest = out.join("a.zip");
+        assert!(sb
+            .guard
+            .save_new_bundle_outside(&sb.base.join("outside"), &dest, &keep)
+            .is_err());
+        // The happy path, unless this drive really has a gig stick's mark.
+        let marked = out.ancestors().any(holds_pioneer)
+            || drive_root(&out).is_some_and(|r| holds_entry(&r, "Contents"));
+        if !marked {
+            let dest = out.join("saved.zip");
+            sb.guard
+                .save_new_bundle_outside(&bundle, &dest, &keep)
+                .unwrap();
+            assert_eq!(fs::read(&dest).unwrap(), BYTES);
+        }
+    }
+
+    #[test]
+    fn it_refuses_an_existing_file_or_folder_and_leaves_it_unchanged() {
+        let (sb, out) = sandbox();
+        let dest = out.join("a.zip");
+        fs::write(&dest, b"mine").unwrap();
+        let keep = KeepOut::default();
+        assert_eq!(why(save(&sb, &dest, &keep)), SaveRefusal::Exists);
+        assert_eq!(fs::read(&dest).unwrap(), b"mine");
+        let folder = out.join("b.zip");
+        fs::create_dir(&folder).unwrap();
+        assert_eq!(why(save(&sb, &folder, &keep)), SaveRefusal::Exists);
+        assert_eq!(names(&out), ["a.zip", "b.zip"]);
+    }
+
+    #[test]
+    fn it_refuses_a_name_that_is_not_zip() {
+        let (sb, out) = sandbox();
+        for name in ["a.txt", "a", "a.zip.exe"] {
+            let refused = save(&sb, &out.join(name), &KeepOut::default());
+            assert_eq!(why(refused), SaveRefusal::NotZip, "{name}");
+        }
+        assert!(names(&out).is_empty());
+    }
+
+    #[test]
+    fn it_refuses_a_missing_folder_and_a_file_as_the_folder() {
+        let (sb, out) = sandbox();
+        let refused = save(&sb, &out.join("nope").join("a.zip"), &KeepOut::default());
+        assert_eq!(why(refused), SaveRefusal::FolderMissing);
+        fs::write(out.join("file"), b"x").unwrap();
+        let refused = save(&sb, &out.join("file").join("a.zip"), &KeepOut::default());
+        assert_eq!(why(refused), SaveRefusal::FolderNotPlain);
+        assert_eq!(names(&out), ["file"]);
+    }
+
+    #[test]
+    fn it_refuses_a_folder_that_is_a_link_or_is_below_one() {
+        let (sb, out) = sandbox();
+        let real = out.join("real");
+        fs::create_dir_all(real.join("sub")).unwrap();
+        let link = out.join("link");
+        link_dir(&link, &real);
+        for dest in [link.join("a.zip"), link.join("sub").join("a.zip")] {
+            let refused = save(&sb, &dest, &KeepOut::default());
+            assert_eq!(why(refused), SaveRefusal::FolderNotPlain);
+        }
+        assert_eq!(names(&real), ["sub"]);
+    }
+
+    #[test]
+    fn it_refuses_music_folders_app_data_and_rekordboxs_folder() {
+        let (sb, out) = sandbox();
+        let music = out.join("music");
+        let pioneer = out.join("rbdata");
+        fs::create_dir_all(music.join("sub")).unwrap();
+        fs::create_dir_all(pioneer.join("inner")).unwrap();
+        // One music folder as written, one that is offline (not on disk).
+        let keep = KeepOut {
+            music_folders: vec![music.clone(), out.join("offline")],
+            rekordbox_data: vec![pioneer.clone(), out.join("LocalPioneer")],
+        };
+        let cases = [
+            (music.join("a.zip"), SaveRefusal::InMusicFolder),
+            (music.join("sub").join("a.zip"), SaveRefusal::InMusicFolder),
+            (
+                pioneer.join("inner").join("a.zip"),
+                SaveRefusal::InRekordboxFolder,
+            ),
+            (sb.data().join("a.zip"), SaveRefusal::InAppData),
+        ];
+        fs::create_dir_all(sb.data()).unwrap();
+        for (dest, expected) in cases {
+            assert_eq!(why(save(&sb, &dest, &keep)), expected, "{dest:?}");
+            assert!(!dest.exists());
+        }
+        // Beside a music folder is fine.
+        save(&sb, &out.join("music.zip"), &keep).unwrap();
+    }
+
+    #[test]
+    fn it_refuses_a_fake_gig_stick() {
+        let (sb, out) = sandbox();
+        for mark in ["PIONEER", "Contents", "pioneer"] {
+            let stick = out
+                .join(format!("{}-case", mark.to_lowercase()))
+                .join("stick");
+            fs::create_dir_all(stick.join(mark)).unwrap();
+            fs::create_dir_all(stick.join("Music")).unwrap();
+            let dest = stick.join("Music").join("a.zip");
+            let keep = KeepOut::default();
+            let refused =
+                sb.guard
+                    .save_stream(&mut Cursor::new(BYTES), &dest, &keep, stick_root, &|_| {});
+            assert_eq!(why(refused), SaveRefusal::GigStick, "{mark}");
+            assert!(!dest.exists());
+        }
+        // A drive without the marks is fine.
+        let plain = out.join("plain").join("stick");
+        fs::create_dir_all(&plain).unwrap();
+        let dest = plain.join("a.zip");
+        let keep = KeepOut::default();
+        sb.guard
+            .save_stream(&mut Cursor::new(BYTES), &dest, &keep, stick_root, &|_| {})
+            .unwrap();
+    }
+
+    #[test]
+    fn it_refuses_stream_syntax_device_names_and_dot_or_space_endings() {
+        let (sb, out) = sandbox();
+        let existing = out.join("x.zip");
+        fs::write(&existing, b"mine").unwrap();
+        fs::create_dir(out.join("sub")).unwrap();
+        let bad = [
+            "x.zip:s.zip",
+            "x.zip::$DATA",
+            "x.zip:s",
+            "CON.zip",
+            "nul.zip",
+            "Com1.zip",
+            "lpt9.zip",
+            "aux .zip",
+            "name.zip.",
+            "name.zip ",
+        ];
+        for name in bad {
+            let refused = save(&sb, &out.join(name), &KeepOut::default());
+            assert_eq!(why(refused), SaveRefusal::BadName, "{name}");
+        }
+        // A part above the file counts too.
+        let refused = save(&sb, &out.join("x.zip:s").join("a.zip"), &KeepOut::default());
+        assert_eq!(why(refused), SaveRefusal::BadName);
+        assert_eq!(fs::read(&existing).unwrap(), b"mine");
+        assert_eq!(names(&out), ["sub", "x.zip"]);
+        // Near misses are fine.
+        save(&sb, &out.join("console.zip"), &KeepOut::default()).unwrap();
+        save(&sb, &out.join("com10.zip"), &KeepOut::default()).unwrap();
+    }
+
+    #[test]
+    fn a_file_that_appears_before_the_create_is_never_replaced() {
+        let (sb, out) = sandbox();
+        let dest = out.join("a.zip");
+        let keep = KeepOut::default();
+        let raced = sb
+            .guard
+            .save_stream(&mut Cursor::new(BYTES), &dest, &keep, no_mark, &|path| {
+                fs::write(path, b"theirs").unwrap()
+            });
+        assert_eq!(why(raced), SaveRefusal::Exists);
+        assert_eq!(fs::read(&dest).unwrap(), b"theirs");
+        assert_eq!(names(&out), ["a.zip"]);
+    }
+
+    #[test]
+    fn it_refuses_a_gig_stick_mark_on_any_folder_of_the_path() {
+        let (sb, out) = sandbox();
+        // A mounted stick: the mark is on a folder in the middle of the path.
+        let mount = out.join("mnt");
+        fs::create_dir_all(mount.join("PIONEER")).unwrap();
+        fs::create_dir_all(mount.join("deep").join("er")).unwrap();
+        let dest = mount.join("deep").join("er").join("a.zip");
+        assert_eq!(
+            why(save(&sb, &dest, &KeepOut::default())),
+            SaveRefusal::GigStick
+        );
+        // The mark's own folder too, and the root's Contents.
+        assert_eq!(
+            why(save(
+                &sb,
+                &mount.join("PIONEER").join("a.zip"),
+                &KeepOut::default()
+            )),
+            SaveRefusal::GigStick
+        );
+        let stick = out.join("s2").join("stick");
+        fs::create_dir_all(stick.join("Contents")).unwrap();
+        let keep = KeepOut::default();
+        let refused = sb.guard.save_stream(
+            &mut Cursor::new(BYTES),
+            &stick.join("a.zip"),
+            &keep,
+            stick_root,
+            &|_| {},
+        );
+        assert_eq!(why(refused), SaveRefusal::GigStick);
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn it_refuses_the_local_pioneer_folder_too() {
+        let (sb, out) = sandbox();
+        let local = out.join("LocalPioneer");
+        fs::create_dir(&local).unwrap();
+        let keep = KeepOut {
+            music_folders: vec![],
+            rekordbox_data: vec![out.join("RoamingPioneer"), local.clone()],
+        };
+        let refused = save(&sb, &local.join("a.zip"), &keep);
+        assert_eq!(why(refused), SaveRefusal::InRekordboxFolder);
+    }
+
+    /// Gives some bytes, then fails.
+    struct Breaks(usize);
+    impl Read for Breaks {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.0 == 0 {
+                return Err(io::Error::other("disk gone"));
+            }
+            self.0 -= 1;
+            buf[..4].fill(7);
+            Ok(4)
+        }
+    }
+
+    #[test]
+    fn a_failed_copy_removes_only_the_partial_file_it_made() {
+        let (sb, out) = sandbox();
+        fs::write(out.join("other.zip"), b"mine").unwrap();
+        let dest = out.join("a.zip");
+        let keep = KeepOut::default();
+        let failed = sb
+            .guard
+            .save_stream(&mut Breaks(3), &dest, &keep, no_mark, &|_| {});
+        assert!(matches!(failed, Err(GuardError::Io { .. })));
+        assert_eq!(names(&out), ["other.zip"]);
+        assert_eq!(fs::read(out.join("other.zip")).unwrap(), b"mine");
+    }
+}

@@ -919,3 +919,35 @@ fn a_bundle_whose_schema_differs_from_its_migrations_is_refused() {
         );
     }
 }
+
+#[test]
+fn save_as_takes_only_a_bundle_name_and_refusals_reach_the_screen_as_their_own_kinds() {
+    let data = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let guard = WriteGuard::app_data(data.path()).unwrap();
+    let keep = KeepOut::default();
+    let dest = out.path().join("a.zip");
+    for name in ["../x.zip", "notes.zip", "tracklist-pro-1.zip", "a/b.zip"] {
+        let refused = save_as(&guard, name, &dest, &keep).unwrap_err();
+        assert!(matches!(
+            refused,
+            BundleError::Guard(GuardError::SaveRefused {
+                why: SaveRefusal::SourceNotABundle,
+                ..
+            })
+        ));
+        assert_eq!(IpcError::from(refused).kind(), ErrorKind::SaveNotABundle);
+    }
+    assert!(!dest.exists());
+    // A refusal from the guard keeps its own kind.
+    let bundles = data.path().join("bundles");
+    fs::create_dir_all(&bundles).unwrap();
+    let name = &format!("tracklist-pro-{}.zip", stamp(1_794_000_000_000));
+    fs::write(bundles.join(name), b"zip").unwrap();
+    let refused = save_as(&guard, name, &out.path().join("a.txt"), &keep).unwrap_err();
+    assert_eq!(IpcError::from(refused).kind(), ErrorKind::SaveNotZip);
+    fs::write(&dest, b"mine").unwrap();
+    let refused = save_as(&guard, name, &dest, &keep).unwrap_err();
+    assert_eq!(IpcError::from(refused).kind(), ErrorKind::SaveExists);
+    assert_eq!(fs::read(&dest).unwrap(), b"mine");
+}

@@ -33,7 +33,7 @@ use tauri::{AppHandle, Runtime, State};
 
 use crate::db::{DbError, ReadPool, DB_FILE_NAME};
 use crate::ipc::{ErrorKind, IpcError};
-use crate::write_guard::{GuardError, WriteGuard};
+use crate::write_guard::{GuardError, KeepOut, SaveRefusal, WriteGuard};
 use folders::{exists, keep_newest, make_folder, remove};
 use swap::{is_stamp, stamp, Layout};
 
@@ -187,6 +187,18 @@ impl From<BundleError> for IpcError {
             BundleError::Newer => IpcError::new(ErrorKind::BundleNewer),
             BundleError::NothingStaged => IpcError::new(ErrorKind::BundleNothingStaged),
             BundleError::NoSuchBackup => IpcError::new(ErrorKind::BundleBackupNotFound),
+            BundleError::Guard(GuardError::SaveRefused { why, .. }) => IpcError::new(match why {
+                SaveRefusal::SourceNotABundle => ErrorKind::SaveNotABundle,
+                SaveRefusal::NotZip => ErrorKind::SaveNotZip,
+                SaveRefusal::BadName => ErrorKind::SaveBadName,
+                SaveRefusal::Exists => ErrorKind::SaveExists,
+                SaveRefusal::FolderMissing => ErrorKind::SaveFolderMissing,
+                SaveRefusal::FolderNotPlain => ErrorKind::SaveFolderNotPlain,
+                SaveRefusal::InMusicFolder => ErrorKind::SaveInMusicFolder,
+                SaveRefusal::InAppData => ErrorKind::SaveInAppData,
+                SaveRefusal::GigStick => ErrorKind::SaveGigStick,
+                SaveRefusal::InRekordboxFolder => ErrorKind::SaveInRekordboxFolder,
+            }),
             BundleError::Db(e) => IpcError::from(e),
             other => {
                 eprintln!("bundle: {other}");
@@ -442,4 +454,60 @@ pub async fn stage_restore(
 ) -> Result<BundleSummary, IpcError> {
     let guard = guard.inner().clone();
     blocking(move || stage_kept(&guard, &id)).await
+}
+
+/// Saves a bundle made by [`create_bundle`] where the user picked in the
+/// Save dialog: a new `.zip` file, through the write guard's one narrow
+/// exception ([`WriteGuard::save_new_bundle_outside`], which lists every
+/// condition). `name` is the bundle's file name in app data's `bundles/`.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_bundle_as(
+    guard: State<'_, WriteGuard>,
+    reads: State<'_, ReadPool>,
+    name: String,
+    dest_path: String,
+) -> Result<(), IpcError> {
+    let (guard, reads) = (guard.inner().clone(), reads.inner().clone());
+    blocking(move || {
+        let keep_out = keep_out(&reads, &[dirs::config_dir(), dirs::data_local_dir()])?;
+        save_as(&guard, &name, Path::new(&dest_path), &keep_out)
+    })
+    .await
+}
+
+/// The folders a saved bundle must stay out of: every music folder (where
+/// it is now, or was last seen) and rekordbox's `Pioneer` folder in each
+/// config folder (roaming and local).
+fn keep_out(reads: &ReadPool, configs: &[Option<PathBuf>]) -> Result<KeepOut, BundleError> {
+    let volumes = crate::scan::system_volumes();
+    let folders = reads.read(crate::scan::folders::stored)?;
+    Ok(KeepOut {
+        music_folders: folders
+            .iter()
+            .map(|f| PathBuf::from(f.to_music_folder(&volumes).path))
+            .collect(),
+        // `Pioneer` holds rekordbox's data; refuse the whole of it.
+        rekordbox_data: configs
+            .iter()
+            .flatten()
+            .map(|c| c.join("Pioneer"))
+            .collect(),
+    })
+}
+
+pub(crate) fn save_as(
+    guard: &WriteGuard,
+    name: &str,
+    dest: &Path,
+    keep_out: &KeepOut,
+) -> Result<(), BundleError> {
+    if !is_bundle(name) {
+        return Err(BundleError::Guard(GuardError::SaveRefused {
+            why: SaveRefusal::SourceNotABundle,
+            path: name.into(),
+        }));
+    }
+    let source = guard.app_data_dir().join("bundles").join(name);
+    Ok(guard.save_new_bundle_outside(&source, dest, keep_out)?)
 }

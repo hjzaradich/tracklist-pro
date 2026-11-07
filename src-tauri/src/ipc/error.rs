@@ -244,6 +244,26 @@ error_kinds! {
     BundleNothingStaged => "settings:bundle.error.nothingStaged", params: [];
     /// The backup to restore is gone.
     BundleBackupNotFound => "settings:bundle.error.backupNotFound", params: [];
+    /// The bundle to save isn't one the app made.
+    SaveNotABundle => "settings:bundle.save.notABundle", params: [];
+    /// The chosen file name doesn't end in .zip.
+    SaveNotZip => "settings:bundle.save.notZip", params: [];
+    /// The chosen name has a colon, a device name, or ends in a dot or space.
+    SaveBadName => "settings:bundle.save.badName", params: [];
+    /// A file or folder is already at the chosen place; nothing is replaced.
+    SaveExists => "settings:bundle.save.exists", params: [];
+    /// The chosen folder doesn't exist.
+    SaveFolderMissing => "settings:bundle.save.folderMissing", params: [];
+    /// The chosen folder, or one above it, is a link or isn't a folder.
+    SaveFolderNotPlain => "settings:bundle.save.folderNotPlain", params: [];
+    /// The chosen place is inside a music folder.
+    SaveInMusicFolder => "settings:bundle.save.inMusicFolder", params: [];
+    /// The chosen place is inside the app's own folder.
+    SaveInAppData => "settings:bundle.save.inAppData", params: [];
+    /// The chosen drive looks like a rekordbox gig stick.
+    SaveGigStick => "settings:bundle.save.gigStick", params: [];
+    /// The chosen place is inside rekordbox's data folder.
+    SaveInRekordboxFolder => "settings:bundle.save.inRekordboxFolder", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

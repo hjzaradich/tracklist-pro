@@ -86,26 +86,190 @@
   },
   "bundle.error.notOurs": {
     "purpose": "Error: the picked file isn't a bundle this app made (not a zip with the expected contents, or not its database). (PROPOSED, 4B-B1a)",
-    "where": "Settings screen, bundle panel (later job), error line."
+    "where": "Settings screen, Move to another computer panel, error line."
   },
   "bundle.error.tooLarge": {
     "purpose": "Error: a file inside the bundle is larger than the app accepts, so it wasn't unpacked. (PROPOSED, 4B-B1a)",
-    "where": "Settings screen, bundle panel (later job), error line."
+    "where": "Settings screen, Move to another computer panel, error line."
   },
   "bundle.error.damaged": {
     "purpose": "Error: the bundle's database fails its integrity checks; nothing changed. (PROPOSED, 4B-B1a)",
-    "where": "Settings screen, bundle panel (later job), error line."
+    "where": "Settings screen, Move to another computer panel, error line."
   },
   "bundle.error.newer": {
     "purpose": "Error: the bundle comes from a newer app version; the user must update first. (PROPOSED, 4B-B1a)",
-    "where": "Settings screen, bundle panel (later job), error line."
+    "where": "Settings screen, Move to another computer panel, error line."
   },
   "bundle.error.nothingStaged": {
     "purpose": "Error: the user confirmed an import or a restore, but no checked bundle or backup is waiting. (PROPOSED, 4B-B1a)",
-    "where": "Settings screen, bundle panel (later job), error line."
+    "where": "Settings screen, Move to another computer panel, error line."
   },
   "bundle.error.backupNotFound": {
     "purpose": "Error: the backup chosen to restore has been removed meanwhile. (PROPOSED, 4B-B1a)",
-    "where": "Settings screen, bundle panel (later job), error line."
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.title": {
+    "purpose": "Heading of the panel for moving the Library to another of the user's computers. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, heading."
+  },
+  "bundle.intro": {
+    "purpose": "Says what a bundle holds and doesn't hold, and that the music is copied by the user. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, under the heading."
+  },
+  "bundle.create": {
+    "purpose": "Button that makes a bundle and then asks where to save it. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel."
+  },
+  "bundle.creating": {
+    "purpose": "Wait text while the bundle is made. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, status line while waiting."
+  },
+  "bundle.saveDialogTitle": {
+    "purpose": "Title of the system Save dialog for the bundle. (PROPOSED, 4B-B2)",
+    "where": "System Save dialog."
+  },
+  "bundle.filter": {
+    "purpose": "Name of the .zip filter in the Save and Open dialogs. (PROPOSED, 4B-B2)",
+    "where": "System Save and Open dialogs."
+  },
+  "bundle.saved": {
+    "purpose": "Says the bundle was saved, with the file's name. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, status line after saving."
+  },
+  "bundle.notSaved": {
+    "purpose": "Said when the Save dialog was cancelled. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, status line after cancelling the Save dialog."
+  },
+  "bundle.import": {
+    "purpose": "Button that opens the dialog to choose a bundle file. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel."
+  },
+  "bundle.openDialogTitle": {
+    "purpose": "Title of the system Open dialog for a bundle. (PROPOSED, 4B-B2)",
+    "where": "System Open dialog."
+  },
+  "bundle.checking": {
+    "purpose": "Wait text while a bundle or backup is checked. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, status line."
+  },
+  "bundle.confirm.importTitle": {
+    "purpose": "Title of the confirm before an import. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm."
+  },
+  "bundle.confirm.restoreTitle": {
+    "purpose": "Title of the confirm before restoring a backup. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm."
+  },
+  "bundle.confirm.made": {
+    "purpose": "When the bundle was made and by which app version. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm, first line."
+  },
+  "bundle.confirm.kept": {
+    "purpose": "When the backup was made. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm, first line for a backup."
+  },
+  "bundle.confirm.tracks": {
+    "purpose": "Number of tracks in the bundle. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm, list."
+  },
+  "bundle.confirm.crates": {
+    "purpose": "Number of crates in the bundle. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm, list."
+  },
+  "bundle.confirm.playlists": {
+    "purpose": "Number of playlists in the bundle. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm, list."
+  },
+  "bundle.confirm.tags": {
+    "purpose": "Number of tags in the bundle. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm, list."
+  },
+  "bundle.confirm.folders": {
+    "purpose": "Number of music folders in the bundle. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm, list."
+  },
+  "bundle.confirm.detail": {
+    "purpose": "Says plainly what the replace does: replaces, backs up first, restarts. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm."
+  },
+  "bundle.confirm.machine": {
+    "purpose": "Says what does not travel in a bundle. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm."
+  },
+  "bundle.confirm.drives": {
+    "purpose": "Points to the Music folders screen for folders on drives that aren't connected. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm."
+  },
+  "bundle.confirm.replace": {
+    "purpose": "Button that confirms the replace and restarts the app. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm."
+  },
+  "bundle.confirm.cancel": {
+    "purpose": "Button that closes the confirm and changes nothing. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, confirm."
+  },
+  "bundle.restarting": {
+    "purpose": "Shown after confirming, until the app restarts. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, status line."
+  },
+  "bundle.backups.title": {
+    "purpose": "Heading of the list of Libraries kept when one was replaced. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, sub-heading."
+  },
+  "bundle.backups.empty": {
+    "purpose": "Says there are no backups and when one is made. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, backups list."
+  },
+  "bundle.backups.row": {
+    "purpose": "One backup in the list: when, and how many tracks and crates. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, backups list."
+  },
+  "bundle.backups.rowUnknown": {
+    "purpose": "One backup that can't be read: only the date. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, backups list."
+  },
+  "bundle.backups.restore": {
+    "purpose": "Button on a backup that starts restoring it. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, backups list."
+  },
+  "bundle.save.notABundle": {
+    "purpose": "Error: the file to save isn't a bundle in the app's folder. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.notZip": {
+    "purpose": "Error: the chosen file name doesn't end in .zip. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.badName": {
+    "purpose": "Error: the chosen file name has a colon, is a device name, or ends in a dot or space. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.exists": {
+    "purpose": "Error: something already exists at the chosen place. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.folderMissing": {
+    "purpose": "Error: the chosen folder doesn't exist. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.folderNotPlain": {
+    "purpose": "Error: the folder is a link or junction, or isn't a folder. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.inMusicFolder": {
+    "purpose": "Error: the chosen place is inside a music folder. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.inAppData": {
+    "purpose": "Error: the chosen place is inside the app's data folder. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.gigStick": {
+    "purpose": "Error: the drive has a PIONEER or Contents folder. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
+  "bundle.save.inRekordboxFolder": {
+    "purpose": "Error: the chosen place is inside rekordbox's data folder. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
   }
 }
