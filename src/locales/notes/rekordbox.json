@@ -122,5 +122,21 @@
   "error.sendNeedsExport": {
     "purpose": "Error: a send can't start from a read of rekordbox's database; it needs an XML export.",
     "where": "Send checklist, when a send starts and the newest rekordbox read is from its database."
+  },
+  "older.message": {
+    "purpose": "Asks before an export older than the newest database read replaces it; shows both times.",
+    "where": "rekordbox collection panel, after Read again or Read on an export older than the last database read."
+  },
+  "older.readAnyway": {
+    "purpose": "Button: read the older export anyway.",
+    "where": "Same confirm."
+  },
+  "older.cancel": {
+    "purpose": "Button: leave things as they are.",
+    "where": "Same confirm."
+  },
+  "error.xmlOlderThanDatabaseRead": {
+    "purpose": "Error: an export was not read because it is older than the newest database read.",
+    "where": "rekordbox collection panel (fallback; the confirm normally shows instead)."
   }
 }

@@ -52,7 +52,7 @@ mod tests;
 use rusqlite::Connection;
 use tauri::{AppHandle, Runtime};
 
-use crate::db::{DbError, Writer};
+use crate::db::{DbError, ReadPool, Writer};
 use crate::jobs::{JobHandler, JobId, NewJob};
 use crate::scan::chain::{self, Reach};
 use crate::scan::folders;
@@ -93,7 +93,10 @@ pub(crate) fn request<E: From<DbError> + std::fmt::Debug>(
     reach: Option<&Reach>,
     mut enqueue: impl FnMut(NewJob) -> Result<JobId, E>,
 ) -> Result<(), E> {
-    if writer.call(|c| ledger::any_stale(c))? {
+    // A pure read: it goes through a read connection of its own, not the
+    // writer's queue (the caller's writes have committed by now).
+    let reads = ReadPool::with_size(writer.guarded_path(), 1)?;
+    if reads.read(ledger::any_stale)? {
         resync(writer, &mut enqueue)?;
     }
     let reachable = match reach {

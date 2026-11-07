@@ -1,8 +1,8 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useActivityStore } from "../activity/activityStore";
-import { errorMessage } from "../api/errors";
+import { CommandError, errorMessage } from "../api/errors";
 import type { XmlSource } from "../bindings";
 import styles from "./XmlSourcePanel.module.css";
 import { readMarker, useReadXml, useSetWatch, useXmlSource } from "./useXmlSource";
@@ -35,9 +35,28 @@ export function XmlSourcePanel({ quiet = false }: { quiet?: boolean }) {
   const read = useReadXml();
   const setWatch = useSetWatch();
 
-  const startRead = (path: string | null) => {
+  // An export older than the newest database read, waiting for the user's word.
+  const [older, setOlder] = useState<OlderExport | null>(null);
+
+  const startRead = (path: string | null, allowOlder = false) => {
     const marker = readMarker(source);
-    read.mutate(path, { onSuccess: (job) => setStarted({ job, marker }) });
+    setOlder(null);
+    read.mutate(
+      { path, allowOlder },
+      {
+        onSuccess: (job) => setStarted({ job, marker }),
+        onError: (error) => {
+          const ipc = error instanceof CommandError ? error.error : null;
+          if (ipc?.kind === "xmlOlderThanDatabaseRead") {
+            setOlder({
+              path,
+              xmlAt: String(ipc.params.xmlAt ?? ""),
+              readAt: String(ipc.params.readAt ?? ""),
+            });
+          }
+        },
+      },
+    );
   };
 
   const choose = async () => {
@@ -68,7 +87,14 @@ export function XmlSourcePanel({ quiet = false }: { quiet?: boolean }) {
         </>
       )}
       {source && <ReadStatus source={source} reading={reading} />}
-      {read.isError && (
+      {older && (
+        <OlderConfirm
+          older={older}
+          onReadAnyway={() => startRead(older.path, true)}
+          onCancel={() => setOlder(null)}
+        />
+      )}
+      {read.isError && !older && (
         <p role="alert" className={styles.problem}>
           {errorMessage(read.error)}
         </p>
@@ -110,6 +136,53 @@ export function XmlSourcePanel({ quiet = false }: { quiet?: boolean }) {
         {t("watch")}
       </label>
     </section>
+  );
+}
+
+/** An export the backend held back, and the two times it compared. */
+type OlderExport = { path: string | null; xmlAt: string; readAt: string };
+
+/**
+ * Asks before an export older than the newest read of rekordbox's database
+ * replaces it. Cancel is the focused, safe choice.
+ */
+function OlderConfirm({
+  older,
+  onReadAnyway,
+  onCancel,
+}: {
+  older: OlderExport;
+  onReadAnyway: () => void;
+  onCancel: () => void;
+}) {
+  const { t, i18n } = useTranslation("rekordbox");
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancel.current?.focus(), []);
+  const titleId = useId();
+  const when = (iso: string) =>
+    new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(
+      new Date(iso),
+    );
+  return (
+    <div
+      role="alertdialog"
+      aria-labelledby={titleId}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onCancel();
+      }}
+    >
+      <p id={titleId} className={styles.warning}>
+        {t("older.message", { xmlAt: when(older.xmlAt), readAt: when(older.readAt) })}
+      </p>
+      <div className={styles.actions}>
+        <button type="button" className={styles.button} onClick={onReadAnyway}>
+          {t("older.readAnyway")}
+        </button>
+        <button ref={cancel} type="button" className={styles.button} onClick={onCancel}>
+          {t("older.cancel")}
+        </button>
+      </div>
+    </div>
   );
 }
 

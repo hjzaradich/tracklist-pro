@@ -581,6 +581,141 @@ fn choosing_a_missing_file_or_one_that_is_not_an_export_is_refused_and_keeps_the
     assert_eq!(source["path"], json!(good_path));
 }
 
+/// Stores `source` as the newest read, made at `read_at`, of an export that
+/// is chosen at `path`.
+fn seed_read(
+    app: &tauri::App<tauri::test::MockRuntime>,
+    path: &str,
+    source: ReadSource,
+    read_at: &str,
+) {
+    let last = LastRead {
+        path: path.to_owned(),
+        modified_ms: 1,
+        read_at: read_at.to_owned(),
+        summary: SnapshotSummary {
+            tracks: 7,
+            streaming: 0,
+            kept: 0,
+            not_stored: 0,
+            complete: true,
+        },
+        source,
+    };
+    let path = path.to_owned();
+    app.state::<Writer>()
+        .call(move |c| {
+            write_setting(c, XML_PATH, &path)?;
+            write_setting(c, LAST_READ, &last)
+        })
+        .unwrap();
+}
+
+fn wait_for_xml_read(app: &tauri::App<tauri::test::MockRuntime>) {
+    let start = Instant::now();
+    loop {
+        let source = invoke(app, "rekordbox_xml_source", json!({})).unwrap();
+        if source["lastRead"]["source"] == json!("xml") {
+            return;
+        }
+        assert!(start.elapsed() < Duration::from_secs(60), "never read");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn an_export_older_than_the_database_read_is_refused_and_replaces_nothing() {
+    let (_data, app) = app();
+    let files = tempfile::tempdir().unwrap();
+    let xml = files.path().join("rekordbox.xml");
+    // Saved 1970-01-01T00:16:40Z; the database was read in 2026.
+    write_at(&xml, &export(&[1, 2]), 1_000);
+    let path = xml.to_string_lossy().into_owned();
+    seed_read(
+        &app,
+        &path,
+        ReadSource::Database,
+        "2026-10-01T12:00:00.000Z",
+    );
+
+    for args in [json!({}), json!({ "path": path })] {
+        let refused = invoke(&app, "read_rekordbox_xml", args).unwrap_err();
+        assert_eq!(
+            refused,
+            json!({
+                "kind": "xmlOlderThanDatabaseRead",
+                "params": { "xmlAt": "1970-01-01T00:16:40.000Z", "readAt": "2026-10-01T12:00:00.000Z" }
+            })
+        );
+    }
+    // Nothing was queued: the database read is still the newest.
+    std::thread::sleep(Duration::from_millis(300));
+    let source = invoke(&app, "rekordbox_xml_source", json!({})).unwrap();
+    assert_eq!(source["lastRead"]["source"], json!("database"));
+    assert_eq!(
+        source["lastRead"]["readAt"],
+        json!("2026-10-01T12:00:00.000Z")
+    );
+}
+
+#[test]
+fn an_older_export_is_read_when_the_caller_allows_it() {
+    let (_data, app) = app();
+    let files = tempfile::tempdir().unwrap();
+    let xml = files.path().join("rekordbox.xml");
+    write_at(&xml, &export(&[1, 2]), 1_000);
+    let path = xml.to_string_lossy().into_owned();
+    seed_read(
+        &app,
+        &path,
+        ReadSource::Database,
+        "2026-10-01T12:00:00.000Z",
+    );
+    invoke(&app, "read_rekordbox_xml", json!({ "allowOlder": true })).unwrap();
+    wait_for_xml_read(&app);
+}
+
+#[test]
+fn an_export_newer_than_the_database_read_is_read_without_asking() {
+    let (_data, app) = app();
+    let files = tempfile::tempdir().unwrap();
+    let xml = files.path().join("rekordbox.xml");
+    // 2033, after the database read.
+    write_at(&xml, &export(&[1, 2]), 2_000_000_000);
+    let path = xml.to_string_lossy().into_owned();
+    seed_read(
+        &app,
+        &path,
+        ReadSource::Database,
+        "2026-10-01T12:00:00.000Z",
+    );
+    invoke(&app, "read_rekordbox_xml", json!({})).unwrap();
+    wait_for_xml_read(&app);
+}
+
+#[test]
+fn an_old_export_is_read_again_when_the_newest_read_was_an_export_too() {
+    let (_data, app) = app();
+    let files = tempfile::tempdir().unwrap();
+    let xml = files.path().join("rekordbox.xml");
+    write_at(&xml, &export(&[1, 2]), 1_000);
+    let path = xml.to_string_lossy().into_owned();
+    seed_read(&app, &path, ReadSource::Xml, "2026-10-01T12:00:00.000Z");
+    invoke(&app, "read_rekordbox_xml", json!({})).unwrap();
+    let start = Instant::now();
+    loop {
+        let source = invoke(&app, "rekordbox_xml_source", json!({})).unwrap();
+        if source["lastRead"]["summary"]["tracks"] == json!(2) {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "never read again"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn reading_again_before_any_export_is_chosen_is_refused() {
     let (_data, app) = app();

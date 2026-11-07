@@ -16,6 +16,11 @@
   "watch": "Watch for new exports (Documents)",
   "newer": "Newer export found ({{name}})",
   "readNewer": "Read",
+  "older": {
+    "message": "This export is older than your last read of the rekordbox database. The export was saved {{xmlAt}}; the database was read {{readAt}}. Reading the export would replace the newer information.",
+    "readAnyway": "Read it anyway",
+    "cancel": "Cancel"
+  },
   "failed": {
     "notFound": "Export not found ({{path}})",
     "cantRead": "Can't open export ({{path}})",
@@ -26,6 +31,7 @@
     "notFound": "Export not found ({{path}})",
     "notAnExport": "Not a rekordbox collection export ({{path}})",
     "noneChosen": "No rekordbox export chosen",
+    "xmlOlderThanDatabaseRead": "This export (saved {{xmlAt}}) is older than your last read of the rekordbox database ({{readAt}}), so it was not read.",
     "sendNeedsExport": "Sending needs a rekordbox XML export. Export one from rekordbox, then choose it here."
   }
 }

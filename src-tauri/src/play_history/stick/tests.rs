@@ -933,6 +933,29 @@ fn contents_in_another_case_is_read_but_a_junction_inside_it_is_not() {
     assert_eq!(found.get("/Contents/linked/a.wav"), Some(&None));
 }
 
+#[cfg(windows)]
+#[test]
+fn a_contents_folder_that_is_a_junction_is_never_read() {
+    let s = sandbox();
+    let wav = test_audio::wav();
+    let outside = s.stick.parent().unwrap().join("elsewhere_contents");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("a.wav"), &wav).unwrap();
+    let made = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(s.stick.join("Contents"))
+        .arg(&outside)
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{made:?}");
+    let found = hash_stick_files(
+        &s.stick.display().to_string(),
+        &playing(&["/Contents/a.wav"]),
+        &[1],
+    );
+    assert_eq!(found.get("/Contents/a.wav"), Some(&None));
+}
+
 // ---- budgets against a hostile file ---------------------------------------------
 
 #[test]

@@ -243,6 +243,10 @@ const WIN32_ALLOWED: &[&str] = &[
     "FindNextVolumeW",
     "FindVolumeClose",
     "GetDriveTypeW",
+    // Read-only: free space of the drive holding the app data folder, for
+    // the diagnostics report's `disk free` line (diagnostics/report.rs).
+    // Foreman-approved in Run 4B job FB. It opens and writes nothing.
+    "GetDiskFreeSpaceExW",
     "GetVolumeInformationW",
     "GetVolumeNameForVolumeMountPointW",
     "GetVolumePathNameW",

@@ -47,6 +47,8 @@ function fakeBackend(initial: Partial<XmlSource> = {}) {
       ...initial,
     } as XmlSource,
     reads: [] as (string | null)[],
+    /** The allowOlder flag of each read, in step with `reads`. */
+    allowed: [] as boolean[],
     refuse: null as unknown,
     onRead: (path: string) => {
       backend.source = { ...backend.source, path, lastRead: { ...lastRead(), path, readAt: new Date().toISOString() } };
@@ -58,7 +60,8 @@ function fakeBackend(initial: Partial<XmlSource> = {}) {
     if (cmd === "read_rekordbox_xml") {
       const path = (a.path as string | null) ?? null;
       backend.reads.push(path);
-      if (backend.refuse) throw backend.refuse;
+      backend.allowed.push(a.allowOlder === true);
+      if (backend.refuse && a.allowOlder !== true) throw backend.refuse;
       backend.onRead(path ?? backend.source.path ?? "");
       return 42;
     }
@@ -193,6 +196,36 @@ describe("the rekordbox XML source", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       tx("rekordbox:error.notAnExport", { path: "C:\\notes.xml" }),
     );
+  });
+
+  it("asks before an export older than the database read replaces it, and reads it only when told to", async () => {
+    const xmlAt = "2026-09-01T10:00:00.000Z";
+    const readAt = "2026-09-29T13:00:00.000Z";
+    const backend = fakeBackend({
+      path: EXPORT,
+      lastRead: { ...lastRead(), source: "database", readAt },
+    });
+    backend.refuse = { kind: "xmlOlderThanDatabaseRead", params: { xmlAt, readAt } };
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: tx("rekordbox:readAgain") }));
+    const confirm = await screen.findByRole("alertdialog");
+    expect(confirm).toHaveTextContent(
+      tx("rekordbox:older.message", { xmlAt: when(xmlAt), readAt: when(readAt) }),
+    );
+    expect(backend.reads).toEqual([null]);
+    expect(backend.allowed).toEqual([false]);
+
+    // Cancel: nothing more is read.
+    await userEvent.click(screen.getByRole("button", { name: tx("rekordbox:older.cancel") }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(backend.reads).toEqual([null]);
+
+    // Ask again, then read it anyway: the same read, now allowed.
+    await userEvent.click(screen.getByRole("button", { name: tx("rekordbox:readAgain") }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("rekordbox:older.readAnyway") }));
+    await waitFor(() => expect(backend.allowed).toEqual([false, false, true]));
+    expect(backend.reads).toEqual([null, null, null]);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("offers a newer export the watch found, and reads it only when asked", async () => {
