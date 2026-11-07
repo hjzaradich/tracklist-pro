@@ -15,6 +15,7 @@ pub mod discogs;
 pub mod musicbrainz;
 #[cfg(test)]
 mod tests;
+pub mod update;
 
 use serde_json::Value;
 
