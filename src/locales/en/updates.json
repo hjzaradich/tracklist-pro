@@ -1,0 +1,30 @@
+{
+  "ask": {
+    "title": "Check for updates?",
+    "help": "The app can ask GitHub (api.github.com) whether a newer version exists. It sends the app's version and nothing about you or your music. It never downloads or installs anything. You can change this in Settings.",
+    "yes": "Yes, check",
+    "no": "No"
+  },
+  "settings": {
+    "panel": "Online services",
+    "label": "Update checks",
+    "help": "Off until you turn it on. When on, the app asks GitHub (api.github.com) about once a day whether a newer version exists. It sends the app's version and nothing else. It only tells you; you install it yourself.",
+    "error": "Couldn't save that. Try again.",
+    "checkNow": "Check now",
+    "checking": "Checking",
+    "notYet": "Not checked yet",
+    "upToDate": "You have the latest version. Last checked {{when}}",
+    "newer": "A newer version is available. See About"
+  },
+  "about": {
+    "available": "Version {{version}} is available",
+    "linkLabel": "Download page (copy the address):",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy. Select the address and copy it."
+  },
+  "notice": {
+    "line": "Version {{version}} is available.",
+    "open": "See Settings"
+  }
+}

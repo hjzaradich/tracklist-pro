@@ -50,9 +50,9 @@ impl Service {
     /// host is refused before a connection is made (see [`Service::allows_host`]).
     ///
     /// An entry starting with `.` also covers every subdomain, e.g.
-    /// `.archive.org` covers `ia800000.us.archive.org`. Update checks and
-    /// model downloads have no hosts yet: until their features are wired up
-    /// and name theirs here, every request to them is refused.
+    /// `.archive.org` covers `ia800000.us.archive.org`. Model downloads
+    /// have no hosts yet: until that feature is wired up and names its own
+    /// here, every request to it is refused.
     pub fn hosts(self) -> &'static [&'static str] {
         match self {
             Service::MusicBrainz => &["musicbrainz.org"],
@@ -61,7 +61,9 @@ impl Service {
             Service::CoverArt => &["coverartarchive.org", "archive.org", ".archive.org"],
             // The API only. The token is sent to this host and no other.
             Service::Discogs => &["api.discogs.com"],
-            Service::UpdateCheck | Service::ModelDownload => &[],
+            // The GitHub API only: the latest release of this project.
+            Service::UpdateCheck => &["api.github.com"],
+            Service::ModelDownload => &[],
         }
     }
 
@@ -116,7 +118,8 @@ impl Service {
             Service::MusicBrainz | Service::Discogs => 10 * MIB,
             // The most a cover may be; a bigger one isn't a cover.
             Service::CoverArt => 12 * MIB,
-            Service::UpdateCheck => MIB,
+            // A release's JSON is a few KB; 256 KB is generous.
+            Service::UpdateCheck => 256 * 1024,
             Service::ModelDownload => 1024 * MIB,
         }
     }

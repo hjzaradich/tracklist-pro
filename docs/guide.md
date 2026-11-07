@@ -16,6 +16,8 @@ On first start the app shows **Start your Library**. There are three parts:
 
 You can change the folders later.
 
+The app also asks once, **Check for updates?** If you say yes, it asks GitHub (api.github.com), about once a day, whether a newer version exists. It sends the app's version and nothing else. It only tells you, with the download page address to copy; you install it yourself, as before. If you say no, it never contacts GitHub. Settings → **Online services** has the switch, and **Check now**.
+
 ## All music and Library
 
 **All music** lists every file the app found in your music folders. **Library** lists the tracks you chose to keep. The two are different on purpose: your Library is yours, and nothing gets into it by accident.
@@ -120,7 +122,7 @@ Settings has **Diagnostics**. **Open Diagnostics** shows an **Event log** of wha
 
 ## Settings
 
-**Settings** is the gear in the top bar. It holds the rekordbox options, the optional features, Genres, Diagnostics and **About** (the licence and credits, and the licences of the software inside the app).
+**Settings** is the gear in the top bar. It holds the rekordbox options, the optional features, **Online services** (update checks), Genres, Diagnostics and **About** (the licence and credits, and the licences of the software inside the app).
 
 ## Where your data is
 

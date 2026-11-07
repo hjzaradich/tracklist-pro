@@ -26,6 +26,20 @@ export const commands = {
 	 *  index, which the track table reads.
 	 */
 	setFeatureEnabled: (feature: Feature, on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_feature_enabled", { feature, on })),
+	/**  Where update checks stand. */
+	updateStatus: () => typedError<UpdateStatus, IpcError>(__TAURI_INVOKE("update_status")),
+	/**
+	 *  Answers the question and sets the switch: turns update checks on or off
+	 *  and records that the user has been asked.
+	 */
+	setUpdateChecks: (on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_update_checks", { on })),
+	/**
+	 *  Checks for a newer version, if update checks are on: always with `force`
+	 *  ("Check now"), otherwise only when the last answer is a day old (the
+	 *  start of the app). Returns the status either way; a failed check is not an
+	 *  error.
+	 */
+	checkForUpdates: (force: boolean) => typedError<UpdateStatus, IpcError>(__TAURI_INVOKE("check_for_updates", { force })),
 	/**
 	 *  How the app's own key agrees with rekordbox's, for the owner's test;
 	 *  `None` while the local key is off.
@@ -958,6 +972,13 @@ export type AppInfo = {
 	name: string,
 	version: string,
 	identifier: string,
+};
+
+/**  A newer version, as the last check found it. */
+export type Available = {
+	version: string,
+	/**  The release page, for the user to copy. The app opens no links. */
+	url: string,
 };
 
 /**
@@ -4347,6 +4368,20 @@ export type UnmappedGenres = {
 	noGenre: number,
 	noGenreSample: NoGenreTrack[],
 	spellings: Spelling[],
+};
+
+/**  Where update checks stand. */
+export type UpdateStatus = {
+	/**  The first-run question has been answered. */
+	asked: boolean,
+	/**  Update checks are on. */
+	enabled: boolean,
+	/**  The running version. */
+	current: string,
+	/**  A newer version, when the last check found one. */
+	available: Available | null,
+	/**  When the last check got an answer (UTC, ISO 8601). */
+	checkedAt: string | null,
 };
 
 /**

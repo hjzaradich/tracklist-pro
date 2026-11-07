@@ -22,6 +22,8 @@ import overviewStyles from "./overview.module.css";
 import { ProgressLine } from "./ProgressLine";
 import { TodoList } from "./TodoList";
 import { useOverview } from "./useOverview";
+import { UpdateNotice } from "../update/UpdateNotice";
+import { UpdateQuestion } from "../update/UpdateQuestion";
 
 /**
  * The Overview (ROADMAP 1.13). Its top half (1cB-11) is the header, with the
@@ -109,6 +111,8 @@ export function OverviewScreen() {
             )}
           </>
         )}
+        <UpdateNotice />
+        <UpdateQuestion />
         {firstRun && <MusicFoldersStep />}
         {firstRun && <InboxStep />}
         {/* Once the Library has tracks, Send is the Overview's one filled button. */}

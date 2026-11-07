@@ -1,7 +1,8 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { useQuery } from "@tanstack/react-query";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useUpdateStatus } from "../update/useUpdates";
 import styles from "./settings.module.css";
 
 /** One shipped package, as scripts/third-party-licenses.mjs writes it. `text` indexes `texts`. */
@@ -47,6 +48,7 @@ export function AboutPanel() {
         {t("panel")}
       </h2>
       {version.data ? <p className={styles.help}>{t("version", { version: version.data })}</p> : null}
+      <AvailableUpdate />
       <p>{t("gpl")}</p>
       <p>
         {t("sourceLabel")} <code>{t("sourceUrl")}</code>
@@ -90,5 +92,33 @@ function LicenceGroups({ list }: { list: LicenceList }) {
         </ul>
       ) : null}
     </>
+  );
+}
+
+/** A newer version, if the last check found one: the release page as text and a Copy button (the app opens no links, downloads nothing). */
+function AvailableUpdate() {
+  const { t } = useTranslation("updates");
+  const available = useUpdateStatus().data?.available;
+  const [copied, setCopied] = useState<"copied" | "failed" | null>(null);
+  if (!available) return null;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(available.url);
+      setCopied("copied");
+    } catch {
+      setCopied("failed");
+    }
+  };
+  return (
+    <div role="status">
+      <p>{t("about.available", { version: available.version })}</p>
+      <p>
+        {t("about.linkLabel")} <code>{available.url}</code>{" "}
+        <button type="button" className={styles.button} onClick={() => void copy()}>
+          {t("about.copy")}
+        </button>
+      </p>
+      {copied !== null && <p className={styles.status}>{t(copied === "copied" ? "about.copied" : "about.copyFailed")}</p>}
+    </div>
   );
 }
