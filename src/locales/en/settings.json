@@ -19,5 +19,15 @@
     "back": "Go back",
     "error": "Couldn't save the setting. Try again.",
     "countError": "Couldn't count the tracks. Try again."
+  },
+  "bundle": {
+    "error": {
+      "notOurs": "This file isn't a tracklist-pro bundle.",
+      "tooLarge": "This bundle is too large to open.",
+      "damaged": "This bundle is damaged, so it can't be used.",
+      "newer": "This bundle was made by a newer version of tracklist-pro. Update the app, then try again.",
+      "nothingStaged": "There's no bundle ready to import. Choose the file again.",
+      "backupNotFound": "That backup is no longer there."
+    }
   }
 }

@@ -5,6 +5,7 @@ use tauri::{Builder, Manager, RunEvent, Runtime};
 pub mod after_send;
 pub mod attach;
 pub mod audio_preview;
+pub mod bundle;
 pub mod best_file;
 pub mod conflict_review;
 pub mod conflicts;
@@ -160,6 +161,11 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
             let events = diagnostics::EventLog::open(&guard);
             app.manage(events.clone());
             app.manage(diagnostics::ReportDraft::default());
+            // A confirmed import or restore puts its Library in place now,
+            // before anything opens the database (4.1).
+            if let Some(kept) = bundle::swap::on_startup(&guard)? {
+                eprintln!("startup: the Library was replaced; the old one is kept as {kept}");
+            }
             let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
             app.manage(db::ReadPool::open(writer.guarded_path())?);
             // Watches the writer for changes to what the Library list is made of
@@ -189,6 +195,7 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
             app.manage(scan::watch::start(app.handle(), writer.clone()));
             app.manage(writer);
             app.manage(guard);
+            app.manage(bundle::Restart::new(app.handle().clone()));
             app.manage(rekordbox::source::ExportFolder::new(export_folder(
                 app, &data_dir,
             )));

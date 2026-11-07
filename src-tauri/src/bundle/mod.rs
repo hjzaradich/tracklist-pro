@@ -1,0 +1,424 @@
+//! The portability bundle (ROADMAP 4.1): the Library's database in a
+//! `.zip`, to move it to another of your own computers.
+//!
+//! A bundle is a consistent snapshot of the database ([`create`]) with the
+//! rows that are true only on this PC taken out ([`MACHINE_ONLY`]), plus
+//! `manifest.json`. Ids travel unchanged, AUTOINCREMENT counters too, and
+//! files keep their drive identity and relative paths, so the music is
+//! found again by drive and folder. No keys or passwords are in the
+//! database (the master.db key lives in memory only).
+//!
+//! Importing reads the picked file into app data's staging folder and
+//! checks it there ([`check`]); a bad file never reaches the live database.
+//! A good one is staged as `import/pending.db`; once the user confirms, the
+//! app restarts and [`swap`] puts it in place before the database opens,
+//! keeping the old Library as a backup that can be restored the same way.
+//!
+//! This job writes bundles only into app data (`bundles/`); saving one
+//! somewhere the user picks comes later.
+
+mod check;
+mod folders;
+pub mod swap;
+#[cfg(test)]
+mod tests;
+
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use tauri::{AppHandle, Runtime, State};
+
+use crate::db::{DbError, ReadPool, DB_FILE_NAME};
+use crate::ipc::{ErrorKind, IpcError};
+use crate::write_guard::{GuardError, WriteGuard};
+use folders::{exists, keep_newest, make_folder, remove};
+use swap::{is_stamp, stamp, Layout};
+
+/// The manifest's `app`.
+const APP: &str = "tracklist-pro";
+/// The bundle format this build writes and the newest it reads.
+const FORMAT: u32 = 1;
+const MANIFEST_ENTRY: &str = "manifest.json";
+const DB_ENTRY: &str = "library.db";
+/// How many bundles are kept in `bundles/`.
+const KEEP_BUNDLES: usize = 5;
+
+/// What makes a database true only on this PC. Run on the bundle's copy,
+/// never on the Library: the job queue, consent to online services (given
+/// per install), settings that name this PC's files or state, and where
+/// each drive was last mounted. Everything else travels.
+const MACHINE_ONLY: &str = "
+    DELETE FROM job;
+    DELETE FROM service_optin;
+    DELETE FROM setting
+     WHERE key IN ('rekordbox_xml_path', 'rekordbox_xml_watch',
+                   'rekordbox_xml_last_failure', 'read_online_only_files')
+        OR key GLOB 'inbox.incompleteWalks.*';
+    UPDATE setting SET value = json_set(value, '$.path', '')
+     WHERE key = 'rekordbox_xml_last_read' AND json_valid(value);
+    UPDATE volume SET last_mount_path = NULL;
+";
+
+/// The manifest stored beside the database in a bundle.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Manifest {
+    pub app: String,
+    pub format: u32,
+    pub app_version: String,
+    pub schema_version: u32,
+    pub created_ms: i64,
+    pub counts: Counts,
+}
+
+/// A Library's size in a few numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Counts {
+    pub tracks: i64,
+    pub crates: i64,
+    pub playlists: i64,
+    pub tags: i64,
+    pub music_folders: i64,
+}
+
+/// A bundle just made.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedBundle {
+    pub path: String,
+    pub manifest: Manifest,
+}
+
+/// What a bundle or backup holds, for the confirm screen. The schema and
+/// counts are read from its database, not taken from the manifest.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleSummary {
+    pub created_ms: i64,
+    /// None for a backup.
+    pub app_version: Option<String>,
+    pub schema_version: u32,
+    pub counts: Counts,
+}
+
+/// A replaced Library kept in `backups/`.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptLibrary {
+    pub id: String,
+    pub created_ms: i64,
+    /// None when it can't be read.
+    pub counts: Option<Counts>,
+}
+
+#[derive(Debug)]
+pub enum BundleError {
+    /// Not a zip with exactly our entries, not SQLite, or not our schema.
+    NotOurs,
+    /// An entry unpacks to more than its cap.
+    TooLarge,
+    /// The database is damaged or its links are broken.
+    Damaged,
+    /// Made by a newer build (format or schema).
+    Newer,
+    /// Confirm with nothing staged.
+    NothingStaged,
+    /// No backup with that id.
+    NoSuchBackup,
+    /// A swap would write over a file; both are kept.
+    Blocked,
+    /// A crash injected by a test.
+    Interrupted,
+    Guard(GuardError),
+    Io(io::Error),
+    Db(DbError),
+}
+
+impl std::fmt::Display for BundleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BundleError::Guard(e) => write!(f, "{e}"),
+            BundleError::Io(e) => write!(f, "{e}"),
+            BundleError::Db(e) => write!(f, "{e}"),
+            other => write!(f, "{other:?}"),
+        }
+    }
+}
+
+impl std::error::Error for BundleError {}
+
+impl From<GuardError> for BundleError {
+    fn from(e: GuardError) -> Self {
+        BundleError::Guard(e)
+    }
+}
+impl From<io::Error> for BundleError {
+    fn from(e: io::Error) -> Self {
+        BundleError::Io(e)
+    }
+}
+impl From<zip::result::ZipError> for BundleError {
+    fn from(e: zip::result::ZipError) -> Self {
+        BundleError::Io(e.into())
+    }
+}
+impl From<DbError> for BundleError {
+    fn from(e: DbError) -> Self {
+        BundleError::Db(e)
+    }
+}
+impl From<rusqlite::Error> for BundleError {
+    fn from(e: rusqlite::Error) -> Self {
+        BundleError::Db(e.into())
+    }
+}
+
+impl From<BundleError> for IpcError {
+    fn from(e: BundleError) -> Self {
+        match e {
+            BundleError::NotOurs => IpcError::new(ErrorKind::BundleNotOurs),
+            BundleError::TooLarge => IpcError::new(ErrorKind::BundleTooLarge),
+            BundleError::Damaged => IpcError::new(ErrorKind::BundleDamaged),
+            BundleError::Newer => IpcError::new(ErrorKind::BundleNewer),
+            BundleError::NothingStaged => IpcError::new(ErrorKind::BundleNothingStaged),
+            BundleError::NoSuchBackup => IpcError::new(ErrorKind::BundleBackupNotFound),
+            BundleError::Db(e) => IpcError::from(e),
+            other => {
+                eprintln!("bundle: {other}");
+                IpcError::new(ErrorKind::CannotWrite)
+            }
+        }
+    }
+}
+
+/// Makes a bundle of the Library in `bundles/` and keeps the newest
+/// [`KEEP_BUNDLES`].
+pub(crate) fn create(
+    guard: &WriteGuard,
+    reads: &ReadPool,
+    now_ms: i64,
+) -> Result<CreatedBundle, BundleError> {
+    let staging = guard.staging("bundle-export")?;
+    let copy = guard.check(&staging.path().join(DB_ENTRY))?;
+    let conn = reads.read(|live| copy.copy_database_from(live))?;
+    conn.execute_batch(MACHINE_ONLY)?;
+    // One file, and VACUUM so nothing taken out is left in free pages.
+    conn.pragma_update(None, "journal_mode", "DELETE")?;
+    conn.execute_batch("VACUUM")?;
+    let manifest = Manifest {
+        app: APP.to_owned(),
+        format: FORMAT,
+        app_version: env!("CARGO_PKG_VERSION").to_owned(),
+        schema_version: crate::db::migrations::applied(&conn)?
+            .last()
+            .map_or(0, |a| a.version),
+        created_ms: now_ms,
+        counts: check::counts(&conn)?,
+    };
+    drop(conn);
+
+    let (zip_path, file) = staging.create("bundle.zip")?;
+    write_zip(file, &manifest, copy.as_path())?;
+    let folder = make_folder(guard, &guard.app_data_dir().join("bundles"))?;
+    let path = folder.join(format!("tracklist-pro-{}.zip", stamp(now_ms)));
+    guard.rename(&zip_path, &path)?;
+    keep_newest(guard, &folder, KEEP_BUNDLES, is_bundle);
+    Ok(CreatedBundle {
+        path: path.to_string_lossy().into_owned(),
+        manifest,
+    })
+}
+
+fn is_bundle(name: &str) -> bool {
+    name.strip_prefix("tracklist-pro-")
+        .and_then(|rest| rest.strip_suffix(".zip"))
+        .is_some_and(is_stamp)
+}
+
+fn write_zip(file: File, manifest: &Manifest, db: &Path) -> Result<(), BundleError> {
+    use zip::write::SimpleFileOptions;
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .large_file(true);
+    let mut zip = zip::ZipWriter::new(file);
+    zip.start_file(MANIFEST_ENTRY, options)?;
+    zip.write_all(&serde_json::to_vec_pretty(manifest).map_err(io::Error::other)?)?;
+    zip.start_file(DB_ENTRY, options)?;
+    io::copy(&mut File::open(db)?, &mut zip)?;
+    zip.finish()?.sync_all()?;
+    Ok(())
+}
+
+/// Reads and checks the bundle at `path` without staging it.
+pub(crate) fn inspect(guard: &WriteGuard, path: &Path) -> Result<BundleSummary, BundleError> {
+    let staging = guard.staging("bundle-inspect")?;
+    let (manifest, db) = check::unpack(path, &staging, &check::CAPS)?;
+    summary(guard, &db, Some(manifest), false).map(|(s, _)| s)
+}
+
+/// Checks the bundle at `path`, brings it up to this build's schema and
+/// stages it for [`confirm_staged`].
+pub(crate) fn stage_bundle(guard: &WriteGuard, path: &Path) -> Result<BundleSummary, BundleError> {
+    stage_bundle_capped(guard, path, &check::CAPS)
+}
+
+fn stage_bundle_capped(
+    guard: &WriteGuard,
+    path: &Path,
+    caps: &check::Caps,
+) -> Result<BundleSummary, BundleError> {
+    let staging = guard.staging("bundle-import")?;
+    let (manifest, db) = check::unpack(path, &staging, caps)?;
+    let (summary, db) = summary(guard, &db, Some(manifest), true)?;
+    stage(guard, &db)?;
+    Ok(summary)
+}
+
+/// Checks a staged database (migrating it with `migrate`).
+fn summary(
+    guard: &WriteGuard,
+    db: &Path,
+    manifest: Option<Manifest>,
+    migrate: bool,
+) -> Result<(BundleSummary, PathBuf), BundleError> {
+    let checked = check::database(&guard.check(db)?, migrate)?;
+    let summary = BundleSummary {
+        created_ms: manifest.as_ref().map_or(0, |m| m.created_ms),
+        app_version: manifest.map(|m| m.app_version),
+        schema_version: checked.schema_version,
+        counts: checked.counts,
+    };
+    Ok((summary, db.to_path_buf()))
+}
+
+/// Moves a checked database to `import/pending.db`, replacing an earlier
+/// one; an earlier confirm is withdrawn, so only [`confirm_staged`] swaps it in.
+fn stage(guard: &WriteGuard, db: &Path) -> Result<(), BundleError> {
+    let layout = Layout::of(guard);
+    make_folder(guard, &layout.import)?;
+    if exists(&layout.marker) {
+        remove(guard, &layout.marker)?;
+    }
+    guard.rename(db, &layout.pending)?;
+    Ok(())
+}
+
+/// The user confirmed: the staged Library replaces this one at the next
+/// start ([`swap::on_startup`]).
+pub(crate) fn confirm_staged(guard: &WriteGuard) -> Result<(), BundleError> {
+    let layout = Layout::of(guard);
+    if !exists(&layout.pending) {
+        return Err(BundleError::NothingStaged);
+    }
+    guard.write_then_rename(&layout.marker, b"confirmed")?;
+    Ok(())
+}
+
+/// The kept Libraries, newest first.
+pub(crate) fn list_kept(guard: &WriteGuard) -> Vec<KeptLibrary> {
+    let layout = Layout::of(guard);
+    let mut kept: Vec<KeptLibrary> = folders::ours(&layout.backups, is_stamp)
+        .into_iter()
+        .map(|id| {
+            let counts = guard
+                .check(&layout.backups.join(&id).join(DB_FILE_NAME))
+                .ok()
+                .and_then(|p| p.open_database_read_only().ok())
+                .and_then(|c| check::counts(&c).ok());
+            KeptLibrary {
+                created_ms: id.parse().unwrap_or(0),
+                id,
+                counts,
+            }
+        })
+        .collect();
+    kept.reverse();
+    kept
+}
+
+/// Stages the kept Library `id` for [`confirm_staged`], like an import.
+pub(crate) fn stage_kept(guard: &WriteGuard, id: &str) -> Result<BundleSummary, BundleError> {
+    let source = Layout::of(guard).backups.join(id).join(DB_FILE_NAME);
+    if !is_stamp(id) || !exists(&source) {
+        return Err(BundleError::NoSuchBackup);
+    }
+    let staging = guard.staging("bundle-restore")?;
+    let copy = guard.check(&staging.path().join(DB_ENTRY))?;
+    let from = guard.check(&source)?.open_database_read_only()?;
+    drop(copy.copy_database_from(&from)?);
+    drop(from);
+    let (mut summary, db) = summary(guard, copy.as_path(), None, true)?;
+    summary.created_ms = id.parse().unwrap_or(0);
+    stage(guard, &db)?;
+    Ok(summary)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn create_bundle(
+    guard: State<'_, WriteGuard>,
+    reads: State<'_, ReadPool>,
+) -> Result<CreatedBundle, IpcError> {
+    Ok(create(&guard, &reads, crate::diagnostics::now_ms())?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn inspect_bundle(
+    guard: State<'_, WriteGuard>,
+    path: String,
+) -> Result<BundleSummary, IpcError> {
+    Ok(inspect(&guard, Path::new(&path))?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn stage_import(
+    guard: State<'_, WriteGuard>,
+    path: String,
+) -> Result<BundleSummary, IpcError> {
+    Ok(stage_bundle(&guard, Path::new(&path))?)
+}
+
+/// Confirms the staged import or restore and restarts the app. The exit
+/// stops the watchers and the job queue and folds the database's log in
+/// (`on_run_event`) before the restart swaps the file.
+#[tauri::command]
+#[specta::specta]
+pub async fn confirm_import(
+    guard: State<'_, WriteGuard>,
+    restart: State<'_, Restart>,
+) -> Result<(), IpcError> {
+    confirm_staged(&guard)?;
+    (restart.0)();
+    Ok(())
+}
+
+/// Restarts the app (Tauri's `request_restart`), held in the state so the
+/// command needn't know the runtime.
+pub struct Restart(Box<dyn Fn() + Send + Sync>);
+
+impl Restart {
+    pub fn new<R: Runtime>(app: AppHandle<R>) -> Restart {
+        Restart(Box::new(move || app.request_restart()))
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn list_backups(guard: State<'_, WriteGuard>) -> Result<Vec<KeptLibrary>, IpcError> {
+    Ok(list_kept(&guard))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn stage_restore(
+    guard: State<'_, WriteGuard>,
+    id: String,
+) -> Result<BundleSummary, IpcError> {
+    Ok(stage_kept(&guard, &id)?)
+}
