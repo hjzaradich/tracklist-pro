@@ -20,8 +20,10 @@ export const commands = {
 	featureEnabled: (feature: Feature) => typedError<boolean, IpcError>(__TAURI_INVOKE("feature_enabled", { feature })),
 	/**
 	 *  Turns an optional feature on or off. Turning the local key on or off
-	 *  brings the `'local'` analysis rows in step at once, in the same
-	 *  transaction: the keys appear, or go.
+	 *  brings the `'local'` analysis rows in step at once: the keys appear, or
+	 *  go. The fold runs after the switch is saved, a page of tracks per writer
+	 *  call (nothing else waits for the whole Library), and asks for the search
+	 *  index, which the track table reads.
 	 */
 	setFeatureEnabled: (feature: Feature, on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_feature_enabled", { feature, on })),
 	/**
