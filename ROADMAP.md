@@ -765,6 +765,7 @@ Polish on top of the Phase 1 first run (1.3):
   - The installer's publisher is "Henry Zaradich".
 - **Release script:** a local script bumps the version, builds the installer, gives its sha256 and prepares a draft GitHub release with it. A release goes public only when the owner says so.
 - **Built (4C, PR 214):** `scripts/release.mjs` with `bump` (the five version places only), `build` (only from a clean tree at main; never overwrites an installer; writes the sha256) and `draft` (a draft GitHub release with the installer and its sha256; the script has no way to publish). Steps for the owner in docs/releasing.md.
+- **Built (4C, PR 216):** update checks, off until you say yes. The first run asks once (people already using the app are asked once too). Settings has an "Online services" part with the switch and "Check now". At most one check a day: one request to api.github.com for the latest release, through the network gate, with no account, cookies or anything about you or your PC. A newer version shows in About and on the Overview with a link you can copy; the app never downloads, installs or opens anything. A bundle brought to a new PC asks again. The installer's publisher is "Henry Zaradich". README privacy list and the guide updated. Wording proposed.
 - **Complexity:** S–M.
 ---
 
