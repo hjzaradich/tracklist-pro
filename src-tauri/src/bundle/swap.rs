@@ -165,6 +165,11 @@ pub(super) fn finish(
         if exists(&l.pending) {
             remove(guard, &l.pending)?;
         }
+        // Set aside with no Library in place: bring it home, so an empty
+        // one is never made over a real one.
+        if exists(&aside) && !exists(&l.live) {
+            put_back(guard, l)?;
+        }
         if exists(&aside) && exists(&l.live) {
             let id = set_aside(guard, l, now_ms)?;
             keep_newest(guard, &l.backups, KEEP_BACKUPS, is_stamp, Some(&id));
@@ -251,12 +256,47 @@ fn fold(guard: &WriteGuard, live: &Path) {
 
 /// Moves the old Library's pieces back from `backups/swapping`, each where
 /// nothing is in its place, the file itself last (as they left).
+///
+/// When a move fails and the file isn't in place, the pieces already home
+/// would sit beside no file, where a different file moving in could meet
+/// them: they go back to `swapping` with their file. A piece that can't go
+/// back is renamed in place to `<piece>.stray`, a name SQLite never reads
+/// (never deleted: it may be the only copy of the log); if that fails too
+/// it is logged and left. With the file in place, its own pieces
+/// stay: they are its set.
 fn put_back(guard: &WriteGuard, l: &Layout) -> Result<(), BundleError> {
+    put_back_with(guard, l, &mut |from, to| Ok(guard.rename(from, to)?))
+}
+
+/// [`put_back`], with the move open to tests (which make it fail).
+pub(super) fn put_back_with(
+    guard: &WriteGuard,
+    l: &Layout,
+    mv: &mut dyn FnMut(&Path, &Path) -> Result<(), BundleError>,
+) -> Result<(), BundleError> {
+    let aside = l.swapping.join(DB_FILE_NAME);
+    let mut home: Vec<(PathBuf, PathBuf)> = Vec::new();
     for suffix in PIECES {
-        let from = piece(&l.swapping.join(DB_FILE_NAME), suffix);
+        let from = piece(&aside, suffix);
         let to = piece(&l.live, suffix);
         if exists(&from) && !exists(&to) {
-            guard.rename(&from, &to)?;
+            if let Err(error) = mv(&from, &to) {
+                if !exists(&l.live) {
+                    for (from, to) in home.iter().rev() {
+                        if mv(to, from).is_err() {
+                            // Never deleted: it may be the only copy of the log.
+                            let stray = piece(to, ".stray");
+                            if let Err(e) = guard.rename(to, &stray) {
+                                eprintln!(
+                                    "startup: a piece of the old Library stays beside no file: {e}"
+                                );
+                            }
+                        }
+                    }
+                }
+                return Err(error);
+            }
+            home.push((from, to));
         }
     }
     Ok(())

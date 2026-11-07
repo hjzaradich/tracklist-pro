@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 
 use super::check::Caps;
-use super::swap::{finish, on_startup, start, Layout, Swapped, KEEP_BACKUPS};
+use super::swap::{finish, on_startup, put_back_with, start, Layout, Swapped, KEEP_BACKUPS};
 use super::*;
 use crate::db::migrations::{self, MIGRATIONS};
 use crate::db::{db_path, Writer};
@@ -950,4 +950,118 @@ fn save_as_takes_only_a_bundle_name_and_refusals_reach_the_screen_as_their_own_k
     let refused = save_as(&guard, name, &dest, &keep).unwrap_err();
     assert_eq!(IpcError::from(refused).kind(), ErrorKind::SaveExists);
     assert_eq!(fs::read(&dest).unwrap(), b"mine");
+}
+
+/// A Library set aside whole (file, log and shared memory), none at home.
+fn set_aside_whole(root: &Path) -> (WriteGuard, Layout) {
+    let guard = closed_library(root, "app", "");
+    let layout = Layout::of(&guard);
+    fs::create_dir_all(&layout.swapping).unwrap();
+    let aside = layout.swapping.join(DB_FILE_NAME);
+    fs::rename(live(&guard), &aside).unwrap();
+    fs::write(swap_piece(&aside, "-wal"), b"wal").unwrap();
+    fs::write(swap_piece(&aside, "-shm"), b"shm").unwrap();
+    (guard, layout)
+}
+
+/// What sits beside the Library's place: its file and any pieces.
+fn beside_live(layout: &Layout) -> Vec<&'static str> {
+    ["-journal", "-wal", "-shm", ""]
+        .into_iter()
+        .filter(|s| swap_piece(&layout.live, s).exists())
+        .collect()
+}
+
+#[test]
+fn a_put_back_failing_at_any_step_leaves_no_piece_beside_a_missing_file() {
+    // Moves, in order: -wal, -shm, the file. Then, with the way back working
+    // or not, the pieces already home must not stay beside no file.
+    for fail_at in 1..=3 {
+        for way_back_works in [true, false] {
+            let root = TempDir::new().unwrap();
+            let (guard, layout) = set_aside_whole(root.path());
+            let mut calls = 0;
+            let failed = put_back_with(&guard, &layout, &mut |from, to| {
+                calls += 1;
+                if calls == fail_at || (calls > fail_at && !way_back_works) {
+                    return Err(BundleError::Interrupted);
+                }
+                fs::rename(from, to).map_err(BundleError::Io)
+            });
+            let case = format!("fail at {fail_at}, way back works {way_back_works}");
+            assert!(failed.is_err(), "{case}");
+            assert!(beside_live(&layout).is_empty(), "{case}");
+            // The file is never lost, and what could go back did.
+            let aside = layout.swapping.join(DB_FILE_NAME);
+            assert!(aside.exists(), "{case}");
+            if way_back_works {
+                assert!(swap_piece(&aside, "-wal").exists(), "{case}");
+                assert!(swap_piece(&aside, "-shm").exists(), "{case}");
+            } else if fail_at > 1 {
+                // The piece that couldn't go back is kept, set aside in place.
+                let stray = swap_piece(&swap_piece(&layout.live, "-wal"), ".stray");
+                assert_eq!(fs::read(stray).unwrap(), b"wal", "{case}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_put_back_that_works_brings_the_whole_set_home() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = set_aside_whole(root.path());
+    put_back_with(&guard, &layout, &mut |from, to| {
+        fs::rename(from, to).map_err(BundleError::Io)
+    })
+    .unwrap();
+    assert_eq!(beside_live(&layout), ["-wal", "-shm", ""]);
+}
+
+#[cfg(windows)]
+#[test]
+fn a_confirm_that_cant_be_deleted_still_opens_the_library_and_doesnt_loop() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    // A file in the way fails the swap; the confirm is held open (no
+    // sharing), so it can't be withdrawn either.
+    fs::create_dir_all(&layout.swapping).unwrap();
+    let aside = layout.swapping.join(DB_FILE_NAME);
+    fs::write(&aside, b"someone's file").unwrap();
+    let held = File::options()
+        .read(true)
+        .share_mode(0)
+        .open(&layout.marker)
+        .unwrap();
+    for now in [1, 2, 3] {
+        let swapped = start(&guard, &layout, now, &mut || false).unwrap();
+        assert_eq!(swapped, Swapped::NotReplaced(EventReason::FileInTheWay));
+        assert!(has_crate(&live(&guard), "old"));
+        assert_eq!(fs::read(&aside).unwrap(), b"someone's file");
+    }
+    assert!(kept_ids(&guard).is_empty());
+    // Once it can be deleted, the next start settles it.
+    drop(held);
+    assert_eq!(
+        start(&guard, &layout, 4, &mut || false).unwrap(),
+        Swapped::NotReplaced(EventReason::FileInTheWay)
+    );
+    assert!(!layout.marker.exists());
+    assert_eq!(
+        start(&guard, &layout, 5, &mut || false).unwrap(),
+        Swapped::Nothing
+    );
+}
+
+#[test]
+fn with_no_confirm_and_the_library_still_set_aside_the_next_start_brings_it_home() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = set_aside_whole(root.path());
+    assert!(!layout.marker.exists());
+    assert_eq!(
+        start(&guard, &layout, 1, &mut || false).unwrap(),
+        Swapped::Nothing
+    );
+    assert_eq!(beside_live(&layout), ["-wal", "-shm", ""]);
 }
