@@ -190,7 +190,26 @@ pub struct Comparison {
 /// "strasse"). A title with no letters or digits compares as written.
 /// Only this key is folded: the parsed name keeps its text.
 pub(super) fn key(text: &str) -> String {
+    key_with(text, text.is_ascii())
+}
+
+/// [`key`]; `ascii`: the text is ASCII, where no letter has an accent to drop
+/// or a mark to keep and the general loop (which decomposes every character)
+/// comes to the same as this plain one. Names are nearly always ASCII, and
+/// this is asked for every one of them.
+fn key_with(text: &str, ascii: bool) -> String {
     let mut out = String::new();
+    if ascii {
+        for b in text.bytes() {
+            match b {
+                b'&' => out.push_str(" and "),
+                b'\'' => {}
+                b if b.is_ascii_alphanumeric() => out.push(b.to_ascii_lowercase() as char),
+                _ => out.push(' '),
+            }
+        }
+        return finish_key(out, text);
+    }
     let mut latin = false;
     for c in text.chars().flat_map(char::to_lowercase).nfd() {
         if is_combining_mark(c) {
@@ -216,6 +235,10 @@ pub(super) fn key(text: &str) -> String {
             _ => out.push(' '),
         }
     }
+    finish_key(out, text)
+}
+
+fn finish_key(out: String, text: &str) -> String {
     let out = collapse_spaces(&out);
     match out.is_empty() {
         true => collapse_spaces(&text.to_lowercase()),
@@ -720,6 +743,43 @@ impl ParsedName {
                 true
             }
             None => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::key_with;
+
+    #[test]
+    fn the_plain_key_of_ascii_text_is_the_general_one() {
+        let mut texts: Vec<String> = (0u8..128)
+            .flat_map(|a| [(a as char).to_string(), format!("Ab{}Cd", a as char)])
+            .collect();
+        texts.extend(
+            [
+                "",
+                "  ",
+                "!!!",
+                "Quill Ashby & Nova Reed",
+                "Rock 'n' Roll",
+                "DJ  Foo's  (Extended Mix)",
+                "A&B&&C",
+                "x\ty\nz",
+                "Re-Fix [2020]",
+                "100% Pure_Love",
+                "'''",
+            ]
+            .map(str::to_owned),
+        );
+        for pair in (0u8..128).step_by(7) {
+            for other in 0u8..128 {
+                texts.push(format!("{}{}", pair as char, other as char));
+            }
+        }
+        for text in &texts {
+            assert!(text.is_ascii());
+            assert_eq!(key_with(text, true), key_with(text, false), "{text:?}");
         }
     }
 }
