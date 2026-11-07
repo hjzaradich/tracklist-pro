@@ -1438,8 +1438,8 @@ fn a_merge_and_its_undo_carry_the_stored_energy_and_low_quality_answers() {
 fn a_merge_never_gives_the_kept_track_the_left_tracks_bpm_and_the_next_ask_shows_its_own() {
     use crate::estimate::support::{local_bpm, plant, plant_local, queued, store_row};
     // The track that leaves was measured at 128 and shows it; the kept
-    // one's file was measured at 100 and has no row yet (a Library track
-    // always shows its linked file, so a merge never changes that).
+    // one's file was measured at 100 and has no row yet (a linked Library
+    // track shows its linked file, so a merge does not change which).
     let t = Twice::new();
     let (a, b, ta, tb) = (t.a, t.b, t.ta, t.tb);
     t.db.writer
