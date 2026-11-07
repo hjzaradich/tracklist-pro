@@ -29,6 +29,7 @@ export function tableRow(id: number, fields: Partial<TableRow> = {}): TableRow {
     fit: null,
     energy: null,
     energySource: null,
+    entryId: null,
     ...fields,
   };
 }

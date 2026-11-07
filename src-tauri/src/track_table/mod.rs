@@ -115,7 +115,7 @@ impl TableSource {
     /// Whether the rows come from the entries of one list (a crate's or a
     /// playlist's), not from a sort index, so nothing can be scanned
     /// backwards.
-    fn from_entries(&self) -> bool {
+    fn is_entry_list(&self) -> bool {
         matches!(
             self,
             TableSource::Crate { .. }
@@ -477,7 +477,7 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
     // A search is read by rowid from the index of words, and a crate from
     // its own entries: neither is in the order of a sort index, so there is
     // nothing for a backward scan to read.
-    let indexed = !searched && !query.source.from_entries();
+    let indexed = !searched && !query.source.is_entry_list();
     conditions.extend(filters::conditions(&query.filters, quality, &mut params));
     Built {
         from_where: format!("FROM {from} WHERE {}", conditions.join(" AND ")),
@@ -545,7 +545,7 @@ fn select_pairs(
     params: &[Value],
     limit: u32,
     offset: u32,
-) -> rusqlite::Result<Vec<(i64, Option<i64>)>> {
+) -> rusqlite::Result<Pairs> {
     let mut params = params.to_vec();
     params.push(Value::Integer(i64::from(limit)));
     params.push(Value::Integer(i64::from(offset)));
@@ -608,12 +608,15 @@ fn window_ids_up_to(
     Ok((pairs.into_iter().map(|(id, _)| id).collect(), total))
 }
 
+/// A track (recording id) with, in a playlist, the entry the row is.
+type Pairs = Vec<(i64, Option<i64>)>;
+
 /// The tracks in the window with, in a playlist, the entry each row is.
 fn window_pairs_up_to(
     conn: &Connection,
     query: &TableQuery,
     most: u32,
-) -> rusqlite::Result<(Vec<(i64, Option<i64>)>, Option<u32>)> {
+) -> rusqlite::Result<(Pairs, Option<u32>)> {
     // Review's quality problems are worked out once for the count and the window.
     let quality = match query.filters.contains(&TableFilter::QualityProblem) {
         true => Some(filters::quality_problems(conn)?),
@@ -830,7 +833,7 @@ fn rows_for(
                 fit: None,
                 energy: energies.get(&id).map(|(level, _)| *level),
                 entry_id: None,
-                energy_source: energies.get(&id).and_then(|(_, source)| source.clone()),
+                energy_source: energies.get(&id).and_then(|(_, source)| *source),
             },
             file,
         });
