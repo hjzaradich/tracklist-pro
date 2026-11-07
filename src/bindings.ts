@@ -678,6 +678,27 @@ export const commands = {
 	savePlaylistAsCrate: (id: PlaylistId, name: string) => typedError<CrateId, IpcError>(__TAURI_INVOKE("save_playlist_as_crate", { id, name })),
 	/**  "Start a playlist from this crate", in `order` (the view's sort). */
 	playlistFromCrate: (crateId: CrateId, name: string, order: LibraryTrackId[]) => typedError<PlaylistId, IpcError>(__TAURI_INVOKE("playlist_from_crate", { crateId, name, order })),
+	/**
+	 *  One playlist's timeline: every entry in order with its facts, the flags
+	 *  for each transition, and the target shape with the gap to it.
+	 */
+	playlistTimeline: (id: PlaylistId) => typedError<Timeline, IpcError>(__TAURI_INVOKE("playlist_timeline", { id })),
+	/**
+	 *  Sets the playlist's target energy shape; the operation, or none when it's
+	 *  the shape already stored.
+	 */
+	setPlaylistTarget: (id: PlaylistId, points: TargetPoint[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_playlist_target", { id, points })),
+	/**
+	 *  Clears the playlist's target energy shape; the operation, or none when it
+	 *  had none.
+	 */
+	clearPlaylistTarget: (id: PlaylistId) => typedError<number | null, IpcError>(__TAURI_INVOKE("clear_playlist_target", { id })),
+	/**
+	 *  The best Library tracks for the place after entry `after_entry_id` (none:
+	 *  the start), each with what gap it fills. To insert one, add it at the
+	 *  position after that entry.
+	 */
+	fillGap: (id: PlaylistId, afterEntryId: number | null, limit: number, includePlaylistTracks: boolean) => typedError<FillGapReply, IpcError>(__TAURI_INVOKE("fill_gap", { id, afterEntryId, limit, includePlaylistTracks })),
 	/**  The playlists of the newest rekordbox read that can be copied. */
 	rekordboxPlaylistsToCopy: () => typedError<RekordboxPlaylist[], IpcError>(__TAURI_INVOKE("rekordbox_playlists_to_copy")),
 	/**  "Make an app playlist from this rekordbox playlist". */
@@ -898,6 +919,29 @@ export type BpmRange = {
 	min: number | null,
 	max: number | null,
 };
+
+/**
+ *  Why a track fills the gap, as data for the screen to word
+ *  (`playlists:gap.<code>`). Keys are Camelot (`8A`); the screen shows them
+ *  in the user's notation. `from` and `to` are A's and B's values, `via` the
+ *  suggested track's; at an end of the playlist one of them is missing.
+ */
+export type BridgeReason = 
+/**  A → B clashes on key; X is a key between: `8A → 9A → 10A`. */
+{ code: "keyBridge"; from: string; via: string; to: string } | 
+/**  The key fits on every side that has one. */
+{ code: "keyFits"; from: string | null; via: string; to: string | null } | 
+/**
+ *  A → B jumps in tempo; X's tempo sits between (half and double time
+ *  read as the closest).
+ */
+{ code: "bpmStep"; from: number | null; via: number | null; to: number | null } | 
+/**  The tempo fits on every side that has one. */
+{ code: "bpmFits"; from: number | null; via: number | null; to: number | null } | 
+/**  X's energy is near the playlist's target at this place. */
+{ code: "energyTarget"; via: number; target: number | null } | 
+/**  X's energy, between A's and B's: `5 → 6 → 7`. */
+{ code: "energyStep"; from: number | null; via: number; to: number | null };
 
 /**  What asking to cancel a job did. */
 export type CancelOutcome = 
@@ -1207,11 +1251,7 @@ export type EnergySource =
 /**  Set by the user. */
 "user" | 
 /**  Mixed In Key's. */
-"mik" | 
-/**  The local estimate's. */
-"local" | 
-/**  The audio model's. */
-"ml";
+"mik";
 
 /**  What rekordbox holds for a Library track: the entry it is sent as. */
 export type EntryFacts = {
@@ -1488,11 +1528,27 @@ export type FieldValue = {
 	value: string | null,
 };
 
+/**  The best tracks for a place in a playlist. */
+export type FillGapReply = {
+	suggestions: GapSuggestion[],
+	/**  How many Library tracks were weighed. */
+	considered: number,
+	/**  The playlist's target energy at this place, if it has a target. */
+	target: number | null,
+};
+
 /**  The reason a track fits, as facts for the screen to word. */
 export type FitReason = {
 	key: KeyFit,
 	bpm: BpmFit,
 };
+
+/**  How a transition fares on one signal. */
+export type Flow = "fine" | 
+/**  A clash or jump, by the tolerance. */
+"clash" | 
+/**  One of the two tracks has no value for it. */
+"unknown";
 
 /**  What deleting a folder would delete, below the folder itself. */
 export type FolderContents = {
@@ -1507,6 +1563,16 @@ export type FolderContents = {
  *  reason (the wording lives in the locale files).
  */
 export type FragileReason = "downloads" | "temp" | "external" | "network";
+
+/**  One suggested track and why. */
+export type GapSuggestion = {
+	/**  The track, as the track table shows it. */
+	row: TableRow,
+	/**  0 to 100. */
+	score: number,
+	/**  What gap it fills, strongest first; never empty. */
+	reasons: BridgeReason[],
+};
 
 /**  An alias of a genre. */
 export type GenreAlias = {
@@ -3770,6 +3836,17 @@ export type TagsImported = {
 	operationId: number | null,
 };
 
+/**  One point of the target energy shape. */
+export type TargetPoint = {
+	/**  How far into the playlist, 0 (the first track) to 1 (the last). */
+	at: number | null,
+	/**
+	 *  The energy wanted there, 1 to 10 (any number is taken and pulled
+	 *  into that range; one that isn't a number drops the point).
+	 */
+	energy: number | null,
+};
+
 /**  Comparing text (a genre), letter case and outer spaces ignored. */
 export type TextOp = "is" | "isNot" | "contains";
 
@@ -3781,6 +3858,60 @@ export type TimeFeel =
 "half" | 
 /**  The track is at double the selected track's tempo. */
 "double";
+
+/**  A playlist's whole timeline. */
+export type Timeline = {
+	playlist: Playlist,
+	entries: TimelineEntry[],
+	/**  One fewer than the entries (none for fewer than two). */
+	transitions: TimelineTransition[],
+	/**  The sum of the known durations. */
+	totalMs: number,
+	/**  How many entries have no duration, which `total_ms` leaves out. */
+	unknownDurations: number,
+	/**  The target shape in order; empty with none. */
+	target: TargetPoint[],
+	/**  The tolerance the flags were judged by (the "what's next" setting). */
+	tolerance: Tolerance,
+};
+
+/**  One entry of the timeline. */
+export type TimelineEntry = {
+	entryId: PlaylistEntryId,
+	/**  From 0, dense. */
+	position: number,
+	recordingId: number,
+	title: string | null,
+	artist: string | null,
+	durationMs: number | null,
+	bpm: number | null,
+	/**  Camelot (`8A`). */
+	key: string | null,
+	/**  The energy the track shows (tags or the user's), 1 to 10. */
+	energy: number | null,
+	/**  When it starts, from the start of the playlist, in milliseconds. */
+	startMs: number,
+	/**  The target energy at this entry; none with no target. */
+	target: number | null,
+	/**  The entry's energy minus the target; none unless both are known. */
+	gap: number | null,
+};
+
+/**  The step from entry i to entry i + 1. */
+export type TimelineTransition = {
+	fromEntry: PlaylistEntryId,
+	toEntry: PlaylistEntryId,
+	key: Flow,
+	bpm: Flow,
+	/**
+	 *  The tempo difference, next minus this, read as half, as is or double
+	 *  whichever is smallest (the "what's next" reading).
+	 */
+	bpmDelta: number | null,
+	energy: Flow,
+	/**  The next energy minus this. */
+	energyStep: number | null,
+};
 
 /**  How far from the chosen track a fit may stray. */
 export type Tolerance = 

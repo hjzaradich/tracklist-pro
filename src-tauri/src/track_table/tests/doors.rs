@@ -162,8 +162,8 @@ fn world() -> Doors {
     put(&lib, warmup, rec("low"), "member");
     put(&lib, smart, rec("gone"), "always_include");
 
-    // Energy: the user's wins over Mixed In Key's, which wins over the local
-    // estimate's, which wins over the audio model's.
+    // Energy: the user's wins over Mixed In Key's; estimates (local, model) are
+    // on file but are no one's energy.
     energy(&lib, rec("clean"), "user", 7);
     energy(&lib, rec("clean"), "mik", 3);
     energy(&lib, rec("low"), "mik", 3);
@@ -280,15 +280,10 @@ fn the_crate_chips_open_the_tracks_the_overview_counts_in_crates_and_in_no_crate
 fn the_energy_chips_open_the_tracks_each_bar_counts() {
     let w = world();
     let o = w.overview();
-    // 3: "low" (Mixed In Key's) and "gone" (the user's); 4: "old" (the local
-    // estimate beats the model's 9); 7: "clean" (the user's beats Mixed In
-    // Key's) and "unjudged"; 9: nobody.
-    let levels: [(u8, &[&str]); 4] = [
-        (3, &["low", "gone"]),
-        (4, &["old"]),
-        (7, &["clean", "unjudged"]),
-        (9, &[]),
-    ];
+    // 3: "low" (Mixed In Key's) and "gone" (the user's); 7: "clean" (the user's
+    // beats Mixed In Key's); 4 and 9: nobody, because "old" and "unjudged"
+    // have only an estimate (the app's or the model's), which is no energy.
+    let levels: [(u8, &[&str]); 4] = [(3, &["low", "gone"]), (4, &[]), (7, &["clean"]), (9, &[])];
     for (level, names) in levels {
         let (total, found) = w.rows(vec![TableFilter::Energy { level }]);
         assert_eq!(total, o.energy[usize::from(level) - 1], "energy {level}");
@@ -298,7 +293,11 @@ fn the_energy_chips_open_the_tracks_each_bar_counts() {
         let (total, _) = w.rows(vec![TableFilter::Energy { level }]);
         assert_eq!(total, o.energy[usize::from(level) - 1], "energy {level}");
     }
-    w.agree(TableFilter::NoEnergy, |o| o.no_energy, &["nofile"]);
+    w.agree(
+        TableFilter::NoEnergy,
+        |o| o.no_energy,
+        &["old", "unjudged", "nofile"],
+    );
 }
 
 /// Which number of the Overview a door counts.

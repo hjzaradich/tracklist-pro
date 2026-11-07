@@ -662,22 +662,21 @@ fn energy_row(lib: &Lib, track: i64, source: &'static str, energy: i64) {
 #[test]
 fn energy_counts_the_level_each_library_track_shows_and_the_tracks_with_none() {
     let lib = Lib::new();
-    // The user's energy beats Mixed In Key's, the local estimate's and the
-    // audio model's.
+    // The user's energy beats Mixed In Key's; an estimate (the app's own or the
+    // audio model's) is never anyone's energy (ROADMAP 3.7).
     let (a, _) = lib.library_track("User wins", None, None);
     energy_row(&lib, a, "user", 8);
     energy_row(&lib, a, "mik", 5);
     energy_row(&lib, a, "local", 3);
     energy_row(&lib, a, "ml", 2);
-    // Mixed In Key's beats the local estimate's.
+    // Mixed In Key's is the energy even with an estimate on file.
     let (b, _) = lib.library_track("Mixed In Key wins", None, None);
     energy_row(&lib, b, "mik", 5);
     energy_row(&lib, b, "local", 3);
-    // The local estimate's beats the audio model's.
-    let (c, _) = lib.library_track("Local wins", None, None);
+    // Estimates alone give a track no energy.
+    let (c, _) = lib.library_track("Local only", None, None);
     energy_row(&lib, c, "local", 3);
     energy_row(&lib, c, "ml", 9);
-    // The audio model's counts when it is the only one.
     let (d, _) = lib.library_track("Model only", None, None);
     energy_row(&lib, d, "ml", 9);
     // The top level and the bottom level are both counted.
@@ -701,8 +700,8 @@ fn energy_counts_the_level_each_library_track_shows_and_the_tracks_with_none() {
     energy_row(&lib, outside, "user", 4);
 
     let o = lib.overview();
-    assert_eq!(o.energy, [1, 0, 1, 0, 1, 0, 0, 2, 1, 1]);
-    assert_eq!(o.no_energy, 2);
+    assert_eq!(o.energy, [1, 0, 0, 0, 1, 0, 0, 2, 0, 1]);
+    assert_eq!(o.no_energy, 4);
     assert_eq!(
         o.energy.iter().sum::<u32>() + o.no_energy,
         o.tracks,

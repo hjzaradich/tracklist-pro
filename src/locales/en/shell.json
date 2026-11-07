@@ -147,9 +147,7 @@
       "none": "No energy",
       "from": "Energy {{energy}} ({{source}})",
       "source": {
-        "mik": "Mixed In Key",
-        "local": "estimate",
-        "ml": "audio model"
+        "mik": "Mixed In Key"
       },
       "many": "{{count, number}} tracks",
       "set": "Energy {{energy}}",

@@ -597,7 +597,7 @@
     "approved": "No energy"
   },
   "details.energy.from": {
-    "purpose": "Says the track's energy and whose it is when it is not the user's; {{energy}} is the number and {{source}} one of the three words below.",
+    "purpose": "Says the track's energy and whose it is when it is not the user's; {{energy}} is the number and {{source}} the word below.",
     "where": "Details panel, over the energy buttons.",
     "approved": "Energy {{energy}} ({{source}})"
   },
@@ -605,16 +605,6 @@
     "purpose": "Names Mixed In Key as where an energy comes from.",
     "where": "Details panel, inside the energy line.",
     "approved": "Mixed In Key"
-  },
-  "details.energy.source.local": {
-    "purpose": "Names the app's own estimate as where an energy comes from.",
-    "where": "Details panel, inside the energy line.",
-    "approved": "estimate"
-  },
-  "details.energy.source.ml": {
-    "purpose": "Names the audio model as where an energy comes from.",
-    "where": "Details panel, inside the energy line.",
-    "approved": "audio model"
   },
   "details.energy.many": {
     "purpose": "Says how many tracks the energy buttons act on when several are selected; {{count}} is how many.",

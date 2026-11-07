@@ -12,8 +12,8 @@ use crate::rekordbox::store::{replace_snapshot, SnapshotRows};
 use crate::rekordbox::{EntryTarget, RekordboxXml};
 use crate::rekordbox_write::{build, SendInput, TrackInput, Values};
 
-struct Lib {
-    writer: Writer,
+pub(super) struct Lib {
+    pub(super) writer: Writer,
     // Last: fields drop in order, so the connections close before the folder goes.
     _dir: tempfile::TempDir,
 }
@@ -33,7 +33,7 @@ fn dump(conn: &Connection, sql: &str) -> Vec<Vec<String>> {
 }
 
 impl Lib {
-    fn new() -> Lib {
+    pub(super) fn new() -> Lib {
         let dir = tempfile::tempdir().unwrap();
         let writer = Writer::open(&crate::write_guard::test_path(
             dir.path(),
@@ -53,7 +53,11 @@ impl Lib {
         Lib { _dir: dir, writer }
     }
 
-    fn run(&self, sql: &'static str, params: impl rusqlite::Params + Send + 'static) -> i64 {
+    pub(super) fn run(
+        &self,
+        sql: &'static str,
+        params: impl rusqlite::Params + Send + 'static,
+    ) -> i64 {
         self.writer
             .call(move |c| {
                 c.execute(sql, params)?;
@@ -64,7 +68,7 @@ impl Lib {
 
     /// A track with one file named after it; a Library track too when
     /// `library`. Returns (file, Library track or 0).
-    fn track(&self, name: &'static str, library: bool) -> (i64, LibraryTrackId) {
+    pub(super) fn track(&self, name: &'static str, library: bool) -> (i64, LibraryTrackId) {
         let recording = self.run("INSERT INTO recording (title) VALUES (?1)", [name]);
         let file = self.run(
             "INSERT INTO file (music_folder_id, rel_path, rel_path_key, present)
@@ -87,16 +91,16 @@ impl Lib {
     }
 
     /// Library tracks named `names`.
-    fn tracks(&self, names: &[&'static str]) -> Vec<LibraryTrackId> {
+    pub(super) fn tracks(&self, names: &[&'static str]) -> Vec<LibraryTrackId> {
         names.iter().map(|n| self.track(n, true).1).collect()
     }
 
-    fn rows(&self, sql: &'static str) -> Vec<Vec<String>> {
+    pub(super) fn rows(&self, sql: &'static str) -> Vec<Vec<String>> {
         self.writer.call(move |c| Ok(dump(c, sql))).unwrap()
     }
 
     /// Everything a playlist operation writes, as text.
-    fn state(&self) -> Vec<Vec<String>> {
+    pub(super) fn state(&self) -> Vec<Vec<String>> {
         let mut rows = self.rows("SELECT * FROM playlist ORDER BY id");
         rows.extend(self.rows("SELECT * FROM playlist_entry ORDER BY id"));
         rows.extend(self.rows("SELECT * FROM crate ORDER BY id"));
@@ -104,25 +108,30 @@ impl Lib {
         rows
     }
 
-    fn call<T: Send + 'static>(
+    pub(super) fn call<T: Send + 'static>(
         &self,
         f: impl FnOnce(&mut Connection) -> Result<T, OpsError> + Send + 'static,
     ) -> T {
         self.writer.call(move |c| Ok(f(c))).unwrap().unwrap()
     }
 
-    fn create(&self, name: &'static str) -> PlaylistId {
+    pub(super) fn create(&self, name: &'static str) -> PlaylistId {
         self.call(move |c| create_on(c, name)).unwrap()
     }
 
-    fn add(&self, id: PlaylistId, tracks: &[LibraryTrackId], at: Option<u32>) -> PlaylistChanged {
+    pub(super) fn add(
+        &self,
+        id: PlaylistId,
+        tracks: &[LibraryTrackId],
+        at: Option<u32>,
+    ) -> PlaylistChanged {
         let tracks = tracks.to_vec();
         self.call(move |c| add_on(c, id, &tracks, at)).unwrap()
     }
 
     /// The playlist's (entry, Library track) in order, checking the
     /// positions are dense from 0.
-    fn order(&self, id: PlaylistId) -> Vec<(PlaylistEntryId, LibraryTrackId)> {
+    pub(super) fn order(&self, id: PlaylistId) -> Vec<(PlaylistEntryId, LibraryTrackId)> {
         let rows: Vec<(i64, i64, i64)> = self
             .writer
             .call(move |c| {
@@ -146,7 +155,7 @@ impl Lib {
         self.order(id).into_iter().map(|(_, t)| t).collect()
     }
 
-    fn undo(&self) -> String {
+    pub(super) fn undo(&self) -> String {
         match undo_last_via(&self.writer).unwrap() {
             UndoOutcome::Undone { operation } => operation.kind,
             other => panic!("{other:?}"),

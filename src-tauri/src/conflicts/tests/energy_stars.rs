@@ -306,7 +306,7 @@ fn a_track_rekordbox_does_not_know_gets_its_rating_from_its_energy() {
     let lib = Lib::new();
     lib.stars_follow_energy(true);
     let (new, _) = lib.linked();
-    lib.source_energy(new, "local", 3);
+    lib.source_energy(new, "mik", 3);
     let (no_energy, _) = lib.linked();
 
     let (_, attributes) = lib.sent_after_merge(&[new, no_energy]);
@@ -317,6 +317,24 @@ fn a_track_rekordbox_does_not_know_gets_its_rating_from_its_energy() {
         None,
         "no energy, no rating"
     );
+}
+
+#[test]
+fn an_estimate_is_no_energy_so_a_track_with_only_one_gets_no_rating_while_mixed_in_keys_does() {
+    let lib = Lib::new();
+    lib.stars_follow_energy(true);
+    let (estimated, _) = lib.linked();
+    lib.source_energy(estimated, "local", 3);
+    let (modelled, _) = lib.linked();
+    lib.source_energy(modelled, "ml", 8);
+    let (tagged, _) = lib.linked();
+    lib.source_energy(tagged, "mik", 3);
+
+    let (_, attributes) = lib.sent_after_merge(&[estimated, modelled, tagged]);
+
+    assert_eq!(attribute(&attributes[0], "Rating"), None);
+    assert_eq!(attribute(&attributes[1], "Rating"), None);
+    assert_eq!(attribute(&attributes[2], "Rating"), Some("102"));
 }
 
 #[test]

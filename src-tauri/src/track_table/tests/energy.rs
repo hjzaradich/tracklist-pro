@@ -65,8 +65,6 @@ fn a_row_shows_the_energy_of_each_source_and_says_whose_word_it_is() {
     let cases = [
         ("user", EnergySource::User, 8),
         ("mik", EnergySource::Mik, 6),
-        ("local", EnergySource::Local, 4),
-        ("ml", EnergySource::Ml, 2),
     ];
     for (source, expected, level) in cases {
         let track = library_track(&lib, source);
@@ -81,27 +79,34 @@ fn a_row_shows_the_energy_of_each_source_and_says_whose_word_it_is() {
 }
 
 #[test]
-fn the_users_word_wins_and_taking_it_away_brings_the_next_source_back() {
+fn the_users_word_wins_and_taking_it_away_brings_mixed_in_keys_back_never_an_estimate() {
     let lib = Lib::new();
     let track = library_track(&lib, "ranked");
+    // An estimate is on file the whole time and is never what the row shows.
     give(&lib, track, "ml", 1);
     give(&lib, track, "local", 2);
+    assert_eq!(shown(&lib, track), (None, None));
     give(&lib, track, "mik", 3);
     assert_eq!(shown(&lib, track), (Some(3), Some(EnergySource::Mik)));
     give(&lib, track, "user", 9);
     assert_eq!(shown(&lib, track), (Some(9), Some(EnergySource::User)));
-    for (source, level, now) in [
-        ("user", 3, EnergySource::Mik),
-        ("mik", 2, EnergySource::Local),
-        ("local", 1, EnergySource::Ml),
-    ] {
-        lib.insert("DELETE FROM analysis WHERE source = ?1", (source,));
-        assert_eq!(shown(&lib, track), (Some(level), Some(now)));
-        assert_eq!(overviews_answer(&lib, track), Some(i64::from(level)));
-    }
-    lib.insert("DELETE FROM analysis WHERE source = 'ml'", ());
+    lib.insert("DELETE FROM analysis WHERE source = 'user'", ());
+    assert_eq!(shown(&lib, track), (Some(3), Some(EnergySource::Mik)));
+    assert_eq!(overviews_answer(&lib, track), Some(3));
+    lib.insert("DELETE FROM analysis WHERE source = 'mik'", ());
     assert_eq!(shown(&lib, track), (None, None));
     assert_eq!(overviews_answer(&lib, track), None);
+}
+
+#[test]
+fn the_apps_estimate_and_the_audio_models_are_never_a_tracks_energy() {
+    let lib = Lib::new();
+    for (name, source, level) in [("local", "local", 4), ("model", "ml", 7)] {
+        let track = library_track(&lib, name);
+        give(&lib, track, source, level);
+        assert_eq!(shown(&lib, track), (None, None), "{source}");
+        assert_eq!(overviews_answer(&lib, track), None, "{source}");
+    }
 }
 
 #[test]
@@ -119,8 +124,8 @@ fn a_track_with_analysis_but_no_energy_shows_none() {
 fn a_track_outside_the_library_shows_its_energy_and_source_too() {
     let lib = Lib::new();
     let (outside, _) = lib.track(Some("outside"), Some("Someone"), "outside.mp3");
-    give(&lib, outside, "local", 5);
-    assert_eq!(shown(&lib, outside), (Some(5), Some(EnergySource::Local)));
+    give(&lib, outside, "mik", 5);
+    assert_eq!(shown(&lib, outside), (Some(5), Some(EnergySource::Mik)));
 }
 
 #[test]
@@ -182,7 +187,8 @@ fn a_row_with_unusual_energy_data_still_loads_with_the_rest_of_the_window() {
     unchecked(&lib, odd_source, "future", 4);
     assert_eq!(shown(&lib, fine), (Some(6), Some(EnergySource::Mik)));
     assert_eq!(shown(&lib, odd), (None, None));
-    assert_eq!(shown(&lib, odd_source), (Some(4), None));
+    // A source this version doesn't know is not one energy may come from.
+    assert_eq!(shown(&lib, odd_source), (None, None));
 }
 
 #[test]
@@ -236,7 +242,7 @@ fn a_window_shows_energy_for_its_own_rows_only() {
 // ---- Sorting by energy (1cD-XE) ---------------------------------------------
 
 /// Library tracks "a" to "f" whose shown energies are: a 7 (user), b 3 (Mixed
-/// In Key), c 7 (estimate), d none, e 10 (user), f none.
+/// In Key), c none (only an estimate is on file), d none, e 10 (user), f none.
 fn energies_to_sort() -> (Lib, Vec<i64>) {
     let lib = Lib::new();
     let tracks: Vec<i64> = ["a", "b", "c", "d", "e", "f"]
@@ -261,13 +267,13 @@ fn sorting_by_energy_goes_lowest_first_and_highest_first_with_the_tracks_with_no
         ));
         assert_eq!(
             up,
-            [t[1], t[0], t[2], t[4], t[3], t[5]],
+            [t[1], t[0], t[4], t[2], t[3], t[5]],
             "ascending, ties by id"
         );
         let down = ids(&run(&lib, sorted(source, SortColumn::Energy, true)));
         assert_eq!(
             down,
-            [t[4], t[2], t[0], t[1], t[5], t[3]],
+            [t[4], t[0], t[1], t[5], t[3], t[2]],
             "descending is ascending backwards, none still last"
         );
     }
@@ -339,4 +345,138 @@ fn a_window_of_an_energy_sort_is_the_same_rows_as_the_plain_sort_whichever_way_i
             }
         }
     }
+}
+
+/// An estimate (the app's own or the audio model's) is on file for a track,
+/// and every reader of energy ignores it (ROADMAP 3.7, owner decision
+/// 2026-11-06): the index, sorting, a smart crate's rule, "what's next" and
+/// "fill the gap". The user's and Mixed In Key's energy still count.
+#[test]
+fn an_estimate_is_no_ones_energy_in_the_index_sorting_a_smart_crate_whats_next_and_fill_the_gap() {
+    use crate::crates::smart::{Combine, Condition, NumberOp, SmartRule};
+    use crate::next::score::ReasonCode;
+    use crate::next::{self, Direction, Settings, Weights};
+    use crate::playlists::{self, timeline};
+    use crate::search::flag;
+
+    let lib = Lib::new();
+    let names = ["a", "b", "user", "mik", "local", "model"];
+    let t: Vec<i64> = names.iter().map(|n| library_track(&lib, n)).collect();
+    give(&lib, t[0], "user", 5);
+    give(&lib, t[1], "user", 7);
+    give(&lib, t[2], "user", 6);
+    give(&lib, t[3], "mik", 6);
+    give(&lib, t[4], "local", 6);
+    give(&lib, t[5], "ml", 6);
+    lib.settle();
+
+    // The index.
+    let flags: Vec<(i64, i64)> = lib
+        .writer
+        .call(|c| {
+            c.prepare("SELECT recording_id, flags FROM track_row ORDER BY recording_id")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect()
+        })
+        .unwrap();
+    let in_index: Vec<i64> = flags.iter().map(|(_, f)| flag::energy_of(*f)).collect();
+    assert_eq!(in_index, [5, 7, 6, 6, 0, 0]);
+
+    // Sorting: the two with only an estimate go with the ones with none.
+    let up = ids(&run(
+        &lib,
+        sorted(TableSource::Library, SortColumn::Energy, false),
+    ));
+    assert_eq!(up, [t[0], t[2], t[3], t[1], t[4], t[5]]);
+
+    // A smart crate's rule "energy at least 1" matches only what has energy.
+    let rule = SmartRule {
+        combine: Combine::All,
+        conditions: vec![Condition::Energy {
+            op: NumberOp::AtLeast,
+            value: 1,
+            to: None,
+        }],
+    };
+    let page = run(
+        &lib,
+        query(TableSource::Smart {
+            id: None,
+            rule: Some(rule),
+        }),
+    );
+    let mut matched = ids(&page);
+    matched.sort_unstable();
+    assert_eq!(matched, [t[0], t[1], t[2], t[3]]);
+
+    // "What's next" with only energy counting: the estimates have no energy.
+    let only_energy = Settings {
+        weights: Weights {
+            key: 0,
+            bpm: 0,
+            energy: 5,
+            played: 0,
+            genre: 0,
+            tags: 0,
+        },
+        ..Settings::default()
+    };
+    let first = t[0];
+    let ranked: Vec<(i64, ReasonCode)> = lib
+        .writer
+        .call(move |c| {
+            next::write_settings(c, only_energy)?;
+            let found = next::rank_for(c, first, Direction::Up, &[])?;
+            Ok(found
+                .ranked
+                .iter()
+                .map(|s| (s.id, s.reasons[0].code))
+                .collect())
+        })
+        .unwrap();
+    for (id, code) in &ranked {
+        let estimate = *id == t[4] || *id == t[5];
+        assert_eq!(*code == ReasonCode::EnergyNone, estimate, "track {id}");
+    }
+    assert_eq!(ranked.len(), 5);
+
+    // The timeline and "fill the gap" between a and b.
+    let (a, b, others) = (t[0], t[1], t[2..].to_vec());
+    let (timeline_of, offered) = lib
+        .writer
+        .call(move |c| {
+            let id = playlists::create_on(c, "Set").unwrap().unwrap();
+            let library_ids: Vec<LibraryTrackId> = [a, b, others[2]]
+                .iter()
+                .map(|r| {
+                    c.query_row(
+                        "SELECT id FROM library_track WHERE recording_id = ?1",
+                        [r],
+                        |row| row.get(0),
+                    )
+                    .map(LibraryTrackId)
+                })
+                .collect::<rusqlite::Result<_>>()?;
+            playlists::add_on(c, id, &library_ids, None)
+                .unwrap()
+                .unwrap();
+            let first_entry = timeline::timeline(c, &Mount, id)?.unwrap().entries[0].entry_id;
+            let line = timeline::timeline(c, &Mount, id)?.unwrap();
+            let reply =
+                timeline::fill_gap_on(c, &Mount, id, Some(first_entry), 10, false)?.unwrap();
+            Ok((line, reply))
+        })
+        .unwrap();
+    // The third entry is the "local" track: its energy is not known.
+    let energies: Vec<Option<u8>> = timeline_of.entries.iter().map(|e| e.energy).collect();
+    assert_eq!(energies, [Some(5), Some(7), None]);
+    let offered: Vec<i64> = offered
+        .suggestions
+        .iter()
+        .map(|s| s.row.recording_id)
+        .collect();
+    // Energy 6 fits between 5 and 7 for the user's and Mixed In Key's; the
+    // model's estimate has none, so nothing to say for it. (The local track
+    // is in the playlist, so left out.)
+    assert_eq!(offered, [t[2], t[3]]);
 }

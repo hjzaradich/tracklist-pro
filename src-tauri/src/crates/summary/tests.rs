@@ -298,8 +298,7 @@ fn the_bpm_is_the_one_the_table_shows_rekordbox_first_then_the_tag_then_mixed_in
 }
 
 #[test]
-fn the_energy_is_the_one_the_overview_uses_user_then_mixed_in_key_then_local_then_the_audio_model()
-{
+fn the_energy_is_the_one_the_overview_uses_the_users_then_mixed_in_keys_never_an_estimate() {
     let lib = Lib::new();
     let tracks: Vec<i64> = (0..5).map(|n| track(&lib, n, None).0).collect();
     // 0: every source; the user's wins.
@@ -311,17 +310,18 @@ fn the_energy_is_the_one_the_overview_uses_user_then_mixed_in_key_then_local_the
     energy(&lib, tracks[1], "ml", 9);
     energy(&lib, tracks[1], "local", 8);
     energy(&lib, tracks[1], "mik", 4);
-    // 2: local over the audio model.
+    // 2: estimates only, so no energy.
     energy(&lib, tracks[2], "ml", 10);
     energy(&lib, tracks[2], "local", 6);
-    // 3: only the audio model.
+    // 3: Mixed In Key's, with the audio model's on file.
     energy(&lib, tracks[3], "ml", 5);
+    energy(&lib, tracks[3], "mik", 5);
     // 4: none.
     let id = crate_of(&lib, "Energy", &tracks);
-    // The shown energies are 2, 4, 6 and 5.
+    // The shown energies are 2, 4 and 5.
     assert_eq!(
         summary(&lib, id).energy,
-        Some(EnergyRange { min: 2, max: 6 })
+        Some(EnergyRange { min: 2, max: 5 })
     );
     // And the track whose energy the user sets last shows the user's.
     energy(&lib, tracks[4], "user", 10);
