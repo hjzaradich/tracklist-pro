@@ -529,6 +529,30 @@ fn new_tracks_in_a_format_rekordbox_may_not_play_are_listed_and_sent_as_before()
 }
 
 #[test]
+fn the_apps_own_bpm_estimate_is_never_sent_for_a_new_track_or_one_rekordbox_has() {
+    // ROADMAP 1.9 rule 3 and 3.7: both tracks' only BPM is the app's own
+    // estimate (a `'local'` analysis row, as the analyze job writes it).
+    let (w, _known, _new) = world_with_a_send_waiting();
+    w.insert(
+        "INSERT INTO analysis (recording_id, source, bpm, confidence)
+         SELECT recording_id, 'local', 133.33, 0.9 FROM library_track",
+        (),
+    );
+    assert!(w.prepare().is_some());
+    assert_eq!(w.go(false), None);
+    assert_eq!(w.sent_titles().len(), 2);
+    let text = fs::read_to_string(w.send_file()).unwrap();
+    for word in ["AverageBpm", "TEMPO", "Tonality", "133.33"] {
+        assert!(!text.contains(word), "{word} is in the file");
+    }
+    let sent = RekordboxXml::read_file(&w.send_file()).unwrap();
+    assert!(sent
+        .tracks
+        .iter()
+        .all(|t| t.average_bpm.is_none() && t.tempos.is_empty()));
+}
+
+#[test]
 fn a_track_rekordbox_has_is_never_listed_for_its_format_whatever_its_entry_says() {
     let w = World::new();
     let (known, file) = w.library_track("known.mp3", "Known", true);

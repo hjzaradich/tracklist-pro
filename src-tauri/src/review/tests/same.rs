@@ -1433,3 +1433,38 @@ fn a_merge_and_its_undo_carry_the_stored_energy_and_low_quality_answers() {
     assert_eq!(row_of(t.ta), Some((true, 0)), "each has its own again");
     assert_eq!(row_of(t.tb), Some((false, 8)));
 }
+
+#[test]
+fn a_merge_never_gives_the_kept_track_the_left_tracks_bpm_and_the_next_ask_shows_its_own() {
+    use crate::estimate::support::{local_bpm, plant, plant_local, queued, store_row};
+    // The track that leaves was measured at 128 and shows it; the kept
+    // one's file was measured at 100 and has no row yet (a linked Library
+    // track shows its linked file, so a merge does not change which).
+    let t = Twice::new();
+    let (a, b, ta, tb) = (t.a, t.b, t.ta, t.tb);
+    t.db.writer
+        .call(move |c| {
+            plant(c, a, Some(128.0), Some(0.8))?;
+            plant(c, b, Some(100.0), Some(0.6))?;
+            plant_local(c, ta, 128.0, 0.8)
+        })
+        .unwrap();
+    t.merge(&t.both(), tb).unwrap();
+    assert_eq!(local_bpm(&t.db.writer, tb), None, "nothing was handed over");
+    assert!(t
+        .db
+        .writer
+        .call(|c| crate::estimate::ledger::any_stale(c))
+        .unwrap());
+
+    // What the review commands do after a merge ([`ask_for_follow_up_work`]).
+    crate::estimate::request(&t.db.writer, None, store_row(&t.db.writer)).unwrap();
+    assert_eq!(local_bpm(&t.db.writer, tb), Some(100.0));
+    assert_eq!(queued(&t.db.writer, "analyze"), 0, "nothing to measure");
+    assert_eq!(queued(&t.db.writer, "index"), 1, "the table is rebuilt");
+    assert!(!t
+        .db
+        .writer
+        .call(|c| crate::estimate::ledger::any_stale(c))
+        .unwrap());
+}

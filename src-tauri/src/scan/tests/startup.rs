@@ -518,7 +518,7 @@ fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_el
         }
     });
     assert_eq!(asked.failed, 0);
-    assert_eq!(asked.took.len(), 10, "every stage was asked");
+    assert_eq!(asked.took.len(), 11, "every stage was asked");
     release.send(()).unwrap();
     holder.join().unwrap().unwrap();
 }
@@ -664,6 +664,7 @@ fn what_the_startup_checks_cost_on_100k_files_with_nothing_due() {
     on_writer("roles: any track due", crate::file_roles::any_due);
     on_writer("quality: any file due", |c| crate::quality::due(c, None));
     on_writer("waveform: any file due", |c| crate::waveform::due(c, None));
+    on_writer("estimate: anything due", |c| crate::estimate::due(c, None));
     on_writer("deciding: a file is due", crate::grouping::decide_due);
     let stored = writer.clone();
     let enqueue = move |job: NewJob| -> Result<JobId, DbError> {

@@ -399,3 +399,41 @@ fn a_play_never_keeps_a_track_alive_and_stays_as_an_unmatched_play() {
         1
     );
 }
+
+#[test]
+fn a_merge_that_hands_a_local_bpm_to_the_library_track_is_put_right_by_the_next_ask() {
+    use crate::estimate::support::{local_bpm, plant, plant_local, queued, store_row};
+    let db = db();
+    let a = db.file(1, "a.mp3", Some(A));
+    let b = db.file(2, "b.mp3", Some(B));
+    db.group();
+    let (low, high) = (db.track(a).unwrap(), db.track(b).unwrap());
+    // The lower track left the Library once and kept the BPM measured from
+    // its file (128); the Library track's own file was measured at 100 and
+    // has no row yet.
+    db.sql(&format!(
+        "INSERT INTO library_track (recording_id, linked_file_id) VALUES ({high}, {b})"
+    ));
+    db.writer
+        .call(move |c| {
+            plant(c, a, Some(128.0), Some(0.8))?;
+            plant_local(c, low, 128.0, 0.8)
+        })
+        .unwrap();
+    db.set_hash(b, Some(A));
+    db.writer
+        .call(move |c| plant(c, b, Some(100.0), Some(0.6)))
+        .unwrap();
+    db.group();
+    assert_eq!(db.track(a), Some(high), "the Library track's survives");
+    assert_eq!(
+        local_bpm(&db.writer, high),
+        Some(128.0),
+        "the row handed over is the other file's"
+    );
+
+    crate::estimate::request(&db.writer, None, store_row(&db.writer)).unwrap();
+    assert_eq!(local_bpm(&db.writer, high), Some(100.0));
+    assert_eq!(queued(&db.writer, "analyze"), 0, "nothing to measure");
+    assert_eq!(queued(&db.writer, "index"), 1, "the table is rebuilt");
+}

@@ -24,7 +24,7 @@
 //!   (`queue_once`), and, once after an upgrade that changed the roles'
 //!   version, the file roles' one statement that makes every track due.
 //! - **One list of "ask this stage" calls** ([`ASKS`]), one line per stage,
-//!   in the scan chain's order (file roles, the search index and the waveforms last). Each queues through
+//!   in the scan chain's order (file roles, the search index, the waveforms and the estimates last). Each queues through
 //!   `queue_once`, so it never queues what is already queued or running,
 //!   and each leaves a stage alone while an earlier one is still due (the
 //!   earlier stage's job chains on to it, as in the scan chain).
@@ -85,6 +85,7 @@ const ASKS: &[(&str, Ask)] = &[
     ("attach", ask_attach),
     ("search index", ask_search_index),
     ("waveforms", ask_waveforms),
+    ("estimates", ask_estimates),
 ];
 
 /// What the asks share.
@@ -279,6 +280,20 @@ fn ask_waveforms(a: &Asking) -> Result<(), DbError> {
     }
     if a.read(|c| crate::waveform::due(c, Some(&a.reachable)))? {
         a.queue(crate::waveform::waveform_job())?;
+    }
+    Ok(())
+}
+
+/// The app's own estimates follow the fingerprints like the waveforms, at
+/// the same lowest priority (ROADMAP 3.7). The check stops at the first file
+/// with no estimate of its current audio, or the first track whose estimate
+/// isn't shown yet.
+fn ask_estimates(a: &Asking) -> Result<(), DbError> {
+    if a.fingerprints_owed()? {
+        return Ok(());
+    }
+    if a.read(|c| crate::estimate::due(c, Some(&a.reachable)))? {
+        a.queue(crate::estimate::analyze_job())?;
     }
     Ok(())
 }

@@ -10,6 +10,7 @@ mod conflict_ids;
 mod crate_membership;
 mod file_and_track_ids;
 mod file_choice;
+mod file_estimate;
 mod file_quality;
 mod file_roles;
 mod file_stage;
@@ -320,6 +321,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
         "0052_playlist.sql",
         &["playlist", "playlist_entry", "rekordbox_playlist_entry"],
     ),
+    // The analyze job's measurements per file (derived state, 3C-E1a).
+    ("0053_file_estimate.sql", &["file_estimate"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
