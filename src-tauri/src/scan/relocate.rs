@@ -13,6 +13,7 @@
 //! Read-only on the music: it only asks for each sampled file's size.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use serde::Serialize;
 use specta::Type;
@@ -23,6 +24,7 @@ use crate::ipc::{ErrorKind, ErrorParam, IpcError};
 use crate::jobs::JobQueue;
 use crate::ops::{self, OpsError};
 use crate::paths::{PathError, RelPath, StoredPath, Volumes};
+use crate::volume::Volume;
 
 use super::folders::{
     overlap, stored_one, under_mount, upsert_volume, MusicFolderId, StoredFolder,
@@ -67,6 +69,9 @@ pub enum RelocateError {
     Overlaps {
         music_folder: String,
     },
+    /// The app knows no files in the folder yet, so there is nothing to
+    /// recognise it by.
+    NoKnownFiles,
     /// Too few of the folder's known files are at the new place.
     TooFewFiles {
         found: u32,
@@ -109,6 +114,7 @@ impl From<RelocateError> for IpcError {
                 ErrorKind::RelocateOverlaps,
                 [("musicFolder", ErrorParam::from(music_folder))],
             ),
+            RelocateError::NoKnownFiles => IpcError::new(ErrorKind::RelocateNoKnownFiles),
             RelocateError::TooFewFiles { found, checked } => IpcError::with(
                 ErrorKind::RelocateTooFewFiles,
                 [("found", count(found)), ("checked", count(checked))],
@@ -162,11 +168,22 @@ fn count_found(base: &Path, files: &[(String, i64)]) -> u32 {
     u32::try_from(found.count()).unwrap_or(u32::MAX)
 }
 
+/// What the checks learned, ready to be applied in one transaction.
+pub(crate) struct Plan {
+    id: MusicFolderId,
+    volume: Volume,
+    guid: Option<String>,
+    rel: RelPath,
+    /// The old and new place as a person reads them, for the log.
+    from: String,
+    to: String,
+}
+
 /// Points the missing music folder `id` at `new_path`. The caller queues the
 /// folder's scan.
-pub fn relocate(
+pub fn relocate<V: Volumes + Send + Sync + 'static>(
     writer: &Writer,
-    volumes: &impl Volumes,
+    volumes: &Arc<V>,
     id: MusicFolderId,
     new_path: &Path,
 ) -> Result<Relocated, RelocateError> {
@@ -179,57 +196,114 @@ pub fn relocate(
             Ok(Some((old, files)))
         })?
         .ok_or(RelocateError::NotFound)?;
-    if !is_missing(&old, volumes) {
+    if !is_missing(&old, &**volumes) {
         return Err(RelocateError::NotMissing);
     }
 
     let asked = new_path.to_string_lossy().into_owned();
-    let new = StoredPath::from_absolute(new_path, volumes).map_err(|e| match e {
+    let bad = || RelocateError::BadPath {
+        path: asked.clone(),
+    };
+    let new = StoredPath::from_absolute(new_path, &**volumes).map_err(|e| match e {
         PathError::Unreadable { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
             RelocateError::NotAFolder {
                 path: asked.clone(),
             }
         }
-        _ => RelocateError::BadPath {
-            path: asked.clone(),
-        },
+        _ => bad(),
     })?;
-    let abs = new.resolve(volumes).map_err(|_| RelocateError::BadPath {
-        path: asked.clone(),
-    })?;
+    let abs = new.resolve(&**volumes).map_err(|_| bad())?;
     if !abs.is_dir() {
         return Err(RelocateError::NotAFolder { path: asked });
     }
-    let volume = volumes
-        .volume_for(&abs)
-        .map_err(|_| RelocateError::BadPath {
-            path: asked.clone(),
-        })?;
+    let volume = volumes.volume_for(&abs).map_err(|_| bad())?;
     let guid = volumes.guid(&volume.id);
 
+    if files.is_empty() {
+        return Err(RelocateError::NoKnownFiles);
+    }
     let checked = u32::try_from(files.len()).unwrap_or(u32::MAX);
     let found = count_found(&abs, &files);
     // Four in five: a few files may have been renamed or left behind, but a
-    // folder that is mostly not there is not this one. Nothing to look for
-    // means nothing to confirm it by.
-    if checked == 0 || u64::from(found) * 5 < u64::from(checked) * 4 {
+    // folder that is mostly not there is not this one.
+    if u64::from(found) * 5 < u64::from(checked) * 4 {
         return Err(RelocateError::TooFewFiles { found, checked });
     }
 
     let shown = display_path(&abs);
-    let rel = new.rel().clone();
-    let from = under_mount(
-        std::path::Path::new(&old.last_mount_path.clone().unwrap_or_default()),
-        &old.rel,
-    );
-    let to = shown.clone();
-    let overlapped = writer.call(move |conn| {
-        Ok((|| -> Result<Option<String>, OpsError> {
-            let volume_id = upsert_volume(conn, &volume, guid.as_deref())?;
-            let details = serde_json::json!({ "name": to, "from": from });
-            let recorded = ops::record(conn, OPERATION, &details, |rec| {
-                // Checked inside the operation's transaction, so a folder
-                // added meanwhile can't slip past.
+    let plan = Plan {
+        id,
+        volume,
+        guid,
+        rel: new.rel().clone(),
+        from: under_mount(
+            Path::new(&old.last_mount_path.clone().unwrap_or_default()),
+            &old.rel,
+        ),
+        to: shown.clone(),
+    };
+    apply(writer, volumes, plan)?;
+    Ok(Relocated {
+        id,
+        found,
+        checked,
+        path: shown,
+    })
+}
+
+#[cfg(test)]
+impl Plan {
+    /// A plan to `rel` on `volume`, for tests that skip the checks.
+    pub(crate) fn for_test(id: MusicFolderId, volume: Volume, rel: &str) -> Plan {
+        Plan {
+            id,
+            volume,
+            guid: None,
+            rel: RelPath::parse(rel).unwrap(),
+            from: String::new(),
+            to: rel.to_owned(),
+        }
+    }
+}
+
+/// Makes the change in one transaction. The folder is checked once more
+/// there, since the drive may have come back since the first look, and the
+/// volume is stored there too, so a refused call leaves nothing behind.
+pub(crate) fn apply<V: Volumes + Send + Sync + 'static>(
+    writer: &Writer,
+    volumes: &Arc<V>,
+    plan: Plan,
+) -> Result<(), RelocateError> {
+    let volumes = Arc::clone(volumes);
+    let refused = writer.call(move |conn| {
+        let Plan {
+            id,
+            volume,
+            guid,
+            rel,
+            from,
+            to,
+        } = plan;
+        let details = serde_json::json!({ "name": to, "from": from });
+        let done = ops::record_with_derived_first(
+            conn,
+            OPERATION,
+            &details,
+            |tx| {
+                let still_missing = match stored_one(tx, id)? {
+                    None => return Ok(Err(RelocateError::NotFound)),
+                    Some(old) => is_missing(&old, &*volumes),
+                };
+                if !still_missing {
+                    return Ok(Err(RelocateError::NotMissing));
+                }
+                Ok(Ok(upsert_volume(tx, &volume, guid.as_deref())?))
+            },
+            |rec, volume_id| {
+                let volume_id = match volume_id {
+                    Ok(volume_id) => volume_id,
+                    Err(refusal) => return Ok(Some(refusal)),
+                };
                 let others: Vec<(String, bool)> = rec.read_rows(
                     "SELECT rel_path, volume_id = ?1 FROM music_folder WHERE id <> ?2",
                     (volume_id, id.0),
@@ -240,26 +314,27 @@ pub fn relocate(
                         continue;
                     };
                     if same_volume && overlap(&rel, &other).is_some() {
-                        return Ok(Some(under_mount(&volume.mount_path, &other)));
+                        return Ok(Some(RelocateError::Overlaps {
+                            music_folder: under_mount(&volume.mount_path, &other),
+                        }));
                     }
                 }
                 rec.set("music_folder", id.0, "volume_id", volume_id)?;
                 rec.set("music_folder", id.0, "rel_path", rel.as_str())?;
                 rec.set("music_folder", id.0, "rel_path_key", rel.match_key())?;
                 Ok(None)
-            })?;
-            Ok(recorded.value)
-        })())
-    })??;
-    if let Some(music_folder) = overlapped {
-        return Err(RelocateError::Overlaps { music_folder });
+            },
+            // The clone rule reads the volume rows, and one may be new.
+            super::volumes::remember,
+        );
+        Ok(done)
+    })?;
+    // A refusal wrote nothing, so the operation (and the volume row) were
+    // rolled back with it.
+    match refused?.value {
+        Some(refusal) => Err(refusal),
+        None => Ok(()),
     }
-    Ok(Relocated {
-        id,
-        found,
-        checked,
-        path: shown,
-    })
 }
 
 /// Points a missing music folder at its new place and scans it again, as
@@ -273,7 +348,12 @@ pub async fn relocate_music_folder(
     folder_id: MusicFolderId,
     new_path: String,
 ) -> Result<Relocated, IpcError> {
-    let moved = relocate(&writer, &system_volumes(), folder_id, Path::new(&new_path))?;
+    let moved = relocate(
+        &writer,
+        &Arc::new(system_volumes()),
+        folder_id,
+        Path::new(&new_path),
+    )?;
     super::chain::queue_once(&writer, super::scan_job(Some(vec![folder_id])), |job| {
         jobs.enqueue(job)
     })?;

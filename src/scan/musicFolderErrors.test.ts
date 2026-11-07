@@ -31,6 +31,7 @@ const refusals: [IpcError, string][] = [
     { kind: "relocateOverlaps", params: { musicFolder: String.raw`E:\Music` } },
     tx("musicFolders:relocateOverlaps", { musicFolder: String.raw`E:\Music` }),
   ],
+  [{ kind: "relocateNoKnownFiles", params: {} }, tx("musicFolders:relocateNoKnownFiles")],
   [
     { kind: "relocateTooFewFiles", params: { found: 1, checked: 20 } },
     tx("musicFolders:relocateTooFewFiles", { found: 1, checked: 20 }),

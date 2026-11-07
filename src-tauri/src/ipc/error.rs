@@ -102,6 +102,8 @@ error_kinds! {
     RelocateNotMissing => "musicFolders:relocateNotMissing", params: [];
     /// The new place is inside, or around, the music folder `musicFolder`.
     RelocateOverlaps => "musicFolders:relocateOverlaps", params: ["musicFolder"];
+    /// The folder has no known files to recognise it by (never scanned).
+    RelocateNoKnownFiles => "musicFolders:relocateNoKnownFiles", params: [];
     /// Only `found` of the `checked` files known in the folder are at the
     /// new place, at the same paths and sizes.
     RelocateTooFewFiles => "musicFolders:relocateTooFewFiles", params: ["found", "checked"];

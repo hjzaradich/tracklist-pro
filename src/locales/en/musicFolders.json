@@ -8,5 +8,6 @@
   "inUse": "Can't remove: tracks use files in this folder",
   "relocateNotMissing": "This music folder isn't missing, so it can't be pointed somewhere else",
   "relocateOverlaps": "That place overlaps another music folder ({{musicFolder}})",
+  "relocateNoKnownFiles": "Nothing to check this folder against: the app hasn't scanned any music in it yet",
   "relocateTooFewFiles": "This doesn't look like the same music: only {{found}} of {{checked}} files checked are there"
 }

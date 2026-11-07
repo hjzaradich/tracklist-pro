@@ -42,6 +42,10 @@
     "purpose": "Error: the new place is inside, or around, another music folder.",
     "where": "Music folders panel, after \"Find it…\" when the chosen folder overlaps another music folder ({{musicFolder}})."
   },
+  "relocateNoKnownFiles": {
+    "purpose": "Error: the missing music folder has no scanned files, so a new place can't be checked against it.",
+    "where": "Music folders panel, after \"Find it…\" on a folder that was never scanned."
+  },
   "relocateTooFewFiles": {
     "purpose": "Error: the chosen folder doesn't hold the music the app knew in the missing one.",
     "where": "Music folders panel, after \"Find it…\" when too few of the checked files are there ({{found}} of {{checked}})."

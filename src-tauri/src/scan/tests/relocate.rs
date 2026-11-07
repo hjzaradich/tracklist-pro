@@ -5,18 +5,21 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use super::support::{db, TempVolume};
+use super::support::{db, link_dir, TempVolume};
+use super::walk::{rows, scan};
 use crate::db::Writer;
 use crate::ops::{undo_last_via, UndoOutcome};
 use crate::paths::Volumes;
 use crate::scan::folders::{add, MusicFolderId};
-use crate::scan::relocate::{relocate, RelocateError};
+use crate::scan::relocate::{apply, relocate, Plan, RelocateError};
 use crate::scan::MusicFolderRole;
 use crate::volume::{Volume, VolumeId};
 
 /// Two "drives": the one the folder was on (unplugged in these tests) and
 /// the one it is on now.
+#[derive(Clone)]
 struct Pair {
     old: TempVolume,
     new: TempVolume,
@@ -53,19 +56,25 @@ struct Setup {
     _new_dir: tempfile::TempDir,
     _db: tempfile::TempDir,
     writer: Writer,
-    drives: Pair,
+    drives: Arc<Pair>,
     folder: MusicFolderId,
 }
 
 /// A folder "Music" on the old drive with three known files, the old drive
 /// unplugged, and the same music under "Moved/Music" on the new drive.
 fn setup() -> Setup {
+    setup_with(&FILES, FILES.len())
+}
+
+/// [`setup`] with these known files, of which the first `at_new` are at the
+/// new place.
+fn setup_with(files: &[(&str, &str)], at_new: usize) -> Setup {
     let old_dir = tempfile::tempdir().unwrap();
     let new_dir = tempfile::tempdir().unwrap();
-    let drives = Pair {
+    let drives = Arc::new(Pair {
         old: TempVolume::new(old_dir.path(), 11),
         new: TempVolume::new(new_dir.path(), 22),
-    };
+    });
     fs::create_dir_all(drives.old.mount.join("Music")).unwrap();
     let (db_dir, writer, _reads) = db();
     let folder = add(
@@ -76,9 +85,12 @@ fn setup() -> Setup {
     )
     .unwrap()
     .id;
-    for (rel, body) in FILES {
-        put(&drives.new.mount.join("Moved/Music"), rel, body);
+    for (n, (rel, body)) in files.iter().enumerate() {
+        if n < at_new {
+            put(&drives.new.mount.join("Moved/Music"), rel, body);
+        }
         let size = body.len() as i64;
+        let rel = rel.to_string();
         writer
             .call(move |c| {
                 c.execute(
@@ -181,7 +193,7 @@ fn a_place_inside_or_around_another_music_folder_is_refused() {
     let s = setup();
     let other = s.drives.new.mount.join("Moved");
     // Another music folder around the new place.
-    add(&s.writer, &s.drives, &other, MusicFolderRole::Scan).unwrap();
+    add(&s.writer, &*s.drives, &other, MusicFolderRole::Scan).unwrap();
     let before = place(&s.writer, s.folder);
     let refused = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap_err();
     assert!(
@@ -200,4 +212,88 @@ fn undo_puts_the_old_place_back() {
     let undone = undo_last_via(&s.writer).unwrap();
     assert!(matches!(undone, UndoOutcome::Undone { .. }), "{undone:?}");
     assert_eq!(place(&s.writer, s.folder), before);
+}
+
+fn volume_rows(writer: &Writer) -> i64 {
+    writer
+        .call(|c| c.query_row("SELECT count(*) FROM volume", [], |r| r.get(0)))
+        .unwrap()
+}
+
+#[test]
+fn a_folder_that_came_back_before_the_change_is_refused_and_nothing_is_stored() {
+    let s = setup();
+    // The checks passed while the drive was away; it is back by the time
+    // the change is made.
+    let new = &s.drives.new;
+    let plan = Plan::for_test(
+        s.folder,
+        new.volume_for(&moved_to(&s)).unwrap(),
+        "Moved/Music",
+    );
+    s.drives.old.set_online(true);
+    let known = volume_rows(&s.writer);
+    let refused = apply(&s.writer, &s.drives, plan).unwrap_err();
+    assert_eq!(refused, RelocateError::NotMissing);
+    assert_eq!(place(&s.writer, s.folder).1, "Music");
+    // The new drive's volume row was rolled back with the refusal.
+    assert_eq!(volume_rows(&s.writer), known);
+}
+
+#[test]
+fn four_of_five_checked_files_are_enough_and_three_of_five_are_not() {
+    let five = [
+        ("a.mp3", "1"),
+        ("b.mp3", "22"),
+        ("c.mp3", "333"),
+        ("d.mp3", "4444"),
+        ("e.mp3", "55555"),
+    ];
+    let s = setup_with(&five, 4);
+    let done = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap();
+    assert_eq!((done.found, done.checked), (4, 5));
+
+    let s = setup_with(&five, 3);
+    let refused = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap_err();
+    assert_eq!(
+        refused,
+        RelocateError::TooFewFiles {
+            found: 3,
+            checked: 5
+        }
+    );
+}
+
+#[test]
+fn a_folder_with_no_known_files_has_nothing_to_be_recognised_by() {
+    let s = setup_with(&[], 0);
+    fs::create_dir_all(moved_to(&s)).unwrap();
+    let refused = relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap_err();
+    assert_eq!(refused, RelocateError::NoKnownFiles);
+    assert_eq!(place(&s.writer, s.folder).1, "Music");
+}
+
+#[test]
+fn a_junction_as_the_new_place_is_stored_where_it_really_is() {
+    let s = setup();
+    let link = s.drives.new.mount.join("Shortcut");
+    link_dir(&link, &moved_to(&s));
+    relocate(&s.writer, &s.drives, s.folder, &link).unwrap();
+    assert_eq!(place(&s.writer, s.folder).1, "Moved/Music");
+}
+
+#[test]
+fn undo_after_the_rescan_still_puts_the_old_place_back() {
+    let s = setup();
+    let before = place(&s.writer, s.folder);
+    let ids = file_ids(&s.writer);
+    relocate(&s.writer, &s.drives, s.folder, &moved_to(&s)).unwrap();
+    // The rescan the command queues, run to the end.
+    scan(&s.writer, &s.drives.new);
+    assert_eq!(file_ids(&s.writer), ids);
+    assert!(rows(&s.writer).iter().all(|r| r.present));
+    let undone = undo_last_via(&s.writer).unwrap();
+    assert!(matches!(undone, UndoOutcome::Undone { .. }), "{undone:?}");
+    assert_eq!(place(&s.writer, s.folder), before);
+    assert_eq!(file_ids(&s.writer), ids);
 }
