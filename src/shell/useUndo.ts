@@ -69,6 +69,7 @@ function reloadAfterUndo(queryClient: QueryClient) {
     queryClient,
     "library",
     "crates",
+    "playlists",
     "offer",
     "missing",
     "tagSources",

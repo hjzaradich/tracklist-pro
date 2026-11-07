@@ -43,6 +43,8 @@ const NEXT_SETTINGS = { weights: { key: 4, bpm: 4, energy: 2, played: 2, genre: 
 
 const ANSWERS: Record<string, unknown> = {
   list_crates: [],
+  list_playlists: [],
+  rekordbox_playlists_to_copy: [],
   list_tags: [],
   tags_of_track: [],
   crate_summary: EMPTY_SUMMARY,

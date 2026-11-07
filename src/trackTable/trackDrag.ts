@@ -15,9 +15,12 @@ interface TrackDragState {
   y: number;
   /** The crate or folder the pointer is over in the sidebar, if any. */
   over: number | null;
+  /** The playlist the pointer is over in the sidebar, if any (3C-P1b). */
+  overPlaylist: number | null;
   begin: (ids: readonly number[], x: number, y: number) => void;
   moveTo: (x: number, y: number) => void;
   hover: (over: number | null) => void;
+  hoverPlaylist: (over: number | null) => void;
   end: () => void;
 }
 
@@ -26,8 +29,10 @@ export const useTrackDrag = create<TrackDragState>((set) => ({
   x: 0,
   y: 0,
   over: null,
-  begin: (ids, x, y) => set({ ids, x, y, over: null }),
+  overPlaylist: null,
+  begin: (ids, x, y) => set({ ids, x, y, over: null, overPlaylist: null }),
   moveTo: (x, y) => set({ x, y }),
   hover: (over) => set({ over }),
-  end: () => set({ ids: null, over: null }),
+  hoverPlaylist: (overPlaylist) => set({ overPlaylist }),
+  end: () => set({ ids: null, over: null, overPlaylist: null }),
 }));

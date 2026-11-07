@@ -13,6 +13,8 @@ export type AddReport =
       AddedToCrate,
       "added" | "alsoAddedToLibrary" | "alreadyThere" | "leftOut"
     >)
+  /** Added to a playlist (3C-P1b); `notInLibrary` were left out. */
+  | { kind: "addedPlaylist"; playlist: string; added: number; notInLibrary: number }
   /** Dropped on a folder, which holds crates, not tracks. */
   | { kind: "folder" }
   | { kind: "failed"; message: string };

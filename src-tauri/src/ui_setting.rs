@@ -33,13 +33,14 @@ const LONGEST_ID: usize = 40;
 const WIDEST: u32 = 4000;
 
 /// The screens that show the track table. A crate is one screen: every crate
-/// shows the same columns.
+/// shows the same columns, and so does every playlist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum TableScreen {
     Library,
     AllMusic,
     Crate,
+    Playlist,
 }
 
 impl TableScreen {
@@ -48,6 +49,7 @@ impl TableScreen {
             TableScreen::Library => "table_columns.library",
             TableScreen::AllMusic => "table_columns.all_music",
             TableScreen::Crate => "table_columns.crate",
+            TableScreen::Playlist => "table_columns.playlist",
         }
     }
 }

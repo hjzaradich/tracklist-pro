@@ -1,12 +1,14 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Crate } from "../bindings";
+import type { Crate, Playlist } from "../bindings";
 import { useAddReport, useAddSelectionToCrate } from "../crates/addSelection";
 import { ancestorIds, buildTree, type TreeNode } from "../crates/tree";
 import { SMART_ICON } from "../crates/smart/rule";
 import { useCrates } from "../crates/useCrates";
 import { useInboxCount } from "../inbox/useInbox";
+import { useAddSelectionToPlaylist } from "../playlists/addSelection";
+import { usePlaylists } from "../playlists/usePlaylists";
 import { useTrackDrag } from "../trackTable/trackDrag";
 import { useWishlistFeature } from "../wishlist/useWishlist";
 import { STAGES, type StageId } from "./stages";
@@ -31,6 +33,7 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
   const { t } = useTranslation("shell");
   const { t: tw } = useTranslation("wishlist");
   const { t: th } = useTranslation("history");
+  const { t: tp } = useTranslation("playlists");
   const workflow = STAGES.filter((stage) => stage.id !== "crates");
   const all = useCrates().data;
   // Wishlists are optional: the entry is there only once the user has turned them on (2.3).
@@ -43,6 +46,7 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
     select: (l) => ({ pathname: l.pathname, search: l.search as { crate?: unknown } }),
   });
   const chosen = pathname === "/crates" && typeof search.crate === "number" ? search.crate : null;
+  const playlists = usePlaylists().data;
 
   return (
     <nav aria-label={t("stages.label")} className={`${styles.sidebar} ${className}`}>
@@ -77,6 +81,11 @@ export function Sidebar({ className = "", counts = {} }: SidebarProps) {
         {all !== undefined && all.length > 0 && (
           <CrateTree nodes={buildTree(all)} all={all} chosen={chosen} />
         )}
+      </div>
+      <div className={styles.section}>
+        <StageLink to="/playlists" label={tp("title")} />
+        {playlists !== undefined && playlists.length === 0 && <p className={styles.empty}>{tp("empty")}</p>}
+        {playlists !== undefined && playlists.length > 0 && <PlaylistList playlists={playlists} />}
       </div>
       <div className={styles.section}>
         <StageLink to="/tags" label={t("sidebar.tags")} />
@@ -114,6 +123,45 @@ function useDropOnCrates(): DropOn {
       else void addSelection(crate, ids);
     },
   };
+}
+
+/**
+ * The playlists under the Playlists link (3C-P1b), in the order they were
+ * made. Tracks dragged out of a track table can be dropped on one: it lights
+ * up under the pointer and the tracks go to its end.
+ */
+function PlaylistList({ playlists }: { playlists: Playlist[] }) {
+  const { t } = useTranslation("playlists");
+  const dragging = useTrackDrag((state) => state.ids !== null);
+  const over = useTrackDrag((state) => state.overPlaylist);
+  const hover = useTrackDrag((state) => state.hoverPlaylist);
+  const add = useAddSelectionToPlaylist();
+  const drop = (playlist: Playlist) => {
+    const { ids, end } = useTrackDrag.getState();
+    if (ids === null) return;
+    end();
+    void add(playlist, ids);
+  };
+  return (
+    <ul className={styles.tree} aria-label={t("list.label")}>
+      {playlists.map((playlist) => (
+        <li key={playlist.id}>
+          <div
+            className={styles.treeRow}
+            data-drop={dragging && over === playlist.id ? "target" : undefined}
+            onPointerEnter={() => dragging && hover(playlist.id)}
+            onPointerLeave={() => dragging && hover(null)}
+            onPointerUp={() => drop(playlist)}
+          >
+            <span className={styles.toggle} aria-hidden="true" />
+            <Link to="/playlists" search={{ playlist: playlist.id }} className={styles.link}>
+              <span className={styles.label}>{playlist.name}</span>
+            </Link>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /**
@@ -216,7 +264,7 @@ function TreeItems({
 }
 
 interface StageLinkProps {
-  to: (typeof STAGES)[number]["path"] | "/tags";
+  to: (typeof STAGES)[number]["path"] | "/tags" | "/playlists";
   label: string;
   count?: number;
 }

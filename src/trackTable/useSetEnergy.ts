@@ -22,7 +22,7 @@ export function useSetEnergy() {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: USER_ENERGY_COUNT_KEY }),
         queryClient.invalidateQueries({ queryKey: CRATE_SUMMARY_QUERY_KEY }),
-        reloadLists(queryClient, "library", "crates", "overview"),
+        reloadLists(queryClient, "library", "crates", "playlists", "overview"),
       ]),
   });
 }

@@ -39,6 +39,7 @@ fn a_screen_with_no_choice_reads_as_none_so_it_shows_its_default() {
         TableScreen::Library,
         TableScreen::AllMusic,
         TableScreen::Crate,
+        TableScreen::Playlist,
     ] {
         assert_eq!(reads.read(|c| read_table_columns(c, screen)).unwrap(), None);
     }
@@ -53,13 +54,20 @@ fn each_screen_keeps_its_own_columns_in_the_order_they_were_given() {
     );
     let all_music = columns(&["file", "title"], &["title", "file"]);
     let crates = columns(&["title"], &["title"]);
+    let playlists = columns(&["title", "key"], &["title", "key"]);
     writer
         .call({
-            let (l, a, c) = (library.clone(), all_music.clone(), crates.clone());
+            let (l, a, c, p) = (
+                library.clone(),
+                all_music.clone(),
+                crates.clone(),
+                playlists.clone(),
+            );
             move |conn| {
                 write_table_columns(conn, TableScreen::Library, Some(&l))?;
                 write_table_columns(conn, TableScreen::AllMusic, Some(&a))?;
-                write_table_columns(conn, TableScreen::Crate, Some(&c))
+                write_table_columns(conn, TableScreen::Crate, Some(&c))?;
+                write_table_columns(conn, TableScreen::Playlist, Some(&p))
             }
         })
         .unwrap();
@@ -67,7 +75,8 @@ fn each_screen_keeps_its_own_columns_in_the_order_they_were_given() {
     assert_eq!(read(TableScreen::Library), Some(library));
     assert_eq!(read(TableScreen::AllMusic), Some(all_music));
     assert_eq!(read(TableScreen::Crate), Some(crates));
-    assert_eq!(count(&writer, "ui_setting"), 3);
+    assert_eq!(read(TableScreen::Playlist), Some(playlists));
+    assert_eq!(count(&writer, "ui_setting"), 4);
 }
 
 #[test]

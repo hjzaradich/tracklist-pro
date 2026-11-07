@@ -620,5 +620,53 @@
     "purpose": "Name of one energy button; {{energy}} is its number, 1 to 10.",
     "where": "Details panel and the energy popover (screen readers only).",
     "approved": "Energy {{energy}}"
+  },
+  "undo.action.createPlaylist": {
+    "purpose": "Undo button naming what it takes back: a playlist that was created. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.renamePlaylist": {
+    "purpose": "Undo button naming what it takes back: a playlist that was renamed. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.deletePlaylist": {
+    "purpose": "Undo button naming what it takes back: a playlist that was deleted. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.addToPlaylist_one": {
+    "purpose": "Undo button naming what it takes back: tracks added to a playlist. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.addToPlaylist_other": {
+    "purpose": "Undo button naming what it takes back: tracks added to a playlist. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.removeFromPlaylist_one": {
+    "purpose": "Undo button naming what it takes back: tracks removed from a playlist. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.removeFromPlaylist_other": {
+    "purpose": "Undo button naming what it takes back: tracks removed from a playlist. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.moveInPlaylist_one": {
+    "purpose": "Undo button naming what it takes back: tracks moved to another place in a playlist. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.moveInPlaylist_other": {
+    "purpose": "Undo button naming what it takes back: tracks moved to another place in a playlist. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.savePlaylistAsCrate": {
+    "purpose": "Undo button naming what it takes back: a playlist saved as a crate. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.playlistFromCrate": {
+    "purpose": "Undo button naming what it takes back: a playlist started from a crate. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.playlistFromRekordbox": {
+    "purpose": "Undo button naming what it takes back: a playlist made from a rekordbox playlist. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
   }
 }

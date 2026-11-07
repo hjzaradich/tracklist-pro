@@ -217,10 +217,14 @@ describe("sidebar", () => {
   it("lists the stages in workflow order", async () => {
     renderApp("/overview");
     await screen.findByRole("navigation", { name: tx("shell:stages.label") });
-    // History sits between the workflow stages and the crates, and Tags follows the crates (wishlists, when on, follow History).
+    // History sits between the workflow stages and the crates, Playlists follow the crates and Tags the playlists (wishlists, when on, follow History).
     const withHistory = [...WORKFLOW_ORDER];
     withHistory.splice(withHistory.length - 1, 0, tx("history:title"));
-    expect(stageLinks().map((link) => link.textContent)).toEqual([...withHistory, tx("shell:sidebar.tags")]);
+    expect(stageLinks().map((link) => link.textContent)).toEqual([
+      ...withHistory,
+      tx("playlists:title"),
+      tx("shell:sidebar.tags"),
+    ]);
   });
 
   it("marks only the current stage with aria-current", async () => {

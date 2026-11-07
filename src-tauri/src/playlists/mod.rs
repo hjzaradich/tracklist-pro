@@ -32,7 +32,7 @@
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::types::Value;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -469,6 +469,40 @@ pub fn add_on(
     .map(with_operation)
 }
 
+/// Adds the Library tracks of `recordings` (what a track table's selection
+/// holds) to a playlist as [`add_on`] does, last or from `at`, in the order
+/// given and each track once. A recording that isn't a Library track is
+/// left out and counted in `skipped`.
+pub fn add_recordings_on(
+    conn: &mut Connection,
+    id: PlaylistId,
+    recordings: &[i64],
+    at: Option<u32>,
+) -> Result<Done<PlaylistChanged>, OpsError> {
+    let mut seen = HashSet::new();
+    let mut tracks = Vec::new();
+    let mut left_out = 0;
+    for recording in recordings.iter().filter(|r| seen.insert(**r)) {
+        let found = conn
+            .query_row(
+                "SELECT id FROM library_track WHERE recording_id = ?1",
+                [recording],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?;
+        match found {
+            Some(track) => tracks.push(LibraryTrackId(track)),
+            None => left_out += 1,
+        }
+    }
+    add_on(conn, id, &tracks, at).map(|done| {
+        done.map(|changed| PlaylistChanged {
+            skipped: left_out,
+            ..changed
+        })
+    })
+}
+
 /// Removes entries from a playlist, as one operation; the rest close up.
 /// Entries that aren't in it are skipped.
 pub fn remove_on(
@@ -829,6 +863,19 @@ pub async fn add_tracks_to_playlist(
     at: Option<u32>,
 ) -> Result<PlaylistChanged, IpcError> {
     Ok(writer.call(move |c| Ok(add_on(c, id, &tracks, at)))???)
+}
+
+/// Adds the Library tracks among `recordings` (a table's selection), last
+/// or from position `at`; `skipped` counts the ones outside the Library.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_recordings_to_playlist(
+    writer: State<'_, Writer>,
+    id: PlaylistId,
+    recordings: Vec<i64>,
+    at: Option<u32>,
+) -> Result<PlaylistChanged, IpcError> {
+    Ok(writer.call(move |c| Ok(add_recordings_on(c, id, &recordings, at)))???)
 }
 
 /// Removes entries.

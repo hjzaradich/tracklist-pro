@@ -1,12 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
-import type { Crate } from "../bindings";
+import type { Crate, Playlist } from "../bindings";
 import { matches } from "../palette/match";
+import { useAddSelectionToPlaylist } from "../playlists/addSelection";
+import { usePlaylists } from "../playlists/usePlaylists";
 import { useAddSelectionToCrate, useAddSelectionToNewCrate } from "./addSelection";
 import { AddProgressLine } from "./AddProgressLine";
 import styles from "./AddToCrateDialog.module.css";
-import { crateChoices } from "./tree";
+import { crateChoices, PATH_SEPARATOR } from "./tree";
 import { useAddProgress } from "./useAddProgress";
 import { useCrates } from "./useCrates";
 
@@ -15,6 +17,8 @@ const siblingKey = (name: string) => name.normalize("NFC").trim().toLowerCase();
 
 type Option =
   | { kind: "crate"; crate: Crate; label: string }
+  /** A playlist (3C-P1b): the tracks go to its end, the same way. */
+  | { kind: "playlist"; playlist: Playlist; label: string }
   /** A new crate at the top of the tree, named by what was typed. */
   | { kind: "create"; name: string };
 
@@ -42,8 +46,11 @@ export function AddToCrateDialog({
   onClose: () => void;
 }) {
   const { t } = useTranslation("crates");
+  const { t: tp } = useTranslation("playlists");
   const crates = useCrates().data;
+  const playlists = usePlaylists().data;
   const addSelection = useAddSelectionToCrate();
+  const addToPlaylist = useAddSelectionToPlaylist();
   const addToNewCrate = useAddSelectionToNewCrate();
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState<string | null>(null);
@@ -72,15 +79,24 @@ export function AddToCrateDialog({
     const found: Option[] = crateChoices(list)
       .filter(({ label }) => matches(label, query))
       .map(({ crate, label }) => ({ kind: "crate", crate, label }));
+    for (const playlist of playlists ?? []) {
+      const label = `${tp("title")}${PATH_SEPARATOR}${playlist.name}`;
+      if (matches(label, query)) found.push({ kind: "playlist", playlist, label });
+    }
     const name = query.trim();
     const taken = list.some(
       (c) => c.kind === "static" && c.parentId === null && siblingKey(c.name) === siblingKey(name),
     );
     if (name !== "" && !taken) found.push({ kind: "create", name });
     return found;
-  }, [crates, query]);
+  }, [crates, playlists, query, tp]);
 
-  const idOf = (option: Option) => (option.kind === "crate" ? `crate-${option.crate.id}` : "create");
+  const idOf = (option: Option) =>
+    option.kind === "crate"
+      ? `crate-${option.crate.id}`
+      : option.kind === "playlist"
+        ? `playlist-${option.playlist.id}`
+        : "create";
   const highlighted = options.find((option) => idOf(option) === chosen) ?? options[0] ?? null;
   const highlightedId = highlighted === null ? undefined : idOf(highlighted);
 
@@ -92,10 +108,11 @@ export function AddToCrateDialog({
   const run = async (option: Option) => {
     if (working) return;
     setWorking(true);
-    setTarget(option.kind === "crate" ? option.crate.name : option.name);
+    setTarget(option.kind === "crate" ? option.crate.name : option.kind === "playlist" ? option.playlist.name : option.name);
     setError(null);
     try {
       if (option.kind === "crate") await addSelection(option.crate, recordings);
+      else if (option.kind === "playlist") await addToPlaylist(option.playlist, recordings);
       else await addToNewCrate(option.name, recordings);
       onClose();
     } catch (failure) {
@@ -218,14 +235,16 @@ export function AddToCrateDialog({
               onClick={() => void run(option)}
             >
               <span className={styles.label}>
-                {option.kind === "crate" ? option.label : t("addDialog.create", { name: option.name })}
+                {option.kind === "create" ? t("addDialog.create", { name: option.name }) : option.label}
               </span>
             </li>
           ))}
         </ul>
         {options.length === 0 && (
           <p role="status" className={styles.quiet}>
-            {crates !== undefined && crates.length === 0 ? t("empty") : t("addDialog.none")}
+            {crates !== undefined && crates.length === 0 && (playlists?.length ?? 0) === 0
+              ? t("empty")
+              : t("addDialog.none")}
           </p>
         )}
         {progress !== null && (

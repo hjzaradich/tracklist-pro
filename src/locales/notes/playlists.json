@@ -1,4 +1,228 @@
 {
+  "title": {
+    "purpose": "The Playlists screen heading and its sidebar link. (PROPOSED, 3C-P1b)",
+    "where": "Sidebar section link; Playlists screen heading."
+  },
+  "empty": {
+    "purpose": "Says there are no playlists yet. Mirrors crates:empty. (PROPOSED, 3C-P1b)",
+    "where": "Sidebar under Playlists; Playlists screen list."
+  },
+  "list.label": {
+    "purpose": "Accessible name of the list of playlists. (PROPOSED, 3C-P1b)",
+    "where": "Sidebar and Playlists screen."
+  },
+  "trackCount_zero": {
+    "purpose": "How many tracks a playlist or its table holds. Mirrors crates:trackCount. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen list and the line over the table."
+  },
+  "trackCount_one": {
+    "purpose": "How many tracks a playlist or its table holds. Mirrors crates:trackCount. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen list and the line over the table."
+  },
+  "trackCount_other": {
+    "purpose": "How many tracks a playlist or its table holds. Mirrors crates:trackCount. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen list and the line over the table."
+  },
+  "noTracks": {
+    "purpose": "Empty state of a playlist with no tracks. Mirrors crates:noTracks. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, a playlist with no tracks."
+  },
+  "select": {
+    "purpose": "Asks to choose a playlist from the list. Mirrors crates:select. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, nothing chosen."
+  },
+  "copiedFrom": {
+    "purpose": "Says a playlist is a one-time copy of a rekordbox playlist, and which. {{path}} is its place in rekordbox. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, under the name of a copied playlist."
+  },
+  "new.button": {
+    "purpose": "Button: make a playlist. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, above the list."
+  },
+  "new.label": {
+    "purpose": "Label of the box for a new playlist's name. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, create form."
+  },
+  "new.confirm": {
+    "purpose": "Button that makes the playlist. Same as crates:new.confirm. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, create form."
+  },
+  "new.cancel": {
+    "purpose": "Button that closes the create form. Same as crates:new.cancel. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, create form."
+  },
+  "rename.button": {
+    "purpose": "Button: rename the chosen playlist. Same as crates:rename.button. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, playlist header."
+  },
+  "rename.label": {
+    "purpose": "Label of the box for the new name. Same as crates:rename.label. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rename form."
+  },
+  "rename.confirm": {
+    "purpose": "Button that renames. Same as crates:rename.confirm. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rename form."
+  },
+  "rename.cancel": {
+    "purpose": "Button that closes the rename form. Same as crates:rename.cancel. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rename form."
+  },
+  "delete.button": {
+    "purpose": "Button: delete the chosen playlist. Same as crates:delete.button. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, playlist header."
+  },
+  "delete.title": {
+    "purpose": "Question asked before a playlist is deleted; {{name}} is the playlist. Mirrors crates:delete.title. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, delete confirmation."
+  },
+  "delete.detail": {
+    "purpose": "Reassures that deleting a playlist keeps its tracks in the Library and can be undone. Adapts crates:delete.detail. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, delete confirmation."
+  },
+  "delete.confirm": {
+    "purpose": "Button that deletes. Same as crates:delete.confirm. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, delete confirmation."
+  },
+  "delete.cancel": {
+    "purpose": "Button that backs out of the delete. Same as crates:delete.cancel. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, delete confirmation."
+  },
+  "removeTrack.button": {
+    "purpose": "Row button: take this track out of the playlist. Mirrors crates:removeTrack.button. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, last column of each row."
+  },
+  "removeTrack.buttonFor": {
+    "purpose": "Accessible name of the row's remove button; {{title}} is the track. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, each row."
+  },
+  "saveAsCrate.button": {
+    "purpose": "Button: make a crate from the playlist's tracks (each once, order dropped). (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, playlist header."
+  },
+  "saveAsCrate.label": {
+    "purpose": "Label of the box for the new crate's name. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, save-as-crate form."
+  },
+  "saveAsCrate.confirm": {
+    "purpose": "Button that makes the crate. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, save-as-crate form."
+  },
+  "saveAsCrate.cancel": {
+    "purpose": "Button that closes the form. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, save-as-crate form."
+  },
+  "fromCrate.button": {
+    "purpose": "Button: start a playlist from the chosen crate, in the order its table shows now. Roadmap wording. (PROPOSED, 3C-P1b)",
+    "where": "Crates screen, crate header (hand-made crates)."
+  },
+  "fromCrate.label": {
+    "purpose": "Label of the box for the new playlist's name. (PROPOSED, 3C-P1b)",
+    "where": "Crates screen, start-a-playlist form."
+  },
+  "fromCrate.confirm": {
+    "purpose": "Button that starts the playlist. (PROPOSED, 3C-P1b)",
+    "where": "Crates screen, start-a-playlist form."
+  },
+  "fromCrate.cancel": {
+    "purpose": "Button that closes the form. (PROPOSED, 3C-P1b)",
+    "where": "Crates screen, start-a-playlist form."
+  },
+  "fromRekordbox.button": {
+    "purpose": "Button: open the picker of rekordbox playlists to copy into the app. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, above the list."
+  },
+  "fromRekordbox.label": {
+    "purpose": "Accessible name of the picker of rekordbox playlists. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rekordbox picker."
+  },
+  "fromRekordbox.none": {
+    "purpose": "Says the last rekordbox read has no playlists to copy. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rekordbox picker."
+  },
+  "fromRekordbox.entries_one": {
+    "purpose": "How many entries a rekordbox playlist has (repeats and tracks outside the Library included). (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rekordbox picker, beside each playlist."
+  },
+  "fromRekordbox.entries_other": {
+    "purpose": "How many entries a rekordbox playlist has (repeats and tracks outside the Library included). (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rekordbox picker, beside each playlist."
+  },
+  "fromRekordbox.nameLabel": {
+    "purpose": "Label of the box for the copy's name (starts as the rekordbox playlist's). (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rekordbox picker."
+  },
+  "fromRekordbox.confirm": {
+    "purpose": "Button that makes the app playlist from the picked rekordbox playlist. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rekordbox picker."
+  },
+  "fromRekordbox.cancel": {
+    "purpose": "Button that closes the picker. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, rekordbox picker."
+  },
+  "done.created": {
+    "purpose": "Line saying a playlist was made. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.renamed": {
+    "purpose": "Line saying a playlist was renamed. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.deleted": {
+    "purpose": "Line saying a playlist was deleted. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.removed": {
+    "purpose": "Line saying a track was taken out of the playlist; {{title}} is the track. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.moved_one": {
+    "purpose": "Line saying how many tracks a drag moved to another place. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.moved_other": {
+    "purpose": "Line saying how many tracks a drag moved to another place. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.savedAsCrate": {
+    "purpose": "Line saying the playlist was saved as a crate. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.copied_one": {
+    "purpose": "Line saying a rekordbox playlist was copied, with how many tracks. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.copied_other": {
+    "purpose": "Line saying a rekordbox playlist was copied, with how many tracks. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list."
+  },
+  "done.copiedLeftOut_one": {
+    "purpose": "Same, when {{left}} entries could not be matched to a Library track and were left out. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list, after a copy from rekordbox."
+  },
+  "done.copiedLeftOut_other": {
+    "purpose": "Same, when {{left}} entries could not be matched to a Library track and were left out. (PROPOSED, 3C-P1b)",
+    "where": "Playlists screen, strip above the list, after a copy from rekordbox."
+  },
+  "addSelection.added_zero": {
+    "purpose": "Line over a track table after tracks were added to a playlist (drop on the sidebar, or the add dialog). Mirrors crates:addSelection.added. (PROPOSED, 3C-P1b)",
+    "where": "Over any track table."
+  },
+  "addSelection.added_one": {
+    "purpose": "Line over a track table after tracks were added to a playlist (drop on the sidebar, or the add dialog). Mirrors crates:addSelection.added. (PROPOSED, 3C-P1b)",
+    "where": "Over any track table."
+  },
+  "addSelection.added_other": {
+    "purpose": "Line over a track table after tracks were added to a playlist (drop on the sidebar, or the add dialog). Mirrors crates:addSelection.added. (PROPOSED, 3C-P1b)",
+    "where": "Over any track table."
+  },
+  "addSelection.notInLibrary_one": {
+    "purpose": "Note that some of the tracks were left out because they are not in the Library; playlists hold Library tracks. (PROPOSED, 3C-P1b)",
+    "where": "Over any track table, after an add to a playlist."
+  },
+  "addSelection.notInLibrary_other": {
+    "purpose": "Note that some of the tracks were left out because they are not in the Library; playlists hold Library tracks. (PROPOSED, 3C-P1b)",
+    "where": "Over any track table, after an add to a playlist."
+  },
   "error.notFound": {
     "purpose": "Error: the playlist acted on was deleted meanwhile. Mirrors crates:error.notFound. (PROPOSED, 3C-P1a)",
     "where": "Wherever a playlist is acted on."

@@ -7,6 +7,7 @@ import { REKORDBOX_OFFER_QUERY_KEY } from "../firstRun/queryKeys";
 import { HISTORY_QUERY_KEY } from "../history/useHistory";
 import { INBOX_QUERY_KEY } from "../inbox/useInbox";
 import { LIBRARY_TRACKS_QUERY_KEY } from "../library/useLibrarySummary";
+import { PLAYLISTS_QUERY_KEY } from "../playlists/usePlaylists";
 import { OVERVIEW_QUERY_KEY } from "../overview/useOverview";
 import { MISSING_TRACKS_QUERY_KEY } from "../review/useMissingTracks";
 import { REVIEW_QUERY_KEYS } from "../review/useReview";
@@ -37,6 +38,8 @@ const GROUPS = {
   missing: () => [MISSING_TRACKS_QUERY_KEY],
   /** Crates, their tracks and counts. */
   crates: () => [CRATES_QUERY_KEY],
+  /** Playlists, their tracks and counts. */
+  playlists: () => [PLAYLISTS_QUERY_KEY],
   /** Where each value of a track comes from. */
   tagSources: () => [TRACK_TAG_SOURCES_QUERY_KEY],
   /** Music folders and their notes. */

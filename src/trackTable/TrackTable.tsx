@@ -116,6 +116,14 @@ export interface TrackTableProps {
    * it the key is unavailable.
    */
   onTag?: (recordingIds: readonly number[]) => void;
+  /**
+   * A playlist's rows were dragged to another place in the table (3C-P1b): the
+   * rows carried, in the order they are shown, and the row they were dropped
+   * before (`null`: after the last). While the pointer is over the table a
+   * line shows where they would go. Without it a drag only carries tracks to
+   * the sidebar.
+   */
+  onMoveRows?: (rows: readonly TableRow[], before: TableRow | null) => void;
 }
 
 const NO_WIDTHS: ColumnWidths = {};
@@ -178,6 +186,7 @@ export function TrackTable({
   onClearEnergy,
   onAddToCrate,
   onTag,
+  onMoveRows,
 }: TrackTableProps) {
   const { t, i18n } = useTranslation("trackTable");
   const keyNotation = useKeyNotation();
@@ -504,7 +513,23 @@ export function TrackTable({
 
   // Dragging tracks to a crate (1cB-13). The row held is remembered until the
   // pointer is released; `dragged` swallows the click that follows a drag.
+  // The latest rows and move handler, for a drag that outlives a render.
   const dragged = useRef(false);
+  const latest = useRef({ getRow, total, onMoveRows });
+  useEffect(() => {
+    latest.current = { getRow, total, onMoveRows };
+  });
+  // Where a playlist drag would drop its rows now: before this index (`total`: at the end).
+  const [insertAt, setInsertAt] = useState<number | null>(null);
+  const placeOf = (x: number, y: number): number | null => {
+    const element = viewport.current;
+    if (!element || !latest.current.onMoveRows) return null;
+    const rect = element.getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return null;
+    // The header is a row of the scroll area, so the first row starts one row down.
+    const at = Math.round((y - rect.top - rowHeight + element.scrollTop) / rowHeight);
+    return Math.min(latest.current.total, Math.max(0, at));
+  };
   const startDrag = (event: PointerEvent<HTMLDivElement>, index: number) => {
     if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
     // A button or link inside the row is its own.
@@ -514,10 +539,12 @@ export function TrackTable({
     dragged.current = false;
     const from = { x: event.clientX, y: event.clientY };
     let begun = false;
+    let moving: TableRow[] = [];
+    let place: number | null = null;
     const stop = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       window.removeEventListener("keydown", onKey, true);
     };
     const onMove = (move: globalThis.PointerEvent) => {
@@ -529,23 +556,43 @@ export function TrackTable({
         const carried = picked !== null ? picked.has(row.recordingId) : active === index;
         if (!carried) select(index);
         const ids = carried && picked !== null ? [...picked] : [row.recordingId];
+        if (onMoveRows) {
+          // The rows carried are the shown rows among the selected ones, else the one held.
+          moving = [];
+          for (let i = 0; carried && picked !== null && i < total; i++) {
+            const held = getRow(i);
+            if (held !== undefined && picked.has(held.recordingId)) moving.push(held);
+          }
+          if (moving.length === 0) moving = [row];
+        }
         useTrackDrag.getState().begin(ids, move.clientX, move.clientY);
       }
       useTrackDrag.getState().moveTo(move.clientX, move.clientY);
+      place = begun ? placeOf(move.clientX, move.clientY) : null;
+      setInsertAt(place);
     };
-    const onUp = () => {
+    // The pointer was released (`drop`) or the drag given up.
+    const finish = (drop: boolean) => {
       stop();
       useTrackDrag.getState().end();
+      setInsertAt(null);
+      if (!drop || !begun || place === null) return;
+      const { getRow: rowAt, total: all, onMoveRows: moveRows } = latest.current;
+      const before = place >= all ? null : rowAt(place);
+      // The row to drop before hasn't arrived: nothing is guessed.
+      if (before !== undefined) moveRows?.(moving, before);
     };
+    const onUp = () => finish(true);
+    const onCancel = () => finish(false);
     // Escape gives the drag up, and is not heard as "select none".
     const onKey = (key: globalThis.KeyboardEvent) => {
       if (key.key !== "Escape" || !begun) return;
       key.preventDefault();
-      onUp();
+      onCancel();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointercancel", onCancel);
     window.addEventListener("keydown", onKey, true);
   };
 
@@ -642,7 +689,7 @@ export function TrackTable({
         }}
       >
         {defs.map((def) => (
-          <Cell key={def.id} def={def} row={row} context={context} />
+          <Cell key={def.id} def={def} row={row} context={context} index={index} />
         ))}
         {actions && (
           <div role="gridcell" className={`${styles.cell} ${styles.actionsCell}`}>
@@ -685,6 +732,13 @@ export function TrackTable({
         </div>
         <div role="rowgroup" className={styles.rows} style={{ height: total * rowHeight }}>
           {rows}
+          {insertAt !== null && (
+            <div
+              className={styles.insertLine}
+              data-testid="insert-line"
+              style={{ transform: `translateY(${insertAt * rowHeight}px)` }}
+            />
+          )}
         </div>
       </div>
       {energyOpen !== null && onSetEnergy && (
@@ -707,16 +761,19 @@ function Cell({
   def,
   row,
   context,
+  index,
 }: {
   def: ColumnDef;
   row: TableRow | undefined;
   context: CellContext;
+  index: number;
 }) {
   const classes = [styles.cell, def.numeric ? styles.numeric : "", def.cell ? styles.rich : ""];
   if (row === undefined) {
     return <div role="gridcell" className={classes.join(" ")} />;
   }
-  const text = def.text(row, context);
+  // The # column is the row's place in the list; no other cell needs it.
+  const text = def.text(row, def.id === "position" ? { ...context, index } : context);
   return (
     <div
       role="gridcell"

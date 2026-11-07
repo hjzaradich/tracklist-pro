@@ -742,3 +742,45 @@ fn undoing_a_rename_whose_old_name_was_taken_since_says_the_name_is_taken() {
     }
     assert_eq!(lib.state(), before);
 }
+
+#[test]
+fn adding_recordings_adds_their_library_tracks_once_each_and_counts_the_rest() {
+    let lib = Lib::new();
+    let t = lib.tracks(&["a", "b"]);
+    let (outside_file, _) = lib.track("c", false);
+    let arc = lib.create("Arc");
+    let recording_of = |track: LibraryTrackId| -> i64 {
+        lib.call(move |c| {
+            Ok(c.query_row(
+                "SELECT recording_id FROM library_track WHERE id = ?1",
+                [track.0],
+                |r| r.get(0),
+            )?)
+        })
+    };
+    let outside: i64 = lib.call(move |c| {
+        Ok(c.query_row(
+            "SELECT recording_id FROM recording_file WHERE file_id = ?1",
+            [outside_file],
+            |r| r.get(0),
+        )?)
+    });
+    let (first, second) = (recording_of(t[0]), recording_of(t[1]));
+    let asked = vec![second, first, second, outside];
+    let added = lib
+        .call(move |c| add_recordings_on(c, arc, &asked, None))
+        .unwrap();
+    assert_eq!((added.changed, added.skipped), (2, 1));
+    assert_eq!(lib.tracks_of(arc), [t[1], t[0]]);
+    assert_eq!(lib.undo(), ADD_OPERATION);
+    assert!(lib.tracks_of(arc).is_empty());
+
+    // Nothing in the Library: nothing recorded.
+    let none = lib
+        .call(move |c| add_recordings_on(c, arc, &[outside], None))
+        .unwrap();
+    assert_eq!(
+        (none.changed, none.skipped, none.operation_id),
+        (0, 1, None)
+    );
+}
