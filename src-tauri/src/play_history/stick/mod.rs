@@ -33,13 +33,11 @@ use serde_json::json;
 use specta::Type;
 use tauri::State;
 
-use super::{
-    count, insert_session, m3u8, same_session, NewPlay, IMPORT_OPERATION, MAX_NAME_CHARS,
-};
+use super::{count, insert_session, m3u8, same_session, NewPlay, IMPORT_OPERATION, MAX_NAME_CHARS};
 use crate::db::Writer;
+use crate::hash::{self, AUDIO_HASH_LEN};
 use crate::ipc::IpcError;
 use crate::ops::{self, OpsError};
-use crate::hash::{self, AUDIO_HASH_LEN};
 use crate::write_guard::WriteGuard;
 
 pub mod devicesql;
@@ -131,6 +129,7 @@ pub enum StickImport {
 
 /// Where a stick keeps its export database, from its root.
 pub fn export_path(root: &Path) -> PathBuf {
+    // ci-reads: not a frontend read
     root.join("PIONEER").join("rekordbox").join("export.pdb")
 }
 

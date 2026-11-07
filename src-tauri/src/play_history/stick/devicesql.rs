@@ -105,8 +105,10 @@ fn string_at(page: &[u8], at: usize) -> Option<String> {
                     return None;
                 }
                 let units: Vec<u16> = body
-                    .chunks_exact(2)
-                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| u16::from_le_bytes(*c))
                     .collect();
                 String::from_utf16(&units).ok()?
             }
@@ -242,9 +244,11 @@ pub fn parse(bytes: &[u8]) -> Option<Export> {
     }
     for t in 0..declared.min(fits) {
         let at = HEADER_TABLES + t * TABLE_ENTRY;
-        let (Some(kind), Some(first), Some(last)) =
-            (u32_at(bytes, at), u32_at(bytes, at + 8), u32_at(bytes, at + 12))
-        else {
+        let (Some(kind), Some(first), Some(last)) = (
+            u32_at(bytes, at),
+            u32_at(bytes, at + 8),
+            u32_at(bytes, at + 12),
+        ) else {
             reader.skip();
             continue;
         };
@@ -313,7 +317,10 @@ pub fn parse(bytes: &[u8]) -> Option<Export> {
         };
         by_list.entry(list).or_default().push(StickPlay {
             path: track.path.clone(),
-            artist: artists.get(&track.artist).cloned().and_then(|a| some_text(Some(a))),
+            artist: artists
+                .get(&track.artist)
+                .cloned()
+                .and_then(|a| some_text(Some(a))),
             title: track.title.clone(),
         });
     }

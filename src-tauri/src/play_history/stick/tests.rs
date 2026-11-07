@@ -87,7 +87,11 @@ fn long_strings_and_far_artist_names_are_read() {
     far.extend(fixture::dstring("Far Name"));
     let bytes = Pdb::new()
         .table(ARTISTS, vec![far], 16)
-        .table(TRACKS, vec![fixture::track(1, 5, &long_title, "/Contents/x.mp3")], 16)
+        .table(
+            TRACKS,
+            vec![fixture::track(1, 5, &long_title, "/Contents/x.mp3")],
+            16,
+        )
         .table(LISTS, vec![fixture::list(7, "HISTORY 007")], 16)
         .table(ENTRIES, vec![fixture::entry(1, 7, 1)], 16)
         .build();
@@ -273,7 +277,10 @@ fn a_failed_read_removes_staging_too_and_says_why() {
     let s = sandbox();
     assert_eq!(read_stick(&s.guard, &s.stick), Err(StickRefusal::NoExport));
     fixture::write_stick(&s.stick, b"not a database at all");
-    assert_eq!(read_stick(&s.guard, &s.stick), Err(StickRefusal::NotAnExport));
+    assert_eq!(
+        read_stick(&s.guard, &s.stick),
+        Err(StickRefusal::NotAnExport)
+    );
     assert!(!s.staging().exists(), "staging is removed after a failure");
     // A folder where the file should be.
     let other = s.stick.join("other");
@@ -287,6 +294,7 @@ fn reading_a_stick_never_changes_anything_on_it() {
     let s = sandbox();
     fixture::write_stick(&s.stick, &fixture::two_gigs().build());
     // OneLibrary's database sits beside it and is left alone; music too.
+    // ci-reads: not a frontend read
     let rb = s.stick.join("PIONEER").join("rekordbox");
     fs::write(rb.join("exportLibrary.db"), b"made-up OneLibrary bytes").unwrap();
     let music = s.stick.join("Contents").join("Made Up Artist");
@@ -328,7 +336,10 @@ fn a_listing_names_each_list_with_its_number_of_plays() {
         panic!("{listed:?}");
     };
     assert_eq!(skipped, 0);
-    let got: Vec<_> = lists.iter().map(|l| (l.id, l.name.as_str(), l.plays)).collect();
+    let got: Vec<_> = lists
+        .iter()
+        .map(|l| (l.id, l.name.as_str(), l.plays))
+        .collect();
     assert_eq!(got, vec![(1, "HISTORY 001", 2), (2, "HISTORY 002", 3)]);
 }
 
@@ -357,11 +368,19 @@ fn import_with(
     contents: HashMap<String, Option<Content>>,
 ) -> StickImport {
     let root = root.to_owned();
-    run(lib, move |c| import_stick(c, &root, &export, &chosen, day, &contents))
+    run(lib, move |c| {
+        import_stick(c, &root, &export, &chosen, day, &contents)
+    })
 }
 
 /// An import whose stick files couldn't be read.
-fn import(lib: &Lib, root: &str, export: Export, chosen: Vec<u32>, day: &'static str) -> StickImport {
+fn import(
+    lib: &Lib,
+    root: &str,
+    export: Export,
+    chosen: Vec<u32>,
+    day: &'static str,
+) -> StickImport {
     import_with(lib, root, export, chosen, day, HashMap::new())
 }
 
@@ -370,7 +389,11 @@ fn set_hashes(lib: &Lib, file: i64, content: Content) {
     read(lib, move |c| {
         c.execute(
             "UPDATE file SET audio_hash = ?1, blake3 = ?2 WHERE id = ?3",
-            rusqlite::params![content.audio.map(|a| a.to_vec()), content.whole.to_vec(), file],
+            rusqlite::params![
+                content.audio.map(|a| a.to_vec()),
+                content.whole.to_vec(),
+                file
+            ],
         )
     });
 }
@@ -381,7 +404,9 @@ const AUDIO_A: Content = Content {
 };
 
 fn operations(lib: &Lib) -> i64 {
-    read(lib, |c| c.query_row("SELECT count(*) FROM operation", [], |r| r.get(0)))
+    read(lib, |c| {
+        c.query_row("SELECT count(*) FROM operation", [], |r| r.get(0))
+    })
 }
 
 fn library() -> (Lib, i64) {
@@ -412,7 +437,15 @@ fn importing_lists_makes_one_session_each_in_entry_order_on_the_chosen_date() {
     };
     assert!(operation_id.is_some());
     assert_eq!(
-        (made.len(), total, matched, ambiguous, unreadable, already_imported, skipped),
+        (
+            made.len(),
+            total,
+            matched,
+            ambiguous,
+            unreadable,
+            already_imported,
+            skipped
+        ),
         (2, 5, 1, 0, 4, 0, 0)
     );
     assert_eq!(operations(&lib), 1, "one import is one operation");
@@ -420,7 +453,15 @@ fn importing_lists_makes_one_session_each_in_entry_order_on_the_chosen_date() {
     let list = read(&lib, sessions);
     let mut got: Vec<_> = list
         .iter()
-        .map(|s| (s.source.as_str(), s.name.as_str(), s.played_on.as_str(), s.plays, s.matched))
+        .map(|s| {
+            (
+                s.source.as_str(),
+                s.name.as_str(),
+                s.played_on.as_str(),
+                s.plays,
+                s.matched,
+            )
+        })
         .collect();
     got.sort();
     assert_eq!(
@@ -436,13 +477,30 @@ fn importing_lists_makes_one_session_each_in_entry_order_on_the_chosen_date() {
     let rows: Vec<_> = reply
         .plays
         .iter()
-        .map(|p| (p.position, p.recording_id, p.artist.as_deref(), p.path.as_str()))
+        .map(|p| {
+            (
+                p.position,
+                p.recording_id,
+                p.artist.as_deref(),
+                p.path.as_str(),
+            )
+        })
         .collect();
     assert_eq!(
         rows,
         vec![
-            (0, None, Some("Made Up Artist"), r"E:\Contents\Made Up Artist\first.mp3"),
-            (1, None, Some("Другой Артист"), r"E:\Contents\Другой\second.flac"),
+            (
+                0,
+                None,
+                Some("Made Up Artist"),
+                r"E:\Contents\Made Up Artist\first.mp3"
+            ),
+            (
+                1,
+                None,
+                Some("Другой Артист"),
+                r"E:\Contents\Другой\second.flac"
+            ),
             (2, Some(a), None, r"E:\Music\a.mp3"),
         ]
     );
@@ -487,7 +545,13 @@ fn the_same_list_on_the_same_day_is_left_out_as_already_imported() {
     assert_eq!(operations(&lib), 2, "nothing new is no operation");
     // The same set on another night is another gig.
     let other_night = import(&lib, r"E:\", two_gigs(), vec![1], "2026-04-25");
-    assert!(matches!(other_night, StickImport::Done { already_imported: 0, .. }));
+    assert!(matches!(
+        other_night,
+        StickImport::Done {
+            already_imported: 0,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -495,7 +559,10 @@ fn undoing_a_stick_import_takes_all_its_sessions_and_plays_away() {
     let (lib, _) = library();
     import(&lib, r"E:\", two_gigs(), vec![1, 2], "2026-04-18");
     let undone = run(&lib, |c| ops::undo_for_user(c, None));
-    assert!(matches!(undone, ops::UndoOutcome::Undone { .. }), "{undone:?}");
+    assert!(
+        matches!(undone, ops::UndoOutcome::Undone { .. }),
+        "{undone:?}"
+    );
     let left: (i64, i64) = read(&lib, |c| {
         c.query_row(
             "SELECT (SELECT count(*) FROM session), (SELECT count(*) FROM play_event)",
@@ -553,7 +620,15 @@ fn a_path_that_climbs_out_of_the_stick_is_never_opened_and_its_play_is_kept() {
     let (lib, _) = library();
     let outcome = import_with(&lib, &root, export, vec![1], "2026-04-18", contents);
     assert!(
-        matches!(outcome, StickImport::Done { plays: 1, matched: 0, unreadable: 1, .. }),
+        matches!(
+            outcome,
+            StickImport::Done {
+                plays: 1,
+                matched: 0,
+                unreadable: 1,
+                ..
+            }
+        ),
         "{outcome:?}"
     );
 }
@@ -564,9 +639,22 @@ fn a_stick_read_end_to_end_imports_its_plays_unmatched_with_their_names() {
     fixture::write_stick(&s.stick, &fixture::two_gigs().build());
     let export = read_stick(&s.guard, &s.stick).unwrap();
     let (lib, _) = library();
-    let outcome = import(&lib, &s.stick.display().to_string(), export, vec![1], "2026-04-18");
+    let outcome = import(
+        &lib,
+        &s.stick.display().to_string(),
+        export,
+        vec![1],
+        "2026-04-18",
+    );
     assert!(
-        matches!(outcome, StickImport::Done { plays: 2, matched: 0, .. }),
+        matches!(
+            outcome,
+            StickImport::Done {
+                plays: 2,
+                matched: 0,
+                ..
+            }
+        ),
         "{outcome:?}"
     );
 }
@@ -578,7 +666,11 @@ const STICK_FILE: &str = "/Contents/Made Up Artist/one.wav";
 /// A stick whose one list plays one file, `bytes` (none when `None`).
 fn stick_playing(s: &Sandbox, bytes: Option<&[u8]>) -> Export {
     let pdb = Pdb::new()
-        .table(TRACKS, vec![fixture::track(1, 0, "One Tune", STICK_FILE)], 16)
+        .table(
+            TRACKS,
+            vec![fixture::track(1, 0, "One Tune", STICK_FILE)],
+            16,
+        )
         .table(LISTS, vec![fixture::list(1, "HISTORY 001")], 16)
         .table(ENTRIES, vec![fixture::entry(1, 1, 1)], 16);
     fixture::write_stick(&s.stick, &pdb.build());
@@ -668,7 +760,16 @@ fn a_file_with_other_audio_matches_nothing_and_keeps_its_names() {
     let (outcome, found) = import_matched(&s, &lib, stick_playing(&s, Some(&other)));
     assert_eq!(found, None);
     assert!(
-        matches!(outcome, StickImport::Done { plays: 1, matched: 0, ambiguous: 0, unreadable: 0, .. }),
+        matches!(
+            outcome,
+            StickImport::Done {
+                plays: 1,
+                matched: 0,
+                ambiguous: 0,
+                unreadable: 0,
+                ..
+            }
+        ),
         "{outcome:?}"
     );
     let title: Option<String> = read(&lib, |c| {
@@ -687,7 +788,14 @@ fn audio_that_is_several_tracks_matches_none_of_them() {
     let (outcome, found) = import_matched(&s, &lib, stick_playing(&s, Some(&wav)));
     assert_eq!(found, None);
     assert!(
-        matches!(outcome, StickImport::Done { matched: 0, ambiguous: 1, .. }),
+        matches!(
+            outcome,
+            StickImport::Done {
+                matched: 0,
+                ambiguous: 1,
+                ..
+            }
+        ),
         "{outcome:?}"
     );
 }
@@ -702,7 +810,14 @@ fn a_file_missing_from_the_stick_leaves_its_play_unmatched_and_counted() {
     let (outcome, found) = import_matched(&s, &lib, export);
     assert_eq!(found, None);
     assert!(
-        matches!(outcome, StickImport::Done { matched: 0, unreadable: 1, .. }),
+        matches!(
+            outcome,
+            StickImport::Done {
+                matched: 0,
+                unreadable: 1,
+                ..
+            }
+        ),
         "{outcome:?}"
     );
 }
@@ -717,6 +832,9 @@ fn only_the_files_of_the_chosen_lists_are_read() {
     read_paths.sort();
     assert_eq!(
         read_paths,
-        ["/Contents/Made Up Artist/first.mp3", "/Contents/Другой/second.flac"]
+        [
+            "/Contents/Made Up Artist/first.mp3",
+            "/Contents/Другой/second.flac"
+        ]
     );
 }

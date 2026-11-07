@@ -73,7 +73,10 @@ pub fn list(id: u32, name: &str) -> Vec<u8> {
 
 /// A history entry row.
 pub fn entry(track: u32, list: u32, place: u32) -> Vec<u8> {
-    [track, list, place].iter().flat_map(|v| v.to_le_bytes()).collect()
+    [track, list, place]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect()
 }
 
 /// A file of tables, each one chain of pages.
@@ -110,7 +113,8 @@ impl Pdb {
 
     pub fn build(&self) -> Vec<u8> {
         let mut file = vec![0_u8; PAGE];
-        let put = |buf: &mut [u8], at: usize, v: u32| buf[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        let put =
+            |buf: &mut [u8], at: usize, v: u32| buf[at..at + 4].copy_from_slice(&v.to_le_bytes());
         put(&mut file, 4, PAGE as u32);
         put(&mut file, 8, u32::try_from(self.tables.len()).unwrap());
         for (t, (kind, pages)) in self.tables.iter().enumerate() {
@@ -156,7 +160,11 @@ impl Pdb {
 /// entries are stored out of order.
 pub fn two_gigs() -> Pdb {
     Pdb::new()
-        .table(ARTISTS, vec![artist(1, "Made Up Artist"), artist(2, "Другой Артист")], 16)
+        .table(
+            ARTISTS,
+            vec![artist(1, "Made Up Artist"), artist(2, "Другой Артист")],
+            16,
+        )
         .table(
             TRACKS,
             vec![
@@ -166,7 +174,11 @@ pub fn two_gigs() -> Pdb {
             ],
             2,
         )
-        .table(LISTS, vec![list(2, "HISTORY 002"), list(1, "HISTORY 001")], 16)
+        .table(
+            LISTS,
+            vec![list(2, "HISTORY 002"), list(1, "HISTORY 001")],
+            16,
+        )
         .table(
             ENTRIES,
             vec![
@@ -182,6 +194,7 @@ pub fn two_gigs() -> Pdb {
 
 /// Writes `bytes` as the export database of a stick rooted at `root`.
 pub fn write_stick(root: &Path, bytes: &[u8]) {
+    // ci-reads: not a frontend read
     let dir = root.join("PIONEER").join("rekordbox");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("export.pdb"), bytes).unwrap();
