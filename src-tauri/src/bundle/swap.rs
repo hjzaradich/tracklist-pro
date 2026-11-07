@@ -251,12 +251,42 @@ fn fold(guard: &WriteGuard, live: &Path) {
 
 /// Moves the old Library's pieces back from `backups/swapping`, each where
 /// nothing is in its place, the file itself last (as they left).
+///
+/// When a move fails and the file isn't in place, the pieces already home
+/// would sit beside no file, where a different file moving in could meet
+/// them: they go back to `swapping` with their file. A piece that can't go
+/// back is deleted, as it is proven to be the set-aside file's own (its
+/// file is still in `swapping`). With the file in place, its own pieces
+/// stay: they are its set.
 fn put_back(guard: &WriteGuard, l: &Layout) -> Result<(), BundleError> {
+    put_back_with(guard, l, &mut |from, to| Ok(guard.rename(from, to)?))
+}
+
+/// [`put_back`], with the move open to tests (which make it fail).
+pub(super) fn put_back_with(
+    guard: &WriteGuard,
+    l: &Layout,
+    mv: &mut dyn FnMut(&Path, &Path) -> Result<(), BundleError>,
+) -> Result<(), BundleError> {
+    let aside = l.swapping.join(DB_FILE_NAME);
+    let mut home: Vec<(PathBuf, PathBuf)> = Vec::new();
     for suffix in PIECES {
-        let from = piece(&l.swapping.join(DB_FILE_NAME), suffix);
+        let from = piece(&aside, suffix);
         let to = piece(&l.live, suffix);
         if exists(&from) && !exists(&to) {
-            guard.rename(&from, &to)?;
+            if let Err(error) = mv(&from, &to) {
+                if !exists(&l.live) {
+                    for (from, to) in home.iter().rev() {
+                        if mv(to, from).is_err() && exists(&aside) {
+                            if let Err(e) = remove(guard, to) {
+                                eprintln!("startup: a stray piece of the old Library stays: {e}");
+                            }
+                        }
+                    }
+                }
+                return Err(error);
+            }
+            home.push((from, to));
         }
     }
     Ok(())
