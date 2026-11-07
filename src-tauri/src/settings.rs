@@ -192,31 +192,35 @@ pub async fn feature_enabled(
 }
 
 /// Turns an optional feature on or off. Turning the local key on or off
-/// brings the `'local'` analysis rows in step at once, in the same
-/// transaction: the keys appear, or go.
+/// brings the `'local'` analysis rows in step at once: the keys appear, or
+/// go. The fold runs after the switch is saved, a page of tracks per writer
+/// call (nothing else waits for the whole Library), and asks for the search
+/// index, which the track table reads.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_feature_enabled(
     writer: State<'_, Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
     feature: Feature,
     on: bool,
 ) -> Result<(), IpcError> {
-    Ok(writer.call(move |c| switch_feature(c, feature, on))?)
+    Ok(set_feature(&writer, feature, on, |job| jobs.enqueue(job))?)
 }
 
-/// [`set_feature_enabled`]'s work.
-pub(crate) fn switch_feature(
-    conn: &mut Connection,
+/// [`set_feature_enabled`]'s work. The switch is saved first; a fold that
+/// stops part way is finished by the analyze job's next look
+/// ([`crate::estimate::request`]), which finds the rows out of step.
+pub(crate) fn set_feature<E: From<crate::db::DbError> + std::fmt::Debug>(
+    writer: &Writer,
     feature: Feature,
     on: bool,
-) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
-    write_feature_enabled(&tx, feature, on)?;
+    enqueue: impl FnOnce(crate::jobs::NewJob) -> Result<crate::jobs::JobId, E>,
+) -> Result<(), E> {
+    writer.call(move |c| write_feature_enabled(c, feature, on))?;
     if feature == Feature::LocalKey {
-        let range = read_bpm_range(&tx)?;
-        crate::estimate::ledger::sync(&tx, None, range)?;
+        crate::estimate::resync(writer, enqueue)?;
     }
-    tx.commit()
+    Ok(())
 }
 
 #[cfg(test)]

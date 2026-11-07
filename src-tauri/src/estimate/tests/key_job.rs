@@ -6,7 +6,11 @@ use super::job::{analyze_all, local_row, stored, track_of, walk_and_hash};
 use super::key::{progression, third_octave, RATE};
 use super::support::Library;
 use crate::estimate::compare::{self, agreement, Agreement, KeyAgreement};
-use crate::settings::{read_feature_enabled, switch_feature, Feature};
+use crate::estimate::ledger;
+use crate::estimate::request;
+use crate::estimate::support::queued;
+use crate::estimate::support::store_row;
+use crate::settings::{read_feature_enabled, set_feature, Feature};
 use crate::tags::key::{Mode, MusicalKey};
 
 /// A WAV of a chord progression in a key: about 16 s.
@@ -23,10 +27,13 @@ fn tonal(pitch_class: u8, mode: Mode) -> Vec<u8> {
 }
 
 fn switch(library: &Library, on: bool) {
-    library
-        .writer
-        .call(move |c| switch_feature(c, Feature::LocalKey, on))
-        .unwrap();
+    set_feature(
+        &library.writer,
+        Feature::LocalKey,
+        on,
+        store_row(&library.writer),
+    )
+    .unwrap();
 }
 
 /// How many `'local'` rows hold a key.
@@ -265,4 +272,182 @@ fn the_comparison_counts_each_kind_overall_and_per_genre_node() {
             (None, counts(1, 0, 0, 0, 1, 0)),
         ]
     );
+}
+
+// ---- the stale-key check -----------------------------------------------------
+
+fn any_stale(library: &Library) -> bool {
+    library.writer.call(|c| ledger::any_stale(c)).unwrap()
+}
+
+/// The analyze job's look at the Library: the rows folded again, no decode.
+fn look(library: &Library) {
+    request(&library.writer, None, store_row(&library.writer)).unwrap();
+    assert_eq!(queued(&library.writer, "analyze"), 0, "nothing to decode");
+}
+
+fn set_local_key(library: &Library, key: &'static str) {
+    library
+        .writer
+        .call(move |c| c.execute("UPDATE analysis SET key = ?1 WHERE source = 'local'", [key]))
+        .unwrap();
+}
+
+#[test]
+fn with_the_switch_on_a_local_key_that_is_not_the_files_is_stale_and_is_folded_again() {
+    let library = Library::new();
+    library.put("a.wav", &tonal(2, Mode::Major));
+    let ids = walk_and_hash(&library);
+    analyze_all(&library);
+    let track = track_of(&library, ids["a.wav"]);
+    switch(&library, true);
+    let d_major = MusicalKey {
+        pitch_class: 2,
+        mode: Mode::Major,
+    }
+    .to_camelot();
+    let (row_id, ..) = local_row(&library, track).unwrap();
+    assert_eq!(local_row(&library, track).unwrap().2, Some(d_major.clone()));
+    assert!(!any_stale(&library), "a clean fold is not stale");
+
+    // A relink or an undo leaves a key of another file.
+    set_local_key(&library, "1A");
+    assert!(any_stale(&library));
+    look(&library);
+    assert!(!any_stale(&library));
+    let (id, _, key, _) = local_row(&library, track).unwrap();
+    assert_eq!((id, key), (row_id, Some(d_major.clone())), "in place");
+
+    // A key the file has and the row lacks.
+    library
+        .writer
+        .call(|c| c.execute("DELETE FROM analysis WHERE source = 'local'", []))
+        .unwrap();
+    assert!(any_stale(&library));
+    look(&library);
+    assert!(!any_stale(&library));
+    assert_eq!(local_row(&library, track).unwrap().2, Some(d_major));
+    assert_eq!(analyze_all(&library), 0);
+}
+
+#[test]
+fn with_the_switch_off_any_local_key_is_stale_and_is_taken_out() {
+    let library = Library::new();
+    library.put("a.wav", &tonal(2, Mode::Major));
+    let ids = walk_and_hash(&library);
+    analyze_all(&library);
+    let track = track_of(&library, ids["a.wav"]);
+    assert!(!any_stale(&library), "the ledger's key alone is not stale");
+
+    // A key left by a direct write, the switch never having been flipped.
+    let row_id = local_row(&library, track).map(|r| r.0);
+    set_local_key(&library, "8A");
+    assert_eq!(local_keys(&library), 1);
+    assert!(any_stale(&library));
+    look(&library);
+    assert!(!any_stale(&library));
+    assert_eq!(local_keys(&library), 0);
+    assert_eq!(
+        local_row(&library, track).map(|r| r.0),
+        row_id,
+        "its BPM stays"
+    );
+
+    // A row holding only the key is given the file's BPM and loses the key.
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE analysis SET bpm = NULL, confidence = NULL, key = '8A'
+                 WHERE source = 'local'",
+                [],
+            )
+        })
+        .unwrap();
+    assert!(any_stale(&library));
+    look(&library);
+    let (_, bpm, key, _) = local_row(&library, track).unwrap();
+    assert_eq!((bpm.is_some(), key), (true, None));
+    assert!(!any_stale(&library));
+}
+
+// ---- the key of a long file and of a file measured again --------------------
+
+/// A progression in `intro`, loud, for 31 s, then one in `body` for 62 s at a
+/// quarter of the loudness: 93 s, so the first 30 s are left out.
+fn long_with_intro(intro: (u8, Mode), body: (u8, Mode)) -> Vec<u8> {
+    let mut audio = progression(third_octave(intro.0), intro.1, 7.75);
+    audio.extend(
+        progression(third_octave(body.0), body.1, 15.5)
+            .into_iter()
+            .map(|x| x * 0.25),
+    );
+    let samples = audio
+        .into_iter()
+        .map(|x| (x * 32_767.0).round() as i16)
+        .collect();
+    audio::wav(&audio::Pcm {
+        rate: RATE,
+        channels: 1,
+        samples,
+    })
+}
+
+#[test]
+fn a_file_over_90_seconds_is_keyed_without_its_first_30_seconds() {
+    let library = Library::new();
+    // F sharp major in the intro, which outweighs the rest if it counts; C
+    // major after it.
+    library.put(
+        "long.wav",
+        &long_with_intro((6, Mode::Major), (0, Mode::Major)),
+    );
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 1);
+    let row = stored(&library, ids["long.wav"]).unwrap();
+    assert!(row.analysed_ms.is_some_and(|ms| ms > 60_000), "{row:?}");
+    assert_eq!(
+        row.key,
+        Some(MusicalKey {
+            pitch_class: 0,
+            mode: Mode::Major
+        }),
+        "{row:?}"
+    );
+}
+
+#[test]
+fn a_file_measured_again_has_its_new_key_in_the_ledger_and_in_the_local_row() {
+    let library = Library::new();
+    library.put("a.wav", &tonal(2, Mode::Major));
+    let ids = walk_and_hash(&library);
+    analyze_all(&library);
+    let track = track_of(&library, ids["a.wav"]);
+    switch(&library, true);
+    let d_major = MusicalKey {
+        pitch_class: 2,
+        mode: Mode::Major,
+    };
+    let (row_id, _, key, _) = local_row(&library, track).unwrap();
+    assert_eq!(key, Some(d_major.to_camelot()));
+
+    // As if an older method had measured it and found G minor.
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE file_estimate SET method_version = ?1, key_pitch_class = 7,
+                     key_mode = 'minor', key_confidence = 0.5",
+                [i64::from(crate::estimate::VERSION) - 1],
+            )
+        })
+        .unwrap();
+    set_local_key(&library, "6A");
+    assert_eq!(analyze_all(&library), 1, "measured again");
+
+    let row = stored(&library, ids["a.wav"]).unwrap();
+    assert_eq!(row.key, Some(d_major), "{row:?}");
+    assert!(row.key_confidence.is_some_and(|c| c != 0.5), "{row:?}");
+    let (id, _, key, _) = local_row(&library, track).unwrap();
+    assert_eq!((id, key), (row_id, Some(d_major.to_camelot())));
 }

@@ -215,6 +215,51 @@ fn a_new_method_version_measures_again_and_updates_the_local_row_in_place() {
 }
 
 #[test]
+fn a_raised_version_keeps_the_local_bpm_until_the_new_measurement_replaces_it_in_place() {
+    let library = Library::new();
+    library.put("a.wav", &wav(128.0, 30.0));
+    let ids = walk_and_hash(&library);
+    analyze_all(&library);
+    let track = track_of(&library, ids["a.wav"]);
+    let (row_id, bpm, ..) = local_row(&library, track).unwrap();
+    assert!(near(bpm, 128.0));
+    // As if the method had been raised since: the file's ledger row is the
+    // old version's, and says something else.
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE file_estimate SET method_version = ?1, bpm = 61.0",
+                [i64::from(VERSION) - 1],
+            )
+        })
+        .unwrap();
+    let stale = |library: &Library| library.writer.call(|c| ledger::any_stale(c)).unwrap();
+    // Nothing takes the row away, however often the rows are folded again.
+    assert!(!stale(&library), "a waiting file is not a mismatch");
+    crate::estimate::resync(&library.writer, store_row(&library.writer)).unwrap();
+    crate::estimate::request(&library.writer, None, store_row(&library.writer)).unwrap();
+    let kept = local_row(&library, track).unwrap();
+    assert_eq!((kept.0, kept.1.map(|b| b.round())), (row_id, Some(128.0)));
+    assert!(library
+        .writer
+        .call(|c| crate::estimate::due(c, None))
+        .unwrap());
+
+    // The new measurement replaces it, in place.
+    assert_eq!(analyze_all(&library), 1);
+    let (again, bpm, ..) = local_row(&library, track).unwrap();
+    assert_eq!(again, row_id);
+    assert!(near(bpm, 128.0), "{bpm:?}");
+    let version: i64 = library
+        .writer
+        .call(|c| c.query_row("SELECT method_version FROM file_estimate", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(version, i64::from(VERSION));
+    assert!(!stale(&library));
+}
+
+#[test]
 fn a_bpm_from_rekordbox_hides_the_local_one_which_stays() {
     let library = Library::new();
     library.put("a.wav", &wav(128.0, 30.0));

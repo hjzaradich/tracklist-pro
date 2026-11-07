@@ -4,6 +4,7 @@
 // The profiles are from Sha'ath's 2011 thesis.
 // libKeyFinder is free software under the GNU General Public License,
 // version 3 or (at your option) any later version; so is this translation.
+// Translated to Rust and modified by the tracklist-pro contributors, 2026-11.
 
 //! Choosing the key: the chroma's cosine similarity with KeyFinder's major
 //! and minor profiles, turned to each of the 12 tonics; the best of the 24

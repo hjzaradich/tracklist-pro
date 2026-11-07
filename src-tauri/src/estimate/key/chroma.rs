@@ -5,6 +5,7 @@
 // Copyright 2011-2015 Ibrahim Sha'ath, and the Mixxx contributors.
 // libKeyFinder is free software under the GNU General Public License,
 // version 3 or (at your option) any later version; so is this translation.
+// Translated to Rust and modified by the tracklist-pro contributors, 2026-11.
 
 //! The chroma: how strong each of the 72 bands (six octaves of semitones,
 //! from C at 32.7 Hz) is, averaged over the window.

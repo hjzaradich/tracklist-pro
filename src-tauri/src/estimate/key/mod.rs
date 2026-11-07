@@ -3,6 +3,7 @@
 // Copyright 2011-2015 Ibrahim Sha'ath, and the Mixxx contributors.
 // libKeyFinder is free software under the GNU General Public License,
 // version 3 or (at your option) any later version; so is this translation.
+// Translated to Rust and modified by the tracklist-pro contributors, 2026-11.
 
 //! The app's own key estimate (ROADMAP 3.7, "Key"): libKeyFinder's method
 //! (Mixxx's key detector), translated into Rust. Owner decision 2026-11-06.

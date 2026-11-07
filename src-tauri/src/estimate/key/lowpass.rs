@@ -5,6 +5,7 @@
 // libKeyFinder's filter is based on the work of Tony Fisher (mkfilter).
 // libKeyFinder is free software under the GNU General Public License,
 // version 3 or (at your option) any later version; so is this translation.
+// Translated to Rust and modified by the tracklist-pro contributors, 2026-11.
 
 //! The low-pass filter and the downsampling before the spectrum: the audio,
 //! mixed to mono, loses everything above the top of the chroma range and is
