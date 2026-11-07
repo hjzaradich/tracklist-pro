@@ -738,6 +738,7 @@ Polish on top of the Phase 1 first run (1.3):
   - DB stats and schema version
   - recent job failures
   - a preview of exactly what's included, with paths and track names redacted by default
+- **Built (3C, PR 203):** Settings → Diagnostics. The app keeps a small event log in its own folder (the last 2,000 events or about 1 MB, appended, crash-safe) with only fixed fields: time, event kind (jobs, rekordbox reads, sends, startup), job kind, a reason code, counts and durations, never message text, paths, names or keys. "Create report" builds a text report from a fixed list (app and OS version, schema version, counts, job and read status by reason, optional features on or off, recent events), shows exactly that text first, saves it in the app's folder (the newest five kept) and offers Copy. Nothing is sent, uploaded or opened. Stricter than above: track names and paths are never included, not just redacted by default; a free-text log is a later decision.
 - **Complexity:** S–M.
 
 #### 4.4 Docs & community
