@@ -256,18 +256,16 @@ fn order_survives_a_send_the_xml_lists_the_tracks_in_position_order_repeats_kept
     assert_eq!(lib.tracks_of(arc), expected);
 
     let out = send(&lib, &[]);
-    assert_eq!(sent_names(out.xml(), &["Playlists", "Arc"]), named(&expected));
+    assert_eq!(
+        sent_names(out.xml(), &["Playlists", "Arc"]),
+        named(&expected)
+    );
     // An empty playlist goes out empty, under Playlists too.
     assert_eq!(sent_names(out.xml(), &["Playlists", "Later"]), named(&[]));
     assert!(lib.order(empty).is_empty());
     // The app owns the Playlists folder: the after-send list sees them as its own.
-    let app = lib
-        .writer
-        .call(|c| crate::after_send::app_tree(c))
-        .unwrap();
-    let read = crate::after_send::RekordboxTree::from_xml(
-        &RekordboxXml::parse(out.xml()).unwrap(),
-    );
+    let app = lib.writer.call(|c| crate::after_send::app_tree(c)).unwrap();
+    let read = crate::after_send::RekordboxTree::from_xml(&RekordboxXml::parse(out.xml()).unwrap());
     let recorded = crate::after_send::Recorded::of(
         &["Playlists", "Arc"],
         crate::after_send::StaleKind::Playlist,
@@ -355,7 +353,8 @@ fn reorder_moves_entries_as_one_operation_and_undo_restores_the_order_exactly() 
     lib.call(move |c| move_on(c, arc, &[ea], None)).unwrap();
     assert_eq!(lib.tracks_of(arc), [t[1], t[3], t[2], t[4], t[0]]);
     let ee = e[4];
-    lib.call(move |c| move_on(c, arc, &[eb, ee], Some(ee))).unwrap();
+    lib.call(move |c| move_on(c, arc, &[eb, ee], Some(ee)))
+        .unwrap();
     assert_eq!(lib.tracks_of(arc), [t[3], t[2], t[1], t[4], t[0]]);
 
     // Undo, step by step, back to where it started, every row as it was.
@@ -399,7 +398,10 @@ fn deleting_a_playlist_deletes_its_entries_and_undo_brings_both_back() {
     assert!(deleted.is_some());
     assert!(lib.rows("SELECT * FROM playlist").is_empty());
     assert!(lib.rows("SELECT * FROM playlist_entry").is_empty());
-    assert_eq!(lib.rows("SELECT count(*) FROM library_track"), [["Integer(2)"]]);
+    assert_eq!(
+        lib.rows("SELECT count(*) FROM library_track"),
+        [["Integer(2)"]]
+    );
     assert_eq!(lib.undo(), DELETE_OPERATION);
     assert_eq!(lib.state(), before);
     assert!(matches!(
@@ -415,15 +417,26 @@ fn a_name_is_trimmed_and_never_one_a_send_would_refuse() {
     assert_eq!(lib.call(|c| Ok(list(c)?))[0].name, "Arc");
     let taken = |name: &'static str| lib.call(move |c| create_on(c, name));
     // The writer's sibling rule: letter case and trailing space don't count.
-    assert!(matches!(taken("arc"), Err(PlaylistsError::NameTaken { existing }) if existing == "Arc"));
+    assert!(
+        matches!(taken("arc"), Err(PlaylistsError::NameTaken { existing }) if existing == "Arc")
+    );
     // The tag playlists' folder sits beside them.
-    assert!(matches!(taken("TAGS"), Err(PlaylistsError::NameTaken { .. })));
+    assert!(matches!(
+        taken("TAGS"),
+        Err(PlaylistsError::NameTaken { .. })
+    ));
     assert!(matches!(taken("   "), Err(PlaylistsError::NameEmpty)));
-    assert!(matches!(taken("Bad\u{1}"), Err(PlaylistsError::NameUnsendable)));
+    assert!(matches!(
+        taken("Bad\u{1}"),
+        Err(PlaylistsError::NameUnsendable)
+    ));
 
     // Renaming: to its own name in another case is fine, to another's not.
     let other = lib.create("Other");
-    assert!(lib.call(move |c| rename_on(c, arc, "ARC")).unwrap().is_some());
+    assert!(lib
+        .call(move |c| rename_on(c, arc, "ARC"))
+        .unwrap()
+        .is_some());
     assert!(matches!(
         lib.call(move |c| rename_on(c, other, "arc")),
         Err(PlaylistsError::NameTaken { .. })
@@ -450,7 +463,9 @@ fn save_as_crate_makes_a_crate_of_each_track_once_and_undo_takes_it_away() {
     lib.add(arc, &[t[2], t[0], t[2], t[1]], None);
     let before = lib.state();
 
-    let crate_id = lib.call(move |c| save_as_crate_on(c, arc, "Arc crate")).unwrap();
+    let crate_id = lib
+        .call(move |c| save_as_crate_on(c, arc, "Arc crate"))
+        .unwrap();
     let mut held = lib
         .writer
         .call(move |c| crate::crates::track_ids(c, crate_id))
@@ -464,7 +479,7 @@ fn save_as_crate_makes_a_crate_of_each_track_once_and_undo_takes_it_away() {
     assert_eq!(lib.state(), before);
 
     // The crate's own name rules apply.
-    lib.call(|c| Ok(crate::crates::create_on(c, "Taken")?)).unwrap();
+    lib.call(|c| crate::crates::create_on(c, "Taken")).unwrap();
     assert!(matches!(
         lib.call(move |c| save_as_crate_on(c, arc, "taken")),
         Err(PlaylistsError::Crate(CratesError::NameTaken { .. }))
@@ -475,9 +490,7 @@ fn save_as_crate_makes_a_crate_of_each_track_once_and_undo_takes_it_away() {
 fn a_playlist_from_a_crate_takes_the_order_given_then_the_rest_and_undo_takes_it_away() {
     let lib = Lib::new();
     let t = lib.tracks(&["a", "b", "c", "d"]);
-    let crate_id = lib
-        .call(|c| Ok(crate::crates::create_on(c, "Crate")?))
-        .unwrap();
+    let crate_id = lib.call(|c| crate::crates::create_on(c, "Crate")).unwrap();
     let members = vec![t[0], t[1], t[2]];
     lib.call(move |c| crate::crates::add_on(c, crate_id, &members))
         .unwrap();
@@ -560,7 +573,7 @@ fn the_view_lists_every_entry_in_order_with_its_row() {
 /// An export whose playlist "Folder/Set" lists TrackIDs 3, 1, 2, 1, 4 and a
 /// key no track has; with `reversed`, the other way round.
 fn export(reversed: bool) -> String {
-    let mut keys = vec!["3", "1", "2", "1", "4", "99"];
+    let mut keys = ["3", "1", "2", "1", "4", "99"];
     if reversed {
         keys.reverse();
     }
@@ -622,7 +635,10 @@ fn a_rekordbox_playlist_becomes_an_app_playlist_in_rekordboxs_order_library_trac
     assert_eq!(lib.state(), before);
 
     // A probable match isn't trusted.
-    lib.run("UPDATE rekordbox_track SET relink_probable = 1 WHERE track_id = 3", ());
+    lib.run(
+        "UPDATE rekordbox_track SET relink_probable = 1 WHERE track_id = 3",
+        (),
+    );
     let copied = lib.copy(&["Folder", "Set"], "Set").unwrap();
     assert_eq!(lib.tracks_of(copied.playlist_id), [a, b, a]);
 
@@ -651,7 +667,10 @@ fn a_new_read_never_changes_a_copied_playlist_and_copying_again_makes_another() 
         lib.matched(track_id, file);
     }
     assert_eq!(lib.state(), kept);
-    let again = lib.copy(&["Folder", "Set"], "Set again").unwrap().playlist_id;
+    let again = lib
+        .copy(&["Folder", "Set"], "Set again")
+        .unwrap()
+        .playlist_id;
     assert_ne!(again, first);
     assert_eq!(lib.tracks_of(again), [a, b, a, c]);
     assert_eq!(lib.tracks_of(first), [c, a, b, a]);
@@ -669,7 +688,13 @@ fn every_read_replaces_rekordboxs_playlists_with_their_order() {
     lib.read(&export(false));
     let ids = |s: &[&str]| -> Vec<String> {
         s.iter()
-            .map(|v| if *v == "-" { "Null".to_owned() } else { format!("Integer({v})") })
+            .map(|v| {
+                if *v == "-" {
+                    "Null".to_owned()
+                } else {
+                    format!("Integer({v})")
+                }
+            })
             .collect()
     };
     assert_eq!(stored(&lib), ids(&["3", "1", "2", "1", "4", "-"]));
@@ -677,7 +702,10 @@ fn every_read_replaces_rekordboxs_playlists_with_their_order() {
     assert_eq!(stored(&lib), ids(&["-", "4", "1", "2", "1", "3"]));
     // The snapshot is only replaced, never edited.
     let edited = lib.writer.call(|c| {
-        Ok(c.execute("UPDATE rekordbox_playlist_entry SET position = 9 WHERE id = 1", []))
+        Ok(c.execute(
+            "UPDATE rekordbox_playlist_entry SET position = 9 WHERE id = 1",
+            [],
+        ))
     });
     assert!(edited.unwrap().is_err());
 }

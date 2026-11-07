@@ -312,11 +312,9 @@ fn a_database_read_keeps_each_playlists_order_and_an_app_playlist_copied_from_it
     let stored: Vec<(String, i64, Option<i64>)> = fx
         .writer
         .call(|c| {
-            c.prepare(
-                "SELECT path, position, track_id FROM rekordbox_playlist_entry ORDER BY id",
-            )?
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect()
+            c.prepare("SELECT path, position, track_id FROM rekordbox_playlist_entry ORDER BY id")?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect()
         })
         .unwrap();
     let path = r#"["Folder","Peak time"]"#.to_owned();

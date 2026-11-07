@@ -316,7 +316,10 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     // Play history: sessions and their plays (3B-H1).
     ("0051_play_history.sql", &["play_event", "session"]),
     // Playlists and their entries, and rekordbox's playlists in order as of the last read (3C-P1a).
-    ("0052_playlist.sql", &["playlist", "playlist_entry", "rekordbox_playlist_entry"]),
+    (
+        "0052_playlist.sql",
+        &["playlist", "playlist_entry", "rekordbox_playlist_entry"],
+    ),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

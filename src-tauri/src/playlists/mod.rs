@@ -140,7 +140,9 @@ pub enum PlaylistsError {
     NameEmpty,
     /// Another playlist (or the `Tags` folder) has this name; `existing` is
     /// that one's name as stored.
-    NameTaken { existing: String },
+    NameTaken {
+        existing: String,
+    },
     /// The name holds a character XML can't carry.
     NameUnsendable,
     /// The newest rekordbox read has no playlist with entries at that path.

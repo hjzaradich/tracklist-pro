@@ -55,9 +55,7 @@ pub fn rekordbox_playlists(conn: &Connection) -> rusqlite::Result<Vec<RekordboxP
                                   GROUP BY path)
          GROUP BY playlist_index ORDER BY playlist_index",
     )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?))
-    })?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?)))?;
     let mut out = Vec::new();
     for row in rows {
         let (path, entries) = row?;
