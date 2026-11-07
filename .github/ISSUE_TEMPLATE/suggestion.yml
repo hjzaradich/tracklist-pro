@@ -1,0 +1,29 @@
+name: Suggestion
+description: Teach the app a pattern, a name or a genre spelling
+labels: ["suggestion"]
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: What kind of suggestion
+      options:
+        - Version-parser pattern
+        - Pool naming
+        - Genre alias
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Your suggestion
+      description: For a pattern, give an example file name and what the app should read from it. For a genre alias, give the spelling and the genre it belongs to.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What goes wrong today, if anything.
+    validations:
+      required: false

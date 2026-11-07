@@ -13,7 +13,7 @@ Early. Not ready for use.
 - Keeps a Library that stays in step with rekordbox through its XML import and export.
 - Never moves, renames, retags or deletes your music.
 
-The plan is in [ROADMAP.md](ROADMAP.md).
+How to use it: the [user guide](docs/guide.md). How to install it, including the Windows "protected your PC" warning: [installing](docs/installing.md). The plan is in [ROADMAP.md](ROADMAP.md).
 
 ## License
 
@@ -28,14 +28,14 @@ rekordbox, AlphaTheta, Pioneer DJ and the other product names here are trademark
 - No telemetry: the app never sends usage data or analytics.
 - Every online service is off until you turn it on, one by one.
 - Your music stays on your computer. The app never uploads audio.
+- Every request goes through one gate that only talks to the services below, at the addresses listed, and only when you've turned that service on.
 - What each service receives:
-  - **MusicBrainz:** the title, artist or ID it's looking up.
-  - **AcoustID:** an audio fingerprint and the track's length (not the audio).
-  - **Discogs and Spotify:** the searches or playlists you ask for, using your own key.
-  - **Cover Art Archive:** the release it's fetching art for.
-  - **Update checks:** the app's version.
-  - **Model downloads:** a request for the model file.
+  - **MusicBrainz** (musicbrainz.org): the title, artist or ID it's looking up.
+  - **Discogs** (api.discogs.com): the search you ask for, with your own token.
+  - **Cover Art Archive** (coverartarchive.org, and archive.org where it hands images over): the release it's fetching art for.
+  - **Update checks** and **model downloads**: the gate has an on/off switch for each, but no address is set yet, so every request to them is refused.
 - Every request also carries the app's name and version, and your IP address reaches the service, as with any website.
+- More services will be listed here before they are added.
 
 Right now no feature contacts any service.
 
