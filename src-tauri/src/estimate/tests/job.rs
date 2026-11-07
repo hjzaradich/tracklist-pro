@@ -2,16 +2,20 @@
 //! the real hash stage.
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 
 use super::support::{wait, Library, TempVolume};
 use super::{audio, clicks, silence};
 use crate::estimate::ledger::{self, Stored};
+use crate::estimate::support::{queued, store_row};
 use crate::estimate::{analyze_job, Analyzer, PRIORITY, VERSION};
-use crate::hash::Hasher;
-use crate::jobs::{JobKind, JobQueue, JobStatus, Priority};
-use crate::scan::walk::Walker;
+use crate::hash::{hash_job, Hasher};
+use crate::jobs::{JobContext, JobError, JobKind, JobQueue, JobStatus, NewJob, Priority};
+use crate::scan::walk::{scan_job, Walker};
+use crate::settings::BpmRange;
 use crate::waveform::tests::join_library_for_test;
 
 const RATE: u32 = 22_050;
@@ -297,4 +301,451 @@ fn the_job_runs_at_the_waveform_jobs_priority_the_lowest_there_is() {
     assert_eq!(analyze_job().priority, PRIORITY);
     assert_eq!(PRIORITY, crate::waveform::PRIORITY);
     assert!(PRIORITY < Priority::BACKGROUND);
+}
+
+// ---- keeping the local rows right -----------------------------------------
+
+/// A time to wait for a job that should finish.
+const PATIENCE: Duration = Duration::from_secs(60);
+
+fn count(library: &Library, sql: &'static str) -> i64 {
+    library
+        .writer
+        .call(move |c| c.query_row(sql, [], |r| r.get(0)))
+        .unwrap()
+}
+
+/// Two measured files, a at 128 and b at 87 (shown as 174), and their tracks.
+fn two_measured() -> (Library, BTreeMap<String, i64>, i64, i64) {
+    let library = Library::new();
+    library.put("a.wav", &wav(128.0, 30.0));
+    library.put("b.wav", &wav(87.0, 30.0));
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 2);
+    let (ta, tb) = (
+        track_of(&library, ids["a.wav"]),
+        track_of(&library, ids["b.wav"]),
+    );
+    (library, ids, ta, tb)
+}
+
+fn ask(library: &Library) {
+    crate::estimate::request(&library.writer, None, store_row(&library.writer)).unwrap();
+}
+
+fn is_stale(library: &Library) -> bool {
+    library.writer.call(|c| ledger::any_stale(c)).unwrap()
+}
+
+#[test]
+fn a_relink_onto_a_file_already_measured_shows_that_files_bpm_at_once_without_a_decode() {
+    let (library, ids, ta, _tb) = two_measured();
+    let (row_id, bpm, ..) = local_row(&library, ta).unwrap();
+    assert!(near(bpm, 128.0));
+    assert!(!is_stale(&library));
+
+    // The relink points the track at the other, measured, file.
+    let b = ids["b.wav"];
+    library
+        .writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE library_track SET linked_file_id = ?1 WHERE recording_id = ?2",
+                [b, ta],
+            )
+        })
+        .unwrap();
+    assert!(is_stale(&library), "still shows the old file's BPM");
+    assert!(near(local_row(&library, ta).unwrap().1, 128.0));
+
+    ask(&library);
+    let (again, bpm, ..) = local_row(&library, ta).unwrap();
+    assert_eq!(again, row_id, "the same row, updated in place");
+    assert!(near(bpm, 174.0), "{bpm:?}");
+    assert!(!is_stale(&library));
+    assert_eq!(
+        queued(&library.writer, "analyze"),
+        0,
+        "there is nothing to measure"
+    );
+    assert_eq!(queued(&library.writer, "index"), 1, "the table is rebuilt");
+    // Asking again changes nothing and queues nothing more.
+    ask(&library);
+    assert_eq!(queued(&library.writer, "index"), 1);
+}
+
+#[test]
+fn a_relink_onto_a_file_not_measured_yet_drops_the_old_bpm_and_asks_for_the_job() {
+    let (library, ids, ta, _tb) = two_measured();
+    let b = ids["b.wav"];
+    library
+        .writer
+        .call(move |c| {
+            c.execute("DELETE FROM file_estimate WHERE file_id = ?1", [b])?;
+            c.execute(
+                "UPDATE library_track SET linked_file_id = ?1 WHERE recording_id = ?2",
+                [b, ta],
+            )
+        })
+        .unwrap();
+    ask(&library);
+    assert_eq!(local_row(&library, ta), None, "no BPM beats the wrong one");
+    assert_eq!(queued(&library.writer, "analyze"), 1);
+    // The job measures it and the track shows the file's own.
+    assert_eq!(analyze_all(&library), 1);
+    assert!(near(local_row(&library, ta).unwrap().1, 174.0));
+}
+
+#[test]
+fn audio_replaced_in_place_is_measured_again_and_the_row_follows() {
+    let library = Library::new();
+    let path = library.put("Swapped.wav", &wav(128.0, 30.0));
+    let ids = walk_and_hash(&library);
+    let id = ids["Swapped.wav"];
+    assert_eq!(analyze_all(&library), 1);
+    let track = track_of(&library, id);
+    let (row_id, bpm, ..) = local_row(&library, track).unwrap();
+    assert!(near(bpm, 128.0));
+
+    fs::write(&path, wav(87.0, 30.0)).unwrap();
+    {
+        let queue = queue(&library, analyzer(&library));
+        for job in [scan_job(None), hash_job(None)] {
+            let job = queue.enqueue(job).unwrap();
+            assert_eq!(wait(&library.writer, job).status, JobStatus::Done);
+        }
+        queue.shutdown();
+    }
+    // The stored answer is of the old audio: not current, and due.
+    assert_eq!(stored(&library, id), None);
+    assert!(is_stale(&library));
+    assert_eq!(analyze_all(&library), 1, "other audio is measured again");
+    let (again, bpm, ..) = local_row(&library, track).unwrap();
+    assert_eq!(again, row_id, "the same row, updated in place");
+    assert!(near(bpm, 174.0), "{bpm:?}");
+    assert_eq!(count(&library, "SELECT count(*) FROM file_estimate"), 1);
+    let row_hash: Vec<u8> = library
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT audio_hash FROM file_estimate WHERE file_id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert_eq!(row_hash, library.audio_hash(id));
+}
+
+#[test]
+fn a_run_asks_for_the_index_and_the_track_table_shows_the_new_bpm() {
+    let library = Library::new();
+    library.put("a.wav", &wav(128.0, 30.0));
+    let ids = walk_and_hash(&library);
+    let track = track_of(&library, ids["a.wav"]);
+    let volume = library.volume.clone();
+    let queue = JobQueue::builder(library.writer.clone())
+        .workers(1)
+        .handler(JobKind::Analyze, analyzer(&library))
+        .handler(
+            JobKind::Index,
+            crate::search::indexer_with(move || volume.clone(), 100),
+        )
+        .start()
+        .unwrap();
+    let job = queue.enqueue(analyze_job()).unwrap();
+    assert_eq!(wait(&library.writer, job).status, JobStatus::Done);
+    let index: Vec<i64> = library
+        .writer
+        .call(|c| {
+            let mut s = c.prepare("SELECT id FROM job WHERE kind = 'index'")?;
+            let rows = s.query_map([], |r| r.get(0))?;
+            rows.collect()
+        })
+        .unwrap();
+    assert_eq!(index.len(), 1, "the run asked for the index");
+    for id in index {
+        assert_eq!(
+            wait(&library.writer, crate::jobs::JobId(id)).status,
+            JobStatus::Done
+        );
+    }
+    queue.shutdown();
+    let in_table: Option<f64> = library
+        .writer
+        .call(move |c| {
+            c.query_row(
+                "SELECT bpm FROM track_row WHERE recording_id = ?1",
+                [track],
+                |r| r.get(0),
+            )
+        })
+        .unwrap();
+    assert!(near(in_table, 128.0), "{in_table:?}");
+}
+
+#[test]
+fn setting_the_bpm_range_folds_every_estimate_again_without_a_decode() {
+    let library = Library::new();
+    library.put("b.wav", &wav(87.0, 30.0));
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 1);
+    let track = track_of(&library, ids["b.wav"]);
+    assert!(near(local_row(&library, track).unwrap().1, 174.0));
+
+    let range = BpmRange::new(70.0, 140.0).unwrap();
+    crate::estimate::set_bpm_range(&library.writer, range, store_row(&library.writer)).unwrap();
+    assert!(near(local_row(&library, track).unwrap().1, 87.0));
+    assert_eq!(queued(&library.writer, "index"), 1);
+    assert_eq!(
+        analyze_all(&library),
+        0,
+        "the ledger kept the detector's answer"
+    );
+    assert!(near(local_row(&library, track).unwrap().1, 87.0));
+    // And back.
+    crate::estimate::set_bpm_range(
+        &library.writer,
+        crate::settings::DEFAULT_BPM_RANGE,
+        store_row(&library.writer),
+    )
+    .unwrap();
+    assert!(near(local_row(&library, track).unwrap().1, 174.0));
+}
+
+#[test]
+fn the_end_of_run_sync_goes_a_page_of_tracks_at_a_time() {
+    let (library, _ids, ta, tb) = two_measured();
+    let range = crate::settings::DEFAULT_BPM_RANGE;
+    let clear = |library: &Library| {
+        library
+            .writer
+            .call(|c| c.execute("DELETE FROM analysis WHERE source = 'local'", []))
+            .unwrap()
+    };
+    clear(&library);
+    let page = |after: i64| {
+        library
+            .writer
+            .call(move |c| ledger::sync_page(c, None, after, 1, range))
+            .unwrap()
+    };
+    let (first, second) = (ta.min(tb), ta.max(tb));
+    assert_eq!(page(0), (1, Some(first)), "one track per page");
+    assert!(local_row(&library, first).is_some());
+    assert!(local_row(&library, second).is_none());
+    assert_eq!(page(first), (1, Some(second)));
+    assert_eq!(page(second), (0, None), "the last page is empty");
+    assert!(local_row(&library, second).is_some());
+
+    clear(&library);
+    assert_eq!(
+        crate::estimate::sync_all(&library.writer, range).unwrap(),
+        2,
+        "all of them, over however many pages"
+    );
+}
+
+// ---- making way, the same audio, a cancel while decoding ---------------------
+
+#[test]
+fn files_that_hold_the_very_same_audio_are_decoded_once_and_share_the_estimate() {
+    let library = Library::new();
+    let bytes = wav(128.0, 30.0);
+    library.put("a.wav", &bytes);
+    library.put("Copy/b.wav", &bytes);
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 1, "decoded once");
+    let (a, b) = (ids["a.wav"], ids["Copy/b.wav"]);
+    assert_eq!(stored(&library, a), stored(&library, b));
+    assert!(stored(&library, a).unwrap().bpm.is_some());
+    for file in [a, b] {
+        assert!(near(
+            local_row(&library, track_of(&library, file)).unwrap().1,
+            128.0
+        ));
+    }
+}
+
+/// A queue of three workers that runs analyze jobs and one other kind of
+/// job, `Export` (a higher priority than the estimates), whose handler is
+/// `export`.
+fn queue_with_a_blocking_job(
+    library: &Library,
+    analyzer: Analyzer<TempVolume>,
+    export: impl Fn(&JobContext) -> Result<(), JobError> + Send + Sync + 'static,
+) -> JobQueue {
+    JobQueue::builder(library.writer.clone())
+        .workers(3)
+        .handler(JobKind::Analyze, analyzer)
+        .handler(JobKind::Export, export)
+        .start()
+        .unwrap()
+}
+
+#[test]
+fn the_job_gives_its_thread_back_and_waits_while_a_job_of_higher_priority_is_running() {
+    let library = Library::new();
+    for (i, name) in ["a.wav", "b.wav", "c.wav"].into_iter().enumerate() {
+        library.put(name, &wav(100.0 + 10.0 * i as f64, 30.0));
+    }
+    walk_and_hash(&library);
+
+    let taken = Arc::new(AtomicUsize::new(0));
+    let (counted, first_up) = (taken.clone(), library.first.clone());
+    // Taking the first file: the thread is held. Hold the job there until
+    // the test has started the other job.
+    let (holding, held) = mpsc::channel::<usize>();
+    let (go, going) = mpsc::channel::<()>();
+    let going = Mutex::new(going);
+    let (paused, pause_seen) = mpsc::channel::<()>();
+    let paused = Mutex::new(paused);
+    let handler = analyzer(&library)
+        .budget(1)
+        .on_file(move |_| {
+            if counted.fetch_add(1, Ordering::SeqCst) == 0 {
+                holding.send(first_up.busy()).unwrap();
+                going.lock().unwrap().recv_timeout(PATIENCE).unwrap();
+            }
+        })
+        .on_pause(move || {
+            paused.lock().unwrap().send(()).ok();
+        });
+    let (up, export_up) = mpsc::channel();
+    let up = Mutex::new(up);
+    let (release, released) = mpsc::channel::<()>();
+    let released = Mutex::new(released);
+    let blocking = move |_: &JobContext| {
+        up.lock().unwrap().send(()).ok();
+        released
+            .lock()
+            .unwrap()
+            .recv_timeout(PATIENCE)
+            .map_err(|_| JobError::failed("never released"))
+    };
+    let queue = queue_with_a_blocking_job(&library, handler, blocking);
+
+    let job = queue.enqueue(analyze_job()).unwrap();
+    assert_eq!(
+        held.recv_timeout(PATIENCE).unwrap(),
+        1,
+        "it holds the thread"
+    );
+    // A job that outranks it starts running.
+    let export = queue
+        .enqueue(NewJob::new(JobKind::Export).priority(Priority::USER))
+        .unwrap();
+    export_up.recv_timeout(PATIENCE).unwrap();
+    go.send(()).unwrap();
+
+    // It finishes the file it has, then gives the thread back and waits.
+    pause_seen.recv_timeout(PATIENCE).unwrap();
+    assert_eq!(
+        library.first.busy(),
+        0,
+        "the thread went back to the budget"
+    );
+    assert_eq!(
+        taken.load(Ordering::SeqCst),
+        1,
+        "and no other file was taken"
+    );
+    assert_eq!(count(&library, "SELECT count(*) FROM file_estimate"), 1);
+
+    // The other job ends: the estimates carry on.
+    release.send(()).unwrap();
+    assert_eq!(wait(&library.writer, export).status, JobStatus::Done);
+    assert_eq!(wait(&library.writer, job).status, JobStatus::Done);
+    queue.shutdown();
+    assert_eq!(taken.load(Ordering::SeqCst), 3);
+    assert_eq!(count(&library, "SELECT count(*) FROM file_estimate"), 3);
+    assert_eq!(library.first.busy(), 0);
+}
+
+#[test]
+fn the_job_makes_way_for_a_waiting_job_of_higher_priority_and_queues_the_rest() {
+    let library = Library::new();
+    for (i, name) in ["a.wav", "b.wav", "c.wav"].into_iter().enumerate() {
+        library.put(name, &wav(100.0 + 10.0 * i as f64, 30.0));
+    }
+    walk_and_hash(&library);
+    let taken = Arc::new(AtomicUsize::new(0));
+    let (counted, writer) = (taken.clone(), library.writer.clone());
+    // While the first file is taken, a job the user asked for is queued
+    // (the single worker is busy, so it waits).
+    let handler = analyzer(&library).on_file(move |_| {
+        if counted.fetch_add(1, Ordering::SeqCst) == 0 {
+            writer
+                .call(|c| c.execute("INSERT INTO job (kind, priority) VALUES ('export', 10)", []))
+                .unwrap();
+        }
+    });
+    // The one worker takes the job that outranks it next; it holds the
+    // worker, so what the analyze job queued behind it can be seen waiting.
+    let (up, export_up) = mpsc::channel();
+    let up = Mutex::new(up);
+    let (release, released) = mpsc::channel::<()>();
+    let released = Mutex::new(released);
+    let blocking = move |_: &JobContext| {
+        up.lock().unwrap().send(()).ok();
+        released
+            .lock()
+            .unwrap()
+            .recv_timeout(PATIENCE)
+            .map_err(|_| JobError::failed("never released"))
+    };
+    let queue = JobQueue::builder(library.writer.clone())
+        .workers(1)
+        // As the app registers it: the wrapper runs a job once more when it
+        // asked for that while it ran.
+        .handler(JobKind::Analyze, crate::scan::chain::after_analyze(handler))
+        .handler(JobKind::Export, blocking)
+        .start()
+        .unwrap();
+    let job = queue.enqueue(analyze_job()).unwrap();
+    assert_eq!(wait(&library.writer, job).status, JobStatus::Done);
+    export_up.recv_timeout(PATIENCE).unwrap();
+    assert_eq!(taken.load(Ordering::SeqCst), 1, "it stopped after one file");
+    assert_eq!(
+        count(&library, "SELECT count(*) FROM file_estimate"),
+        1,
+        "and kept what it had done"
+    );
+    // Queued as the job ends, behind the one that holds the worker.
+    let start = std::time::Instant::now();
+    while queued(&library.writer, "analyze") == 0 {
+        assert!(
+            start.elapsed() < PATIENCE,
+            "the rest was never queued again"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(queued(&library.writer, "analyze"), 1);
+    release.send(()).unwrap();
+    queue.shutdown();
+}
+
+#[test]
+fn a_cancel_while_a_file_is_decoding_stops_it_and_stores_nothing_for_it() {
+    let library = Library::new();
+    library.put("a.wav", &wav(128.0, 60.0));
+    let ids = walk_and_hash(&library);
+    let (at_decode, decoding) = mpsc::channel();
+    let (go, wait_for_go) = mpsc::channel::<()>();
+    let (at_decode, wait_for_go) = (Mutex::new(at_decode), Mutex::new(wait_for_go));
+    let handler = analyzer(&library).on_decode(move |_| {
+        at_decode.lock().unwrap().send(()).unwrap();
+        wait_for_go.lock().unwrap().recv().unwrap();
+    });
+    let queue = queue(&library, handler);
+    let job = queue.enqueue(analyze_job()).unwrap();
+    decoding.recv_timeout(PATIENCE).unwrap();
+    queue.cancel(job).unwrap();
+    go.send(()).unwrap();
+    assert_eq!(wait(&library.writer, job).status, JobStatus::Cancelled);
+    queue.shutdown();
+    assert_eq!(stored(&library, ids["a.wav"]), None);
+    assert_eq!(local_row(&library, track_of(&library, ids["a.wav"])), None);
+    // Not recorded as unreadable either: the next run measures it.
+    assert_eq!(analyze_all(&library), 1);
 }

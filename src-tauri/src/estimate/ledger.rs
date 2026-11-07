@@ -117,9 +117,8 @@ pub(crate) fn due(conn: &Connection, id: i64) -> rusqlite::Result<Option<Due>> {
 
 /// Whether the job has anything to do now: a Library track's file due a
 /// measurement (one the OneDrive gate allows, in the `reachable` music
-/// folders if given), or a Library track whose file has a BPM measured and
-/// no `'local'` row to show it (a relink or a merge put an analysed file
-/// under it).
+/// folders if given), or a Library track whose `'local'` row doesn't match
+/// what the ledger has for the file it shows ([`any_stale`]).
 pub(crate) fn any_due(
     conn: &Connection,
     allows_online_only: bool,
@@ -138,14 +137,42 @@ fn any_due_sql() -> String {
                           AND (?2 IS NULL OR f.music_folder_id IN (SELECT value FROM json_each(?2)))
                           AND f.id IN (SELECT {shown} FROM library_track lt)
                           AND {HASH_CURRENT} AND {NOT_MEASURED})
-             OR EXISTS (SELECT 1 FROM library_track lt
-                        JOIN file f ON f.id = {shown}
-                        JOIN file_estimate e ON e.file_id = f.id AND e.audio_hash = f.audio_hash
-                                            AND e.method_version = ?VERSION
-                        WHERE e.bpm IS NOT NULL
-                          AND NOT EXISTS (SELECT 1 FROM analysis a
-                                          WHERE a.recording_id = lt.recording_id
-                                            AND a.source = 'local' AND a.bpm IS NOT NULL))"
+             OR {STALE}",
+        STALE = stale_sql()
+    )
+}
+
+/// Whether a Library track's `'local'` row disagrees with the ledger's
+/// entry for the file the track shows now: a BPM row where the file has
+/// none, no BPM row where it has one, or a BPM row of another measurement.
+/// A relink, a merge or an undo can leave any of these, since they change
+/// the file a track shows without touching its `'local'` row. The row is
+/// identified by its confidence, which is stored as the detector gave it
+/// and so tells one measurement from another (a change of the BPM range is
+/// not seen here: setting the range folds the rows again,
+/// [`super::set_bpm_range`]).
+pub(crate) fn any_stale(conn: &Connection) -> rusqlite::Result<bool> {
+    conn.prepare_cached(&sql(&format!("SELECT {}", stale_sql())))?
+        .query_row([], |r| r.get(0))
+}
+
+/// The condition of [`any_stale`], as an `EXISTS (…)`.
+fn stale_sql() -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM library_track lt
+                 JOIN file f ON f.id = {shown}
+                 LEFT JOIN file_estimate e ON e.file_id = f.id AND e.audio_hash = f.audio_hash
+                                          AND e.method_version = ?VERSION
+                 WHERE CASE WHEN e.bpm IS NULL
+                            THEN EXISTS (SELECT 1 FROM analysis a
+                                         WHERE a.recording_id = lt.recording_id
+                                           AND a.source = 'local' AND a.bpm IS NOT NULL)
+                            ELSE NOT EXISTS (SELECT 1 FROM analysis a
+                                             WHERE a.recording_id = lt.recording_id
+                                               AND a.source = 'local' AND a.bpm IS NOT NULL
+                                               AND a.confidence IS e.bpm_confidence)
+                       END)",
+        shown = shown()
     )
 }
 
@@ -283,6 +310,19 @@ pub(crate) fn sync(
     only: Option<i64>,
     range: BpmRange,
 ) -> rusqlite::Result<usize> {
+    Ok(sync_page(conn, only, 0, -1, range)?.0)
+}
+
+/// [`sync`] for the next `limit` Library tracks (a negative `limit`: all of
+/// them) after track `after`, lowest id first. Returns how many rows it
+/// wrote and the last track it looked at, `None` when there were none.
+pub(crate) fn sync_page(
+    conn: &Connection,
+    only: Option<i64>,
+    after: i64,
+    limit: i64,
+    range: BpmRange,
+) -> rusqlite::Result<(usize, Option<i64>)> {
     let steps: Vec<Step> = {
         let mut stmt = conn.prepare_cached(&sql(&format!(
             "SELECT lt.recording_id, e.bpm, e.bpm_confidence,
@@ -292,10 +332,11 @@ pub(crate) fn sync(
              LEFT JOIN file_estimate e ON e.file_id = f.id AND e.audio_hash = f.audio_hash
                                       AND e.method_version = ?VERSION
              LEFT JOIN analysis a ON a.recording_id = lt.recording_id AND a.source = 'local'
-             WHERE (?1 IS NULL OR f.id = ?1)",
+             WHERE (?1 IS NULL OR f.id = ?1) AND lt.recording_id > ?2
+             ORDER BY lt.recording_id LIMIT ?3",
             shown = shown()
         )))?;
-        let rows = stmt.query_map([only], |r| {
+        let rows = stmt.query_map(params![only, after, limit], |r| {
             let bpm: Option<f64> = r.get(1)?;
             let confidence: Option<f64> = r.get(2)?;
             let id: Option<i64> = r.get(3)?;
@@ -310,6 +351,7 @@ pub(crate) fn sync(
         })?;
         rows.collect::<rusqlite::Result<_>>()?
     };
+    let last = steps.last().map(|s| s.recording);
     let mut written = 0;
     for step in steps {
         written += match (step.wanted, step.row) {
@@ -338,7 +380,7 @@ pub(crate) fn sync(
             _ => 0,
         };
     }
-    Ok(written)
+    Ok((written, last))
 }
 
 /// What is stored for file `id`'s current audio, if anything: the BPM (as

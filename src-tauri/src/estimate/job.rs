@@ -22,9 +22,10 @@
 //!   counts against that file alone; a file that couldn't be read gets
 //!   nothing recorded and is tried again next time.
 //! - **When the run is over** every Library track's `'local'` row is
-//!   brought in step with the ledger ([`ledger::sync`]): a track whose file
-//!   changed by a relink or a merge, or a change of BPM range, is shown
-//!   right without a decode.
+//!   brought in step with the ledger ([`super::sync_all`], a page of tracks
+//!   per writer call): a track whose file changed by a relink or a merge, or
+//!   a change of BPM range, is shown right without a decode. Then the search
+//!   index is asked for, since the track table reads that.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -83,6 +84,9 @@ fn jobs_above(conn: &rusqlite::Connection) -> rusqlite::Result<Above> {
 /// A test hook, called with each file id as the job takes it.
 type FileHook = Box<dyn Fn(i64) + Send + Sync>;
 
+/// A test hook, called each time the job waits behind a running job.
+type PauseHook = Box<dyn Fn() + Send + Sync>;
+
 /// The analyze job's handler.
 pub struct Analyzer<V> {
     /// The volumes mounted now, asked once per job.
@@ -91,6 +95,7 @@ pub struct Analyzer<V> {
     budget: usize,
     on_file: Option<FileHook>,
     on_decode: Option<FileHook>,
+    on_pause: Option<PauseHook>,
 }
 
 impl<V: Volumes + Sync + 'static> Analyzer<V> {
@@ -103,6 +108,7 @@ impl<V: Volumes + Sync + 'static> Analyzer<V> {
             budget: default_threads(),
             on_file: None,
             on_decode: None,
+            on_pause: None,
         }
     }
 
@@ -110,6 +116,21 @@ impl<V: Volumes + Sync + 'static> Analyzer<V> {
     #[cfg(test)]
     pub(crate) fn on_file(mut self, hook: impl Fn(i64) + Send + Sync + 'static) -> Self {
         self.on_file = Some(Box::new(hook));
+        self
+    }
+
+    /// Calls `hook` each time the job waits behind a running job of a
+    /// higher priority, after it has given its thread back.
+    #[cfg(test)]
+    pub(crate) fn on_pause(mut self, hook: impl Fn() + Send + Sync + 'static) -> Self {
+        self.on_pause = Some(Box::new(hook));
+        self
+    }
+
+    /// How many threads the budget holds. At least 1.
+    #[cfg(test)]
+    pub(crate) fn budget(mut self, budget: usize) -> Self {
+        self.budget = budget.max(1);
         self
     }
 
@@ -184,8 +205,19 @@ impl<V: Volumes + Sync + 'static> JobHandler for Analyzer<V> {
                 Ok(())
             }
             Ended::AllDone => {
-                job.writer()
-                    .call(move |c| ledger::sync(c, None, range).map(|_| ()))?;
+                // Any track's row that no measurement of this run reached
+                // (a relink, a merge, a new range): a page per writer call.
+                super::sync_all(job.writer(), range)?;
+                // The track table reads the index, which the 'local' rows
+                // (this run's, and the ones just put right) reach only when
+                // it is built again. It is asked for only if some track is
+                // due, so a run that changed nothing queues nothing.
+                if let Err(e) = crate::search::request(job.writer(), |j| job.enqueue(j)) {
+                    eprintln!(
+                        "estimate job {}: couldn't ask for the index: {e:?}",
+                        job.id()
+                    );
+                }
                 job.progress(1.0)
             }
         }
@@ -207,6 +239,9 @@ impl<V: Volumes + Sync + 'static> Analyzer<V> {
                 }
                 if above.running {
                     lease = None;
+                    if let Some(hook) = &self.on_pause {
+                        hook();
+                    }
                     thread::sleep(PAUSE_POLL);
                     continue;
                 }

@@ -77,8 +77,8 @@ pub const DEFAULT_BPM_RANGE: BpmRange = BpmRange {
     max: 195.0,
 };
 
-/// A tempo range: an estimate is doubled while it's under `min`, then halved
-/// while it's `max` or more.
+/// A tempo range, both ends in it: an estimate is doubled while it's under
+/// `min`, then halved while it's over `max`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BpmRange {
     pub min: f64,
@@ -109,8 +109,10 @@ pub fn read_bpm_range(conn: &Connection) -> rusqlite::Result<BpmRange> {
     Ok(range.unwrap_or(DEFAULT_BPM_RANGE))
 }
 
-/// Stores the BPM range.
-pub fn write_bpm_range(conn: &Connection, range: BpmRange) -> rusqlite::Result<()> {
+/// Stores the BPM range. What the tracks show follows it only once their
+/// `'local'` rows are folded again, so the app's one caller is
+/// [`crate::estimate::set_bpm_range`], which does both.
+pub(crate) fn write_bpm_range(conn: &Connection, range: BpmRange) -> rusqlite::Result<()> {
     let value = serde_json::json!([range.min, range.max]).to_string();
     conn.execute(
         "INSERT INTO setting (key, value) VALUES (?1, ?2)

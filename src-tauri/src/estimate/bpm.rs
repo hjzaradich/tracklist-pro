@@ -90,7 +90,9 @@ pub fn detect(mono: &[f32], rate: f64) -> Option<Tempo> {
             best = (bpm, s);
         }
     }
-    if best.1 <= f64::EPSILON {
+    // Silence and a steady tone score nothing; infinite samples score
+    // infinity, and a confidence of infinity over infinity is no number.
+    if best.1 <= f64::EPSILON || !best.1.is_finite() {
         return None;
     }
     let mut fine = best;
@@ -109,8 +111,10 @@ pub fn detect(mono: &[f32], rate: f64) -> Option<Tempo> {
     })
 }
 
-/// `bpm` doubled while it's under the range, then halved while it's at the
-/// top of it or above: the tempo a DJ reads, for a detector that may have
+/// `bpm` doubled while it's under the range, then halved while it's over
+/// the top of it (and the half is not under the bottom: a range narrower
+/// than an octave has a band just over its top that no halving can bring
+/// in, which stays as it is): the tempo a DJ reads, for a detector that may have
 /// locked onto half or double the beat. Rounded to hundredths, as rekordbox
 /// shows a BPM.
 pub fn fold(bpm: f64, range: BpmRange) -> f64 {
@@ -119,7 +123,7 @@ pub fn fold(bpm: f64, range: BpmRange) -> f64 {
         while v < range.min {
             v *= 2.0;
         }
-        while v >= range.max {
+        while v > range.max && v / 2.0 >= range.min {
             v /= 2.0;
         }
     }

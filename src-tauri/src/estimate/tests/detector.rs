@@ -58,7 +58,13 @@ fn folding_doubles_under_the_range_halves_at_its_top_and_rounds_to_hundredths() 
     assert_eq!(fold(64.0, r), 128.0);
     assert_eq!(fold(60.0, r), 120.0);
     assert_eq!(fold(200.0, r), 100.0);
-    assert_eq!(fold(195.0, r), 97.5, "the top of the range is out of it");
+    // The range includes both its ends (as rekordbox's does) and the band
+    // just over the top, which halving would drop under the bottom, stays.
+    assert_eq!(fold(195.0, r), 195.0, "the top of the range is in it");
+    assert_eq!(fold(195.5, r), 195.5);
+    assert_eq!(fold(195.99, r), 195.99);
+    assert_eq!(fold(196.0, r), 98.0);
+    assert_eq!(fold(97.99, r), 195.98, "under the bottom: doubled");
     assert_eq!(fold(98.0, r), 98.0);
     assert_eq!(fold(127.996, r), 128.0);
     assert_eq!(fold(140.123, r), 140.12);

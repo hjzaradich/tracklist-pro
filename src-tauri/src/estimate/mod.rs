@@ -35,6 +35,8 @@ pub(crate) mod ledger;
 pub mod window;
 
 #[cfg(test)]
+pub(crate) mod support;
+#[cfg(test)]
 mod tests;
 
 use rusqlite::Connection;
@@ -45,6 +47,7 @@ use crate::jobs::{JobHandler, JobId, NewJob};
 use crate::scan::chain::{self, Reach};
 use crate::scan::folders;
 use crate::scan::ReadGate;
+use crate::settings::{read_bpm_range, write_bpm_range, BpmRange};
 
 pub use job::{analyze_job, Analyzer, PRIORITY};
 
@@ -62,15 +65,25 @@ pub fn analyzer<R: Runtime>(app: &AppHandle<R>) -> impl JobHandler {
     )
 }
 
+/// How many Library tracks one writer call brings in step with the ledger.
+const SYNC_PAGE: i64 = 1000;
+
 /// Queues an analyze job if there is anything to do, unless one is already
 /// queued (a running one is asked to run once more). Files in the folders
 /// `reach` doesn't name (their drive is unplugged) don't count; with no
 /// `reach`, every folder counts.
-pub(crate) fn request<E: From<DbError>>(
+///
+/// First, a track whose `'local'` row shows another file's BPM than the
+/// file it shows now (a relink, a merge or an undo put it there) is put
+/// right at once, without a decode ([`resync`]).
+pub(crate) fn request<E: From<DbError> + std::fmt::Debug>(
     writer: &Writer,
     reach: Option<&Reach>,
-    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+    mut enqueue: impl FnMut(NewJob) -> Result<JobId, E>,
 ) -> Result<(), E> {
+    if writer.call(|c| ledger::any_stale(c))? {
+        resync(writer, &mut enqueue)?;
+    }
     let reachable = match reach {
         Some(reach) => {
             let folders = writer.call(|c| folders::stored(c))?;
@@ -81,6 +94,57 @@ pub(crate) fn request<E: From<DbError>>(
     if writer.call(move |c| due(c, reachable.as_deref()))? {
         chain::queue_once(writer, analyze_job(), enqueue)?;
     }
+    Ok(())
+}
+
+/// Brings every Library track's `'local'` row in step with the ledger and
+/// the user's BPM range, a page of tracks per writer call, and asks for the
+/// search index when any changed (the track table reads the index). No
+/// decode. A failure to ask for the index is not the resync's: the next
+/// job to end, or the next launch, asks again.
+pub(crate) fn resync<E: From<DbError> + std::fmt::Debug>(
+    writer: &Writer,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+) -> Result<usize, E> {
+    let range = writer.call(|c| read_bpm_range(c))?;
+    let written = sync_all(writer, range)?;
+    if written > 0 {
+        if let Err(e) = crate::search::request(writer, enqueue) {
+            eprintln!("estimate: couldn't ask for the search index: {e:?}");
+        }
+    }
+    Ok(written)
+}
+
+/// [`ledger::sync`] over every Library track in `range`, a page per writer
+/// call so nothing else waits for the whole Library. Returns how many rows
+/// it wrote.
+pub(crate) fn sync_all(writer: &Writer, range: BpmRange) -> Result<usize, DbError> {
+    let (mut after, mut written) = (0, 0);
+    loop {
+        let (wrote, last) = writer.call(move |c| {
+            let tx = c.transaction()?;
+            let page = ledger::sync_page(&tx, None, after, SYNC_PAGE, range)?;
+            tx.commit()?;
+            Ok(page)
+        })?;
+        written += wrote;
+        match last {
+            Some(last) => after = last,
+            None => return Ok(written),
+        }
+    }
+}
+
+/// Sets the user's BPM range and folds every track's estimate into it again
+/// (the ledger keeps the detector's own answer, so nothing is decoded).
+pub fn set_bpm_range<E: From<DbError> + std::fmt::Debug>(
+    writer: &Writer,
+    range: BpmRange,
+    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+) -> Result<(), E> {
+    writer.call(move |c| write_bpm_range(c, range))?;
+    resync(writer, enqueue)?;
     Ok(())
 }
 
