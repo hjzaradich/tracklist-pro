@@ -104,6 +104,9 @@ error_kinds! {
     NotRekordboxXml => "rekordbox:error.notAnExport", params: ["path"];
     /// No rekordbox export has been chosen yet.
     NoRekordboxXml => "rekordbox:error.noneChosen", params: [];
+    /// The newest rekordbox read is from its database, and a send needs an
+    /// XML export (ROADMAP 2.7).
+    SendNeedsExport => "rekordbox:error.sendNeedsExport", params: [];
     /// There's no track with that id to add to the Library.
     LibraryTrackNotFound => "library:error.trackNotFound", params: [];
     /// The track has no file to link a Library track to.

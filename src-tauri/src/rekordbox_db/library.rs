@@ -8,6 +8,26 @@
 //! playlist tree. Beat grids and cue points are not in the database's
 //! tables (they live in rekordbox's analysis files), and intelligent
 //! playlists hold no entries of their own, so neither is read.
+//!
+//! What a send would get from this read, compared with an XML read of the
+//! same library (Run 3C job D, Q-D5; checked 2026-11-06). A send writes a
+//! known track's attributes exactly as the read stored them
+//! (`send_values` `known`), and the merge compares each attribute with
+//! its `sync_base`, treating an absent value as empty (`conflicts::same`).
+//! - Never carried here, while an export carries them on every track:
+//!   `Grouping`, `DateModified`, `LastPlayed`. A known track would go out
+//!   without them (rule 1: never omit), and the merge would read each as
+//!   rekordbox clearing it.
+//! - `Kind`: only for the five file types in `kind`; any other type goes
+//!   out without one.
+//! - Unverified against a real library: `DateAdded` (from `StockDate`,
+//!   else `DateCreated`) and `Mix` (from `Subtitle`).
+//! - Intelligent playlists are left out (whether an export lists them,
+//!   with their tracks, is unverified).
+//! - Not a loss for a send: `TEMPO`, `POSITION_MARK`, `AverageBpm` and
+//!   `Tonality` are never sent for a known track (1.9 rule 3).
+//!
+//! So a send stays on the XML export until these are settled.
 
 use std::collections::{HashMap, HashSet};
 

@@ -25,6 +25,7 @@
   "error": {
     "notFound": "Export not found ({{path}})",
     "notAnExport": "Not a rekordbox collection export ({{path}})",
-    "noneChosen": "No rekordbox export chosen"
+    "noneChosen": "No rekordbox export chosen",
+    "sendNeedsExport": "Sending needs a rekordbox XML export. Export one from rekordbox, then choose it here."
   }
 }

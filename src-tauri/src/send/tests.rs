@@ -18,6 +18,7 @@ use crate::rekordbox_write::{BuildError, SentTrack};
 use crate::volume::{identity, IdentitySignals, Volume, VolumeId, VolumeKind};
 
 mod changed_after_export;
+mod database_read;
 mod membership;
 mod merge;
 mod one_moment;
@@ -2138,6 +2139,70 @@ mod ipc {
         let (_data, app) = app();
         let refused = invoke(&app, "prepare_send", json!({ "path": null })).unwrap_err();
         assert_eq!(refused["kind"], json!("noRekordboxXml"));
+    }
+
+    #[test]
+    fn a_send_after_a_newer_database_read_is_refused_and_queues_no_read_of_the_older_export() {
+        let (_data, app) = app();
+        let writer = app.state::<crate::db::Writer>();
+        writer
+            .call(|c| {
+                let last = json!({
+                    "path": "C:/rb/master.db",
+                    "modifiedMs": 1,
+                    "readAt": "2026-11-06T00:00:00.000Z",
+                    "summary": { "tracks": 0, "streaming": 0, "kept": 0, "notStored": 0, "complete": true },
+                    "source": "database",
+                });
+                for (key, value) in [
+                    (crate::rekordbox::source::XML_PATH, json!("C:/rb/old.xml")),
+                    (crate::rekordbox::source::LAST_READ, last),
+                ] {
+                    c.execute(
+                        "INSERT INTO setting (key, value) VALUES (?1, ?2)",
+                        (key, value.to_string()),
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let stored = |writer: &crate::db::Writer| -> (Vec<String>, Option<String>) {
+            writer
+                .call(|c| {
+                    let rows = c
+                        .prepare("SELECT attributes FROM rekordbox_track ORDER BY id")?
+                        .query_map([], |r| r.get(0))?
+                        .collect::<Result<Vec<String>, _>>()?;
+                    let last = c
+                        .query_row(
+                            "SELECT value FROM setting WHERE key = ?1",
+                            [crate::rekordbox::source::LAST_READ],
+                            |r| r.get(0),
+                        )
+                        .ok();
+                    Ok((rows, last))
+                })
+                .unwrap()
+        };
+        let snapshot_before = stored(&writer);
+        assert!(snapshot_before.1.is_some());
+        let state_before = invoke(&app, "send_state", json!({})).unwrap();
+        let refused = invoke(&app, "prepare_send", json!({ "path": null })).unwrap_err();
+        assert_eq!(refused["kind"], json!("sendNeedsExport"));
+        // The refusal touched nothing: the database snapshot and the last
+        // read stand, and the checklist (so any earlier preflight) is as it was.
+        assert_eq!(stored(&writer), snapshot_before);
+        assert_eq!(invoke(&app, "send_state", json!({})).unwrap(), state_before);
+        let queued: i64 = writer
+            .call(|c| {
+                c.query_row(
+                    "SELECT count(*) FROM job WHERE kind IN ('export', 'read_rekordbox')",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(queued, 0, "nothing was queued to read the older export");
     }
 
     #[test]

@@ -746,6 +746,15 @@ describe("the send checklist", () => {
     expect(await screen.findByText(tx("rekordbox:error.noneChosen"))).toBeInTheDocument();
   });
 
+  it("says a send needs an export when the newest read is the database", async () => {
+    const backend = fakeBackend({ exportPath: EXPORT });
+    backend.refuse = { kind: "sendNeedsExport", params: {} };
+    renderChecklist();
+    await userEvent.click(await screen.findByRole("button", { name: tx("send:export.read") }));
+    expect(await screen.findByText(tx("rekordbox:error.sendNeedsExport"))).toBeInTheDocument();
+    expect(screen.queryByText(tx("rekordbox:error.noneChosen"))).not.toBeInTheDocument();
+  });
+
   it("shows the file's path and copies it", async () => {
     fakeBackend();
     const writeText = vi.fn().mockResolvedValue(undefined);
