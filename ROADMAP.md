@@ -755,6 +755,15 @@ Polish on top of the Phase 1 first run (1.3):
 - **Built (4B, PR 206):** a user guide (docs/guide.md, linked from the README), a "Check the download" part in the install guide, bug and suggestion issue forms (blank issues off) and a PR template saying code contributions aren't accepted yet. The README's privacy list now matches the code: only the services the network gate knows, with their hosts; nothing contacts a service yet. Every installer carries a list of the third-party packages it ships with their licences, made at build time, and Settings has an About part with the version, the GPL notice, credits and that list. The docs folder is the docs site for now; a website would be a later choice. Wording proposed.
 - **Complexity:** M.
 
+
+#### 4.5 Update checks and releases
+- **Owner decisions 2026-11-07:**
+  - Updates come from the project's public GitHub releases.
+  - The first version **checks and tells**: the app asks GitHub (through the network gate, pinned hosts) whether a newer version exists and says so, with the download link as text to copy. You install it yourself, as now. The app doesn't download or start installers; self-install (signed with Tauri's updater key) can come later.
+  - Update checks send the app's version (plus the usual app name and version on every request). The first run asks once, yes or no; Settings has the switch.
+  - The installer's publisher is "Henry Zaradich".
+- **Release script:** a local script bumps the version, builds the installer, gives its sha256 and prepares a draft GitHub release with it. A release goes public only when the owner says so.
+- **Complexity:** S–M.
 ---
 
 ### Later / backlog
