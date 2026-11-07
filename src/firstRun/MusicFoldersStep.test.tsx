@@ -69,7 +69,9 @@ function fakeBackend(initial: MusicFolder[] = [], refuse: unknown = null) {
 /** The calls that change or start something: not the ones that only ask. */
 function acted(backend: ReturnType<typeof fakeBackend>) {
   return backend.calls.filter(
-    (call) => call.cmd !== "music_folders" && call.cmd !== "read_online_only_files",
+    (call) => call.cmd !== "music_folders" &&
+      call.cmd !== "onedrive_music_folders" &&
+      call.cmd !== "read_online_only_files",
   );
 }
 
