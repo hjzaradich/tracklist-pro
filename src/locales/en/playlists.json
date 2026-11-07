@@ -67,6 +67,7 @@
     "copied_other": "Playlist “{{name}}” made with {{count, number}} tracks",
     "copiedLeftOut_one": "Playlist “{{name}}” made with {{count, number}} track ({{left, number}} entries couldn't be matched to your Library)",
     "copiedLeftOut_other": "Playlist “{{name}}” made with {{count, number}} tracks ({{left, number}} entries couldn't be matched to your Library)",
+    "keptOrder": "Playlist order kept",
     "targetSet": "Target shape set",
     "targetCleared": "Target shape cleared",
     "inserted": "Inserted {{title}} at position {{position}}"
@@ -153,6 +154,7 @@
   },
   "error": {
     "notFound": "Playlist not found",
+    "orderStale": "The playlist changed. Sort by fit again",
     "entryNotFound": "That track is no longer in the playlist",
     "nameEmpty": "Playlist needs a name",
     "nameTaken": "Playlist name already used (“{{name}}”)",

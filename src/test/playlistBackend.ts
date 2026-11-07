@@ -30,6 +30,8 @@ export function playlistBackend(options: {
   gap?: (afterEntryId: number | null) => GapSuggestion[];
   /** Commands the backend refuses (the playlist is "not found"). */
   refusing?: string[];
+  /** Runs just before "Keep this order" is written: the playlist changes after its order was read. */
+  beforeKeepOrder?: () => void;
 }) {
   const state = {
     playlists: options.playlists.map((p) => ({ ...p, entries: [...p.entries] })),
@@ -69,6 +71,23 @@ export function playlistBackend(options: {
       const row = rowOf(recording);
       return row === undefined ? [] : [{ ...row, entryId }];
     });
+  /**
+   * A playlist sorted by fit after a track: every entry of that track first,
+   * then the others in reverse order (the real order is tested in Rust), each
+   * row with a fit.
+   */
+  const byFit = (id: number, after: number): TableRow[] => {
+    const all = tableOf(id);
+    const first = all.filter((row) => row.recordingId === after);
+    const rest = all.filter((row) => row.recordingId !== after).reverse();
+    return [...first, ...rest].map((row) => ({ ...row, fit: row.recordingId === after ? { dots: 0, reason: null } : { dots: 2, reason: null } }));
+  };
+  const listed = (source: TableQuery["source"]): TableRow[] =>
+    source.kind === "playlist"
+      ? tableOf(source.id)
+      : source.kind === "playlistByFit"
+        ? byFit(source.id, source.after)
+        : rows;
   const unique = (name: string, except?: number) => {
     const taken = state.playlists.find((p) => p.id !== except && p.name.toLowerCase() === name.toLowerCase());
     if (name === "") refuse("playlistNameEmpty");
@@ -104,13 +123,15 @@ export function playlistBackend(options: {
       case "track_table_page": {
         const query = args.query as TableQuery;
         const source = query.source;
-        return pageOf(source.kind === "playlist" ? tableOf(source.id) : rows, query);
+        return pageOf(listed(source), query);
       }
       case "track_table_ids": {
         const query = args.query as TableQuery;
-        const all = query.source.kind === "playlist" ? tableOf(query.source.id) : rows;
+        const all = listed(query.source);
         return all.slice(query.offset, query.offset + query.limit).map((row) => row.recordingId);
       }
+      case "smart_crate_rule":
+        return { combine: "all", conditions: [] };
       case "track_table_position":
         return null;
       case "create_playlist": {
@@ -203,6 +224,22 @@ export function playlistBackend(options: {
         const operationId = record("move_in_playlist", target.name, carried.length, () => (target.entries = before));
         return { changed: carried.length, skipped: 0, operationId };
       }
+      case "set_playlist_order": {
+        options.beforeKeepOrder?.();
+        const target = playlist(args.id);
+        const named = args.entries as number[];
+        const before = [...target.entries];
+        // As the real one: exactly the playlist's entries, none missing, extra or twice, else refused.
+        const held = new Set(before.map(([entry]) => entry));
+        if (named.length !== before.length || new Set(named).size !== named.length || !named.every((entry) => held.has(entry))) {
+          return refuse("playlistOrderStale");
+        }
+        const after = named.map((entry) => before.find(([id]) => id === entry) as [number, number]);
+        if (after.every((entry, i) => entry === before[i])) return { changed: 0, skipped: 0, operationId: null };
+        target.entries = after;
+        const operationId = record("move_in_playlist", target.name, after.length, () => (target.entries = before));
+        return { changed: after.length, skipped: 0, operationId };
+      }
       case "save_playlist_as_crate": {
         const source = playlist(args.id);
         const name = String(args.name).trim();
@@ -255,6 +292,7 @@ export function playlistBackend(options: {
             durationMs: row.timeMs,
             bpm: row.bpm,
             key: row.key,
+            keyEstimated: row.keyEstimated,
             energy: row.energy,
             startMs,
             target: wanted,

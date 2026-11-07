@@ -75,6 +75,7 @@ export function TrackTableView({
   onSelectionChange,
   onNarrowed,
   onMoveRows,
+  onKeepOrder,
   viewRef,
 }: {
   screen: TableScreen;
@@ -103,6 +104,12 @@ export function TrackTableView({
    * the list is in the playlist's own order and nothing narrows it.
    */
   onMoveRows?: (rows: readonly TableRow[], before: TableRow | null) => void;
+  /**
+   * A playlist sorted by fit can keep the order it shows (4B-FU): asked with
+   * what the table asks for now, it writes that order to the playlist and
+   * resolves when done (the table then goes back to the playlist's own order).
+   */
+  onKeepOrder?: (view: RowsQuery) => Promise<unknown>;
   /** Kept at what the table asks for now (its sort and filters), for whoever acts on the rows as listed. */
   viewRef?: MutableRefObject<RowsQuery | null>;
 }) {
@@ -115,7 +122,7 @@ export function TrackTableView({
   const [fitTarget, setFitTarget] = useState<FitTarget | null>(null);
   const [selectedRow, setSelectedRow] = useState<TableRow | null>(null);
   const [fitWidth, setFitWidth] = useState<number | undefined>(undefined);
-  const canFit = source.kind === "crate";
+  const canFit = source.kind === "crate" || source.kind === "playlist";
   const [filters, setFilters] = useState<TableFilter[]>(() => [...initialFilters]);
   const choice = useTableColumns(screen);
   const followSelection = useCallback(
@@ -157,7 +164,9 @@ export function TrackTableView({
     () =>
       fitTarget !== null && source.kind === "crate"
         ? { kind: "crateByFit", id: source.id, after: fitTarget.recordingId }
-        : source,
+        : fitTarget !== null && source.kind === "playlist"
+          ? { kind: "playlistByFit", id: source.id, after: fitTarget.recordingId }
+          : source,
     [source, fitTarget],
   );
   const query: RowsQuery = useMemo(
@@ -225,7 +234,28 @@ export function TrackTableView({
   const sortByFit = () => {
     if (selectedRow !== null) setFitTarget({ recordingId: selectedRow.recordingId, name: shownName(selectedRow) });
   };
+  // Keep the order the fit sort shows, as the playlist's own: the whole list, so
+  // not while a search or a filter leaves some of it out.
+  const canKeep = onKeepOrder !== undefined && source.kind === "playlist" && fitTarget !== null && !narrowed;
+  const [keeping, setKeeping] = useState(false);
+  const keepOrder = () => {
+    if (!canKeep || keeping) return;
+    setKeeping(true);
+    onKeepOrder(query).then(
+      () => {
+        setKeeping(false);
+        setFitTarget(null);
+      },
+      () => setKeeping(false),
+    );
+  };
   useRegisterActions("trackFit", [
+    {
+      id: "tracks:keepOrder",
+      label: t("fit.keepAction"),
+      available: canKeep && !keeping,
+      run: keepOrder,
+    } satisfies PaletteAction,
     {
       id: "tracks:sortByFit",
       label: t("fit.action"),
@@ -263,6 +293,11 @@ export function TrackTableView({
             {selectedCount > 1 && <span>{t("selected", { selected: selectedCount })}</span>}
             {rows.behind && <span className={styles.updating}>{t("updating")}</span>}
             {fitTarget !== null && <span>{t("fit.sortedAfter", { track: fitTarget.name })}</span>}
+            {canKeep && (
+              <button type="button" className={styles.fitButton} disabled={keeping} onClick={keepOrder}>
+                {t("fit.keepOrder")}
+              </button>
+            )}
             {energyGiven !== null && (
               <span role="status">{t("energySet", { energy: energyGiven.energy, count: energyGiven.count })}</span>
             )}
@@ -331,7 +366,7 @@ export function TrackTableView({
           onClearEnergy={onClearEnergy}
           onAddToCrate={setAdding}
           onTag={setTagging}
-          onMoveRows={sort === null && !narrowed ? onMoveRows : undefined}
+          onMoveRows={sort === null && fitTarget === null && !narrowed ? onMoveRows : undefined}
         />
       )}
       {adding !== null && <AddToCrateDialog recordings={adding} onClose={() => setAdding(null)} />}

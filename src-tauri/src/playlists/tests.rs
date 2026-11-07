@@ -537,6 +537,155 @@ fn a_playlist_from_a_crate_takes_the_order_given_then_the_rest_and_undo_takes_it
     ));
 }
 
+#[test]
+fn a_playlist_from_a_smart_crate_holds_what_its_rule_holds_now_in_the_tables_order_with_always_and_never(
+) {
+    use crate::crates::smart::{include_on, ChoiceOp, Combine, Condition, Inclusion, SmartRule};
+    let lib = Lib::new();
+    let t = lib.tracks(&["a", "b", "c", "d", "e"]);
+    // The smart crates read the table's index.
+    lib.run(
+        "INSERT INTO track_row (recording_id, flags, title_key)
+         SELECT recording_id, ?1, 'x' FROM library_track",
+        [crate::search::flag::IN_LIBRARY],
+    );
+    // The rule: in the hand-made crate holding a, b and c.
+    let source = lib.call(|c| crate::crates::create_on(c, "Source")).unwrap();
+    let members = vec![t[0], t[1], t[2]];
+    lib.call(move |c| crate::crates::add_on(c, source, &members))
+        .unwrap();
+    let rule = SmartRule {
+        combine: Combine::All,
+        conditions: vec![Condition::InCrate {
+            op: ChoiceOp::Is,
+            crate_id: source,
+        }],
+    };
+    let smart = lib
+        .call(move |c| crate::crates::smart::create_smart_on(c, None, "Smart", &rule))
+        .unwrap();
+    // d is always in, b never.
+    let (always, never) = (vec![t[3]], vec![t[1]]);
+    lib.call(move |c| include_on(c, smart, &always, Inclusion::Always))
+        .unwrap();
+    lib.call(move |c| include_on(c, smart, &never, Inclusion::Never))
+        .unwrap();
+    // The rule changes after that: e joins the source crate.
+    let joined = vec![t[4]];
+    lib.call(move |c| crate::crates::add_on(c, source, &joined))
+        .unwrap();
+
+    // The table lists a, c, d, e (not b); sorted its own way: e, d, c, a.
+    let order = vec![t[4], t[3], t[2], t[0]];
+    let before = lib.state();
+    let made = lib
+        .call(move |c| from_crate_on(c, smart, "Playlist", &order))
+        .unwrap();
+    assert_eq!(lib.tracks_of(made), [t[4], t[3], t[2], t[0]]);
+    // Undo takes the playlist away and nothing else.
+    assert_eq!(lib.undo(), FROM_CRATE_OPERATION);
+    assert_eq!(lib.state(), before);
+
+    // A track the table lists but that the rule no longer holds is left out:
+    // b (never) named in the order stays out, and the rest follow in the
+    // crate's own order.
+    let order = vec![t[1], t[2]];
+    let made = lib
+        .call(move |c| from_crate_on(c, smart, "Again", &order))
+        .unwrap();
+    let held: Vec<LibraryTrackId> = lib
+        .writer
+        .call(move |c| crate::crates::smart::membership::evaluate(c, smart))
+        .unwrap();
+    let mut names = lib.tracks_of(made);
+    assert_eq!(names[0], t[2]);
+    names.sort_by_key(|t| t.0);
+    let mut expected = held;
+    expected.sort_by_key(|t| t.0);
+    assert_eq!(names, expected);
+    assert_eq!(names, [t[0], t[2], t[3], t[4]]);
+}
+
+#[test]
+fn keep_this_order_puts_the_playlist_in_the_named_order_as_one_operation_a_repeat_keeps_both_entries(
+) {
+    let lib = Lib::new();
+    let t = lib.tracks(&["a", "b", "c"]);
+    let arc = lib.create("Arc");
+    lib.add(arc, &[t[0], t[1], t[0], t[2]], None);
+    let e: Vec<PlaylistEntryId> = lib.order(arc).into_iter().map(|(e, _)| e).collect();
+    let before = lib.state();
+
+    // c, then both entries of a, then b.
+    let named = vec![e[3], e[0], e[2], e[1]];
+    let done = lib.call(move |c| set_order_on(c, arc, &named)).unwrap();
+    assert!(done.operation_id.is_some());
+    assert_eq!(lib.tracks_of(arc), [t[2], t[0], t[0], t[1]]);
+    assert_eq!(
+        lib.writer
+            .call(|c| c.query_row(
+                "SELECT count(*) FROM operation WHERE kind = 'move_in_playlist'",
+                [],
+                |r| r.get::<_, i64>(0)
+            ))
+            .unwrap(),
+        1
+    );
+    // Already in that order: nothing is recorded.
+    let again = vec![e[3], e[0], e[2], e[1]];
+    let same = lib.call(move |c| set_order_on(c, arc, &again)).unwrap();
+    assert_eq!(same.operation_id, None);
+
+    // One Undo, back to exactly the start.
+    assert_eq!(lib.undo(), MOVE_OPERATION);
+    assert_eq!(lib.state(), before);
+}
+
+#[test]
+fn keep_this_order_refuses_a_list_that_is_not_exactly_the_playlists_entries_and_changes_nothing() {
+    let lib = Lib::new();
+    let t = lib.tracks(&["a", "b", "c"]);
+    let arc = lib.create("Arc");
+    lib.add(arc, &[t[0], t[1], t[2]], None);
+    let e: Vec<PlaylistEntryId> = lib.order(arc).into_iter().map(|(e, _)| e).collect();
+    let before = lib.state();
+    let stale = |named: Vec<PlaylistEntryId>| {
+        let refused = lib.call(move |c| set_order_on(c, arc, &named));
+        assert!(matches!(refused, Err(PlaylistsError::OrderStale)));
+        assert_eq!(lib.state(), before);
+    };
+    // Missing an entry.
+    stale(vec![e[2], e[0]]);
+    // An extra entry (one that was never there, or from another playlist).
+    stale(vec![e[2], e[1], e[0], PlaylistEntryId(-5)]);
+    // An entry twice (same length, so a count alone would pass).
+    stale(vec![e[2], e[2], e[0]]);
+    // Nothing at all.
+    stale(vec![]);
+
+    // Stale after the playlist changed since the list was read: an entry
+    // removed (its id is now extra) and one added (it is missing).
+    let shown = vec![e[2], e[1], e[0]];
+    let drop = vec![e[1]];
+    lib.call(move |c| remove_on(c, arc, &drop)).unwrap();
+    let after_remove = lib.state();
+    let removed = shown.clone();
+    let refused = lib.call(move |c| set_order_on(c, arc, &removed));
+    assert!(matches!(refused, Err(PlaylistsError::OrderStale)));
+    assert_eq!(lib.state(), after_remove);
+    lib.add(arc, &[t[1]], None);
+    let after_add = lib.state();
+    let ids: Vec<PlaylistEntryId> = lib.order(arc).into_iter().map(|(e, _)| e).collect();
+    let all_but_new = ids[..2].to_vec();
+    let refused = lib.call(move |c| set_order_on(c, arc, &all_but_new));
+    assert!(matches!(refused, Err(PlaylistsError::OrderStale)));
+    assert_eq!(lib.state(), after_add);
+
+    // A playlist that is not there.
+    let missing = lib.call(move |c| set_order_on(c, PlaylistId(arc.0 + 99), &[]));
+    assert!(matches!(missing, Err(PlaylistsError::NotFound)));
+}
+
 // The Library track's own paths.
 
 #[test]

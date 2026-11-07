@@ -202,6 +202,9 @@ pub struct TimelineEntry {
     pub bpm: Option<f64>,
     /// Camelot (`8A`).
     pub key: Option<String>,
+    /// The key is the app's own estimate (the table's `key_estimated`), shown
+    /// muted. Only marks the cell: the flags use `key` as it is.
+    pub key_estimated: bool,
     /// The energy the track shows (tags or the user's), 1 to 10.
     pub energy: Option<u8>,
     /// When it starts, from the start of the playlist, in milliseconds.
@@ -291,6 +294,7 @@ pub fn timeline(
             duration_ms: item.row.time_ms,
             bpm: f.bpm,
             key: f.key.map(|k| k.name()),
+            key_estimated: f.key.is_some() && item.row.key_estimated,
             energy: f.energy,
             start_ms,
             target: at,

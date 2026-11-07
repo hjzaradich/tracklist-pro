@@ -369,6 +369,25 @@ describe("converting between playlists, crates and rekordbox playlists", () => {
     ).toBeInTheDocument();
   });
 
+  it("Start a playlist from a smart crate takes the table's rows as listed, like a hand-made crate", async () => {
+    const backend = playlistBackend({
+      rows: TUNES,
+      playlists: [],
+      crates: [{ ...crate(8, "Warm"), kind: "smart" }],
+    });
+    renderApp("/crates?crate=8");
+    await screen.findByRole("grid");
+    await userEvent.click(await button("playlists:fromCrate.button"));
+    await userEvent.click(await button("playlists:fromCrate.confirm"));
+    await waitFor(() => expect(backend.called("playlist_from_crate")).toHaveLength(1));
+    expect(backend.called("playlist_from_crate")[0]?.args).toMatchObject({
+      crateId: 8,
+      name: "Warm",
+      order: [1, 2, 3, 4, 5],
+    });
+    expect(await screen.findByRole("heading", { level: 2, name: "Warm" })).toBeInTheDocument();
+  });
+
   it("a rekordbox playlist is picked from the last read and copied, saying how many entries could not be matched", async () => {
     const backend = await openPlaylist({
       playlists: [WARMUP],
@@ -396,5 +415,172 @@ describe("converting between playlists, crates and rekordbox playlists", () => {
     await openPlaylist({ playlists: [WARMUP], rekordbox: [] }, 2);
     await userEvent.click(await button("playlists:fromRekordbox.button"));
     expect(await screen.findByText(tx("playlists:fromRekordbox.none"))).toBeInTheDocument();
+  });
+});
+
+describe("a playlist sorted by fit", () => {
+  const sortByFit = () => screen.getByRole("button", { name: tx("trackTable:fit.button") });
+  const keepOrder = () => screen.queryByRole("button", { name: tx("trackTable:fit.keepOrder") });
+
+  async function sorted(backend: Awaited<ReturnType<typeof openPlaylist>>, index = 1) {
+    await userEvent.click(rowAt(index));
+    await waitFor(() => expect(sortByFit()).toBeEnabled());
+    await userEvent.click(sortByFit());
+    await waitFor(() =>
+      expect(backend.called("track_table_page").at(-1)?.args).toMatchObject({ query: { source: { kind: "playlistByFit", id: 1 } } }),
+    );
+  }
+
+  it("lists the playlist's own tracks after the selected one, which stays first, a repeat with both entries", async () => {
+    const backend = await openPlaylist();
+    await sorted(backend, 0);
+    expect(backend.called("track_table_page").at(-1)?.args).toMatchObject({
+      query: { source: { kind: "playlistByFit", id: 1, after: 100 } },
+    });
+    // Both entries of Tune 0 come first, then the rest.
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 0", "Tune 0", "Tune 2", "Tune 1"]));
+    expect(screen.getByText(tx("trackTable:fit.sortedAfter", { track: "Tune 0" }))).toBeInTheDocument();
+  });
+
+  it("cannot be dragged while sorted by fit, and nothing changes in the playlist", async () => {
+    const backend = await openPlaylist();
+    await sorted(backend);
+    dragRowTo(0, 3 * ROW, false);
+    expect(screen.queryByTestId("insert-line")).toBeNull();
+    fireEvent.pointerUp(document.body, { clientX: 320, clientY: 3 * ROW, pointerId: 1 });
+    expect(backend.called("move_in_playlist")).toHaveLength(0);
+    expect(backend.state.playlists[0]?.entries.map(([entry]) => entry)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("keeps the shown order as one step, goes back to the playlist's order and undoes in one", async () => {
+    const backend = await openPlaylist();
+    await sorted(backend, 1);
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 1", "Tune 0", "Tune 2", "Tune 0"]));
+    await userEvent.click(keepOrder() as HTMLElement);
+    await waitFor(() => expect(backend.called("set_playlist_order")).toHaveLength(1));
+    expect(backend.called("set_playlist_order")[0]?.args).toMatchObject({ id: 1, entries: [2, 4, 3, 1] });
+    expect(backend.state.playlists[0]?.entries.map(([entry]) => entry)).toEqual([2, 4, 3, 1]);
+    expect(await screen.findByText(tx("playlists:done.keptOrder"))).toBeInTheDocument();
+    // The table is the playlist's own order again, which is now that order.
+    await waitFor(() => expect(screen.queryByText(tx("trackTable:fit.sortedAfter", { track: "Tune 1" }))).toBeNull());
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 1", "Tune 0", "Tune 2", "Tune 0"]));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("shell:undo.action.moveInPlaylist", { count: 4, name: "Arc" }) }),
+    );
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 0", "Tune 1", "Tune 2", "Tune 0"]));
+  });
+
+  it("refuses Keep this order when the playlist changed since the list was shown, says so and changes nothing", async () => {
+    // A track leaves the playlist (elsewhere) after the order was read and before it is written.
+    const backend = await openPlaylist({
+      beforeKeepOrder: () => {
+        const playlist = ARC_STATE();
+        playlist.entries = playlist.entries.filter(([entry]) => entry !== 3);
+      },
+    });
+    const ARC_STATE = () => backend.state.playlists[0] as FakePlaylist;
+    await sorted(backend, 1);
+    await userEvent.click(keepOrder() as HTMLElement);
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("playlists:error.orderStale"));
+    expect(backend.state.playlists[0]?.entries.map(([entry]) => entry)).toEqual([1, 2, 4]);
+    expect(backend.state.history).toHaveLength(0);
+    // The fit sort stays, so it can be sorted again.
+    expect(screen.getByText(tx("trackTable:fit.sortedAfter", { track: "Tune 1" }))).toBeInTheDocument();
+    expect(screen.queryByText(tx("playlists:done.keptOrder"))).toBeNull();
+  });
+
+  it("offers Keep this order only while sorted by fit and nothing narrows the list", async () => {
+    const backend = await openPlaylist();
+    expect(keepOrder()).toBeNull();
+    await sorted(backend);
+    expect(keepOrder()).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:filters.missing") }));
+    await screen.findByRole("list", { name: tx("trackTable:filters.label") });
+    await waitFor(() => expect(keepOrder()).toBeNull());
+  });
+});
+
+describe("autoscroll while dragging rows", () => {
+  let frames: Map<number, FrameRequestCallback>;
+  let written: number[];
+  let cancelled: number;
+  let next: number;
+  beforeEach(() => {
+    frames = new Map();
+    written = [];
+    cancelled = 0;
+    next = 1;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(next, callback);
+      return next++;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((handle) => {
+      cancelled++;
+      frames.delete(handle);
+    });
+    let top = 0;
+    Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (value: number) => {
+        top = value;
+        written.push(value);
+      },
+    });
+  });
+  afterEach(() => {
+    // The property was put on the prototype by the test; take it off again.
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollTop");
+  });
+  /** Runs the frames asked for so far, once each. */
+  const frame = () => {
+    const due = [...frames.entries()];
+    frames.clear();
+    for (const [, callback] of due) callback(0);
+  };
+  const hold = () => fireEvent.pointerDown(rowAt(0), { button: 0, clientX: 300, clientY: 100, pointerId: 1 });
+
+  it("scrolls frame after frame while the pointer stays near the bottom edge, and stops when the drag ends", async () => {
+    await openPlaylist();
+    hold();
+    fireEvent.pointerMove(document.body, { clientX: 320, clientY: 395, pointerId: 1 });
+    frame();
+    expect(written.length).toBeGreaterThan(0);
+    expect(written.at(-1)).toBeGreaterThan(0);
+    // It keeps going with no pointer movement.
+    const before = written.length;
+    frame();
+    expect(written.length).toBeGreaterThan(before);
+    // Letting go cancels the frame that was waiting and starts no more.
+    fireEvent.pointerUp(document.body, { clientX: 320, clientY: 395, pointerId: 1 });
+    expect(cancelled).toBeGreaterThan(0);
+    expect(frames.size).toBe(0);
+    const after = written.length;
+    frame();
+    expect(written.length).toBe(after);
+  });
+
+  it("stops when the drag is given up with Escape", async () => {
+    await openPlaylist();
+    hold();
+    fireEvent.pointerMove(document.body, { clientX: 320, clientY: 395, pointerId: 1 });
+    frame();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(frames.size).toBe(0);
+  });
+
+  it("does not scroll in the middle of the list or when the pointer is outside it sideways", async () => {
+    await openPlaylist();
+    hold();
+    fireEvent.pointerMove(document.body, { clientX: 320, clientY: 200, pointerId: 1 });
+    frame();
+    // Over the sidebar, level with the bottom edge.
+    fireEvent.pointerMove(document.body, { clientX: 900, clientY: 395, pointerId: 1 });
+    frame();
+    expect(written.filter((value) => value !== 0)).toEqual([]);
+    expect(frames.size).toBe(0);
+    fireEvent.pointerUp(document.body, { clientX: 900, clientY: 395, pointerId: 1 });
   });
 });

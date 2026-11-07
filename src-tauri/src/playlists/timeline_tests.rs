@@ -288,6 +288,39 @@ fn an_estimated_energy_is_never_shown_only_the_users_or_a_tag_s() {
 }
 
 #[test]
+fn a_key_that_is_the_apps_estimate_is_marked_and_still_counts_for_the_flags() {
+    let lib = Lib::new();
+    let own = lib.facts("own", Some(124.0), Some("8A"), None, None);
+    // Only the app's own estimate of its key (the "local" source).
+    let guessed = lib.facts("guessed", Some(124.0), None, None, None);
+    let clash = lib.facts("clash", Some(124.0), Some("3B"), None, None);
+    lib.run(
+        "INSERT INTO analysis (recording_id, source, key) VALUES (?1, 'local', '9A')",
+        [guessed.recording],
+    );
+    let set = lib.create("Set");
+    lib.add(
+        set,
+        &[own.entry_track, guessed.entry_track, clash.entry_track],
+        None,
+    );
+    let t = lib.timeline(set);
+    let shown: Vec<(Option<&str>, bool)> = t
+        .entries
+        .iter()
+        .map(|e| (e.key.as_deref(), e.key_estimated))
+        .collect();
+    assert_eq!(
+        shown,
+        [(Some("8A"), false), (Some("9A"), true), (Some("3B"), false)]
+    );
+    // The estimate is used as the table uses it: 8A to 9A is a neighbour, and
+    // 9A to 3B is a clash.
+    assert_eq!(t.transitions[0].key, Flow::Fine);
+    assert_eq!(t.transitions[1].key, Flow::Clash);
+}
+
+#[test]
 fn a_playlist_that_does_not_exist_has_no_timeline() {
     let lib = Lib::new();
     let found = lib

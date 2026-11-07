@@ -727,6 +727,8 @@ export const commands = {
 	removeFromPlaylist: (id: PlaylistId, entries: PlaylistEntryId[]) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("remove_from_playlist", { id, entries })),
 	/**  Moves entries before entry `before`, or to the end. */
 	moveInPlaylist: (id: PlaylistId, entries: PlaylistEntryId[], before: number | null) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("move_in_playlist", { id, entries, before })),
+	/**  "Keep this order": the playlist in the order of `entries`. */
+	setPlaylistOrder: (id: PlaylistId, entries: PlaylistEntryId[]) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("set_playlist_order", { id, entries })),
 	/**  "Save as crate": a new crate at the top of the tree. */
 	savePlaylistAsCrate: (id: PlaylistId, name: string) => typedError<CrateId, IpcError>(__TAURI_INVOKE("save_playlist_as_crate", { id, name })),
 	/**  "Start a playlist from this crate", in `order` (the view's sort). */
@@ -782,7 +784,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","playlistOrderStale":"playlists:error.orderStale","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -1541,6 +1543,8 @@ export type ErrorKind =
 "playlistNotFound" | 
 /**  The entry to move tracks before is no longer in the playlist. */
 "playlistEntryNotFound" | 
+/**  "Keep this order" named other entries than the playlist has now. */
+"playlistOrderStale" | 
 /**  A playlist name is empty once trimmed. */
 "playlistNameEmpty" | 
 /**  Another playlist (or the Tags folder) has the name; `name` is that one's. */
@@ -3955,7 +3959,14 @@ export type TableSource =
  *  ([`TableRow::entry_id`]). A sort orders by a column and keeps the
  *  playlist's order for ties.
  */
-{ kind: "playlist"; id: PlaylistId };
+{ kind: "playlist"; id: PlaylistId } | 
+/**
+ *  One playlist's tracks sorted by how well they follow the track `after`
+ *  (a `recording` id; 4B-FU): that track first (every entry of it, if it
+ *  is in twice), then the rest, best fit first. A sort is ignored, rows
+ *  carry a `fit` and their entry, and the playlist itself is not changed.
+ */
+{ kind: "playlistByFit"; id: PlaylistId; after: number };
 
 /**  A tag, as the vocabulary panel lists it. */
 export type Tag = {
@@ -4094,6 +4105,11 @@ export type TimelineEntry = {
 	bpm: number | null,
 	/**  Camelot (`8A`). */
 	key: string | null,
+	/**
+	 *  The key is the app's own estimate (the table's `key_estimated`), shown
+	 *  muted. Only marks the cell: the flags use `key` as it is.
+	 */
+	keyEstimated: boolean,
 	/**  The energy the track shows (tags or the user's), 1 to 10. */
 	energy: number | null,
 	/**  When it starts, from the start of the playlist, in milliseconds. */

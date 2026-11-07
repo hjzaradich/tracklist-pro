@@ -135,6 +135,9 @@ pub enum PlaylistsError {
     NotFound,
     /// The entry to move the others before isn't in the playlist.
     EntryNotFound,
+    /// "Keep this order" named other entries than the playlist has now (one
+    /// added or removed since the list was read, or a list that isn't whole).
+    OrderStale,
     /// A Library track to add doesn't exist.
     TrackNotFound,
     /// The name is empty once trimmed.
@@ -176,6 +179,7 @@ impl From<PlaylistsError> for IpcError {
         match e {
             PlaylistsError::NotFound => IpcError::new(ErrorKind::PlaylistNotFound),
             PlaylistsError::EntryNotFound => IpcError::new(ErrorKind::PlaylistEntryNotFound),
+            PlaylistsError::OrderStale => IpcError::new(ErrorKind::PlaylistOrderStale),
             PlaylistsError::TrackNotFound => IpcError::new(ErrorKind::LibraryTrackNotFound),
             PlaylistsError::NameEmpty => IpcError::new(ErrorKind::PlaylistNameEmpty),
             PlaylistsError::NameTaken { existing } => IpcError::with(
@@ -639,6 +643,54 @@ pub fn move_on(
     .map(with_operation)
 }
 
+/// "Keep this order" (4B-FU): puts the playlist's entries in the order
+/// `entries` names (the table sorted by fit shows it), as one operation that
+/// rewrites every position that changes. `entries` must be exactly the
+/// playlist's entries now: none missing, none extra, none twice. Otherwise
+/// (the playlist changed since the list was read) it is refused with
+/// [`PlaylistsError::OrderStale`] and nothing is changed or recorded.
+/// Recorded as a move, so it undoes as one.
+pub fn set_order_on(
+    conn: &mut Connection,
+    id: PlaylistId,
+    entries: &[PlaylistEntryId],
+) -> Result<Done<PlaylistChanged>, OpsError> {
+    ops::record(
+        conn,
+        MOVE_OPERATION,
+        &serde_json::json!({ "playlistId": id.0 }),
+        |rec| {
+            let Some(name) = name_of(rec, id)? else {
+                return Ok(Err(PlaylistsError::NotFound));
+            };
+            let current = entries_of(rec, id)?;
+            let asked: HashSet<i64> = entries.iter().map(|e| e.0).collect();
+            let held: HashSet<i64> = current.iter().map(|e| e.id).collect();
+            if entries.len() != current.len() || asked != held {
+                return Ok(Err(PlaylistsError::OrderStale));
+            }
+            let order: Vec<Entry> = entries
+                .iter()
+                .filter_map(|asked| current.iter().find(|e| e.id == asked.0).copied())
+                .collect();
+            let moved = order
+                .iter()
+                .zip(&current)
+                .filter(|(new, old)| new.id != old.id)
+                .count();
+            renumber(rec, &order)?;
+            rec.detail("name", name);
+            rec.detail("tracks", order.len());
+            Ok(Ok(PlaylistChanged {
+                changed: moved as u32,
+                skipped: 0,
+                operation_id: None,
+            }))
+        },
+    )
+    .map(with_operation)
+}
+
 /// "Save as crate": a new static crate at the top of the crate tree named
 /// `name`, holding the playlist's tracks once each, as one operation. The
 /// playlist stays as it is.
@@ -949,6 +1001,17 @@ pub async fn move_in_playlist(
     before: Option<PlaylistEntryId>,
 ) -> Result<PlaylistChanged, IpcError> {
     Ok(writer.call(move |c| Ok(move_on(c, id, &entries, before)))???)
+}
+
+/// "Keep this order": the playlist in the order of `entries`.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_playlist_order(
+    writer: State<'_, Writer>,
+    id: PlaylistId,
+    entries: Vec<PlaylistEntryId>,
+) -> Result<PlaylistChanged, IpcError> {
+    Ok(writer.call(move |c| Ok(set_order_on(c, id, &entries)))???)
 }
 
 /// "Save as crate": a new crate at the top of the tree.

@@ -10,12 +10,14 @@ import stage from "../shell/StageScreen.module.css";
 import { useWhenUndone } from "../shell/undoneStore";
 import { shownName } from "../trackTable/columns";
 import { TrackTableView } from "../trackTable/TrackTableView";
+import type { RowsQuery } from "../trackTable/useTrackRows";
 import { RekordboxPicker } from "./RekordboxPicker";
 import { TimelinePanel } from "./TimelinePanel";
 import {
   PLAYLISTS_QUERY_KEY,
   useCreatePlaylist,
   useDeletePlaylist,
+  useKeepPlaylistOrder,
   useMoveInPlaylist,
   usePlaylists,
   useRemoveFromPlaylist,
@@ -58,6 +60,7 @@ export function PlaylistsScreen({
   const remove = useDeletePlaylist();
   const take = useRemoveFromPlaylist();
   const move = useMoveInPlaylist();
+  const keepOrder = useKeepPlaylistOrder();
   const saveAsCrate = useSavePlaylistAsCrate();
 
   const list = playlists.data ?? [];
@@ -70,7 +73,7 @@ export function PlaylistsScreen({
   }
   useWhenUndone(() => setDone(null));
 
-  const mutations = [create, rename, remove, take, move, saveAsCrate];
+  const mutations = [create, rename, remove, take, move, keepOrder, saveAsCrate];
   const clearErrors = () => mutations.forEach((m) => m.reset());
   const failure = mutations.find((m) => m.isError);
   const ask = (what: Asking) => {
@@ -223,6 +226,15 @@ export function PlaylistsScreen({
                         },
                       );
                     }}
+                    onKeepOrder={(view) => {
+                      clearErrors();
+                      return keepOrder
+                        .mutateAsync({ id: current.id, view })
+                        .then((result) => {
+                          // Already in that order: nothing is recorded, so nothing is said.
+                          if (result.operationId !== null) finished(t("done.keptOrder"));
+                        });
+                    }}
                     onMoveRows={(rows, before) => {
                       clearErrors();
                       move.mutate(
@@ -261,6 +273,7 @@ function PlaylistView({
   onSaveAsCrate,
   onRemoveTrack,
   onMoveRows,
+  onKeepOrder,
 }: {
   playlist: Playlist;
   asking: Asking;
@@ -272,6 +285,7 @@ function PlaylistView({
   onSaveAsCrate: (name: string) => void;
   onRemoveTrack: (row: TableRow) => void;
   onMoveRows: (rows: readonly TableRow[], before: TableRow | null) => void;
+  onKeepOrder: (view: RowsQuery) => Promise<unknown>;
 }) {
   const { t } = useTranslation("playlists");
   const [timeline, setTimeline] = useState(false);
@@ -348,6 +362,7 @@ function PlaylistView({
         empty={<EmptyState>{t("noTracks")}</EmptyState>}
         actionsWidth={96}
         onMoveRows={onMoveRows}
+        onKeepOrder={onKeepOrder}
         actions={(row) =>
           row.entryId !== null && (
             <button
