@@ -12,6 +12,9 @@ export type OnWatchChange = (id: MusicFolderId, watch: boolean) => void;
 /** Called when the user asks for a folder to be scanned again. */
 export type OnScanAgain = (id: MusicFolderId) => void;
 
+/** Called when the user wants to point a missing folder at where it is now. */
+export type OnFindIt = (id: MusicFolderId) => void;
+
 /**
  * The music folders with what the scan knows about each: a folder whose
  * drive isn't connected is greyed out and says so (1aB-9); one the scan
@@ -25,11 +28,13 @@ export function MusicFolderList({
   folders,
   onWatchChange,
   onScanAgain,
+  onFindIt,
   onedrive,
 }: {
   folders: MusicFolder[];
   onWatchChange?: OnWatchChange;
   onScanAgain?: OnScanAgain;
+  onFindIt?: OnFindIt;
   onedrive?: ReadonlySet<number>;
 }) {
   const { t } = useTranslation("musicFolderStatus");
@@ -42,6 +47,7 @@ export function MusicFolderList({
           folder={folder}
           onWatchChange={onWatchChange}
           onScanAgain={onScanAgain}
+          onFindIt={onFindIt}
           inOnedrive={onedrive?.has(folder.id) ?? false}
         />
       ))}
@@ -53,11 +59,13 @@ function FolderRow({
   folder,
   onWatchChange,
   onScanAgain,
+  onFindIt,
   inOnedrive,
 }: {
   folder: MusicFolder;
   onWatchChange?: OnWatchChange;
   onScanAgain?: OnScanAgain;
+  onFindIt?: OnFindIt;
   inOnedrive: boolean;
 }) {
   const { t } = useTranslation("musicFolderStatus");
@@ -89,6 +97,12 @@ function FolderRow({
           onClick={() => onScanAgain(folder.id)}
         >
           {t("scanAgain")}
+        </button>
+      )}
+      {onFindIt && !folder.online && (
+        // Points the folder at where it is now (4.1).
+        <button type="button" aria-describedby={pathId} onClick={() => onFindIt(folder.id)}>
+          {t("findIt")}
         </button>
       )}
       {notes.length > 0 && (

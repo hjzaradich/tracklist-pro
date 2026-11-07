@@ -13,6 +13,7 @@ mod file_id;
 pub mod folders;
 pub mod onedrive;
 pub mod online_only;
+pub mod relocate;
 mod unchanged;
 pub mod volumes;
 pub mod walk;

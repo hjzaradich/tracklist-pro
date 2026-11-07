@@ -128,6 +128,10 @@
     "where": "Top bar, Undo button, when the next step to undo is \"Create crate\".",
     "approved": "Undo (crate “{{name}}” created)"
   },
+  "undo.action.relocateMusicFolder": {
+    "purpose": "Undo button naming what it takes back: a missing music folder pointed at a new place.",
+    "where": "Top bar, Undo button, when the next step to undo is pointing a music folder at its new place."
+  },
   "undo.action.renameCrate": {
     "purpose": "Undo button naming what it takes back: a crate rename, with the old and new names.",
     "where": "Top bar, Undo button, when the next step to undo is a crate rename.",

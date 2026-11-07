@@ -51,6 +51,7 @@
       "playlistFromCrate": "Undo (playlist “{{name}}” started from a crate)",
       "playlistFromRekordbox": "Undo (playlist “{{name}}” made from a rekordbox playlist)",
       "createCrate": "Undo (crate “{{name}}” created)",
+      "relocateMusicFolder": "Undo (music folder pointed at “{{name}}”)",
       "renameCrate": "Undo (crate “{{from}}” renamed to “{{name}}”)",
       "deleteCrate": "Undo (crate “{{name}}” deleted)",
       "createFolder": "Undo (folder “{{name}}” created)",

@@ -54,6 +54,14 @@
     "where": "Music folders panel on the Overview, on each folder's row. Greyed out while the folder's drive isn't connected.",
     "approved": "Scan again"
   },
+  "findIt": {
+    "purpose": "Button that lets the user point a missing music folder at where it is now.",
+    "where": "Music folders panel, on the row of a folder whose drive isn't connected. Opens a folder picker."
+  },
+  "foundIt": {
+    "purpose": "Says a missing music folder was found at its new place and is being scanned again.",
+    "where": "Music folders panel, after \"Find it…\" worked ({{found}} of {{checked}} checked files are there)."
+  },
   "readOnlineOnly": {
     "purpose": "Label of the switch that lets the app read online-only files.",
     "where": "Settings switch (a component for the future settings screen; not on a screen yet).",

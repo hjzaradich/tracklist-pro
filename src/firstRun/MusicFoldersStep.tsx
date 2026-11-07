@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import { MusicFolderList } from "../scan/MusicFolderList";
 import { ReadOnlineOnlySwitch } from "../scan/ReadOnlineOnlySwitch";
+import { useRelocateMusicFolder } from "../scan/useRelocateMusicFolder";
 import { useOnedriveFolders } from "../scan/useOnedriveFolders";
 import { useSetMusicFolderWatch } from "../scan/useMusicFolderWatch";
 import { useMusicFolders } from "../scan/useMusicFolders";
@@ -19,17 +20,24 @@ import { useAddMusicFolder, useScanMusicFolder } from "./useAddMusicFolder";
  */
 export function MusicFoldersStep() {
   const { t } = useTranslation("firstRun");
+  const { t: tStatus } = useTranslation("musicFolderStatus");
   const titleId = useId();
   const folders = useMusicFolders();
   const onedrive = useOnedriveFolders(folders.data);
   const add = useAddMusicFolder();
   const setWatch = useSetMusicFolderWatch();
   const scan = useScanMusicFolder();
-  const failure = folders.error ?? add.error ?? setWatch.error ?? scan.error;
+  const relocate = useRelocateMusicFolder();
+  const failure = folders.error ?? add.error ?? setWatch.error ?? scan.error ?? relocate.error;
 
   const choose = async () => {
     const picked = await open({ multiple: false, directory: true });
     if (typeof picked === "string") add.mutate(picked);
+  };
+
+  const findIt = async (id: number) => {
+    const picked = await open({ multiple: false, directory: true });
+    if (typeof picked === "string") relocate.mutate({ id, path: picked });
   };
 
   return (
@@ -43,8 +51,14 @@ export function MusicFoldersStep() {
           folders={folders.data}
           onWatchChange={(id, watch) => setWatch.mutate({ id, watch })}
           onScanAgain={(id) => scan.mutate(id)}
+          onFindIt={(id) => void findIt(id)}
           onedrive={onedrive}
         />
+      )}
+      {relocate.data && (
+        <p role="status" className={styles.muted}>
+          {tStatus("foundIt", { found: relocate.data.found, checked: relocate.data.checked })}
+        </p>
       )}
       <ReadOnlineOnlySwitch />
       {failure && (

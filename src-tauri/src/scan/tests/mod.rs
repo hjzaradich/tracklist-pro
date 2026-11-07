@@ -15,6 +15,8 @@ mod ipc;
 mod onedrive;
 #[cfg(windows)]
 mod online_only;
+#[cfg(windows)]
+mod relocate;
 mod schema;
 #[cfg(windows)]
 mod startup;

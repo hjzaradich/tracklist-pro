@@ -26,6 +26,16 @@ const refusals: [IpcError, string][] = [
   ],
   [{ kind: "musicFolderNotFound", params: {} }, tx("musicFolders:notFound")],
   [{ kind: "musicFolderInUse", params: {} }, tx("musicFolders:inUse")],
+  [{ kind: "relocateNotMissing", params: {} }, tx("musicFolders:relocateNotMissing")],
+  [
+    { kind: "relocateOverlaps", params: { musicFolder: String.raw`E:\Music` } },
+    tx("musicFolders:relocateOverlaps", { musicFolder: String.raw`E:\Music` }),
+  ],
+  [{ kind: "relocateNoKnownFiles", params: {} }, tx("musicFolders:relocateNoKnownFiles")],
+  [
+    { kind: "relocateTooFewFiles", params: { found: 1, checked: 20 } },
+    tx("musicFolders:relocateTooFewFiles", { found: 1, checked: 20 }),
+  ],
 ];
 
 describe("music folder errors", () => {

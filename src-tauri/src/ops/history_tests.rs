@@ -92,7 +92,13 @@ pub(super) const SET_ONLY_TABLES: [&str; 2] = ["recording_file", "inbox_item"];
 /// Only a field of a row that is there is set; the app inserts files outside
 /// the log (the scan), and file ids are never reused (migration 0031), so
 /// that can't trip an Undo. Not a table the log points at as a logged one.
-pub(super) const SET_ONLY_FILE_TABLES: [&str; 1] = ["file"];
+/// `music_folder` is the second: "Find it" (4.1, `scan::relocate`) sets its
+/// `volume_id`, `rel_path` and `rel_path_key` through the log, and a test there
+/// does it, scans, and undoes it. Folders are inserted outside the log (adding
+/// one); undoing a set checks the value the field holds, so a removed folder
+/// only makes Undo refuse. The volume it points at is never
+/// deleted while a folder is on it (`ON DELETE RESTRICT`).
+pub(super) const SET_ONLY_FILE_TABLES: [&str; 2] = ["file", "music_folder"];
 
 // Not listed, on purpose: the ledgers of what a job measured from a file's
 // audio (`file_quality`, `file_waveform`, `file_estimate`). Nothing in them
