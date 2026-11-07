@@ -107,6 +107,9 @@ error_kinds! {
     /// The newest rekordbox read is from its database, and a send needs an
     /// XML export (ROADMAP 2.7).
     SendNeedsExport => "rekordbox:error.sendNeedsExport", params: [];
+    /// An XML export is older than the newest read of rekordbox's database,
+    /// and reading it would replace that read. Both times are UTC, ISO 8601.
+    XmlOlderThanDatabaseRead => "rekordbox:error.xmlOlderThanDatabaseRead", params: ["xmlAt", "readAt"];
     /// There's no track with that id to add to the Library.
     LibraryTrackNotFound => "library:error.trackNotFound", params: [];
     /// The track has no file to link a Library track to.

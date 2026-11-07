@@ -59,7 +59,16 @@ pub fn build(reads: &ReadPool, log: &EventLog, now_ms: i64) -> Result<String, Db
     let events = log.events();
     let (stored, on) = reads.read(|c| Ok((Stored::read(c)?, Switches::read(c)?)))?;
     let mut out = String::new();
-    let _ = write_report(&mut out, &stored, &on, &events, log.lost_writes(), now_ms);
+    let free = reads.path().parent().and_then(free_bytes);
+    let _ = write_report(
+        &mut out,
+        &stored,
+        &on,
+        &events,
+        log.lost_writes(),
+        now_ms,
+        free,
+    );
     Ok(out)
 }
 
@@ -168,6 +177,7 @@ fn write_report(
     events: &[LogEvent],
     lost_writes: u32,
     now_ms: i64,
+    free: Option<u64>,
 ) -> std::fmt::Result {
     writeln!(out, "Tracklist Pro diagnostics report")?;
     writeln!(out, "created: {}", time(now_ms))?;
@@ -179,6 +189,7 @@ fn write_report(
     writeln!(out, "[app]")?;
     writeln!(out, "version: {}", env!("CARGO_PKG_VERSION"))?;
     writeln!(out, "os: {}", os())?;
+    writeln!(out, "{}", free_space_line(free))?;
     match stored.schema {
         Some(v) => writeln!(
             out,
@@ -342,6 +353,46 @@ fn os() -> String {
     {
         std::env::consts::OS.to_owned()
     }
+}
+
+/// The report's free-space line: a whole number of GB, nothing that names a
+/// drive, a volume or a folder.
+pub(super) fn free_space_line(free: Option<u64>) -> String {
+    match free {
+        Some(bytes) => {
+            const GB: u64 = 1 << 30;
+            format!(
+                "disk free: {} GB",
+                bytes / GB + u64::from(bytes % GB >= GB / 2)
+            )
+        }
+        None => "disk free: unknown".to_owned(),
+    }
+}
+
+/// The bytes free for this user on the drive holding `dir`.
+#[cfg(windows)]
+fn free_bytes(dir: &std::path::Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut free = 0_u64;
+    // SAFETY: `wide` is NUL-terminated and outlives the call; `free` is a
+    // valid out-pointer; the two other out-pointers are allowed to be null.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(free)
+}
+
+#[cfg(not(windows))]
+fn free_bytes(_: &std::path::Path) -> Option<u64> {
+    None
 }
 
 /// The file name a report made at `now_ms` is saved under: sortable, and

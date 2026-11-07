@@ -409,6 +409,19 @@ fn the_report_lists_features_failures_and_events_by_code() {
 }
 
 #[test]
+fn the_free_space_line_is_a_whole_number_of_gb_and_nothing_else() {
+    const GB: u64 = 1 << 30;
+    assert_eq!(report::free_space_line(Some(0)), "disk free: 0 GB");
+    assert_eq!(report::free_space_line(Some(GB / 2 - 1)), "disk free: 0 GB");
+    assert_eq!(report::free_space_line(Some(GB / 2)), "disk free: 1 GB");
+    assert_eq!(
+        report::free_space_line(Some(250 * GB + GB / 4)),
+        "disk free: 250 GB"
+    );
+    assert_eq!(report::free_space_line(None), "disk free: unknown");
+}
+
+#[test]
 fn the_report_holds_no_setting_value_path_name_or_key() {
     let dir = tempfile::tempdir().unwrap();
     let (writer, reads) = database(dir.path());
@@ -480,6 +493,24 @@ fn the_report_holds_no_setting_value_path_name_or_key() {
     assert!(text.contains("xml last failure: damaged"), "{text}");
     assert!(text.contains("7 tracks"), "{text}");
     assert!(text.contains("failed: scan=1"), "{text}");
+    // The free-space line is a number of GB or "unknown": no drive letter,
+    // volume name or path can ride along.
+    let line = text
+        .lines()
+        .find(|l| l.starts_with("disk free:"))
+        .unwrap_or_else(|| {
+            panic!(
+                "no disk free line:
+{text}"
+            )
+        });
+    let shown = line.trim_start_matches("disk free: ");
+    let number = shown.strip_suffix(" GB");
+    assert!(
+        shown == "unknown"
+            || number.is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())),
+        "{line}"
+    );
     let data = dir.path().to_string_lossy().into_owned();
     for secret in [
         "Secret Export Path",

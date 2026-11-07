@@ -767,12 +767,19 @@ pub async fn rekordbox_xml_source(
 /// the user just picked, or a newer export offered), that file becomes the
 /// chosen export once it's read; without one, the chosen export is read
 /// again. Returns the job's id.
+///
+/// When the newest read is from rekordbox's database and the export's
+/// modified time is before that read's time, nothing is read and the error
+/// is [`ErrorKind::XmlOlderThanDatabaseRead`] (both times), unless
+/// `allow_older` is true: an older export never silently replaces a newer
+/// database read.
 #[tauri::command]
 #[specta::specta]
 pub async fn read_rekordbox_xml(
     writer: State<'_, Writer>,
     jobs: State<'_, JobQueue>,
     path: Option<String>,
+    allow_older: Option<bool>,
 ) -> Result<JobId, IpcError> {
     let path = match path {
         Some(path) => PathBuf::from(path),
@@ -782,7 +789,41 @@ pub async fn read_rekordbox_xml(
         }
     };
     check_export(&path)?;
+    if allow_older != Some(true) {
+        refuse_older_than_database_read(&writer, &path)?;
+    }
     Ok(jobs.enqueue(read_job(&path))?)
+}
+
+/// Refuses an export whose modified time is before the newest read, when
+/// that read is from rekordbox's database.
+fn refuse_older_than_database_read(writer: &Writer, path: &Path) -> Result<(), IpcError> {
+    let Some(modified_ms) = open_path(path)
+        .and_then(|p| fs::metadata(p).ok())
+        .and_then(|meta| millis(&meta).ok())
+    else {
+        return Ok(());
+    };
+    let older: Option<(String, String)> = writer.call(move |c| {
+        let last: Option<LastRead> = read_setting(c, LAST_READ)?;
+        let Some(last) = last.filter(|l| l.source == ReadSource::Database) else {
+            return Ok(None);
+        };
+        // The same format and zone as `read_at`, so the two compare as text.
+        let xml_at: String = c.query_row(
+            "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?1 / 1000.0, 'unixepoch')",
+            [modified_ms],
+            |r| r.get(0),
+        )?;
+        Ok((xml_at < last.read_at).then_some((xml_at, last.read_at)))
+    })?;
+    match older {
+        Some((xml_at, read_at)) => Err(IpcError::with(
+            ErrorKind::XmlOlderThanDatabaseRead,
+            [("xmlAt", xml_at.into()), ("readAt", read_at.into())],
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Turns the watch for newer exports on or off.

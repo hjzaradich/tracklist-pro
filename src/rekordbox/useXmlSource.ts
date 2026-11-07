@@ -37,12 +37,14 @@ export function useXmlSource(readingSince: string | null) {
 /**
  * Reads an export as a job: `path` (a file just picked, or a newer export)
  * becomes the chosen one; `null` reads the chosen one again. Resolves to the
- * job's id.
+ * job's id. `allowOlder` reads an export even when it is older than the
+ * newest read of rekordbox's database (the user said so).
  */
 export function useReadXml() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (path: string | null) => unwrap(commands.readRekordboxXml(path)),
+    mutationFn: ({ path, allowOlder = false }: { path: string | null; allowOlder?: boolean }) =>
+      unwrap(commands.readRekordboxXml(path, allowOlder)),
     onSettled: () => queryClient.invalidateQueries({ queryKey: XML_SOURCE_QUERY_KEY }),
   });
 }

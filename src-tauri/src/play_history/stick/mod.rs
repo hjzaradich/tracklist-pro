@@ -214,7 +214,7 @@ const CONTENTS: &str = "Contents";
 /// only when it may be read: its parts (either slash; empty and `.` parts
 /// dropped) are `Contents` (any case) and then names, none of them `..` or
 /// holding a `:` (a drive or a stream); it ends in an extension the app
-/// accepts as audio; and every part below `Contents` is a plain folder or
+/// accepts as audio; and `Contents` itself and every part below it is a plain folder or
 /// file, not a link or junction, the last a regular file. Everything else,
 /// the OneLibrary database first of all, is never opened.
 fn readable_file(root: &str, rel: &str) -> Option<PathBuf> {
@@ -234,6 +234,11 @@ fn readable_file(root: &str, rel: &str) -> Option<PathBuf> {
         return None;
     }
     let mut at = PathBuf::from(on_stick(root, CONTENTS));
+    // `Contents` itself: a plain folder, not a link or junction to elsewhere.
+    let top = std::fs::symlink_metadata(&at).ok()?;
+    if top.file_type().is_symlink() || is_reparse_point(&top) || !top.is_dir() {
+        return None;
+    }
     for (i, part) in below.iter().enumerate() {
         at.push(part);
         let meta = std::fs::symlink_metadata(&at).ok()?;
