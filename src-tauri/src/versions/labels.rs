@@ -426,6 +426,20 @@ mod lookup_tests {
             .map(|&(kind, _)| kind)
     }
 
+    /// What makes "the first row to spell it wins" the same as any other:
+    /// no spelling is in two rows of different kinds. Whoever adds a label
+    /// that clashes finds it out here.
+    #[test]
+    fn no_spelling_stands_for_two_kinds() {
+        let mut kind_of: HashMap<String, MarkerKind> = HashMap::new();
+        for (kind, spellings) in CUT_LABELS.iter().chain(REWORK_LABELS) {
+            for s in spellings.iter() {
+                let held = kind_of.entry(table_spelling(s)).or_insert(*kind);
+                assert_eq!(*held, *kind, "{s:?} is a label of two kinds");
+            }
+        }
+    }
+
     #[test]
     fn the_map_answers_as_the_scan_of_the_tables_did() {
         let mut asked: Vec<String> = Vec::new();

@@ -201,6 +201,10 @@ fn matching_on_demand_answers_as_reading_every_title_up_front_did() {
         wish("", "Paper Harbor", None, None),
     ];
     let owned_ids: Vec<i64> = made.iter().map(|(r, _)| *r).collect();
+    // Every track made has a present file but the hidden-away one: the
+    // matcher must hold each of them, or the reference would inherit a
+    // candidate lost on the way in.
+    let expected = owned_ids.len() - 1;
     // Everything is compared on the writer's thread; what comes back is
     // the list of differences and the kinds the set covers.
     let (differences, kinds, several) = lib
@@ -211,6 +215,13 @@ fn matching_on_demand_answers_as_reading_every_title_up_front_did() {
             let among = Matcher::build_wanting(c, Some(&owned_ids), &wishes)?;
             let reference = Eager::new(&every);
             let mut differences = Vec::new();
+            if every.candidates.len() != expected || among.candidates.len() != expected {
+                differences.push(format!(
+                    "candidates: {} and {}, expected {expected}",
+                    every.candidates.len(),
+                    among.candidates.len()
+                ));
+            }
             let mut kinds = HashSet::new();
             let mut several = false;
             for w in &wishes {
@@ -231,4 +242,42 @@ fn matching_on_demand_answers_as_reading_every_title_up_front_did() {
     // come up, and an item can be owned as several tracks.
     assert_eq!(kinds, 4);
     assert!(several);
+}
+
+#[test]
+fn the_threaded_artist_keys_are_the_sequential_ones_in_the_same_order() {
+    use super::matching::wanted_artist_keys_with;
+    // Ragged: more artists than fits evenly in any chunk, repeats, empty,
+    // accents, collaborations and an artist with no letters.
+    let artists: Vec<String> = (0..203)
+        .map(|i| match i % 7 {
+            0 => format!("Artist {} & Other {}", i % 11, i % 5),
+            1 => format!("Caf\u{e9} Voss {}", i % 13),
+            2 => String::new(),
+            3 => format!("Nova Reed feat. Quill {}", i),
+            4 => "!!!".to_owned(),
+            5 => format!("DJ {}", i),
+            _ => format!("Mara {} x Dee {}", i % 3, i),
+        })
+        .collect();
+    let artists: Vec<&str> = artists.iter().map(String::as_str).collect();
+    let wanted: HashSet<String> = [
+        "artist 3",
+        "other 2",
+        "nova reed",
+        "dj 5",
+        "mara 1",
+        "cafe voss 4",
+    ]
+    .map(str::to_owned)
+    .into();
+    for wanted in [None, Some(&wanted)] {
+        let sequential = wanted_artist_keys_with(&artists, wanted, 1, usize::MAX);
+        assert_eq!(sequential.len(), artists.len());
+        assert!(sequential.iter().any(|k| !k.is_empty()));
+        for threads in [2, 3, 8] {
+            let threaded = wanted_artist_keys_with(&artists, wanted, threads, 1);
+            assert_eq!(threaded, sequential, "{threads} threads, {wanted:?}");
+        }
+    }
 }

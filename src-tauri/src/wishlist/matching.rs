@@ -150,14 +150,28 @@ const PARALLEL_FROM: usize = 4096;
 /// them for `None`), in order. The artist parser is most of what building
 /// a matcher over a big library costs once titles are left to be read on
 /// demand, so the artists are shared among the cores.
-fn wanted_artist_keys(artists: &[&str], wanted: Option<&HashSet<String>>) -> Vec<Vec<String>> {
+pub(super) fn wanted_artist_keys(
+    artists: &[&str],
+    wanted: Option<&HashSet<String>>,
+) -> Vec<Vec<String>> {
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
+    wanted_artist_keys_with(artists, wanted, threads, PARALLEL_FROM)
+}
+
+/// [`wanted_artist_keys`] over `threads` threads from `parallel_from` artists
+/// on (a test runs the threaded branch on a few).
+pub(super) fn wanted_artist_keys_with(
+    artists: &[&str],
+    wanted: Option<&HashSet<String>>,
+    threads: usize,
+    parallel_from: usize,
+) -> Vec<Vec<String>> {
     let keys_of = |artist: &&str| -> Vec<String> {
         let mut keys = artist_keys(artist);
         keys.retain(|key| wanted.is_none_or(|w| w.contains(key)));
         keys
     };
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
-    if artists.len() < PARALLEL_FROM || threads < 2 {
+    if artists.len() < parallel_from || threads < 2 {
         return artists.iter().map(keys_of).collect();
     }
     let chunk = artists.len().div_ceil(threads);
@@ -228,6 +242,9 @@ thread_local! {
 }
 
 pub struct Matcher {
+    /// What a matcher built for some items was built for (ISRCs, artist keys):
+    /// it answers for these only.
+    wanted: Option<(HashSet<String>, HashSet<String>)>,
     pub(super) candidates: Vec<Candidate>,
     /// The candidates each artist key names, in order.
     pub(super) by_artist: HashMap<String, Vec<usize>>,
@@ -270,7 +287,7 @@ impl Matcher {
     ) -> rusqlite::Result<Matcher> {
         #[cfg(test)]
         BUILT.with(|n| n.set(n.get() + 1));
-        let (wanted_isrcs, wanted_artists) = match wanted {
+        let (wanted_isrcs, wanted_artists) = match &wanted {
             Some((isrcs, artists)) => (Some(isrcs), Some(artists)),
             None => (None, None),
         };
@@ -298,6 +315,7 @@ impl Matcher {
             shown_recordings(conn, &ids)?
         };
         let mut matcher = Matcher {
+            wanted: wanted.clone(),
             candidates: Vec::with_capacity(owned.len()),
             by_artist: HashMap::new(),
             by_recording: HashMap::new(),
@@ -316,7 +334,7 @@ impl Matcher {
                 .iter()
                 .map(|(_, _, s)| s.artist.as_str())
                 .collect::<Vec<_>>(),
-            wanted_artists.as_ref(),
+            wanted_artists,
         );
         for ((recording, in_library, name), keys) in shown.into_iter().zip(artists) {
             let at = matcher.candidates.len();
@@ -331,7 +349,7 @@ impl Matcher {
                 read: OnceLock::new(),
             });
         }
-        if wanted_isrcs.as_ref().is_some_and(HashSet::is_empty) {
+        if wanted_isrcs.is_some_and(HashSet::is_empty) {
             return Ok(matcher);
         }
         let mut files = conn.prepare_cached(
@@ -346,7 +364,7 @@ impl Matcher {
         while let Some(row) = rows.next()? {
             let (recording, raw): (i64, String) = (row.get(0)?, row.get(1)?);
             for isrc in isrcs_in(&raw) {
-                if wanted_isrcs.as_ref().is_some_and(|w| !w.contains(&isrc)) {
+                if wanted_isrcs.is_some_and(|w| !w.contains(&isrc)) {
                     continue;
                 }
                 // The lowest track id keeps an ISRC two tracks carry.
@@ -401,10 +419,31 @@ impl Matcher {
             .then_some(recording)
     }
 
+    /// A matcher built for some items answers for those only: asking about
+    /// another is a mistake that would answer "missing" (debug builds only).
+    fn assert_asked(&self, wish: &WishTrack) {
+        if let Some((isrcs, artists)) = &self.wanted {
+            debug_assert!(
+                artist_keys(&wish.artist)
+                    .iter()
+                    .all(|k| artists.contains(k)),
+                "the matcher was not built for this artist: {wish:?}"
+            );
+            debug_assert!(
+                wish.isrc
+                    .as_deref()
+                    .and_then(normalize_isrc)
+                    .is_none_or(|i| isrcs.contains(&i)),
+                "the matcher was not built for this ISRC: {wish:?}"
+            );
+        }
+    }
+
     /// Every track `wish` is owned as, the very same version (not another
     /// cut, not a rework), each with its reason, the lowest id first. An
     /// ISRC an owned file carries decides alone, as in [`Matcher::find`].
     pub fn owners(&self, wish: &WishTrack) -> Vec<WishMatch> {
+        self.assert_asked(wish);
         if let Some(recording) = self.by_isrc_of(wish) {
             return vec![self.owned(recording, true)];
         }
@@ -429,6 +468,7 @@ impl Matcher {
 
     /// What `wish` comes to.
     pub fn find(&self, wish: &WishTrack) -> WishMatch {
+        self.assert_asked(wish);
         if let Some(recording) = self.by_isrc_of(wish) {
             return self.owned(recording, true);
         }
