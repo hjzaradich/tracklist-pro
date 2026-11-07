@@ -689,7 +689,8 @@ export const commands = {
 	historyStickLists: (root: string) => typedError<StickListing, IpcError>(__TAURI_INVOKE("history_stick_lists", { root })),
 	/**
 	 *  Imports the lists `list_ids` of the stick at `root` as sessions played on
-	 *  `played_on`. The stick is read again, so what's imported is what's on it now.
+	 *  `played_on`. The stick is read again, so what's imported is what's on it
+	 *  now; its files are hashed before the database is asked.
 	 */
 	historyImportStick: (root: string, listIds: number[], playedOn: string) => typedError<StickImport, IpcError>(__TAURI_INVOKE("history_import_stick", { root, listIds, playedOn })),
 	/**  The tracks that best follow `recording_id` going `direction`, with why. */
@@ -3294,8 +3295,18 @@ export type StickImport =
 { outcome: "done"; operationId: number | null; 
 /**  The new sessions. */
 sessions: number[]; 
-/**  Plays imported, and how many of them matched a track. */
+/**
+ *  Plays imported, and how many of them matched a track by the
+ *  same audio.
+ */
 plays: number; matched: number; 
+/**  Plays left unmatched because their audio is several tracks'. */
+ambiguous: number; 
+/**
+ *  Plays left unmatched because their file on the stick couldn't be
+ *  read (missing, too big, unreadable).
+ */
+unreadable: number; 
 /**  Lists left out because they are already a session. */
 alreadyImported: number; 
 /**  Parts of the stick's database that couldn't be read. */

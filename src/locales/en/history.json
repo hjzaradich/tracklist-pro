@@ -58,6 +58,12 @@
     "alreadyImported_other": "{{count, number}} lists were already imported on that date and were left out.",
     "skipped_one": "{{count, number}} part of the stick's database couldn't be read and was skipped.",
     "skipped_other": "{{count, number}} parts of the stick's database couldn't be read and were skipped.",
+    "plays_one": "Imported {{count, number}} play, {{matched, number}} of them the same audio as a track in your music.",
+    "plays_other": "Imported {{count, number}} plays, {{matched, number}} of them the same audio as a track in your music.",
+    "ambiguous_one": "{{count, number}} play has the same audio as more than one track in your music, so it wasn't matched.",
+    "ambiguous_other": "{{count, number}} plays have the same audio as more than one track in your music, so they weren't matched.",
+    "unreadableFiles_one": "{{count, number}} play's file on the stick couldn't be read, so it wasn't matched.",
+    "unreadableFiles_other": "{{count, number}} plays' files on the stick couldn't be read, so they weren't matched.",
     "refusal": {
       "noExport": "That folder has no rekordbox export (PIONEER\\rekordbox\\export.pdb). Choose the stick's top folder.",
       "unreadable": "Couldn't read the stick's database.",

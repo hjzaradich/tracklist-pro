@@ -177,6 +177,8 @@ describe("the History screen", () => {
         sessions: [SESSION.id],
         plays: 3,
         matched: 1,
+        ambiguous: 1,
+        unreadable: 1,
         alreadyImported: 1,
         skipped: 2,
       },
@@ -201,7 +203,9 @@ describe("the History screen", () => {
     await user.click(importButton);
 
     expect(await screen.findByText(tx("history:stick.done", { count: 1 }))).toBeInTheDocument();
-    expect(screen.getByText(tx("history:import.done", { count: 3, matched: 1 }))).toBeInTheDocument();
+    expect(screen.getByText(tx("history:stick.plays", { count: 3, matched: 1 }))).toBeInTheDocument();
+    expect(screen.getByText(tx("history:stick.ambiguous", { count: 1 }))).toBeInTheDocument();
+    expect(screen.getByText(tx("history:stick.unreadableFiles", { count: 1 }))).toBeInTheDocument();
     expect(screen.getByText(tx("history:stick.unmatched", { count: 2 }))).toBeInTheDocument();
     expect(screen.getByText(tx("history:stick.alreadyImported", { count: 1 }))).toBeInTheDocument();
     expect(screen.getByText(tx("history:stick.skipped", { count: 2 }))).toBeInTheDocument();

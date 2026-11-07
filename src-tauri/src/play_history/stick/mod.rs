@@ -9,13 +9,19 @@
 //! - The user picks which lists to import. Each becomes one session, dated
 //!   the day the user gives (the import day unless changed), never from file
 //!   dates (§5.4); it can be corrected later like any session.
-//! - A play's path is the stick's root plus the path the stick gives, matched
-//!   to the Library's files as an m3u8 play is ([`super::matching`]). A play
-//!   that matches nothing keeps its artist and title.
+//! - **Matched by content, not path:** the stick's files are its own copies,
+//!   so a play's path (the stick's root plus the path the stick gives) names
+//!   no Library file. Instead each stick file a chosen list plays is read
+//!   (only read, and only those files) and hashed as the scan hashes
+//!   ([`crate::hash`]); a track whose file has the same `audio_hash` (which
+//!   survives tag edits), or else the same whole-file `blake3`, is the match.
+//!   Audio shared by several tracks matches none: a wrong match is worse than
+//!   none. A play that matches nothing keeps its artist and title.
 //! - A list whose plays, in order, are already a session on that day is left
 //!   out as already imported ([`super::same_session`]).
 //! - One import, however many lists, is one operation: one Undo.
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -28,13 +34,12 @@ use specta::Type;
 use tauri::State;
 
 use super::{
-    count, insert_session, m3u8, matching, same_session, NewPlay, IMPORT_OPERATION,
-    MAX_NAME_CHARS,
+    count, insert_session, m3u8, same_session, NewPlay, IMPORT_OPERATION, MAX_NAME_CHARS,
 };
-use crate::db::{ReadPool, Writer};
+use crate::db::Writer;
 use crate::ipc::IpcError;
 use crate::ops::{self, OpsError};
-use crate::relink::Mounted;
+use crate::hash::{self, AUDIO_HASH_LEN};
 use crate::write_guard::WriteGuard;
 
 pub mod devicesql;
@@ -47,6 +52,10 @@ mod tests;
 /// The staging folder the stick's database is copied into.
 pub const STAGING: &str = "gig-stick";
 const COPY: &str = "export.pdb";
+/// The biggest stick audio file hashed; a bigger one stays unmatched.
+pub const MAX_AUDIO_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// The most stick files hashed in one import; the rest stay unmatched.
+pub const MAX_FILES: usize = 1000;
 
 /// One stick read at a time: they share the staging folder.
 static READING: Mutex<()> = Mutex::new(());
@@ -102,9 +111,15 @@ pub enum StickImport {
         operation_id: Option<i64>,
         /// The new sessions.
         sessions: Vec<i64>,
-        /// Plays imported, and how many of them matched a track.
+        /// Plays imported, and how many of them matched a track by the
+        /// same audio.
         plays: u32,
         matched: u32,
+        /// Plays left unmatched because their audio is several tracks'.
+        ambiguous: u32,
+        /// Plays left unmatched because their file on the stick couldn't be
+        /// read (missing, too big, unreadable).
+        unreadable: u32,
         /// Lists left out because they are already a session.
         already_imported: u32,
         /// Parts of the stick's database that couldn't be read.
@@ -184,15 +199,99 @@ fn on_stick(root: &str, rel: &str) -> String {
     format!("{root}\\{rel}")
 }
 
+/// A path that climbs out of the stick names nothing on it, and is never
+/// opened.
+fn inside_stick(rel: &str) -> bool {
+    !rel.split(['/', '\\']).any(|part| part == "..")
+}
+
+/// What a stick file's bytes are, for matching it to a track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Content {
+    /// Its `audio_hash`, stored form, when its audio could be found.
+    pub audio: Option<[u8; AUDIO_HASH_LEN]>,
+    /// The BLAKE3 of the whole file.
+    pub whole: [u8; 32],
+}
+
+/// The content of each stick file the lists `chosen` play, by the path the
+/// stick gives (`None`: it couldn't be read). Each file is opened only to be
+/// read, once however often it's played; at most [`MAX_FILES`] files, each
+/// at most [`MAX_AUDIO_BYTES`].
+pub fn hash_stick_files(
+    root: &str,
+    export: &devicesql::Export,
+    chosen: &[u32],
+) -> HashMap<String, Option<Content>> {
+    let mut out: HashMap<String, Option<Content>> = HashMap::new();
+    let mut buf = vec![0_u8; hash::BUFFER];
+    let plays = export
+        .lists
+        .iter()
+        .filter(|l| chosen.contains(&l.id))
+        .flat_map(|l| &l.plays);
+    for play in plays {
+        if out.contains_key(&play.path) || !inside_stick(&play.path) {
+            continue;
+        }
+        let content = (out.len() < MAX_FILES)
+            .then(|| {
+                let path = PathBuf::from(on_stick(root, &play.path));
+                hash::hash_path(&path, &mut buf, &mut |read| read > MAX_AUDIO_BYTES).ok()
+            })
+            .flatten()
+            .flatten()
+            .map(|h| Content {
+                audio: h.audio.ok().map(|a| a.to_bytes()),
+                whole: h.blake3,
+            });
+        out.insert(play.path.clone(), content);
+    }
+    out
+}
+
+/// The track whose file has the same content, if exactly one has.
+enum Found {
+    One(i64),
+    Several,
+    None,
+}
+
+fn track_with(conn: &Connection, content: &Content) -> rusqlite::Result<Found> {
+    let by = |column: &str, value: &[u8]| -> rusqlite::Result<Found> {
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT DISTINCT rf.recording_id FROM file f
+             JOIN recording_file rf ON rf.file_id = f.id
+             WHERE f.{column} = ?1 LIMIT 2"
+        ))?;
+        let tracks = stmt
+            .query_map([value], |r| r.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(match tracks[..] {
+            [one] => Found::One(one),
+            [] => Found::None,
+            _ => Found::Several,
+        })
+    };
+    if let Some(audio) = &content.audio {
+        match by("audio_hash", audio)? {
+            Found::None => {}
+            found => return Ok(found),
+        }
+    }
+    by("blake3", &content.whole)
+}
+
 /// Imports the lists `chosen` (by id) of the stick `export`, read from the
 /// folder `root`, as sessions played on `played_on`: one operation.
+/// `contents` is what [`hash_stick_files`] found.
 pub fn import_stick(
     conn: &mut Connection,
-    mounted: &Mounted,
     root: &str,
     export: &devicesql::Export,
     chosen: &[u32],
     played_on: &str,
+    contents: &HashMap<String, Option<Content>>,
 ) -> Result<StickImport, OpsError> {
     let refused = |reason| Ok(StickImport::Refused { reason });
     let played_on = played_on.trim();
@@ -208,21 +307,44 @@ pub fn import_stick(
         return refused(StickRefusal::NothingChosen);
     }
 
-    let index = matching::PathIndex::load(conn, mounted)?;
-    let mut sets: Vec<(String, Vec<NewPlay>)> = Vec::new();
+    // Each stick file's track, looked up once.
+    let mut tracks: HashMap<&str, Found> = HashMap::new();
+    for play in picked.iter().flat_map(|l| &l.plays) {
+        if tracks.contains_key(play.path.as_str()) {
+            continue;
+        }
+        let found = match contents.get(&play.path).copied().flatten() {
+            Some(content) => track_with(conn, &content)?,
+            None => Found::None,
+        };
+        tracks.insert(&play.path, found);
+    }
+
+    let mut sets: Vec<(String, Vec<NewPlay>, u32, u32)> = Vec::new();
     let mut already = 0_u32;
     for list in picked {
+        let (mut ambiguous, mut unreadable) = (0, 0);
         let plays: Vec<NewPlay> = list
             .plays
             .iter()
             .map(|p| {
-                let path = on_stick(root, &p.path);
-                // A path that climbs out of the stick names nothing on it.
-                let inside = !p.path.split(['/', '\\']).any(|part| part == "..");
+                let recording = match tracks.get(p.path.as_str()) {
+                    Some(Found::One(track)) => Some(*track),
+                    Some(Found::Several) => {
+                        ambiguous += 1;
+                        None
+                    }
+                    _ => {
+                        if !matches!(contents.get(&p.path), Some(Some(_))) {
+                            unreadable += 1;
+                        }
+                        None
+                    }
+                };
                 NewPlay {
-                    recording: inside.then(|| index.recording_for(&path, None)).flatten(),
+                    recording,
                     entry: m3u8::Entry {
-                        path,
+                        path: on_stick(root, &p.path),
                         artist: p.artist.clone(),
                         title: p.title.clone(),
                     },
@@ -233,34 +355,39 @@ pub fn import_stick(
             already += 1;
             continue;
         }
-        sets.push((list.name.chars().take(MAX_NAME_CHARS).collect(), plays));
+        let name = list.name.chars().take(MAX_NAME_CHARS).collect();
+        sets.push((name, plays, ambiguous, unreadable));
     }
 
-    let total = count(sets.iter().map(|(_, p)| p.len()).sum());
+    let total = count(sets.iter().map(|s| s.1.len()).sum());
     let matched = count(
         sets.iter()
-            .flat_map(|(_, p)| p)
+            .flat_map(|s| &s.1)
             .filter(|p| p.recording.is_some())
             .count(),
     );
+    let ambiguous = sets.iter().map(|s| s.2).sum();
+    let unreadable = sets.iter().map(|s| s.3).sum();
     if sets.is_empty() {
         return Ok(StickImport::Done {
             operation_id: None,
             sessions: Vec::new(),
             plays: 0,
             matched: 0,
+            ambiguous: 0,
+            unreadable: 0,
             already_imported: already,
             skipped: export.skipped,
         });
     }
-    let names: Vec<&str> = sets.iter().map(|(n, _)| n.as_str()).collect();
+    let names: Vec<&str> = sets.iter().map(|s| s.0.as_str()).collect();
     let recorded = ops::record(
         conn,
         IMPORT_OPERATION,
         &json!({ "source": "stick", "names": names, "plays": total }),
         |rec| {
             sets.iter()
-                .map(|(name, plays)| insert_session(rec, "stick", name, played_on, plays))
+                .map(|(name, plays, ..)| insert_session(rec, "stick", name, played_on, plays))
                 .collect::<Result<Vec<i64>, OpsError>>()
         },
     )?;
@@ -269,6 +396,8 @@ pub fn import_stick(
         sessions: recorded.value,
         plays: total,
         matched,
+        ambiguous,
+        unreadable,
         already_imported: already,
         skipped: export.skipped,
     })
@@ -291,11 +420,11 @@ pub fn history_stick_lists(
 }
 
 /// Imports the lists `list_ids` of the stick at `root` as sessions played on
-/// `played_on`. The stick is read again, so what's imported is what's on it now.
+/// `played_on`. The stick is read again, so what's imported is what's on it
+/// now; its files are hashed before the database is asked.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn history_import_stick(
-    reads: State<'_, ReadPool>,
     writer: State<'_, Writer>,
     guard: State<'_, WriteGuard>,
     root: String,
@@ -306,11 +435,10 @@ pub fn history_import_stick(
         Ok(export) => export,
         Err(reason) => return Ok(StickImport::Refused { reason }),
     };
-    let known = reads.read(crate::relink::identities)?;
-    let mounted = Mounted::ask(&known, &crate::scan::system_volumes());
+    let contents = hash_stick_files(&root, &export, &list_ids);
     Ok(writer.call(move |c| {
         Ok(import_stick(
-            c, &mounted, &root, &export, &list_ids, &played_on,
+            c, &root, &export, &list_ids, &played_on, &contents,
         ))
     })??)
 }

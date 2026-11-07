@@ -115,7 +115,7 @@ export function GigStickImport({ onImported }: { onImported: (sessionId: number)
   );
 }
 
-/** What a stick import came to: sets and plays imported, plays not in your music, lists already here. */
+/** What a stick import came to: sets and plays imported, matched by the same audio or not (and why), lists already here. */
 function StickResult({ outcome }: { outcome: StickImport }) {
   const { t } = useTranslation("history");
   if (outcome.outcome === "refused") {
@@ -131,10 +131,14 @@ function StickResult({ outcome }: { outcome: StickImport }) {
       {outcome.sessions.length > 0 && (
         <>
           <p>{t("stick.done", { count: outcome.sessions.length })}</p>
-          <p>{t("import.done", { count: outcome.plays, matched: outcome.matched })}</p>
+          <p>{t("stick.plays", { count: outcome.plays, matched: outcome.matched })}</p>
         </>
       )}
       {unmatched > 0 && <p className={styles.muted}>{t("stick.unmatched", { count: unmatched })}</p>}
+      {outcome.ambiguous > 0 && <p className={styles.muted}>{t("stick.ambiguous", { count: outcome.ambiguous })}</p>}
+      {outcome.unreadable > 0 && (
+        <p className={styles.muted}>{t("stick.unreadableFiles", { count: outcome.unreadable })}</p>
+      )}
       {outcome.alreadyImported > 0 && (
         <p className={styles.muted}>{t("stick.alreadyImported", { count: outcome.alreadyImported })}</p>
       )}

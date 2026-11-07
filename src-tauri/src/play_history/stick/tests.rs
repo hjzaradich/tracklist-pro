@@ -2,7 +2,7 @@
 //! stick through staging without touching it, and the import with its Undo.
 //! Made-up names and rows only; no real stick's data.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -13,8 +13,8 @@ use super::devicesql::{parse, Export, HistoryList, StickPlay};
 use super::fixture::{self, Pdb, ARTISTS, ENTRIES, LISTS, PAGE, TRACKS};
 use super::*;
 use crate::play_history::{plays, sessions, set_date, HistoryOutcome};
-use crate::relink::Mounted;
-use crate::search::tests::support::{Lib, Mount};
+use crate::search::tests::support::Lib;
+use crate::tags::test_audio;
 
 fn play(path: &str, artist: Option<&str>, title: &str) -> StickPlay {
     StickPlay {
@@ -293,20 +293,31 @@ fn reading_a_stick_never_changes_anything_on_it() {
     fs::create_dir_all(&music).unwrap();
     fs::write(music.join("first.mp3"), b"not audio").unwrap();
     // Read-only files: a read that asked to write would fail.
-    for file in [export_path(&s.stick), rb.join("exportLibrary.db")] {
-        set_readonly(&file, true);
+    let files = [
+        export_path(&s.stick),
+        rb.join("exportLibrary.db"),
+        music.join("first.mp3"),
+    ];
+    for file in &files {
+        set_readonly(file, true);
     }
 
     let mut before = BTreeMap::new();
     snapshot(&s.stick, &mut before);
     assert!(before.len() >= 6, "{before:?}");
-    read_stick(&s.guard, &s.stick).unwrap();
+    // Reading its database, then hashing the files its lists play.
+    let export = read_stick(&s.guard, &s.stick).unwrap();
+    let contents = hash_stick_files(&s.stick.display().to_string(), &export, &[1, 2]);
+    assert!(matches!(
+        contents.get("/Contents/Made Up Artist/first.mp3"),
+        Some(Some(_))
+    ));
     let mut after = BTreeMap::new();
     snapshot(&s.stick, &mut after);
     assert_eq!(before, after, "the stick changed");
 
-    for file in [export_path(&s.stick), rb.join("exportLibrary.db")] {
-        set_readonly(&file, false);
+    for file in &files {
+        set_readonly(file, false);
     }
 }
 
@@ -337,12 +348,37 @@ fn read<T: Send + 'static>(
     lib.writer.call(move |c| job(c)).unwrap()
 }
 
-fn import(lib: &Lib, root: &'static str, export: Export, chosen: Vec<u32>, day: &'static str) -> StickImport {
-    run(lib, move |c| {
-        let m = Mounted::ask(&crate::relink::identities(c).unwrap(), &Mount);
-        import_stick(c, &m, root, &export, &chosen, day)
-    })
+fn import_with(
+    lib: &Lib,
+    root: &str,
+    export: Export,
+    chosen: Vec<u32>,
+    day: &'static str,
+    contents: HashMap<String, Option<Content>>,
+) -> StickImport {
+    let root = root.to_owned();
+    run(lib, move |c| import_stick(c, &root, &export, &chosen, day, &contents))
 }
+
+/// An import whose stick files couldn't be read.
+fn import(lib: &Lib, root: &str, export: Export, chosen: Vec<u32>, day: &'static str) -> StickImport {
+    import_with(lib, root, export, chosen, day, HashMap::new())
+}
+
+/// Gives `file` the hashes of `content`, as the hash stage would.
+fn set_hashes(lib: &Lib, file: i64, content: Content) {
+    read(lib, move |c| {
+        c.execute(
+            "UPDATE file SET audio_hash = ?1, blake3 = ?2 WHERE id = ?3",
+            rusqlite::params![content.audio.map(|a| a.to_vec()), content.whole.to_vec(), file],
+        )
+    });
+}
+
+const AUDIO_A: Content = Content {
+    audio: Some([7; AUDIO_HASH_LEN]),
+    whole: [8; 32],
+};
 
 fn operations(lib: &Lib) -> i64 {
     read(lib, |c| c.query_row("SELECT count(*) FROM operation", [], |r| r.get(0)))
@@ -350,19 +386,24 @@ fn operations(lib: &Lib) -> i64 {
 
 fn library() -> (Lib, i64) {
     let lib = Lib::new();
-    let (a, _) = lib.track(Some("Track A"), Some("Artist A"), "a.mp3");
+    let (a, file) = lib.track(Some("Track A"), Some("Artist A"), "a.mp3");
+    set_hashes(&lib, file, AUDIO_A);
     (lib, a)
 }
 
 #[test]
 fn importing_lists_makes_one_session_each_in_entry_order_on_the_chosen_date() {
     let (lib, a) = library();
-    let outcome = import(&lib, r"E:\", two_gigs(), vec![1, 2], "2026-04-18");
+    // The third track's file is track A's audio; the others weren't read.
+    let contents = HashMap::from([("/Music/a.mp3".to_owned(), Some(AUDIO_A))]);
+    let outcome = import_with(&lib, r"E:\", two_gigs(), vec![1, 2], "2026-04-18", contents);
     let StickImport::Done {
         operation_id,
         sessions: made,
         plays: total,
         matched,
+        ambiguous,
+        unreadable,
         already_imported,
         skipped,
     } = outcome
@@ -370,7 +411,10 @@ fn importing_lists_makes_one_session_each_in_entry_order_on_the_chosen_date() {
         panic!("{outcome:?}");
     };
     assert!(operation_id.is_some());
-    assert_eq!((made.len(), total, matched, already_imported, skipped), (2, 5, 1, 0, 0));
+    assert_eq!(
+        (made.len(), total, matched, ambiguous, unreadable, already_imported, skipped),
+        (2, 5, 1, 0, 4, 0, 0)
+    );
     assert_eq!(operations(&lib), 1, "one import is one operation");
 
     let list = read(&lib, sessions);
@@ -434,6 +478,8 @@ fn the_same_list_on_the_same_day_is_left_out_as_already_imported() {
             sessions: Vec::new(),
             plays: 0,
             matched: 0,
+            ambiguous: 0,
+            unreadable: 0,
             already_imported: 2,
             skipped: 0,
         }
@@ -488,19 +534,26 @@ fn a_bad_date_or_no_list_with_plays_is_refused() {
 }
 
 #[test]
-fn a_path_that_climbs_out_of_the_stick_matches_nothing_but_is_kept() {
-    let (lib, _) = library();
+fn a_path_that_climbs_out_of_the_stick_is_never_opened_and_its_play_is_kept() {
+    let s = sandbox();
+    // A real file beside the stick, which the path would reach.
+    let beside = s.stick.parent().unwrap().join("outside.wav");
+    fs::write(&beside, test_audio::wav()).unwrap();
     let export = Export {
         lists: vec![HistoryList {
             id: 1,
             name: "HISTORY 001".into(),
-            plays: vec![play("/../Music/a.mp3", Some("Made Up Artist"), "Up")],
+            plays: vec![play("/../outside.wav", Some("Made Up Artist"), "Up")],
         }],
         skipped: 0,
     };
-    let outcome = import(&lib, r"E:\Stick", export, vec![1], "2026-04-18");
+    let root = s.stick.display().to_string();
+    let contents = hash_stick_files(&root, &export, &[1]);
+    assert!(contents.is_empty(), "{contents:?}");
+    let (lib, _) = library();
+    let outcome = import_with(&lib, &root, export, vec![1], "2026-04-18", contents);
     assert!(
-        matches!(outcome, StickImport::Done { plays: 1, matched: 0, .. }),
+        matches!(outcome, StickImport::Done { plays: 1, matched: 0, unreadable: 1, .. }),
         "{outcome:?}"
     );
 }
@@ -511,10 +564,159 @@ fn a_stick_read_end_to_end_imports_its_plays_unmatched_with_their_names() {
     fixture::write_stick(&s.stick, &fixture::two_gigs().build());
     let export = read_stick(&s.guard, &s.stick).unwrap();
     let (lib, _) = library();
-    let root: &'static str = Box::leak(s.stick.display().to_string().into_boxed_str());
-    let outcome = import(&lib, root, export, vec![1], "2026-04-18");
+    let outcome = import(&lib, &s.stick.display().to_string(), export, vec![1], "2026-04-18");
     assert!(
         matches!(outcome, StickImport::Done { plays: 2, matched: 0, .. }),
         "{outcome:?}"
+    );
+}
+
+// ---- matching by content ------------------------------------------------------
+
+const STICK_FILE: &str = "/Contents/Made Up Artist/one.wav";
+
+/// A stick whose one list plays one file, `bytes` (none when `None`).
+fn stick_playing(s: &Sandbox, bytes: Option<&[u8]>) -> Export {
+    let pdb = Pdb::new()
+        .table(TRACKS, vec![fixture::track(1, 0, "One Tune", STICK_FILE)], 16)
+        .table(LISTS, vec![fixture::list(1, "HISTORY 001")], 16)
+        .table(ENTRIES, vec![fixture::entry(1, 1, 1)], 16);
+    fixture::write_stick(&s.stick, &pdb.build());
+    if let Some(bytes) = bytes {
+        let dir = s.stick.join("Contents").join("Made Up Artist");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("one.wav"), bytes).unwrap();
+    }
+    read_stick(&s.guard, &s.stick).unwrap()
+}
+
+/// What the hash stage would store for `bytes`.
+fn content_of(bytes: &[u8]) -> Content {
+    let mut buf = vec![0_u8; 4096];
+    let h = crate::hash::hash_reader(&mut std::io::Cursor::new(bytes), &mut buf, &mut |_| false)
+        .unwrap()
+        .unwrap();
+    Content {
+        audio: h.audio.ok().map(|a| a.to_bytes()),
+        whole: h.blake3,
+    }
+}
+
+/// `wav` with a title tag added: other bytes, the same audio.
+fn retagged(wav: &[u8]) -> Vec<u8> {
+    let mut out = wav.to_vec();
+    let body = b"INFOINAM\x06\x00\x00\x00Other\x00";
+    out.extend(b"LIST");
+    out.extend(u32::try_from(body.len()).unwrap().to_le_bytes());
+    out.extend(body);
+    let riff = u32::try_from(out.len() - 8).unwrap();
+    out[4..8].copy_from_slice(&riff.to_le_bytes());
+    out
+}
+
+/// A library with one track whose file holds `bytes`.
+fn library_of(bytes: &[u8]) -> (Lib, i64) {
+    let lib = Lib::new();
+    let (track, file) = lib.track(Some("Track A"), Some("Artist A"), "a.wav");
+    set_hashes(&lib, file, content_of(bytes));
+    (lib, track)
+}
+
+/// Hashes the stick's files and imports its list; the play's track.
+fn import_matched(s: &Sandbox, lib: &Lib, export: Export) -> (StickImport, Option<i64>) {
+    let root = s.stick.display().to_string();
+    let contents = hash_stick_files(&root, &export, &[1]);
+    let outcome = import_with(lib, &root, export, vec![1], "2026-04-18", contents);
+    let track = read(lib, |c| {
+        c.query_row("SELECT recording_id FROM play_event", [], |r| r.get(0))
+    });
+    (outcome, track)
+}
+
+#[test]
+fn a_byte_copy_on_the_stick_matches_its_track() {
+    let s = sandbox();
+    let wav = test_audio::wav();
+    let (lib, track) = library_of(&wav);
+    let export = stick_playing(&s, Some(&wav));
+    let (outcome, found) = import_matched(&s, &lib, export);
+    assert_eq!(found, Some(track), "{outcome:?}");
+    assert!(matches!(outcome, StickImport::Done { matched: 1, .. }));
+}
+
+#[test]
+fn a_retagged_copy_matches_by_its_audio() {
+    let s = sandbox();
+    let wav = test_audio::wav();
+    let copy = retagged(&wav);
+    assert_ne!(content_of(&copy).whole, content_of(&wav).whole);
+    assert_eq!(content_of(&copy).audio, content_of(&wav).audio);
+    assert!(content_of(&wav).audio.is_some());
+    let (lib, track) = library_of(&wav);
+    let (outcome, found) = import_matched(&s, &lib, stick_playing(&s, Some(&copy)));
+    assert_eq!(found, Some(track), "{outcome:?}");
+}
+
+#[test]
+fn a_file_with_other_audio_matches_nothing_and_keeps_its_names() {
+    let s = sandbox();
+    let wav = test_audio::wav();
+    let mut other = wav.clone();
+    let last = other.len() - 3;
+    other[last] ^= 0x55;
+    let (lib, _) = library_of(&wav);
+    let (outcome, found) = import_matched(&s, &lib, stick_playing(&s, Some(&other)));
+    assert_eq!(found, None);
+    assert!(
+        matches!(outcome, StickImport::Done { plays: 1, matched: 0, ambiguous: 0, unreadable: 0, .. }),
+        "{outcome:?}"
+    );
+    let title: Option<String> = read(&lib, |c| {
+        c.query_row("SELECT raw_title FROM play_event", [], |r| r.get(0))
+    });
+    assert_eq!(title.as_deref(), Some("One Tune"));
+}
+
+#[test]
+fn audio_that_is_several_tracks_matches_none_of_them() {
+    let s = sandbox();
+    let wav = test_audio::wav();
+    let (lib, _) = library_of(&wav);
+    let (_, second) = lib.track(Some("Track B"), Some("Artist B"), "b.wav");
+    set_hashes(&lib, second, content_of(&wav));
+    let (outcome, found) = import_matched(&s, &lib, stick_playing(&s, Some(&wav)));
+    assert_eq!(found, None);
+    assert!(
+        matches!(outcome, StickImport::Done { matched: 0, ambiguous: 1, .. }),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn a_file_missing_from_the_stick_leaves_its_play_unmatched_and_counted() {
+    let s = sandbox();
+    let (lib, _) = library_of(&test_audio::wav());
+    let export = stick_playing(&s, None);
+    let contents = hash_stick_files(&s.stick.display().to_string(), &export, &[1]);
+    assert_eq!(contents.get(STICK_FILE), Some(&None));
+    let (outcome, found) = import_matched(&s, &lib, export);
+    assert_eq!(found, None);
+    assert!(
+        matches!(outcome, StickImport::Done { matched: 0, unreadable: 1, .. }),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn only_the_files_of_the_chosen_lists_are_read() {
+    let s = sandbox();
+    fixture::write_stick(&s.stick, &fixture::two_gigs().build());
+    let export = read_stick(&s.guard, &s.stick).unwrap();
+    let contents = hash_stick_files(&s.stick.display().to_string(), &export, &[1]);
+    let mut read_paths: Vec<_> = contents.keys().cloned().collect();
+    read_paths.sort();
+    assert_eq!(
+        read_paths,
+        ["/Contents/Made Up Artist/first.mp3", "/Contents/Другой/second.flac"]
     );
 }

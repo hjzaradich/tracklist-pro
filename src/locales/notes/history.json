@@ -214,5 +214,29 @@
   "stick.refusal.badDate": {
     "purpose": "The date given for a stick import isn't a calendar day.",
     "where": "History screen, after a stick import."
+  },
+  "stick.plays_one": {
+    "purpose": "Says how many plays a stick import brought in (one) and how many matched a track by having the same audio (the stick holds its own copies, so plays are matched by content, not file path).",
+    "where": "History screen, after a stick import."
+  },
+  "stick.plays_other": {
+    "purpose": "Says how many plays a stick import brought in and how many matched a track by having the same audio (the stick holds its own copies, so plays are matched by content, not file path).",
+    "where": "History screen, after a stick import."
+  },
+  "stick.ambiguous_one": {
+    "purpose": "Says how many plays (one) were left unmatched because their audio is that of several tracks.",
+    "where": "History screen, after a stick import."
+  },
+  "stick.ambiguous_other": {
+    "purpose": "Says how many plays were left unmatched because their audio is that of several tracks.",
+    "where": "History screen, after a stick import."
+  },
+  "stick.unreadableFiles_one": {
+    "purpose": "Says how many plays (one) were left unmatched because their file on the stick couldn't be read (missing, too big, unreadable).",
+    "where": "History screen, after a stick import."
+  },
+  "stick.unreadableFiles_other": {
+    "purpose": "Says how many plays were left unmatched because their file on the stick couldn't be read (missing, too big, unreadable).",
+    "where": "History screen, after a stick import."
   }
 }
