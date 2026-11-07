@@ -1,0 +1,31 @@
+/* The energy suggestion beside the energy buttons: quiet, because it is not
+ * the track's energy; only its button is a control. */
+.suggestion {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+}
+
+.label {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.basis {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* A quiet text action, as "Clear" is. */
+.use {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

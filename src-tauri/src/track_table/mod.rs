@@ -216,6 +216,12 @@ pub struct TableRow {
     /// The key as Camelot (`8A`); the screen shows it in the user's
     /// notation.
     pub key: Option<String>,
+    /// The BPM shown is the app's own estimate (ROADMAP 3.7): no other source
+    /// has one. rekordbox's value replaces it after analysis.
+    pub bpm_estimated: bool,
+    /// The key shown is the app's own estimate (only while the test switch is
+    /// on).
+    pub key_estimated: bool,
     /// The length in milliseconds.
     pub time_ms: Option<i64>,
     pub genre: Option<String>,
@@ -674,6 +680,33 @@ fn window_pairs_up_to(
     Ok((ids, total))
 }
 
+/// For the tracks in `ids_json` (a JSON list of ids): whether the BPM and
+/// the key they show are the app's own estimates (the `'local'` row wins
+/// only where nothing else has a value, by the order [`search::BPM_AND_KEY`]
+/// reads). A track with neither is `(false, false)`.
+fn estimated_for(
+    conn: &Connection,
+    ids_json: &str,
+) -> rusqlite::Result<HashMap<i64, (bool, bool)>> {
+    let shown_source = |column: &str| {
+        format!(
+            "coalesce((SELECT a.source FROM analysis a
+                       WHERE a.recording_id = r.id AND a.{column} IS NOT NULL
+                       ORDER BY CASE a.source WHEN 'rekordbox' THEN 1 WHEN 'tag' THEN 2
+                                              WHEN 'mik' THEN 3 WHEN 'local' THEN 4 END
+                       LIMIT 1) = 'local', 0)"
+        )
+    };
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT r.id, {}, {} FROM recording r
+         WHERE r.id IN (SELECT value FROM json_each(?1))",
+        shown_source("bpm"),
+        shown_source("key"),
+    ))?;
+    let rows = stmt.query_map([ids_json], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?;
+    rows.collect()
+}
+
 /// The rows for the tracks `ids`, as the table shows them, in that order
 /// (the file's path as stored, not yet made readable). For "what's next"
 /// (3.4), which shows a few rows beside the table.
@@ -718,6 +751,8 @@ fn rows_for(
         let (id, values): (i64, Extras) = row?;
         facts.insert(id, values);
     }
+
+    let estimated = estimated_for(conn, &json)?;
 
     // The file each track outside the Library shows: the one adding it to
     // the Library would link (a trusted rekordbox match, `linked_file_for`),
@@ -816,6 +851,8 @@ fn rows_for(
                 artist: blank(shown.artist),
                 bpm,
                 key,
+                bpm_estimated: estimated.get(&id).is_some_and(|(bpm, _)| *bpm),
+                key_estimated: estimated.get(&id).is_some_and(|(_, key)| *key),
                 time_ms: time_ms(shown.total_time_s, duration),
                 genre: blank(shown.genre),
                 rating: shown.stars,

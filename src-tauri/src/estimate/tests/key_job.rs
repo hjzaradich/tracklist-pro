@@ -121,6 +121,43 @@ fn turning_the_switch_on_shows_the_key_in_camelot_and_off_takes_it_away() {
     assert_eq!(local_row(&library, track).map(|r| r.1), before.map(|r| r.1));
 }
 
+/// What the track table's row of `track` says about its BPM and key being estimates.
+fn row_flags(library: &Library, track: i64) -> (Option<String>, bool, bool) {
+    library
+        .writer
+        .call(move |c| {
+            let rows =
+                crate::track_table::rows_of(c, &crate::search::tests::support::Mount, &[track])?;
+            Ok((
+                rows[0].key.clone(),
+                rows[0].bpm_estimated,
+                rows[0].key_estimated,
+            ))
+        })
+        .unwrap()
+}
+
+#[test]
+fn the_table_row_calls_the_key_an_estimate_only_while_the_switch_is_on() {
+    let library = Library::new();
+    library.put("a.wav", &tonal(11, Mode::Minor));
+    let ids = walk_and_hash(&library);
+    analyze_all(&library);
+    let track = track_of(&library, ids["a.wav"]);
+
+    // Off: no local key is held, so the row shows none and marks none.
+    assert_eq!(row_flags(&library, track).0, None);
+    assert!(!row_flags(&library, track).2);
+
+    switch(&library, true);
+    let (key, _, estimated) = row_flags(&library, track);
+    assert_eq!((key.as_deref(), estimated), (Some("10A"), true));
+
+    switch(&library, false);
+    let (key, _, estimated) = row_flags(&library, track);
+    assert_eq!((key, estimated), (None, false));
+}
+
 #[test]
 fn rekordboxs_key_still_wins_over_the_local_one_which_stays() {
     let library = Library::new();
