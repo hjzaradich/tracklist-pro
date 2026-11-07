@@ -505,7 +505,7 @@ fn a_user_with_only_the_database_is_told_a_send_needs_an_export_and_a_chosen_exp
 }
 
 #[test]
-fn a_newer_database_read_refuses_a_send_rather_than_reading_the_older_export_over_it() {
+fn a_newer_database_read_refuses_a_send_even_with_an_older_export_path_stored() {
     let fx = Fixture::new();
     fx.turn_on();
     let xml = export(fx.db.parent().unwrap());
@@ -517,8 +517,8 @@ fn a_newer_database_read_refuses_a_send_rather_than_reading_the_older_export_ove
 
     let refused = crate::send::export_to_send(&stored, None).unwrap_err();
     assert_eq!(refused.kind(), crate::ipc::ErrorKind::SendNeedsExport);
-    // Refused before any read: the database read is still the newest, and
-    // its snapshot stands.
+    // The pure choice changes nothing; the refused prepare_send leaving the
+    // snapshot and queue alone is proved in send/tests.rs.
     assert_eq!(fx.snapshot(), from_database);
     let last = fx.stored().last_read.unwrap();
     assert_eq!(last.source, source::ReadSource::Database);

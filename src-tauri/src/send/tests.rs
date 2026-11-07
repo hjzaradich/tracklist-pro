@@ -2166,8 +2166,33 @@ mod ipc {
                 Ok(())
             })
             .unwrap();
+        let stored = |writer: &crate::db::Writer| -> (Vec<String>, Option<String>) {
+            writer
+                .call(|c| {
+                    let rows = c
+                        .prepare("SELECT attributes FROM rekordbox_track ORDER BY id")?
+                        .query_map([], |r| r.get(0))?
+                        .collect::<Result<Vec<String>, _>>()?;
+                    let last = c
+                        .query_row(
+                            "SELECT value FROM setting WHERE key = ?1",
+                            [crate::rekordbox::source::LAST_READ],
+                            |r| r.get(0),
+                        )
+                        .ok();
+                    Ok((rows, last))
+                })
+                .unwrap()
+        };
+        let snapshot_before = stored(&writer);
+        assert!(snapshot_before.1.is_some());
+        let state_before = invoke(&app, "send_state", json!({})).unwrap();
         let refused = invoke(&app, "prepare_send", json!({ "path": null })).unwrap_err();
         assert_eq!(refused["kind"], json!("sendNeedsExport"));
+        // The refusal touched nothing: the database snapshot and the last
+        // read stand, and the checklist (so any earlier preflight) is as it was.
+        assert_eq!(stored(&writer), snapshot_before);
+        assert_eq!(invoke(&app, "send_state", json!({})).unwrap(), state_before);
         let queued: i64 = writer
             .call(|c| {
                 c.query_row(

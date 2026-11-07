@@ -103,7 +103,7 @@ fn read_the_database(w: &World) {
 }
 
 #[test]
-fn a_database_read_missing_fields_an_export_had_opens_no_conflict_and_changes_no_library_value() {
+fn a_database_read_alone_runs_no_merge_so_it_opens_no_conflict_and_changes_no_library_value() {
     let w = World::new();
     let (known, _) = w.library_track("known.mp3", "Known", true);
     w.crate_of("Warm up", &[known]);
