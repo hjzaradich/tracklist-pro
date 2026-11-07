@@ -763,6 +763,7 @@ Polish on top of the Phase 1 first run (1.3):
   - Update checks send the app's version (plus the usual app name and version on every request). The first run asks once, yes or no; Settings has the switch.
   - The installer's publisher is "Henry Zaradich".
 - **Release script:** a local script bumps the version, builds the installer, gives its sha256 and prepares a draft GitHub release with it. A release goes public only when the owner says so.
+- **Built (4C, PR 214):** `scripts/release.mjs` with `bump` (the five version places only), `build` (only from a clean tree at main; never overwrites an installer; writes the sha256) and `draft` (a draft GitHub release with the installer and its sha256; the script has no way to publish). Steps for the owner in docs/releasing.md.
 - **Complexity:** S–M.
 ---
 
