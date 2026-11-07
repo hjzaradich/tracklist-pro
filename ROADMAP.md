@@ -56,7 +56,7 @@ A free, open-source (GPL-3.0) library manager for DJs who use **rekordbox 7** on
 | Energy | 1–10 | Compatible with Mixed In Key's `Energy N`. The user sets it with the keys 1 to 0 on the selected tracks, with the ten buttons in the Details panel's Energy row, or from the Energy column (optional, hidden at first; a click on a cell opens a small window of ten buttons) (0 is 10; 1.11, 1cB-8, 1cD). A quiet "Clear" in the Details row and in that window takes the user's own energy away (another source's then shows again); it is offered only where there is one to clear (1cD-XE). The column sorts, both ways, with tracks that have none last. Not sent to rekordbox by default; an opt-in setting sends it as the star rating (owner decision, 2026-10-28; 1.9, 1cC-2). |
 | Network | Offline by default, opt-in per service | Model downloads and update checks count as services. Every request goes through the network gate (0.1). |
 | Telemetry | None, ever | The diagnostics bundle (4.3) is the only source of bug-report detail. |
-| Optional features | Each one is off until the user turns it on; the app works with any mix of them on or off | Wishlists (2.3–2.5), metadata lookup (2.2), the audio model (3.8), and reach goals such as a second DJ app. Light features ship in the installer and are only switched on. Heavy ones are a separate download on request: the audio model is never bundled (owner decision, 2026-10-02). No core screen, send or suggestion may need an optional feature. |
+| Optional features | Each one is off until the user turns it on; the app works with any mix of them on or off | Wishlists (2.3–2.5), metadata lookup (2.2), the audio model (3.8), and reach goals such as a second DJ app. Light features ship in the installer and are only switched on. Heavy ones are a separate download on request (owner decision, 2026-10-02); the main audio model is the exception: it ships in the installer, off until switched on (owner decision, 2026-11-07, 3.8). No core screen, send or suggestion may need an optional feature. |
 | AI / ML | Local audio ML only; labeled and optional | No cloud LLM. ML signals can be switched off, and nothing depends on them (3.8). |
 | In-app audio | Simple preview in the webview | No native engine and no headphone routing. AIFF and ALAC are decoded in Rust. |
 | musicmanager | **A blueprint only; never part of the owner's workflow** (owner, 2026-09-30) | Nobody relies on it, so there's no freeze to time. Separate bundle IDs, data folders, updater endpoints and credential prefixes, so both can be installed side by side. No shared DB and no migration. Ported modules are copies (0.2); nothing is ported back. |
@@ -699,18 +699,19 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **Complexity:** L (key is the hard part).
 
 #### 3.8 Local audio ML
-- **What:** on-device models, downloaded once. The download is opt-in and goes through the network gate. The models are never part of the installer (§1.1, Optional features).
+- **What:** on-device models. The main model (CED-tiny, ~22 MB) ships in the installer and is off until switched on; any later, heavier model is an opt-in download through the network gate (§1.1, Optional features).
   - "Sounds like" similarity search, and a similarity signal for 3.4.
   - Genre and vibe **suggestions** (review only, never applied automatically).
   - A better energy estimate.
 - **Always labeled:** ML output is presented as the audio model's opinion ("Audio model: sounds similar", "Audio model: Dubstep, 84%"). It is never the only reason for a suggestion, and it can be switched off in settings. Nothing else depends on it.
 - **How:** `tract` (pure Rust, no extra library or build-time download) on the CPU; ONNX Runtime via `ort` only as the fallback if `tract` is too slow. Embeddings are computed in the job queue and stored in `embedding`. Brute-force search is fine at 100k × 512 floats.
 - **Models:**
-  - **EfficientAT `mn10_as`** (MIT) for every track: an embedding plus AudioSet genre and mood tags in one cheap pass.
+  - **CED-tiny** (Xiaomi, weights Apache-2.0) for every track: an embedding plus AudioSet genre and mood tags in one cheap pass. It hears up to 8 kHz.
   - **LAION-CLAP music** (Apache-2.0/CC0), run lazily: "sounds like" plus text search.
   - Later: small per-user heads trained on the user's own genres and tags.
 - **Constraints:** GPL-compatible weights; pinned model versions (sha256); each model's licence shipped with it; credit for CC-BY models.
 - **Owner decision 2026-11-07 (research: reviews 4B-R0):** EfficientAT `mn10_as` for every track, on `tract`; its weights are treated as MIT and its author is credited in the app. CED (Apache-2.0) is the alternative if a measurement favours it. LAION-CLAP and text search wait, as a later separate download. Not one free model labels fine DJ genres (tech house vs deep house); those come from the per-user heads. The first build step is a speed and quality check on public test audio, against CED. Where the model files are hosted is still open.
+- **Owner decision 2026-11-07, after the measurement (reviews 4C-M1):** CED-tiny instead of `mn10_as`. Same speed on `tract` (about 4 hours per 100k tracks on all cores), less memory, ahead on "sounds like" (43% vs 40% of the 10 nearest share the genre) and on a per-user genre model (57% vs 50%); its licence is stated. Its model file is our own export (Hugging Face's ONNX gives labels only, no embedding), pinned by sha256, shipped in the installer with its Apache-2.0 notice and credit in About. Fine house sub-genres stayed weak for every model: they need the per-user heads.
 - **Complexity:** L–XL. It's the last Phase 3 item, so nothing else depends on it.
 
 ---
