@@ -43,7 +43,7 @@ pub mod timeline;
 use crate::crates::{CrateId, CrateKind, CratesError};
 use crate::db::{DbError, ReadPool, Writer};
 use crate::ipc::{ErrorKind, ErrorParam, IpcError};
-use crate::library::LibraryTrackId;
+use crate::library::{self, LibraryTrackId};
 use crate::ops::{self, OpsError, Recorder};
 use crate::rekordbox_write::{sibling_key, Node};
 use crate::track_table::{self, TableRow};
@@ -425,6 +425,28 @@ fn with_operation(recorded: ops::Recorded<Done<PlaylistChanged>>) -> Done<Playli
     })
 }
 
+/// Puts `tracks` (Library track ids) into a playlist at position `at` (past
+/// the end or `None`: last), the entries from there on moving down.
+fn put_entries(
+    rec: &mut Recorder<'_>,
+    id: PlaylistId,
+    tracks: &[i64],
+    at: Option<u32>,
+) -> Result<(), OpsError> {
+    let entries = entries_of(rec, id)?;
+    let at = at.map_or(entries.len(), |at| (at as usize).min(entries.len()));
+    // Those before stay (gaps closed), those after move down.
+    renumber(rec, &entries[..at])?;
+    for (i, entry) in entries[at..].iter().enumerate() {
+        let to = (at + tracks.len() + i) as i64;
+        if entry.position != to {
+            rec.set("playlist_entry", entry.id, "position", to)?;
+        }
+    }
+    insert_entries(rec, id, tracks, at)?;
+    Ok(())
+}
+
 /// Adds Library `tracks` to a playlist, in the order given, as one
 /// operation: last, or from position `at` (past the end: last), the entries
 /// from there on moving down. A track already in it is added again.
@@ -446,17 +468,7 @@ pub fn add_on(
             if !all_in_library(rec, &tracks)? {
                 return Ok(Err(PlaylistsError::TrackNotFound));
             }
-            let entries = entries_of(rec, id)?;
-            let at = at.map_or(entries.len(), |at| (at as usize).min(entries.len()));
-            // Those before stay (gaps closed), those after move down.
-            renumber(rec, &entries[..at])?;
-            for (i, entry) in entries[at..].iter().enumerate() {
-                let to = (at + tracks.len() + i) as i64;
-                if entry.position != to {
-                    rec.set("playlist_entry", entry.id, "position", to)?;
-                }
-            }
-            insert_entries(rec, id, &tracks, at)?;
+            put_entries(rec, id, &tracks, at)?;
             rec.detail("name", name);
             rec.detail("tracks", tracks.len());
             Ok(Ok(PlaylistChanged {
@@ -467,6 +479,78 @@ pub fn add_on(
         },
     )
     .map(with_operation)
+}
+
+/// What adding tracks to a playlist by their track id did (the same shape
+/// as [`crate::crates::AddedToCrate`]: a table's rows are tracks).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedToPlaylist {
+    /// Entries added, those for tracks that joined the Library included.
+    pub added: u32,
+    /// How many of those weren't in the Library: they were added to it too.
+    pub also_added_to_library: u32,
+    /// The tracks outside the Library that couldn't join it, so were left out.
+    pub left_out: crate::crates::LeftOutOfCrate,
+    /// The operation this recorded; `None` when nothing was added.
+    pub operation_id: Option<i64>,
+}
+
+/// Adds tracks to a playlist by their track id (`TableRow.recordingId`), last
+/// or from `at`, exactly as adding them to a crate does
+/// ([`crate::crates::add_recordings_on`]): the same checks
+/// ([`crate::crates::prepare`]), a track outside the Library joins it as a
+/// linked Library track in the same operation, one that "Add to Library"
+/// refuses is left out and counted by reason, and a track that doesn't exist
+/// refuses the whole call. A track already in the playlist is added again.
+/// One operation, so one Undo takes the entries and those Library tracks
+/// away; nothing added, nothing recorded.
+pub fn add_recordings_on(
+    conn: &mut Connection,
+    id: PlaylistId,
+    recordings: &[i64],
+    at: Option<u32>,
+) -> Result<Done<AddedToPlaylist>, OpsError> {
+    let prepared = match crate::crates::prepare(conn, recordings, &Default::default())? {
+        Ok(prepared) => prepared,
+        Err(CratesError::TrackNotFound) => return Ok(Err(PlaylistsError::TrackNotFound)),
+        Err(other) => return Ok(Err(PlaylistsError::Crate(other))),
+    };
+    let recorded = ops::record(
+        conn,
+        ADD_OPERATION,
+        &serde_json::json!({ "playlistId": id.0 }),
+        |rec| {
+            let Some(name) = name_of(rec, id)? else {
+                return Ok(Err(PlaylistsError::NotFound));
+            };
+            let mut also_added_to_library = 0;
+            let mut tracks = Vec::new();
+            for item in &prepared.items {
+                tracks.push(match item {
+                    crate::crates::Item::InLibrary(track) => *track,
+                    crate::crates::Item::Link { recording, file } => {
+                        also_added_to_library += 1;
+                        library::insert_linked(rec, *recording, *file)?.0
+                    }
+                });
+            }
+            put_entries(rec, id, &tracks, at)?;
+            rec.detail("name", name);
+            rec.detail("tracks", tracks.len());
+            rec.detail("newToLibrary", also_added_to_library);
+            Ok(Ok(AddedToPlaylist {
+                added: tracks.len() as u32,
+                also_added_to_library,
+                left_out: prepared.left_out,
+                operation_id: None,
+            }))
+        },
+    )?;
+    Ok(recorded.value.map(|done| AddedToPlaylist {
+        operation_id: recorded.operation_id,
+        ..done
+    }))
 }
 
 /// Removes entries from a playlist, as one operation; the rest close up.
@@ -829,6 +913,19 @@ pub async fn add_tracks_to_playlist(
     at: Option<u32>,
 ) -> Result<PlaylistChanged, IpcError> {
     Ok(writer.call(move |c| Ok(add_on(c, id, &tracks, at)))???)
+}
+
+/// Adds the Library tracks among `recordings` (a table's selection), last
+/// or from position `at`; one outside the Library joins it, as in a crate.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_recordings_to_playlist(
+    writer: State<'_, Writer>,
+    id: PlaylistId,
+    recordings: Vec<i64>,
+    at: Option<u32>,
+) -> Result<AddedToPlaylist, IpcError> {
+    Ok(writer.call(move |c| Ok(add_recordings_on(c, id, &recordings, at)))???)
 }
 
 /// Removes entries.

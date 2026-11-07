@@ -861,7 +861,7 @@ pub fn add_on(
 }
 
 /// One track of an add by track id, once it is known what it will be.
-enum Item {
+pub(crate) enum Item {
     /// A Library track (its id).
     InLibrary(i64),
     /// A track outside the Library, to be linked to this file.
@@ -869,10 +869,10 @@ enum Item {
 }
 
 /// What an add by track id will do, decided before anything is written.
-struct Prepared {
+pub(crate) struct Prepared {
     /// The tracks that will join, each once, in the order given.
-    items: Vec<Item>,
-    left_out: LeftOutOfCrate,
+    pub(crate) items: Vec<Item>,
+    pub(crate) left_out: LeftOutOfCrate,
 }
 
 /// Sorts `recordings` the way "Add to Library" would judge them (1.8): a
@@ -880,7 +880,7 @@ struct Prepared {
 /// unless the Library add refuses it or asks the user to agree to a warning
 /// first (then it is left out, counted by reason). A track that doesn't exist
 /// refuses the whole call. Changes nothing the log records.
-fn prepare(
+pub(crate) fn prepare(
     conn: &mut Connection,
     recordings: &[i64],
     progress: &AddProgress,

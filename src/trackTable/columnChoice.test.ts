@@ -22,8 +22,16 @@ const EIGHT: ColumnId[] = [...FIRST, "rating", "dateAdded"];
 
 describe("the columns a screen shows", () => {
   it("lists every column there is, once", () => {
-    // The Fit column is not one to choose: it shows while a crate is sorted by fit.
-    expect([...ALL_COLUMNS].sort()).toEqual(Object.keys(COLUMNS).filter((id) => id !== "fit").sort());
+    // The Fit and # columns are not ones to choose: Fit shows while a crate is sorted by fit, # in a playlist.
+    expect([...ALL_COLUMNS].sort()).toEqual(
+      Object.keys(COLUMNS).filter((id) => id !== "fit" && id !== "position").sort(),
+    );
+  });
+
+  it("never keeps the # column in a choice, however it got there", () => {
+    const stored = { shown: ["position", "title", "artist"], known: ["position"], widths: { position: 90, title: 200 } };
+    expect(resolveColumns("playlist", stored)).not.toContain("position");
+    expect(resolveWidths(stored)).toEqual({ title: 200 });
   });
 
   it("are the screen's own defaults until the user chooses (the owner's lists)", () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { Crate, FolderContents, SmartRule } from "../bindings";
@@ -6,7 +6,9 @@ import { libraryRow, type LibraryRow } from "../library/libraryRow";
 import { shownTitle } from "../library/RemoveFromLibrary";
 import { EmptyState, StageScreen } from "../shell/StageScreen";
 import { useWhenUndone } from "../shell/undoneStore";
+import { usePlaylistFromCrate } from "../playlists/usePlaylists";
 import { TrackTableView } from "../trackTable/TrackTableView";
+import type { RowsQuery } from "../trackTable/useTrackRows";
 import { ConfirmDelete, MoveForm, NameForm } from "./CrateForms";
 import { CrateNotes, CrateSummaryLine } from "./CrateInfo";
 import styles from "./CratesScreen.module.css";
@@ -55,6 +57,7 @@ type Asking =
   | "rename"
   | "move"
   | "delete"
+  | "startPlaylist"
   | null;
 
 /**
@@ -68,9 +71,12 @@ type Asking =
 export function CratesScreen({
   chosen,
   onChoose,
+  onOpenPlaylist,
 }: {
   chosen: number | null;
   onChoose: (id: number | null) => void;
+  /** A playlist was started from a crate: show it. */
+  onOpenPlaylist?: (id: number) => void;
 }) {
   const { t } = useTranslation("crates");
   const { t: ts } = useTranslation("smartCrates");
@@ -86,6 +92,9 @@ export function CratesScreen({
   const setNotes = useSetCrateNotes();
   const createSmart = useCreateSmartCrate();
   const setRule = useSetSmartRule();
+  const startPlaylist = usePlaylistFromCrate();
+  // What the open crate's table is asking for (its sort and filters), for "Start a playlist from this crate".
+  const view = useRef<RowsQuery | null>(null);
 
   const list = crates.data ?? [];
   // The crate or folder the right side shows: the chosen one, if it exists.
@@ -120,8 +129,9 @@ export function CratesScreen({
     setNotes.reset();
     createSmart.reset();
     setRule.reset();
+    startPlaylist.reset();
   };
-  const failure = [create, createFolder, rename, remove, move, take, setNotes, createSmart, setRule].find(
+  const failure = [create, createFolder, rename, remove, move, take, setNotes, createSmart, setRule, startPlaylist].find(
     (m) => m.isError,
   );
   const ask = (what: Asking) => {
@@ -266,6 +276,20 @@ export function CratesScreen({
                   renaming={rename.isPending}
                   deleting={remove.isPending}
                   moving={move.isPending}
+                  viewRef={view}
+                  starting={startPlaylist.isPending}
+                  onStartPlaylist={(name) => {
+                    clearErrors();
+                    startPlaylist.mutate(
+                      { crateId: current.id, name, view: view.current },
+                      {
+                        onSuccess: (id) => {
+                          setAsking(null);
+                          onOpenPlaylist?.(id);
+                        },
+                      },
+                    );
+                  }}
                   contents={contents.data}
                   contentsError={contents.error}
                   onAsk={ask}
@@ -407,6 +431,9 @@ function CrateView({
   renaming,
   deleting,
   moving,
+  viewRef,
+  starting,
+  onStartPlaylist,
   contents,
   contentsError,
   onAsk,
@@ -424,6 +451,9 @@ function CrateView({
   renaming: boolean;
   deleting: boolean;
   moving: boolean;
+  viewRef: MutableRefObject<RowsQuery | null>;
+  starting: boolean;
+  onStartPlaylist: (name: string) => void;
   contents: FolderContents | undefined;
   contentsError: unknown;
   onAsk: (what: Asking) => void;
@@ -436,6 +466,7 @@ function CrateView({
   onRemoveTrack: (track: LibraryRow) => void;
 }) {
   const { t } = useTranslation("crates");
+  const { t: tp } = useTranslation("playlists");
   const folder = crate.kind === "folder";
   // Notes and the summary line are a hand-made crate's (for now).
   const handMade = crate.kind === "static";
@@ -463,6 +494,11 @@ function CrateView({
               </button>
             </>
           )}
+          {handMade && (
+            <button type="button" className={styles.button} onClick={() => onAsk("startPlaylist")}>
+              {tp("fromCrate.button")}
+            </button>
+          )}
           <button type="button" className={styles.button} onClick={() => onAsk("move")}>
             {t("move.button")}
           </button>
@@ -483,6 +519,18 @@ function CrateView({
           initial={crate.name}
           pending={renaming}
           onSubmit={onRename}
+          onCancel={() => onAsk(null)}
+        />
+      )}
+      {asking === "startPlaylist" && (
+        <NameForm
+          key={`start-${crate.id}`}
+          label={tp("fromCrate.label")}
+          confirm={tp("fromCrate.confirm")}
+          cancel={tp("fromCrate.cancel")}
+          initial={crate.name}
+          pending={starting}
+          onSubmit={onStartPlaylist}
           onCancel={() => onAsk(null)}
         />
       )}
@@ -526,6 +574,7 @@ function CrateView({
           screen="crate"
           source={{ kind: "crate", id: crate.id }}
           keyPrefix={[...CRATES_QUERY_KEY, "table", crate.id]}
+          viewRef={viewRef}
           count={(total) => t("trackCount", { count: total })}
           empty={<EmptyState>{t("noTracks")}</EmptyState>}
           actionsWidth={96}

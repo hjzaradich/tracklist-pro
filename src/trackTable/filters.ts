@@ -47,6 +47,7 @@ export const FILTERS_BY_SCREEN: Readonly<Record<TableScreen, readonly FilterKind
     "notInLibrary",
   ],
   crate: ["missing", "inRekordbox", "notInRekordbox", "format", "qualityProblem"],
+  playlist: ["missing", "inRekordbox", "notInRekordbox", "format", "qualityProblem"],
 };
 
 /** Filters that say the opposite of each other: adding one takes the other off. */

@@ -36,7 +36,8 @@ export type ColumnId =
   | "dateAdded"
   | "file"
   | "folder"
-  | "fit";
+  | "fit"
+  | "position";
 
 /** What the Energy column's cell needs of the table (1cD). */
 export interface EnergyCellContext {
@@ -51,6 +52,8 @@ export interface CellContext {
   t: TFunction<"trackTable">;
   keyNotation: KeyNotation;
   language: string;
+  /** The row's place in the list shown, from 0: for the `#` column. */
+  index?: number;
   /** Without it (a table that cannot set energy) the Energy cell is plain text. */
   energy?: EnergyCellContext;
 }
@@ -298,6 +301,17 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     text: (row, ctx) => fitText(row.fit, ctx.t, ctx.keyNotation),
     cell: (row, ctx) => <FitCell row={row} ctx={ctx} />,
   },
+  // A playlist's `#` (3C-P1b): the row's place in the list shown, which is
+  // its position while nothing narrows or sorts the list. Like Fit, it is not
+  // a column the user chooses; a playlist's table always starts with it.
+  position: {
+    id: "position",
+    sort: null,
+    width: 48,
+    min: 40,
+    numeric: true,
+    text: (_row, ctx) => (ctx.index === undefined ? "" : String(ctx.index + 1)),
+  },
 };
 
 /** The screens that show the table (the backend keeps a column choice for each). */
@@ -316,4 +330,5 @@ export const DEFAULT_COLUMNS: Readonly<Record<TableScreen, readonly ColumnId[]>>
   library: SHOWN_AT_FIRST,
   allMusic: SHOWN_AT_FIRST,
   crate: SHOWN_AT_FIRST,
+  playlist: SHOWN_AT_FIRST,
 };

@@ -670,6 +670,11 @@ export const commands = {
 	deletePlaylist: (id: PlaylistId) => typedError<number | null, IpcError>(__TAURI_INVOKE("delete_playlist", { id })),
 	/**  Adds Library tracks, last or from position `at`. */
 	addTracksToPlaylist: (id: PlaylistId, tracks: LibraryTrackId[], at: number | null) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("add_tracks_to_playlist", { id, tracks, at })),
+	/**
+	 *  Adds the Library tracks among `recordings` (a table's selection), last
+	 *  or from position `at`; one outside the Library joins it, as in a crate.
+	 */
+	addRecordingsToPlaylist: (id: PlaylistId, recordings: number[], at: number | null) => typedError<AddedToPlaylist, IpcError>(__TAURI_INVOKE("add_recordings_to_playlist", { id, recordings, at })),
 	/**  Removes entries. */
 	removeFromPlaylist: (id: PlaylistId, entries: PlaylistEntryId[]) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("remove_from_playlist", { id, entries })),
 	/**  Moves entries before entry `before`, or to the end. */
@@ -839,6 +844,21 @@ export type AddedToNewCrate = {
 	/**  The name as stored (trimmed). */
 	name: string,
 	added: AddedToCrate,
+};
+
+/**
+ *  What adding tracks to a playlist by their track id did (the same shape
+ *  as [`crate::crates::AddedToCrate`]: a table's rows are tracks).
+ */
+export type AddedToPlaylist = {
+	/**  Entries added, those for tracks that joined the Library included. */
+	added: number,
+	/**  How many of those weren't in the Library: they were added to it too. */
+	alsoAddedToLibrary: number,
+	/**  The tracks outside the Library that couldn't join it, so were left out. */
+	leftOut: LeftOutOfCrate,
+	/**  The operation this recorded; `None` when nothing was added. */
+	operationId: number | null,
 };
 
 /**  Both lists, for the screen. */
@@ -3709,9 +3729,9 @@ export type TableRow = {
 
 /**
  *  The screens that show the track table. A crate is one screen: every crate
- *  shows the same columns.
+ *  shows the same columns, and so does every playlist.
  */
-export type TableScreen = "library" | "allMusic" | "crate";
+export type TableScreen = "library" | "allMusic" | "crate" | "playlist";
 
 /**  The order the table is sorted in. */
 export type TableSort = {

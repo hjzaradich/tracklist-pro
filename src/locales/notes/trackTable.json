@@ -491,6 +491,10 @@
     "where": "Track table of a crate sorted by fit.",
     "approved": "Fit"
   },
+  "columns.position": {
+    "purpose": "The # column's heading: a track's place in the playlist. (PROPOSED, 3C-P1b)",
+    "where": "Track table of a playlist, first column."
+  },
   "fit.button": {
     "purpose": "Sorts a crate's tracks by how well they follow the selected track.",
     "where": "Crates screen, above the track table.",

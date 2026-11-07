@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage, unwrap } from "../api/errors";
 import { AddToCrateDialog } from "../crates/AddToCrateDialog";
@@ -36,6 +36,7 @@ const DEFAULT_SORT: Readonly<Record<TableScreen, TableSort | null>> = {
   library: { column: "title", descending: false },
   allMusic: { column: "title", descending: false },
   crate: null,
+  playlist: null,
 };
 
 /** The track a crate is sorted after (1cB-16): its id and the name the line over the table gives. */
@@ -73,6 +74,8 @@ export function TrackTableView({
   actionsWidth,
   onSelectionChange,
   onNarrowed,
+  onMoveRows,
+  viewRef,
 }: {
   screen: TableScreen;
   source: TableSource;
@@ -94,6 +97,14 @@ export function TrackTableView({
   onSelectionChange?: (row: TableRow | null) => void;
   /** The tracks listed became other ones: another search, or a filter added or taken off (not a sort). */
   onNarrowed?: () => void;
+  /**
+   * A playlist's rows were dragged to another place (3C-P1b): the rows, and
+   * the row they were dropped before (`null`: at the end). Offered only while
+   * the list is in the playlist's own order and nothing narrows it.
+   */
+  onMoveRows?: (rows: readonly TableRow[], before: TableRow | null) => void;
+  /** Kept at what the table asks for now (its sort and filters), for whoever acts on the rows as listed. */
+  viewRef?: MutableRefObject<RowsQuery | null>;
 }) {
   const { t } = useTranslation("trackTable");
   const [sort, setSort] = useState<TableSort | null>(null);
@@ -154,6 +165,9 @@ export function TrackTableView({
     [listed, search, filters, sort],
   );
   const rows = useTrackRows(keyPrefix, query);
+  useEffect(() => {
+    if (viewRef) viewRef.current = query;
+  }, [viewRef, query]);
   // Sorted by fit, no heading shows a sort.
   const shownSort = fitTarget !== null ? null : (sort ?? DEFAULT_SORT[screen]);
   const narrowedBy = JSON.stringify([query.search, query.filters]);
@@ -188,11 +202,13 @@ export function TrackTableView({
   const onClearEnergy = (recordingIds: readonly number[]) => clearEnergy.mutate({ recordingIds });
 
   // The Fit column joins the user's columns after the title while sorted by fit.
+  // A playlist's # column comes first, whatever the user's choice.
   const shownColumns = useMemo<readonly ColumnId[]>(() => {
-    if (fitTarget === null) return choice.columns;
-    const at = choice.columns.indexOf("title") + 1;
-    return [...choice.columns.slice(0, at), "fit", ...choice.columns.slice(at)];
-  }, [choice.columns, fitTarget]);
+    const own = screen === "playlist" ? (["position", ...choice.columns] as const) : choice.columns;
+    if (fitTarget === null) return own;
+    const at = own.indexOf("title") + 1;
+    return [...own.slice(0, at), "fit", ...own.slice(at)];
+  }, [choice.columns, fitTarget, screen]);
   const shownWidths = useMemo(
     () => (fitTarget !== null && fitWidth !== undefined ? { ...choice.widths, fit: fitWidth } : choice.widths),
     [choice.widths, fitTarget, fitWidth],
@@ -287,10 +303,12 @@ export function TrackTableView({
           label={t("label")}
           columns={shownColumns}
           widths={shownWidths}
-          // The Fit column is not the user's choice: it is never saved.
-          onReorder={(next) => choice.change(next.filter((id) => id !== "fit"))}
+          // The Fit and # columns are not the user's choice: they are never saved.
+          onReorder={(next) => choice.change(next.filter((id) => id !== "fit" && id !== "position"))}
           onResize={(next) => {
-            const { fit, ...saved } = next;
+            const { fit, ...rest } = next;
+            const saved = { ...rest };
+            delete saved.position;
             if (fit !== undefined) setFitWidth(fit);
             if (JSON.stringify(saved) !== JSON.stringify(choice.widths)) choice.resize(saved);
           }}
@@ -313,6 +331,7 @@ export function TrackTableView({
           onClearEnergy={onClearEnergy}
           onAddToCrate={setAdding}
           onTag={setTagging}
+          onMoveRows={sort === null && !narrowed ? onMoveRows : undefined}
         />
       )}
       {adding !== null && <AddToCrateDialog recordings={adding} onClose={() => setAdding(null)} />}
@@ -324,6 +343,7 @@ export function TrackTableView({
 /** What the last add to a crate did, in words (1cB-13). */
 function AddReportLine({ report }: { report: AddReport }) {
   const { t } = useTranslation("crates");
+  const { t: tp } = useTranslation("playlists");
   if (report.kind === "failed") {
     return (
       <span role="alert" className={styles.failed}>
@@ -335,7 +355,7 @@ function AddReportLine({ report }: { report: AddReport }) {
   const { leftOut } = report;
   const notes = [
     report.alsoAddedToLibrary > 0 ? t("addSelection.alsoInLibrary", { count: report.alsoAddedToLibrary }) : null,
-    report.alreadyThere > 0 ? t("addSelection.alreadyThere", { count: report.alreadyThere }) : null,
+    report.kind === "added" && report.alreadyThere > 0 ? t("addSelection.alreadyThere", { count: report.alreadyThere }) : null,
     leftOut.noFile > 0 ? t("addSelection.leftOut.noFile", { count: leftOut.noFile }) : null,
     leftOut.fileMissing > 0 ? t("addSelection.leftOut.fileMissing", { count: leftOut.fileMissing }) : null,
     leftOut.matchNotConfirmed > 0
@@ -344,7 +364,9 @@ function AddReportLine({ report }: { report: AddReport }) {
     leftOut.lowBitrate > 0 ? t("addSelection.leftOut.lowBitrate", { count: leftOut.lowBitrate }) : null,
   ].filter((note) => note !== null);
   const done =
-    report.newCrate === true && report.added === 0
+    report.kind === "addedPlaylist"
+      ? tp("addSelection.added", { count: report.added, playlist: report.playlist })
+      : report.newCrate === true && report.added === 0
       ? t("addSelection.newCrateEmpty", { crate: report.crate })
       : t("addSelection.added", { count: report.added, crate: report.crate });
   return (

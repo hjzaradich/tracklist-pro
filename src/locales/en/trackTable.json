@@ -13,7 +13,8 @@
     "file": "File",
     "folder": "Folder",
     "actions": "Actions",
-    "fit": "Fit"
+    "fit": "Fit",
+    "position": "#"
   },
   "sortBy": "Sort by {{column}}",
   "resize": "Resize {{column}}",

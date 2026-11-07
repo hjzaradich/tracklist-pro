@@ -50,8 +50,8 @@ export type StoredChoice = Pick<TableColumns, "shown" | "known"> & Partial<Pick<
 export const ALWAYS_SHOWN: ColumnId = "title";
 
 function isColumn(id: string): id is ColumnId {
-  // The Fit column is never part of a choice (it shows while sorting by fit).
-  return id !== "fit" && Object.hasOwn(COLUMNS, id);
+  // The Fit and # columns are never part of a choice (Fit shows while sorting by fit, # in a playlist).
+  return id !== "fit" && id !== "position" && Object.hasOwn(COLUMNS, id);
 }
 
 /**

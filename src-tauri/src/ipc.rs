@@ -218,6 +218,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::playlists::rename_playlist,
             crate::playlists::delete_playlist,
             crate::playlists::add_tracks_to_playlist,
+            crate::playlists::add_recordings_to_playlist,
             crate::playlists::remove_from_playlist,
             crate::playlists::move_in_playlist,
             crate::playlists::save_playlist_as_crate,

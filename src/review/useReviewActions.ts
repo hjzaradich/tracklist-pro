@@ -40,6 +40,7 @@ function reload(queryClient: QueryClient) {
     "offer",
     "missing",
     "crates",
+    "playlists",
     "afterSend",
     "tagSources",
   );

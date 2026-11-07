@@ -170,6 +170,18 @@
   min-width: var(--tt-min-width);
 }
 
+/* Where dragged playlist rows would be dropped: a line between two rows. */
+.insertLine {
+  position: absolute;
+  top: -1px;
+  right: 0;
+  left: 0;
+  z-index: 3;
+  height: 2px;
+  background: var(--color-accent);
+  pointer-events: none;
+}
+
 /* The first column (the Title, unless the user moved it) stays at the left
  * edge when the table scrolls sideways, so a row is never read without its
  * name. It has the row's own background in every state (stripe, hover,

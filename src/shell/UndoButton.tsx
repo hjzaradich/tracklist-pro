@@ -88,6 +88,39 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
         return t("undo.action.removeFromCrate", { count: tracks, name });
       }
       break;
+    case "create_playlist":
+      if (name !== null) return t("undo.action.createPlaylist", { name });
+      break;
+    case "rename_playlist":
+      if (name !== null && from !== null) return t("undo.action.renamePlaylist", { from, name });
+      break;
+    case "delete_playlist":
+      if (name !== null) return t("undo.action.deletePlaylist", { name });
+      break;
+    case "add_to_playlist":
+      if (name !== null && tracks !== null) {
+        // What it also did, as an add to a crate says it: put tracks in the Library.
+        const library = newToLibrary ?? 0;
+        return library > 0
+          ? t("undo.action.addToPlaylistLibrary", { count: tracks, name, library })
+          : t("undo.action.addToPlaylist", { count: tracks, name });
+      }
+      break;
+    case "remove_from_playlist":
+      if (name !== null && tracks !== null) return t("undo.action.removeFromPlaylist", { count: tracks, name });
+      break;
+    case "move_in_playlist":
+      if (name !== null && tracks !== null) return t("undo.action.moveInPlaylist", { count: tracks, name });
+      break;
+    case "save_playlist_as_crate":
+      if (name !== null) return t("undo.action.savePlaylistAsCrate", { name });
+      break;
+    case "playlist_from_crate":
+      if (name !== null) return t("undo.action.playlistFromCrate", { name });
+      break;
+    case "playlist_from_rekordbox":
+      if (name !== null) return t("undo.action.playlistFromRekordbox", { name });
+      break;
     case "dismiss_better_file":
       return t("undo.action.dismissBetterFile");
     case "keep_anyway":

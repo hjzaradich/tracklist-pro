@@ -146,7 +146,7 @@ describe("the after-send panel", () => {
     mockIPC((cmd) => {
       if (cmd === "after_send_lists") {
         return lists({
-          stalePlaylists: [stale(["Playlists", "Old"])],
+          stalePlaylists: [stale(["Crates", "Old"])],
           manualRemovals: [removal()],
         });
       }
@@ -157,7 +157,7 @@ describe("the after-send panel", () => {
         <AfterSendPanel />
       </QueryClientProvider>,
     );
-    expect(await screen.findByText("Playlists > Old")).toBeInTheDocument();
+    expect(await screen.findByText("Crates > Old")).toBeInTheDocument();
     expect(screen.getByText(tx("afterSend:removals.trackName", { artist: "Artist", title: "Song" }))).toBeInTheDocument();
   });
 });

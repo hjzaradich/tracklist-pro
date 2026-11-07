@@ -19,6 +19,7 @@ import { InboxScreen } from "../inbox/InboxScreen";
 import { filterOfDoor, validateLibrarySearch } from "../library/doors";
 import { LibraryScreen } from "../library/LibraryScreen";
 import { OverviewScreen } from "../overview/OverviewScreen";
+import { PlaylistsScreen, validatePlaylistsSearch } from "../playlists/PlaylistsScreen";
 import { ReviewScreen } from "../review/ReviewScreen";
 import { SettingsScreen } from "../settings/SettingsScreen";
 import { AppShell } from "../shell/AppShell";
@@ -116,6 +117,7 @@ function CratesRoute() {
       onChoose={(id) =>
         void navigate({ to: "/crates", search: id === null ? {} : { crate: id }, replace: true })
       }
+      onOpenPlaylist={(id) => void navigate({ to: "/playlists", search: { playlist: id } })}
     />
   );
 }
@@ -125,6 +127,31 @@ const cratesRoute = createRoute({
   path: "/crates",
   validateSearch: validateCratesSearch,
   component: CratesRoute,
+});
+
+/**
+ * `/playlists?playlist=ID` chooses a playlist, for the screen and the
+ * sidebar's list alike (3C-P1b); like the crates', an id that names nothing
+ * shows nothing chosen.
+ */
+function PlaylistsRoute() {
+  const { playlist } = playlistsRoute.useSearch();
+  const navigate = useNavigate();
+  return (
+    <PlaylistsScreen
+      chosen={playlist ?? null}
+      onChoose={(id) =>
+        void navigate({ to: "/playlists", search: id === null ? {} : { playlist: id }, replace: true })
+      }
+    />
+  );
+}
+
+const playlistsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/playlists",
+  validateSearch: validatePlaylistsSearch,
+  component: PlaylistsRoute,
 });
 
 // Not a stage and not in the sidebar: the after-send lists on their own (1aF-2).
@@ -181,6 +208,7 @@ const routeTree = rootRoute.addChildren([
   allMusicRoute,
   libraryRoute,
   cratesRoute,
+  playlistsRoute,
   afterSendRoute,
   settingsRoute,
   wishlistsRoute,
