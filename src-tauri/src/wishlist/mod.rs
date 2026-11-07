@@ -32,6 +32,8 @@ pub mod parse;
 pub mod tick_off;
 
 #[cfg(test)]
+mod matcher_equivalence_tests;
+#[cfg(test)]
 mod tests;
 
 /// The operation kinds, as the operation log stores them.
