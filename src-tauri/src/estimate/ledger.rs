@@ -18,7 +18,7 @@
 //!   online-only OneDrive file unless the user opted in.
 //!
 //! **The `'local'` rows** ([`sync`]): a Library track whose shown file has a
-//! BPM in the ledger, of its current audio and this [`VERSION`], has one
+//! BPM in the ledger, of its current audio (this [`VERSION`], or an older one while it waits to be measured again), has one
 //! `'local'` analysis row with that BPM folded into the user's range and its
 //! confidence. While the owner's test switch for the key is on
 //! ([`Feature::LocalKey`]), the row also holds the file's key, in Camelot;
@@ -28,9 +28,10 @@
 //! neither any more loses it. Never an energy (owner, 2026-11-06: energy
 //! comes from the user or tags only). Every other source wins over
 //! `'local'` by the precedence the table already has. When the [`VERSION`]
-//! is raised, a file's old ledger row waits to be measured again and its
-//! track keeps its `'local'` row meanwhile; the new measurement replaces it
-//! in place.
+//! is raised, a file's old ledger row waits to be measured again and is
+//! shown (and counted by the stale check) as it is, whatever its version,
+//! until the new measurement replaces it in place; the key switch applies to
+//! it as to any other.
 
 use rusqlite::{params, Connection};
 
@@ -196,11 +197,10 @@ fn stale_sql(local_key: bool) -> String {
                  JOIN file f ON f.id = {shown}
                  LEFT JOIN file_estimate e ON e.file_id = f.id AND e.audio_hash = f.audio_hash
                  LEFT JOIN analysis a ON a.recording_id = lt.recording_id AND a.source = 'local'
-                 WHERE COALESCE(e.method_version, ?VERSION) = ?VERSION
-                   AND (CASE WHEN e.bpm IS NULL THEN a.bpm IS NOT NULL
-                             ELSE a.bpm IS NULL OR a.confidence IS NOT e.bpm_confidence
-                        END
-                        OR a.key IS NOT ({wanted_key})))",
+                 WHERE CASE WHEN e.bpm IS NULL THEN a.bpm IS NOT NULL
+                            ELSE a.bpm IS NULL OR a.confidence IS NOT e.bpm_confidence
+                       END
+                    OR a.key IS NOT ({wanted_key}))",
         shown = shown()
     )
 }
@@ -401,20 +401,16 @@ struct Step {
     /// The row there is: its id, what it holds, and whether it holds an
     /// energy too (never written from here; a guard all the same).
     row: Option<(i64, Shown, bool)>,
-    /// The file's ledger row is of another method version: it is waiting to
-    /// be measured again, so the track's row is left as it is until the new
-    /// measurement replaces it in place (a version bump must not take the
-    /// BPMs away for the hours the Analyze job needs).
-    waiting: bool,
 }
 
 /// Brings the `'local'` analysis rows of the Library tracks showing file
 /// `only` (every Library track for `None`) in step with the ledger, folding
 /// each BPM into `range`, with the key only while [`Feature::LocalKey`] is
 /// on. Writes only what differs: a row is inserted, updated in place (its
-/// id kept) or, when it would hold nothing, deleted. A track whose file's
-/// ledger row is of another method version is left alone until the file is
-/// measured again. Returns how many rows it wrote.
+/// id kept) or, when it would hold nothing, deleted. A file's ledger row
+/// counts whatever method version it is of, so a file waiting to be measured
+/// again keeps showing its own older measurement until the new one replaces
+/// it. Returns how many rows it wrote.
 pub(crate) fn sync(
     conn: &Connection,
     only: Option<i64>,
@@ -437,8 +433,7 @@ pub(crate) fn sync_page(
     let steps: Vec<Step> = {
         let mut stmt = conn.prepare_cached(&sql(&format!(
             "SELECT lt.recording_id, e.bpm, e.bpm_confidence, e.key_pitch_class, e.key_mode,
-                    a.id, a.bpm, a.confidence, a.key, a.energy IS NOT NULL,
-                    COALESCE(e.method_version, ?VERSION) <> ?VERSION
+                    a.id, a.bpm, a.confidence, a.key, a.energy IS NOT NULL
              FROM library_track lt
              JOIN file f ON f.id = {shown}
              LEFT JOIN file_estimate e ON e.file_id = f.id AND e.audio_hash = f.audio_hash
@@ -459,7 +454,6 @@ pub(crate) fn sync_page(
             };
             let id: Option<i64> = r.get(5)?;
             Ok(Step {
-                waiting: r.get(10)?,
                 recording: r.get(0)?,
                 wanted: Shown {
                     bpm: tempo.map(|t| t.0),
@@ -485,9 +479,6 @@ pub(crate) fn sync_page(
     let last = steps.last().map(|s| s.recording);
     let mut written = 0;
     for step in steps {
-        if step.waiting {
-            continue;
-        }
         let wanted = step.wanted;
         written += match step.row {
             None if !wanted.is_empty() => conn

@@ -451,3 +451,34 @@ fn a_file_measured_again_has_its_new_key_in_the_ledger_and_in_the_local_row() {
     let (id, _, key, _) = local_row(&library, track).unwrap();
     assert_eq!((id, key), (row_id, Some(d_major.to_camelot())));
 }
+
+#[test]
+fn turning_the_switch_off_after_a_version_bump_takes_every_local_key_out_at_once() {
+    let library = Library::new();
+    library.put("a.wav", &tonal(2, Mode::Major));
+    library.put("b.wav", &tonal(9, Mode::Minor));
+    let ids = walk_and_hash(&library);
+    assert_eq!(analyze_all(&library), 2);
+    switch(&library, true);
+    assert_eq!(local_keys(&library), 2);
+
+    // Both files now wait to be measured again.
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE file_estimate SET method_version = ?1",
+                [i64::from(crate::estimate::VERSION) - 1],
+            )
+        })
+        .unwrap();
+    switch(&library, false);
+    assert_eq!(local_keys(&library), 0, "nothing waits for the new version");
+    let track = track_of(&library, ids["a.wav"]);
+    assert_eq!(shown_key(&library, track).0, None);
+    assert!(
+        local_row(&library, track).is_some_and(|r| r.1.is_some()),
+        "its BPM stays"
+    );
+    assert!(!any_stale(&library));
+}
