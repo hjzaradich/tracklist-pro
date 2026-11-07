@@ -367,6 +367,13 @@ impl Lib {
     /// anything, i.e. recorded an operation. An action the app refuses (a
     /// taken crate name) or that has nothing to act on changes nothing.
     pub fn apply(&self, action: &Action) -> bool {
+        self.apply_counting(action) > 0
+    }
+
+    /// [`Lib::apply`], answering how many operations the action recorded: a
+    /// tick-off pass records one for each file it ticks off (2.5), every
+    /// other action at most one.
+    pub fn apply_counting(&self, action: &Action) -> i64 {
         let before = self.operations();
         let pick = |from: &[i64], n: usize| (!from.is_empty()).then(|| from[n % from.len()]);
         let pick_tracks = |from: &[i64], ns: &[usize]| -> Vec<LibraryTrackId> {
@@ -637,7 +644,7 @@ impl Lib {
                 }
             }
         }
-        self.operations() > before
+        self.operations() - before
     }
 
     /// Wishlists on, and a wishlist named like a crate ("House", its crate
@@ -930,11 +937,18 @@ proptest! {
     ) {
         let lib = Lib::new();
         lib.wishes();
-        let mut before = Vec::new();
+        // The tables before each action that changed something, then a
+        // `None` for each operation it recorded beyond its first: a
+        // tick-off pass records one for each file it ticks off, and each
+        // undoes on its own, so only the undo of the last of them is back
+        // at the tables before the action.
+        let mut before: Vec<Option<State>> = Vec::new();
         for action in &actions {
             let state = lib.state();
-            if lib.apply(action) {
-                before.push(state);
+            let recorded = lib.apply_counting(action);
+            if recorded > 0 {
+                before.push(Some(state));
+                before.extend((1..recorded).map(|_| None));
             } else {
                 prop_assert_eq!(lib.state(), state, "{:?} recorded nothing", action);
             }
@@ -943,7 +957,9 @@ proptest! {
             let outcome = lib.undo();
             let undone = matches!(outcome, UndoOutcome::Undone { .. });
             prop_assert!(undone, "got {:?}", outcome);
-            prop_assert_eq!(lib.state(), state);
+            if let Some(state) = state {
+                prop_assert_eq!(lib.state(), state);
+            }
         }
         prop_assert_eq!(lib.undo(), UndoOutcome::NothingToUndo);
     }
@@ -1962,4 +1978,84 @@ fn every_table_a_logged_table_points_at_never_reuses_ids_or_is_written_through_t
     // Ids of these tables stored without a foreign key are tracks too
     // (`replaced_entry.recording_id`, `track_merge.into_id`), covered by
     // `recording`.
+}
+
+/// Runs `actions` on a database with wishlists, then undoes them all: each
+/// undo must give back the tables as they were before that action.
+fn undo_each_step(actions: &[Action]) {
+    let lib = Lib::new();
+    lib.wishes();
+    // As in the property test: a tick-off pass can record several
+    // operations, one for each file it ticks off.
+    let mut before: Vec<Option<State>> = Vec::new();
+    for action in actions {
+        let state = lib.state();
+        let recorded = lib.apply_counting(action);
+        if recorded > 0 {
+            before.push(Some(state));
+            before.extend((1..recorded).map(|_| None));
+        } else {
+            assert_eq!(lib.state(), state, "{action:?} recorded nothing");
+        }
+    }
+    while let Some(state) = before.pop() {
+        let outcome = lib.undo();
+        assert!(
+            matches!(outcome, UndoOutcome::Undone { .. }),
+            "got {outcome:?}"
+        );
+        if let Some(state) = state {
+            assert_eq!(lib.state(), state);
+        }
+    }
+    assert_eq!(lib.undo(), UndoOutcome::NothingToUndo);
+}
+
+/// Found by the property test: a tick-off after the Library track of its
+/// file was removed.
+#[test]
+fn undoing_a_tick_off_after_a_removal_restores_the_tables_step_by_step() {
+    undo_each_step(&[
+        Action::Add(5),
+        Action::TickOff(5),
+        Action::Remove(0),
+        Action::TickOff(0),
+    ]);
+}
+
+/// Why that case once failed: the last tick-off pass ticks off two files
+/// (the one decided now, and the one whose track was removed since), as
+/// two operations, and each Undo takes back one.
+#[test]
+fn a_tick_off_pass_records_one_operation_for_each_file_and_each_undo_takes_back_one() {
+    let lib = Lib::new();
+    lib.wishes();
+    assert!(lib.apply(&Action::Add(5)));
+    assert!(!lib.apply(&Action::TickOff(5)));
+    assert!(lib.apply(&Action::Remove(0)));
+    let removed = lib.state();
+    assert_eq!(lib.apply_counting(&Action::TickOff(0)), 2);
+    assert_eq!(lib.library_tracks().len(), 2);
+
+    assert_eq!(lib.undone().kind, crate::wishlist::tick_off::OPERATION);
+    assert_eq!(lib.library_tracks().len(), 1);
+    assert_eq!(lib.undone().kind, crate::wishlist::tick_off::OPERATION);
+    assert_eq!(lib.state(), removed);
+}
+
+#[test]
+fn undoing_a_removal_after_a_tick_off_restores_the_tables_step_by_step() {
+    undo_each_step(&[Action::TickOff(0), Action::Remove(0)]);
+}
+
+#[test]
+fn undoing_a_tick_off_of_a_file_whose_track_was_removed_and_put_back_restores_the_tables() {
+    undo_each_step(&[
+        Action::Add(2),
+        Action::TickOff(2),
+        Action::Remove(0),
+        Action::Add(2),
+        Action::Remove(0),
+        Action::TickOff(2),
+    ]);
 }
