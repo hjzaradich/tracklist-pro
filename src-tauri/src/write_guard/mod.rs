@@ -509,9 +509,9 @@ impl WriteGuard {
     ///    (`FolderNotPlain`);
     /// 5. `dest` is not inside, or equal to, a music folder
     ///    (`InMusicFolder`) or app data (`InAppData`);
-    /// 6. no folder on `dest`'s path holds a `PIONEER` entry, and the drive
-    ///    root holds no `Contents` entry: the marks of a gig stick
-    ///    (`GigStick`). Mount points are links, so refused by rule 4;
+    /// 6. the drive root holds no `PIONEER` or `Contents` entry, and no
+    ///    folder on `dest`'s path holds both (a stick mounted in a folder):
+    ///    the marks of a gig stick (`GigStick`). Mount points are links, so refused by rule 4;
     /// 7. `dest` is not inside rekordbox's data folder (`InRekordboxFolder`).
     ///
     /// The bytes are streamed into the created file. If that fails, only
@@ -608,8 +608,9 @@ impl WriteGuard {
         if inside_any(&real, keep_out.music_folders.iter().map(PathBuf::as_path)) {
             return Err(refuse(SaveRefusal::InMusicFolder, &real));
         }
-        if real.ancestors().skip(1).any(holds_pioneer)
-            || root_of(&real).is_some_and(|root| holds_entry(&root, "Contents"))
+        if real.ancestors().skip(1).any(looks_like_a_stick)
+            || root_of(&real)
+                .is_some_and(|root| holds_entry(&root, "Contents") || holds_entry(&root, "PIONEER"))
         {
             return Err(refuse(SaveRefusal::GigStick, &real));
         }
@@ -676,9 +677,11 @@ fn holds_entry(folder: &Path, name: &str) -> bool {
     })
 }
 
-/// Whether `folder` holds a `PIONEER` entry: rekordbox's folder on a stick.
-fn holds_pioneer(folder: &Path) -> bool {
-    holds_entry(folder, "PIONEER")
+/// Whether `folder` holds both of rekordbox's marks on a stick, `PIONEER`
+/// and `Contents`: a stick mounted inside a folder. (`PIONEER` alone is
+/// not enough: `Documents\Pioneer` is an ordinary folder.)
+fn looks_like_a_stick(folder: &Path) -> bool {
+    holds_entry(folder, "PIONEER") && holds_entry(folder, "Contents")
 }
 
 /// A name Windows would read as something other than a plain file or
@@ -697,9 +700,15 @@ fn has_a_bad_name(path: &Path) -> bool {
             .unwrap_or("")
             .trim_end()
             .to_ascii_uppercase();
+        // `COM0` to `COM9` and the superscript digits Windows also reserves.
         let numbered = |prefix: &str| {
-            stem.strip_prefix(prefix)
-                .is_some_and(|n| n.len() == 1 && n.chars().all(|c| c.is_ascii_digit()))
+            stem.strip_prefix(prefix).is_some_and(|n| {
+                let mut chars = n.chars();
+                matches!(
+                    (chars.next(), chars.next()),
+                    (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+                )
+            })
         };
         name.contains(':')
             || name.ends_with('.')

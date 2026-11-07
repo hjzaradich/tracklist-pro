@@ -1596,8 +1596,9 @@ mod save_outside {
             .save_new_bundle_outside(&sb.base.join("outside"), &dest, &keep)
             .is_err());
         // The happy path, unless this drive really has a gig stick's mark.
-        let marked = out.ancestors().any(holds_pioneer)
-            || drive_root(&out).is_some_and(|r| holds_entry(&r, "Contents"));
+        let marked = out.ancestors().any(looks_like_a_stick)
+            || drive_root(&out)
+                .is_some_and(|r| holds_entry(&r, "Contents") || holds_entry(&r, "PIONEER"));
         if !marked {
             let dest = out.join("saved.zip");
             sb.guard
@@ -1727,6 +1728,14 @@ mod save_outside {
             "nul.zip",
             "Com1.zip",
             "lpt9.zip",
+            "com0.zip",
+            "LPT0.txt.zip",
+            "COM\u{b9}.zip",
+            "com\u{b2}.zip",
+            "COM\u{b3}.x.zip",
+            "LPT\u{b9}.zip",
+            "lpt\u{b2}.zip",
+            "LPT\u{b3}.zip",
             "aux .zip",
             "name.zip.",
             "name.zip ",
@@ -1743,6 +1752,7 @@ mod save_outside {
         // Near misses are fine.
         save(&sb, &out.join("console.zip"), &KeepOut::default()).unwrap();
         save(&sb, &out.join("com10.zip"), &KeepOut::default()).unwrap();
+        save(&sb, &out.join("com\u{b9}\u{b9}.zip"), &KeepOut::default()).unwrap();
     }
 
     #[test]
@@ -1766,6 +1776,7 @@ mod save_outside {
         // A mounted stick: the mark is on a folder in the middle of the path.
         let mount = out.join("mnt");
         fs::create_dir_all(mount.join("PIONEER")).unwrap();
+        fs::create_dir_all(mount.join("contents")).unwrap();
         fs::create_dir_all(mount.join("deep").join("er")).unwrap();
         let dest = mount.join("deep").join("er").join("a.zip");
         assert_eq!(
@@ -1793,6 +1804,32 @@ mod save_outside {
         );
         assert_eq!(why(refused), SaveRefusal::GigStick);
         assert!(!dest.exists());
+    }
+
+    #[test]
+    fn an_ordinary_folder_with_a_pioneer_subfolder_is_allowed() {
+        let (sb, out) = sandbox();
+        let docs = out.join("Documents");
+        fs::create_dir_all(docs.join("Pioneer")).unwrap();
+        fs::create_dir_all(docs.join("sub")).unwrap();
+        save(&sb, &docs.join("x.zip"), &KeepOut::default()).unwrap();
+        save(&sb, &docs.join("sub").join("y.zip"), &KeepOut::default()).unwrap();
+    }
+
+    #[test]
+    fn it_refuses_a_drive_root_holding_pioneer_even_without_contents() {
+        let (sb, out) = sandbox();
+        let stick = out.join("s3").join("stick");
+        fs::create_dir_all(stick.join("pioneer")).unwrap();
+        let keep = KeepOut::default();
+        let refused = sb.guard.save_stream(
+            &mut Cursor::new(BYTES),
+            &stick.join("a.zip"),
+            &keep,
+            stick_root,
+            &|_| {},
+        );
+        assert_eq!(why(refused), SaveRefusal::GigStick);
     }
 
     #[test]
