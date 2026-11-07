@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildList, cratesFromMetadata, npmFromLockfile } from "./third-party-licenses.mjs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildList, cratesFromMetadata, npmFromLockfile, readLicenceText } from "./third-party-licenses.mjs";
 
 const pkg = (name) => ({
   name,
@@ -71,4 +74,20 @@ test("a package with no text keeps its licence id and repository address", () =>
   assert.equal(only.text, null);
   assert.equal(only.license, "Apache-2.0");
   assert.equal(only.repository, "https://example.test/x");
+});
+
+test("readLicenceText joins licence, copying and notice files and skips the rest", () => {
+  const dir = mkdtempSync(join(tmpdir(), "licences-"));
+  writeFileSync(join(dir, "LICENSE-MIT"), "Licence A\r\n");
+  writeFileSync(join(dir, "NOTICE"), "Notice B\n");
+  writeFileSync(join(dir, "README.md"), "Not a licence");
+  assert.equal(readLicenceText(dir), "Licence A\n\nNotice B");
+  assert.equal(readLicenceText(join(dir, "missing")), "");
+  rmSync(dir, { recursive: true });
+});
+
+test("the same name and version is listed once", () => {
+  const entry = { name: "x", version: "1.0.0", license: "MIT", repository: null };
+  const list = buildList([entry, { ...entry }, { ...entry, version: "2.0.0" }], () => "T");
+  assert.deepEqual(list.packages.map((p) => p.version), ["1.0.0", "2.0.0"]);
 });

@@ -34,7 +34,7 @@ rekordbox, AlphaTheta, Pioneer DJ and the other product names here are trademark
   - **Discogs** (api.discogs.com): the search you ask for, with your own token.
   - **Cover Art Archive** (coverartarchive.org, and archive.org where it hands images over): the release it's fetching art for.
   - **Update checks** and **model downloads**: the gate has an on/off switch for each, but no address is set yet, so every request to them is refused.
-- Every request also carries the app's name and version, and your IP address reaches the service, as with any website.
+- Every request also carries the app's name, its version and the project's repository address (in the User-Agent), and your IP address reaches the service, as with any website.
 - More services will be listed here before they are added.
 
 Right now no feature contacts any service.

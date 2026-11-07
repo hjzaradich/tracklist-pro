@@ -146,10 +146,10 @@ function main() {
   const manifest = join(root, "src-tauri", "Cargo.toml");
   const run = spawnSync(
     "cargo",
-    ["metadata", "--format-version", "1", "--filter-platform", TARGET, "--manifest-path", manifest],
+    ["metadata", "--locked", "--format-version", "1", "--filter-platform", TARGET, "--manifest-path", manifest],
     { encoding: "utf8", maxBuffer: 1 << 30 },
   );
-  if (run.status !== 0) throw new Error(`cargo metadata failed: ${run.stderr}`);
+  if (run.status !== 0) throw new Error(`cargo metadata --locked failed (Cargo.lock out of date, or cargo missing?); not changing Cargo.lock: ${run.stderr}`);
   const crates = cratesFromMetadata(JSON.parse(run.stdout)).map((c) => ({ ...c, kind: "crate" }));
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
   const npm = npmFromLockfile(lock).map((n) => ({ ...n, kind: "npm", dir: join(root, n.dir) }));
