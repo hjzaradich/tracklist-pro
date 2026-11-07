@@ -218,6 +218,7 @@ describe("the rekordbox XML source", () => {
     // Cancel: nothing more is read.
     await userEvent.click(screen.getByRole("button", { name: tx("rekordbox:older.cancel") }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(backend.reads).toEqual([null]);
 
     // Ask again, then read it anyway: the same read, now allowed.

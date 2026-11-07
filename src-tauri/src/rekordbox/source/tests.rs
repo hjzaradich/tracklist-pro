@@ -649,7 +649,11 @@ fn an_export_older_than_the_database_read_is_refused_and_replaces_nothing() {
         );
     }
     // Nothing was queued: the database read is still the newest.
-    std::thread::sleep(Duration::from_millis(300));
+    let queued: i64 = app
+        .state::<Writer>()
+        .call(|c| c.query_row("SELECT COUNT(*) FROM job", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(queued, 0, "a refused read must queue no job");
     let source = invoke(&app, "rekordbox_xml_source", json!({})).unwrap();
     assert_eq!(source["lastRead"]["source"], json!("database"));
     assert_eq!(

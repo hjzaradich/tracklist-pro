@@ -91,7 +91,11 @@ export function XmlSourcePanel({ quiet = false }: { quiet?: boolean }) {
         <OlderConfirm
           older={older}
           onReadAnyway={() => startRead(older.path, true)}
-          onCancel={() => setOlder(null)}
+          onCancel={() => {
+            setOlder(null);
+            // The held-back read is not a failure to show.
+            read.reset();
+          }}
         />
       )}
       {read.isError && !older && (
@@ -159,10 +163,15 @@ function OlderConfirm({
   const cancel = useRef<HTMLButtonElement>(null);
   useEffect(() => cancel.current?.focus(), []);
   const titleId = useId();
-  const when = (iso: string) =>
-    new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(
-      new Date(iso),
-    );
+  // A time that can't be read is shown as it came, never thrown on.
+  const when = (iso: string) => {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime())
+      ? iso
+      : new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(
+          date,
+        );
+  };
   return (
     <div
       role="alertdialog"
