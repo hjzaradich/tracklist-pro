@@ -101,8 +101,9 @@ describe("the Settings switch", () => {
     const backend = fakeBackend(status({ asked: true, enabled: true }));
     renderWith(<UpdateChecksRow />);
     await userEvent.click(await screen.findByRole("button", { name: tx("updates:settings.checkNow") }));
-    await waitFor(() => expect(screen.getByText(/./, { selector: "[role=status]" })).toBeInTheDocument());
-    expect(backend.calls.filter((c) => c === "check_for_updates").length).toBeGreaterThan(0);
+    const when = new Date("2026-11-07T10:00:00.000Z").toLocaleString();
+    expect(await screen.findByText(tx("updates:settings.upToDate", { when }))).toBeInTheDocument();
+    expect(backend.calls).toContain("check_for_updates");
   });
 });
 

@@ -37,6 +37,8 @@ const SEED: &str = r#"
         ('rekordbox_xml_path', '"C:/Users/dj/rekordbox-secret-path.xml"'), ('rekordbox_xml_watch', 'true'),
         ('rekordbox_xml_last_failure', '{"path":"C:/x.xml"}'), ('read_online_only_files', 'true'),
         ('inbox.incompleteWalks.1', '2'),
+        ('update_check_asked', 'true'),
+        ('update_check_result', '{"checkedAt":"2026-11-01T00:00:00.000Z","version":"9.0.0","url":"u"}'),
         ('rekordbox_xml_last_read', '{"path":"C:/Users/dj/rekordbox-secret-path.xml","readAt":"2026-11-01T00:00:00Z"}');
     INSERT INTO job (kind) VALUES ('scan');
     INSERT INTO service_optin (service, enabled, enabled_at) VALUES ('musicbrainz', 1, '2026-11-01');
@@ -203,6 +205,28 @@ fn a_round_trip_keeps_every_user_table_and_the_id_counters() {
     assert!(after["volume"][0].contains("serial=FS-1234ABCD"));
     assert!(after["volume"][0].contains("Null"));
     assert!(after["job"].is_empty() && after["service_optin"].is_empty());
+}
+
+#[test]
+fn a_bundle_carries_no_update_check_answer_so_a_new_pc_is_asked_and_sees_no_stale_notice() {
+    let root = TempDir::new().unwrap();
+    let (a, writer) = library(root.path(), "a", SEED);
+    let bytes = db_in(&make_bundle(&a, &writer));
+    let copy = root.path().join("copy.db");
+    fs::write(&copy, &bytes).unwrap();
+    let settings = dump(&copy)["setting"].join(
+        "
+",
+    );
+    assert!(!settings.contains("update_check_asked"));
+    assert!(!settings.contains("update_check_result"));
+    // The Library itself keeps its answer.
+    assert!(dump(&live(&a))["setting"]
+        .join(
+            "
+"
+        )
+        .contains("update_check_asked"));
 }
 
 #[test]

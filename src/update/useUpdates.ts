@@ -56,13 +56,9 @@ export function useSetUpdateChecks() {
   return useMutation({
     mutationFn: async (on: boolean) => {
       await unwrap(commands.setUpdateChecks(on));
-      if (on) {
-        try {
-          await check(queryClient, true);
-        } catch {
-          // The answer is saved; a failed check is not shown.
-        }
-      }
+      // The answer is saved; the first check runs on its own, so the question
+      // closes now. A failed check is not shown.
+      if (on) check(queryClient, true).catch(() => {});
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: UPDATE_STATUS_QUERY_KEY }),
   });

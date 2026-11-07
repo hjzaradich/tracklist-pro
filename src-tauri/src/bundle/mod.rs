@@ -56,7 +56,8 @@ const MACHINE_ONLY: &str = "
     DELETE FROM service_optin;
     DELETE FROM setting
      WHERE key IN ('rekordbox_xml_path', 'rekordbox_xml_watch',
-                   'rekordbox_xml_last_failure', 'read_online_only_files')
+                   'rekordbox_xml_last_failure', 'read_online_only_files',
+                   'update_check_asked', 'update_check_result')
         OR key GLOB 'inbox.incompleteWalks.*';
     UPDATE setting SET value = json_set(value, '$.path', '')
      WHERE key = 'rekordbox_xml_last_read' AND json_valid(value);

@@ -247,3 +247,18 @@ fn check_now_while_off_sends_nothing_and_is_not_an_error() {
     assert_eq!(status["enabled"], json!(false));
     assert_eq!(status["checkedAt"], json!(null));
 }
+
+#[test]
+fn turning_checks_off_hides_a_found_update_at_once_and_forgets_it() {
+    let (_data, app) = app();
+    invoke(&app, "set_update_checks", json!({"on": true})).unwrap();
+    let reads = tauri::Manager::state::<ReadPool>(&app);
+    let writer = tauri::Manager::state::<Writer>(&app);
+    check_with(&reads, &writer, true, || Ok(Some(release("9.0.0")))).unwrap();
+    let status = invoke(&app, "update_status", json!({})).unwrap();
+    assert_eq!(status["available"]["version"], json!("9.0.0"));
+    invoke(&app, "set_update_checks", json!({"on": false})).unwrap();
+    let status = invoke(&app, "update_status", json!({})).unwrap();
+    assert_eq!(status["available"], json!(null));
+    assert_eq!(status["checkedAt"], json!(null));
+}

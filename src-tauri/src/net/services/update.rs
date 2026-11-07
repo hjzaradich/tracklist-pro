@@ -22,6 +22,9 @@ const LATEST: &str = "/repos/hjzaradich/tracklist-pro/releases/latest";
 /// since the address is shown to the user to copy.
 const RELEASE_PAGES: &str = "https://github.com/hjzaradich/tracklist-pro/releases/";
 
+/// The longest release page address accepted; a real one is under 100.
+const MAX_URL: usize = 200;
+
 /// A published release.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Release {
@@ -63,7 +66,10 @@ pub(super) fn parse_release(body: &[u8]) -> Option<Release> {
     }
     let version = parse_version(value.get("tag_name")?.as_str()?)?;
     let url = value.get("html_url")?.as_str()?.trim();
-    if !url.starts_with(RELEASE_PAGES) || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    if url.len() > MAX_URL
+        || !url.starts_with(RELEASE_PAGES)
+        || url.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
         return None;
     }
     Some(Release {
@@ -89,10 +95,78 @@ pub fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
     parts.next().is_none().then_some(version)
 }
 
-/// Whether `release` is newer than `current` (the app's own version).
-/// Unreadable on either side means no.
+/// A version with its pre-release part, ordered as semver says: the same
+/// numbers with a pre-release part are older (`0.2.0-beta` < `0.2.0`).
+#[derive(Debug, PartialEq, Eq)]
+struct Semver {
+    core: (u64, u64, u64),
+    pre: Vec<String>,
+}
+
+impl Semver {
+    /// `1.2.3`, `v1.2.3`, `1.2.3-rc.1`; build metadata (`+x`) is ignored.
+    fn parse(text: &str) -> Option<Semver> {
+        let text = text.trim();
+        let text = text.strip_prefix('v').unwrap_or(text);
+        let text = text.split('+').next()?;
+        let (core, pre) = match text.split_once('-') {
+            Some((core, pre)) => (core, Some(pre)),
+            None => (text, None),
+        };
+        let pre: Vec<String> = match pre {
+            None => Vec::new(),
+            Some(pre) => pre.split('.').map(str::to_owned).collect(),
+        };
+        let ok = |id: &String| {
+            !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        };
+        if !pre.iter().all(ok) {
+            return None;
+        }
+        Some(Semver {
+            core: parse_version(core)?,
+            pre,
+        })
+    }
+}
+
+impl Ord for Semver {
+    fn cmp(&self, other: &Semver) -> std::cmp::Ordering {
+        use std::cmp::Ordering::*;
+        self.core
+            .cmp(&other.core)
+            .then_with(|| match (self.pre.is_empty(), other.pre.is_empty()) {
+                (true, true) => Equal,
+                (true, false) => Greater,
+                (false, true) => Less,
+                (false, false) => {
+                    for (a, b) in self.pre.iter().zip(&other.pre) {
+                        let order = match (a.parse::<u64>(), b.parse::<u64>()) {
+                            (Ok(a), Ok(b)) => a.cmp(&b),
+                            (Ok(_), Err(_)) => Less,
+                            (Err(_), Ok(_)) => Greater,
+                            (Err(_), Err(_)) => a.cmp(b),
+                        };
+                        if order != Equal {
+                            return order;
+                        }
+                    }
+                    self.pre.len().cmp(&other.pre.len())
+                }
+            })
+    }
+}
+
+impl PartialOrd for Semver {
+    fn partial_cmp(&self, other: &Semver) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Whether `release` is newer than `current` (the app's own version), by
+/// semver order. Unreadable on either side means no.
 pub fn is_newer(release: &str, current: &str) -> bool {
-    match (parse_version(release), parse_version(current)) {
+    match (Semver::parse(release), Semver::parse(current)) {
         (Some(release), Some(current)) => release > current,
         _ => false,
     }
@@ -148,6 +222,21 @@ mod tests {
     }
 
     #[test]
+    fn a_pre_release_app_still_compares_by_semver_order() {
+        // The stable release of the same numbers is newer than the beta.
+        assert!(is_newer("0.2.0", "0.2.0-beta"));
+        assert!(!is_newer("0.2.0-beta", "0.2.0"));
+        // A newer stable, or a newer pre-release, counts.
+        assert!(is_newer("0.3.0", "0.2.0-rc.1"));
+        assert!(is_newer("0.2.0-rc.2", "0.2.0-rc.1"));
+        assert!(is_newer("0.2.0-rc.10", "0.2.0-rc.9"));
+        assert!(is_newer("0.2.0-rc", "0.2.0-beta"));
+        assert!(!is_newer("0.2.0-rc.1", "0.2.0-rc.1"));
+        assert!(!is_newer("0.1.9", "0.2.0-beta"));
+        assert!(!is_newer("0.2.0", "0.2.0-"));
+    }
+
+    #[test]
     fn a_published_release_is_read() {
         let release = parse_release(release_json("v0.2.0").as_bytes()).unwrap();
         assert_eq!(release.version, "0.2.0");
@@ -173,6 +262,7 @@ mod tests {
             page("https://evil.example/releases/tag/v0.2.0"),
             page(&format!("{RELEASE_PAGES}tag/v 0.2.0")),
             page("javascript:alert(1)"),
+            page(&format!("{RELEASE_PAGES}tag/{}", "v".repeat(MAX_URL))),
         ];
         for body in cases {
             assert_eq!(parse_release(body.as_bytes()), None, "{body}");

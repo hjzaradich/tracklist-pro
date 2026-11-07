@@ -138,13 +138,18 @@ fn status_for(conn: &Connection, current: &str) -> rusqlite::Result<UpdateStatus
         )
         .optional()?;
     let stored = read_stored(conn)?;
-    let available = stored.as_ref().and_then(|s| match (&s.version, &s.url) {
-        (Some(version), Some(url)) if is_newer(version, current) => Some(Available {
-            version: version.clone(),
-            url: url.clone(),
-        }),
-        _ => None,
-    });
+    // Off means no notice, whatever an earlier check stored.
+    let on = enabled == Some(1);
+    let available = stored
+        .as_ref()
+        .filter(|_| on)
+        .and_then(|s| match (&s.version, &s.url) {
+            (Some(version), Some(url)) if is_newer(version, current) => Some(Available {
+                version: version.clone(),
+                url: url.clone(),
+            }),
+            _ => None,
+        });
     Ok(UpdateStatus {
         asked: read_asked(conn)?,
         enabled: enabled == Some(1),
@@ -186,7 +191,14 @@ pub async fn update_status(reads: State<'_, ReadPool>) -> Result<UpdateStatus, I
 #[specta::specta]
 pub async fn set_update_checks(writer: State<'_, Writer>, on: bool) -> Result<(), IpcError> {
     set_opt_in(&writer, Service::UpdateCheck, on)?;
-    writer.call(|c| write_setting(c, ASKED, "true"))?;
+    writer.call(move |c| {
+        write_setting(c, ASKED, "true")?;
+        if !on {
+            // Turning checks off also forgets what the last one found.
+            c.execute("DELETE FROM setting WHERE key = ?1", [RESULT])?;
+        }
+        Ok(())
+    })?;
     Ok(())
 }
 
