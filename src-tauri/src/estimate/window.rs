@@ -22,8 +22,8 @@
 use symphonia::core::io::MediaSource;
 
 use super::bpm::{self, Tempo};
-use super::key::{self, Lowpass};
 use super::features::{self, Features, Meter};
+use super::key::{self, Lowpass};
 use crate::fingerprint::decode::{self, End, Flow, Stopped, Unfingerprintable};
 
 /// How much of a file is decoded, in seconds from its start.
@@ -176,11 +176,7 @@ impl Window {
         });
         let raw = bpm::flux(window, bpm::FRAME, bpm::HOP);
         let env = bpm::detrend(&raw);
-        let loudness = if skip {
-            &self.after_skip
-        } else {
-            &self.whole
-        };
+        let loudness = if skip { &self.after_skip } else { &self.whole };
         Measured::Window {
             analysed_ms: (analysed * 1000.0).round() as i64,
             tempo: bpm::detect_envelope(&env, rate),
