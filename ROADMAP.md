@@ -718,6 +718,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 #### 4.1 Portability bundle
 - Export the DB state, and optionally the Library files, into one bundle. Import it on another machine; paths re-link by volume identity plus relative path.
 - **For your own machines only.** It's never described, tested or promoted as a way to hand music to someone else.
+- **Owner decisions 2026-11-07:** the first version carries the database only (crates, playlists, tags, history, settings), not the music. You copy the music yourself and the app re-finds it by drive and folder; music inside the bundle can come after 2.6. Importing onto a Library that already has tracks asks first, keeps a backup of the current Library in the app's folder, then replaces it; the backup can be restored. Keys and passwords never go into a bundle.
 - **Complexity:** M.
 
 #### 4.2 Onboarding
