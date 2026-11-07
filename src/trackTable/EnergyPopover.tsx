@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type FocusEvent, type KeyboardEvent } from "re
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { EnergyButtons } from "./EnergyButtons";
+import { EnergySuggestion } from "./EnergySuggestion";
 import styles from "./EnergyPopover.module.css";
 
 /** The gap between the cell and the popover, and the room kept from the window's edge (pixels). */
@@ -28,6 +29,10 @@ function energyOfKey(key: string): number | null {
  * ends with a quiet "Clear", which takes it away and closes. `current` is the energy to show as pressed and `start` where
  * the focus begins when none is. It is drawn in a portal, so a click inside
  * it is not a click on a row.
+ *
+ * `suggestFor` is the one track the pick applies to, when it is one: the
+ * window then also shows the app's energy suggestion for it with a "Use"
+ * button (3C-E1c), which picks like a digit does.
  */
 export function EnergyPopover({
   anchor,
@@ -36,6 +41,7 @@ export function EnergyPopover({
   start,
   onPick,
   onClear,
+  suggestFor,
   onClose,
 }: {
   anchor: HTMLElement;
@@ -44,13 +50,13 @@ export function EnergyPopover({
   start: number | null;
   onPick: (energy: number) => void;
   onClear?: () => void;
+  suggestFor?: number;
   /** `restoreFocus` is whether the focus goes back to the cell. */
   onClose: (restoreFocus: boolean) => void;
 }) {
   const { t } = useTranslation("trackTable");
   const { t: tShell } = useTranslation("shell");
   const box = useRef<HTMLDivElement>(null);
-  const clearButton = useRef<HTMLButtonElement>(null);
   const from = anchor.getBoundingClientRect();
 
   // Under the cell, or above it when it would not fit; kept inside the window sideways.
@@ -78,9 +84,10 @@ export function EnergyPopover({
       return;
     }
     if (event.key === "Tab") {
-      // Between the buttons and "Clear" the focus moves on its own; Tab out of either end closes.
-      const onClearButton = event.target === clearButton.current;
-      if (onClear && (onClearButton ? event.shiftKey : !event.shiftKey)) return;
+      // Between the buttons, "Use" and "Clear" the focus moves on its own; Tab out of either end closes.
+      const stops = Array.from(box.current?.querySelectorAll("button") ?? []).filter((b) => b.tabIndex >= 0);
+      const end = event.shiftKey ? stops[0] : stops[stops.length - 1];
+      if (event.target !== end && stops.length > 1) return;
       event.preventDefault();
       onClose(true);
       return;
@@ -114,9 +121,9 @@ export function EnergyPopover({
     >
       {count > 1 && <p className={styles.count}>{tShell("details.energy.many", { count })}</p>}
       <EnergyButtons current={current} start={start} onPick={pick} autoFocus />
+      {suggestFor !== undefined && <EnergySuggestion recordingId={suggestFor} onUse={pick} />}
       {onClear && (
         <button
-          ref={clearButton}
           type="button"
           className={styles.clear}
           onClick={() => {

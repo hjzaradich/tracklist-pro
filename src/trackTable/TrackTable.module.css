@@ -343,6 +343,11 @@
   white-space: nowrap;
 }
 
+/* A BPM or key that is the app's own estimate (3.7): muted until rekordbox has one. */
+.estimate {
+  color: var(--color-text-muted);
+}
+
 /* The Energy column's cell (1cD): a button that fills the cell. Muted when the
  * energy isn't the user's own; a track with none shows its dash only while
  * the row is hovered or the cell is focused, so the cell can be found. */

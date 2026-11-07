@@ -9,7 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderApp } from "../app/testApp";
-import type { EnergySource, TablePage, TableQuery } from "../bindings";
+import type { EnergySource, EnergySuggestion, TablePage, TableQuery } from "../bindings";
 import { tableRow } from "../test/trackTableIpc";
 import { tx } from "../test/tx";
 import { ALL_COLUMNS } from "./columnChoice";
@@ -29,6 +29,8 @@ let cleared: number[][];
 let fallback: Map<number, { energy: number; source: EnergySource }>;
 /** The queries the table asked with. */
 let queries: TableQuery[];
+/** The app's energy suggestion for every track, if any. */
+let suggestion: EnergySuggestion | null;
 /** The columns the user chose: Title and Energy, or nothing chosen. */
 let chosen: string[] | null;
 
@@ -59,6 +61,7 @@ beforeEach(() => {
   cleared = [];
   fallback = new Map([[idAt(1), { energy: 5, source: "mik" }]]);
   queries = [];
+  suggestion = null;
   chosen = ["title", "energy"];
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
     ROW * 11,
@@ -101,6 +104,8 @@ beforeEach(() => {
           }
           return { changed: recordings.length, skipped: 0, operationId: 9 };
         }
+        case "energy_suggestion":
+          return suggestion;
         case "user_energy_count": {
           const { recordings } = args as { recordings: number[] };
           return recordings.filter((id) => energy.get(id)?.source === "user").length;
@@ -335,6 +340,31 @@ describe("the Energy column's popover", () => {
     expect(popover()).toBeNull();
     expect(asked).toEqual([]);
     expect(cellAt(2)).toHaveFocus();
+  });
+
+  it("shows the suggestion for the track, not as its energy, and Use gives the track that energy", async () => {
+    suggestion = { value: 8, basis: [{ code: "loudness", percentile: 90 }] };
+    await table();
+    await userEvent.click(cellAt(0));
+    expect(await within(popover()!).findByText(tx("estimate:suggestion.label", { energy: 8 }))).toBeInTheDocument();
+    expect(cellAt(0)).toHaveAccessibleName(tx("trackTable:energyCell.set"));
+    expect(asked).toEqual([]);
+    await userEvent.click(within(popover()!).getByRole("button", { name: tx("estimate:suggestion.use", { energy: 8 }) }));
+    expect(asked).toEqual([{ recordings: [idAt(0)], energy: 8 }]);
+    expect(popover()).toBeNull();
+  });
+
+  it("reaches Use and then Clear with Tab, and Tab out of Clear closes", async () => {
+    suggestion = { value: 8, basis: [] };
+    await table();
+    await userEvent.click(cellAt(1));
+    const use = await within(popover()!).findByRole("button", { name: tx("estimate:suggestion.use", { energy: 8 }) });
+    await userEvent.tab();
+    expect(use).toHaveFocus();
+    await userEvent.tab();
+    expect(clearIn()).toHaveFocus();
+    await userEvent.tab();
+    expect(popover()).toBeNull();
   });
 
   it("reaches Clear with Tab, and Tab out of Clear closes without clearing", async () => {

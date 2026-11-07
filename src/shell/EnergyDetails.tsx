@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { TableRow } from "../bindings";
 import { EnergyButtons } from "../trackTable/EnergyButtons";
+import { EnergySuggestion } from "../trackTable/EnergySuggestion";
 import { useClearEnergy, useUserEnergyCount } from "../trackTable/useClearEnergy";
 import { useSetEnergy } from "../trackTable/useSetEnergy";
 import { useSelectedTrack } from "./selectedTrack";
@@ -21,6 +22,10 @@ import styles from "./TrackDetails.module.css";
  * - Several tracks: the line says how many, no button is pressed (rows off
  *   screen are not loaded, so there is no summary of theirs), and a pick is
  *   for all of them.
+ *
+ * One track also shows the app's energy suggestion with its basis and a
+ * "Use" button (3C-E1c; ROADMAP 3.7): taking it is the same operation as a
+ * pick, so one Undo puts it back. It is never the track's energy.
  *
  * "Clear" takes the user's own energy away (so the next source shows again);
  * it is offered only when the track has one, or, with several selected, when
@@ -57,6 +62,9 @@ export function EnergyDetails({ row }: { row: TableRow }) {
         {t("details.energy.title")}
       </h3>
       {line !== "" && <p className={styles.quiet}>{line}</p>}
+      {!many && (
+        <EnergySuggestion recordingId={row.recordingId} onUse={(picked) => give.mutate({ recordingIds: tracks, energy: picked })} />
+      )}
       <EnergyButtons
         current={!many && energySource === "user" ? energy : null}
         onPick={(picked) => give.mutate({ recordingIds: tracks, energy: picked })}

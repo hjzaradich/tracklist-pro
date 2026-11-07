@@ -19,5 +19,20 @@
       "other": "Other",
       "cell": "{{value, number}} ({{percent}}%)"
     }
+  },
+  "suggestion": {
+    "label": "Suggested: {{energy}}",
+    "use": "Use {{energy}}",
+    "basis": "Compared with your Library: {{reasons}}",
+    "reason": {
+      "loudness": "louder than {{percent}}%",
+      "onsets": "denser than {{percent}}%",
+      "flux": "more movement than {{percent}}%",
+      "tempo": "faster than {{percent}}%"
+    }
+  },
+  "estimated": {
+    "bpm": "Estimated by the app; rekordbox's value replaces it after analysis",
+    "key": "Estimated by the app; rekordbox's key replaces it after analysis"
   }
 }

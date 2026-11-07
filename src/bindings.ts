@@ -3839,6 +3839,16 @@ export type TableRow = {
 	 *  notation.
 	 */
 	key: string | null,
+	/**
+	 *  The BPM shown is the app's own estimate (ROADMAP 3.7): no other source
+	 *  has one. rekordbox's value replaces it after analysis.
+	 */
+	bpmEstimated: boolean,
+	/**
+	 *  The key shown is the app's own estimate (only while the test switch is
+	 *  on).
+	 */
+	keyEstimated: boolean,
 	/**  The length in milliseconds. */
 	timeMs: number | null,
 	genre: string | null,

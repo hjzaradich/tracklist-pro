@@ -1219,6 +1219,54 @@ fn the_bpm_and_key_the_table_reads_are_the_ones_the_display_view_gives() {
 }
 
 #[test]
+fn a_row_says_when_its_bpm_and_key_are_the_apps_own_estimates() {
+    let lib = Lib::new();
+    // (rows, bpm estimated, key estimated)
+    type Source<'a> = (&'a str, Option<f64>, Option<&'a str>);
+    let cases: [(&[Source], bool, bool); 5] = [
+        (&[("local", Some(100.0), Some("1B"))], true, true),
+        (
+            &[
+                ("rekordbox", Some(124.0), None),
+                ("local", Some(99.0), Some("6A")),
+            ],
+            false,
+            true,
+        ),
+        (
+            &[
+                ("tag", Some(110.0), Some("2A")),
+                ("local", Some(99.0), Some("6A")),
+            ],
+            false,
+            false,
+        ),
+        (
+            &[("mik", Some(95.0), None), ("local", Some(90.0), None)],
+            false,
+            false,
+        ),
+        (&[], false, false),
+    ];
+    for (n, (rows, bpm, key)) in cases.into_iter().enumerate() {
+        let (rec, _) = lib.track(None, None, Box::leak(format!("e{n}.mp3").into_boxed_str()));
+        for (source, b, k) in rows {
+            lib.insert(
+                "INSERT INTO analysis (recording_id, source, bpm, key) VALUES (?1, ?2, ?3, ?4)",
+                (rec, source.to_string(), *b, k.map(str::to_owned)),
+            );
+        }
+        let page = run(&lib, query(TableSource::AllMusic));
+        let row = page.rows.iter().find(|r| r.recording_id == rec).unwrap();
+        assert_eq!(
+            (row.bpm_estimated, row.key_estimated),
+            (bpm, key),
+            "{rows:?}"
+        );
+    }
+}
+
+#[test]
 fn a_playlist_lists_its_entries_in_order_a_repeated_track_twice_each_with_its_entry() {
     let f = fixture();
     let lt = |recording: i64| -> i64 {

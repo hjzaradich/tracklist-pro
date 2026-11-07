@@ -66,5 +66,41 @@
   "localKey.compare.cell": {
     "purpose": "One cell of the agreement table: how many tracks, and their share of the row's tracks in whole percent.",
     "where": "Settings screen, agreement table, each count cell."
+  },
+  "suggestion.label": {
+    "purpose": "Names the energy the app suggests for the selected track; {{energy}} is 1 to 10. It is a suggestion, never the track's energy. (PROPOSED, 3C-E1c)",
+    "where": "Details panel, Energy section, above the energy buttons; also the energy popover in the track table."
+  },
+  "suggestion.use": {
+    "purpose": "Button that gives the track the suggested energy as its own, as one undoable step; {{energy}} is the suggested number. (PROPOSED, 3C-E1c)",
+    "where": "Details panel, Energy section, beside the suggestion; also the energy popover in the track table."
+  },
+  "suggestion.basis": {
+    "purpose": "Says what the suggestion rests on; {{reasons}} is the list of reasons below, joined by commas. (PROPOSED, 3C-E1c)",
+    "where": "Details panel, Energy section, under the suggestion; also the energy popover."
+  },
+  "suggestion.reason.loudness": {
+    "purpose": "One reason for the suggestion: the track is louder than this share of the user's Library; {{percent}} is a whole percent. (PROPOSED, 3C-E1c)",
+    "where": "Inside the suggestion's basis line."
+  },
+  "suggestion.reason.onsets": {
+    "purpose": "One reason for the suggestion: the track has more note onsets a second than this share of the Library; {{percent}} is a whole percent. (PROPOSED, 3C-E1c)",
+    "where": "Inside the suggestion's basis line."
+  },
+  "suggestion.reason.flux": {
+    "purpose": "One reason for the suggestion: the sound changes more than in this share of the Library; {{percent}} is a whole percent. (PROPOSED, 3C-E1c)",
+    "where": "Inside the suggestion's basis line."
+  },
+  "suggestion.reason.tempo": {
+    "purpose": "One reason for the suggestion: the tempo is faster than this share of the Library; {{percent}} is a whole percent. (PROPOSED, 3C-E1c)",
+    "where": "Inside the suggestion's basis line."
+  },
+  "estimated.bpm": {
+    "purpose": "Hover text of a BPM that is the app's own estimate, shown muted until rekordbox has one. (PROPOSED, 3C-E1c)",
+    "where": "Track table, BPM column, on an estimated value (also read by screen readers)."
+  },
+  "estimated.key": {
+    "purpose": "Hover text of a key that is the app's own estimate, shown muted until rekordbox has one. (PROPOSED, 3C-E1c)",
+    "where": "Track table, Key column, on an estimated value (also read by screen readers)."
   }
 }

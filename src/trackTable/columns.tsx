@@ -75,6 +75,12 @@ export interface ColumnDef {
   numeric?: boolean;
   /** The plain text the cell shows (the cell's hover text when it is cut off). */
   text: (row: TableRow, ctx: CellContext) => string;
+  /**
+   * The cell shows the app's own estimate (ROADMAP 3.7) when `when` holds: the
+   * table draws it muted, with `hint` (a key of the `estimate` namespace)
+   * as its hover text and for screen readers.
+   */
+  estimate?: { when: (row: TableRow) => boolean; hint: "estimated.bpm" | "estimated.key" };
   /** The cell, when it is more than its text. */
   cell?: (row: TableRow, ctx: CellContext) => ReactNode;
 }
@@ -224,6 +230,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     min: 44,
     numeric: true,
     text: (row) => formatBpm(row.bpm),
+    estimate: { when: (row) => row.bpmEstimated, hint: "estimated.bpm" },
   },
   key: {
     id: "key",
@@ -232,6 +239,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnDef>> = {
     min: 40,
     numeric: true,
     text: (row, ctx) => formatKey(row.key, ctx.keyNotation) ?? "",
+    estimate: { when: (row) => row.keyEstimated, hint: "estimated.key" },
   },
   time: {
     id: "time",

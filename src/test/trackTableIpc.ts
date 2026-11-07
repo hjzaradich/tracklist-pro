@@ -9,6 +9,8 @@ export function tableRow(id: number, fields: Partial<TableRow> = {}): TableRow {
     artist: `Made Up Artist ${id}`,
     bpm: null,
     key: null,
+    bpmEstimated: false,
+    keyEstimated: false,
     timeMs: null,
     genre: null,
     rating: null,

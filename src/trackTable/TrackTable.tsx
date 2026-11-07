@@ -759,6 +759,7 @@ export function TrackTable({
           start={energyOpen.ids.length === 1 ? energyOpen.row.energy : null}
           onPick={(energy) => onSetEnergy(energyOpen.ids, energy)}
           onClear={onClearEnergy && canClearOpen ? () => onClearEnergy(energyOpen.ids) : undefined}
+          suggestFor={energyOpen.ids.length === 1 ? energyOpen.row.recordingId : undefined}
           onClose={closeEnergy}
         />
       )}
@@ -778,20 +779,25 @@ function Cell({
   context: CellContext;
   index: number;
 }) {
+  const { t: tEstimate } = useTranslation("estimate");
   const classes = [styles.cell, def.numeric ? styles.numeric : "", def.cell ? styles.rich : ""];
   if (row === undefined) {
     return <div role="gridcell" className={classes.join(" ")} />;
   }
   // The # column is the row's place in the list; no other cell needs it.
   const text = def.text(row, def.id === "position" ? { ...context, index } : context);
+  // An estimate of the app's own is muted and says so (hover and screen readers).
+  const hint = text !== "" && def.estimate?.when(row) ? tEstimate(def.estimate.hint) : null;
+  if (hint !== null) classes.push(styles.estimate);
   return (
     <div
       role="gridcell"
       className={classes.join(" ")}
       // A cell cut off with "…" carries the text it shows.
-      title={def.cell ? undefined : text || undefined}
+      title={hint !== null ? `${text}. ${hint}` : def.cell ? undefined : text || undefined}
     >
       {def.cell ? def.cell(row, context) : text}
+      {hint !== null && <span className={styles.hidden}>{`. ${hint}`}</span>}
     </div>
   );
 }
