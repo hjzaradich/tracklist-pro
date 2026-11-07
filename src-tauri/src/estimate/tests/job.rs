@@ -82,11 +82,11 @@ fn track_of(library: &Library, file: i64) -> i64 {
         .unwrap()
 }
 
-/// The track's `'local'` row: its id, BPM, key and energy.
-fn local_row(
-    library: &Library,
-    track: i64,
-) -> Option<(i64, Option<f64>, Option<String>, Option<i64>)> {
+/// A `'local'` analysis row: its id, BPM, key and energy.
+type LocalRow = (i64, Option<f64>, Option<String>, Option<i64>);
+
+/// The track's `'local'` row.
+fn local_row(library: &Library, track: i64) -> Option<LocalRow> {
     use rusqlite::OptionalExtension;
     library
         .writer

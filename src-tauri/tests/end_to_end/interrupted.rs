@@ -63,10 +63,11 @@ fn a_job_nothing_can_restart_ends_failed_a_send_job_is_dropped_and_neither_block
     let mut world = scanned_then_a_file_added();
     let before = world.jobs().len();
 
+    // `embed` (the audio model, 3.8) has no handler yet; `analyze` has one now.
     world.kill_and_start_again(|c| {
         c.execute_batch(
             r#"INSERT INTO job (kind, status, started_at, attempts) VALUES
-                 ('analyze', 'running', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1),
+                 ('embed', 'running', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1),
                  ('made_up', 'running', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1);
                INSERT INTO job (kind, target, status, started_at, attempts) VALUES
                  ('export', '{"send":"write","run":"the dead run","token":"t","confirmed":false}',
@@ -84,7 +85,7 @@ fn a_job_nothing_can_restart_ends_failed_a_send_job_is_dropped_and_neither_block
     assert_eq!(
         ended,
         [
-            ("analyze", "failed"),
+            ("embed", "failed"),
             ("made_up", "failed"),
             // A send only ever follows a click in this run.
             ("export", "cancelled"),
