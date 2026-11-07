@@ -458,6 +458,40 @@ fn a_merge_moves_crates_files_and_the_left_entry_and_undo_puts_every_row_back() 
 }
 
 #[test]
+fn a_merge_moves_playlist_entries_to_the_staying_track_in_their_places_and_undo_puts_them_back() {
+    let t = Twice::new();
+    let (keep, leave) = (t.ta, t.tb);
+    let (lt_keep, lt_leave) = (t.lt(keep), t.lt(leave));
+    // A playlist holding both, the leaving one twice (3.5 allows repeats).
+    t.db.sql(&format!(
+        "INSERT INTO playlist (name, name_key) VALUES ('Arc', 'arc');
+         INSERT INTO playlist_entry (playlist_id, library_track_id, position)
+             VALUES (1, {lt_leave}, 0), (1, {lt_keep}, 1), (1, {lt_leave}, 2);"
+    ));
+    let entries = || {
+        t.db.writer
+            .call(|c| {
+                c.prepare("SELECT id, library_track_id, position FROM playlist_entry ORDER BY id")?
+                    .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                    .collect::<rusqlite::Result<Vec<(i64, i64, i64)>>>()
+            })
+            .unwrap()
+    };
+    let before = entries();
+
+    t.merge(&t.both(), keep).unwrap();
+    // Every place stays, each now the kept track's: a merge removes no entry.
+    let merged: Vec<(i64, i64, i64)> = before.iter().map(|&(e, _, p)| (e, lt_keep, p)).collect();
+    assert_eq!(entries(), merged);
+
+    match t.undo() {
+        UndoOutcome::Undone { operation } => assert_eq!(operation.kind, MERGE_OPERATION),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(entries(), before);
+}
+
+#[test]
 fn either_track_can_stay_and_the_one_that_leaves_never_gives_the_kept_one_its_analysis() {
     // The track that leaves has more plays and its file is the best one;
     // the kept track's BPM still comes from its own entry.

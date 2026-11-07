@@ -2422,3 +2422,28 @@ fn the_frontend_gets_every_number_over_ipc() {
     assert_eq!(o["outsideLibrary"], 0);
     assert!(o["counting"]["files"].is_boolean());
 }
+
+#[test]
+fn a_track_in_a_playlist_counts_as_in_a_crate_or_playlist_once_however_often_it_is_listed() {
+    let lib = Lib::new();
+    let (_, a) = lib.library_track("Alpha", None, None);
+    let (_, b) = lib.library_track("Beta", None, None);
+    lib.library_track("Gamma", None, None);
+    let crate_id = lib.crate_with("Warmup", "static");
+    lib.put_in_crate(crate_id, a, "member");
+    let playlist = lib.exec(
+        "INSERT INTO playlist (name, name_key) VALUES ('Set', 'set')",
+        (),
+    );
+    // Alpha is in both a crate and a playlist, twice in the playlist; Beta
+    // only in the playlist.
+    for (track, position) in [(a, 0), (b, 1), (a, 2)] {
+        lib.exec(
+            "INSERT INTO playlist_entry (playlist_id, library_track_id, position)
+             VALUES (?1, ?2, ?3)",
+            (playlist, track, position),
+        );
+    }
+    let o = lib.overview();
+    assert_eq!((o.tracks, o.in_crates, o.in_no_crate), (3, 2, 1));
+}

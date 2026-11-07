@@ -549,16 +549,18 @@ fn a_removal_made_before_base_ids_stopped_being_reused_is_still_undone_after_the
     assert_eq!(before.len(), 2);
     // The user removes the track: its bases, the highest ids, are deleted.
     // Today's removal also deletes the app's own values (0035) and the sent
-    // playlist entries (0036), tables this old schema hasn't got: empty
-    // stand-ins, gone before the upgrade, leave the old removal's rows as
-    // they were.
+    // playlist entries (0036) and its playlist entries (0052), tables this
+    // old schema hasn't got: empty stand-ins, gone before the upgrade, leave
+    // the old removal's rows as they were.
     conn.execute_batch(
         "CREATE TABLE app_value (id INTEGER PRIMARY KEY, library_track_id INTEGER) STRICT;
-         CREATE TABLE sent_entry (id INTEGER PRIMARY KEY, library_track_id INTEGER) STRICT;",
+         CREATE TABLE sent_entry (id INTEGER PRIMARY KEY, library_track_id INTEGER) STRICT;
+         CREATE TABLE playlist_entry (id INTEGER PRIMARY KEY, playlist_id INTEGER,
+                                      library_track_id INTEGER, position INTEGER) STRICT;",
     )
     .unwrap();
     assert!(remove_on(&mut conn, LibraryTrackId(1)).unwrap());
-    conn.execute_batch("DROP TABLE app_value; DROP TABLE sent_entry")
+    conn.execute_batch("DROP TABLE app_value; DROP TABLE sent_entry; DROP TABLE playlist_entry")
         .unwrap();
 
     // The app is updated, and the next send makes bases for another track.

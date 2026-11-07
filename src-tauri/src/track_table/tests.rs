@@ -1217,3 +1217,93 @@ fn the_bpm_and_key_the_table_reads_are_the_ones_the_display_view_gives() {
         assert_eq!(direct, view, "{rows:?}");
     }
 }
+
+#[test]
+fn a_playlist_lists_its_entries_in_order_a_repeated_track_twice_each_with_its_entry() {
+    let f = fixture();
+    let lt = |recording: i64| -> i64 {
+        f.lib
+            .writer
+            .call(move |c| {
+                c.query_row(
+                    "SELECT id FROM library_track WHERE recording_id = ?1",
+                    [recording],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap()
+    };
+    f.lib.insert(
+        "INSERT INTO playlist (name, name_key) VALUES ('Set', 'set')",
+        (),
+    );
+    // Delta Drive, Caf\u{e9}, Delta Drive again, alpha wave; entry ids not in
+    // the order of the places.
+    for (entry, recording, position) in [
+        (10, f.recs[0], 0),
+        (7, f.recs[3], 1),
+        (9, f.recs[0], 2),
+        (8, f.recs[1], 3),
+    ] {
+        f.lib.insert(
+            "INSERT INTO playlist_entry (id, playlist_id, library_track_id, position)
+             VALUES (?1, 1, ?2, ?3)",
+            (entry, lt(recording), position),
+        );
+    }
+    let source = TableSource::Playlist { id: PlaylistId(1) };
+    let page = run(&f.lib, query(source.clone()));
+    assert_eq!(
+        titles(&page),
+        ["Delta Drive", "Caf\u{e9}", "Delta Drive", "alpha wave"]
+    );
+    assert_eq!(page.total, Some(4));
+    let entries: Vec<_> = page.rows.iter().map(|r| r.entry_id).collect();
+    assert_eq!(entries, [10, 7, 9, 8].map(|n| Some(PlaylistEntryId(n))));
+    // The repeat is a whole row: it shows what the first one shows.
+    assert_eq!(page.rows[2].bpm, page.rows[0].bpm);
+    assert_eq!(page.rows[2].key, page.rows[0].key);
+    assert_eq!(page.rows[2].added_at, page.rows[0].added_at);
+    assert!(page.rows[2].bpm.is_some());
+    // A sort orders by the column and keeps the playlist's order for ties.
+    let by_title = run(&f.lib, sorted(source.clone(), SortColumn::Title, false));
+    assert_eq!(
+        titles(&by_title),
+        ["alpha wave", "Caf\u{e9}", "Delta Drive", "Delta Drive"]
+    );
+    let sorted_entries: Vec<_> = by_title.rows.iter().map(|r| r.entry_id).collect();
+    assert_eq!(
+        sorted_entries,
+        [8, 7, 10, 9].map(|n| Some(PlaylistEntryId(n)))
+    );
+    // A crate's rows have no entry; a playlist that isn't there is no page.
+    let library = run(&f.lib, query(TableSource::Library));
+    assert!(library.rows.iter().all(|r| r.entry_id.is_none()));
+    assert!(run_as_is(&f.lib, query(TableSource::Playlist { id: PlaylistId(99) })).is_none());
+}
+
+#[test]
+fn a_track_in_a_playlist_is_in_a_crate_for_the_filters_and_follows_the_playlist() {
+    let f = fixture();
+    let [r1, r2, _, r4, ..] = f.recs;
+    f.lib.insert(
+        "INSERT INTO playlist (name, name_key) VALUES ('Set', 'set')",
+        (),
+    );
+    f.lib.insert(
+        "INSERT INTO playlist_entry (playlist_id, library_track_id, position)
+         SELECT 1, id, 0 FROM library_track WHERE recording_id = ?1",
+        (r1,),
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::InCrate]),
+        [r1]
+    );
+    assert_eq!(
+        filter_ids(&f, TableSource::Library, vec![TableFilter::InNoCrate]),
+        [r2, r4]
+    );
+    // Taking it out of the playlist takes it out again.
+    f.lib.insert("DELETE FROM playlist_entry", ());
+    assert!(filter_ids(&f, TableSource::Library, vec![TableFilter::InCrate]).is_empty());
+}

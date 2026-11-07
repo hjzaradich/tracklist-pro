@@ -206,6 +206,18 @@ error_kinds! {
     GenreAliasTaken => "genre:error.aliasTaken", params: ["name"];
     /// A genre name or alias is longer than 200 characters.
     GenreTextTooLong => "genre:error.textTooLong", params: [];
+    /// There is no playlist with that id (it was deleted meanwhile).
+    PlaylistNotFound => "playlists:error.notFound", params: [];
+    /// The entry to move tracks before is no longer in the playlist.
+    PlaylistEntryNotFound => "playlists:error.entryNotFound", params: [];
+    /// A playlist name is empty once trimmed.
+    PlaylistNameEmpty => "playlists:error.nameEmpty", params: [];
+    /// Another playlist (or the Tags folder) has the name; `name` is that one's.
+    PlaylistNameTaken => "playlists:error.nameTaken", params: ["name"];
+    /// The playlist name has a character that can't be sent to rekordbox.
+    PlaylistNameUnsendable => "playlists:error.nameUnsendable", params: [];
+    /// The newest rekordbox read has no playlist with entries at that path.
+    RekordboxPlaylistNotFound => "playlists:error.rekordboxPlaylistNotFound", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

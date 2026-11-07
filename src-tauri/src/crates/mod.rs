@@ -571,7 +571,7 @@ fn make_on(
 /// The writes of [`make_on`], inside the operation `rec` is recording. Every
 /// refusal comes before the first write. `rules` is a smart crate's rule
 /// as JSON, and only a smart crate's.
-fn make_in(
+pub(crate) fn make_in(
     rec: &mut ops::Recorder<'_>,
     kind: CrateKind,
     parent: Option<CrateId>,

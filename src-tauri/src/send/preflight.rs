@@ -186,8 +186,9 @@ pub fn describe(
     let mut crates = tree::crate_tree(conn)?;
     tree::as_merged(&mut crates, &merged.membership);
     let membership = merged.membership.clone();
-    // The playlists are the tags' (3A-T); the folder is written either way (rule 6).
-    let playlists = tree::tag_playlists(conn)?;
+    // The app's playlists (3.5) and the tags' (3A-T); the folder is written
+    // either way (rule 6).
+    let playlists = tree::playlist_tree(conn)?;
     let input = rekordbox_write::gather_merged(conn, merged, crates.clone(), playlists.clone())?;
     let gone = Gone::of(&input);
     let mut built = rekordbox_write::build(&input);

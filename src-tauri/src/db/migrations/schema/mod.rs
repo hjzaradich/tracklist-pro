@@ -315,6 +315,11 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0050_vocab.sql", &["tag", "tag_applied", "tag_group"]),
     // Play history: sessions and their plays (3B-H1).
     ("0051_play_history.sql", &["play_event", "session"]),
+    // Playlists and their entries, and rekordbox's playlists in order as of the last read (3C-P1a).
+    (
+        "0052_playlist.sql",
+        &["playlist", "playlist_entry", "rekordbox_playlist_entry"],
+    ),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
@@ -365,7 +370,8 @@ fn the_phase_1_schema_has_only_the_phase_1_tables() {
     // ROADMAP §2 "When tables arrive": Phase 2 and 3 tables come with the
     // phase that first needs them.
     let (_dir, conn) = db();
-    let later = ["playlist", "playlist_entry", "play_source", "embedding"];
+    // Playlists arrived with 3.5 (migration 0052).
+    let later = ["play_source", "embedding"];
     let present = tables(&conn);
     for table in later {
         assert!(!present.iter().any(|t| t == table), "{table} arrived early");

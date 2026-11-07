@@ -1537,6 +1537,17 @@ fn undo_set(
         ));
         if is_crate_name(change) {
             found.name_taken = change.before.clone();
+        } else if change.entity == "playlist" && change.field == "name_key" {
+            // The rename's name_key is what the unique index refuses; the
+            // name to report is the one the playlist holding that key shows.
+            found.name_taken = change.before.as_ref().map(|key| {
+                tx.query_row(
+                    "SELECT name FROM playlist WHERE name_key = ?1",
+                    [key],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|_| key.clone())
+            });
         }
     }
     Ok(())

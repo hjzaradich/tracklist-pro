@@ -19,6 +19,7 @@ use crate::fragile::FragileDirs;
 use crate::genre;
 use crate::library::{self, LibraryTrackId};
 use crate::paths::Volumes;
+use crate::playlists::{self, PlaylistEntryId, PlaylistId};
 use crate::rekordbox_write::{build, gather, record_send, Outgoing};
 use crate::send::crate_tree;
 use crate::start;
@@ -49,7 +50,7 @@ pub(crate) fn peak_working_set_mib() -> u64 {
 }
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 24] = [
+pub(super) const LOGGED_TABLES: [&str; 26] = [
     "library_track",
     "library_removal",
     "crate",
@@ -74,6 +75,8 @@ pub(super) const LOGGED_TABLES: [&str; 24] = [
     "tag_applied",
     "session",
     "play_event",
+    "playlist",
+    "playlist_entry",
 ];
 
 /// The tables an action changes through the log only by setting fields of
@@ -173,6 +176,17 @@ pub(super) enum Action {
     AlwaysInclude(usize, Vec<usize>),
     /// Tracks on the n-th smart crate's never-include list.
     NeverInclude(usize, Vec<usize>),
+    /// A playlist (3.5) named from [`NAMES`].
+    CreatePlaylist(usize),
+    /// Tracks added to the n-th playlist, from the m-th place (past the
+    /// end: last).
+    AddToPlaylist(usize, Vec<usize>, usize),
+    /// Entries of the n-th playlist (picked by place) moved before the m-th
+    /// (past the end: to the end).
+    MoveInPlaylist(usize, Vec<usize>, usize),
+    /// Entries of the n-th playlist (picked by place) removed.
+    RemoveFromPlaylist(usize, Vec<usize>),
+    DeletePlaylist(usize),
 }
 
 /// A few smart crate rules, each made of fixed values.
@@ -332,6 +346,23 @@ impl Lib {
 
     pub fn crate_ids(&self) -> Vec<i64> {
         self.ids("SELECT id FROM crate ORDER BY id")
+    }
+
+    pub fn playlist_ids(&self) -> Vec<i64> {
+        self.ids("SELECT id FROM playlist ORDER BY id")
+    }
+
+    /// A playlist's entries, in order.
+    fn playlist_entries(&self, playlist: i64) -> Vec<i64> {
+        self.writer
+            .call(move |c| {
+                c.prepare(
+                    "SELECT id FROM playlist_entry WHERE playlist_id = ?1 ORDER BY position, id",
+                )?
+                .query_map([playlist], |r| r.get(0))?
+                .collect()
+            })
+            .unwrap()
     }
 
     pub fn genre_ids(&self) -> Vec<i64> {
@@ -643,6 +674,66 @@ impl Lib {
                         .unwrap();
                 }
             }
+            Action::CreatePlaylist(name) => {
+                let name = NAMES[name % NAMES.len()];
+                // A taken name is refused, which is fine here.
+                let _ = self
+                    .writer
+                    .call(move |c| Ok(playlists::create_on(c, name)))
+                    .unwrap()
+                    .unwrap();
+            }
+            Action::AddToPlaylist(n, tracks, at) => {
+                if let Some(id) = pick(&self.playlist_ids(), *n) {
+                    let tracks = pick_tracks(&self.library_tracks(), tracks);
+                    let at = Some(*at as u32);
+                    self.writer
+                        .call(move |c| Ok(playlists::add_on(c, PlaylistId(id), &tracks, at)))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::MoveInPlaylist(n, entries, before) => {
+                if let Some(id) = pick(&self.playlist_ids(), *n) {
+                    let all = self.playlist_entries(id);
+                    let moved: Vec<PlaylistEntryId> = entries
+                        .iter()
+                        .filter_map(|&e| pick(&all, e))
+                        .map(PlaylistEntryId)
+                        .collect();
+                    let before = all.get(*before).copied().map(PlaylistEntryId);
+                    self.writer
+                        .call(move |c| Ok(playlists::move_on(c, PlaylistId(id), &moved, before)))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::RemoveFromPlaylist(n, entries) => {
+                if let Some(id) = pick(&self.playlist_ids(), *n) {
+                    let all = self.playlist_entries(id);
+                    let gone: Vec<PlaylistEntryId> = entries
+                        .iter()
+                        .filter_map(|&e| pick(&all, e))
+                        .map(PlaylistEntryId)
+                        .collect();
+                    self.writer
+                        .call(move |c| Ok(playlists::remove_on(c, PlaylistId(id), &gone)))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            Action::DeletePlaylist(n) => {
+                if let Some(id) = pick(&self.playlist_ids(), *n) {
+                    self.writer
+                        .call(move |c| Ok(playlists::delete_on(c, PlaylistId(id))))
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                }
+            }
         }
         self.operations() - before
     }
@@ -880,6 +971,12 @@ pub(super) fn action() -> impl Strategy<Value = Action> {
         1 => (0..4usize, 0..3usize).prop_map(|(n, r)| Action::SetSmartRule(n, r)),
         2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::AlwaysInclude(n, t)),
         2 => (0..4usize, tracks()).prop_map(|(n, t)| Action::NeverInclude(n, t)),
+        2 => (0..NAMES.len()).prop_map(Action::CreatePlaylist),
+        3 => (0..4usize, tracks(), 0..6usize).prop_map(|(n, t, at)| Action::AddToPlaylist(n, t, at)),
+        3 => (0..4usize, tracks(), 0..6usize)
+            .prop_map(|(n, e, before)| Action::MoveInPlaylist(n, e, before)),
+        2 => (0..4usize, tracks()).prop_map(|(n, e)| Action::RemoveFromPlaylist(n, e)),
+        1 => (0..4usize).prop_map(Action::DeletePlaylist),
     ]
 }
 
@@ -1802,7 +1899,8 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // changes made in rekordbox into crates), `wishlist` and `wish_item`
     // since 0048 (every write goes through the log; AUTOINCREMENT because
     // the 2.5 tick-off may write outside it), `session` and `play_event`
-    // since 0051 (every write goes through the log).
+    // since 0051 (every write goes through the log), `playlist` and
+    // `playlist_entry` since 0052 (every write goes through the log).
     assert_eq!(
         never_reused,
         [
@@ -1816,7 +1914,9 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
             "wishlist",
             "wish_item",
             "session",
-            "play_event"
+            "play_event",
+            "playlist",
+            "playlist_entry"
         ]
     );
 
