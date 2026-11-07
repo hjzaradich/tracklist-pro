@@ -37,3 +37,6 @@ spikes/rb-kit/*.xml
 archive/
 spikes/results-private/
 private/
+
+# Written by the installer build (scripts/third-party-licenses.mjs)
+public/third-party-licenses.json
