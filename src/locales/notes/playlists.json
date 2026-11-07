@@ -215,14 +215,6 @@
     "purpose": "Line over a track table after tracks were added to a playlist (drop on the sidebar, or the add dialog). Mirrors crates:addSelection.added. (PROPOSED, 3C-P1b)",
     "where": "Over any track table."
   },
-  "addSelection.notInLibrary_one": {
-    "purpose": "Note that some of the tracks were left out because they are not in the Library; playlists hold Library tracks. (PROPOSED, 3C-P1b)",
-    "where": "Over any track table, after an add to a playlist."
-  },
-  "addSelection.notInLibrary_other": {
-    "purpose": "Note that some of the tracks were left out because they are not in the Library; playlists hold Library tracks. (PROPOSED, 3C-P1b)",
-    "where": "Over any track table, after an add to a playlist."
-  },
   "error.notFound": {
     "purpose": "Error: the playlist acted on was deleted meanwhile. Mirrors crates:error.notFound. (PROPOSED, 3C-P1a)",
     "where": "Wherever a playlist is acted on."

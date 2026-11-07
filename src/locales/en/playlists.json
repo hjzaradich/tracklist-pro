@@ -71,9 +71,7 @@
   "addSelection": {
     "added_zero": "Nothing added to {{playlist}}",
     "added_one": "Added {{count, number}} track to {{playlist}}",
-    "added_other": "Added {{count, number}} tracks to {{playlist}}",
-    "notInLibrary_one": "({{count, number}} left out: not in your Library)",
-    "notInLibrary_other": "({{count, number}} left out: not in your Library)"
+    "added_other": "Added {{count, number}} tracks to {{playlist}}"
   },
   "error": {
     "notFound": "Playlist not found",

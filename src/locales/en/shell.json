@@ -41,6 +41,8 @@
       "deletePlaylist": "Undo (playlist “{{name}}” deleted)",
       "addToPlaylist_one": "Undo ({{count}} track added to playlist “{{name}}”)",
       "addToPlaylist_other": "Undo ({{count}} tracks added to playlist “{{name}}”)",
+      "addToPlaylistLibrary_one": "Undo ({{count, number}} track added to playlist “{{name}}”, {{library, number}} new to your Library)",
+      "addToPlaylistLibrary_other": "Undo ({{count, number}} tracks added to playlist “{{name}}”, {{library, number}} new to your Library)",
       "removeFromPlaylist_one": "Undo ({{count}} track removed from playlist “{{name}}”)",
       "removeFromPlaylist_other": "Undo ({{count}} tracks removed from playlist “{{name}}”)",
       "moveInPlaylist_one": "Undo ({{count}} track moved in playlist “{{name}}”)",

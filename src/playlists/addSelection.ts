@@ -16,8 +16,9 @@ export function useAddSelectionToPlaylist() {
       useAddReport.getState().show({
         kind: "addedPlaylist",
         playlist: playlist.name,
-        added: done.changed,
-        notInLibrary: done.skipped,
+        added: done.added,
+        alsoAddedToLibrary: done.alsoAddedToLibrary,
+        leftOut: done.leftOut,
       });
       return true;
     } catch (error) {

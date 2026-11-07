@@ -744,10 +744,12 @@ fn undoing_a_rename_whose_old_name_was_taken_since_says_the_name_is_taken() {
 }
 
 #[test]
-fn adding_recordings_adds_their_library_tracks_once_each_and_counts_the_rest() {
+fn adding_recordings_works_as_adding_to_a_crate_a_track_outside_the_library_joins_it_in_one_operation(
+) {
     let lib = Lib::new();
-    let t = lib.tracks(&["a", "b"]);
+    let t = lib.tracks(&["a"]);
     let (outside_file, _) = lib.track("c", false);
+    let no_file = lib.run("INSERT INTO recording (title) VALUES ('d')", ());
     let arc = lib.create("Arc");
     let recording_of = |track: LibraryTrackId| -> i64 {
         lib.call(move |c| {
@@ -765,22 +767,46 @@ fn adding_recordings_adds_their_library_tracks_once_each_and_counts_the_rest() {
             |r| r.get(0),
         )?)
     });
-    let (first, second) = (recording_of(t[0]), recording_of(t[1]));
-    let asked = vec![second, first, second, outside];
+    let first = recording_of(t[0]);
+    let library_before = lib.rows("SELECT id FROM library_track").len();
+    let before = lib.state();
+
+    // A track that doesn't exist refuses the whole call, as in a crate.
+    let refused = lib.call(move |c| add_recordings_on(c, arc, &[first, 99_999], None));
+    assert!(matches!(refused, Err(PlaylistsError::TrackNotFound)));
+    assert_eq!(lib.state(), before);
+
+    // The outside track joins the Library; the one with no file is left out;
+    // one listed twice counts once.
+    let asked = vec![outside, first, outside, no_file];
     let added = lib
         .call(move |c| add_recordings_on(c, arc, &asked, None))
         .unwrap();
-    assert_eq!((added.changed, added.skipped), (2, 1));
-    assert_eq!(lib.tracks_of(arc), [t[1], t[0]]);
-    assert_eq!(lib.undo(), ADD_OPERATION);
-    assert!(lib.tracks_of(arc).is_empty());
+    assert_eq!((added.added, added.also_added_to_library), (2, 1));
+    assert_eq!(added.left_out.no_file, 1);
+    assert!(added.operation_id.is_some());
+    let order = lib.tracks_of(arc);
+    assert_eq!(order.len(), 2);
+    assert_eq!(order[1], t[0]);
+    assert_eq!(
+        lib.rows("SELECT id FROM library_track").len(),
+        library_before + 1
+    );
 
-    // Nothing in the Library: nothing recorded.
+    // One Undo takes the entries and the Library track away.
+    assert_eq!(lib.undo(), ADD_OPERATION);
+    assert_eq!(lib.state(), before);
+    assert_eq!(
+        lib.rows("SELECT id FROM library_track").len(),
+        library_before
+    );
+
+    // Nothing to add: nothing recorded.
     let none = lib
-        .call(move |c| add_recordings_on(c, arc, &[outside], None))
+        .call(move |c| add_recordings_on(c, arc, &[no_file], None))
         .unwrap();
     assert_eq!(
-        (none.changed, none.skipped, none.operation_id),
+        (none.added, none.left_out.no_file, none.operation_id),
         (0, 1, None)
     );
 }

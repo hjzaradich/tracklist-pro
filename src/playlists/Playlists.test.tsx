@@ -191,6 +191,53 @@ describe("the Playlists screen", () => {
     expect(backend.called("move_in_playlist")).toHaveLength(0);
   });
 
+  it("while a filter is on, rows cannot be dragged to another place", async () => {
+    const backend = await openPlaylist();
+    await userEvent.click(screen.getByRole("button", { name: tx("trackTable:filters.add") }));
+    await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:filters.missing") }));
+    await screen.findByRole("list", { name: tx("trackTable:filters.label") });
+    dragRowTo(0, 3 * ROW, false);
+    expect(screen.queryByTestId("insert-line")).toBeNull();
+    fireEvent.pointerUp(document.body, { clientX: 320, clientY: 3 * ROW, pointerId: 1 });
+    expect(backend.called("move_in_playlist")).toHaveLength(0);
+  });
+
+  it("dragging several selected rows moves every one of them, by entry id, in the order shown", async () => {
+    const distinct: FakePlaylist = {
+      ...ARC,
+      entries: [
+        [1, 100],
+        [2, 101],
+        [3, 102],
+        [4, 103],
+      ],
+    };
+    const backend = await openPlaylist({ playlists: [distinct, WARMUP] });
+    fireEvent.click(rowAt(0));
+    fireEvent.click(rowAt(2), { ctrlKey: true });
+    // Between the third and fourth rows.
+    dragRowTo(0, ROW + 3 * ROW);
+    await waitFor(() => expect(backend.called("move_in_playlist")).toHaveLength(1));
+    expect(backend.called("move_in_playlist")[0]?.args).toMatchObject({ id: 1, entries: [1, 3], before: 4 });
+    await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 1", "Tune 0", "Tune 2", "Tune 3"]));
+  });
+
+  it("a selection that reaches rows not loaded is never partly moved: the drag shows no line and moves nothing", async () => {
+    const long: FakePlaylist = {
+      ...ARC,
+      entries: Array.from({ length: 450 }, (_, n): [number, number] => [n + 1, 100 + n]),
+    };
+    const backend = await openPlaylist({ rows: libraryRows(450), playlists: [long, WARMUP] });
+    fireEvent.click(rowAt(0));
+    await userEvent.keyboard("{Control>}a{/Control}");
+    await waitFor(() => expect(backend.called("track_table_ids").length).toBeGreaterThan(0));
+    await waitFor(() => expect(rowAt(0)).toHaveAttribute("aria-selected", "true"));
+    dragRowTo(0, 3 * ROW, false);
+    expect(screen.queryByTestId("insert-line")).toBeNull();
+    fireEvent.pointerUp(document.body, { clientX: 320, clientY: 3 * ROW, pointerId: 1 });
+    expect(backend.called("move_in_playlist")).toHaveLength(0);
+  });
+
   it("a drag that ends outside the table moves nothing", async () => {
     const backend = await openPlaylist();
     dragRowTo(0, 900);
@@ -244,20 +291,46 @@ describe("the Playlists screen", () => {
     expect(await screen.findByText(tx("playlists:addSelection.added", { count: 1, playlist: "Warmup" }))).toBeInTheDocument();
   });
 
-  it("tracks outside the Library are left out of an add, and the line says how many", async () => {
-    const rowsWithStray = [...TUNES, { ...libraryRows(6)[5]!, libraryTrackId: null, inLibrary: false }];
-    const backend = playlistBackend({ rows: rowsWithStray, playlists: [WARMUP] });
+  it("a track outside the Library joins it with the add, as for a crate, and one undo takes both back", async () => {
+    const stray = { ...libraryRows(6)[5]!, libraryTrackId: null, inLibrary: false };
+    const backend = playlistBackend({ rows: [...TUNES, stray], playlists: [WARMUP] });
     renderApp("/all-music");
     await screen.findByRole("grid");
     await waitFor(() => expect(rows().length).toBeGreaterThan(2));
     fireEvent.click(rowAt(5));
     await userEvent.keyboard("c");
     await userEvent.click(await screen.findByRole("option", { name: new RegExp("Warmup$") }));
-    const note = tx("playlists:addSelection.notInLibrary", { count: 1 });
+    await waitFor(() => expect(backend.state.playlists[0]?.entries).toHaveLength(1));
+    const line = await screen.findByText(tx("playlists:addSelection.added", { count: 1, playlist: "Warmup" }), { exact: false });
+    expect(line.textContent).toContain(tx("crates:addSelection.alsoInLibrary", { count: 1 }));
+    expect(stray.libraryTrackId).not.toBeNull();
+    const undo = await screen.findByRole("button", {
+      name: tx("shell:undo.action.addToPlaylistLibrary", { count: 1, name: "Warmup", library: 1 }),
+    });
+    await userEvent.click(undo);
+    await waitFor(() => expect(backend.state.playlists[0]?.entries).toHaveLength(0));
+    expect(stray.libraryTrackId).toBeNull();
+  });
+
+  it("a track the Library add refuses is left out of a playlist add, with the reason", async () => {
+    const stray = { ...libraryRows(6)[5]!, libraryTrackId: null, inLibrary: false };
+    const backend = playlistBackend({
+      rows: [...TUNES, stray],
+      playlists: [WARMUP],
+      refused: { [stray.recordingId]: "fileMissing" },
+    });
+    renderApp("/all-music");
+    await screen.findByRole("grid");
+    await waitFor(() => expect(rows().length).toBeGreaterThan(2));
+    fireEvent.click(rowAt(5));
+    await userEvent.keyboard("c");
+    await userEvent.click(await screen.findByRole("option", { name: new RegExp("Warmup$") }));
+    const note = tx("crates:addSelection.leftOut.fileMissing", { count: 1 });
     await waitFor(() =>
       expect(screen.getAllByRole("status").some((line) => line.textContent?.includes(note))).toBe(true),
     );
     expect(backend.state.playlists[0]?.entries).toHaveLength(0);
+    expect(backend.state.history).toHaveLength(0);
   });
 });
 

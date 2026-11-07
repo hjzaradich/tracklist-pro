@@ -352,18 +352,10 @@ function AddReportLine({ report }: { report: AddReport }) {
     );
   }
   if (report.kind === "folder") return <span role="status">{t("addSelection.folder")}</span>;
-  if (report.kind === "addedPlaylist") {
-    return (
-      <span role="status">
-        {tp("addSelection.added", { count: report.added, playlist: report.playlist })}
-        {report.notInLibrary > 0 ? ` ${tp("addSelection.notInLibrary", { count: report.notInLibrary })}` : ""}
-      </span>
-    );
-  }
   const { leftOut } = report;
   const notes = [
     report.alsoAddedToLibrary > 0 ? t("addSelection.alsoInLibrary", { count: report.alsoAddedToLibrary }) : null,
-    report.alreadyThere > 0 ? t("addSelection.alreadyThere", { count: report.alreadyThere }) : null,
+    report.kind === "added" && report.alreadyThere > 0 ? t("addSelection.alreadyThere", { count: report.alreadyThere }) : null,
     leftOut.noFile > 0 ? t("addSelection.leftOut.noFile", { count: leftOut.noFile }) : null,
     leftOut.fileMissing > 0 ? t("addSelection.leftOut.fileMissing", { count: leftOut.fileMissing }) : null,
     leftOut.matchNotConfirmed > 0
@@ -372,7 +364,9 @@ function AddReportLine({ report }: { report: AddReport }) {
     leftOut.lowBitrate > 0 ? t("addSelection.leftOut.lowBitrate", { count: leftOut.lowBitrate }) : null,
   ].filter((note) => note !== null);
   const done =
-    report.newCrate === true && report.added === 0
+    report.kind === "addedPlaylist"
+      ? tp("addSelection.added", { count: report.added, playlist: report.playlist })
+      : report.newCrate === true && report.added === 0
       ? t("addSelection.newCrateEmpty", { crate: report.crate })
       : t("addSelection.added", { count: report.added, crate: report.crate });
   return (

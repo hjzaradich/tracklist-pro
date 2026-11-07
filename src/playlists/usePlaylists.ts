@@ -2,11 +2,13 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tansta
 import { unwrap } from "../api/errors";
 import {
   commands,
+  type AddedToPlaylist,
   type CopiedFromRekordbox,
   type Playlist,
   type PlaylistChanged,
   type RekordboxPlaylist,
 } from "../bindings";
+import { reloadLists } from "../app/lists";
 import { invalidateCrates } from "../crates/useCrates";
 import type { RowsQuery } from "../trackTable/useTrackRows";
 
@@ -52,13 +54,16 @@ export function useDeletePlaylist() {
 
 /**
  * Adds tracks (`TableRow.recordingId`) to the end of a playlist, one
- * operation. The ones that aren't Library tracks come back in `skipped`.
+ * operation, as an add to a crate does: a track outside the Library joins it
+ * too, and the ones "Add to Library" refuses come back as left out.
  */
 export function useAddRecordingsToPlaylist() {
   const queryClient = useQueryClient();
-  return useMutation<PlaylistChanged, Error, { id: number; recordings: readonly number[] }>({
+  return useMutation<AddedToPlaylist, Error, { id: number; recordings: readonly number[] }>({
     mutationFn: ({ id, recordings }) => unwrap(commands.addRecordingsToPlaylist(id, [...recordings], null)),
-    onSettled: () => invalidatePlaylists(queryClient),
+    // It can put tracks in the Library as well: every list of them, the offer and the overview show it.
+    onSettled: () =>
+      Promise.all([invalidatePlaylists(queryClient), reloadLists(queryClient, "library", "offer", "overview")]),
   });
 }
 

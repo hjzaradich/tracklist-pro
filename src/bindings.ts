@@ -672,9 +672,9 @@ export const commands = {
 	addTracksToPlaylist: (id: PlaylistId, tracks: LibraryTrackId[], at: number | null) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("add_tracks_to_playlist", { id, tracks, at })),
 	/**
 	 *  Adds the Library tracks among `recordings` (a table's selection), last
-	 *  or from position `at`; `skipped` counts the ones outside the Library.
+	 *  or from position `at`; one outside the Library joins it, as in a crate.
 	 */
-	addRecordingsToPlaylist: (id: PlaylistId, recordings: number[], at: number | null) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("add_recordings_to_playlist", { id, recordings, at })),
+	addRecordingsToPlaylist: (id: PlaylistId, recordings: number[], at: number | null) => typedError<AddedToPlaylist, IpcError>(__TAURI_INVOKE("add_recordings_to_playlist", { id, recordings, at })),
 	/**  Removes entries. */
 	removeFromPlaylist: (id: PlaylistId, entries: PlaylistEntryId[]) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("remove_from_playlist", { id, entries })),
 	/**  Moves entries before entry `before`, or to the end. */
@@ -844,6 +844,21 @@ export type AddedToNewCrate = {
 	/**  The name as stored (trimmed). */
 	name: string,
 	added: AddedToCrate,
+};
+
+/**
+ *  What adding tracks to a playlist by their track id did (the same shape
+ *  as [`crate::crates::AddedToCrate`]: a table's rows are tracks).
+ */
+export type AddedToPlaylist = {
+	/**  Entries added, those for tracks that joined the Library included. */
+	added: number,
+	/**  How many of those weren't in the Library: they were added to it too. */
+	alsoAddedToLibrary: number,
+	/**  The tracks outside the Library that couldn't join it, so were left out. */
+	leftOut: LeftOutOfCrate,
+	/**  The operation this recorded; `None` when nothing was added. */
+	operationId: number | null,
 };
 
 /**  Both lists, for the screen. */

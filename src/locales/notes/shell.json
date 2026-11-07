@@ -668,5 +668,13 @@
   "undo.action.playlistFromRekordbox": {
     "purpose": "Undo button naming what it takes back: a playlist made from a rekordbox playlist. (PROPOSED, 3C-P1b)",
     "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.addToPlaylistLibrary_one": {
+    "purpose": "Undo button naming what it takes back: tracks added to a playlist, some of which also joined the Library. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
+  },
+  "undo.action.addToPlaylistLibrary_other": {
+    "purpose": "Undo button naming what it takes back: tracks added to a playlist, some of which also joined the Library. (PROPOSED, 3C-P1b)",
+    "where": "Top bar, Undo button, when the next step to undo is that action."
   }
 }

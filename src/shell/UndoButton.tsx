@@ -98,7 +98,13 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
       if (name !== null) return t("undo.action.deletePlaylist", { name });
       break;
     case "add_to_playlist":
-      if (name !== null && tracks !== null) return t("undo.action.addToPlaylist", { count: tracks, name });
+      if (name !== null && tracks !== null) {
+        // What it also did, as an add to a crate says it: put tracks in the Library.
+        const library = newToLibrary ?? 0;
+        return library > 0
+          ? t("undo.action.addToPlaylistLibrary", { count: tracks, name, library })
+          : t("undo.action.addToPlaylist", { count: tracks, name });
+      }
       break;
     case "remove_from_playlist":
       if (name !== null && tracks !== null) return t("undo.action.removeFromPlaylist", { count: tracks, name });

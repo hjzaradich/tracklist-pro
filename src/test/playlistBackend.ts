@@ -22,6 +22,8 @@ export function playlistBackend(options: {
   crates?: Crate[];
   /** What "Make an app playlist from this rekordbox playlist" offers. */
   rekordbox?: { path: string[]; entries: number }[];
+  /** Tracks outside the Library that "Add to Library" refuses (by recording id), with the reason. */
+  refused?: Record<number, "noFile" | "fileMissing" | "matchNotConfirmed" | "lowBitrate">;
   /** How many entries of a rekordbox playlist have no Library track. */
   unmatched?: number;
 }) {
@@ -36,11 +38,18 @@ export function playlistBackend(options: {
   const refuse = (kind: string, params: Record<string, string> = {}): never => {
     throw { kind, params };
   };
-  const record = (kind: string, name: string, tracks: number | null, undo: () => void, from: string | null = null) => {
+  const record = (
+    kind: string,
+    name: string,
+    tracks: number | null,
+    undo: () => void,
+    from: string | null = null,
+    newToLibrary: number | null = null,
+  ) => {
     const info: OperationInfo = {
       id: state.history.length + 1,
       kind,
-      details: { name, from, tracks, newToLibrary: null, newCrate: null },
+      details: { name, from, tracks, newToLibrary, newCrate: null },
     };
     state.history.push({ info, undo });
     return info.id;
@@ -110,13 +119,40 @@ export function playlistBackend(options: {
       case "add_recordings_to_playlist": {
         const target = playlist(args.id);
         const asked = [...new Set(args.recordings as number[])];
-        const inLibrary = asked.filter((r) => rowOf(r)?.libraryTrackId != null);
-        const added = newEntries(inLibrary);
+        const leftOut = { noFile: 0, fileMissing: 0, matchNotConfirmed: 0, lowBitrate: 0 };
+        const joining: number[] = [];
+        const linked: TableRow[] = [];
+        for (const recording of asked) {
+          const row = rowOf(recording);
+          if (row === undefined) return refuse("libraryTrackNotFound");
+          if (row.libraryTrackId === null) {
+            const why = options.refused?.[recording];
+            if (why !== undefined) {
+              leftOut[why] += 1;
+              continue;
+            }
+            linked.push(row);
+          }
+          joining.push(recording);
+        }
+        // As in a crate: the tracks outside the Library join it in the same operation.
+        for (const row of linked) {
+          row.libraryTrackId = state.nextId++;
+          row.inLibrary = true;
+        }
+        const added = newEntries(joining);
         const before = [...target.entries];
         target.entries.push(...added);
+        const undo = () => {
+          target.entries = before;
+          for (const row of linked) {
+            row.libraryTrackId = null;
+            row.inLibrary = false;
+          }
+        };
         const operationId =
-          added.length === 0 ? null : record("add_to_playlist", target.name, added.length, () => (target.entries = before));
-        return { changed: added.length, skipped: asked.length - added.length, operationId };
+          added.length === 0 ? null : record("add_to_playlist", target.name, added.length, undo, null, linked.length);
+        return { added: added.length, alsoAddedToLibrary: linked.length, leftOut, operationId };
       }
       case "remove_from_playlist": {
         const target = playlist(args.id);
@@ -189,6 +225,14 @@ export function playlistBackend(options: {
         if (last === undefined) return { status: "nothingToUndo" };
         last.undo();
         return { status: "undone", operation: last.info };
+      }
+      case "remove_library_track": {
+        const row = rows.find((r) => r.libraryTrackId === args.id);
+        const before = state.playlists.map((p) => [p, p.entries] as const);
+        for (const [p, entries] of before) p.entries = entries.filter(([, recording]) => recording !== row?.recordingId);
+        return record("remove_from_library", "", null, () => {
+          for (const [p, entries] of before) p.entries = entries;
+        });
       }
       case "crates_of_track":
         return [];

@@ -540,6 +540,8 @@ export function TrackTable({
     const from = { x: event.clientX, y: event.clientY };
     let begun = false;
     let moving: TableRow[] = [];
+    // Whether every selected row is held, so the whole selection can be moved by entry.
+    let movable = true;
     let place: number | null = null;
     const stop = () => {
       window.removeEventListener("pointermove", onMove);
@@ -557,18 +559,26 @@ export function TrackTable({
         if (!carried) select(index);
         const ids = carried && picked !== null ? [...picked] : [row.recordingId];
         if (onMoveRows) {
-          // The rows carried are the shown rows among the selected ones, else the one held.
+          // The rows carried are the selected ones, else the one held. Selecting is by
+          // track, so a track in the list twice moves both rows. A selection reaching
+          // rows not held (Select all of a long list) can't be moved by entry: the
+          // drag then only carries tracks to the sidebar, never a part of itself.
           moving = [];
+          const found = new Set<number>();
           for (let i = 0; carried && picked !== null && i < total; i++) {
             const held = getRow(i);
-            if (held !== undefined && picked.has(held.recordingId)) moving.push(held);
+            if (held !== undefined && picked.has(held.recordingId)) {
+              moving.push(held);
+              found.add(held.recordingId);
+            }
           }
+          movable = picked === null || !carried || found.size === picked.size;
           if (moving.length === 0) moving = [row];
         }
         useTrackDrag.getState().begin(ids, move.clientX, move.clientY);
       }
       useTrackDrag.getState().moveTo(move.clientX, move.clientY);
-      place = begun ? placeOf(move.clientX, move.clientY) : null;
+      place = begun && movable ? placeOf(move.clientX, move.clientY) : null;
       setInsertAt(place);
     };
     // The pointer was released (`drop`) or the drag given up.
