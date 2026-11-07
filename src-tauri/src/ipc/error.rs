@@ -232,6 +232,18 @@ error_kinds! {
     PlaylistNameUnsendable => "playlists:error.nameUnsendable", params: [];
     /// The newest rekordbox read has no playlist with entries at that path.
     RekordboxPlaylistNotFound => "playlists:error.rekordboxPlaylistNotFound", params: [];
+    /// The picked file isn't a tracklist-pro bundle (not our zip, entries or schema).
+    BundleNotOurs => "settings:bundle.error.notOurs", params: [];
+    /// A bundle entry unpacks to more than the app accepts.
+    BundleTooLarge => "settings:bundle.error.tooLarge", params: [];
+    /// The bundle's database is damaged.
+    BundleDamaged => "settings:bundle.error.damaged", params: [];
+    /// The bundle was made by a newer version of the app.
+    BundleNewer => "settings:bundle.error.newer", params: [];
+    /// Confirm was asked with no bundle or backup staged.
+    BundleNothingStaged => "settings:bundle.error.nothingStaged", params: [];
+    /// The backup to restore is gone.
+    BundleBackupNotFound => "settings:bundle.error.backupNotFound", params: [];
 }
 
 /// Parameter names i18next reads as options, not as values to fill in: a

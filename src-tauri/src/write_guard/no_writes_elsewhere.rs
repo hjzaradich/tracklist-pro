@@ -22,7 +22,7 @@ use crate::{db, tags, volume, DataDir};
 
 /// What's recorded about each entry.
 #[derive(Debug, PartialEq, Eq)]
-enum Entry {
+pub(crate) enum Entry {
     File {
         bytes: Vec<u8>,
         modified: SystemTime,
@@ -38,7 +38,7 @@ enum Entry {
 }
 
 /// Everything under `dir` except the `skip` paths, keyed by path.
-fn snapshot(dir: &Path, skip: &[&Path], out: &mut BTreeMap<PathBuf, Entry>) {
+pub(crate) fn snapshot(dir: &Path, skip: &[&Path], out: &mut BTreeMap<PathBuf, Entry>) {
     for entry in fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if skip.contains(&path.as_path()) {

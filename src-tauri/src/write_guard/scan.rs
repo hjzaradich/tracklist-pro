@@ -377,6 +377,28 @@ const EXEMPTIONS: &[Exemption] = &[
               access 0 (query only), OPEN_EXISTING, so Windows can ask the \
               watcher to let go of the drive before an eject (1aC-6).",
     },
+    // The portability bundle's folders (ROADMAP 4.1): `bundles`, `import`
+    // and `backups` in app data. Each is one call of the WriteGuard method
+    // of that name, which checks the path like every other guarded write;
+    // only the method's name matches the list above.
+    Exemption {
+        file: "bundle/folders.rs",
+        pattern: "create_dir_all",
+        count: 1,
+        why: "`make_folder` calls WriteGuard::create_dir_all for a bundle               folder in app data.",
+    },
+    Exemption {
+        file: "bundle/folders.rs",
+        pattern: "remove_file",
+        count: 1,
+        why: "`remove` calls WriteGuard::remove_file: an old bundle beyond               the newest few, the import marker, or a staged file nobody               confirmed.",
+    },
+    Exemption {
+        file: "bundle/folders.rs",
+        pattern: "remove_dir_all",
+        count: 1,
+        why: "`remove` calls WriteGuard::remove_dir_all: a kept Library               beyond the newest 3, in app data's backups folder.",
+    },
 ];
 
 /// The guard itself: the one file where writes are allowed. Its other

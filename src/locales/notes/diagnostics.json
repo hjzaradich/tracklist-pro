@@ -135,6 +135,10 @@
     "purpose": "Name of an event: at startup the app asked what work is due.",
     "where": "Diagnostics screen, event log list and filter."
   },
+  "kind.libraryNotReplaced": {
+    "purpose": "Name of an event: an import or restore the user confirmed couldn't be finished at startup, so the Library already there opened instead. (PROPOSED, 4B-B1a)",
+    "where": "Diagnostics screen, event log list and filter."
+  },
   "reason.jobFailed": {
     "purpose": "The reason code of a failed event, in words.",
     "where": "Diagnostics screen, event log list, reason column."
@@ -229,6 +233,10 @@
   },
   "reason.internal": {
     "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.fileInTheWay": {
+    "purpose": "The reason code of a failed event, in words: a file already sat where the old Library is moved aside during an import. (PROPOSED, 4B-B1a)",
     "where": "Diagnostics screen, event log list, reason column."
   },
   "report.title": {

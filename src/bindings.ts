@@ -780,6 +780,17 @@ export const commands = {
 	nextSettings: () => typedError<NextSettings, IpcError>(__TAURI_INVOKE("next_settings")),
 	/**  Stores the weights and the tolerance; returns what is stored. */
 	nextSetSettings: (settings: NextSettings) => typedError<NextSettings, IpcError>(__TAURI_INVOKE("next_set_settings", { settings })),
+	createBundle: () => typedError<CreatedBundle, IpcError>(__TAURI_INVOKE("create_bundle")),
+	inspectBundle: (path: string) => typedError<BundleSummary, IpcError>(__TAURI_INVOKE("inspect_bundle", { path })),
+	stageImport: (path: string) => typedError<BundleSummary, IpcError>(__TAURI_INVOKE("stage_import", { path })),
+	/**
+	 *  Confirms the staged import or restore and restarts the app. The exit
+	 *  stops the watchers and the job queue and folds the database's log in
+	 *  (`on_run_event`) before the restart swaps the file.
+	 */
+	confirmImport: () => typedError<null, IpcError>(__TAURI_INVOKE("confirm_import")),
+	listBackups: () => typedError<KeptLibrary[], IpcError>(__TAURI_INVOKE("list_backups")),
+	stageRestore: (id: string) => typedError<BundleSummary, IpcError>(__TAURI_INVOKE("stage_restore", { id })),
 };
 
 /** Events */
@@ -789,7 +800,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","playlistOrderStale":"playlists:error.orderStale","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","relocateNoKnownFiles":"musicFolders:relocateNoKnownFiles","relocateNotMissing":"musicFolders:relocateNotMissing","relocateOverlaps":"musicFolders:relocateOverlaps","relocateTooFewFiles":"musicFolders:relocateTooFewFiles","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","bundleBackupNotFound":"settings:bundle.error.backupNotFound","bundleDamaged":"settings:bundle.error.damaged","bundleNewer":"settings:bundle.error.newer","bundleNotOurs":"settings:bundle.error.notOurs","bundleNothingStaged":"settings:bundle.error.nothingStaged","bundleTooLarge":"settings:bundle.error.tooLarge","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","playlistOrderStale":"playlists:error.orderStale","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","relocateNoKnownFiles":"musicFolders:relocateNoKnownFiles","relocateNotMissing":"musicFolders:relocateNotMissing","relocateOverlaps":"musicFolders:relocateOverlaps","relocateTooFewFiles":"musicFolders:relocateTooFewFiles","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound","xmlOlderThanDatabaseRead":"rekordbox:error.xmlOlderThanDatabaseRead"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -1042,6 +1053,18 @@ export type BridgeReason =
 /**  X's energy, between A's and B's: `5 → 6 → 7`. */
 { code: "energyStep"; from: number | null; via: number; to: number | null };
 
+/**
+ *  What a bundle or backup holds, for the confirm screen. The schema and
+ *  counts are read from its database, not taken from the manifest.
+ */
+export type BundleSummary = {
+	createdMs: number,
+	/**  None for a backup. */
+	appVersion: string | null,
+	schemaVersion: number,
+	counts: Counts,
+};
+
 /**  What asking to cancel a job did. */
 export type CancelOutcome = 
 /**  It hadn't started, and now never will. */
@@ -1229,6 +1252,15 @@ export type Counting = {
 	index: boolean,
 };
 
+/**  A Library's size in a few numbers. */
+export type Counts = {
+	tracks: number,
+	crates: number,
+	playlists: number,
+	tags: number,
+	musicFolders: number,
+};
+
 /**  A crate or a folder, as the Crates screen and the sidebar list it. */
 export type Crate = {
 	id: CrateId,
@@ -1276,6 +1308,12 @@ export type CrateSummary = {
 	 *  no track has a genre.
 	 */
 	genres: string[],
+};
+
+/**  A bundle just made. */
+export type CreatedBundle = {
+	path: string,
+	manifest: Manifest,
 };
 
 /**  Whether a read began. */
@@ -1568,7 +1606,19 @@ export type ErrorKind =
 /**  The playlist name has a character that can't be sent to rekordbox. */
 "playlistNameUnsendable" | 
 /**  The newest rekordbox read has no playlist with entries at that path. */
-"rekordboxPlaylistNotFound";
+"rekordboxPlaylistNotFound" | 
+/**  The picked file isn't a tracklist-pro bundle (not our zip, entries or schema). */
+"bundleNotOurs" | 
+/**  A bundle entry unpacks to more than the app accepts. */
+"bundleTooLarge" | 
+/**  The bundle's database is damaged. */
+"bundleDamaged" | 
+/**  The bundle was made by a newer version of the app. */
+"bundleNewer" | 
+/**  Confirm was asked with no bundle or backup staged. */
+"bundleNothingStaged" | 
+/**  The backup to restore is gone. */
+"bundleBackupNotFound";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -1592,7 +1642,12 @@ export type EventKind = "jobStarted" | "jobFinished" | "jobFailed" | "jobCancell
  *  Startup asked the stages what is due: `ms` is how long it took,
  *  `count` how many stages couldn't be asked.
  */
-"startupAsked";
+"startupAsked" | 
+/**
+ *  A confirmed import or restore of a Library couldn't be finished at
+ *  startup; the Library in place opened instead (4.1).
+ */
+"libraryNotReplaced";
 
 /**  The log, newest first, for the Diagnostics screen. */
 export type EventLogView = {
@@ -1616,7 +1671,9 @@ export type EventReason =
 /**  This build has no handler for the job's kind. */
 "noHandler" | 
 /**  This build doesn't know the job's kind. */
-"unknownKind" | "notFound" | "cantRead" | "damaged" | "notAnExport" | "turnedOff" | "noKey" | "wrongKey" | "notALibrary" | "stopped" | "readFailed" | "cancelled" | "noPreflight" | "exportChanged" | "libraryChanged" | "notSendable" | "notConfirmed" | "exportOlderThanLastSend" | "cantWrite" | "cantRecord" | "internal";
+"unknownKind" | "notFound" | "cantRead" | "damaged" | "notAnExport" | "turnedOff" | "noKey" | "wrongKey" | "notALibrary" | "stopped" | "readFailed" | "cancelled" | "noPreflight" | "exportChanged" | "libraryChanged" | "notSendable" | "notConfirmed" | "exportOlderThanLastSend" | "cantWrite" | "cantRecord" | "internal" | 
+/**  A file was already where the old Library is set aside. */
+"fileInTheWay";
 
 /**  An export file found on disk. */
 export type ExportFile = {
@@ -2109,6 +2166,14 @@ export type JobUpdate = {
  */
 export type JobUpdates = JobUpdate[];
 
+/**  A replaced Library kept in `backups/`. */
+export type KeptLibrary = {
+	id: string,
+	createdMs: number,
+	/**  None when it can't be read. */
+	counts: Counts | null,
+};
+
 /**  How many pairs fell in each kind of agreement. */
 export type KeyAgreement = {
 	tracks: number,
@@ -2377,6 +2442,16 @@ export type LosesEntries = {
 	lost: number,
 	/**  How many entries it has in the app. */
 	entries: number,
+};
+
+/**  The manifest stored beside the database in a bundle. */
+export type Manifest = {
+	app: string,
+	format: number,
+	appVersion: string,
+	schemaVersion: number,
+	createdMs: number,
+	counts: Counts,
 };
 
 /**  A track to remove in rekordbox by hand. */

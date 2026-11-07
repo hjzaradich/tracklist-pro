@@ -35,7 +35,8 @@
     "sendDone": "Send done",
     "sendRefused": "Send stopped",
     "startup": "App started",
-    "startupAsked": "Startup checked what is due"
+    "startupAsked": "Startup checked what is due",
+    "libraryNotReplaced": "Library not replaced"
   },
   "reason": {
     "jobFailed": "The task stopped with an error",
@@ -61,7 +62,8 @@
     "exportOlderThanLastSend": "The export is older than the last send",
     "cantWrite": "The file couldn't be written",
     "cantRecord": "The send couldn't be recorded",
-    "internal": "Internal error"
+    "internal": "Internal error",
+    "fileInTheWay": "A file was in the way"
   },
   "report": {
     "title": "Report",

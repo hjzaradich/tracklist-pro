@@ -83,5 +83,29 @@
     "purpose": "Says the tracks could not be counted, so the confirm did not open and the switch is as it was.",
     "where": "Settings screen, rekordbox panel, error line under the switch (alert), after turning it on.",
     "approved": "Couldn't count the tracks. Try again."
+  },
+  "bundle.error.notOurs": {
+    "purpose": "Error: the picked file isn't a bundle this app made (not a zip with the expected contents, or not its database). (PROPOSED, 4B-B1a)",
+    "where": "Settings screen, bundle panel (later job), error line."
+  },
+  "bundle.error.tooLarge": {
+    "purpose": "Error: a file inside the bundle is larger than the app accepts, so it wasn't unpacked. (PROPOSED, 4B-B1a)",
+    "where": "Settings screen, bundle panel (later job), error line."
+  },
+  "bundle.error.damaged": {
+    "purpose": "Error: the bundle's database fails its integrity checks; nothing changed. (PROPOSED, 4B-B1a)",
+    "where": "Settings screen, bundle panel (later job), error line."
+  },
+  "bundle.error.newer": {
+    "purpose": "Error: the bundle comes from a newer app version; the user must update first. (PROPOSED, 4B-B1a)",
+    "where": "Settings screen, bundle panel (later job), error line."
+  },
+  "bundle.error.nothingStaged": {
+    "purpose": "Error: the user confirmed an import or a restore, but no checked bundle or backup is waiting. (PROPOSED, 4B-B1a)",
+    "where": "Settings screen, bundle panel (later job), error line."
+  },
+  "bundle.error.backupNotFound": {
+    "purpose": "Error: the backup chosen to restore has been removed meanwhile. (PROPOSED, 4B-B1a)",
+    "where": "Settings screen, bundle panel (later job), error line."
   }
 }

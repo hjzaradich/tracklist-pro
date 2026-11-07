@@ -46,7 +46,7 @@ use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::{ffi, Connection, OpenFlags};
 
 #[cfg(test)]
-mod no_writes_elsewhere;
+pub(crate) mod no_writes_elsewhere;
 #[cfg(test)]
 mod scan;
 #[cfg(test)]
@@ -580,6 +580,48 @@ impl GuardedPath {
         self.database_files_have_one_name()?;
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         confine(Connection::open_with_flags(self.sqlite_name(), flags)?)
+    }
+
+    /// The bundle and Library backup rule (ROADMAP 4.1): fills the new
+    /// database at this path with a copy of the whole database `from` is
+    /// open on, through SQLite's online backup, and returns the copy open.
+    /// The copy is read in one read transaction, so it is one consistent
+    /// moment of the Library even while the writer works.
+    ///
+    /// The one way app code copies a database. The copy is written only
+    /// here, at this checked path, on a connection confined like
+    /// [`Self::open_database`]. `VACUUM INTO` stays refused: it names its
+    /// file in SQL, past every check. Whatever database is at the path is
+    /// overwritten, so it must be a file in a [`Staging`] folder
+    /// (`staging\<name>\<file>`) and never named like the Library's own
+    /// file: the Library is never written over by a copy.
+    pub fn copy_database_from(&self, from: &Connection) -> rusqlite::Result<Connection> {
+        use rusqlite::backup::{Backup, StepResult};
+        let in_staging = self
+            .path
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == STAGING_DIR);
+        if !in_staging || self.path.file_name() == Some(crate::db::DB_FILE_NAME.as_ref()) {
+            return Err(rusqlite::Error::SqliteFailure(
+                ffi::Error::new(ffi::SQLITE_CANTOPEN),
+                Some(format!(
+                    "{} isn't a staging file, so no copy is written there",
+                    self.path.display()
+                )),
+            ));
+        }
+        let mut to = self.open_database()?;
+        // -1: every page in one step, so in one read transaction of `from`.
+        let step = Backup::new(from, &mut to)?.step(-1)?;
+        if !matches!(step, StepResult::Done) {
+            return Err(rusqlite::Error::SqliteFailure(
+                ffi::Error::new(ffi::SQLITE_BUSY),
+                Some(format!("the copy stopped early ({step:?})")),
+            ));
+        }
+        Ok(to)
     }
 
     /// Refuses a database whose file, or `-wal`, `-shm` or `-journal` file,
