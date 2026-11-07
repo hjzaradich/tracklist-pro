@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import { MusicFolderList } from "../scan/MusicFolderList";
 import { ReadOnlineOnlySwitch } from "../scan/ReadOnlineOnlySwitch";
+import { useOnedriveFolders } from "../scan/useOnedriveFolders";
 import { useSetMusicFolderWatch } from "../scan/useMusicFolderWatch";
 import { useMusicFolders } from "../scan/useMusicFolders";
 import styles from "./firstRun.module.css";
@@ -20,6 +21,7 @@ export function MusicFoldersStep() {
   const { t } = useTranslation("firstRun");
   const titleId = useId();
   const folders = useMusicFolders();
+  const onedrive = useOnedriveFolders(folders.data);
   const add = useAddMusicFolder();
   const setWatch = useSetMusicFolderWatch();
   const scan = useScanMusicFolder();
@@ -41,6 +43,7 @@ export function MusicFoldersStep() {
           folders={folders.data}
           onWatchChange={(id, watch) => setWatch.mutate({ id, watch })}
           onScanAgain={(id) => scan.mutate(id)}
+          onedrive={onedrive}
         />
       )}
       <ReadOnlineOnlySwitch />

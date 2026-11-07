@@ -138,5 +138,9 @@
   "error.xmlOlderThanDatabaseRead": {
     "purpose": "Error: an export was not read because it is older than the newest database read.",
     "where": "rekordbox collection panel (fallback; the confirm normally shows instead)."
+  },
+  "myTagTip": {
+    "purpose": "Tip about the rekordbox preference that writes My Tags into comments.",
+    "where": "Overview screen, rekordbox export panel (first run and later)."
   }
 }

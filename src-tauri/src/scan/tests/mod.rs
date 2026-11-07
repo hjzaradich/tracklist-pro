@@ -12,6 +12,7 @@ mod folders;
 mod inbox;
 #[cfg(windows)]
 mod ipc;
+mod onedrive;
 #[cfg(windows)]
 mod online_only;
 mod schema;

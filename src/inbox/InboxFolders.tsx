@@ -3,6 +3,8 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
 import type { InboxFolder, MusicFolder } from "../bindings";
+import { OnedriveNote } from "../scan/OnedriveNote";
+import { useOnedriveFolders } from "../scan/useOnedriveFolders";
 import { useAddInboxFolder, useRemoveMusicFolder } from "./useInbox";
 import styles from "./inbox.module.css";
 
@@ -23,6 +25,7 @@ export function InboxFolders({
   const titleId = useId();
   const add = useAddInboxFolder();
   const remove = useRemoveMusicFolder();
+  const onedrive = useOnedriveFolders(folders);
   const failure = add.error ?? remove.error;
   const waiting = new Set(inbox.filter((f) => f.waitingForFirstLook).map((f) => f.musicFolderId));
 
@@ -44,6 +47,7 @@ export function InboxFolders({
           {folders.map((folder) => (
             <li key={folder.id} className={styles.folder}>
               <span className={styles.name}>{folder.path}</span>
+              {onedrive.has(folder.id) && <OnedriveNote className={styles.muted} />}
               {waiting.has(folder.id) && <span className={styles.muted}>{t("folders.firstLook")}</span>}
               <button
                 type="button"

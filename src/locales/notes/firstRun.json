@@ -43,5 +43,29 @@
     "purpose": "Link that goes to All music.",
     "where": "Overview screen, first-run Start fresh panel.",
     "approved": "Go to All music"
+  },
+  "inbox.title": {
+    "purpose": "Title of the first-run step that asks for the Inbox folder.",
+    "where": "Overview screen, first-run panel after Music folders."
+  },
+  "inbox.help": {
+    "purpose": "Explains the Inbox folder question and that skipping assumes nothing.",
+    "where": "Overview screen, Inbox step, under its title."
+  },
+  "inbox.choose": {
+    "purpose": "Button that opens the folder picker for the Inbox folder.",
+    "where": "Overview screen, Inbox step."
+  },
+  "inbox.skip": {
+    "purpose": "Button that leaves the Inbox folder question for later.",
+    "where": "Overview screen, Inbox step, beside Choose folder."
+  },
+  "inbox.watch": {
+    "purpose": "Switch that turns on watching the Inbox folder; off until chosen.",
+    "where": "Overview screen, Inbox step, once an Inbox folder exists."
+  },
+  "inbox.watchHelp": {
+    "purpose": "Explains the watch switch and that it starts off.",
+    "where": "Overview screen, Inbox step, under the watch switch."
   }
 }

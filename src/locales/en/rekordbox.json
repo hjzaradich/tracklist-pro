@@ -33,5 +33,6 @@
     "noneChosen": "No rekordbox export chosen",
     "xmlOlderThanDatabaseRead": "This export (saved {{xmlAt}}) is older than your last read of the rekordbox database ({{readAt}}), so it was not read.",
     "sendNeedsExport": "Sending needs a rekordbox XML export. Export one from rekordbox, then choose it here."
-  }
+  },
+  "myTagTip": "Tip: in rekordbox, turn on \"Add My Tag to the comments\" in Preferences so your My Tags travel with the export."
 }

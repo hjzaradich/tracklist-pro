@@ -47,6 +47,7 @@ function fakeBackend(initial: MusicFolder[] = [], refuse: unknown = null) {
         return added;
       }
       if (cmd === "scan_music_folders") return 42;
+      if (cmd === "onedrive_music_folders") return [];
       if (cmd === "read_online_only_files") return backend.readOnlineOnly;
       if (cmd === "set_read_online_only_files") {
         backend.readOnlineOnly = a.on as boolean;
@@ -68,7 +69,10 @@ function fakeBackend(initial: MusicFolder[] = [], refuse: unknown = null) {
 /** The calls that change or start something: not the ones that only ask. */
 function acted(backend: ReturnType<typeof fakeBackend>) {
   return backend.calls.filter(
-    (call) => call.cmd !== "music_folders" && call.cmd !== "read_online_only_files",
+    (call) =>
+      call.cmd !== "music_folders" &&
+      call.cmd !== "onedrive_music_folders" &&
+      call.cmd !== "read_online_only_files",
   );
 }
 
@@ -90,21 +94,33 @@ describe("picking music folders", () => {
   it("names what's absent when there are no music folders", async () => {
     fakeBackend();
     renderStep();
-    expect(await screen.findByText(tx("musicFolderStatus:empty"))).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: tx("firstRun:folders.title") })).toBeInTheDocument();
+    expect(
+      await screen.findByText(tx("musicFolderStatus:empty")),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: tx("firstRun:folders.title") }),
+    ).toBeInTheDocument();
   });
 
   it("adds the picked folder and lists it, leaving the scan to the add itself", async () => {
     const backend = fakeBackend();
     dialog.open.mockResolvedValue(String.raw`E:\Music`);
     renderStep();
-    await userEvent.click(await screen.findByRole("button", { name: tx("firstRun:folders.add") }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("firstRun:folders.add") }),
+    );
 
     expect(await screen.findByText(String.raw`E:\Music`)).toBeInTheDocument();
-    expect(dialog.open).toHaveBeenCalledWith({ multiple: false, directory: true });
+    expect(dialog.open).toHaveBeenCalledWith({
+      multiple: false,
+      directory: true,
+    });
     // Adding a folder scans it, whichever screen adds it: no second call.
     expect(acted(backend)).toEqual([
-      { cmd: "add_music_folder", args: { path: String.raw`E:\Music`, role: null } },
+      {
+        cmd: "add_music_folder",
+        args: { path: String.raw`E:\Music`, role: null },
+      },
     ]);
   });
 
@@ -112,7 +128,9 @@ describe("picking music folders", () => {
     const backend = fakeBackend();
     dialog.open.mockResolvedValue(null);
     renderStep();
-    await userEvent.click(await screen.findByRole("button", { name: tx("firstRun:folders.add") }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("firstRun:folders.add") }),
+    );
     await waitFor(() => expect(dialog.open).toHaveBeenCalled());
     expect(acted(backend)).toEqual([]);
   });
@@ -124,31 +142,50 @@ describe("picking music folders", () => {
     });
     dialog.open.mockResolvedValue(String.raw`E:\Music`);
     renderStep();
-    await userEvent.click(await screen.findByRole("button", { name: tx("firstRun:folders.add") }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("firstRun:folders.add") }),
+    );
     expect(await screen.findByRole("alert")).toHaveTextContent(
       tx("musicFolders:alreadyAdded", { path: String.raw`E:\Music` }),
     );
-    expect(backend.calls.some((call) => call.cmd === "scan_music_folders")).toBe(false);
+    expect(
+      backend.calls.some((call) => call.cmd === "scan_music_folders"),
+    ).toBe(false);
   });
 
   it("turns a folder's watcher on with the existing switch", async () => {
     const backend = fakeBackend([folder(1, String.raw`E:\Music`)]);
     renderStep();
-    await userEvent.click(await screen.findByRole("checkbox", { name: tx("musicFolderWatch:watch") }));
-    await waitFor(() =>
-      expect(screen.getByRole("checkbox", { name: tx("musicFolderWatch:watch") })).toBeChecked(),
+    await userEvent.click(
+      await screen.findByRole("checkbox", {
+        name: tx("musicFolderWatch:watch"),
+      }),
     );
-    expect(acted(backend)).toEqual([{ cmd: "set_music_folder_watch", args: { id: 1, watch: true } }]);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("checkbox", { name: tx("musicFolderWatch:watch") }),
+      ).toBeChecked(),
+    );
+    expect(acted(backend)).toEqual([
+      { cmd: "set_music_folder_watch", args: { id: 1, watch: true } },
+    ]);
   });
 
   it("scans a folder again when asked", async () => {
-    const backend = fakeBackend([folder(1, String.raw`E:\Music`), folder(2, String.raw`F:\More`)]);
+    const backend = fakeBackend([
+      folder(1, String.raw`E:\Music`),
+      folder(2, String.raw`F:\More`),
+    ]);
     renderStep();
-    const buttons = await screen.findAllByRole("button", { name: tx("musicFolderStatus:scanAgain") });
+    const buttons = await screen.findAllByRole("button", {
+      name: tx("musicFolderStatus:scanAgain"),
+    });
     expect(buttons).toHaveLength(2);
     await userEvent.click(buttons[1]);
     await waitFor(() =>
-      expect(acted(backend)).toEqual([{ cmd: "scan_music_folders", args: { ids: [2] } }]),
+      expect(acted(backend)).toEqual([
+        { cmd: "scan_music_folders", args: { ids: [2] } },
+      ]),
     );
   });
 
@@ -156,19 +193,27 @@ describe("picking music folders", () => {
     fakeBackend([{ ...folder(1, String.raw`E:\Music`), online: false }]);
     renderStep();
     expect(
-      await screen.findByRole("button", { name: tx("musicFolderStatus:scanAgain") }),
+      await screen.findByRole("button", {
+        name: tx("musicFolderStatus:scanAgain"),
+      }),
     ).toBeDisabled();
-    expect(screen.getByText(tx("musicFolderStatus:offline"))).toBeInTheDocument();
+    expect(
+      screen.getByText(tx("musicFolderStatus:offline")),
+    ).toBeInTheDocument();
   });
 
   it("holds the opt-in to reading online-only files", async () => {
     const backend = fakeBackend([folder(1, String.raw`E:\Music`)]);
     renderStep();
-    const optIn = await screen.findByRole("checkbox", { name: tx("musicFolderStatus:readOnlineOnly") });
+    const optIn = await screen.findByRole("checkbox", {
+      name: tx("musicFolderStatus:readOnlineOnly"),
+    });
     expect(optIn).not.toBeChecked();
     await userEvent.click(optIn);
     await waitFor(() =>
-      expect(acted(backend)).toEqual([{ cmd: "set_read_online_only_files", args: { on: true } }]),
+      expect(acted(backend)).toEqual([
+        { cmd: "set_read_online_only_files", args: { on: true } },
+      ]),
     );
   });
 });

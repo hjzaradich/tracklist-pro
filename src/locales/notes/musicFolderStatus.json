@@ -63,5 +63,13 @@
     "purpose": "Explains what the online-only switch does (OneDrive downloads files the app reads).",
     "where": "Settings switch, help text under it (component not on a screen yet).",
     "approved": "OneDrive downloads every file the app reads. When off, online-only files are listed but not read."
+  },
+  "onedrive": {
+    "purpose": "Plain note beside a music folder that sits in OneDrive.",
+    "where": "Music folders panel and Inbox folders list, next to a folder in OneDrive."
+  },
+  "onedriveHelp": {
+    "purpose": "Guidance for a folder in OneDrive (text only; the app changes nothing).",
+    "where": "Music folders panel and Inbox folders list, after the OneDrive note."
   }
 }

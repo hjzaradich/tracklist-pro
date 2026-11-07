@@ -135,6 +135,8 @@ export function inboxBackend(options: {
           return options.doneForYou ?? [];
         case "inbox_count":
           return count();
+        case "onedrive_music_folders":
+          return [];
         case "music_folders":
           return state.folders;
         case "inbox_add": {

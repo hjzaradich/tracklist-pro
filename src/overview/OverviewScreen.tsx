@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AfterSendPanel } from "../afterSend/AfterSendLists";
 import { errorMessage } from "../api/errors";
 import styles from "../firstRun/firstRun.module.css";
+import { InboxStep } from "../firstRun/InboxStep";
 import { MusicFoldersStep } from "../firstRun/MusicFoldersStep";
 import { RekordboxOffer } from "../firstRun/RekordboxOffer";
 import { StartFresh } from "../firstRun/StartFresh";
@@ -109,6 +110,7 @@ export function OverviewScreen() {
           </>
         )}
         {firstRun && <MusicFoldersStep />}
+        {firstRun && <InboxStep />}
         {/* Once the Library has tracks, Send is the Overview's one filled button. */}
         <XmlSourcePanel quiet={sendAvailable(tracks)} />
         {library.data !== undefined && <RekordboxOffer firstRun={firstRun} />}
