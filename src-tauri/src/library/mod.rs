@@ -451,7 +451,8 @@ fn rows_of(rec: &Recorder<'_>, table: &str, id: LibraryTrackId) -> Result<Vec<i6
     )
 }
 
-/// Removes one Library track, as one operation: its crate entries, sync
+/// Removes one Library track, as one operation: its crate and playlist
+/// entries (the playlists close up), sync
 /// bases, sent playlist entries, conflicts and the app's own values go with
 /// it (they'd otherwise block the delete), and a removal record is made.
 /// Undo puts every row back exactly.
@@ -472,6 +473,18 @@ fn remove_on(conn: &mut Connection, id: LibraryTrackId) -> Result<bool, OpsError
             let Some((recording, location, exported_at)) = row else {
                 return Ok(false);
             };
+            // Its playlist entries (3.5), each place it held; the playlists
+            // close up.
+            let playlists: Vec<i64> = rec.read_rows(
+                "SELECT DISTINCT playlist_id FROM playlist_entry
+                 WHERE library_track_id = ?1 ORDER BY playlist_id",
+                [id.0],
+                |r| r.get(0),
+            )?;
+            for rowid in rows_of(rec, "playlist_entry", id)? {
+                rec.delete("playlist_entry", rowid)?;
+            }
+            crate::playlists::close_gaps(rec, &playlists)?;
             for table in [
                 "crate_entry",
                 "sync_base",

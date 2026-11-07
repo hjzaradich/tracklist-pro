@@ -1,0 +1,26 @@
+{
+  "error.notFound": {
+    "purpose": "Error: the playlist acted on was deleted meanwhile. Mirrors crates:error.notFound. (PROPOSED, 3C-P1a)",
+    "where": "Wherever a playlist is acted on."
+  },
+  "error.entryNotFound": {
+    "purpose": "Error: a drag-to-reorder dropped tracks before a track that has since left the playlist. (PROPOSED, 3C-P1a)",
+    "where": "Playlist screen, after a drag to reorder."
+  },
+  "error.nameEmpty": {
+    "purpose": "Error: a playlist name is empty. Mirrors crates:error.nameEmpty. (PROPOSED, 3C-P1a)",
+    "where": "Wherever a playlist is named."
+  },
+  "error.nameTaken": {
+    "purpose": "Error: another playlist (or the Tags folder of tag playlists) has this name; {{name}} is that one's. Mirrors crates:error.nameTaken. (PROPOSED, 3C-P1a)",
+    "where": "Wherever a playlist is named."
+  },
+  "error.nameUnsendable": {
+    "purpose": "Error: the playlist name can't be written to rekordbox. Same text as crates:error.nameUnsendable. (PROPOSED, 3C-P1a)",
+    "where": "Wherever a playlist is named."
+  },
+  "error.rekordboxPlaylistNotFound": {
+    "purpose": "Error: making an app playlist from a rekordbox playlist that the newest read doesn't have (or that is empty). (PROPOSED, 3C-P1a)",
+    "where": "Making an app playlist from a rekordbox playlist."
+  }
+}

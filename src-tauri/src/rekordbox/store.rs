@@ -23,6 +23,11 @@
 //! - **Nothing is matched here.** `file_id` stays NULL; relinking is 1aC.
 //! - A track that can't be stored (no usable `TrackID`, one already taken,
 //!   or a `Location` that doesn't decode) is counted, never guessed at.
+//! - **Playlists in order.** Every playlist entry is kept in
+//!   `rekordbox_playlist_entry`, in rekordbox's order, replaced whole by
+//!   every read (3.5: a rekordbox playlist becomes an app playlist with its
+//!   order kept). `rekordbox_track.playlists` stays a set of paths per
+//!   track.
 
 use std::collections::{HashMap, HashSet};
 
@@ -54,10 +59,26 @@ pub struct SnapshotRow {
     pub streaming: bool,
 }
 
+/// One `rekordbox_playlist_entry` row, ready to insert.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistEntryRow {
+    /// The playlist's place in the tree, depth first, from 0.
+    pub playlist_index: u32,
+    /// The playlist's path, a JSON array of names from below ROOT.
+    pub path: String,
+    /// The entry's place in the playlist, from 0.
+    pub position: u32,
+    /// The `TrackID` of the stored track it names; `None` when it names no
+    /// stored track.
+    pub track_id: Option<i64>,
+}
+
 /// A parsed export as snapshot rows, and what couldn't be stored.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SnapshotRows {
     pub rows: Vec<SnapshotRow>,
+    /// Every playlist's entries, in tree order, then playlist order.
+    pub playlist_entries: Vec<PlaylistEntryRow>,
     /// Whether the export held every track it said it did.
     pub complete: bool,
     /// Tracks left out: no usable `TrackID`, a `TrackID` an earlier track in
@@ -93,6 +114,8 @@ impl SnapshotRows {
         let playlists = playlist_paths(xml);
         let mut rows = Vec::with_capacity(xml.tracks.len());
         let mut ids = HashSet::with_capacity(xml.tracks.len());
+        // The stored TrackID of each track, by its index in `xml.tracks`.
+        let mut stored: HashMap<usize, i64> = HashMap::with_capacity(xml.tracks.len());
         let mut not_stored = 0;
         let mut unstored_keys = Vec::new();
         let mut unstored_ids = Vec::new();
@@ -121,6 +144,7 @@ impl SnapshotRows {
                 unstored(None, key());
                 continue;
             }
+            stored.insert(i, track_id);
             rows.push(SnapshotRow {
                 track_id,
                 attributes: object_json(&track.attrs),
@@ -137,6 +161,7 @@ impl SnapshotRows {
         }
         SnapshotRows {
             rows,
+            playlist_entries: playlist_entries(xml, &stored),
             complete: xml.is_complete(),
             not_stored,
             unstored_keys,
@@ -222,6 +247,29 @@ fn playlist_paths(xml: &RekordboxXml) -> HashMap<usize, Vec<Vec<String>>> {
     paths
 }
 
+/// Every playlist's entries in order, each naming the stored TrackID of its
+/// track (`stored`, by the track's index in `xml.tracks`), if it has one.
+fn playlist_entries(xml: &RekordboxXml, stored: &HashMap<usize, i64>) -> Vec<PlaylistEntryRow> {
+    let mut out = Vec::new();
+    for (index, (mut path, playlist)) in xml.playlists.playlists().into_iter().enumerate() {
+        path.push(&playlist.name);
+        let path = serde_json::to_string(&path).expect("strings always serialize");
+        for (position, entry) in playlist.entries.iter().enumerate() {
+            let track_id = match entry.target {
+                EntryTarget::Track(i) => stored.get(&i).copied(),
+                EntryTarget::Skipped(_) | EntryTarget::NoTrack => None,
+            };
+            out.push(PlaylistEntryRow {
+                playlist_index: u32::try_from(index).unwrap_or(u32::MAX),
+                path: path.clone(),
+                position: u32::try_from(position).unwrap_or(u32::MAX),
+                track_id,
+            });
+        }
+    }
+    out
+}
+
 /// Replaces the snapshot with `rows`, in one transaction: on any failure
 /// the previous snapshot stays as it was. For an incomplete export, rows
 /// from earlier reads whose Location it doesn't hold at all (stored or not)
@@ -269,6 +317,25 @@ pub fn replace_snapshot(
                 row.position_marks,
                 row.my_tags,
                 row.playlists,
+                read_at,
+            ])?;
+        }
+    }
+    // Playlists are replaced whole by every read, complete or not: the
+    // read's tree is rekordbox's tree.
+    tx.execute("DELETE FROM rekordbox_playlist_entry WHERE 1", [])?;
+    {
+        let mut insert = tx.prepare(
+            "INSERT INTO rekordbox_playlist_entry
+                 (playlist_index, path, position, track_id, read_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+        )?;
+        for entry in &rows.playlist_entries {
+            insert.execute(params![
+                entry.playlist_index,
+                entry.path,
+                entry.position,
+                entry.track_id,
                 read_at,
             ])?;
         }

@@ -303,6 +303,70 @@ fn the_library_reads_as_an_export_with_the_same_values_and_playlists() {
 }
 
 #[test]
+fn a_database_read_keeps_each_playlists_order_and_an_app_playlist_copied_from_it_too() {
+    let fx = Fixture::new();
+    fx.turn_on();
+    let (status, error) = fx.run(read_job(&fx.db));
+    assert_eq!(status, JobStatus::Done, "{error:?}");
+    // In the database's order (TrackNo), not by id; the removed entry is out.
+    let stored: Vec<(String, i64, Option<i64>)> = fx
+        .writer
+        .call(|c| {
+            c.prepare(
+                "SELECT path, position, track_id FROM rekordbox_playlist_entry ORDER BY id",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect()
+        })
+        .unwrap();
+    let path = r#"["Folder","Peak time"]"#.to_owned();
+    assert_eq!(stored, [(path.clone(), 0, Some(102)), (path, 1, Some(101))]);
+
+    // Both tracks are Library tracks the relink matched: the copy keeps
+    // that order.
+    fx.writer
+        .call(|c| {
+            c.execute_batch(
+                "INSERT INTO volume (id, identity, kind, last_mount_path)
+                     VALUES (1, 'serial=1A2B3C4D', 'external', 'C:\\');
+                 INSERT INTO music_folder (id, volume_id, rel_path, rel_path_key)
+                     VALUES (1, 1, 'Kit', 'Kit');
+                 INSERT INTO file (id, music_folder_id, rel_path, rel_path_key, present)
+                     VALUES (1, 1, 'one.mp3', 'one.mp3', 1), (2, 1, 'two.flac', 'two.flac', 1);
+                 INSERT INTO recording (id, title) VALUES (1, 'One'), (2, 'Two');
+                 INSERT INTO recording_file (recording_id, file_id, role)
+                     VALUES (1, 1, 'best'), (2, 2, 'best');
+                 INSERT INTO library_track (id, recording_id, source_status)
+                     VALUES (1, 1, 'missing'), (2, 2, 'missing');
+                 UPDATE rekordbox_track SET file_id = 1, relink_method = 'path'
+                     WHERE track_id = 101;
+                 UPDATE rekordbox_track SET file_id = 2, relink_method = 'path'
+                     WHERE track_id = 102;",
+            )
+        })
+        .unwrap();
+    let copied = fx
+        .writer
+        .call(|c| {
+            let path = ["Folder".to_owned(), "Peak time".to_owned()];
+            Ok(crate::playlists::import::copy_on(c, &path, "Peak time"))
+        })
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!((copied.added, copied.not_in_library), (2, 0));
+    let order: Vec<i64> = fx
+        .writer
+        .call(|c| {
+            c.prepare("SELECT library_track_id FROM playlist_entry ORDER BY position")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .unwrap();
+    assert_eq!(order, [2, 1]);
+}
+
+#[test]
 fn a_wrong_key_a_damaged_file_and_a_missing_one_each_fail_clearly_and_change_nothing() {
     let fx = Fixture::new();
     fx.turn_on();

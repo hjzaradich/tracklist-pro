@@ -111,6 +111,18 @@ pub fn as_merged(nodes: &mut [Node], merged: &Memberships) {
     walk(nodes, &mut vec![sibling_key(CRATES_FOLDER)], merged);
 }
 
+/// Everything a send writes under [`PLAYLISTS_FOLDER`]: the app's playlists
+/// in position order (3.5, [`crate::playlists::send_nodes`]), then the
+/// `Tags` folder ([`tag_playlists`]). A playlist's name never equals `Tags`
+/// or another's by the sibling rule (the playlists module refuses it).
+///
+/// [`PLAYLISTS_FOLDER`]: crate::rekordbox_write::PLAYLISTS_FOLDER
+pub fn playlist_tree(conn: &Connection) -> rusqlite::Result<Vec<Node>> {
+    let mut nodes = crate::playlists::send_nodes(conn)?;
+    nodes.extend(tag_playlists(conn)?);
+    Ok(nodes)
+}
+
 /// The folder under `Playlists` that holds one playlist per tag (3A-T; T5).
 pub const TAGS_FOLDER: &str = "Tags";
 

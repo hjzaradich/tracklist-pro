@@ -454,6 +454,21 @@ fn fold(
             )?;
         }
     }
+    //    Its playlist entries: to the track that stays, in their places (a
+    //    playlist may hold a track twice, 3.5).
+    let entries: Vec<i64> = rec.read_rows(
+        "SELECT id FROM playlist_entry WHERE library_track_id = ?1 ORDER BY id",
+        [leaving.library_track.0],
+        |r| r.get(0),
+    )?;
+    for entry in entries {
+        rec.set(
+            "playlist_entry",
+            entry,
+            "library_track_id",
+            keep.library_track.0,
+        )?;
+    }
     // 3. Its sync bases, sent playlist entries, conflicts, the app's own
     //    values and Library track.
     for table in ["sync_base", "sent_entry", "conflict", "app_value"] {
