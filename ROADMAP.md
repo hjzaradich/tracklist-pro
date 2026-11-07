@@ -599,7 +599,7 @@ Each feature is tagged with its sub-phase.
 - **Inputs, most reliable first:** a pasted tracklist → CSV (e.g. Exportify) → the Spotify API with your own client ID (opt-in). SoundCloud and Apple are CSV or paste only.
 - **Matching:** normalized fuzzy matching, the version parser and ISRC. Results are *owned*, *owned, other cut* (counts as owned), *you have a rework* (a hint, not owned) or *missing*, each with its reason.
 - **B2B:** partner tracks from a session (3.6) go to a wishlist in one step.
-- **How (built, 2B):** CSV columns are found by their header names (artist, title, version, ISRC), so an Exportify-style export works without setup; pasted lines are one track each. Files and pastes over 5 MB are refused, and only the first 100 skipped rows are listed, with the total. ISRC is read from the files' own tags. "Owned" means a present, not hidden file; the reason says whether it is in the Library or only in All music.
+- **How (built, 2B):** CSV columns are found by their header names (artist, title, version, ISRC), so an Exportify-style export works without setup; pasted lines are one track each. Files and pastes over 5 MB are refused, and only the first 100 skipped rows are listed, with the total. ISRC is read from the files' own tags. "Owned" means a present, not hidden file; the reason says whether it is in the Library or only in All music. Matching 500 wishes against a 100k-file library takes about 1.3 to 2.3 s (was about 62 s; PR 194: the version-label lookup is indexed and titles are parsed on demand, with identical results); auto tick-off prepares nothing while no wish is open.
 - **Complexity:** M. **Reuse:** the `integrations/spotify.rs` harness.
 
 #### 2.4 Missing list + store links
