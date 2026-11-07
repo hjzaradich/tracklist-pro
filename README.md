@@ -53,3 +53,5 @@ npm run tauri dev
 ```
 
 Tests: `npm test` for the interface, `cargo test` in `src-tauri` for the rest.
+
+Making a release: see [docs/releasing.md](docs/releasing.md).
