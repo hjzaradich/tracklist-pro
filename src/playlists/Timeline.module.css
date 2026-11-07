@@ -1,0 +1,232 @@
+/* The timeline over a playlist's tracks (3C-P2b). Colours come from the theme's tokens only. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 55%;
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.total,
+.note {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.actions,
+.gapLine,
+.flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.small {
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.small:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+}
+
+.small:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.small:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The chart: it keeps its shape and fills the width. */
+.chart {
+  display: block;
+  width: 100%;
+  max-width: 44rem;
+  height: auto;
+  touch-action: none;
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.scale {
+  fill: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.plot {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.curve {
+  fill: none;
+  stroke: var(--color-text);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.dot {
+  fill: var(--color-text);
+  pointer-events: none;
+}
+
+/* A track with no energy: a dashed tick, not a low point. */
+.unknownTick {
+  stroke: var(--color-text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.target {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+
+/* A clash: a filled diamond. Something unknown: a hollow circle. Never colour alone. */
+.markClash {
+  fill: var(--color-danger);
+  stroke: var(--color-danger);
+}
+
+.markUnknown {
+  fill: var(--color-surface);
+  stroke: var(--color-text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 2;
+}
+
+.handle {
+  cursor: grab;
+  outline: none;
+}
+
+.hit {
+  fill: transparent;
+}
+
+.pointMark {
+  fill: var(--color-surface);
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
+.handle:hover .pointMark,
+.handle:focus-visible .pointMark {
+  fill: var(--color-accent);
+}
+
+.handle:focus-visible .hit {
+  stroke: var(--color-focus-ring);
+  stroke-width: 2;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th,
+.table td {
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  border-bottom: 1px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.unknown {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.gapRow td {
+  padding-top: 0;
+  padding-bottom: var(--space-1);
+}
+
+/* A clash or jump has a solid border; unknown has a dashed one. */
+.flag {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.flag[data-flow="clash"] {
+  border-color: var(--color-danger);
+  border-style: solid;
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.flag[data-flow="unknown"] {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.gap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.suggestion {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 2fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.suggestionName {
+  font-weight: 600;
+}
+
+.reasons {
+  color: var(--color-text-muted);
+}

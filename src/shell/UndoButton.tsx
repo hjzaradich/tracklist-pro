@@ -112,6 +112,12 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "move_in_playlist":
       if (name !== null && tracks !== null) return t("undo.action.moveInPlaylist", { count: tracks, name });
       break;
+    case "set_playlist_target":
+      if (name !== null) return t("undo.action.setPlaylistTarget", { name });
+      break;
+    case "clear_playlist_target":
+      if (name !== null) return t("undo.action.clearPlaylistTarget", { name });
+      break;
     case "save_playlist_as_crate":
       if (name !== null) return t("undo.action.savePlaylistAsCrate", { name });
       break;

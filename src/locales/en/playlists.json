@@ -66,12 +66,90 @@
     "copied_one": "Playlist “{{name}}” made with {{count, number}} track",
     "copied_other": "Playlist “{{name}}” made with {{count, number}} tracks",
     "copiedLeftOut_one": "Playlist “{{name}}” made with {{count, number}} track ({{left, number}} entries couldn't be matched to your Library)",
-    "copiedLeftOut_other": "Playlist “{{name}}” made with {{count, number}} tracks ({{left, number}} entries couldn't be matched to your Library)"
+    "copiedLeftOut_other": "Playlist “{{name}}” made with {{count, number}} tracks ({{left, number}} entries couldn't be matched to your Library)",
+    "targetSet": "Target shape set",
+    "targetCleared": "Target shape cleared",
+    "inserted": "Inserted {{title}} at position {{position}}"
   },
   "addSelection": {
     "added_zero": "Nothing added to {{playlist}}",
     "added_one": "Added {{count, number}} track to {{playlist}}",
     "added_other": "Added {{count, number}} tracks to {{playlist}}"
+  },
+  "timeline": {
+    "button": "Timeline",
+    "label": "Timeline",
+    "total": "Total {{time}}",
+    "unknownLengths_one": "({{count, number}} track has no length)",
+    "unknownLengths_other": "({{count, number}} tracks have no length)",
+    "untitled": "Untitled",
+    "unknown": "unknown",
+    "energyTarget": "{{energy}} (target {{target}})",
+    "column": {
+      "position": "#",
+      "start": "Start",
+      "track": "Track",
+      "length": "Length",
+      "bpm": "BPM",
+      "key": "Key",
+      "energy": "Energy"
+    },
+    "chart": {
+      "label": "Energy of each track against the target shape",
+      "clash": "Clash or jump in this transition",
+      "unknown": "Something unknown in this transition"
+    },
+    "target": {
+      "point": "Target point at {{at}}% of the set",
+      "add": "Add point",
+      "clear": "Clear target",
+      "none": "No target shape (press the chart to place a point)",
+      "hint": "Press the chart to add a point, drag a point to move it, or use the arrow keys and Delete"
+    },
+    "flag": {
+      "key": {
+        "clash": "Key clash",
+        "unknown": "Key unknown"
+      },
+      "bpm": {
+        "clash": "BPM jump ({{delta}})",
+        "unknown": "BPM unknown"
+      },
+      "energy": {
+        "clash": "Energy step ({{step}})",
+        "unknown": "Energy unknown"
+      }
+    },
+    "fill": {
+      "button": "Fill the gap",
+      "before": "Fill the gap before the first track",
+      "between": "Fill the gap between {{from}} and {{to}}",
+      "after": "Fill the gap after {{title}}",
+      "title": "Tracks that fit this gap",
+      "target": "(target energy here {{target}})",
+      "close": "Close",
+      "none": "No Library tracks fit this gap",
+      "list": "Suggestions",
+      "insert": "Insert here",
+      "insertFor": "Insert {{title}} here"
+    }
+  },
+  "gap": {
+    "keyBridge": "key bridge {{from}} to {{via}} to {{to}}",
+    "keyFits": "key fits ({{from}} to {{via}} to {{to}})",
+    "keyFitsAfter": "key fits ({{from}} to {{via}})",
+    "keyFitsBefore": "key fits ({{via}} to {{to}})",
+    "keyFitsOnly": "key {{via}}",
+    "bpmStep": "BPM step {{from}} to {{via}} to {{to}}",
+    "bpmFits": "BPM fits ({{from}} to {{via}} to {{to}})",
+    "bpmFitsAfter": "BPM fits ({{from}} to {{via}})",
+    "bpmFitsBefore": "BPM fits ({{via}} to {{to}})",
+    "bpmFitsOnly": "{{via}} BPM",
+    "energyStep": "energy step {{from}} to {{via}} to {{to}}",
+    "energyStepAfter": "energy step {{from}} to {{via}}",
+    "energyStepBefore": "energy step {{via}} to {{to}}",
+    "energyStepOnly": "energy {{via}}",
+    "energyTarget": "energy {{via}} (target here {{target}})"
   },
   "error": {
     "notFound": "Playlist not found",
