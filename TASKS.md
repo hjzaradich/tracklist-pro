@@ -79,7 +79,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 - **3.8** R0 audio-model research, no code: the owner picks the model before any build (same rule as the audio library).
 - **4.1** portability bundle: B1 export and import (backend), B2 the screen.
 - **4.2** O onboarding, barebones: the online-services step, the Inbox folder asked for, the OneDrive check, rekordbox tips. The model download waits for 3.8.
-- **4.4** W docs: a user guide, issue templates, the non-affiliation and privacy notes, the GPL notice, the unsigned-install guide, and a third-party licence page generated from the dependencies.
+- **4.4** ✅ W docs (PR 206): a user guide, issue templates, the non-affiliation and privacy notes, the GPL notice, the unsigned-install guide, and a third-party licence page generated from the dependencies.
 - **Follow-ups:**
   - FB, backend: any_stale moves to a read connection; the stick's Contents folder gets a link check; "Read again" or an offered export says so before an older XML replaces a newer database read; diagnostics gets a disk-space line.
   - FU, screens: playlist sort by fit, start a playlist from a smart crate, autoscroll while dragging, the timeline's estimated key marked.

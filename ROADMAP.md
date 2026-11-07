@@ -747,6 +747,7 @@ Polish on top of the Phase 1 first run (1.3):
 - A docs site, and issue templates for suggestions (version-parser patterns, pool naming, genre aliases). Code contributions aren't accepted yet; the README says so.
 - A GPL notice plus a third-party license page generated from dependencies.
 - A non-affiliation disclaimer (rekordbox, CDJ and store names in plain text, never logos), and a privacy statement listing what each opt-in service receives.
+- **Built (4B, PR 206):** a user guide (docs/guide.md, linked from the README), a "Check the download" part in the install guide, bug and suggestion issue forms (blank issues off) and a PR template saying code contributions aren't accepted yet. The README's privacy list now matches the code: only the services the network gate knows, with their hosts; nothing contacts a service yet. Every installer carries a list of the third-party packages it ships with their licences, made at build time, and Settings has an About part with the version, the GPL notice, credits and that list. The docs folder is the docs site for now; a website would be a later choice. Wording proposed.
 - **Complexity:** M.
 
 ---
