@@ -925,8 +925,9 @@ export type AppInfo = {
 };
 
 /**
- *  One feature's rank in the Library: `percentile` is 0 to 100, the share
- *  of the Library's files this one is above in `code`'s feature.
+ *  One feature's place in the Library at the last batch: `percentile` is 0
+ *  to 100, about the share of the Library's files this one is above in
+ *  `code`'s feature.
  */
 export type Basis = {
 	code: BasisCode,
