@@ -1592,7 +1592,12 @@ export type EventKind = "jobStarted" | "jobFinished" | "jobFailed" | "jobCancell
  *  Startup asked the stages what is due: `ms` is how long it took,
  *  `count` how many stages couldn't be asked.
  */
-"startupAsked";
+"startupAsked" | 
+/**
+ *  A confirmed import or restore of a Library couldn't be finished at
+ *  startup; the Library in place opened instead (4.1).
+ */
+"libraryNotReplaced";
 
 /**  The log, newest first, for the Diagnostics screen. */
 export type EventLogView = {
@@ -1616,7 +1621,9 @@ export type EventReason =
 /**  This build has no handler for the job's kind. */
 "noHandler" | 
 /**  This build doesn't know the job's kind. */
-"unknownKind" | "notFound" | "cantRead" | "damaged" | "notAnExport" | "turnedOff" | "noKey" | "wrongKey" | "notALibrary" | "stopped" | "readFailed" | "cancelled" | "noPreflight" | "exportChanged" | "libraryChanged" | "notSendable" | "notConfirmed" | "exportOlderThanLastSend" | "cantWrite" | "cantRecord" | "internal";
+"unknownKind" | "notFound" | "cantRead" | "damaged" | "notAnExport" | "turnedOff" | "noKey" | "wrongKey" | "notALibrary" | "stopped" | "readFailed" | "cancelled" | "noPreflight" | "exportChanged" | "libraryChanged" | "notSendable" | "notConfirmed" | "exportOlderThanLastSend" | "cantWrite" | "cantRecord" | "internal" | 
+/**  A file was already where the old Library is set aside. */
+"fileInTheWay";
 
 /**  An export file found on disk. */
 export type ExportFile = {
