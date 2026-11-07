@@ -24,8 +24,9 @@
 //! track yet (they're offered once it has).
 //!
 //! Narrowed to chosen playlists (1aE-3), the same rules apply to the
-//! entries in those playlists only. Only tracks are added: the playlists
-//! themselves aren't imported (ROADMAP 3.5).
+//! entries in those playlists only. Only tracks are added: this import does
+//! not make the playlists themselves. A rekordbox playlist is copied into an
+//! app playlist, once, by [`crate::playlists`] (ROADMAP 3.5).
 //!
 //! Adding is one operation in the operation log, so one undo removes the
 //! whole batch. Which file a track links to, and whether it can be added,

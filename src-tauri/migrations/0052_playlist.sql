@@ -73,3 +73,34 @@ BEFORE UPDATE ON rekordbox_playlist_entry
 BEGIN
     SELECT RAISE(ABORT, 'the rekordbox snapshot is read-only; replace it with a fresh read');
 END;
+
+-- A Library track joins a playlist or leaves it, or an entry moves to another
+-- track: its row in the table's index (the "in a crate or playlist" flag)
+-- is worked out again, as for a crate's entries.
+CREATE TRIGGER search_playlist_entry_added
+AFTER INSERT ON playlist_entry
+BEGIN
+    INSERT INTO search_due (recording_id)
+    SELECT lt.recording_id FROM library_track lt
+    WHERE lt.id = new.library_track_id
+      AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = lt.recording_id);
+END;
+
+CREATE TRIGGER search_playlist_entry_removed
+AFTER DELETE ON playlist_entry
+BEGIN
+    INSERT INTO search_due (recording_id)
+    SELECT lt.recording_id FROM library_track lt
+    WHERE lt.id = old.library_track_id
+      AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = lt.recording_id);
+END;
+
+CREATE TRIGGER search_playlist_entry_changed
+AFTER UPDATE OF library_track_id ON playlist_entry
+WHEN old.library_track_id IS NOT new.library_track_id
+BEGIN
+    INSERT INTO search_due (recording_id)
+    SELECT lt.recording_id FROM library_track lt
+    WHERE lt.id IN (old.library_track_id, new.library_track_id)
+      AND NOT EXISTS (SELECT 1 FROM search_due d WHERE d.recording_id = lt.recording_id);
+END;

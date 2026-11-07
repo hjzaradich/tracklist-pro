@@ -67,8 +67,8 @@
 //!
 //! **One place to change** each choice the owner answered (2026-10-12):
 //! [`COUNT_UNDONE_OPERATIONS`], [`THIS_WEEK`] and [`BLANK_GENRE_FALLS_BACK`].
-//! The crate count is `crate_entry` rows of kind `member` ([`IN_A_CRATE`]);
-//! playlists arrive in Phase 3.
+//! The crate count is a static crate's members or a playlist's entries
+//! ([`IN_A_CRATE`]).
 //!
 //! Read-only: the whole answer is read in one transaction.
 
@@ -108,11 +108,13 @@ pub const ENERGY_LEVELS: usize = 10;
 /// The verdicts that make a track "made from a low-quality file".
 const LOW_QUALITY_VERDICTS: &str = "'low_bitrate', 'suspect_transcode', 'truncated', 'broken'";
 
-/// A Library track is in a crate when a static crate holds it. A smart
-/// crate's entries are always-include and never-include rules, not
-/// membership. Playlists arrive in Phase 3.
-pub(crate) const IN_A_CRATE: &str = "EXISTS (SELECT 1 FROM crate_entry ce
-                                  WHERE ce.library_track_id = lt.id AND ce.kind = 'member')";
+/// A Library track is in a crate when a static crate holds it, or in a
+/// playlist when one lists it. A smart crate's entries are always-include
+/// and never-include rules, not membership.
+pub(crate) const IN_A_CRATE: &str = "(EXISTS (SELECT 1 FROM crate_entry ce
+                                   WHERE ce.library_track_id = lt.id AND ce.kind = 'member')
+                                  OR EXISTS (SELECT 1 FROM playlist_entry pe
+                                   WHERE pe.library_track_id = lt.id))";
 
 /// The track has a row from rekordbox in `analysis` (see the module docs).
 pub(crate) const ANALYZED: &str = "EXISTS (SELECT 1 FROM analysis a
@@ -161,8 +163,7 @@ pub struct Overview {
     pub tracks: u32,
     /// The Library's length: the sum of its linked files' durations.
     pub total_length_ms: u64,
-    /// Library tracks in at least one crate. Crates only until playlists
-    /// arrive (Phase 3).
+    /// Library tracks in at least one crate or playlist.
     pub in_crates: u32,
     /// Library tracks in no crate.
     pub in_no_crate: u32,

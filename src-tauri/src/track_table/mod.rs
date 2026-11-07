@@ -60,6 +60,7 @@ use crate::library::{
     self, BetterFile, LibraryTrackId, LinkedFile, StoredFile, FILE_COLUMNS, FILE_JOINS,
 };
 use crate::paths::Volumes;
+use crate::playlists::{PlaylistEntryId, PlaylistId};
 use crate::scan::system_volumes;
 use crate::search::{self, flag, time_ms};
 
@@ -92,6 +93,11 @@ pub enum TableSource {
         id: Option<CrateId>,
         rule: Option<SmartRule>,
     },
+    /// The Library tracks in one playlist, in the playlist's order, a track
+    /// that is in it twice twice (3C-P1a). Each row carries its entry
+    /// ([`TableRow::entry_id`]). A sort orders by a column and keeps the
+    /// playlist's order for ties.
+    Playlist { id: PlaylistId },
 }
 
 impl TableSource {
@@ -99,8 +105,23 @@ impl TableSource {
     fn crate_id(&self) -> Option<CrateId> {
         match self {
             TableSource::Crate { id } | TableSource::CrateByFit { id, .. } => Some(*id),
-            TableSource::Library | TableSource::AllMusic | TableSource::Smart { .. } => None,
+            TableSource::Library
+            | TableSource::AllMusic
+            | TableSource::Smart { .. }
+            | TableSource::Playlist { .. } => None,
         }
+    }
+
+    /// Whether the rows come from the entries of one list (a crate's or a
+    /// playlist's), not from a sort index, so nothing can be scanned
+    /// backwards.
+    fn from_entries(&self) -> bool {
+        matches!(
+            self,
+            TableSource::Crate { .. }
+                | TableSource::CrateByFit { .. }
+                | TableSource::Playlist { .. }
+        )
     }
 }
 
@@ -226,6 +247,10 @@ pub struct TableRow {
     pub energy: Option<u8>,
     /// Whose word the shown energy is. `None` with no energy.
     pub energy_source: Option<EnergySource>,
+    /// The playlist entry the row is; only in a [`TableSource::Playlist`]
+    /// table, where a track in the playlist twice has two rows with two
+    /// entries (what moving and removing take).
+    pub entry_id: Option<PlaylistEntryId>,
 }
 
 /// Where a shown energy comes from, in the order they rank
@@ -329,6 +354,9 @@ struct Built {
     /// How to read a descending sort of a column that can be blank straight
     /// from its ascending index; see [`Backwards`].
     backwards: Option<Backwards>,
+    /// What gives a row's playlist entry: `pe.id`, or `NULL` outside a
+    /// playlist.
+    entry: &'static str,
     params: Vec<Value>,
 }
 
@@ -365,6 +393,7 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
                 TableSource::Crate { .. } | TableSource::CrateByFit { .. } => {
                     "ce.added_at, ce.library_track_id".to_owned()
                 }
+                TableSource::Playlist { .. } => "pe.position, pe.id".to_owned(),
                 _ => "tr.title_key, tr.artist_key, tr.recording_id".to_owned(),
             },
             None,
@@ -377,10 +406,13 @@ fn order_by(source: &TableSource, sort: Option<TableSort>) -> (String, Option<Ba
         .map(|tie| format!("tr.{tie}{direction}"))
         .collect::<Vec<_>>()
         .join(", ");
-    let ordered = match nullable {
+    let mut ordered = match nullable {
         true => format!("({name} IS NULL), {name}{direction}, {tie_order}"),
         false => format!("{name}{direction}, {tie_order}"),
     };
+    if matches!(source, TableSource::Playlist { .. }) {
+        ordered.push_str(", pe.position, pe.id");
+    }
     let backwards = (descending && nullable).then(|| Backwards {
         filled: format!("({name} IS NULL) = 0 AND {name} IS NOT NULL"),
         blank: format!("({name} IS NULL) = 1 AND {name} IS NULL"),
@@ -424,6 +456,13 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
              JOIN library_track lt ON lt.id = ce.library_track_id
              JOIN track_row tr ON tr.recording_id = lt.recording_id"
         }
+        TableSource::Playlist { id } => {
+            params.push(Value::Integer(id.0));
+            conditions.push(format!("pe.playlist_id = ?{}", params.len()));
+            "playlist_entry pe
+             JOIN library_track lt ON lt.id = pe.library_track_id
+             JOIN track_row tr ON tr.recording_id = lt.recording_id"
+        }
     };
     let mut searched = false;
     if let Some(expression) = query.search.as_deref().and_then(search::match_expression) {
@@ -438,12 +477,16 @@ fn build(query: &TableQuery, quality: Option<&str>) -> Built {
     // A search is read by rowid from the index of words, and a crate from
     // its own entries: neither is in the order of a sort index, so there is
     // nothing for a backward scan to read.
-    let indexed = !searched && query.source.crate_id().is_none();
+    let indexed = !searched && !query.source.from_entries();
     conditions.extend(filters::conditions(&query.filters, quality, &mut params));
     Built {
         from_where: format!("FROM {from} WHERE {}", conditions.join(" AND ")),
         order_by,
         backwards: backwards.filter(|_| indexed),
+        entry: match query.source {
+            TableSource::Playlist { .. } => "pe.id",
+            _ => "NULL",
+        },
         params,
     }
 }
@@ -468,6 +511,16 @@ fn resolved(conn: &Connection, query: &TableQuery) -> rusqlite::Result<Option<Ta
             return Ok(None);
         }
     }
+    if let TableSource::Playlist { id } = &query.source {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM playlist WHERE id = ?1)",
+            [id.0],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Ok(None);
+        }
+    }
     if let TableSource::Smart { id: Some(id), rule } = &query.source {
         let Some(stored) = smart_membership::stored_rule(conn, *id)? else {
             return Ok(None);
@@ -484,6 +537,32 @@ fn resolved(conn: &Connection, query: &TableQuery) -> rusqlite::Result<Option<Ta
 }
 
 /// The ids a `SELECT` of `from_where` gives, in `order_by`, from `offset`.
+fn select_pairs(
+    conn: &Connection,
+    entry: &str,
+    from_where: &str,
+    order_by: &str,
+    params: &[Value],
+    limit: u32,
+    offset: u32,
+) -> rusqlite::Result<Vec<(i64, Option<i64>)>> {
+    let mut params = params.to_vec();
+    params.push(Value::Integer(i64::from(limit)));
+    params.push(Value::Integer(i64::from(offset)));
+    let sql = format!(
+        "SELECT tr.recording_id, {entry} {from_where} ORDER BY {order_by} LIMIT ?{} OFFSET ?{}",
+        params.len() - 1,
+        params.len()
+    );
+    conn.prepare_cached(&sql)?
+        .query_map(rusqlite::params_from_iter(params.iter()), |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
+        .collect()
+}
+
+/// [`select_pairs`] without the entries (the tests read the ids alone).
+#[cfg(test)]
 fn select_ids(
     conn: &Connection,
     from_where: &str,
@@ -492,17 +571,12 @@ fn select_ids(
     limit: u32,
     offset: u32,
 ) -> rusqlite::Result<Vec<i64>> {
-    let mut params = params.to_vec();
-    params.push(Value::Integer(i64::from(limit)));
-    params.push(Value::Integer(i64::from(offset)));
-    let sql = format!(
-        "SELECT tr.recording_id {from_where} ORDER BY {order_by} LIMIT ?{} OFFSET ?{}",
-        params.len() - 1,
-        params.len()
-    );
-    conn.prepare_cached(&sql)?
-        .query_map(rusqlite::params_from_iter(params.iter()), |r| r.get(0))?
-        .collect()
+    Ok(
+        select_pairs(conn, "NULL", from_where, order_by, params, limit, offset)?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect(),
+    )
 }
 
 /// How many rows `from_where` has.
@@ -513,12 +587,15 @@ fn count_rows(conn: &Connection, from_where: &str, params: &[Value]) -> rusqlite
     Ok(u32::try_from(n).unwrap_or(u32::MAX))
 }
 
-/// The ids of the tracks in the window, in order, and the count when asked.
+/// The ids of the tracks in the first window, in order, and the count when
+/// asked.
+#[cfg(test)]
 fn window_ids(conn: &Connection, query: &TableQuery) -> rusqlite::Result<(Vec<i64>, Option<u32>)> {
     window_ids_up_to(conn, query, MAX_WINDOW)
 }
 
-/// [`window_ids`] with the window at most `most` rows.
+/// The ids of the tracks in the window (at most `most` rows), in order, and
+/// the count when asked.
 fn window_ids_up_to(
     conn: &Connection,
     query: &TableQuery,
@@ -527,6 +604,16 @@ fn window_ids_up_to(
     if let Some((ids, total, _)) = fit_order::window(conn, query, most)? {
         return Ok((ids, total));
     }
+    let (pairs, total) = window_pairs_up_to(conn, query, most)?;
+    Ok((pairs.into_iter().map(|(id, _)| id).collect(), total))
+}
+
+/// The tracks in the window with, in a playlist, the entry each row is.
+fn window_pairs_up_to(
+    conn: &Connection,
+    query: &TableQuery,
+    most: u32,
+) -> rusqlite::Result<(Vec<(i64, Option<i64>)>, Option<u32>)> {
     // Review's quality problems are worked out once for the count and the window.
     let quality = match query.filters.contains(&TableFilter::QualityProblem) {
         true => Some(filters::quality_problems(conn)?),
@@ -540,8 +627,9 @@ fn window_ids_up_to(
     let limit = query.limit.min(most);
     let offset = query.offset;
     let ids = match &built.backwards {
-        None => select_ids(
+        None => select_pairs(
             conn,
+            built.entry,
             &built.from_where,
             &built.order_by,
             &built.params,
@@ -551,8 +639,9 @@ fn window_ids_up_to(
         Some(b) => {
             // The rows with a value, backwards...
             let filled_where = format!("{} AND {}", built.from_where, b.filled);
-            let mut ids = select_ids(
+            let mut ids = select_pairs(
                 conn,
+                built.entry,
                 &filled_where,
                 &b.filled_order,
                 &built.params,
@@ -569,8 +658,9 @@ fn window_ids_up_to(
                     (false, _) => offset + ids.len() as u32,
                 };
                 let blank_where = format!("{} AND {}", built.from_where, b.blank);
-                ids.extend(select_ids(
+                ids.extend(select_pairs(
                     conn,
+                    built.entry,
                     &blank_where,
                     &b.blank_order,
                     &built.params,
@@ -611,7 +701,7 @@ fn rows_for(
         .collect();
     let library_ids: HashMap<i64, LibraryTrackId> =
         stored.iter().map(|(&r, t)| (r, t.id)).collect();
-    let mut fields = search::fields_of(conn, volumes, ids, &library_ids)?;
+    let fields = search::fields_of(conn, volumes, ids, &library_ids)?;
 
     // BPM, key and when it was added, for every track.
     let mut facts: HashMap<i64, Extras> = HashMap::new();
@@ -701,7 +791,7 @@ fn rows_for(
         unconfirmed.insert(row?);
     }
 
-    let mut energies = energies_for(conn, &json)?;
+    let energies = energies_for(conn, &json)?;
 
     let mut rows = Vec::with_capacity(ids.len());
     for &id in ids {
@@ -715,8 +805,8 @@ fn rows_for(
             }
         };
         let duration = file_id.and_then(|file_id| durations.get(&file_id).copied());
-        let shown = fields.remove(&id).unwrap_or_default();
-        let (bpm, key, added_at) = facts.remove(&id).unwrap_or_default();
+        let shown = fields.get(&id).cloned().unwrap_or_default();
+        let (bpm, key, added_at) = facts.get(&id).cloned().unwrap_or_default();
         let blank = |text: String| (!text.trim().is_empty()).then_some(text);
         rows.push(StoredRow {
             row: TableRow {
@@ -739,7 +829,8 @@ fn rows_for(
                 better_file: library_track.and_then(|t| t.better_file),
                 fit: None,
                 energy: energies.get(&id).map(|(level, _)| *level),
-                energy_source: energies.remove(&id).and_then(|(_, source)| source),
+                entry_id: None,
+                energy_source: energies.get(&id).and_then(|(_, source)| source.clone()),
             },
             file,
         });
@@ -764,14 +855,19 @@ pub fn read(
     let Some(query) = resolved(conn, query)? else {
         return Ok(None);
     };
-    let (ids, total, fits) = match fit_order::window(conn, &query, MAX_WINDOW)? {
-        Some((ids, total, fits)) => (ids, total, Some(fits)),
+    let (ids, total, fits, entries) = match fit_order::window(conn, &query, MAX_WINDOW)? {
+        Some((ids, total, fits)) => (ids, total, Some(fits), Vec::new()),
         None => {
-            let (ids, total) = window_ids(conn, &query)?;
-            (ids, total, None)
+            let (pairs, total) = window_pairs_up_to(conn, &query, MAX_WINDOW)?;
+            let ids = pairs.iter().map(|&(id, _)| id).collect();
+            let entries = pairs.into_iter().map(|(_, entry)| entry).collect();
+            (ids, total, None, entries)
         }
     };
     let mut rows = rows_for(conn, volumes, &ids)?;
+    for (stored, entry) in rows.iter_mut().zip(entries) {
+        stored.row.entry_id = entry.map(PlaylistEntryId);
+    }
     if let Some(mut fits) = fits {
         for stored in &mut rows {
             stored.row.fit = fits.remove(&stored.row.recording_id);

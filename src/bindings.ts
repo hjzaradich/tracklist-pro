@@ -658,6 +658,30 @@ export const commands = {
 	historySetDate: (sessionId: number, playedOn: string) => typedError<HistoryOutcome, IpcError>(__TAURI_INVOKE("history_set_date", { sessionId, playedOn })),
 	/**  Adds a session's unmatched plays to a wishlist. */
 	historyAddToWishlist: (sessionId: number, wishlistId: number) => typedError<WishlistOutcome, IpcError>(__TAURI_INVOKE("history_add_to_wishlist", { sessionId, wishlistId })),
+	/**  Every playlist, oldest first. */
+	listPlaylists: () => typedError<Playlist[], IpcError>(__TAURI_INVOKE("list_playlists")),
+	/**  One playlist and its entries in order, each with the track's row. */
+	playlistView: (id: PlaylistId) => typedError<PlaylistView, IpcError>(__TAURI_INVOKE("playlist_view", { id })),
+	/**  Makes an empty playlist. The name is trimmed. */
+	createPlaylist: (name: string) => typedError<PlaylistId, IpcError>(__TAURI_INVOKE("create_playlist", { name })),
+	/**  Renames a playlist; the operation, or none when the name is the same. */
+	renamePlaylist: (id: PlaylistId, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("rename_playlist", { id, name })),
+	/**  Deletes a playlist (its tracks stay in the Library); the operation. */
+	deletePlaylist: (id: PlaylistId) => typedError<number | null, IpcError>(__TAURI_INVOKE("delete_playlist", { id })),
+	/**  Adds Library tracks, last or from position `at`. */
+	addTracksToPlaylist: (id: PlaylistId, tracks: LibraryTrackId[], at: number | null) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("add_tracks_to_playlist", { id, tracks, at })),
+	/**  Removes entries. */
+	removeFromPlaylist: (id: PlaylistId, entries: PlaylistEntryId[]) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("remove_from_playlist", { id, entries })),
+	/**  Moves entries before entry `before`, or to the end. */
+	moveInPlaylist: (id: PlaylistId, entries: PlaylistEntryId[], before: number | null) => typedError<PlaylistChanged, IpcError>(__TAURI_INVOKE("move_in_playlist", { id, entries, before })),
+	/**  "Save as crate": a new crate at the top of the tree. */
+	savePlaylistAsCrate: (id: PlaylistId, name: string) => typedError<CrateId, IpcError>(__TAURI_INVOKE("save_playlist_as_crate", { id, name })),
+	/**  "Start a playlist from this crate", in `order` (the view's sort). */
+	playlistFromCrate: (crateId: CrateId, name: string, order: LibraryTrackId[]) => typedError<PlaylistId, IpcError>(__TAURI_INVOKE("playlist_from_crate", { crateId, name, order })),
+	/**  The playlists of the newest rekordbox read that can be copied. */
+	rekordboxPlaylistsToCopy: () => typedError<RekordboxPlaylist[], IpcError>(__TAURI_INVOKE("rekordbox_playlists_to_copy")),
+	/**  "Make an app playlist from this rekordbox playlist". */
+	playlistFromRekordbox: (path: string[], name: string) => typedError<CopiedFromRekordbox, IpcError>(__TAURI_INVOKE("playlist_from_rekordbox", { path, name })),
 	/**  The tracks that best follow `recording_id` going `direction`, with why. */
 	nextFor: (recordingId: number, direction: Direction) => typedError<NextReply, IpcError>(__TAURI_INVOKE("next_for", { recordingId, direction })),
 	/**  The weights and the tolerance. */
@@ -673,7 +697,7 @@ export const events = {
 };
 
 /* Constants */
-export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound"} as const;
+export const ERROR_KEYS = {"alreadyAdded":"musicFolders:alreadyAdded","badPath":"musicFolders:badPath","busy":"errors:busy","cannotWrite":"errors:cannotWrite","conflictBadValue":"conflicts:error.badValue","conflictGone":"conflicts:error.gone","conflictsChanged":"conflicts:error.changed","containsMusicFolder":"musicFolders:containsMusicFolder","crateMoveIntoItself":"crates:error.moveIntoItself","crateNameEmpty":"crates:error.nameEmpty","crateNameTaken":"crates:error.nameTaken","crateNameUnsendable":"crates:error.nameUnsendable","crateNotAFolder":"crates:error.notAFolder","crateNotFound":"crates:error.notFound","crateNotesTooLong":"crates:error.notesTooLong","crateTooDeep":"crates:error.tooDeep","damaged":"errors:damaged","database":"errors:database","diskFull":"errors:diskFull","folderNameEmpty":"crates:error.folderNameEmpty","folderNameTaken":"crates:error.folderNameTaken","folderNotFound":"crates:error.folderNotFound","genreAliasTaken":"genre:error.aliasTaken","genreMoveIntoItself":"genre:error.moveIntoItself","genreNameEmpty":"genre:error.nameEmpty","genreNameTaken":"genre:error.nameTaken","genreNotFound":"genre:error.notFound","genreTextTooLong":"genre:error.textTooLong","hiddenChoiceChanged":"hiddenFiles:error.changed","hiddenChoiceInLibrary":"hiddenFiles:error.inLibrary","insideMusicFolder":"musicFolders:insideMusicFolder","internal":"errors:internal","libraryFileMissing":"library:error.fileMissing","libraryMatchNotConfirmed":"library:error.matchNotConfirmed","libraryNoFile":"library:error.noFile","libraryTrackNotFound":"library:error.trackNotFound","musicFolderInUse":"musicFolders:inUse","musicFolderNotFound":"musicFolders:notFound","noRekordboxXml":"rekordbox:error.noneChosen","notAFolder":"musicFolders:notAFolder","notRekordboxXml":"rekordbox:error.notAnExport","playlistEntryNotFound":"playlists:error.entryNotFound","playlistNameEmpty":"playlists:error.nameEmpty","playlistNameTaken":"playlists:error.nameTaken","playlistNameUnsendable":"playlists:error.nameUnsendable","playlistNotFound":"playlists:error.notFound","rekordboxPlaylistNotFound":"playlists:error.rekordboxPlaylistNotFound","rekordboxXmlNotFound":"rekordbox:error.notFound","reviewItemGone":"review:error.itemGone","reviewMergeLinkedVersions":"review:error.mergeLinkedVersions","reviewNoAudioKnown":"review:error.noAudioKnown","reviewSameAudio":"review:error.sameAudio","reviewSplitTwoLibraryTracks":"review:error.splitTwoLibraryTracks","reviewSwitchChanged":"review:error.switchChanged","reviewSwitchEntryTaken":"review:error.switchEntryTaken","reviewSwitchLinkedOnDisk":"review:error.switchLinkedOnDisk","reviewSwitchNotInTrack":"review:error.switchNotInTrack","reviewSwitchTargetGone":"review:error.switchTargetGone","reviewSwitchTargetLinked":"review:error.switchTargetLinked","sendNeedsExport":"rekordbox:error.sendNeedsExport","smartRuleTooLong":"smartCrates:error.ruleTooLong","stopped":"errors:stopped","tagColourInvalid":"vocab:error.colourInvalid","tagGroupNotFound":"vocab:error.groupNotFound","tagNameEmpty":"vocab:error.nameEmpty","tagNameTaken":"vocab:error.nameTaken","tagNameUnsendable":"vocab:error.nameUnsendable","tagNotFound":"vocab:error.tagNotFound"} as const;
 
 export const KEY_NAMES = [{"names":["1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A","1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B"],"notation":"camelot"},{"names":["G#m","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_standard"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm","B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_rekordbox"},{"names":["G#m","D#m","A#m","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","C#m","B","F#","C#","G#","D#","A#","F","C","G","D","A","E"],"notation":"musical_sharps"},{"names":["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","Gbm","Dbm","B","Gb","Db","Ab","Eb","Bb","F","C","G","D","A","E"],"notation":"musical_flats"}] as const;
 
@@ -1016,6 +1040,19 @@ export type ConflictTrack = {
 	fileName: string | null,
 };
 
+/**  What copying a rekordbox playlist did. */
+export type CopiedFromRekordbox = {
+	playlistId: PlaylistId,
+	/**  Entries copied, in rekordbox's order. */
+	added: number,
+	/**
+	 *  Entries left out: their track isn't a Library track (or has no
+	 *  trusted match to a file).
+	 */
+	notInLibrary: number,
+	operationId: number | null,
+};
+
 /**  Which numbers can still change because background work is running. */
 export type Counting = {
 	/**
@@ -1344,7 +1381,19 @@ export type ErrorKind =
 /**  The spelling is already a genre's name or an alias; `name` is the genre it goes to. */
 "genreAliasTaken" | 
 /**  A genre name or alias is longer than 200 characters. */
-"genreTextTooLong";
+"genreTextTooLong" | 
+/**  There is no playlist with that id (it was deleted meanwhile). */
+"playlistNotFound" | 
+/**  The entry to move tracks before is no longer in the playlist. */
+"playlistEntryNotFound" | 
+/**  A playlist name is empty once trimmed. */
+"playlistNameEmpty" | 
+/**  Another playlist (or the Tags folder) has the name; `name` is that one's. */
+"playlistNameTaken" | 
+/**  The playlist name has a character that can't be sent to rekordbox. */
+"playlistNameUnsendable" | 
+/**  The newest rekordbox read has no playlist with entries at that path. */
+"rekordboxPlaylistNotFound";
 
 /**
  *  A value filled into an error message: data (a name, a path, a count),
@@ -2349,10 +2398,7 @@ export type Overview = {
 	tracks: number,
 	/**  The Library's length: the sum of its linked files' durations. */
 	totalLengthMs: number,
-	/**
-	 *  Library tracks in at least one crate. Crates only until playlists
-	 *  arrive (Phase 3).
-	 */
+	/**  Library tracks in at least one crate or playlist. */
 	inCrates: number,
 	/**  Library tracks in no crate. */
 	inNoCrate: number,
@@ -2423,6 +2469,30 @@ export type Play = {
 	path: string,
 };
 
+/**  A playlist, as the sidebar and the playlist screen list it. */
+export type Playlist = {
+	id: PlaylistId,
+	name: string,
+	origin: PlaylistOrigin,
+	/**
+	 *  For a copy of a rekordbox playlist, its path in rekordbox (folder
+	 *  names down to the playlist), for display. `None` for the app's own.
+	 */
+	sourcePath: string[] | null,
+	/**  How many entries it has, repeats counted. */
+	trackCount: number,
+};
+
+/**  What adding, removing or moving entries did. */
+export type PlaylistChanged = {
+	/**  Entries added, removed or moved. */
+	changed: number,
+	/**  Entries asked about that aren't in the playlist, so were left alone. */
+	skipped: number,
+	/**  The operation this recorded; `None` when nothing changed. */
+	operationId: number | null,
+};
+
 /**
  *  A rekordbox playlist to pick, with how many of its entries are tracks
  *  with a file or a last known path (streaming entries aren't counted).
@@ -2430,6 +2500,39 @@ export type Play = {
 export type PlaylistChoice = {
 	path: string[],
 	tracks: number,
+};
+
+/**
+ *  One entry's row id: a track's place in a playlist (a track that is in it
+ *  twice has two).
+ */
+export type PlaylistEntryId = number;
+
+/**  A playlist's row id. */
+export type PlaylistId = number;
+
+/**
+ *  One entry of a playlist with the track's row as the track table shows
+ *  it (energy, key, BPM and length included).
+ */
+export type PlaylistItem = {
+	entryId: PlaylistEntryId,
+	/**  From 0, dense. */
+	position: number,
+	row: TableRow,
+};
+
+/**  Where a playlist came from. */
+export type PlaylistOrigin = 
+/**  Made in the app (a conversion from a crate included). */
+"app" | 
+/**  Copied once from a rekordbox playlist ([`import`]). */
+"rekordbox";
+
+/**  A playlist and every entry, in order. */
+export type PlaylistView = {
+	playlist: Playlist,
+	items: PlaylistItem[],
 };
 
 /**  The plays of a session, and whether "Add to a wishlist" is offered. */
@@ -2705,6 +2808,17 @@ export type RekordboxDatabase = {
 	lastRead: LastRead | null,
 	/**  rekordbox's usual folder, where the picker opens, if it's there. */
 	usualFolder: string | null,
+};
+
+/**  A playlist of the newest rekordbox read, to copy. */
+export type RekordboxPlaylist = {
+	/**  Folder names from below ROOT down to the playlist. */
+	path: string[],
+	/**
+	 *  Its entries, every one (repeats, and tracks outside the Library,
+	 *  included).
+	 */
+	entries: number,
 };
 
 /**  Whether rekordbox knows a file. */
@@ -3458,6 +3572,12 @@ export type TableRow = {
 	energy: number | null,
 	/**  Whose word the shown energy is. `None` with no energy. */
 	energySource: EnergySource | null,
+	/**
+	 *  The playlist entry the row is; only in a [`TableSource::Playlist`]
+	 *  table, where a track in the playlist twice has two rows with two
+	 *  entries (what moving and removing take).
+	 */
+	entryId: PlaylistEntryId | null,
 };
 
 /**
@@ -3494,7 +3614,14 @@ export type TableSource =
  *  `rule`, when given, stands in for the stored one: the rule builder's
  *  draft, for its live count. With no `id`, the draft's own tracks.
  */
-{ kind: "smart"; id: CrateId | null; rule: SmartRule | null };
+{ kind: "smart"; id: CrateId | null; rule: SmartRule | null } | 
+/**
+ *  The Library tracks in one playlist, in the playlist's order, a track
+ *  that is in it twice twice (3C-P1a). Each row carries its entry
+ *  ([`TableRow::entry_id`]). A sort orders by a column and keeps the
+ *  playlist's order for ties.
+ */
+{ kind: "playlist"; id: PlaylistId };
 
 /**  A tag, as the vocabulary panel lists it. */
 export type Tag = {

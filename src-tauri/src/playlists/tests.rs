@@ -709,3 +709,27 @@ fn every_read_replaces_rekordboxs_playlists_with_their_order() {
     });
     assert!(edited.unwrap().is_err());
 }
+
+#[test]
+fn undoing_a_rename_whose_old_name_was_taken_since_says_the_name_is_taken() {
+    let lib = Lib::new();
+    let first = lib.create("Old");
+    lib.create("Other");
+    lib.call(move |c| rename_on(c, first, "New")).unwrap();
+    // Another program's write, outside the log, takes the old name.
+    lib.run(
+        "UPDATE playlist SET name = 'OLD', name_key = 'old' WHERE id = 2",
+        (),
+    );
+    let before = lib.state();
+    match undo_last_via(&lib.writer).unwrap() {
+        UndoOutcome::Refused { reason, .. } => assert_eq!(
+            reason,
+            crate::ops::UndoRefusal::CrateNameTaken {
+                name: "OLD".to_owned()
+            }
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(lib.state(), before);
+}
