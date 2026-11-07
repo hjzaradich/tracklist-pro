@@ -126,5 +126,93 @@
   "wishlist.skipped_other": {
     "purpose": "Says how many unmatched plays weren't added because the file gave no artist or title.",
     "where": "History screen, after adding to a wishlist."
+  },
+  "stick.label": {
+    "purpose": "Accessible name of the gig-stick import area.",
+    "where": "History screen, below the m3u8 import."
+  },
+  "stick.choose": {
+    "purpose": "Button that opens the folder dialog to pick a gig stick's top folder and read its history lists.",
+    "where": "History screen, below the m3u8 import."
+  },
+  "stick.hint": {
+    "purpose": "Tells the user to close rekordbox before reading a stick (ROADMAP §5.4), to pick the stick's top folder, and that the stick is only read.",
+    "where": "History screen, under the gig-stick button."
+  },
+  "stick.list_one": {
+    "purpose": "One history list found on the stick, with its number of plays (one play), next to a checkbox.",
+    "where": "History screen, after a stick is read."
+  },
+  "stick.list_other": {
+    "purpose": "One history list found on the stick, with its number of plays, next to a checkbox.",
+    "where": "History screen, after a stick is read."
+  },
+  "stick.noLists": {
+    "purpose": "Says the stick was read but has no history lists.",
+    "where": "History screen, after a stick is read."
+  },
+  "stick.date": {
+    "purpose": "Label of the date the ticked lists were played; defaults to today.",
+    "where": "History screen, under the stick's lists."
+  },
+  "stick.import": {
+    "purpose": "Button that imports the ticked lists, each as one set.",
+    "where": "History screen, under the stick's lists."
+  },
+  "stick.done_one": {
+    "purpose": "Says how many sets a stick import made (one set).",
+    "where": "History screen, after a stick import."
+  },
+  "stick.done_other": {
+    "purpose": "Says how many sets a stick import made.",
+    "where": "History screen, after a stick import."
+  },
+  "stick.unmatched_one": {
+    "purpose": "Says how many imported plays matched no track (one); they're kept.",
+    "where": "History screen, after a stick import."
+  },
+  "stick.unmatched_other": {
+    "purpose": "Says how many imported plays matched no track; they're kept.",
+    "where": "History screen, after a stick import."
+  },
+  "stick.alreadyImported_one": {
+    "purpose": "Says how many ticked lists were left out because the same plays are already a set on that date (one).",
+    "where": "History screen, after a stick import."
+  },
+  "stick.alreadyImported_other": {
+    "purpose": "Says how many ticked lists were left out because the same plays are already a set on that date.",
+    "where": "History screen, after a stick import."
+  },
+  "stick.skipped_one": {
+    "purpose": "Says how many damaged parts of the stick's database (pages, rows, entries) were skipped (one). The rest was read.",
+    "where": "History screen, after a stick is read or imported."
+  },
+  "stick.skipped_other": {
+    "purpose": "Says how many damaged parts of the stick's database (pages, rows, entries) were skipped. The rest was read.",
+    "where": "History screen, after a stick is read or imported."
+  },
+  "stick.refusal.noExport": {
+    "purpose": "The picked folder has no PIONEER\\rekordbox\\export.pdb.",
+    "where": "History screen, after picking a stick folder."
+  },
+  "stick.refusal.unreadable": {
+    "purpose": "The stick's export.pdb is there but couldn't be read or copied.",
+    "where": "History screen, after picking a stick folder or importing."
+  },
+  "stick.refusal.tooBig": {
+    "purpose": "The stick's export.pdb is over the 256 MB limit.",
+    "where": "History screen, after picking a stick folder."
+  },
+  "stick.refusal.notAnExport": {
+    "purpose": "The stick's export.pdb doesn't look like a rekordbox export database.",
+    "where": "History screen, after picking a stick folder."
+  },
+  "stick.refusal.nothingChosen": {
+    "purpose": "Import was asked for with no ticked list that has plays.",
+    "where": "History screen, after a stick import."
+  },
+  "stick.refusal.badDate": {
+    "purpose": "The date given for a stick import isn't a calendar day.",
+    "where": "History screen, after a stick import."
   }
 }

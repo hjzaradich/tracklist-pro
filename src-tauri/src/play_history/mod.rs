@@ -17,6 +17,7 @@
 //!   adding the unmatched plays to a wishlist (only while wishlists are on).
 //! - rekordbox's own play counts and last played (1.2) are not touched.
 //! - Bad lines never stop an import ([`m3u8`]); they are counted.
+//! - Gig sticks: [`stick`] reads a stick's history lists, each one a session.
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension};
@@ -34,6 +35,7 @@ use crate::wishlist::{self, WishSkipReason, WishSkippedLine, WishTrack, Wishlist
 
 pub mod m3u8;
 pub mod matching;
+pub mod stick;
 
 #[cfg(test)]
 mod tests;
@@ -102,7 +104,7 @@ fn refused(reason: HistoryRefusal) -> HistoryOutcome {
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: i64,
-    /// `m3u8` (later also `stick`).
+    /// `m3u8` or `stick`.
     pub source: String,
     pub name: String,
     /// `YYYY-MM-DD`.
@@ -224,33 +226,7 @@ pub fn import_m3u8(
         conn,
         IMPORT_OPERATION,
         &json!({ "name": name, "plays": total }),
-        |rec| {
-            let session = rec.insert(
-                "session",
-                &[
-                    ("source", text("m3u8")),
-                    ("name", text(&name)),
-                    ("played_on", text(&played_on)),
-                ],
-            )?;
-            for (position, play) in (0_i64..).zip(&plays) {
-                rec.insert(
-                    "play_event",
-                    &[
-                        ("session_id", Value::Integer(session)),
-                        ("position", Value::Integer(position)),
-                        (
-                            "recording_id",
-                            play.recording.map_or(Value::Null, Value::Integer),
-                        ),
-                        ("raw_path", text(&play.entry.path)),
-                        ("raw_artist", optional(&play.entry.artist)),
-                        ("raw_title", optional(&play.entry.title)),
-                    ],
-                )?;
-            }
-            Ok(session)
-        },
+        |rec| insert_session(rec, "m3u8", &name, &played_on, &plays),
     )?;
     Ok(HistoryOutcome::Done {
         operation_id: recorded.operation_id,
@@ -259,6 +235,42 @@ pub fn import_m3u8(
         matched,
         skipped_lines: parsed.skipped,
     })
+}
+
+/// Inserts a session and its plays, in order, as part of the operation
+/// `rec` records.
+fn insert_session(
+    rec: &mut ops::Recorder<'_>,
+    source: &str,
+    name: &str,
+    played_on: &str,
+    plays: &[NewPlay],
+) -> Result<i64, OpsError> {
+    let session = rec.insert(
+        "session",
+        &[
+            ("source", text(source)),
+            ("name", text(name)),
+            ("played_on", text(played_on)),
+        ],
+    )?;
+    for (position, play) in (0_i64..).zip(plays) {
+        rec.insert(
+            "play_event",
+            &[
+                ("session_id", Value::Integer(session)),
+                ("position", Value::Integer(position)),
+                (
+                    "recording_id",
+                    play.recording.map_or(Value::Null, Value::Integer),
+                ),
+                ("raw_path", text(&play.entry.path)),
+                ("raw_artist", optional(&play.entry.artist)),
+                ("raw_title", optional(&play.entry.title)),
+            ],
+        )?;
+    }
+    Ok(session)
 }
 
 /// The session played on `played_on` whose plays are `plays`, in order, if

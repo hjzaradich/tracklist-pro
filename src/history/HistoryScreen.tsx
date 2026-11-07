@@ -8,12 +8,13 @@ import type { HistoryOutcome, Play, SessionSummary, WishlistOutcome } from "../b
 import stage from "../shell/StageScreen.module.css";
 import { useWishlists } from "../wishlist/useWishlist";
 import { refusalText as wishlistRefusalText } from "../wishlist/wishlistText";
+import { GigStickImport } from "./GigStickImport";
 import { useAddToWishlist, useHistoryAction, usePlays, useSessions } from "./useHistory";
 import styles from "./history.module.css";
 
 /**
  * Play history, at `/history` (ROADMAP 3.6): import an m3u8 file exported
- * from rekordbox's History as one set, see the sets, and a set's plays in
+ * from rekordbox's History as one set, or a gig stick's history lists, see the sets, and a set's plays in
  * order, matched to your music or not. A set's date can be corrected, and
  * while wishlists are on, the plays you don't have can go to a wishlist.
  * Every change is one step for the top bar's Undo.
@@ -62,6 +63,7 @@ export function HistoryScreen() {
             </button>
           </div>
           <p className={styles.muted}>{t("import.hint")}</p>
+          <GigStickImport onImported={setChosen} />
           {failure && (
             <p role="alert" className={styles.problem}>
               {errorMessage(failure)}

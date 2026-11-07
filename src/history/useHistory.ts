@@ -6,6 +6,8 @@ import {
   type HistoryOutcome,
   type PlaysReply,
   type SessionSummary,
+  type StickImport,
+  type StickListing,
   type WishlistOutcome,
 } from "../bindings";
 
@@ -55,5 +57,22 @@ export function useAddToWishlist() {
     mutationFn: (request: { sessionId: number; wishlistId: number }): Promise<WishlistOutcome> =>
       unwrap(commands.historyAddToWishlist(request.sessionId, request.wishlistId)),
     onSuccess: () => reloadLists(queryClient, "wishlists"),
+  });
+}
+
+/** Reads a gig stick's history lists; the stick is only read. */
+export function useStickLists() {
+  return useMutation({
+    mutationFn: (root: string): Promise<StickListing> => unwrap(commands.historyStickLists(root)),
+  });
+}
+
+/** Imports the chosen lists of a gig stick as sets (one step for Undo), then asks again for the sets. */
+export function useStickImport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: { root: string; listIds: number[]; playedOn: string }): Promise<StickImport> =>
+      unwrap(commands.historyImportStick(request.root, request.listIds, request.playedOn)),
+    onSuccess: () => reloadLists(queryClient, "history"),
   });
 }

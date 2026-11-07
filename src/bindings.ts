@@ -682,6 +682,16 @@ export const commands = {
 	rekordboxPlaylistsToCopy: () => typedError<RekordboxPlaylist[], IpcError>(__TAURI_INVOKE("rekordbox_playlists_to_copy")),
 	/**  "Make an app playlist from this rekordbox playlist". */
 	playlistFromRekordbox: (path: string[], name: string) => typedError<CopiedFromRekordbox, IpcError>(__TAURI_INVOKE("playlist_from_rekordbox", { path, name })),
+	/**
+	 *  The history lists of the stick whose root folder is `root` (picked by the
+	 *  user in the folder dialog). The stick is only read.
+	 */
+	historyStickLists: (root: string) => typedError<StickListing, IpcError>(__TAURI_INVOKE("history_stick_lists", { root })),
+	/**
+	 *  Imports the lists `list_ids` of the stick at `root` as sessions played on
+	 *  `played_on`. The stick is read again, so what's imported is what's on it now.
+	 */
+	historyImportStick: (root: string, listIds: number[], playedOn: string) => typedError<StickImport, IpcError>(__TAURI_INVOKE("history_import_stick", { root, listIds, playedOn })),
 	/**  The tracks that best follow `recording_id` going `direction`, with why. */
 	nextFor: (recordingId: number, direction: Direction) => typedError<NextReply, IpcError>(__TAURI_INVOKE("next_for", { recordingId, direction })),
 	/**  The weights and the tolerance. */
@@ -3146,7 +3156,7 @@ export type Sent = {
 /**  A session, with its counts. */
 export type SessionSummary = {
 	id: number,
-	/**  `m3u8` (later also `stick`). */
+	/**  `m3u8` or `stick`. */
 	source: string,
 	name: string,
 	/**  `YYYY-MM-DD`. */
@@ -3277,6 +3287,46 @@ export type Status = "open" |
 "keptRekordbox" | 
 /**  Settled with a value given by hand (`resolved_value`). */
 "edited";
+
+/**  What a stick import came to. */
+export type StickImport = 
+/**  Done as one operation (`None` when every list was already imported). */
+{ outcome: "done"; operationId: number | null; 
+/**  The new sessions. */
+sessions: number[]; 
+/**  Plays imported, and how many of them matched a track. */
+plays: number; matched: number; 
+/**  Lists left out because they are already a session. */
+alreadyImported: number; 
+/**  Parts of the stick's database that couldn't be read. */
+skipped: number } | { outcome: "refused"; reason: StickRefusal };
+
+/**  A history list found on the stick. */
+export type StickList = {
+	id: number,
+	name: string,
+	plays: number,
+};
+
+/**  What reading a stick found. */
+export type StickListing = { outcome: "listed"; lists: StickList[]; 
+/**  Parts of the stick's database that couldn't be read. */
+skipped: number } | { outcome: "refused"; reason: StickRefusal };
+
+/**  Why a stick couldn't be read, or nothing was imported. */
+export type StickRefusal = 
+/**  The folder has no `PIONEER\rekordbox\export.pdb`. */
+"noExport" | 
+/**  It's there but couldn't be read or copied. */
+"unreadable" | 
+/**  It's over [`devicesql::MAX_BYTES`]. */
+"tooBig" | 
+/**  It isn't a rekordbox export database. */
+"notAnExport" | 
+/**  None of the lists asked for is on the stick with plays. */
+"nothingChosen" | 
+/**  Not a day of the calendar as `YYYY-MM-DD`. */
+"badDate";
 
 /**
  *  Something the app suggests (`what`), with the reasons it's suggested.

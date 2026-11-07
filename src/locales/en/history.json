@@ -40,5 +40,31 @@
     "added_other": "{{count, number}} tracks added to the wishlist.",
     "skipped_one": "{{count, number}} track was left out: the file gives it no artist and title.",
     "skipped_other": "{{count, number}} tracks were left out: the file gives them no artist and title."
+  },
+  "stick": {
+    "label": "Import from a gig stick",
+    "choose": "Import from a gig stick",
+    "hint": "Close rekordbox before reading a gig stick: it rewrites the stick's database as soon as the stick is plugged in. Choose the stick's top folder. The stick is only read.",
+    "list_one": "{{name}} · {{count, number}} play",
+    "list_other": "{{name}} · {{count, number}} plays",
+    "noLists": "This stick has no history lists.",
+    "date": "Played on",
+    "import": "Import the ticked lists",
+    "done_one": "Imported {{count, number}} set from the stick.",
+    "done_other": "Imported {{count, number}} sets from the stick.",
+    "unmatched_one": "{{count, number}} play isn't in your music. It's kept with its artist and title.",
+    "unmatched_other": "{{count, number}} plays aren't in your music. They're kept with their artist and title.",
+    "alreadyImported_one": "{{count, number}} list was already imported on that date and was left out.",
+    "alreadyImported_other": "{{count, number}} lists were already imported on that date and were left out.",
+    "skipped_one": "{{count, number}} part of the stick's database couldn't be read and was skipped.",
+    "skipped_other": "{{count, number}} parts of the stick's database couldn't be read and were skipped.",
+    "refusal": {
+      "noExport": "That folder has no rekordbox export (PIONEER\\rekordbox\\export.pdb). Choose the stick's top folder.",
+      "unreadable": "Couldn't read the stick's database.",
+      "tooBig": "The stick's database is too big to read (over 256 MB).",
+      "notAnExport": "The stick's database isn't one rekordbox wrote, or it's damaged.",
+      "nothingChosen": "Tick at least one list with plays.",
+      "badDate": "That isn't a date."
+    }
   }
 }
