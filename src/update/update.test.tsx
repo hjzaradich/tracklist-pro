@@ -11,7 +11,7 @@ import { tx } from "../test/tx";
 import { UpdateQuestion } from "./UpdateQuestion";
 import { resetStartupUpdateCheck } from "./useUpdates";
 
-const URL = "https://github.com/hjzaradich/tracklist-pro/releases/tag/v9.0.0";
+const URL = "https://example.test/releases/tag/v9.0.0";
 
 function status(over: Partial<UpdateStatus> = {}): UpdateStatus {
   return { asked: false, enabled: false, current: "0.1.0", available: null, checkedAt: null, ...over };

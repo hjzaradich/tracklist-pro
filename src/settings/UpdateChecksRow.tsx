@@ -16,6 +16,12 @@ export function UpdateChecksRow() {
   const checkNow = useCheckForUpdatesNow();
   const known = status !== undefined;
   const on = status?.enabled === true;
+  const last =
+    status?.checkedAt == null
+      ? t("settings.notYet")
+      : status.available
+        ? t("settings.newer")
+        : t("settings.upToDate", { when: new Date(status.checkedAt).toLocaleString() });
   const checked = save.isPending ? save.variables === true : on;
   return (
     <SwitchRow
@@ -34,16 +40,10 @@ export function UpdateChecksRow() {
             </button>
           </div>
           <p role="status" className={styles.status}>
-            {checkNow.isPending ? t("settings.checking") : lastLine(status, t)}
+            {checkNow.isPending ? t("settings.checking") : last}
           </p>
         </div>
       )}
     </SwitchRow>
   );
-}
-
-function lastLine(status: { available: unknown; checkedAt: string | null }, t: (key: string, o?: object) => string) {
-  if (status.checkedAt === null) return t("settings.notYet");
-  if (status.available) return t("settings.newer");
-  return t("settings.upToDate", { when: new Date(status.checkedAt).toLocaleString() });
 }

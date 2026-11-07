@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { unwrap } from "../api/errors";
-import { commands, type UpdateStatus } from "../bindings";
+import { commands } from "../bindings";
 
 // Update checks (ROADMAP 4.5): off until the user says yes; the app checks and
 // tells, nothing more. The backend holds the answer and the once-a-day rule.
@@ -33,7 +33,8 @@ export function useStartupUpdateCheck() {
   useEffect(() => {
     if (startupCheckStarted) return;
     startupCheckStarted = true;
-    void check(queryClient, false);
+    // A failed check is not shown; the next start tries again.
+    check(queryClient, false).catch(() => {});
   }, [queryClient]);
 }
 
