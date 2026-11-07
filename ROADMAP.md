@@ -732,6 +732,7 @@ Polish on top of the Phase 1 first run (1.3):
   - Suggest turning on "Add My Tag to the comments".
   - Recommend closing rekordbox before reading a gig stick (§5.4).
 - An **unsigned install guide** (README and download page).
+- **Built (4B, PR 207), barebones:** the first run asks "Where do you put new music?" with a folder picker, a separate switch to watch it (off until you turn it on) and Skip; nothing is assumed, and the Inbox no longer suggests Downloads. Music and Inbox folders under OneDrive get a plain note on the risk and how to keep files on this device (a read-only check of the folder and a small sample of its files). The rekordbox XML panel suggests turning on "Add My Tag to the comments"; the gig-stick panel already says to close rekordbox first. Not built yet: the online-services step comes with the first feature that uses a service (none sends anything today), and the model download comes with 3.8. The unsigned install guide is in docs/installing.md (PR 206). Wording proposed.
 - **Complexity:** M.
 
 #### 4.3 Diagnostics
