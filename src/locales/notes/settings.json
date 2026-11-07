@@ -101,7 +101,7 @@
     "where": "Settings screen, bundle panel (later job), error line."
   },
   "bundle.error.nothingStaged": {
-    "purpose": "Error: the user confirmed an import, but no checked bundle or backup is waiting. (PROPOSED, 4B-B1a)",
+    "purpose": "Error: the user confirmed an import or a restore, but no checked bundle or backup is waiting. (PROPOSED, 4B-B1a)",
     "where": "Settings screen, bundle panel (later job), error line."
   },
   "bundle.error.backupNotFound": {

@@ -41,15 +41,23 @@ pub(super) fn ours(folder: &Path, is_ours: fn(&str) -> bool) -> Vec<String> {
 }
 
 /// Deletes the oldest entries `is_ours` accepts in `folder` until `keep`
-/// are left. One that can't be deleted is left for the next time.
+/// are left, counting `made` (the entry just made) as one of them. `made`
+/// is never deleted, whatever the clock said when it was named (a stamp
+/// older than the others still stays), as in `save_keeping_newest`. One
+/// that can't be deleted is left for the next time.
 pub(super) fn keep_newest(
     guard: &WriteGuard,
     folder: &Path,
     keep: usize,
     is_ours: fn(&str) -> bool,
+    made: Option<&str>,
 ) {
-    let names = ours(folder, is_ours);
-    for old in names.iter().take(names.len().saturating_sub(keep)) {
+    let names: Vec<String> = ours(folder, is_ours)
+        .into_iter()
+        .filter(|name| Some(name.as_str()) != made)
+        .collect();
+    let room = keep.saturating_sub(usize::from(made.is_some()));
+    for old in names.iter().take(names.len().saturating_sub(room)) {
         let _ = remove(guard, &folder.join(old));
     }
 }

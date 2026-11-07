@@ -43,8 +43,9 @@ const APP: &str = "tracklist-pro";
 const FORMAT: u32 = 1;
 const MANIFEST_ENTRY: &str = "manifest.json";
 const DB_ENTRY: &str = "library.db";
-/// How many bundles are kept in `bundles/`.
-const KEEP_BUNDLES: usize = 5;
+/// How many bundles are kept in `bundles/`: just the newest. They are
+/// staging for the Save dialog that comes later, not an archive.
+const KEEP_BUNDLES: usize = 1;
 
 /// What makes a database true only on this PC. Run on the bundle's copy,
 /// never on the Library: the job queue, consent to online services (given
@@ -224,9 +225,10 @@ pub(crate) fn create(
     let (zip_path, file) = staging.create("bundle.zip")?;
     write_zip(file, &manifest, copy.as_path())?;
     let folder = make_folder(guard, &guard.app_data_dir().join("bundles"))?;
-    let path = folder.join(format!("tracklist-pro-{}.zip", stamp(now_ms)));
+    let name = format!("tracklist-pro-{}.zip", stamp(now_ms));
+    let path = folder.join(&name);
     guard.rename(&zip_path, &path)?;
-    keep_newest(guard, &folder, KEEP_BUNDLES, is_bundle);
+    keep_newest(guard, &folder, KEEP_BUNDLES, is_bundle, Some(&name));
     Ok(CreatedBundle {
         path: path.to_string_lossy().into_owned(),
         manifest,
@@ -363,7 +365,23 @@ pub async fn create_bundle(
     guard: State<'_, WriteGuard>,
     reads: State<'_, ReadPool>,
 ) -> Result<CreatedBundle, IpcError> {
-    Ok(create(&guard, &reads, crate::diagnostics::now_ms())?)
+    let (guard, reads) = (guard.inner().clone(), reads.inner().clone());
+    blocking(move || create(&guard, &reads, crate::diagnostics::now_ms())).await
+}
+
+/// Runs `work` on a thread meant for blocking: copying, checking and
+/// packing a whole database can take minutes, too long to hold one of the
+/// async runtime's few threads.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, BundleError> + Send + 'static,
+) -> Result<T, IpcError> {
+    match tauri::async_runtime::spawn_blocking(work).await {
+        Ok(done) => Ok(done?),
+        Err(e) => {
+            eprintln!("bundle: the work stopped: {e}");
+            Err(IpcError::new(ErrorKind::Internal))
+        }
+    }
 }
 
 #[tauri::command]
@@ -372,7 +390,8 @@ pub async fn inspect_bundle(
     guard: State<'_, WriteGuard>,
     path: String,
 ) -> Result<BundleSummary, IpcError> {
-    Ok(inspect(&guard, Path::new(&path))?)
+    let guard = guard.inner().clone();
+    blocking(move || inspect(&guard, Path::new(&path))).await
 }
 
 #[tauri::command]
@@ -381,7 +400,8 @@ pub async fn stage_import(
     guard: State<'_, WriteGuard>,
     path: String,
 ) -> Result<BundleSummary, IpcError> {
-    Ok(stage_bundle(&guard, Path::new(&path))?)
+    let guard = guard.inner().clone();
+    blocking(move || stage_bundle(&guard, Path::new(&path))).await
 }
 
 /// Confirms the staged import or restore and restarts the app. The exit
@@ -420,5 +440,6 @@ pub async fn stage_restore(
     guard: State<'_, WriteGuard>,
     id: String,
 ) -> Result<BundleSummary, IpcError> {
-    Ok(stage_kept(&guard, &id)?)
+    let guard = guard.inner().clone();
+    blocking(move || stage_kept(&guard, &id)).await
 }

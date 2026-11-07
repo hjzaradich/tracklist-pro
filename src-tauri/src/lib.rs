@@ -163,8 +163,10 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
             app.manage(diagnostics::ReportDraft::default());
             // A confirmed import or restore puts its Library in place now,
             // before anything opens the database (4.1).
-            if let Some(kept) = bundle::swap::on_startup(&guard)? {
-                eprintln!("startup: the Library was replaced; the old one is kept as {kept}");
+            if let bundle::swap::Swapped::Replaced(kept) =
+                bundle::swap::on_startup(&guard, &events)?
+            {
+                eprintln!("startup: the Library was replaced; the old one is kept as {kept:?}");
             }
             let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
             app.manage(db::ReadPool::open(writer.guarded_path())?);
@@ -318,6 +320,36 @@ mod tests {
             .filter_map(std::env::var_os)
             .any(|root| lower(path.as_os_str()).starts_with(&lower(&root)));
         by_name || by_env
+    }
+
+    #[test]
+    #[allow(deprecated)] // run_iteration, as the tests below
+    fn a_confirmed_import_is_in_place_before_the_database_opens() {
+        // 4.1: the swap runs before Writer::open. Once the database is open
+        // its file can't be moved, and the app would open the old Library.
+        let data = tempfile::tempdir().unwrap();
+        let dir = data.path().join(IDENTIFIER);
+        std::fs::create_dir_all(dir.join("import")).unwrap();
+        let staged = db::Writer::open(&write_guard::test_path(&dir, "import/pending.db")).unwrap();
+        staged
+            .call(|c| {
+                c.execute_batch("INSERT INTO crate (id, kind, name) VALUES (1, 'static', 'staged')")
+            })
+            .unwrap();
+        staged.close();
+        std::fs::write(dir.join("import").join("confirmed"), b"confirmed").unwrap();
+        let mut app = mock_app_with(DataDir::At(dir.clone()));
+        app.run_iteration(|_, _| {});
+        let names: Vec<String> = app
+            .state::<db::Writer>()
+            .call(|c| {
+                c.prepare("SELECT name FROM crate")?
+                    .query_map([], |r| r.get(0))?
+                    .collect()
+            })
+            .unwrap();
+        assert_eq!(names, ["staged"]);
+        assert!(!dir.join("import").join("confirmed").exists());
     }
 
     #[test]

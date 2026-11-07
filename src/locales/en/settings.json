@@ -22,11 +22,11 @@
   },
   "bundle": {
     "error": {
-      "notOurs": "This file isn't a tracklist-pro bundle.",
+      "notOurs": "This file isn't a bundle from this app.",
       "tooLarge": "This bundle is too large to open.",
       "damaged": "This bundle is damaged, so it can't be used.",
-      "newer": "This bundle was made by a newer version of tracklist-pro. Update the app, then try again.",
-      "nothingStaged": "There's no bundle ready to import. Choose the file again.",
+      "newer": "This bundle comes from a newer version of the app. Update the app, then try again.",
+      "nothingStaged": "There's no bundle or backup ready to use. Choose it again.",
       "backupNotFound": "That backup is no longer there."
     }
   }

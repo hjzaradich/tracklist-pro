@@ -7,10 +7,11 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 
 use super::check::Caps;
-use super::swap::{finish, start, Layout, KEEP_BACKUPS};
+use super::swap::{finish, on_startup, start, Layout, Swapped, KEEP_BACKUPS};
 use super::*;
 use crate::db::migrations::{self, MIGRATIONS};
 use crate::db::{db_path, Writer};
+use crate::diagnostics::{EventKind, EventLog, EventReason};
 use crate::write_guard::no_writes_elsewhere::snapshot;
 
 /// A small Library: user rows in many tables, AUTOINCREMENT counters, and
@@ -462,22 +463,8 @@ fn the_old_librarys_log_moves_with_it_and_never_joins_the_new_file() {
     let root = TempDir::new().unwrap();
     let guard = confirmed_swap(root.path());
     let layout = Layout::of(&guard);
-    // The old Library with a write only in its -wal, as a crash leaves it.
     let live = live(&guard);
-    let side = root.path().join("side");
-    fs::create_dir(&side).unwrap();
-    let conn = Connection::open(&live).unwrap();
-    conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
-    conn.execute(
-        "INSERT INTO crate (id, kind, name) VALUES (9, 'static', 'in-log')",
-        [],
-    )
-    .unwrap();
-    fs::copy(&live, side.join("db")).unwrap();
-    fs::copy(swap_piece(&live, "-wal"), side.join("wal")).unwrap();
-    drop(conn);
-    fs::copy(side.join("db"), &live).unwrap();
-    fs::copy(side.join("wal"), swap_piece(&live, "-wal")).unwrap();
+    write_only_to_the_log(root.path(), &live);
     // A swap already under way, so the log isn't folded in first.
     fs::create_dir_all(&layout.swapping).unwrap();
     finish(&guard, &layout, 300, &mut || false).unwrap();
@@ -485,6 +472,26 @@ fn the_old_librarys_log_moves_with_it_and_never_joins_the_new_file() {
     assert!(has_crate(&live, "new") && !has_crate(&live, "in-log"));
     let kept = layout.backups.join(&kept_ids(&guard)[0]).join(DB_FILE_NAME);
     assert!(has_crate(&kept, "in-log") && has_crate(&kept, "old"));
+}
+
+/// Gives the Library at `live` a crate "in-log" that is only in its -wal,
+/// as a crash leaves it.
+fn write_only_to_the_log(root: &Path, live: &Path) {
+    let side = root.join("side");
+    fs::create_dir_all(&side).unwrap();
+    let conn = Connection::open(live).unwrap();
+    conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+    conn.execute(
+        "INSERT INTO crate (id, kind, name) VALUES (9, 'static', 'in-log')",
+        [],
+    )
+    .unwrap();
+    fs::copy(live, side.join("db")).unwrap();
+    fs::copy(swap_piece(live, "-wal"), side.join("wal")).unwrap();
+    drop(conn);
+    fs::copy(side.join("db"), live).unwrap();
+    fs::copy(side.join("wal"), swap_piece(live, "-wal")).unwrap();
+    assert!(swap_piece(live, "-wal").exists());
 }
 
 fn swap_piece(base: &Path, suffix: &str) -> PathBuf {
@@ -499,7 +506,10 @@ fn an_unconfirmed_staged_library_is_dropped_at_start() {
     let guard = confirmed_swap(root.path());
     let layout = Layout::of(&guard);
     fs::remove_file(&layout.marker).unwrap();
-    assert_eq!(finish(&guard, &layout, 1, &mut || false).unwrap(), None);
+    assert_eq!(
+        finish(&guard, &layout, 1, &mut || false).unwrap(),
+        Swapped::Nothing
+    );
     assert!(has_crate(&live(&guard), "old"));
     assert!(!layout.pending.exists() && kept_ids(&guard).is_empty());
 }
@@ -509,9 +519,10 @@ fn the_replaced_library_is_kept_and_can_be_restored() {
     let root = TempDir::new().unwrap();
     let guard = confirmed_swap(root.path());
     let layout = Layout::of(&guard);
-    let first = finish(&guard, &layout, 1_000, &mut || false)
-        .unwrap()
-        .unwrap();
+    let Swapped::Replaced(Some(first)) = finish(&guard, &layout, 1_000, &mut || false).unwrap()
+    else {
+        panic!("not replaced")
+    };
     let kept = list_kept(&guard);
     assert_eq!(kept.len(), 1);
     assert_eq!(
@@ -662,52 +673,249 @@ fn staging_again_withdraws_an_earlier_confirm() {
 }
 
 #[test]
-fn only_the_newest_bundles_are_kept() {
+fn only_the_newest_bundle_is_kept_and_never_the_one_just_made() {
     let root = TempDir::new().unwrap();
     let (a, writer) = library(root.path(), "a", "");
     let reads = ReadPool::open(writer.guarded_path()).unwrap();
-    for now in 1..=KEEP_BUNDLES as i64 + 2 {
+    let folder = a.app_data_dir().join("bundles");
+    for now in [10, 20, 30] {
         create(&a, &reads, now).unwrap();
     }
-    let names = folders::ours(&a.app_data_dir().join("bundles"), |_| true);
-    let expected: Vec<String> = (3..=7)
-        .map(|n| format!("tracklist-pro-{}.zip", stamp_of(n)))
-        .collect();
-    assert_eq!(names, expected);
+    let name = |n: i64| format!("tracklist-pro-{}.zip", stamp_of(n));
+    assert_eq!(folders::ours(&folder, |_| true), [name(30)]);
+    // The clock went back: the bundle just made is still the one kept.
+    let made = create(&a, &reads, 5).unwrap();
+    assert!(Path::new(&made.path).exists());
+    assert_eq!(folders::ours(&folder, |_| true), [name(5)]);
 }
 
 #[test]
-fn a_swap_that_fails_midway_puts_the_old_library_back_and_tries_again() {
+fn a_backup_made_while_the_clock_is_behind_is_kept() {
     let root = TempDir::new().unwrap();
     let guard = confirmed_swap(root.path());
     let layout = Layout::of(&guard);
-    // Stop after the old Library moved out, before the new one moved in.
-    let mut asked = 0;
-    let failed = start(&guard, &layout, 1, &mut || {
-        asked += 1;
-        asked == 3
-    });
-    assert!(matches!(failed, Err(BundleError::Interrupted)));
-    assert!(has_crate(&live(&guard), "old"));
-    assert!(layout.marker.exists() && layout.pending.exists());
-    start(&guard, &layout, 2, &mut || false).unwrap();
-    assert!(has_crate(&live(&guard), "new"));
+    for ms in [100, 200, 300] {
+        fs::create_dir_all(layout.backups.join(stamp_of(ms))).unwrap();
+        fs::write(layout.backups.join(stamp_of(ms)).join(DB_FILE_NAME), b"x").unwrap();
+    }
+    let swapped = finish(&guard, &layout, 50, &mut || false).unwrap();
+    assert_eq!(swapped, Swapped::Replaced(Some(stamp_of(50))));
+    assert_eq!(
+        kept_ids(&guard),
+        [stamp_of(300), stamp_of(200), stamp_of(50)]
+    );
     assert!(has_crate(
-        &layout.backups.join(stamp_of(2)).join(DB_FILE_NAME),
+        &layout.backups.join(stamp_of(50)).join(DB_FILE_NAME),
         "old"
     ));
 }
 
 #[test]
-fn a_swap_never_writes_over_a_file_already_set_aside() {
+fn a_backup_name_already_taken_moves_to_the_next_free_one() {
     let root = TempDir::new().unwrap();
     let guard = confirmed_swap(root.path());
     let layout = Layout::of(&guard);
+    fs::create_dir_all(layout.backups.join(stamp_of(7))).unwrap();
+    let swapped = finish(&guard, &layout, 7, &mut || false).unwrap();
+    assert_eq!(swapped, Swapped::Replaced(Some(stamp_of(8))));
+}
+
+/// The step `finish` asks about last before a crash at `n` (1-based).
+fn crash_at(n: usize) -> impl FnMut() -> bool {
+    let mut asked = 0;
+    move || {
+        asked += 1;
+        asked == n
+    }
+}
+
+#[test]
+fn a_swap_stopped_before_the_new_file_moved_in_opens_the_old_library_once() {
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    // Steps: make the folder, move the file aside, move the new one in.
+    let swapped = start(&guard, &layout, 1, &mut crash_at(3)).unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+    assert!(has_crate(&live(&guard), "old"));
+    // The confirm is withdrawn: the next start doesn't try again.
+    assert!(!layout.marker.exists());
+    assert_eq!(
+        start(&guard, &layout, 2, &mut || false).unwrap(),
+        Swapped::Nothing
+    );
+    assert!(has_crate(&live(&guard), "old") && !layout.pending.exists());
+    assert!(kept_ids(&guard).is_empty());
+}
+
+#[test]
+fn a_swap_stopped_between_pieces_brings_the_log_home() {
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    let live = live(&guard);
+    write_only_to_the_log(root.path(), &live);
+    // Under way already (no fold): the -wal moves, then the stop.
+    fs::create_dir_all(&layout.swapping).unwrap();
+    let swapped = start(&guard, &layout, 1, &mut crash_at(3)).unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+    assert!(swap_piece(&live, "-wal").exists());
+    assert!(!swap_piece(&layout.swapping.join(DB_FILE_NAME), "-wal").exists());
+    assert!(has_crate(&live, "in-log") && has_crate(&live, "old"));
+}
+
+#[test]
+fn a_swap_done_but_not_tidied_opens_the_new_library_and_keeps_the_old() {
+    for stop in [4, 5] {
+        // 4: before the old Library is named a backup; 5: before the marker goes.
+        let root = TempDir::new().unwrap();
+        let guard = confirmed_swap(root.path());
+        let layout = Layout::of(&guard);
+        let swapped = start(&guard, &layout, 1, &mut crash_at(stop)).unwrap();
+        assert_eq!(swapped, Swapped::NotReplaced(EventReason::CantWrite));
+        assert!(has_crate(&live(&guard), "new"), "stop {stop}");
+        assert!(!layout.marker.exists());
+        // The next start keeps what was set aside as a backup.
+        assert_eq!(
+            start(&guard, &layout, 2, &mut || false).unwrap(),
+            Swapped::Nothing
+        );
+        let kept = kept_ids(&guard);
+        assert_eq!(kept.len(), 1, "stop {stop}");
+        assert!(has_crate(
+            &layout.backups.join(&kept[0]).join(DB_FILE_NAME),
+            "old"
+        ));
+        assert!(!layout.swapping.exists());
+    }
+}
+
+#[test]
+fn a_file_in_the_way_is_never_written_over_and_is_logged_once() {
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    let events = EventLog::open(&guard);
     fs::create_dir_all(&layout.swapping).unwrap();
     let aside = layout.swapping.join(DB_FILE_NAME);
     fs::write(&aside, b"someone's file").unwrap();
-    let failed = start(&guard, &layout, 1, &mut || false);
-    assert!(matches!(failed, Err(BundleError::Blocked)));
+    let swapped = on_startup(&guard, &events).unwrap();
+    assert_eq!(swapped, Swapped::NotReplaced(EventReason::FileInTheWay));
     assert_eq!(fs::read(&aside).unwrap(), b"someone's file");
     assert!(has_crate(&live(&guard), "old"));
+    let logged = events.events();
+    assert!(logged
+        .iter()
+        .any(|e| e.kind == EventKind::LibraryNotReplaced
+            && e.reason == Some(EventReason::FileInTheWay)));
+    // The next start doesn't meet it again: the file is kept as a backup.
+    assert_eq!(on_startup(&guard, &events).unwrap(), Swapped::Nothing);
+    let kept = kept_ids(&guard);
+    assert_eq!(
+        fs::read(layout.backups.join(&kept[0]).join(DB_FILE_NAME)).unwrap(),
+        b"someone's file"
+    );
+    assert_eq!(events.events().len(), logged.len());
+}
+
+#[test]
+fn startup_fails_only_with_no_library_in_place() {
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    // No old Library, and the new one never moves in.
+    fs::remove_file(live(&guard)).unwrap();
+    let failed = start(&guard, &layout, 1, &mut crash_at(2));
+    assert!(matches!(failed, Err(BundleError::Interrupted)));
+    assert!(!live(&guard).exists() && layout.marker.exists());
+    // The next start finishes it.
+    start(&guard, &layout, 2, &mut || false).unwrap();
+    assert!(has_crate(&live(&guard), "new"));
+}
+
+#[test]
+fn the_old_librarys_log_is_folded_into_its_backup() {
+    let root = TempDir::new().unwrap();
+    let guard = confirmed_swap(root.path());
+    let layout = Layout::of(&guard);
+    write_only_to_the_log(root.path(), &live(&guard));
+    finish(&guard, &layout, 1, &mut || false).unwrap();
+    let kept = layout.backups.join(&kept_ids(&guard)[0]).join(DB_FILE_NAME);
+    assert!(!swap_piece(&kept, "-wal").exists() && !swap_piece(&kept, "-shm").exists());
+    assert!(has_crate(&kept, "in-log") && has_crate(&kept, "old"));
+}
+
+#[test]
+fn a_database_copy_is_written_only_to_a_staging_file() {
+    let root = TempDir::new().unwrap();
+    let (guard, writer) = library(root.path(), "a", SEED);
+    let from = Connection::open_in_memory().unwrap();
+    for path in [
+        live(&guard),
+        guard.app_data_dir().join("copy.db"),
+        guard
+            .app_data_dir()
+            .join("staging")
+            .join("x")
+            .join(DB_FILE_NAME),
+    ] {
+        let checked = guard.check(&path).unwrap();
+        assert!(checked.copy_database_from(&from).is_err(), "{path:?}");
+    }
+    writer.close();
+    assert!(has_crate(&live(&guard), "Warmup"));
+}
+
+#[test]
+fn inspecting_a_newer_bundle_is_refused_as_newer() {
+    let root = TempDir::new().unwrap();
+    let a = closed_library(root.path(), "a", "");
+    let path = root.path().join("newer.db");
+    schema_db(&path, MIGRATIONS.len());
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO schema_migration (version, name, checksum) VALUES (9999, '9999_future.sql', 'x')",
+            [],
+        )
+        .unwrap();
+    let zip = zip_of(
+        &root.path().join("newer.zip"),
+        &[
+            (MANIFEST_ENTRY, &manifest_json(1)),
+            (DB_ENTRY, &fs::read(&path).unwrap()),
+        ],
+    );
+    assert!(matches!(inspect(&a, &zip), Err(BundleError::Newer)));
+}
+
+#[test]
+fn a_bundle_whose_schema_differs_from_its_migrations_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let manifest = manifest_json(1);
+    let not_ours = |e: &BundleError| matches!(e, BundleError::NotOurs);
+    for (name, edit) in [
+        ("dropped.db", "DROP TABLE ui_setting;"),
+        ("extra.db", "CREATE INDEX extra ON setting (value);"),
+        ("altered.db", "ALTER TABLE job ADD COLUMN extra TEXT;"),
+    ] {
+        let db = broken_db(&dir.path().join(name), |c, _| {
+            c.execute_batch(edit).unwrap()
+        });
+        refused(
+            &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &db)],
+            &check::CAPS,
+            not_ours,
+        );
+        let zip = zip_of(
+            &dir.path().join(format!("{name}.zip")),
+            &[(MANIFEST_ENTRY, &manifest), (DB_ENTRY, &db)],
+        );
+        let root = TempDir::new().unwrap();
+        let b = closed_library(root.path(), "b", "");
+        assert!(
+            matches!(inspect(&b, &zip), Err(BundleError::NotOurs)),
+            "{name}"
+        );
+    }
 }

@@ -23,6 +23,7 @@ const KINDS: readonly EventKind[] = [
   "sendRefused",
   "startup",
   "startupAsked",
+  "libraryNotReplaced",
 ];
 
 /**

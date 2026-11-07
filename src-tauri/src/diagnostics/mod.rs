@@ -78,6 +78,9 @@ pub enum EventKind {
     /// Startup asked the stages what is due: `ms` is how long it took,
     /// `count` how many stages couldn't be asked.
     StartupAsked,
+    /// A confirmed import or restore of a Library couldn't be finished at
+    /// startup; the Library in place opened instead (4.1).
+    LibraryNotReplaced,
 }
 
 /// Why something failed, as a code. A fixed list, so no message text can be
@@ -116,6 +119,9 @@ pub enum EventReason {
     CantWrite,
     CantRecord,
     Internal,
+    // Replacing the Library.
+    /// A file was already where the old Library is set aside.
+    FileInTheWay,
 }
 
 impl From<FailureReason> for EventReason {

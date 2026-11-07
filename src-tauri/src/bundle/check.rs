@@ -174,10 +174,34 @@ pub(super) fn database(path: &GuardedPath, migrate: bool) -> Result<Checked, Bun
         conn.pragma_update(None, "journal_mode", "DELETE")?;
     }
     let schema_version = migrations::applied(&conn)?.last().map_or(0, |a| a.version);
+    // The rows say which migrations ran; the schema itself must be what
+    // they make, or a hand-edited file could pass and then fail the app at
+    // its next start.
+    if schema_version == ours_up_to && schema(&conn)? != schema(&fresh()?)? {
+        return Err(BundleError::NotOurs);
+    }
     Ok(Checked {
         schema_version,
         counts: counts(&conn)?,
     })
+}
+
+/// Every table, index, view and trigger with its SQL, SQLite's own
+/// bookkeeping (`sqlite_sequence`, statistics) left out.
+fn schema(conn: &Connection) -> rusqlite::Result<Vec<[Option<String>; 4]>> {
+    conn.prepare(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master
+          WHERE name NOT LIKE 'sqlite!_%' ESCAPE '!' ORDER BY type, name",
+    )?
+    .query_map([], |r| Ok([r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?]))?
+    .collect()
+}
+
+/// This build's schema, made in memory (no file).
+fn fresh() -> Result<Connection, BundleError> {
+    let mut conn = Connection::open_in_memory()?;
+    migrations::run(&mut conn, MIGRATIONS)?;
+    Ok(conn)
 }
 
 /// The Library's size in a few numbers, for a confirm screen.
