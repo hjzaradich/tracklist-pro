@@ -73,6 +73,8 @@ const ANSWERS: Record<string, unknown> = {
   read_online_only_files: false,
   read_energy_as_stars: false,
   feature_enabled: false,
+  update_status: { asked: true, enabled: false, current: "0.1.0", available: null, checkedAt: null },
+  check_for_updates: { asked: true, enabled: false, current: "0.1.0", available: null, checkedAt: null },
   key_notation: "camelot",
   table_columns: null,
   track_table_formats: [],

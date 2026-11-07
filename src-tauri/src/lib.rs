@@ -56,6 +56,7 @@ pub mod suggest;
 pub mod tags;
 pub mod track_table;
 pub mod ui_setting;
+pub mod update;
 pub mod versions;
 pub mod vocab;
 pub mod volume;
@@ -169,7 +170,10 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
                 eprintln!("startup: the Library was replaced; the old one is kept as {kept:?}");
             }
             let writer = db::Writer::open(&guard.check(&db::db_path(guard.app_data_dir()))?)?;
-            app.manage(db::ReadPool::open(writer.guarded_path())?);
+            let reads = db::ReadPool::open(writer.guarded_path())?;
+            // The network gate: the one way out (update checks use it).
+            app.manage(net::Net::new(reads.clone()));
+            app.manage(reads);
             // Watches the writer for changes to what the Library list is made of
             // (library_summary); before anything else writes.
             app.manage(library::LibraryStamp::install(&writer)?);

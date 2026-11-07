@@ -1,0 +1,82 @@
+{
+  "ask.title": {
+    "purpose": "Heading of the one-time question about update checks.",
+    "where": "Overview, top, until answered."
+  },
+  "ask.help": {
+    "purpose": "Says what an update check sends (the app's version) and to whom, and that nothing is downloaded.",
+    "where": "Overview, under the question heading."
+  },
+  "ask.yes": {
+    "purpose": "Button: turn update checks on.",
+    "where": "Overview, update question."
+  },
+  "ask.no": {
+    "purpose": "Button: keep update checks off.",
+    "where": "Overview, update question."
+  },
+  "settings.panel": {
+    "purpose": "Heading of the Settings panel for switches that contact online services.",
+    "where": "Settings screen, panel heading."
+  },
+  "settings.label": {
+    "purpose": "Label of the update checks switch.",
+    "where": "Settings, Online services."
+  },
+  "settings.help": {
+    "purpose": "What an update check sends and how often; that it only tells.",
+    "where": "Settings, under the switch."
+  },
+  "settings.error": {
+    "purpose": "The switch could not be saved.",
+    "where": "Settings, under the switch."
+  },
+  "settings.checkNow": {
+    "purpose": "Button: check for a newer version right now.",
+    "where": "Settings, under the switch while on."
+  },
+  "settings.checking": {
+    "purpose": "Shown while a check runs.",
+    "where": "Settings, next to Check now."
+  },
+  "settings.notYet": {
+    "purpose": "No check has finished yet.",
+    "where": "Settings, under Check now."
+  },
+  "settings.upToDate": {
+    "purpose": "No newer version, and when the last check ran.",
+    "where": "Settings, under Check now."
+  },
+  "settings.newer": {
+    "purpose": "A newer version was found; points to About.",
+    "where": "Settings, under Check now."
+  },
+  "about.available": {
+    "purpose": "Says a newer version exists.",
+    "where": "Settings, About panel, under the version."
+  },
+  "about.linkLabel": {
+    "purpose": "Label for the release page address, shown as text to copy (the app opens no links).",
+    "where": "Settings, About panel."
+  },
+  "about.copy": {
+    "purpose": "Button: copy the release page address.",
+    "where": "Settings, About panel."
+  },
+  "about.copied": {
+    "purpose": "Confirms the address was copied.",
+    "where": "Settings, About panel."
+  },
+  "about.copyFailed": {
+    "purpose": "The copy did not work; tells the user to copy by hand.",
+    "where": "Settings, About panel."
+  },
+  "notice.line": {
+    "purpose": "Says a newer version exists.",
+    "where": "Overview, a short line near the top."
+  },
+  "notice.open": {
+    "purpose": "Link to Settings, where the address to copy is.",
+    "where": "Overview, after the notice line."
+  }
+}
