@@ -690,7 +690,7 @@ Moved out of the MVP. Needs gate tests T2 and T4 (§7) first.
 - **What:** fast BPM, key and energy (1–10) for tracks rekordbox hasn't analyzed, clearly marked as **estimates**. Until this lands, those tracks show no BPM or key until rekordbox analyzes them.
 - **How:** pure Rust with `rustfft` (+ `ebur128`).
   - **BPM (ready):** spectral-flux onsets → comb autocorrelation over 60–200 BPM → fine search → folded into the user's rekordbox BPM range preference.
-  - **Key (not shown yet):** use file key tags first, then rekordbox. Show local key only once it reaches ≥80% exact on the reference set.
+  - **Key (not shown yet):** use file key tags first, then rekordbox. Show local key only once it reaches ≥80% exact on the reference set. **Method (owner decision 2026-11-06):** libKeyFinder's method (Mixxx's key detector, GPL-3.0-or-later like the app), translated into Rust inside the app, with its authors' credit kept in the ported files and the app's credits; no C++ or FFTW build. The ≥80% bar is the owner's to revisit once the local test on the owner's analyzed tracks gives real numbers (no free detector is published at that level; most misses are one step on the Camelot wheel). Essentia isn't used (AGPL).
   - **Energy:** loudness, onset density, spectral flux and BPM, calibrated by percentile within your own library, then against your own ratings. Mixed In Key `Energy N` tags are a source too. The stated basis reads like "loud, dense, fast for your library".
 - **Reference set:** the tracks rekordbox analyzed in E1 become a **local** regression test. They're private, so CI uses a synthetic set with known BPMs.
 - **Complexity:** L (key is the hard part).
