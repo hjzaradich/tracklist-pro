@@ -224,6 +224,8 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::playlists::playlist_from_crate,
             crate::playlists::import::rekordbox_playlists_to_copy,
             crate::playlists::import::playlist_from_rekordbox,
+            crate::play_history::stick::history_stick_lists,
+            crate::play_history::stick::history_import_stick,
             crate::next::next_for,
             crate::next::next_settings,
             crate::next::next_set_settings,
