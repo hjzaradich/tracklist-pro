@@ -41,14 +41,14 @@ fn queue(library: &Library, analyzer: Analyzer<TempVolume>) -> JobQueue {
 }
 
 /// The real walk and hash, then every file is a Library track's file.
-fn walk_and_hash(library: &Library) -> BTreeMap<String, i64> {
+pub(super) fn walk_and_hash(library: &Library) -> BTreeMap<String, i64> {
     let ids = library.walk_and_hash();
     library.writer.call(|c| join_library_for_test(c)).unwrap();
     ids
 }
 
 /// Runs one analyze job to the end, returning how many files it decoded.
-fn analyze_all(library: &Library) -> usize {
+pub(super) fn analyze_all(library: &Library) -> usize {
     let decoded = Arc::new(AtomicUsize::new(0));
     let count = decoded.clone();
     let handler = analyzer(library).on_decode(move |_| {
@@ -61,7 +61,7 @@ fn analyze_all(library: &Library) -> usize {
     decoded.load(Ordering::SeqCst)
 }
 
-fn stored(library: &Library, file: i64) -> Option<Stored> {
+pub(super) fn stored(library: &Library, file: i64) -> Option<Stored> {
     library
         .writer
         .call(move |c| ledger::current(c, file))
@@ -69,7 +69,7 @@ fn stored(library: &Library, file: i64) -> Option<Stored> {
 }
 
 /// The track file `file` belongs to.
-fn track_of(library: &Library, file: i64) -> i64 {
+pub(super) fn track_of(library: &Library, file: i64) -> i64 {
     library
         .writer
         .call(move |c| {
@@ -83,10 +83,10 @@ fn track_of(library: &Library, file: i64) -> i64 {
 }
 
 /// A `'local'` analysis row: its id, BPM, key and energy.
-type LocalRow = (i64, Option<f64>, Option<String>, Option<i64>);
+pub(super) type LocalRow = (i64, Option<f64>, Option<String>, Option<i64>);
 
 /// The track's `'local'` row.
-fn local_row(library: &Library, track: i64) -> Option<LocalRow> {
+pub(super) fn local_row(library: &Library, track: i64) -> Option<LocalRow> {
     use rusqlite::OptionalExtension;
     library
         .writer
@@ -212,6 +212,89 @@ fn a_new_method_version_measures_again_and_updates_the_local_row_in_place() {
         .call(|c| c.query_row("SELECT count(*) FROM analysis", [], |r| r.get(0)))
         .unwrap();
     assert_eq!(count, 1);
+}
+
+#[test]
+fn a_raised_version_keeps_the_local_bpm_until_the_new_measurement_replaces_it_in_place() {
+    let library = Library::new();
+    library.put("a.wav", &wav(128.0, 30.0));
+    let ids = walk_and_hash(&library);
+    analyze_all(&library);
+    let track = track_of(&library, ids["a.wav"]);
+    let (row_id, bpm, ..) = local_row(&library, track).unwrap();
+    assert!(near(bpm, 128.0));
+    // As if the method had been raised since: the file's ledger row is the
+    // old version's.
+    bump_version(&library);
+    let stale = |library: &Library| library.writer.call(|c| ledger::any_stale(c)).unwrap();
+    // Nothing takes the row away, however often the rows are folded again.
+    assert!(!stale(&library), "a waiting file is not a mismatch");
+    crate::estimate::resync(&library.writer, store_row(&library.writer)).unwrap();
+    crate::estimate::request(&library.writer, None, store_row(&library.writer)).unwrap();
+    let kept = local_row(&library, track).unwrap();
+    assert_eq!((kept.0, kept.1.map(|b| b.round())), (row_id, Some(128.0)));
+    assert!(library
+        .writer
+        .call(|c| crate::estimate::due(c, None))
+        .unwrap());
+
+    // The new measurement replaces it, in place.
+    assert_eq!(analyze_all(&library), 1);
+    let (again, bpm, ..) = local_row(&library, track).unwrap();
+    assert_eq!(again, row_id);
+    assert!(near(bpm, 128.0), "{bpm:?}");
+    let version: i64 = library
+        .writer
+        .call(|c| c.query_row("SELECT method_version FROM file_estimate", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(version, i64::from(VERSION));
+    assert!(!stale(&library));
+}
+
+/// As if the method had been raised since every file was measured.
+fn bump_version(library: &Library) {
+    library
+        .writer
+        .call(|c| {
+            c.execute(
+                "UPDATE file_estimate SET method_version = ?1",
+                [i64::from(VERSION) - 1],
+            )
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_relink_onto_a_file_waiting_to_be_measured_again_shows_that_files_own_older_bpm() {
+    let (library, ids, ta, _tb) = two_measured();
+    let (row_id, bpm, ..) = local_row(&library, ta).unwrap();
+    assert!(near(bpm, 128.0));
+    bump_version(&library);
+    assert!(!is_stale(&library));
+
+    let b = ids["b.wav"];
+    library
+        .writer
+        .call(move |c| {
+            c.execute(
+                "UPDATE library_track SET linked_file_id = ?1 WHERE recording_id = ?2",
+                [b, ta],
+            )
+        })
+        .unwrap();
+    assert!(is_stale(&library), "still shows the old file's BPM");
+    ask(&library);
+    let (again, bpm, ..) = local_row(&library, ta).unwrap();
+    assert_eq!(again, row_id, "the same row, updated in place");
+    assert!(near(bpm, 174.0), "b.wav's own older measurement: {bpm:?}");
+    assert!(!is_stale(&library));
+
+    // And its new measurement replaces that, in place (a.wav is shown by
+    // no track now, so only b.wav is measured).
+    assert_eq!(analyze_all(&library), 1);
+    let (still, bpm, ..) = local_row(&library, ta).unwrap();
+    assert_eq!(still, row_id);
+    assert!(near(bpm, 174.0), "{bpm:?}");
 }
 
 #[test]

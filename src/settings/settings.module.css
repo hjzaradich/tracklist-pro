@@ -173,3 +173,27 @@
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
 }
+
+/* The local key's agreement with rekordbox: a small table of counts. */
+.agreement {
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.agreement caption {
+  text-align: start;
+  color: var(--color-text-muted);
+  padding-bottom: var(--space-1);
+}
+
+.agreement th,
+.agreement td {
+  padding: var(--space-1) var(--space-2);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.agreement th[scope="row"],
+.agreement thead th:first-child {
+  text-align: start;
+}

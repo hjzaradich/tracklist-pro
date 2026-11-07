@@ -3,6 +3,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import stage from "../shell/StageScreen.module.css";
 import { EnergyStarsRow } from "./EnergyStarsRow";
+import { LocalKeyRow } from "./LocalKeyRow";
 import { RekordboxDatabaseRow } from "./RekordboxDatabaseRow";
 import { WishlistFeatureRow } from "./WishlistFeatureRow";
 import styles from "./settings.module.css";
@@ -38,6 +39,7 @@ export function SettingsScreen() {
               {tw("feature.panel")}
             </h2>
             <WishlistFeatureRow />
+            <LocalKeyRow />
           </section>
           <section className={styles.panel} aria-labelledby={genresId}>
             <h2 id={genresId} className={styles.panelTitle}>

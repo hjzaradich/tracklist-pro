@@ -1,0 +1,70 @@
+{
+  "localKey.label": {
+    "purpose": "Label of the owner's test switch that shows the app's own key estimates where rekordbox and file tags give none. It never changes with the state.",
+    "where": "Settings screen, Optional features panel, the switch's label."
+  },
+  "localKey.helpOff": {
+    "purpose": "Help under the switch while it is off: what turning it on shows.",
+    "where": "Settings screen, Optional features panel, under the local key switch while off."
+  },
+  "localKey.helpOn": {
+    "purpose": "Help under the switch while it is on: which tracks show the estimate, and that turning it off hides them.",
+    "where": "Settings screen, Optional features panel, under the local key switch while on."
+  },
+  "localKey.error": {
+    "purpose": "Shown when turning the local key switch on or off couldn't be saved. Same wording as the other switches.",
+    "where": "Settings screen, under the local key switch."
+  },
+  "localKey.compare.title": {
+    "purpose": "Caption of the table that counts how the app's key estimates agree with rekordbox's keys, overall and per genre.",
+    "where": "Settings screen, under the local key switch while it is on."
+  },
+  "localKey.compare.empty": {
+    "purpose": "Shown instead of the table when no track has both a rekordbox key and a key estimate yet.",
+    "where": "Settings screen, under the local key switch while it is on."
+  },
+  "localKey.compare.loadError": {
+    "purpose": "Shown when the agreement counts couldn't be read. Same wording as the energy stars count error.",
+    "where": "Settings screen, under the local key switch while it is on."
+  },
+  "localKey.compare.genre": {
+    "purpose": "Column heading: the genre node the row counts.",
+    "where": "Settings screen, agreement table, first column heading."
+  },
+  "localKey.compare.all": {
+    "purpose": "Row heading of the totals over every track with both keys.",
+    "where": "Settings screen, agreement table, first row."
+  },
+  "localKey.compare.noGenre": {
+    "purpose": "Row heading for the tracks whose genre resolves to no genre node.",
+    "where": "Settings screen, agreement table, last row."
+  },
+  "localKey.compare.tracks": {
+    "purpose": "Column heading: how many tracks have both a rekordbox key and an estimate.",
+    "where": "Settings screen, agreement table, column heading."
+  },
+  "localKey.compare.exact": {
+    "purpose": "Column heading: the estimate is rekordbox's key.",
+    "where": "Settings screen, agreement table, column heading."
+  },
+  "localKey.compare.relative": {
+    "purpose": "Column heading: the estimate is the relative key (same Camelot number, other letter), with an example.",
+    "where": "Settings screen, agreement table, column heading."
+  },
+  "localKey.compare.oneStep": {
+    "purpose": "Column heading: the estimate is one step round the Camelot wheel (same letter, next number), with an example.",
+    "where": "Settings screen, agreement table, column heading."
+  },
+  "localKey.compare.parallel": {
+    "purpose": "Column heading: the estimate is the parallel key (same tonic, other mode), with an example.",
+    "where": "Settings screen, agreement table, column heading."
+  },
+  "localKey.compare.other": {
+    "purpose": "Column heading: any other disagreement.",
+    "where": "Settings screen, agreement table, column heading."
+  },
+  "localKey.compare.cell": {
+    "purpose": "One cell of the agreement table: how many tracks, and their share of the row's tracks in whole percent.",
+    "where": "Settings screen, agreement table, each count cell."
+  }
+}

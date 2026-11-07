@@ -135,6 +135,10 @@ pub enum Feature {
     Wishlist,
     /// Reading rekordbox's library database (2.7).
     RekordboxDatabase,
+    /// The app's own key estimates, shown as the weakest source of a key:
+    /// the owner's test switch (3.7, "Key"), until they reach the bar to be
+    /// shown by default.
+    LocalKey,
 }
 
 impl Feature {
@@ -142,6 +146,7 @@ impl Feature {
         match self {
             Feature::Wishlist => "feature_wishlist",
             Feature::RekordboxDatabase => "feature_rekordbox_database",
+            Feature::LocalKey => "feature_local_key",
         }
     }
 }
@@ -186,15 +191,36 @@ pub async fn feature_enabled(
     Ok(reads.read(move |c| read_feature_enabled(c, feature))?)
 }
 
-/// Turns an optional feature on or off.
+/// Turns an optional feature on or off. Turning the local key on or off
+/// brings the `'local'` analysis rows in step at once: the keys appear, or
+/// go. The fold runs after the switch is saved, a page of tracks per writer
+/// call (nothing else waits for the whole Library), and asks for the search
+/// index, which the track table reads.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_feature_enabled(
     writer: State<'_, Writer>,
+    jobs: State<'_, crate::jobs::JobQueue>,
     feature: Feature,
     on: bool,
 ) -> Result<(), IpcError> {
-    Ok(writer.call(move |c| write_feature_enabled(c, feature, on))?)
+    Ok(set_feature(&writer, feature, on, |job| jobs.enqueue(job))?)
+}
+
+/// [`set_feature_enabled`]'s work. The switch is saved first; a fold that
+/// stops part way is finished by the analyze job's next look
+/// ([`crate::estimate::request`]), which finds the rows out of step.
+pub(crate) fn set_feature<E: From<crate::db::DbError> + std::fmt::Debug>(
+    writer: &Writer,
+    feature: Feature,
+    on: bool,
+    enqueue: impl FnOnce(crate::jobs::NewJob) -> Result<crate::jobs::JobId, E>,
+) -> Result<(), E> {
+    writer.call(move |c| write_feature_enabled(c, feature, on))?;
+    if feature == Feature::LocalKey {
+        crate::estimate::resync(writer, enqueue)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

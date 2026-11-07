@@ -73,6 +73,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::settings::set_key_notation,
             crate::settings::feature_enabled,
             crate::settings::set_feature_enabled,
+            crate::estimate::compare::compare_local_keys,
             crate::ui_setting::table_columns,
             crate::ui_setting::set_table_columns,
             crate::jobs::commands::activity,

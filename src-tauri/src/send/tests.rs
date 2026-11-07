@@ -529,13 +529,18 @@ fn new_tracks_in_a_format_rekordbox_may_not_play_are_listed_and_sent_as_before()
 }
 
 #[test]
-fn the_apps_own_bpm_estimate_is_never_sent_for_a_new_track_or_one_rekordbox_has() {
-    // ROADMAP 1.9 rule 3 and 3.7: both tracks' only BPM is the app's own
-    // estimate (a `'local'` analysis row, as the analyze job writes it).
+fn the_apps_own_bpm_and_key_estimates_are_never_sent_for_a_new_track_or_one_rekordbox_has() {
+    // ROADMAP 1.9 rule 3 and 3.7: both tracks' only BPM and key are the
+    // app's own estimates (a `'local'` analysis row, as the analyze job
+    // writes it, the key there only while the local key switch is on).
     let (w, _known, _new) = world_with_a_send_waiting();
     w.insert(
-        "INSERT INTO analysis (recording_id, source, bpm, confidence)
-         SELECT recording_id, 'local', 133.33, 0.9 FROM library_track",
+        "INSERT INTO setting (key, value) VALUES ('feature_local_key', json('true'))",
+        (),
+    );
+    w.insert(
+        "INSERT INTO analysis (recording_id, source, bpm, key, confidence)
+         SELECT recording_id, 'local', 133.33, '10A', 0.9 FROM library_track",
         (),
     );
     assert!(w.prepare().is_some());
@@ -549,7 +554,7 @@ fn the_apps_own_bpm_estimate_is_never_sent_for_a_new_track_or_one_rekordbox_has(
     assert!(sent
         .tracks
         .iter()
-        .all(|t| t.average_bpm.is_none() && t.tempos.is_empty()));
+        .all(|t| t.average_bpm.is_none() && t.tempos.is_empty() && t.key.is_none()));
 }
 
 #[test]

@@ -9,7 +9,9 @@
 //! is full.
 //!
 //! Memory is bounded: the window is kept as mono averaged down to about
-//! 11 kHz ([`bpm::TARGET_RATE`]), at most 150 s of it, about 6.6 MB.
+//! 11 kHz ([`bpm::TARGET_RATE`]), at most 150 s of it, about 6.6 MB; and
+//! for the key, filtered and kept at about 4.4 kHz ([`key::Lowpass`]),
+//! about 5.3 MB more.
 //!
 //! E1b adds the energy features: [`Window`] is where they are fed (each
 //! packet's samples pass through [`Window::feed`]), and [`Measured`] where
@@ -18,6 +20,7 @@
 use symphonia::core::io::MediaSource;
 
 use super::bpm::{self, Tempo};
+use super::key::{self, Lowpass};
 use crate::fingerprint::decode::{self, End, Flow, Stopped, Unfingerprintable};
 
 /// How much of a file is decoded, in seconds from its start.
@@ -48,14 +51,19 @@ pub enum Measured {
     Window {
         analysed_ms: i64,
         tempo: Option<Tempo>,
+        /// `None` when the file's sample rate is too low for the key's
+        /// bands.
+        key: Option<key::Choice>,
     },
     /// There was audio, but none worth measuring.
     Short(Short),
 }
 
-/// The window being filled: mono, averaged down by `factor` samples.
+/// The window being filled: mono, averaged down by `factor` samples, and
+/// filtered for the key.
 #[derive(Default)]
 struct Window {
+    key: Option<Lowpass>,
     rate: u32,
     factor: usize,
     /// Frames to take from the file before the window is full.
@@ -72,6 +80,7 @@ impl Window {
         Window {
             rate,
             factor: bpm::decimation(rate),
+            key: Lowpass::new(rate),
             wanted: (UP_TO * f64::from(rate)) as u64,
             ..Window::default()
         }
@@ -87,6 +96,9 @@ impl Window {
                 break;
             }
             self.taken += 1;
+            if let Some(key) = &mut self.key {
+                key.push(frame.iter().map(|&s| f64::from(s)).sum::<f64>() / channels as f64);
+            }
             self.sum += frame.iter().sum::<f32>() / channels as f32;
             self.in_sum += 1;
             if self.in_sum == self.factor {
@@ -105,11 +117,8 @@ impl Window {
         }
         let rate = f64::from(self.rate) / self.factor as f64;
         let seconds = self.mono.len() as f64 / rate;
-        let from = if seconds > SKIP_IF_OVER {
-            (SKIP * rate) as usize
-        } else {
-            0
-        };
+        let skip = seconds > SKIP_IF_OVER;
+        let from = if skip { (SKIP * rate) as usize } else { 0 };
         let window = &self.mono[from..];
         let analysed = window.len() as f64 / rate;
         if analysed < MIN_SECONDS {
@@ -118,9 +127,25 @@ impl Window {
         if window.iter().all(|s| s.abs() < SILENCE) {
             return Measured::Short(Short::Silent);
         }
+        let file_rate = self.rate;
+        let key = self.key.take().and_then(|lowpass| {
+            let factor = lowpass.factor();
+            let filtered = lowpass.finish();
+            // The same intro dropped: every output from before it.
+            let from = if skip {
+                (SKIP * f64::from(file_rate) / factor as f64).ceil() as usize
+            } else {
+                0
+            };
+            key::of_filtered(
+                filtered.get(from..).unwrap_or_default(),
+                file_rate / factor as u32,
+            )
+        });
         Measured::Window {
             analysed_ms: (analysed * 1000.0).round() as i64,
             tempo: bpm::detect(window, rate),
+            key,
         }
     }
 }

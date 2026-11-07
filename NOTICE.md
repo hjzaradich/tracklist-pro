@@ -11,3 +11,7 @@ rekordbox, AlphaTheta, Pioneer DJ, CDJ, XDJ, OneLibrary, Spotify, Beatport and a
 ## Privacy
 
 No telemetry. Every online service is off until you turn it on, and each says what it sends. Your music never leaves your computer. The details are in the [README](README.md#privacy).
+
+## Credits
+
+- **libKeyFinder** (https://github.com/mixxxdj/libkeyfinder), Copyright 2011-2015 Ibrahim Sha'ath, and the Mixxx contributors, GPL-3.0-or-later. The app's own key estimate (`src-tauri/src/estimate/key/`) is a translation of its method into Rust: the low-pass filter (based on Tony Fisher's mkfilter work), the chroma spectrum, and the tone profiles from Sha'ath's 2011 thesis. Each translated file names the files it comes from.

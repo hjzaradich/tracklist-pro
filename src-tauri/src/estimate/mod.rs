@@ -1,5 +1,5 @@
-//! The app's own estimates (ROADMAP 3.7 "Local estimates"): BPM now; the
-//! energy features (E1b) and key (E2) join here.
+//! The app's own estimates (ROADMAP 3.7 "Local estimates"): BPM and key;
+//! the energy features (E1b) join here.
 //!
 //! - **Measured once, keyed by the audio.** The analyze job ([`job`])
 //!   decodes a window from the middle of each Library track's file
@@ -10,6 +10,12 @@
 //!   short, it's silent) gets a row saying why.
 //! - **BPM** ([`bpm`]): the spike's detector, folded into the user's BPM
 //!   range (the setting `bpm_range`, rekordbox's 98 to 195 by default).
+//! - **Key** ([`key`]): libKeyFinder's method, translated into Rust, from
+//!   the same decoded window. Always measured and kept in the ledger, but
+//!   shown (a key in the `'local'` row) only while the owner's test switch
+//!   is on ([`crate::settings::Feature::LocalKey`], off by default), until
+//!   it reaches the bar in 3.7. With it off, nothing reads the local key.
+//!   [`compare`] counts how it agrees with rekordbox, for that test.
 //! - **Shown as the weakest source.** Each Library track whose file has a
 //!   BPM gets one `'local'` analysis row, updated in place; rekordbox, tags,
 //!   Mixed In Key and the user all win over it by the precedence the track
@@ -30,7 +36,9 @@
 //! database, through the [`crate::db::Writer`].
 
 pub mod bpm;
+pub mod compare;
 mod job;
+pub mod key;
 pub(crate) mod ledger;
 pub mod window;
 
@@ -53,8 +61,9 @@ pub use job::{analyze_job, Analyzer, PRIORITY};
 
 /// The version of the method. Bump it when anything that shapes what is
 /// measured changes (the window, the detector, a feature added), and every
-/// file is measured again; the `'local'` rows are updated in place.
-pub const VERSION: u8 = 1;
+/// file is measured again; the `'local'` rows are updated in place. 2: the
+/// key (3C-E2).
+pub const VERSION: u8 = 2;
 
 /// The analyze job's handler for the app, on the thread budget the
 /// fingerprint jobs share.

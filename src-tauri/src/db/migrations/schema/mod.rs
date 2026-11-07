@@ -323,6 +323,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ),
     // The analyze job's measurements per file (derived state, 3C-E1a).
     ("0053_file_estimate.sql", &["file_estimate"]),
+    // The key in the analyze job's ledger: three columns, no new tables (3C-E2).
+    ("0054_file_estimate_key.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
