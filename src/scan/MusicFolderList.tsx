@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { MusicFolder, MusicFolderId } from "../bindings";
 import { describeNote, folderNotes } from "./musicFolderStatus";
+import { OnedriveNote } from "./OnedriveNote";
 import { MusicFolderWatchSwitch } from "./MusicFolderWatchSwitch";
 import styles from "./MusicFolderList.module.css";
 
@@ -16,16 +17,20 @@ export type OnScanAgain = (id: MusicFolderId) => void;
  * drive isn't connected is greyed out and says so (1aB-9); one the scan
  * couldn't fully read says how much it missed (1aB-14); online-only files
  * are counted (1aB-8). With `onWatchChange`, each row also has its watcher
- * toggle (1aC-6); with `onScanAgain`, a "Scan again" button. For the Music folders screen (1aE-1).
+ * toggle (1aC-6); with `onScanAgain`, a "Scan again" button. A folder whose
+ * id is in `onedrive` also carries the OneDrive note. For the Music folders
+ * screen (1aE-1).
  */
 export function MusicFolderList({
   folders,
   onWatchChange,
   onScanAgain,
+  onedrive,
 }: {
   folders: MusicFolder[];
   onWatchChange?: OnWatchChange;
   onScanAgain?: OnScanAgain;
+  onedrive?: ReadonlySet<number>;
 }) {
   const { t } = useTranslation("musicFolderStatus");
   if (folders.length === 0) return <p className={styles.empty}>{t("empty")}</p>;
@@ -37,6 +42,7 @@ export function MusicFolderList({
           folder={folder}
           onWatchChange={onWatchChange}
           onScanAgain={onScanAgain}
+          inOnedrive={onedrive?.has(folder.id) ?? false}
         />
       ))}
     </ul>
@@ -47,10 +53,12 @@ function FolderRow({
   folder,
   onWatchChange,
   onScanAgain,
+  inOnedrive,
 }: {
   folder: MusicFolder;
   onWatchChange?: OnWatchChange;
   onScanAgain?: OnScanAgain;
+  inOnedrive: boolean;
 }) {
   const { t } = useTranslation("musicFolderStatus");
   const notesId = useId();
@@ -92,6 +100,7 @@ function FolderRow({
           ))}
         </span>
       )}
+      {inOnedrive && <OnedriveNote className={styles.notes} />}
     </li>
   );
 }

@@ -86,6 +86,7 @@ export function XmlSourcePanel({ quiet = false }: { quiet?: boolean }) {
           <p className={styles.muted}>{t("howTo")}</p>
         </>
       )}
+      <p className={styles.muted}>{t("myTagTip")}</p>
       {source && <ReadStatus source={source} reading={reading} />}
       {older && (
         <OlderConfirm

@@ -11,6 +11,7 @@ pub mod chain;
 #[cfg(windows)]
 mod file_id;
 pub mod folders;
+pub mod onedrive;
 pub mod online_only;
 mod unchanged;
 pub mod volumes;

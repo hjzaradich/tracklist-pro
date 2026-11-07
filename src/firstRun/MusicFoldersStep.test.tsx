@@ -47,6 +47,7 @@ function fakeBackend(initial: MusicFolder[] = [], refuse: unknown = null) {
         return added;
       }
       if (cmd === "scan_music_folders") return 42;
+      if (cmd === "onedrive_music_folders") return [];
       if (cmd === "read_online_only_files") return backend.readOnlineOnly;
       if (cmd === "set_read_online_only_files") {
         backend.readOnlineOnly = a.on as boolean;

@@ -11,5 +11,7 @@
   "onlineOnly_other": "{{count}} files online only (not downloaded)",
   "scanAgain": "Scan again",
   "readOnlineOnly": "Read online-only files",
-  "readOnlineOnlyHelp": "OneDrive downloads every file the app reads. When off, online-only files are listed but not read."
+  "readOnlineOnlyHelp": "OneDrive downloads every file the app reads. When off, online-only files are listed but not read.",
+  "onedrive": "This folder is in OneDrive, which can keep files online only or remove their local copies.",
+  "onedriveHelp": "To keep the music on this PC, right-click the folder in File Explorer and choose \"Always keep on this device\", or move the music out of OneDrive."
 }

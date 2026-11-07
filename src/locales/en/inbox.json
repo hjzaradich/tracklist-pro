@@ -77,7 +77,7 @@
     "firstLook": "Still taking a first look"
   },
   "empty": {
-    "noFolders": "Add a folder where new music lands, such as Downloads. New files will show up here.",
+    "noFolders": "Add the folder where you put new music. New files will show up here.",
     "zero": "Inbox zero. Nothing new."
   }
 }

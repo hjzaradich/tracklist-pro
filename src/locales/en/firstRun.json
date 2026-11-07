@@ -13,5 +13,13 @@
     "title": "Start fresh",
     "help": "An empty Library. Add the tracks you want from All music.",
     "action": "Go to All music"
+  },
+  "inbox": {
+    "title": "Where do you put new music?",
+    "help": "Choose the folder where new music lands. It is read, never changed. Skip it if you would rather not say.",
+    "choose": "Choose folder",
+    "skip": "Skip",
+    "watch": "Watch for new files",
+    "watchHelp": "Off until you turn it on. When on, new files in this folder show up in the Inbox as they arrive."
   }
 }

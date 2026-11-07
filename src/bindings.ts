@@ -115,6 +115,11 @@ export const commands = {
 	/**  Removes a music folder from the app. Its files stay on disk untouched. */
 	removeMusicFolder: (id: MusicFolderId) => typedError<null, IpcError>(__TAURI_INVOKE("remove_music_folder", { id })),
 	/**
+	 *  The music folders (scan or Inbox) that are in OneDrive. A folder whose
+	 *  drive isn't connected is left out: it can't be asked about.
+	 */
+	onedriveMusicFolders: () => typedError<MusicFolderId[], IpcError>(__TAURI_INVOKE("onedrive_music_folders")),
+	/**
 	 *  Scans the music folders `ids`, or all of them. Returns the job's id; its
 	 *  progress shows in Activity. Asked again while that same scan is waiting,
 	 *  nothing more is queued and the waiting job's id comes back; while it's
