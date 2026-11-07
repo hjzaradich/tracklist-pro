@@ -75,10 +75,19 @@ fn piece(base: &Path, suffix: &str) -> PathBuf {
 /// backup's id. On a failure with no Library in place, the old one is put
 /// back first; the marker stays, so the next start tries again.
 pub fn on_startup(guard: &WriteGuard) -> Result<Option<String>, BundleError> {
-    let layout = Layout::of(guard);
-    finish(guard, &layout, crate::diagnostics::now_ms(), &mut || false).map_err(|e| {
+    start(guard, &Layout::of(guard), crate::diagnostics::now_ms(), &mut || false)
+}
+
+/// [`on_startup`], with [`finish`]'s crash points open to tests.
+pub(super) fn start(
+    guard: &WriteGuard,
+    layout: &Layout,
+    now_ms: i64,
+    crash: &mut dyn FnMut() -> bool,
+) -> Result<Option<String>, BundleError> {
+    finish(guard, layout, now_ms, crash).map_err(|e| {
         if !exists(&layout.live) {
-            if let Err(again) = put_back(guard, &layout) {
+            if let Err(again) = put_back(guard, layout) {
                 eprintln!("startup: the old Library couldn't be put back: {again}");
             }
         }
