@@ -176,7 +176,7 @@ pub(crate) fn overlap(new: &RelPath, existing: &RelPath) -> Option<Overlap> {
 }
 
 /// The folder at `path` as a person reads it, under `mount`.
-fn under_mount(mount: &Path, rel: &RelPath) -> String {
+pub(crate) fn under_mount(mount: &Path, rel: &RelPath) -> String {
     let mut path = mount.to_path_buf();
     for part in rel.components() {
         path.push(part);
@@ -237,22 +237,15 @@ pub fn add(
     })?
 }
 
-/// Stores `volume` (or refreshes what's known about it) and adds the
-/// folder `rel` on it, unless it overlaps an existing music folder. One
-/// transaction, so two adds can't both slip past the overlap check.
-///
-/// `volume` comes named by the clone rule. Its `guid` is remembered only
-/// if none is yet (see [`super::volumes::note_mounted`]).
-fn insert(
-    conn: &mut Connection,
+/// Stores `volume`, or refreshes what's known about it, and returns its row
+/// id. The volume rows aren't in the operation log: a row is never deleted
+/// while a music folder is on it, and one left behind is harmless.
+pub(crate) fn upsert_volume(
+    conn: &Connection,
     volume: &Volume,
     guid: Option<&str>,
-    rel: &RelPath,
-    role: MusicFolderRole,
-    shown: &str,
-) -> rusqlite::Result<Result<MusicFolder, MusicFolderError>> {
-    let tx = conn.transaction()?;
-    let volume_id: i64 = tx.query_row(
+) -> rusqlite::Result<i64> {
+    conn.query_row(
         "INSERT INTO volume (identity, label, guid, kind, last_mount_path, last_seen_at)
          VALUES (?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
          ON CONFLICT (identity) DO UPDATE SET
@@ -270,7 +263,25 @@ fn insert(
             display_path(&volume.mount_path),
         ),
         |r| r.get(0),
-    )?;
+    )
+}
+
+/// Stores `volume` (or refreshes what's known about it) and adds the
+/// folder `rel` on it, unless it overlaps an existing music folder. One
+/// transaction, so two adds can't both slip past the overlap check.
+///
+/// `volume` comes named by the clone rule. Its `guid` is remembered only
+/// if none is yet (see [`super::volumes::note_mounted`]).
+fn insert(
+    conn: &mut Connection,
+    volume: &Volume,
+    guid: Option<&str>,
+    rel: &RelPath,
+    role: MusicFolderRole,
+    shown: &str,
+) -> rusqlite::Result<Result<MusicFolder, MusicFolderError>> {
+    let tx = conn.transaction()?;
+    let volume_id = upsert_volume(&tx, volume, guid)?;
 
     let existing: Vec<String> = {
         let mut stmt = tx.prepare("SELECT rel_path FROM music_folder WHERE volume_id = ?1")?;

@@ -98,6 +98,13 @@ error_kinds! {
     /// Tracks, Library tracks or relinks still use files in the music
     /// folder, so it can't be removed.
     MusicFolderInUse => "musicFolders:inUse", params: [];
+    /// A music folder can only be pointed at a new place while it is missing.
+    RelocateNotMissing => "musicFolders:relocateNotMissing", params: [];
+    /// The new place is inside, or around, the music folder `musicFolder`.
+    RelocateOverlaps => "musicFolders:relocateOverlaps", params: ["musicFolder"];
+    /// Only `found` of the `checked` files known in the folder are at the
+    /// new place, at the same paths and sizes.
+    RelocateTooFewFiles => "musicFolders:relocateTooFewFiles", params: ["found", "checked"];
     /// The rekordbox export isn't a file that exists.
     RekordboxXmlNotFound => "rekordbox:error.notFound", params: ["path"];
     /// The file isn't a rekordbox collection export.

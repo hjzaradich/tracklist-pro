@@ -36,6 +36,9 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "create_crate":
       if (name !== null) return t("undo.action.createCrate", { name });
       break;
+    case "relocate_music_folder":
+      if (name !== null) return t("undo.action.relocateMusicFolder", { name });
+      break;
     case "rename_crate":
       if (name !== null && from !== null) return t("undo.action.renameCrate", { from, name });
       break;

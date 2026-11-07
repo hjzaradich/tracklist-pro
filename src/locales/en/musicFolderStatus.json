@@ -10,6 +10,8 @@
   "onlineOnly_one": "{{count}} file online only (not downloaded)",
   "onlineOnly_other": "{{count}} files online only (not downloaded)",
   "scanAgain": "Scan again",
+  "findIt": "Find it…",
+  "foundIt": "Found it: {{found}} of {{checked}} files checked are there. Scanning the folder again.",
   "readOnlineOnly": "Read online-only files",
   "readOnlineOnlyHelp": "OneDrive downloads every file the app reads. When off, online-only files are listed but not read.",
   "onedrive": "This folder is in OneDrive, which can keep files online only or remove their local copies.",

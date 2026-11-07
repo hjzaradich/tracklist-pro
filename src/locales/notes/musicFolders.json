@@ -33,5 +33,17 @@
     "purpose": "Error: a music folder can't be removed while tracks use its files.",
     "where": "Not reached from a screen yet: no screen removes music folders; would show when removal is refused because Library tracks link to files in the folder.",
     "approved": "Can't remove: tracks use files in this folder"
+  },
+  "relocateNotMissing": {
+    "purpose": "Error: only a missing music folder can be pointed at a new place.",
+    "where": "Music folders panel, after \"Find it…\" on a folder that turned out to be reachable."
+  },
+  "relocateOverlaps": {
+    "purpose": "Error: the new place is inside, or around, another music folder.",
+    "where": "Music folders panel, after \"Find it…\" when the chosen folder overlaps another music folder ({{musicFolder}})."
+  },
+  "relocateTooFewFiles": {
+    "purpose": "Error: the chosen folder doesn't hold the music the app knew in the missing one.",
+    "where": "Music folders panel, after \"Find it…\" when too few of the checked files are there ({{found}} of {{checked}})."
   }
 }

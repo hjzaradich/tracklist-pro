@@ -33,6 +33,7 @@ function fakeBackend(initial: MusicFolder[] = [], refuse: unknown = null) {
   const backend = {
     folders: initial,
     readOnlineOnly: false,
+    relocateRefusal: null as unknown,
     calls: [] as { cmd: string; args: Record<string, unknown> }[],
   };
   mockIPC(
@@ -47,6 +48,10 @@ function fakeBackend(initial: MusicFolder[] = [], refuse: unknown = null) {
         return added;
       }
       if (cmd === "scan_music_folders") return 42;
+      if (cmd === "relocate_music_folder") {
+        if (backend.relocateRefusal) throw backend.relocateRefusal;
+        return { id: a.folderId, found: 19, checked: 20, path: a.newPath };
+      }
       if (cmd === "onedrive_music_folders") return [];
       if (cmd === "read_online_only_files") return backend.readOnlineOnly;
       if (cmd === "set_read_online_only_files") {
@@ -200,6 +205,38 @@ describe("picking music folders", () => {
     expect(
       screen.getByText(tx("musicFolderStatus:offline")),
     ).toBeInTheDocument();
+  });
+
+  it("points a missing folder at the folder picked with Find it, and says how many files were found", async () => {
+    const backend = fakeBackend([
+      folder(1, String.raw`E:\Music`),
+      { ...folder(2, String.raw`F:\Gone`), online: false },
+    ]);
+    dialog.open.mockResolvedValue(String.raw`D:\Moved`);
+    renderStep();
+    // Only the missing folder offers it.
+    const buttons = await screen.findAllByRole("button", { name: tx("musicFolderStatus:findIt") });
+    expect(buttons).toHaveLength(1);
+    await userEvent.click(buttons[0]);
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      tx("musicFolderStatus:foundIt", { found: 19, checked: 20 }),
+    );
+    expect(acted(backend)).toEqual([
+      { cmd: "relocate_music_folder", args: { folderId: 2, newPath: String.raw`D:\Moved` } },
+    ]);
+  });
+
+  it("says in plain words why Find it was refused", async () => {
+    const backend = fakeBackend([{ ...folder(1, String.raw`F:\Gone`), online: false }]);
+    backend.relocateRefusal = { kind: "relocateTooFewFiles", params: { found: 1, checked: 20 } };
+    dialog.open.mockResolvedValue(String.raw`D:\Other`);
+    renderStep();
+    await userEvent.click(
+      await screen.findByRole("button", { name: tx("musicFolderStatus:findIt") }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      tx("musicFolders:relocateTooFewFiles", { found: 1, checked: 20 }),
+    );
   });
 
   it("holds the opt-in to reading online-only files", async () => {
