@@ -997,6 +997,10 @@ fn a_put_back_failing_at_any_step_leaves_no_piece_beside_a_missing_file() {
             if way_back_works {
                 assert!(swap_piece(&aside, "-wal").exists(), "{case}");
                 assert!(swap_piece(&aside, "-shm").exists(), "{case}");
+            } else if fail_at > 1 {
+                // The piece that couldn't go back is kept, set aside in place.
+                let stray = swap_piece(&swap_piece(&layout.live, "-wal"), ".stray");
+                assert_eq!(fs::read(stray).unwrap(), b"wal", "{case}");
             }
         }
     }
@@ -1048,4 +1052,16 @@ fn a_confirm_that_cant_be_deleted_still_opens_the_library_and_doesnt_loop() {
         start(&guard, &layout, 5, &mut || false).unwrap(),
         Swapped::Nothing
     );
+}
+
+#[test]
+fn with_no_confirm_and_the_library_still_set_aside_the_next_start_brings_it_home() {
+    let root = TempDir::new().unwrap();
+    let (guard, layout) = set_aside_whole(root.path());
+    assert!(!layout.marker.exists());
+    assert_eq!(
+        start(&guard, &layout, 1, &mut || false).unwrap(),
+        Swapped::Nothing
+    );
+    assert_eq!(beside_live(&layout), ["-wal", "-shm", ""]);
 }
