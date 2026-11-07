@@ -248,6 +248,7 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::bundle::confirm_import,
             crate::bundle::list_backups,
             crate::bundle::stage_restore,
+            crate::bundle::save_bundle_as,
         ])
         .events(collect_events![
             crate::jobs::JobUpdates,

@@ -776,7 +776,7 @@ fn permission_names(capability: &Value) -> Vec<String> {
 }
 
 #[test]
-fn the_webview_is_granted_the_core_defaults_and_the_file_picker_and_nothing_else() {
+fn the_webview_is_granted_the_core_defaults_and_the_open_and_save_pickers_and_nothing_else() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut granted = Vec::new();
     // Every capability file.
@@ -802,7 +802,12 @@ fn the_webview_is_granted_the_core_defaults_and_the_file_picker_and_nothing_else
         granted.extend(permission_names(capability));
     }
     granted.sort();
-    assert_eq!(granted, ["core:default", "dialog:allow-open"]);
+    // `allow-save` only returns the path the user picked (4.1); the app's
+    // own narrow guard rule is what writes the file.
+    assert_eq!(
+        granted,
+        ["core:default", "dialog:allow-open", "dialog:allow-save"]
+    );
 }
 
 // --- review follow-ups: cancelling, the read's transaction, online-only files ---

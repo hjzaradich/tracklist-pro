@@ -99,6 +99,33 @@ pub enum GuardError {
     Unresolvable { path: PathBuf, source: io::Error },
     /// The check passed but the write itself failed.
     Io { path: PathBuf, source: io::Error },
+    /// [`WriteGuard::save_new_bundle_outside`] refused, for this reason.
+    SaveRefused { why: SaveRefusal, path: PathBuf },
+}
+
+/// Why [`WriteGuard::save_new_bundle_outside`] refused. One kind per rule,
+/// so a refusal says exactly which condition failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveRefusal {
+    /// The source isn't a bundle file the app made in `bundles/`.
+    SourceNotABundle,
+    /// The destination's name doesn't end in `.zip`.
+    NotZip,
+    /// Something is already at the destination (file, folder or link).
+    Exists,
+    /// The destination's folder doesn't exist.
+    FolderMissing,
+    /// The destination's folder, or a folder above it, is a link or
+    /// junction, or isn't a folder.
+    FolderNotPlain,
+    /// Inside (or equal to) a scan or Inbox folder.
+    InMusicFolder,
+    /// Inside (or equal to) the app data folder.
+    InAppData,
+    /// On a drive that looks like a rekordbox gig stick.
+    GigStick,
+    /// Inside rekordbox's own data folder.
+    InRekordboxFolder,
 }
 
 impl fmt::Display for GuardError {
@@ -129,6 +156,9 @@ impl fmt::Display for GuardError {
             }
             GuardError::Io { path, source } => {
                 write!(f, "can't write {}: {source}", path.display())
+            }
+            GuardError::SaveRefused { why, path } => {
+                write!(f, "won't save to {}: {why:?}", path.display())
             }
         }
     }
@@ -445,6 +475,189 @@ impl WriteGuard {
         let checked = self.check_entry(path)?;
         fs::remove_dir_all(&checked.path).map_err(|e| checked.io(e))
     }
+}
+
+/// Folders a bundle must never be saved in or on, besides app data.
+#[derive(Debug, Default, Clone)]
+pub struct KeepOut {
+    /// Every scan and Inbox folder, where they are (or were last seen).
+    pub music_folders: Vec<PathBuf>,
+    /// rekordbox's own data folder (the app's usual place for it), if known.
+    pub rekordbox_data: Option<PathBuf>,
+}
+
+impl WriteGuard {
+    /// THE ONE EXCEPTION to "the app writes only inside its roots"
+    /// (ROADMAP 4.1, owner decision 2026-11-07): copies one bundle the app
+    /// made (`source`, a file in app data's `bundles/`) to a NEW file the
+    /// user named in a Save dialog. It is the only way the app writes
+    /// outside app data, and it writes exactly one file, only when ALL hold:
+    ///
+    /// 1. `source` is a plain file named `tracklist-pro-*.zip` directly in
+    ///    app data's `bundles/` (else `SourceNotABundle`);
+    /// 2. `dest` ends in `.zip` (`NotZip`);
+    /// 3. nothing at all is at `dest`, not even a link (`Exists`); the file
+    ///    is made with create-new, so it is never replaced or followed;
+    /// 4. `dest`'s folder exists (`FolderMissing`) and neither it nor any
+    ///    folder above it is a symlink or junction, and it is a folder
+    ///    (`FolderNotPlain`);
+    /// 5. `dest` is not inside, or equal to, a music folder
+    ///    (`InMusicFolder`) or app data (`InAppData`);
+    /// 6. `dest`'s drive root has no `PIONEER` or `Contents` entry, the
+    ///    mark of a gig stick (`GigStick`);
+    /// 7. `dest` is not inside rekordbox's data folder (`InRekordboxFolder`).
+    ///
+    /// The bytes are streamed into the created file. If that fails, only
+    /// the file this call created is removed.
+    pub fn save_new_bundle_outside(
+        &self,
+        source: &Path,
+        dest: &Path,
+        keep_out: &KeepOut,
+    ) -> Result<(), GuardError> {
+        let refuse = |why| GuardError::SaveRefused {
+            why,
+            path: source.into(),
+        };
+        let bundles = self.check(&self.app_data_dir().join("bundles"))?;
+        let source = self
+            .check(source)
+            .map_err(|_| refuse(SaveRefusal::SourceNotABundle))?;
+        let name = source.path.file_name().and_then(|n| n.to_str());
+        let is_bundle_name =
+            name.is_some_and(|n| n.starts_with("tracklist-pro-") && n.ends_with(".zip"));
+        if source.path.parent() != Some(bundles.path.as_path()) || !is_bundle_name {
+            return Err(refuse(SaveRefusal::SourceNotABundle));
+        }
+        let mut from = File::open(&source.path).map_err(|e| source.io(e))?;
+        if !from.metadata().is_ok_and(|m| m.is_file()) {
+            return Err(refuse(SaveRefusal::SourceNotABundle));
+        }
+        self.save_stream(&mut from, dest, keep_out, drive_root)
+    }
+
+    /// Rules 2 to 7 of [`Self::save_new_bundle_outside`], then the copy.
+    /// `root_of` finds the drive root (a test names a temp folder instead).
+    fn save_stream(
+        &self,
+        from: &mut dyn io::Read,
+        dest: &Path,
+        keep_out: &KeepOut,
+        root_of: fn(&Path) -> Option<PathBuf>,
+    ) -> Result<(), GuardError> {
+        let tidy = lexical(dest)?;
+        let refuse = |why, path: &Path| GuardError::SaveRefused {
+            why,
+            path: path.into(),
+        };
+        let is_zip = tidy
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("zip"));
+        if !is_zip || tidy.file_stem().is_none() {
+            return Err(refuse(SaveRefusal::NotZip, &tidy));
+        }
+        if fs::symlink_metadata(&tidy).is_ok() {
+            return Err(refuse(SaveRefusal::Exists, &tidy));
+        }
+        let Some(folder) = tidy.parent() else {
+            return Err(refuse(SaveRefusal::FolderMissing, &tidy));
+        };
+        match fs::symlink_metadata(folder) {
+            Ok(m) if m.is_dir() => {}
+            Ok(_) => return Err(refuse(SaveRefusal::FolderNotPlain, &tidy)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(refuse(SaveRefusal::FolderMissing, &tidy));
+            }
+            Err(source) => {
+                return Err(GuardError::Unresolvable {
+                    path: tidy.clone(),
+                    source,
+                })
+            }
+        }
+        // `symlink_metadata` doesn't follow; std counts a junction as a link.
+        if folder
+            .ancestors()
+            .any(|a| fs::symlink_metadata(a).is_ok_and(|m| m.file_type().is_symlink()))
+        {
+            return Err(refuse(SaveRefusal::FolderNotPlain, &tidy));
+        }
+        let real = real_path(&tidy)?;
+        if self.roots.iter().any(|(_, root)| within(&real, root)) {
+            return Err(refuse(SaveRefusal::InAppData, &real));
+        }
+        if inside_any(&real, keep_out.music_folders.iter().map(PathBuf::as_path)) {
+            return Err(refuse(SaveRefusal::InMusicFolder, &real));
+        }
+        if let Some(root) = root_of(&real) {
+            if has_a_gig_stick_mark(&root) {
+                return Err(refuse(SaveRefusal::GigStick, &real));
+            }
+        }
+        if inside_any(&real, keep_out.rekordbox_data.iter().map(PathBuf::as_path)) {
+            return Err(refuse(SaveRefusal::InRekordboxFolder, &real));
+        }
+        // Create-new: fails if anything appeared meanwhile, never replaces.
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(&real)
+            .map_err(|e| match e.kind() {
+                io::ErrorKind::AlreadyExists => refuse(SaveRefusal::Exists, &real),
+                _ => GuardError::Io {
+                    path: real.clone(),
+                    source: e,
+                },
+            })?;
+        let copied = io::copy(from, &mut file).and_then(|_| file.sync_all());
+        drop(file);
+        copied.map_err(|source| {
+            // Only the file this call just created.
+            let _ = fs::remove_file(&real);
+            GuardError::Io {
+                path: real.clone(),
+                source,
+            }
+        })
+    }
+}
+
+/// Whether `path` (resolved) is one of `folders` or inside one, going by
+/// each folder as written and as it resolves on disk.
+fn inside_any<'a>(path: &Path, mut folders: impl Iterator<Item = &'a Path>) -> bool {
+    folders.any(|folder| {
+        let written = lexical(folder).ok();
+        let resolved = written.as_deref().and_then(|w| real_path(w).ok());
+        [written, resolved]
+            .iter()
+            .flatten()
+            .any(|f| within(path, f))
+    })
+}
+
+/// The drive (or share) root `path` is on: its prefix and root directory.
+fn drive_root(path: &Path) -> Option<PathBuf> {
+    let mut root = PathBuf::new();
+    for part in path.components().take(2) {
+        match part {
+            Component::Prefix(_) | Component::RootDir => root.push(part.as_os_str()),
+            _ => break,
+        }
+    }
+    root.has_root().then_some(root)
+}
+
+/// Whether a drive root holds a `PIONEER` or `Contents` entry (any case):
+/// how a rekordbox gig stick looks (ROADMAP 5.4).
+fn has_a_gig_stick_mark(root: &Path) -> bool {
+    fs::read_dir(root).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.eq_ignore_ascii_case("PIONEER") || name.eq_ignore_ascii_case("Contents")
+        })
+    })
 }
 
 /// The folder in app data that holds every [`Staging`] folder.

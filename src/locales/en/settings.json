@@ -28,6 +28,52 @@
       "newer": "This bundle comes from a newer version of the app. Update the app, then try again.",
       "nothingStaged": "There's no bundle or backup ready to use. Choose it again.",
       "backupNotFound": "That backup is no longer there."
+    },
+    "title": "Move to another computer",
+    "intro": "Make a bundle of your Library (crates, playlists, tags, history and settings) to open on another computer of yours. The music itself isn't in it: copy your music yourself, and the app finds it again by drive and folder.",
+    "create": "Create bundle",
+    "creating": "Making the bundle. A big Library can take a few minutes.",
+    "saveDialogTitle": "Save the bundle",
+    "filter": "Bundle",
+    "saved": "Saved as {{name}}",
+    "notSaved": "Not saved. The app keeps no copy outside its own folder.",
+    "import": "Import a bundle",
+    "openDialogTitle": "Choose a bundle",
+    "checking": "Checking the bundle…",
+    "confirm": {
+      "importTitle": "Replace this computer's Library with this bundle?",
+      "restoreTitle": "Replace this computer's Library with this backup?",
+      "made": "Made on {{date}} by version {{version}} of the app",
+      "kept": "Kept on {{date}}",
+      "tracks": "Tracks: {{value, number}}",
+      "crates": "Crates: {{value, number}}",
+      "playlists": "Playlists: {{value, number}}",
+      "tags": "Tags: {{value, number}}",
+      "folders": "Music folders: {{value, number}}",
+      "detail": "This replaces everything in this computer's Library with what is in the bundle. Your current Library is kept as a backup first, so you can restore it. The app restarts to finish.",
+      "machine": "Online services start off, and the rekordbox file you chose is forgotten; turn them on or choose the file again here.",
+      "drives": "Music folders on drives that aren't connected show as missing. Connect the drive, or use “Find it…” on the folder in Music folders.",
+      "replace": "Replace and restart",
+      "cancel": "Cancel"
+    },
+    "restarting": "Restarting…",
+    "backups": {
+      "title": "Backups",
+      "empty": "No backups yet. One is kept each time a Library is replaced.",
+      "row": "{{date}} · Tracks: {{tracks, number}} · Crates: {{crates, number}}",
+      "rowUnknown": "{{date}}",
+      "restore": "Restore"
+    },
+    "save": {
+      "notABundle": "The bundle to save isn't one this app made.",
+      "notZip": "The name must end in .zip.",
+      "exists": "A file with that name is already there. Nothing was replaced; choose a new name.",
+      "folderMissing": "That folder isn't there. Choose another.",
+      "folderNotPlain": "Save in an ordinary folder, not a shortcut or link.",
+      "inMusicFolder": "That is inside one of your music folders. Choose a place outside them.",
+      "inAppData": "That is inside this app's own folder. Choose another place.",
+      "gigStick": "That drive looks like a rekordbox gig stick. Choose a place on another drive.",
+      "inRekordboxFolder": "That is inside rekordbox's own folder. Choose another place."
     }
   }
 }
