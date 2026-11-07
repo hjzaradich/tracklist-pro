@@ -88,7 +88,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 ### Run 4C (owner 2026-11-07: "start the next run", budget 15 weekly points, started at 35%; stop by 50%)
 - **4.5** U update check (check and tell, through the gate) with the first-run question, the Settings switch and the installer's publisher name; ✅ R the release script (draft releases only; PR 214).
 - **3.8** M1 first measurement, no app code: EfficientAT mn10_as and CED on `tract` (and `ort` for comparison), public test audio, a PyTorch reference for parity; speed and memory, label agreement on DJ genres, "sounds like" neighbours, a per-user head. The owner's own tracks only with a later OK.
-- **Follow-ups:** F the bundle swap's double failure leaving a stray -wal; the Save dialog's gig-stick check refusing an ordinary folder that happens to hold a "Pioneer" folder; COM0 and superscript device names.
+- **Follow-ups:** ✅ F (PR 215) the bundle swap's double failure leaving a stray -wal; the Save dialog's gig-stick check refusing an ordinary folder that happens to hold a "Pioneer" folder; COM0 and superscript device names. Left: a stale set-aside folder can skip the fold before a swap, and a second failure overwrites the earlier `.stray` copy (review notes).
 - Installer 0.1.9 built (PR 213).
 
 ### Stage 1cE: Go public 👤
