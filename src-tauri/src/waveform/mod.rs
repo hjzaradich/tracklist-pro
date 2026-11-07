@@ -219,7 +219,7 @@ pub(crate) fn request<E: From<DbError>>(
 /// the next launch, asks again.
 pub(crate) fn ask_after_library_change<E: From<DbError> + std::fmt::Debug>(
     writer: &Writer,
-    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+    enqueue: impl FnMut(NewJob) -> Result<JobId, E>,
 ) {
     let reach = chain::reach_by(crate::scan::system_volumes);
     ask_after_library_change_with(writer, Some(&reach), enqueue);
@@ -230,10 +230,15 @@ pub(crate) fn ask_after_library_change<E: From<DbError> + std::fmt::Debug>(
 pub(crate) fn ask_after_library_change_with<E: From<DbError> + std::fmt::Debug>(
     writer: &Writer,
     reach: Option<&Reach>,
-    enqueue: impl FnOnce(NewJob) -> Result<JobId, E>,
+    mut enqueue: impl FnMut(NewJob) -> Result<JobId, E>,
 ) {
-    if let Err(e) = request(writer, reach, enqueue) {
+    if let Err(e) = request(writer, reach, &mut enqueue) {
         eprintln!("waveform: couldn't ask for the job: {e:?}");
+    }
+    // The app's own estimates cover the same files (ROADMAP 3.7): every
+    // place a Library change asks for waveforms asks for them too.
+    if let Err(e) = crate::estimate::request(writer, reach, &mut enqueue) {
+        eprintln!("estimate: couldn't ask for the job: {e:?}");
     }
 }
 

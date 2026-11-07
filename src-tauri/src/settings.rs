@@ -66,6 +66,62 @@ pub async fn set_key_notation(
     Ok(writer.call(move |c| write_key_notation(c, notation))?)
 }
 
+/// The BPM range the app's own tempo estimates are folded into (ROADMAP
+/// 3.7): rekordbox's "BPM range" preference, as the user would set it there.
+/// Stored as a JSON array `[min, max]`. No screen sets it yet.
+pub const BPM_RANGE: &str = "bpm_range";
+
+/// rekordbox's default range, 98 to 195 BPM.
+pub const DEFAULT_BPM_RANGE: BpmRange = BpmRange {
+    min: 98.0,
+    max: 195.0,
+};
+
+/// A tempo range: an estimate is doubled while it's under `min`, then halved
+/// while it's `max` or more.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BpmRange {
+    pub min: f64,
+    pub max: f64,
+}
+
+impl BpmRange {
+    /// A range that folding can use: finite, above zero, `min` under `max`.
+    pub fn new(min: f64, max: f64) -> Option<BpmRange> {
+        (min.is_finite() && max.is_finite() && min > 0.0 && min < max && max < 1000.0)
+            .then_some(BpmRange { min, max })
+    }
+}
+
+/// The BPM range the user set, or rekordbox's default (98 to 195) if they
+/// haven't or the value isn't a range.
+pub fn read_bpm_range(conn: &Connection) -> rusqlite::Result<BpmRange> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM setting WHERE key = ?1",
+            [BPM_RANGE],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let range = value
+        .and_then(|v| serde_json::from_str::<[f64; 2]>(&v).ok())
+        .and_then(|[min, max]| BpmRange::new(min, max));
+    Ok(range.unwrap_or(DEFAULT_BPM_RANGE))
+}
+
+/// Stores the BPM range.
+pub fn write_bpm_range(conn: &Connection, range: BpmRange) -> rusqlite::Result<()> {
+    let value = serde_json::json!([range.min, range.max]).to_string();
+    conn.execute(
+        "INSERT INTO setting (key, value) VALUES (?1, ?2)
+         ON CONFLICT (key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        (BPM_RANGE, value),
+    )?;
+    Ok(())
+}
+
 /// An optional feature (ROADMAP §1.1, CLAUDE.md "Network and privacy"): off
 /// until the user turns it on. Stored in `setting` as JSON `true` or
 /// `false` under `feature_<name>`; no row means off. Like the other
@@ -276,5 +332,37 @@ mod tests {
             invoke(&app, "key_notation", json!({})),
             Ok(json!("musical_flats"))
         );
+    }
+
+    #[test]
+    fn the_bpm_range_is_rekordboxs_default_until_set_and_reads_back_once_set() {
+        let (_dir, writer, _reads) = db();
+        let read = |w: &Writer| w.call(|c| read_bpm_range(c)).unwrap();
+        assert_eq!(read(&writer), DEFAULT_BPM_RANGE);
+        assert_eq!((DEFAULT_BPM_RANGE.min, DEFAULT_BPM_RANGE.max), (98.0, 195.0));
+        let range = BpmRange::new(70.0, 140.0).unwrap();
+        writer.call(move |c| write_bpm_range(c, range)).unwrap();
+        assert_eq!(read(&writer), range);
+        let raw: String = writer
+            .call(|c| c.query_row("SELECT value FROM setting WHERE key = 'bpm_range'", [], |r| r.get(0)))
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&raw).unwrap(), json!([70.0, 140.0]));
+    }
+
+    #[test]
+    fn a_stored_bpm_range_that_is_not_a_range_reads_as_the_default() {
+        let (_dir, writer, _reads) = db();
+        for bad in ["[140, 70]", "[0, 100]", "\"fast\"", "[98]", "[98, 195, 3]", "{}"] {
+            writer
+                .call(move |c| {
+                    c.execute(
+                        "INSERT INTO setting (key, value) VALUES ('bpm_range', ?1)
+                         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                        [bad],
+                    )
+                })
+                .unwrap();
+            assert_eq!(writer.call(|c| read_bpm_range(c)).unwrap(), DEFAULT_BPM_RANGE, "{bad}");
+        }
     }
 }

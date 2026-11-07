@@ -121,10 +121,11 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
 /// transaction, and works from what's still due, so a run from the top
 /// measures only the rest. The matching job stores its results a batch at
 /// a time and skips every pair that already has one, so a run from the top
-/// compares only the rest. The waveform job, like the quality job, writes one
-/// file at a time and works from what's still due. These are the kinds a
-/// normal close already puts back in the queue ([`Ending::Requeued`]).
-const RESTARTABLE: [JobKind; 12] = [
+/// compares only the rest. The waveform and analyze jobs, like the quality
+/// job, write one file at a time and work from what's still due. These are
+/// the kinds a normal close already puts back in the queue
+/// ([`Ending::Requeued`]).
+const RESTARTABLE: [JobKind; 13] = [
     JobKind::Scan,
     JobKind::Read,
     JobKind::Hash,
@@ -137,6 +138,7 @@ const RESTARTABLE: [JobKind; 12] = [
     JobKind::Match,
     JobKind::Index,
     JobKind::Waveform,
+    JobKind::Analyze,
 ];
 
 /// Why a job [`recover_interrupted`] couldn't restart ended. Kept in the
@@ -468,8 +470,8 @@ mod tests {
                     recovered,
                     Recovered {
                         cancelled: 0,
-                        requeued: 12,
-                        failed: 5
+                        requeued: 13,
+                        failed: 4
                     }
                 );
                 assert_eq!(get(c, waiting)?.unwrap().status, JobStatus::Queued);
@@ -503,6 +505,7 @@ mod tests {
             "match",
             "index",
             "waveform",
+            "analyze",
         ];
         assert_eq!(ended.len(), 17);
         for (kind, status, progress, never_started, error) in ended {

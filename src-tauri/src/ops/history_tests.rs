@@ -94,6 +94,13 @@ pub(super) const SET_ONLY_TABLES: [&str; 2] = ["recording_file", "inbox_item"];
 /// that can't trip an Undo. Not a table the log points at as a logged one.
 pub(super) const SET_ONLY_FILE_TABLES: [&str; 1] = ["file"];
 
+// Not listed, on purpose: the ledgers of what a job measured from a file's
+// audio (`file_quality`, `file_waveform`, `file_estimate`). Nothing in them
+// is the user's, no action changes them through the log, and they go with
+// their file (ON DELETE CASCADE). The analyze job's `'local'` rows are in
+// `analysis`, which is listed and never reuses an id (migration 0039), so
+// the job writing them outside the log can't trip an Undo.
+
 /// How many tracks the random actions pick among. The first
 /// [`IN_REKORDBOX`] are also in rekordbox, with a trusted match.
 const TRACKS: usize = 6;
@@ -1940,12 +1947,14 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
         }
     }
     // The scan does see the inserts made outside the log (detecting
-    // conflicts, a send, and the merge before it taking a crate entry in),
-    // so it isn't passing by blindness.
+    // conflicts, a send, and the merge before it taking a crate entry in;
+    // `analysis` twice, by attach and by the estimates' `'local'` rows), so
+    // it isn't passing by blindness.
     seen.sort_unstable();
     assert_eq!(
         seen,
         [
+            "analysis",
             "analysis",
             "conflict",
             "crate_entry",

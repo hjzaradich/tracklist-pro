@@ -77,7 +77,7 @@ export const SHARDS = [
     // after_send) have no filter, so nothing here has to avoid a clash.
     catchAll: true,
     lib: [
-      "after_send", "attach", "audio_preview", "conflict_review", "energy", "energy_stars", "file_roles", "fragile", "genre", "genre", "hash",
+      "after_send", "attach", "audio_preview", "conflict_review", "energy", "energy_stars", "estimate", "file_roles", "fragile", "genre", "genre", "hash",
       "hidden", "inbox", "ipc", "missing", "net", "next", "ops", "paths", "play_history", "playlists", "preview", "read", "rekordbox_write", "relink", "review",
       "scan_state", "search", "send", "send_values", "settings", "sniff", "start", "suggest", "tags", "ui_setting",
       "vocab", "volume", "waveform", "wishlist",

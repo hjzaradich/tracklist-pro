@@ -56,6 +56,10 @@
 //! - **Waveforms beside quality:** wherever quality is asked for, so is the
 //!   waveform job ([`crate::waveform`], 1cB-9): it needs only the audio
 //!   hashes, and runs below every other job, one file at a time.
+//! - **Estimates beside the waveforms:** wherever the waveform job is asked
+//!   for, so is the analyze job ([`crate::estimate`], ROADMAP 3.7), at the
+//!   same lowest priority: once the fingerprints are in, it measures each
+//!   Library track's file for the app's own BPM.
 //! - **Asked again where the chain ends early:** a walk with nothing to
 //!   read ends the chain there, and still asks whether quality or matching
 //!   is owed anything (see `queue_next`), so neither waits for a file to
@@ -170,6 +174,18 @@ pub fn after_waveform<H: JobHandler>(waveformer: H) -> Chained<H> {
         inner: waveformer,
         next: Next::Nothing,
         priority: crate::waveform::PRIORITY,
+        reach: None,
+    }
+}
+
+/// The analyze job's handler (the app's own estimates, ROADMAP 3.7), run
+/// once more if something asked for it meanwhile. It is queued again at its
+/// own priority, the waveform job's.
+pub fn after_analyze<H: JobHandler>(analyzer: H) -> Chained<H> {
+    Chained {
+        inner: analyzer,
+        next: Next::Nothing,
+        priority: crate::estimate::PRIORITY,
         reach: None,
     }
 }
@@ -356,6 +372,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
                 if !rescan {
                     crate::quality::request(writer, reach, enqueue)?;
                     crate::waveform::request(writer, reach, enqueue)?;
+                    crate::estimate::request(writer, reach, enqueue)?;
                 }
                 crate::matching::request(writer, enqueue)?;
                 crate::grouping::request_decide(writer, enqueue)?;
@@ -389,6 +406,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
                 // compare fingerprints (1bA-14).
                 crate::quality::request(writer, reach, enqueue)?;
                 crate::waveform::request(writer, reach, enqueue)?;
+                crate::estimate::request(writer, reach, enqueue)?;
                 crate::matching::request(writer, enqueue)?;
                 crate::grouping::request_decide(writer, enqueue)?;
             }
@@ -402,6 +420,7 @@ fn queue_next(job: &JobContext, next: Next, reach: Option<&Reach>) -> Result<(),
             // the user sees.
             crate::quality::request(writer, reach, enqueue)?;
             crate::waveform::request(writer, reach, enqueue)?;
+            crate::estimate::request(writer, reach, enqueue)?;
             crate::matching::request(writer, enqueue)?;
             crate::grouping::request_decide(writer, enqueue)?;
         }
@@ -852,6 +871,7 @@ mod tests {
         }
         assert_eq!(after_matching(stage).priority, crate::matching::PRIORITY);
         assert_eq!(after_waveform(stage).priority, crate::waveform::PRIORITY);
+        assert_eq!(after_analyze(stage).priority, crate::estimate::PRIORITY);
         assert!(crate::matching::PRIORITY < Priority::BACKGROUND);
     }
 }
