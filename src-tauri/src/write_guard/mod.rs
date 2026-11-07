@@ -111,6 +111,10 @@ pub enum SaveRefusal {
     SourceNotABundle,
     /// The destination's name doesn't end in `.zip`.
     NotZip,
+    /// A name Windows reads as something else: a `:` (an alternate data
+    /// stream), a device name (`CON`, `NUL`, `COM1`...), or a name ending
+    /// in a dot or a space.
+    BadName,
     /// Something is already at the destination (file, folder or link).
     Exists,
     /// The destination's folder doesn't exist.
@@ -482,8 +486,9 @@ impl WriteGuard {
 pub struct KeepOut {
     /// Every scan and Inbox folder, where they are (or were last seen).
     pub music_folders: Vec<PathBuf>,
-    /// rekordbox's own data folder (the app's usual place for it), if known.
-    pub rekordbox_data: Option<PathBuf>,
+    /// rekordbox's own data folders (`Pioneer` in the roaming and in the
+    /// local config folders), where known.
+    pub rekordbox_data: Vec<PathBuf>,
 }
 
 impl WriteGuard {
@@ -495,7 +500,8 @@ impl WriteGuard {
     ///
     /// 1. `source` is a plain file named `tracklist-pro-*.zip` directly in
     ///    app data's `bundles/` (else `SourceNotABundle`);
-    /// 2. `dest` ends in `.zip` (`NotZip`);
+    /// 2. `dest` ends in `.zip` (`NotZip`), and no part of it after the drive
+    ///    holds a `:`, is a device name or ends in a dot or space (`BadName`);
     /// 3. nothing at all is at `dest`, not even a link (`Exists`); the file
     ///    is made with create-new, so it is never replaced or followed;
     /// 4. `dest`'s folder exists (`FolderMissing`) and neither it nor any
@@ -503,8 +509,9 @@ impl WriteGuard {
     ///    (`FolderNotPlain`);
     /// 5. `dest` is not inside, or equal to, a music folder
     ///    (`InMusicFolder`) or app data (`InAppData`);
-    /// 6. `dest`'s drive root has no `PIONEER` or `Contents` entry, the
-    ///    mark of a gig stick (`GigStick`);
+    /// 6. no folder on `dest`'s path holds a `PIONEER` entry, and the drive
+    ///    root holds no `Contents` entry: the marks of a gig stick
+    ///    (`GigStick`). Mount points are links, so refused by rule 4;
     /// 7. `dest` is not inside rekordbox's data folder (`InRekordboxFolder`).
     ///
     /// The bytes are streamed into the created file. If that fails, only
@@ -533,7 +540,7 @@ impl WriteGuard {
         if !from.metadata().is_ok_and(|m| m.is_file()) {
             return Err(refuse(SaveRefusal::SourceNotABundle));
         }
-        self.save_stream(&mut from, dest, keep_out, drive_root)
+        self.save_stream(&mut from, dest, keep_out, drive_root, &|_| {})
     }
 
     /// Rules 2 to 7 of [`Self::save_new_bundle_outside`], then the copy.
@@ -544,12 +551,23 @@ impl WriteGuard {
         dest: &Path,
         keep_out: &KeepOut,
         root_of: fn(&Path) -> Option<PathBuf>,
+        before_create: &dyn Fn(&Path),
     ) -> Result<(), GuardError> {
+        // Before anything resolves the name: a `:` may be refused as a path.
+        if has_a_bad_name(dest) {
+            return Err(GuardError::SaveRefused {
+                why: SaveRefusal::BadName,
+                path: dest.into(),
+            });
+        }
         let tidy = lexical(dest)?;
         let refuse = |why, path: &Path| GuardError::SaveRefused {
             why,
             path: path.into(),
         };
+        if has_a_bad_name(&tidy) {
+            return Err(refuse(SaveRefusal::BadName, &tidy));
+        }
         let is_zip = tidy
             .extension()
             .and_then(|e| e.to_str())
@@ -590,15 +608,16 @@ impl WriteGuard {
         if inside_any(&real, keep_out.music_folders.iter().map(PathBuf::as_path)) {
             return Err(refuse(SaveRefusal::InMusicFolder, &real));
         }
-        if let Some(root) = root_of(&real) {
-            if has_a_gig_stick_mark(&root) {
-                return Err(refuse(SaveRefusal::GigStick, &real));
-            }
+        if real.ancestors().skip(1).any(holds_pioneer)
+            || root_of(&real).is_some_and(|root| holds_entry(&root, "Contents"))
+        {
+            return Err(refuse(SaveRefusal::GigStick, &real));
         }
         if inside_any(&real, keep_out.rekordbox_data.iter().map(PathBuf::as_path)) {
             return Err(refuse(SaveRefusal::InRekordboxFolder, &real));
         }
         // Create-new: fails if anything appeared meanwhile, never replaces.
+        before_create(&real);
         let mut file = File::options()
             .write(true)
             .create_new(true)
@@ -648,15 +667,46 @@ fn drive_root(path: &Path) -> Option<PathBuf> {
     root.has_root().then_some(root)
 }
 
-/// Whether a drive root holds a `PIONEER` or `Contents` entry (any case):
-/// how a rekordbox gig stick looks (ROADMAP 5.4).
-fn has_a_gig_stick_mark(root: &Path) -> bool {
-    fs::read_dir(root).is_ok_and(|entries| {
-        entries.filter_map(Result::ok).any(|e| {
-            let name = e.file_name();
-            let name = name.to_string_lossy();
-            name.eq_ignore_ascii_case("PIONEER") || name.eq_ignore_ascii_case("Contents")
-        })
+/// Whether `folder` holds an entry called `name`, in any case.
+fn holds_entry(folder: &Path, name: &str) -> bool {
+    fs::read_dir(folder).is_ok_and(|entries| {
+        entries
+            .filter_map(Result::ok)
+            .any(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name))
+    })
+}
+
+/// Whether `folder` holds a `PIONEER` entry: rekordbox's folder on a stick.
+fn holds_pioneer(folder: &Path) -> bool {
+    holds_entry(folder, "PIONEER")
+}
+
+/// A name Windows would read as something other than a plain file or
+/// folder, in any part of `path` after its drive or share: a `:` (stream
+/// syntax such as `x.zip:s`), a device name with or without an extension,
+/// or a name ending in a dot or a space.
+fn has_a_bad_name(path: &Path) -> bool {
+    path.components().any(|part| {
+        let Component::Normal(name) = part else {
+            return false;
+        };
+        let name = name.to_string_lossy();
+        let stem = name
+            .split('.')
+            .next()
+            .unwrap_or("")
+            .trim_end()
+            .to_ascii_uppercase();
+        let numbered = |prefix: &str| {
+            stem.strip_prefix(prefix)
+                .is_some_and(|n| n.len() == 1 && n.chars().all(|c| c.is_ascii_digit()))
+        };
+        name.contains(':')
+            || name.ends_with('.')
+            || name.ends_with(' ')
+            || ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"].contains(&stem.as_str())
+            || numbered("COM")
+            || numbered("LPT")
     })
 }
 

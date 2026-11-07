@@ -240,6 +240,10 @@
     "purpose": "Error: the chosen file name doesn't end in .zip. (PROPOSED, 4B-B2)",
     "where": "Settings screen, Move to another computer panel, error line."
   },
+  "bundle.save.badName": {
+    "purpose": "Error: the chosen file name has a colon, is a device name, or ends in a dot or space. (PROPOSED, 4B-B2)",
+    "where": "Settings screen, Move to another computer panel, error line."
+  },
   "bundle.save.exists": {
     "purpose": "Error: something already exists at the chosen place. (PROPOSED, 4B-B2)",
     "where": "Settings screen, Move to another computer panel, error line."

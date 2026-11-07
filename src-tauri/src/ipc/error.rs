@@ -248,6 +248,8 @@ error_kinds! {
     SaveNotABundle => "settings:bundle.save.notABundle", params: [];
     /// The chosen file name doesn't end in .zip.
     SaveNotZip => "settings:bundle.save.notZip", params: [];
+    /// The chosen name has a colon, a device name, or ends in a dot or space.
+    SaveBadName => "settings:bundle.save.badName", params: [];
     /// A file or folder is already at the chosen place; nothing is replaced.
     SaveExists => "settings:bundle.save.exists", params: [];
     /// The chosen folder doesn't exist.

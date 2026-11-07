@@ -67,6 +67,7 @@
     "save": {
       "notABundle": "The bundle to save isn't one this app made.",
       "notZip": "The name must end in .zip.",
+      "badName": "That name can't be used. Remove any colon, and any ending dot or space, and avoid names like CON or NUL.",
       "exists": "A file with that name is already there. Nothing was replaced; choose a new name.",
       "folderMissing": "That folder isn't there. Choose another.",
       "folderNotPlain": "Save in an ordinary folder, not a shortcut or link.",

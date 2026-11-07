@@ -190,6 +190,7 @@ impl From<BundleError> for IpcError {
             BundleError::Guard(GuardError::SaveRefused { why, .. }) => IpcError::new(match why {
                 SaveRefusal::SourceNotABundle => ErrorKind::SaveNotABundle,
                 SaveRefusal::NotZip => ErrorKind::SaveNotZip,
+                SaveRefusal::BadName => ErrorKind::SaveBadName,
                 SaveRefusal::Exists => ErrorKind::SaveExists,
                 SaveRefusal::FolderMissing => ErrorKind::SaveFolderMissing,
                 SaveRefusal::FolderNotPlain => ErrorKind::SaveFolderNotPlain,
@@ -469,15 +470,16 @@ pub async fn save_bundle_as(
 ) -> Result<(), IpcError> {
     let (guard, reads) = (guard.inner().clone(), reads.inner().clone());
     blocking(move || {
-        let keep_out = keep_out(&reads, dirs::config_dir().as_deref())?;
+        let keep_out = keep_out(&reads, &[dirs::config_dir(), dirs::data_local_dir()])?;
         save_as(&guard, &name, Path::new(&dest_path), &keep_out)
     })
     .await
 }
 
 /// The folders a saved bundle must stay out of: every music folder (where
-/// it is now, or was last seen) and rekordbox's data folder under `config`.
-fn keep_out(reads: &ReadPool, config: Option<&Path>) -> Result<KeepOut, BundleError> {
+/// it is now, or was last seen) and rekordbox's `Pioneer` folder in each
+/// config folder (roaming and local).
+fn keep_out(reads: &ReadPool, configs: &[Option<PathBuf>]) -> Result<KeepOut, BundleError> {
     let volumes = crate::scan::system_volumes();
     let folders = reads.read(crate::scan::folders::stored)?;
     Ok(KeepOut {
@@ -486,7 +488,11 @@ fn keep_out(reads: &ReadPool, config: Option<&Path>) -> Result<KeepOut, BundleEr
             .map(|f| PathBuf::from(f.to_music_folder(&volumes).path))
             .collect(),
         // `Pioneer` holds rekordbox's data; refuse the whole of it.
-        rekordbox_data: config.map(|c| c.join("Pioneer")),
+        rekordbox_data: configs
+            .iter()
+            .flatten()
+            .map(|c| c.join("Pioneer"))
+            .collect(),
     })
 }
 
