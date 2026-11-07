@@ -21,6 +21,7 @@ import { LibraryScreen } from "../library/LibraryScreen";
 import { OverviewScreen } from "../overview/OverviewScreen";
 import { PlaylistsScreen, validatePlaylistsSearch } from "../playlists/PlaylistsScreen";
 import { ReviewScreen } from "../review/ReviewScreen";
+import { DiagnosticsScreen } from "../diagnostics/DiagnosticsScreen";
 import { SettingsScreen } from "../settings/SettingsScreen";
 import { AppShell } from "../shell/AppShell";
 import { WishlistScreen } from "../wishlist/WishlistScreen";
@@ -198,6 +199,13 @@ const genresRoute = createRoute({
   component: GenreScreen,
 });
 
+// Not a stage and not in the sidebar: Diagnostics, reached from Settings (4.3).
+const diagnosticsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/diagnostics",
+  component: DiagnosticsScreen,
+});
+
 // One route per line, with a trailing comma, so lanes adding routes each add
 // a line and don't conflict.
 const routeTree = rootRoute.addChildren([
@@ -215,6 +223,7 @@ const routeTree = rootRoute.addChildren([
   genresRoute,
   tagsRoute,
   historyRoute,
+  diagnosticsRoute,
 ]);
 
 /**

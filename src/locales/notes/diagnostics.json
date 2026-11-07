@@ -1,0 +1,294 @@
+{
+  "title": {
+    "purpose": "Heading of the Diagnostics screen.",
+    "where": "Diagnostics screen, page title."
+  },
+  "panel": {
+    "purpose": "Heading of the Settings panel that leads to the Diagnostics screen.",
+    "where": "Settings screen, panel heading."
+  },
+  "open": {
+    "purpose": "Link from Settings to the Diagnostics screen.",
+    "where": "Settings screen, Diagnostics panel."
+  },
+  "back": {
+    "purpose": "Link back from the Diagnostics screen to Settings.",
+    "where": "Diagnostics screen, under the title."
+  },
+  "log.title": {
+    "purpose": "Heading of the panel that lists the recorded events.",
+    "where": "Diagnostics screen, first panel heading."
+  },
+  "log.help": {
+    "purpose": "Says what the event log holds and that it never holds names, paths or error text.",
+    "where": "Diagnostics screen, event log panel, under the heading."
+  },
+  "log.filter": {
+    "purpose": "Label of the choice that narrows the list to one kind of event.",
+    "where": "Diagnostics screen, event log panel, above the list."
+  },
+  "log.all": {
+    "purpose": "The filter's choice that shows every event.",
+    "where": "Diagnostics screen, event log panel, in the filter."
+  },
+  "log.empty": {
+    "purpose": "Shown when the log has no events at all.",
+    "where": "Diagnostics screen, event log panel, instead of the list."
+  },
+  "log.noMatch": {
+    "purpose": "Shown when the filter matches no event.",
+    "where": "Diagnostics screen, event log panel, instead of the list."
+  },
+  "log.time": {
+    "purpose": "Column heading: when the event happened.",
+    "where": "Diagnostics screen, event log list, column heading."
+  },
+  "log.what": {
+    "purpose": "Column heading: the kind of event.",
+    "where": "Diagnostics screen, event log list, column heading."
+  },
+  "log.task": {
+    "purpose": "Column heading: the kind of background task the event is about.",
+    "where": "Diagnostics screen, event log list, column heading."
+  },
+  "log.reason": {
+    "purpose": "Column heading: the reason code of a failure.",
+    "where": "Diagnostics screen, event log list, column heading."
+  },
+  "log.detail": {
+    "purpose": "Column heading: how long it took, or how many.",
+    "where": "Diagnostics screen, event log list, column heading."
+  },
+  "log.took": {
+    "purpose": "How long an event took, in milliseconds.",
+    "where": "Diagnostics screen, event log list, details column."
+  },
+  "log.count_one": {
+    "purpose": "A count an event carries (jobs recovered at startup, stages that couldn't be asked).",
+    "where": "Diagnostics screen, event log list, details column."
+  },
+  "log.count_other": {
+    "purpose": "A count an event carries.",
+    "where": "Diagnostics screen, event log list, details column."
+  },
+  "log.lost_one": {
+    "purpose": "Warns that the log file couldn't be written for some events.",
+    "where": "Diagnostics screen, event log panel, above the list, only when a write failed."
+  },
+  "log.lost_other": {
+    "purpose": "Warns that the log file couldn't be written for some events.",
+    "where": "Diagnostics screen, event log panel, above the list, only when a write failed."
+  },
+  "log.error": {
+    "purpose": "The event log couldn't be loaded.",
+    "where": "Diagnostics screen, event log panel."
+  },
+  "kind.jobStarted": {
+    "purpose": "Name of an event: a background task began.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.jobFinished": {
+    "purpose": "Name of an event: a background task finished.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.jobFailed": {
+    "purpose": "Name of an event: a background task failed.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.jobCancelled": {
+    "purpose": "Name of an event: a background task was cancelled.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.rekordboxReadOk": {
+    "purpose": "Name of an event: rekordbox's export was read.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.rekordboxReadFailed": {
+    "purpose": "Name of an event: reading rekordbox's export failed.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.databaseReadOk": {
+    "purpose": "Name of an event: rekordbox's database was read.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.databaseReadFailed": {
+    "purpose": "Name of an event: reading rekordbox's database failed.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.sendPrepared": {
+    "purpose": "Name of an event: a send to rekordbox was prepared.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.sendDone": {
+    "purpose": "Name of an event: a send to rekordbox was written.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.sendRefused": {
+    "purpose": "Name of an event: a send to rekordbox was stopped.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.startup": {
+    "purpose": "Name of an event: the app started, with how long it took.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "kind.startupAsked": {
+    "purpose": "Name of an event: at startup the app asked what work is due.",
+    "where": "Diagnostics screen, event log list and filter."
+  },
+  "reason.jobFailed": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.panicked": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.noHandler": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.unknownKind": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.notFound": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.cantRead": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.damaged": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.notAnExport": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.turnedOff": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.noKey": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.wrongKey": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.notALibrary": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.stopped": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.readFailed": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.cancelled": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.noPreflight": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.exportChanged": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.libraryChanged": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.notSendable": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.notConfirmed": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.exportOlderThanLastSend": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.cantWrite": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.cantRecord": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "reason.internal": {
+    "purpose": "The reason code of a failed event, in words.",
+    "where": "Diagnostics screen, event log list, reason column."
+  },
+  "report.title": {
+    "purpose": "Heading of the panel that makes the diagnostics report.",
+    "where": "Diagnostics screen, second panel heading."
+  },
+  "report.help": {
+    "purpose": "Says what the report holds and that nothing is sent.",
+    "where": "Diagnostics screen, report panel, under the heading."
+  },
+  "report.create": {
+    "purpose": "Button that builds the report and shows it, before anything is saved.",
+    "where": "Diagnostics screen, report panel."
+  },
+  "report.creating": {
+    "purpose": "Shown while the report is built.",
+    "where": "Diagnostics screen, report panel, in place of the button's result."
+  },
+  "report.previewLabel": {
+    "purpose": "Label of the box that shows the whole report text.",
+    "where": "Diagnostics screen, report panel, over the text."
+  },
+  "report.save": {
+    "purpose": "Button that saves the report text shown above as a file in the app's data folder.",
+    "where": "Diagnostics screen, report panel, under the text."
+  },
+  "report.saving": {
+    "purpose": "Shown on the save button while it saves.",
+    "where": "Diagnostics screen, report panel."
+  },
+  "report.saved": {
+    "purpose": "Confirms the report was saved and that old ones are removed.",
+    "where": "Diagnostics screen, report panel, after saving."
+  },
+  "report.pathLabel": {
+    "purpose": "Label of the field that shows where the report file is.",
+    "where": "Diagnostics screen, report panel, after saving."
+  },
+  "report.copy": {
+    "purpose": "Button that copies the report text to the clipboard.",
+    "where": "Diagnostics screen, report panel, after saving."
+  },
+  "report.copyPath": {
+    "purpose": "Button that copies the saved file's path to the clipboard.",
+    "where": "Diagnostics screen, report panel, after saving."
+  },
+  "report.copied": {
+    "purpose": "Confirms something was copied to the clipboard.",
+    "where": "Diagnostics screen, report panel, after copying."
+  },
+  "report.copyFailed": {
+    "purpose": "The clipboard was not available.",
+    "where": "Diagnostics screen, report panel, after copying."
+  },
+  "report.createError": {
+    "purpose": "The report couldn't be built.",
+    "where": "Diagnostics screen, report panel."
+  },
+  "report.saveError": {
+    "purpose": "The report couldn't be saved.",
+    "where": "Diagnostics screen, report panel."
+  }
+}

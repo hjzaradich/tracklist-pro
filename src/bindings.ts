@@ -73,6 +73,18 @@ export const commands = {
 	 */
 	widths: { [key in string]: number },
 } | null) => typedError<null, IpcError>(__TAURI_INVOKE("set_table_columns", { screen, columns })),
+	/**  The event log, newest first. */
+	diagnosticEvents: () => __TAURI_INVOKE<EventLogView>("diagnostic_events"),
+	/**
+	 *  Builds the report and keeps it for [`save_diagnostics_report`]. Returns
+	 *  the exact text that will be saved.
+	 */
+	previewDiagnosticsReport: () => typedError<string, IpcError>(__TAURI_INVOKE("preview_diagnostics_report")),
+	/**
+	 *  Saves the previewed report into the app data folder, through the write
+	 *  guard, and returns where it is. Nothing else is done with it.
+	 */
+	saveDiagnosticsReport: () => typedError<SavedReport, IpcError>(__TAURI_INVOKE("save_diagnostics_report")),
 	/**  Every queued and running job, for the Activity status to start from. */
 	activity: () => typedError<ActivitySnapshot, IpcError>(__TAURI_INVOKE("activity")),
 	/**  Cancels a queued or running job. */
@@ -1489,6 +1501,46 @@ export type ErrorKind =
  */
 export type ErrorParam = string | number;
 
+/**
+ *  What happened. A fixed list: new kinds are added here, never built from
+ *  text.
+ */
+export type EventKind = "jobStarted" | "jobFinished" | "jobFailed" | "jobCancelled" | "rekordboxReadOk" | "rekordboxReadFailed" | "databaseReadOk" | "databaseReadFailed" | "sendPrepared" | "sendDone" | "sendRefused" | 
+/**
+ *  The app started: `ms` is how long setup took, `count` how many jobs
+ *  an earlier run left running.
+ */
+"startup" | 
+/**
+ *  Startup asked the stages what is due: `ms` is how long it took,
+ *  `count` how many stages couldn't be asked.
+ */
+"startupAsked";
+
+/**  The log, newest first, for the Diagnostics screen. */
+export type EventLogView = {
+	events: LogEvent[],
+	/**
+	 *  Events that couldn't be written to the log's file this run. They
+	 *  are still in this list until the app closes.
+	 */
+	lostWrites: number,
+};
+
+/**
+ *  Why something failed, as a code. A fixed list, so no message text can be
+ *  stored in its place; each source of failures converts into it.
+ */
+export type EventReason = 
+/**  The job's handler returned an error. */
+"jobFailed" | 
+/**  The job's handler panicked. */
+"panicked" | 
+/**  This build has no handler for the job's kind. */
+"noHandler" | 
+/**  This build doesn't know the job's kind. */
+"unknownKind" | "notFound" | "cantRead" | "damaged" | "notAnExport" | "turnedOff" | "noKey" | "wrongKey" | "notALibrary" | "stopped" | "readFailed" | "cancelled" | "noPreflight" | "exportChanged" | "libraryChanged" | "notSendable" | "notConfirmed" | "exportOlderThanLastSend" | "cantWrite" | "cantRecord" | "internal";
+
 /**  An export file found on disk. */
 export type ExportFile = {
 	path: string,
@@ -2215,6 +2267,24 @@ export type LinkedFile = {
 	 *  stays `present`, and its track isn't missing.
 	 */
 	driveConnected: boolean,
+};
+
+/**
+ *  One entry of the log. Every field is a number or a fixed list: there is
+ *  nowhere to put text. Unknown fields in the file are refused when it is
+ *  read back.
+ */
+export type LogEvent = {
+	/**  When, in milliseconds since the Unix epoch. */
+	atMs: number,
+	kind: EventKind,
+	/**  The job's kind, for the job and read events. */
+	job: JobKind | null,
+	reason: EventReason | null,
+	/**  How many, where the kind says what. */
+	count: number | null,
+	/**  How long it took, in milliseconds. */
+	ms: number | null,
 };
 
 /**
@@ -3190,6 +3260,11 @@ export type SameRecordingTrack = {
 	rekordbox: EntryFacts | null,
 	/**  How many crates hold it. */
 	crates: number,
+};
+
+/**  Where a saved report is. */
+export type SavedReport = {
+	path: string,
 };
 
 /**  Why a step of the send stopped. Nothing was sent. */

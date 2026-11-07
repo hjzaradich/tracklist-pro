@@ -381,6 +381,9 @@ impl StartupAsks {
 /// jobs recovered.
 pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> StartupAsks {
     let handle = app.clone();
+    let events = app
+        .try_state::<crate::diagnostics::EventLog>()
+        .map_or_else(crate::diagnostics::EventLog::off, |e| e.inner().clone());
     let Some(reads) = app.try_state::<ReadPool>().map(|r| r.inner().clone()) else {
         eprintln!("startup: no read pool, so nothing was asked for what is due");
         return StartupAsks(Mutex::new(None));
@@ -401,6 +404,11 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> StartupAsks {
                 "startup: asked what is due in {:?} ({} failed)",
                 started.elapsed(),
                 asked.failed
+            );
+            events.record(
+                crate::diagnostics::LogEvent::new(crate::diagnostics::EventKind::StartupAsked)
+                    .count(asked.failed)
+                    .took(started.elapsed()),
             );
         });
     match spawned {

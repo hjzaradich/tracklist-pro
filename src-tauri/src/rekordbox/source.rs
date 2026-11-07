@@ -40,6 +40,7 @@ use tauri::State;
 use super::store::{replace_snapshot, SnapshotRows, SnapshotSummary};
 use super::{RekordboxXml, XmlError};
 use crate::db::{ReadPool, Writer};
+use crate::diagnostics::{EventKind, EventReason, LogEvent};
 use crate::ipc::{ErrorKind, IpcError};
 use crate::jobs::{JobContext, JobError, JobHandler, JobId, JobKind, JobQueue, NewJob, Priority};
 
@@ -558,11 +559,22 @@ impl JobHandler for XmlReader {
                 Err(Stop::Cancelled | Stop::Failed(..)) => Err(JobError::Cancelled),
             };
         }
+        let began = std::time::Instant::now();
+        let event = |kind| LogEvent::new(kind).job(job.kind()).took(began.elapsed());
         match self.read(job, &path) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                job.events().record(event(EventKind::RekordboxReadOk));
+                Ok(())
+            }
             Err(Stop::Cancelled) => Err(JobError::Cancelled),
-            Err(Stop::Db(e)) => Err(e.into()),
+            Err(Stop::Db(e)) => {
+                job.events()
+                    .record(event(EventKind::RekordboxReadFailed).reason(EventReason::Internal));
+                Err(e.into())
+            }
             Err(Stop::Failed(reason, detail)) => {
+                job.events()
+                    .record(event(EventKind::RekordboxReadFailed).reason(reason));
                 let failure_path = path.to_string_lossy().into_owned();
                 job.writer().call(move |c| {
                     let failure = ReadFailure {

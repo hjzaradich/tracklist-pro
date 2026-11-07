@@ -20,6 +20,8 @@ export function SettingsScreen() {
   const { t: tw } = useTranslation("wishlist");
   const featuresId = useId();
   const genresId = useId();
+  const { t: td } = useTranslation("diagnostics");
+  const diagnosticsId = useId();
   return (
     <div className={stage.screen}>
       <div className={stage.header}>
@@ -46,6 +48,12 @@ export function SettingsScreen() {
               {tg("settingsPanel.title")}
             </h2>
             <Link to="/genres">{tg("unmapped.openGenres")}</Link>
+          </section>
+          <section className={styles.panel} aria-labelledby={diagnosticsId}>
+            <h2 id={diagnosticsId} className={styles.panelTitle}>
+              {td("panel")}
+            </h2>
+            <Link to="/diagnostics">{td("open")}</Link>
           </section>
         </div>
       </div>

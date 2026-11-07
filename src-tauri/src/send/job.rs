@@ -16,6 +16,7 @@ use super::preflight::{
 use super::{SendFailure, SendFlow, SendStep, SendWork, Sent};
 use crate::conflicts::open_at_send;
 use crate::db::Moment;
+use crate::diagnostics::{EventKind, LogEvent};
 use crate::jobs::{JobContext, JobError, JobHandler, JobKind, NewJob, Priority};
 use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
@@ -252,6 +253,7 @@ impl<V: Volumes + 'static> JobHandler for Sender<V> {
             .target()
             .and_then(|t| t.get("send"))
             .and_then(|s| s.as_str());
+        let began = std::time::Instant::now();
         let (step, done) = match step {
             Some("prepare") => (SendStep::Prepare, self.prepare(job)),
             Some("write") => (SendStep::Write, self.write(job)),
@@ -260,6 +262,14 @@ impl<V: Volumes + 'static> JobHandler for Sender<V> {
                 Err(Stop::internal("the job names no send step")),
             ),
         };
+        // The step and its reason code only; the stop's detail names files.
+        let event = match (&done, step) {
+            (Ok(_), SendStep::Prepare) => LogEvent::new(EventKind::SendPrepared),
+            (Ok(_), SendStep::Write) => LogEvent::new(EventKind::SendDone),
+            (Err(stop), _) => LogEvent::new(EventKind::SendRefused).reason(stop.failure),
+        };
+        job.events()
+            .record(event.job(job.kind()).took(began.elapsed()));
         let Err(stop) = done else {
             return Ok(());
         };

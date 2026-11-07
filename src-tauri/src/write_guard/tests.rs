@@ -66,6 +66,12 @@ impl Sandbox {
         );
         refused("remove_file", self.guard.remove_file(path));
         refused(
+            "save_keeping_newest",
+            self.guard
+                .save_keeping_newest(path, "a.txt", b"x", 1, |_| true)
+                .map(drop),
+        );
+        refused(
             "remove_leftover_parts",
             self.guard.remove_leftover_parts(path).map(drop),
         );
@@ -1350,4 +1356,50 @@ fn a_staging_name_must_be_one_plain_name() {
     let staging = sb.guard.staging("job").unwrap();
     assert!(staging.copy_in("../x", &mut &b"x"[..]).is_err());
     assert!(staging.create("..").is_err());
+}
+
+#[test]
+fn saving_keeping_the_newest_makes_the_folder_and_deletes_only_older_files_it_names() {
+    let sb = Sandbox::new();
+    let folder = sb.data().join("reports");
+    let ours = |name: &str| name.starts_with("r-") && name.ends_with(".txt");
+    for n in 1..=4 {
+        let saved = sb
+            .guard
+            .save_keeping_newest(
+                &folder,
+                &format!("r-{n}.txt"),
+                format!("{n}").as_bytes(),
+                2,
+                ours,
+            )
+            .unwrap();
+        assert_eq!(fs::read(&saved).unwrap(), format!("{n}").as_bytes());
+        if n == 1 {
+            // Things that are not ours: another name, and a folder named like one of ours.
+            fs::write(folder.join("notes.txt"), b"mine").unwrap();
+            fs::create_dir(folder.join("r-0.txt")).unwrap();
+        }
+    }
+    let mut left: Vec<String> = fs::read_dir(&folder)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    left.sort();
+    assert_eq!(left, ["notes.txt", "r-0.txt", "r-3.txt", "r-4.txt"]);
+}
+
+#[test]
+fn saving_keeping_the_newest_takes_one_name_never_a_path() {
+    let sb = Sandbox::new();
+    let before = sb.outside_listing();
+    for name in ["../outside/x.txt", "sub/x.txt", "..", ""] {
+        assert!(
+            sb.guard
+                .save_keeping_newest(&sb.data().join("reports"), name, b"x", 1, |_| true)
+                .is_err(),
+            "{name:?}"
+        );
+    }
+    assert_eq!(sb.outside_listing(), before);
 }

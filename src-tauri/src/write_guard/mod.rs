@@ -374,6 +374,48 @@ impl WriteGuard {
         fs::remove_file(&checked.path).map_err(|e| checked.io(e))
     }
 
+    /// Saves `bytes` as the file `name` in `folder` (made if missing), whole
+    /// or not at all ([`Self::write_then_rename`]), then deletes the oldest
+    /// plain files in `folder` that `is_ours` accepts until `keep` are left.
+    /// Names are compared as text, so they must sort oldest first (a
+    /// timestamp). A file `is_ours` doesn't accept, a folder and a link are
+    /// never deleted. Returns the saved file's path.
+    ///
+    /// `name` is one name, never a path, and `folder` must be inside a root.
+    /// A file that can't be deleted is left; the next save tries again.
+    pub fn save_keeping_newest(
+        &self,
+        folder: &Path,
+        name: &str,
+        bytes: &[u8],
+        keep: usize,
+        is_ours: impl Fn(&str) -> bool,
+    ) -> Result<PathBuf, GuardError> {
+        let folder = self.create_dir_all(folder)?;
+        let path = folder.as_path().join(name);
+        if Path::new(name).components().count() != 1 {
+            return Err(GuardError::Outside(path));
+        }
+        self.write_then_rename(&path, bytes)?;
+        let mut names: Vec<String> = fs::read_dir(folder.as_path())
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| {
+                        let entry = entry.ok()?;
+                        let name = entry.file_name().into_string().ok()?;
+                        (entry.file_type().ok()?.is_file() && is_ours(&name)).then_some(name)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        let extra = names.len().saturating_sub(keep);
+        for old in names.iter().take(extra) {
+            let _ = self.remove_file(&folder.as_path().join(old));
+        }
+        Ok(path)
+    }
+
     /// Deletes a folder and everything in it. Links (the folder itself, or
     /// any inside it) are removed, never followed, so nothing they point to
     /// is touched. A root can't be deleted.
