@@ -7,6 +7,7 @@ import { BundlePanel } from "./BundlePanel";
 import { EnergyStarsRow } from "./EnergyStarsRow";
 import { LocalKeyRow } from "./LocalKeyRow";
 import { RekordboxDatabaseRow } from "./RekordboxDatabaseRow";
+import { UpdateChecksRow } from "./UpdateChecksRow";
 import { WishlistFeatureRow } from "./WishlistFeatureRow";
 import styles from "./settings.module.css";
 
@@ -22,6 +23,8 @@ export function SettingsScreen() {
   const { t: tw } = useTranslation("wishlist");
   const featuresId = useId();
   const genresId = useId();
+  const { t: tu } = useTranslation("updates");
+  const onlineId = useId();
   const { t: td } = useTranslation("diagnostics");
   const diagnosticsId = useId();
   return (
@@ -44,6 +47,12 @@ export function SettingsScreen() {
             </h2>
             <WishlistFeatureRow />
             <LocalKeyRow />
+          </section>
+          <section className={styles.panel} aria-labelledby={onlineId}>
+            <h2 id={onlineId} className={styles.panelTitle}>
+              {tu("settings.panel")}
+            </h2>
+            <UpdateChecksRow />
           </section>
           <section className={styles.panel} aria-labelledby={genresId}>
             <h2 id={genresId} className={styles.panelTitle}>

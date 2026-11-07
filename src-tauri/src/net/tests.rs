@@ -947,7 +947,11 @@ fn a_service_allows_whole_host_names_only() {
         (Service::CoverArt, "evilarchive.org", false),
         (Service::CoverArt, "archive.org.example.test", false),
         (Service::CoverArt, "api.discogs.com", false),
+        (Service::UpdateCheck, "api.github.com", true),
+        (Service::UpdateCheck, "API.GitHub.com", true),
         (Service::UpdateCheck, "github.com", false),
+        (Service::UpdateCheck, "api.github.com.example.test", false),
+        (Service::UpdateCheck, "uploads.github.com", false),
         (Service::ModelDownload, "huggingface.co", false),
     ];
     for (service, host, allowed) in table {
