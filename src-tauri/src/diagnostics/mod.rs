@@ -246,6 +246,14 @@ struct Ring {
     /// Oldest first, each with the size of its line in the file.
     events: VecDeque<(LogEvent, usize)>,
     bytes: usize,
+    /// What the file holds now: lines and bytes. It can be a little more
+    /// than the ring (see [`Inner::room`]).
+    file_lines: usize,
+    file_bytes: usize,
+    /// The file must be rewritten from the ring before anything is added to
+    /// it: it held lines that are not events or a cut-off tail, was too big
+    /// to read, or the last write to it failed.
+    rewrite_next: bool,
 }
 
 struct Inner {
@@ -259,6 +267,14 @@ struct Inner {
 
 /// The event log. Cheap to clone; every clone is the same ring. Tauri
 /// state (`State<EventLog>`).
+///
+/// **How it is kept.** The ring in memory is always within both limits, and
+/// it is what [`Self::events`] shows. The file is added to one line at a
+/// time, which is cheap and cannot empty it. Only when the file has grown a
+/// tenth past the limits is it rewritten from the ring, to a new file that
+/// replaces the old one in one step ([`WriteGuard::write_then_rename`]), so
+/// a crash leaves the old file or the new one, never an empty one. A line
+/// cut off by a crash is dropped when the file is next read.
 #[derive(Clone)]
 pub struct EventLog(Option<Arc<Inner>>);
 
@@ -275,18 +291,38 @@ impl EventLog {
 
     pub fn open_with(guard: &WriteGuard, limits: Limits) -> EventLog {
         let path = guard.app_data_dir().join(EVENTS_FILE);
+        // A rewrite that a crash cut short leaves a `.part` file beside it.
+        let _ = guard.remove_leftover_parts(&path);
         let mut ring = Ring {
             events: VecDeque::new(),
             bytes: 0,
+            file_lines: 0,
+            file_bytes: 0,
+            rewrite_next: false,
         };
         // A file that can't be read, or lines that aren't events, are
-        // dropped: the log starts again from what is good.
-        if let Ok(text) = fs::read_to_string(&path) {
-            for line in text.lines() {
-                if let Ok(event) = serde_json::from_str::<LogEvent>(line) {
-                    push(&mut ring, event, &limits);
+        // dropped: the log starts again from what is good. A file far past
+        // the limits is not read at all.
+        match fs::metadata(&path) {
+            Ok(meta) if meta.len() as usize > limits.bytes.saturating_mul(4) => {
+                ring.rewrite_next = true;
+            }
+            Ok(_) => {
+                if let Ok(text) = fs::read_to_string(&path) {
+                    for line in text.lines() {
+                        if let Ok(event) = serde_json::from_str::<LogEvent>(line) {
+                            push(&mut ring, event, &limits);
+                        }
+                    }
+                    ring.file_lines = text.lines().count();
+                    ring.file_bytes = text.len();
+                    // Not exactly the ring: junk, a cut-off tail, or too much.
+                    ring.rewrite_next = text.len() != ring.bytes;
+                } else {
+                    ring.rewrite_next = true;
                 }
             }
+            Err(_) => {}
         }
         EventLog(Some(Arc::new(Inner {
             guard: guard.clone(),
@@ -297,21 +333,41 @@ impl EventLog {
         })))
     }
 
-    /// Adds `event` and rewrites the file. Best-effort: nothing here can
-    /// fail the caller. A write that fails is counted ([`Self::lost_writes`]).
+    /// Adds `event` to the ring and the file. Best-effort: nothing here can
+    /// fail the caller. A write that fails is counted ([`Self::lost_writes`])
+    /// and the file is rewritten whole at the next event.
     pub fn record(&self, event: LogEvent) {
         let Some(inner) = &self.0 else { return };
         let mut ring = inner.lock();
-        push(&mut ring, event, &inner.limits);
-        let mut text = String::with_capacity(ring.bytes);
-        for (event, _) in &ring.events {
-            if let Ok(line) = serde_json::to_string(event) {
-                text.push_str(&line);
+        let line = push(&mut ring, event, &inner.limits);
+        let (room_lines, room_bytes) = inner.room();
+        let rewrite = ring.rewrite_next
+            || ring.file_lines + 1 > inner.limits.events + room_lines
+            || ring.file_bytes + line.len() > inner.limits.bytes + room_bytes;
+        let written = if rewrite {
+            let mut text = String::with_capacity(ring.bytes);
+            for (event, _) in &ring.events {
+                text.push_str(&serde_json::to_string(event).unwrap_or_default());
                 text.push('\n');
             }
-        }
-        if inner.guard.write(&inner.path, text.as_bytes()).is_err() {
-            inner.lost_writes.fetch_add(1, Ordering::Relaxed);
+            inner.guard.write_then_rename(&inner.path, text.as_bytes())
+        } else {
+            inner.guard.append(&inner.path, line.as_bytes())
+        };
+        match written {
+            Ok(()) if rewrite => {
+                ring.file_lines = ring.events.len();
+                ring.file_bytes = ring.bytes;
+                ring.rewrite_next = false;
+            }
+            Ok(()) => {
+                ring.file_lines += 1;
+                ring.file_bytes += line.len();
+            }
+            Err(_) => {
+                inner.lost_writes.fetch_add(1, Ordering::Relaxed);
+                ring.rewrite_next = true;
+            }
         }
     }
 
@@ -332,14 +388,27 @@ impl EventLog {
 }
 
 impl Inner {
+    /// How far past the limits the file may grow before it is rewritten: a
+    /// tenth, so a full ring is rewritten once per tenth of its size in
+    /// events, not at every event.
+    fn room(&self) -> (usize, usize) {
+        (
+            (self.limits.events / 10).max(1),
+            (self.limits.bytes / 10).max(1),
+        )
+    }
+
     fn lock(&self) -> MutexGuard<'_, Ring> {
         self.ring.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 /// Adds `event` to the ring and drops the oldest until both bounds hold.
-fn push(ring: &mut Ring, event: LogEvent, limits: &Limits) {
-    let size = serde_json::to_string(&event).map_or(0, |l| l.len() + 1);
+/// Returns the event's line for the file, newline included.
+fn push(ring: &mut Ring, event: LogEvent, limits: &Limits) -> String {
+    let mut line = serde_json::to_string(&event).unwrap_or_default();
+    line.push('\n');
+    let size = line.len();
     ring.bytes += size;
     ring.events.push_back((event, size));
     while ring.events.len() > limits.events || ring.bytes > limits.bytes {
@@ -348,4 +417,5 @@ fn push(ring: &mut Ring, event: LogEvent, limits: &Limits) {
             None => break,
         }
     }
+    line
 }

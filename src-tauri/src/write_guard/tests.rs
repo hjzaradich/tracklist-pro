@@ -65,6 +65,7 @@ impl Sandbox {
             self.guard.write_then_rename(path, b"x"),
         );
         refused("remove_file", self.guard.remove_file(path));
+        refused("append", self.guard.append(path, b"x"));
         refused(
             "save_keeping_newest",
             self.guard
@@ -1369,37 +1370,140 @@ fn saving_keeping_the_newest_makes_the_folder_and_deletes_only_older_files_it_na
             .save_keeping_newest(
                 &folder,
                 &format!("r-{n}.txt"),
-                format!("{n}").as_bytes(),
+                n.to_string().as_bytes(),
                 2,
                 ours,
             )
             .unwrap();
-        assert_eq!(fs::read(&saved).unwrap(), format!("{n}").as_bytes());
+        assert_eq!(fs::read(&saved).unwrap(), n.to_string().as_bytes());
         if n == 1 {
-            // Things that are not ours: another name, and a folder named like one of ours.
+            // Not ours: another name, and a folder named like one of ours
+            // that sorts after every file (so counting it as a file would
+            // delete one file too many).
             fs::write(folder.join("notes.txt"), b"mine").unwrap();
-            fs::create_dir(folder.join("r-0.txt")).unwrap();
+            fs::create_dir(folder.join("r-9.txt")).unwrap();
         }
     }
-    let mut left: Vec<String> = fs::read_dir(&folder)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .collect();
-    left.sort();
-    assert_eq!(left, ["notes.txt", "r-0.txt", "r-3.txt", "r-4.txt"]);
+    assert_eq!(
+        listing(&folder),
+        ["notes.txt", "r-3.txt", "r-4.txt", "r-9.txt"]
+    );
 }
 
 #[test]
-fn saving_keeping_the_newest_takes_one_name_never_a_path() {
+fn saving_keeping_the_newest_never_deletes_a_link_named_like_its_files() {
     let sb = Sandbox::new();
+    let folder = sb.data().join("reports");
+    fs::create_dir(&folder).unwrap();
+    fs::write(folder.join("notes.txt"), b"mine").unwrap();
+    // Sorts first, so it is the oldest "file" if a link counted as one.
+    if !link_file(&folder.join("r-0.txt"), &folder.join("notes.txt")) {
+        return;
+    }
+    for n in 1..=3 {
+        sb.guard
+            .save_keeping_newest(&folder, &format!("r-{n}.txt"), b"x", 2, |name| {
+                name.starts_with("r-")
+            })
+            .unwrap();
+    }
+    assert_eq!(
+        listing(&folder),
+        ["notes.txt", "r-0.txt", "r-2.txt", "r-3.txt"]
+    );
+}
+
+#[test]
+fn saving_keeping_the_newest_keeps_the_file_it_just_saved_when_the_clock_went_backwards() {
+    let sb = Sandbox::new();
+    let folder = sb.data().join("reports");
+    let ours = |name: &str| name.ends_with(".txt");
+    for name in ["5.txt", "6.txt", "7.txt"] {
+        sb.guard
+            .save_keeping_newest(&folder, name, b"old", 3, ours)
+            .unwrap();
+    }
+    // Sorts before all of them, as a name made after the clock was set back would.
+    let saved = sb
+        .guard
+        .save_keeping_newest(&folder, "1.txt", b"new", 3, ours)
+        .unwrap();
+    assert_eq!(fs::read(&saved).unwrap(), b"new");
+    assert_eq!(listing(&folder), ["1.txt", "6.txt", "7.txt"]);
+}
+
+#[test]
+fn saving_keeping_the_newest_takes_one_plain_name_never_a_path() {
+    let sb = Sandbox::new();
+    let folder = sb.data().join("reports");
+    fs::create_dir_all(folder.join("sub")).unwrap();
     let before = sb.outside_listing();
-    for name in ["../outside/x.txt", "sub/x.txt", "..", ""] {
+    for name in [
+        "../outside/x.txt",
+        "sub/x.txt",
+        r"sub\x.txt",
+        ".",
+        "..",
+        "./x.txt",
+        "C:",
+        "C:x.txt",
+        "/x.txt",
+        "",
+    ] {
+        let refused = sb
+            .guard
+            .save_keeping_newest(&folder, name, b"x", 1, |_| true);
         assert!(
-            sb.guard
-                .save_keeping_newest(&sb.data().join("reports"), name, b"x", 1, |_| true)
-                .is_err(),
-            "{name:?}"
+            matches!(refused, Err(GuardError::Outside(_))),
+            "{name:?}: {refused:?}"
         );
     }
     assert_eq!(sb.outside_listing(), before);
+    assert!(listing(&folder.join("sub")).is_empty());
+    assert!(listing(&folder).iter().all(|n| n == "sub"));
+}
+
+#[test]
+fn appending_adds_to_the_end_inside_the_root_only() {
+    let sb = Sandbox::new();
+    let file = sb.data().join("log.txt");
+    sb.guard
+        .append(
+            &file, b"one
+",
+        )
+        .unwrap();
+    sb.guard
+        .append(
+            &file, b"two
+",
+        )
+        .unwrap();
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        b"one
+two
+"
+    );
+    let before = sb.outside_listing();
+    assert!(sb
+        .guard
+        .append(&sb.outside().join("keep.txt"), b"x")
+        .is_err());
+    assert!(sb
+        .guard
+        .append(&sb.outside().join("new.txt"), b"x")
+        .is_err());
+    assert_eq!(sb.outside_listing(), before);
+    assert_eq!(fs::read(sb.outside().join("keep.txt")).unwrap(), b"keep");
+}
+
+/// The names in `dir`, sorted.
+fn listing(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
 }

@@ -77,20 +77,26 @@ fn kinds(log: &EventLog) -> Vec<EventKind> {
 #[test]
 fn the_ring_keeps_the_newest_events_in_order() {
     let dir = tempfile::tempdir().unwrap();
-    let log = EventLog::open_with(&guard(dir.path()), small(5, MAX_BYTES));
+    let limits = small(5, MAX_BYTES);
+    let log = EventLog::open_with(&guard(dir.path()), limits);
     for n in 0..12 {
         log.record(LogEvent::new(EventKind::JobStarted).at(n));
     }
     let at: Vec<i64> = log.events().iter().map(|e| e.at_ms).collect();
     assert_eq!(at, [7, 8, 9, 10, 11]);
-    assert_eq!(events_file(dir.path()).lines().count(), 5);
     assert_eq!(view(&log).events[0].at_ms, 11, "the view is newest first");
+    // The file may be a tenth past the limit between rewrites, and no more...
+    assert!(events_file(dir.path()).lines().count() <= 6);
+    // ...and read back it is the same ring.
+    let again = EventLog::open_with(&guard(dir.path()), limits);
+    assert_eq!(again.events(), log.events());
 }
 
 #[test]
 fn the_ring_stays_under_its_size_limit() {
     let dir = tempfile::tempdir().unwrap();
-    let log = EventLog::open_with(&guard(dir.path()), small(MAX_EVENTS, 600));
+    let limits = small(MAX_EVENTS, 600);
+    let log = EventLog::open_with(&guard(dir.path()), limits);
     for n in 0..100 {
         log.record(
             LogEvent::new(EventKind::JobFailed)
@@ -98,12 +104,119 @@ fn the_ring_stays_under_its_size_limit() {
                 .reason(EventReason::JobFailed)
                 .at(n),
         );
+        let ring: usize = log
+            .events()
+            .iter()
+            .map(|e| serde_json::to_string(e).unwrap().len() + 1)
+            .sum();
+        assert!(ring <= 600, "{ring} bytes in the ring");
+        // The file: the limit and the tenth it may run over by.
+        assert!(events_file(dir.path()).len() <= 660);
     }
-    let file = events_file(dir.path());
-    assert!(file.len() <= 600, "{} bytes", file.len());
     let kept = log.events();
     assert!(kept.len() > 1);
     assert_eq!(kept.last().unwrap().at_ms, 99, "the newest is kept");
+    let again = EventLog::open_with(&guard(dir.path()), limits);
+    assert_eq!(again.events(), kept, "read back within the limit");
+}
+
+#[test]
+fn an_event_is_added_to_the_file_not_the_whole_file_written_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = EventLog::open(&guard(dir.path()));
+    let mut before = String::new();
+    for n in 0..20 {
+        log.record(LogEvent::new(EventKind::JobStarted).at(n));
+        let now = events_file(dir.path());
+        assert!(now.starts_with(&before), "event {n} changed what was there");
+        assert_eq!(now.lines().count(), n as usize + 1);
+        before = now;
+    }
+}
+
+#[test]
+fn a_rewrite_replaces_the_file_in_one_step_and_the_log_is_never_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = EventLog::open_with(&guard(dir.path()), small(10, MAX_BYTES));
+    for n in 0..100 {
+        log.record(LogEvent::new(EventKind::JobStarted).at(n));
+        let file = events_file(dir.path());
+        assert!(!file.is_empty(), "the file was empty after event {n}");
+        for line in file.lines() {
+            serde_json::from_str::<LogEvent>(line).unwrap();
+        }
+        assert!(file.lines().count() <= 11, "event {n}");
+    }
+    // No half-made file left beside it.
+    let beside: Vec<String> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.ends_with(".part"))
+        .collect();
+    assert!(beside.is_empty(), "{beside:?}");
+}
+
+#[test]
+fn a_rewrite_that_a_crash_cut_short_leaves_the_old_log_and_its_leftover_is_cleared() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = EventLog::open(&guard(dir.path()));
+    first.record(LogEvent::new(EventKind::Startup).at(1));
+    first.record(LogEvent::new(EventKind::JobStarted).at(2));
+    // What a crash between making the new file and renaming it leaves.
+    let part = dir.path().join(format!("{EVENTS_FILE}.part"));
+    fs::write(&part, "half").unwrap();
+    let again = EventLog::open(&guard(dir.path()));
+    assert_eq!(again.events().len(), 2);
+    assert!(!part.exists());
+}
+
+#[test]
+fn a_cut_off_last_line_is_dropped_and_the_next_event_starts_a_clean_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = EventLog::open(&guard(dir.path()));
+    first.record(LogEvent::new(EventKind::Startup).at(1));
+    let mut file = events_file(dir.path());
+    file.push_str("{\"atMs\":2,\"kind\":\"job");
+    fs::write(dir.path().join(EVENTS_FILE), file).unwrap();
+    let second = EventLog::open(&guard(dir.path()));
+    assert_eq!(second.events().len(), 1);
+    second.record(LogEvent::new(EventKind::JobStarted).at(3));
+    let third = EventLog::open(&guard(dir.path()));
+    let at: Vec<i64> = third.events().iter().map(|e| e.at_ms).collect();
+    assert_eq!(at, [1, 3]);
+    assert!(events_file(dir.path())
+        .lines()
+        .all(|l| l.starts_with('{') && l.ends_with('}')));
+}
+
+#[test]
+fn a_file_far_past_the_limit_is_not_read_and_is_replaced_by_the_next_event() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(EVENTS_FILE), "x".repeat(5 * MAX_BYTES)).unwrap();
+    let log = EventLog::open(&guard(dir.path()));
+    assert!(log.events().is_empty());
+    log.record(LogEvent::new(EventKind::Startup).at(1));
+    assert_eq!(events_file(dir.path()).lines().count(), 1);
+}
+
+#[test]
+fn a_failed_write_is_made_good_by_a_rewrite_at_the_next_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(EVENTS_FILE);
+    fs::create_dir(&path).unwrap();
+    let log = EventLog::open(&guard(dir.path()));
+    log.record(LogEvent::new(EventKind::Startup).at(1));
+    assert_eq!(log.lost_writes(), 1);
+    fs::remove_dir(&path).unwrap();
+    log.record(LogEvent::new(EventKind::JobStarted).at(2));
+    assert_eq!(log.lost_writes(), 1);
+    let again = EventLog::open(&guard(dir.path()));
+    let at: Vec<i64> = again.events().iter().map(|e| e.at_ms).collect();
+    assert_eq!(
+        at,
+        [1, 2],
+        "the event that failed to write is in the file too"
+    );
 }
 
 #[test]
@@ -390,6 +503,29 @@ fn the_report_holds_no_setting_value_path_name_or_key() {
         DB_FILE_NAME,
         &data,
     ] {
+        assert!(
+            !text.contains(secret),
+            "{secret:?} reached the report:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn a_job_row_of_a_kind_this_build_does_not_know_is_reported_as_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let (writer, reads) = database(dir.path());
+    writer
+        .call(|c| {
+            c.execute(
+                "INSERT INTO job (kind, status, error, finished_at)
+                 VALUES (?1, 'failed', 'x', '2026-01-01T00:00:00Z')",
+                [r"C:\Users\dj_alex\Daft Punk - One More Time.mp3"],
+            )
+        })
+        .unwrap();
+    let text = report::build(&reads, &EventLog::off(), 0).unwrap();
+    assert!(text.contains("failed: other=1"), "{text}");
+    for secret in ["dj_alex", "Daft Punk", ".mp3", "C:\\"] {
         assert!(
             !text.contains(secret),
             "{secret:?} reached the report:\n{text}"
