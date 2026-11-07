@@ -5,7 +5,9 @@
 //!   for reading, and copied into a staging folder in app data
 //!   ([`WriteGuard::staging`]); the copy is read ([`devicesql`]) and the
 //!   staging folder is removed whatever happens. Nothing else on the stick is
-//!   opened: not its music, and never OneLibrary's `exportLibrary.db`.
+//!   opened but the audio files of the stick's `Contents` folder that a
+//!   chosen list plays ([`readable_file`]): never OneLibrary's
+//!   `exportLibrary.db`, never a link, never anything that isn't audio.
 //! - The user picks which lists to import. Each becomes one session, dated
 //!   the day the user gives (the import day unless changed), never from file
 //!   dates (§5.4); it can be corrected later like any session.
@@ -198,10 +200,62 @@ fn on_stick(root: &str, rel: &str) -> String {
     format!("{root}\\{rel}")
 }
 
-/// A path that climbs out of the stick names nothing on it, and is never
-/// opened.
-fn inside_stick(rel: &str) -> bool {
-    !rel.split(['/', '\\']).any(|part| part == "..")
+/// The stick path `rel` the way it is stored and compared: `\` between its
+/// parts, no leading separator, so it doesn't depend on the drive the stick
+/// is plugged into.
+fn stick_relative(rel: &str) -> String {
+    rel.trim_start_matches(['\\', '/']).replace('/', "\\")
+}
+
+/// The one folder of a stick whose files are ever opened.
+const CONTENTS: &str = "Contents";
+
+/// The full path of the file the stick names `rel` (from its root `root`),
+/// only when it may be read: its parts (either slash; empty and `.` parts
+/// dropped) are `Contents` (any case) and then names, none of them `..` or
+/// holding a `:` (a drive or a stream); it ends in an extension the app
+/// accepts as audio; and every part below `Contents` is a plain folder or
+/// file, not a link or junction, the last a regular file. Everything else,
+/// the OneLibrary database first of all, is never opened.
+fn readable_file(root: &str, rel: &str) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel
+        .split(['/', '\\'])
+        .filter(|p| !p.is_empty() && *p != ".")
+        .collect();
+    let (first, below) = parts.split_first()?;
+    if !first.eq_ignore_ascii_case(CONTENTS)
+        || below.is_empty()
+        || parts.iter().any(|p| *p == ".." || p.contains(':'))
+    {
+        return None;
+    }
+    let path = PathBuf::from(on_stick(root, &parts.join("\\")));
+    if !crate::tags::is_audio_file(&path) {
+        return None;
+    }
+    let mut at = PathBuf::from(on_stick(root, CONTENTS));
+    for (i, part) in below.iter().enumerate() {
+        at.push(part);
+        let meta = std::fs::symlink_metadata(&at).ok()?;
+        if meta.file_type().is_symlink() || is_reparse_point(&meta) {
+            return None;
+        }
+        if i + 1 == below.len() && !meta.is_file() {
+            return None;
+        }
+    }
+    Some(path)
+}
+
+#[cfg(windows)]
+fn is_reparse_point(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    meta.file_attributes() & 0x400 != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// What a stick file's bytes are, for matching it to a track.
@@ -230,12 +284,12 @@ pub fn hash_stick_files(
         .filter(|l| chosen.contains(&l.id))
         .flat_map(|l| &l.plays);
     for play in plays {
-        if out.contains_key(&play.path) || !inside_stick(&play.path) {
+        if out.contains_key(&play.path) {
             continue;
         }
         let content = (out.len() < MAX_FILES)
             .then(|| {
-                let path = PathBuf::from(on_stick(root, &play.path));
+                let path = readable_file(root, &play.path)?;
                 hash::hash_path(&path, &mut buf, &mut |read| read > MAX_AUDIO_BYTES).ok()
             })
             .flatten()
@@ -281,12 +335,13 @@ fn track_with(conn: &Connection, content: &Content) -> rusqlite::Result<Found> {
     by("blake3", &content.whole)
 }
 
-/// Imports the lists `chosen` (by id) of the stick `export`, read from the
-/// folder `root`, as sessions played on `played_on`: one operation.
-/// `contents` is what [`hash_stick_files`] found.
+/// Imports the lists `chosen` (by id) of the stick `export` as sessions
+/// played on `played_on`: one operation. `contents` is what
+/// [`hash_stick_files`] found. A play's path is kept as the stick gives it
+/// ([`stick_relative`]), never with the drive: the same stick plugged in
+/// elsewhere is still the same stick.
 pub fn import_stick(
     conn: &mut Connection,
-    root: &str,
     export: &devicesql::Export,
     chosen: &[u32],
     played_on: &str,
@@ -343,7 +398,7 @@ pub fn import_stick(
                 NewPlay {
                     recording,
                     entry: m3u8::Entry {
-                        path: on_stick(root, &p.path),
+                        path: stick_relative(&p.path),
                         artist: p.artist.clone(),
                         title: p.title.clone(),
                     },
@@ -435,9 +490,5 @@ pub fn history_import_stick(
         Err(reason) => return Ok(StickImport::Refused { reason }),
     };
     let contents = hash_stick_files(&root, &export, &list_ids);
-    Ok(writer.call(move |c| {
-        Ok(import_stick(
-            c, &root, &export, &list_ids, &played_on, &contents,
-        ))
-    })??)
+    Ok(writer.call(move |c| Ok(import_stick(c, &export, &list_ids, &played_on, &contents)))??)
 }

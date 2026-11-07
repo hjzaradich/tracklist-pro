@@ -28,11 +28,20 @@
 //! bytes there are. A page or row that doesn't add up is skipped and
 //! counted ([`Export::skipped`]); it never stops the read of the rest.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 /// The biggest `export.pdb` read. A stick with tens of thousands of tracks
 /// stays well under it.
 pub const MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The most rows read from all tables together: a real row takes well over
+/// 16 bytes of the file, and no stick comes near the fixed ceiling. A file
+/// that claims more (rows at overlapping places) is read no further.
+const MAX_ROWS: usize = 4_000_000;
+/// The most bytes of text kept from all rows together (each play's copy of
+/// its track's text counts again).
+pub const MAX_TEXT_BYTES: usize = 64 * 1024 * 1024;
 
 const TRACKS: u32 = 0;
 const ARTISTS: u32 = 2;
@@ -136,6 +145,8 @@ struct Reader<'a> {
     /// type → (first page, last page)
     tables: HashMap<u32, (u32, u32)>,
     skipped: u32,
+    /// Rows still allowed (the file's size / 16 and a little, at most [`MAX_ROWS`]).
+    rows_left: usize,
 }
 
 impl Reader<'_> {
@@ -203,6 +214,12 @@ impl Reader<'_> {
                 if present & (1 << i) == 0 {
                     continue;
                 }
+                if self.rows_left == 0 {
+                    // Over the budget: nothing more is read.
+                    self.skip();
+                    return;
+                }
+                self.rows_left -= 1;
                 let read = u16_at(page, base - 6 - 2 * i)
                     .map(|ofs| PAGE_HEADER + usize::from(ofs))
                     .filter(|&at| at < page.len())
@@ -224,6 +241,11 @@ struct Track {
 /// Reads the history of the `export.pdb` in `bytes`. `None` when it isn't
 /// one (its header doesn't add up).
 pub fn parse(bytes: &[u8]) -> Option<Export> {
+    parse_within(bytes, MAX_ROWS, MAX_TEXT_BYTES)
+}
+
+/// [`parse`] with the budgets of rows and of text bytes given.
+pub(super) fn parse_within(bytes: &[u8], max_rows: usize, max_text: usize) -> Option<Export> {
     if u32_at(bytes, 0)? != 0 {
         return None;
     }
@@ -238,6 +260,13 @@ pub fn parse(bytes: &[u8]) -> Option<Export> {
         page_len,
         tables: HashMap::new(),
         skipped: 0,
+        rows_left: (bytes.len() / 16 + 1024).min(max_rows),
+    };
+    // Text still allowed.
+    let text_left = Cell::new(max_text);
+    let spend = |n: usize| -> Option<()> {
+        text_left.set(text_left.get().checked_sub(n)?);
+        Some(())
     };
     if declared > fits {
         reader.skip();
@@ -265,6 +294,7 @@ pub fn parse(bytes: &[u8]) -> Option<Export> {
             usize::from(*page.get(at + 9)?)
         };
         let name = string_at(page, at.checked_add(ofs)?)?;
+        spend(name.len())?;
         artists.entry(id).or_insert(name);
         Some(())
     });
@@ -280,9 +310,11 @@ pub fn parse(bytes: &[u8]) -> Option<Export> {
         // The last offset must be there for the row to be whole.
         u16_at(page, at + TRACK_STRINGS + 2 * (TRACK_STRING_COUNT - 1))?;
         let path = some_text(string(TRACK_PATH))?;
+        let title = some_text(string(TRACK_TITLE));
+        spend(path.len() + title.as_ref().map_or(0, String::len))?;
         tracks.entry(id).or_insert(Track {
             artist,
-            title: some_text(string(TRACK_TITLE)),
+            title,
             path,
         });
         Some(())
@@ -292,6 +324,7 @@ pub fn parse(bytes: &[u8]) -> Option<Export> {
     reader.rows(HISTORY_LISTS, |page, at| {
         let id = u32_at(page, at)?;
         let name = some_text(string_at(page, at + 4))?;
+        spend(name.len())?;
         lists.push((id, name));
         Some(())
     });
@@ -315,6 +348,11 @@ pub fn parse(bytes: &[u8]) -> Option<Export> {
             reader.skip();
             continue;
         };
+        // Each play holds its own copy of the track's text.
+        if spend(track.path.len() + track.title.as_ref().map_or(0, String::len)).is_none() {
+            reader.skip();
+            continue;
+        }
         by_list.entry(list).or_default().push(StickPlay {
             path: track.path.clone(),
             artist: artists
