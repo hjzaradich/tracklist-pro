@@ -272,24 +272,33 @@ const ALL_MUSIC: &str = concat!(
     crate::hidden::has_shown_file!("r.id")
 );
 
+/// SQL for the sources a track's energy may come from, for a `WHERE` over
+/// `analysis a`: the user's and Mixed In Key's, nothing else. **Owner rule
+/// (ROADMAP 3.7, 2026-11-06):** a track's energy comes only from pre-set
+/// tags or the user; the app's own estimate (`local`) and the audio model's
+/// (`ml`) are suggestions and never count, whatever the `analysis` table
+/// holds. The one place that says it: [`shown_energy!`], the track table's
+/// rows (`track_table`) and so the index, sorting, smart crates, "what's
+/// next", stars and "fill the gap" all follow.
+macro_rules! energy_sources {
+    () => {
+        "a.source IN ('user', 'mik')"
+    };
+}
+pub(crate) use energy_sources;
+
 /// SQL for the order the sources of energy rank in, for `ORDER BY` over
-/// `analysis a`: the user's, Mixed In Key's, the local estimate's, the audio
-/// model's. The one place that says it: [`shown_energy!`] takes the first, and
-/// the track table's rows (`track_table`) say which source it came from by
-/// the same order.
+/// `analysis a`: the user's, then Mixed In Key's. See [`energy_sources!`].
 macro_rules! energy_source_order {
     () => {
-        "CASE a.source
-                   WHEN 'user' THEN 1 WHEN 'mik' THEN 2 WHEN 'local' THEN 3 WHEN 'ml' THEN 4
-               END"
+        "CASE a.source WHEN 'user' THEN 1 WHEN 'mik' THEN 2 END"
     };
 }
 pub(crate) use energy_source_order;
 
 /// SQL for "the energy a track shows": the energy of the `analysis` row that
-/// ranks first among those with an energy, the user's, then Mixed In Key's,
-/// then the local estimate's, then the audio model's (the order of the
-/// `recording_display` view, which also works out BPM and key), or `NULL`.
+/// ranks first among those with an energy from [`energy_sources!`] (the user's,
+/// then Mixed In Key's), or `NULL`. Never an estimate.
 /// `$recording` is a SQL expression for the track's id. The one place that
 /// says which energy a track shows: the index job keeps a Library track's
 /// answer for the Overview's chart and its doors ([`door_answers_of`]), and a
@@ -302,7 +311,9 @@ macro_rules! shown_energy {
             "(SELECT a.energy FROM analysis a
                WHERE a.recording_id = ",
             $recording,
-            " AND a.energy IS NOT NULL
+            " AND a.energy IS NOT NULL AND ",
+            crate::overview::energy_sources!(),
+            "
                ORDER BY ",
             crate::overview::energy_source_order!(),
             "

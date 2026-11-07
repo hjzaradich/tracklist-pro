@@ -39,7 +39,7 @@ use crate::ipc::IpcError;
 use crate::next::bridge::{self, BridgeReason, Gap};
 use crate::next::{self, Tolerance};
 use crate::ops::{self, OpsError};
-use crate::track_table::{EnergySource, TableRow};
+use crate::track_table::TableRow;
 
 /// The operation kinds, as the operation log stores them.
 pub const SET_TARGET_OPERATION: &str = "set_playlist_target";
@@ -57,18 +57,19 @@ pub const MOST_SUGGESTIONS: u32 = 50;
 pub struct TargetPoint {
     /// How far into the playlist, 0 (the first track) to 1 (the last).
     pub at: f64,
-    /// The energy wanted there, 1 to 10.
-    pub energy: u8,
+    /// The energy wanted there, 1 to 10 (any number is taken and pulled
+    /// into that range; one that isn't a number drops the point).
+    pub energy: f64,
 }
 
 /// The shape as it will be stored: tidied (see the module doc) and in order.
 pub fn tidy_target(points: &[TargetPoint]) -> Vec<TargetPoint> {
     let mut tidy: Vec<TargetPoint> = points
         .iter()
-        .filter(|p| p.at.is_finite())
+        .filter(|p| p.at.is_finite() && p.energy.is_finite())
         .map(|p| TargetPoint {
             at: p.at.clamp(0.0, 1.0),
-            energy: p.energy.clamp(1, 10),
+            energy: p.energy.clamp(1.0, 10.0),
         })
         .collect();
     // Stable, so of two points at the same place the later one given is last.
@@ -90,15 +91,15 @@ pub fn target_at(points: &[TargetPoint], at: f64) -> Option<f64> {
     let first = points.first()?;
     let last = points.last()?;
     if at <= first.at {
-        return Some(f64::from(first.energy));
+        return Some(first.energy);
     }
     if at >= last.at {
-        return Some(f64::from(last.energy));
+        return Some(last.energy);
     }
     let after = points.iter().position(|p| p.at >= at)?;
     let (p, q) = (points[after - 1], points[after]);
     let along = (at - p.at) / (q.at - p.at);
-    Some(f64::from(p.energy) + (f64::from(q.energy) - f64::from(p.energy)) * along)
+    Some(p.energy + (q.energy - p.energy) * along)
 }
 
 /// The playlist's stored shape; none if it has none or what is stored can't
@@ -246,14 +247,10 @@ pub struct Timeline {
 }
 
 /// What a row is compared by: its BPM, key and energy as the table shows
-/// them. An energy that is an estimate (local or the audio model's) is
-/// left out: energy is only from tags or the user (ROADMAP 3.7).
+/// them. The energy is only what the table shows, which is only a tag's or
+/// the user's ([`crate::overview::energy_sources!`], ROADMAP 3.7).
 fn facts_of_row(row: &TableRow) -> next::score::Facts {
-    let own = matches!(
-        row.energy_source,
-        Some(EnergySource::User | EnergySource::Mik)
-    );
-    next::facts_of_shown(row.bpm, row.key.as_deref(), row.energy.filter(|_| own))
+    next::facts_of_shown(row.bpm, row.key.as_deref(), row.energy)
 }
 
 /// How far through the playlist the entry at `index` of `count` is.

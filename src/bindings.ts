@@ -1251,11 +1251,7 @@ export type EnergySource =
 /**  Set by the user. */
 "user" | 
 /**  Mixed In Key's. */
-"mik" | 
-/**  The local estimate's. */
-"local" | 
-/**  The audio model's. */
-"ml";
+"mik";
 
 /**  What rekordbox holds for a Library track: the entry it is sent as. */
 export type EntryFacts = {
@@ -3844,8 +3840,11 @@ export type TagsImported = {
 export type TargetPoint = {
 	/**  How far into the playlist, 0 (the first track) to 1 (the last). */
 	at: number | null,
-	/**  The energy wanted there, 1 to 10. */
-	energy: number,
+	/**
+	 *  The energy wanted there, 1 to 10 (any number is taken and pulled
+	 *  into that range; one that isn't a number drops the point).
+	 */
+	energy: number | null,
 };
 
 /**  Comparing text (a genre), letter case and outer spaces ignored. */

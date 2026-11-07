@@ -262,10 +262,6 @@ pub enum EnergySource {
     User,
     /// Mixed In Key's.
     Mik,
-    /// The local estimate's.
-    Local,
-    /// The audio model's.
-    Ml,
 }
 
 impl EnergySource {
@@ -273,8 +269,6 @@ impl EnergySource {
         match text {
             "user" => Some(Self::User),
             "mik" => Some(Self::Mik),
-            "local" => Some(Self::Local),
-            "ml" => Some(Self::Ml),
             _ => None,
         }
     }
@@ -291,7 +285,10 @@ const WINDOW_ENERGY: &str = concat!(
     crate::overview::energy_source_order!(),
     ") AS n
          FROM analysis a
-         WHERE a.recording_id IN (SELECT value FROM json_each(?1)) AND a.energy IS NOT NULL)
+         WHERE a.recording_id IN (SELECT value FROM json_each(?1)) AND a.energy IS NOT NULL
+           AND ",
+    crate::overview::energy_sources!(),
+    ")
      WHERE n = 1"
 );
 

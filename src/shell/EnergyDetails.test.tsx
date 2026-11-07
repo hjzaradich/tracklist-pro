@@ -79,14 +79,12 @@ describe("the Details panel's Energy section", () => {
     expect(screen.queryByText(tx("shell:details.energy.none"))).toBeNull();
   });
 
-  it.each([
-    ["mik", "shell:details.energy.source.mik"],
-    ["local", "shell:details.energy.source.local"],
-    ["ml", "shell:details.energy.source.ml"],
-  ] as const)("presses no button for an energy from %s and says whose it is", (source, name) => {
-    renderPanel(6, source);
+  it("presses no button for a Mixed In Key energy and says whose it is", () => {
+    renderPanel(6, "mik");
     expect(pressed()).toEqual([]);
-    expect(screen.getByText(tx("shell:details.energy.from", { energy: 6, source: tx(name) }))).toBeInTheDocument();
+    expect(
+      screen.getByText(tx("shell:details.energy.from", { energy: 6, source: tx("shell:details.energy.source.mik") })),
+    ).toBeInTheDocument();
   });
 
   it("presses no button and says so for a track with no energy", () => {

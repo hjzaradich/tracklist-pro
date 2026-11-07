@@ -344,7 +344,8 @@ impl Rows for Vec<Track> {
 }
 
 #[test]
-fn the_row_holds_the_energy_of_the_source_that_wins_and_follows_each_source_row() {
+fn the_row_holds_the_energy_of_the_source_that_wins_and_follows_each_source_row_but_never_an_estimate(
+) {
     let lib = Lib::new();
     let track = in_library(&lib, "a.mp3");
     let add = |source: &'static str, level: i64| {
@@ -353,11 +354,13 @@ fn the_row_holds_the_energy_of_the_source_that_wins_and_follows_each_source_row(
             (track.recording, source, level),
         );
     };
+    // An estimate (the model's, the app's own) is no one's energy: the row
+    // is worked out again, and holds none.
     add("ml", 2);
     assert!(due(&lib, track));
-    assert_eq!(row(&lib, track), (false, 2));
+    assert_eq!(row(&lib, track), (false, 0));
     add("local", 4);
-    assert_eq!(row(&lib, track), (false, 4));
+    assert_eq!(row(&lib, track), (false, 0));
     add("mik", 6);
     assert_eq!(row(&lib, track), (false, 6));
     set_energy(&lib, &[track], 10);

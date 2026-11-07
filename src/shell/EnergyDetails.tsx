@@ -14,8 +14,8 @@ import styles from "./TrackDetails.module.css";
  * do the same.
  *
  * - One track with the user's own energy: its button is pressed.
- * - One track with another source's energy (Mixed In Key, the estimate, the
- *   audio model): no button is pressed and a line says what it is and whose;
+ * - One track with another source's energy (Mixed In Key; an estimate
+ *   is never an energy, ROADMAP 3.7): no button is pressed and a line says what it is and whose;
  *   a pick is the user's word, which then wins.
  * - No energy: no button is pressed and the line says so.
  * - Several tracks: the line says how many, no button is pressed (rows off

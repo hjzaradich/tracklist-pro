@@ -104,7 +104,10 @@ impl Lib {
     fn set_target(&self, id: PlaylistId, points: &[(f64, u8)]) -> Option<i64> {
         let points: Vec<TargetPoint> = points
             .iter()
-            .map(|&(at, energy)| TargetPoint { at, energy })
+            .map(|&(at, energy)| TargetPoint {
+                at,
+                energy: f64::from(energy),
+            })
             .collect();
         self.call(move |c| set_target_on(c, id, &points)).unwrap()
     }
@@ -299,8 +302,14 @@ fn a_playlist_that_does_not_exist_has_no_timeline() {
 #[test]
 fn the_target_is_a_straight_line_between_points_and_flat_beyond_the_ends() {
     let shape = tidy_target(&[
-        TargetPoint { at: 0.2, energy: 3 },
-        TargetPoint { at: 0.8, energy: 9 },
+        TargetPoint {
+            at: 0.2,
+            energy: 3.0,
+        },
+        TargetPoint {
+            at: 0.8,
+            energy: 9.0,
+        },
     ]);
     assert_eq!(target_at(&[], 0.5), None);
     assert_eq!(target_at(&shape, 0.0), Some(3.0));
@@ -308,43 +317,79 @@ fn the_target_is_a_straight_line_between_points_and_flat_beyond_the_ends() {
     assert!((target_at(&shape, 0.5).unwrap() - 6.0).abs() < 1e-9);
     assert_eq!(target_at(&shape, 0.8), Some(9.0));
     assert_eq!(target_at(&shape, 1.0), Some(9.0));
-    let one = tidy_target(&[TargetPoint { at: 0.5, energy: 7 }]);
+    let one = tidy_target(&[TargetPoint {
+        at: 0.5,
+        energy: 7.0,
+    }]);
     assert_eq!(target_at(&one, 0.0), Some(7.0));
 }
 
 #[test]
 fn a_target_shape_is_tidied_not_refused() {
+    // A drawn point far outside the scale (or below zero) still decodes, as
+    // it crosses IPC, and is pulled in.
+    let wild: Vec<TargetPoint> =
+        serde_json::from_str(r#"[{"at":0.5,"energy":-4},{"at":2,"energy":999}]"#).unwrap();
+    assert_eq!(
+        tidy_target(&wild),
+        [
+            TargetPoint {
+                at: 0.5,
+                energy: 1.0
+            },
+            TargetPoint {
+                at: 1.0,
+                energy: 10.0
+            },
+        ]
+    );
     let tidy = tidy_target(&[
         TargetPoint {
             at: 0.9,
-            energy: 40,
+            energy: 300.0,
+        },
+        TargetPoint {
+            at: 0.7,
+            energy: f64::NAN,
         },
         TargetPoint {
             at: -2.0,
-            energy: 0,
+            energy: 0.0,
         },
         TargetPoint {
             at: f64::NAN,
-            energy: 5,
+            energy: 5.0,
         },
-        TargetPoint { at: 0.5, energy: 4 },
-        TargetPoint { at: 0.5, energy: 6 },
+        TargetPoint {
+            at: 0.5,
+            energy: 4.0,
+        },
+        TargetPoint {
+            at: 0.5,
+            energy: 6.0,
+        },
     ]);
     assert_eq!(
         tidy,
         [
-            TargetPoint { at: 0.0, energy: 1 },
-            TargetPoint { at: 0.5, energy: 6 },
+            TargetPoint {
+                at: 0.0,
+                energy: 1.0
+            },
+            TargetPoint {
+                at: 0.5,
+                energy: 6.0
+            },
             TargetPoint {
                 at: 0.9,
-                energy: 10
+                energy: 10.0
             },
         ]
     );
     let many: Vec<TargetPoint> = (0..100)
         .map(|i| TargetPoint {
             at: f64::from(i) / 100.0,
-            energy: 5,
+            energy: 5.0,
         })
         .collect();
     assert_eq!(tidy_target(&many).len(), MOST_TARGET_POINTS);
@@ -567,7 +612,7 @@ fn fill_gap_refuses_an_entry_that_is_not_in_the_playlist() {
 }
 
 #[test]
-fn twenty_thousand_library_tracks_are_weighed_from_one_read_and_only_the_best_few_come_back() {
+fn twenty_thousand_library_tracks_are_weighed_and_only_those_that_fit_the_gap_are_offered() {
     let lib = Lib::new();
     let a = lib.facts("a", Some(124.0), Some("8A"), Some(5), None);
     let b = lib.facts("b", Some(125.0), Some("10A"), Some(7), None);
