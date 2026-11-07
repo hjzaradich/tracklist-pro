@@ -18,7 +18,7 @@ use std::path::Path;
 use tauri::State;
 
 use crate::db::ReadPool;
-use crate::ipc::IpcError;
+use crate::ipc::{ErrorKind, IpcError};
 
 use super::folders::{stored, MusicFolderId};
 use super::online_only::{attributes, is_online_only};
@@ -94,13 +94,20 @@ pub(crate) fn is_onedrive_folder(path: &Path, lookup: impl Fn(&str) -> Option<Os
 pub async fn onedrive_music_folders(
     reads: State<'_, ReadPool>,
 ) -> Result<Vec<MusicFolderId>, IpcError> {
-    let folders = reads.read(stored)?;
-    let volumes = system_volumes();
-    Ok(folders
-        .iter()
-        .filter_map(|folder| {
-            let path = folder.stored_path().resolve(&volumes).ok()?;
-            is_onedrive_folder(&path, |name| std::env::var_os(name)).then_some(folder.id)
-        })
-        .collect())
+    let reads = reads.inner().clone();
+    // The disk is asked off the async threads: a slow or unplugged
+    // network folder must not stall them.
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<MusicFolderId>, IpcError> {
+        let folders = reads.read(stored)?;
+        let volumes = system_volumes();
+        Ok(folders
+            .iter()
+            .filter_map(|folder| {
+                let path = folder.stored_path().resolve(&volumes).ok()?;
+                is_onedrive_folder(&path, |name| std::env::var_os(name)).then_some(folder.id)
+            })
+            .collect())
+    })
+    .await
+    .map_err(|_| IpcError::new(ErrorKind::Internal))?
 }

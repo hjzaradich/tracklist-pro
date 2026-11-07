@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorMessage } from "../api/errors";
+import type { MusicFolder } from "../bindings";
 import { useAddInboxFolder } from "../inbox/useInbox";
 import { useSetMusicFolderWatch } from "../scan/useMusicFolderWatch";
 import { useMusicFolders } from "../scan/useMusicFolders";
@@ -17,7 +18,6 @@ import styles from "./firstRun.module.css";
 export function InboxStep() {
   const { t } = useTranslation("firstRun");
   const titleId = useId();
-  const watchId = useId();
   const [skipped, setSkipped] = useState(false);
   const folders = useMusicFolders();
   const add = useAddInboxFolder();
@@ -26,7 +26,8 @@ export function InboxStep() {
   const failure = add.error ?? setWatch.error;
 
   // Until the folders have loaded, an Inbox folder may already exist.
-  if (folders.data === undefined || (skipped && inbox.length === 0)) return null;
+  if (folders.data === undefined || (skipped && inbox.length === 0))
+    return null;
 
   const choose = async () => {
     const picked = await open({ multiple: false, directory: true });
@@ -50,7 +51,11 @@ export function InboxStep() {
             >
               {t("inbox.choose")}
             </button>
-            <button type="button" className={styles.button} onClick={() => setSkipped(true)}>
+            <button
+              type="button"
+              className={styles.button}
+              onClick={() => setSkipped(true)}
+            >
               {t("inbox.skip")}
             </button>
           </div>
@@ -58,23 +63,12 @@ export function InboxStep() {
       ) : (
         <ul className={styles.summary}>
           {inbox.map((folder) => (
-            <li key={folder.id}>
-              <p>{folder.path}</p>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={folder.watch}
-                  aria-describedby={watchId}
-                  onChange={(event) =>
-                    setWatch.mutate({ id: folder.id, watch: event.target.checked })
-                  }
-                />
-                {t("inbox.watch")}
-              </label>
-              <p id={watchId} className={styles.muted}>
-                {t("inbox.watchHelp")}
-              </p>
-            </li>
+            <InboxFolderRow
+              key={folder.id}
+              folder={folder}
+              saving={setWatch.isPending}
+              onWatch={(watch) => setWatch.mutate({ id: folder.id, watch })}
+            />
           ))}
         </ul>
       )}
@@ -84,5 +78,36 @@ export function InboxStep() {
         </p>
       )}
     </section>
+  );
+}
+
+function InboxFolderRow({
+  folder,
+  saving,
+  onWatch,
+}: {
+  folder: MusicFolder;
+  saving: boolean;
+  onWatch: (watch: boolean) => void;
+}) {
+  const { t } = useTranslation("firstRun");
+  const helpId = useId();
+  return (
+    <li>
+      <p>{folder.path}</p>
+      <label>
+        <input
+          type="checkbox"
+          checked={folder.watch}
+          disabled={saving}
+          aria-describedby={helpId}
+          onChange={(event) => onWatch(event.target.checked)}
+        />
+        {t("inbox.watch")}
+      </label>
+      <p id={helpId} className={styles.muted}>
+        {t("inbox.watchHelp")}
+      </p>
+    </li>
   );
 }
