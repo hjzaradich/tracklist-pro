@@ -223,6 +223,10 @@
     "purpose": "Error: the playlist acted on was deleted meanwhile. Mirrors crates:error.notFound. (PROPOSED, 3C-P1a)",
     "where": "Wherever a playlist is acted on."
   },
+  "error.orderStale": {
+    "purpose": "Error: Keep this order was refused because tracks were added to or removed from the playlist after the fit sort was shown. (PROPOSED, 4B-FU)",
+    "where": "Playlists screen, the error line above the table."
+  },
   "error.entryNotFound": {
     "purpose": "Error: a drag-to-reorder dropped tracks before a track that has since left the playlist. (PROPOSED, 3C-P1a)",
     "where": "Playlist screen, after a drag to reorder."

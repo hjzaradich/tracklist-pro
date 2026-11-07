@@ -30,6 +30,8 @@ export function playlistBackend(options: {
   gap?: (afterEntryId: number | null) => GapSuggestion[];
   /** Commands the backend refuses (the playlist is "not found"). */
   refusing?: string[];
+  /** Runs just before "Keep this order" is written: the playlist changes after its order was read. */
+  beforeKeepOrder?: () => void;
 }) {
   const state = {
     playlists: options.playlists.map((p) => ({ ...p, entries: [...p.entries] })),
@@ -223,17 +225,20 @@ export function playlistBackend(options: {
         return { changed: carried.length, skipped: 0, operationId };
       }
       case "set_playlist_order": {
+        options.beforeKeepOrder?.();
         const target = playlist(args.id);
-        const named = [...new Set(args.entries as number[])].flatMap((entry) => {
-          const found = target.entries.find(([id]) => id === entry);
-          return found === undefined ? [] : [found];
-        });
+        const named = args.entries as number[];
         const before = [...target.entries];
-        const after = [...named, ...before.filter(([entry]) => !named.some(([id]) => id === entry))];
-        if (after.every((entry, i) => entry === before[i])) return { changed: named.length, skipped: 0, operationId: null };
+        // As the real one: exactly the playlist's entries, none missing, extra or twice, else refused.
+        const held = new Set(before.map(([entry]) => entry));
+        if (named.length !== before.length || new Set(named).size !== named.length || !named.every((entry) => held.has(entry))) {
+          return refuse("playlistOrderStale");
+        }
+        const after = named.map((entry) => before.find(([id]) => id === entry) as [number, number]);
+        if (after.every((entry, i) => entry === before[i])) return { changed: 0, skipped: 0, operationId: null };
         target.entries = after;
-        const operationId = record("move_in_playlist", target.name, named.length, () => (target.entries = before));
-        return { changed: named.length, skipped: 0, operationId };
+        const operationId = record("move_in_playlist", target.name, after.length, () => (target.entries = before));
+        return { changed: after.length, skipped: 0, operationId };
       }
       case "save_playlist_as_crate": {
         const source = playlist(args.id);

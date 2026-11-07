@@ -135,6 +135,9 @@ pub enum PlaylistsError {
     NotFound,
     /// The entry to move the others before isn't in the playlist.
     EntryNotFound,
+    /// "Keep this order" named other entries than the playlist has now (one
+    /// added or removed since the list was read, or a list that isn't whole).
+    OrderStale,
     /// A Library track to add doesn't exist.
     TrackNotFound,
     /// The name is empty once trimmed.
@@ -176,6 +179,7 @@ impl From<PlaylistsError> for IpcError {
         match e {
             PlaylistsError::NotFound => IpcError::new(ErrorKind::PlaylistNotFound),
             PlaylistsError::EntryNotFound => IpcError::new(ErrorKind::PlaylistEntryNotFound),
+            PlaylistsError::OrderStale => IpcError::new(ErrorKind::PlaylistOrderStale),
             PlaylistsError::TrackNotFound => IpcError::new(ErrorKind::LibraryTrackNotFound),
             PlaylistsError::NameEmpty => IpcError::new(ErrorKind::PlaylistNameEmpty),
             PlaylistsError::NameTaken { existing } => IpcError::with(
@@ -641,9 +645,11 @@ pub fn move_on(
 
 /// "Keep this order" (4B-FU): puts the playlist's entries in the order
 /// `entries` names (the table sorted by fit shows it), as one operation that
-/// rewrites every position that changes. Entries the playlist doesn't have
-/// (or a repeated id) are skipped; entries not named keep their order after
-/// the named ones. Recorded as a move, so it undoes as one.
+/// rewrites every position that changes. `entries` must be exactly the
+/// playlist's entries now: none missing, none extra, none twice. Otherwise
+/// (the playlist changed since the list was read) it is refused with
+/// [`PlaylistsError::OrderStale`] and nothing is changed or recorded.
+/// Recorded as a move, so it undoes as one.
 pub fn set_order_on(
     conn: &mut Connection,
     id: PlaylistId,
@@ -658,23 +664,26 @@ pub fn set_order_on(
                 return Ok(Err(PlaylistsError::NotFound));
             };
             let current = entries_of(rec, id)?;
-            let mut placed = HashSet::new();
-            let mut order: Vec<Entry> = Vec::with_capacity(current.len());
-            for asked in entries {
-                if let Some(entry) = current.iter().find(|e| e.id == asked.0) {
-                    if placed.insert(entry.id) {
-                        order.push(*entry);
-                    }
-                }
+            let asked: HashSet<i64> = entries.iter().map(|e| e.0).collect();
+            let held: HashSet<i64> = current.iter().map(|e| e.id).collect();
+            if entries.len() != current.len() || asked != held {
+                return Ok(Err(PlaylistsError::OrderStale));
             }
-            let named = order.len();
-            order.extend(current.iter().filter(|e| !placed.contains(&e.id)).copied());
+            let order: Vec<Entry> = entries
+                .iter()
+                .filter_map(|asked| current.iter().find(|e| e.id == asked.0).copied())
+                .collect();
+            let moved = order
+                .iter()
+                .zip(&current)
+                .filter(|(new, old)| new.id != old.id)
+                .count();
             renumber(rec, &order)?;
             rec.detail("name", name);
-            rec.detail("tracks", named);
+            rec.detail("tracks", order.len());
             Ok(Ok(PlaylistChanged {
-                changed: named as u32,
-                skipped: (entries.len() - named) as u32,
+                changed: moved as u32,
+                skipped: 0,
                 operation_id: None,
             }))
         },

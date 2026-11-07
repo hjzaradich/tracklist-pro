@@ -213,6 +213,8 @@ error_kinds! {
     PlaylistNotFound => "playlists:error.notFound", params: [];
     /// The entry to move tracks before is no longer in the playlist.
     PlaylistEntryNotFound => "playlists:error.entryNotFound", params: [];
+    /// "Keep this order" named other entries than the playlist has now.
+    PlaylistOrderStale => "playlists:error.orderStale", params: [];
     /// A playlist name is empty once trimmed.
     PlaylistNameEmpty => "playlists:error.nameEmpty", params: [];
     /// Another playlist (or the Tags folder) has the name; `name` is that one's.

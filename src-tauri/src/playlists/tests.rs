@@ -616,11 +616,10 @@ fn keep_this_order_puts_the_playlist_in_the_named_order_as_one_operation_a_repea
     let e: Vec<PlaylistEntryId> = lib.order(arc).into_iter().map(|(e, _)| e).collect();
     let before = lib.state();
 
-    // c, then both entries of a, then b; an unknown entry and a repeated one
-    // are skipped.
-    let named = vec![e[3], e[0], PlaylistEntryId(-5), e[2], e[3], e[1]];
+    // c, then both entries of a, then b.
+    let named = vec![e[3], e[0], e[2], e[1]];
     let done = lib.call(move |c| set_order_on(c, arc, &named)).unwrap();
-    assert_eq!((done.changed, done.skipped), (4, 2));
+    assert!(done.operation_id.is_some());
     assert_eq!(lib.tracks_of(arc), [t[2], t[0], t[0], t[1]]);
     assert_eq!(
         lib.writer
@@ -632,15 +631,57 @@ fn keep_this_order_puts_the_playlist_in_the_named_order_as_one_operation_a_repea
             .unwrap(),
         1
     );
-    // Entries left unnamed follow, in their order.
-    let part = vec![e[1]];
-    lib.call(move |c| set_order_on(c, arc, &part)).unwrap();
-    assert_eq!(lib.tracks_of(arc), [t[1], t[2], t[0], t[0]]);
+    // Already in that order: nothing is recorded.
+    let again = vec![e[3], e[0], e[2], e[1]];
+    let same = lib.call(move |c| set_order_on(c, arc, &again)).unwrap();
+    assert_eq!(same.operation_id, None);
 
-    // One Undo each, back to exactly the start.
-    assert_eq!(lib.undo(), MOVE_OPERATION);
+    // One Undo, back to exactly the start.
     assert_eq!(lib.undo(), MOVE_OPERATION);
     assert_eq!(lib.state(), before);
+}
+
+#[test]
+fn keep_this_order_refuses_a_list_that_is_not_exactly_the_playlists_entries_and_changes_nothing() {
+    let lib = Lib::new();
+    let t = lib.tracks(&["a", "b", "c"]);
+    let arc = lib.create("Arc");
+    lib.add(arc, &[t[0], t[1], t[2]], None);
+    let e: Vec<PlaylistEntryId> = lib.order(arc).into_iter().map(|(e, _)| e).collect();
+    let before = lib.state();
+    let stale = |named: Vec<PlaylistEntryId>| {
+        let refused = lib.call(move |c| set_order_on(c, arc, &named));
+        assert!(matches!(refused, Err(PlaylistsError::OrderStale)));
+        assert_eq!(lib.state(), before);
+    };
+    // Missing an entry.
+    stale(vec![e[2], e[0]]);
+    // An extra entry (one that was never there, or from another playlist).
+    stale(vec![e[2], e[1], e[0], PlaylistEntryId(-5)]);
+    // An entry twice (same length, so a count alone would pass).
+    stale(vec![e[2], e[2], e[0]]);
+    // Nothing at all.
+    stale(vec![]);
+
+    // Stale after the playlist changed since the list was read: an entry
+    // removed (its id is now extra) and one added (it is missing).
+    let shown = vec![e[2], e[1], e[0]];
+    let drop = vec![e[1]];
+    lib.call(move |c| remove_on(c, arc, &drop)).unwrap();
+    let after_remove = lib.state();
+    let removed = shown.clone();
+    let refused = lib.call(move |c| set_order_on(c, arc, &removed));
+    assert!(matches!(refused, Err(PlaylistsError::OrderStale)));
+    assert_eq!(lib.state(), after_remove);
+    lib.add(arc, &[t[1]], None);
+    let after_add = lib.state();
+    let ids: Vec<PlaylistEntryId> = lib.order(arc).into_iter().map(|(e, _)| e).collect();
+    let all_but_new = ids[..2].to_vec();
+    let refused = lib.call(move |c| set_order_on(c, arc, &all_but_new));
+    assert!(matches!(refused, Err(PlaylistsError::OrderStale)));
+    assert_eq!(lib.state(), after_add);
+
+    // A playlist that is not there.
     let missing = lib.call(move |c| set_order_on(c, PlaylistId(arc.0 + 99), &[]));
     assert!(matches!(missing, Err(PlaylistsError::NotFound)));
 }

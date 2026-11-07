@@ -154,6 +154,7 @@
   },
   "error": {
     "notFound": "Playlist not found",
+    "orderStale": "The playlist changed. Sort by fit again",
     "entryNotFound": "That track is no longer in the playlist",
     "nameEmpty": "Playlist needs a name",
     "nameTaken": "Playlist name already used (“{{name}}”)",

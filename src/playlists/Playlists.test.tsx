@@ -471,6 +471,25 @@ describe("a playlist sorted by fit", () => {
     await waitFor(() => expect(shown().map((row) => row[1])).toEqual(["Tune 0", "Tune 1", "Tune 2", "Tune 0"]));
   });
 
+  it("refuses Keep this order when the playlist changed since the list was shown, says so and changes nothing", async () => {
+    // A track leaves the playlist (elsewhere) after the order was read and before it is written.
+    const backend = await openPlaylist({
+      beforeKeepOrder: () => {
+        const playlist = ARC_STATE();
+        playlist.entries = playlist.entries.filter(([entry]) => entry !== 3);
+      },
+    });
+    const ARC_STATE = () => backend.state.playlists[0] as FakePlaylist;
+    await sorted(backend, 1);
+    await userEvent.click(keepOrder() as HTMLElement);
+    expect(await screen.findByRole("alert")).toHaveTextContent(tx("playlists:error.orderStale"));
+    expect(backend.state.playlists[0]?.entries.map(([entry]) => entry)).toEqual([1, 2, 4]);
+    expect(backend.state.history).toHaveLength(0);
+    // The fit sort stays, so it can be sorted again.
+    expect(screen.getByText(tx("trackTable:fit.sortedAfter", { track: "Tune 1" }))).toBeInTheDocument();
+    expect(screen.queryByText(tx("playlists:done.keptOrder"))).toBeNull();
+  });
+
   it("offers Keep this order only while sorted by fit and nothing narrows the list", async () => {
     const backend = await openPlaylist();
     expect(keepOrder()).toBeNull();
@@ -480,5 +499,88 @@ describe("a playlist sorted by fit", () => {
     await userEvent.click(await screen.findByRole("button", { name: tx("trackTable:filters.missing") }));
     await screen.findByRole("list", { name: tx("trackTable:filters.label") });
     await waitFor(() => expect(keepOrder()).toBeNull());
+  });
+});
+
+describe("autoscroll while dragging rows", () => {
+  let frames: Map<number, FrameRequestCallback>;
+  let written: number[];
+  let cancelled: number;
+  let next: number;
+  beforeEach(() => {
+    frames = new Map();
+    written = [];
+    cancelled = 0;
+    next = 1;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(next, callback);
+      return next++;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((handle) => {
+      cancelled++;
+      frames.delete(handle);
+    });
+    let top = 0;
+    Object.defineProperty(HTMLElement.prototype, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (value: number) => {
+        top = value;
+        written.push(value);
+      },
+    });
+  });
+  afterEach(() => {
+    // The property was put on the prototype by the test; take it off again.
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollTop");
+  });
+  /** Runs the frames asked for so far, once each. */
+  const frame = () => {
+    const due = [...frames.entries()];
+    frames.clear();
+    for (const [, callback] of due) callback(0);
+  };
+  const hold = () => fireEvent.pointerDown(rowAt(0), { button: 0, clientX: 300, clientY: 100, pointerId: 1 });
+
+  it("scrolls frame after frame while the pointer stays near the bottom edge, and stops when the drag ends", async () => {
+    await openPlaylist();
+    hold();
+    fireEvent.pointerMove(document.body, { clientX: 320, clientY: 395, pointerId: 1 });
+    frame();
+    expect(written.length).toBeGreaterThan(0);
+    expect(written.at(-1)).toBeGreaterThan(0);
+    // It keeps going with no pointer movement.
+    const before = written.length;
+    frame();
+    expect(written.length).toBeGreaterThan(before);
+    // Letting go cancels the frame that was waiting and starts no more.
+    fireEvent.pointerUp(document.body, { clientX: 320, clientY: 395, pointerId: 1 });
+    expect(cancelled).toBeGreaterThan(0);
+    expect(frames.size).toBe(0);
+    const after = written.length;
+    frame();
+    expect(written.length).toBe(after);
+  });
+
+  it("stops when the drag is given up with Escape", async () => {
+    await openPlaylist();
+    hold();
+    fireEvent.pointerMove(document.body, { clientX: 320, clientY: 395, pointerId: 1 });
+    frame();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(frames.size).toBe(0);
+  });
+
+  it("does not scroll in the middle of the list or when the pointer is outside it sideways", async () => {
+    await openPlaylist();
+    hold();
+    fireEvent.pointerMove(document.body, { clientX: 320, clientY: 200, pointerId: 1 });
+    frame();
+    // Over the sidebar, level with the bottom edge.
+    fireEvent.pointerMove(document.body, { clientX: 900, clientY: 395, pointerId: 1 });
+    frame();
+    expect(written.filter((value) => value !== 0)).toEqual([]);
+    expect(frames.size).toBe(0);
+    fireEvent.pointerUp(document.body, { clientX: 900, clientY: 395, pointerId: 1 });
   });
 });
