@@ -274,14 +274,24 @@ fn the_sound_is_not_used_while_the_model_is_off_or_the_track_has_no_fingerprint(
 }
 
 #[test]
-fn a_candidate_without_a_fingerprint_just_gets_no_similarity_part() {
-    // 2 has no fingerprint (it is not in the map); it is not marked down.
-    let all = [in_key(1, "8A"), in_key(2, "8A")];
-    let r = run(KEY_AND_SOUND, &cosines(&[(1, 0.9)]), &all);
+fn a_candidate_without_a_fingerprint_counts_as_dissimilar_and_never_gains_from_it() {
+    // Same facts throughout. 1 sounds alike, 2 has no fingerprint (it is not
+    // in the map), 3 is fingerprinted and sounds nothing like it.
+    let all = [in_key(1, "8A"), in_key(2, "8A"), in_key(3, "8A")];
+    let r = run(KEY_AND_SOUND, &cosines(&[(1, 0.9), (3, -0.3)]), &all);
     assert!(r.ignored.is_empty());
-    assert!(!codes(&r, 2).contains(&ReasonCode::Similar));
+    // It says nothing about the sound, and is scored as a 0 on it.
     assert_eq!(codes(&r, 2), [ReasonCode::KeySame]);
-    assert_eq!(score(&r, 2), 100);
+    assert!(score(&r, 1) > score(&r, 2));
+    assert!(score(&r, 2) < 100);
+    // Not ahead of the dissimilar one for the missing data alone.
+    assert_eq!(score(&r, 2), score(&r, 3));
+    // And not above it in the order: the lower id wins a tie, so give the
+    // unfingerprinted one the higher id.
+    let all = [in_key(1, "8A"), in_key(2, "8A")];
+    let r = run(KEY_AND_SOUND, &cosines(&[(1, -0.3)]), &all);
+    assert_eq!(order(&r), [1, 2]);
+    assert_eq!(score(&r, 1), score(&r, 2));
 }
 
 // ---- the weight's default ---------------------------------------------------------
@@ -513,7 +523,7 @@ fn a_library_track_whose_only_reason_would_be_its_sound_is_not_suggested_for_it(
 }
 
 #[test]
-fn a_library_track_without_a_fingerprint_is_not_marked_down_for_it() {
+fn a_library_track_without_a_fingerprint_counts_as_dissimilar_not_better() {
     let l = library();
     turn(&l.lib, true);
     let found = rank_db(&l.lib, l.target, BPM_AND_SOUND);
@@ -522,7 +532,12 @@ fn a_library_track_without_a_fingerprint_is_not_marked_down_for_it() {
         .reasons
         .iter()
         .all(|r| r.code != ReasonCode::Similar));
-    assert_eq!(unheard.score, 100);
+    // Counted as 0 on the sound, like the dissimilar track: no gain.
+    assert!(unheard.score < 100);
+    let far = found.ranked.iter().find(|s| s.id == l.far).unwrap();
+    assert_eq!(unheard.score, far.score);
+    let near = found.ranked.iter().find(|s| s.id == l.near).unwrap();
+    assert!(near.score > unheard.score);
 }
 
 #[test]

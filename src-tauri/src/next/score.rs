@@ -31,7 +31,8 @@
 //! cosine counting as 0, so the fitness is `max(cosine, 0)` from 0 to 1 and
 //! its reason says that as a whole percent. It is unused (and said so) when
 //! its weight is above 0 but the model is off or the chosen track has no
-//! current fingerprint; a candidate without one just gets no similarity part.
+//! current fingerprint; a candidate without one counts as 0 on it (like any
+//! fact part that scores 0), so it never gains from being unfingerprinted.
 //! **Never the only reason:** a candidate's similarity part exists only if
 //! at least one of its fact parts (key, BPM, energy, played, genre, tags) is
 //! above 0. A candidate that sounds alike and has nothing else in common is
@@ -547,8 +548,11 @@ fn parts(ask: &Ask, plan: &Plan<'_>, c: &Candidate, names: bool) -> Vec<Part> {
     if let Some(cosines) = plan.similar {
         // Never the only reason: only beside a fact that counts for something.
         let beside_a_fact = out.iter().any(|p| p.weight > 0 && p.fitness > 0.0);
-        if let (true, Some(&cosine)) = (beside_a_fact, cosines.get(&c.id)) {
-            let fitness = f64::from(likeness_of(cosine));
+        if beside_a_fact {
+            // No fingerprint for the candidate: 0, so missing data is no gain.
+            let fitness = cosines
+                .get(&c.id)
+                .map_or(0.0, |&cos| f64::from(likeness_of(cos)));
             let mut reason = Reason::new(ReasonCode::Similar, fitness);
             reason.percent = Some((fitness * 100.0).round() as u8);
             out.push(Part {

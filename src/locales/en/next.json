@@ -33,7 +33,7 @@
     "genreRelated": "{{from}} → {{to}} (related genre)",
     "tagsShared_one": "shares the tag {{tags}}",
     "tagsShared_other": "shares tags: {{tags}}",
-    "similar": "sounds similar, {{percent}}% (audio model)"
+    "similar": "sounds similar: {{percent}}% (audio model)"
   },
   "ignored": {
     "label": "Not used (this track has none): {{signals}}",
