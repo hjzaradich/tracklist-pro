@@ -64,11 +64,13 @@ pub enum JobKind {
     /// Reduce a file's audio to the peaks its waveform is drawn from
     /// (1.11 "Audio").
     Waveform,
+    /// Look files up online: AcoustID, then MusicBrainz (2.2).
+    IdentifyLookup,
 }
 
 impl JobKind {
     /// Every kind, in the order above.
-    pub const ALL: [JobKind; 17] = [
+    pub const ALL: [JobKind; 18] = [
         JobKind::Scan,
         JobKind::Read,
         JobKind::Hash,
@@ -86,6 +88,7 @@ impl JobKind {
         JobKind::Match,
         JobKind::Index,
         JobKind::Waveform,
+        JobKind::IdentifyLookup,
     ];
 
     /// The name stored in the database.
@@ -108,6 +111,7 @@ impl JobKind {
             JobKind::Match => "match",
             JobKind::Index => "index",
             JobKind::Waveform => "waveform",
+            JobKind::IdentifyLookup => "identify_lookup",
         }
     }
 
@@ -278,7 +282,8 @@ mod tests {
                 "quality",
                 "match",
                 "index",
-                "waveform"
+                "waveform",
+                "identify_lookup"
             ]
         );
     }

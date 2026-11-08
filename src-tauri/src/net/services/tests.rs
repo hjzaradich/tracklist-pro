@@ -8,6 +8,8 @@ use crate::net::tests::{local_url, test_db, Probe, Reply, TestDb, TestServer};
 use crate::net::{is_opted_in, set_opt_in, Net, NetError, Service, USER_AGENT};
 
 const MB_FIXTURE: &str = include_str!("fixtures/musicbrainz_search.json");
+const MB_RECORDING: &str = include_str!("fixtures/musicbrainz_recording.json");
+const MB_RELEASE: &str = include_str!("fixtures/musicbrainz_release.json");
 const DISCOGS_FIXTURE: &str = include_str!("fixtures/discogs_search.json");
 const DISCOGS_IDENTITY: &str = include_str!("fixtures/discogs_identity.json");
 
@@ -152,6 +154,111 @@ fn a_musicbrainz_search_sends_the_encoded_query_and_reads_the_fixture() {
         (Some(10), None, None)
     );
     assert_eq!(empty.release_id, None);
+}
+
+#[test]
+fn a_musicbrainz_recording_lookup_asks_for_credits_and_releases_and_reads_the_fixture() {
+    let db = test_db();
+    let net = opted_in(&db, &[Service::MusicBrainz]);
+    let server = TestServer::start(json(MB_RECORDING));
+
+    let recording = musicbrainz::recording_at(
+        &net,
+        &format!("{}/ws/2", base(&server)),
+        "00000000-0000-4000-8000-000000000001",
+    )
+    .unwrap();
+
+    let line = server.hits()[0].request_line.clone();
+    assert!(line.starts_with(
+        "GET /ws/2/recording/00000000-0000-4000-8000-000000000001?inc=artist-credits+releases&fmt=json "
+    ));
+    assert_eq!(
+        recording.title.as_deref(),
+        Some("Test Track (Extended Mix)")
+    );
+    // Each credited name, then its join phrase; the credited name wins over
+    // the artist's own, and an empty one falls back to it.
+    assert_eq!(
+        recording.artist.as_deref(),
+        Some("Test Artist & Second Act feat. Third Voice")
+    );
+    // The release with no id is dropped; the rest keep their status and date.
+    assert_eq!(recording.releases.len(), 3);
+    assert_eq!(recording.releases[1].title.as_deref(), Some("Test Album"));
+    assert_eq!(recording.releases[1].date.as_deref(), Some("2001-05-06"));
+    assert_eq!(recording.releases[2].status.as_deref(), Some("Promotion"));
+}
+
+#[test]
+fn a_musicbrainz_release_lookup_asks_for_labels_and_reads_catalogue_numbers() {
+    let db = test_db();
+    let net = opted_in(&db, &[Service::MusicBrainz]);
+    let server = TestServer::start(json(MB_RELEASE));
+
+    let release = musicbrainz::release_at(
+        &net,
+        &format!("{}/ws/2", base(&server)),
+        "00000000-0000-4000-8000-0000000000b1",
+    )
+    .unwrap();
+
+    let line = server.hits()[0].request_line.clone();
+    assert!(line.starts_with(
+        "GET /ws/2/release/00000000-0000-4000-8000-0000000000b1?inc=labels+artist-credits&fmt=json "
+    ));
+    assert_eq!(release.title.as_deref(), Some("Test Album"));
+    assert_eq!(release.date.as_deref(), Some("2001-05-06"));
+    // A blank catalogue number is none; a label with neither part is dropped.
+    assert_eq!(
+        release.labels,
+        vec![
+            musicbrainz::LabelInfo {
+                name: Some("Test Records".into()),
+                catalogue_number: Some("TST001".into())
+            },
+            musicbrainz::LabelInfo {
+                name: Some("Second Label".into()),
+                catalogue_number: None
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_musicbrainz_id_asked_for_with_nothing_in_it_sends_nothing_and_cant_change_the_path() {
+    let db = test_db();
+    let net = opted_in(&db, &[Service::MusicBrainz]);
+    let server = TestServer::start(json(MB_RECORDING));
+    let at = format!("{}/ws/2", base(&server));
+    assert!(matches!(
+        musicbrainz::recording_at(&net, &at, "  "),
+        Err(ClientError::NoId)
+    ));
+    let _ = musicbrainz::release_at(&net, &at, "../../x?y=1");
+    assert!(server.hits()[0]
+        .request_line
+        .starts_with("GET /ws/2/release/..%2F..%2Fx%3Fy%3D1?inc="));
+    assert_eq!(server.hits().len(), 1);
+}
+
+#[test]
+fn an_unknown_musicbrainz_id_is_not_found_and_junk_is_a_bad_reply() {
+    let db = test_db();
+    let net = opted_in(&db, &[Service::MusicBrainz]);
+    let server = TestServer::start(Reply::Typed(404, "application/json", b"{}".to_vec()));
+    assert!(matches!(
+        musicbrainz::recording_at(&net, &base(&server), "x"),
+        Err(ClientError::NotFound(Service::MusicBrainz))
+    ));
+    assert!(matches!(
+        musicbrainz::parse_recording(b"{}"),
+        Err(ClientError::BadReply { .. })
+    ));
+    assert!(matches!(
+        musicbrainz::parse_release(b"<html>"),
+        Err(ClientError::BadReply { .. })
+    ));
 }
 
 #[test]

@@ -168,7 +168,7 @@ fn from_name(file: &NamedFile, out: &mut Vec<Candidate>) {
 }
 
 /// The version a name says (`Mix`) and the remixer it names.
-fn push_version(parsed: &ParsedName, source: &IdentifySource, out: &mut Vec<Candidate>) {
+pub(super) fn push_version(parsed: &ParsedName, source: &IdentifySource, out: &mut Vec<Candidate>) {
     let sure: Vec<_> = parsed.markers.iter().filter(|m| !m.ambiguous).collect();
     if sure.is_empty() {
         return;

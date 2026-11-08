@@ -103,6 +103,7 @@ pub const MIGRATIONS: &[Migration] = &[
     migration!("0055_embedding"),
     migration!("0056_genre_model"),
     migration!("0057_catalogue_number"),
+    migration!("0058_identify_lookup"),
 ];
 
 /// The table that records which migrations a database has had.

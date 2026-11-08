@@ -93,6 +93,10 @@
     "where": "Top bar, Activity status and list rows, in the background after a scan, while each file's audio is read once and its waveform is kept.",
     "approved": "Drawing waveforms"
   },
+  "task.identify_lookup": {
+    "purpose": "Names the job that looks tracks up online (AcoustID, then MusicBrainz).",
+    "where": "Top bar, Activity status and list rows, while tracks the user asked to look up are being checked, one at a time."
+  },
   "percent": {
     "purpose": "A task name with its progress.",
     "where": "Top bar, Activity status and list rows, for a running job that reports progress ({{task}} is a task name above).",

@@ -18,7 +18,8 @@
     "quality": "Checking audio quality",
     "match": "Comparing fingerprints",
     "index": "Updating search",
-    "waveform": "Drawing waveforms"
+    "waveform": "Drawing waveforms",
+    "identify_lookup": "Looking up track details online"
   },
   "percent": "{{task}} ({{percent}}%)",
   "andMore_one": "{{summary}} ({{count}} other task)",

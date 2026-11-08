@@ -153,6 +153,9 @@ pub fn specta_builder<R: Runtime>() -> Builder<R> {
             crate::genre::own::set_genre,
             crate::identify::identify_suggestions,
             crate::identify::identify_use,
+            crate::identify::job::identify_look_up_tracks,
+            crate::identify::job::identify_look_up_files,
+            crate::identify::job::identify_lookup_status,
             crate::library::library_summary,
             crate::library::promote_track,
             crate::library::remove_library_track,
@@ -356,6 +359,7 @@ mod tests {
                     "match",
                     "index",
                     "waveform",
+                    "identify_lookup",
                 ][..],
             ),
             (

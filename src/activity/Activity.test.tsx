@@ -127,6 +127,7 @@ describe("Activity status", () => {
       "match",
       "index",
       "waveform",
+      "identify_lookup",
     ] as const;
     mockApp();
     render(<Activity />);

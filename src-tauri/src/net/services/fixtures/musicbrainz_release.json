@@ -1,0 +1,12 @@
+{
+  "id": "00000000-0000-4000-8000-0000000000b1",
+  "title": "Test Album",
+  "status": "Official",
+  "date": "2001-05-06",
+  "artist-credit": [{ "name": "Test Artist", "joinphrase": "", "artist": { "id": "00000000-0000-4000-8000-0000000000a1" } }],
+  "label-info": [
+    { "catalog-number": "TST001", "label": { "id": "00000000-0000-4000-8000-0000000000c1", "name": "Test Records" } },
+    { "catalog-number": "  ", "label": { "id": "00000000-0000-4000-8000-0000000000c2", "name": "Second Label" } },
+    { "catalog-number": null, "label": null }
+  ]
+}

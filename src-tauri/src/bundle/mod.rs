@@ -56,11 +56,13 @@ const KEEP_BUNDLES: usize = 1;
 /// own audio and take hours to make again. The genre model learned from them
 /// (`genre_model`, `genre_model_node`) travels too: it is checked against the
 /// tracks it was learned from, and learned again on the other PC if they
-/// differ.
+/// differ. The online look-ups' answers (`identify_lookup`) are a cache that
+/// is fetched again, so it does not travel.
 const MACHINE_ONLY: &str = "
     DELETE FROM job;
     DELETE FROM service_optin;
     DELETE FROM embedding_failure;
+    DELETE FROM identify_lookup;
     DELETE FROM setting
      WHERE key IN ('rekordbox_xml_path', 'rekordbox_xml_watch',
                    'rekordbox_xml_last_failure', 'read_online_only_files',

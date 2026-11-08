@@ -125,7 +125,10 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
 /// job, write one file at a time and work from what's still due; so does the
 /// embed job (3.8), which also ends at once while its switch is off. The genre
 /// model job (3.8) stores its whole result in one transaction at the end, so
-/// a run cut short stored nothing and learns again from the top. These are
+/// a run cut short stored nothing and learns again from the top. The online
+/// look-up (2.2) is left out on purpose: put back, it would start its whole
+/// list again, send requests nobody asked for at the next start and repeat
+/// files whose answers are already kept; the user asks again. These are
 /// the kinds a normal close already puts back in the queue
 /// ([`Ending::Requeued`]).
 const RESTARTABLE: [JobKind; 15] = [
@@ -476,13 +479,13 @@ mod tests {
                     Recovered {
                         cancelled: 0,
                         requeued: 15,
-                        failed: 3
+                        failed: 4
                     }
                 );
                 assert_eq!(get(c, waiting)?.unwrap().status, JobStatus::Queued);
                 let mut stmt = c.prepare(
                     "SELECT kind, status, progress, started_at IS NULL, error FROM job
-                     WHERE id <= 18 ORDER BY id",
+                     WHERE id <= 19 ORDER BY id",
                 )?;
                 let rows = stmt.query_map([], |r| {
                     Ok((
@@ -514,7 +517,7 @@ mod tests {
             "embed",
             "genre_model",
         ];
-        assert_eq!(ended.len(), 18);
+        assert_eq!(ended.len(), 19);
         for (kind, status, progress, never_started, error) in ended {
             if restartable.contains(&kind.as_str()) {
                 // As if it had never started: a worker takes it again.
@@ -692,6 +695,7 @@ mod tests {
     #[test]
     fn export_is_not_restartable_and_a_send_job_left_running_is_never_put_back_by_recovery() {
         assert!(!RESTARTABLE.contains(&JobKind::Export));
+        assert!(!RESTARTABLE.contains(&JobKind::IdentifyLookup));
         let (_dir, writer) = open();
         writer
             .call(|c| {

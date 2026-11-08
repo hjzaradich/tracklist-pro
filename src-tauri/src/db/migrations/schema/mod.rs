@@ -331,6 +331,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0056_genre_model.sql", &["genre_model", "genre_model_node"]),
     // The app's own catalogue number per Library track, never sent (2.2, 6A-S1).
     ("0057_catalogue_number.sql", &["catalogue_number"]),
+    // What an online look-up found for a file: a cache, not in bundles (2.2, 6A-S2a).
+    ("0058_identify_lookup.sql", &["identify_lookup"]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow
