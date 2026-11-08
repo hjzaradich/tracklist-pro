@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 
 #[cfg(windows)]
 mod job;
+mod panel;
 // The quality tests' temporary music folder, volume and walk-and-hash.
 #[cfg(windows)]
 #[allow(dead_code, clippy::duplicate_mod)]

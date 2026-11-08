@@ -229,6 +229,8 @@ pub(crate) fn record(
         }
     }
     tx.commit()?;
+    // "Sounds like" searches a cache of the fingerprints: it's out of date now.
+    super::similar::fingerprints_changed();
     Ok(true)
 }
 
