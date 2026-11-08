@@ -426,3 +426,106 @@ fn the_embed_job_runs_on_between_one_and_four_threads() {
     let workers = crate::audio_model::job::default_workers();
     assert!((1..=4).contains(&workers));
 }
+
+#[test]
+fn a_file_another_program_holds_is_skipped_not_recorded_and_done_on_the_next_run() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (library, ids) = library();
+    turn_on(&library);
+    let held = library.ids()["Folder/b.wav"];
+    // Share mode 0: nobody else may open it (a sync client or a scanner
+    // does this to a file for a moment; it is routine on Windows).
+    let lock = fs::File::options()
+        .read(true)
+        .share_mode(0)
+        .open(library.music.join("Folder").join("b.wav"))
+        .unwrap();
+    let loads = Loads::default();
+    let job = run(&library, embedder(&library, &loads));
+    assert_eq!(job.status, JobStatus::Done, "{:?}", job.error);
+    assert!(failure_of(&library, held).is_none(), "not a failure");
+    assert!(stored(&library, held).is_none());
+    for &id in ids.iter().filter(|&&id| id != held) {
+        assert!(stored(&library, id).is_some(), "file {id} was finished");
+    }
+    drop(lock);
+    let (again, taken) = counting(&library, &loads);
+    assert_eq!(run(&library, again).status, JobStatus::Done);
+    assert_eq!(
+        taken.load(Ordering::SeqCst),
+        1,
+        "only the held file is left"
+    );
+    assert!(stored(&library, held).is_some());
+}
+
+#[test]
+fn a_stored_row_of_another_model_or_the_wrong_size_is_not_a_result() {
+    let (library, ids) = library();
+    turn_on(&library);
+    let loads = Loads::default();
+    assert_eq!(
+        run(&library, embedder(&library, &loads)).status,
+        JobStatus::Done
+    );
+    let (a, b, c) = (ids[0], ids[1], ids[2]);
+    assert!(stored(&library, a).is_some());
+    library
+        .writer
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE embedding SET model_id = 'ced-tiny@00000000/labels0' WHERE file_id = ?1",
+                [a],
+            )?;
+            conn.execute(
+                "UPDATE embedding SET label_scores = zeroblob(8) WHERE file_id = ?1",
+                [b],
+            )?;
+            // The right size for the table's check, the wrong one for a result.
+            conn.execute(
+                "UPDATE embedding SET fingerprint = zeroblob(768), label_scores = zeroblob(100)
+                 WHERE file_id = ?1",
+                [c],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    for id in [a, b, c] {
+        assert!(stored(&library, id).is_none(), "file {id}");
+    }
+}
+
+#[test]
+fn the_analyze_job_asks_for_the_audio_model_only_while_the_switch_is_on() {
+    let (library, _) = library();
+    let loads = Loads::default();
+    let (walk_volume, hash_volume, analyze_volume) = (
+        library.volume.clone(),
+        library.volume.clone(),
+        library.volume.clone(),
+    );
+    let queue = JobQueue::builder(library.writer.clone())
+        .workers(1)
+        .handler(JobKind::Scan, Walker::new(move || walk_volume.clone()))
+        .handler(JobKind::Hash, Hasher::new(move || hash_volume.clone()))
+        .handler(
+            JobKind::Analyze,
+            crate::estimate::Analyzer::new(move || analyze_volume.clone(), library.first.clone()),
+        )
+        .handler(JobKind::Embed, embedder(&library, &loads))
+        .start()
+        .unwrap();
+    // Off: the analyze job ends and no embed job was queued.
+    let id = queue.enqueue(crate::estimate::analyze_job()).unwrap();
+    assert_eq!(wait(&library.writer, id).status, JobStatus::Done);
+    assert!(embed_jobs(&library).is_empty(), "queued while off");
+    // On: the next analyze job asks for it.
+    turn_on(&library);
+    let id = queue.enqueue(crate::estimate::analyze_job()).unwrap();
+    assert_eq!(wait(&library.writer, id).status, JobStatus::Done);
+    let embed = embed_jobs(&library);
+    assert_eq!(embed.len(), 1);
+    assert_eq!(wait(&library.writer, embed[0]).status, JobStatus::Done);
+    queue.shutdown();
+    assert_eq!(count(&library, "embedding"), 3);
+}

@@ -518,7 +518,7 @@ fn the_startup_checks_finish_while_the_database_writer_is_busy_with_something_el
         }
     });
     assert_eq!(asked.failed, 0);
-    assert_eq!(asked.took.len(), 11, "every stage was asked");
+    assert_eq!(asked.took.len(), 12, "every stage was asked");
     release.send(()).unwrap();
     holder.join().unwrap().unwrap();
 }

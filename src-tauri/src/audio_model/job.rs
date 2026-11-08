@@ -297,7 +297,9 @@ impl<V: Volumes + Sync + 'static> Embedder<V> {
             Ok(file) => file,
             // Gone since the walk: the next walk says so.
             Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
-            Err(_) => return self.store(run, &due, Outcome::Failed(Reason::Unreadable)),
+            // Sharing violations (a sync client, a virus scan, another
+            // program) are routine and pass: not recorded, tried again next run.
+            Err(_) => return Ok(()),
         };
         if !unchanged(&file, &due) {
             return Ok(());
@@ -319,8 +321,11 @@ impl<V: Volumes + Sync + 'static> Embedder<V> {
                 job.check_cancelled()?;
                 return Ok(());
             }
+            // The OS failed to read it, not the decoder to understand it:
+            // not recorded, tried again next run.
+            Ok(Err(ListenError::Unreadable(_))) => return Ok(()),
             Ok(Err(e)) => Outcome::Failed(match e {
-                ListenError::Unreadable(_) => Reason::Unreadable,
+                ListenError::Unreadable(_) => unreachable!("handled above"),
                 ListenError::NoAudio => Reason::NoAudio,
                 ListenError::Unsupported | ListenError::ImpossibleRate(_) => Reason::Unsupported,
                 ListenError::Damaged => Reason::Damaged,

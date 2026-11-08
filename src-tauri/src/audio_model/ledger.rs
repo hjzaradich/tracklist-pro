@@ -131,8 +131,6 @@ pub(crate) fn any_due(
 /// Why a file wasn't listened to. Stored as `embedding_failure.reason`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reason {
-    /// The file couldn't be opened or read.
-    Unreadable,
     NoAudio,
     /// A format or codec this build can't decode.
     Unsupported,
@@ -146,7 +144,6 @@ pub enum Reason {
 impl Reason {
     pub fn as_str(self) -> &'static str {
         match self {
-            Reason::Unreadable => "unreadable",
             Reason::NoAudio => "no_audio",
             Reason::Unsupported => "unsupported",
             Reason::Damaged => "damaged",
@@ -243,23 +240,29 @@ pub struct Stored {
     pub scores: Vec<f32>,
 }
 
-/// File `file`'s result, if it has one for its current audio (any model).
+/// File `file`'s result, if it has one for its current audio and the current
+/// model, of the right sizes.
 pub fn current(conn: &Connection, file: i64) -> rusqlite::Result<Option<Stored>> {
     type Row = (String, Vec<u8>, Vec<u8>);
     let row: Option<Row> = conn
         .query_row(
             "SELECT e.model_id, e.fingerprint, e.label_scores
              FROM embedding e JOIN file f ON f.id = e.file_id AND f.audio_hash = e.audio_hash
-             WHERE e.file_id = ?1",
-            [file],
+             WHERE e.file_id = ?1 AND e.model_id = ?2",
+            params![file, subset::model_id()],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
+    // A row of the wrong size is not a result: treated as not done.
     Ok(row.and_then(|(model_id, fingerprint, scores)| {
-        Some(Stored {
+        let (fingerprint, scores) = (
+            subset::from_blob(&fingerprint)?,
+            subset::from_blob(&scores)?,
+        );
+        (fingerprint.len() == EMBEDDING_LEN && scores.len() == SUBSET_LEN).then_some(Stored {
             model_id,
-            fingerprint: subset::from_blob(&fingerprint)?,
-            scores: subset::from_blob(&scores)?,
+            fingerprint,
+            scores,
         })
     }))
 }

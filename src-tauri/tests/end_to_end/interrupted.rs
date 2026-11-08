@@ -63,11 +63,12 @@ fn a_job_nothing_can_restart_ends_failed_a_send_job_is_dropped_and_neither_block
     let mut world = scanned_then_a_file_added();
     let before = world.jobs().len();
 
-    // `embed` (the audio model, 3.8) has no handler yet; `analyze` has one now.
+    // `convert` is a real kind that nothing can restart; `made_up` is one this
+    // build doesn't know. (`embed` can restart now: see the test below.)
     world.kill_and_start_again(|c| {
         c.execute_batch(
             r#"INSERT INTO job (kind, status, started_at, attempts) VALUES
-                 ('embed', 'running', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1),
+                 ('convert', 'running', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1),
                  ('made_up', 'running', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1);
                INSERT INTO job (kind, target, status, started_at, attempts) VALUES
                  ('export', '{"send":"write","run":"the dead run","token":"t","confirmed":false}',
@@ -85,7 +86,7 @@ fn a_job_nothing_can_restart_ends_failed_a_send_job_is_dropped_and_neither_block
     assert_eq!(
         ended,
         [
-            ("embed", "failed"),
+            ("convert", "failed"),
             ("made_up", "failed"),
             // A send only ever follows a click in this run.
             ("export", "cancelled"),
@@ -96,6 +97,31 @@ fn a_job_nothing_can_restart_ends_failed_a_send_job_is_dropped_and_neither_block
     // And the scan goes all the way through.
     world.scan();
     assert_eq!(world.all_music().total, Some(3));
+}
+
+#[test]
+fn an_embed_job_left_running_is_run_again_and_ends_done_without_the_model_while_the_switch_is_off()
+{
+    let mut world = scanned_then_a_file_added();
+    let before = world.jobs().len();
+
+    // The audio model is off by default: a job the dead run left must not
+    // load the model (there is none in this world, so loading would fail it).
+    world.kill_and_start_again(|c| {
+        c.execute(
+            "INSERT INTO job (kind, status, started_at, attempts)
+             VALUES ('embed', 'running', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1)",
+            [],
+        )
+        .unwrap();
+    });
+    world.settle();
+
+    let jobs = world.jobs();
+    let (id, kind, _) = &jobs[before];
+    assert_eq!(kind, "embed");
+    assert_eq!(world.job(*id).status, JobStatus::Done);
+    assert_eq!(world.job(*id).error, None);
 }
 
 #[test]
