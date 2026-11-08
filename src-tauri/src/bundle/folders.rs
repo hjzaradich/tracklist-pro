@@ -20,6 +20,11 @@ pub(super) fn remove(guard: &WriteGuard, path: &Path) -> Result<(), GuardError> 
     }
 }
 
+/// Removes `path`, a folder, only if nothing is in it.
+pub(super) fn remove_empty_folder(guard: &WriteGuard, path: &Path) -> Result<(), GuardError> {
+    guard.remove_empty_folder(path)
+}
+
 /// Whether anything (file, folder or link) is at `path`.
 pub(super) fn exists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()

@@ -22,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::folders::{exists, keep_newest, make_folder, ours, remove};
+use super::folders::{exists, keep_newest, make_folder, ours, remove, remove_empty_folder};
 use super::BundleError;
 use crate::db::{db_path, DB_FILE_NAME};
 use crate::diagnostics::{EventKind, EventLog, EventReason, LogEvent};
@@ -119,14 +119,30 @@ pub(super) fn start(
     now_ms: i64,
     crash: &mut dyn FnMut() -> bool,
 ) -> Result<Swapped, BundleError> {
+    start_with(guard, layout, now_ms, crash, &mut |from, to| {
+        Ok(guard.rename(from, to)?)
+    })
+}
+
+/// [`start`], with the move that puts pieces back open to tests too.
+pub(super) fn start_with(
+    guard: &WriteGuard,
+    layout: &Layout,
+    now_ms: i64,
+    crash: &mut dyn FnMut() -> bool,
+    mv: &mut dyn FnMut(&Path, &Path) -> Result<(), BundleError>,
+) -> Result<Swapped, BundleError> {
     let error = match finish(guard, layout, now_ms, crash) {
         Ok(swapped) => return Ok(swapped),
         Err(error) => error,
     };
     eprintln!("startup: the Library couldn't be replaced: {error}");
     if !exists(&layout.live) || !exists(&layout.swapping.join(DB_FILE_NAME)) {
-        if let Err(again) = put_back(guard, layout) {
+        if let Err(again) = put_back_with(guard, layout, mv) {
             eprintln!("startup: the old Library couldn't all be put back: {again}");
+            // The Library in place opens without them, and writes from now
+            // on: they must never be put beside it again.
+            quarantine_orphans(guard, layout, now_ms);
         }
     }
     if !exists(&layout.live) {
@@ -170,6 +186,9 @@ pub(super) fn finish(
         if exists(&aside) && !exists(&l.live) {
             put_back(guard, l)?;
         }
+        // Pieces left with no file, the Library in place and no confirm:
+        // they belong to a state it has left (the app has run since).
+        quarantine_orphans(guard, l, now_ms);
         if exists(&aside) && exists(&l.live) {
             let id = set_aside(guard, l, now_ms)?;
             keep_newest(guard, &l.backups, KEEP_BACKUPS, is_stamp, Some(&id));
@@ -196,7 +215,7 @@ pub(super) fn finish(
             step()?;
             put_back(guard, l)?;
             if ours(&l.swapping, |_| true).is_empty() {
-                remove(guard, &l.swapping)?;
+                remove_empty_folder(guard, &l.swapping)?;
             }
         }
         if !exists(&l.swapping) {
@@ -223,12 +242,36 @@ pub(super) fn finish(
         step()?;
         kept = Some(set_aside(guard, l, now_ms)?);
     } else if exists(&l.swapping) && ours(&l.swapping, |_| true).is_empty() {
-        remove(guard, &l.swapping)?;
+        remove_empty_folder(guard, &l.swapping)?;
     }
     step()?;
     remove(guard, &l.marker)?;
     keep_newest(guard, &l.backups, KEEP_BACKUPS, is_stamp, kept.as_deref());
     Ok(Swapped::Replaced(kept))
+}
+
+/// Pieces in `backups/swapping` with the Library's file not among them and
+/// a Library in place are orphans: the file is not coming back to them, and
+/// a log put beside a file that has been written since would be replayed
+/// over it. The folder is renamed to `backups/<stamp>-stray` (a name no
+/// backup list reads), to the next free millisecond: kept, never deleted
+/// or written over. Best effort: a failure is logged and tried again at
+/// the next start.
+fn quarantine_orphans(guard: &WriteGuard, l: &Layout, now_ms: i64) {
+    if !exists(&l.live)
+        || exists(&l.swapping.join(DB_FILE_NAME))
+        || ours(&l.swapping, |_| true).is_empty()
+    {
+        return;
+    }
+    let mut ms = now_ms;
+    while exists(&l.backups.join(format!("{}-stray", stamp(ms)))) {
+        ms += 1;
+    }
+    let to = l.backups.join(format!("{}-stray", stamp(ms)));
+    if let Err(e) = guard.rename(&l.swapping, &to) {
+        eprintln!("startup: pieces of an old Library couldn't be set apart: {e}");
+    }
 }
 
 /// Renames `backups/swapping` to a backup named for `now_ms`, or the next
