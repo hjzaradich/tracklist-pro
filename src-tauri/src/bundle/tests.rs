@@ -838,7 +838,10 @@ fn a_stale_piece_that_clashes_with_one_in_place_is_refused_and_both_are_kept() {
     assert_eq!(started, Swapped::NotReplaced(EventReason::FileInTheWay));
     let live = live(&guard);
     assert!(has_crate(&live, "old") && has_crate(&live, "in-log"));
-    assert_eq!(fs::read(layout.swapping.join("tracklist-pro.db-wal")).unwrap(), b"x");
+    assert_eq!(
+        fs::read(layout.swapping.join("tracklist-pro.db-wal")).unwrap(),
+        b"x"
+    );
 }
 
 #[test]
