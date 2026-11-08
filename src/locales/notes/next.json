@@ -123,6 +123,10 @@
     "purpose": "Reason: the suggested track shares several tags with the selected one. {{tags}} is the list of tags.",
     "where": "Reason line of a suggestion."
   },
+  "reason.similar": {
+    "purpose": "Reason: the audio model hears the suggested track as sounding like the selected one. {{percent}} is how alike, as a whole percent. Labelled as the audio model's opinion; it only ever appears beside a reason from the track's facts.",
+    "where": "Reason line of a suggestion."
+  },
   "ignored.label": {
     "purpose": "Says which signals could not be used because the selected track lacks that information. {{signals}} is a list.",
     "where": "What's next section, under the list."
@@ -130,6 +134,14 @@
   "ignored.separator": {
     "purpose": "Joins the names of the signals that could not be used.",
     "where": "What's next section, under the list."
+  },
+  "ignored.similar.modelOff": {
+    "purpose": "Says the sounds-similar signal has a weight but is not counted because the audio model is switched off.",
+    "where": "What's next section, under the list; only when its weight is above 0."
+  },
+  "ignored.similar.noFingerprint": {
+    "purpose": "Says the sounds-similar signal has a weight but is not counted because the audio model has no fingerprint for the selected track yet (not listened to, or it could not be read).",
+    "where": "What's next section, under the list; only when its weight is above 0 and the audio model is on."
   },
   "signal.key": {
     "purpose": "Name of the key signal, in the list of signals not used.",
@@ -153,6 +165,10 @@
   },
   "signal.tags": {
     "purpose": "Name of the tags signal, in the list of signals not used.",
+    "where": "What's next section."
+  },
+  "signal.similar": {
+    "purpose": "Name of the sounds-similar signal, in the list of signals not used.",
     "where": "What's next section."
   },
   "weights.title": {
@@ -185,6 +201,10 @@
   },
   "weights.tags": {
     "purpose": "Label of the weight for tags the suggested track shares with the selected one.",
+    "where": "Weights panel."
+  },
+  "weights.similar": {
+    "purpose": "Label of the weight for how alike the audio model hears a suggested track and the selected one. 1 by default once the audio model is switched on; it never counts alone, only beside a fact like key or BPM.",
     "where": "Weights panel."
   },
   "weights.tolerance.label": {

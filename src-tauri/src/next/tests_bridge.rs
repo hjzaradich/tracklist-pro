@@ -30,6 +30,7 @@ const ALL: Weights = Weights {
     played: 0,
     genre: 0,
     tags: 0,
+    similar: 0,
 };
 
 fn only(key: u8, bpm: u8, energy: u8, tolerance: Tolerance) -> Settings {

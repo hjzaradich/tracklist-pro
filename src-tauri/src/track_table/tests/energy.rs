@@ -424,6 +424,7 @@ fn every_reader_ignores_the_estimates(lib: &Lib, t: &[i64]) {
             played: 0,
             genre: 0,
             tags: 0,
+            similar: 0,
         },
         ..Settings::default()
     };

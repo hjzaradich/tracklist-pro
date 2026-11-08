@@ -32,11 +32,16 @@
     "genreSame": "same genre ({{genre}})",
     "genreRelated": "{{from}} → {{to}} (related genre)",
     "tagsShared_one": "shares the tag {{tags}}",
-    "tagsShared_other": "shares tags: {{tags}}"
+    "tagsShared_other": "shares tags: {{tags}}",
+    "similar": "sounds similar: {{percent}}% (audio model)"
   },
   "ignored": {
     "label": "Not used (this track has none): {{signals}}",
-    "separator": ", "
+    "separator": ", ",
+    "similar": {
+      "modelOff": "Sounds similar is not used: the audio model is off",
+      "noFingerprint": "Sounds similar is not used: the audio model has not listened to this track"
+    }
   },
   "signal": {
     "key": "key",
@@ -44,7 +49,8 @@
     "energy": "energy",
     "played": "history",
     "genre": "genre",
-    "tags": "tags"
+    "tags": "tags",
+    "similar": "sounds similar"
   },
   "weights": {
     "title": "Weights and tolerance",
@@ -55,6 +61,7 @@
     "played": "Your history",
     "genre": "Genre match",
     "tags": "Shared tags",
+    "similar": "Sounds similar (audio model)",
     "tolerance": {
       "label": "Tolerance",
       "tight": "Tight",

@@ -9,18 +9,26 @@
 //!   energy step in the direction the user chose, and the transitions the
 //!   user played (3.6, [`crate::play_history::transitions`]), the canonical
 //!   genre (3.2: the same node, or one beside it) and the tags both tracks
-//!   have (3.1). [`score::ExtraSignal`] stays as a hook for a later signal.
+//!   have (3.1), and, while the audio model is on, how alike the two sound
+//!   (3.8, "sounds similar"). [`score::ExtraSignal`] stays as a hook for a
+//!   later signal.
 //! - **Weights and tolerance** are settings (`next_weights`,
 //!   `next_tolerance` in the `setting` table), visible and adjustable. The
 //!   defaults are genre-neutral. Changing them is not an operation, like
-//!   every setting. A stored value that cannot be read is the default.
+//!   every setting. A stored value that cannot be read is the default. The
+//!   default weight of *sounds similar* is 1 while the audio model is
+//!   switched on and 0 while it is off (owner, 2026-11-08), and a weight the
+//!   user never set stays "the default" when other weights are saved, so
+//!   switching the model on later still brings it in.
 //!   *Tight* uses Sort by fit's thresholds (a tempo within 2, 4 or 8 BPM,
 //!   only neighbor keys); *wide* also takes bigger tempo gaps, keys two
 //!   steps or diagonally away, and bigger energy steps.
 //! - **Cost:** one query reads every Library track's facts (the genre node
 //!   and its parent come in the same query, and only while genre counts);
 //!   one more reads the tags the chosen track shares with others, and only
-//!   while tags count. All is scored in memory; only the shown few have their
+//!   while tags count. Sounds similar reads the cache of fingerprints (one
+//!   dot product per Library track, no audio, no per-track read), and only
+//!   while it counts. All is scored in memory; only the shown few have their
 //!   reasons worked out and their rows read.
 //! - **Bad data** in one track (a BPM that is not a number or not positive,
 //!   a key or energy out of range) reads as missing for that track alone.
@@ -32,11 +40,13 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
 
+use crate::audio_model::similar::{resemblance_to, Neighbours, Resemblance};
 use crate::crates::fit::Camelot;
 use crate::db::{ReadPool, Writer};
 use crate::ipc::IpcError;
 use crate::scan::system_volumes;
 use crate::search::flag;
+use crate::settings::{read_feature_enabled, Feature};
 use crate::track_table::{self, TableRow};
 
 pub mod bridge;
@@ -47,6 +57,8 @@ mod tests;
 mod tests_bridge;
 #[cfg(test)]
 mod tests_genre_tags;
+#[cfg(test)]
+mod tests_similar;
 
 use score::{Ask, Candidate, ExtraSignal, Facts, GenreRef, Reason, Vocab};
 
@@ -90,6 +102,18 @@ pub enum Signal {
     Played,
     Genre,
     Tags,
+    /// How alike the two sound, by the audio model (3.8).
+    Similar,
+}
+
+/// Why "sounds similar" was not used although it has a weight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SimilarGap {
+    /// The audio model is switched off.
+    ModelOff,
+    /// The chosen track has no current fingerprint.
+    NoFingerprint,
 }
 
 /// How much each signal counts, 0 (off) to [`MOST_WEIGHT`].
@@ -103,12 +127,16 @@ pub struct Weights {
     pub played: u8,
     pub genre: u8,
     pub tags: u8,
+    /// How alike the two sound (the audio model). 1 by default, but only
+    /// while the model is on: [`read_settings`] gives 0 while it is off.
+    pub similar: u8,
 }
 
 /// Genre-neutral defaults (proposed): key and tempo count most, then the
 /// energy step and what the user has played. Genre is off (3.4: genre-neutral
 /// until the user turns it up); tags count a little, and only when the chosen
-/// track has some.
+/// track has some. Sounds similar counts a little once the audio model is on
+/// (owner, 2026-11-08).
 impl Default for Weights {
     fn default() -> Weights {
         Weights {
@@ -118,6 +146,7 @@ impl Default for Weights {
             played: 2,
             genre: 0,
             tags: 1,
+            similar: 1,
         }
     }
 }
@@ -141,14 +170,25 @@ impl Weights {
             played: c(self.played),
             genre: c(self.genre),
             tags: c(self.tags),
+            similar: c(self.similar),
         }
     }
+}
+
+/// The default weight of sounds similar: 1 while the audio model is on, else 0.
+fn default_similar(conn: &Connection) -> rusqlite::Result<u8> {
+    Ok(if read_feature_enabled(conn, Feature::AudioModel)? {
+        Weights::default().similar
+    } else {
+        0
+    })
 }
 
 /// The stored settings; anything missing or unreadable is the default, one
 /// value at a time.
 pub fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
-    let default = Settings::default();
+    let mut default = Settings::default();
+    default.weights.similar = default_similar(conn)?;
     let weight = |field: &str, fallback: u8| -> rusqlite::Result<u8> {
         let stored: Option<Option<i64>> = conn
             .query_row(
@@ -179,6 +219,7 @@ pub fn read_settings(conn: &Connection) -> rusqlite::Result<Settings> {
             played: weight("played", default.weights.played)?,
             genre: weight("genre", default.weights.genre)?,
             tags: weight("tags", default.weights.tags)?,
+            similar: weight("similar", default.weights.similar)?,
         },
         tolerance: match name.flatten().as_deref() {
             Some("wide") => Tolerance::Wide,
@@ -195,7 +236,24 @@ pub fn write_settings(conn: &Connection, settings: Settings) -> rusqlite::Result
         weights: settings.weights.clamped(),
         ..settings
     };
-    let weights = serde_json::to_string(&settings.weights).expect("numbers serialize");
+    // A sounds-similar weight the user never set stays unset while it is what
+    // the default is right now, so saving another weight with the model off
+    // does not pin it at 0 for when the model is turned on.
+    let mut weights = serde_json::to_value(settings.weights).expect("numbers serialize");
+    let set_before: bool = conn
+        .query_row(
+            "SELECT json_type(value, '$.similar') IS NOT NULL FROM setting WHERE key = ?1",
+            [WEIGHTS_KEY],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !set_before && settings.weights.similar == default_similar(conn)? {
+        if let Some(object) = weights.as_object_mut() {
+            object.remove("similar");
+        }
+    }
+    let weights = weights.to_string();
     let tolerance = match settings.tolerance {
         Tolerance::Tight => "tight",
         Tolerance::Wide => "wide",
@@ -410,6 +468,8 @@ pub struct NextReply {
     /// Signals that count but could not be used, because the chosen track
     /// has nothing to compare.
     pub ignored: Vec<Signal>,
+    /// Why [`Signal::Similar`] is among `ignored`, if it is.
+    pub similar_gap: Option<SimilarGap>,
     pub settings: Settings,
 }
 
@@ -418,12 +478,26 @@ pub struct Found {
     pub ranked: Vec<score::Scored>,
     pub considered: u32,
     pub ignored: Vec<Signal>,
+    pub similar_gap: Option<SimilarGap>,
     pub settings: Settings,
 }
 
-/// Ranks the Library for the track `target`.
+/// Ranks the Library for the track `target`, with a fingerprint cache of its
+/// own (tests; the app shares one, see [`rank_with`]).
 pub fn rank_for(
     conn: &Connection,
+    target: i64,
+    direction: Direction,
+    extras: &[&dyn ExtraSignal],
+) -> rusqlite::Result<Found> {
+    rank_with(conn, &Neighbours::default(), target, direction, extras)
+}
+
+/// Ranks the Library for the track `target`; `cache` is the fingerprint cache
+/// sounds similar reads (only when its weight is above 0).
+pub fn rank_with(
+    conn: &Connection,
+    cache: &Neighbours,
     target: i64,
     direction: Direction,
     extras: &[&dyn ExtraSignal],
@@ -434,6 +508,11 @@ pub fn rank_for(
     let candidates = candidates(conn, target, counts_genre)?;
     let played = played_after(conn, target)?;
     let vocab = vocab_for(conn, target, &settings, target_facts.genre)?;
+    let resemblance = if settings.weights.similar > 0 {
+        resemblance_to(conn, cache, target)?
+    } else {
+        Resemblance::NotWeighed
+    };
     let ask = Ask {
         target_id: target,
         target: target_facts,
@@ -442,12 +521,21 @@ pub fn rank_for(
         played_after: &played,
         extras,
         vocab: &vocab,
+        resemblance: &resemblance,
     };
     let ranking = score::rank(&ask, &candidates, SHOWN);
+    let similar_gap = ranking
+        .ignored
+        .contains(&Signal::Similar)
+        .then_some(match resemblance {
+            Resemblance::ModelOff => SimilarGap::ModelOff,
+            _ => SimilarGap::NoFingerprint,
+        });
     Ok(Found {
         ranked: ranking.results,
         considered: u32::try_from(candidates.len()).unwrap_or(u32::MAX),
         ignored: ranking.ignored,
+        similar_gap,
         settings,
     })
 }
@@ -478,6 +566,7 @@ pub fn reply(
         results,
         considered: found.considered,
         ignored: found.ignored,
+        similar_gap: found.similar_gap,
         settings: found.settings,
     })
 }
@@ -488,12 +577,14 @@ pub fn reply(
 #[specta::specta]
 pub async fn next_for(
     reads: State<'_, ReadPool>,
+    cache: State<'_, Neighbours>,
     recording_id: i64,
     direction: Direction,
 ) -> Result<NextReply, IpcError> {
     let volumes = system_volumes();
+    let cache = cache.inner().clone();
     Ok(reads.read(move |c| {
-        let found = rank_for(c, recording_id, direction, &[])?;
+        let found = rank_with(c, &cache, recording_id, direction, &[])?;
         reply(c, &volumes, found)
     })?)
 }

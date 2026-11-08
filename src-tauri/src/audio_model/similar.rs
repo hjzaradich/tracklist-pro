@@ -1,7 +1,7 @@
 //! "Sounds like" (ROADMAP 3.8, 5A-A3): the Library tracks whose fingerprints
 //! are nearest a track's, for the "Audio model" panel. Review only: it is the
-//! audio model's opinion, shown on its own, and it feeds no other suggestion
-//! (not "What's next").
+//! audio model's opinion, shown on its own. The one other place it is used is
+//! the "sounds similar" signal of "What's next" ([`resemblance_to`]).
 //!
 //! - **Similarity.** Every current fingerprint (192 numbers) has the mean
 //!   fingerprint of all of them taken off, then is scaled to length 1. The
@@ -21,10 +21,17 @@
 //!   Library or changed their file since are checked against the database
 //!   for the best few and dropped, so a stale cache can only make the list
 //!   shorter, never wrong.
+//! - **For "What's next".** [`resemblance_to`] gives the cosine of one track
+//!   against every other track in the same cache, in one pass and with no
+//!   database read per track. It is the cache as it stands: a track whose
+//!   file changed since the last [`fingerprints_changed`] can still be in it
+//!   for a moment (the "Sounds like" list checks its best few; a ranking
+//!   shows a similarity, never a track, so nothing wrong is listed).
 //! - **Never loads the model.**
 //!
 //! [`ledger::record`]: super::ledger
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -181,6 +188,26 @@ impl Matrix {
     }
 }
 
+impl Matrix {
+    /// The cosine of `query` (centred, scaled) against every row but track
+    /// `not`: one dot product per row.
+    fn cosines(&self, query: &[f32], not: i64) -> HashMap<i64, f32> {
+        self.unit
+            .as_chunks::<EMBEDDING_LEN>()
+            .0
+            .iter()
+            .zip(&self.recordings)
+            .filter(|(_, recording)| **recording != not)
+            .map(|(v, recording)| {
+                (
+                    *recording,
+                    v.iter().zip(query).map(|(a, b)| a * b).sum::<f32>(),
+                )
+            })
+            .collect()
+    }
+}
+
 /// The cache of fingerprints "Sounds like" searches, kept by the app.
 #[derive(Clone, Default)]
 pub struct Neighbours(Arc<Mutex<Option<Matrix>>>);
@@ -231,9 +258,64 @@ fn still_true(
         .collect())
 }
 
+/// How alike two tracks sound, 0 to 1, for a cosine: the cosine itself, 0 when
+/// it is negative. The percent "Sounds like" shows is this times 100, so the
+/// panel and "What's next" give the same number for the same pair.
+pub(crate) fn likeness_of(cosine: f32) -> f32 {
+    cosine.clamp(0.0, 1.0)
+}
+
 /// The percent shown for a cosine.
 fn percent_of(cosine: f32) -> u8 {
-    (cosine.clamp(0.0, 1.0) * 100.0).round() as u8
+    (likeness_of(cosine) * 100.0).round() as u8
+}
+
+/// How every Library track sounds against one track, for "What's next".
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Resemblance {
+    /// Not asked for: the signal's weight is 0.
+    #[default]
+    NotWeighed,
+    /// The audio model is switched off.
+    ModelOff,
+    /// The track has no current, usable fingerprint (not listened to yet,
+    /// failed, or exactly the Library's average sound).
+    NoFingerprint,
+    /// The cosine (see [`centred`]) to each track that has a fingerprint, by
+    /// track id; the track itself is not in it.
+    To(HashMap<i64, f32>),
+}
+
+/// How every Library track sounds against track `target`, using `cache`:
+/// one pass over the cache. Reads only the target's own result; never loads
+/// the model.
+pub(crate) fn resemblance_to(
+    conn: &Connection,
+    cache: &Neighbours,
+    target: i64,
+) -> rusqlite::Result<Resemblance> {
+    let heard = match standing(conn, target)? {
+        Standing::Not(PanelState::Off) => {
+            cache.release();
+            return Ok(Resemblance::ModelOff);
+        }
+        Standing::Not(_) => return Ok(Resemblance::NoFingerprint),
+        Standing::Heard(heard) => heard,
+    };
+    let Some(fingerprint) = heard.fingerprint else {
+        return Ok(Resemblance::NoFingerprint);
+    };
+    let mut guard = cache.lock();
+    let generation = GENERATION.load(Ordering::SeqCst);
+    if guard.as_ref().is_none_or(|m| m.generation != generation) {
+        *guard = Some(Matrix::build(conn, generation)?);
+    }
+    let matrix = guard.as_ref().expect("built above");
+    let query = centred(&fingerprint, &matrix.mean);
+    if query.iter().all(|x| *x == 0.0) {
+        return Ok(Resemblance::NoFingerprint);
+    }
+    Ok(Resemblance::To(matrix.cosines(&query, target)))
 }
 
 /// The tracks that sound like track `recording`, using `cache`.
