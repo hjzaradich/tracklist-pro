@@ -442,7 +442,8 @@ export const commands = {
 	setGenre: (libraryTrack: LibraryTrackId, name: string) => typedError<number | null, IpcError>(__TAURI_INVOKE("set_genre", { libraryTrack, name })),
 	/**
 	 *  What identification suggests for a Library track's details, from its own
-	 *  files (ROADMAP 2.2). Works with every online service off.
+	 *  files and the online look-ups kept for them (ROADMAP 2.2). Works with
+	 *  every online service off.
 	 */
 	identifySuggestions: (libraryTrackId: LibraryTrackId) => typedError<IdentifySuggestions, IpcError>(__TAURI_INVOKE("identify_suggestions", { libraryTrackId })),
 	/**
@@ -452,6 +453,16 @@ export const commands = {
 	 *  changed.
 	 */
 	identifyUse: (libraryTrackId: LibraryTrackId, choices: IdentifyChoice[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("identify_use", { libraryTrackId, choices })),
+	/**
+	 *  Looks up the linked files of Library tracks online, for the services
+	 *  that are switched on, in the background. Answers the job, or none when no
+	 *  track has a linked file.
+	 */
+	identifyLookUpTracks: (libraryTrackIds: LibraryTrackId[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("identify_look_up_tracks", { libraryTrackIds })),
+	/**  Looks up files online (the Inbox's), as [`identify_look_up_tracks`] does. */
+	identifyLookUpFiles: (fileIds: number[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("identify_look_up_files", { fileIds })),
+	/**  Where the online look-up of each of these Library tracks stands. */
+	identifyLookupStatus: (libraryTrackIds: LibraryTrackId[]) => typedError<IdentifyLookupStatus[], IpcError>(__TAURI_INVOKE("identify_lookup_status", { libraryTrackIds })),
 	/**
 	 *  How many Library tracks there are, and a stamp that moves when the list
 	 *  of them would come back different. Cheap at any size: no list is read.
@@ -2137,6 +2148,26 @@ export type IdentifyFieldSuggestions = {
 	suggestions: IdentifySuggestion[],
 };
 
+/**  One Library track's look-up status. */
+export type IdentifyLookupStatus = {
+	libraryTrackId: LibraryTrackId,
+	/**
+	 *  While a job is queued or running for the track's file this says so;
+	 *  the rest still describes the answer kept from before.
+	 */
+	state: LookupState,
+	/**
+	 *  Why it found nothing, failed or was skipped: a short code, e.g.
+	 *  `offline`, `key_missing`, `acoustid_off`, `no_match`.
+	 */
+	reason: string | null,
+	/**  How many details were found. */
+	found: number,
+	/**  When the kept answer was fetched (UTC). */
+	when: string | null,
+	laterAttempt: LookupAttempt | null,
+};
+
 /**  Where a suggested value came from. */
 export type IdentifySource = 
 /**  The tags of the track's linked file. */
@@ -2146,8 +2177,8 @@ export type IdentifySource =
 /**  The tags of another file of the same track. */
 { kind: "sibling"; file: NamedFile } | 
 /**
- *  An online service (job S2): `service` is its name, `via` the service
- *  that led to it ("MusicBrainz via AcoustID"). Nothing here gives one.
+ *  An online service (`lookup`): `service` is its name, `via` the service
+ *  that led to it ("MusicBrainz via AcoustID").
  */
 { kind: "online"; service: string; via: string | null };
 
@@ -2366,7 +2397,9 @@ export type JobKind =
  *  Reduce a file's audio to the peaks its waveform is drawn from
  *  (1.11 "Audio").
  */
-"waveform";
+"waveform" | 
+/**  Look files up online: AcoustID, then MusicBrainz (2.2). */
+"identify_lookup";
 
 /**
  *  Where a job is in its life. Stored in `job.status` as
@@ -2672,6 +2705,22 @@ export type LogEvent = {
 	/**  How long it took, in milliseconds. */
 	ms: number | null,
 };
+
+/**  A later attempt that did not replace a good answer. */
+export type LookupAttempt = {
+	/**  A short code, e.g. `offline`. */
+	reason: string,
+	when: string,
+};
+
+/**  How a file's look-up stands, for the panel. */
+export type LookupState = 
+/**  Never looked up (or the track has no linked file). */
+"never" | 
+/**  In a job that has not started. */
+"queued" | 
+/**  In a job that is running. */
+"running" | "found" | "nothing" | "failed" | "skipped";
 
 /**
  *  A crate or playlist that will arrive in rekordbox with entries left out

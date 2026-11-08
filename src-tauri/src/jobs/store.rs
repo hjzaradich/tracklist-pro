@@ -479,13 +479,13 @@ mod tests {
                     Recovered {
                         cancelled: 0,
                         requeued: 15,
-                        failed: 3
+                        failed: 4
                     }
                 );
                 assert_eq!(get(c, waiting)?.unwrap().status, JobStatus::Queued);
                 let mut stmt = c.prepare(
                     "SELECT kind, status, progress, started_at IS NULL, error FROM job
-                     WHERE id <= 18 ORDER BY id",
+                     WHERE id <= 19 ORDER BY id",
                 )?;
                 let rows = stmt.query_map([], |r| {
                     Ok((
@@ -517,7 +517,7 @@ mod tests {
             "embed",
             "genre_model",
         ];
-        assert_eq!(ended.len(), 18);
+        assert_eq!(ended.len(), 19);
         for (kind, status, progress, never_started, error) in ended {
             if restartable.contains(&kind.as_str()) {
                 // As if it had never started: a worker takes it again.

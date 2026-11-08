@@ -312,18 +312,11 @@ fn candidate(field: IdentifyField, value: String) -> Candidate {
 /// Name, Artist and the version the title names.
 fn from_recording(recording: &Recording, out: &mut Vec<Candidate>) {
     if let Some(title) = &recording.title {
-        let parsed = parse_title(title);
+        // The title as MusicBrainz spells it, bracketed version included, as
+        // the tags' title is offered; the version is also offered as the Mix.
         let mut versions = Vec::new();
-        push_version(&parsed, &source(), &mut versions);
-        // A title that carries a version gives the name without it, as the
-        // file-name reading does; one the parser also took credits from stays
-        // whole, so nothing of it is lost.
-        let name = if versions.is_empty() || !parsed.credits.is_empty() {
-            title.clone()
-        } else {
-            parsed.base_title.clone()
-        };
-        out.push(candidate(IdentifyField::Name, name));
+        push_version(&parse_title(title), &source(), &mut versions);
+        out.push(candidate(IdentifyField::Name, title.clone()));
         out.extend(versions);
     }
     if let Some(artist) = &recording.artist {

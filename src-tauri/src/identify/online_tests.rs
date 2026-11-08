@@ -23,6 +23,8 @@ const RELEASE: &str = include_str!("../net/services/fixtures/musicbrainz_release
 
 type AcoustidReply = Box<dyn Fn(&[u8]) -> Result<Vec<AcoustidMatch>, ClientError> + Send + Sync>;
 
+type BeforeAcoustid = Box<dyn Fn(&[u8]) + Send + Sync>;
+
 /// Scripted services. `calls` lists every request, e.g. `acoustid`,
 /// `recording <id>`, `release <id>`.
 struct Fake {
@@ -30,7 +32,7 @@ struct Fake {
     calls: Mutex<Vec<String>>,
     acoustid: AcoustidReply,
     /// Run before each AcoustID request, with its fingerprint.
-    before_acoustid: Box<dyn Fn(&[u8]) + Send + Sync>,
+    before_acoustid: BeforeAcoustid,
     /// Recording ids MusicBrainz doesn't know.
     unknown: Vec<String>,
 }
@@ -209,11 +211,11 @@ fn recording_and_release_json_become_candidates_with_catalogue_number_and_year()
     let fake = Fake::matching();
     let answer = look_up(&fake, ON, &input());
     assert_eq!(answer.outcome, Outcome::Found);
-    // From the recording: the name without its version, the artist credit and
-    // the version. From each chosen release: album, year, label, number.
+    // From the recording: the title as written, the artist credit and the
+    // version it names. From each chosen release: album, year, label, number.
     let found = pairs(&answer);
     for expected in [
-        (IdentifyField::Name, "Test Track"),
+        (IdentifyField::Name, "Test Track (Extended Mix)"),
         (IdentifyField::Mix, "Extended Mix"),
         (IdentifyField::Album, "Test Album"),
         (IdentifyField::Year, "2001"),
