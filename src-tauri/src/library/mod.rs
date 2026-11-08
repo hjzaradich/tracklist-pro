@@ -491,6 +491,7 @@ fn remove_on(conn: &mut Connection, id: LibraryTrackId) -> Result<bool, OpsError
                 "sent_entry",
                 "conflict",
                 "app_value",
+                "catalogue_number",
             ] {
                 for rowid in rows_of(rec, table, id)? {
                     rec.delete(table, rowid)?;

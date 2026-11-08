@@ -24,6 +24,7 @@ pub mod genre;
 pub mod grouping;
 pub mod hash;
 pub mod hidden;
+pub mod identify;
 pub mod inbox;
 pub mod ipc;
 pub mod jobs;

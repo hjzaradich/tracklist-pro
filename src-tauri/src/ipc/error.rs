@@ -221,6 +221,13 @@ error_kinds! {
     /// A genre name holds a character rekordbox's XML can't carry, so a
     /// send couldn't write it as a track's genre.
     GenreNameNotSendable => "genre:error.notSendable", params: [];
+    /// "Use" on a look-up named a field it doesn't set (2.2, `identify`).
+    IdentifyFieldUnknown => "identify:error.fieldUnknown", params: [];
+    /// "Use" on a look-up was given a blank value: clearing a field isn't Use.
+    IdentifyValueEmpty => "identify:error.valueEmpty", params: [];
+    /// A value "Use" was given isn't one of its field's kind (a year that
+    /// isn't a number) or holds a character rekordbox's XML can't carry.
+    IdentifyValueNotSendable => "identify:error.notSendable", params: [];
     /// There is no playlist with that id (it was deleted meanwhile).
     PlaylistNotFound => "playlists:error.notFound", params: [];
     /// The entry to move tracks before is no longer in the playlist.

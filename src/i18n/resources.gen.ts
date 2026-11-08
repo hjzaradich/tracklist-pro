@@ -17,6 +17,7 @@ export interface EnglishResources {
   "genre": typeof import("../locales/en/genre.json");
   "hiddenFiles": typeof import("../locales/en/hiddenFiles.json");
   "history": typeof import("../locales/en/history.json");
+  "identify": typeof import("../locales/en/identify.json");
   "inbox": typeof import("../locales/en/inbox.json");
   "library": typeof import("../locales/en/library.json");
   "musicFolderStatus": typeof import("../locales/en/musicFolderStatus.json");

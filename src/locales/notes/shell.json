@@ -593,6 +593,10 @@
     "purpose": "Names the step Undo takes back: a track's genre set with Use on a genre guess, naming the genre.",
     "where": "Top bar, the Undo button."
   },
+  "undo.action.identifyUse": {
+    "purpose": "Names the step Undo takes back: suggested details of a track (title, artist, mix, label and so on) set with Use on its look-up.",
+    "where": "Top bar, the Undo button."
+  },
   "details.energy.title": {
     "purpose": "Name of the group of ten energy buttons, and the heading over them.",
     "where": "Details panel, Energy section.",

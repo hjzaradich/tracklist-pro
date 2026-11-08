@@ -1,0 +1,14 @@
+{
+  "error.fieldUnknown": {
+    "purpose": "Error when Use on a look-up names a detail it doesn't set (only title, artist, mix, remixer, label, year, album and catalogue number).",
+    "where": "Look up panel, after Use."
+  },
+  "error.valueEmpty": {
+    "purpose": "Error when Use on a look-up is given a blank value; clearing a detail isn't done with Use.",
+    "where": "Look up panel, after Use."
+  },
+  "error.notSendable": {
+    "purpose": "Error when a value given to Use has a character rekordbox can't take, or a year that isn't a number.",
+    "where": "Look up panel, after Use."
+  }
+}

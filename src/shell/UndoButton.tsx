@@ -170,6 +170,8 @@ function undoLabel(t: TFunction<"shell">, operation: OperationInfo): string {
     case "set_genre":
       if (name !== null) return t("undo.action.setGenre", { name });
       break;
+    case "identify_use":
+      return t("undo.action.identifyUse");
     case "resolve_conflict":
       return t("undo.action.resolveConflict");
     case "resolve_conflicts":

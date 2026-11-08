@@ -1,0 +1,7 @@
+{
+  "error": {
+    "fieldUnknown": "That detail can't be set from a look-up",
+    "valueEmpty": "Pick a value to use",
+    "notSendable": "rekordbox can't take that value"
+  }
+}
