@@ -2724,6 +2724,8 @@ export type NextReason = {
 	count: number | null,
 	/**  The tags in common, for `TagsShared`. */
 	tags: string[] | null,
+	/**  How alike the two sound, 0 to 100, for `Similar`. */
+	percent: number | null,
 };
 
 /**  The best next tracks. */
@@ -2736,6 +2738,8 @@ export type NextReply = {
 	 *  has nothing to compare.
 	 */
 	ignored: Signal[],
+	/**  Why [`Signal::Similar`] is among `ignored`, if it is. */
+	similarGap: SimilarGap | null,
 	settings: NextSettings,
 };
 
@@ -2775,6 +2779,11 @@ export type NextWeights = {
 	played: number,
 	genre: number,
 	tags: number,
+	/**
+	 *  How alike the two sound (the audio model). 1 by default, but only
+	 *  while the model is on: [`read_settings`] gives 0 while it is off.
+	 */
+	similar: number,
 };
 
 /**  A Library track that has no genre. */
@@ -3223,7 +3232,12 @@ export type ReasonCode =
  */
 "genreRelated" | 
 /**  `tags` in common (`count` of them). */
-"tagsShared";
+"tagsShared" | 
+/**
+ *  The audio model hears the two as `percent` alike. Always shown as the
+ *  audio model's opinion, and never without a fact reason beside it.
+ */
+"similar";
 
 /**
  *  A value filled into a reason's text, e.g. `bpm` = 2 or `tag` = "Peak Time".
@@ -3677,7 +3691,16 @@ export type ShownAgain = {
 export type Side = "app" | "rekordbox";
 
 /**  The signals that carry a weight. */
-export type Signal = "key" | "bpm" | "energy" | "played" | "genre" | "tags";
+export type Signal = "key" | "bpm" | "energy" | "played" | "genre" | "tags" | 
+/**  How alike the two sound, by the audio model (3.8). */
+"similar";
+
+/**  Why "sounds similar" was not used although it has a weight. */
+export type SimilarGap = 
+/**  The audio model is switched off. */
+"modelOff" | 
+/**  The chosen track has no current fingerprint. */
+"noFingerprint";
 
 /**  One listed track. */
 export type SimilarTrack = {
