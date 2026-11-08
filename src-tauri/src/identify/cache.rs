@@ -7,11 +7,17 @@
 //! good older answer where it is and only notes itself beside it; it does
 //! replace an older failure or skip. So a bad connection never costs the
 //! user what an earlier look-up found.
+//!
+//! Each row keeps the file's `fingerprint_rev` the look-up worked from
+//! (migration 0059). If the file's audio has changed since (a different
+//! revision), or the row is from before the column (NULL), the row is
+//! **stale**: not shown as found, and the file counts as needing a new
+//! look-up. A row made when the file had no fingerprint (0) stays good.
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use super::lookup::{Answer, Outcome, PATH};
+use super::lookup::{Answer, Outcome};
 use super::{Candidate, IdentifyField, IdentifySource};
 use crate::library::LibraryTrackId;
 
@@ -34,12 +40,38 @@ pub struct Cached {
     pub releases: Vec<String>,
     /// A later attempt that failed or was skipped: its reason and when.
     pub attempt: Option<(String, String)>,
+    /// The file's audio changed after this was fetched: it no longer says
+    /// anything about the file and is not shown as found.
+    pub stale: bool,
 }
 
 const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 /// Stores `answer` for `file` by the rule in the module docs.
+#[cfg(test)]
 pub fn save(conn: &Connection, file: i64, answer: &Answer) -> rusqlite::Result<()> {
+    save_at(conn, file, answer, current_rev(conn, file)?.unwrap_or(0))
+}
+
+#[cfg(test)]
+/// The file's `fingerprint_rev` now, if it has a row.
+fn current_rev(conn: &Connection, file: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT fingerprint_rev FROM file WHERE id = ?1",
+        [file],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
+/// [`save`] for an answer worked out from the file as it was at revision
+/// `rev` of its fingerprint (0: it had none). An old answer the audio has
+/// changed since is dropped first, so it doesn't outrank this one.
+pub fn save_at(conn: &Connection, file: i64, answer: &Answer, rev: i64) -> rusqlite::Result<()> {
+    if load(conn, file)?.is_some_and(|old| old.stale) {
+        conn.execute("DELETE FROM identify_lookup WHERE file_id = ?1", [file])?;
+    }
+    let path = answer.path.as_str();
     let reason = answer.why.map(|w| w.code());
     if answer.outcome.completed() {
         let candidates = encode(&answer.candidates);
@@ -47,21 +79,23 @@ pub fn save(conn: &Connection, file: i64, answer: &Answer) -> rusqlite::Result<(
         conn.execute(
             &format!(
                 "INSERT INTO identify_lookup
-                     (file_id, path, outcome, reason, candidates, releases)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     (file_id, path, outcome, reason, candidates, releases, fingerprint_rev)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT (file_id) DO UPDATE SET
                      path = excluded.path, fetched_at = {NOW},
                      outcome = excluded.outcome, reason = excluded.reason,
                      candidates = excluded.candidates, releases = excluded.releases,
+                     fingerprint_rev = excluded.fingerprint_rev,
                      attempt_reason = NULL, attempt_at = NULL"
             ),
             params![
                 file,
-                PATH,
+                path,
                 answer.outcome.as_str(),
                 reason,
                 candidates,
-                releases
+                releases,
+                rev
             ],
         )?;
         return Ok(());
@@ -69,16 +103,17 @@ pub fn save(conn: &Connection, file: i64, answer: &Answer) -> rusqlite::Result<(
     // Replaces a failure or a skip; a good answer only notes the attempt.
     conn.execute(
         &format!(
-            "INSERT INTO identify_lookup (file_id, path, outcome, reason)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO identify_lookup (file_id, path, outcome, reason, fingerprint_rev)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (file_id) DO UPDATE SET
                  path = excluded.path, fetched_at = {NOW},
                  outcome = excluded.outcome, reason = excluded.reason,
                  candidates = '[]', releases = '[]',
+                 fingerprint_rev = excluded.fingerprint_rev,
                  attempt_reason = NULL, attempt_at = NULL
              WHERE identify_lookup.outcome IN ('failed', 'skipped')"
         ),
-        params![file, PATH, answer.outcome.as_str(), reason],
+        params![file, path, answer.outcome.as_str(), reason, rev],
     )?;
     conn.execute(
         &format!(
@@ -126,7 +161,8 @@ fn decode(json: &str) -> Vec<Candidate> {
 pub fn load(conn: &Connection, file: i64) -> rusqlite::Result<Option<Cached>> {
     let row = conn
         .prepare_cached(
-            "SELECT fetched_at, outcome, reason, candidates, releases, attempt_reason, attempt_at
+            "SELECT fetched_at, outcome, reason, candidates, releases, attempt_reason, attempt_at,
+                    fingerprint_rev, (SELECT fingerprint_rev FROM file WHERE id = ?1)
              FROM identify_lookup WHERE file_id = ?1",
         )?
         .query_row([file], |r| {
@@ -138,11 +174,13 @@ pub fn load(conn: &Connection, file: i64) -> rusqlite::Result<Option<Cached>> {
                 r.get::<_, String>(4)?,
                 r.get::<_, Option<String>>(5)?,
                 r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<i64>>(7)?,
+                r.get::<_, Option<i64>>(8)?,
             ))
         })
         .optional()?;
     Ok(row.and_then(
-        |(fetched_at, outcome, reason, candidates, releases, a_reason, a_at)| {
+        |(fetched_at, outcome, reason, candidates, releases, a_reason, a_at, then, now)| {
             Some(Cached {
                 fetched_at,
                 outcome: Outcome::parse(&outcome)?,
@@ -150,6 +188,14 @@ pub fn load(conn: &Connection, file: i64) -> rusqlite::Result<Option<Cached>> {
                 candidates: decode(&candidates),
                 releases: serde_json::from_str(&releases).unwrap_or_default(),
                 attempt: a_reason.zip(a_at),
+
+                stale: match then {
+                    // Unknown (from before 0059): looked up again when asked.
+                    None => true,
+                    // Looked up before the file had a fingerprint.
+                    Some(0) => false,
+                    Some(then) => now.is_some_and(|now| now != then),
+                },
             })
         },
     ))
@@ -169,7 +215,7 @@ pub fn for_track(conn: &Connection, track: LibraryTrackId) -> rusqlite::Result<V
         return Ok(Vec::new());
     };
     Ok(load(conn, file)?
-        .filter(|c| c.outcome == Outcome::Found)
+        .filter(|c| c.outcome == Outcome::Found && !c.stale)
         .map(|c| c.candidates)
         .unwrap_or_default())
 }

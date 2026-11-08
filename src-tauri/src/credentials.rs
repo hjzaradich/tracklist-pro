@@ -117,7 +117,7 @@ impl Credentials {
     }
 
     /// The secret kept for `provider`. Crate-internal: no command returns it.
-    #[allow(dead_code)] // Used by identification (ROADMAP 2.2) to sign Discogs requests.
+    // Used by the look-up (ROADMAP 2.2) to sign Discogs requests.
     pub(crate) fn get(&self, provider: &str) -> Result<Option<String>, CredentialError> {
         match self.entry(provider)?.get_password() {
             Ok(secret) => Ok(Some(secret)),

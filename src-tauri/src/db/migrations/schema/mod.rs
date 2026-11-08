@@ -333,6 +333,8 @@ const TABLES_BY_MIGRATION: &[(&str, &[&str])] = &[
     ("0057_catalogue_number.sql", &["catalogue_number"]),
     // What an online look-up found for a file: a cache, not in bundles (2.2, 6A-S2a).
     ("0058_identify_lookup.sql", &["identify_lookup"]),
+    // The fingerprint revision a look-up used, to tell a stale answer (2.2, 6A-S2b).
+    ("0059_identify_lookup_fingerprint_rev.sql", &[]),
 ];
 
 /// The full-text tables, by exact name: each virtual table with the shadow

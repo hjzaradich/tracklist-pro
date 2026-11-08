@@ -46,6 +46,17 @@ pub fn lookup_job(file_ids: &[i64]) -> NewJob {
         .priority(PRIORITY)
 }
 
+/// The job for Inbox files that just arrived: as [`lookup_job`], marked
+/// automatic. An automatic job asks nothing for the files if, when it runs,
+/// neither AcoustID nor MusicBrainz is switched on (the owner's decision: the
+/// only automatic look-ups are while those two are on; Discogs alone doesn't
+/// start one).
+pub fn automatic_lookup_job(file_ids: &[i64]) -> NewJob {
+    NewJob::new(JobKind::IdentifyLookup)
+        .target(serde_json::json!({ "file_ids": file_ids, "automatic": true }))
+        .priority(PRIORITY)
+}
+
 /// The job's handler.
 pub struct Looker {
     backend: Arc<dyn Backend>,
@@ -64,18 +75,23 @@ impl Looker {
         Ok(On {
             acoustid: is_opted_in(&self.reads, Service::AcoustId)?,
             musicbrainz: is_opted_in(&self.reads, Service::MusicBrainz)?,
+            discogs: is_opted_in(&self.reads, Service::Discogs)?,
         })
     }
 }
 
 fn input_of(conn: &Connection, file: i64) -> rusqlite::Result<Option<Input>> {
     conn.query_row(
-        "SELECT fingerprint, duration_ms FROM file WHERE id = ?1",
+        "SELECT fingerprint, duration_ms, raw_tags, rel_path, fingerprint_rev FROM file WHERE id = ?1",
         [file],
         |r| {
+            let raw_tags: Option<String> = r.get(2)?;
+            let rel_path: String = r.get(3)?;
             Ok(Input {
                 fingerprint: r.get(0)?,
                 duration_ms: r.get(1)?,
+                fingerprint_rev: r.get(4)?,
+                names: super::names::names_of(raw_tags.as_deref(), &rel_path),
             })
         },
     )
@@ -89,6 +105,12 @@ impl JobHandler for Looker {
             .and_then(|t| t.get("file_ids"))
             .and_then(|ids| serde_json::from_value(ids.clone()).ok())
             .ok_or_else(|| JobError::failed("the look-up job has no list of files"))?;
+        let automatic = job
+            .target()
+            .and_then(|t| t.get("automatic"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        self.backend.new_batch();
         let mut offline = false;
         for (done, &file) in ids.iter().enumerate() {
             job.check_cancelled()?;
@@ -96,14 +118,19 @@ impl JobHandler for Looker {
                 // The file is gone; there is nothing to keep.
                 continue;
             };
+            let on = self.switches()?;
             let answer = if offline {
                 Answer::failed(Why::Offline)
+            } else if automatic && !on.acoustid && !on.musicbrainz {
+                // Switched off since the file arrived: nothing is asked.
+                Answer::skipped(Why::ServicesOff)
             } else {
-                look_up(&*self.backend, self.switches()?, &input)
+                look_up(&*self.backend, on, &input)
             };
             offline = answer.why == Some(Why::Offline);
+            let rev = input.fingerprint_rev;
             job.writer()
-                .call(move |conn| cache::save(conn, file, &answer))?;
+                .call(move |conn| cache::save_at(conn, file, &answer, rev))?;
             job.progress((done + 1) as f64 / ids.len() as f64)?;
         }
         Ok(())
@@ -179,7 +206,92 @@ fn one_status(conn: &Connection, track: LibraryTrackId) -> rusqlite::Result<Iden
         later_attempt: None,
     };
     let Some(file) = file else { return Ok(status) };
-    if let Some(kept) = cache::load(conn, file)? {
+    let of_file = file_status(conn, file)?;
+    status.state = of_file.state;
+    status.reason = of_file.reason;
+    status.found = of_file.found;
+    status.when = of_file.when;
+    status.later_attempt = of_file.later_attempt;
+    Ok(status)
+}
+
+/// One Inbox file's look-up status: the states are those of a track's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxLookupStatus {
+    pub file_id: i64,
+    pub state: LookupState,
+    pub reason: Option<String>,
+    pub found: u32,
+    pub when: Option<String>,
+    pub later_attempt: Option<LookupAttempt>,
+    /// The best values the file's kept result found for its artist, title
+    /// and Mix, with the services that gave them; none when the file has no
+    /// current result that found any.
+    pub identified: Option<Identified>,
+}
+
+/// What the online look-up says a file is: for each of artist, title and Mix
+/// the value most services agree on (then the first found), and the
+/// services behind those values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Identified {
+    pub artist: Option<String>,
+    pub title: Option<String>,
+    pub mix: Option<String>,
+    pub sources: Vec<super::IdentifySource>,
+}
+
+/// The status of each of `files`, in that order.
+pub fn file_statuses(conn: &Connection, files: &[i64]) -> rusqlite::Result<Vec<InboxLookupStatus>> {
+    files
+        .iter()
+        .map(|&file_id| {
+            let s = file_status(conn, file_id)?;
+            Ok(InboxLookupStatus {
+                file_id,
+                state: s.state,
+                reason: s.reason,
+                found: s.found,
+                when: s.when,
+                later_attempt: s.later_attempt,
+                identified: identified(conn, file_id)?,
+            })
+        })
+        .collect()
+}
+
+/// Where the online look-up of Inbox files stands: the same states as for
+/// a track.
+#[tauri::command]
+#[specta::specta]
+pub async fn identify_inbox_status(
+    reads: State<'_, ReadPool>,
+    file_ids: Vec<i64>,
+) -> Result<Vec<InboxLookupStatus>, IpcError> {
+    Ok(reads.read(|conn| file_statuses(conn, &file_ids))?)
+}
+
+struct FileStatus {
+    state: LookupState,
+    reason: Option<String>,
+    found: u32,
+    when: Option<String>,
+    later_attempt: Option<LookupAttempt>,
+}
+
+fn file_status(conn: &Connection, file: i64) -> rusqlite::Result<FileStatus> {
+    let mut status = FileStatus {
+        state: LookupState::Never,
+        reason: None,
+        found: 0,
+        when: None,
+        later_attempt: None,
+    };
+    // An answer for audio that has changed since is out of date: the file
+    // counts as never looked up.
+    if let Some(kept) = cache::load(conn, file)?.filter(|k| !k.stale) {
         use super::lookup::Outcome;
         status.state = match kept.outcome {
             Outcome::Found => LookupState::Found,
@@ -247,6 +359,45 @@ pub fn identify_look_up_tracks(
     Ok(enqueue(&jobs, files)?)
 }
 
+/// The linked files of the Library tracks of `recordings` (a table row's
+/// `recordingId`), each once, in order; a recording with no Library track,
+/// or none with a linked file, adds nothing.
+pub(super) fn linked_files_of_recordings(
+    conn: &Connection,
+    recordings: &[i64],
+) -> rusqlite::Result<Vec<i64>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT linked_file_id FROM library_track
+         WHERE recording_id = ?1 AND linked_file_id IS NOT NULL ORDER BY id",
+    )?;
+    let mut seen = std::collections::HashSet::new();
+    let mut files = Vec::new();
+    for recording in recordings {
+        let found = stmt.query_map([recording], |r| r.get::<_, i64>(0))?;
+        for file in found {
+            let file = file?;
+            if seen.insert(file) {
+                files.push(file);
+            }
+        }
+    }
+    Ok(files)
+}
+
+/// [`identify_look_up_tracks`] for track ids (a table row's `recordingId`):
+/// the Library tracks and their files are found here, so a selection of any
+/// size, rows not loaded included, needs nothing mapped by the screen.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn identify_look_up_recordings(
+    reads: State<'_, ReadPool>,
+    jobs: State<'_, JobQueue>,
+    recordings: Vec<i64>,
+) -> Result<Option<JobId>, IpcError> {
+    let files = reads.read(|conn| linked_files_of_recordings(conn, &recordings))?;
+    Ok(enqueue(&jobs, files)?)
+}
+
 /// Looks up files online (the Inbox's), as [`identify_look_up_tracks`] does.
 #[tauri::command(async)]
 #[specta::specta]
@@ -285,7 +436,62 @@ pub async fn identify_lookup_status(
 pub fn looker<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Looker {
     use tauri::Manager;
     Looker::new(
-        super::lookup::Live(app.state::<crate::net::Net>().inner().clone()),
+        super::lookup::Live::new(
+            app.state::<crate::net::Net>().inner().clone(),
+            app.state::<crate::credentials::Credentials>()
+                .inner()
+                .clone(),
+        ),
         app.state::<ReadPool>().inner().clone(),
     )
+}
+
+/// The best candidate values of `file`'s current kept result, if it found
+/// any artist or title.
+pub fn identified(conn: &Connection, file: i64) -> rusqlite::Result<Option<Identified>> {
+    let Some(kept) =
+        cache::load(conn, file)?.filter(|k| k.outcome == super::lookup::Outcome::Found && !k.stale)
+    else {
+        return Ok(None);
+    };
+    let mut sources: Vec<super::IdentifySource> = Vec::new();
+    let mut best = |field: super::IdentifyField| -> Option<String> {
+        // The value with the most distinct sources; the first found wins a tie.
+        let mut values: Vec<(&str, Vec<&super::IdentifySource>)> = Vec::new();
+        for c in kept.candidates.iter().filter(|c| c.field == field) {
+            match values.iter_mut().find(|(v, _)| *v == c.value) {
+                Some((_, from)) => {
+                    if !from.contains(&&c.source) {
+                        from.push(&c.source);
+                    }
+                }
+                None => values.push((&c.value, vec![&c.source])),
+            }
+        }
+        let (value, from) = values.into_iter().reduce(|best, next| {
+            if next.1.len() > best.1.len() {
+                next
+            } else {
+                best
+            }
+        })?;
+        for source in from {
+            if !sources.contains(source) {
+                sources.push(source.clone());
+            }
+        }
+        Some(value.to_owned())
+    };
+    let artist = best(super::IdentifyField::Artist);
+    let title = best(super::IdentifyField::Name);
+    let mix = best(super::IdentifyField::Mix);
+    if artist.is_none() && title.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(Identified {
+        artist,
+        title,
+        mix,
+        sources,
+    }))
 }

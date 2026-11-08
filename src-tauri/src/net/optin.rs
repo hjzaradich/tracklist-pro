@@ -15,7 +15,7 @@ pub fn is_opted_in(reads: &ReadPool, service: Service) -> Result<bool, DbError> 
     reads.read(|conn| read_opt_in(conn, service))
 }
 
-fn read_opt_in(conn: &Connection, service: Service) -> rusqlite::Result<bool> {
+pub(crate) fn read_opt_in(conn: &Connection, service: Service) -> rusqlite::Result<bool> {
     let enabled: Option<i64> = conn
         .query_row(
             "SELECT enabled FROM service_optin WHERE service = ?1",

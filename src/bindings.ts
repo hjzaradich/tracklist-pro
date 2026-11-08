@@ -461,8 +461,32 @@ export const commands = {
 	identifyLookUpTracks: (libraryTrackIds: LibraryTrackId[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("identify_look_up_tracks", { libraryTrackIds })),
 	/**  Looks up files online (the Inbox's), as [`identify_look_up_tracks`] does. */
 	identifyLookUpFiles: (fileIds: number[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("identify_look_up_files", { fileIds })),
+	/**
+	 *  [`identify_look_up_tracks`] for track ids (a table row's `recordingId`):
+	 *  the Library tracks and their files are found here, so a selection of any
+	 *  size, rows not loaded included, needs nothing mapped by the screen.
+	 */
+	identifyLookUpRecordings: (recordings: number[]) => typedError<number | null, IpcError>(__TAURI_INVOKE("identify_look_up_recordings", { recordings })),
 	/**  Where the online look-up of each of these Library tracks stands. */
 	identifyLookupStatus: (libraryTrackIds: LibraryTrackId[]) => typedError<IdentifyLookupStatus[], IpcError>(__TAURI_INVOKE("identify_lookup_status", { libraryTrackIds })),
+	/**
+	 *  Where the online look-up of Inbox files stands: the same states as for
+	 *  a track.
+	 */
+	identifyInboxStatus: (fileIds: number[]) => typedError<InboxLookupStatus[], IpcError>(__TAURI_INVOKE("identify_inbox_status", { fileIds })),
+	/**
+	 *  The front cover of a MusicBrainz release, from the Cover Art Archive,
+	 *  through the gate. Answers what came of it; never an error for a refusal.
+	 *  The image is kept in memory only.
+	 */
+	identifyCover: (releaseMbid: string) => typedError<CoverAnswer, IpcError>(__TAURI_INVOKE("identify_cover", { releaseMbid })),
+	/**
+	 *  The releases a track's kept look-up has, so the screen can ask for a
+	 *  cover. Makes no request.
+	 */
+	identifyCoverReleases: (libraryTrackId: LibraryTrackId) => typedError<string[], IpcError>(__TAURI_INVOKE("identify_cover_releases", { libraryTrackId })),
+	/**  [`identify_cover_releases`] for an Inbox file. */
+	identifyFileCoverReleases: (fileId: number) => typedError<string[], IpcError>(__TAURI_INVOKE("identify_file_cover_releases", { fileId })),
 	/**
 	 *  How many Library tracks there are, and a stamp that moves when the list
 	 *  of them would come back different. Cheap at any size: no list is read.
@@ -1390,6 +1414,23 @@ export type Counts = {
 	musicFolders: number,
 };
 
+/**  What asking for a cover came to. */
+export type CoverAnswer = 
+/**
+ *  The picture: `data` is base64 of the image, `mime` its type
+ *  (`image/jpeg`), for a `data:` address.
+ */
+{ kind: "image"; mime: string; data: string } | 
+/**  The archive has no cover for the release. */
+{ kind: "noCover" } | 
+/**  Nothing was asked: `reason` is `bad_id` or `cover_art_off`. */
+{ kind: "refused"; reason: string } | 
+/**
+ *  The request failed: `reason` is a short code (`offline`, `busy`,
+ *  `failed`).
+ */
+{ kind: "failed"; reason: string };
+
 /**  A crate or a folder, as the Crates screen and the sidebar list it. */
 export type Crate = {
 	id: CrateId,
@@ -2123,6 +2164,18 @@ export type HistoryRefusal =
 "badDate";
 
 /**
+ *  What the online look-up says a file is: for each of artist, title and Mix
+ *  the value most services agree on (then the first found), and the
+ *  services behind those values.
+ */
+export type Identified = {
+	artist: string | null,
+	title: string | null,
+	mix: string | null,
+	sources: IdentifySource[],
+};
+
+/**
  *  One value the user chose for one field. `field` is an
  *  [`IdentifyField`]'s name ("Name", …, "CatalogueNumber").
  */
@@ -2274,6 +2327,22 @@ export type InboxItem = {
 	reason: Reason,
 	/**  The Library track the label is about, if it is about one. */
 	libraryTrackId: number | null,
+};
+
+/**  One Inbox file's look-up status: the states are those of a track's. */
+export type InboxLookupStatus = {
+	fileId: number,
+	state: LookupState,
+	reason: string | null,
+	found: number,
+	when: string | null,
+	laterAttempt: LookupAttempt | null,
+	/**
+	 *  The best values the file's kept result found for its artist, title
+	 *  and Mix, with the services that gave them; none when the file has no
+	 *  current result that found any.
+	 */
+	identified: Identified | null,
 };
 
 /**  What an Inbox action came to. */

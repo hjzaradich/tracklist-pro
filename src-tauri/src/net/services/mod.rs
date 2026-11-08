@@ -49,6 +49,10 @@ pub struct LookupHit {
     /// The release's MusicBrainz id, when the recording named one. Cover
     /// art hangs off the release, so a hit without one can't supply a cover.
     pub release_id: Option<String>,
+    /// The recording's MusicBrainz id, from a recording search.
+    pub recording_id: Option<String>,
+    /// The catalogue number, when the service gives one (Discogs).
+    pub catalogue_number: Option<String>,
 }
 
 impl LookupHit {
@@ -65,6 +69,8 @@ impl LookupHit {
             label: None,
             url: None,
             release_id: None,
+            recording_id: None,
+            catalogue_number: None,
         }
     }
 }
@@ -92,7 +98,7 @@ pub enum ClientError {
     },
     /// Discogs needs the user's token, and there isn't a usable one.
     NoToken,
-    /// A lookup needs an id and was given none.
+    /// A lookup needs an id and was given none, or one that isn't a UUID.
     NoId,
     /// The service needs the project's application key, and it isn't filled
     /// in yet (AcoustID). Nothing was sent.
@@ -176,6 +182,18 @@ fn text(value: &Value, key: &str) -> Option<String> {
 /// The search size to ask for: at least 1, at most [`MAX_LIMIT`].
 fn clamp_limit(limit: usize) -> usize {
     limit.clamp(1, MAX_LIMIT)
+}
+
+/// Whether `id` is a MusicBrainz id: a UUID in the 8-4-4-4-12 hex form, and
+/// nothing else. Every id is checked with this before it goes into an
+/// address, so an id cannot name another path (`..`) or add a query.
+pub fn is_mbid(id: &str) -> bool {
+    let groups: Vec<&str> = id.split('-').collect();
+    groups.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(&groups)
+            .all(|(len, g)| g.len() == *len && g.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 /// Minimal percent-encoding for query strings and path pieces. Anything but

@@ -56,10 +56,12 @@ fn hit(recording: &Value) -> LookupHit {
         album: release.and_then(|r| text(r, "title")),
         year: release
             .and_then(|r| text(r, "date"))
-            .and_then(|date| date.get(..4).and_then(|y| y.parse().ok())),
+            .and_then(|date| date.get(..4).and_then(|y| y.parse().ok()))
+            .filter(|y| (1000..=9999).contains(y)),
         isrc: first("isrcs").and_then(Value::as_str).map(str::to_owned),
         url: text(recording, "id").map(|id| format!("https://musicbrainz.org/recording/{id}")),
         release_id: release.and_then(|r| text(r, "id")),
+        recording_id: text(recording, "id"),
         ..LookupHit::new(Service::MusicBrainz)
     }
 }
@@ -128,7 +130,7 @@ pub(super) fn release_at(net: &Net, base: &str, mbid: &str) -> Result<Release, C
 /// `inc` is written with its own `+` separators, which are not encoded.
 fn entity_url(base: &str, kind: &str, mbid: &str, inc: &str) -> Result<String, ClientError> {
     let mbid = mbid.trim();
-    if mbid.is_empty() {
+    if !super::is_mbid(mbid) {
         return Err(ClientError::NoId);
     }
     Ok(format!(

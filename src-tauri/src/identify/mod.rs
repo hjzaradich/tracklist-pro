@@ -68,14 +68,19 @@
 //! tracks gives the staying track the leaving one's catalogue number when
 //! it has none of its own (`review::same`).
 
+pub mod arrival;
 mod cache;
 mod choose;
+pub mod cover;
 pub mod job;
 pub mod lookup;
+mod names;
 mod offline;
 #[cfg(test)]
 mod online_tests;
 mod rank;
+#[cfg(test)]
+mod s2b_tests;
 #[cfg(test)]
 mod tests;
 

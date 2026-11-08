@@ -4,8 +4,10 @@
 //! on requests built here, and the gate pins those to Discogs' own hosts
 //! ([`Service::hosts`]), so it can't reach another host.
 //!
-//! TODO(2.2): before this is shown to users, check Discogs' API terms for
-//! attribution and for what may be done with the images, and meet them.
+//! Discogs' terms (ROADMAP 5.7): nothing here ever fetches or keeps a Discogs
+//! image; a result's thumbnail and cover addresses are not even read. The
+//! screen shows "Data provided by Discogs" wherever Discogs data appears
+//! (Run 6A, job U2).
 
 use serde_json::Value;
 
@@ -38,12 +40,47 @@ pub(super) fn search_at(
     query: &str,
     limit: usize,
 ) -> Result<Vec<LookupHit>, ClientError> {
-    let header = auth_header(token)?;
     let url = format!(
         "{base}/database/search?q={}&type=release&per_page={}",
         urlencode(query),
         clamp_limit(limit)
     );
+    fetch(net, token, url)
+}
+
+/// Releases that contain the track `track` by `artist`: Discogs' `artist`
+/// and `track` search fields, releases only. The hits' own titles are the
+/// releases', not the track's.
+pub fn search_track(
+    net: &Net,
+    token: &str,
+    artist: &str,
+    track: &str,
+    limit: usize,
+) -> Result<Vec<LookupHit>, ClientError> {
+    search_track_at(net, BASE, token, artist, track, limit)
+}
+
+/// [`search_track`] against `base`. Tests point it at a local server.
+pub(super) fn search_track_at(
+    net: &Net,
+    base: &str,
+    token: &str,
+    artist: &str,
+    track: &str,
+    limit: usize,
+) -> Result<Vec<LookupHit>, ClientError> {
+    let url = format!(
+        "{base}/database/search?artist={}&track={}&type=release&per_page={}",
+        urlencode(artist),
+        urlencode(track),
+        clamp_limit(limit)
+    );
+    fetch(net, token, url)
+}
+
+fn fetch(net: &Net, token: &str, url: String) -> Result<Vec<LookupHit>, ClientError> {
+    let header = auth_header(token)?;
     let body = get_ok(net, || {
         Request::get(Service::Discogs, url.clone())
             .header("Authorization", header.clone())
@@ -107,6 +144,7 @@ fn hit(result: &Value) -> LookupHit {
         // "Electronic"), so it wins where present.
         genre: first_string(result, "style").or_else(|| first_string(result, "genre")),
         label: first_string(result, "label"),
+        catalogue_number: text(result, "catno"),
         year: result.get("year").and_then(|v| match v {
             Value::String(s) => s.trim().parse().ok(),
             other => other.as_i64(),

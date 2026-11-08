@@ -1,0 +1,23 @@
+{
+  "pagination": { "page": 1, "pages": 1, "per_page": 2, "items": 2 },
+  "results": [
+    {
+      "title": "Test Artist - Test Album",
+      "year": "2003",
+      "style": ["Deep House"],
+      "genre": ["Electronic"],
+      "label": ["Test Label"],
+      "catno": "TL-001",
+      "thumb": "https://i.discogs.com/thumb-9.jpg",
+      "cover_image": "https://i.discogs.com/cover-9.jpg",
+      "uri": "/release/9-test-album"
+    },
+    {
+      "title": "Various - Hits Of The Year",
+      "year": "2004",
+      "label": ["Compilation Label"],
+      "catno": "CL-100",
+      "uri": "/release/10-hits"
+    }
+  ]
+}
