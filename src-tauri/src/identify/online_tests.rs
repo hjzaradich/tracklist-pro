@@ -101,8 +101,11 @@ impl Backend for Arc<Fake> {
     fn discogs_token_saved(&self) -> bool {
         self.token_saved
     }
-    fn discogs(&self, query: &str) -> Result<Vec<LookupHit>, ClientError> {
-        self.calls.lock().unwrap().push(format!("discogs {query}"));
+    fn discogs(&self, artist: &str, track: &str) -> Result<Vec<LookupHit>, ClientError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("discogs {artist} / {track}"));
         Ok(self.discogs_hits.clone())
     }
 }

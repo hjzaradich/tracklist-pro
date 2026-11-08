@@ -233,18 +233,27 @@ fn discogs_is_skipped_without_a_token_and_asks_nothing() {
 }
 
 #[test]
-fn discogs_candidates_carry_the_source_discogs_and_only_close_hits_count() {
-    let mut close_hit = hit(Service::Discogs, "Test Track", "Test Artist");
-    close_hit.label = Some("Test Label".into());
-    close_hit.year = Some(2003);
-    close_hit.catalogue_number = Some("TL-001".into());
-    let mut loose = hit(Service::Discogs, "Another Track", "Test Artist");
-    loose.label = Some("Wrong Label".into());
-    let mut bad_year = hit(Service::Discogs, "Test Track", "Test Artist");
-    bad_year.year = Some(99);
+fn discogs_candidates_come_from_releases_containing_the_track_whatever_the_release_is_called() {
+    // A release that contains the track: its own title is the album's, not the track's.
+    let mut album = hit(Service::Discogs, "Test Album", "Test Artist");
+    album.label = Some("Test Label".into());
+    album.year = Some(2003);
+    album.catalogue_number = Some("TL-001".into());
+    // By another artist (a compilation, a namesake): not taken.
+    let mut other = hit(Service::Discogs, "Test Track", "Somebody Else");
+    other.label = Some("Wrong Label".into());
+    let mut various = hit(Service::Discogs, "Hits", "Various");
+    various.label = Some("Wrong Label".into());
+    // The artist with a guest, and a year that isn't four digits.
+    let mut guest = hit(
+        Service::Discogs,
+        "Second Album",
+        "Test Artist feat. Someone",
+    );
+    guest.year = Some(99);
     let fake = fake_with(|f| {
         f.token_saved = true;
-        f.discogs_hits = vec![loose, close_hit, bad_year];
+        f.discogs_hits = vec![other, album, various, guest];
     });
     let answer = look_up(&fake, ONLY_DISCOGS, &named());
     assert_eq!(answer.outcome, Outcome::Found);
@@ -256,20 +265,27 @@ fn discogs_candidates_carry_the_source_discogs_and_only_close_hits_count() {
     assert_eq!(
         got,
         [
-            (IdentifyField::Album, "Test Track"),
+            (IdentifyField::Album, "Test Album"),
             (IdentifyField::Label, "Test Label"),
             (IdentifyField::CatalogueNumber, "TL-001"),
             (IdentifyField::Year, "2003"),
-            // The second close hit: a year that isn't four digits is left out.
-            (IdentifyField::Album, "Test Track"),
+            (IdentifyField::Album, "Second Album"),
         ]
     );
+    // Only Album, Label, Year and catalogue number: nothing about the track.
     for c in &answer.candidates {
         assert_eq!(c.source, online(DISCOGS_NAME, None));
+        assert!(matches!(
+            c.field,
+            IdentifyField::Album
+                | IdentifyField::Label
+                | IdentifyField::Year
+                | IdentifyField::CatalogueNumber
+        ));
     }
     assert_eq!(MAX_DISCOGS, 3);
-    // The search asks for the artist and the title without its version.
-    assert_eq!(fake.calls(), ["discogs Test Artist Test Track"]);
+    // One search, by artist and by the title without its version.
+    assert_eq!(fake.calls(), ["discogs Test Artist / Test Track"]);
 }
 
 // --- Covers ---
@@ -576,14 +592,14 @@ fn the_discogs_token_never_appears_in_any_reply_or_error() {
     };
     assert!(live.discogs_token_saved());
     // Discogs is off at the gate: refused before anything is sent.
-    let error = live.discogs("Test Artist Test Track").unwrap_err();
+    let error = live.discogs("Test Artist", "Test Track").unwrap_err();
     let shown = format!("{error} {error:?}");
     assert!(!shown.contains(SECRET), "{shown}");
     let answer = look_up(&live, ONLY_DISCOGS, &named());
     assert!(!format!("{answer:?}").contains(SECRET));
     // A token that can't be a header value sends nothing, and says nothing of it.
     credentials.set(DISCOGS, "bad\ntoken-SECRET").unwrap();
-    let error = live.discogs("q").unwrap_err();
+    let error = live.discogs("q", "q").unwrap_err();
     let shown = format!("{error} {error:?}");
     assert!(!shown.contains("SECRET"), "{shown}");
     // The store itself never prints an entry.
@@ -862,4 +878,42 @@ fn recording_ids_of_tracks_not_loaded_anywhere_are_all_queued_with_their_files()
         super::job::lookup_job(&found).target,
         Some(serde_json::json!({ "file_ids": files }))
     );
+}
+
+#[test]
+fn an_answer_with_no_recorded_revision_is_not_shown_as_found_and_is_never_requeued_by_the_migration(
+) {
+    let (lib, file) = inbox_with_one_arrival();
+    fingerprinted(&lib, file, &[1, 2, 3]);
+    let answer = found_answer();
+    lib.writer
+        .call(move |c| cache::save(c, file, &answer))
+        .unwrap();
+    let state = |lib: &Lib| {
+        lib.writer
+            .call(move |c| file_statuses(c, &[file]))
+            .unwrap()
+            .remove(0)
+    };
+    assert_eq!(state(&lib).state, LookupState::Found);
+    // A row from before migration 0059: no revision recorded.
+    lib.exec("UPDATE identify_lookup SET fingerprint_rev = NULL");
+    let kept = lib
+        .writer
+        .call(move |c| cache::load(c, file))
+        .unwrap()
+        .unwrap();
+    assert!(kept.stale);
+    assert_eq!(state(&lib).state, LookupState::Never);
+    let releases = lib
+        .writer
+        .call(move |c| super::cover::releases_of_file(c, file))
+        .unwrap();
+    assert!(releases.is_empty());
+    // The migration queued nothing: asking again is up to the user.
+    let jobs: i64 = lib
+        .writer
+        .call(|c| c.query_row("SELECT count(*) FROM job", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(jobs, 0);
 }

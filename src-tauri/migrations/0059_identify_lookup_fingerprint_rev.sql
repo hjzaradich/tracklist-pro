@@ -1,0 +1,16 @@
+-- 0059: which fingerprint an online look-up used (ROADMAP 2.2; Run 6A, S2b).
+--
+-- `file.fingerprint_rev` changes whenever the file's stored fingerprint does
+-- (migration 0020), i.e. when the audio was replaced. The look-up keeps the
+-- revision it worked from, so an answer for audio that has changed since is
+-- known to be out of date: it is not shown as found and the file counts as
+-- needing a new look-up.
+--
+--   0     the file had no fingerprint then (a name-based answer): good for
+--         as long as the file is the same file.
+--   other the revision the answer was made from; a different one now means
+--         the answer is stale.
+--   NULL  unknown (rows from before this migration): treated as stale, so
+--         the file is looked up again when asked. Nothing is queued by this
+--         migration.
+ALTER TABLE identify_lookup ADD COLUMN fingerprint_rev INTEGER;

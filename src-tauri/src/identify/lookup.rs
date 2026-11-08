@@ -32,7 +32,7 @@
 //! The services are reached through [`Backend`], so the flow is tested with
 //! no network; the real one ([`Live`]) sends every request through the gate.
 
-use super::names::{base_title, close, Names};
+use super::names::{artist_matches, base_title, close, Names};
 use super::offline::push_version;
 use super::{Candidate, IdentifyField, IdentifySource};
 use crate::credentials::{Credentials, DISCOGS};
@@ -74,8 +74,9 @@ pub trait Backend: Send + Sync + 'static {
     fn search_recordings(&self, query: &str) -> Result<Vec<LookupHit>, ClientError>;
     /// Whether the user's Discogs token is saved.
     fn discogs_token_saved(&self) -> bool;
-    /// Discogs release search by free text, with the user's token.
-    fn discogs(&self, query: &str) -> Result<Vec<LookupHit>, ClientError>;
+    /// Discogs releases containing the track `track` by `artist`, with the
+    /// user's token.
+    fn discogs(&self, artist: &str, track: &str) -> Result<Vec<LookupHit>, ClientError>;
 }
 
 /// The real services, through the gate.
@@ -103,13 +104,13 @@ impl Backend for Live {
     fn discogs_token_saved(&self) -> bool {
         matches!(self.credentials.get(DISCOGS), Ok(Some(t)) if !t.trim().is_empty())
     }
-    fn discogs(&self, query: &str) -> Result<Vec<LookupHit>, ClientError> {
+    fn discogs(&self, artist: &str, track: &str) -> Result<Vec<LookupHit>, ClientError> {
         // The token is read here, for this request, and goes nowhere else.
         let token = match self.credentials.get(DISCOGS) {
             Ok(Some(token)) => token,
             _ => return Err(ClientError::NoToken),
         };
-        discogs::search(&self.net, &token, query, SEARCH_LIMIT * 2)
+        discogs::search_track(&self.net, &token, artist, track, SEARCH_LIMIT * 2)
     }
 }
 
@@ -441,7 +442,9 @@ fn matches_names(names: &Names, hit: &LookupHit) -> bool {
     }
 }
 
-/// Discogs: the closest hits' label, year, catalogue number and album.
+/// Discogs: releases that contain the track (the search's `track` field), by
+/// the same artist; from each, the label, year, catalogue number and album
+/// (the release's title, which is not the track's).
 fn discogs_side(backend: &dyn Backend, input: &Input, course: &mut Course) -> Result<(), Answer> {
     if !backend.discogs_token_saved() {
         course.skipped = Some(Why::NoToken);
@@ -451,11 +454,16 @@ fn discogs_side(backend: &dyn Backend, input: &Input, course: &mut Course) -> Re
         course.skipped = Some(Why::NoName);
         return Ok(());
     };
-    let query = format!("{} {}", names.artist, base_title(&names.title));
-    let hits = backend.discogs(&query).map_err(|e| error_answer(&e))?;
+    let hits = backend
+        .discogs(&names.artist, &base_title(&names.title))
+        .map_err(|e| error_answer(&e))?;
     let close_hits: Vec<&LookupHit> = hits
         .iter()
-        .filter(|h| matches_names(names, h))
+        .filter(|h| {
+            h.artist
+                .as_deref()
+                .is_some_and(|a| artist_matches(names, a))
+        })
         .take(MAX_DISCOGS)
         .collect();
     if close_hits.is_empty() {

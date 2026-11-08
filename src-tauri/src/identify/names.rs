@@ -99,3 +99,10 @@ fn same_artist(a: &str, b: &str) -> bool {
     let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
     long.windows(short.len()).any(|w| w == short.as_slice())
 }
+
+/// Whether `hit_artist` is the artist of `want`, by the artist half of
+/// [`close`]: for a hit whose own title isn't the track's (a Discogs release
+/// that contains it).
+pub fn artist_matches(want: &Names, hit_artist: &str) -> bool {
+    same_artist(&fold(&want.artist), &fold(hit_artist))
+}

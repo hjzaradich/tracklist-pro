@@ -40,12 +40,47 @@ pub(super) fn search_at(
     query: &str,
     limit: usize,
 ) -> Result<Vec<LookupHit>, ClientError> {
-    let header = auth_header(token)?;
     let url = format!(
         "{base}/database/search?q={}&type=release&per_page={}",
         urlencode(query),
         clamp_limit(limit)
     );
+    fetch(net, token, url)
+}
+
+/// Releases that contain the track `track` by `artist`: Discogs' `artist`
+/// and `track` search fields, releases only. The hits' own titles are the
+/// releases', not the track's.
+pub fn search_track(
+    net: &Net,
+    token: &str,
+    artist: &str,
+    track: &str,
+    limit: usize,
+) -> Result<Vec<LookupHit>, ClientError> {
+    search_track_at(net, BASE, token, artist, track, limit)
+}
+
+/// [`search_track`] against `base`. Tests point it at a local server.
+pub(super) fn search_track_at(
+    net: &Net,
+    base: &str,
+    token: &str,
+    artist: &str,
+    track: &str,
+    limit: usize,
+) -> Result<Vec<LookupHit>, ClientError> {
+    let url = format!(
+        "{base}/database/search?artist={}&track={}&type=release&per_page={}",
+        urlencode(artist),
+        urlencode(track),
+        clamp_limit(limit)
+    );
+    fetch(net, token, url)
+}
+
+fn fetch(net: &Net, token: &str, url: String) -> Result<Vec<LookupHit>, ClientError> {
+    let header = auth_header(token)?;
     let body = get_ok(net, || {
         Request::get(Service::Discogs, url.clone())
             .header("Authorization", header.clone())

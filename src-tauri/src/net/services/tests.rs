@@ -715,3 +715,42 @@ fn a_discogs_search_never_requests_an_image_though_the_reply_names_them() {
     // And the hits carry no image address.
     assert!(hits.iter().all(|h| !format!("{h:?}").contains(".jpg")));
 }
+
+const DISCOGS_TRACK_FIXTURE: &str = include_str!("fixtures/discogs_track_search.json");
+
+#[test]
+fn a_discogs_track_search_asks_for_releases_containing_the_track_and_reads_the_release() {
+    let db = test_db();
+    let net = opted_in(&db, &[Service::Discogs]);
+    let server = TestServer::start(json(DISCOGS_TRACK_FIXTURE));
+    let hits = discogs::search_track_at(
+        &net,
+        &base(&server),
+        FAKE_TOKEN,
+        "Test Artist",
+        "Test Track",
+        10,
+    )
+    .unwrap();
+    // One request, by the artist and track fields, releases only.
+    let seen = server.hits();
+    assert_eq!(seen.len(), 1);
+    assert!(
+        seen[0].request_line.starts_with(
+            "GET /database/search?artist=Test%20Artist&track=Test%20Track&type=release&per_page=10 "
+        ),
+        "{}",
+        seen[0].request_line
+    );
+    assert_eq!(
+        seen[0].header("authorization"),
+        Some(format!("Discogs token={FAKE_TOKEN}").as_str())
+    );
+    // The hit is the release: its title is not the track's.
+    assert_eq!(hits[0].artist.as_deref(), Some("Test Artist"));
+    assert_eq!(hits[0].title.as_deref(), Some("Test Album"));
+    assert_eq!(hits[0].catalogue_number.as_deref(), Some("TL-001"));
+    assert_eq!(hits[0].label.as_deref(), Some("Test Label"));
+    assert_eq!(hits[0].year, Some(2003));
+    assert_eq!(hits[1].artist.as_deref(), Some("Various"));
+}
