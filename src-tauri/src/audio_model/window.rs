@@ -24,7 +24,7 @@ pub fn window_starts(duration: f64) -> [f64; 3] {
 /// The first native-rate frame a window's stretch holds (negative when the
 /// window starts within the margin of the track's start: zeros come first).
 pub fn first_frame(start: f64, rate: u32) -> i64 {
-    ((start - MARGIN_SECONDS) * f64::from(rate)).round() as i64
+    ((start - MARGIN_SECONDS) * f64::from(rate)).round_ties_even() as i64
 }
 
 /// How many native-rate frames a window's stretch holds: the window and a

@@ -29,6 +29,12 @@ pub struct Frontend {
     fft: Arc<dyn Fft<f32>>,
 }
 
+impl Default for Frontend {
+    fn default() -> Self {
+        Frontend::new()
+    }
+}
+
 impl Frontend {
     pub fn new() -> Frontend {
         // torch.hann_window(512), periodic.
