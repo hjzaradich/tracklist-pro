@@ -587,6 +587,93 @@ fn learning_that_is_stopped_keeps_the_model_it_had() {
     assert!(!c.guesses(recording).is_empty());
 }
 
+#[test]
+fn a_training_file_whose_audio_changed_makes_the_model_due_again() {
+    let c = crate_of(&[12, 12]);
+    assert_eq!(c.learn(), Learned::Genres(2));
+    assert!(!c.due());
+    // The file's audio is new and its fingerprint was made again for it:
+    // same track, same file, same genre, but not what was learned from.
+    let file = c.tracks[3].1;
+    c.lib
+        .writer
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE file SET audio_hash = ?1 WHERE id = ?2",
+                (vec![0xEEu8; 34], file),
+            )?;
+            conn.execute(
+                "UPDATE embedding SET audio_hash = ?1 WHERE file_id = ?2",
+                (vec![0xEEu8; 34], file),
+            )
+        })
+        .unwrap();
+    assert!(c.due());
+    assert_eq!(c.learn(), Learned::Genres(2));
+    assert!(!c.due());
+}
+
+#[test]
+fn at_most_three_genres_are_named_and_only_from_thirty_percent() {
+    let c = crate_of(&[12, 12]);
+    assert_eq!(c.learn(), Learned::Genres(2));
+    // Replace the learned weights with ones that give each genre a fixed
+    // probability whatever the track: no weights, only a bias.
+    let ones: Vec<u8> = [1.0f32; EMBEDDING_LEN]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let model = subset::model_id();
+    let chances = [
+        ("Ninety five", 0.95),
+        ("Eighty", 0.80),
+        ("Sixty", 0.60),
+        ("Forty", 0.40),
+        ("Just in", 0.301),
+        ("Just out", 0.29),
+    ];
+    c.lib
+        .writer
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE genre_model SET mean = zeroblob(768), scale = ?1",
+                [ones],
+            )?;
+            conn.execute("DELETE FROM genre_model_node", [])?;
+            for (name, p) in chances {
+                conn.execute(
+                    "INSERT INTO genre (name, name_key) VALUES (?1, lower(?1))",
+                    [name],
+                )?;
+                let bias = (p / (1.0 - p) as f64).ln();
+                conn.execute(
+                    "INSERT INTO genre_model_node (genre_id, weights, bias, trained_on, model_id)
+                     VALUES (last_insert_rowid(), zeroblob(768), ?1, 10, ?2)",
+                    (bias, &model),
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    let track = c.tracks[0].0;
+    assert_eq!(
+        c.guesses(track),
+        vec![
+            ("Ninety five".to_string(), 95),
+            ("Eighty".to_string(), 80),
+            ("Sixty".to_string(), 60),
+        ],
+        "four pass, three are named, best first"
+    );
+    c.lib
+        .exec("DELETE FROM genre WHERE name IN ('Ninety five', 'Eighty', 'Sixty', 'Forty')");
+    assert_eq!(
+        c.guesses(track),
+        vec![("Just in".to_string(), 30)],
+        "30% is in, 29% is out"
+    );
+}
+
 // ---- The jobs ---------------------------------------------------------------------
 
 fn finished(lib: &Lib, id: JobId) -> JobStatus {
