@@ -99,7 +99,11 @@ struct Matrix {
 /// left to point anywhere).
 fn centred(v: &[f32], mean: &[f32]) -> Vec<f32> {
     let mut out: Vec<f32> = v.iter().zip(mean).map(|(a, m)| a - m).collect();
-    let norm = out.iter().map(|x| f64::from(*x).powi(2)).sum::<f64>().sqrt();
+    let norm = out
+        .iter()
+        .map(|x| f64::from(*x).powi(2))
+        .sum::<f64>()
+        .sqrt();
     if norm > 1e-9 {
         for x in &mut out {
             *x = (f64::from(*x) / norm) as f32;
@@ -140,7 +144,7 @@ impl Matrix {
         let n = files.len().max(1) as f64;
         let mean: Vec<f32> = sum.iter().map(|s| (s / n) as f32).collect();
         let mut unit = Vec::with_capacity(raw.len());
-        for v in raw.chunks_exact(EMBEDDING_LEN) {
+        for v in raw.as_chunks::<EMBEDDING_LEN>().0 {
             unit.extend(centred(v, &mean));
         }
         Ok(Matrix {
@@ -157,7 +161,9 @@ impl Matrix {
     fn nearest(&self, query: &[f32], not: i64) -> Vec<(usize, f32)> {
         let mut scored: Vec<(usize, f32)> = self
             .unit
-            .chunks_exact(EMBEDDING_LEN)
+            .as_chunks::<EMBEDDING_LEN>()
+            .0
+            .iter()
             .enumerate()
             .filter(|(i, _)| self.recordings[*i] != not)
             .map(|(i, v)| (i, v.iter().zip(query).map(|(a, b)| a * b).sum::<f32>()))

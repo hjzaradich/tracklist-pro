@@ -74,9 +74,7 @@ fn sounds_like(lib: &Lib, cache: &Neighbours, recording: i64) -> SoundsLike {
 }
 
 fn guesses(lib: &Lib, recording: i64) -> Guesses {
-    lib.writer
-        .call(move |c| guesses_for(c, recording))
-        .unwrap()
+    lib.writer.call(move |c| guesses_for(c, recording)).unwrap()
 }
 
 fn listed(found: &SoundsLike) -> Vec<i64> {
@@ -403,8 +401,8 @@ fn label_keys_are_the_names_in_camel_case() {
 
 #[test]
 fn every_kept_label_has_its_own_key_and_wording_in_the_locale() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../src/locales/en/audioModel.json");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/locales/en/audioModel.json");
     let text = std::fs::read_to_string(path).expect("the locale file");
     let json: serde_json::Value = serde_json::from_str(&text).unwrap();
     let labels = json["label"].as_object().expect("a `label` group");
