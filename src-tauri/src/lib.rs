@@ -4,6 +4,7 @@ use tauri::{Builder, Manager, RunEvent, Runtime};
 
 pub mod after_send;
 pub mod attach;
+pub mod audio_model;
 pub mod audio_preview;
 pub mod best_file;
 pub mod bundle;
