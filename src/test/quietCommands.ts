@@ -84,6 +84,12 @@ const ANSWERS: Record<string, unknown> = {
   waveform_peaks: { state: "notReady" },
   next_for: { results: [], considered: 0, ignored: [], settings: NEXT_SETTINGS },
   next_settings: NEXT_SETTINGS,
+  online_services_status: {
+    musicBrainz: false,
+    acoustId: { on: false, keyMissing: true },
+    discogs: { on: false, tokenSaved: false, storeAvailable: true },
+    coverArt: false,
+  },
   audio_model_status: { enabled: false, fingerprinted: 0, total: 0, failed: 0, running: false },
 };
 

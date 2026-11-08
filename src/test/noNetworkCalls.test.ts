@@ -139,8 +139,8 @@ function networkCalls(source: string, fileName = "file.tsx"): string[] {
 
 describe("networkCalls", () => {
   it("flags fetch to a remote URL", () => {
-    expect(networkCalls('fetch("https://musicbrainz.org/ws/2/artist");')).toEqual([
-      '1: fetch("https://musicbrainz.org/ws/2/artist")',
+    expect(networkCalls('fetch("https://example.invalid/ws/2/artist");')).toEqual([
+      '1: fetch("https://example.invalid/ws/2/artist")',
     ]);
     expect(networkCalls("await window.fetch(`http://example.com`);")).toHaveLength(1);
     expect(networkCalls('globalThis.fetch("//cdn.example.com/x.js");')).toHaveLength(1);

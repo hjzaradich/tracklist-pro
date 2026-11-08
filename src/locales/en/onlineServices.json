@@ -1,0 +1,42 @@
+{
+  "error": "Couldn't save that. Try again.",
+  "musicBrainz": {
+    "label": "MusicBrainz",
+    "help": "Off until you turn it on. Sends a track's artist and title to musicbrainz.org."
+  },
+  "acoustId": {
+    "label": "AcoustID",
+    "help": "Off until you turn it on. Sends an audio fingerprint of a track and its length to acoustid.org.",
+    "unavailable": "Not available in this version yet."
+  },
+  "discogs": {
+    "label": "Discogs",
+    "help": "Off until you turn it on. Sends a track's artist and title to discogs.com, with your own Discogs token.",
+    "tokenLabel": "Discogs token",
+    "save": "Save token",
+    "saving": "Checking the token with Discogs",
+    "remove": "Remove token",
+    "removed": "Token removed.",
+    "saved": "Token saved",
+    "notSaved": "No token saved",
+    "getLabel": "Get a token at (copy the address):",
+    "tokenUrl": "https://www.discogs.com/settings/developers",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy. Select the address and copy it.",
+    "outcome": {
+      "saved": "Token saved.",
+      "switchOff": "Discogs is switched off, so the token was not checked or saved.",
+      "empty": "Type a token first.",
+      "storeUnavailable": "This computer has no password store to keep a token in.",
+      "rejected": "Discogs did not accept that token. Nothing was saved.",
+      "couldNotCheck": "Couldn't reach Discogs to check the token. Nothing was saved. Try again.",
+      "storeFailed": "Discogs accepted the token, but this computer's password store refused it. Nothing was saved.",
+      "failed": "Couldn't save the token. Try again."
+    }
+  },
+  "coverArt": {
+    "label": "Cover Art",
+    "help": "Off until you turn it on. Asks coverartarchive.org for a release's front cover."
+  }
+}

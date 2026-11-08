@@ -1,0 +1,122 @@
+{
+  "error": {
+    "purpose": "Shown when switching an online service on or off could not be saved.",
+    "where": "Settings, Online services, under the service's switch."
+  },
+  "musicBrainz.label": {
+    "purpose": "Name of the switch for MusicBrainz lookups.",
+    "where": "Settings, Online services."
+  },
+  "musicBrainz.help": {
+    "purpose": "Says the switch is off by default and exactly what MusicBrainz is sent.",
+    "where": "Settings, Online services, under the MusicBrainz switch."
+  },
+  "acoustId.label": {
+    "purpose": "Name of the switch for AcoustID lookups.",
+    "where": "Settings, Online services."
+  },
+  "acoustId.help": {
+    "purpose": "Says the switch is off by default and exactly what AcoustID is sent (a fingerprint and the track's length).",
+    "where": "Settings, Online services, under the AcoustID switch."
+  },
+  "acoustId.unavailable": {
+    "purpose": "Why the AcoustID switch can't be used: this build has no AcoustID application key yet.",
+    "where": "Settings, Online services, under the AcoustID help, while the key is missing."
+  },
+  "discogs.label": {
+    "purpose": "Name of the switch for Discogs lookups.",
+    "where": "Settings, Online services."
+  },
+  "discogs.help": {
+    "purpose": "Says the switch is off by default, what Discogs is sent, and that it uses the user's own token.",
+    "where": "Settings, Online services, under the Discogs switch."
+  },
+  "discogs.tokenLabel": {
+    "purpose": "Label of the password field for the Discogs token.",
+    "where": "Settings, Online services, Discogs, while the switch is on."
+  },
+  "discogs.save": {
+    "purpose": "Button: check the typed token with Discogs and keep it if accepted.",
+    "where": "Settings, Online services, Discogs, beside the token field."
+  },
+  "discogs.saving": {
+    "purpose": "Status while the typed token is being checked online.",
+    "where": "Settings, Online services, Discogs, under the token field."
+  },
+  "discogs.remove": {
+    "purpose": "Button: forget the saved Discogs token.",
+    "where": "Settings, Online services, Discogs, beside the token field."
+  },
+  "discogs.removed": {
+    "purpose": "Confirms the saved token was removed.",
+    "where": "Settings, Online services, Discogs, after Remove token."
+  },
+  "discogs.saved": {
+    "purpose": "Says a Discogs token is saved (the token itself is never shown).",
+    "where": "Settings, Online services, Discogs, while the switch is on."
+  },
+  "discogs.notSaved": {
+    "purpose": "Says no Discogs token is saved.",
+    "where": "Settings, Online services, Discogs, while the switch is on."
+  },
+  "discogs.getLabel": {
+    "purpose": "Introduces the address where the user gets a Discogs token. The app never opens it.",
+    "where": "Settings, Online services, Discogs, under the token field."
+  },
+  "discogs.tokenUrl": {
+    "purpose": "The Discogs page where a token is made, shown as text to copy. The app never opens it.",
+    "where": "Settings, Online services, Discogs, after the line about getting a token."
+  },
+  "discogs.copy": {
+    "purpose": "Button: copy the Discogs token address.",
+    "where": "Settings, Online services, Discogs, beside the address."
+  },
+  "discogs.copied": {
+    "purpose": "Confirms the address was copied.",
+    "where": "Settings, Online services, Discogs, after Copy."
+  },
+  "discogs.copyFailed": {
+    "purpose": "Says copying failed and tells the user to copy the address by hand.",
+    "where": "Settings, Online services, Discogs, after Copy."
+  },
+  "discogs.outcome.saved": {
+    "purpose": "Result of Save token: Discogs accepted the token and it was kept.",
+    "where": "Settings, Online services, Discogs, after Save token."
+  },
+  "discogs.outcome.switchOff": {
+    "purpose": "Result of Save token when the Discogs switch is off: nothing was sent or saved.",
+    "where": "Settings, Online services, Discogs, after Save token."
+  },
+  "discogs.outcome.empty": {
+    "purpose": "Result of Save token with an empty field.",
+    "where": "Settings, Online services, Discogs, after Save token."
+  },
+  "discogs.outcome.storeUnavailable": {
+    "purpose": "Result of Save token, and a note beside the field: this computer has no password store.",
+    "where": "Settings, Online services, Discogs, after Save token."
+  },
+  "discogs.outcome.rejected": {
+    "purpose": "Result of Save token: Discogs said the token is not valid; nothing was kept.",
+    "where": "Settings, Online services, Discogs, after Save token."
+  },
+  "discogs.outcome.couldNotCheck": {
+    "purpose": "Result of Save token: Discogs could not be reached (offline, busy); nothing was kept.",
+    "where": "Settings, Online services, Discogs, after Save token."
+  },
+  "discogs.outcome.storeFailed": {
+    "purpose": "Result of Save token: Discogs accepted it but the password store refused it; nothing was kept.",
+    "where": "Settings, Online services, Discogs, after Save token."
+  },
+  "discogs.outcome.failed": {
+    "purpose": "Result of Save token or Remove token when the app itself failed.",
+    "where": "Settings, Online services, Discogs, after Save token or Remove token."
+  },
+  "coverArt.label": {
+    "purpose": "Name of the switch for Cover Art Archive lookups.",
+    "where": "Settings, Online services."
+  },
+  "coverArt.help": {
+    "purpose": "Says the switch is off by default and what the Cover Art Archive is asked for.",
+    "where": "Settings, Online services, under the Cover Art switch."
+  }
+}
