@@ -52,7 +52,7 @@ pub(super) fn search_at(
     parse_search(&body)
 }
 
-pub(super) fn check_token_at(net: &Net, base: &str, token: &str) -> Result<(), ClientError> {
+pub(crate) fn check_token_at(net: &Net, base: &str, token: &str) -> Result<(), ClientError> {
     let header = auth_header(token)?;
     let url = format!("{base}/oauth/identity");
     let body = get_ok(net, || {

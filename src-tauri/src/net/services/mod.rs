@@ -1,5 +1,5 @@
-//! Clients for the online lookup services: MusicBrainz, Discogs and the
-//! Cover Art Archive (ROADMAP §5.6). Each sends through the network gate
+//! Clients for the online lookup services: AcoustID, MusicBrainz, Discogs
+//! and the Cover Art Archive (ROADMAP §5.6). Each sends through the network gate
 //! ([`Net::send`]), so each is off until the user opts in, waits its turn
 //! behind the service's rate limit and may only reach the service's own
 //! hosts.
@@ -10,6 +10,8 @@
 //! A client never sleeps. A retry is a new [`Net::send`], so the limiter
 //! spaces it like any other request.
 
+pub mod acoustid;
+mod acoustid_key;
 pub mod coverart;
 pub mod discogs;
 pub mod musicbrainz;
@@ -92,6 +94,13 @@ pub enum ClientError {
     NoToken,
     /// A lookup needs an id and was given none.
     NoId,
+    /// The service needs the project's application key, and it isn't filled
+    /// in yet (AcoustID). Nothing was sent.
+    KeyMissing(Service),
+    /// A lookup needs a usable fingerprint and duration, and was given none.
+    NoFingerprint,
+    /// The service answered with an error of its own, known by its code.
+    ServiceError { service: Service, code: i64 },
 }
 
 impl std::fmt::Display for ClientError {
@@ -109,6 +118,11 @@ impl std::fmt::Display for ClientError {
             }
             ClientError::NoToken => f.write_str("a Discogs token is needed"),
             ClientError::NoId => f.write_str("an id is needed"),
+            ClientError::KeyMissing(s) => write!(f, "{s} has no application key yet"),
+            ClientError::NoFingerprint => f.write_str("a fingerprint and a length are needed"),
+            ClientError::ServiceError { service, code } => {
+                write!(f, "{service} reported error {code}")
+            }
         }
     }
 }

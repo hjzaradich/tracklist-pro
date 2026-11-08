@@ -63,6 +63,28 @@ export const commands = {
 	 */
 	checkForUpdates: (force: boolean) => typedError<UpdateStatus, IpcError>(__TAURI_INVOKE("check_for_updates", { force })),
 	/**
+	 *  Where the lookup services stand: each switch, AcoustID's missing key and
+	 *  whether a Discogs token is saved.
+	 */
+	onlineServicesStatus: () => typedError<OnlineServicesStatus, IpcError>(__TAURI_INVOKE("online_services_status")),
+	/**  Switches one lookup service on or off. Nothing is sent while it is off. */
+	setOnlineService: (service: OnlineService, on: boolean) => typedError<null, IpcError>(__TAURI_INVOKE("set_online_service", { service, on })),
+	/**
+	 *  Asks Discogs whether the token works and, if so, keeps it in the password
+	 *  store. Needs the Discogs switch on.
+	 */
+	saveDiscogsToken: (token: string) => typedError<SaveTokenOutcome, IpcError>(__TAURI_INVOKE("save_discogs_token", { token })),
+	/**
+	 *  Whether a Discogs token is saved. The token itself never leaves the
+	 *  password store.
+	 */
+	discogsTokenStatus: () => typedError<TokenStatus, IpcError>(__TAURI_INVOKE("discogs_token_status")),
+	/**
+	 *  Forgets the saved Discogs token (fine if there is none) and says whether
+	 *  one is still saved, which is so only if the password store refused.
+	 */
+	removeDiscogsToken: () => typedError<TokenStatus, IpcError>(__TAURI_INVOKE("remove_discogs_token")),
+	/**
 	 *  How the app's own key agrees with rekordbox's, for the owner's test;
 	 *  `None` while the local key is off.
 	 */
@@ -874,6 +896,16 @@ export type AcceptedAll = {
 	skipped: SkippedItem[],
 };
 
+/**  AcoustID's switch and whether the service can work at all. */
+export type AcoustIdStatus = {
+	on: boolean,
+	/**
+	 *  The project's application key isn't filled in yet: the service is
+	 *  unavailable whatever the switch says, and nothing is sent.
+	 */
+	keyMissing: boolean,
+};
+
 /**  What an action recorded. */
 export type Acted = {
 	/**  The operation to offer Undo for. `None` only if nothing changed. */
@@ -1414,6 +1446,15 @@ export type DbFailure =
 
 /**  Which way the energy should go from the chosen track. */
 export type Direction = "up" | "same" | "down";
+
+/**  Discogs' switch and its token. */
+export type DiscogsStatus = {
+	on: boolean,
+	/**  A token is saved in the password store. */
+	tokenSaved: boolean,
+	/**  This computer has a password store to keep a token in. */
+	storeAvailable: boolean,
+};
 
 /**  A file the tick-off added for you, or matched and left to you. */
 export type DoneForYou = {
@@ -2847,6 +2888,20 @@ export type Offer = {
 };
 
 /**
+ *  A lookup service the user can switch on or off. Update checks and model
+ *  downloads have their own switches.
+ */
+export type OnlineService = "musicBrainz" | "acoustId" | "discogs" | "coverArt";
+
+/**  Where the lookup services stand. */
+export type OnlineServicesStatus = {
+	musicBrainz: boolean,
+	acoustId: AcoustIdStatus,
+	discogs: DiscogsStatus,
+	coverArt: boolean,
+};
+
+/**
  *  What the UI needs to name an operation, read from its `details`. Each
  *  is there only if the operation recorded it.
  */
@@ -3580,6 +3635,26 @@ export type SameRecordingTrack = {
 	/**  How many crates hold it. */
 	crates: number,
 };
+
+/**
+ *  What saving a Discogs token came to. Nothing was saved unless it says
+ *  `saved`.
+ */
+export type SaveTokenOutcome = 
+/**  Discogs accepted the token and it is in the password store. */
+"saved" | 
+/**  The Discogs switch is off, so nothing was sent or saved. */
+"switchOff" | 
+/**  The token was empty or couldn't be one. */
+"empty" | 
+/**  This computer has no password store to keep it in. */
+"storeUnavailable" | 
+/**  Discogs said the token is not valid. */
+"rejected" | 
+/**  Discogs couldn't be asked (no connection, busy, a bad reply). */
+"couldNotCheck" | 
+/**  Discogs accepted it, but the password store refused it. */
+"storeFailed";
 
 /**  Where a saved report is. */
 export type SavedReport = {
@@ -4417,6 +4492,12 @@ export type TimelineTransition = {
 	energy: Flow,
 	/**  The next energy minus this. */
 	energyStep: number | null,
+};
+
+/**  Whether a Discogs token is saved. Never the token. */
+export type TokenStatus = {
+	saved: boolean,
+	storeAvailable: boolean,
 };
 
 /**  How far from the chosen track a fit may stray. */
