@@ -403,8 +403,8 @@ pub fn clear(
 
 /// Takes rekordbox's value in for one field: deletes the app's own value,
 /// **outside the operation log** (module docs). Only the merge before a
-/// send calls it, inside its own transaction. A `Genre` taken in changes the
-/// genre the track shows (`genre::own`), so the track is marked due for the
+/// send calls it, inside its own transaction. A listed field taken in (`Genre`, `Name`, `Artist`,
+/// `Album`, `Remixer`, `Label`) changes what the track shows (`genre::own`), so the track is marked due for the
 /// index, as the log marks it for an operation.
 pub(super) fn take_in(
     conn: &Connection,
@@ -415,7 +415,7 @@ pub(super) fn take_in(
         "DELETE FROM app_value WHERE library_track_id = ?1 AND field = ?2",
         (track.0, field),
     )?;
-    if removed > 0 && field == crate::genre::own::GENRE_FIELD {
+    if removed > 0 && crate::send_values::OWN_LISTED_FIELDS.contains(&field) {
         crate::genre::own::mark_track_due(conn, track)?;
     }
     Ok(())

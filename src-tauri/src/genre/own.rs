@@ -18,7 +18,7 @@
 //!   field. Nothing here touches the send or the conflicts engine.
 //! - **It wins** over rekordbox's genre and the file's tag wherever a
 //!   Library track's genre is worked out: what the lists show, search and
-//!   sort by ([`own_genres`], read by `send_values::shown_fields`), and the
+//!   sort by (`send_values::shown_fields`), and the
 //!   genre the Overview counts, the genre doors and the canonical genre
 //!   (`overview::genres_of` → `track_row.genre` → `track_row.genre_node`,
 //!   through [`own_genre_sql`]). A name the genre tree doesn't know is a
@@ -30,14 +30,13 @@
 //! # Keeping the index current
 //!
 //! The index job works a track's genre out again when the track is due
-//! (`search_due`). Every operation that changes a `Genre` row of the store,
+//! (`search_due`). Every operation that changes a row of the store for a listed field
+//! (`Genre`, and since 6A also `Name`, `Artist`, `Album`, `Remixer`, `Label`),
 //! and the Undo of one, marks its tracks due in its own transaction
 //! ([`mark_due`], which `ops` runs for each operation and each Undo), so a
 //! resolved conflict and a merge of Library tracks follow too. The merge
 //! before a send, which takes rekordbox's value in outside the log, marks
 //! the track itself (`app_values::take_in`).
-
-use std::collections::HashMap;
 
 use rusqlite::Connection;
 use serde_json::json;
@@ -159,26 +158,14 @@ pub(crate) fn own_genre_sql(track: &str) -> String {
     )
 }
 
-/// The app's own genre of each of these Library tracks that has one, as
-/// stored (blank when the user wants none), by Library track id.
-pub(crate) fn own_genres(
-    conn: &Connection,
-    ids: &[LibraryTrackId],
-) -> rusqlite::Result<HashMap<LibraryTrackId, String>> {
-    let json = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
-        .expect("numbers always serialize");
-    let mut stmt = conn.prepare_cached(
-        "SELECT library_track_id, value FROM app_value
-         WHERE field = ?2 AND library_track_id IN (SELECT value FROM json_each(?1))",
-    )?;
-    let rows = stmt.query_map((json, GENRE_FIELD), |r| {
-        Ok((LibraryTrackId(r.get(0)?), r.get(1)?))
-    })?;
-    rows.collect()
+/// The fields the lists use the app's own value of, as JSON for SQL.
+fn listed_fields() -> String {
+    serde_json::to_string(&crate::send_values::OWN_LISTED_FIELDS).expect("strings always serialize")
 }
 
-/// Marks due for the index every Library track whose own `Genre` row the
-/// operation `operation` changed: in the operation's own transaction as it
+/// Marks due for the index every Library track whose own value of a listed
+/// field (`OWN_LISTED_FIELDS`: Name, Artist, Album, Remixer, Label, Genre)
+/// the operation `operation` changed: in the operation's own transaction as it
 /// is recorded, and again in the Undo's. A row the operation (or its Undo)
 /// took away is found by what the log recorded of it; one still there by
 /// the row itself. An operation that changed no row of the store (most of
@@ -203,13 +190,13 @@ pub(crate) fn mark_due(conn: &Connection, operation: i64) -> rusqlite::Result<()
                           AND f.entity_id = t.entity_id AND f.field = 'field'
              WHERE t.operation_id = ?1 AND t.entity = 'app_value'
                AND t.field = 'library_track_id'
-               AND coalesce(f.after, f.before) = ?2
+               AND coalesce(f.after, f.before) IN (SELECT value FROM json_each(?2))
              UNION
              SELECT a.library_track_id
              FROM change c JOIN app_value a ON a.id = c.entity_id
-             WHERE c.operation_id = ?1 AND c.entity = 'app_value' AND a.field = ?2)",
+             WHERE c.operation_id = ?1 AND c.entity = 'app_value' AND a.field IN (SELECT value FROM json_each(?2)))",
     )?
-    .execute((operation, GENRE_FIELD))?;
+    .execute((operation, listed_fields()))?;
     Ok(())
 }
 

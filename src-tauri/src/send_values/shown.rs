@@ -50,23 +50,69 @@ fn filled(text: Option<&str>) -> Option<&str> {
     text.filter(|t| !t.trim().is_empty())
 }
 
-/// The rule: the track's own title and artist if set, else what a send
-/// writes (`sent`), else the file's name and no artist.
+/// The rule: the app's own `Name` and `Artist` if it holds them (`app`; a
+/// blank one means none, so the file's name stands in for the title and
+/// there is no artist, as with the genre), else the track's own title and
+/// artist if set, else what a send writes (`sent`), else the file's name
+/// and no artist.
 fn compose(
+    app: (Option<&str>, Option<&str>),
     own: (Option<&str>, Option<&str>),
     sent: (Option<&str>, Option<&str>),
     file_name: &str,
 ) -> Shown {
+    let title = match app.0 {
+        Some(app) => filled(Some(app)).unwrap_or(file_name),
+        None => filled(own.0).or(filled(sent.0)).unwrap_or(file_name),
+    };
+    let artist = match app.1 {
+        Some(app) => app,
+        None => filled(own.1).or(filled(sent.1)).unwrap_or_default(),
+    };
     Shown {
-        title: filled(own.0)
-            .or(filled(sent.0))
-            .unwrap_or(file_name)
-            .to_owned(),
-        artist: filled(own.1)
-            .or(filled(sent.1))
-            .unwrap_or_default()
-            .to_owned(),
+        title: title.to_owned(),
+        artist: artist.to_owned(),
     }
+}
+
+/// The fields whose app's own value (`app_value`) the lists, the search and
+/// the table's sorts use: the value the next send would carry. A change of
+/// one marks the track due for the index (`genre::own::mark_due`). `Year`
+/// and `Mix` are not here: no list shows, sorts or searches them (the
+/// Details panel reads the own `Year` when it opens).
+pub(crate) const OWN_LISTED_FIELDS: [&str; 6] =
+    ["Name", "Artist", "Album", "Remixer", "Label", "Genre"];
+
+/// The app's own value of each of `fields` for each of these Library tracks
+/// that holds one, as stored (blank when the user wants none), in one query
+/// for all the tracks.
+pub(crate) fn own_values(
+    conn: &Connection,
+    ids: &[LibraryTrackId],
+    fields: &[&str],
+) -> rusqlite::Result<HashMap<LibraryTrackId, HashMap<String, String>>> {
+    let tracks = serde_json::to_string(&ids.iter().map(|id| id.0).collect::<Vec<_>>())
+        .expect("numbers always serialize");
+    let fields = serde_json::to_string(fields).expect("strings always serialize");
+    let mut stmt = conn.prepare_cached(
+        "SELECT library_track_id, field, value FROM app_value
+         WHERE field IN (SELECT value FROM json_each(?2))
+           AND library_track_id IN (SELECT value FROM json_each(?1))",
+    )?;
+    let mut out: HashMap<LibraryTrackId, HashMap<String, String>> = HashMap::new();
+    for row in stmt.query_map((tracks, fields), |r| {
+        Ok((LibraryTrackId(r.get(0)?), r.get(1)?, r.get(2)?))
+    })? {
+        let (track, field, value) = row?;
+        out.entry(track).or_default().insert(field, value);
+    }
+    Ok(out)
+}
+
+/// The app's own `Name` and `Artist` out of a track's own values.
+fn own_names(own: Option<&HashMap<String, String>>) -> (Option<&str>, Option<&str>) {
+    let get = |field: &str| own.and_then(|o| o.get(field)).map(String::as_str);
+    (get("Name"), get("Artist"))
 }
 
 /// An entry's first value of `name`, as `TrackValues::get` finds it.
@@ -137,15 +183,21 @@ impl Loaded {
             .map_or("", |f| f.name.as_str())
     }
 
-    fn shown(&self, row: &Row) -> Shown {
-        self.shown_with(row, true)
+    fn shown(&self, row: &Row, app: (Option<&str>, Option<&str>)) -> Shown {
+        self.shown_with(row, app, true)
     }
 
     /// [`Loaded::shown`], with or without the file's name standing in for
     /// a missing title.
-    fn shown_with(&self, row: &Row, name_fallback: bool) -> Shown {
+    fn shown_with(
+        &self,
+        row: &Row,
+        app: (Option<&str>, Option<&str>),
+        name_fallback: bool,
+    ) -> Shown {
         let picked = self.picked(row, &NAMES);
         compose(
+            app,
             (row.title.as_deref(), row.artist.as_deref()),
             (picked[0].as_deref(), picked[1].as_deref()),
             if name_fallback {
@@ -166,9 +218,13 @@ pub fn shown(
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<HashMap<LibraryTrackId, Shown>> {
     let loaded = load(conn, volumes, ids, Scope::Names, &HashMap::new())?;
+    let own = own_values(conn, ids, &["Name", "Artist"])?;
     Ok(ids
         .iter()
-        .filter_map(|&id| Some((id, loaded.shown(loaded.rows.get(&id.0)?))))
+        .filter_map(|&id| {
+            let app = own_names(own.get(&id));
+            Some((id, loaded.shown(loaded.rows.get(&id.0)?, app)))
+        })
         .collect())
 }
 
@@ -181,9 +237,13 @@ pub fn shown_tags(
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<HashMap<LibraryTrackId, Shown>> {
     let loaded = load(conn, volumes, ids, Scope::Names, &HashMap::new())?;
+    let own = own_values(conn, ids, &["Name", "Artist"])?;
     Ok(ids
         .iter()
-        .filter_map(|&id| Some((id, loaded.shown_with(loaded.rows.get(&id.0)?, false))))
+        .filter_map(|&id| {
+            let app = own_names(own.get(&id));
+            Some((id, loaded.shown_with(loaded.rows.get(&id.0)?, app, false)))
+        })
         .collect())
 }
 
@@ -266,6 +326,7 @@ pub fn shown_recordings(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Hash
         .into_iter()
         .map(|(id, f)| {
             let shown = compose(
+                (None, None),
                 (f.own_title.as_deref(), f.own_artist.as_deref()),
                 (f.picked[0].as_deref(), f.picked[1].as_deref()),
                 &f.file_name,
@@ -328,20 +389,32 @@ pub fn shown_fields(
     ids: &[LibraryTrackId],
 ) -> rusqlite::Result<HashMap<LibraryTrackId, ShownFields>> {
     let loaded = load(conn, volumes, ids, Scope::Search, &HashMap::new())?;
-    let mut own_genres = crate::genre::own::own_genres(conn, ids)?;
+    let mut own = own_values(conn, ids, &OWN_LISTED_FIELDS)?;
     Ok(ids
         .iter()
         .filter_map(|&id| {
             let row = loaded.rows.get(&id.0)?;
+            let mine = own.remove(&id).unwrap_or_default();
             let picked = loaded.picked(row, &SEARCH_ATTRIBUTES);
             let shown = compose(
+                own_names(Some(&mine)),
                 (row.title.as_deref(), row.artist.as_deref()),
                 (picked[0].as_deref(), picked[1].as_deref()),
                 loaded.file_name_of(row),
             );
             let mut fields = ShownFields::new(shown, row.title.as_deref(), &picked);
-            if let Some(own) = own_genres.remove(&id) {
-                fields.genre = own;
+            if let Some(name) = mine.get("Name") {
+                fields.title_is_file_name = filled(Some(name)).is_none();
+            }
+            for (field, slot) in [
+                ("Album", &mut fields.album),
+                ("Remixer", &mut fields.remixer),
+                ("Label", &mut fields.label),
+                ("Genre", &mut fields.genre),
+            ] {
+                if let Some(value) = mine.get(field) {
+                    value.clone_into(slot);
+                }
             }
             Some((id, fields))
         })
@@ -358,6 +431,7 @@ pub fn shown_recording_fields(
         .into_iter()
         .map(|(id, f)| {
             let shown = compose(
+                (None, None),
                 (f.own_title.as_deref(), f.own_artist.as_deref()),
                 (f.picked[0].as_deref(), f.picked[1].as_deref()),
                 &f.file_name,
@@ -429,6 +503,7 @@ pub fn shown_removed(conn: &Connection, removed: &[Removed]) -> rusqlite::Result
                 (None, None) => (None, None),
             };
             compose(
+                (None, None),
                 (
                     f.and_then(|f| f.own_title.as_deref()),
                     f.and_then(|f| f.own_artist.as_deref()),

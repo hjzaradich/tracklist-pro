@@ -90,6 +90,7 @@ use crate::library::{file_from, LibraryTrackId, StoredFile, FILE_COLUMNS, FILE_J
 use crate::paths::Volumes;
 use crate::rekordbox::store::object_values;
 
+pub(crate) use shown::OWN_LISTED_FIELDS;
 pub use shown::{
     shown, shown_fields, shown_recording_fields, shown_recordings, shown_removed, shown_tags,
     Removed, Shown, ShownFields,

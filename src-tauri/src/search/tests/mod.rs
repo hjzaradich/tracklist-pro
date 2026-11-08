@@ -4,6 +4,7 @@
 mod door_answers;
 mod genre;
 mod job;
+mod own_values;
 mod query;
 mod settle;
 pub(crate) mod support;
