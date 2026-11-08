@@ -27,6 +27,14 @@
     "purpose": "Credit for the work the key estimate is translated from (NOTICE.md).",
     "where": "About panel, credits."
   },
+  "credits.ced": {
+    "purpose": "Credit for the audio model shipped in the installer: who made it, where from, the paper, and what we changed (src-tauri/resources/models/ced-tiny/NOTICE.md).",
+    "where": "About panel, credits."
+  },
+  "credits.audioset": {
+    "purpose": "Credit for the audio model's label names, which come from the AudioSet ontology.",
+    "where": "About panel, credits."
+  },
   "licences.title": {
     "purpose": "Heading of the list of third-party licences.",
     "where": "About panel."

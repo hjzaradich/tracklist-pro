@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { buildList, cratesFromMetadata, npmFromLockfile, readLicenceText } from "./third-party-licenses.mjs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildList, cratesFromMetadata, modelsFromFolder, npmFromLockfile, readLicenceText } from "./third-party-licenses.mjs";
 
 const pkg = (name) => ({
   name,
@@ -90,4 +91,31 @@ test("the same name and version is listed once", () => {
   const entry = { name: "x", version: "1.0.0", license: "MIT", repository: null };
   const list = buildList([entry, { ...entry }, { ...entry, version: "2.0.0" }], () => "T");
   assert.deepEqual(list.packages.map((p) => p.version), ["1.0.0", "2.0.0"]);
+});
+
+test("models: a folder with model.json is listed, with its licence and notice as the text", () => {
+  const models = mkdtempSync(join(tmpdir(), "models-"));
+  const dir = join(models, "m1");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "model.json"), JSON.stringify({ name: "M1 (audio model)", version: "abc", license: "Apache-2.0", repository: "https://example.test/m1" }));
+  writeFileSync(join(dir, "LICENSE"), "Apache text\n");
+  writeFileSync(join(dir, "NOTICE.md"), "Credit\n");
+  writeFileSync(join(dir, "m1.onnx"), "weights");
+  mkdirSync(join(models, "no-json"));
+  const [entry, ...rest] = modelsFromFolder(models);
+  assert.equal(rest.length, 0);
+  assert.equal(entry.name, "M1 (audio model)");
+  assert.equal(entry.license, "Apache-2.0");
+  const list = buildList([entry], (e) => readLicenceText(e.dir));
+  assert.equal(list.texts[0], "Apache text\n\nCredit");
+  assert.deepEqual(list.packages.map((p) => [p.name, p.version, p.license]), [["M1 (audio model)", "abc", "Apache-2.0"]]);
+  assert.deepEqual(modelsFromFolder(join(models, "missing")), []);
+  rmSync(models, { recursive: true });
+});
+
+test("the shipped CED-tiny folder is listed", () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "src-tauri", "resources", "models");
+  const ced = modelsFromFolder(dir).find((m) => m.name.startsWith("CED-tiny"));
+  assert.equal(ced?.license, "Apache-2.0");
+  assert.match(readLicenceText(ced.dir), /Apache License[\s\S]*Xiaomi/);
 });

@@ -48,6 +48,14 @@ describe("About panel", () => {
     expect(await screen.findByText(tx("about:version", { version: "1.2.3" }))).toBeInTheDocument();
   });
 
+  it("credits the audio model and its labels, as text with no link", async () => {
+    renderAbout(async () => new Response("", { status: 404 }));
+    await screen.findByText(tx("about:licences.missing"));
+    expect(screen.getByText(tx("about:credits.ced"))).toBeInTheDocument();
+    expect(screen.getByText(tx("about:credits.audioset"))).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
   it("gives the source address as text, not a link", async () => {
     renderAbout(async () => new Response("", { status: 404 }));
     await screen.findByText(tx("about:licences.missing"));
