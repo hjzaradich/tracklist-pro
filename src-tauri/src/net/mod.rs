@@ -38,6 +38,7 @@ use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 use crate::db::{DbError, ReadPool};
 use limiter::RateLimiter;
+pub(crate) use optin::read_opt_in;
 pub use optin::{is_opted_in, set_opt_in};
 pub use service::Service;
 
@@ -171,6 +172,23 @@ impl std::fmt::Display for NetError {
 }
 
 impl std::error::Error for NetError {}
+
+impl NetError {
+    /// Whether the failure means there is no way to the internet: the host
+    /// can't be found, the connection fails or it times out. Kept beside
+    /// [`failure_reason`], which words these.
+    pub fn is_offline(&self) -> bool {
+        matches!(
+            self,
+            NetError::Failed { reason, .. }
+                if [REASON_NO_HOST, REASON_NO_CONNECTION, REASON_TIMEOUT].contains(reason)
+        )
+    }
+}
+
+const REASON_NO_HOST: &str = "the host wasn't found";
+const REASON_NO_CONNECTION: &str = "the connection failed";
+const REASON_TIMEOUT: &str = "it timed out";
 
 /// A handle to the gate. Cheap to clone and safe to share between threads.
 #[derive(Clone)]
@@ -329,9 +347,9 @@ fn failure_reason(e: &ureq::Error) -> &'static str {
     match e {
         E::BadUri(_) => "the URL isn't valid",
         E::RequireHttpsOnly(_) => "the URL isn't HTTPS",
-        E::HostNotFound => "the host wasn't found",
-        E::ConnectionFailed | E::Io(_) => "the connection failed",
-        E::Timeout(_) => "it timed out",
+        E::HostNotFound => REASON_NO_HOST,
+        E::ConnectionFailed | E::Io(_) => REASON_NO_CONNECTION,
+        E::Timeout(_) => REASON_TIMEOUT,
         E::Tls(_) | E::Pem(_) => "the secure connection failed",
         E::Protocol(_) | E::LargeResponseHeader(..) => "the reply wasn't valid HTTP",
         E::TooManyRedirects | E::RedirectFailed => "it was redirected",

@@ -35,7 +35,8 @@ pub(super) fn front_at(
     release_id: &str,
 ) -> Result<Option<Artwork>, ClientError> {
     let release_id = release_id.trim();
-    if release_id.is_empty() {
+    // An id that is not a UUID (empty included) sends nothing.
+    if !super::is_mbid(release_id) {
         return Err(ClientError::NoId);
     }
     // The full-size image: `?maxwidth=` 404s for art that hasn't been

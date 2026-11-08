@@ -34,12 +34,53 @@ pub struct Cached {
     pub releases: Vec<String>,
     /// A later attempt that failed or was skipped: its reason and when.
     pub attempt: Option<(String, String)>,
+    /// The file's audio changed after this was fetched: it no longer says
+    /// anything about the file and is not shown as found.
+    pub stale: bool,
 }
 
 const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 /// Stores `answer` for `file` by the rule in the module docs.
 pub fn save(conn: &Connection, file: i64, answer: &Answer) -> rusqlite::Result<()> {
+    save_at(conn, file, answer, current_rev(conn, file)?.unwrap_or(0))
+}
+
+/// The file's `fingerprint_rev` now, if it has a row.
+fn current_rev(conn: &Connection, file: i64) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT fingerprint_rev FROM file WHERE id = ?1",
+        [file],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
+/// The `path` column: the services asked, then (when the file had a
+/// fingerprint) `;fp=<its revision>`. Not a column of its own: a migration
+/// for it would be 0059.
+fn path_for(rev: i64) -> String {
+    if rev == 0 {
+        PATH.to_owned()
+    } else {
+        format!("{PATH};fp={rev}")
+    }
+}
+
+fn rev_of(path: &str) -> i64 {
+    path.rsplit_once(";fp=")
+        .and_then(|(_, rev)| rev.parse().ok())
+        .unwrap_or(0)
+}
+
+/// [`save`] for an answer worked out from the file as it was at revision
+/// `rev` of its fingerprint (0: it had none). An old answer the audio has
+/// changed since is dropped first, so it doesn't outrank this one.
+pub fn save_at(conn: &Connection, file: i64, answer: &Answer, rev: i64) -> rusqlite::Result<()> {
+    if load(conn, file)?.is_some_and(|old| old.stale) {
+        conn.execute("DELETE FROM identify_lookup WHERE file_id = ?1", [file])?;
+    }
+    let path = path_for(rev);
     let reason = answer.why.map(|w| w.code());
     if answer.outcome.completed() {
         let candidates = encode(&answer.candidates);
@@ -57,7 +98,7 @@ pub fn save(conn: &Connection, file: i64, answer: &Answer) -> rusqlite::Result<(
             ),
             params![
                 file,
-                PATH,
+                path,
                 answer.outcome.as_str(),
                 reason,
                 candidates,
@@ -78,7 +119,7 @@ pub fn save(conn: &Connection, file: i64, answer: &Answer) -> rusqlite::Result<(
                  attempt_reason = NULL, attempt_at = NULL
              WHERE identify_lookup.outcome IN ('failed', 'skipped')"
         ),
-        params![file, PATH, answer.outcome.as_str(), reason],
+        params![file, path, answer.outcome.as_str(), reason],
     )?;
     conn.execute(
         &format!(
@@ -126,7 +167,8 @@ fn decode(json: &str) -> Vec<Candidate> {
 pub fn load(conn: &Connection, file: i64) -> rusqlite::Result<Option<Cached>> {
     let row = conn
         .prepare_cached(
-            "SELECT fetched_at, outcome, reason, candidates, releases, attempt_reason, attempt_at
+            "SELECT fetched_at, outcome, reason, candidates, releases, attempt_reason, attempt_at,
+                    path, (SELECT fingerprint_rev FROM file WHERE id = ?1)
              FROM identify_lookup WHERE file_id = ?1",
         )?
         .query_row([file], |r| {
@@ -138,11 +180,14 @@ pub fn load(conn: &Connection, file: i64) -> rusqlite::Result<Option<Cached>> {
                 r.get::<_, String>(4)?,
                 r.get::<_, Option<String>>(5)?,
                 r.get::<_, Option<String>>(6)?,
+                r.get::<_, String>(7)?,
+                r.get::<_, Option<i64>>(8)?,
             ))
         })
         .optional()?;
     Ok(row.and_then(
-        |(fetched_at, outcome, reason, candidates, releases, a_reason, a_at)| {
+        |(fetched_at, outcome, reason, candidates, releases, a_reason, a_at, path, now)| {
+            let then = rev_of(&path);
             Some(Cached {
                 fetched_at,
                 outcome: Outcome::parse(&outcome)?,
@@ -150,6 +195,8 @@ pub fn load(conn: &Connection, file: i64) -> rusqlite::Result<Option<Cached>> {
                 candidates: decode(&candidates),
                 releases: serde_json::from_str(&releases).unwrap_or_default(),
                 attempt: a_reason.zip(a_at),
+                // Fingerprinted when looked up, and a different audio now.
+                stale: then != 0 && now.is_some_and(|now| now != then),
             })
         },
     ))
@@ -169,7 +216,7 @@ pub fn for_track(conn: &Connection, track: LibraryTrackId) -> rusqlite::Result<V
         return Ok(Vec::new());
     };
     Ok(load(conn, file)?
-        .filter(|c| c.outcome == Outcome::Found)
+        .filter(|c| c.outcome == Outcome::Found && !c.stale)
         .map(|c| c.candidates)
         .unwrap_or_default())
 }

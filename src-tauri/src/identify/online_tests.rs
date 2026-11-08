@@ -14,7 +14,7 @@ use super::*;
 use crate::jobs::{JobId, JobKind, JobQueue, JobStatus};
 use crate::net::services::acoustid::AcoustidMatch;
 use crate::net::services::musicbrainz::{self, Recording, Release};
-use crate::net::services::ClientError;
+use crate::net::services::{ClientError, LookupHit};
 use crate::net::{set_opt_in, NetError, Service};
 use crate::search::tests::support::{Lib, Mount};
 
@@ -27,33 +27,44 @@ type BeforeAcoustid = Box<dyn Fn(&[u8]) + Send + Sync>;
 
 /// Scripted services. `calls` lists every request, e.g. `acoustid`,
 /// `recording <id>`, `release <id>`.
-struct Fake {
-    key_missing: bool,
-    calls: Mutex<Vec<String>>,
-    acoustid: AcoustidReply,
+pub(super) struct Fake {
+    pub(super) key_missing: bool,
+    pub(super) calls: Mutex<Vec<String>>,
+    pub(super) acoustid: AcoustidReply,
     /// Run before each AcoustID request, with its fingerprint.
     before_acoustid: BeforeAcoustid,
     /// Recording ids MusicBrainz doesn't know.
-    unknown: Vec<String>,
+    pub(super) unknown: Vec<String>,
+    /// What a MusicBrainz recording search finds.
+    pub(super) search_hits: Vec<LookupHit>,
+    /// Whether a Discogs token is saved, and what a Discogs search finds.
+    pub(super) token_saved: bool,
+    pub(super) discogs_hits: Vec<LookupHit>,
+    /// Replaces the fixture release's date.
+    pub(super) release_date: Option<String>,
 }
 
 impl Fake {
-    fn new(acoustid: AcoustidReply) -> Arc<Fake> {
+    pub(super) fn new(acoustid: AcoustidReply) -> Arc<Fake> {
         Arc::new(Fake {
             key_missing: false,
             calls: Mutex::new(Vec::new()),
             acoustid,
             before_acoustid: Box::new(|_| {}),
             unknown: Vec::new(),
+            search_hits: Vec::new(),
+            token_saved: false,
+            discogs_hits: Vec::new(),
+            release_date: None,
         })
     }
 
     /// Every AcoustID request matches the one recording the fixture holds.
-    fn matching() -> Arc<Fake> {
+    pub(super) fn matching() -> Arc<Fake> {
         Fake::new(Box::new(|_| Ok(vec![hit(0.95, &["rec-1"])])))
     }
 
-    fn calls(&self) -> Vec<String> {
+    pub(super) fn calls(&self) -> Vec<String> {
         self.calls.lock().unwrap().clone()
     }
 }
@@ -78,7 +89,21 @@ impl Backend for Arc<Fake> {
         self.calls.lock().unwrap().push(format!("release {mbid}"));
         let mut release = musicbrainz::parse_release(RELEASE.as_bytes())?;
         release.id = mbid.to_owned();
+        if let Some(date) = &self.release_date {
+            release.date = Some(date.clone());
+        }
         Ok(release)
+    }
+    fn search_recordings(&self, query: &str) -> Result<Vec<LookupHit>, ClientError> {
+        self.calls.lock().unwrap().push(format!("search {query}"));
+        Ok(self.search_hits.clone())
+    }
+    fn discogs_token_saved(&self) -> bool {
+        self.token_saved
+    }
+    fn discogs(&self, query: &str) -> Result<Vec<LookupHit>, ClientError> {
+        self.calls.lock().unwrap().push(format!("discogs {query}"));
+        Ok(self.discogs_hits.clone())
     }
 }
 
@@ -92,12 +117,15 @@ fn hit(score: f64, recordings: &[&str]) -> AcoustidMatch {
 const ON: On = On {
     acoustid: true,
     musicbrainz: true,
+    discogs: false,
 };
 
 fn input() -> Input {
     Input {
         fingerprint: Some(vec![1, 2, 3]),
         duration_ms: Some(215_400),
+        names: None,
+        fingerprint_rev: 0,
     }
 }
 
@@ -117,6 +145,7 @@ fn no_request_is_made_while_every_service_is_off() {
     let off = On {
         acoustid: false,
         musicbrainz: false,
+        discogs: false,
     };
     let answer = look_up(&fake, off, &input());
     assert_eq!(
@@ -124,15 +153,13 @@ fn no_request_is_made_while_every_service_is_off() {
         (Outcome::Skipped, Some(Why::ServicesOff))
     );
     assert!(fake.calls().is_empty());
-    // AcoustID off with MusicBrainz on has nothing to start from either.
+    // AcoustID off with MusicBrainz on and no name to search by: nothing to go on.
     let only_mb = On {
         acoustid: false,
         musicbrainz: true,
+        discogs: false,
     };
-    assert_eq!(
-        look_up(&fake, only_mb, &input()).why,
-        Some(Why::AcoustidOff)
-    );
+    assert_eq!(look_up(&fake, only_mb, &input()).why, Some(Why::NoName));
     assert!(fake.calls().is_empty());
 }
 
@@ -157,14 +184,20 @@ fn a_file_without_a_fingerprint_or_a_length_is_skipped_and_nothing_is_sent() {
         Input {
             fingerprint: None,
             duration_ms: Some(1000),
+            names: None,
+            fingerprint_rev: 0,
         },
         Input {
             fingerprint: Some(vec![1]),
             duration_ms: None,
+            names: None,
+            fingerprint_rev: 0,
         },
         Input {
             fingerprint: Some(vec![1]),
             duration_ms: Some(0),
+            names: None,
+            fingerprint_rev: 0,
         },
     ] {
         let answer = look_up(&fake, ON, &input);
@@ -266,18 +299,20 @@ fn at_most_two_releases_are_asked_official_ones_first_then_the_earliest() {
 }
 
 #[test]
-fn with_musicbrainz_off_the_matches_are_not_followed_up_and_the_outcome_says_so() {
+fn with_musicbrainz_off_acoustid_is_not_asked_and_the_outcome_says_so() {
     let fake = Fake::matching();
     let on = On {
         acoustid: true,
         musicbrainz: false,
+        discogs: false,
     };
     let answer = look_up(&fake, on, &input());
     assert_eq!(
         (answer.outcome, answer.why),
         (Outcome::Skipped, Some(Why::MusicbrainzOff))
     );
-    assert_eq!(fake.calls(), ["acoustid"]);
+    // AcoustID is not even asked: its recording ids are no use without MusicBrainz.
+    assert!(fake.calls().is_empty());
 }
 
 #[test]

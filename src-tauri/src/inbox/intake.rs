@@ -151,16 +151,20 @@ pub(super) fn taken(conn: &Connection, folder: i64) -> rusqlite::Result<bool> {
 /// `folder` batch for those in a subfolder, a `loose` one for the rest.
 /// Returns how many items it made.
 pub fn run(conn: &mut Connection) -> rusqlite::Result<usize> {
-    make(conn, None, false)
+    make(conn, None, false).map(|made| made.len())
 }
 
 /// [`run`] for the online-only files of one folder. Nothing reads them, so
 /// no hash job runs for them; the walk that found them does this.
 pub(crate) fn online_only(conn: &mut Connection, folder: MusicFolderId) -> rusqlite::Result<usize> {
-    make(conn, Some(folder.0), true)
+    make(conn, Some(folder.0), true).map(|made| made.len())
 }
 
-fn make(conn: &mut Connection, folder: Option<i64>, online_only: bool) -> rusqlite::Result<usize> {
+fn make(
+    conn: &mut Connection,
+    folder: Option<i64>,
+    online_only: bool,
+) -> rusqlite::Result<Vec<i64>> {
     let tx = conn.transaction()?;
     // A folder without its baseline has no arrivals yet.
     let arrived: Vec<(i64, i64, String)> = {
@@ -194,7 +198,7 @@ fn make(conn: &mut Connection, folder: Option<i64>, online_only: bool) -> rusqli
             .filter(|dir| !dir.is_empty());
         groups.entry((folder, dir)).or_default().push(file);
     }
-    let mut made = 0;
+    let mut made: Vec<i64> = Vec::new();
     for ((folder, dir), files) in groups {
         let kind = if dir.is_some() { "folder" } else { "loose" };
         tx.execute(
@@ -205,7 +209,9 @@ fn make(conn: &mut Connection, folder: Option<i64>, online_only: bool) -> rusqli
         let mut insert =
             tx.prepare_cached("INSERT INTO inbox_item (file_id, batch_id) VALUES (?1, ?2)")?;
         for file in files {
-            made += insert.execute((file, batch))?;
+            if insert.execute((file, batch))? > 0 {
+                made.push(file);
+            }
         }
     }
     tx.commit()?;
@@ -219,6 +225,9 @@ fn make(conn: &mut Connection, folder: Option<i64>, online_only: bool) -> rusqli
 /// Intake is a side effect and never changes the hash job's result: if it
 /// fails, the failure is logged and the job's own result stands, so the
 /// chain goes on as it would have.
+///
+/// The files it made items for are then queued for the online look-up when
+/// AcoustID or MusicBrainz is on (`identify::arrival`, 2.2).
 ///
 /// Then the wishlist tick-off looks at the new files that are in a decided
 /// track already (`wishlist::tick_off`, 2.5), as its own write: most get
@@ -235,8 +244,10 @@ pub struct Intaking<H> {
 impl<H: JobHandler> JobHandler for Intaking<H> {
     fn run(&self, job: &JobContext) -> Result<(), JobError> {
         let result = self.inner.run(job);
-        if let Err(e) = job.writer().call(run) {
-            eprintln!("inbox intake after a hash job failed: {e}");
+        match job.writer().call(|conn| make(conn, None, false)) {
+            // The arrival look-up (identify::arrival): one call.
+            Ok(arrived) => crate::identify::arrival::queue(job, arrived),
+            Err(e) => eprintln!("inbox intake after a hash job failed: {e}"),
         }
         crate::wishlist::tick_off::after_job(job);
         result

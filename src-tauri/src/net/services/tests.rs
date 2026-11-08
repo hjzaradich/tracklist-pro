@@ -226,20 +226,34 @@ fn a_musicbrainz_release_lookup_asks_for_labels_and_reads_catalogue_numbers() {
 }
 
 #[test]
-fn a_musicbrainz_id_asked_for_with_nothing_in_it_sends_nothing_and_cant_change_the_path() {
+fn a_musicbrainz_id_that_is_not_a_uuid_sends_nothing() {
     let db = test_db();
     let net = opted_in(&db, &[Service::MusicBrainz]);
     let server = TestServer::start(json(MB_RECORDING));
     let at = format!("{}/ws/2", base(&server));
-    assert!(matches!(
-        musicbrainz::recording_at(&net, &at, "  "),
-        Err(ClientError::NoId)
-    ));
-    let _ = musicbrainz::release_at(&net, &at, "../../x?y=1");
-    assert!(server.hits()[0]
-        .request_line
-        .starts_with("GET /ws/2/release/..%2F..%2Fx%3Fy%3D1?inc="));
-    assert_eq!(server.hits().len(), 1);
+    for bad in [
+        "",
+        "  ",
+        "..",
+        "../../x?y=1",
+        "%2e%2e",
+        "x",
+        "00000000-0000-4000-8000-000000000001/..",
+        "00000000-0000-4000-8000-00000000000g",
+    ] {
+        assert!(
+            matches!(
+                musicbrainz::recording_at(&net, &at, bad),
+                Err(ClientError::NoId)
+            ),
+            "{bad}"
+        );
+        assert!(matches!(
+            musicbrainz::release_at(&net, &at, bad),
+            Err(ClientError::NoId)
+        ));
+    }
+    assert!(server.hits().is_empty());
 }
 
 #[test]
@@ -248,7 +262,7 @@ fn an_unknown_musicbrainz_id_is_not_found_and_junk_is_a_bad_reply() {
     let net = opted_in(&db, &[Service::MusicBrainz]);
     let server = TestServer::start(Reply::Typed(404, "application/json", b"{}".to_vec()));
     assert!(matches!(
-        musicbrainz::recording_at(&net, &base(&server), "x"),
+        musicbrainz::recording_at(&net, &base(&server), "00000000-0000-4000-8000-000000000001"),
         Err(ClientError::NotFound(Service::MusicBrainz))
     ));
     assert!(matches!(
@@ -334,6 +348,7 @@ fn a_discogs_search_reads_the_fixture() {
     assert_eq!(first.year, Some(2003));
     assert_eq!(first.genre.as_deref(), Some("Deep House"));
     assert_eq!(first.label.as_deref(), Some("Test Label"));
+    assert_eq!(first.catalogue_number.as_deref(), Some("TL-001"));
     assert_eq!(
         first.url.as_deref(),
         Some("https://www.discogs.com/release/1-test-track")
@@ -555,16 +570,27 @@ fn asking_for_a_cover_without_an_id_sends_nothing() {
 }
 
 #[test]
-fn a_release_id_cannot_change_the_path_it_is_put_in() {
+fn a_release_id_that_is_not_a_uuid_sends_nothing() {
     let db = test_db();
     let net = opted_in(&db, &[Service::CoverArt]);
     let server = TestServer::start(Reply::Status(404));
-    coverart::front_at(&net, &base(&server), "../x?y=1").unwrap();
-    let line = server.hits()[0].request_line.clone();
-    assert!(
-        line.starts_with("GET /release/..%2Fx%3Fy%3D1/front "),
-        "{line}"
-    );
+    for bad in [
+        "",
+        "..",
+        "../x?y=1",
+        "%2e%2e",
+        "x",
+        "00000000-0000-4000-8000-0000000000b1/../x",
+    ] {
+        assert!(
+            matches!(
+                coverart::front_at(&net, &base(&server), bad),
+                Err(ClientError::NoId)
+            ),
+            "{bad}"
+        );
+    }
+    assert!(server.hits().is_empty());
 }
 
 #[test]
@@ -671,4 +697,21 @@ fn printing_a_discogs_request_does_not_show_the_token() {
     let shown = format!("{request:?}");
     assert!(!shown.contains("fake-token-123"));
     assert!(shown.contains("Authorization") && shown.contains("api.discogs.com"));
+}
+
+#[test]
+fn a_discogs_search_never_requests_an_image_though_the_reply_names_them() {
+    let db = test_db();
+    let net = opted_in(&db, &[Service::Discogs, Service::CoverArt]);
+    // The fixture's first result names a thumbnail and a cover image.
+    assert!(DISCOGS_FIXTURE.contains("cover_image") && DISCOGS_FIXTURE.contains("thumb"));
+    let server = TestServer::start(json(DISCOGS_FIXTURE));
+    let hits = discogs::search_at(&net, &base(&server), FAKE_TOKEN, "Test Artist", 10).unwrap();
+    assert_eq!(hits.len(), 3);
+    // One request, the search; no address from the reply was followed.
+    let seen = server.hits();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].request_line.starts_with("GET /database/search?"));
+    // And the hits carry no image address.
+    assert!(hits.iter().all(|h| !format!("{h:?}").contains(".jpg")));
 }

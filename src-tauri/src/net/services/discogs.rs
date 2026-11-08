@@ -4,8 +4,10 @@
 //! on requests built here, and the gate pins those to Discogs' own hosts
 //! ([`Service::hosts`]), so it can't reach another host.
 //!
-//! TODO(2.2): before this is shown to users, check Discogs' API terms for
-//! attribution and for what may be done with the images, and meet them.
+//! Discogs' terms (ROADMAP 5.7): nothing here ever fetches or keeps a Discogs
+//! image; a result's thumbnail and cover addresses are not even read. The
+//! screen shows "Data provided by Discogs" wherever Discogs data appears
+//! (Run 6A, job U2).
 
 use serde_json::Value;
 
@@ -107,6 +109,7 @@ fn hit(result: &Value) -> LookupHit {
         // "Electronic"), so it wins where present.
         genre: first_string(result, "style").or_else(|| first_string(result, "genre")),
         label: first_string(result, "label"),
+        catalogue_number: text(result, "catno"),
         year: result.get("year").and_then(|v| match v {
             Value::String(s) => s.trim().parse().ok(),
             other => other.as_i64(),
