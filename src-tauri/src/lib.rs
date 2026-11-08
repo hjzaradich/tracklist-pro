@@ -175,6 +175,7 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
             // The network gate: the one way out (update checks use it).
             app.manage(net::Net::new(reads.clone()));
             app.manage(reads);
+            app.manage(audio_model::similar::Neighbours::default());
             // Watches the writer for changes to what the Library list is made of
             // (library_summary); before anything else writes.
             app.manage(library::LibraryStamp::install(&writer)?);

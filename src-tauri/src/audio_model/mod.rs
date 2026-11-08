@@ -23,10 +23,13 @@
 
 pub mod control;
 pub mod decode;
+pub mod guess;
 pub mod job;
 pub mod ledger;
 pub mod mel;
+pub mod panel;
 pub mod resample;
+pub mod similar;
 pub mod subset;
 pub mod window;
 

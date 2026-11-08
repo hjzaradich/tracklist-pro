@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../app/queryClient";
 import type { WouldChange } from "../bindings";
 import i18n from "../i18n";
+import { quietAnswer } from "../test/quietCommands";
 import { tx } from "../test/tx";
 import { SettingsScreen } from "./SettingsScreen";
 
@@ -50,6 +51,7 @@ function fakeBackend({
     if (cmd === "send_state") return null;
     // The optional features' rows: off, as they are by default.
     if (cmd === "feature_enabled") return false;
+    if (cmd === "audio_model_status") return quietAnswer(cmd);
     throw new Error(`unexpected command ${cmd}`);
   });
   return backend;

@@ -5,6 +5,7 @@ import stage from "../shell/StageScreen.module.css";
 import { AboutPanel } from "./AboutPanel";
 import { BundlePanel } from "./BundlePanel";
 import { EnergyStarsRow } from "./EnergyStarsRow";
+import { AudioModelRow } from "./AudioModelRow";
 import { LocalKeyRow } from "./LocalKeyRow";
 import { RekordboxDatabaseRow } from "./RekordboxDatabaseRow";
 import { UpdateChecksRow } from "./UpdateChecksRow";
@@ -47,6 +48,7 @@ export function SettingsScreen() {
             </h2>
             <WishlistFeatureRow />
             <LocalKeyRow />
+            <AudioModelRow />
           </section>
           <section className={styles.panel} aria-labelledby={onlineId}>
             <h2 id={onlineId} className={styles.panelTitle}>

@@ -33,6 +33,16 @@ export const commands = {
 	 *  what it made).
 	 */
 	setAudioModelEnabled: (on: boolean) => typedError<AudioModelStatus, IpcError>(__TAURI_INVOKE("set_audio_model_enabled", { on })),
+	/**
+	 *  The audio model's genre and mood guesses for a track, from what it
+	 *  stored. Reads only; never loads the model.
+	 */
+	audioModelGuesses: (recordingId: number) => typedError<Guesses, IpcError>(__TAURI_INVOKE("audio_model_guesses", { recordingId })),
+	/**
+	 *  The Library tracks that sound most like a track, by the audio model's
+	 *  fingerprints. Reads only; never loads the model.
+	 */
+	soundsLike: (recordingId: number) => typedError<SoundsLike, IpcError>(__TAURI_INVOKE("sounds_like", { recordingId })),
 	/**  Where update checks stand. */
 	updateStatus: () => typedError<UpdateStatus, IpcError>(__TAURI_INVOKE("update_status")),
 	/**
@@ -1918,6 +1928,23 @@ export type GenreTree = {
 	aliases: GenreAlias[],
 };
 
+/**  One guess: a label and how sure the model is. */
+export type Guess = {
+	/**  The label's locale key (see [`label_key`]). */
+	key: string,
+	/**  0 to 100. */
+	percent: number,
+};
+
+/**  The model's guesses for a track, or why there are none. */
+export type Guesses = {
+	state: PanelState,
+	/**  Best first, at most [`MOST_GENRES`]. */
+	genres: Guess[],
+	/**  The best mood, if one passes. */
+	mood: Guess | null,
+};
+
 /**
  *  How many hidden files a search matches that its results don't show
  *  already (ROADMAP 1.11, owner decision 2026-10-12): the hidden files of
@@ -2899,6 +2926,19 @@ export type Overview = {
 	counting: Counting,
 };
 
+/**  Why the panel has nothing to show, or that it has. */
+export type PanelState = 
+/**  The switch is off. */
+"off" | 
+/**  Only Library tracks are listened to. */
+"notInLibrary" | 
+/**  The model hasn't got to this track yet. */
+"notListenedYet" | 
+/**  The model failed on this track, or what it stored is unusable. */
+"couldntBeRead" | 
+/**  There is something to show (the list may still be empty). */
+"ready";
+
 /**  One play of a session. */
 export type Play = {
 	id: number,
@@ -3639,6 +3679,13 @@ export type Side = "app" | "rekordbox";
 /**  The signals that carry a weight. */
 export type Signal = "key" | "bpm" | "energy" | "played" | "genre" | "tags";
 
+/**  One listed track. */
+export type SimilarTrack = {
+	row: TableRow,
+	/**  0 to 100. */
+	percent: number,
+};
+
 /**  Why "Accept all" left an item as it is. */
 export type SkipReason = "linkedOnDisk" | "notInTrack" | "targetGone" | "targetLinked" | "entryOfAnotherTrack" | 
 /**
@@ -3691,6 +3738,12 @@ export type SnapshotSummary = {
 
 /**  A column the table can be sorted by. */
 export type SortColumn = "title" | "artist" | "bpm" | "key" | "time" | "genre" | "rating" | "energy" | "dateAdded" | "file" | "folder";
+
+/**  The tracks that sound like a track, or why there are none. */
+export type SoundsLike = {
+	state: PanelState,
+	tracks: SimilarTrack[],
+};
 
 /**  A value and the place it comes from. */
 export type SourcedValue = {
