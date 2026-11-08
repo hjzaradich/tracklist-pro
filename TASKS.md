@@ -108,7 +108,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 - **Follow-ups:** the panel's "Genre set to …" line can stay when switching tracks (the panel isn't keyed per track); the What's next reason percent can differ by 1 from the panel's (f32 vs f64); "Your genres" empty line can't say why (needs a reason in the reply); generic AudioSet names ("House music") need an alias to map to a tree node.
 - Then installer 0.1.10 (owner asked: after 5B).
 
-### Run 6A: Identification and tag cleanup (2.2) (proposed 2026-11-08, waiting for the owner's go; budget about 20 weekly points, would start at 46%)
+### Run 6A: Identification and tag cleanup (2.2) (owner 2026-11-08: "Go for it", budget about 20 weekly points, started at 46%)
 - **2.2** (owner decisions 2026-11-08 in ROADMAP 2.2). Order: map, then K1 and S1 side by side, then S2, then U1. Migrations: S1 0057, S2 0058 if needed.
   - [ ] M code map (Haiku, writes reviews/6A-map.md): the musicmanager `enrich.rs` port source, app values and the 5B set path, stored fingerprints, `net` services and the gate, Settings "Online services", the Inbox arrival hook and rows, the track details panel, the job queue.
   - [ ] K1 keys and switches: Windows password store for the Discogs token (save, check, remove; never in the database, bundles, logs or diagnostics); the AcoustID service pinned to its host, its key a constant the owner fills in; Settings switches for MusicBrainz, AcoustID, Discogs and Cover Art, each off, each saying what it sends. Fable review.
