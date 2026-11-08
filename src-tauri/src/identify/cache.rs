@@ -17,7 +17,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use super::lookup::{Answer, Outcome, PATH};
+use super::lookup::{Answer, Outcome};
 use super::{Candidate, IdentifyField, IdentifySource};
 use crate::library::LibraryTrackId;
 
@@ -71,7 +71,7 @@ pub fn save_at(conn: &Connection, file: i64, answer: &Answer, rev: i64) -> rusql
     if load(conn, file)?.is_some_and(|old| old.stale) {
         conn.execute("DELETE FROM identify_lookup WHERE file_id = ?1", [file])?;
     }
-    let path = PATH;
+    let path = answer.path.as_str();
     let reason = answer.why.map(|w| w.code());
     if answer.outcome.completed() {
         let candidates = encode(&answer.candidates);

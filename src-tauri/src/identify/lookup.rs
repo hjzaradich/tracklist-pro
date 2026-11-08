@@ -32,7 +32,7 @@
 //! The services are reached through [`Backend`], so the flow is tested with
 //! no network; the real one ([`Live`]) sends every request through the gate.
 
-use super::names::{artist_matches, base_title, close, Names};
+use super::names::{artist_matches, base_title, close, same_version, Names};
 use super::offline::push_version;
 use super::{Candidate, IdentifyField, IdentifySource};
 use crate::credentials::{Credentials, DISCOGS};
@@ -54,8 +54,6 @@ pub const MIN_SCORE: f64 = 0.8;
 pub const MAX_RECORDINGS: usize = 3;
 /// The most releases asked about for a file.
 pub const MAX_RELEASES: usize = 2;
-/// The services asked, in order, as stored with the answer.
-pub const PATH: &str = "acoustid+musicbrainz";
 
 /// The name candidates give for their service and the one that led to it.
 pub const SERVICE: &str = "MusicBrainz";
@@ -65,6 +63,9 @@ pub const DISCOGS_NAME: &str = "Discogs";
 
 /// The requests a look-up makes.
 pub trait Backend: Send + Sync + 'static {
+    /// A new batch of files begins: whatever was read once for the last one
+    /// (the Discogs token) is read again.
+    fn new_batch(&self) {}
     /// Whether the project's AcoustID key is still unfilled.
     fn acoustid_key_missing(&self) -> bool;
     fn acoustid(&self, blob: &[u8], seconds: u32) -> Result<Vec<AcoustidMatch>, ClientError>;
@@ -81,11 +82,39 @@ pub trait Backend: Send + Sync + 'static {
 
 /// The real services, through the gate.
 pub struct Live {
-    pub net: Net,
-    pub credentials: Credentials,
+    net: Net,
+    credentials: Credentials,
+    /// The Discogs token as read from the password store for the batch in
+    /// progress (`None`: not read yet; `Some(None)`: there is none). Read
+    /// once per batch, never logged, never returned.
+    token: std::sync::Mutex<Option<Option<String>>>,
+}
+
+impl Live {
+    pub fn new(net: Net, credentials: Credentials) -> Live {
+        Live {
+            net,
+            credentials,
+            token: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// The token for this batch, read from the store the first time it is
+    /// needed.
+    fn token(&self) -> Option<String> {
+        let mut slot = self.token.lock().unwrap_or_else(|e| e.into_inner());
+        slot.get_or_insert_with(|| match self.credentials.get(DISCOGS) {
+            Ok(Some(token)) if !token.trim().is_empty() => Some(token),
+            _ => None,
+        })
+        .clone()
+    }
 }
 
 impl Backend for Live {
+    fn new_batch(&self) {
+        *self.token.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
     fn acoustid_key_missing(&self) -> bool {
         acoustid::key_missing()
     }
@@ -102,14 +131,10 @@ impl Backend for Live {
         musicbrainz::search(&self.net, query, SEARCH_LIMIT)
     }
     fn discogs_token_saved(&self) -> bool {
-        matches!(self.credentials.get(DISCOGS), Ok(Some(t)) if !t.trim().is_empty())
+        self.token().is_some()
     }
     fn discogs(&self, artist: &str, track: &str) -> Result<Vec<LookupHit>, ClientError> {
-        // The token is read here, for this request, and goes nowhere else.
-        let token = match self.credentials.get(DISCOGS) {
-            Ok(Some(token)) => token,
-            _ => return Err(ClientError::NoToken),
-        };
+        let token = self.token().ok_or(ClientError::NoToken)?;
         discogs::search_track(&self.net, &token, artist, track, SEARCH_LIMIT * 2)
     }
 }
@@ -222,6 +247,9 @@ impl Why {
     }
 }
 
+/// The `path` of an answer for which nothing was asked.
+pub const NO_PATH: &str = "none";
+
 /// What one file's look-up came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
@@ -230,6 +258,10 @@ pub struct Answer {
     pub candidates: Vec<Candidate>,
     /// The MusicBrainz release ids the candidates came from.
     pub releases: Vec<String>,
+    /// The services actually asked, in order, joined with `+`: e.g.
+    /// `acoustid+musicbrainz`, `musicbrainz-name`, `discogs`; `none` when no
+    /// request was made.
+    pub path: String,
 }
 
 impl Answer {
@@ -239,6 +271,7 @@ impl Answer {
             why: Some(why),
             candidates: Vec::new(),
             releases: Vec::new(),
+            path: NO_PATH.to_owned(),
         }
     }
 
@@ -285,22 +318,48 @@ struct Course {
     nothing: Option<Why>,
     /// A service wasn't asked: why (the last one).
     skipped: Option<Why>,
+    /// The services asked, in order (each once).
+    asked: Vec<&'static str>,
+}
+
+impl Course {
+    /// Notes that `service` is about to be asked.
+    fn ask(&mut self, service: &'static str) {
+        if !self.asked.contains(&service) {
+            self.asked.push(service);
+        }
+    }
+
+    fn path(&self) -> String {
+        if self.asked.is_empty() {
+            NO_PATH.to_owned()
+        } else {
+            self.asked.join("+")
+        }
+    }
 }
 
 /// Looks one file up. Sends nothing unless a service is on, its key is
 /// there and the file has what the look-up needs. A request that fails ends
 /// the look-up of this file as failed (a Discogs one only when nothing else
-/// was found); it never panics or stops the caller.
+/// was found); it never panics or stops the caller. The answer's `path` says
+/// which services were really asked.
 pub fn look_up(backend: &dyn Backend, on: On, input: &Input) -> Answer {
+    let mut course = Course::default();
+    let mut answer = run(backend, on, input, &mut course);
+    answer.path = course.path();
+    answer
+}
+
+fn run(backend: &dyn Backend, on: On, input: &Input, course: &mut Course) -> Answer {
     if !on.acoustid && !on.musicbrainz && !on.discogs {
         return Answer::skipped(Why::ServicesOff);
     }
-    let mut course = Course::default();
-    if let Err(answer) = musicbrainz_side(backend, on, input, &mut course) {
+    if let Err(answer) = musicbrainz_side(backend, on, input, course) {
         return answer;
     }
     if on.discogs {
-        if let Err(answer) = discogs_side(backend, input, &mut course) {
+        if let Err(answer) = discogs_side(backend, input, course) {
             if course.found.is_empty() {
                 return answer;
             }
@@ -310,8 +369,9 @@ pub fn look_up(backend: &dyn Backend, on: On, input: &Input) -> Answer {
         return Answer {
             outcome: Outcome::Found,
             why: None,
-            candidates: course.found,
-            releases: course.releases,
+            candidates: std::mem::take(&mut course.found),
+            releases: std::mem::take(&mut course.releases),
+            path: NO_PATH.to_owned(),
         };
     }
     match course.nothing {
@@ -341,6 +401,7 @@ fn musicbrainz_side(
         input.fingerprint.as_deref(),
         acoustid::whole_seconds(input.duration_ms),
     ) {
+        course.ask("acoustid");
         let matches = backend
             .acoustid(blob, seconds)
             .map_err(|e| error_answer(&e))?;
@@ -364,18 +425,22 @@ fn musicbrainz_side(
                 course.skipped = Some(Why::NoName);
             }
             None => {}
-            Some(names) => match name_search(backend, names)? {
-                Some(id) => recordings.push(id),
-                None => {
-                    course.nothing.get_or_insert(Why::NoMatch);
+            Some(names) => {
+                course.ask("musicbrainz-name");
+                match name_search(backend, names)? {
+                    Some(id) => recordings.push(id),
+                    None => {
+                        course.nothing.get_or_insert(Why::NoMatch);
+                    }
                 }
-            },
+            }
         }
     }
     if recordings.is_empty() {
         return Ok(());
     }
-    details(backend, &recordings, &origin, course)?;
+    let by_name = input.names.as_ref().filter(|_| origin == name_source());
+    details(backend, &recordings, &origin, by_name, course)?;
     if course.found.is_empty() {
         course.nothing.get_or_insert(Why::NoDetails);
     }
@@ -387,13 +452,21 @@ fn details(
     backend: &dyn Backend,
     recordings: &[String],
     origin: &IdentifySource,
+    by_name: Option<&Names>,
     course: &mut Course,
 ) -> Result<(), Answer> {
+    if by_name.is_none() {
+        course.ask("musicbrainz");
+    }
     let mut known = Vec::new();
     for mbid in recordings {
         match backend.recording(mbid) {
             Ok(recording) => {
-                from_recording(&recording, origin, &mut course.found);
+                // A hit found by name can't tell versions apart: it gives a Mix only
+                // when its version is the file's own.
+                let mix_ok =
+                    by_name.is_none_or(|n| same_version(&n.title, recording.title.as_deref()));
+                from_recording(&recording, origin, mix_ok, &mut course.found);
                 known.push(recording);
             }
             // AcoustID named a recording MusicBrainz no longer has.
@@ -454,6 +527,7 @@ fn discogs_side(backend: &dyn Backend, input: &Input, course: &mut Course) -> Re
         course.skipped = Some(Why::NoName);
         return Ok(());
     };
+    course.ask("discogs");
     let hits = backend
         .discogs(&names.artist, &base_title(&names.title))
         .map_err(|e| error_answer(&e))?;
@@ -537,14 +611,21 @@ fn candidate(field: IdentifyField, value: String, source: &IdentifySource) -> Ca
 }
 
 /// Name, Artist and the version the title names.
-fn from_recording(recording: &Recording, origin: &IdentifySource, out: &mut Vec<Candidate>) {
+fn from_recording(
+    recording: &Recording,
+    origin: &IdentifySource,
+    mix_ok: bool,
+    out: &mut Vec<Candidate>,
+) {
     if let Some(title) = &recording.title {
         // The title as MusicBrainz spells it, bracketed version included, as
         // the tags' title is offered; the version is also offered as the Mix.
         let mut versions = Vec::new();
         push_version(&parse_title(title), origin, &mut versions);
         out.push(candidate(IdentifyField::Name, title.clone(), origin));
-        out.extend(versions);
+        if mix_ok {
+            out.extend(versions);
+        }
     }
     if let Some(artist) = &recording.artist {
         out.push(candidate(IdentifyField::Artist, artist.clone(), origin));
@@ -584,6 +665,8 @@ fn from_release(release: &Release, origin: &IdentifySource, out: &mut Vec<Candid
 fn error_answer(error: &ClientError) -> Answer {
     match error {
         ClientError::KeyMissing(_) => Answer::skipped(Why::KeyMissing),
+        // The saved token went missing, or can't be sent.
+        ClientError::NoToken => Answer::skipped(Why::NoToken),
         ClientError::NoFingerprint => Answer::skipped(Why::NoFingerprint),
         // Switched off while the job ran.
         ClientError::Net(NetError::NotOptedIn(_)) => Answer::skipped(Why::ServicesOff),

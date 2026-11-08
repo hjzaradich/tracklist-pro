@@ -87,11 +87,18 @@ fn a_hit_is_close_when_title_and_artist_agree_after_folding_and_loose_when_not()
     let want = names();
     // Case, punctuation and a bracketed version fold away.
     assert!(close(&want, "TEST TRACK!", "test artist"));
-    assert!(close(&want, "Test Track (Radio Edit)", "Test Artist"));
+    assert!(close(&want, "Test Track", "Test Artist"));
+    assert!(close(&want, "Test Track (Extended Mix)", "Test Artist"));
     assert!(close(&want, "Test-Track", "Test Artist"));
-    // One artist holds the other as whole words.
+    // The artists share a name: guests and joiners split a credit.
     assert!(close(&want, "Test Track", "Test Artist feat. Someone"));
-    assert!(close(&want, "Test Track", "Artist"));
+    assert!(close(&want, "Test Track", "Someone & Test Artist"));
+    assert!(close(&want, "Test Track", "Someone x Test Artist"));
+    // Not a whole name: "Artist" is not "Test Artist", nor is a longer name.
+    assert!(!close(&want, "Test Track", "Artist"));
+    assert!(!close(&want, "Test Track", "Test Artist Quartet"));
+    // Both titles carry a version and they differ: another mix.
+    assert!(!close(&want, "Test Track (Radio Edit)", "Test Artist"));
     // Loose: other title, other artist, a partial word.
     assert!(!close(&want, "Test Track Two", "Test Artist"));
     assert!(!close(&want, "Test", "Test Artist"));
@@ -530,7 +537,11 @@ fn an_arriving_inbox_file_is_queued_only_while_acoustid_or_musicbrainz_is_on() {
     ] {
         let queued = arrivals_queued(&on);
         assert_eq!(queued.len(), 1, "{on:?}");
-        assert_eq!(queued[0], r#"{"file_ids":[1]}"#, "{on:?}");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&queued[0]).unwrap(),
+            serde_json::json!({"file_ids": [1], "automatic": true}),
+            "{on:?}"
+        );
     }
 }
 
@@ -547,7 +558,10 @@ fn an_arrival_batch_is_one_job_in_the_order_given_and_none_for_no_files() {
     set_opt_in(&lib.writer, Service::MusicBrainz, true).unwrap();
     let job = lib.writer.call(|c| arrivals_job(c, &[3, 1, 2])).unwrap();
     let job = job.expect("a job");
-    assert_eq!(job.target, Some(serde_json::json!({"file_ids": [3, 1, 2]})));
+    assert_eq!(
+        job.target,
+        Some(serde_json::json!({"file_ids": [3, 1, 2], "automatic": true}))
+    );
     assert_eq!(job.priority, super::job::PRIORITY);
     assert!(lib.writer.call(|c| arrivals_job(c, &[])).unwrap().is_none());
 }
@@ -586,10 +600,7 @@ fn the_discogs_token_never_appears_in_any_reply_or_error() {
     let lib = Lib::new();
     let credentials = Credentials::in_memory();
     credentials.set(DISCOGS, SECRET).unwrap();
-    let live = Live {
-        net: Net::new(reads_for(&lib)),
-        credentials: credentials.clone(),
-    };
+    let live = Live::new(Net::new(reads_for(&lib)), credentials.clone());
     assert!(live.discogs_token_saved());
     // Discogs is off at the gate: refused before anything is sent.
     let error = live.discogs("Test Artist", "Test Track").unwrap_err();
@@ -619,6 +630,7 @@ fn the_discogs_token_never_appears_in_any_reply_or_error() {
         )
         .candidates,
         releases: Vec::new(),
+        path: "discogs".into(),
     };
     lib.writer
         .call(move |c| cache::save(c, file, &saved))
@@ -916,4 +928,252 @@ fn an_answer_with_no_recorded_revision_is_not_shown_as_found_and_is_never_requeu
         .call(|c| c.query_row("SELECT count(*) FROM job", [], |r| r.get(0)))
         .unwrap();
     assert_eq!(jobs, 0);
+}
+
+// --- Fix round 1 ---
+
+#[test]
+fn credits_split_into_names_and_a_longer_name_is_not_the_shorter_one() {
+    use super::names::{artists_match, credit_names};
+    assert_eq!(credit_names("Kit feat. Y"), ["kit", "y"]);
+    assert_eq!(
+        credit_names("A & B, C ft. D featuring E x F and G vs H").len(),
+        8
+    );
+    assert_eq!(credit_names("Eric B. & Rakim"), ["eric b", "rakim"]);
+    // A joiner at an end is part of a name.
+    assert_eq!(credit_names("Malcolm X"), ["malcolm x"]);
+    assert_eq!(credit_names("Artist (2)"), ["artist"]);
+    assert!(artists_match("Kit feat. Y", "Kit"));
+    assert!(artists_match("kit", "Y & KIT"));
+    assert!(!artists_match("Kit", "Kit Sebastian"));
+    assert!(!artists_match("Prince", "Prince Royce"));
+    assert!(!artists_match("", ""));
+}
+
+fn mixes(answer: &Answer) -> Vec<String> {
+    answer
+        .candidates
+        .iter()
+        .filter(|c| c.field == IdentifyField::Mix)
+        .map(|c| c.value.clone())
+        .collect()
+}
+
+#[test]
+fn a_name_search_hit_gives_a_mix_only_when_its_version_is_ours() {
+    // The recording the search leads to is the fixture's "... (Extended Mix)".
+    let fake = fake_with(|f| {
+        f.search_hits = vec![hit(Service::MusicBrainz, "Test Track", "Test Artist")];
+    });
+    let same = look_up(&fake, ONLY_MB, &named());
+    assert_eq!(mixes(&same), ["Extended Mix"]);
+    // Our file says another mix: the recording's version is not offered.
+    let other = Input {
+        names: Some(Names {
+            artist: "Test Artist".into(),
+            title: "Test Track (Radio Edit)".into(),
+        }),
+        ..Input::default()
+    };
+    let answer = look_up(&fake, ONLY_MB, &other);
+    assert_eq!(answer.outcome, Outcome::Found);
+    assert!(mixes(&answer).is_empty());
+    // And none when ours has no version.
+    let bare = Input {
+        names: Some(Names {
+            artist: "Test Artist".into(),
+            title: "Test Track".into(),
+        }),
+        ..Input::default()
+    };
+    assert!(mixes(&look_up(&fake, ONLY_MB, &bare)).is_empty());
+    // AcoustID, which tells versions apart, still gives it.
+    let with_print = Input {
+        fingerprint: Some(vec![1]),
+        duration_ms: Some(1000),
+        ..bare
+    };
+    let on = On {
+        acoustid: true,
+        musicbrainz: true,
+        discogs: false,
+    };
+    assert_eq!(
+        mixes(&look_up(&Fake::matching(), on, &with_print)),
+        ["Extended Mix"]
+    );
+}
+
+#[test]
+fn a_token_that_went_missing_reports_skipped_no_token_not_failed() {
+    let fake = fake_with(|f| {
+        f.token_saved = true;
+        f.discogs_no_token = true;
+    });
+    let answer = look_up(&fake, ONLY_DISCOGS, &named());
+    assert_eq!(
+        (answer.outcome, answer.why),
+        (Outcome::Skipped, Some(Why::NoToken))
+    );
+}
+
+#[test]
+fn the_path_says_which_services_were_actually_asked() {
+    let on_all = On {
+        acoustid: true,
+        musicbrainz: true,
+        discogs: true,
+    };
+    let print = Input {
+        fingerprint: Some(vec![1]),
+        duration_ms: Some(1000),
+        ..Input::default()
+    };
+    // Name search only.
+    let fake = fake_with(|f| {
+        f.search_hits = vec![hit(Service::MusicBrainz, "Test Track", "Test Artist")];
+    });
+    assert_eq!(look_up(&fake, ONLY_MB, &named()).path, "musicbrainz-name");
+    // AcoustID, then MusicBrainz by its recording.
+    let no_discogs = On {
+        discogs: false,
+        ..on_all
+    };
+    assert_eq!(
+        look_up(&Fake::matching(), no_discogs, &print).path,
+        "acoustid+musicbrainz"
+    );
+    // Discogs only.
+    let fake = fake_with(|f| f.token_saved = true);
+    assert_eq!(look_up(&fake, ONLY_DISCOGS, &named()).path, "discogs");
+    // AcoustID found nothing, the name search ran, and Discogs too.
+    let nothing = Fake::new(Box::new(|_| Ok(Vec::new())));
+    let fake = Arc::new(Fake {
+        token_saved: true,
+        ..Arc::into_inner(nothing).unwrap()
+    });
+    let both = Input {
+        names: Some(names()),
+        ..print
+    };
+    assert_eq!(
+        look_up(&fake, on_all, &both).path,
+        "acoustid+musicbrainz-name+discogs"
+    );
+    // Nothing asked: none.
+    let none = look_up(&Fake::matching(), ONLY_DISCOGS, &Input::default());
+    assert_eq!(none.path, "none");
+}
+
+#[test]
+fn the_stored_path_is_the_one_used_not_a_fixed_one() {
+    let (lib, file) = inbox_with_one_arrival();
+    let fake = fake_with(|f| {
+        f.token_saved = true;
+        f.discogs_hits = vec![hit(Service::Discogs, "Test Album", "Test Artist")];
+    });
+    let answer = look_up(&fake, ONLY_DISCOGS, &named());
+    lib.writer
+        .call(move |c| cache::save(c, file, &answer))
+        .unwrap();
+    let path: String = lib
+        .writer
+        .call(|c| c.query_row("SELECT path FROM identify_lookup", [], |r| r.get(0)))
+        .unwrap();
+    assert_eq!(path, "discogs");
+}
+
+#[test]
+fn the_discogs_token_is_read_from_the_store_once_per_batch() {
+    let lib = Lib::new();
+    let credentials = Credentials::in_memory();
+    credentials.set(DISCOGS, SECRET).unwrap();
+    let live = Live::new(Net::new(reads_for(&lib)), credentials.clone());
+    assert!(live.discogs_token_saved());
+    // Gone from the store: the batch in progress still has what it read.
+    credentials.clear(DISCOGS).unwrap();
+    assert!(live.discogs_token_saved());
+    // The next batch reads the store again.
+    live.new_batch();
+    assert!(!live.discogs_token_saved());
+    credentials.set(DISCOGS, SECRET).unwrap();
+    assert!(!live.discogs_token_saved());
+    live.new_batch();
+    assert!(live.discogs_token_saved());
+}
+
+mod automatic {
+    use super::super::job::{automatic_lookup_job, lookup_job};
+    use super::super::online_tests::{setup, Setup};
+    use super::*;
+    use crate::jobs::JobStatus;
+
+    fn run_job(s: &Setup, fake: &Arc<Fake>, job: NewJob) {
+        let queue = s.queue(fake);
+        let id = queue.enqueue(job).unwrap();
+        assert_eq!(s.wait(id), JobStatus::Done);
+        queue.shutdown();
+    }
+
+    #[test]
+    fn an_automatic_job_asks_nothing_once_acoustid_and_musicbrainz_are_off_but_a_manual_one_may() {
+        let s = setup(2);
+        // Switched on when the files arrived, off by the time the job runs;
+        // Discogs is on and has a token.
+        s.switch(Service::Discogs, true);
+        let fake = fake_with(|f| {
+            f.token_saved = true;
+            f.discogs_hits = vec![hit(Service::Discogs, "Title 0", "Artist")];
+        });
+        run_job(&s, &fake, automatic_lookup_job(&s.files()));
+        assert!(fake.calls().is_empty(), "{:?}", fake.calls());
+        for file in s.files() {
+            assert_eq!(
+                s.stored(file),
+                Some((Outcome::Skipped, Some("services_off".into())))
+            );
+        }
+        // The same files by request, with only Discogs on: allowed.
+        run_job(&s, &fake, lookup_job(&s.files()));
+        assert_eq!(fake.calls().len(), 2);
+        assert!(fake.calls().iter().all(|c| c.starts_with("discogs ")));
+    }
+
+    #[test]
+    fn an_automatic_job_still_asks_while_one_of_the_two_is_on() {
+        let s = setup(1);
+        s.switch(Service::MusicBrainz, true);
+        let fake = fake_with(|_| {});
+        run_job(&s, &fake, automatic_lookup_job(&s.files()));
+        assert!(!fake.calls().is_empty());
+    }
+
+    fn status_of_file(s: &Setup) -> super::super::job::InboxLookupStatus {
+        let file = s.files()[0];
+        s.lib
+            .writer
+            .call(move |c| file_statuses(c, &[file]))
+            .unwrap()
+            .remove(0)
+    }
+
+    #[test]
+    fn an_inbox_file_s_status_names_the_best_artist_title_and_mix_with_their_sources() {
+        let s = setup(1);
+        s.both_on();
+        s.switch(Service::Discogs, true);
+        let fake = Fake::matching();
+        run_job(&s, &fake, lookup_job(&s.files()));
+        let found = status_of_file(&s).identified.expect("identified");
+        assert_eq!(
+            found.artist.as_deref(),
+            Some("Test Artist & Second Act feat. Third Voice")
+        );
+        assert_eq!(found.title.as_deref(), Some("Test Track (Extended Mix)"));
+        assert_eq!(found.mix.as_deref(), Some("Extended Mix"));
+        assert_eq!(found.sources, [online("MusicBrainz", Some("AcoustID"))]);
+        // Nothing looked up yet: null.
+        assert_eq!(status_of_file(&setup(1)).identified, None);
+    }
 }

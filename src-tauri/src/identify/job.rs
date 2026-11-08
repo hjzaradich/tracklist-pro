@@ -46,6 +46,17 @@ pub fn lookup_job(file_ids: &[i64]) -> NewJob {
         .priority(PRIORITY)
 }
 
+/// The job for Inbox files that just arrived: as [`lookup_job`], marked
+/// automatic. An automatic job asks nothing for the files if, when it runs,
+/// neither AcoustID nor MusicBrainz is switched on (the owner's decision: the
+/// only automatic look-ups are while those two are on; Discogs alone doesn't
+/// start one).
+pub fn automatic_lookup_job(file_ids: &[i64]) -> NewJob {
+    NewJob::new(JobKind::IdentifyLookup)
+        .target(serde_json::json!({ "file_ids": file_ids, "automatic": true }))
+        .priority(PRIORITY)
+}
+
 /// The job's handler.
 pub struct Looker {
     backend: Arc<dyn Backend>,
@@ -94,6 +105,12 @@ impl JobHandler for Looker {
             .and_then(|t| t.get("file_ids"))
             .and_then(|ids| serde_json::from_value(ids.clone()).ok())
             .ok_or_else(|| JobError::failed("the look-up job has no list of files"))?;
+        let automatic = job
+            .target()
+            .and_then(|t| t.get("automatic"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        self.backend.new_batch();
         let mut offline = false;
         for (done, &file) in ids.iter().enumerate() {
             job.check_cancelled()?;
@@ -101,10 +118,14 @@ impl JobHandler for Looker {
                 // The file is gone; there is nothing to keep.
                 continue;
             };
+            let on = self.switches()?;
             let answer = if offline {
                 Answer::failed(Why::Offline)
+            } else if automatic && !on.acoustid && !on.musicbrainz {
+                // Switched off since the file arrived: nothing is asked.
+                Answer::skipped(Why::ServicesOff)
             } else {
-                look_up(&*self.backend, self.switches()?, &input)
+                look_up(&*self.backend, on, &input)
             };
             offline = answer.why == Some(Why::Offline);
             let rev = input.fingerprint_rev;
@@ -204,6 +225,22 @@ pub struct InboxLookupStatus {
     pub found: u32,
     pub when: Option<String>,
     pub later_attempt: Option<LookupAttempt>,
+    /// The best values the file's kept result found for its artist, title
+    /// and Mix, with the services that gave them; none when the file has no
+    /// current result that found any.
+    pub identified: Option<Identified>,
+}
+
+/// What the online look-up says a file is: for each of artist, title and Mix
+/// the value most services agree on (then the first found), and the
+/// services behind those values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Identified {
+    pub artist: Option<String>,
+    pub title: Option<String>,
+    pub mix: Option<String>,
+    pub sources: Vec<super::IdentifySource>,
 }
 
 /// The status of each of `files`, in that order.
@@ -219,6 +256,7 @@ pub fn file_statuses(conn: &Connection, files: &[i64]) -> rusqlite::Result<Vec<I
                 found: s.found,
                 when: s.when,
                 later_attempt: s.later_attempt,
+                identified: identified(conn, file_id)?,
             })
         })
         .collect()
@@ -398,13 +436,62 @@ pub async fn identify_lookup_status(
 pub fn looker<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Looker {
     use tauri::Manager;
     Looker::new(
-        super::lookup::Live {
-            net: app.state::<crate::net::Net>().inner().clone(),
-            credentials: app
-                .state::<crate::credentials::Credentials>()
+        super::lookup::Live::new(
+            app.state::<crate::net::Net>().inner().clone(),
+            app.state::<crate::credentials::Credentials>()
                 .inner()
                 .clone(),
-        },
+        ),
         app.state::<ReadPool>().inner().clone(),
     )
+}
+
+/// The best candidate values of `file`'s current kept result, if it found
+/// any artist or title.
+pub fn identified(conn: &Connection, file: i64) -> rusqlite::Result<Option<Identified>> {
+    let Some(kept) =
+        cache::load(conn, file)?.filter(|k| k.outcome == super::lookup::Outcome::Found && !k.stale)
+    else {
+        return Ok(None);
+    };
+    let mut sources: Vec<super::IdentifySource> = Vec::new();
+    let mut best = |field: super::IdentifyField| -> Option<String> {
+        // The value with the most distinct sources; the first found wins a tie.
+        let mut values: Vec<(&str, Vec<&super::IdentifySource>)> = Vec::new();
+        for c in kept.candidates.iter().filter(|c| c.field == field) {
+            match values.iter_mut().find(|(v, _)| *v == c.value) {
+                Some((_, from)) => {
+                    if !from.contains(&&c.source) {
+                        from.push(&c.source);
+                    }
+                }
+                None => values.push((&c.value, vec![&c.source])),
+            }
+        }
+        let (value, from) = values.into_iter().reduce(|best, next| {
+            if next.1.len() > best.1.len() {
+                next
+            } else {
+                best
+            }
+        })?;
+        for source in from {
+            if !sources.contains(source) {
+                sources.push(source.clone());
+            }
+        }
+        Some(value.to_owned())
+    };
+    let artist = best(super::IdentifyField::Artist);
+    let title = best(super::IdentifyField::Name);
+    let mix = best(super::IdentifyField::Mix);
+    if artist.is_none() && title.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(Identified {
+        artist,
+        title,
+        mix,
+        sources,
+    }))
 }

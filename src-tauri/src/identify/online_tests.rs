@@ -32,7 +32,7 @@ pub(super) struct Fake {
     pub(super) calls: Mutex<Vec<String>>,
     pub(super) acoustid: AcoustidReply,
     /// Run before each AcoustID request, with its fingerprint.
-    before_acoustid: BeforeAcoustid,
+    pub(super) before_acoustid: BeforeAcoustid,
     /// Recording ids MusicBrainz doesn't know.
     pub(super) unknown: Vec<String>,
     /// What a MusicBrainz recording search finds.
@@ -40,6 +40,8 @@ pub(super) struct Fake {
     /// Whether a Discogs token is saved, and what a Discogs search finds.
     pub(super) token_saved: bool,
     pub(super) discogs_hits: Vec<LookupHit>,
+    /// A Discogs search answers that the token is gone.
+    pub(super) discogs_no_token: bool,
     /// Replaces the fixture release's date.
     pub(super) release_date: Option<String>,
 }
@@ -55,6 +57,7 @@ impl Fake {
             search_hits: Vec::new(),
             token_saved: false,
             discogs_hits: Vec::new(),
+            discogs_no_token: false,
             release_date: None,
         })
     }
@@ -106,6 +109,9 @@ impl Backend for Arc<Fake> {
             .lock()
             .unwrap()
             .push(format!("discogs {artist} / {track}"));
+        if self.discogs_no_token {
+            return Err(ClientError::NoToken);
+        }
         Ok(self.discogs_hits.clone())
     }
 }
@@ -334,14 +340,14 @@ fn a_recording_musicbrainz_no_longer_has_is_passed_over_not_a_failure() {
 // --- The job ---
 
 /// A Library track whose linked file has a fingerprint and a length.
-struct Setup {
-    lib: Lib,
-    reads: ReadPool,
+pub(super) struct Setup {
+    pub(super) lib: Lib,
+    pub(super) reads: ReadPool,
     /// (file, library track) per track.
-    tracks: Vec<(i64, i64)>,
+    pub(super) tracks: Vec<(i64, i64)>,
 }
 
-fn setup(count: usize) -> Setup {
+pub(super) fn setup(count: usize) -> Setup {
     let lib = Lib::new();
     let mut tracks = Vec::new();
     for n in 0..count {
@@ -358,16 +364,16 @@ fn setup(count: usize) -> Setup {
 }
 
 impl Setup {
-    fn switch(&self, service: Service, on: bool) {
+    pub(super) fn switch(&self, service: Service, on: bool) {
         set_opt_in(&self.lib.writer, service, on).unwrap();
     }
 
-    fn both_on(&self) {
+    pub(super) fn both_on(&self) {
         self.switch(Service::AcoustId, true);
         self.switch(Service::MusicBrainz, true);
     }
 
-    fn queue(&self, fake: &Arc<Fake>) -> JobQueue {
+    pub(super) fn queue(&self, fake: &Arc<Fake>) -> JobQueue {
         JobQueue::builder(self.lib.writer.clone())
             .workers(1)
             .handler(
@@ -378,12 +384,12 @@ impl Setup {
             .unwrap()
     }
 
-    fn files(&self) -> Vec<i64> {
+    pub(super) fn files(&self) -> Vec<i64> {
         self.tracks.iter().map(|t| t.0).collect()
     }
 
     /// Runs the job over every file to its end.
-    fn run(&self, fake: &Arc<Fake>) -> JobStatus {
+    pub(super) fn run(&self, fake: &Arc<Fake>) -> JobStatus {
         let queue = self.queue(fake);
         let id = queue.enqueue(lookup_job(&self.files())).unwrap();
         let status = self.wait(id);
@@ -391,7 +397,7 @@ impl Setup {
         status
     }
 
-    fn wait(&self, id: JobId) -> JobStatus {
+    pub(super) fn wait(&self, id: JobId) -> JobStatus {
         let start = Instant::now();
         loop {
             let job = self
@@ -409,7 +415,7 @@ impl Setup {
     }
 
     /// (outcome, reason) stored for `file`, if any.
-    fn stored(&self, file: i64) -> Option<(Outcome, Option<String>)> {
+    pub(super) fn stored(&self, file: i64) -> Option<(Outcome, Option<String>)> {
         self.lib
             .writer
             .call(move |c| cache::load(c, file))
@@ -417,13 +423,13 @@ impl Setup {
             .map(|c| (c.outcome, c.reason))
     }
 
-    fn status(&self) -> Vec<job::IdentifyLookupStatus> {
+    pub(super) fn status(&self) -> Vec<job::IdentifyLookupStatus> {
         let ids: Vec<_> = self.tracks.iter().map(|t| LibraryTrackId(t.1)).collect();
         self.lib.writer.call(move |c| status_of(c, &ids)).unwrap()
     }
 }
 
-fn offline() -> ClientError {
+pub(super) fn offline() -> ClientError {
     ClientError::Net(NetError::Failed {
         host: Some("api.acoustid.org".into()),
         reason: "the connection failed",
@@ -551,6 +557,7 @@ fn a_completed_new_lookup_replaces_the_old_result_and_a_failed_one_does_not_wipe
         why: None,
         candidates: vec![candidate(value)],
         releases: vec!["rel-1".into()],
+        path: "acoustid+musicbrainz".into(),
     };
 
     let first = save(found("Old Label"));
@@ -575,6 +582,7 @@ fn a_completed_new_lookup_replaces_the_old_result_and_a_failed_one_does_not_wipe
         why: Some(Why::NoMatch),
         candidates: Vec::new(),
         releases: Vec::new(),
+        path: "acoustid+musicbrainz".into(),
     });
     assert_eq!(
         (nothing.outcome, nothing.candidates.len()),

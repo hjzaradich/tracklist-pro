@@ -3,9 +3,11 @@
 //!
 //! A search by name finds look-alikes, so a hit is taken only when it matches
 //! closely ([`close`]): the titles are equal once case, punctuation and a
-//! bracketed version are folded away, and the artists are equal after
-//! folding, or one holds the other as whole words ("Daft Punk" in "Daft Punk
-//! feat. Pharrell", not "Dan" in "Danny"). Anything looser is dropped.
+//! bracketed version are folded away; the artists share a name (each credit
+//! is split on `&`, `,`, `feat.`, `ft.`, `featuring`, `x`, `and`, `vs`, and one
+//! name must match exactly: "Kit feat. Y" has "Kit", "Kit Sebastian" does
+//! not); and where both titles carry a bracketed version it is the same one.
+//! Anything looser is dropped.
 
 use crate::send_values::tag_values;
 use crate::versions::{parse_file_name, parse_title, CreditRole};
@@ -82,27 +84,123 @@ pub fn fold(text: &str) -> String {
 }
 
 /// Whether `hit_title` and `hit_artist` are the track `want`, by the rule in
-/// the module docs.
+/// the module docs: the titles are equal once folded, the artists share a
+/// name ([`artists_match`]), and where both titles carry a bracketed version
+/// the versions are the same.
 pub fn close(want: &Names, hit_title: &str, hit_artist: &str) -> bool {
     let title = fold(&base_title(&want.title));
     !title.is_empty()
         && title == fold(&base_title(hit_title))
-        && same_artist(&fold(&want.artist), &fold(hit_artist))
-}
-
-/// Equal, or one's words are a run of whole words of the other's.
-fn same_artist(a: &str, b: &str) -> bool {
-    if a.is_empty() || b.is_empty() {
-        return false;
-    }
-    let (a, b): (Vec<&str>, Vec<&str>) = (a.split(' ').collect(), b.split(' ').collect());
-    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
-    long.windows(short.len()).any(|w| w == short.as_slice())
+        && artists_match(&want.artist, hit_artist)
+        && versions_agree(&want.title, hit_title)
 }
 
 /// Whether `hit_artist` is the artist of `want`, by the artist half of
 /// [`close`]: for a hit whose own title isn't the track's (a Discogs release
 /// that contains it).
 pub fn artist_matches(want: &Names, hit_artist: &str) -> bool {
-    same_artist(&fold(&want.artist), &fold(hit_artist))
+    artists_match(&want.artist, hit_artist)
+}
+
+/// The words that join the names of a credit ("A feat. B", "A x B").
+const JOINERS: [&str; 6] = ["feat", "ft", "featuring", "x", "and", "vs"];
+
+/// The names in a credit, folded: split on `&`, `,`, `feat.`, `ft.`,
+/// `featuring`, `x`, `and` and `vs`. A joiner at the start or end of the
+/// credit, or beside another, is part of a name ("Malcolm X").
+pub fn credit_names(credit: &str) -> Vec<String> {
+    let mut spaced = String::new();
+    let mut depth = 0u32;
+    for c in credit.chars() {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.saturating_sub(1),
+            _ if depth > 0 => {}
+            '&' | ',' | ';' | '/' | '+' => spaced.push_str(" | "),
+            c if c.is_alphanumeric() => spaced.extend(c.to_lowercase()),
+            _ => spaced.push(' '),
+        }
+    }
+    let words: Vec<&str> = spaced.split_whitespace().collect();
+    let is_joiner = |i: usize| {
+        JOINERS.contains(&words[i])
+            && i > 0
+            && i + 1 < words.len()
+            && words[i - 1] != "|"
+            && words[i + 1] != "|"
+            && !JOINERS.contains(&words[i + 1])
+    };
+    let mut names = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    for (i, &word) in words.iter().enumerate() {
+        if word == "|" || is_joiner(i) {
+            if !current.is_empty() {
+                names.push(current.join(" "));
+                current.clear();
+            }
+        } else {
+            current.push(word);
+        }
+    }
+    if !current.is_empty() {
+        names.push(current.join(" "));
+    }
+    names
+}
+
+/// Whether two credits share a name exactly (after folding): "Kit feat. Y"
+/// has "Kit"; "Kit Sebastian" doesn't.
+pub fn artists_match(a: &str, b: &str) -> bool {
+    let (a, b) = (credit_names(a), credit_names(b));
+    a.iter().any(|name| b.contains(name))
+}
+
+/// The version a title carries in brackets or after a dash ("Velo (Extended
+/// Mix)": "extended mix"), folded; `None` when the parser sees none it is
+/// sure of.
+fn version_of(title: &str) -> Option<String> {
+    let parsed = parse_title(title);
+    let texts: Vec<String> = parsed
+        .markers
+        .iter()
+        .filter(|m| !m.ambiguous)
+        .map(|m| {
+            m.text
+                .trim()
+                .trim_start_matches(['-', '(', '[', '{'])
+                .trim_end_matches([')', ']', '}'])
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric() {
+                        c.to_lowercase().collect::<String>()
+                    } else {
+                        " ".to_owned()
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect();
+    let joined = texts
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(joined).filter(|v| !v.is_empty())
+}
+
+/// Whether both titles carry a version and it is the same one.
+pub fn same_version(want_title: &str, hit_title: Option<&str>) -> bool {
+    match (version_of(want_title), hit_title.and_then(version_of)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// Two versions, where both titles carry one, must be the same; a title
+/// without one agrees with any.
+fn versions_agree(want_title: &str, hit_title: &str) -> bool {
+    match (version_of(want_title), version_of(hit_title)) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
 }

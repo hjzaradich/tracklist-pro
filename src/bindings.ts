@@ -2164,6 +2164,18 @@ export type HistoryRefusal =
 "badDate";
 
 /**
+ *  What the online look-up says a file is: for each of artist, title and Mix
+ *  the value most services agree on (then the first found), and the
+ *  services behind those values.
+ */
+export type Identified = {
+	artist: string | null,
+	title: string | null,
+	mix: string | null,
+	sources: IdentifySource[],
+};
+
+/**
  *  One value the user chose for one field. `field` is an
  *  [`IdentifyField`]'s name ("Name", …, "CatalogueNumber").
  */
@@ -2325,6 +2337,12 @@ export type InboxLookupStatus = {
 	found: number,
 	when: string | null,
 	laterAttempt: LookupAttempt | null,
+	/**
+	 *  The best values the file's kept result found for its artist, title
+	 *  and Mix, with the services that gave them; none when the file has no
+	 *  current result that found any.
+	 */
+	identified: Identified | null,
 };
 
 /**  What an Inbox action came to. */

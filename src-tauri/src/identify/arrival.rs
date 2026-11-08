@@ -7,14 +7,14 @@
 //! look-up job, at the job's low priority ([`super::job::PRIORITY`]). With
 //! both off nothing is queued, whatever Discogs and Cover Art say: the
 //! automatic look-up is for the two services that identify a file. The
-//! services' own switches are checked again when the job runs, so a service
-//! switched off meanwhile is not asked.
+//! job is marked automatic: when it runs, if neither AcoustID nor MusicBrainz
+//! is on any more it asks nothing for those files, Discogs included.
 //!
 //! A failure to queue is logged and never touches intake or the hash job.
 
 use rusqlite::Connection;
 
-use super::job::lookup_job;
+use super::job::automatic_lookup_job;
 use crate::jobs::{JobContext, NewJob};
 use crate::net::{read_opt_in, Service};
 
@@ -27,7 +27,7 @@ pub fn arrivals_job(conn: &Connection, files: &[i64]) -> rusqlite::Result<Option
     if !read_opt_in(conn, Service::AcoustId)? && !read_opt_in(conn, Service::MusicBrainz)? {
         return Ok(None);
     }
-    Ok(Some(lookup_job(files)))
+    Ok(Some(automatic_lookup_job(files)))
 }
 
 /// Queues the automatic look-up for `files`, the Inbox files just made items
