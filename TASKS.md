@@ -112,7 +112,7 @@ In [TASKS-archive.md](TASKS-archive.md).
 - **2.2** (owner decisions 2026-11-08 in ROADMAP 2.2). Order: map, then K1 and S1 side by side, then S2, then U1. Migrations: S1 0057, S2 0058 if needed.
   - ✅ M code map (reviews/6A-map.md).
   - ✅ K1 (PR 227; Fable review 6/6 mutations) keys and switches, backend: Windows password store for the Discogs token (save, check, remove; never in the database, bundles, logs or diagnostics); the AcoustID service pinned to its host, its key a constant the owner fills in; switch commands for MusicBrainz, AcoustID, Discogs and Cover Art.
-  - [ ] K2 (PR 229) the Settings rows: each off, each saying what it sends; the Discogs token field.
+  - ✅ K2 (PR 229; light review) the Settings rows: each off, each saying what it sends; the Discogs token field.
   - [ ] S1 suggestions, offline: per-field suggestions (title, artist, version, remixer, label, year, album, catalogue number, artwork) from tags, the filename and version parser and sibling files, each naming its source; the catalogue number kept by the app; migration 0057.
   - [ ] S2 online look-up job: AcoustID from the stored fingerprint, then MusicBrainz; MusicBrainz and Discogs text search; the front cover from Cover Art. Through the gate, at each service's speed limit, cancellable; one bad answer never stops a batch. On request, and automatically for new Inbox files while switched on. Fable review.
   - [ ] U1 the Look up panel: in the track details and on Inbox rows, current value beside each suggestion with its source; "Use" per field and "Use all", one Undo each, sent to rekordbox like any edit; artwork and catalogue number shown only. Fable review.
