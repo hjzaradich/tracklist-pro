@@ -65,6 +65,10 @@ symphonia = { version = "0.6.1", default-features = false, features = ["opt-simd
 rustfft = "6.4.1"
 # Integrated loudness of a track (ROADMAP 3.7, the energy suggestion). MIT.
 ebur128 = "0.1.11"
+# The listening step (ROADMAP 3.8): CED-tiny run on the CPU in pure Rust. MIT OR Apache-2.0.
+tract-onnx = "0.23.10"
+# Resamples a window to the model's 16 kHz (ROADMAP 3.8). MIT. Already in the tree through rusty-chromaprint.
+rubato = "0.16.2"
 # The portability bundle is a .zip (ROADMAP 4.1). MIT. Deflate only, through
 # flate2 (already in the tree).
 zip = { version = "9.4.1", default-features = false, features = ["deflate-flate2"] }
@@ -145,4 +149,31 @@ opt-level = 3
 [profile.dev.package.symphonia-format-ogg]
 opt-level = 3
 [profile.dev.package.symphonia-format-riff]
+opt-level = 3
+
+# The listening step (3.8) runs CED-tiny on the CPU through tract: about 20 s
+# of audio per window, so unoptimized the model tests crawl. Dev and test builds only.
+[profile.dev.package.tract-core]
+opt-level = 3
+[profile.dev.package.tract-data]
+opt-level = 3
+[profile.dev.package.tract-linalg]
+opt-level = 3
+[profile.dev.package.tract-hir]
+opt-level = 3
+[profile.dev.package.tract-nnef]
+opt-level = 3
+[profile.dev.package.tract-onnx]
+opt-level = 3
+[profile.dev.package.tract-onnx-opl]
+opt-level = 3
+[profile.dev.package.tract-extra]
+opt-level = 3
+[profile.dev.package.tract-transformers]
+opt-level = 3
+[profile.dev.package.matrixmultiply]
+opt-level = 3
+[profile.dev.package.half]
+opt-level = 3
+[profile.dev.package.ndarray]
 opt-level = 3
