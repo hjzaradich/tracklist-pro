@@ -435,7 +435,9 @@ fn listening_is_cancellable_between_windows_during_inference() {
         2,
         "asked before each window, and stopped at the second"
     );
+}
 
+#[test]
 fn the_kept_labels_are_the_models_genre_and_mood_names() {
     let labels: Vec<String> = serde_json::from_slice(
         &std::fs::read(

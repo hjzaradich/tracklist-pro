@@ -322,7 +322,7 @@ impl<V: Volumes + Sync + 'static> Embedder<V> {
             Ok(Err(e)) => Outcome::Failed(match e {
                 ListenError::Unreadable(_) => Reason::Unreadable,
                 ListenError::NoAudio => Reason::NoAudio,
-                ListenError::Unsupported => Reason::Unsupported,
+                ListenError::Unsupported | ListenError::ImpossibleRate(_) => Reason::Unsupported,
                 ListenError::Damaged => Reason::Damaged,
                 ListenError::Model(_) => Reason::ModelFailed,
                 ListenError::Cancelled => unreachable!("handled above"),

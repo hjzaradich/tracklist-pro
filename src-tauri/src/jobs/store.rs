@@ -472,8 +472,8 @@ mod tests {
                     recovered,
                     Recovered {
                         cancelled: 0,
-                        requeued: 13,
-                        failed: 4
+                        requeued: 14,
+                        failed: 3
                     }
                 );
                 assert_eq!(get(c, waiting)?.unwrap().status, JobStatus::Queued);
@@ -508,6 +508,7 @@ mod tests {
             "index",
             "waveform",
             "analyze",
+            "embed",
         ];
         assert_eq!(ended.len(), 17);
         for (kind, status, progress, never_started, error) in ended {

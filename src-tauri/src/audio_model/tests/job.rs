@@ -188,7 +188,7 @@ fn the_audio_model_is_off_by_default_and_nothing_is_queued_or_loaded_while_off()
         panic!("queued {job:?} while off")
     })
     .unwrap();
-    assert_eq!(count(&library, "job"), 0);
+    assert!(embed_jobs(&library).is_empty());
     // Even a job that is queued does nothing: it ends at once, no load.
     let job = run(&library, embedder(&library, &loads));
     assert_eq!(job.status, JobStatus::Done);
