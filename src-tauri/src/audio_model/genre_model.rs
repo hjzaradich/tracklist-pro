@@ -257,14 +257,9 @@ fn sigmoid(logit: f64) -> f64 {
 /// of the additions is fixed, so the result is the same on every run.
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     let mut lanes = [0f32; 8];
-    let (a8, b8) = (a.chunks_exact(8), b.chunks_exact(8));
-    let tail: f32 = a8
-        .remainder()
-        .iter()
-        .zip(b8.remainder())
-        .map(|(x, y)| x * y)
-        .sum();
-    for (x, y) in a8.zip(b8) {
+    let ((a8, a_tail), (b8, b_tail)) = (a.as_chunks::<8>(), b.as_chunks::<8>());
+    let tail: f32 = a_tail.iter().zip(b_tail).map(|(x, y)| x * y).sum();
+    for (x, y) in a8.iter().zip(b8) {
         for k in 0..8 {
             lanes[k] += x[k] * y[k];
         }
