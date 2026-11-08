@@ -10,6 +10,11 @@
   "use": "Use",
   "useGenre": "Use {{genre}} as this track's genre",
   "used": "Genre set to {{genre}}",
+  "yourGenres": {
+    "title": "Your genres",
+    "opinion": "The model's opinion, learned from your own genres. The percent is how sure it is.",
+    "none": "No guess from your genres for this track. It learns once 2 genres have at least 10 tracks each."
+  },
   "similar": {
     "title": "Sounds like",
     "track": "{{artist}} - {{title}}",
