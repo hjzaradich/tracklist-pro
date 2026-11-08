@@ -132,6 +132,7 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, writer: Writer) -> Result<JobQueue,
             JobKind::GenreModel,
             crate::scan::chain::after_genre_model(crate::audio_model::genre_model::GenreLearner),
         )
+        .handler(JobKind::IdentifyLookup, crate::identify::job::looker(app))
         .start()
 }
 

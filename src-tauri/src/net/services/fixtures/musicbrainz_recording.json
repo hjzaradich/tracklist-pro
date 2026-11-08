@@ -1,0 +1,16 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "title": "Test Track (Extended Mix)",
+  "length": 372000,
+  "artist-credit": [
+    { "name": "Test Artist", "joinphrase": " & ", "artist": { "id": "00000000-0000-4000-8000-0000000000a1", "name": "Test Artist" } },
+    { "name": "Second Act", "joinphrase": " feat. ", "artist": { "id": "00000000-0000-4000-8000-0000000000a2", "name": "Second Act (the artist's own name)" } },
+    { "name": "", "joinphrase": "", "artist": { "id": "00000000-0000-4000-8000-0000000000a3", "name": "Third Voice" } }
+  ],
+  "releases": [
+    { "id": "00000000-0000-4000-8000-0000000000b2", "title": "Later Album", "date": "2009-03", "status": "Official" },
+    { "id": "00000000-0000-4000-8000-0000000000b1", "title": "Test Album", "date": "2001-05-06", "status": "Official" },
+    { "id": "00000000-0000-4000-8000-0000000000b3", "title": "Promo Single", "date": "2000", "status": "Promotion" },
+    { "title": "No id, dropped" }
+  ]
+}

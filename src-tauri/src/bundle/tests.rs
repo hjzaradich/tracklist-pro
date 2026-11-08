@@ -28,6 +28,8 @@ const SEED: &str = r#"
         VALUES (7, zeroblob(34), 'ced-tiny@a455633f/labels1', zeroblob(768), zeroblob(228));
     INSERT INTO embedding_failure (file_id, audio_hash, model_id, reason)
         VALUES (8, zeroblob(34), 'ced-tiny@a455633f/labels1', 'damaged');
+    INSERT INTO identify_lookup (file_id, path, outcome, candidates)
+        VALUES (7, 'acoustid+musicbrainz', 'found', '[{"field":"Label","value":"Velo"}]');
     INSERT INTO genre (id, name, name_key) VALUES (4, 'Techno', 'techno');
     INSERT INTO genre_model (id, model_id, signature, mean, scale, genres, tracks)
         VALUES (1, 'ced-tiny@a455633f/labels1', 'abc', zeroblob(768), zeroblob(768), 1, 12);
@@ -209,6 +211,7 @@ fn a_round_trip_keeps_every_user_table_and_the_id_counters() {
         "setting",
         "volume",
         "embedding_failure",
+        "identify_lookup",
     ];
     for (table, rows) in &before {
         if !machine.contains(&table.as_str()) {
@@ -224,6 +227,10 @@ fn a_round_trip_keeps_every_user_table_and_the_id_counters() {
     assert!(after["volume"][0].contains("serial=FS-1234ABCD"));
     assert!(after["volume"][0].contains("Null"));
     assert!(after["job"].is_empty() && after["service_optin"].is_empty());
+    assert!(
+        !before["identify_lookup"].is_empty() && after["identify_lookup"].is_empty(),
+        "the online look-ups' cache stays on this PC"
+    );
 }
 
 #[test]

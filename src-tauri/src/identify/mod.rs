@@ -46,7 +46,11 @@
 //! **Online candidates (job S2)** come in through [`suggestions_with`]: the
 //! caller gives its own [`Candidate`]s (with [`IdentifySource::Online`]),
 //! and they are merged and ranked with the offline ones by the same rules.
-//! This module makes no request and never names a service itself.
+//! This module makes no request and never names a service itself. The
+//! online part is in `lookup` (one file's flow: AcoustID, then MusicBrainz),
+//! `cache` (the answers kept per file, table `identify_lookup`) and `job`
+//! (the background job and its commands); [`suggestions_cached`] merges the
+//! kept answers of a track's linked file in.
 //!
 //! # Use ([`use_on`], command [`identify_use`])
 //!
@@ -64,8 +68,13 @@
 //! tracks gives the staying track the leaving one's catalogue number when
 //! it has none of its own (`review::same`).
 
+mod cache;
 mod choose;
+pub mod job;
+pub mod lookup;
 mod offline;
+#[cfg(test)]
+mod online_tests;
 mod rank;
 #[cfg(test)]
 mod tests;
@@ -158,8 +167,8 @@ pub enum IdentifySource {
     FileName { file: NamedFile },
     /// The tags of another file of the same track.
     Sibling { file: NamedFile },
-    /// An online service (job S2): `service` is its name, `via` the service
-    /// that led to it ("MusicBrainz via AcoustID"). Nothing here gives one.
+    /// An online service (`lookup`): `service` is its name, `via` the service
+    /// that led to it ("MusicBrainz via AcoustID").
     Online {
         service: String,
         via: Option<String>,
@@ -318,8 +327,20 @@ pub fn suggestions_with(
     }))
 }
 
+/// [`suggestions`] with the online details kept for the track's linked file
+/// (`cache`) merged in. Makes no request.
+pub fn suggestions_cached(
+    conn: &Connection,
+    volumes: &impl Volumes,
+    track: LibraryTrackId,
+) -> rusqlite::Result<Option<IdentifySuggestions>> {
+    let extra = cache::for_track(conn, track)?;
+    suggestions_with(conn, volumes, track, extra)
+}
+
 /// What identification suggests for a Library track's details, from its own
-/// files (ROADMAP 2.2). Works with every online service off.
+/// files and the online look-ups kept for them (ROADMAP 2.2). Works with
+/// every online service off.
 #[tauri::command]
 #[specta::specta]
 pub async fn identify_suggestions(
@@ -328,7 +349,7 @@ pub async fn identify_suggestions(
 ) -> Result<IdentifySuggestions, IpcError> {
     let volumes = crate::scan::system_volumes();
     reads
-        .read(|conn| suggestions(conn, &volumes, library_track_id))?
+        .read(|conn| suggestions_cached(conn, &volumes, library_track_id))?
         .ok_or_else(|| IpcError::new(ErrorKind::LibraryTrackNotFound))
 }
 

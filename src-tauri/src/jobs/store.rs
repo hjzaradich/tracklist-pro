@@ -125,7 +125,10 @@ pub(super) fn finish(conn: &Connection, id: JobId, ending: &Ending) -> rusqlite:
 /// job, write one file at a time and work from what's still due; so does the
 /// embed job (3.8), which also ends at once while its switch is off. The genre
 /// model job (3.8) stores its whole result in one transaction at the end, so
-/// a run cut short stored nothing and learns again from the top. These are
+/// a run cut short stored nothing and learns again from the top. The online
+/// look-up (2.2) is left out on purpose: put back, it would start its whole
+/// list again, send requests nobody asked for at the next start and repeat
+/// files whose answers are already kept; the user asks again. These are
 /// the kinds a normal close already puts back in the queue
 /// ([`Ending::Requeued`]).
 const RESTARTABLE: [JobKind; 15] = [
@@ -692,6 +695,7 @@ mod tests {
     #[test]
     fn export_is_not_restartable_and_a_send_job_left_running_is_never_put_back_by_recovery() {
         assert!(!RESTARTABLE.contains(&JobKind::Export));
+        assert!(!RESTARTABLE.contains(&JobKind::IdentifyLookup));
         let (_dir, writer) = open();
         writer
             .call(|c| {
