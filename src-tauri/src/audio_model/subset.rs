@@ -100,13 +100,7 @@ pub fn to_blob(values: &[f32]) -> Vec<u8> {
 
 /// The f32s in little-endian `bytes`; `None` unless it is a whole number of them.
 pub fn from_blob(bytes: &[u8]) -> Option<Vec<f32>> {
-    if bytes.len() % 4 != 0 {
-        return None;
-    }
-    Some(
-        bytes
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect(),
-    )
+    let (chunks, rest) = bytes.as_chunks::<4>();
+    rest.is_empty()
+        .then(|| chunks.iter().map(|c| f32::from_le_bytes(*c)).collect())
 }

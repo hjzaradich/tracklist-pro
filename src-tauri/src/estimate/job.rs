@@ -226,8 +226,12 @@ impl<V: Volumes + Sync + 'static> JobHandler for Analyzer<V> {
                 }
                 // New files are measured by now: the audio model (when its
                 // switch is on) listens to them next.
-                if let Err(e) = crate::audio_model::request(job.writer(), None, |j| job.enqueue(j)) {
-                    eprintln!("estimate job {}: couldn't ask for the audio model: {e:?}", job.id());
+                if let Err(e) = crate::audio_model::request(job.writer(), None, |j| job.enqueue(j))
+                {
+                    eprintln!(
+                        "estimate job {}: couldn't ask for the audio model: {e:?}",
+                        job.id()
+                    );
                 }
                 job.progress(1.0)
             }

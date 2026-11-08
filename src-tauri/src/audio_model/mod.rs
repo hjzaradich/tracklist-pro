@@ -30,8 +30,8 @@ pub mod resample;
 pub mod subset;
 pub mod window;
 
-pub use control::{embedder, switch, AudioModelStatus};
 pub(crate) use control::{due, request};
+pub use control::{embedder, switch, AudioModelStatus};
 pub use job::{embed_job, Embedder, PRIORITY};
 
 #[cfg(test)]

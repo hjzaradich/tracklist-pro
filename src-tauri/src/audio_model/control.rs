@@ -76,11 +76,9 @@ pub fn switch(writer: &Writer, jobs: &JobQueue, on: bool) -> Result<(), DbError>
         return request(writer, None, |job| jobs.enqueue(job));
     }
     let active: Vec<i64> = writer.call(|c| {
-        c.prepare(
-            "SELECT id FROM job WHERE kind = 'embed' AND status IN ('queued', 'running')",
-        )?
-        .query_map([], |r| r.get(0))?
-        .collect()
+        c.prepare("SELECT id FROM job WHERE kind = 'embed' AND status IN ('queued', 'running')")?
+            .query_map([], |r| r.get(0))?
+            .collect()
     })?;
     for id in active {
         jobs.cancel(JobId(id))?;
@@ -127,7 +125,7 @@ pub fn status_of(conn: &Connection) -> rusqlite::Result<AudioModelStatus> {
 #[tauri::command]
 #[specta::specta]
 pub async fn audio_model_status(reads: State<'_, ReadPool>) -> Result<AudioModelStatus, IpcError> {
-    Ok(reads.read(|c| status_of(c))?)
+    Ok(reads.read(status_of)?)
 }
 
 /// Turns the audio model on (queues the work) or off (cancels it, keeps

@@ -184,9 +184,11 @@ fn the_audio_model_is_off_by_default_and_nothing_is_queued_or_loaded_while_off()
         .call(|c| read_feature_enabled(c, Feature::AudioModel))
         .unwrap());
     // Asking queues nothing, though every track is due.
-    request(&library.writer, None, |job| -> Result<JobId, crate::db::DbError> {
-        panic!("queued {job:?} while off")
-    })
+    request(
+        &library.writer,
+        None,
+        |job| -> Result<JobId, crate::db::DbError> { panic!("queued {job:?} while off") },
+    )
     .unwrap();
     assert!(embed_jobs(&library).is_empty());
     // Even a job that is queued does nothing: it ends at once, no load.
@@ -214,7 +216,11 @@ fn a_run_stores_192_floats_and_the_subsets_scores_for_each_track() {
         assert_eq!(got.model_id, subset::model_id());
         assert_eq!(got.fingerprint.len(), EMBEDDING_LEN);
         assert_eq!(got.scores.len(), SUBSET_LEN);
-        assert!(got.fingerprint.iter().chain(&got.scores).all(|v| v.is_finite()));
+        assert!(got
+            .fingerprint
+            .iter()
+            .chain(&got.scores)
+            .all(|v| v.is_finite()));
     }
     // What is stored is what the model says of that file.
     let path = library.music.join("a.wav");
@@ -236,7 +242,10 @@ fn a_run_stores_192_floats_and_the_subsets_scores_for_each_track() {
         .writer
         .call(|c| crate::audio_model::control::status_of(c))
         .unwrap();
-    assert_eq!((status.fingerprinted, status.total, status.failed), (3, 3, 0));
+    assert_eq!(
+        (status.fingerprinted, status.total, status.failed),
+        (3, 3, 0)
+    );
 }
 
 #[test]
@@ -258,18 +267,28 @@ fn a_changed_file_is_redone() {
     let (library, _) = library();
     turn_on(&library);
     let loads = Loads::default();
-    assert_eq!(run(&library, embedder(&library, &loads)).status, JobStatus::Done);
+    assert_eq!(
+        run(&library, embedder(&library, &loads)).status,
+        JobStatus::Done
+    );
     let b = library.ids()["Folder/b.wav"];
     let before = stored(&library, b).unwrap();
     // New audio under the same name: the walk and the hash stage see it.
     library.put("Folder/b.wav", &track(15, 523.0, 9));
     library.walk_and_hash();
-    assert!(stored(&library, b).is_none(), "a stale result is not current");
+    assert!(
+        stored(&library, b).is_none(),
+        "a stale result is not current"
+    );
     let seen = Arc::new(Mutex::new(Vec::new()));
     let log = seen.clone();
     let hooked = embedder(&library, &loads).on_file(move |id| log.lock().unwrap().push(id));
     assert_eq!(run(&library, hooked).status, JobStatus::Done);
-    assert_eq!(*seen.lock().unwrap(), vec![b], "only the changed file is redone");
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![b],
+        "only the changed file is redone"
+    );
     assert_ne!(stored(&library, b).unwrap().fingerprint, before.fingerprint);
 }
 
@@ -295,7 +314,10 @@ fn a_corrupt_file_is_recorded_as_failed_and_the_others_still_finish() {
     let loads = Loads::default();
     let job = run(&library, embedder(&library, &loads));
     assert_eq!(job.status, JobStatus::Done, "{:?}", job.error);
-    assert!(failure_of(&library, bad).is_some(), "the bad file is recorded");
+    assert!(
+        failure_of(&library, bad).is_some(),
+        "the bad file is recorded"
+    );
     assert!(stored(&library, bad).is_none());
     for &id in ids.iter().filter(|&&id| id != bad) {
         assert!(stored(&library, id).is_some(), "file {id} was finished");
@@ -304,7 +326,10 @@ fn a_corrupt_file_is_recorded_as_failed_and_the_others_still_finish() {
         .writer
         .call(|c| crate::audio_model::control::status_of(c))
         .unwrap();
-    assert_eq!((status.fingerprinted, status.failed, status.total), (2, 1, 3));
+    assert_eq!(
+        (status.fingerprinted, status.failed, status.total),
+        (2, 1, 3)
+    );
     // Not tried again until the file changes.
     let (again, taken) = counting(&library, &loads);
     assert_eq!(run(&library, again).status, JobStatus::Done);
@@ -324,7 +349,11 @@ fn cancel_stops_between_tracks_and_a_resume_continues() {
     release.send(()).unwrap();
     assert_eq!(wait(&library.writer, id).status, JobStatus::Cancelled);
     queue.shutdown();
-    assert_eq!(count(&library, "embedding"), 1, "the first track was finished");
+    assert_eq!(
+        count(&library, "embedding"),
+        1,
+        "the first track was finished"
+    );
     // The next run takes up the rest.
     let (rest, taken) = counting(&library, &loads);
     assert_eq!(run(&library, rest).status, JobStatus::Done);
@@ -352,9 +381,11 @@ fn switching_off_cancels_the_run_and_keeps_what_is_stored() {
         .unwrap();
     assert!(!status.enabled && status.fingerprinted == 1);
     // Off, asking queues nothing.
-    request(&library.writer, None, |job| -> Result<JobId, crate::db::DbError> {
-        panic!("queued {job:?} while off")
-    })
+    request(
+        &library.writer,
+        None,
+        |job| -> Result<JobId, crate::db::DbError> { panic!("queued {job:?} while off") },
+    )
     .unwrap();
     // Switching on again finishes the rest.
     switch(&library.writer, &queue, true).unwrap();
@@ -377,10 +408,16 @@ fn a_model_that_cannot_be_loaded_ends_the_job_with_a_reason_and_nothing_else() {
     let job = run(&library, broken);
     assert_eq!(job.status, JobStatus::Failed);
     assert!(job.error.unwrap_or_default().contains("audio model"));
-    assert_eq!(count(&library, "embedding") + count(&library, "embedding_failure"), 0);
+    assert_eq!(
+        count(&library, "embedding") + count(&library, "embedding_failure"),
+        0
+    );
     // The app carries on: the next run, with the model, finishes.
     let loads = Loads::default();
-    assert_eq!(run(&library, embedder(&library, &loads)).status, JobStatus::Done);
+    assert_eq!(
+        run(&library, embedder(&library, &loads)).status,
+        JobStatus::Done
+    );
     assert!(ids.iter().all(|&id| stored(&library, id).is_some()));
 }
 
