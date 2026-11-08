@@ -23,6 +23,7 @@
 
 pub mod control;
 pub mod decode;
+pub mod genre_model;
 pub mod guess;
 pub mod job;
 pub mod ledger;

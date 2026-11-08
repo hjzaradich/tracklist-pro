@@ -53,7 +53,10 @@ const KEEP_BUNDLES: usize = 1;
 /// drive was last mounted, and the files the audio model could not hear (the
 /// other PC may decode them). Everything else travels, including the
 /// audio model's results (`embedding`): they are computed from the user's
-/// own audio and take hours to make again.
+/// own audio and take hours to make again. The genre model learned from them
+/// (`genre_model`, `genre_model_node`) travels too: it is checked against the
+/// tracks it was learned from, and learned again on the other PC if they
+/// differ.
 const MACHINE_ONLY: &str = "
     DELETE FROM job;
     DELETE FROM service_optin;

@@ -118,6 +118,7 @@ describe("Activity status", () => {
       "group",
       "analyze",
       "embed",
+      "genre_model",
       "convert",
       "export",
       "read_rekordbox",

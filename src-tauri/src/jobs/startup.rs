@@ -87,6 +87,7 @@ const ASKS: &[(&str, Ask)] = &[
     ("waveforms", ask_waveforms),
     ("estimates", ask_estimates),
     ("audio model", ask_audio_model),
+    ("genre model", ask_genre_model),
 ];
 
 /// What the asks share.
@@ -294,6 +295,24 @@ fn ask_audio_model(a: &Asking) -> Result<(), DbError> {
     }
     if a.read(|c| crate::audio_model::due(c, Some(&a.reachable)))? {
         a.queue(crate::audio_model::embed_job())?;
+    }
+    Ok(())
+}
+
+/// Your own genre model (ROADMAP 3.8) is learned from the audio model's
+/// fingerprints and the genre nodes the search index writes, so it waits for
+/// both: the embed job or the index job asks for it when it ends. It is asked
+/// for here only when neither has work and what it was learned from has
+/// changed, and only while the audio model's switch is on.
+fn ask_genre_model(a: &Asking) -> Result<(), DbError> {
+    if a.fingerprints_owed()? || a.read(crate::search::pending)? {
+        return Ok(());
+    }
+    if a.read(|c| crate::audio_model::due(c, Some(&a.reachable)))? {
+        return Ok(());
+    }
+    if a.read(crate::audio_model::genre_model::due)? {
+        a.queue(crate::audio_model::genre_model::learn_job())?;
     }
     Ok(())
 }

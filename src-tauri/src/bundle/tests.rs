@@ -28,6 +28,11 @@ const SEED: &str = r#"
         VALUES (7, zeroblob(34), 'ced-tiny@a455633f/labels1', zeroblob(768), zeroblob(228));
     INSERT INTO embedding_failure (file_id, audio_hash, model_id, reason)
         VALUES (8, zeroblob(34), 'ced-tiny@a455633f/labels1', 'damaged');
+    INSERT INTO genre (id, name, name_key) VALUES (4, 'Techno', 'techno');
+    INSERT INTO genre_model (id, model_id, signature, mean, scale, genres, tracks)
+        VALUES (1, 'ced-tiny@a455633f/labels1', 'abc', zeroblob(768), zeroblob(768), 1, 12);
+    INSERT INTO genre_model_node (genre_id, weights, bias, trained_on, model_id)
+        VALUES (4, zeroblob(768), 0.5, 12, 'ced-tiny@a455633f/labels1');
     INSERT INTO recording (id) VALUES (3);
     INSERT INTO library_track (id, recording_id, linked_file_id) VALUES (5, 3, 7);
     INSERT INTO crate (id, kind, name) VALUES (2, 'static', 'Warmup');
@@ -236,6 +241,24 @@ fn a_bundle_carries_the_audio_models_fingerprints_and_not_its_failures() {
     // The files this PC couldn't hear are tried again on the other.
     assert_eq!(before["embedding_failure"].len(), 1);
     assert!(after["embedding_failure"].is_empty());
+}
+
+#[test]
+fn a_bundle_carries_the_genre_model_learned_from_the_users_tracks() {
+    let root = TempDir::new().unwrap();
+    let (a, writer) = library(root.path(), "a", SEED);
+    let zip = make_bundle(&a, &writer);
+    writer.close();
+    let before = dump(&live(&a));
+    let b = closed_library(root.path(), "b", "");
+    import(&b, &zip, 2_000);
+    let after = dump(&live(&b));
+    // Derived, but it takes the user's whole Library to learn: it travels,
+    // and the other PC learns it again if its signature no longer matches.
+    assert_eq!(after["genre_model"].len(), 1);
+    assert_eq!(after["genre_model"], before["genre_model"]);
+    assert_eq!(after["genre_model_node"].len(), 1);
+    assert_eq!(after["genre_model_node"], before["genre_model_node"]);
 }
 
 #[test]
