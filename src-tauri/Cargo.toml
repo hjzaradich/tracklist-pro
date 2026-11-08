@@ -57,6 +57,14 @@ notify = "8"
 # Where the user's Downloads folder is (the Windows known folder; fragile
 # locations, 1aD-7). MIT OR Apache-2.0.
 dirs = "7"
+# The user's own Discogs token lives in the operating system's password store
+# (ROADMAP 2.2), never in the database. keyring-core is the keyring project's
+# store-neutral core (MIT OR Apache-2.0); its mock store backs every test. The
+# `keyring` facade crate is not used: it pulls a Secret Service client on
+# Linux, and Linux has no store here.
+keyring-core = "1.0.1"
+# URL-safe base64 for the AcoustID fingerprint (ROADMAP 2.2). MIT OR Apache-2.0.
+base64 = "0.22"
 # Acoustic fingerprints (ROADMAP 1.4). MIT.
 rusty-chromaprint = "0.3.0"
 # Decodes audio for fingerprints (ROADMAP 1.4, §5.6). MPL-2.0. Opus isn't among its codecs.
@@ -77,7 +85,13 @@ zip = { version = "9.4.1", default-features = false, features = ["deflate-flate2
 # The Windows version for the diagnostics report (4.3). Already in the tree
 # through tauri. MIT OR Apache-2.0.
 windows-version = "0.1.7"
+# Windows Credential Manager for keyring-core (ROADMAP 2.2). MIT OR Apache-2.0.
+windows-native-keyring-store = { version = "1.1.0", default-features = false }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_System_Diagnostics_Debug", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+# The macOS keychain for keyring-core (ROADMAP 2.2). MIT OR Apache-2.0.
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

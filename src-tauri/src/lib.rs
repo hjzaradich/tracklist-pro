@@ -11,6 +11,7 @@ pub mod bundle;
 pub mod conflict_review;
 pub mod conflicts;
 pub mod crates;
+pub mod credentials;
 pub mod db;
 pub mod diagnostics;
 pub mod energy;
@@ -174,6 +175,9 @@ fn setup_with<R: Runtime>(builder: Builder<R>, data_dir: DataDir, asks: StartupA
             let reads = db::ReadPool::open(writer.guarded_path())?;
             // The network gate: the one way out (update checks use it).
             app.manage(net::Net::new(reads.clone()));
+            // The password store for the user's own tokens (ROADMAP 2.2); the only
+            // place this app calls `Credentials::native`.
+            app.manage(credentials::Credentials::native());
             app.manage(reads);
             app.manage(audio_model::similar::Neighbours::default());
             // Watches the writer for changes to what the Library list is made of

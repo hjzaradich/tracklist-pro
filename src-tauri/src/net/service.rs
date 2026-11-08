@@ -7,8 +7,8 @@ use std::time::Duration;
 /// user's opt-in for it (`service_optin`) before anything is sent.
 ///
 /// Model downloads and update checks count as services too (ROADMAP §1.1).
-/// Phase 2 adds the remaining metadata services (AcoustID, Spotify) as
-/// they're wired up, each with the limits its terms ask for.
+/// Phase 2 adds the remaining metadata services (Spotify) as they're wired
+/// up, each with the limits its terms ask for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Service {
     /// MusicBrainz metadata lookups (ROADMAP §5.6).
@@ -22,16 +22,20 @@ pub enum Service {
     /// Front covers from the Cover Art Archive. Its own switch: it talks to
     /// different hosts than MusicBrainz.
     CoverArt,
+    /// AcoustID fingerprint lookups (ROADMAP 2.2). The app's own application
+    /// key goes with each request; no user account is involved.
+    AcoustId,
 }
 
 impl Service {
     /// Every service, for tests and the settings screen.
-    pub const ALL: [Service; 5] = [
+    pub const ALL: [Service; 6] = [
         Service::MusicBrainz,
         Service::UpdateCheck,
         Service::ModelDownload,
         Service::Discogs,
         Service::CoverArt,
+        Service::AcoustId,
     ];
 
     /// The service's key in `service_optin.service`: lowercase letters,
@@ -43,6 +47,7 @@ impl Service {
             Service::ModelDownload => "model_download",
             Service::Discogs => "discogs",
             Service::CoverArt => "cover_art",
+            Service::AcoustId => "acoustid",
         }
     }
 
@@ -63,6 +68,8 @@ impl Service {
             Service::Discogs => &["api.discogs.com"],
             // The GitHub API only: the latest release of this project.
             Service::UpdateCheck => &["api.github.com"],
+            // The lookup API only.
+            Service::AcoustId => &["api.acoustid.org"],
             Service::ModelDownload => &[],
         }
     }
@@ -89,6 +96,8 @@ impl Service {
             // Discogs allows 60 requests a minute with a token; a little
             // over a second apart stays under that.
             Service::Discogs => Duration::from_millis(1100),
+            // AcoustID allows 3 requests a second; 334 ms apart stays under.
+            Service::AcoustId => Duration::from_millis(334),
             // No published limit. Each cover can take a few requests (the
             // archive redirects twice), so this is shorter than the others.
             Service::CoverArt => Duration::from_millis(500),
@@ -102,9 +111,11 @@ impl Service {
     /// of the response.
     pub fn timeout(self) -> Duration {
         match self {
-            Service::MusicBrainz | Service::UpdateCheck | Service::Discogs | Service::CoverArt => {
-                Duration::from_secs(30)
-            }
+            Service::MusicBrainz
+            | Service::UpdateCheck
+            | Service::Discogs
+            | Service::CoverArt
+            | Service::AcoustId => Duration::from_secs(30),
             // Models are large and some connections are slow.
             Service::ModelDownload => Duration::from_secs(60 * 60),
         }
@@ -116,6 +127,8 @@ impl Service {
         const MIB: u64 = 1024 * 1024;
         match self {
             Service::MusicBrainz | Service::Discogs => 10 * MIB,
+            // A lookup answer is a few KB; 1 MiB is generous.
+            Service::AcoustId => MIB,
             // The most a cover may be; a bigger one isn't a cover.
             Service::CoverArt => 12 * MIB,
             // A release's JSON is a few KB; 256 KB is generous.

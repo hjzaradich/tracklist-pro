@@ -22,6 +22,7 @@
 //! source and the dependency tree for them (`tests/net_gate.rs`). The HTTP
 //! client, `ureq`, stays private to this module.
 
+pub mod commands;
 mod limiter;
 pub mod navigation;
 mod optin;
