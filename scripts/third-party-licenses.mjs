@@ -9,6 +9,8 @@
 // for the Windows build, leaving out dev-only and build-only dependencies.
 // npm packages come from package-lock.json, walked from the app's own
 // `dependencies` (not devDependencies) through each package's dependencies.
+// Audio models come from src-tauri/resources/models/<folder>/model.json (name,
+// version, license, repository); the folder's LICENSE and NOTICE.md are the text.
 // No dependencies of its own.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -87,6 +89,18 @@ export function npmFromLockfile(lock) {
   });
 }
 
+/** The audio models shipped in the installer: one entry per `<models>/<folder>/model.json`; `dir` is that folder. */
+export function modelsFromFolder(modelsDir) {
+  if (!existsSync(modelsDir)) return [];
+  return readdirSync(modelsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(join(modelsDir, d.name, "model.json")))
+    .map((d) => {
+      const dir = join(modelsDir, d.name);
+      const { name, version, license, repository } = JSON.parse(readFileSync(join(dir, "model.json"), "utf8"));
+      return { name, version, license, repository, dir };
+    });
+}
+
 /** Licence, copying and notice files at the top of a package folder, joined; "" when there are none. */
 export function readLicenceText(dir) {
   if (!existsSync(dir)) return "";
@@ -153,8 +167,9 @@ function main() {
   const crates = cratesFromMetadata(JSON.parse(run.stdout)).map((c) => ({ ...c, kind: "crate" }));
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
   const npm = npmFromLockfile(lock).map((n) => ({ ...n, kind: "npm", dir: join(root, n.dir) }));
+  const models = modelsFromFolder(join(root, "src-tauri", "resources", "models")).map((m) => ({ ...m, kind: "model" }));
   const list = buildList(
-    [...crates, ...npm],
+    [...crates, ...npm, ...models],
     (e) => readLicenceText(e.dir),
     (e) => (e.kind === "npm" ? readNpmRepository(e.dir) : null),
   );

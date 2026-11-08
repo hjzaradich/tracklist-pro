@@ -22,4 +22,4 @@
 *.otf binary
 *.onnx binary
 *.zip binary
-
+*.f32 binary

@@ -6,6 +6,8 @@
   "sourceUrl": "https://github.com/hjzaradich/tracklist-pro",
   "credits.title": "Credits",
   "credits.keyfinder": "The key estimate is a translation of libKeyFinder's method into Rust. libKeyFinder is Copyright 2011-2015 Ibrahim Sha'ath and the Mixxx contributors, GPL-3.0-or-later.",
+  "credits.ced": "The audio model is CED-tiny by Xiaomi, Apache-2.0 (https://huggingface.co/mispeech/ced-tiny). Paper: Dinkel et al., \"CED: Consistent ensemble distillation for audio tagging\", ICASSP 2024. We converted it to ONNX with an extra output for the embedding; the weights are unchanged.",
+  "credits.audioset": "The audio model's label names come from the AudioSet ontology (Google, CC BY-SA 4.0).",
   "licences.title": "Third-party licences",
   "licences.loading": "Loading the list",
   "licences.missing": "The list comes with the installer",

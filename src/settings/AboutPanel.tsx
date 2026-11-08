@@ -55,6 +55,8 @@ export function AboutPanel() {
       </p>
       <h3>{t("credits.title")}</h3>
       <p>{t("credits.keyfinder")}</p>
+      <p>{t("credits.ced")}</p>
+      <p>{t("credits.audioset")}</p>
       <h3>{t("licences.title")}</h3>
       {licences.isPending ? <p>{t("licences.loading")}</p> : null}
       {licences.isSuccess && !list ? <p>{t("licences.missing")}</p> : null}

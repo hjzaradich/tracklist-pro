@@ -407,11 +407,18 @@ const GUARD_FILE: &str = "write_guard/mod.rs";
 
 /// Folders under `tools/` and whether their code ships in the app. A tool
 /// that ships must be scanned too; a new folder must be listed here.
-const TOOLS: &[(&str, bool, &str)] = &[(
-    "fixture-gen",
-    false,
-    "a developer tool that writes test fixtures; never bundled",
-)];
+const TOOLS: &[(&str, bool, &str)] = &[
+    (
+        "fixture-gen",
+        false,
+        "a developer tool that writes test fixtures; never bundled",
+    ),
+    (
+        "ml",
+        false,
+        "Python scripts that rebuild the audio model file and its golden outputs; never bundled",
+    ),
+];
 
 #[derive(Debug, PartialEq, Eq)]
 struct Violation {

@@ -1,0 +1,185 @@
+{
+  "model": {
+    "repo": "mispeech/ced-tiny",
+    "revision": "ace276d29dd0bb3f3517b0fa8cf300738c409019"
+  },
+  "built_with": {
+    "torch": "2.15.0+cpu",
+    "torchaudio": "2.11.1+cpu",
+    "transformers": "5.22.2",
+    "numpy": "2.5.4",
+    "soxr": "1.1.0",
+    "scipy": "1.18.1",
+    "onnxruntime": "1.31.1"
+  },
+  "lcg": "state = (state * 1664525 + 1013904223) mod 2^32; sample i uses the state after i + 1 steps; noise = 2 * (state >> 8) / 2^24 - 1",
+  "parity_16k_10s": {
+    "sample_rate": 16000,
+    "seconds": 10,
+    "sines": [
+      [
+        0.3,
+        220.0,
+        0.0
+      ],
+      [
+        0.2,
+        880.0,
+        0.5
+      ],
+      [
+        0.15,
+        3000.0,
+        0.0
+      ]
+    ],
+    "chirp": {
+      "amplitude": 0.2,
+      "f0": 200.0,
+      "f1": 6000.0
+    },
+    "noise": {
+      "amplitude": 0.05,
+      "seed": 12345
+    },
+    "probes": [
+      {
+        "index": 0,
+        "value": 0.047925375401973724
+      },
+      {
+        "index": 1,
+        "value": 0.2814864218235016
+      },
+      {
+        "index": 2,
+        "value": 0.37901201844215393
+      },
+      {
+        "index": 159,
+        "value": -0.05826884135603905
+      },
+      {
+        "index": 12345,
+        "value": -0.47008243203163147
+      },
+      {
+        "index": 80000,
+        "value": 0.051543913781642914
+      },
+      {
+        "index": 159999,
+        "value": -0.27039241790771484
+      }
+    ],
+    "signal_sha256_info_only": "e3462475a37da3c16e581a2418ebcd966d7bd2dc40e4676ac361cf78b0473755"
+  },
+  "whole_track_44k_40s": {
+    "sample_rate": 44100,
+    "seconds": 40,
+    "sines": [
+      [
+        0.3,
+        110.0,
+        0.0
+      ],
+      [
+        0.2,
+        440.0,
+        1.0
+      ],
+      [
+        0.1,
+        1760.0,
+        0.0
+      ],
+      [
+        0.1,
+        12000.0,
+        0.0
+      ]
+    ],
+    "chirp": {
+      "amplitude": 0.15,
+      "f0": 300.0,
+      "f1": 7000.0
+    },
+    "noise": {
+      "amplitude": 0.05,
+      "seed": 54321
+    },
+    "window_starts_seconds": [
+      5.0,
+      15.0,
+      25.0
+    ],
+    "resampled_length": 640000,
+    "probes": [
+      {
+        "index": 0,
+        "value": 0.1471245288848877
+      },
+      {
+        "index": 1,
+        "value": 0.2994743287563324
+      },
+      {
+        "index": 2,
+        "value": 0.2591036558151245
+      },
+      {
+        "index": 441,
+        "value": 0.09487374871969223
+      },
+      {
+        "index": 44100,
+        "value": -0.00897101778537035
+      },
+      {
+        "index": 882000,
+        "value": 0.16008558869361877
+      },
+      {
+        "index": 1763999,
+        "value": -0.05164290964603424
+      }
+    ],
+    "signal_sha256_info_only": "824f88d5527843a902991f0c6a3630f2a6987896b39c9278606c733d44511e0f"
+  },
+  "resampler_sensitivity": {
+    "compared": "soxr HQ (the fixture) versus scipy resample_poly (polyphase FIR)",
+    "fingerprint_cosine": 0.9998775720596313,
+    "fingerprint_max_abs": 0.05837392807006836,
+    "logits_max_abs": 0.2616386413574219
+  },
+  "files": {
+    "parity_16k_10s.emb.f32": {
+      "bytes": 768,
+      "sha256": "0dad13323c0f3f459bc15091223b71e09f63bfae3525ebf79e5f78a0c0b15803"
+    },
+    "parity_16k_10s.logits.f32": {
+      "bytes": 2108,
+      "sha256": "4757de7f33dbb14a74fa09838e67bea7dedc52ea2283d94e728c2d5c0a74c82e"
+    },
+    "parity_16k_10s.mel.f32": {
+      "bytes": 256256,
+      "sha256": "fd7196b1be0276525d26fa46e4342b0253c5d761f1160e9cf3957f3a253c1701"
+    },
+    "whole_track_44k_40s.emb.f32": {
+      "bytes": 768,
+      "sha256": "245624f2471b9c8fe1511ad944fd64c04420eaeb5c45ec5d08c0390f093437f4"
+    },
+    "whole_track_44k_40s.logits.f32": {
+      "bytes": 2108,
+      "sha256": "aa01ad93c22542c0685af74c84038d3f00262fd474d5e63e5c19a10a47c92cee"
+    },
+    "whole_track_44k_40s.windows_emb.f32": {
+      "bytes": 2304,
+      "sha256": "ab18c87a9836c13541e0e4940adc4c1ad61761fc850380b8b596f57edaa16a8b"
+    },
+    "whole_track_44k_40s.windows_logits.f32": {
+      "bytes": 6324,
+      "sha256": "2adaae5492c7291a2d174db38b64a72bea75cc8873e971793650f46f3b764ca9"
+    }
+  }
+}
