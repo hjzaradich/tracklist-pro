@@ -50,7 +50,7 @@ pub(crate) fn peak_working_set_mib() -> u64 {
 }
 
 /// The tables the app's actions change through the log.
-pub(super) const LOGGED_TABLES: [&str; 26] = [
+pub(super) const LOGGED_TABLES: [&str; 27] = [
     "library_track",
     "library_removal",
     "crate",
@@ -77,6 +77,7 @@ pub(super) const LOGGED_TABLES: [&str; 26] = [
     "play_event",
     "playlist",
     "playlist_entry",
+    "catalogue_number",
 ];
 
 /// The tables an action changes through the log only by setting fields of
@@ -1913,7 +1914,9 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
     // since 0048 (every write goes through the log; AUTOINCREMENT because
     // the 2.5 tick-off may write outside it), `session` and `play_event`
     // since 0051 (every write goes through the log), `playlist` and
-    // `playlist_entry` since 0052 (every write goes through the log).
+    // `playlist_entry` since 0052 (every write goes through the log),
+    // `catalogue_number` since it was made (0057: every write goes through
+    // the log).
     assert_eq!(
         never_reused,
         [
@@ -1929,7 +1932,8 @@ fn code_outside_the_log_only_inserts_into_logged_tables_whose_ids_are_never_reus
             "session",
             "play_event",
             "playlist",
-            "playlist_entry"
+            "playlist_entry",
+            "catalogue_number"
         ]
     );
 

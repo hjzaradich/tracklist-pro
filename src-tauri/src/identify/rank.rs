@@ -49,7 +49,7 @@ pub(super) fn rank(
 ) -> Vec<IdentifySuggestion> {
     let current = current.map(key);
     // key → the spellings seen (with their source's strength) and the sources.
-    let mut merged: BTreeMap<String, (Vec<(String, u8)>, Vec<IdentifySource>)> = BTreeMap::new();
+    let mut merged: BTreeMap<String, Merged> = BTreeMap::new();
     for candidate in candidates {
         let value = tidy(&candidate.value);
         if !takes(field, &value) {
@@ -75,7 +75,11 @@ pub(super) fn rank(
                 .iter()
                 .enumerate()
                 .max_by_key(|(i, (s, strength))| {
-                    (well_cased(s), std::cmp::Reverse(*strength), std::cmp::Reverse(*i))
+                    (
+                        well_cased(s),
+                        std::cmp::Reverse(*strength),
+                        std::cmp::Reverse(*i),
+                    )
                 })
                 .map(|(_, (s, _))| s.clone())
                 .expect("a merged value has a spelling");
@@ -93,6 +97,13 @@ pub(super) fn rank(
     out.into_iter().map(|(_, s)| s).collect()
 }
 
+/// One value's spellings (each with its source's strength) and sources.
+type Merged = (Vec<(String, u8)>, Vec<IdentifySource>);
+
 fn strongest(s: &IdentifySuggestion) -> u8 {
-    s.sources.iter().map(IdentifySource::strength).min().unwrap_or(u8::MAX)
+    s.sources
+        .iter()
+        .map(IdentifySource::strength)
+        .min()
+        .unwrap_or(u8::MAX)
 }

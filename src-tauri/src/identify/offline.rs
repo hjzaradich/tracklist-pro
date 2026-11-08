@@ -74,7 +74,13 @@ pub(super) fn candidates(
             )
             .optional()?;
         if let Some(file) = file {
-            from_tags(&file, IdentifySource::Tags { file: file.file.clone() }, &mut out);
+            from_tags(
+                &file,
+                IdentifySource::Tags {
+                    file: file.file.clone(),
+                },
+                &mut out,
+            );
             from_name(&file.file, &mut out);
         }
     }
@@ -89,7 +95,13 @@ pub(super) fn candidates(
         .query_map((recording, linked), stored)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for file in &siblings {
-        from_tags(file, IdentifySource::Sibling { file: file.file.clone() }, &mut out);
+        from_tags(
+            file,
+            IdentifySource::Sibling {
+                file: file.file.clone(),
+            },
+            &mut out,
+        );
         from_name(&file.file, &mut out);
     }
     Ok(Some(out))

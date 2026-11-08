@@ -92,9 +92,9 @@ impl Track {
     }
 
     fn use_these(&self, choices: &[(&str, &str)]) -> Result<Option<i64>, UseError> {
-        let choices: Vec<UseChoice> = choices
+        let choices: Vec<IdentifyChoice> = choices
             .iter()
-            .map(|(field, value)| UseChoice {
+            .map(|(field, value)| IdentifyChoice {
                 field: (*field).to_owned(),
                 value: (*value).to_owned(),
             })
@@ -217,9 +217,18 @@ fn the_linked_files_tags_suggest_values_and_the_version_their_title_names() {
     let (current, label) = t.field(IdentifyField::Label);
     assert_eq!(current, None, "rekordbox's entry has no label");
     assert_eq!(label, vec![("Rook Records".to_owned(), tags.clone())]);
-    assert_eq!(t.field(IdentifyField::Mix).1, vec![("Extended Mix".to_owned(), tags.clone())]);
-    assert_eq!(t.field(IdentifyField::Album).1, vec![("Night Drive".to_owned(), tags.clone())]);
-    assert_eq!(t.field(IdentifyField::Year).1, vec![("2019".to_owned(), tags.clone())]);
+    assert_eq!(
+        t.field(IdentifyField::Mix).1,
+        vec![("Extended Mix".to_owned(), tags.clone())]
+    );
+    assert_eq!(
+        t.field(IdentifyField::Album).1,
+        vec![("Night Drive".to_owned(), tags.clone())]
+    );
+    assert_eq!(
+        t.field(IdentifyField::Year).1,
+        vec![("2019".to_owned(), tags.clone())]
+    );
     // The tag's title comes before the file name's reading of "a.mp3".
     assert_eq!(t.values(IdentifyField::Name), ["Velo (Extended Mix)", "a"]);
 }
@@ -232,7 +241,11 @@ fn a_sibling_file_suggests_the_value_it_holds_when_it_differs_from_the_linked_fi
     t.lib.tag(other, &[("Label", "Kit Music")]);
 
     let (current, label) = t.field(IdentifyField::Label);
-    assert_eq!(current.as_deref(), Some("Rook Records"), "the send carries the linked file's");
+    assert_eq!(
+        current.as_deref(),
+        Some("Rook Records"),
+        "the send carries the linked file's"
+    );
     assert_eq!(
         label,
         vec![(
@@ -283,7 +296,10 @@ fn a_value_with_more_sources_ranks_first_then_the_stronger_source() {
     u.lib.tag(other, &[("Label", "Kit Music")]);
     u.rekordbox_has_it();
     // One source each: the linked file's tags beat a sibling's.
-    assert_eq!(u.values(IdentifyField::Label), ["Rook Records", "Kit Music"]);
+    assert_eq!(
+        u.values(IdentifyField::Label),
+        ["Rook Records", "Kit Music"]
+    );
     // The same order every time.
     assert_eq!(u.suggestions(), u.suggestions());
 }
@@ -306,13 +322,19 @@ fn a_value_equal_to_the_current_one_is_not_suggested_whatever_its_case_or_spacin
         })
         .unwrap()
         .unwrap();
-    assert_eq!(t.field(IdentifyField::Artist), (Some("kit".to_owned()), vec![]));
+    assert_eq!(
+        t.field(IdentifyField::Artist),
+        (Some("kit".to_owned()), vec![])
+    );
 }
 
 #[test]
 fn a_file_whose_tags_cant_be_read_gives_nothing_and_the_others_still_count() {
     let t = track("Kit - Velo.mp3");
-    t.raw_tags(t.file, r#"{"id3v2": 7, "vorbis_comments": [{"key": 3}]}"#.to_owned());
+    t.raw_tags(
+        t.file,
+        r#"{"id3v2": 7, "vorbis_comments": [{"key": 3}]}"#.to_owned(),
+    );
     let other = t.sibling("b.flac");
     t.raw_tags(other, r#"{"id3v2": [{"key": "TPUB"}]}"#.to_owned());
     let third = t.sibling("c.flac");
@@ -329,7 +351,10 @@ fn a_track_with_nothing_to_suggest_answers_empty_lists() {
     t.lib.tag(t.file, &[("Name", "Velo")]);
     let all = t.suggestions();
     assert_eq!(all.fields.len(), 7);
-    assert!(all.fields.iter().all(|f| f.suggestions.is_empty()), "{all:?}");
+    assert!(
+        all.fields.iter().all(|f| f.suggestions.is_empty()),
+        "{all:?}"
+    );
     assert!(all.catalogue_number.suggestions.is_empty());
     assert_eq!(all.catalogue_number.current, None);
 }
@@ -386,7 +411,10 @@ fn online_candidates_merge_and_rank_with_the_offline_ones() {
     assert_eq!(artist.suggestions.len(), 1);
     assert_eq!(artist.suggestions[0].value, "Kit");
     assert_eq!(artist.suggestions[0].sources[1], online);
-    assert!(all.fields[5].suggestions.is_empty(), "a value Use would refuse");
+    assert!(
+        all.fields[5].suggestions.is_empty(),
+        "a value Use would refuse"
+    );
 }
 
 // ---- Use ------------------------------------------------------------------------
@@ -449,7 +477,10 @@ fn the_catalogue_number_is_kept_shown_as_current_changed_by_use_and_put_back_by_
     t.use_these(&[("CatalogueNumber", "rook001")]).unwrap();
     assert_eq!(t.catalogue().as_deref(), Some("rook001"));
     // Equal but for case: no longer suggested.
-    assert_eq!(t.field(IdentifyField::CatalogueNumber), (Some("rook001".to_owned()), vec![]));
+    assert_eq!(
+        t.field(IdentifyField::CatalogueNumber),
+        (Some("rook001".to_owned()), vec![])
+    );
 
     t.use_these(&[("CatalogueNumber", "ROOK001")]).unwrap();
     assert_eq!(t.catalogue().as_deref(), Some("ROOK001"));
@@ -469,15 +500,25 @@ fn removing_a_library_track_with_a_catalogue_number_works_and_undo_brings_it_bac
     assert_eq!(t.catalogue().as_deref(), Some("ROOK001"));
 }
 
+/// Some fields and values for Use.
+type Choices = &'static [(&'static str, &'static str)];
+/// Choices Use refuses, and the refusal expected.
+type Refusal = (Choices, fn(&UseError) -> bool);
+
 #[test]
 fn use_refuses_what_it_cant_set_and_changes_nothing() {
     let t = track("Velo.mp3");
-    let refused: [(&[(&str, &str)], fn(&UseError) -> bool); 7] = [
-        (&[("Name", "Velo"), ("Genre", "House")], |e| {
-            matches!(e, UseError::UnknownField(f) if f == "Genre")
+    let refused: [Refusal; 7] = [
+        (
+            &[("Name", "Velo"), ("Genre", "House")],
+            |e| matches!(e, UseError::UnknownField(f) if f == "Genre"),
+        ),
+        (&[("ISRC", "GBABC1900001")], |e| {
+            matches!(e, UseError::UnknownField(_))
         }),
-        (&[("ISRC", "GBABC1900001")], |e| matches!(e, UseError::UnknownField(_))),
-        (&[("name", "Velo")], |e| matches!(e, UseError::UnknownField(_))),
+        (&[("name", "Velo")], |e| {
+            matches!(e, UseError::UnknownField(_))
+        }),
         (&[("Label", "  ")], |e| {
             matches!(e, UseError::ValueEmpty(IdentifyField::Label))
         }),
@@ -504,7 +545,7 @@ fn use_refuses_what_it_cant_set_and_changes_nothing() {
                 c,
                 &Mount,
                 library,
-                &[UseChoice {
+                &[IdentifyChoice {
                     field: "Name".into(),
                     value: "Velo".into(),
                 }],

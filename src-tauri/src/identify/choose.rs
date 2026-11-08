@@ -21,7 +21,7 @@ pub const USE_OPERATION: &str = "identify_use";
 /// [`IdentifyField`]'s name ("Name", …, "CatalogueNumber").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct UseChoice {
+pub struct IdentifyChoice {
     pub field: String,
     pub value: String,
 }
@@ -67,7 +67,7 @@ impl From<UseError> for IpcError {
 
 /// The choices checked: each field once (a field chosen twice takes the
 /// last value), values tidied as suggestions are.
-fn checked(choices: &[UseChoice]) -> Result<Vec<(IdentifyField, String)>, UseError> {
+fn checked(choices: &[IdentifyChoice]) -> Result<Vec<(IdentifyField, String)>, UseError> {
     let mut out: Vec<(IdentifyField, String)> = Vec::new();
     for choice in choices {
         let field = IdentifyField::of_name(&choice.field)
@@ -114,7 +114,11 @@ fn showing(
 }
 
 /// Sets the catalogue number of `track` to `value`, in `rec`'s operation.
-fn set_catalogue(rec: &mut Recorder<'_>, track: LibraryTrackId, value: &str) -> Result<(), OpsError> {
+fn set_catalogue(
+    rec: &mut Recorder<'_>,
+    track: LibraryTrackId,
+    value: &str,
+) -> Result<(), OpsError> {
     let row: Option<i64> = rec
         .read_rows(
             "SELECT id FROM catalogue_number WHERE library_track_id = ?1",
@@ -146,7 +150,7 @@ pub fn use_on(
     conn: &mut Connection,
     volumes: &impl Volumes,
     track: LibraryTrackId,
-    choices: &[UseChoice],
+    choices: &[IdentifyChoice],
 ) -> Result<Option<i64>, UseError> {
     let chosen = checked(choices)?;
     let found: i64 = conn.query_row(

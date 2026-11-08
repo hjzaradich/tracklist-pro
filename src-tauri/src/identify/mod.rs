@@ -72,7 +72,7 @@ use crate::library::LibraryTrackId;
 use crate::paths::Volumes;
 use crate::send_values::{send_values, NamedFile, Outcome};
 
-pub use choose::{use_on, UseChoice, UseError, USE_OPERATION};
+pub use choose::{use_on, IdentifyChoice, UseError, USE_OPERATION};
 
 /// A field identification suggests and "Use" sets, by its rekordbox
 /// attribute name; the catalogue number has none (it is never sent).
@@ -134,7 +134,11 @@ impl IdentifyField {
 
 /// Where a suggested value came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum IdentifySource {
     /// The tags of the track's linked file.
     Tags { file: NamedFile },
@@ -234,7 +238,9 @@ fn currents(
     let mut stmt =
         conn.prepare_cached("SELECT field, value FROM app_value WHERE library_track_id = ?1")?;
     let own = stmt
-        .query_map([track.0], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .query_map([track.0], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (attribute, value) in own {
         if let Some(field) = IdentifyField::of_attribute(&attribute) {
@@ -249,7 +255,10 @@ fn currents(
 }
 
 /// The catalogue number the app keeps for `track`, if any.
-pub fn catalogue_number(conn: &Connection, track: LibraryTrackId) -> rusqlite::Result<Option<String>> {
+pub fn catalogue_number(
+    conn: &Connection,
+    track: LibraryTrackId,
+) -> rusqlite::Result<Option<String>> {
     conn.prepare_cached("SELECT value FROM catalogue_number WHERE library_track_id = ?1")?
         .query_row([track.0], |r| r.get(0))
         .optional()
@@ -325,11 +334,11 @@ pub fn identify_use(
     writer: State<'_, Writer>,
     jobs: State<'_, JobQueue>,
     library_track_id: LibraryTrackId,
-    choices: Vec<UseChoice>,
+    choices: Vec<IdentifyChoice>,
 ) -> Result<Option<i64>, IpcError> {
     let volumes = crate::scan::system_volumes();
-    let operation = writer
-        .call(move |conn| Ok(use_on(conn, &volumes, library_track_id, &choices)))??;
+    let operation =
+        writer.call(move |conn| Ok(use_on(conn, &volumes, library_track_id, &choices)))??;
     if operation.is_some() {
         crate::library::settle_now_up_to(&writer, &jobs, SETTLE_NOW_LIMIT);
     }
